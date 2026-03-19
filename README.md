@@ -17,20 +17,10 @@ cargo run
 cargo test
 ```
 
-## Local checks
+## Development setup
 
 ```bash
-cargo fmt --all -- --check
-cargo clippy --all-targets --all-features -- -D warnings
-cargo test --all-targets --all-features
+./scripts/bootstrap.sh
 ```
 
-## Pre-commit
-
-Install `pre-commit` in your environment, then enable the hooks:
-
-```bash
-pre-commit install
-pre-commit install --hook-type pre-push
-pre-commit run --all-files
-```
+Run this once in a clean Ubuntu environment. It installs the Rust toolchain, `pre-commit`, and the repository hooks.
