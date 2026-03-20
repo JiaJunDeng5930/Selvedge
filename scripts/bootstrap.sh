@@ -120,6 +120,7 @@ available commands:
   cargo run
   cargo test
   pre-commit run --all-files
+  pre-commit run --all-files --hook-stage pre-push
 EOF
 }
 

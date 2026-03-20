@@ -35,7 +35,10 @@ You can also run the configured Git hooks manually:
 
 ```bash
 pre-commit run --all-files
+pre-commit run --all-files --hook-stage pre-push
 ```
+
+The first command runs hooks configured for the default `pre-commit` stage. The second command runs the `pre-push` hooks, including `cargo clippy` and `cargo test`.
 
 ## Pull requests
 
