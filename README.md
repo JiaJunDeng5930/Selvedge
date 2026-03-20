@@ -23,6 +23,6 @@ cargo test
 ./scripts/bootstrap.sh
 ```
 
-Run this once in a clean Ubuntu environment. It installs the Rust toolchain, `pre-commit`, and the repository hooks.
+Run this once in a clean Ubuntu environment. It installs the Rust toolchain, `pre-commit`, and the repository hooks. When run as a non-root user, it will prompt for `sudo` during package installation.
 
 See [CONTRIBUTING.md](./CONTRIBUTING.md) for the contribution workflow and pull request expectations.

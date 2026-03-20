@@ -13,7 +13,7 @@ apt_run() {
     return
   fi
 
-  sudo -n apt-get "$@"
+  sudo apt-get "$@"
 }
 
 require_command() {
@@ -40,13 +40,18 @@ ensure_ubuntu() {
   fi
 }
 
-ensure_noninteractive_sudo() {
+ensure_sudo_access() {
   if [[ "${EUID}" -eq 0 ]]; then
     return
   fi
 
-  if ! sudo -n true 2>/dev/null; then
-    echo "passwordless sudo is required for apt installation" >&2
+  if [[ ! -t 0 ]] || [[ ! -t 1 ]]; then
+    echo "sudo access is required; rerun from an interactive terminal or as root" >&2
+    exit 1
+  fi
+
+  if ! sudo -v; then
+    echo "sudo authentication failed" >&2
     exit 1
   fi
 }
@@ -101,7 +106,7 @@ main() {
   fi
 
   ensure_ubuntu
-  ensure_noninteractive_sudo
+  ensure_sudo_access
   install_apt_packages
   require_command curl
   install_rust_toolchain
