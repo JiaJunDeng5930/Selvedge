@@ -24,3 +24,5 @@ cargo test
 ```
 
 Run this once in a clean Ubuntu environment. It installs the Rust toolchain, `pre-commit`, and the repository hooks.
+
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for the contribution workflow and pull request expectations.
