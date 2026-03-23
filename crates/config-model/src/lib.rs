@@ -1,3 +1,5 @@
+#![doc = include_str!("../README.md")]
+
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
