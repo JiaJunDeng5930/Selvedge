@@ -1,14 +1,13 @@
 use std::{
-    env, fmt,
-    fs::{self, File},
+    env, fmt, fs,
     io::Write,
     marker::PhantomData,
     path::{Path, PathBuf},
     sync::{Arc, RwLock},
-    time::{SystemTime, UNIX_EPOCH},
 };
 
 use serde::{Serialize, de::DeserializeOwned};
+use tempfile::NamedTempFile;
 use thiserror::Error;
 use toml::{Table, Value};
 
@@ -468,45 +467,39 @@ where
 
 fn write_config_file(path: &Path, table: &Table) -> Result<(), ConfigError> {
     let rendered = toml::to_string_pretty(table)?;
-    let temp_path = build_temp_path(path);
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
 
-    write_all(&temp_path, rendered.as_bytes())?;
-    fs::rename(&temp_path, path).map_err(|source| ConfigError::FileWrite {
+    fs::create_dir_all(parent).map_err(|source| ConfigError::FileWrite {
         path: path.to_path_buf(),
         source,
     })?;
 
-    Ok(())
-}
-
-fn write_all(path: &Path, bytes: &[u8]) -> Result<(), ConfigError> {
-    let mut file = File::create(path).map_err(|source| ConfigError::FileWrite {
+    let mut temp_file = NamedTempFile::new_in(parent).map_err(|source| ConfigError::FileWrite {
         path: path.to_path_buf(),
         source,
     })?;
 
-    file.write_all(bytes)
+    temp_file
+        .write_all(rendered.as_bytes())
         .map_err(|source| ConfigError::FileWrite {
             path: path.to_path_buf(),
             source,
         })?;
-    file.sync_all().map_err(|source| ConfigError::FileWrite {
-        path: path.to_path_buf(),
-        source,
-    })
-}
+    temp_file
+        .as_file()
+        .sync_all()
+        .map_err(|source| ConfigError::FileWrite {
+            path: path.to_path_buf(),
+            source,
+        })?;
+    temp_file
+        .persist(path)
+        .map_err(|error| ConfigError::FileWrite {
+            path: path.to_path_buf(),
+            source: error.error,
+        })?;
 
-fn build_temp_path(path: &Path) -> PathBuf {
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_nanos())
-        .unwrap_or_default();
-    let file_name = path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or("config.toml");
-
-    path.with_file_name(format!("{file_name}.{nanos}.tmp"))
+    Ok(())
 }
 
 #[cfg(test)]
