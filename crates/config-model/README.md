@@ -2,32 +2,37 @@
 
 ## This crate is for
 
-This crate defines the application-facing config schema.
+This crate defines the final application config model.
 
 Use it to:
 
-- declare config structs and nested config structs
-- assign default values
-- define validation rules that must hold for a valid config
+- define config structs
+- define defaults next to those structs
+- define validation rules next to those structs
+- materialize `AppConfig` from raw TOML input
 
 ## This crate is not for
 
 This crate is not for:
 
-- loading config from files, environment variables, or CLI arguments
+- reading files
+- searching config paths
 - applying runtime patches
-- persisting runtime changes back to disk
+- persisting updates
 
 Those responsibilities belong in the runtime config crate.
 
 ## Quick start
 
-```rust
-use selvedge_config_model::{AppConfig, default_app_config, validate_app_config};
+```no_run
+use std::convert::TryFrom;
+
+use selvedge_config_model::AppConfig;
+use toml::Table;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let config = default_app_config();
-    validate_app_config(&config)?;
+    let config = AppConfig::try_from(Table::new())?;
+    config.validate()?;
 
     println!("default port = {}", config.server.port);
 
@@ -37,29 +42,31 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ## Add config for your module
 
-When your module needs new config:
+When your module needs a new config field:
 
-1. Add a field to the appropriate config struct.
-2. Add a default value.
-3. Add validation if the new field participates in business constraints.
+1. add the field to the module config struct
+2. add the default value next to that struct
+3. add the matching input/patch field
+4. add module-local validation if needed
 
-This crate is the place where schema evolution should happen.
+If the module is a new top-level config section, also plug it into `AppConfig`.
 
 ## Read config
 
-Callers read strongly typed fields from `AppConfig` and its nested structs.
+Callers read strongly typed fields from `AppConfig`.
 
-Example:
-
-```rust
-use selvedge_config_model::default_app_config;
-
-let config = default_app_config();
+```no_run
+# use std::convert::TryFrom;
+# use selvedge_config_model::AppConfig;
+# let config = AppConfig::try_from(toml::Table::new())?;
 let timeout_ms = config.server.request_timeout_ms;
 # let _ = timeout_ms;
+# Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
 ## Validation
 
-Use `validate_app_config` to reject invalid combinations before the config is
-accepted by the rest of the system.
+Each config type validates its own invariants.
+
+`AppConfig::validate()` only composes child validation and top-level
+cross-field rules.

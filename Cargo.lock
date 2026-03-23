@@ -191,7 +191,7 @@ dependencies = [
 
 [[package]]
 name = "selvedge"
-version = "0.1.0"
+version = "0.0.0"
 dependencies = [
  "selvedge-config",
  "selvedge-config-model",
@@ -200,7 +200,7 @@ dependencies = [
 
 [[package]]
 name = "selvedge-config"
-version = "0.1.0"
+version = "0.0.0"
 dependencies = [
  "selvedge-config-model",
  "serde",
@@ -211,7 +211,7 @@ dependencies = [
 
 [[package]]
 name = "selvedge-config-model"
-version = "0.1.0"
+version = "0.0.0"
 dependencies = [
  "serde",
  "thiserror",

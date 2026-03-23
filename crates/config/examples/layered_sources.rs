@@ -1,15 +1,14 @@
 use std::fs;
 
-use selvedge_config::{ConfigStore, LoadSpec, OverrideOp};
-use selvedge_config_model::{AppConfig, default_app_config, validate_app_config};
+use selvedge_config::AppConfigStore;
 use tempfile::TempDir;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let tempdir = TempDir::new()?;
-    let candidate_path = tempdir.path().join("selvedge.toml");
+    let config_path = tempdir.path().join("selvedge.toml");
 
     fs::write(
-        &candidate_path,
+        &config_path,
         r#"
 [server]
 host = "0.0.0.0"
@@ -22,21 +21,9 @@ format = "text"
 "#,
     )?;
 
-    let store = ConfigStore::load(
-        LoadSpec {
-            explicit_file_path: None,
-            file_path_candidates: vec![candidate_path],
-            env_prefix: "SELVEDGE_APP".to_owned(),
-            cli_overrides: vec![
-                OverrideOp::new("server.port", 9090_u16),
-                OverrideOp::new("logging.level", "debug"),
-            ],
-        },
-        default_app_config,
-        validate_app_config,
-    )?;
+    let store = AppConfigStore::load_with_explicit_path(config_path)?;
 
-    let summary = store.read(|config: &AppConfig| {
+    let summary = store.read(|config| {
         format!(
             "host={} port={} timeout={}ms log_level={}",
             config.server.host,
@@ -47,7 +34,7 @@ format = "text"
     })?;
 
     println!("{summary}");
-    println!("Environment overrides would use keys like SELVEDGE_APP_SERVER__PORT=7001");
+    println!("If no explicit path is given, load() falls back to env path and fixed search paths.");
 
     Ok(())
 }

@@ -1,7 +1,6 @@
 use std::fs;
 
-use selvedge_config::{ConfigStore, LoadSpec, OverrideOp, PersistMode};
-use selvedge_config_model::{AppConfig, default_app_config, validate_app_config};
+use selvedge_config::AppConfigStore;
 use tempfile::TempDir;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -22,31 +21,13 @@ format = "text"
 "#,
     )?;
 
-    let store = ConfigStore::load(
-        LoadSpec {
-            explicit_file_path: Some(config_path.clone()),
-            file_path_candidates: Vec::new(),
-            env_prefix: "SELVEDGE_APP".to_owned(),
-            cli_overrides: Vec::new(),
-        },
-        default_app_config,
-        validate_app_config,
-    )?;
+    let store = AppConfigStore::load_with_explicit_path(config_path.clone())?;
 
-    store.set(
-        OverrideOp::new("feature.rollout_percentage", 100_u8),
-        PersistMode::RuntimeOnly,
-    )?;
-    store.set(
-        OverrideOp::new("feature.enabled", true),
-        PersistMode::RuntimeOnly,
-    )?;
-    store.set(
-        OverrideOp::new("logging.level", "debug"),
-        PersistMode::RuntimeAndPersist,
-    )?;
+    store.update_runtime("feature.rollout_percentage", 100_u8)?;
+    store.update_runtime("feature.enabled", true)?;
+    store.update_runtime_and_persist("logging.level", "debug")?;
 
-    let current = store.read(|config: &AppConfig| {
+    let current = store.read(|config| {
         format!(
             "feature_enabled={} rollout={} log_level={}",
             config.feature.enabled, config.feature.rollout_percentage, config.logging.level,
@@ -56,7 +37,7 @@ format = "text"
 
     println!("Current view: {current}");
     println!("Persisted file:\n{persisted}");
-    println!("`RuntimeOnly` changes affect reads immediately but are not written to disk.");
+    println!("Runtime-only changes affect reads immediately but are not written to disk.");
 
     Ok(())
 }

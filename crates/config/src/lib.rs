@@ -3,200 +3,120 @@
 use std::{
     env, fmt, fs,
     io::Write,
-    marker::PhantomData,
     path::{Path, PathBuf},
-    sync::{Arc, RwLock},
+    sync::RwLock,
 };
 
-use serde::{Serialize, de::DeserializeOwned};
+use selvedge_config_model::{AppConfig, AppConfigError};
+use serde::Serialize;
 use tempfile::NamedTempFile;
 use thiserror::Error;
 use toml::{Table, Value};
 
-#[derive(Debug, Clone)]
-pub struct LoadSpec {
-    pub explicit_file_path: Option<PathBuf>,
-    pub file_path_candidates: Vec<PathBuf>,
-    pub env_prefix: String,
-    pub cli_overrides: Vec<OverrideOp>,
-}
+const CONFIG_PATH_ENV: &str = "SELVEDGE_CONFIG";
+const CONFIG_ENV_PREFIX: &str = "SELVEDGE_APP";
+const SEARCH_PATH_CURRENT_DIR: &str = "./selvedge.toml";
+const SEARCH_PATH_XDG_SUBPATH: &str = "selvedge/config.toml";
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct OverrideOp {
-    path: String,
-    value: OverrideValue,
-}
-
-impl OverrideOp {
-    pub fn new<P, V>(path: P, value: V) -> Self
-    where
-        P: Into<String>,
-        V: Into<OverrideValue>,
-    {
-        Self {
-            path: path.into(),
-            value: value.into(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct OverrideValue(Value);
-
-impl OverrideValue {
-    fn into_inner(self) -> Value {
-        self.0
-    }
-}
-
-impl From<Value> for OverrideValue {
-    fn from(value: Value) -> Self {
-        Self(value)
-    }
-}
-
-impl From<bool> for OverrideValue {
-    fn from(value: bool) -> Self {
-        Self(Value::Boolean(value))
-    }
-}
-
-impl From<i32> for OverrideValue {
-    fn from(value: i32) -> Self {
-        Self(Value::Integer(i64::from(value)))
-    }
-}
-
-impl From<u8> for OverrideValue {
-    fn from(value: u8) -> Self {
-        Self(Value::Integer(i64::from(value)))
-    }
-}
-
-impl From<u16> for OverrideValue {
-    fn from(value: u16) -> Self {
-        Self(Value::Integer(i64::from(value)))
-    }
-}
-
-impl From<u32> for OverrideValue {
-    fn from(value: u32) -> Self {
-        Self(Value::Integer(i64::from(value)))
-    }
-}
-
-impl From<u64> for OverrideValue {
-    fn from(value: u64) -> Self {
-        let value = i64::try_from(value).expect("u64 override value exceeds TOML integer range");
-
-        Self(Value::Integer(value))
-    }
-}
-
-impl From<String> for OverrideValue {
-    fn from(value: String) -> Self {
-        Self(Value::String(value))
-    }
-}
-
-impl From<&str> for OverrideValue {
-    fn from(value: &str) -> Self {
-        Self(Value::String(value.to_owned()))
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PersistMode {
-    RuntimeOnly,
-    RuntimeAndPersist,
-}
-
-pub struct ConfigStore<T> {
-    immutable: ImmutableState,
+pub struct AppConfigStore {
+    base_config: AppConfig,
     runtime_patch: RwLock<Table>,
-    defaults_fn: Arc<DefaultsFn<T>>,
-    validate_fn: Arc<ValidateFn<T>>,
-    _marker: PhantomData<fn() -> T>,
+    current_config_path: Option<PathBuf>,
 }
 
-impl<T> fmt::Debug for ConfigStore<T> {
+impl fmt::Debug for AppConfigStore {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
-            .debug_struct("ConfigStore")
-            .field("immutable", &self.immutable)
+            .debug_struct("AppConfigStore")
+            .field("current_config_path", &self.current_config_path)
             .finish_non_exhaustive()
     }
 }
 
-impl<T> ConfigStore<T>
-where
-    T: DeserializeOwned + Serialize,
-{
-    pub fn load<DF, VF, E>(
-        spec: LoadSpec,
-        defaults_fn: DF,
-        validate_fn: VF,
-    ) -> Result<Self, ConfigError>
+impl AppConfigStore {
+    pub fn load() -> Result<Self, ConfigError> {
+        Self::load_inner(None)
+    }
+
+    pub fn load_with_explicit_path<P>(path: P) -> Result<Self, ConfigError>
     where
-        DF: Fn() -> T + Send + Sync + 'static,
-        VF: Fn(&T) -> Result<(), E> + Send + Sync + 'static,
-        E: fmt::Display,
+        P: Into<PathBuf>,
     {
-        let defaults_fn = Arc::new(defaults_fn);
-        let immutable = ImmutableState::load(spec, {
-            let defaults_fn = Arc::clone(&defaults_fn);
-            move || (defaults_fn)()
-        })?;
-        let validate_fn =
-            Arc::new(move |config: &T| validate_fn(config).map_err(|error| error.to_string()));
-
-        let store = Self {
-            immutable,
-            runtime_patch: RwLock::new(Table::new()),
-            defaults_fn,
-            validate_fn,
-            _marker: PhantomData,
-        };
-
-        store.validate_current_table(&Table::new())?;
-
-        Ok(store)
+        Self::load_inner(Some(path.into()))
     }
 
     pub fn read<R, F>(&self, reader: F) -> Result<R, ConfigError>
     where
-        F: FnOnce(&T) -> R,
+        F: FnOnce(&AppConfig) -> R,
     {
         let config = {
             let runtime_patch = self
                 .runtime_patch
                 .read()
-                .map_err(|_| ConfigError::LockPoisoned)?;
+                .map_err(|_| ConfigError::LoadFailed("config state lock poisoned".to_owned()))?;
             self.materialize_config(&runtime_patch)?
         };
 
         Ok(reader(&config))
     }
 
-    pub fn set(&self, operation: OverrideOp, mode: PersistMode) -> Result<(), ConfigError> {
+    pub fn update_runtime<V>(&self, path: &str, value: V) -> Result<(), ConfigError>
+    where
+        V: Serialize,
+    {
+        self.apply_update(path, value, false)
+    }
+
+    pub fn update_runtime_and_persist<V>(&self, path: &str, value: V) -> Result<(), ConfigError>
+    where
+        V: Serialize,
+    {
+        self.apply_update(path, value, true)
+    }
+
+    fn load_inner(explicit_path: Option<PathBuf>) -> Result<Self, ConfigError> {
+        let current_config_path = if let Some(path) = explicit_path {
+            Some(resolve_explicit_path(path)?)
+        } else if let Some(path) = env::var_os(CONFIG_PATH_ENV) {
+            Some(resolve_env_path(PathBuf::from(path))?)
+        } else {
+            resolve_search_path()?
+        };
+        let mut merged_table = load_file_table(current_config_path.as_deref())?;
+        let env_table = load_env_table(CONFIG_ENV_PREFIX)?;
+
+        merge_tables(&mut merged_table, &env_table);
+
+        let base_config = AppConfig::try_from(merged_table).map_err(map_model_error)?;
+
+        Ok(Self {
+            base_config,
+            runtime_patch: RwLock::new(Table::new()),
+            current_config_path,
+        })
+    }
+
+    fn apply_update<V>(&self, path: &str, value: V, persist: bool) -> Result<(), ConfigError>
+    where
+        V: Serialize,
+    {
+        let value = Value::try_from(value)
+            .map_err(|error| ConfigError::InvalidUpdateValue(error.to_string()))?;
         let mut runtime_patch = self
             .runtime_patch
             .write()
-            .map_err(|_| ConfigError::LockPoisoned)?;
+            .map_err(|_| ConfigError::LoadFailed("config state lock poisoned".to_owned()))?;
         let mut candidate_patch = runtime_patch.clone();
 
-        apply_override(&mut candidate_patch, operation.clone())?;
-        let merged_table = self.current_table(&candidate_patch);
-        let config = deserialize_table::<T>(&merged_table)?;
-        self.validate_config(&config)?;
+        apply_override(&mut candidate_patch, path, value.clone())?;
+        self.materialize_config(&candidate_patch)?;
 
-        if mode == PersistMode::RuntimeAndPersist {
-            let path = self
-                .immutable
-                .resolved_file_path
-                .as_ref()
-                .ok_or(ConfigError::PersistPathUnavailable)?;
-            self.persist_override(path, operation)?;
+        if persist {
+            let current_path = self
+                .current_config_path
+                .as_deref()
+                .ok_or(ConfigError::PersistUnavailable)?;
+            self.persist_update(current_path, path, value)?;
         }
 
         *runtime_patch = candidate_patch;
@@ -204,148 +124,110 @@ where
         Ok(())
     }
 
-    fn current_table(&self, runtime_patch: &Table) -> Table {
-        let mut merged = self.immutable.base_config.clone();
-        merge_tables(&mut merged, runtime_patch);
-        merged
+    fn materialize_config(&self, runtime_patch: &Table) -> Result<AppConfig, ConfigError> {
+        let mut merged_table = serialize_app_config(&self.base_config)?;
+
+        merge_tables(&mut merged_table, runtime_patch);
+
+        AppConfig::try_from(merged_table).map_err(map_model_error)
     }
 
-    fn materialize_config(&self, runtime_patch: &Table) -> Result<T, ConfigError> {
-        let merged = self.current_table(runtime_patch);
-        let config = deserialize_table::<T>(&merged)?;
+    fn persist_update(
+        &self,
+        current_path: &Path,
+        path: &str,
+        value: Value,
+    ) -> Result<(), ConfigError> {
+        let mut durable_table = load_file_table(Some(current_path))?;
 
-        self.validate_config(&config)?;
-
-        Ok(config)
-    }
-
-    fn validate_current_table(&self, runtime_patch: &Table) -> Result<(), ConfigError> {
-        let config = self.materialize_config(runtime_patch)?;
-
-        self.validate_config(&config)
-    }
-
-    fn validate_config(&self, config: &T) -> Result<(), ConfigError> {
-        (self.validate_fn)(config).map_err(ConfigError::Validation)
-    }
-
-    fn persist_override(&self, path: &Path, operation: OverrideOp) -> Result<(), ConfigError> {
-        let mut durable_table = load_file_table(Some(path))?;
-        apply_override(&mut durable_table, operation)?;
-
-        let mut durable_config = serialize_to_table((self.defaults_fn)())?;
-        merge_tables(&mut durable_config, &durable_table);
-
-        let config = deserialize_table::<T>(&durable_config)?;
-        self.validate_config(&config)?;
-        write_config_file(path, &durable_table)
+        apply_override(&mut durable_table, path, value)?;
+        AppConfig::try_from(durable_table.clone()).map_err(map_model_error)?;
+        write_config_file(current_path, &durable_table)
     }
 }
 
-#[derive(Debug)]
-struct ImmutableState {
-    base_config: Table,
-    resolved_file_path: Option<PathBuf>,
-    _file_path_candidates: Vec<PathBuf>,
-}
-
-impl ImmutableState {
-    fn load<T, DF>(spec: LoadSpec, defaults_fn: DF) -> Result<Self, ConfigError>
-    where
-        T: Serialize,
-        DF: Fn() -> T,
-    {
-        let resolved_file_path = resolve_file_path(&spec)?;
-        let defaults = serialize_to_table(defaults_fn())?;
-        let file = load_file_table(resolved_file_path.as_deref())?;
-        let env = load_env_table(&spec.env_prefix)?;
-        let cli = build_override_table(spec.cli_overrides)?;
-        let mut base_config = defaults;
-
-        merge_tables(&mut base_config, &file);
-        merge_tables(&mut base_config, &env);
-        merge_tables(&mut base_config, &cli);
-
-        Ok(Self {
-            base_config,
-            resolved_file_path,
-            _file_path_candidates: spec.file_path_candidates,
-        })
-    }
-}
-
-type ValidateFn<T> = dyn Fn(&T) -> Result<(), String> + Send + Sync;
-type DefaultsFn<T> = dyn Fn() -> T + Send + Sync;
-
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Eq)]
 pub enum ConfigError {
-    #[error("explicit config file does not exist: {0}")]
-    ExplicitFileNotFound(PathBuf),
-    #[error("failed to read config file at {path}: {source}")]
-    FileRead {
-        path: PathBuf,
-        #[source]
-        source: std::io::Error,
-    },
-    #[error("config path exists but is not a regular file: {0}")]
-    ConfigPathIsNotAFile(PathBuf),
-    #[error("failed to parse config file at {path}: {source}")]
-    FileParse {
-        path: PathBuf,
-        #[source]
-        source: toml::de::Error,
-    },
-    #[error("failed to serialize config value: {0}")]
-    Serialize(#[from] toml::ser::Error),
-    #[error("failed to deserialize config value: {0}")]
-    Deserialize(#[from] toml::de::Error),
-    #[error("invalid override path: {0}")]
-    InvalidOverridePath(String),
+    #[error("explicit config path is invalid: {0}")]
+    InvalidExplicitPath(PathBuf),
+    #[error("environment config path is invalid: {0}")]
+    InvalidEnvPath(PathBuf),
+    #[error("searched config path is invalid: {0}")]
+    InvalidSearchedPath(PathBuf),
+    #[error("failed to load config: {0}")]
+    LoadFailed(String),
     #[error("config validation failed: {0}")]
-    Validation(String),
-    #[error("persist requested but no config file is selected")]
-    PersistPathUnavailable,
-    #[error("failed to write config file at {path}: {source}")]
-    FileWrite {
-        path: PathBuf,
-        #[source]
-        source: std::io::Error,
-    },
-    #[error("config store lock is poisoned")]
-    LockPoisoned,
+    ValidationFailed(String),
+    #[error("invalid update path: {0}")]
+    InvalidUpdatePath(String),
+    #[error("invalid update value: {0}")]
+    InvalidUpdateValue(String),
+    #[error("no active config file is selected for persistence")]
+    PersistUnavailable,
+    #[error("failed to persist config: {0}")]
+    PersistFailed(String),
 }
 
-fn resolve_file_path(spec: &LoadSpec) -> Result<Option<PathBuf>, ConfigError> {
-    if let Some(explicit_path) = &spec.explicit_file_path {
-        return Ok(Some(explicit_path.clone()));
+fn resolve_explicit_path(path: PathBuf) -> Result<PathBuf, ConfigError> {
+    if path.is_file() {
+        return Ok(path);
     }
 
-    if let Some(existing_path) = spec.file_path_candidates.iter().find(|path| path.is_file()) {
-        return Ok(Some(existing_path.clone()));
+    Err(ConfigError::InvalidExplicitPath(path))
+}
+
+fn resolve_env_path(path: PathBuf) -> Result<PathBuf, ConfigError> {
+    if path.is_file() {
+        return Ok(path);
     }
 
-    Ok(spec.file_path_candidates.first().cloned())
+    Err(ConfigError::InvalidEnvPath(path))
+}
+
+fn resolve_search_path() -> Result<Option<PathBuf>, ConfigError> {
+    for path in search_path_candidates() {
+        if !path.exists() {
+            continue;
+        }
+
+        if !path.is_file() {
+            return Err(ConfigError::InvalidSearchedPath(path));
+        }
+
+        return Ok(Some(path));
+    }
+
+    Ok(None)
+}
+
+fn search_path_candidates() -> Vec<PathBuf> {
+    let mut paths = vec![PathBuf::from(SEARCH_PATH_CURRENT_DIR)];
+
+    if let Some(xdg_config_home) = env::var_os("XDG_CONFIG_HOME") {
+        paths.push(PathBuf::from(xdg_config_home).join(SEARCH_PATH_XDG_SUBPATH));
+    }
+
+    if let Some(home) = env::var_os("HOME") {
+        paths.push(
+            PathBuf::from(home)
+                .join(".config")
+                .join(SEARCH_PATH_XDG_SUBPATH),
+        );
+    }
+
+    paths
 }
 
 fn load_file_table(path: Option<&Path>) -> Result<Table, ConfigError> {
     let Some(path) = path else {
         return Ok(Table::new());
     };
-    if !path.exists() {
-        return Ok(Table::new());
-    }
-    if !path.is_file() {
-        return Err(ConfigError::ConfigPathIsNotAFile(path.to_path_buf()));
-    }
-    let contents = fs::read_to_string(path).map_err(|source| ConfigError::FileRead {
-        path: path.to_path_buf(),
-        source,
-    })?;
 
-    toml::from_str::<Table>(&contents).map_err(|source| ConfigError::FileParse {
-        path: path.to_path_buf(),
-        source,
-    })
+    let contents = fs::read_to_string(path)
+        .map_err(|error| ConfigError::LoadFailed(format!("{path:?}: {error}")))?;
+
+    toml::from_str::<Table>(&contents)
+        .map_err(|error| ConfigError::LoadFailed(format!("{path:?}: {error}")))
 }
 
 fn load_env_table(prefix: &str) -> Result<Table, ConfigError> {
@@ -378,33 +260,34 @@ where
             .map(str::to_ascii_lowercase)
             .collect::<Vec<_>>()
             .join(".");
-        let value = parse_env_value(&raw_value)?;
+        let value = parse_env_value(&raw_value)
+            .map_err(|error| ConfigError::LoadFailed(error.to_string()))?;
 
-        apply_override(&mut table, OverrideOp::new(path, value))?;
+        apply_override(&mut table, &path, value)?;
     }
 
     Ok(table)
 }
 
-fn build_override_table(overrides: Vec<OverrideOp>) -> Result<Table, ConfigError> {
-    let mut table = Table::new();
+fn parse_env_value(raw: &str) -> Result<Value, toml::de::Error> {
+    let wrapped = format!("value = {raw}");
 
-    for operation in overrides {
-        apply_override(&mut table, operation)?;
+    match toml::from_str::<Table>(&wrapped) {
+        Ok(mut table) => Ok(table
+            .remove("value")
+            .expect("wrapped TOML value must contain key")),
+        Err(_) => Ok(Value::String(raw.to_owned())),
     }
-
-    Ok(table)
 }
 
-fn apply_override(table: &mut Table, operation: OverrideOp) -> Result<(), ConfigError> {
-    let segments = operation
-        .path
+fn apply_override(table: &mut Table, path: &str, value: Value) -> Result<(), ConfigError> {
+    let segments = path
         .split('.')
         .filter(|segment| !segment.is_empty())
         .collect::<Vec<_>>();
 
     if segments.is_empty() {
-        return Err(ConfigError::InvalidOverridePath(operation.path));
+        return Err(ConfigError::InvalidUpdatePath(path.to_owned()));
     }
 
     let mut current = table;
@@ -425,10 +308,7 @@ fn apply_override(table: &mut Table, operation: OverrideOp) -> Result<(), Config
         };
     }
 
-    current.insert(
-        segments[segments.len() - 1].to_owned(),
-        operation.value.into_inner(),
-    );
+    current.insert(segments[segments.len() - 1].to_owned(), value);
 
     Ok(())
 }
@@ -446,75 +326,38 @@ fn merge_tables(base: &mut Table, patch: &Table) {
     }
 }
 
-fn parse_env_value(raw: &str) -> Result<Value, ConfigError> {
-    let wrapped = format!("value = {raw}");
-    match toml::from_str::<Table>(&wrapped) {
-        Ok(mut table) => Ok(table
-            .remove("value")
-            .expect("wrapped TOML value must contain key")),
-        Err(_) => Ok(Value::String(raw.to_owned())),
-    }
-}
+fn serialize_app_config(config: &AppConfig) -> Result<Table, ConfigError> {
+    let value =
+        Value::try_from(config).map_err(|error| ConfigError::LoadFailed(error.to_string()))?;
 
-fn serialize_to_table<T>(value: T) -> Result<Table, ConfigError>
-where
-    T: Serialize,
-{
-    let value = Value::try_from(value)?;
-    value_to_table(value)
-}
-
-fn value_to_table(value: Value) -> Result<Table, ConfigError> {
     match value {
         Value::Table(table) => Ok(table),
-        _ => Err(ConfigError::InvalidOverridePath(
-            "top-level config must serialize to a table".to_owned(),
+        _ => Err(ConfigError::LoadFailed(
+            "app config must serialize to a table".to_owned(),
         )),
     }
 }
 
-fn deserialize_table<T>(table: &Table) -> Result<T, ConfigError>
-where
-    T: DeserializeOwned,
-{
-    Value::Table(table.clone())
-        .try_into()
-        .map_err(ConfigError::Deserialize)
-}
-
 fn write_config_file(path: &Path, table: &Table) -> Result<(), ConfigError> {
-    let rendered = toml::to_string_pretty(table)?;
+    let rendered = toml::to_string_pretty(table)
+        .map_err(|error| ConfigError::PersistFailed(error.to_string()))?;
     let parent = persistence_directory(path);
 
-    fs::create_dir_all(parent).map_err(|source| ConfigError::FileWrite {
-        path: path.to_path_buf(),
-        source,
-    })?;
+    fs::create_dir_all(parent).map_err(|error| ConfigError::PersistFailed(error.to_string()))?;
 
-    let mut temp_file = NamedTempFile::new_in(parent).map_err(|source| ConfigError::FileWrite {
-        path: path.to_path_buf(),
-        source,
-    })?;
+    let mut temp_file = NamedTempFile::new_in(parent)
+        .map_err(|error| ConfigError::PersistFailed(error.to_string()))?;
 
     temp_file
         .write_all(rendered.as_bytes())
-        .map_err(|source| ConfigError::FileWrite {
-            path: path.to_path_buf(),
-            source,
-        })?;
+        .map_err(|error| ConfigError::PersistFailed(error.to_string()))?;
     temp_file
         .as_file()
         .sync_all()
-        .map_err(|source| ConfigError::FileWrite {
-            path: path.to_path_buf(),
-            source,
-        })?;
-    temp_file
-        .persist(path)
-        .map_err(|error| ConfigError::FileWrite {
-            path: path.to_path_buf(),
-            source: error.error,
-        })?;
+        .map_err(|error| ConfigError::PersistFailed(error.to_string()))?;
+    temp_file.persist(path).map_err(|error| {
+        ConfigError::PersistFailed(format!("{}: {}", path.display(), error.error))
+    })?;
 
     Ok(())
 }
@@ -525,30 +368,20 @@ fn persistence_directory(path: &Path) -> &Path {
         .unwrap_or_else(|| Path::new("."))
 }
 
+fn map_model_error(error: AppConfigError) -> ConfigError {
+    match error {
+        AppConfigError::Deserialize(error) => ConfigError::LoadFailed(error.to_string()),
+        AppConfigError::Validation(error) => ConfigError::ValidationFailed(error.to_string()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::Path;
 
-    use tempfile::TempDir;
-
-    use serde::{Deserialize, Serialize};
-
     use super::{
-        ConfigStore, LoadSpec, OverrideOp, Value, load_env_table_from_entries,
-        persistence_directory,
+        AppConfigStore, ConfigError, Value, load_env_table_from_entries, persistence_directory,
     };
-
-    #[derive(Debug, Default, Deserialize, Serialize)]
-    #[serde(default, deny_unknown_fields)]
-    struct LockTestConfig {
-        server: LockTestServerConfig,
-    }
-
-    #[derive(Debug, Default, Deserialize, Serialize)]
-    #[serde(default, deny_unknown_fields)]
-    struct LockTestServerConfig {
-        port: u16,
-    }
 
     #[test]
     fn env_entries_build_nested_override_table() {
@@ -578,17 +411,21 @@ mod tests {
 
     #[test]
     fn read_drops_lock_before_running_callback() {
-        let store = ConfigStore::load(
-            LoadSpec {
-                explicit_file_path: None,
-                file_path_candidates: Vec::new(),
-                env_prefix: "SELVEDGE_TEST".to_owned(),
-                cli_overrides: Vec::new(),
-            },
-            LockTestConfig::default,
-            |_config: &LockTestConfig| Ok::<(), String>(()),
+        let tempdir = tempfile::TempDir::new().expect("tempdir");
+        let config_path = tempdir.path().join("selvedge.toml");
+
+        std::fs::write(
+            &config_path,
+            r#"
+[server]
+host = "127.0.0.1"
+port = 8080
+request_timeout_ms = 5000
+"#,
         )
-        .expect("load config store");
+        .expect("write config");
+
+        let store = AppConfigStore::load_with_explicit_path(config_path).expect("load store");
 
         store
             .read(|_config| {
@@ -598,31 +435,16 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "u64 override value exceeds TOML integer range")]
-    fn override_value_rejects_u64_above_toml_range() {
-        let _ = OverrideOp::new("server.port", u64::MAX);
-    }
-
-    #[test]
-    fn load_rejects_directory_config_path() {
-        let tempdir = TempDir::new().expect("tempdir");
+    fn load_with_explicit_path_rejects_directory() {
+        let tempdir = tempfile::TempDir::new().expect("tempdir");
         let config_dir = tempdir.path().join("config");
 
         std::fs::create_dir_all(&config_dir).expect("create config dir");
 
-        let error = ConfigStore::load(
-            LoadSpec {
-                explicit_file_path: Some(config_dir),
-                file_path_candidates: Vec::new(),
-                env_prefix: "SELVEDGE_TEST".to_owned(),
-                cli_overrides: Vec::new(),
-            },
-            LockTestConfig::default,
-            |_config: &LockTestConfig| Ok::<(), String>(()),
-        )
-        .expect_err("directory path should fail during load");
+        let error = AppConfigStore::load_with_explicit_path(config_dir)
+            .expect_err("directory path should fail during load");
 
-        assert!(error.to_string().contains("not a regular file"));
+        assert!(matches!(error, ConfigError::InvalidExplicitPath(_)));
     }
 
     #[test]
