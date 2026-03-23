@@ -80,6 +80,14 @@ install_rust_toolchain() {
   rustup default stable
 }
 
+install_just() {
+  if ! command -v just >/dev/null 2>&1; then
+    cargo install just --locked
+  fi
+
+  require_command just
+}
+
 install_pre_commit() {
   if ! command -v pipx >/dev/null 2>&1; then
     echo "pipx installation failed" >&2
@@ -110,6 +118,7 @@ main() {
   install_apt_packages
   require_command curl
   install_rust_toolchain
+  install_just
   install_pre_commit
   install_git_hooks
 
@@ -117,10 +126,10 @@ main() {
 bootstrap completed
 
 available commands:
-  cargo run
-  cargo test
-  pre-commit run --all-files
-  pre-commit run --all-files --hook-stage pre-push
+  just run
+  just fmt
+  just check
+  just hooks
 EOF
 }
 

@@ -10,7 +10,7 @@ Run the bootstrap script from the repository root in a clean Ubuntu environment:
 ./scripts/bootstrap.sh
 ```
 
-The script installs the Rust toolchain, `pre-commit`, and the repository Git hooks.
+The script installs the Rust toolchain, `just`, `pre-commit`, and the repository Git hooks.
 
 ## Development workflow
 
@@ -26,19 +26,19 @@ The script installs the Rust toolchain, `pre-commit`, and the repository Git hoo
 Before opening a pull request, make sure these commands pass:
 
 ```bash
-cargo fmt --all -- --check
-cargo clippy --all-targets --all-features -- -D warnings
-cargo test --all-targets --all-features
+just check
 ```
 
-You can also run the configured Git hooks manually:
+Use these shortcuts during development:
 
 ```bash
-pre-commit run --all-files
-pre-commit run --all-files --hook-stage pre-push
+just fmt
+just lint
+just test
+just hooks
 ```
 
-The first command runs hooks configured for the default `pre-commit` stage, including `cargo fmt` and `cargo clippy`. The second command runs the `pre-push` hook, which executes `cargo test`.
+`just fmt` rewrites formatting. `just check` runs the read-only formatting, lint, and test checks used for local validation. `just hooks` runs both configured Git hook stages manually.
 
 ## Pull requests
 
