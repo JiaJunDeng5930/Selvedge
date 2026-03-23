@@ -38,7 +38,7 @@ pre-commit run --all-files
 pre-commit run --all-files --hook-stage pre-push
 ```
 
-The first command runs hooks configured for the default `pre-commit` stage. The second command runs the `pre-push` hooks, including `cargo clippy` and `cargo test`.
+The first command runs hooks configured for the default `pre-commit` stage, including `cargo fmt` and `cargo clippy`. The second command runs the `pre-push` hook, which executes `cargo test`.
 
 ## Pull requests
 

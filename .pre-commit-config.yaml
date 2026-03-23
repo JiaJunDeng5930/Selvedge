@@ -13,7 +13,7 @@ repos:
         entry: cargo clippy --all-targets --all-features -- -D warnings
         language: unsupported
         pass_filenames: false
-        stages: [pre-push, manual]
+        stages: [pre-commit, manual]
       - id: cargo-test
         name: cargo test --check
         entry: cargo test --all-targets --all-features
