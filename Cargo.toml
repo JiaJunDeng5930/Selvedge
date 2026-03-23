@@ -1,3 +1,7 @@
+[workspace]
+members = ["crates/config", "crates/config-model"]
+resolver = "2"
+
 [package]
 name = "selvedge"
 version = "0.1.0"
@@ -6,6 +10,11 @@ publish = false
 description = "Rust project foundation for Selvedge"
 
 [dependencies]
+
+[dev-dependencies]
+selvedge-config = { path = "crates/config" }
+selvedge-config-model = { path = "crates/config-model" }
+tempfile = "3.14.0"
 
 [lints.rust]
 unsafe_code = "forbid"
