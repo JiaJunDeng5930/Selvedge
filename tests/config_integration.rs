@@ -32,11 +32,18 @@ fn model_and_store_work_together() {
             PersistMode::RuntimeOnly,
         )
         .expect("enable feature");
+    store
+        .set(
+            OverrideOp::new("server.request_timeout_ms", 10_000_u64),
+            PersistMode::RuntimeOnly,
+        )
+        .expect("set request timeout");
 
     let after = store
         .read(|config: &AppConfig| {
             (
                 config.server.port,
+                config.server.request_timeout_ms,
                 config.feature.enabled,
                 config.feature.rollout_percentage,
             )
@@ -44,5 +51,5 @@ fn model_and_store_work_together() {
         .expect("read updated config");
 
     assert_eq!(before, 9000);
-    assert_eq!(after, (9000, true, 100));
+    assert_eq!(after, (9000, 10_000, true, 100));
 }
