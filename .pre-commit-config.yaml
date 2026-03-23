@@ -5,18 +5,18 @@ repos:
       - id: cargo-fmt
         name: cargo fmt --check
         entry: cargo fmt --all -- --check
-        language: system
+        language: unsupported
         pass_filenames: false
         stages: [pre-commit, manual]
       - id: cargo-clippy
         name: cargo clippy --check
         entry: cargo clippy --all-targets --all-features -- -D warnings
-        language: system
+        language: unsupported
         pass_filenames: false
         stages: [pre-push, manual]
       - id: cargo-test
         name: cargo test --check
         entry: cargo test --all-targets --all-features
-        language: system
+        language: unsupported
         pass_filenames: false
         stages: [pre-push, manual]
