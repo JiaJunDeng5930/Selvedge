@@ -4,12 +4,11 @@ These examples are written for crate consumers. They only use the public API of
 `selvedge-config` and `selvedge-config-model`.
 
 - `load_defaults.rs`
-  Load a config store from defaults and read values through `ConfigStore::read`.
+  Load a config store and read values through `AppConfigStore::read`.
 - `layered_sources.rs`
-  Build a store from a config file plus CLI overrides.
+  Build a store from a config file and internal search/env rules.
 - `runtime_updates.rs`
-  Apply `RuntimeOnly` and `RuntimeAndPersist` updates and show what is, and is
-  not, written back to disk.
+  Apply runtime updates and persisted updates through the public store API.
 
 Run an example from the repository root:
 

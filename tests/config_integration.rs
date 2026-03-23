@@ -1,46 +1,46 @@
-use selvedge_config::{ConfigStore, LoadSpec, OverrideOp, PersistMode};
-use selvedge_config_model::{AppConfig, default_app_config, validate_app_config};
+use std::fs;
+
+use selvedge_config::AppConfigStore;
+use tempfile::TempDir;
 
 #[test]
-fn model_and_store_work_together() {
-    let store = ConfigStore::load(
-        LoadSpec {
-            explicit_file_path: None,
-            file_path_candidates: Vec::new(),
-            env_prefix: "SELVEDGE_APP".to_owned(),
-            cli_overrides: vec![OverrideOp::new("server.port", 9000)],
-        },
-        default_app_config,
-        validate_app_config,
+fn app_config_store_and_model_work_together() {
+    let tempdir = TempDir::new().expect("tempdir");
+    let config_path = tempdir.path().join("selvedge.toml");
+
+    fs::write(
+        &config_path,
+        r#"
+[server]
+host = "127.0.0.1"
+port = 9000
+request_timeout_ms = 5000
+
+[logging]
+level = "info"
+format = "text"
+"#,
     )
-    .expect("load config store");
+    .expect("write config");
+
+    let store = AppConfigStore::load_with_explicit_path(config_path).expect("load store");
 
     let before = store
-        .read(|config: &AppConfig| config.server.port)
+        .read(|config| config.server.port)
         .expect("read initial config");
 
     store
-        .set(
-            OverrideOp::new("feature.rollout_percentage", 100),
-            PersistMode::RuntimeOnly,
-        )
+        .update_runtime("feature.rollout_percentage", 100_u8)
         .expect("set rollout percentage");
-
     store
-        .set(
-            OverrideOp::new("feature.enabled", true),
-            PersistMode::RuntimeOnly,
-        )
+        .update_runtime("feature.enabled", true)
         .expect("enable feature");
     store
-        .set(
-            OverrideOp::new("server.request_timeout_ms", 10_000_u64),
-            PersistMode::RuntimeOnly,
-        )
+        .update_runtime("server.request_timeout_ms", 10_000_u64)
         .expect("set request timeout");
 
     let after = store
-        .read(|config: &AppConfig| {
+        .read(|config| {
             (
                 config.server.port,
                 config.server.request_timeout_ms,

@@ -1,47 +1,48 @@
-use selvedge_config_model::{AppConfig, default_app_config, validate_app_config};
+use std::convert::TryFrom;
+
+use selvedge_config_model::{AppConfig, ValidationError};
+use toml::Table;
 
 #[test]
-fn defaults_are_valid() {
-    let config = default_app_config();
+fn empty_table_materializes_to_valid_defaults() {
+    let config = AppConfig::try_from(Table::new()).expect("materialize config");
 
-    assert!(validate_app_config(&config).is_ok());
+    assert!(config.validate().is_ok());
 }
 
 #[test]
 fn unknown_fields_are_rejected() {
-    let parsed = toml::from_str::<AppConfig>(
+    let parsed = toml::from_str::<Table>(
         r#"
         [server]
         host = "127.0.0.1"
         port = 8080
         extra = true
-
-        [logging]
-        level = "info"
-        format = "text"
-
-        [feature]
-        enabled = false
-        rollout_percentage = 0
         "#,
-    );
+    )
+    .expect("parse raw table");
 
-    assert!(parsed.is_err());
+    let error = AppConfig::try_from(parsed).expect_err("unknown field should fail");
+
+    assert!(error.to_string().contains("unknown field"));
 }
 
 #[test]
 fn invalid_scalar_value_is_rejected() {
-    let mut config = default_app_config();
+    let mut config = AppConfig::try_from(Table::new()).expect("materialize config");
     config.server.port = 0;
 
-    assert!(validate_app_config(&config).is_err());
+    assert_eq!(config.validate(), Err(ValidationError::InvalidPort));
 }
 
 #[test]
 fn cross_field_constraint_is_rejected() {
-    let mut config = default_app_config();
+    let mut config = AppConfig::try_from(Table::new()).expect("materialize config");
     config.feature.enabled = true;
     config.feature.rollout_percentage = 0;
 
-    assert!(validate_app_config(&config).is_err());
+    assert_eq!(
+        config.validate(),
+        Err(ValidationError::EnabledFeatureRequiresRollout)
+    );
 }
