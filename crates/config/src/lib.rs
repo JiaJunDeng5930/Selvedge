@@ -83,6 +83,12 @@ impl From<u32> for OverrideValue {
     }
 }
 
+impl From<u64> for OverrideValue {
+    fn from(value: u64) -> Self {
+        Self(Value::Integer(value as i64))
+    }
+}
+
 impl From<String> for OverrideValue {
     fn from(value: String) -> Self {
         Self(Value::String(value))
