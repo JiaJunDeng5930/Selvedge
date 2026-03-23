@@ -168,7 +168,7 @@ where
             .map_err(|_| ConfigError::LockPoisoned)?;
         let mut candidate_patch = runtime_patch.clone();
 
-        apply_override(&mut candidate_patch, operation)?;
+        apply_override(&mut candidate_patch, operation.clone())?;
         let merged_table = self.current_table(&candidate_patch);
         let config = deserialize_table::<T>(&merged_table)?;
         self.validate_config(&config)?;
@@ -179,7 +179,7 @@ where
                 .resolved_file_path
                 .as_ref()
                 .ok_or(ConfigError::PersistPathUnavailable)?;
-            write_config_file(path, &merged_table)?;
+            persist_override(path, operation)?;
         }
 
         *runtime_patch = candidate_patch;
@@ -459,6 +459,13 @@ fn write_config_file(path: &Path, table: &Table) -> Result<(), ConfigError> {
     })?;
 
     Ok(())
+}
+
+fn persist_override(path: &Path, operation: OverrideOp) -> Result<(), ConfigError> {
+    let mut persisted_table = load_file_table(Some(path))?;
+
+    apply_override(&mut persisted_table, operation)?;
+    write_config_file(path, &persisted_table)
 }
 
 fn write_all(path: &Path, bytes: &[u8]) -> Result<(), ConfigError> {

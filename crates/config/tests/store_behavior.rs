@@ -213,7 +213,55 @@ fn runtime_and_persist_writes_merged_current_config_to_file() {
 
     assert_eq!(port, 7500);
     assert!(persisted.contains("7500"));
-    assert!(persisted.contains("127.0.0.1"));
+    assert!(persisted.contains("\"file\""));
+    assert!(!persisted.contains("127.0.0.1"));
+}
+
+#[test]
+fn runtime_only_override_is_not_persisted_by_later_persist() {
+    let tempdir = TempDir::new().expect("tempdir");
+    let config_path = tempdir.path().join("config.toml");
+
+    fs::write(
+        &config_path,
+        r#"
+        [server]
+        host = "file-host"
+        port = 7100
+        tags = ["file"]
+        "#,
+    )
+    .expect("write config");
+
+    let store = load_store(LoadSpec {
+        explicit_file_path: Some(config_path.clone()),
+        file_path_candidates: Vec::new(),
+        env_prefix: "SELVEDGE_TEST".to_owned(),
+        cli_overrides: Vec::new(),
+    });
+
+    store
+        .set(
+            OverrideOp::new("server.host", "runtime-only-host"),
+            PersistMode::RuntimeOnly,
+        )
+        .expect("set runtime-only override");
+    store
+        .set(
+            OverrideOp::new("server.port", 7600),
+            PersistMode::RuntimeAndPersist,
+        )
+        .expect("persist port override");
+
+    let current = store
+        .read(|config: &TestConfig| (config.server.host.clone(), config.server.port))
+        .expect("read current config");
+    let persisted = fs::read_to_string(config_path).expect("read persisted file");
+
+    assert_eq!(current, ("runtime-only-host".to_owned(), 7600));
+    assert!(persisted.contains("7600"));
+    assert!(persisted.contains("file-host"));
+    assert!(!persisted.contains("runtime-only-host"));
 }
 
 #[test]
