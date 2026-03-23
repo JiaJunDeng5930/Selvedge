@@ -157,11 +157,13 @@ where
     where
         F: FnOnce(&T) -> R,
     {
-        let runtime_patch = self
-            .runtime_patch
-            .read()
-            .map_err(|_| ConfigError::LockPoisoned)?;
-        let config = self.materialize_config(&runtime_patch)?;
+        let config = {
+            let runtime_patch = self
+                .runtime_patch
+                .read()
+                .map_err(|_| ConfigError::LockPoisoned)?;
+            self.materialize_config(&runtime_patch)?
+        };
 
         Ok(reader(&config))
     }
@@ -504,7 +506,21 @@ fn write_config_file(path: &Path, table: &Table) -> Result<(), ConfigError> {
 
 #[cfg(test)]
 mod tests {
-    use super::load_env_table_from_entries;
+    use serde::{Deserialize, Serialize};
+
+    use super::{ConfigStore, LoadSpec, Value, load_env_table_from_entries};
+
+    #[derive(Debug, Default, Deserialize, Serialize)]
+    #[serde(default, deny_unknown_fields)]
+    struct LockTestConfig {
+        server: LockTestServerConfig,
+    }
+
+    #[derive(Debug, Default, Deserialize, Serialize)]
+    #[serde(default, deny_unknown_fields)]
+    struct LockTestServerConfig {
+        port: u16,
+    }
 
     #[test]
     fn env_entries_build_nested_override_table() {
@@ -530,5 +546,26 @@ mod tests {
             server.get("host"),
             Some(&Value::String("api.internal".to_owned()))
         );
+    }
+
+    #[test]
+    fn read_drops_lock_before_running_callback() {
+        let store = ConfigStore::load(
+            LoadSpec {
+                explicit_file_path: None,
+                file_path_candidates: Vec::new(),
+                env_prefix: "SELVEDGE_TEST".to_owned(),
+                cli_overrides: Vec::new(),
+            },
+            LockTestConfig::default,
+            |_config: &LockTestConfig| Ok::<(), String>(()),
+        )
+        .expect("load config store");
+
+        store
+            .read(|_config| {
+                assert!(store.runtime_patch.try_write().is_ok());
+            })
+            .expect("read config");
     }
 }
