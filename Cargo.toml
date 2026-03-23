@@ -1,0 +1,16 @@
+[package]
+name = "selvedge"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "Rust project foundation for Selvedge"
+
+[dependencies]
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+dbg_macro = "deny"
+todo = "deny"
+unwrap_used = "deny"
