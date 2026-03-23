@@ -279,8 +279,12 @@ fn runtime_and_persist_without_selected_file_returns_error() {
             PersistMode::RuntimeAndPersist,
         )
         .expect_err("persist without file should fail");
+    let current_port = store
+        .read(|config: &TestConfig| config.server.port)
+        .expect("read current port");
 
     assert!(error.to_string().contains("persist"));
+    assert_eq!(current_port, TestConfig::default().server.port);
 }
 
 #[test]
