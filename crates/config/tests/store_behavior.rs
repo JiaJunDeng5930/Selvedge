@@ -312,6 +312,30 @@ fn runtime_and_persist_uses_first_candidate_path_when_file_does_not_exist() {
 }
 
 #[test]
+fn runtime_and_persist_creates_missing_parent_directories() {
+    let tempdir = TempDir::new().expect("tempdir");
+    let candidate_path = tempdir.path().join("nested/config/config.toml");
+
+    let store = load_store(LoadSpec {
+        explicit_file_path: None,
+        file_path_candidates: vec![candidate_path.clone()],
+        env_prefix: "SELVEDGE_TEST".to_owned(),
+        cli_overrides: Vec::new(),
+    });
+
+    store
+        .set(
+            OverrideOp::new("server.port", 7660),
+            PersistMode::RuntimeAndPersist,
+        )
+        .expect("persist should create missing parent directories");
+
+    let persisted = fs::read_to_string(candidate_path).expect("read created config file");
+
+    assert!(persisted.contains("7660"));
+}
+
+#[test]
 fn runtime_and_persist_rejects_invalid_durable_state() {
     let tempdir = TempDir::new().expect("tempdir");
     let config_path = tempdir.path().join("config.toml");
