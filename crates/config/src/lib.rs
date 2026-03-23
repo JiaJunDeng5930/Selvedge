@@ -85,7 +85,9 @@ impl From<u32> for OverrideValue {
 
 impl From<u64> for OverrideValue {
     fn from(value: u64) -> Self {
-        Self(Value::Integer(value as i64))
+        let value = i64::try_from(value).expect("u64 override value exceeds TOML integer range");
+
+        Self(Value::Integer(value))
     }
 }
 
@@ -283,6 +285,8 @@ pub enum ConfigError {
         #[source]
         source: std::io::Error,
     },
+    #[error("config path exists but is not a regular file: {0}")]
+    ConfigPathIsNotAFile(PathBuf),
     #[error("failed to parse config file at {path}: {source}")]
     FileParse {
         path: PathBuf,
@@ -327,6 +331,9 @@ fn load_file_table(path: Option<&Path>) -> Result<Table, ConfigError> {
     };
     if !path.exists() {
         return Ok(Table::new());
+    }
+    if !path.is_file() {
+        return Err(ConfigError::ConfigPathIsNotAFile(path.to_path_buf()));
     }
     let contents = fs::read_to_string(path).map_err(|source| ConfigError::FileRead {
         path: path.to_path_buf(),
@@ -512,9 +519,11 @@ fn write_config_file(path: &Path, table: &Table) -> Result<(), ConfigError> {
 
 #[cfg(test)]
 mod tests {
+    use tempfile::TempDir;
+
     use serde::{Deserialize, Serialize};
 
-    use super::{ConfigStore, LoadSpec, Value, load_env_table_from_entries};
+    use super::{ConfigStore, LoadSpec, OverrideOp, Value, load_env_table_from_entries};
 
     #[derive(Debug, Default, Deserialize, Serialize)]
     #[serde(default, deny_unknown_fields)]
@@ -573,5 +582,33 @@ mod tests {
                 assert!(store.runtime_patch.try_write().is_ok());
             })
             .expect("read config");
+    }
+
+    #[test]
+    #[should_panic(expected = "u64 override value exceeds TOML integer range")]
+    fn override_value_rejects_u64_above_toml_range() {
+        let _ = OverrideOp::new("server.port", u64::MAX);
+    }
+
+    #[test]
+    fn load_rejects_directory_config_path() {
+        let tempdir = TempDir::new().expect("tempdir");
+        let config_dir = tempdir.path().join("config");
+
+        std::fs::create_dir_all(&config_dir).expect("create config dir");
+
+        let error = ConfigStore::load(
+            LoadSpec {
+                explicit_file_path: Some(config_dir),
+                file_path_candidates: Vec::new(),
+                env_prefix: "SELVEDGE_TEST".to_owned(),
+                cli_overrides: Vec::new(),
+            },
+            LockTestConfig::default,
+            |_config: &LockTestConfig| Ok::<(), String>(()),
+        )
+        .expect_err("directory path should fail during load");
+
+        assert!(error.to_string().contains("not a regular file"));
     }
 }
