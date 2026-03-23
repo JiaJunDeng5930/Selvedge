@@ -482,7 +482,7 @@ where
 
 fn write_config_file(path: &Path, table: &Table) -> Result<(), ConfigError> {
     let rendered = toml::to_string_pretty(table)?;
-    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    let parent = persistence_directory(path);
 
     fs::create_dir_all(parent).map_err(|source| ConfigError::FileWrite {
         path: path.to_path_buf(),
@@ -517,13 +517,24 @@ fn write_config_file(path: &Path, table: &Table) -> Result<(), ConfigError> {
     Ok(())
 }
 
+fn persistence_directory(path: &Path) -> &Path {
+    path.parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."))
+}
+
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use tempfile::TempDir;
 
     use serde::{Deserialize, Serialize};
 
-    use super::{ConfigStore, LoadSpec, OverrideOp, Value, load_env_table_from_entries};
+    use super::{
+        ConfigStore, LoadSpec, OverrideOp, Value, load_env_table_from_entries,
+        persistence_directory,
+    };
 
     #[derive(Debug, Default, Deserialize, Serialize)]
     #[serde(default, deny_unknown_fields)]
@@ -610,5 +621,12 @@ mod tests {
         .expect_err("directory path should fail during load");
 
         assert!(error.to_string().contains("not a regular file"));
+    }
+
+    #[test]
+    fn bare_relative_config_path_uses_current_directory_for_persistence() {
+        let parent = persistence_directory(Path::new("config.toml"));
+
+        assert_eq!(parent, Path::new("."));
     }
 }
