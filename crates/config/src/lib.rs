@@ -105,6 +105,7 @@ pub enum PersistMode {
 pub struct ConfigStore<T> {
     immutable: ImmutableState,
     runtime_patch: RwLock<Table>,
+    defaults_fn: Arc<DefaultsFn<T>>,
     validate_fn: Arc<ValidateFn<T>>,
     _marker: PhantomData<fn() -> T>,
 }
@@ -128,17 +129,22 @@ where
         validate_fn: VF,
     ) -> Result<Self, ConfigError>
     where
-        DF: FnOnce() -> T,
+        DF: Fn() -> T + Send + Sync + 'static,
         VF: Fn(&T) -> Result<(), E> + Send + Sync + 'static,
         E: fmt::Display,
     {
-        let immutable = ImmutableState::load(spec, defaults_fn)?;
+        let defaults_fn = Arc::new(defaults_fn);
+        let immutable = ImmutableState::load(spec, {
+            let defaults_fn = Arc::clone(&defaults_fn);
+            move || (defaults_fn)()
+        })?;
         let validate_fn =
             Arc::new(move |config: &T| validate_fn(config).map_err(|error| error.to_string()));
 
         let store = Self {
             immutable,
             runtime_patch: RwLock::new(Table::new()),
+            defaults_fn,
             validate_fn,
             _marker: PhantomData,
         };
@@ -179,7 +185,7 @@ where
                 .resolved_file_path
                 .as_ref()
                 .ok_or(ConfigError::PersistPathUnavailable)?;
-            persist_override(path, operation)?;
+            self.persist_override(path, operation)?;
         }
 
         *runtime_patch = candidate_patch;
@@ -211,6 +217,18 @@ where
     fn validate_config(&self, config: &T) -> Result<(), ConfigError> {
         (self.validate_fn)(config).map_err(ConfigError::Validation)
     }
+
+    fn persist_override(&self, path: &Path, operation: OverrideOp) -> Result<(), ConfigError> {
+        let mut durable_table = load_file_table(Some(path))?;
+        apply_override(&mut durable_table, operation)?;
+
+        let mut durable_config = serialize_to_table((self.defaults_fn)())?;
+        merge_tables(&mut durable_config, &durable_table);
+
+        let config = deserialize_table::<T>(&durable_config)?;
+        self.validate_config(&config)?;
+        write_config_file(path, &durable_table)
+    }
 }
 
 #[derive(Debug)]
@@ -224,7 +242,7 @@ impl ImmutableState {
     fn load<T, DF>(spec: LoadSpec, defaults_fn: DF) -> Result<Self, ConfigError>
     where
         T: Serialize,
-        DF: FnOnce() -> T,
+        DF: Fn() -> T,
     {
         let resolved_file_path = resolve_file_path(&spec)?;
         let defaults = serialize_to_table(defaults_fn())?;
@@ -246,6 +264,7 @@ impl ImmutableState {
 }
 
 type ValidateFn<T> = dyn Fn(&T) -> Result<(), String> + Send + Sync;
+type DefaultsFn<T> = dyn Fn() -> T + Send + Sync;
 
 #[derive(Debug, Error)]
 pub enum ConfigError {
@@ -285,24 +304,23 @@ pub enum ConfigError {
 
 fn resolve_file_path(spec: &LoadSpec) -> Result<Option<PathBuf>, ConfigError> {
     if let Some(explicit_path) = &spec.explicit_file_path {
-        if explicit_path.is_file() {
-            return Ok(Some(explicit_path.clone()));
-        }
-
-        return Err(ConfigError::ExplicitFileNotFound(explicit_path.clone()));
+        return Ok(Some(explicit_path.clone()));
     }
 
-    Ok(spec
-        .file_path_candidates
-        .iter()
-        .find(|path| path.is_file())
-        .cloned())
+    if let Some(existing_path) = spec.file_path_candidates.iter().find(|path| path.is_file()) {
+        return Ok(Some(existing_path.clone()));
+    }
+
+    Ok(spec.file_path_candidates.first().cloned())
 }
 
 fn load_file_table(path: Option<&Path>) -> Result<Table, ConfigError> {
     let Some(path) = path else {
         return Ok(Table::new());
     };
+    if !path.exists() {
+        return Ok(Table::new());
+    }
     let contents = fs::read_to_string(path).map_err(|source| ConfigError::FileRead {
         path: path.to_path_buf(),
         source,
@@ -459,13 +477,6 @@ fn write_config_file(path: &Path, table: &Table) -> Result<(), ConfigError> {
     })?;
 
     Ok(())
-}
-
-fn persist_override(path: &Path, operation: OverrideOp) -> Result<(), ConfigError> {
-    let mut persisted_table = load_file_table(Some(path))?;
-
-    apply_override(&mut persisted_table, operation)?;
-    write_config_file(path, &persisted_table)
 }
 
 fn write_all(path: &Path, bytes: &[u8]) -> Result<(), ConfigError> {
