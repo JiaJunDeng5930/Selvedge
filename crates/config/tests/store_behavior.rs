@@ -284,6 +284,73 @@ fn runtime_and_persist_without_selected_file_returns_error() {
 }
 
 #[test]
+fn runtime_and_persist_uses_first_candidate_path_when_file_does_not_exist() {
+    let tempdir = TempDir::new().expect("tempdir");
+    let candidate_path = tempdir.path().join("config.toml");
+
+    let store = load_store(LoadSpec {
+        explicit_file_path: None,
+        file_path_candidates: vec![candidate_path.clone()],
+        env_prefix: "SELVEDGE_TEST".to_owned(),
+        cli_overrides: Vec::new(),
+    });
+
+    store
+        .set(
+            OverrideOp::new("server.port", 7650),
+            PersistMode::RuntimeAndPersist,
+        )
+        .expect("persist to first candidate path");
+
+    let current_port = store
+        .read(|config: &TestConfig| config.server.port)
+        .expect("read current port");
+    let persisted = fs::read_to_string(candidate_path).expect("read created config file");
+
+    assert_eq!(current_port, 7650);
+    assert!(persisted.contains("7650"));
+}
+
+#[test]
+fn runtime_and_persist_rejects_invalid_durable_state() {
+    let tempdir = TempDir::new().expect("tempdir");
+    let config_path = tempdir.path().join("config.toml");
+
+    fs::write(
+        &config_path,
+        r#"
+        [feature]
+        rollout_percentage = 0
+        "#,
+    )
+    .expect("write config");
+
+    let store = load_store(LoadSpec {
+        explicit_file_path: Some(config_path.clone()),
+        file_path_candidates: Vec::new(),
+        env_prefix: "SELVEDGE_TEST".to_owned(),
+        cli_overrides: vec![OverrideOp::new("feature.rollout_percentage", 100)],
+    });
+
+    let error = store
+        .set(
+            OverrideOp::new("feature.enabled", true),
+            PersistMode::RuntimeAndPersist,
+        )
+        .expect_err("persisted durable state should be validated");
+
+    let current = store
+        .read(|config: &TestConfig| (config.feature.enabled, config.feature.rollout_percentage))
+        .expect("read current feature config");
+    let persisted = fs::read_to_string(config_path).expect("read persisted config");
+
+    assert!(error.to_string().contains("rollout"));
+    assert_eq!(current, (false, 100));
+    assert!(persisted.contains("rollout_percentage = 0"));
+    assert!(!persisted.contains("enabled = true"));
+}
+
+#[test]
 fn invalid_business_value_fails_without_state_change() {
     let store = load_store(LoadSpec {
         explicit_file_path: None,
