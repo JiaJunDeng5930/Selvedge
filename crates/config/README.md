@@ -6,7 +6,7 @@ This crate is the project-specific runtime config entrypoint.
 
 Use it to:
 
-- load the current project's `AppConfig`
+- initialize the current project's config service
 - read the current effective config view
 - apply runtime-only updates
 - apply runtime updates and persist them back to the active config file
@@ -27,15 +27,15 @@ crate.
 ## Quick start
 
 ```no_run
-use selvedge_config::AppConfigStore;
+use selvedge_config::{init, read, update_runtime_and_persist};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let store = AppConfigStore::load()?;
-    let port = store.read(|config| config.server.port)?;
+    init()?;
+    let port = read(|config| config.server.port)?;
 
     println!("listening on {port}");
 
-    store.update_runtime_and_persist("logging.level", "debug")?;
+    update_runtime_and_persist("logging.level", "debug")?;
 
     Ok(())
 }
@@ -53,7 +53,7 @@ This crate should stay unchanged when a module only adds new config fields.
 
 ## Read config
 
-Use `AppConfigStore::read`.
+Use `read(...)`.
 
 Semantics:
 
@@ -62,9 +62,9 @@ Semantics:
 - callers never touch internal merge state or path selection state
 
 ```no_run
-# use selvedge_config::AppConfigStore;
-# let store = AppConfigStore::load()?;
-let timeout_ms = store.read(|config| config.server.request_timeout_ms)?;
+# use selvedge_config::{init, read};
+# init()?;
+let timeout_ms = read(|config| config.server.request_timeout_ms)?;
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
@@ -79,10 +79,10 @@ Semantics:
 - failure leaves visible runtime state unchanged
 
 ```no_run
-# use selvedge_config::AppConfigStore;
-# let store = AppConfigStore::load()?;
-store.update_runtime("feature.rollout_percentage", 100_u8)?;
-store.update_runtime("feature.enabled", true)?;
+# use selvedge_config::{init, update_runtime};
+# init()?;
+update_runtime("feature.rollout_percentage", 100_u8)?;
+update_runtime("feature.enabled", true)?;
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
@@ -98,18 +98,19 @@ Semantics:
 - if there is no active config file path, persistence fails
 
 ```no_run
-# use selvedge_config::AppConfigStore;
-# let store = AppConfigStore::load()?;
-store.update_runtime_and_persist("logging.level", "debug")?;
+# use selvedge_config::{init, update_runtime_and_persist};
+# init()?;
+update_runtime_and_persist("logging.level", "debug")?;
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
 ## Errors and guarantees
 
-- `load()` searches config files in a fixed internal order.
-- `load_with_explicit_path(path)` bypasses search and uses only that path.
+- `init()` searches config files in a fixed internal order.
+- `init_with_path(path)` bypasses search and uses only that path.
 - `SELVEDGE_CONFIG` overrides default search, but still must point to a real
   file.
+- `init_with_cli(path, overrides)` applies CLI overrides on top of file/env.
 - invalid explicit/env/searched paths fail fast
 - failed updates do not commit runtime state
 - failed persisted updates do not commit runtime state or file state

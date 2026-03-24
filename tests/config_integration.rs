@@ -1,10 +1,10 @@
 use std::fs;
 
-use selvedge_config::AppConfigStore;
+use selvedge_config::{init_with_cli, read, update_runtime};
 use tempfile::TempDir;
 
 #[test]
-fn app_config_store_and_model_work_together() {
+fn singleton_config_service_and_model_work_together() {
     let tempdir = TempDir::new().expect("tempdir");
     let config_path = tempdir.path().join("selvedge.toml");
 
@@ -23,32 +23,27 @@ format = "text"
     )
     .expect("write config");
 
-    let store = AppConfigStore::load_with_explicit_path(config_path).expect("load store");
+    init_with_cli(
+        Some(config_path),
+        vec![("server.port".to_owned(), "9000".to_owned())],
+    )
+    .expect("init config");
 
-    let before = store
-        .read(|config| config.server.port)
-        .expect("read initial config");
+    let before = read(|config| config.server.port).expect("read initial config");
 
-    store
-        .update_runtime("feature.rollout_percentage", 100_u8)
-        .expect("set rollout percentage");
-    store
-        .update_runtime("feature.enabled", true)
-        .expect("enable feature");
-    store
-        .update_runtime("server.request_timeout_ms", 10_000_u64)
-        .expect("set request timeout");
+    update_runtime("feature.rollout_percentage", 100_u8).expect("set rollout percentage");
+    update_runtime("feature.enabled", true).expect("enable feature");
+    update_runtime("server.request_timeout_ms", 10_000_u64).expect("set request timeout");
 
-    let after = store
-        .read(|config| {
-            (
-                config.server.port,
-                config.server.request_timeout_ms,
-                config.feature.enabled,
-                config.feature.rollout_percentage,
-            )
-        })
-        .expect("read updated config");
+    let after = read(|config| {
+        (
+            config.server.port,
+            config.server.request_timeout_ms,
+            config.feature.enabled,
+            config.feature.rollout_percentage,
+        )
+    })
+    .expect("read updated config");
 
     assert_eq!(before, 9000);
     assert_eq!(after, (9000, 10_000, true, 100));

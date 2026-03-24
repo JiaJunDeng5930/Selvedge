@@ -1,6 +1,6 @@
 use std::fs;
 
-use selvedge_config::AppConfigStore;
+use selvedge_config::{init_with_cli, read};
 use tempfile::TempDir;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -21,9 +21,15 @@ format = "text"
 "#,
     )?;
 
-    let store = AppConfigStore::load_with_explicit_path(config_path)?;
+    init_with_cli(
+        Some(config_path),
+        vec![
+            ("server.port".to_owned(), "9090".to_owned()),
+            ("logging.level".to_owned(), "debug".to_owned()),
+        ],
+    )?;
 
-    let summary = store.read(|config| {
+    let summary = read(|config| {
         format!(
             "host={} port={} timeout={}ms log_level={}",
             config.server.host,

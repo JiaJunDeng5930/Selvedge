@@ -1,6 +1,6 @@
 use std::fs;
 
-use selvedge_config::AppConfigStore;
+use selvedge_config::{init_with_path, read, update_runtime, update_runtime_and_persist};
 use tempfile::TempDir;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -21,13 +21,13 @@ format = "text"
 "#,
     )?;
 
-    let store = AppConfigStore::load_with_explicit_path(config_path.clone())?;
+    init_with_path(config_path.clone())?;
 
-    store.update_runtime("feature.rollout_percentage", 100_u8)?;
-    store.update_runtime("feature.enabled", true)?;
-    store.update_runtime_and_persist("logging.level", "debug")?;
+    update_runtime("feature.rollout_percentage", 100_u8)?;
+    update_runtime("feature.enabled", true)?;
+    update_runtime_and_persist("logging.level", "debug")?;
 
-    let current = store.read(|config| {
+    let current = read(|config| {
         format!(
             "feature_enabled={} rollout={} log_level={}",
             config.feature.enabled, config.feature.rollout_percentage, config.logging.level,

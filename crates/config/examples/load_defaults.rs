@@ -1,9 +1,9 @@
-use selvedge_config::AppConfigStore;
+use selvedge_config::{init, read};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let store = AppConfigStore::load()?;
+    init()?;
 
-    let summary = store.read(|config| {
+    let summary = read(|config| {
         format!(
             "server=http://{}:{} timeout={}ms log_level={}",
             config.server.host,
