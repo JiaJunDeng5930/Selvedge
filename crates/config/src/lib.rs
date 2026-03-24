@@ -24,16 +24,15 @@ const SEARCH_PATH_PATTERNS: [&str; 3] = [
 ];
 
 pub struct AppConfigStore {
-    base_config: AppConfig,
+    immutable: ImmutableState,
     runtime_patch: RwLock<Table>,
-    current_config_path: Option<PathBuf>,
 }
 
 impl fmt::Debug for AppConfigStore {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("AppConfigStore")
-            .field("current_config_path", &self.current_config_path)
+            .field("current_config_path", &self.immutable.current_config_path)
             .finish_non_exhaustive()
     }
 }
@@ -88,16 +87,18 @@ impl AppConfigStore {
             resolve_search_path()?
         };
         let mut merged_table = load_file_table(current_config_path.as_deref())?;
-        let env_table = load_env_table(CONFIG_ENV_PREFIX)?;
+        let env_table = load_env_table()?;
 
         merge_tables(&mut merged_table, &env_table);
 
         let base_config = AppConfig::try_from(merged_table).map_err(map_model_error)?;
 
         Ok(Self {
-            base_config,
+            immutable: ImmutableState {
+                base_config,
+                current_config_path,
+            },
             runtime_patch: RwLock::new(Table::new()),
-            current_config_path,
         })
     }
 
@@ -117,11 +118,7 @@ impl AppConfigStore {
         self.materialize_config(&candidate_patch)?;
 
         if persist {
-            let current_path = self
-                .current_config_path
-                .as_deref()
-                .ok_or(ConfigError::PersistUnavailable)?;
-            self.persist_update(current_path, path, value)?;
+            self.persist_update(path, value)?;
         }
 
         *runtime_patch = candidate_patch;
@@ -130,25 +127,31 @@ impl AppConfigStore {
     }
 
     fn materialize_config(&self, runtime_patch: &Table) -> Result<AppConfig, ConfigError> {
-        let mut merged_table = serialize_app_config(&self.base_config)?;
+        let mut merged_table = serialize_app_config(&self.immutable.base_config)?;
 
         merge_tables(&mut merged_table, runtime_patch);
 
         AppConfig::try_from(merged_table).map_err(map_model_error)
     }
 
-    fn persist_update(
-        &self,
-        current_path: &Path,
-        path: &str,
-        value: Value,
-    ) -> Result<(), ConfigError> {
+    fn persist_update(&self, path: &str, value: Value) -> Result<(), ConfigError> {
+        let current_path = self
+            .immutable
+            .current_config_path
+            .as_deref()
+            .ok_or(ConfigError::PersistUnavailable)?;
         let mut durable_table = load_file_table(Some(current_path))?;
 
         apply_override(&mut durable_table, path, value)?;
         AppConfig::try_from(durable_table.clone()).map_err(map_model_error)?;
         write_config_file(current_path, &durable_table)
     }
+}
+
+#[derive(Debug)]
+struct ImmutableState {
+    base_config: AppConfig,
+    current_config_path: Option<PathBuf>,
 }
 
 #[derive(Debug, Error, PartialEq, Eq)]
@@ -206,23 +209,26 @@ fn resolve_search_path() -> Result<Option<PathBuf>, ConfigError> {
 }
 
 fn search_path_candidates() -> Vec<PathBuf> {
-    SEARCH_PATH_PATTERNS
-        .iter()
-        .filter_map(|pattern| expand_search_path_pattern(pattern))
-        .collect()
-}
+    let mut paths = Vec::with_capacity(SEARCH_PATH_PATTERNS.len());
 
-fn expand_search_path_pattern(pattern: &str) -> Option<PathBuf> {
-    match pattern {
-        "./selvedge.toml" => Some(PathBuf::from(pattern)),
-        "$XDG_CONFIG_HOME/selvedge/config.toml" => env::var_os("XDG_CONFIG_HOME")
-            .map(PathBuf::from)
-            .map(|path| path.join("selvedge/config.toml")),
-        "~/.config/selvedge/config.toml" => env::var_os("HOME")
-            .map(PathBuf::from)
-            .map(|path| path.join(".config/selvedge/config.toml")),
-        _ => None,
+    for pattern in SEARCH_PATH_PATTERNS {
+        match pattern {
+            "./selvedge.toml" => paths.push(PathBuf::from(pattern)),
+            "$XDG_CONFIG_HOME/selvedge/config.toml" => {
+                if let Some(xdg_config_home) = env::var_os("XDG_CONFIG_HOME") {
+                    paths.push(PathBuf::from(xdg_config_home).join("selvedge/config.toml"));
+                }
+            }
+            "~/.config/selvedge/config.toml" => {
+                if let Some(home) = env::var_os("HOME") {
+                    paths.push(PathBuf::from(home).join(".config/selvedge/config.toml"));
+                }
+            }
+            _ => {}
+        }
     }
+
+    paths
 }
 
 fn load_file_table(path: Option<&Path>) -> Result<Table, ConfigError> {
@@ -237,19 +243,15 @@ fn load_file_table(path: Option<&Path>) -> Result<Table, ConfigError> {
         .map_err(|error| ConfigError::LoadFailed(format!("{path:?}: {error}")))
 }
 
-fn load_env_table(prefix: &str) -> Result<Table, ConfigError> {
-    load_env_table_from_entries(prefix, env::vars_os())
+fn load_env_table() -> Result<Table, ConfigError> {
+    load_env_table_from_entries(env::vars_os())
 }
 
-fn load_env_table_from_entries<I>(prefix: &str, entries: I) -> Result<Table, ConfigError>
+fn load_env_table_from_entries<I>(entries: I) -> Result<Table, ConfigError>
 where
     I: IntoIterator<Item = (OsString, OsString)>,
 {
-    if prefix.is_empty() {
-        return Ok(Table::new());
-    }
-
-    let normalized_prefix = format!("{}_", prefix.to_ascii_uppercase());
+    let normalized_prefix = format!("{}_", CONFIG_ENV_PREFIX);
     let mut table = Table::new();
 
     for (key, raw_value) in entries {
@@ -397,19 +399,16 @@ mod tests {
 
     #[test]
     fn env_entries_build_nested_override_table() {
-        let table = load_env_table_from_entries(
-            "selvedge_test",
-            vec![
-                (
-                    OsString::from("SELVEDGE_TEST_SERVER__PORT"),
-                    OsString::from("7200"),
-                ),
-                (
-                    OsString::from("SELVEDGE_TEST_SERVER__HOST"),
-                    OsString::from("api.internal"),
-                ),
-            ],
-        )
+        let table = load_env_table_from_entries(vec![
+            (
+                OsString::from("SELVEDGE_APP_SERVER__PORT"),
+                OsString::from("7200"),
+            ),
+            (
+                OsString::from("SELVEDGE_APP_SERVER__HOST"),
+                OsString::from("api.internal"),
+            ),
+        ])
         .expect("build env override table");
 
         let server = table
@@ -429,19 +428,16 @@ mod tests {
     fn env_entries_skip_non_utf8_values() {
         use std::os::unix::ffi::OsStringExt;
 
-        let table = load_env_table_from_entries(
-            "selvedge_test",
-            vec![
-                (
-                    OsString::from("SELVEDGE_TEST_SERVER__PORT"),
-                    OsString::from("7200"),
-                ),
-                (
-                    OsString::from("SELVEDGE_TEST_SERVER__HOST"),
-                    OsString::from_vec(vec![0xff, 0xfe]),
-                ),
-            ],
-        )
+        let table = load_env_table_from_entries(vec![
+            (
+                OsString::from("SELVEDGE_APP_SERVER__PORT"),
+                OsString::from("7200"),
+            ),
+            (
+                OsString::from("SELVEDGE_APP_SERVER__HOST"),
+                OsString::from_vec(vec![0xff, 0xfe]),
+            ),
+        ])
         .expect("build env override table");
 
         let server = table
