@@ -17,8 +17,11 @@ use toml::{Table, Value};
 
 const CONFIG_PATH_ENV: &str = "SELVEDGE_CONFIG";
 const CONFIG_ENV_PREFIX: &str = "SELVEDGE_APP";
-const SEARCH_PATH_CURRENT_DIR: &str = "./selvedge.toml";
-const SEARCH_PATH_XDG_SUBPATH: &str = "selvedge/config.toml";
+const SEARCH_PATH_PATTERNS: [&str; 3] = [
+    "./selvedge.toml",
+    "$XDG_CONFIG_HOME/selvedge/config.toml",
+    "~/.config/selvedge/config.toml",
+];
 
 pub struct AppConfigStore {
     base_config: AppConfig,
@@ -203,21 +206,23 @@ fn resolve_search_path() -> Result<Option<PathBuf>, ConfigError> {
 }
 
 fn search_path_candidates() -> Vec<PathBuf> {
-    let mut paths = vec![PathBuf::from(SEARCH_PATH_CURRENT_DIR)];
+    SEARCH_PATH_PATTERNS
+        .iter()
+        .filter_map(|pattern| expand_search_path_pattern(pattern))
+        .collect()
+}
 
-    if let Some(xdg_config_home) = env::var_os("XDG_CONFIG_HOME") {
-        paths.push(PathBuf::from(xdg_config_home).join(SEARCH_PATH_XDG_SUBPATH));
+fn expand_search_path_pattern(pattern: &str) -> Option<PathBuf> {
+    match pattern {
+        "./selvedge.toml" => Some(PathBuf::from(pattern)),
+        "$XDG_CONFIG_HOME/selvedge/config.toml" => env::var_os("XDG_CONFIG_HOME")
+            .map(PathBuf::from)
+            .map(|path| path.join("selvedge/config.toml")),
+        "~/.config/selvedge/config.toml" => env::var_os("HOME")
+            .map(PathBuf::from)
+            .map(|path| path.join(".config/selvedge/config.toml")),
+        _ => None,
     }
-
-    if let Some(home) = env::var_os("HOME") {
-        paths.push(
-            PathBuf::from(home)
-                .join(".config")
-                .join(SEARCH_PATH_XDG_SUBPATH),
-        );
-    }
-
-    paths
 }
 
 fn load_file_table(path: Option<&Path>) -> Result<Table, ConfigError> {
