@@ -3,10 +3,10 @@
 use std::{
     env,
     ffi::OsString,
-    fmt, fs,
+    fs,
     io::Write,
     path::{Path, PathBuf},
-    sync::RwLock,
+    sync::{LazyLock, OnceLock, RwLock},
 };
 
 use selvedge_config_model::{AppConfig, AppConfigError};
@@ -23,111 +23,166 @@ const SEARCH_PATH_PATTERNS: [&str; 3] = [
     "~/.config/selvedge/config.toml",
 ];
 
-pub struct AppConfigStore {
-    immutable: ImmutableState,
+static CONFIG_SERVICE: LazyLock<RwLock<Option<ConfigService>>> =
+    LazyLock::new(|| RwLock::new(None));
+
+pub fn init() -> Result<(), ConfigError> {
+    init_with_cli::<PathBuf, _, _, _>(None, std::iter::empty::<(String, String)>())
+}
+
+pub fn init_with_path<P>(path: P) -> Result<(), ConfigError>
+where
+    P: Into<PathBuf>,
+{
+    init_with_cli(Some(path), std::iter::empty::<(String, String)>())
+}
+
+pub fn init_with_cli<P, I, K, V>(
+    explicit_path: Option<P>,
+    cli_overrides: I,
+) -> Result<(), ConfigError>
+where
+    P: Into<PathBuf>,
+    I: IntoIterator<Item = (K, V)>,
+    K: Into<String>,
+    V: Into<String>,
+{
+    let resolved_path = if let Some(path) = explicit_path {
+        Some(resolve_explicit_path(path.into())?)
+    } else if let Some(path) = env::var_os(CONFIG_PATH_ENV) {
+        Some(resolve_env_path(PathBuf::from(path))?)
+    } else {
+        resolve_search_path()?
+    };
+    let mut merged_table = load_file_table(resolved_path.as_deref())?;
+    let env_table = load_env_table()?;
+    let cli_table = load_cli_table(cli_overrides)?;
+
+    merge_tables(&mut merged_table, &env_table);
+    merge_tables(&mut merged_table, &cli_table);
+
+    let base_config = AppConfig::try_from(merged_table).map_err(map_model_error)?;
+    let service = ConfigService::new(base_config, resolved_path);
+    let mut global = CONFIG_SERVICE
+        .write()
+        .map_err(|_| ConfigError::LoadFailed("config service lock poisoned".to_owned()))?;
+
+    if global.is_some() {
+        return Err(ConfigError::AlreadyInitialized);
+    }
+
+    *global = Some(service);
+
+    Ok(())
+}
+
+pub fn read<R, F>(reader: F) -> Result<R, ConfigError>
+where
+    F: FnOnce(&AppConfig) -> R,
+{
+    let global = CONFIG_SERVICE
+        .read()
+        .map_err(|_| ConfigError::LoadFailed("config service lock poisoned".to_owned()))?;
+    let service = global.as_ref().ok_or(ConfigError::NotInitialized)?;
+    let config = service.materialize_config()?;
+
+    Ok(reader(&config))
+}
+
+pub fn update_runtime<V>(path: &str, value: V) -> Result<(), ConfigError>
+where
+    V: Serialize,
+{
+    apply_update(path, value, false)
+}
+
+pub fn update_runtime_and_persist<V>(path: &str, value: V) -> Result<(), ConfigError>
+where
+    V: Serialize,
+{
+    apply_update(path, value, true)
+}
+
+fn apply_update<V>(path: &str, value: V, persist: bool) -> Result<(), ConfigError>
+where
+    V: Serialize,
+{
+    let value = Value::try_from(value)
+        .map_err(|error| ConfigError::InvalidUpdateValue(error.to_string()))?;
+    let mut global = CONFIG_SERVICE
+        .write()
+        .map_err(|_| ConfigError::LoadFailed("config service lock poisoned".to_owned()))?;
+    let service = global.as_mut().ok_or(ConfigError::NotInitialized)?;
+
+    service.apply_update(path, value, persist)
+}
+
+#[derive(Debug)]
+struct ConfigService {
+    base_config: OnceLock<AppConfig>,
+    current_config_path: OnceLock<Option<PathBuf>>,
     runtime_patch: RwLock<Table>,
 }
 
-impl fmt::Debug for AppConfigStore {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter
-            .debug_struct("AppConfigStore")
-            .field("current_config_path", &self.immutable.current_config_path)
-            .finish_non_exhaustive()
-    }
-}
+impl ConfigService {
+    fn new(base_config: AppConfig, current_config_path: Option<PathBuf>) -> Self {
+        let service = Self {
+            base_config: OnceLock::new(),
+            current_config_path: OnceLock::new(),
+            runtime_patch: RwLock::new(Table::new()),
+        };
 
-impl AppConfigStore {
-    pub fn load() -> Result<Self, ConfigError> {
-        Self::load_inner(None)
+        service
+            .base_config
+            .set(base_config)
+            .expect("base config must be initialized exactly once");
+        service
+            .current_config_path
+            .set(current_config_path)
+            .expect("current config path must be initialized exactly once");
+
+        service
     }
 
-    pub fn load_with_explicit_path<P>(path: P) -> Result<Self, ConfigError>
-    where
-        P: Into<PathBuf>,
-    {
-        Self::load_inner(Some(path.into()))
+    fn materialize_config(&self) -> Result<AppConfig, ConfigError> {
+        let mut merged_table = serialize_app_config(self.base_config())?;
+        let runtime_patch = self
+            .runtime_patch
+            .read()
+            .map_err(|_| ConfigError::LoadFailed("runtime patch lock poisoned".to_owned()))?;
+
+        merge_tables(&mut merged_table, &runtime_patch);
+
+        AppConfig::try_from(merged_table).map_err(map_model_error)
     }
 
-    pub fn read<R, F>(&self, reader: F) -> Result<R, ConfigError>
-    where
-        F: FnOnce(&AppConfig) -> R,
-    {
-        let config = {
+    fn apply_update(&mut self, path: &str, value: Value, persist: bool) -> Result<(), ConfigError> {
+        let mut candidate_patch = {
             let runtime_patch = self
                 .runtime_patch
-                .read()
-                .map_err(|_| ConfigError::LoadFailed("config state lock poisoned".to_owned()))?;
-            self.materialize_config(&runtime_patch)?
+                .get_mut()
+                .map_err(|_| ConfigError::LoadFailed("runtime patch lock poisoned".to_owned()))?;
+            runtime_patch.clone()
         };
-
-        Ok(reader(&config))
-    }
-
-    pub fn update_runtime<V>(&self, path: &str, value: V) -> Result<(), ConfigError>
-    where
-        V: Serialize,
-    {
-        self.apply_update(path, value, false)
-    }
-
-    pub fn update_runtime_and_persist<V>(&self, path: &str, value: V) -> Result<(), ConfigError>
-    where
-        V: Serialize,
-    {
-        self.apply_update(path, value, true)
-    }
-
-    fn load_inner(explicit_path: Option<PathBuf>) -> Result<Self, ConfigError> {
-        let current_config_path = if let Some(path) = explicit_path {
-            Some(resolve_explicit_path(path)?)
-        } else if let Some(path) = env::var_os(CONFIG_PATH_ENV) {
-            Some(resolve_env_path(PathBuf::from(path))?)
-        } else {
-            resolve_search_path()?
-        };
-        let mut merged_table = load_file_table(current_config_path.as_deref())?;
-        let env_table = load_env_table()?;
-
-        merge_tables(&mut merged_table, &env_table);
-
-        let base_config = AppConfig::try_from(merged_table).map_err(map_model_error)?;
-
-        Ok(Self {
-            immutable: ImmutableState {
-                base_config,
-                current_config_path,
-            },
-            runtime_patch: RwLock::new(Table::new()),
-        })
-    }
-
-    fn apply_update<V>(&self, path: &str, value: V, persist: bool) -> Result<(), ConfigError>
-    where
-        V: Serialize,
-    {
-        let value = Value::try_from(value)
-            .map_err(|error| ConfigError::InvalidUpdateValue(error.to_string()))?;
-        let mut runtime_patch = self
-            .runtime_patch
-            .write()
-            .map_err(|_| ConfigError::LoadFailed("config state lock poisoned".to_owned()))?;
-        let mut candidate_patch = runtime_patch.clone();
 
         apply_override(&mut candidate_patch, path, value.clone())?;
-        self.materialize_config(&candidate_patch)?;
+        self.materialize_candidate(&candidate_patch)?;
 
         if persist {
             self.persist_update(path, value)?;
         }
 
+        let runtime_patch = self
+            .runtime_patch
+            .get_mut()
+            .map_err(|_| ConfigError::LoadFailed("runtime patch lock poisoned".to_owned()))?;
         *runtime_patch = candidate_patch;
 
         Ok(())
     }
 
-    fn materialize_config(&self, runtime_patch: &Table) -> Result<AppConfig, ConfigError> {
-        let mut merged_table = serialize_app_config(&self.immutable.base_config)?;
+    fn materialize_candidate(&self, runtime_patch: &Table) -> Result<AppConfig, ConfigError> {
+        let mut merged_table = serialize_app_config(self.base_config())?;
 
         merge_tables(&mut merged_table, runtime_patch);
 
@@ -136,8 +191,7 @@ impl AppConfigStore {
 
     fn persist_update(&self, path: &str, value: Value) -> Result<(), ConfigError> {
         let current_path = self
-            .immutable
-            .current_config_path
+            .current_config_path()
             .as_deref()
             .ok_or(ConfigError::PersistUnavailable)?;
         let mut durable_table = load_file_table(Some(current_path))?;
@@ -146,16 +200,26 @@ impl AppConfigStore {
         AppConfig::try_from(durable_table.clone()).map_err(map_model_error)?;
         write_config_file(current_path, &durable_table)
     }
-}
 
-#[derive(Debug)]
-struct ImmutableState {
-    base_config: AppConfig,
-    current_config_path: Option<PathBuf>,
+    fn base_config(&self) -> &AppConfig {
+        self.base_config
+            .get()
+            .expect("base config must be initialized before use")
+    }
+
+    fn current_config_path(&self) -> &Option<PathBuf> {
+        self.current_config_path
+            .get()
+            .expect("current config path must be initialized before use")
+    }
 }
 
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum ConfigError {
+    #[error("config service has already been initialized")]
+    AlreadyInitialized,
+    #[error("config service has not been initialized")]
+    NotInitialized,
     #[error("explicit config path is invalid: {0}")]
     InvalidExplicitPath(PathBuf),
     #[error("environment config path is invalid: {0}")]
@@ -276,7 +340,7 @@ where
             .map(str::to_ascii_lowercase)
             .collect::<Vec<_>>()
             .join(".");
-        let value = parse_env_value(&raw_value)
+        let value = parse_toml_like_value(&raw_value)
             .map_err(|error| ConfigError::LoadFailed(error.to_string()))?;
 
         apply_override(&mut table, &path, value)?;
@@ -285,7 +349,26 @@ where
     Ok(table)
 }
 
-fn parse_env_value(raw: &str) -> Result<Value, toml::de::Error> {
+fn load_cli_table<I, K, V>(entries: I) -> Result<Table, ConfigError>
+where
+    I: IntoIterator<Item = (K, V)>,
+    K: Into<String>,
+    V: Into<String>,
+{
+    let mut table = Table::new();
+
+    for (path, raw_value) in entries {
+        let path = path.into();
+        let value = parse_toml_like_value(&raw_value.into())
+            .map_err(|error| ConfigError::LoadFailed(error.to_string()))?;
+
+        apply_override(&mut table, &path, value)?;
+    }
+
+    Ok(table)
+}
+
+fn parse_toml_like_value(raw: &str) -> Result<Value, toml::de::Error> {
     let wrapped = format!("value = {raw}");
 
     match toml::from_str::<Table>(&wrapped) {
@@ -389,13 +472,24 @@ fn map_model_error(error: AppConfigError) -> ConfigError {
 }
 
 #[cfg(test)]
+fn reset_for_test() {
+    let mut global = CONFIG_SERVICE
+        .write()
+        .expect("config service lock must not be poisoned");
+    *global = None;
+}
+
+#[cfg(test)]
 mod tests {
     use std::ffi::OsString;
     use std::path::Path;
+    use std::sync::{LazyLock, Mutex};
 
     use super::{
-        AppConfigStore, ConfigError, Value, load_env_table_from_entries, persistence_directory,
+        ConfigError, Value, load_env_table_from_entries, persistence_directory, reset_for_test,
     };
+
+    static TEST_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 
     #[test]
     fn env_entries_build_nested_override_table() {
@@ -450,39 +544,26 @@ mod tests {
     }
 
     #[test]
-    fn read_drops_lock_before_running_callback() {
-        let tempdir = tempfile::TempDir::new().expect("tempdir");
-        let config_path = tempdir.path().join("selvedge.toml");
+    fn read_requires_initialization() {
+        let _guard = TEST_LOCK.lock().expect("test lock");
+        reset_for_test();
 
-        std::fs::write(
-            &config_path,
-            r#"
-[server]
-host = "127.0.0.1"
-port = 8080
-request_timeout_ms = 5000
-"#,
-        )
-        .expect("write config");
+        let error = crate::read(|config| config.server.port).expect_err("must fail before init");
 
-        let store = AppConfigStore::load_with_explicit_path(config_path).expect("load store");
-
-        store
-            .read(|_config| {
-                assert!(store.runtime_patch.try_write().is_ok());
-            })
-            .expect("read config");
+        assert_eq!(error, ConfigError::NotInitialized);
     }
 
     #[test]
-    fn load_with_explicit_path_rejects_directory() {
+    fn init_with_explicit_path_rejects_directory() {
+        let _guard = TEST_LOCK.lock().expect("test lock");
+        reset_for_test();
         let tempdir = tempfile::TempDir::new().expect("tempdir");
         let config_dir = tempdir.path().join("config");
 
         std::fs::create_dir_all(&config_dir).expect("create config dir");
 
-        let error = AppConfigStore::load_with_explicit_path(config_dir)
-            .expect_err("directory path should fail during load");
+        let error =
+            crate::init_with_path(config_dir).expect_err("directory path should fail during init");
 
         assert!(matches!(error, ConfigError::InvalidExplicitPath(_)));
     }
@@ -496,6 +577,8 @@ request_timeout_ms = 5000
 
     #[test]
     fn update_runtime_rejects_empty_path_segments() {
+        let _guard = TEST_LOCK.lock().expect("test lock");
+        reset_for_test();
         let tempdir = tempfile::TempDir::new().expect("tempdir");
         let config_path = tempdir.path().join("selvedge.toml");
 
@@ -510,9 +593,8 @@ request_timeout_ms = 5000
         )
         .expect("write config");
 
-        let store = AppConfigStore::load_with_explicit_path(config_path).expect("load store");
-        let error = store
-            .update_runtime("feature..enabled", true)
+        crate::init_with_path(config_path).expect("init config service");
+        let error = crate::update_runtime("feature..enabled", true)
             .expect_err("malformed path should fail");
 
         assert_eq!(
