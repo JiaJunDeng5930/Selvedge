@@ -1,7 +1,9 @@
 #![doc = include_str!("../README.md")]
 
 use std::{
-    env, fmt, fs,
+    env,
+    ffi::OsString,
+    fmt, fs,
     io::Write,
     path::{Path, PathBuf},
     sync::RwLock,
@@ -231,12 +233,12 @@ fn load_file_table(path: Option<&Path>) -> Result<Table, ConfigError> {
 }
 
 fn load_env_table(prefix: &str) -> Result<Table, ConfigError> {
-    load_env_table_from_entries(prefix, env::vars())
+    load_env_table_from_entries(prefix, env::vars_os())
 }
 
 fn load_env_table_from_entries<I>(prefix: &str, entries: I) -> Result<Table, ConfigError>
 where
-    I: IntoIterator<Item = (String, String)>,
+    I: IntoIterator<Item = (OsString, OsString)>,
 {
     if prefix.is_empty() {
         return Ok(Table::new());
@@ -246,6 +248,13 @@ where
     let mut table = Table::new();
 
     for (key, raw_value) in entries {
+        let Ok(key) = key.into_string() else {
+            continue;
+        };
+        let Ok(raw_value) = raw_value.into_string() else {
+            continue;
+        };
+
         if !key.starts_with(&normalized_prefix) {
             continue;
         }
@@ -281,12 +290,9 @@ fn parse_env_value(raw: &str) -> Result<Value, toml::de::Error> {
 }
 
 fn apply_override(table: &mut Table, path: &str, value: Value) -> Result<(), ConfigError> {
-    let segments = path
-        .split('.')
-        .filter(|segment| !segment.is_empty())
-        .collect::<Vec<_>>();
+    let segments = path.split('.').collect::<Vec<_>>();
 
-    if segments.is_empty() {
+    if segments.is_empty() || segments.iter().any(|segment| segment.is_empty()) {
         return Err(ConfigError::InvalidUpdatePath(path.to_owned()));
     }
 
@@ -377,6 +383,7 @@ fn map_model_error(error: AppConfigError) -> ConfigError {
 
 #[cfg(test)]
 mod tests {
+    use std::ffi::OsString;
     use std::path::Path;
 
     use super::{
@@ -388,10 +395,13 @@ mod tests {
         let table = load_env_table_from_entries(
             "selvedge_test",
             vec![
-                ("SELVEDGE_TEST_SERVER__PORT".to_owned(), "7200".to_owned()),
                 (
-                    "SELVEDGE_TEST_SERVER__HOST".to_owned(),
-                    "api.internal".to_owned(),
+                    OsString::from("SELVEDGE_TEST_SERVER__PORT"),
+                    OsString::from("7200"),
+                ),
+                (
+                    OsString::from("SELVEDGE_TEST_SERVER__HOST"),
+                    OsString::from("api.internal"),
                 ),
             ],
         )
@@ -407,6 +417,35 @@ mod tests {
             server.get("host"),
             Some(&Value::String("api.internal".to_owned()))
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn env_entries_skip_non_utf8_values() {
+        use std::os::unix::ffi::OsStringExt;
+
+        let table = load_env_table_from_entries(
+            "selvedge_test",
+            vec![
+                (
+                    OsString::from("SELVEDGE_TEST_SERVER__PORT"),
+                    OsString::from("7200"),
+                ),
+                (
+                    OsString::from("SELVEDGE_TEST_SERVER__HOST"),
+                    OsString::from_vec(vec![0xff, 0xfe]),
+                ),
+            ],
+        )
+        .expect("build env override table");
+
+        let server = table
+            .get("server")
+            .and_then(Value::as_table)
+            .expect("server table");
+
+        assert_eq!(server.get("port"), Some(&Value::Integer(7200)));
+        assert!(server.get("host").is_none());
     }
 
     #[test]
@@ -452,5 +491,32 @@ request_timeout_ms = 5000
         let parent = persistence_directory(Path::new("config.toml"));
 
         assert_eq!(parent, Path::new("."));
+    }
+
+    #[test]
+    fn update_runtime_rejects_empty_path_segments() {
+        let tempdir = tempfile::TempDir::new().expect("tempdir");
+        let config_path = tempdir.path().join("selvedge.toml");
+
+        std::fs::write(
+            &config_path,
+            r#"
+[server]
+host = "127.0.0.1"
+port = 8080
+request_timeout_ms = 5000
+"#,
+        )
+        .expect("write config");
+
+        let store = AppConfigStore::load_with_explicit_path(config_path).expect("load store");
+        let error = store
+            .update_runtime("feature..enabled", true)
+            .expect_err("malformed path should fail");
+
+        assert_eq!(
+            error,
+            ConfigError::InvalidUpdatePath("feature..enabled".to_owned())
+        );
     }
 }
