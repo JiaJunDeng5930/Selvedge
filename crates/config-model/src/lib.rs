@@ -63,18 +63,18 @@ impl ServerConfig {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct LoggingConfig {
-    pub level: LogLevel,
-    pub module_levels: BTreeMap<String, LogLevel>,
+    pub level: LogFilter,
+    pub module_levels: BTreeMap<String, LogFilter>,
 }
 
 impl LoggingConfig {
-    const DEFAULT_LEVEL: LogLevel = LogLevel::Info;
+    const DEFAULT_LEVEL: LogFilter = LogFilter::Info;
 
     pub fn validate(&self) -> Result<(), ValidationError> {
         Ok(())
     }
 
-    pub fn effective_level_for(&self, module_path: &str) -> LogLevel {
+    pub fn effective_level_for(&self, module_path: &str) -> LogFilter {
         self.module_levels
             .iter()
             .filter(|(prefix, _)| module_path.starts_with(prefix.as_str()))
@@ -86,7 +86,7 @@ impl LoggingConfig {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
-pub enum LogLevel {
+pub enum LogFilter {
     Trace,
     Debug,
     Info,
@@ -94,7 +94,7 @@ pub enum LogLevel {
     Error,
 }
 
-impl Display for LogLevel {
+impl Display for LogFilter {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let rendered = match self {
             Self::Trace => "trace",
@@ -196,8 +196,8 @@ impl ServerConfigInput {
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 struct LoggingConfigInput {
-    level: Option<LogLevel>,
-    module_levels: BTreeMap<String, LogLevel>,
+    level: Option<LogFilter>,
+    module_levels: BTreeMap<String, LogFilter>,
 }
 
 impl LoggingConfigInput {
@@ -231,13 +231,13 @@ impl FeatureConfigInput {
 mod tests {
     use std::collections::BTreeMap;
 
-    use super::{AppConfig, LogLevel};
+    use super::{AppConfig, LogFilter};
 
     #[test]
     fn logging_defaults_to_info_without_module_overrides() {
         let config = AppConfig::try_from(toml::Table::new()).expect("default config");
 
-        assert_eq!(config.logging.level, LogLevel::Info);
+        assert_eq!(config.logging.level, LogFilter::Info);
         assert!(config.logging.module_levels.is_empty());
     }
 
@@ -255,11 +255,11 @@ mod tests {
         let config = AppConfig::try_from(table).expect("config with module overrides");
 
         let expected = BTreeMap::from([
-            ("selvedge::router".to_owned(), LogLevel::Debug),
-            ("selvedge::worker".to_owned(), LogLevel::Error),
+            ("selvedge::router".to_owned(), LogFilter::Debug),
+            ("selvedge::worker".to_owned(), LogFilter::Error),
         ]);
 
-        assert_eq!(config.logging.level, LogLevel::Warn);
+        assert_eq!(config.logging.level, LogFilter::Warn);
         assert_eq!(config.logging.module_levels, expected);
     }
 }
