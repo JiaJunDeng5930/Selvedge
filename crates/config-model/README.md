@@ -76,14 +76,14 @@ cross-field rules.
 
 `LoggingConfig` keeps logging strongly typed:
 
-- `level` is a `LogLevel`
+- `level` is a `LogFilter`
 - `module_levels` stores per-module-path minimum levels
 
 Example:
 
 ```no_run
 # use std::convert::TryFrom;
-# use selvedge_config_model::{AppConfig, LogLevel};
+# use selvedge_config_model::{AppConfig, LogFilter};
 let config = AppConfig::try_from(toml::toml! {
     [logging]
     level = "warn"
@@ -92,10 +92,10 @@ let config = AppConfig::try_from(toml::toml! {
     "selvedge::router" = "debug"
 })?;
 
-assert_eq!(config.logging.level, LogLevel::Warn);
+assert_eq!(config.logging.level, LogFilter::Warn);
 assert_eq!(
     config.logging.effective_level_for("selvedge::router::dispatch"),
-    LogLevel::Debug
+    LogFilter::Debug
 );
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```

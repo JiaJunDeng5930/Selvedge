@@ -7,7 +7,7 @@ use std::{
 };
 
 use selvedge_config::read;
-pub use selvedge_config_model::LogLevel;
+use selvedge_config_model::LogFilter;
 use tracing::{Event, Subscriber};
 use tracing_log::LogTracer;
 use tracing_subscriber::{Registry, layer::Context, layer::Layer, prelude::*};
@@ -51,6 +51,15 @@ impl Display for InitError {
 
 impl std::error::Error for InitError {}
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum LogLevel {
+    Trace,
+    Debug,
+    Info,
+    Warn,
+    Error,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[doc(hidden)]
 pub struct LogEvent {
@@ -72,12 +81,28 @@ impl LogEvent {
     }
 }
 
+impl LogLevel {
+    fn meets_filter(self, minimum_level: LogFilter) -> bool {
+        self.rank() >= filter_rank(minimum_level)
+    }
+
+    fn rank(self) -> u8 {
+        match self {
+            Self::Trace => 0,
+            Self::Debug => 1,
+            Self::Info => 2,
+            Self::Warn => 3,
+            Self::Error => 4,
+        }
+    }
+}
+
 #[doc(hidden)]
 pub fn should_emit(level: LogLevel, module_path: &str) -> bool {
     read(|config| {
         let minimum_level = config.logging.effective_level_for(module_path);
 
-        level >= minimum_level
+        level.meets_filter(minimum_level)
     })
     .expect("logging requires initialized config")
 }
@@ -285,6 +310,16 @@ fn render_level(level: LogLevel) -> &'static str {
         LogLevel::Info => "info",
         LogLevel::Warn => "warn",
         LogLevel::Error => "error",
+    }
+}
+
+fn filter_rank(level: LogFilter) -> u8 {
+    match level {
+        LogFilter::Trace => 0,
+        LogFilter::Debug => 1,
+        LogFilter::Info => 2,
+        LogFilter::Warn => 3,
+        LogFilter::Error => 4,
     }
 }
 
