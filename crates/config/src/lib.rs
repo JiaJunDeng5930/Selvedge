@@ -80,11 +80,7 @@ pub fn read<R, F>(reader: F) -> Result<R, ConfigError>
 where
     F: FnOnce(&AppConfig) -> R,
 {
-    let global = CONFIG_SERVICE
-        .read()
-        .map_err(|_| ConfigError::LoadFailed("config service lock poisoned".to_owned()))?;
-    let service = global.as_ref().ok_or(ConfigError::NotInitialized)?;
-    let config = service.materialize_config()?;
+    let config = materialize_current_config()?;
 
     Ok(reader(&config))
 }
@@ -242,10 +238,19 @@ pub enum ConfigError {
 
 fn resolve_explicit_path(path: PathBuf) -> Result<PathBuf, ConfigError> {
     if path.is_file() {
-        return Ok(path);
+        return fs::canonicalize(&path).map_err(|_| ConfigError::InvalidExplicitPath(path));
     }
 
     Err(ConfigError::InvalidExplicitPath(path))
+}
+
+fn materialize_current_config() -> Result<AppConfig, ConfigError> {
+    let global = CONFIG_SERVICE
+        .read()
+        .map_err(|_| ConfigError::LoadFailed("config service lock poisoned".to_owned()))?;
+    let service = global.as_ref().ok_or(ConfigError::NotInitialized)?;
+
+    service.materialize_config()
 }
 
 fn resolve_env_path(path: PathBuf) -> Result<PathBuf, ConfigError> {
@@ -481,12 +486,14 @@ fn reset_for_test() {
 
 #[cfg(test)]
 mod tests {
+    use std::env;
     use std::ffi::OsString;
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
     use std::sync::{LazyLock, Mutex};
 
     use super::{
-        ConfigError, Value, load_env_table_from_entries, persistence_directory, reset_for_test,
+        CONFIG_SERVICE, ConfigError, Value, load_env_table_from_entries,
+        materialize_current_config, persistence_directory, reset_for_test,
     };
 
     static TEST_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
@@ -601,5 +608,107 @@ request_timeout_ms = 5000
             error,
             ConfigError::InvalidUpdatePath("feature..enabled".to_owned())
         );
+    }
+
+    #[test]
+    fn materialize_current_config_releases_global_lock_before_returning() {
+        let _guard = TEST_LOCK.lock().expect("test lock");
+        reset_for_test();
+        let tempdir = tempfile::TempDir::new().expect("tempdir");
+        let config_path = tempdir.path().join("selvedge.toml");
+
+        std::fs::write(
+            &config_path,
+            r#"
+[server]
+host = "127.0.0.1"
+port = 8080
+request_timeout_ms = 5000
+"#,
+        )
+        .expect("write config");
+
+        crate::init_with_path(config_path).expect("init config service");
+
+        let config = materialize_current_config().expect("materialize current config");
+        let write_guard = CONFIG_SERVICE
+            .try_write()
+            .expect("global config lock should be released after materializing");
+
+        assert_eq!(config.server.port, 8080);
+        drop(write_guard);
+    }
+
+    #[test]
+    fn explicit_relative_path_is_canonicalized_for_persistence() {
+        let _guard = TEST_LOCK.lock().expect("test lock");
+        reset_for_test();
+        let original_dir = env::current_dir().expect("current dir");
+        let tempdir = tempfile::TempDir::new().expect("tempdir");
+        let config_dir = tempdir.path().join("workspace/config");
+        let work_dir = tempdir.path().join("workspace/bin");
+        let moved_dir = tempdir.path().join("other/place");
+        let config_path = config_dir.join("selvedge.toml");
+
+        std::fs::create_dir_all(&config_dir).expect("create config dir");
+        std::fs::create_dir_all(&work_dir).expect("create work dir");
+        std::fs::create_dir_all(&moved_dir).expect("create moved dir");
+        std::fs::write(
+            &config_path,
+            r#"
+[server]
+host = "127.0.0.1"
+port = 8080
+request_timeout_ms = 5000
+
+[logging]
+level = "info"
+format = "text"
+"#,
+        )
+        .expect("write config");
+
+        let relative_path = relative_path_from(&work_dir, &config_path);
+        let test_result = (|| -> Result<(), String> {
+            env::set_current_dir(&work_dir).map_err(|error| error.to_string())?;
+            crate::init_with_path(&relative_path).map_err(|error| error.to_string())?;
+            env::set_current_dir(&moved_dir).map_err(|error| error.to_string())?;
+            crate::update_runtime_and_persist("logging.level", "debug")
+                .map_err(|error| error.to_string())?;
+
+            Ok(())
+        })();
+
+        env::set_current_dir(&original_dir).expect("restore current dir");
+        test_result.expect("persist runtime update");
+
+        let persisted =
+            std::fs::read_to_string(&config_path).expect("read persisted config from source path");
+        let drifted_path = moved_dir.join(relative_path);
+
+        assert!(persisted.contains("level = \"debug\""));
+        assert_ne!(drifted_path, config_path);
+        assert!(!drifted_path.exists());
+    }
+
+    fn relative_path_from(base: &Path, target: &Path) -> PathBuf {
+        let base_components = base.components().collect::<Vec<_>>();
+        let target_components = target.components().collect::<Vec<_>>();
+        let shared_prefix_len = base_components
+            .iter()
+            .zip(&target_components)
+            .take_while(|(left, right)| left == right)
+            .count();
+        let mut relative = PathBuf::new();
+
+        for _ in &base_components[shared_prefix_len..] {
+            relative.push("..");
+        }
+
+        for component in &target_components[shared_prefix_len..] {
+            relative.push(component.as_os_str());
+        }
+
+        relative
     }
 }
