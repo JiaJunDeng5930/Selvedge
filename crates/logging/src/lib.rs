@@ -51,6 +51,27 @@ impl Display for InitError {
 
 impl std::error::Error for InitError {}
 
+#[derive(Debug)]
+pub enum EmitError {
+    ReadConfig(selvedge_config::ConfigError),
+}
+
+impl Display for EmitError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::ReadConfig(error) => write!(formatter, "failed to read logging config: {error}"),
+        }
+    }
+}
+
+impl std::error::Error for EmitError {}
+
+impl From<selvedge_config::ConfigError> for EmitError {
+    fn from(error: selvedge_config::ConfigError) -> Self {
+        Self::ReadConfig(error)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum LogLevel {
     Trace,
@@ -98,72 +119,88 @@ impl LogLevel {
 }
 
 #[doc(hidden)]
-pub fn should_emit(level: LogLevel, module_path: &str) -> bool {
+pub fn should_emit(level: LogLevel, module_path: &str) -> Result<bool, EmitError> {
     read(|config| {
         let minimum_level = config.logging.effective_level_for(module_path);
 
         level.meets_filter(minimum_level)
     })
-    .expect("logging requires initialized config")
+    .map_err(EmitError::from)
 }
 
 #[macro_export]
 macro_rules! selvedge_log {
     ($level:expr, $message:expr $(,)?) => {{
-        if $crate::should_emit($level, module_path!()) {
-            match $level {
-                $crate::LogLevel::Trace => $crate::__private::tracing::event!(
-                    $crate::__private::tracing::Level::TRACE,
-                    message = %$message
-                ),
-                $crate::LogLevel::Debug => $crate::__private::tracing::event!(
-                    $crate::__private::tracing::Level::DEBUG,
-                    message = %$message
-                ),
-                $crate::LogLevel::Info => $crate::__private::tracing::event!(
-                    $crate::__private::tracing::Level::INFO,
-                    message = %$message
-                ),
-                $crate::LogLevel::Warn => $crate::__private::tracing::event!(
-                    $crate::__private::tracing::Level::WARN,
-                    message = %$message
-                ),
-                $crate::LogLevel::Error => $crate::__private::tracing::event!(
-                    $crate::__private::tracing::Level::ERROR,
-                    message = %$message
-                ),
+        match $crate::should_emit($level, module_path!()) {
+            ::std::result::Result::Ok(true) => {
+                match $level {
+                    $crate::LogLevel::Trace => $crate::__private::tracing::event!(
+                        $crate::__private::tracing::Level::TRACE,
+                        message = %$message
+                    ),
+                    $crate::LogLevel::Debug => $crate::__private::tracing::event!(
+                        $crate::__private::tracing::Level::DEBUG,
+                        message = %$message
+                    ),
+                    $crate::LogLevel::Info => $crate::__private::tracing::event!(
+                        $crate::__private::tracing::Level::INFO,
+                        message = %$message
+                    ),
+                    $crate::LogLevel::Warn => $crate::__private::tracing::event!(
+                        $crate::__private::tracing::Level::WARN,
+                        message = %$message
+                    ),
+                    $crate::LogLevel::Error => $crate::__private::tracing::event!(
+                        $crate::__private::tracing::Level::ERROR,
+                        message = %$message
+                    ),
+                }
+
+                ::std::result::Result::<(), $crate::EmitError>::Ok(())
             }
+            ::std::result::Result::Ok(false) => {
+                ::std::result::Result::<(), $crate::EmitError>::Ok(())
+            }
+            ::std::result::Result::Err(error) => ::std::result::Result::Err(error),
         }
     }};
     ($level:expr, $message:expr; $($key:ident = $value:expr),+ $(,)?) => {{
-        if $crate::should_emit($level, module_path!()) {
-            match $level {
-                $crate::LogLevel::Trace => $crate::__private::tracing::event!(
-                    $crate::__private::tracing::Level::TRACE,
-                    message = %$message,
-                    $($key = $crate::__private::tracing::field::display(&$value)),+
-                ),
-                $crate::LogLevel::Debug => $crate::__private::tracing::event!(
-                    $crate::__private::tracing::Level::DEBUG,
-                    message = %$message,
-                    $($key = $crate::__private::tracing::field::display(&$value)),+
-                ),
-                $crate::LogLevel::Info => $crate::__private::tracing::event!(
-                    $crate::__private::tracing::Level::INFO,
-                    message = %$message,
-                    $($key = $crate::__private::tracing::field::display(&$value)),+
-                ),
-                $crate::LogLevel::Warn => $crate::__private::tracing::event!(
-                    $crate::__private::tracing::Level::WARN,
-                    message = %$message,
-                    $($key = $crate::__private::tracing::field::display(&$value)),+
-                ),
-                $crate::LogLevel::Error => $crate::__private::tracing::event!(
-                    $crate::__private::tracing::Level::ERROR,
-                    message = %$message,
-                    $($key = $crate::__private::tracing::field::display(&$value)),+
-                ),
+        match $crate::should_emit($level, module_path!()) {
+            ::std::result::Result::Ok(true) => {
+                match $level {
+                    $crate::LogLevel::Trace => $crate::__private::tracing::event!(
+                        $crate::__private::tracing::Level::TRACE,
+                        message = %$message,
+                        $($key = $crate::__private::tracing::field::display(&$value)),+
+                    ),
+                    $crate::LogLevel::Debug => $crate::__private::tracing::event!(
+                        $crate::__private::tracing::Level::DEBUG,
+                        message = %$message,
+                        $($key = $crate::__private::tracing::field::display(&$value)),+
+                    ),
+                    $crate::LogLevel::Info => $crate::__private::tracing::event!(
+                        $crate::__private::tracing::Level::INFO,
+                        message = %$message,
+                        $($key = $crate::__private::tracing::field::display(&$value)),+
+                    ),
+                    $crate::LogLevel::Warn => $crate::__private::tracing::event!(
+                        $crate::__private::tracing::Level::WARN,
+                        message = %$message,
+                        $($key = $crate::__private::tracing::field::display(&$value)),+
+                    ),
+                    $crate::LogLevel::Error => $crate::__private::tracing::event!(
+                        $crate::__private::tracing::Level::ERROR,
+                        message = %$message,
+                        $($key = $crate::__private::tracing::field::display(&$value)),+
+                    ),
+                }
+
+                ::std::result::Result::<(), $crate::EmitError>::Ok(())
             }
+            ::std::result::Result::Ok(false) => {
+                ::std::result::Result::<(), $crate::EmitError>::Ok(())
+            }
+            ::std::result::Result::Err(error) => ::std::result::Result::Err(error),
         }
     }};
 }
@@ -206,6 +243,15 @@ where
     S: Subscriber,
 {
     fn on_event(&self, event: &Event<'_>, _ctx: Context<'_, S>) {
+        let metadata = event.metadata();
+        let level = capture_level(*metadata.level());
+        let module_path = metadata.module_path().unwrap_or(metadata.target());
+        let should_write = should_emit(level, module_path).unwrap_or(false);
+
+        if !should_write {
+            return;
+        }
+
         let captured = capture_event(event);
         let sink = current_sink();
 
@@ -409,6 +455,7 @@ fn init_for_test(recorder: TestRecorder) -> Result<(), InitError> {
 mod tests {
     use std::{
         collections::BTreeMap,
+        process::Command,
         sync::{Arc, Mutex, OnceLock},
     };
 
@@ -432,7 +479,7 @@ mod tests {
             .expect("clear module levels");
         recorder.clear();
 
-        selvedge_log!(LogLevel::Info, "router started");
+        selvedge_log!(LogLevel::Info, "router started").expect("emit router started");
 
         let events = recorder.take();
         let event = events.first().expect("captured event");
@@ -455,7 +502,8 @@ mod tests {
             .expect("clear module levels");
         recorder.clear();
 
-        selvedge_log!(LogLevel::Warn, "target thread not found"; thread = "worker-2", target = "indexer");
+        selvedge_log!(LogLevel::Warn, "target thread not found"; thread = "worker-2", target = "indexer")
+            .expect("emit warn event");
 
         let events = recorder.take();
         let event = events.first().expect("captured event");
@@ -479,11 +527,12 @@ mod tests {
             .expect("clear module levels");
         recorder.clear();
 
-        selvedge_log!(LogLevel::Debug, "debug should be filtered");
+        selvedge_log!(LogLevel::Debug, "debug should be filtered")
+            .expect("debug event should evaluate cleanly");
         assert!(recorder.take().is_empty());
 
         update_runtime("logging.level", "debug").expect("set debug");
-        selvedge_log!(LogLevel::Debug, "debug should pass");
+        selvedge_log!(LogLevel::Debug, "debug should pass").expect("emit debug event");
 
         let events = recorder.take();
         let event = events.first().expect("captured event");
@@ -505,7 +554,8 @@ mod tests {
         let threads = (0..4)
             .map(|index| {
                 std::thread::spawn(move || {
-                    selvedge_log!(LogLevel::Info, "worker event"; worker = index);
+                    selvedge_log!(LogLevel::Info, "worker event"; worker = index)
+                        .expect("emit worker event");
                 })
             })
             .collect::<Vec<_>>();
@@ -519,6 +569,42 @@ mod tests {
         assert_eq!(events.len(), 4);
         assert!(events.iter().all(|event| event.message == "worker event"));
         assert_eq!(unique_workers(&events), vec!["0", "1", "2", "3"]);
+    }
+
+    #[test]
+    fn dependency_logs_are_filtered_in_subscriber_layer() {
+        let _guard = test_lock().lock().expect("test lock");
+        ensure_test_config();
+        let recorder = TestRecorder::default();
+
+        init_for_test(recorder.clone()).expect("init test logger");
+        update_runtime("logging.level", "warn").expect("set warn level");
+        update_runtime("logging.module_levels", BTreeMap::<String, String>::new())
+            .expect("clear module levels");
+        recorder.clear();
+
+        log::info!("dependency info");
+        assert!(recorder.take().is_empty());
+
+        log::error!("dependency error");
+
+        let events = recorder.take();
+        let event = events.first().expect("captured dependency error");
+        assert_eq!(event.level, LogLevel::Error);
+        assert_eq!(event.message, "dependency error");
+    }
+
+    #[test]
+    fn log_macro_returns_error_when_config_is_missing() {
+        let current_executable = std::env::current_exe().expect("current test executable");
+        let output = Command::new(current_executable)
+            .arg("--exact")
+            .arg("tests::missing_config_child_reports_error")
+            .env("SELVEDGE_LOGGING_MISSING_CONFIG_CHILD", "1")
+            .output()
+            .expect("run missing config child test");
+
+        assert!(output.status.success(), "child test failed: {output:?}");
     }
 
     fn ensure_test_config() {
@@ -557,5 +643,20 @@ level = "info"
 
     fn test_lock() -> &'static Mutex<()> {
         TEST_LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    #[test]
+    fn missing_config_child_reports_error() {
+        if std::env::var_os("SELVEDGE_LOGGING_MISSING_CONFIG_CHILD").is_none() {
+            return;
+        }
+
+        let error = super::selvedge_log!(LogLevel::Info, "missing config")
+            .expect_err("missing config should return an error");
+
+        assert!(matches!(
+            error,
+            super::EmitError::ReadConfig(selvedge_config::ConfigError::NotInitialized)
+        ));
     }
 }
