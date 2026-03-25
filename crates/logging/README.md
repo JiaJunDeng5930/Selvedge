@@ -29,8 +29,8 @@ use selvedge_logging::{LogLevel, init, selvedge_log};
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     init()?;
 
-    selvedge_log!(LogLevel::Info, "router started");
-    selvedge_log!(LogLevel::Warn, "target thread not found"; target = "indexer");
+    selvedge_log!(LogLevel::Info, "router started")?;
+    selvedge_log!(LogLevel::Warn, "target thread not found"; target = "indexer")?;
 
     Ok(())
 }
@@ -47,8 +47,9 @@ Callers only do one thing: emit a log with `selvedge_log!`.
 
 ```no_run
 # use selvedge_logging::{LogLevel, selvedge_log};
-selvedge_log!(LogLevel::Info, "worker started");
-selvedge_log!(LogLevel::Error, "send failed"; worker = "worker-2", reason = "channel closed");
+# selvedge_log!(LogLevel::Info, "worker started")?;
+# selvedge_log!(LogLevel::Error, "send failed"; worker = "worker-2", reason = "channel closed")?;
+# Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
 ## Config interaction
