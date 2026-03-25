@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/config", "crates/config-model"]
+members = ["crates/config", "crates/config-model", "crates/logging"]
 resolver = "2"
 
 [package]
@@ -9,10 +9,13 @@ publish = false
 description = "Rust project foundation for Selvedge"
 
 [dependencies]
+selvedge-config = { path = "crates/config" }
+selvedge-logging = { path = "crates/logging" }
 
 [dev-dependencies]
 selvedge-config = { path = "crates/config" }
 selvedge-config-model = { path = "crates/config-model" }
+selvedge-logging = { path = "crates/logging" }
 tempfile = "3.14.0"
 
 [lints.rust]

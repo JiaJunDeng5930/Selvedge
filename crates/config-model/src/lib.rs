@@ -1,5 +1,7 @@
 #![doc = include_str!("../README.md")]
 
+use std::{collections::BTreeMap, fmt::Display};
+
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use toml::{Table, Value};
@@ -61,16 +63,48 @@ impl ServerConfig {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct LoggingConfig {
-    pub level: String,
-    pub format: String,
+    pub level: LogLevel,
+    pub module_levels: BTreeMap<String, LogLevel>,
 }
 
 impl LoggingConfig {
-    const DEFAULT_LEVEL: &'static str = "info";
-    const DEFAULT_FORMAT: &'static str = "text";
+    const DEFAULT_LEVEL: LogLevel = LogLevel::Info;
 
     pub fn validate(&self) -> Result<(), ValidationError> {
         Ok(())
+    }
+
+    pub fn effective_level_for(&self, module_path: &str) -> LogLevel {
+        self.module_levels
+            .iter()
+            .filter(|(prefix, _)| module_path.starts_with(prefix.as_str()))
+            .max_by_key(|(prefix, _)| prefix.len())
+            .map(|(_, level)| *level)
+            .unwrap_or(self.level)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum LogLevel {
+    Trace,
+    Debug,
+    Info,
+    Warn,
+    Error,
+}
+
+impl Display for LogLevel {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let rendered = match self {
+            Self::Trace => "trace",
+            Self::Debug => "debug",
+            Self::Info => "info",
+            Self::Warn => "warn",
+            Self::Error => "error",
+        };
+
+        formatter.write_str(rendered)
     }
 }
 
@@ -162,19 +196,15 @@ impl ServerConfigInput {
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 struct LoggingConfigInput {
-    level: Option<String>,
-    format: Option<String>,
+    level: Option<LogLevel>,
+    module_levels: BTreeMap<String, LogLevel>,
 }
 
 impl LoggingConfigInput {
     fn materialize(self) -> LoggingConfig {
         LoggingConfig {
-            level: self
-                .level
-                .unwrap_or_else(|| LoggingConfig::DEFAULT_LEVEL.to_owned()),
-            format: self
-                .format
-                .unwrap_or_else(|| LoggingConfig::DEFAULT_FORMAT.to_owned()),
+            level: self.level.unwrap_or(LoggingConfig::DEFAULT_LEVEL),
+            module_levels: self.module_levels,
         }
     }
 }
@@ -194,5 +224,42 @@ impl FeatureConfigInput {
                 .rollout_percentage
                 .unwrap_or(FeatureConfig::DEFAULT_ROLLOUT_PERCENTAGE),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+
+    use super::{AppConfig, LogLevel};
+
+    #[test]
+    fn logging_defaults_to_info_without_module_overrides() {
+        let config = AppConfig::try_from(toml::Table::new()).expect("default config");
+
+        assert_eq!(config.logging.level, LogLevel::Info);
+        assert!(config.logging.module_levels.is_empty());
+    }
+
+    #[test]
+    fn logging_accepts_strongly_typed_module_level_overrides() {
+        let table = toml::toml! {
+            [logging]
+            level = "warn"
+
+            [logging.module_levels]
+            "selvedge::router" = "debug"
+            "selvedge::worker" = "error"
+        };
+
+        let config = AppConfig::try_from(table).expect("config with module overrides");
+
+        let expected = BTreeMap::from([
+            ("selvedge::router".to_owned(), LogLevel::Debug),
+            ("selvedge::worker".to_owned(), LogLevel::Error),
+        ]);
+
+        assert_eq!(config.logging.level, LogLevel::Warn);
+        assert_eq!(config.logging.module_levels, expected);
     }
 }

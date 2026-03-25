@@ -10,6 +10,7 @@ Use it to:
 - define defaults next to those structs
 - define validation rules next to those structs
 - materialize `AppConfig` from raw TOML input
+- expose strongly typed logging levels and module-level log overrides
 
 ## This crate is not for
 
@@ -70,3 +71,31 @@ Each config type validates its own invariants.
 
 `AppConfig::validate()` only composes child validation and top-level
 cross-field rules.
+
+## Logging config
+
+`LoggingConfig` keeps logging strongly typed:
+
+- `level` is a `LogLevel`
+- `module_levels` stores per-module-path minimum levels
+
+Example:
+
+```no_run
+# use std::convert::TryFrom;
+# use selvedge_config_model::{AppConfig, LogLevel};
+let config = AppConfig::try_from(toml::toml! {
+    [logging]
+    level = "warn"
+
+    [logging.module_levels]
+    "selvedge::router" = "debug"
+})?;
+
+assert_eq!(config.logging.level, LogLevel::Warn);
+assert_eq!(
+    config.logging.effective_level_for("selvedge::router::dispatch"),
+    LogLevel::Debug
+);
+# Ok::<(), Box<dyn std::error::Error>>(())
+```
