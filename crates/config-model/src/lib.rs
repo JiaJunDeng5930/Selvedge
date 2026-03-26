@@ -77,11 +77,18 @@ impl LoggingConfig {
     pub fn effective_level_for(&self, module_path: &str) -> LogFilter {
         self.module_levels
             .iter()
-            .filter(|(prefix, _)| module_path.starts_with(prefix.as_str()))
+            .filter(|(prefix, _)| matches_module_override(module_path, prefix))
             .max_by_key(|(prefix, _)| prefix.len())
             .map(|(_, level)| *level)
             .unwrap_or(self.level)
     }
+}
+
+fn matches_module_override(module_path: &str, prefix: &str) -> bool {
+    module_path == prefix
+        || module_path
+            .strip_prefix(prefix)
+            .is_some_and(|suffix| suffix.starts_with("::"))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -261,5 +268,35 @@ mod tests {
 
         assert_eq!(config.logging.level, LogFilter::Warn);
         assert_eq!(config.logging.module_levels, expected);
+    }
+
+    #[test]
+    fn module_override_requires_exact_path_or_descendant_boundary() {
+        let table = toml::toml! {
+            [logging]
+            level = "warn"
+
+            [logging.module_levels]
+            "selvedge::router" = "debug"
+        };
+
+        let config = AppConfig::try_from(table).expect("config with module override");
+
+        assert_eq!(
+            config.logging.effective_level_for("selvedge::router"),
+            LogFilter::Debug
+        );
+        assert_eq!(
+            config
+                .logging
+                .effective_level_for("selvedge::router::dispatch"),
+            LogFilter::Debug
+        );
+        assert_eq!(
+            config
+                .logging
+                .effective_level_for("selvedge::router_worker"),
+            LogFilter::Warn
+        );
     }
 }
