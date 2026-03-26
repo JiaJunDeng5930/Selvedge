@@ -314,7 +314,10 @@ fn install_subscriber() -> Result<(), InitError> {
     let subscriber = Registry::default().with(SelvedgeLayer);
     tracing::subscriber::set_global_default(subscriber).map_err(InitError::InstallSubscriber)?;
     let _ = SUBSCRIBER_INSTALLED.set(());
-    LogTracer::init().map_err(InitError::InstallLogTracer)?;
+
+    if let Err(error) = LogTracer::init() {
+        panic!("failed to install log tracer after subscriber setup: {error}");
+    }
 
     Ok(())
 }
@@ -753,16 +756,19 @@ mod tests {
     }
 
     #[test]
-    fn log_tracer_conflict_keeps_explicit_logging_usable() {
+    fn log_tracer_conflict_fails_fast() {
         let current_executable = std::env::current_exe().expect("current test executable");
         let output = Command::new(current_executable)
             .arg("--exact")
-            .arg("tests::log_tracer_conflict_child_keeps_explicit_logging_usable")
+            .arg("tests::log_tracer_conflict_child_panics")
             .env("SELVEDGE_LOGGING_LOG_TRACER_CONFLICT_CHILD", "1")
             .output()
             .expect("run log tracer conflict child test");
 
-        assert!(output.status.success(), "child test failed: {output:?}");
+        assert!(
+            !output.status.success(),
+            "child test unexpectedly passed: {output:?}"
+        );
     }
 
     #[test]
@@ -972,7 +978,7 @@ level = "info"
     }
 
     #[test]
-    fn log_tracer_conflict_child_keeps_explicit_logging_usable() {
+    fn log_tracer_conflict_child_panics() {
         if std::env::var_os("SELVEDGE_LOGGING_LOG_TRACER_CONFLICT_CHILD").is_none() {
             return;
         }
@@ -1012,18 +1018,7 @@ level = "info"
         log::set_logger(&EXISTING_LOGGER).expect("install conflicting logger");
         log::set_max_level(log::LevelFilter::Trace);
 
-        let error = super::init().expect_err("logging init should fail");
-        assert!(matches!(error, super::InitError::InstallLogTracer(_)));
-
-        super::emit(
-            LogLevel::Info,
-            "explicit logging still works",
-            module_path!(),
-            file!(),
-            line!(),
-            Vec::new(),
-        )
-        .expect("explicit logging should remain usable after log tracer conflict");
+        let _ = super::init();
     }
 
     fn counted_message(counter: &std::sync::atomic::AtomicUsize) -> String {

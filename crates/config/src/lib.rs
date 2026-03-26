@@ -417,6 +417,9 @@ fn apply_override(table: &mut Table, path: &str, value: Value) -> Result<(), Con
 fn merge_tables(base: &mut Table, patch: &Table) {
     for (key, patch_value) in patch {
         match (base.get_mut(key), patch_value) {
+            (Some(_), Value::Table(patch_table)) if patch_table.is_empty() => {
+                base.insert(key.clone(), Value::Table(Table::new()));
+            }
             (Some(Value::Table(base_table)), Value::Table(patch_table)) => {
                 merge_tables(base_table, patch_table);
             }
@@ -688,6 +691,43 @@ level = "info"
         assert!(persisted.contains("level = \"debug\""));
         assert_ne!(drifted_path, config_path);
         assert!(!drifted_path.exists());
+    }
+
+    #[test]
+    fn empty_module_level_patch_clears_base_logging_overrides() {
+        let _guard = TEST_LOCK.lock().expect("test lock");
+        reset_for_test();
+        let tempdir = tempfile::TempDir::new().expect("tempdir");
+        let config_path = tempdir.path().join("selvedge.toml");
+
+        std::fs::write(
+            &config_path,
+            r#"
+[server]
+host = "127.0.0.1"
+port = 8080
+request_timeout_ms = 5000
+
+[logging]
+level = "info"
+
+[logging.module_levels]
+"selvedge::router" = "debug"
+"#,
+        )
+        .expect("write config");
+
+        crate::init_with_path(config_path).expect("init config");
+        crate::update_runtime(
+            "logging.module_levels",
+            std::collections::BTreeMap::<String, String>::new(),
+        )
+        .expect("clear module levels");
+
+        let module_levels = crate::read(|config| config.logging.module_levels.clone())
+            .expect("read logging module levels");
+
+        assert!(module_levels.is_empty());
     }
 
     fn relative_path_from(base: &Path, target: &Path) -> PathBuf {
