@@ -9,7 +9,7 @@ use std::{
 use selvedge_config::read;
 use selvedge_config_model::LogFilter;
 use tracing::{Event, Subscriber};
-use tracing_log::LogTracer;
+use tracing_log::{LogTracer, NormalizeEvent};
 use tracing_subscriber::{Registry, layer::Context, layer::Layer, prelude::*};
 
 static RUNTIME: LazyLock<RwLock<RuntimeState>> =
@@ -288,7 +288,10 @@ where
     S: Subscriber,
 {
     fn on_event(&self, event: &Event<'_>, _ctx: Context<'_, S>) {
-        let metadata = event.metadata();
+        let normalized_metadata = event.normalized_metadata();
+        let metadata = normalized_metadata
+            .as_ref()
+            .unwrap_or_else(|| event.metadata());
         let level = capture_level(*metadata.level());
         let module_path = metadata.module_path().unwrap_or(metadata.target());
         let should_write =
@@ -368,7 +371,10 @@ fn current_sink() -> Result<Arc<dyn EventSink>, EmitError> {
 }
 
 fn capture_event(event: &Event<'_>) -> LogEvent {
-    let metadata = event.metadata();
+    let normalized_metadata = event.normalized_metadata();
+    let metadata = normalized_metadata
+        .as_ref()
+        .unwrap_or_else(|| event.metadata());
     let mut visitor = EventFieldVisitor::default();
 
     event.record(&mut visitor);
@@ -671,6 +677,26 @@ mod tests {
         let event = events.first().expect("captured dependency error");
         assert_eq!(event.level, LogLevel::Error);
         assert_eq!(event.message, "dependency error");
+    }
+
+    #[test]
+    fn dependency_logs_respect_module_level_overrides() {
+        let _guard = test_lock().lock().expect("test lock");
+        ensure_test_config();
+        let recorder = TestRecorder::default();
+
+        init_for_test(recorder.clone()).expect("init test logger");
+        update_runtime("logging.level", "warn").expect("set warn level");
+        update_runtime("logging.module_levels.selvedge_logging::tests", "debug")
+            .expect("set module override");
+        recorder.clear();
+
+        log::info!("dependency info through module override");
+
+        let events = recorder.take();
+        let event = events.first().expect("captured dependency info");
+        assert_eq!(event.level, LogLevel::Info);
+        assert_eq!(event.message, "dependency info through module override");
     }
 
     #[test]
