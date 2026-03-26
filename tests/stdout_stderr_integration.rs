@@ -3,6 +3,10 @@ use std::process::Command;
 #[test]
 fn binary_keeps_logs_off_stdout() {
     let output = Command::new(env!("CARGO_BIN_EXE_selvedge"))
+        .env_remove("SELVEDGE_CONFIG")
+        .env_remove("SELVEDGE_APP")
+        .env_remove("SELVEDGE_APP__LOGGING__LEVEL")
+        .env_remove("SELVEDGE_APP__LOGGING__MODULE_LEVELS")
         .output()
         .expect("run selvedge binary");
 

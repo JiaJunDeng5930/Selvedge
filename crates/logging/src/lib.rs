@@ -21,7 +21,9 @@ pub fn init() -> Result<(), InitError> {
     initialize_runtime(Arc::new(StderrSink::default()), false)?;
 
     if let Err(error) = install_subscriber() {
-        reset_runtime();
+        if matches!(error, InitError::InstallSubscriber(_)) {
+            reset_runtime();
+        }
         return Err(error);
     }
 
@@ -311,8 +313,8 @@ fn install_subscriber() -> Result<(), InitError> {
 
     let subscriber = Registry::default().with(SelvedgeLayer);
     tracing::subscriber::set_global_default(subscriber).map_err(InitError::InstallSubscriber)?;
-    LogTracer::init().map_err(InitError::InstallLogTracer)?;
     let _ = SUBSCRIBER_INSTALLED.set(());
+    LogTracer::init().map_err(InitError::InstallLogTracer)?;
 
     Ok(())
 }
@@ -751,6 +753,19 @@ mod tests {
     }
 
     #[test]
+    fn log_tracer_conflict_keeps_explicit_logging_usable() {
+        let current_executable = std::env::current_exe().expect("current test executable");
+        let output = Command::new(current_executable)
+            .arg("--exact")
+            .arg("tests::log_tracer_conflict_child_keeps_explicit_logging_usable")
+            .env("SELVEDGE_LOGGING_LOG_TRACER_CONFLICT_CHILD", "1")
+            .output()
+            .expect("run log tracer conflict child test");
+
+        assert!(output.status.success(), "child test failed: {output:?}");
+    }
+
+    #[test]
     fn filtered_log_does_not_evaluate_message_or_fields() {
         let _guard = test_lock().lock().expect("test lock");
         ensure_test_config();
@@ -954,6 +969,61 @@ level = "info"
         });
 
         super::init().expect("scoped dispatcher should not block global init");
+    }
+
+    #[test]
+    fn log_tracer_conflict_child_keeps_explicit_logging_usable() {
+        if std::env::var_os("SELVEDGE_LOGGING_LOG_TRACER_CONFLICT_CHILD").is_none() {
+            return;
+        }
+
+        #[derive(Debug)]
+        struct ExistingLogger;
+
+        impl log::Log for ExistingLogger {
+            fn enabled(&self, _metadata: &log::Metadata<'_>) -> bool {
+                true
+            }
+
+            fn log(&self, _record: &log::Record<'_>) {}
+
+            fn flush(&self) {}
+        }
+
+        static EXISTING_LOGGER: ExistingLogger = ExistingLogger;
+
+        let tempdir = TempDir::new().expect("tempdir");
+        let config_path = tempdir.path().join("selvedge.toml");
+        std::fs::write(
+            &config_path,
+            r#"
+[server]
+host = "127.0.0.1"
+port = 8080
+request_timeout_ms = 5000
+
+[logging]
+level = "info"
+"#,
+        )
+        .expect("write config");
+
+        init_with_path(config_path).expect("init config");
+        log::set_logger(&EXISTING_LOGGER).expect("install conflicting logger");
+        log::set_max_level(log::LevelFilter::Trace);
+
+        let error = super::init().expect_err("logging init should fail");
+        assert!(matches!(error, super::InitError::InstallLogTracer(_)));
+
+        super::emit(
+            LogLevel::Info,
+            "explicit logging still works",
+            module_path!(),
+            file!(),
+            line!(),
+            Vec::new(),
+        )
+        .expect("explicit logging should remain usable after log tracer conflict");
     }
 
     fn counted_message(counter: &std::sync::atomic::AtomicUsize) -> String {
