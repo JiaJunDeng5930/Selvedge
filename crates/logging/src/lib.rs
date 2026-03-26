@@ -320,11 +320,11 @@ fn install_subscriber() -> Result<(), InitError> {
 
     let subscriber = Registry::default().with(SelvedgeLayer);
     tracing::subscriber::set_global_default(subscriber).map_err(InitError::InstallSubscriber)?;
-    let _ = SUBSCRIBER_INSTALLED.set(());
 
     if let Err(error) = LogTracer::init() {
         panic!("failed to install log tracer after subscriber setup: {error}");
     }
+    let _ = SUBSCRIBER_INSTALLED.set(());
 
     Ok(())
 }
