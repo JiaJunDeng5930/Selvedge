@@ -4,12 +4,8 @@ edition = "2024"
 publish = false
 
 [dependencies]
-log = "0.4.29"
 selvedge-config = { path = "../config" }
 selvedge-config-model = { path = "../config-model" }
-tracing = "0.1.41"
-tracing-log = "0.2.0"
-tracing-subscriber = { version = "0.3.19", features = ["fmt", "registry"] }
 
 [dev-dependencies]
 tempfile = "3.14.0"

@@ -85,10 +85,54 @@ impl LoggingConfig {
 }
 
 fn matches_module_override(module_path: &str, prefix: &str) -> bool {
-    module_path == prefix
-        || module_path
-            .strip_prefix(prefix)
-            .is_some_and(|suffix| suffix.starts_with("::"))
+    let normalized_module_path = normalize_module_path(module_path);
+    let normalized_prefix = normalize_module_path(prefix);
+
+    normalized_module_path == normalized_prefix
+        || normalized_module_path
+            .strip_prefix(normalized_prefix.as_str())
+            .is_some_and(|suffix| suffix.starts_with('.'))
+}
+
+fn normalize_module_path(path: &str) -> String {
+    path.replace("::", ".")
+}
+
+fn flatten_module_levels(prefix: &str, table: &Table) -> BTreeMap<String, LogFilter> {
+    let mut flattened = BTreeMap::new();
+
+    for (key, value) in table {
+        let next_prefix = if prefix.is_empty() {
+            key.clone()
+        } else {
+            format!("{prefix}.{key}")
+        };
+
+        match value {
+            Value::String(raw_level) => {
+                if let Ok(level) = parse_log_filter(raw_level) {
+                    flattened.insert(normalize_module_path(&next_prefix), level);
+                }
+            }
+            Value::Table(nested) => {
+                flattened.extend(flatten_module_levels(&next_prefix, nested));
+            }
+            _ => {}
+        }
+    }
+
+    flattened
+}
+
+fn parse_log_filter(raw: &str) -> Result<LogFilter, ()> {
+    match raw {
+        "trace" => Ok(LogFilter::Trace),
+        "debug" => Ok(LogFilter::Debug),
+        "info" => Ok(LogFilter::Info),
+        "warn" => Ok(LogFilter::Warn),
+        "error" => Ok(LogFilter::Error),
+        _ => Err(()),
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -204,7 +248,7 @@ impl ServerConfigInput {
 #[serde(default, deny_unknown_fields)]
 struct LoggingConfigInput {
     level: Option<LogFilter>,
-    module_levels: BTreeMap<String, LogFilter>,
+    module_levels: Table,
     format: Option<String>,
 }
 
@@ -214,7 +258,7 @@ impl LoggingConfigInput {
 
         LoggingConfig {
             level: self.level.unwrap_or(LoggingConfig::DEFAULT_LEVEL),
-            module_levels: self.module_levels,
+            module_levels: flatten_module_levels("", &self.module_levels),
         }
     }
 }
@@ -315,5 +359,25 @@ mod tests {
 
         assert_eq!(config.logging.level, LogFilter::Info);
         assert!(config.logging.module_levels.is_empty());
+    }
+
+    #[test]
+    fn logging_accepts_nested_module_level_paths() {
+        let table = toml::toml! {
+            [logging]
+            level = "warn"
+
+            [logging.module_levels.selvedge]
+            router = "debug"
+        };
+
+        let config = AppConfig::try_from(table).expect("config with nested module levels");
+
+        assert_eq!(
+            config
+                .logging
+                .effective_level_for("selvedge::router::dispatch"),
+            LogFilter::Debug
+        );
     }
 }
