@@ -205,10 +205,13 @@ impl ServerConfigInput {
 struct LoggingConfigInput {
     level: Option<LogFilter>,
     module_levels: BTreeMap<String, LogFilter>,
+    format: Option<String>,
 }
 
 impl LoggingConfigInput {
     fn materialize(self) -> LoggingConfig {
+        let _ = self.format;
+
         LoggingConfig {
             level: self.level.unwrap_or(LoggingConfig::DEFAULT_LEVEL),
             module_levels: self.module_levels,
@@ -298,5 +301,19 @@ mod tests {
                 .effective_level_for("selvedge::router_worker"),
             LogFilter::Warn
         );
+    }
+
+    #[test]
+    fn logging_accepts_legacy_format_field_without_using_it() {
+        let table = toml::toml! {
+            [logging]
+            level = "info"
+            format = "text"
+        };
+
+        let config = AppConfig::try_from(table).expect("config with legacy format field");
+
+        assert_eq!(config.logging.level, LogFilter::Info);
+        assert!(config.logging.module_levels.is_empty());
     }
 }
