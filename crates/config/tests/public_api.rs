@@ -1,7 +1,6 @@
 use std::fs;
 
 use selvedge_config::{init_with_cli, read, update_runtime, update_runtime_and_persist};
-use selvedge_config_model::LogFilter;
 use tempfile::TempDir;
 
 #[test]
@@ -19,6 +18,7 @@ request_timeout_ms = 5000
 
 [logging]
 level = "info"
+format = "text"
 "#,
     )
     .expect("write config file");
@@ -36,12 +36,12 @@ level = "info"
         (
             config.server.port,
             config.feature.enabled,
-            config.logging.level,
+            config.logging.level.clone(),
         )
     })
     .expect("read before update");
 
-    assert_eq!(before, (9100, false, LogFilter::Info));
+    assert_eq!(before, (9100, false, "info".to_owned()));
 
     update_runtime("feature.rollout_percentage", 100_u8).expect("set rollout");
     update_runtime("feature.enabled", true).expect("enable feature");
@@ -51,13 +51,13 @@ level = "info"
         (
             config.server.port,
             config.feature.enabled,
-            config.logging.level,
+            config.logging.level.clone(),
         )
     })
     .expect("read after update");
     let persisted = fs::read_to_string(config_path).expect("read persisted file");
 
-    assert_eq!(after, (9100, true, LogFilter::Debug));
+    assert_eq!(after, (9100, true, "debug".to_owned()));
     assert!(persisted.contains("level = \"debug\""));
     assert!(!persisted.contains("enabled = true"));
     let loaded = read(|config| (config.server.port, config.server.request_timeout_ms))

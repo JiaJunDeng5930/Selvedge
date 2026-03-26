@@ -36,7 +36,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("listening on {port}");
 
     update_runtime_and_persist("logging.level", "debug")?;
-    update_runtime_and_persist("logging.module_levels.selvedge::router", "trace")?;
 
     Ok(())
 }
@@ -84,7 +83,6 @@ Semantics:
 # init()?;
 update_runtime("feature.rollout_percentage", 100_u8)?;
 update_runtime("feature.enabled", true)?;
-update_runtime("logging.module_levels.selvedge::worker", "debug")?;
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
@@ -105,10 +103,6 @@ Semantics:
 update_runtime_and_persist("logging.level", "debug")?;
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
-
-`logging.level` controls the global minimum level.
-`logging.module_levels.<module_path_prefix>` overrides that level for matching
-module paths.
 
 ## Errors and guarantees
 
