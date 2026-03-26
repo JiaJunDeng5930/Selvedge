@@ -96,13 +96,13 @@ pub enum LogLevel {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct LogEvent {
-    pub level: LogLevel,
-    pub message: String,
-    pub module_path: String,
-    pub file: String,
-    pub line: u32,
-    pub fields: Vec<(String, String)>,
+struct LogEvent {
+    level: LogLevel,
+    message: String,
+    module_path: String,
+    file: String,
+    line: u32,
+    fields: Vec<(String, String)>,
 }
 
 impl LogEvent {
@@ -131,7 +131,7 @@ impl LogLevel {
     }
 }
 
-pub fn should_emit(level: LogLevel, module_path: &str) -> Result<bool, EmitError> {
+fn should_emit(level: LogLevel, module_path: &str) -> Result<bool, EmitError> {
     read(|config| {
         let minimum_level = effective_filter_for_module(
             config.logging.level,
@@ -162,32 +162,6 @@ fn matches_module_override(module_path: &str, prefix: &str) -> bool {
         || module_path
             .strip_prefix(prefix)
             .is_some_and(|suffix| suffix.starts_with("::"))
-}
-
-pub fn emit(
-    level: LogLevel,
-    message: impl Display,
-    module_path: &'static str,
-    file: &'static str,
-    line: u32,
-    fields: Vec<(String, String)>,
-) -> Result<(), EmitError> {
-    let sink = current_sink()?;
-
-    if !should_emit(level, module_path)? {
-        return Ok(());
-    }
-
-    let event = LogEvent {
-        level,
-        message: message.to_string(),
-        module_path: module_path.to_owned(),
-        file: file.to_owned(),
-        line,
-        fields,
-    };
-
-    sink.write(event)
 }
 
 pub fn emit_lazy<MessageFn, FieldsFn>(
