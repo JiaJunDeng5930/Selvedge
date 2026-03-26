@@ -1,9 +1,13 @@
 use std::process::Command;
+use tempfile::TempDir;
 
 #[test]
 fn binary_keeps_logs_off_stdout() {
+    let tempdir = TempDir::new().expect("tempdir");
     let mut command = Command::new(env!("CARGO_BIN_EXE_selvedge"));
     command.env_remove("SELVEDGE_CONFIG");
+    command.env("HOME", tempdir.path());
+    command.env("XDG_CONFIG_HOME", tempdir.path());
 
     for (key, _) in std::env::vars_os() {
         if key
