@@ -16,11 +16,6 @@ static RUNTIME: LazyLock<RwLock<RuntimeState>> =
     LazyLock::new(|| RwLock::new(RuntimeState::Uninitialized));
 static SUBSCRIBER_INSTALLED: OnceLock<()> = OnceLock::new();
 
-#[doc(hidden)]
-pub mod __private {
-    pub use tracing;
-}
-
 pub fn init() -> Result<(), InitError> {
     install_subscriber()?;
     initialize_runtime(Arc::new(StdoutSink::default()), false)
@@ -54,12 +49,20 @@ impl std::error::Error for InitError {}
 #[derive(Debug)]
 pub enum EmitError {
     ReadConfig(selvedge_config::ConfigError),
+    NotInitialized,
+    RuntimeLockPoisoned,
+    OutputLockPoisoned,
+    Write(io::Error),
 }
 
 impl Display for EmitError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::ReadConfig(error) => write!(formatter, "failed to read logging config: {error}"),
+            Self::NotInitialized => formatter.write_str("logging has not been initialized"),
+            Self::RuntimeLockPoisoned => formatter.write_str("logging runtime lock poisoned"),
+            Self::OutputLockPoisoned => formatter.write_str("logging output lock poisoned"),
+            Self::Write(error) => write!(formatter, "failed to write log output: {error}"),
         }
     }
 }
@@ -128,80 +131,61 @@ pub fn should_emit(level: LogLevel, module_path: &str) -> Result<bool, EmitError
     .map_err(EmitError::from)
 }
 
+#[doc(hidden)]
+pub fn emit(
+    level: LogLevel,
+    message: impl Display,
+    module_path: &'static str,
+    file: &'static str,
+    line: u32,
+    fields: Vec<(String, String)>,
+) -> Result<(), EmitError> {
+    if !should_emit(level, module_path)? {
+        return Ok(());
+    }
+
+    let event = LogEvent {
+        level,
+        message: message.to_string(),
+        module_path: module_path.to_owned(),
+        file: file.to_owned(),
+        line,
+        fields,
+    };
+    let sink = current_sink()?;
+
+    sink.write(event)
+}
+
 #[macro_export]
 macro_rules! selvedge_log {
     ($level:expr, $message:expr $(,)?) => {{
-        match $crate::should_emit($level, module_path!()) {
-            ::std::result::Result::Ok(true) => {
-                match $level {
-                    $crate::LogLevel::Trace => $crate::__private::tracing::event!(
-                        $crate::__private::tracing::Level::TRACE,
-                        message = %$message
-                    ),
-                    $crate::LogLevel::Debug => $crate::__private::tracing::event!(
-                        $crate::__private::tracing::Level::DEBUG,
-                        message = %$message
-                    ),
-                    $crate::LogLevel::Info => $crate::__private::tracing::event!(
-                        $crate::__private::tracing::Level::INFO,
-                        message = %$message
-                    ),
-                    $crate::LogLevel::Warn => $crate::__private::tracing::event!(
-                        $crate::__private::tracing::Level::WARN,
-                        message = %$message
-                    ),
-                    $crate::LogLevel::Error => $crate::__private::tracing::event!(
-                        $crate::__private::tracing::Level::ERROR,
-                        message = %$message
-                    ),
-                }
-
-                ::std::result::Result::<(), $crate::EmitError>::Ok(())
-            }
-            ::std::result::Result::Ok(false) => {
-                ::std::result::Result::<(), $crate::EmitError>::Ok(())
-            }
-            ::std::result::Result::Err(error) => ::std::result::Result::Err(error),
-        }
+        $crate::emit(
+            $level,
+            $message,
+            module_path!(),
+            file!(),
+            line!(),
+            ::std::vec::Vec::new(),
+        )
     }};
     ($level:expr, $message:expr; $($key:ident = $value:expr),+ $(,)?) => {{
-        match $crate::should_emit($level, module_path!()) {
-            ::std::result::Result::Ok(true) => {
-                match $level {
-                    $crate::LogLevel::Trace => $crate::__private::tracing::event!(
-                        $crate::__private::tracing::Level::TRACE,
-                        message = %$message,
-                        $($key = $crate::__private::tracing::field::display(&$value)),+
-                    ),
-                    $crate::LogLevel::Debug => $crate::__private::tracing::event!(
-                        $crate::__private::tracing::Level::DEBUG,
-                        message = %$message,
-                        $($key = $crate::__private::tracing::field::display(&$value)),+
-                    ),
-                    $crate::LogLevel::Info => $crate::__private::tracing::event!(
-                        $crate::__private::tracing::Level::INFO,
-                        message = %$message,
-                        $($key = $crate::__private::tracing::field::display(&$value)),+
-                    ),
-                    $crate::LogLevel::Warn => $crate::__private::tracing::event!(
-                        $crate::__private::tracing::Level::WARN,
-                        message = %$message,
-                        $($key = $crate::__private::tracing::field::display(&$value)),+
-                    ),
-                    $crate::LogLevel::Error => $crate::__private::tracing::event!(
-                        $crate::__private::tracing::Level::ERROR,
-                        message = %$message,
-                        $($key = $crate::__private::tracing::field::display(&$value)),+
-                    ),
-                }
+        let mut fields = ::std::vec::Vec::new();
+        $(
+            fields.push((
+                ::std::string::String::from(stringify!($key)),
+                ::std::format!("{}", $value),
+            ));
+        )+
 
-                ::std::result::Result::<(), $crate::EmitError>::Ok(())
-            }
-            ::std::result::Result::Ok(false) => {
-                ::std::result::Result::<(), $crate::EmitError>::Ok(())
-            }
-            ::std::result::Result::Err(error) => ::std::result::Result::Err(error),
-        }
+        $crate::emit(
+            $level,
+            $message,
+            module_path!(),
+            file!(),
+            line!(),
+            fields,
+        )
     }};
 }
 
@@ -211,7 +195,7 @@ enum RuntimeState {
 }
 
 trait EventSink: Send + Sync {
-    fn write(&self, event: LogEvent);
+    fn write(&self, event: LogEvent) -> Result<(), EmitError>;
 }
 
 struct StdoutSink {
@@ -227,11 +211,14 @@ impl Default for StdoutSink {
 }
 
 impl EventSink for StdoutSink {
-    fn write(&self, event: LogEvent) {
-        let mut writer = self.writer.lock().expect("stdout writer lock poisoned");
+    fn write(&self, event: LogEvent) -> Result<(), EmitError> {
+        let mut writer = self
+            .writer
+            .lock()
+            .map_err(|_| EmitError::OutputLockPoisoned)?;
         let rendered = render_event(&event);
 
-        writeln!(writer, "{rendered}").expect("write rendered event");
+        writeln!(writer, "{rendered}").map_err(EmitError::Write)
     }
 }
 
@@ -246,16 +233,18 @@ where
         let metadata = event.metadata();
         let level = capture_level(*metadata.level());
         let module_path = metadata.module_path().unwrap_or(metadata.target());
-        let should_write = should_emit(level, module_path).unwrap_or(false);
+        let should_write =
+            should_emit(level, module_path).expect("logging subscriber failed to read config");
 
         if !should_write {
             return;
         }
 
         let captured = capture_event(event);
-        let sink = current_sink();
+        let sink = current_sink().expect("logging subscriber is not initialized");
 
-        sink.write(captured);
+        sink.write(captured)
+            .expect("logging subscriber failed to write event");
     }
 }
 
@@ -291,12 +280,12 @@ fn initialize_runtime(sink: Arc<dyn EventSink>, replace_existing: bool) -> Resul
     }
 }
 
-fn current_sink() -> Arc<dyn EventSink> {
-    let runtime = RUNTIME.read().expect("logging runtime lock poisoned");
+fn current_sink() -> Result<Arc<dyn EventSink>, EmitError> {
+    let runtime = RUNTIME.read().map_err(|_| EmitError::RuntimeLockPoisoned)?;
 
     match &*runtime {
-        RuntimeState::Uninitialized => panic!("logging must be initialized before use"),
-        RuntimeState::Initialized(sink) => sink.clone(),
+        RuntimeState::Uninitialized => Err(EmitError::NotInitialized),
+        RuntimeState::Initialized(sink) => Ok(sink.clone()),
     }
 }
 
@@ -439,9 +428,10 @@ impl TestRecorder {
 
 #[cfg(test)]
 impl EventSink for TestRecorder {
-    fn write(&self, event: LogEvent) {
+    fn write(&self, event: LogEvent) -> Result<(), EmitError> {
         let mut events = self.events.lock().expect("test recorder lock");
         events.push(event);
+        Ok(())
     }
 }
 
@@ -607,6 +597,19 @@ mod tests {
         assert!(output.status.success(), "child test failed: {output:?}");
     }
 
+    #[test]
+    fn log_macro_returns_error_when_runtime_is_missing() {
+        let current_executable = std::env::current_exe().expect("current test executable");
+        let output = Command::new(current_executable)
+            .arg("--exact")
+            .arg("tests::missing_runtime_child_reports_error")
+            .env("SELVEDGE_LOGGING_MISSING_RUNTIME_CHILD", "1")
+            .output()
+            .expect("run missing runtime child test");
+
+        assert!(output.status.success(), "child test failed: {output:?}");
+    }
+
     fn ensure_test_config() {
         CONFIG_INIT.get_or_init(|| {
             let tempdir = Arc::new(TempDir::new().expect("tempdir"));
@@ -658,5 +661,34 @@ level = "info"
             error,
             super::EmitError::ReadConfig(selvedge_config::ConfigError::NotInitialized)
         ));
+    }
+
+    #[test]
+    fn missing_runtime_child_reports_error() {
+        if std::env::var_os("SELVEDGE_LOGGING_MISSING_RUNTIME_CHILD").is_none() {
+            return;
+        }
+
+        let tempdir = TempDir::new().expect("tempdir");
+        let config_path = tempdir.path().join("selvedge.toml");
+        std::fs::write(
+            &config_path,
+            r#"
+[server]
+host = "127.0.0.1"
+port = 8080
+request_timeout_ms = 5000
+
+[logging]
+level = "info"
+"#,
+        )
+        .expect("write config");
+
+        init_with_path(config_path).expect("init config");
+        let error = super::selvedge_log!(LogLevel::Info, "missing runtime")
+            .expect_err("missing runtime should return an error");
+
+        assert!(matches!(error, super::EmitError::NotInitialized));
     }
 }
