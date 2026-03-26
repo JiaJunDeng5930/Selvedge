@@ -1,7 +1,6 @@
 #![doc = include_str!("../README.md")]
 
 use std::{
-    collections::BTreeSet,
     env,
     ffi::OsString,
     fs,
@@ -26,7 +25,6 @@ const SEARCH_PATH_PATTERNS: [&str; 3] = [
 
 static CONFIG_SERVICE: LazyLock<RwLock<Option<ConfigService>>> =
     LazyLock::new(|| RwLock::new(None));
-static EMPTY_CLEARED_PATHS: LazyLock<BTreeSet<String>> = LazyLock::new(BTreeSet::new);
 
 pub fn init() -> Result<(), ConfigError> {
     init_with_cli::<PathBuf, _, _, _>(None, std::iter::empty::<(String, String)>())
@@ -60,8 +58,8 @@ where
     let env_table = load_env_table()?;
     let cli_table = load_cli_table(cli_overrides)?;
 
-    merge_tables(&mut merged_table, &env_table, &EMPTY_CLEARED_PATHS);
-    merge_tables(&mut merged_table, &cli_table, &EMPTY_CLEARED_PATHS);
+    merge_tables(&mut merged_table, &env_table);
+    merge_tables(&mut merged_table, &cli_table);
 
     let base_config = AppConfig::try_from(merged_table).map_err(map_model_error)?;
     let service = ConfigService::new(base_config, resolved_path);
@@ -120,7 +118,6 @@ struct ConfigService {
     base_config: OnceLock<AppConfig>,
     current_config_path: OnceLock<Option<PathBuf>>,
     runtime_patch: RwLock<Table>,
-    cleared_paths: RwLock<BTreeSet<String>>,
 }
 
 impl ConfigService {
@@ -129,7 +126,6 @@ impl ConfigService {
             base_config: OnceLock::new(),
             current_config_path: OnceLock::new(),
             runtime_patch: RwLock::new(Table::new()),
-            cleared_paths: RwLock::new(BTreeSet::new()),
         };
 
         service
@@ -150,12 +146,8 @@ impl ConfigService {
             .runtime_patch
             .read()
             .map_err(|_| ConfigError::LoadFailed("runtime patch lock poisoned".to_owned()))?;
-        let cleared_paths = self
-            .cleared_paths
-            .read()
-            .map_err(|_| ConfigError::LoadFailed("cleared paths lock poisoned".to_owned()))?;
 
-        merge_tables(&mut merged_table, &runtime_patch, &cleared_paths);
+        merge_tables(&mut merged_table, &runtime_patch);
 
         AppConfig::try_from(merged_table).map_err(map_model_error)
     }
@@ -168,17 +160,9 @@ impl ConfigService {
                 .map_err(|_| ConfigError::LoadFailed("runtime patch lock poisoned".to_owned()))?;
             runtime_patch.clone()
         };
-        let mut candidate_cleared_paths = {
-            let cleared_paths = self
-                .cleared_paths
-                .get_mut()
-                .map_err(|_| ConfigError::LoadFailed("cleared paths lock poisoned".to_owned()))?;
-            cleared_paths.clone()
-        };
 
         apply_override(&mut candidate_patch, path, value.clone())?;
-        record_cleared_path(&mut candidate_cleared_paths, path, &value);
-        self.materialize_candidate(&candidate_patch, &candidate_cleared_paths)?;
+        self.materialize_candidate(&candidate_patch)?;
 
         if persist {
             self.persist_update(path, value)?;
@@ -189,23 +173,14 @@ impl ConfigService {
             .get_mut()
             .map_err(|_| ConfigError::LoadFailed("runtime patch lock poisoned".to_owned()))?;
         *runtime_patch = candidate_patch;
-        let cleared_paths = self
-            .cleared_paths
-            .get_mut()
-            .map_err(|_| ConfigError::LoadFailed("cleared paths lock poisoned".to_owned()))?;
-        *cleared_paths = candidate_cleared_paths;
 
         Ok(())
     }
 
-    fn materialize_candidate(
-        &self,
-        runtime_patch: &Table,
-        cleared_paths: &BTreeSet<String>,
-    ) -> Result<AppConfig, ConfigError> {
+    fn materialize_candidate(&self, runtime_patch: &Table) -> Result<AppConfig, ConfigError> {
         let mut merged_table = serialize_app_config(self.base_config())?;
 
-        merge_tables(&mut merged_table, runtime_patch, cleared_paths);
+        merge_tables(&mut merged_table, runtime_patch);
 
         AppConfig::try_from(merged_table).map_err(map_model_error)
     }
@@ -439,56 +414,17 @@ fn apply_override(table: &mut Table, path: &str, value: Value) -> Result<(), Con
     Ok(())
 }
 
-fn merge_tables(base: &mut Table, patch: &Table, cleared_paths: &BTreeSet<String>) {
-    merge_tables_at_path(base, patch, cleared_paths, "");
-}
-
-fn merge_tables_at_path(
-    base: &mut Table,
-    patch: &Table,
-    cleared_paths: &BTreeSet<String>,
-    current_path: &str,
-) {
+fn merge_tables(base: &mut Table, patch: &Table) {
     for (key, patch_value) in patch {
-        let next_path = join_table_path(current_path, key);
-
         match (base.get_mut(key), patch_value) {
-            (Some(_), Value::Table(patch_table)) if patch_table.is_empty() => {
-                base.insert(key.clone(), Value::Table(Table::new()));
-            }
             (Some(Value::Table(base_table)), Value::Table(patch_table)) => {
-                if cleared_paths.contains(&next_path) {
-                    base.insert(key.clone(), Value::Table(Table::new()));
-                    if let Some(Value::Table(base_table)) = base.get_mut(key) {
-                        merge_tables_at_path(base_table, patch_table, cleared_paths, &next_path);
-                    }
-                    continue;
-                }
-
-                merge_tables_at_path(base_table, patch_table, cleared_paths, &next_path);
+                merge_tables(base_table, patch_table);
             }
             _ => {
                 base.insert(key.clone(), patch_value.clone());
             }
         }
     }
-}
-
-fn join_table_path(current_path: &str, key: &str) -> String {
-    if current_path.is_empty() {
-        key.to_owned()
-    } else {
-        format!("{current_path}.{key}")
-    }
-}
-
-fn record_cleared_path(cleared_paths: &mut BTreeSet<String>, path: &str, value: &Value) {
-    if matches!(value, Value::Table(table) if table.is_empty()) {
-        cleared_paths.insert(path.to_owned());
-        return;
-    }
-
-    cleared_paths.remove(path);
 }
 
 fn serialize_app_config(config: &AppConfig) -> Result<Table, ConfigError> {
@@ -727,6 +663,7 @@ request_timeout_ms = 5000
 
 [logging]
 level = "info"
+format = "text"
 "#,
         )
         .expect("write config");
@@ -752,88 +689,6 @@ level = "info"
         assert!(persisted.contains("level = \"debug\""));
         assert_ne!(drifted_path, config_path);
         assert!(!drifted_path.exists());
-    }
-
-    #[test]
-    fn empty_module_level_patch_clears_base_logging_overrides() {
-        let _guard = TEST_LOCK.lock().expect("test lock");
-        reset_for_test();
-        let tempdir = tempfile::TempDir::new().expect("tempdir");
-        let config_path = tempdir.path().join("selvedge.toml");
-
-        std::fs::write(
-            &config_path,
-            r#"
-[server]
-host = "127.0.0.1"
-port = 8080
-request_timeout_ms = 5000
-
-[logging]
-level = "info"
-
-[logging.module_levels]
-"selvedge::router" = "debug"
-"#,
-        )
-        .expect("write config");
-
-        crate::init_with_path(config_path).expect("init config");
-        crate::update_runtime(
-            "logging.module_levels",
-            std::collections::BTreeMap::<String, String>::new(),
-        )
-        .expect("clear module levels");
-
-        let module_levels = crate::read(|config| config.logging.module_levels.clone())
-            .expect("read logging module levels");
-
-        assert!(module_levels.is_empty());
-    }
-
-    #[test]
-    fn clear_then_set_module_level_does_not_restore_base_overrides() {
-        let _guard = TEST_LOCK.lock().expect("test lock");
-        reset_for_test();
-        let tempdir = tempfile::TempDir::new().expect("tempdir");
-        let config_path = tempdir.path().join("selvedge.toml");
-
-        std::fs::write(
-            &config_path,
-            r#"
-[server]
-host = "127.0.0.1"
-port = 8080
-request_timeout_ms = 5000
-
-[logging]
-level = "info"
-
-[logging.module_levels]
-"selvedge::router" = "debug"
-"#,
-        )
-        .expect("write config");
-
-        crate::init_with_path(config_path).expect("init config");
-        crate::update_runtime(
-            "logging.module_levels",
-            std::collections::BTreeMap::<String, String>::new(),
-        )
-        .expect("clear module levels");
-        crate::update_runtime("logging.module_levels.selvedge::worker", "warn")
-            .expect("set new module override");
-
-        let module_levels = crate::read(|config| config.logging.module_levels.clone())
-            .expect("read logging module levels");
-
-        assert_eq!(
-            module_levels,
-            std::collections::BTreeMap::from([(
-                "selvedge::worker".to_owned(),
-                selvedge_config_model::LogFilter::Warn,
-            )])
-        );
     }
 
     fn relative_path_from(base: &Path, target: &Path) -> PathBuf {

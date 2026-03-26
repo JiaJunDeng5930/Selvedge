@@ -17,6 +17,7 @@ request_timeout_ms = 8000
 
 [logging]
 level = "info"
+format = "text"
 "#,
     )?;
 
