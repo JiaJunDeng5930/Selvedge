@@ -17,13 +17,15 @@ static RUNTIME: LazyLock<RwLock<RuntimeState>> =
 static SUBSCRIBER_INSTALLED: OnceLock<()> = OnceLock::new();
 
 pub fn init() -> Result<(), InitError> {
-    install_subscriber()?;
-    initialize_runtime(Arc::new(StdoutSink::default()), false)
+    validate_config_ready()?;
+    initialize_runtime(Arc::new(StdoutSink::default()), false)?;
+    install_subscriber()
 }
 
 #[derive(Debug)]
 pub enum InitError {
     AlreadyInitialized,
+    ReadConfig(selvedge_config::ConfigError),
     InstallLogTracer(log::SetLoggerError),
     InstallSubscriber(tracing::subscriber::SetGlobalDefaultError),
     RuntimeLockPoisoned,
@@ -33,6 +35,12 @@ impl Display for InitError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::AlreadyInitialized => formatter.write_str("logging has already been initialized"),
+            Self::ReadConfig(error) => {
+                write!(
+                    formatter,
+                    "failed to read logging config during init: {error}"
+                )
+            }
             Self::InstallLogTracer(error) => {
                 write!(formatter, "failed to install log tracer: {error}")
             }
@@ -45,6 +53,12 @@ impl Display for InitError {
 }
 
 impl std::error::Error for InitError {}
+
+impl From<selvedge_config::ConfigError> for InitError {
+    fn from(error: selvedge_config::ConfigError) -> Self {
+        Self::ReadConfig(error)
+    }
+}
 
 #[derive(Debug)]
 pub enum EmitError {
@@ -293,6 +307,13 @@ fn install_subscriber() -> Result<(), InitError> {
     let _ = SUBSCRIBER_INSTALLED.set(());
 
     Ok(())
+}
+
+fn validate_config_ready() -> Result<(), InitError> {
+    read(|config| {
+        let _ = config.logging.level;
+    })
+    .map_err(InitError::from)
 }
 
 fn initialize_runtime(sink: Arc<dyn EventSink>, replace_existing: bool) -> Result<(), InitError> {
@@ -655,6 +676,19 @@ mod tests {
     }
 
     #[test]
+    fn init_returns_error_when_config_is_missing() {
+        let current_executable = std::env::current_exe().expect("current test executable");
+        let output = Command::new(current_executable)
+            .arg("--exact")
+            .arg("tests::missing_config_init_child_reports_error")
+            .env("SELVEDGE_LOGGING_MISSING_CONFIG_INIT_CHILD", "1")
+            .output()
+            .expect("run missing config init child test");
+
+        assert!(output.status.success(), "child test failed: {output:?}");
+    }
+
+    #[test]
     fn filtered_log_does_not_evaluate_message_or_fields() {
         let _guard = test_lock().lock().expect("test lock");
         ensure_test_config();
@@ -780,6 +814,20 @@ level = "info"
             .expect_err("missing runtime should return an error");
 
         assert!(matches!(error, super::EmitError::NotInitialized));
+    }
+
+    #[test]
+    fn missing_config_init_child_reports_error() {
+        if std::env::var_os("SELVEDGE_LOGGING_MISSING_CONFIG_INIT_CHILD").is_none() {
+            return;
+        }
+
+        let error = super::init().expect_err("missing config should fail logging init");
+
+        assert!(matches!(
+            error,
+            super::InitError::ReadConfig(selvedge_config::ConfigError::NotInitialized)
+        ));
     }
 
     fn counted_message(counter: &std::sync::atomic::AtomicUsize) -> String {
