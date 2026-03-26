@@ -405,7 +405,7 @@ mod tests {
         sync::{Arc, Mutex, OnceLock},
     };
 
-    use selvedge_config::{init_with_path, update_runtime};
+    use selvedge_config::init_with_path;
     use selvedge_config_model::LogFilter;
     use tempfile::TempDir;
 
@@ -421,9 +421,7 @@ mod tests {
         let recorder = TestRecorder::default();
 
         init_for_test(recorder.clone()).expect("init test logger");
-        update_runtime("logging.level", "info").expect("set log level");
-        update_runtime("logging.module_levels", BTreeMap::<String, String>::new())
-            .expect("clear module levels");
+        selvedge_config::update_runtime("logging.level", "info").expect("set log level");
         recorder.clear();
 
         selvedge_log!(LogLevel::Info, "router started").expect("emit router started");
@@ -444,9 +442,7 @@ mod tests {
         let recorder = TestRecorder::default();
 
         init_for_test(recorder.clone()).expect("init test logger");
-        update_runtime("logging.level", "info").expect("set log level");
-        update_runtime("logging.module_levels", BTreeMap::<String, String>::new())
-            .expect("clear module levels");
+        selvedge_config::update_runtime("logging.level", "info").expect("set log level");
         recorder.clear();
 
         selvedge_log!(LogLevel::Warn, "target thread not found"; thread = "worker-2", target = "indexer")
@@ -469,16 +465,14 @@ mod tests {
         let recorder = TestRecorder::default();
 
         init_for_test(recorder.clone()).expect("init test logger");
-        update_runtime("logging.level", "info").expect("set info");
-        update_runtime("logging.module_levels", BTreeMap::<String, String>::new())
-            .expect("clear module levels");
+        selvedge_config::update_runtime("logging.level", "info").expect("set info");
         recorder.clear();
 
         selvedge_log!(LogLevel::Debug, "debug should be filtered")
             .expect("debug event should evaluate cleanly");
         assert!(recorder.take().is_empty());
 
-        update_runtime("logging.level", "debug").expect("set debug");
+        selvedge_config::update_runtime("logging.level", "debug").expect("set debug");
         selvedge_log!(LogLevel::Debug, "debug should pass").expect("emit debug event");
 
         let events = recorder.take();
@@ -530,9 +524,7 @@ mod tests {
         let recorder = TestRecorder::default();
 
         init_for_test(recorder.clone()).expect("init test logger");
-        update_runtime("logging.level", "info").expect("set log level");
-        update_runtime("logging.module_levels", BTreeMap::<String, String>::new())
-            .expect("clear module levels");
+        selvedge_config::update_runtime("logging.level", "info").expect("set log level");
         recorder.clear();
 
         let threads = (0..4)
@@ -603,9 +595,7 @@ mod tests {
         let field_counter = Arc::new(std::sync::atomic::AtomicUsize::new(0));
 
         init_for_test(recorder.clone()).expect("init test logger");
-        update_runtime("logging.level", "warn").expect("set warn level");
-        update_runtime("logging.module_levels", BTreeMap::<String, String>::new())
-            .expect("clear module levels");
+        selvedge_config::update_runtime("logging.level", "warn").expect("set warn level");
         recorder.clear();
 
         let message_counter_for_log = Arc::clone(&message_counter);
