@@ -83,6 +83,7 @@ Example:
 
 ```no_run
 # use std::convert::TryFrom;
+# use std::collections::BTreeMap;
 # use selvedge_config_model::{AppConfig, LogFilter};
 let config = AppConfig::try_from(toml::toml! {
     [logging]
@@ -94,8 +95,11 @@ let config = AppConfig::try_from(toml::toml! {
 
 assert_eq!(config.logging.level, LogFilter::Warn);
 assert_eq!(
-    config.logging.effective_level_for("selvedge::router::dispatch"),
-    LogFilter::Debug
+    config.logging.module_levels,
+    BTreeMap::from([("selvedge::router".to_owned(), LogFilter::Debug)])
 );
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
+
+Callers that need module-path matching should perform that matching outside the
+model layer.
