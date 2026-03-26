@@ -140,6 +140,8 @@ pub fn emit(
     line: u32,
     fields: Vec<(String, String)>,
 ) -> Result<(), EmitError> {
+    let sink = current_sink()?;
+
     if !should_emit(level, module_path)? {
         return Ok(());
     }
@@ -152,7 +154,37 @@ pub fn emit(
         line,
         fields,
     };
+
+    sink.write(event)
+}
+
+#[doc(hidden)]
+pub fn emit_lazy<MessageFn, FieldsFn>(
+    level: LogLevel,
+    module_path: &'static str,
+    file: &'static str,
+    line: u32,
+    message_fn: MessageFn,
+    fields_fn: FieldsFn,
+) -> Result<(), EmitError>
+where
+    MessageFn: FnOnce() -> String,
+    FieldsFn: FnOnce() -> Vec<(String, String)>,
+{
     let sink = current_sink()?;
+
+    if !should_emit(level, module_path)? {
+        return Ok(());
+    }
+
+    let event = LogEvent {
+        level,
+        message: message_fn(),
+        module_path: module_path.to_owned(),
+        file: file.to_owned(),
+        line,
+        fields: fields_fn(),
+    };
 
     sink.write(event)
 }
@@ -160,31 +192,32 @@ pub fn emit(
 #[macro_export]
 macro_rules! selvedge_log {
     ($level:expr, $message:expr $(,)?) => {{
-        $crate::emit(
+        $crate::emit_lazy(
             $level,
-            $message,
             module_path!(),
             file!(),
             line!(),
-            ::std::vec::Vec::new(),
+            || ::std::string::ToString::to_string(&$message),
+            || ::std::vec::Vec::new(),
         )
     }};
     ($level:expr, $message:expr; $($key:ident = $value:expr),+ $(,)?) => {{
-        let mut fields = ::std::vec::Vec::new();
-        $(
-            fields.push((
-                ::std::string::String::from(stringify!($key)),
-                ::std::format!("{}", $value),
-            ));
-        )+
-
-        $crate::emit(
+        $crate::emit_lazy(
             $level,
-            $message,
             module_path!(),
             file!(),
             line!(),
-            fields,
+            || ::std::string::ToString::to_string(&$message),
+            || {
+                let mut fields = ::std::vec::Vec::new();
+                $(
+                    fields.push((
+                        ::std::string::String::from(stringify!($key)),
+                        ::std::format!("{}", $value),
+                    ));
+                )+
+                fields
+            },
         )
     }};
 }
@@ -320,19 +353,19 @@ fn capture_level(level: tracing::Level) -> LogLevel {
 
 fn render_event(event: &LogEvent) -> String {
     let mut rendered = format!(
-        "level={} module={} file={} line={} message=\"{}\"",
+        "level={} module={} file={} line={} message={}",
         render_level(event.level),
-        event.module_path,
-        event.file,
+        render_value(&event.module_path),
+        render_value(&event.file),
         event.line,
-        event.message
+        render_value(&event.message)
     );
 
     for (key, value) in &event.fields {
         rendered.push(' ');
         rendered.push_str(key);
         rendered.push('=');
-        rendered.push_str(value);
+        rendered.push_str(&render_value(value));
     }
 
     rendered
@@ -404,6 +437,17 @@ fn trim_debug_quotes(value: &str) -> String {
         .and_then(|trimmed| trimmed.strip_suffix('"'))
         .unwrap_or(value)
         .to_owned()
+}
+
+fn render_value(value: &str) -> String {
+    let escaped = value
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('\n', "\\n")
+        .replace('\r', "\\r")
+        .replace('\t', "\\t");
+
+    format!("\"{escaped}\"")
 }
 
 #[cfg(test)]
@@ -610,6 +654,51 @@ mod tests {
         assert!(output.status.success(), "child test failed: {output:?}");
     }
 
+    #[test]
+    fn filtered_log_does_not_evaluate_message_or_fields() {
+        let _guard = test_lock().lock().expect("test lock");
+        ensure_test_config();
+        let recorder = TestRecorder::default();
+        let message_counter = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let field_counter = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+
+        init_for_test(recorder.clone()).expect("init test logger");
+        update_runtime("logging.level", "warn").expect("set warn level");
+        update_runtime("logging.module_levels", BTreeMap::<String, String>::new())
+            .expect("clear module levels");
+        recorder.clear();
+
+        let message_counter_for_log = Arc::clone(&message_counter);
+        let field_counter_for_log = Arc::clone(&field_counter);
+        selvedge_log!(
+            LogLevel::Info,
+            counted_message(&message_counter_for_log);
+            worker = counted_field(&field_counter_for_log)
+        )
+        .expect("filtered log should still return ok");
+
+        assert_eq!(message_counter.load(std::sync::atomic::Ordering::SeqCst), 0);
+        assert_eq!(field_counter.load(std::sync::atomic::Ordering::SeqCst), 0);
+        assert!(recorder.take().is_empty());
+    }
+
+    #[test]
+    fn render_event_escapes_special_characters() {
+        let event = LogEvent {
+            level: LogLevel::Info,
+            message: "hello \"quoted\"\nnext".to_owned(),
+            module_path: "selvedge::router".to_owned(),
+            file: "src/main.rs".to_owned(),
+            line: 42,
+            fields: vec![("detail".to_owned(), "two words\tand more".to_owned())],
+        };
+
+        let rendered = super::render_event(&event);
+
+        assert!(rendered.contains("message=\"hello \\\"quoted\\\"\\nnext\""));
+        assert!(rendered.contains("detail=\"two words\\tand more\""));
+    }
+
     fn ensure_test_config() {
         CONFIG_INIT.get_or_init(|| {
             let tempdir = Arc::new(TempDir::new().expect("tempdir"));
@@ -654,6 +743,7 @@ level = "info"
             return;
         }
 
+        init_for_test(TestRecorder::default()).expect("init test logger");
         let error = super::selvedge_log!(LogLevel::Info, "missing config")
             .expect_err("missing config should return an error");
 
@@ -690,5 +780,15 @@ level = "info"
             .expect_err("missing runtime should return an error");
 
         assert!(matches!(error, super::EmitError::NotInitialized));
+    }
+
+    fn counted_message(counter: &std::sync::atomic::AtomicUsize) -> String {
+        counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        "filtered message".to_owned()
+    }
+
+    fn counted_field(counter: &std::sync::atomic::AtomicUsize) -> usize {
+        counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        7
     }
 }
