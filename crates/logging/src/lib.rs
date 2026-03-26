@@ -18,14 +18,22 @@ static SUBSCRIBER_INSTALLED: OnceLock<()> = OnceLock::new();
 
 pub fn init() -> Result<(), InitError> {
     validate_config_ready()?;
-    initialize_runtime(Arc::new(StdoutSink::default()), false)?;
-    install_subscriber()
+    ensure_subscriber_is_available()?;
+    initialize_runtime(Arc::new(StderrSink::default()), false)?;
+
+    if let Err(error) = install_subscriber() {
+        reset_runtime();
+        return Err(error);
+    }
+
+    Ok(())
 }
 
 #[derive(Debug)]
 pub enum InitError {
     AlreadyInitialized,
     ReadConfig(selvedge_config::ConfigError),
+    SubscriberAlreadySet,
     InstallLogTracer(log::SetLoggerError),
     InstallSubscriber(tracing::subscriber::SetGlobalDefaultError),
     RuntimeLockPoisoned,
@@ -40,6 +48,9 @@ impl Display for InitError {
                     formatter,
                     "failed to read logging config during init: {error}"
                 )
+            }
+            Self::SubscriberAlreadySet => {
+                formatter.write_str("a global tracing subscriber is already installed")
             }
             Self::InstallLogTracer(error) => {
                 write!(formatter, "failed to install log tracer: {error}")
@@ -245,19 +256,19 @@ trait EventSink: Send + Sync {
     fn write(&self, event: LogEvent) -> Result<(), EmitError>;
 }
 
-struct StdoutSink {
-    writer: Mutex<io::Stdout>,
+struct StderrSink {
+    writer: Mutex<io::Stderr>,
 }
 
-impl Default for StdoutSink {
+impl Default for StderrSink {
     fn default() -> Self {
         Self {
-            writer: Mutex::new(io::stdout()),
+            writer: Mutex::new(io::stderr()),
         }
     }
 }
 
-impl EventSink for StdoutSink {
+impl EventSink for StderrSink {
     fn write(&self, event: LogEvent) -> Result<(), EmitError> {
         let mut writer = self
             .writer
@@ -309,6 +320,14 @@ fn install_subscriber() -> Result<(), InitError> {
     Ok(())
 }
 
+fn ensure_subscriber_is_available() -> Result<(), InitError> {
+    if SUBSCRIBER_INSTALLED.get().is_none() && tracing::dispatcher::has_been_set() {
+        return Err(InitError::SubscriberAlreadySet);
+    }
+
+    Ok(())
+}
+
 fn validate_config_ready() -> Result<(), InitError> {
     read(|config| {
         let _ = config.logging.level;
@@ -332,6 +351,11 @@ fn initialize_runtime(sink: Arc<dyn EventSink>, replace_existing: bool) -> Resul
         }
         RuntimeState::Initialized(_) => Err(InitError::AlreadyInitialized),
     }
+}
+
+fn reset_runtime() {
+    let mut runtime = RUNTIME.write().expect("logging runtime lock poisoned");
+    *runtime = RuntimeState::Uninitialized;
 }
 
 fn current_sink() -> Result<Arc<dyn EventSink>, EmitError> {
@@ -689,6 +713,19 @@ mod tests {
     }
 
     #[test]
+    fn init_failure_does_not_leave_runtime_initialized() {
+        let current_executable = std::env::current_exe().expect("current test executable");
+        let output = Command::new(current_executable)
+            .arg("--exact")
+            .arg("tests::subscriber_conflict_child_keeps_runtime_uninitialized")
+            .env("SELVEDGE_LOGGING_SUBSCRIBER_CONFLICT_CHILD", "1")
+            .output()
+            .expect("run subscriber conflict child test");
+
+        assert!(output.status.success(), "child test failed: {output:?}");
+    }
+
+    #[test]
     fn filtered_log_does_not_evaluate_message_or_fields() {
         let _guard = test_lock().lock().expect("test lock");
         ensure_test_config();
@@ -828,6 +865,40 @@ level = "info"
             error,
             super::InitError::ReadConfig(selvedge_config::ConfigError::NotInitialized)
         ));
+    }
+
+    #[test]
+    fn subscriber_conflict_child_keeps_runtime_uninitialized() {
+        if std::env::var_os("SELVEDGE_LOGGING_SUBSCRIBER_CONFLICT_CHILD").is_none() {
+            return;
+        }
+
+        let tempdir = TempDir::new().expect("tempdir");
+        let config_path = tempdir.path().join("selvedge.toml");
+        std::fs::write(
+            &config_path,
+            r#"
+[server]
+host = "127.0.0.1"
+port = 8080
+request_timeout_ms = 5000
+
+[logging]
+level = "info"
+"#,
+        )
+        .expect("write config");
+
+        init_with_path(config_path).expect("init config");
+        tracing::subscriber::set_global_default(tracing_subscriber::Registry::default())
+            .expect("install conflicting subscriber");
+
+        let init_error = super::init().expect_err("logging init should fail");
+        assert!(matches!(init_error, super::InitError::SubscriberAlreadySet));
+
+        let emit_error = super::selvedge_log!(LogLevel::Info, "after failed init")
+            .expect_err("runtime should remain uninitialized after failed init");
+        assert!(matches!(emit_error, super::EmitError::NotInitialized));
     }
 
     fn counted_message(counter: &std::sync::atomic::AtomicUsize) -> String {
