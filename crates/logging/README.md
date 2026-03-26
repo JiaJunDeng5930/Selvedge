@@ -24,9 +24,11 @@ macro and tracing layer.
 ## Quick start
 
 ```no_run
+use selvedge_config::init as init_config;
 use selvedge_logging::{LogLevel, init, selvedge_log};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    init_config()?;
     init()?;
 
     selvedge_log!(LogLevel::Info, "router started")?;
@@ -59,3 +61,5 @@ This crate does not cache logging config internally.
 Each log emission checks the current effective config through `selvedge_config`,
 so updates to `logging.level` or `logging.module_levels` apply to subsequent log
 calls without a separate reload step.
+
+Callers must initialize `selvedge_config` before calling `selvedge_logging::init()`.
