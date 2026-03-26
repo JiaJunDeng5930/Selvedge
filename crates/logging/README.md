@@ -8,7 +8,7 @@ Use it to:
 
 - initialize the project logging runtime once
 - write logs through the single `selvedge_log!` macro
-- route dependency logs using `log` into the same tracing pipeline
+- synchronously write project logs to stderr through one direct runtime
 
 ## This crate is not for
 
@@ -17,9 +17,10 @@ This crate is not for:
 - owning a second copy of runtime config
 - asking callers to create logger objects or contexts
 - making callers hand-write module names
+- bridging dependency `log!` or `tracing!` output into this module
 
 Those responsibilities stay with `config` or are handled internally by the
-macro and tracing layer.
+macro and the logging runtime.
 
 ## Quick start
 

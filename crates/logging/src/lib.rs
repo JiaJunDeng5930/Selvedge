@@ -3,29 +3,26 @@
 use std::{
     fmt::Display,
     io::{self, Write},
-    sync::{Arc, LazyLock, Mutex, OnceLock, RwLock},
+    sync::{Arc, LazyLock, Mutex, RwLock},
 };
 
 use selvedge_config::read;
 use selvedge_config_model::LogFilter;
-use tracing::{Event, Metadata, Subscriber};
-use tracing_log::{LogTracer, NormalizeEvent};
-use tracing_subscriber::{Registry, layer::Context, layer::Layer, prelude::*};
 
 static RUNTIME: LazyLock<RwLock<RuntimeState>> =
     LazyLock::new(|| RwLock::new(RuntimeState::Uninitialized));
-static SUBSCRIBER_INSTALLED: OnceLock<()> = OnceLock::new();
 
 pub fn init() -> Result<(), InitError> {
     validate_config_ready()?;
-    initialize_runtime(Arc::new(StderrSink::default()), false)?;
+    let mut runtime = RUNTIME
+        .write()
+        .map_err(|_| InitError::RuntimeLockPoisoned)?;
 
-    if let Err(error) = install_subscriber() {
-        if matches!(error, InitError::InstallSubscriber(_)) {
-            reset_runtime();
-        }
-        return Err(error);
+    if matches!(*runtime, RuntimeState::Initialized(_)) {
+        return Err(InitError::AlreadyInitialized);
     }
+
+    *runtime = RuntimeState::Initialized(Arc::new(StderrSink::default()));
 
     Ok(())
 }
@@ -34,8 +31,6 @@ pub fn init() -> Result<(), InitError> {
 pub enum InitError {
     AlreadyInitialized,
     ReadConfig(selvedge_config::ConfigError),
-    InstallLogTracer(log::SetLoggerError),
-    InstallSubscriber(tracing::subscriber::SetGlobalDefaultError),
     RuntimeLockPoisoned,
 }
 
@@ -48,12 +43,6 @@ impl Display for InitError {
                     formatter,
                     "failed to read logging config during init: {error}"
                 )
-            }
-            Self::InstallLogTracer(error) => {
-                write!(formatter, "failed to install log tracer: {error}")
-            }
-            Self::InstallSubscriber(error) => {
-                write!(formatter, "failed to install tracing subscriber: {error}")
             }
             Self::RuntimeLockPoisoned => formatter.write_str("logging runtime lock poisoned"),
         }
@@ -107,7 +96,6 @@ pub enum LogLevel {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[doc(hidden)]
 pub struct LogEvent {
     pub level: LogLevel,
     pub message: String,
@@ -143,7 +131,6 @@ impl LogLevel {
     }
 }
 
-#[doc(hidden)]
 pub fn should_emit(level: LogLevel, module_path: &str) -> Result<bool, EmitError> {
     read(|config| {
         let minimum_level = config.logging.effective_level_for(module_path);
@@ -153,7 +140,6 @@ pub fn should_emit(level: LogLevel, module_path: &str) -> Result<bool, EmitError
     .map_err(EmitError::from)
 }
 
-#[doc(hidden)]
 pub fn emit(
     level: LogLevel,
     message: impl Display,
@@ -180,7 +166,6 @@ pub fn emit(
     sink.write(event)
 }
 
-#[doc(hidden)]
 pub fn emit_lazy<MessageFn, FieldsFn>(
     level: LogLevel,
     module_path: &'static str,
@@ -277,86 +262,11 @@ impl EventSink for StderrSink {
     }
 }
 
-#[derive(Default)]
-struct SelvedgeLayer;
-
-impl<S> Layer<S> for SelvedgeLayer
-where
-    S: Subscriber,
-{
-    fn enabled(&self, metadata: &Metadata<'_>, _ctx: Context<'_, S>) -> bool {
-        let level = capture_level(*metadata.level());
-        let module_path = metadata.module_path().unwrap_or(metadata.target());
-
-        should_emit(level, module_path).unwrap_or(true)
-    }
-
-    fn on_event(&self, event: &Event<'_>, _ctx: Context<'_, S>) {
-        let normalized_metadata = event.normalized_metadata();
-        let metadata = normalized_metadata
-            .as_ref()
-            .unwrap_or_else(|| event.metadata());
-        let level = capture_level(*metadata.level());
-        let module_path = metadata.module_path().unwrap_or(metadata.target());
-        let should_write =
-            should_emit(level, module_path).expect("logging subscriber failed to read config");
-
-        if !should_write {
-            return;
-        }
-
-        let captured = capture_event(event);
-        let sink = current_sink().expect("logging subscriber is not initialized");
-
-        sink.write(captured)
-            .expect("logging subscriber failed to write event");
-    }
-}
-
-fn install_subscriber() -> Result<(), InitError> {
-    if SUBSCRIBER_INSTALLED.get().is_some() {
-        return Ok(());
-    }
-
-    let subscriber = Registry::default().with(SelvedgeLayer);
-    tracing::subscriber::set_global_default(subscriber).map_err(InitError::InstallSubscriber)?;
-
-    if let Err(error) = LogTracer::init() {
-        panic!("failed to install log tracer after subscriber setup: {error}");
-    }
-    let _ = SUBSCRIBER_INSTALLED.set(());
-
-    Ok(())
-}
-
 fn validate_config_ready() -> Result<(), InitError> {
     read(|config| {
         let _ = config.logging.level;
     })
     .map_err(InitError::from)
-}
-
-fn initialize_runtime(sink: Arc<dyn EventSink>, replace_existing: bool) -> Result<(), InitError> {
-    let mut runtime = RUNTIME
-        .write()
-        .map_err(|_| InitError::RuntimeLockPoisoned)?;
-
-    match &mut *runtime {
-        RuntimeState::Uninitialized => {
-            *runtime = RuntimeState::Initialized(sink);
-            Ok(())
-        }
-        RuntimeState::Initialized(current) if replace_existing => {
-            *current = sink;
-            Ok(())
-        }
-        RuntimeState::Initialized(_) => Err(InitError::AlreadyInitialized),
-    }
-}
-
-fn reset_runtime() {
-    let mut runtime = RUNTIME.write().expect("logging runtime lock poisoned");
-    *runtime = RuntimeState::Uninitialized;
 }
 
 fn current_sink() -> Result<Arc<dyn EventSink>, EmitError> {
@@ -365,38 +275,6 @@ fn current_sink() -> Result<Arc<dyn EventSink>, EmitError> {
     match &*runtime {
         RuntimeState::Uninitialized => Err(EmitError::NotInitialized),
         RuntimeState::Initialized(sink) => Ok(sink.clone()),
-    }
-}
-
-fn capture_event(event: &Event<'_>) -> LogEvent {
-    let normalized_metadata = event.normalized_metadata();
-    let metadata = normalized_metadata
-        .as_ref()
-        .unwrap_or_else(|| event.metadata());
-    let mut visitor = EventFieldVisitor::default();
-
-    event.record(&mut visitor);
-
-    LogEvent {
-        level: capture_level(*metadata.level()),
-        message: visitor.take_message().unwrap_or_default(),
-        module_path: metadata
-            .module_path()
-            .unwrap_or(metadata.target())
-            .to_owned(),
-        file: metadata.file().unwrap_or("").to_owned(),
-        line: metadata.line().unwrap_or_default(),
-        fields: visitor.finish(),
-    }
-}
-
-fn capture_level(level: tracing::Level) -> LogLevel {
-    match level {
-        tracing::Level::TRACE => LogLevel::Trace,
-        tracing::Level::DEBUG => LogLevel::Debug,
-        tracing::Level::INFO => LogLevel::Info,
-        tracing::Level::WARN => LogLevel::Warn,
-        tracing::Level::ERROR => LogLevel::Error,
     }
 }
 
@@ -438,54 +316,6 @@ fn filter_rank(level: LogFilter) -> u8 {
         LogFilter::Warn => 3,
         LogFilter::Error => 4,
     }
-}
-
-#[derive(Default)]
-struct EventFieldVisitor {
-    message: Option<String>,
-    fields: Vec<(String, String)>,
-}
-
-impl EventFieldVisitor {
-    fn finish(self) -> Vec<(String, String)> {
-        self.fields
-    }
-
-    fn take_message(&mut self) -> Option<String> {
-        self.message.take()
-    }
-}
-
-impl tracing::field::Visit for EventFieldVisitor {
-    fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
-        let rendered = format!("{value:?}");
-
-        if field.name() == "message" {
-            self.message = Some(trim_debug_quotes(&rendered));
-            return;
-        }
-
-        self.fields
-            .push((field.name().to_owned(), trim_debug_quotes(&rendered)));
-    }
-
-    fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
-        if field.name() == "message" {
-            self.message = Some(value.to_owned());
-            return;
-        }
-
-        self.fields
-            .push((field.name().to_owned(), value.to_owned()));
-    }
-}
-
-fn trim_debug_quotes(value: &str) -> String {
-    value
-        .strip_prefix('"')
-        .and_then(|trimmed| trimmed.strip_suffix('"'))
-        .unwrap_or(value)
-        .to_owned()
 }
 
 fn render_value(value: &str) -> String {
@@ -530,8 +360,17 @@ impl EventSink for TestRecorder {
 
 #[cfg(test)]
 fn init_for_test(recorder: TestRecorder) -> Result<(), InitError> {
-    install_subscriber()?;
-    initialize_runtime(Arc::new(recorder), true)
+    validate_config_ready()?;
+    install_test_runtime(recorder)
+}
+
+#[cfg(test)]
+fn install_test_runtime(recorder: TestRecorder) -> Result<(), InitError> {
+    let mut runtime = RUNTIME
+        .write()
+        .map_err(|_| InitError::RuntimeLockPoisoned)?;
+    *runtime = RuntimeState::Initialized(Arc::new(recorder));
+    Ok(())
 }
 
 #[cfg(test)]
@@ -655,49 +494,6 @@ mod tests {
     }
 
     #[test]
-    fn dependency_logs_are_filtered_in_subscriber_layer() {
-        let _guard = test_lock().lock().expect("test lock");
-        ensure_test_config();
-        let recorder = TestRecorder::default();
-
-        init_for_test(recorder.clone()).expect("init test logger");
-        update_runtime("logging.level", "warn").expect("set warn level");
-        update_runtime("logging.module_levels", BTreeMap::<String, String>::new())
-            .expect("clear module levels");
-        recorder.clear();
-
-        log::info!("dependency info");
-        assert!(recorder.take().is_empty());
-
-        log::error!("dependency error");
-
-        let events = recorder.take();
-        let event = events.first().expect("captured dependency error");
-        assert_eq!(event.level, LogLevel::Error);
-        assert_eq!(event.message, "dependency error");
-    }
-
-    #[test]
-    fn dependency_logs_respect_module_level_overrides() {
-        let _guard = test_lock().lock().expect("test lock");
-        ensure_test_config();
-        let recorder = TestRecorder::default();
-
-        init_for_test(recorder.clone()).expect("init test logger");
-        update_runtime("logging.level", "warn").expect("set warn level");
-        update_runtime("logging.module_levels.selvedge_logging::tests", "debug")
-            .expect("set module override");
-        recorder.clear();
-
-        log::info!("dependency info through module override");
-
-        let events = recorder.take();
-        let event = events.first().expect("captured dependency info");
-        assert_eq!(event.level, LogLevel::Info);
-        assert_eq!(event.message, "dependency info through module override");
-    }
-
-    #[test]
     fn log_macro_returns_error_when_config_is_missing() {
         let current_executable = std::env::current_exe().expect("current test executable");
         let output = Command::new(current_executable)
@@ -737,48 +533,6 @@ mod tests {
     }
 
     #[test]
-    fn init_failure_does_not_leave_runtime_initialized() {
-        let current_executable = std::env::current_exe().expect("current test executable");
-        let output = Command::new(current_executable)
-            .arg("--exact")
-            .arg("tests::subscriber_conflict_child_keeps_runtime_uninitialized")
-            .env("SELVEDGE_LOGGING_SUBSCRIBER_CONFLICT_CHILD", "1")
-            .output()
-            .expect("run subscriber conflict child test");
-
-        assert!(output.status.success(), "child test failed: {output:?}");
-    }
-
-    #[test]
-    fn scoped_dispatcher_use_does_not_block_logging_init() {
-        let current_executable = std::env::current_exe().expect("current test executable");
-        let output = Command::new(current_executable)
-            .arg("--exact")
-            .arg("tests::scoped_dispatcher_child_allows_init")
-            .env("SELVEDGE_LOGGING_SCOPED_DISPATCHER_CHILD", "1")
-            .output()
-            .expect("run scoped dispatcher child test");
-
-        assert!(output.status.success(), "child test failed: {output:?}");
-    }
-
-    #[test]
-    fn log_tracer_conflict_fails_fast() {
-        let current_executable = std::env::current_exe().expect("current test executable");
-        let output = Command::new(current_executable)
-            .arg("--exact")
-            .arg("tests::log_tracer_conflict_child_panics")
-            .env("SELVEDGE_LOGGING_LOG_TRACER_CONFLICT_CHILD", "1")
-            .output()
-            .expect("run log tracer conflict child test");
-
-        assert!(
-            !output.status.success(),
-            "child test unexpectedly passed: {output:?}"
-        );
-    }
-
-    #[test]
     fn filtered_log_does_not_evaluate_message_or_fields() {
         let _guard = test_lock().lock().expect("test lock");
         ensure_test_config();
@@ -800,33 +554,6 @@ mod tests {
             worker = counted_field(&field_counter_for_log)
         )
         .expect("filtered log should still return ok");
-
-        assert_eq!(message_counter.load(std::sync::atomic::Ordering::SeqCst), 0);
-        assert_eq!(field_counter.load(std::sync::atomic::Ordering::SeqCst), 0);
-        assert!(recorder.take().is_empty());
-    }
-
-    #[test]
-    fn filtered_tracing_event_does_not_evaluate_payload() {
-        let _guard = test_lock().lock().expect("test lock");
-        ensure_test_config();
-        let recorder = TestRecorder::default();
-        let message_counter = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-        let field_counter = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-
-        init_for_test(recorder.clone()).expect("init test logger");
-        update_runtime("logging.level", "warn").expect("set warn level");
-        update_runtime("logging.module_levels", BTreeMap::<String, String>::new())
-            .expect("clear module levels");
-        recorder.clear();
-
-        let message_counter_for_event = Arc::clone(&message_counter);
-        let field_counter_for_event = Arc::clone(&field_counter);
-        tracing::event!(
-            tracing::Level::INFO,
-            message = %counted_message(&message_counter_for_event),
-            worker = tracing::field::display(counted_field(&field_counter_for_event)),
-        );
 
         assert_eq!(message_counter.load(std::sync::atomic::Ordering::SeqCst), 0);
         assert_eq!(field_counter.load(std::sync::atomic::Ordering::SeqCst), 0);
@@ -894,7 +621,7 @@ level = "info"
             return;
         }
 
-        init_for_test(TestRecorder::default()).expect("init test logger");
+        super::install_test_runtime(TestRecorder::default()).expect("install test logger");
         let error = super::selvedge_log!(LogLevel::Info, "missing config")
             .expect_err("missing config should return an error");
 
@@ -945,114 +672,6 @@ level = "info"
             error,
             super::InitError::ReadConfig(selvedge_config::ConfigError::NotInitialized)
         ));
-    }
-
-    #[test]
-    fn subscriber_conflict_child_keeps_runtime_uninitialized() {
-        if std::env::var_os("SELVEDGE_LOGGING_SUBSCRIBER_CONFLICT_CHILD").is_none() {
-            return;
-        }
-
-        let tempdir = TempDir::new().expect("tempdir");
-        let config_path = tempdir.path().join("selvedge.toml");
-        std::fs::write(
-            &config_path,
-            r#"
-[server]
-host = "127.0.0.1"
-port = 8080
-request_timeout_ms = 5000
-
-[logging]
-level = "info"
-"#,
-        )
-        .expect("write config");
-
-        init_with_path(config_path).expect("init config");
-        tracing::subscriber::set_global_default(tracing_subscriber::Registry::default())
-            .expect("install conflicting subscriber");
-
-        let init_error = super::init().expect_err("logging init should fail");
-        assert!(matches!(init_error, super::InitError::InstallSubscriber(_)));
-
-        let emit_error = super::selvedge_log!(LogLevel::Info, "after failed init")
-            .expect_err("runtime should remain uninitialized after failed init");
-        assert!(matches!(emit_error, super::EmitError::NotInitialized));
-    }
-
-    #[test]
-    fn scoped_dispatcher_child_allows_init() {
-        if std::env::var_os("SELVEDGE_LOGGING_SCOPED_DISPATCHER_CHILD").is_none() {
-            return;
-        }
-
-        let tempdir = TempDir::new().expect("tempdir");
-        let config_path = tempdir.path().join("selvedge.toml");
-        std::fs::write(
-            &config_path,
-            r#"
-[server]
-host = "127.0.0.1"
-port = 8080
-request_timeout_ms = 5000
-
-[logging]
-level = "info"
-"#,
-        )
-        .expect("write config");
-
-        init_with_path(config_path).expect("init config");
-        tracing::subscriber::with_default(tracing_subscriber::Registry::default(), || {
-            tracing::info!("scoped dispatcher warmup");
-        });
-
-        super::init().expect("scoped dispatcher should not block global init");
-    }
-
-    #[test]
-    fn log_tracer_conflict_child_panics() {
-        if std::env::var_os("SELVEDGE_LOGGING_LOG_TRACER_CONFLICT_CHILD").is_none() {
-            return;
-        }
-
-        #[derive(Debug)]
-        struct ExistingLogger;
-
-        impl log::Log for ExistingLogger {
-            fn enabled(&self, _metadata: &log::Metadata<'_>) -> bool {
-                true
-            }
-
-            fn log(&self, _record: &log::Record<'_>) {}
-
-            fn flush(&self) {}
-        }
-
-        static EXISTING_LOGGER: ExistingLogger = ExistingLogger;
-
-        let tempdir = TempDir::new().expect("tempdir");
-        let config_path = tempdir.path().join("selvedge.toml");
-        std::fs::write(
-            &config_path,
-            r#"
-[server]
-host = "127.0.0.1"
-port = 8080
-request_timeout_ms = 5000
-
-[logging]
-level = "info"
-"#,
-        )
-        .expect("write config");
-
-        init_with_path(config_path).expect("init config");
-        log::set_logger(&EXISTING_LOGGER).expect("install conflicting logger");
-        log::set_max_level(log::LevelFilter::Trace);
-
-        let _ = super::init();
     }
 
     fn counted_message(counter: &std::sync::atomic::AtomicUsize) -> String {
