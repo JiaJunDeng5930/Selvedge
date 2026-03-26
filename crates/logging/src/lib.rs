@@ -133,11 +133,35 @@ impl LogLevel {
 
 pub fn should_emit(level: LogLevel, module_path: &str) -> Result<bool, EmitError> {
     read(|config| {
-        let minimum_level = config.logging.effective_level_for(module_path);
+        let minimum_level = effective_filter_for_module(
+            config.logging.level,
+            &config.logging.module_levels,
+            module_path,
+        );
 
         level.meets_filter(minimum_level)
     })
     .map_err(EmitError::from)
+}
+
+fn effective_filter_for_module(
+    default_level: LogFilter,
+    module_levels: &std::collections::BTreeMap<String, LogFilter>,
+    module_path: &str,
+) -> LogFilter {
+    module_levels
+        .iter()
+        .filter(|(prefix, _)| matches_module_override(module_path, prefix))
+        .max_by_key(|(prefix, _)| prefix.len())
+        .map(|(_, level)| *level)
+        .unwrap_or(default_level)
+}
+
+fn matches_module_override(module_path: &str, prefix: &str) -> bool {
+    module_path == prefix
+        || module_path
+            .strip_prefix(prefix)
+            .is_some_and(|suffix| suffix.starts_with("::"))
 }
 
 pub fn emit(
@@ -382,6 +406,7 @@ mod tests {
     };
 
     use selvedge_config::{init_with_path, update_runtime};
+    use selvedge_config_model::LogFilter;
     use tempfile::TempDir;
 
     use super::{LogEvent, LogLevel, TestRecorder, init_for_test};
@@ -459,6 +484,43 @@ mod tests {
         let events = recorder.take();
         let event = events.first().expect("captured event");
         assert_eq!(event.message, "debug should pass");
+    }
+
+    #[test]
+    fn module_override_requires_exact_path_or_descendant_boundary() {
+        assert_eq!(
+            super::effective_filter_for_module(
+                LogFilter::Warn,
+                &std::collections::BTreeMap::from([(
+                    "selvedge::router".to_owned(),
+                    LogFilter::Debug,
+                )]),
+                "selvedge::router",
+            ),
+            LogFilter::Debug
+        );
+        assert_eq!(
+            super::effective_filter_for_module(
+                LogFilter::Warn,
+                &std::collections::BTreeMap::from([(
+                    "selvedge::router".to_owned(),
+                    LogFilter::Debug,
+                )]),
+                "selvedge::router::dispatch",
+            ),
+            LogFilter::Debug
+        );
+        assert_eq!(
+            super::effective_filter_for_module(
+                LogFilter::Warn,
+                &std::collections::BTreeMap::from([(
+                    "selvedge::router".to_owned(),
+                    LogFilter::Debug,
+                )]),
+                "selvedge::router_worker",
+            ),
+            LogFilter::Warn
+        );
     }
 
     #[test]
