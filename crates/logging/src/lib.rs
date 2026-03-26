@@ -8,7 +8,7 @@ use std::{
 
 use selvedge_config::read;
 use selvedge_config_model::LogFilter;
-use tracing::{Event, Subscriber};
+use tracing::{Event, Metadata, Subscriber};
 use tracing_log::{LogTracer, NormalizeEvent};
 use tracing_subscriber::{Registry, layer::Context, layer::Layer, prelude::*};
 
@@ -284,6 +284,13 @@ impl<S> Layer<S> for SelvedgeLayer
 where
     S: Subscriber,
 {
+    fn enabled(&self, metadata: &Metadata<'_>, _ctx: Context<'_, S>) -> bool {
+        let level = capture_level(*metadata.level());
+        let module_path = metadata.module_path().unwrap_or(metadata.target());
+
+        should_emit(level, module_path).unwrap_or(true)
+    }
+
     fn on_event(&self, event: &Event<'_>, _ctx: Context<'_, S>) {
         let normalized_metadata = event.normalized_metadata();
         let metadata = normalized_metadata
@@ -793,6 +800,33 @@ mod tests {
             worker = counted_field(&field_counter_for_log)
         )
         .expect("filtered log should still return ok");
+
+        assert_eq!(message_counter.load(std::sync::atomic::Ordering::SeqCst), 0);
+        assert_eq!(field_counter.load(std::sync::atomic::Ordering::SeqCst), 0);
+        assert!(recorder.take().is_empty());
+    }
+
+    #[test]
+    fn filtered_tracing_event_does_not_evaluate_payload() {
+        let _guard = test_lock().lock().expect("test lock");
+        ensure_test_config();
+        let recorder = TestRecorder::default();
+        let message_counter = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let field_counter = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+
+        init_for_test(recorder.clone()).expect("init test logger");
+        update_runtime("logging.level", "warn").expect("set warn level");
+        update_runtime("logging.module_levels", BTreeMap::<String, String>::new())
+            .expect("clear module levels");
+        recorder.clear();
+
+        let message_counter_for_event = Arc::clone(&message_counter);
+        let field_counter_for_event = Arc::clone(&field_counter);
+        tracing::event!(
+            tracing::Level::INFO,
+            message = %counted_message(&message_counter_for_event),
+            worker = tracing::field::display(counted_field(&field_counter_for_event)),
+        );
 
         assert_eq!(message_counter.load(std::sync::atomic::Ordering::SeqCst), 0);
         assert_eq!(field_counter.load(std::sync::atomic::Ordering::SeqCst), 0);
