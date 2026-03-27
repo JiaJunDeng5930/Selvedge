@@ -77,10 +77,11 @@ where
         return Err(ConfigError::AlreadyInitialized);
     }
 
-    if should_bootstrap_home {
-        bootstrap_default_home(&selvedge_home)?;
-    }
-
+    let selvedge_home = if should_bootstrap_home {
+        bootstrap_default_home(&selvedge_home)?
+    } else {
+        selvedge_home
+    };
     let service = ConfigService::new(base_config, selvedge_home);
     *global = Some(service);
 
@@ -327,7 +328,7 @@ fn config_path_for_home(home: &Path) -> PathBuf {
     home.join(CONFIG_FILE_NAME)
 }
 
-fn bootstrap_default_home(selvedge_home: &Path) -> Result<(), ConfigError> {
+fn bootstrap_default_home(selvedge_home: &Path) -> Result<PathBuf, ConfigError> {
     let config_path = config_path_for_home(selvedge_home);
 
     fs::create_dir_all(selvedge_home).map_err(|error| {
@@ -340,7 +341,7 @@ fn bootstrap_default_home(selvedge_home: &Path) -> Result<(), ConfigError> {
         })?;
     }
 
-    validate_existing_home(selvedge_home.to_path_buf(), ConfigHomeSource::Search).map(|_| ())
+    validate_existing_home(selvedge_home.to_path_buf(), ConfigHomeSource::Search)
 }
 
 fn default_home_path() -> PathBuf {
@@ -829,6 +830,32 @@ request_timeout_ms = 5000
         let persisted = std::fs::read_to_string(&config_path).expect("read persisted config");
 
         assert!(persisted.contains("level = \"debug\""));
+    }
+
+    #[test]
+    fn bootstrapped_relative_home_is_canonicalized() {
+        let _guard = TEST_LOCK.lock().expect("test lock");
+        let original_dir = env::current_dir().expect("current dir");
+        let tempdir = tempfile::TempDir::new().expect("tempdir");
+        let work_dir = tempdir.path().join("workspace");
+        let moved_dir = tempdir.path().join("other-place");
+
+        std::fs::create_dir_all(&work_dir).expect("create work dir");
+        std::fs::create_dir_all(&moved_dir).expect("create moved dir");
+
+        let bootstrapped_home = (|| -> Result<PathBuf, String> {
+            env::set_current_dir(&work_dir).map_err(|error| error.to_string())?;
+
+            crate::bootstrap_default_home(Path::new(".selvedge")).map_err(|error| error.to_string())
+        })();
+
+        env::set_current_dir(&original_dir).expect("restore current dir");
+        let bootstrapped_home = bootstrapped_home.expect("bootstrap default home");
+        let expected_home =
+            std::fs::canonicalize(work_dir.join(".selvedge")).expect("canonicalize home");
+
+        assert_eq!(bootstrapped_home, expected_home);
+        assert!(!moved_dir.join(".selvedge").exists());
     }
 
     #[test]
