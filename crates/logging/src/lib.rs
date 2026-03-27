@@ -61,6 +61,7 @@ impl From<selvedge_config::ConfigError> for InitError {
 pub enum EmitError {
     ReadConfig(selvedge_config::ConfigError),
     NotInitialized,
+    ReservedFieldName(String),
     RuntimeLockPoisoned,
     OutputLockPoisoned,
     Write(io::Error),
@@ -71,6 +72,9 @@ impl Display for EmitError {
         match self {
             Self::ReadConfig(error) => write!(formatter, "failed to read logging config: {error}"),
             Self::NotInitialized => formatter.write_str("logging has not been initialized"),
+            Self::ReservedFieldName(field_name) => {
+                write!(formatter, "reserved log field name is not allowed: {field_name}")
+            }
             Self::RuntimeLockPoisoned => formatter.write_str("logging runtime lock poisoned"),
             Self::OutputLockPoisoned => formatter.write_str("logging output lock poisoned"),
             Self::Write(error) => write!(formatter, "failed to write log output: {error}"),
@@ -182,13 +186,16 @@ where
         return Ok(());
     }
 
+    let fields = fields_fn();
+    validate_field_names(&fields)?;
+
     let event = LogEvent {
         level,
         message: message_fn(),
         module_path: module_path.to_owned(),
         file: file.to_owned(),
         line,
-        fields: fields_fn(),
+        fields,
     };
 
     sink.write(event)
@@ -294,6 +301,20 @@ fn render_event(event: &LogEvent) -> String {
     }
 
     rendered
+}
+
+fn validate_field_names(fields: &[(String, String)]) -> Result<(), EmitError> {
+    for (field_name, _) in fields {
+        if is_reserved_field_name(field_name) {
+            return Err(EmitError::ReservedFieldName(field_name.clone()));
+        }
+    }
+
+    Ok(())
+}
+
+fn is_reserved_field_name(field_name: &str) -> bool {
+    matches!(field_name, "level" | "module" | "file" | "line" | "message")
 }
 
 fn render_level(level: LogLevel) -> &'static str {
@@ -583,6 +604,26 @@ mod tests {
 
         assert_eq!(message_counter.load(std::sync::atomic::Ordering::SeqCst), 0);
         assert_eq!(field_counter.load(std::sync::atomic::Ordering::SeqCst), 0);
+        assert!(recorder.take().is_empty());
+    }
+
+    #[test]
+    fn log_macro_rejects_reserved_field_names() {
+        let _guard = test_lock().lock().expect("test lock");
+        ensure_test_config();
+        let recorder = TestRecorder::default();
+
+        init_for_test(recorder.clone()).expect("init test logger");
+        selvedge_config::update_runtime("logging.level", "info").expect("set log level");
+        recorder.clear();
+
+        let error = selvedge_log!(LogLevel::Info, "router started"; message = "duplicate key")
+            .expect_err("reserved field names should return an error");
+
+        assert!(matches!(
+            error,
+            super::EmitError::ReservedFieldName(field_name) if field_name == "message"
+        ));
         assert!(recorder.take().is_empty());
     }
 
