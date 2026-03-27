@@ -24,7 +24,9 @@ fn script_creates_branch_and_worktree_in_hidden_directory() {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let worktree_path = repo_root.join(".worktrees/feature/demo");
+    let worktree_path = repo_root
+        .join(".worktrees")
+        .join(encoded_branch_name("feature/demo"));
 
     assert!(worktree_path.is_dir(), "worktree directory should exist");
 
@@ -42,7 +44,7 @@ fn script_creates_branch_and_worktree_in_hidden_directory() {
 
     let stdout = String::from_utf8(output.stdout).expect("stdout utf8");
     assert!(
-        stdout.contains(".worktrees/feature/demo"),
+        stdout.contains(".worktrees/feature_2fdemo"),
         "expected created path in stdout, got {stdout:?}"
     );
 }
@@ -99,7 +101,9 @@ fn script_bases_new_worktree_on_main_even_when_current_branch_is_not_main() {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let isolated_worktree_path = repo_root.join(".worktrees/feature/isolated");
+    let isolated_worktree_path = repo_root
+        .join(".worktrees")
+        .join(encoded_branch_name("feature/isolated"));
     assert!(
         !isolated_worktree_path.join("feature.txt").exists(),
         "new worktree should not inherit commits from the current non-main branch"
@@ -149,8 +153,18 @@ fn script_keeps_distinct_worktree_paths_for_similar_branch_names() {
         String::from_utf8_lossy(&dash_output.stderr)
     );
 
-    assert!(repo_root.join(".worktrees/feature/a").is_dir());
-    assert!(repo_root.join(".worktrees/feature-a").is_dir());
+    assert!(
+        repo_root
+            .join(".worktrees")
+            .join(encoded_branch_name("feature/a"))
+            .is_dir()
+    );
+    assert!(
+        repo_root
+            .join(".worktrees")
+            .join(encoded_branch_name("feature-a"))
+            .is_dir()
+    );
 }
 
 #[test]
@@ -165,19 +179,20 @@ fn script_uses_shared_root_when_run_inside_an_existing_worktree() {
     fs::copy(&script_source, &root_script_target).expect("copy root script");
     set_script_executable(&root_script_target);
 
+    let first_worktree_name = encoded_branch_name("feature/one");
     run_git(
         &repo_root,
         [
             "worktree",
             "add",
-            ".worktrees/feature/one",
+            &format!(".worktrees/{first_worktree_name}"),
             "-b",
             "feature/one",
             "main",
         ],
     );
 
-    let nested_worktree = repo_root.join(".worktrees/feature/one");
+    let nested_worktree = repo_root.join(".worktrees").join(&first_worktree_name);
     let nested_script_target = nested_worktree.join("scripts/create-worktree.sh");
     fs::create_dir_all(nested_worktree.join("scripts")).expect("create nested scripts directory");
     fs::copy(&script_source, &nested_script_target).expect("copy nested script");
@@ -190,8 +205,18 @@ fn script_uses_shared_root_when_run_inside_an_existing_worktree() {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    assert!(repo_root.join(".worktrees/feature/two").is_dir());
-    assert!(!nested_worktree.join(".worktrees/feature/two").exists());
+    assert!(
+        repo_root
+            .join(".worktrees")
+            .join(encoded_branch_name("feature/two"))
+            .is_dir()
+    );
+    assert!(
+        !nested_worktree
+            .join(".worktrees")
+            .join(encoded_branch_name("feature/two"))
+            .exists()
+    );
 }
 
 fn run_script(repo_root: &Path, branch_name: &str) -> std::process::Output {
@@ -233,6 +258,20 @@ fn run_git<const N: usize>(repo_root: &Path, args: [&str; N]) {
 
 fn workspace_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+}
+
+fn encoded_branch_name(branch_name: &str) -> String {
+    let mut encoded = String::new();
+    for byte in branch_name.bytes() {
+        let ch = byte as char;
+        if ch.is_ascii_alphanumeric() || ch == '.' || ch == '-' {
+            encoded.push(ch);
+        } else {
+            encoded.push('_');
+            encoded.push_str(&format!("{byte:02x}"));
+        }
+    }
+    encoded
 }
 
 #[cfg(unix)]
