@@ -16,7 +16,7 @@ repos:
         stages: [pre-commit, manual]
       - id: agents-md-project-index
         name: AGENTS.md project index --check
-        entry: cargo run -p xtask -- agents-index check
+        entry: cargo xtask agents-index check
         language: system
         pass_filenames: false
         stages: [pre-commit, manual]
