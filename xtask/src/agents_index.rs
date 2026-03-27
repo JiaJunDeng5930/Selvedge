@@ -7,41 +7,6 @@ use std::process::Command;
 
 const BEGIN_MARKER: &str = "<!-- BEGIN AGENTS_MD_PROJECT_INDEX -->";
 const END_MARKER: &str = "<!-- END AGENTS_MD_PROJECT_INDEX -->";
-const DEFAULT_AGENTS_MD: &str = r#"# AGENTS.md
-
-This file is for coding agents working in this repository.
-
-## Start Here
-
-- Read [README.md](./README.md) first for the repository-level workflow.
-- Before you call or modify a module, read that module's `README.md` first.
-- If the relevant `README.md` already answers your question, do not open the module internals first.
-
-## Git Hooks
-
-- `pre-commit` checks `cargo fmt --all -- --check`
-- `pre-commit` checks `cargo clippy --workspace --all-targets --all-features -- -D warnings`
-- `pre-commit` checks that the project index in this file is up to date
-- `pre-push` checks `cargo test --workspace --all-targets --all-features`
-
-## Project Index Workflow
-
-- Update the index with `just agents-index`
-- Check whether the index is current with `just agents-index-check`
-- Run all configured hooks with `just hooks`
-- The index is generated from Git-tracked files, so Git-ignored and untracked files are excluded.
-- Index commands warn when an indexed directory has an unusually large number of direct filesystem entries.
-
-## Project Index
-
-<!-- BEGIN AGENTS_MD_PROJECT_INDEX -->
-```text
-[Project Index]|root:.
-|source:git-tracked-files-only
-|excluded:{git-ignored,git-untracked}
-```
-<!-- END AGENTS_MD_PROJECT_INDEX -->
-"#;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DirectoryWarning {
@@ -62,7 +27,7 @@ pub fn update_agents_md(
     let prepared = prepare(root, warning_threshold)?;
     let existing = match fs::read_to_string(&prepared.agents_md_path) {
         Ok(content) => content,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => DEFAULT_AGENTS_MD.to_string(),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => String::new(),
         Err(error) => {
             return Err(format!(
                 "failed to read {}: {error}",
@@ -250,7 +215,9 @@ fn upsert_index_block(existing: &str, block: &str) -> Result<String, String> {
 
     if begin_matches == 0 {
         let mut appended = existing.trim_end().to_string();
-        if !appended.is_empty() {
+        if appended.is_empty() {
+            appended.push_str("## Project Index\n\n");
+        } else {
             appended.push_str("\n\n## Project Index\n\n");
         }
         appended.push_str(block);
