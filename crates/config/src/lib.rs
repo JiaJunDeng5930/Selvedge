@@ -15,12 +15,14 @@ use tempfile::NamedTempFile;
 use thiserror::Error;
 use toml::{Table, Value};
 
-const CONFIG_PATH_ENV: &str = "SELVEDGE_CONFIG";
+const CONFIG_HOME_ENV: &str = "SELVEDGE_HOME";
 const CONFIG_ENV_PREFIX: &str = "SELVEDGE_APP";
-const SEARCH_PATH_PATTERNS: [&str; 3] = [
-    "./selvedge.toml",
-    "$XDG_CONFIG_HOME/selvedge/config.toml",
-    "~/.config/selvedge/config.toml",
+const CONFIG_FILE_NAME: &str = "config.toml";
+const SEARCH_HOME_PATTERNS: [&str; 4] = [
+    "./.selvedge",
+    "$XDG_CONFIG_HOME/selvedge",
+    "~/.config/selvedge",
+    "~/.selvedge",
 ];
 
 static CONFIG_SERVICE: LazyLock<RwLock<Option<ConfigService>>> =
@@ -30,15 +32,15 @@ pub fn init() -> Result<(), ConfigError> {
     init_with_cli::<PathBuf, _, _, _>(None, std::iter::empty::<(String, String)>())
 }
 
-pub fn init_with_path<P>(path: P) -> Result<(), ConfigError>
+pub fn init_with_home<P>(home: P) -> Result<(), ConfigError>
 where
     P: Into<PathBuf>,
 {
-    init_with_cli(Some(path), std::iter::empty::<(String, String)>())
+    init_with_cli(Some(home), std::iter::empty::<(String, String)>())
 }
 
 pub fn init_with_cli<P, I, K, V>(
-    explicit_path: Option<P>,
+    explicit_home: Option<P>,
     cli_overrides: I,
 ) -> Result<(), ConfigError>
 where
@@ -47,14 +49,15 @@ where
     K: Into<String>,
     V: Into<String>,
 {
-    let resolved_path = if let Some(path) = explicit_path {
-        Some(resolve_explicit_path(path.into())?)
-    } else if let Some(path) = env::var_os(CONFIG_PATH_ENV) {
-        Some(resolve_env_path(PathBuf::from(path))?)
+    let selvedge_home = if let Some(home) = explicit_home {
+        resolve_explicit_home(home.into())?
+    } else if let Some(home) = env::var_os(CONFIG_HOME_ENV) {
+        resolve_env_home(PathBuf::from(home))?
     } else {
-        resolve_search_path()?
+        resolve_search_home_or_create_default()?
     };
-    let mut merged_table = load_file_table(resolved_path.as_deref())?;
+    let config_path = config_path_for_home(&selvedge_home);
+    let mut merged_table = load_file_table(Some(&config_path))?;
     let env_table = load_env_table()?;
     let cli_table = load_cli_table(cli_overrides)?;
 
@@ -62,7 +65,7 @@ where
     merge_tables(&mut merged_table, &cli_table);
 
     let base_config = AppConfig::try_from(merged_table).map_err(map_model_error)?;
-    let service = ConfigService::new(base_config, resolved_path);
+    let service = ConfigService::new(base_config, selvedge_home);
     let mut global = CONFIG_SERVICE
         .write()
         .map_err(|_| ConfigError::LoadFailed("config service lock poisoned".to_owned()))?;
@@ -99,6 +102,15 @@ where
     apply_update(path, value, true)
 }
 
+pub fn selvedge_home() -> Result<PathBuf, ConfigError> {
+    let global = CONFIG_SERVICE
+        .read()
+        .map_err(|_| ConfigError::LoadFailed("config service lock poisoned".to_owned()))?;
+    let service = global.as_ref().ok_or(ConfigError::NotInitialized)?;
+
+    Ok(service.selvedge_home().to_path_buf())
+}
+
 fn apply_update<V>(path: &str, value: V, persist: bool) -> Result<(), ConfigError>
 where
     V: Serialize,
@@ -116,15 +128,15 @@ where
 #[derive(Debug)]
 struct ConfigService {
     base_config: OnceLock<AppConfig>,
-    current_config_path: OnceLock<Option<PathBuf>>,
+    selvedge_home: OnceLock<PathBuf>,
     runtime_patch: RwLock<Table>,
 }
 
 impl ConfigService {
-    fn new(base_config: AppConfig, current_config_path: Option<PathBuf>) -> Self {
+    fn new(base_config: AppConfig, selvedge_home: PathBuf) -> Self {
         let service = Self {
             base_config: OnceLock::new(),
-            current_config_path: OnceLock::new(),
+            selvedge_home: OnceLock::new(),
             runtime_patch: RwLock::new(Table::new()),
         };
 
@@ -133,9 +145,9 @@ impl ConfigService {
             .set(base_config)
             .expect("base config must be initialized exactly once");
         service
-            .current_config_path
-            .set(current_config_path)
-            .expect("current config path must be initialized exactly once");
+            .selvedge_home
+            .set(selvedge_home)
+            .expect("selvedge home must be initialized exactly once");
 
         service
     }
@@ -186,15 +198,12 @@ impl ConfigService {
     }
 
     fn persist_update(&self, path: &str, value: Value) -> Result<(), ConfigError> {
-        let current_path = self
-            .current_config_path()
-            .as_deref()
-            .ok_or(ConfigError::PersistUnavailable)?;
-        let mut durable_table = load_file_table(Some(current_path))?;
+        let config_path = config_path_for_home(self.selvedge_home());
+        let mut durable_table = load_file_table(Some(&config_path))?;
 
         apply_override(&mut durable_table, path, value)?;
         AppConfig::try_from(durable_table.clone()).map_err(map_model_error)?;
-        write_config_file(current_path, &durable_table)
+        write_config_file(&config_path, &durable_table)
     }
 
     fn base_config(&self) -> &AppConfig {
@@ -203,10 +212,10 @@ impl ConfigService {
             .expect("base config must be initialized before use")
     }
 
-    fn current_config_path(&self) -> &Option<PathBuf> {
-        self.current_config_path
+    fn selvedge_home(&self) -> &Path {
+        self.selvedge_home
             .get()
-            .expect("current config path must be initialized before use")
+            .expect("selvedge home must be initialized before use")
     }
 }
 
@@ -216,12 +225,12 @@ pub enum ConfigError {
     AlreadyInitialized,
     #[error("config service has not been initialized")]
     NotInitialized,
-    #[error("explicit config path is invalid: {0}")]
-    InvalidExplicitPath(PathBuf),
-    #[error("environment config path is invalid: {0}")]
-    InvalidEnvPath(PathBuf),
-    #[error("searched config path is invalid: {0}")]
-    InvalidSearchedPath(PathBuf),
+    #[error("explicit selvedge home is invalid: {0}")]
+    InvalidExplicitHome(PathBuf),
+    #[error("environment selvedge home is invalid: {0}")]
+    InvalidEnvHome(PathBuf),
+    #[error("searched selvedge home is invalid: {0}")]
+    InvalidSearchedHome(PathBuf),
     #[error("failed to load config: {0}")]
     LoadFailed(String),
     #[error("config validation failed: {0}")]
@@ -230,18 +239,12 @@ pub enum ConfigError {
     InvalidUpdatePath(String),
     #[error("invalid update value: {0}")]
     InvalidUpdateValue(String),
-    #[error("no active config file is selected for persistence")]
-    PersistUnavailable,
     #[error("failed to persist config: {0}")]
     PersistFailed(String),
 }
 
-fn resolve_explicit_path(path: PathBuf) -> Result<PathBuf, ConfigError> {
-    if path.is_file() {
-        return fs::canonicalize(&path).map_err(|_| ConfigError::InvalidExplicitPath(path));
-    }
-
-    Err(ConfigError::InvalidExplicitPath(path))
+fn resolve_explicit_home(home: PathBuf) -> Result<PathBuf, ConfigError> {
+    validate_existing_home(home, ConfigHomeSource::Explicit)
 }
 
 fn materialize_current_config() -> Result<AppConfig, ConfigError> {
@@ -253,51 +256,48 @@ fn materialize_current_config() -> Result<AppConfig, ConfigError> {
     service.materialize_config()
 }
 
-fn resolve_env_path(path: PathBuf) -> Result<PathBuf, ConfigError> {
-    if path.is_file() {
-        return Ok(path);
-    }
-
-    Err(ConfigError::InvalidEnvPath(path))
+fn resolve_env_home(home: PathBuf) -> Result<PathBuf, ConfigError> {
+    validate_existing_home(home, ConfigHomeSource::Environment)
 }
 
-fn resolve_search_path() -> Result<Option<PathBuf>, ConfigError> {
-    for path in search_path_candidates() {
-        if !path.exists() {
+fn resolve_search_home_or_create_default() -> Result<PathBuf, ConfigError> {
+    for home in search_home_candidates() {
+        if !home.exists() {
             continue;
         }
 
-        if !path.is_file() {
-            return Err(ConfigError::InvalidSearchedPath(path));
-        }
-
-        return Ok(Some(path));
+        return validate_existing_home(home, ConfigHomeSource::Search);
     }
 
-    Ok(None)
+    create_default_home()
 }
 
-fn search_path_candidates() -> Vec<PathBuf> {
-    let mut paths = Vec::with_capacity(SEARCH_PATH_PATTERNS.len());
+fn search_home_candidates() -> Vec<PathBuf> {
+    let mut homes = Vec::with_capacity(SEARCH_HOME_PATTERNS.len());
 
-    for pattern in SEARCH_PATH_PATTERNS {
+    for pattern in SEARCH_HOME_PATTERNS {
         match pattern {
-            "./selvedge.toml" => paths.push(PathBuf::from(pattern)),
-            "$XDG_CONFIG_HOME/selvedge/config.toml" => {
+            "./.selvedge" => homes.push(PathBuf::from(pattern)),
+            "$XDG_CONFIG_HOME/selvedge" => {
                 if let Some(xdg_config_home) = env::var_os("XDG_CONFIG_HOME") {
-                    paths.push(PathBuf::from(xdg_config_home).join("selvedge/config.toml"));
+                    homes.push(PathBuf::from(xdg_config_home).join("selvedge"));
                 }
             }
-            "~/.config/selvedge/config.toml" => {
+            "~/.config/selvedge" => {
                 if let Some(home) = env::var_os("HOME") {
-                    paths.push(PathBuf::from(home).join(".config/selvedge/config.toml"));
+                    homes.push(PathBuf::from(home).join(".config/selvedge"));
+                }
+            }
+            "~/.selvedge" => {
+                if let Some(home) = env::var_os("HOME") {
+                    homes.push(PathBuf::from(home).join(".selvedge"));
                 }
             }
             _ => {}
         }
     }
 
-    paths
+    homes
 }
 
 fn load_file_table(path: Option<&Path>) -> Result<Table, ConfigError> {
@@ -310,6 +310,61 @@ fn load_file_table(path: Option<&Path>) -> Result<Table, ConfigError> {
 
     toml::from_str::<Table>(&contents)
         .map_err(|error| ConfigError::LoadFailed(format!("{path:?}: {error}")))
+}
+
+fn config_path_for_home(home: &Path) -> PathBuf {
+    home.join(CONFIG_FILE_NAME)
+}
+
+fn create_default_home() -> Result<PathBuf, ConfigError> {
+    let Some(home_root) = env::var_os("HOME") else {
+        return Err(ConfigError::InvalidSearchedHome(PathBuf::from(
+            "~/.selvedge",
+        )));
+    };
+    let selvedge_home = PathBuf::from(home_root).join(".selvedge");
+    let config_path = config_path_for_home(&selvedge_home);
+
+    fs::create_dir_all(&selvedge_home).map_err(|error| {
+        ConfigError::LoadFailed(format!("{}: {error}", selvedge_home.display()))
+    })?;
+
+    if !config_path.exists() {
+        fs::write(&config_path, "").map_err(|error| {
+            ConfigError::LoadFailed(format!("{}: {error}", config_path.display()))
+        })?;
+    }
+
+    validate_existing_home(selvedge_home, ConfigHomeSource::Search)
+}
+
+fn validate_existing_home(home: PathBuf, source: ConfigHomeSource) -> Result<PathBuf, ConfigError> {
+    if !home.is_dir() {
+        return Err(source.invalid_home(home));
+    }
+
+    let config_path = config_path_for_home(&home);
+    if !config_path.is_file() {
+        return Err(source.invalid_home(home));
+    }
+
+    fs::canonicalize(&home).map_err(|_| source.invalid_home(home))
+}
+
+enum ConfigHomeSource {
+    Explicit,
+    Environment,
+    Search,
+}
+
+impl ConfigHomeSource {
+    fn invalid_home(&self, home: PathBuf) -> ConfigError {
+        match self {
+            Self::Explicit => ConfigError::InvalidExplicitHome(home),
+            Self::Environment => ConfigError::InvalidEnvHome(home),
+            Self::Search => ConfigError::InvalidSearchedHome(home),
+        }
+    }
 }
 
 fn load_env_table() -> Result<Table, ConfigError> {
@@ -561,18 +616,18 @@ mod tests {
     }
 
     #[test]
-    fn init_with_explicit_path_rejects_directory() {
+    fn init_with_explicit_home_rejects_missing_config_file() {
         let _guard = TEST_LOCK.lock().expect("test lock");
         reset_for_test();
         let tempdir = tempfile::TempDir::new().expect("tempdir");
-        let config_dir = tempdir.path().join("config");
+        let config_home = tempdir.path().join("config-home");
 
-        std::fs::create_dir_all(&config_dir).expect("create config dir");
+        std::fs::create_dir_all(&config_home).expect("create config home");
 
-        let error =
-            crate::init_with_path(config_dir).expect_err("directory path should fail during init");
+        let error = crate::init_with_home(config_home)
+            .expect_err("home without config file should fail during init");
 
-        assert!(matches!(error, ConfigError::InvalidExplicitPath(_)));
+        assert!(matches!(error, ConfigError::InvalidExplicitHome(_)));
     }
 
     #[test]
@@ -587,7 +642,10 @@ mod tests {
         let _guard = TEST_LOCK.lock().expect("test lock");
         reset_for_test();
         let tempdir = tempfile::TempDir::new().expect("tempdir");
-        let config_path = tempdir.path().join("selvedge.toml");
+        let config_home = tempdir.path().join("config-home");
+        let config_path = config_home.join("config.toml");
+
+        std::fs::create_dir_all(&config_home).expect("create config home");
 
         std::fs::write(
             &config_path,
@@ -600,7 +658,7 @@ request_timeout_ms = 5000
         )
         .expect("write config");
 
-        crate::init_with_path(config_path).expect("init config service");
+        crate::init_with_home(config_home).expect("init config service");
         let error = crate::update_runtime("feature..enabled", true)
             .expect_err("malformed path should fail");
 
@@ -615,7 +673,10 @@ request_timeout_ms = 5000
         let _guard = TEST_LOCK.lock().expect("test lock");
         reset_for_test();
         let tempdir = tempfile::TempDir::new().expect("tempdir");
-        let config_path = tempdir.path().join("selvedge.toml");
+        let config_home = tempdir.path().join("config-home");
+        let config_path = config_home.join("config.toml");
+
+        std::fs::create_dir_all(&config_home).expect("create config home");
 
         std::fs::write(
             &config_path,
@@ -628,7 +689,7 @@ request_timeout_ms = 5000
         )
         .expect("write config");
 
-        crate::init_with_path(config_path).expect("init config service");
+        crate::init_with_home(config_home).expect("init config service");
 
         let config = materialize_current_config().expect("materialize current config");
         let write_guard = CONFIG_SERVICE
@@ -645,12 +706,12 @@ request_timeout_ms = 5000
         reset_for_test();
         let original_dir = env::current_dir().expect("current dir");
         let tempdir = tempfile::TempDir::new().expect("tempdir");
-        let config_dir = tempdir.path().join("workspace/config");
+        let config_home = tempdir.path().join("workspace/config-home");
         let work_dir = tempdir.path().join("workspace/bin");
         let moved_dir = tempdir.path().join("other/place");
-        let config_path = config_dir.join("selvedge.toml");
+        let config_path = config_home.join("config.toml");
 
-        std::fs::create_dir_all(&config_dir).expect("create config dir");
+        std::fs::create_dir_all(&config_home).expect("create config home");
         std::fs::create_dir_all(&work_dir).expect("create work dir");
         std::fs::create_dir_all(&moved_dir).expect("create moved dir");
         std::fs::write(
@@ -668,10 +729,10 @@ format = "text"
         )
         .expect("write config");
 
-        let relative_path = relative_path_from(&work_dir, &config_path);
+        let relative_home = relative_path_from(&work_dir, &config_home);
         let test_result = (|| -> Result<(), String> {
             env::set_current_dir(&work_dir).map_err(|error| error.to_string())?;
-            crate::init_with_path(&relative_path).map_err(|error| error.to_string())?;
+            crate::init_with_home(&relative_home).map_err(|error| error.to_string())?;
             env::set_current_dir(&moved_dir).map_err(|error| error.to_string())?;
             crate::update_runtime_and_persist("logging.level", "debug")
                 .map_err(|error| error.to_string())?;
@@ -684,7 +745,8 @@ format = "text"
 
         let persisted =
             std::fs::read_to_string(&config_path).expect("read persisted config from source path");
-        let drifted_path = moved_dir.join(relative_path);
+        let drifted_home = moved_dir.join(relative_home);
+        let drifted_path = drifted_home.join("config.toml");
 
         assert!(persisted.contains("level = \"debug\""));
         assert_ne!(drifted_path, config_path);
@@ -710,5 +772,85 @@ format = "text"
         }
 
         relative
+    }
+
+    #[test]
+    fn init_finds_current_directory_home_for_persistence() {
+        let _guard = TEST_LOCK.lock().expect("test lock");
+        reset_for_test();
+        let original_dir = env::current_dir().expect("current dir");
+        let tempdir = tempfile::TempDir::new().expect("tempdir");
+        let work_dir = tempdir.path().join("workspace");
+        let config_home = work_dir.join(".selvedge");
+        let config_path = config_home.join("config.toml");
+
+        std::fs::create_dir_all(&work_dir).expect("create work dir");
+        std::fs::create_dir_all(&config_home).expect("create config home");
+        std::fs::write(
+            &config_path,
+            r#"
+[server]
+host = "127.0.0.1"
+port = 8080
+request_timeout_ms = 5000
+            "#,
+        )
+        .expect("write config");
+
+        let test_result = (|| -> Result<(), String> {
+            env::set_current_dir(&work_dir).map_err(|error| error.to_string())?;
+            crate::init().map_err(|error| error.to_string())?;
+            crate::update_runtime_and_persist("logging.level", "debug")
+                .map_err(|error| error.to_string())?;
+
+            Ok(())
+        })();
+
+        env::set_current_dir(&original_dir).expect("restore current dir");
+        test_result.expect("persist runtime update");
+
+        let persisted = std::fs::read_to_string(&config_path).expect("read persisted config");
+
+        assert!(persisted.contains("level = \"debug\""));
+    }
+
+    #[test]
+    fn selvedge_home_requires_initialization() {
+        let _guard = TEST_LOCK.lock().expect("test lock");
+        reset_for_test();
+
+        let error = crate::selvedge_home().expect_err("must fail before init");
+
+        assert_eq!(error, ConfigError::NotInitialized);
+    }
+
+    #[test]
+    fn selvedge_home_returns_selected_home_directory() {
+        let _guard = TEST_LOCK.lock().expect("test lock");
+        reset_for_test();
+        let tempdir = tempfile::TempDir::new().expect("tempdir");
+        let config_home = tempdir.path().join("config-home");
+        let config_path = config_home.join("config.toml");
+
+        std::fs::create_dir_all(&config_home).expect("create config home");
+        std::fs::write(
+            &config_path,
+            r#"
+[server]
+host = "127.0.0.1"
+port = 8080
+request_timeout_ms = 5000
+            "#,
+        )
+        .expect("write config");
+
+        crate::init_with_home(&config_home).expect("init config service");
+
+        let selected_home = crate::selvedge_home().expect("read selected home");
+
+        assert_eq!(
+            selected_home,
+            std::fs::canonicalize(&config_home).expect("canonicalize config home")
+        );
     }
 }

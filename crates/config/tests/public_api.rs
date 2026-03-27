@@ -1,13 +1,18 @@
 use std::fs;
 
-use selvedge_config::{init_with_cli, read, update_runtime, update_runtime_and_persist};
+use selvedge_config::{
+    init_with_cli, read, selvedge_home, update_runtime, update_runtime_and_persist,
+};
 use selvedge_config_model::LogFilter;
 use tempfile::TempDir;
 
 #[test]
 fn public_api_supports_singleton_read_runtime_update_persist_and_cli_precedence() {
     let tempdir = TempDir::new().expect("tempdir");
-    let config_path = tempdir.path().join("selvedge.toml");
+    let config_home = tempdir.path().join(".selvedge");
+    let config_path = config_home.join("config.toml");
+
+    fs::create_dir_all(&config_home).expect("create config home");
 
     fs::write(
         &config_path,
@@ -25,7 +30,7 @@ format = "text"
     .expect("write config file");
 
     init_with_cli(
-        Some(config_path.clone()),
+        Some(config_home.clone()),
         vec![
             ("server.port".to_owned(), "9100".to_owned()),
             ("server.request_timeout_ms".to_owned(), "10000".to_owned()),
@@ -57,8 +62,13 @@ format = "text"
     })
     .expect("read after update");
     let persisted = fs::read_to_string(config_path).expect("read persisted file");
+    let selected_home = selvedge_home().expect("read selected home");
 
     assert_eq!(after, (9100, true, LogFilter::Debug));
+    assert_eq!(
+        selected_home,
+        fs::canonicalize(config_home).expect("canonicalize config home")
+    );
     assert!(persisted.contains("level = \"debug\""));
     assert!(!persisted.contains("enabled = true"));
     let loaded = read(|config| (config.server.port, config.server.request_timeout_ms))

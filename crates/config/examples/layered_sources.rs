@@ -5,7 +5,10 @@ use tempfile::TempDir;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let tempdir = TempDir::new()?;
-    let config_path = tempdir.path().join("selvedge.toml");
+    let config_home = tempdir.path().join(".selvedge");
+    let config_path = config_home.join("config.toml");
+
+    fs::create_dir_all(&config_home)?;
 
     fs::write(
         &config_path,
@@ -22,7 +25,7 @@ format = "text"
     )?;
 
     init_with_cli(
-        Some(config_path),
+        Some(config_home),
         vec![
             ("server.port".to_owned(), "9090".to_owned()),
             ("logging.level".to_owned(), "debug".to_owned()),
@@ -40,7 +43,9 @@ format = "text"
     })?;
 
     println!("{summary}");
-    println!("If no explicit path is given, load() falls back to env path and fixed search paths.");
+    println!(
+        "If no explicit home is given, load() falls back to env home and fixed home search order."
+    );
 
     Ok(())
 }
