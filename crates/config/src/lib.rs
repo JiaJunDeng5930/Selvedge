@@ -60,7 +60,7 @@ where
         resolve_search_home()?
     };
     let should_bootstrap_home = resolved_home.is_none();
-    let selvedge_home = resolved_home.unwrap_or_else(primary_default_home_candidate);
+    let selvedge_home = resolved_home.unwrap_or_else(select_deferred_default_home_candidate);
     let config_path = config_path_for_home(&selvedge_home);
     let mut merged_table = if should_bootstrap_home {
         Table::new()
@@ -397,10 +397,14 @@ fn bootstrap_home_candidate(selvedge_home: &Path) -> Result<PathBuf, ConfigError
     validate_existing_home(selvedge_home.to_path_buf(), ConfigHomeSource::Search)
 }
 
-fn primary_default_home_candidate() -> PathBuf {
-    default_home_candidates()
-        .into_iter()
-        .next()
+fn select_deferred_default_home_candidate() -> PathBuf {
+    let candidates = default_home_candidates();
+
+    candidates
+        .iter()
+        .find(|candidate| likely_bootstrappable_home(candidate))
+        .cloned()
+        .or_else(|| candidates.into_iter().next())
         .unwrap_or_else(|| PathBuf::from(".selvedge"))
 }
 
@@ -435,6 +439,17 @@ fn default_home_candidates() -> Vec<PathBuf> {
 
 fn is_project_local_home_candidate(home: &Path) -> bool {
     home == Path::new("./.selvedge") || home == Path::new(".selvedge")
+}
+
+fn likely_bootstrappable_home(home: &Path) -> bool {
+    let Some(existing_ancestor) = home.ancestors().find(|ancestor| ancestor.exists()) else {
+        return false;
+    };
+    let Ok(metadata) = fs::metadata(existing_ancestor) else {
+        return false;
+    };
+
+    !metadata.permissions().readonly()
 }
 
 fn validate_existing_home(home: PathBuf, source: ConfigHomeSource) -> Result<PathBuf, ConfigError> {
@@ -1011,6 +1026,53 @@ request_timeout_ms = 5000
             .env_remove("SELVEDGE_CONFIG")
             .output()
             .expect("run cli-only persist child test");
+
+        assert!(output.status.success(), "child test failed: {output:?}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn deferred_home_prefers_writable_fallback() {
+        use std::fs;
+        use std::os::unix::fs::PermissionsExt;
+
+        let _guard = TEST_LOCK.lock().expect("test lock");
+        reset_for_test();
+        if env::var_os("SELVEDGE_CONFIG_WRITABLE_FALLBACK_CHILD").is_some() {
+            let selected_home = crate::init_with_cli(
+                None::<PathBuf>,
+                vec![("server.port".to_owned(), "9100".to_owned())],
+            )
+            .and_then(|_| crate::selvedge_home())
+            .expect("select deferred home");
+
+            let xdg_home = env::var_os("XDG_CONFIG_HOME").expect("xdg config home");
+            assert_eq!(selected_home, PathBuf::from(xdg_home).join("selvedge"));
+            return;
+        }
+
+        let tempdir = tempfile::TempDir::new().expect("tempdir");
+        let work_dir = tempdir.path().join("workspace");
+        let home_dir = tempdir.path().join("readonly-home");
+        let xdg_dir = tempdir.path().join("xdg-home");
+        let current_executable = env::current_exe().expect("current test executable");
+
+        fs::create_dir_all(&work_dir).expect("create work dir");
+        fs::create_dir_all(&home_dir).expect("create home dir");
+        fs::set_permissions(&home_dir, fs::Permissions::from_mode(0o555))
+            .expect("set readonly permissions");
+
+        let output = Command::new(current_executable)
+            .arg("--exact")
+            .arg("tests::deferred_home_prefers_writable_fallback")
+            .current_dir(&work_dir)
+            .env("SELVEDGE_CONFIG_WRITABLE_FALLBACK_CHILD", "1")
+            .env("HOME", &home_dir)
+            .env("XDG_CONFIG_HOME", &xdg_dir)
+            .env_remove("SELVEDGE_HOME")
+            .env_remove("SELVEDGE_CONFIG")
+            .output()
+            .expect("run writable fallback child test");
 
         assert!(output.status.success(), "child test failed: {output:?}");
     }
