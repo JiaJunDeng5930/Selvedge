@@ -89,7 +89,11 @@ where
     } else {
         selvedge_home
     };
-    let service = ConfigService::new(base_config, selvedge_home);
+    let service = ConfigService::new(
+        base_config,
+        selvedge_home,
+        should_bootstrap_home && !should_bootstrap_on_init,
+    );
     *global = Some(service);
 
     Ok(())
@@ -145,14 +149,16 @@ where
 struct ConfigService {
     base_config: OnceLock<AppConfig>,
     selvedge_home: RwLock<PathBuf>,
+    can_bootstrap_on_persist: RwLock<bool>,
     runtime_patch: RwLock<Table>,
 }
 
 impl ConfigService {
-    fn new(base_config: AppConfig, selvedge_home: PathBuf) -> Self {
+    fn new(base_config: AppConfig, selvedge_home: PathBuf, can_bootstrap_on_persist: bool) -> Self {
         let service = Self {
             base_config: OnceLock::new(),
             selvedge_home: RwLock::new(selvedge_home),
+            can_bootstrap_on_persist: RwLock::new(can_bootstrap_on_persist),
             runtime_patch: RwLock::new(Table::new()),
         };
 
@@ -214,14 +220,26 @@ impl ConfigService {
         let mut config_path = config_path_for_home(&selected_home);
 
         if !config_path.exists() {
-            selected_home = bootstrap_default_home()?;
-            config_path = config_path_for_home(&selected_home);
+            let can_bootstrap = self
+                .can_bootstrap_on_persist
+                .read()
+                .map_err(|_| ConfigError::LoadFailed("bootstrap flag lock poisoned".to_owned()))?;
+            if *can_bootstrap {
+                drop(can_bootstrap);
 
-            let mut home_guard = self
-                .selvedge_home
-                .write()
-                .map_err(|_| ConfigError::LoadFailed("selvedge home lock poisoned".to_owned()))?;
-            *home_guard = selected_home;
+                selected_home = bootstrap_default_home()?;
+                config_path = config_path_for_home(&selected_home);
+
+                let mut home_guard = self.selvedge_home.write().map_err(|_| {
+                    ConfigError::LoadFailed("selvedge home lock poisoned".to_owned())
+                })?;
+                *home_guard = selected_home;
+
+                let mut bootstrap_guard = self.can_bootstrap_on_persist.write().map_err(|_| {
+                    ConfigError::LoadFailed("bootstrap flag lock poisoned".to_owned())
+                })?;
+                *bootstrap_guard = false;
+            }
         }
 
         let mut durable_table = load_file_table(Some(&config_path))?;
@@ -935,6 +953,46 @@ request_timeout_ms = 5000
             .expect("run cli-only child test");
 
         assert!(output.status.success(), "child test failed: {output:?}");
+    }
+
+    #[test]
+    fn persist_does_not_switch_away_from_initialized_home() {
+        let _guard = TEST_LOCK.lock().expect("test lock");
+        reset_for_test();
+        let tempdir = tempfile::TempDir::new().expect("tempdir");
+        let config_home = tempdir.path().join("config-home");
+        let config_path = config_home.join("config.toml");
+        let fallback_home = tempdir.path().join("fallback-home");
+
+        std::fs::create_dir_all(&config_home).expect("create config home");
+        std::fs::create_dir_all(&fallback_home).expect("create fallback home");
+        std::fs::write(
+            &config_path,
+            r#"
+[server]
+host = "127.0.0.1"
+port = 8080
+request_timeout_ms = 5000
+
+[logging]
+level = "info"
+            "#,
+        )
+        .expect("write config");
+
+        crate::init_with_home(&config_home).expect("init config service");
+        std::fs::remove_file(&config_path).expect("remove config file");
+
+        let error = crate::update_runtime_and_persist("logging.level", "debug")
+            .expect_err("persist should fail when initialized config file is removed");
+        let selected_home = crate::selvedge_home().expect("read selected home");
+
+        assert!(matches!(error, ConfigError::LoadFailed(_)));
+        assert_eq!(
+            selected_home,
+            std::fs::canonicalize(&config_home).expect("canonicalize config home")
+        );
+        assert!(!fallback_home.join("config.toml").exists());
     }
 
     #[test]
