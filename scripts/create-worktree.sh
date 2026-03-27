@@ -17,6 +17,24 @@ require_command() {
   fi
 }
 
+encode_branch_name() {
+  local branch_name="$1"
+  local encoded=""
+  local index
+  local character
+
+  for ((index = 0; index < ${#branch_name}; index++)); do
+    character="${branch_name:index:1}"
+    if [[ "${character}" =~ [A-Za-z0-9.-] ]]; then
+      encoded+="${character}"
+    else
+      printf -v encoded '%s_%02x' "${encoded}" "'${character}"
+    fi
+  done
+
+  printf '%s\n' "${encoded}"
+}
+
 main() {
   require_command git
 
@@ -57,13 +75,16 @@ main() {
     exit 1
   fi
 
-  local worktree_path=".worktrees/${branch_name}"
+  local worktree_name
+  worktree_name="$(encode_branch_name "${branch_name}")"
+
+  local worktree_path=".worktrees/${worktree_name}"
   if [[ -e "${worktree_path}" ]]; then
     echo "worktree path already exists: ${worktree_path}" >&2
     exit 1
   fi
 
-  mkdir -p "$(dirname "${worktree_path}")"
+  mkdir -p .worktrees
   git worktree add "${worktree_path}" -b "${branch_name}" main
   printf 'created worktree: %s\n' "${repo_root}/${worktree_path}"
 }
