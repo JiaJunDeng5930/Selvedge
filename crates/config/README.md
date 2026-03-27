@@ -7,6 +7,7 @@ This crate is the project-specific runtime config entrypoint.
 Use it to:
 
 - initialize the current project's config service
+- read the selected Selvedge Home directory
 - read the current effective config view
 - apply runtime-only updates
 - apply runtime updates and persist them back to the active config file
@@ -68,6 +69,16 @@ let timeout_ms = read(|config| config.server.request_timeout_ms)?;
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
+Use `selvedge_home()` when a caller needs the selected Selvedge Home directory.
+
+```no_run
+# use selvedge_config::{init, selvedge_home};
+# init()?;
+let home = selvedge_home()?;
+assert!(home.ends_with("selvedge") || home.ends_with(".selvedge"));
+# Ok::<(), Box<dyn std::error::Error>>(())
+```
+
 ## Update runtime config
 
 Use `update_runtime(path, value)`.
@@ -95,7 +106,6 @@ Semantics:
 - the update changes the current runtime view
 - the same update is validated against durable file state before writing
 - runtime-only updates are not implicitly persisted
-- if there is no active config file path, persistence fails
 
 ```no_run
 # use selvedge_config::{init, update_runtime_and_persist};
@@ -106,12 +116,13 @@ update_runtime_and_persist("logging.level", "debug")?;
 
 ## Errors and guarantees
 
-- `init()` searches config files in a fixed internal order.
-- `init_with_path(path)` bypasses search and uses only that path.
-- `SELVEDGE_CONFIG` overrides default search, but still must point to a real
-  file.
-- `init_with_cli(path, overrides)` applies CLI overrides on top of file/env.
-- invalid explicit/env/searched paths fail fast
+- `init()` searches Selvedge Home directories in a fixed internal order.
+- `init_with_home(path)` bypasses search and uses only that Selvedge Home.
+- `SELVEDGE_HOME` overrides default search, but still must point to a real
+  Selvedge Home directory containing `config.toml`.
+- `init_with_cli(path, overrides)` applies CLI overrides on top of home/env.
+- invalid explicit/env/searched homes fail fast
+- if no default home is found, `init()` creates `~/.selvedge/config.toml`
 - failed updates do not commit runtime state
 - failed persisted updates do not commit runtime state or file state
 

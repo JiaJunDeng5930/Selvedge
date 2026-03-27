@@ -6,7 +6,10 @@ use tempfile::TempDir;
 #[test]
 fn singleton_config_service_and_model_work_together() {
     let tempdir = TempDir::new().expect("tempdir");
-    let config_path = tempdir.path().join("selvedge.toml");
+    let config_home = tempdir.path().join(".selvedge");
+    let config_path = config_home.join("config.toml");
+
+    fs::create_dir_all(&config_home).expect("create config home");
 
     fs::write(
         &config_path,
@@ -23,7 +26,7 @@ level = "info"
     .expect("write config");
 
     init_with_cli(
-        Some(config_path),
+        Some(config_home),
         vec![("server.port".to_owned(), "9000".to_owned())],
     )
     .expect("init config");

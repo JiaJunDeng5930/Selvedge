@@ -402,7 +402,7 @@ mod tests {
         sync::{Arc, Mutex, OnceLock},
     };
 
-    use selvedge_config::init_with_path;
+    use selvedge_config::init_with_home;
     use selvedge_config_model::LogFilter;
     use tempfile::TempDir;
 
@@ -649,7 +649,10 @@ mod tests {
     fn ensure_test_config() {
         CONFIG_INIT.get_or_init(|| {
             let tempdir = Arc::new(TempDir::new().expect("tempdir"));
-            let config_path = tempdir.path().join("selvedge.toml");
+            let config_home = tempdir.path().join(".selvedge");
+            let config_path = config_home.join("config.toml");
+
+            std::fs::create_dir_all(&config_home).expect("create config home");
 
             std::fs::write(
                 &config_path,
@@ -666,7 +669,7 @@ level = "info"
             .expect("write config");
 
             let _ = Arc::into_raw(tempdir);
-            init_with_path(config_path).expect("init config");
+            init_with_home(config_home).expect("init config");
         });
     }
 
@@ -707,7 +710,9 @@ level = "info"
         }
 
         let tempdir = TempDir::new().expect("tempdir");
-        let config_path = tempdir.path().join("selvedge.toml");
+        let config_home = tempdir.path().join(".selvedge");
+        let config_path = config_home.join("config.toml");
+        std::fs::create_dir_all(&config_home).expect("create config home");
         std::fs::write(
             &config_path,
             r#"
@@ -722,7 +727,7 @@ level = "info"
         )
         .expect("write config");
 
-        init_with_path(config_path).expect("init config");
+        init_with_home(config_home).expect("init config");
         let error = super::selvedge_log!(LogLevel::Info, "missing runtime")
             .expect_err("missing runtime should return an error");
 
