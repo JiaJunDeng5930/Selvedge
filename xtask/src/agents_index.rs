@@ -7,6 +7,7 @@ use std::process::Command;
 
 const BEGIN_MARKER: &str = "<!-- BEGIN AGENTS_MD_PROJECT_INDEX -->";
 const END_MARKER: &str = "<!-- END AGENTS_MD_PROJECT_INDEX -->";
+const PROJECT_INDEX_HEADING: &str = "## Project Index";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DirectoryWarning {
@@ -214,11 +215,28 @@ fn upsert_index_block(existing: &str, block: &str) -> Result<String, String> {
     }
 
     if begin_matches == 0 {
+        if let Some(section_start) = find_project_index_section_start(existing) {
+            let section_end = find_section_end(existing, section_start);
+            let mut updated = String::new();
+            updated.push_str(&existing[..section_start]);
+            updated.push_str(PROJECT_INDEX_HEADING);
+            updated.push_str("\n\n");
+            updated.push_str(block);
+            if section_end < existing.len() && !existing[section_end..].starts_with('\n') {
+                updated.push('\n');
+            }
+            updated.push_str(&existing[section_end..]);
+            return Ok(updated);
+        }
+
         let mut appended = existing.trim_end().to_string();
         if appended.is_empty() {
-            appended.push_str("## Project Index\n\n");
+            appended.push_str(PROJECT_INDEX_HEADING);
+            appended.push_str("\n\n");
         } else {
-            appended.push_str("\n\n## Project Index\n\n");
+            appended.push_str("\n\n");
+            appended.push_str(PROJECT_INDEX_HEADING);
+            appended.push_str("\n\n");
         }
         appended.push_str(block);
         appended.push('\n');
@@ -241,6 +259,29 @@ fn upsert_index_block(existing: &str, block: &str) -> Result<String, String> {
 
 fn os_str_to_string(value: &OsStr) -> String {
     value.to_string_lossy().into_owned()
+}
+
+fn find_project_index_section_start(content: &str) -> Option<usize> {
+    content
+        .match_indices(PROJECT_INDEX_HEADING)
+        .find(|(index, _)| {
+            let prefix_ok = *index == 0 || content[..*index].ends_with('\n');
+            let suffix_index = index + PROJECT_INDEX_HEADING.len();
+            let suffix_ok =
+                suffix_index == content.len() || content[suffix_index..].starts_with('\n');
+            prefix_ok && suffix_ok
+        })
+        .map(|(index, _)| index)
+}
+
+fn find_section_end(content: &str, section_start: usize) -> usize {
+    let search_start = section_start + PROJECT_INDEX_HEADING.len();
+    let remainder = &content[search_start..];
+    if let Some(next_heading_offset) = remainder.find("\n## ") {
+        search_start + next_heading_offset + 1
+    } else {
+        content.len()
+    }
 }
 
 #[cfg(test)]
