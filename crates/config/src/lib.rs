@@ -60,7 +60,7 @@ where
         resolve_search_home()?
     };
     let should_bootstrap_home = resolved_home.is_none();
-    let selvedge_home = resolved_home.unwrap_or_else(|| PathBuf::from(".selvedge"));
+    let selvedge_home = resolved_home.unwrap_or_else(primary_default_home_candidate);
     let config_path = config_path_for_home(&selvedge_home);
     let mut merged_table = if should_bootstrap_home {
         Table::new()
@@ -82,7 +82,9 @@ where
         return Err(ConfigError::AlreadyInitialized);
     }
 
-    let selvedge_home = if should_bootstrap_home {
+    let should_bootstrap_on_init =
+        should_bootstrap_home && env_table.is_empty() && cli_table.is_empty();
+    let selvedge_home = if should_bootstrap_on_init {
         bootstrap_default_home()?
     } else {
         selvedge_home
@@ -122,7 +124,7 @@ pub fn selvedge_home() -> Result<PathBuf, ConfigError> {
         .map_err(|_| ConfigError::LoadFailed("config service lock poisoned".to_owned()))?;
     let service = global.as_ref().ok_or(ConfigError::NotInitialized)?;
 
-    Ok(service.selvedge_home().to_path_buf())
+    service.selvedge_home()
 }
 
 fn apply_update<V>(path: &str, value: V, persist: bool) -> Result<(), ConfigError>
@@ -142,7 +144,7 @@ where
 #[derive(Debug)]
 struct ConfigService {
     base_config: OnceLock<AppConfig>,
-    selvedge_home: OnceLock<PathBuf>,
+    selvedge_home: RwLock<PathBuf>,
     runtime_patch: RwLock<Table>,
 }
 
@@ -150,7 +152,7 @@ impl ConfigService {
     fn new(base_config: AppConfig, selvedge_home: PathBuf) -> Self {
         let service = Self {
             base_config: OnceLock::new(),
-            selvedge_home: OnceLock::new(),
+            selvedge_home: RwLock::new(selvedge_home),
             runtime_patch: RwLock::new(Table::new()),
         };
 
@@ -158,10 +160,6 @@ impl ConfigService {
             .base_config
             .set(base_config)
             .expect("base config must be initialized exactly once");
-        service
-            .selvedge_home
-            .set(selvedge_home)
-            .expect("selvedge home must be initialized exactly once");
 
         service
     }
@@ -212,7 +210,20 @@ impl ConfigService {
     }
 
     fn persist_update(&self, path: &str, value: Value) -> Result<(), ConfigError> {
-        let config_path = config_path_for_home(self.selvedge_home());
+        let mut selected_home = self.selvedge_home()?;
+        let mut config_path = config_path_for_home(&selected_home);
+
+        if !config_path.exists() {
+            selected_home = bootstrap_default_home()?;
+            config_path = config_path_for_home(&selected_home);
+
+            let mut home_guard = self
+                .selvedge_home
+                .write()
+                .map_err(|_| ConfigError::LoadFailed("selvedge home lock poisoned".to_owned()))?;
+            *home_guard = selected_home;
+        }
+
         let mut durable_table = load_file_table(Some(&config_path))?;
 
         apply_override(&mut durable_table, path, value)?;
@@ -226,10 +237,11 @@ impl ConfigService {
             .expect("base config must be initialized before use")
     }
 
-    fn selvedge_home(&self) -> &Path {
+    fn selvedge_home(&self) -> Result<PathBuf, ConfigError> {
         self.selvedge_home
-            .get()
-            .expect("selvedge home must be initialized before use")
+            .read()
+            .map(|home| home.clone())
+            .map_err(|_| ConfigError::LoadFailed("selvedge home lock poisoned".to_owned()))
     }
 }
 
@@ -367,6 +379,13 @@ fn bootstrap_home_candidate(selvedge_home: &Path) -> Result<PathBuf, ConfigError
     validate_existing_home(selvedge_home.to_path_buf(), ConfigHomeSource::Search)
 }
 
+fn primary_default_home_candidate() -> PathBuf {
+    default_home_candidates()
+        .into_iter()
+        .next()
+        .unwrap_or_else(|| PathBuf::from(".selvedge"))
+}
+
 fn default_home_candidates() -> Vec<PathBuf> {
     let mut homes = Vec::new();
 
@@ -381,7 +400,9 @@ fn default_home_candidates() -> Vec<PathBuf> {
         }
     }
 
-    let local_home = PathBuf::from(".selvedge");
+    let local_home = env::current_dir()
+        .map(|current_dir| current_dir.join(".selvedge"))
+        .unwrap_or_else(|_| PathBuf::from(".selvedge"));
     if !homes.contains(&local_home) {
         homes.push(local_home);
     }
@@ -595,10 +616,11 @@ mod tests {
     use std::env;
     use std::ffi::OsString;
     use std::path::{Path, PathBuf};
+    use std::process::Command;
     use std::sync::{LazyLock, Mutex};
 
     use super::{
-        CONFIG_SERVICE, ConfigError, Value, load_env_table_from_entries,
+        CONFIG_SERVICE, ConfigError, Value, config_path_for_home, load_env_table_from_entries,
         materialize_current_config, persistence_directory, reset_for_test,
     };
 
@@ -863,6 +885,56 @@ request_timeout_ms = 5000
         let persisted = std::fs::read_to_string(&config_path).expect("read persisted config");
 
         assert!(persisted.contains("level = \"debug\""));
+    }
+
+    #[test]
+    fn cli_only_init_defers_home_creation_until_persist() {
+        let _guard = TEST_LOCK.lock().expect("test lock");
+        reset_for_test();
+        if env::var_os("SELVEDGE_CONFIG_CLI_ONLY_CHILD").is_some() {
+            let selected_home = crate::init_with_cli(
+                None::<PathBuf>,
+                vec![("server.port".to_owned(), "9100".to_owned())],
+            )
+            .and_then(|_| crate::selvedge_home())
+            .expect("initialize cli-only config");
+            let config_path = config_path_for_home(&selected_home);
+
+            assert!(
+                !config_path.exists(),
+                "config home should not exist after cli-only init"
+            );
+
+            crate::update_runtime_and_persist("logging.level", "debug").expect("persist update");
+
+            let persisted = std::fs::read_to_string(&config_path).expect("read persisted config");
+            assert!(persisted.contains("level = \"debug\""));
+            return;
+        }
+
+        let tempdir = tempfile::TempDir::new().expect("tempdir");
+        let work_dir = tempdir.path().join("workspace");
+        let home_dir = tempdir.path().join("isolated-home");
+        let xdg_dir = tempdir.path().join("isolated-xdg");
+        let current_executable = env::current_exe().expect("current test executable");
+
+        std::fs::create_dir_all(&work_dir).expect("create work dir");
+        std::fs::create_dir_all(&home_dir).expect("create home dir");
+        std::fs::create_dir_all(&xdg_dir).expect("create xdg dir");
+
+        let output = Command::new(current_executable)
+            .arg("--exact")
+            .arg("tests::cli_only_init_defers_home_creation_until_persist")
+            .current_dir(&work_dir)
+            .env("SELVEDGE_CONFIG_CLI_ONLY_CHILD", "1")
+            .env("HOME", &home_dir)
+            .env("XDG_CONFIG_HOME", &xdg_dir)
+            .env_remove("SELVEDGE_HOME")
+            .env_remove("SELVEDGE_CONFIG")
+            .output()
+            .expect("run cli-only child test");
+
+        assert!(output.status.success(), "child test failed: {output:?}");
     }
 
     #[test]
