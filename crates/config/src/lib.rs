@@ -16,6 +16,7 @@ use thiserror::Error;
 use toml::{Table, Value};
 
 const CONFIG_HOME_ENV: &str = "SELVEDGE_HOME";
+const LEGACY_CONFIG_PATH_ENV: &str = "SELVEDGE_CONFIG";
 const CONFIG_ENV_PREFIX: &str = "SELVEDGE_APP";
 const CONFIG_FILE_NAME: &str = "config.toml";
 const SEARCH_HOME_PATTERNS: [&str; 4] = [
@@ -53,6 +54,8 @@ where
         Some(resolve_explicit_home(home.into())?)
     } else if let Some(home) = env::var_os(CONFIG_HOME_ENV) {
         Some(resolve_env_home(PathBuf::from(home))?)
+    } else if let Some(path) = env::var_os(LEGACY_CONFIG_PATH_ENV) {
+        return Err(ConfigError::LegacyConfigEnvUnsupported(PathBuf::from(path)));
     } else {
         resolve_search_home()?
     };
@@ -242,6 +245,10 @@ pub enum ConfigError {
     InvalidEnvHome(PathBuf),
     #[error("searched selvedge home is invalid: {0}")]
     InvalidSearchedHome(PathBuf),
+    #[error(
+        "legacy SELVEDGE_CONFIG is unsupported; use SELVEDGE_HOME with a directory path instead: {0}"
+    )]
+    LegacyConfigEnvUnsupported(PathBuf),
     #[error("failed to load config: {0}")]
     LoadFailed(String),
     #[error("config validation failed: {0}")]
@@ -277,10 +284,11 @@ fn resolve_search_home() -> Result<Option<PathBuf>, ConfigError> {
             continue;
         }
 
-        return Ok(Some(validate_existing_home(
-            home,
-            ConfigHomeSource::Search,
-        )?));
+        let Ok(valid_home) = validate_existing_home(home, ConfigHomeSource::Search) else {
+            continue;
+        };
+
+        return Ok(Some(valid_home));
     }
 
     Ok(None)
