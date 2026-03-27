@@ -41,7 +41,7 @@ just hooks
 just agents-index
 ```
 
-`just fmt` rewrites formatting. `just agents-index` refreshes the project index stored in `AGENTS.md` after tracked files move. `just agents-index-check` verifies the index without rewriting it. Both index commands warn when an indexed directory has an unusually large number of direct filesystem entries. `just check` runs the read-only formatting, lint, test, and project-index checks used for local validation. `just hooks` runs both configured Git hook stages manually.
+`just fmt` rewrites formatting. `just agents-index` refreshes the project index stored in `AGENTS.md` after tracked files move. `just agents-index-check` verifies the index without rewriting it. Both index commands warn when an indexed directory has an unusually large number of direct filesystem entries. The underlying repository commands are `cargo xtask agents-index update` and `cargo xtask agents-index check`. `just check` runs the read-only formatting, lint, test, and project-index checks used for local validation. `just hooks` runs both configured Git hook stages manually.
 
 ## Pull requests
 

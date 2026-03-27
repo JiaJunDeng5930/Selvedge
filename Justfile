@@ -7,10 +7,10 @@ bootstrap:
     ./scripts/bootstrap.sh
 
 agents-index:
-    cargo run -p xtask -- agents-index update
+    cargo xtask agents-index update
 
 agents-index-check:
-    cargo run -p xtask -- agents-index check
+    cargo xtask agents-index check
 
 run:
     cargo run

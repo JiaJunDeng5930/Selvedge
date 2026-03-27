@@ -19,6 +19,7 @@ This file is for coding agents working in this repository.
 
 - Update the index with `just agents-index`
 - Check whether the index is current with `just agents-index-check`
+- The underlying repository commands are `cargo xtask agents-index update` and `cargo xtask agents-index check`
 - Run all configured hooks with `just hooks`
 - The index only includes Git-tracked files. Git-ignored and untracked files are excluded on purpose.
 - Index commands warn when an indexed directory has an unusually large number of direct filesystem entries.
@@ -30,7 +31,8 @@ This file is for coding agents working in this repository.
 [Project Index]|root:.
 |source:git-tracked-files-only
 |excluded:{git-ignored,git-untracked}
-|.:{.github/,crates/,scripts/,src/,tests/,xtask/,.editorconfig,.gitignore,.pre-commit-config.yaml,AGENTS.md,CONTRIBUTING.md,Cargo.lock,Cargo.toml,Justfile,README.md,rust-toolchain.toml}
+|.:{.cargo/,.github/,crates/,scripts/,src/,tests/,xtask/,.editorconfig,.gitignore,.pre-commit-config.yaml,AGENTS.md,CONTRIBUTING.md,Cargo.lock,Cargo.toml,Justfile,README.md,rust-toolchain.toml}
+|.cargo:{config.toml}
 |.github:{workflows/}
 |.github/workflows:{ci.yml}
 |crates:{config-model/,config/,logging/}
