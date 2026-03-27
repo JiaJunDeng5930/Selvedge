@@ -18,7 +18,7 @@ This file is for coding agents working in this repository.
 ## Worktree Workflow
 
 - Keep the repository root on `main`; do not turn the root checkout into a feature branch.
-- Create parallel task branches with `just worktree <branch-name>`.
+- Do not default to worktrees for parallel development. Use `just worktree <branch-name>` only when the user explicitly asks you to create a worktree.
 - The helper script creates a new branch and a matching checkout under `.worktrees/`.
 - `.worktrees/` must stay Git-ignored. The helper fails fast if the ignore rule is missing.
 - Each worktree should stay focused on one task so review and cleanup remain straightforward.

@@ -17,13 +17,13 @@ The installed `pre-commit` hooks check formatting, linting, and whether the proj
 ## Development workflow
 
 1. Start from an up-to-date branch based on `main`.
-2. Create a focused feature or fix branch. For parallel work, prefer `just worktree <branch-name>` from the repository root.
+2. Create a focused feature or fix branch.
 3. Make the smallest coherent change that solves the problem.
 4. Open a pull request back to `main`.
 
 `main` is protected, so changes should land through pull requests rather than direct pushes.
 
-`just worktree <branch-name>` creates a new branch and a matching checkout under `.worktrees/`. Keep the repository root on `main`, and treat each worktree as a single-task workspace.
+If you want parallel workspaces, `just worktree <branch-name>` creates a new branch and a matching checkout under `.worktrees/`. Keep the repository root on `main`, and treat each worktree as a single-task workspace.
 
 ## Local checks
 

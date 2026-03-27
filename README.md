@@ -44,7 +44,7 @@ The underlying repository commands are `cargo xtask agents-index update` and `ca
 
 ## Parallel development with worktrees
 
-Use the repository root as the `main` checkout and create one worktree per focused task:
+If you want parallel workspaces, keep the repository root as the `main` checkout and create one worktree per focused task:
 
 ```bash
 just worktree feature/config-layering
