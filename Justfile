@@ -6,6 +6,9 @@ default:
 bootstrap:
     ./scripts/bootstrap.sh
 
+worktree branch:
+    ./scripts/create-worktree.sh "{{branch}}"
+
 agents-index:
     cargo xtask agents-index update
 
