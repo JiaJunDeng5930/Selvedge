@@ -35,10 +35,23 @@ just fmt
 just check
 just hooks
 just agents-index
+just worktree feature/my-change
 ```
 
 Use `just agents-index` after adding, removing, or renaming tracked files so the project index in `AGENTS.md` stays current. Use `just agents-index-check` to verify that the index is up to date without rewriting the file. The index is built from Git-tracked files, so ignored and untracked files stay out automatically. Both commands warn when an indexed directory has an unusually large number of direct filesystem entries.
 
 The underlying repository commands are `cargo xtask agents-index update` and `cargo xtask agents-index check`.
+
+## Parallel development with worktrees
+
+Use the repository root as the `main` checkout and create one worktree per focused task:
+
+```bash
+just worktree feature/config-layering
+```
+
+The helper script creates a new branch and a matching checkout under `.worktrees/`. The directory name is derived from the branch name, with path separators normalized to `-`. `.worktrees/` is Git-ignored on purpose, so worktree contents stay out of the main checkout.
+
+Run the command from an up-to-date branch based on `main`. The helper fails fast if `.worktrees/` is not ignored, if the branch already exists, or if the target worktree path already exists.
 
 See [CONTRIBUTING.md](./CONTRIBUTING.md) for the contribution workflow and pull request expectations.

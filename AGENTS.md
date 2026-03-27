@@ -15,6 +15,14 @@ This file is for coding agents working in this repository.
 - `pre-commit` checks that the project index in this file is up to date
 - `pre-push` checks `cargo test --workspace --all-targets --all-features`
 
+## Worktree Workflow
+
+- Keep the repository root on `main`; do not turn the root checkout into a feature branch.
+- Create parallel task branches with `just worktree <branch-name>`.
+- The helper script creates a new branch and a matching checkout under `.worktrees/`.
+- `.worktrees/` must stay Git-ignored. The helper fails fast if the ignore rule is missing.
+- Each worktree should stay focused on one task so review and cleanup remain straightforward.
+
 ## Project Index Workflow
 
 - Update the index with `just agents-index`
@@ -45,9 +53,9 @@ This file is for coding agents working in this repository.
 |crates/config/tests:{public_api.rs}
 |crates/logging:{src/,Cargo.toml,README.md}
 |crates/logging/src:{lib.rs}
-|scripts:{bootstrap.sh}
+|scripts:{bootstrap.sh,create-worktree.sh}
 |src:{lib.rs,main.rs}
-|tests:{config_integration.rs,stdout_stderr_integration.rs}
+|tests:{config_integration.rs,stdout_stderr_integration.rs,worktree_tool_integration.rs}
 |xtask:{src/,Cargo.toml}
 |xtask/src:{agents_index.rs,lib.rs,main.rs}
 ```
