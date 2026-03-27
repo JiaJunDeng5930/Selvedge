@@ -317,12 +317,7 @@ fn config_path_for_home(home: &Path) -> PathBuf {
 }
 
 fn create_default_home() -> Result<PathBuf, ConfigError> {
-    let Some(home_root) = env::var_os("HOME") else {
-        return Err(ConfigError::InvalidSearchedHome(PathBuf::from(
-            "~/.selvedge",
-        )));
-    };
-    let selvedge_home = PathBuf::from(home_root).join(".selvedge");
+    let selvedge_home = default_home_path();
     let config_path = config_path_for_home(&selvedge_home);
 
     fs::create_dir_all(&selvedge_home).map_err(|error| {
@@ -336,6 +331,18 @@ fn create_default_home() -> Result<PathBuf, ConfigError> {
     }
 
     validate_existing_home(selvedge_home, ConfigHomeSource::Search)
+}
+
+fn default_home_path() -> PathBuf {
+    if let Some(home_root) = env::var_os("HOME") {
+        return PathBuf::from(home_root).join(".selvedge");
+    }
+
+    if let Some(xdg_config_home) = env::var_os("XDG_CONFIG_HOME") {
+        return PathBuf::from(xdg_config_home).join("selvedge");
+    }
+
+    PathBuf::from(".selvedge")
 }
 
 fn validate_existing_home(home: PathBuf, source: ConfigHomeSource) -> Result<PathBuf, ConfigError> {

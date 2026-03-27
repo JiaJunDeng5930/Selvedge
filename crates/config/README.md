@@ -123,6 +123,7 @@ update_runtime_and_persist("logging.level", "debug")?;
 - `init_with_cli(path, overrides)` applies CLI overrides on top of home/env.
 - invalid explicit/env/searched homes fail fast
 - if no default home is found, `init()` creates `~/.selvedge/config.toml`
+  and falls back to XDG/current-directory homes when `HOME` is unavailable
 - failed updates do not commit runtime state
 - failed persisted updates do not commit runtime state or file state
 
