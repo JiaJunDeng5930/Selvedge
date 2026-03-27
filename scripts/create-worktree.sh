@@ -49,6 +49,11 @@ main() {
     exit 1
   fi
 
+  if ! git show-ref --verify --quiet "refs/heads/main"; then
+    echo "main branch does not exist locally" >&2
+    exit 1
+  fi
+
   local worktree_name
   worktree_name="$(sanitize_branch_name "${branch_name}")"
   if [[ -z "${worktree_name}" ]]; then
@@ -63,7 +68,7 @@ main() {
   fi
 
   mkdir -p .worktrees
-  git worktree add "${worktree_path}" -b "${branch_name}"
+  git worktree add "${worktree_path}" -b "${branch_name}" main
   printf 'created worktree: %s\n' "${repo_root}/${worktree_path}"
 }
 

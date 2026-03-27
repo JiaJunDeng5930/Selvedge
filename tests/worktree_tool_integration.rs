@@ -72,6 +72,54 @@ fn script_fails_when_worktree_directory_is_not_ignored() {
     );
 }
 
+#[test]
+fn script_bases_new_worktree_on_main_even_when_current_branch_is_not_main() {
+    let tempdir = TempDir::new().expect("tempdir");
+    let repo_root = tempdir.path().join("repo");
+    let script_source = workspace_root().join("scripts/create-worktree.sh");
+    let script_target = repo_root.join("scripts/create-worktree.sh");
+
+    init_git_repo(&repo_root);
+    fs::create_dir_all(repo_root.join("scripts")).expect("create scripts directory");
+    fs::copy(&script_source, &script_target).expect("copy script");
+
+    run_git(&repo_root, ["checkout", "-b", "feature/source"]);
+    fs::write(repo_root.join("feature.txt"), "from feature branch\n").expect("write feature file");
+    run_git(&repo_root, ["add", "feature.txt"]);
+    run_git(&repo_root, ["commit", "-m", "Feature commit"]);
+
+    let output = run_script(&repo_root, "feature/isolated");
+
+    assert!(
+        output.status.success(),
+        "script failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let isolated_worktree_path = repo_root.join(".worktrees/feature-isolated");
+    assert!(
+        !isolated_worktree_path.join("feature.txt").exists(),
+        "new worktree should not inherit commits from the current non-main branch"
+    );
+
+    let head_output = Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .current_dir(&isolated_worktree_path)
+        .output()
+        .expect("read isolated worktree head");
+    let main_output = Command::new("git")
+        .args(["rev-parse", "main"])
+        .current_dir(&repo_root)
+        .output()
+        .expect("read main head");
+
+    assert_eq!(
+        String::from_utf8(head_output.stdout).expect("isolated head utf8"),
+        String::from_utf8(main_output.stdout).expect("main head utf8"),
+        "new worktree should start from main"
+    );
+}
+
 fn run_script(repo_root: &Path, branch_name: &str) -> std::process::Output {
     Command::new("bash")
         .arg("scripts/create-worktree.sh")
