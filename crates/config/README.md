@@ -120,11 +120,10 @@ update_runtime_and_persist("logging.level", "debug")?;
 - `init_with_home(path)` bypasses search and uses only that Selvedge Home.
 - `SELVEDGE_HOME` overrides default search, but still must point to a real
   Selvedge Home directory containing `config.toml`.
-- `SELVEDGE_CONFIG` is rejected explicitly during the directory-path migration.
 - `init_with_cli(path, overrides)` applies CLI overrides on top of home/env.
 - invalid explicit/env/searched homes fail fast
-- if no default home is found, `init()` creates `~/.selvedge/config.toml`
-  and falls back to XDG/current-directory homes when `HOME` is unavailable
+- if no default home is found, `init()` creates a default Selvedge Home and an
+  empty `config.toml`
 - failed updates do not commit runtime state
 - failed persisted updates do not commit runtime state or file state
 
