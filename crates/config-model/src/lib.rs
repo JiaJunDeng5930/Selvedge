@@ -225,7 +225,7 @@ impl FeatureConfigInput {
 mod tests {
     use std::collections::BTreeMap;
 
-    use super::{AppConfig, AppConfigError, LogFilter};
+    use super::{AppConfig, LogFilter};
 
     #[test]
     fn logging_defaults_to_info_without_module_overrides() {

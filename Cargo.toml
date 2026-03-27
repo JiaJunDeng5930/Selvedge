@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/config", "crates/config-model", "crates/logging"]
+members = ["crates/config", "crates/config-model", "crates/logging", "xtask"]
 resolver = "2"
 
 [package]

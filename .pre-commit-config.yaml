@@ -10,13 +10,19 @@ repos:
         stages: [pre-commit, manual]
       - id: cargo-clippy
         name: cargo clippy --check
-        entry: cargo clippy --all-targets --all-features -- -D warnings
+        entry: cargo clippy --workspace --all-targets --all-features -- -D warnings
         language: unsupported
+        pass_filenames: false
+        stages: [pre-commit, manual]
+      - id: agents-md-project-index
+        name: AGENTS.md project index --check
+        entry: cargo run -p xtask -- agents-index check
+        language: system
         pass_filenames: false
         stages: [pre-commit, manual]
       - id: cargo-test
         name: cargo test --check
-        entry: cargo test --all-targets --all-features
+        entry: cargo test --workspace --all-targets --all-features
         language: unsupported
         pass_filenames: false
         stages: [pre-push, manual]

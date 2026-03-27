@@ -1,0 +1,401 @@
+use std::collections::{BTreeMap, BTreeSet};
+use std::ffi::OsStr;
+use std::fs;
+use std::io;
+use std::path::{Path, PathBuf};
+use std::process::Command;
+
+const BEGIN_MARKER: &str = "<!-- BEGIN AGENTS_MD_PROJECT_INDEX -->";
+const END_MARKER: &str = "<!-- END AGENTS_MD_PROJECT_INDEX -->";
+const DEFAULT_AGENTS_MD: &str = r#"# AGENTS.md
+
+This file is for coding agents working in this repository.
+
+## Start Here
+
+- Read [README.md](./README.md) first for the repository-level workflow.
+- Before you call or modify a module, read that module's `README.md` first.
+- If the relevant `README.md` already answers your question, do not open the module internals first.
+
+## Git Hooks
+
+- `pre-commit` checks `cargo fmt --all -- --check`
+- `pre-commit` checks `cargo clippy --workspace --all-targets --all-features -- -D warnings`
+- `pre-commit` checks that the project index in this file is up to date
+- `pre-push` checks `cargo test --workspace --all-targets --all-features`
+
+## Project Index Workflow
+
+- Update the index with `just agents-index`
+- Check whether the index is current with `just agents-index-check`
+- Run all configured hooks with `just hooks`
+- The index is generated from Git-tracked files, so Git-ignored and untracked files are excluded.
+- Index commands warn when an indexed directory has an unusually large number of direct filesystem entries.
+
+## Project Index
+
+<!-- BEGIN AGENTS_MD_PROJECT_INDEX -->
+```text
+[Project Index]|root:.
+|source:git-tracked-files-only
+|excluded:{git-ignored,git-untracked}
+```
+<!-- END AGENTS_MD_PROJECT_INDEX -->
+"#;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DirectoryWarning {
+    pub path: String,
+    pub entry_count: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CheckStatus {
+    Fresh { warnings: Vec<DirectoryWarning> },
+    Stale { warnings: Vec<DirectoryWarning> },
+}
+
+pub fn update_agents_md(
+    root: &Path,
+    warning_threshold: usize,
+) -> Result<Vec<DirectoryWarning>, String> {
+    let prepared = prepare(root, warning_threshold)?;
+    let existing = match fs::read_to_string(&prepared.agents_md_path) {
+        Ok(content) => content,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => DEFAULT_AGENTS_MD.to_string(),
+        Err(error) => {
+            return Err(format!(
+                "failed to read {}: {error}",
+                prepared.agents_md_path.display()
+            ));
+        }
+    };
+    let updated = upsert_index_block(&existing, &prepared.rendered_block)?;
+    fs::write(&prepared.agents_md_path, updated).map_err(|error| {
+        format!(
+            "failed to write {}: {error}",
+            prepared.agents_md_path.display()
+        )
+    })?;
+    Ok(prepared.warnings)
+}
+
+pub fn check_agents_md(root: &Path, warning_threshold: usize) -> Result<CheckStatus, String> {
+    let prepared = prepare(root, warning_threshold)?;
+    let existing = match fs::read_to_string(&prepared.agents_md_path) {
+        Ok(content) => content,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            return Ok(CheckStatus::Stale {
+                warnings: prepared.warnings,
+            });
+        }
+        Err(error) => {
+            return Err(format!(
+                "failed to read {}: {error}",
+                prepared.agents_md_path.display()
+            ));
+        }
+    };
+    let updated = upsert_index_block(&existing, &prepared.rendered_block)?;
+    if existing == updated {
+        Ok(CheckStatus::Fresh {
+            warnings: prepared.warnings,
+        })
+    } else {
+        Ok(CheckStatus::Stale {
+            warnings: prepared.warnings,
+        })
+    }
+}
+
+struct PreparedIndex {
+    agents_md_path: PathBuf,
+    rendered_block: String,
+    warnings: Vec<DirectoryWarning>,
+}
+
+fn prepare(root: &Path, warning_threshold: usize) -> Result<PreparedIndex, String> {
+    let tracked_files = git_tracked_files(root)?;
+    let rendered_block = render_index_block(&tracked_files);
+    let warnings = collect_directory_warnings(root, &tracked_files, warning_threshold)?;
+    Ok(PreparedIndex {
+        agents_md_path: root.join("AGENTS.md"),
+        rendered_block,
+        warnings,
+    })
+}
+
+fn git_tracked_files(root: &Path) -> Result<Vec<PathBuf>, String> {
+    let output = Command::new("git")
+        .current_dir(root)
+        .args(["ls-files", "-z"])
+        .output()
+        .map_err(|error| format!("failed to run git ls-files: {error}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "git ls-files failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+
+    let mut paths = output
+        .stdout
+        .split(|byte| *byte == b'\0')
+        .filter(|entry| !entry.is_empty())
+        .map(|entry| PathBuf::from(String::from_utf8_lossy(entry).into_owned()))
+        .collect::<Vec<_>>();
+    paths.sort();
+    Ok(paths)
+}
+
+fn render_index_block(tracked_files: &[PathBuf]) -> String {
+    let directory_map = build_directory_map(tracked_files);
+    let mut lines = vec![
+        BEGIN_MARKER.to_string(),
+        "```text".to_string(),
+        "[Project Index]|root:.".to_string(),
+        "|source:git-tracked-files-only".to_string(),
+        "|excluded:{git-ignored,git-untracked}".to_string(),
+    ];
+
+    for (directory, entries) in directory_map {
+        lines.push(format!("|{directory}:{{{}}}", entries.join(",")));
+    }
+
+    lines.push("```".to_string());
+    lines.push(END_MARKER.to_string());
+    lines.join("\n")
+}
+
+fn build_directory_map(tracked_files: &[PathBuf]) -> BTreeMap<String, Vec<String>> {
+    let mut directories: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    directories.entry(".".to_string()).or_default();
+
+    for path in tracked_files {
+        let parts = path.iter().map(os_str_to_string).collect::<Vec<_>>();
+        if parts.is_empty() {
+            continue;
+        }
+
+        let mut parent = ".".to_string();
+        for (index, part) in parts.iter().take(parts.len().saturating_sub(1)).enumerate() {
+            directories
+                .entry(parent.clone())
+                .or_default()
+                .insert(format!("{part}/"));
+            let current = parts[..=index].join("/");
+            directories.entry(current.clone()).or_default();
+            parent = current;
+        }
+
+        directories
+            .entry(parent)
+            .or_default()
+            .insert(parts.last().cloned().expect("path parts are non-empty"));
+    }
+
+    directories
+        .into_iter()
+        .map(|(directory, entries)| {
+            let mut entries = entries.into_iter().collect::<Vec<_>>();
+            entries.sort_by(
+                |left, right| match (left.ends_with('/'), right.ends_with('/')) {
+                    (true, true) | (false, false) => left.cmp(right),
+                    (true, false) => std::cmp::Ordering::Less,
+                    (false, true) => std::cmp::Ordering::Greater,
+                },
+            );
+            (directory, entries)
+        })
+        .collect()
+}
+
+fn collect_directory_warnings(
+    root: &Path,
+    tracked_files: &[PathBuf],
+    warning_threshold: usize,
+) -> Result<Vec<DirectoryWarning>, String> {
+    let directory_map = build_directory_map(tracked_files);
+    let mut warnings = Vec::new();
+
+    for directory in directory_map.keys() {
+        let directory_path = if directory == "." {
+            root.to_path_buf()
+        } else {
+            root.join(directory)
+        };
+        let entry_count = fs::read_dir(&directory_path)
+            .map_err(|error| format!("failed to read {}: {error}", directory_path.display()))?
+            .count();
+        if entry_count > warning_threshold {
+            warnings.push(DirectoryWarning {
+                path: directory.clone(),
+                entry_count,
+            });
+        }
+    }
+
+    Ok(warnings)
+}
+
+fn upsert_index_block(existing: &str, block: &str) -> Result<String, String> {
+    let begin_matches = existing.matches(BEGIN_MARKER).count();
+    let end_matches = existing.matches(END_MARKER).count();
+    if begin_matches > 1 || end_matches > 1 {
+        return Err("AGENTS.md contains duplicate project index markers".to_string());
+    }
+    if begin_matches != end_matches {
+        return Err("AGENTS.md project index markers are unbalanced".to_string());
+    }
+
+    if begin_matches == 0 {
+        let mut appended = existing.trim_end().to_string();
+        if !appended.is_empty() {
+            appended.push_str("\n\n## Project Index\n\n");
+        }
+        appended.push_str(block);
+        appended.push('\n');
+        return Ok(appended);
+    }
+
+    let start = existing
+        .find(BEGIN_MARKER)
+        .expect("marker count already checked");
+    let end = existing
+        .find(END_MARKER)
+        .expect("marker count already checked")
+        + END_MARKER.len();
+    let mut updated = String::new();
+    updated.push_str(&existing[..start]);
+    updated.push_str(block);
+    updated.push_str(&existing[end..]);
+    Ok(updated)
+}
+
+fn os_str_to_string(value: &OsStr) -> String {
+    value.to_string_lossy().into_owned()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{CheckStatus, check_agents_md, update_agents_md};
+    use std::fs;
+    use std::path::Path;
+    use std::process::Command;
+    use tempfile::TempDir;
+
+    #[test]
+    fn update_creates_index_from_tracked_files_and_skips_git_ignored_files() {
+        let repo = TestRepo::new();
+        repo.write("README.md", "# repo\n");
+        repo.write(".gitignore", "ignored.txt\n");
+        repo.write("src/lib.rs", "pub fn lib() {}\n");
+        repo.write("ignored.txt", "skip me\n");
+        repo.git_add(&["README.md", ".gitignore", "src/lib.rs"]);
+
+        let warnings = update_agents_md(repo.path(), 200).expect("update should succeed");
+
+        assert!(warnings.is_empty(), "unexpected warnings: {warnings:?}");
+
+        let agents_md = repo.read("AGENTS.md");
+        assert!(agents_md.contains("|.:{src/,.gitignore,README.md}"));
+        assert!(agents_md.contains("|src:{lib.rs}"));
+        assert!(agents_md.contains(".gitignore"));
+        assert!(!agents_md.contains("ignored.txt"));
+    }
+
+    #[test]
+    fn check_reports_stale_when_tracked_files_change() {
+        let repo = TestRepo::new();
+        repo.write("README.md", "# repo\n");
+        repo.write("src/lib.rs", "pub fn lib() {}\n");
+        repo.git_add(&["README.md", "src/lib.rs"]);
+        update_agents_md(repo.path(), 200).expect("initial update should succeed");
+
+        repo.write("src/main.rs", "fn main() {}\n");
+        repo.git_add(&["src/main.rs"]);
+
+        let status = check_agents_md(repo.path(), 200).expect("check should run");
+
+        assert!(matches!(status, CheckStatus::Stale { .. }));
+    }
+
+    #[test]
+    fn update_warns_when_indexed_directory_has_many_disk_entries_even_if_untracked() {
+        let repo = TestRepo::new();
+        repo.write("README.md", "# repo\n");
+        repo.write("bulk/tracked.txt", "tracked\n");
+        for index in 0..201 {
+            repo.write(&format!("bulk/untracked-{index}.txt"), "noise\n");
+        }
+        repo.git_add(&["README.md", "bulk/tracked.txt"]);
+
+        let warnings = update_agents_md(repo.path(), 200).expect("update should succeed");
+
+        assert_eq!(warnings.len(), 1, "warnings: {warnings:?}");
+        assert_eq!(warnings[0].path, "bulk");
+        assert_eq!(warnings[0].entry_count, 202);
+    }
+
+    struct TestRepo {
+        tempdir: TempDir,
+    }
+
+    impl TestRepo {
+        fn new() -> Self {
+            let tempdir = TempDir::new().expect("tempdir should exist");
+            run_git(tempdir.path(), &["init"]);
+            run_git(tempdir.path(), &["config", "user.name", "Test User"]);
+            run_git(
+                tempdir.path(),
+                &["config", "user.email", "test@example.com"],
+            );
+            Self { tempdir }
+        }
+
+        fn path(&self) -> &Path {
+            self.tempdir.path()
+        }
+
+        fn write(&self, relative_path: &str, content: &str) {
+            let full_path = self.path().join(relative_path);
+            if let Some(parent) = full_path.parent() {
+                fs::create_dir_all(parent).expect("parent directory should exist");
+            }
+            fs::write(full_path, content).expect("file should be written");
+        }
+
+        fn read(&self, relative_path: &str) -> String {
+            fs::read_to_string(self.path().join(relative_path)).expect("file should exist")
+        }
+
+        fn git_add(&self, paths: &[&str]) {
+            let mut command = Command::new("git");
+            command.current_dir(self.path());
+            command.arg("add");
+            for path in paths {
+                command.arg(path);
+            }
+            let output = command.output().expect("git add should run");
+            assert!(
+                output.status.success(),
+                "git add failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+    }
+
+    fn run_git(root: &Path, args: &[&str]) {
+        let output = Command::new("git")
+            .current_dir(root)
+            .args(args)
+            .output()
+            .expect("git command should run");
+        assert!(
+            output.status.success(),
+            "git {:?} failed: {}",
+            args,
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+}

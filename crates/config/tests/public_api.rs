@@ -37,7 +37,7 @@ format = "text"
         (
             config.server.port,
             config.feature.enabled,
-            config.logging.level.clone(),
+            config.logging.level,
         )
     })
     .expect("read before update");
@@ -52,7 +52,7 @@ format = "text"
         (
             config.server.port,
             config.feature.enabled,
-            config.logging.level.clone(),
+            config.logging.level,
         )
     })
     .expect("read after update");
