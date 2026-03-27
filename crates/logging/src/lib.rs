@@ -73,7 +73,10 @@ impl Display for EmitError {
             Self::ReadConfig(error) => write!(formatter, "failed to read logging config: {error}"),
             Self::NotInitialized => formatter.write_str("logging has not been initialized"),
             Self::ReservedFieldName(field_name) => {
-                write!(formatter, "reserved log field name is not allowed: {field_name}")
+                write!(
+                    formatter,
+                    "reserved log field name is not allowed: {field_name}"
+                )
             }
             Self::RuntimeLockPoisoned => formatter.write_str("logging runtime lock poisoned"),
             Self::OutputLockPoisoned => formatter.write_str("logging output lock poisoned"),
