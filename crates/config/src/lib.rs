@@ -49,13 +49,15 @@ where
     K: Into<String>,
     V: Into<String>,
 {
-    let (selvedge_home, should_bootstrap_home) = if let Some(home) = explicit_home {
-        (resolve_explicit_home(home.into())?, false)
+    let resolved_home = if let Some(home) = explicit_home {
+        Some(resolve_explicit_home(home.into())?)
     } else if let Some(home) = env::var_os(CONFIG_HOME_ENV) {
-        (resolve_env_home(PathBuf::from(home))?, false)
+        Some(resolve_env_home(PathBuf::from(home))?)
     } else {
         resolve_search_home()?
     };
+    let should_bootstrap_home = resolved_home.is_none();
+    let selvedge_home = resolved_home.unwrap_or_else(|| PathBuf::from(".selvedge"));
     let config_path = config_path_for_home(&selvedge_home);
     let mut merged_table = if should_bootstrap_home {
         Table::new()
@@ -78,7 +80,7 @@ where
     }
 
     let selvedge_home = if should_bootstrap_home {
-        bootstrap_default_home(&selvedge_home)?
+        bootstrap_default_home()?
     } else {
         selvedge_home
     };
@@ -269,19 +271,19 @@ fn resolve_env_home(home: PathBuf) -> Result<PathBuf, ConfigError> {
     validate_existing_home(home, ConfigHomeSource::Environment)
 }
 
-fn resolve_search_home() -> Result<(PathBuf, bool), ConfigError> {
+fn resolve_search_home() -> Result<Option<PathBuf>, ConfigError> {
     for home in search_home_candidates() {
         if !home.exists() {
             continue;
         }
 
-        return Ok((
-            validate_existing_home(home, ConfigHomeSource::Search)?,
-            false,
-        ));
+        return Ok(Some(validate_existing_home(
+            home,
+            ConfigHomeSource::Search,
+        )?));
     }
 
-    Ok((default_home_path(), true))
+    Ok(None)
 }
 
 fn search_home_candidates() -> Vec<PathBuf> {
@@ -328,7 +330,20 @@ fn config_path_for_home(home: &Path) -> PathBuf {
     home.join(CONFIG_FILE_NAME)
 }
 
-fn bootstrap_default_home(selvedge_home: &Path) -> Result<PathBuf, ConfigError> {
+fn bootstrap_default_home() -> Result<PathBuf, ConfigError> {
+    let mut last_error = None;
+
+    for selvedge_home in default_home_candidates() {
+        match bootstrap_home_candidate(&selvedge_home) {
+            Ok(home) => return Ok(home),
+            Err(error) => last_error = Some(error),
+        }
+    }
+
+    Err(last_error.unwrap_or_else(|| ConfigError::InvalidSearchedHome(PathBuf::from(".selvedge"))))
+}
+
+fn bootstrap_home_candidate(selvedge_home: &Path) -> Result<PathBuf, ConfigError> {
     let config_path = config_path_for_home(selvedge_home);
 
     fs::create_dir_all(selvedge_home).map_err(|error| {
@@ -344,16 +359,26 @@ fn bootstrap_default_home(selvedge_home: &Path) -> Result<PathBuf, ConfigError> 
     validate_existing_home(selvedge_home.to_path_buf(), ConfigHomeSource::Search)
 }
 
-fn default_home_path() -> PathBuf {
+fn default_home_candidates() -> Vec<PathBuf> {
+    let mut homes = Vec::new();
+
     if let Some(home_root) = env::var_os("HOME") {
-        return PathBuf::from(home_root).join(".selvedge");
+        homes.push(PathBuf::from(home_root).join(".selvedge"));
     }
 
     if let Some(xdg_config_home) = env::var_os("XDG_CONFIG_HOME") {
-        return PathBuf::from(xdg_config_home).join("selvedge");
+        let xdg_home = PathBuf::from(xdg_config_home).join("selvedge");
+        if !homes.contains(&xdg_home) {
+            homes.push(xdg_home);
+        }
     }
 
-    PathBuf::from(".selvedge")
+    let local_home = PathBuf::from(".selvedge");
+    if !homes.contains(&local_home) {
+        homes.push(local_home);
+    }
+
+    homes
 }
 
 fn validate_existing_home(home: PathBuf, source: ConfigHomeSource) -> Result<PathBuf, ConfigError> {
@@ -846,7 +871,8 @@ request_timeout_ms = 5000
         let bootstrapped_home = (|| -> Result<PathBuf, String> {
             env::set_current_dir(&work_dir).map_err(|error| error.to_string())?;
 
-            crate::bootstrap_default_home(Path::new(".selvedge")).map_err(|error| error.to_string())
+            crate::bootstrap_home_candidate(Path::new(".selvedge"))
+                .map_err(|error| error.to_string())
         })();
 
         env::set_current_dir(&original_dir).expect("restore current dir");
