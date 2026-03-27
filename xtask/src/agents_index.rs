@@ -191,9 +191,16 @@ fn collect_directory_warnings(
         } else {
             root.join(directory)
         };
-        let entry_count = fs::read_dir(&directory_path)
-            .map_err(|error| format!("failed to read {}: {error}", directory_path.display()))?
-            .count();
+        let entry_count = match fs::read_dir(&directory_path) {
+            Ok(entries) => entries.count(),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+            Err(error) => {
+                return Err(format!(
+                    "failed to read {}: {error}",
+                    directory_path.display()
+                ));
+            }
+        };
         if entry_count > warning_threshold {
             warnings.push(DirectoryWarning {
                 path: directory.clone(),
@@ -279,8 +286,9 @@ fn find_project_index_section_start(content: &str) -> Option<usize> {
         .find(|(index, _)| {
             let prefix_ok = *index == 0 || content[..*index].ends_with('\n');
             let suffix_index = index + PROJECT_INDEX_HEADING.len();
-            let suffix_ok =
-                suffix_index == content.len() || content[suffix_index..].starts_with('\n');
+            let suffix_ok = suffix_index == content.len()
+                || content[suffix_index..].starts_with('\n')
+                || content[suffix_index..].starts_with("\r\n");
             prefix_ok && suffix_ok
         })
         .map(|(index, _)| index)
