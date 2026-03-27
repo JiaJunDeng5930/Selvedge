@@ -271,7 +271,12 @@ fn resolve_search_home() -> Result<Option<PathBuf>, ConfigError> {
             continue;
         }
 
-        return Ok(Some(resolve_home(home, ConfigHomeSource::Search)?));
+        let resolved_home = resolve_home(home, ConfigHomeSource::Search)?;
+        if !config_path_for_home(&resolved_home).is_file() {
+            continue;
+        }
+
+        return Ok(Some(resolved_home));
     }
 
     Ok(None)
