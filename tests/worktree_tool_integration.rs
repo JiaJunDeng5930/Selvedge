@@ -153,6 +153,47 @@ fn script_keeps_distinct_worktree_paths_for_similar_branch_names() {
     assert!(repo_root.join(".worktrees/feature-a").is_dir());
 }
 
+#[test]
+fn script_uses_shared_root_when_run_inside_an_existing_worktree() {
+    let tempdir = TempDir::new().expect("tempdir");
+    let repo_root = tempdir.path().join("repo");
+    let script_source = workspace_root().join("scripts/create-worktree.sh");
+    let root_script_target = repo_root.join("scripts/create-worktree.sh");
+
+    init_git_repo(&repo_root);
+    fs::create_dir_all(repo_root.join("scripts")).expect("create scripts directory");
+    fs::copy(&script_source, &root_script_target).expect("copy root script");
+    set_script_executable(&root_script_target);
+
+    run_git(
+        &repo_root,
+        [
+            "worktree",
+            "add",
+            ".worktrees/feature/one",
+            "-b",
+            "feature/one",
+            "main",
+        ],
+    );
+
+    let nested_worktree = repo_root.join(".worktrees/feature/one");
+    let nested_script_target = nested_worktree.join("scripts/create-worktree.sh");
+    fs::create_dir_all(nested_worktree.join("scripts")).expect("create nested scripts directory");
+    fs::copy(&script_source, &nested_script_target).expect("copy nested script");
+    set_script_executable(&nested_script_target);
+
+    let output = run_script(&nested_worktree, "feature/two");
+    assert!(
+        output.status.success(),
+        "script failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    assert!(repo_root.join(".worktrees/feature/two").is_dir());
+    assert!(!nested_worktree.join(".worktrees/feature/two").exists());
+}
+
 fn run_script(repo_root: &Path, branch_name: &str) -> std::process::Output {
     Command::new("sh")
         .args([

@@ -31,11 +31,14 @@ main() {
     exit 1
   fi
 
-  local repo_root
-  repo_root="$(git rev-parse --show-toplevel 2>/dev/null)" || {
+  local common_git_dir
+  common_git_dir="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || {
     echo "create-worktree.sh must run inside a git repository" >&2
     exit 1
   }
+
+  local repo_root
+  repo_root="$(cd "${common_git_dir}/.." && pwd -P)"
 
   cd "${repo_root}"
 
