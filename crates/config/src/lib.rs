@@ -16,7 +16,6 @@ use thiserror::Error;
 use toml::{Table, Value};
 
 const CONFIG_HOME_ENV: &str = "SELVEDGE_HOME";
-const LEGACY_CONFIG_PATH_ENV: &str = "SELVEDGE_CONFIG";
 const CONFIG_ENV_PREFIX: &str = "SELVEDGE_APP";
 const CONFIG_FILE_NAME: &str = "config.toml";
 const SEARCH_HOME_PATTERNS: [&str; 4] = [
@@ -54,19 +53,16 @@ where
         Some(resolve_explicit_home(home.into())?)
     } else if let Some(home) = env::var_os(CONFIG_HOME_ENV) {
         Some(resolve_env_home(PathBuf::from(home))?)
-    } else if let Some(path) = env::var_os(LEGACY_CONFIG_PATH_ENV) {
-        return Err(ConfigError::LegacyConfigEnvUnsupported(PathBuf::from(path)));
     } else {
         resolve_search_home()?
     };
-    let should_bootstrap_home = resolved_home.is_none();
-    let selvedge_home = resolved_home.unwrap_or_else(select_deferred_default_home_candidate);
-    let config_path = config_path_for_home(&selvedge_home);
-    let mut merged_table = if should_bootstrap_home {
-        Table::new()
+    let selvedge_home = if let Some(home) = resolved_home {
+        home
     } else {
-        load_file_table(Some(&config_path))?
+        create_default_home()?
     };
+    let config_path = config_path_for_home(&selvedge_home);
+    let mut merged_table = load_file_table_if_exists(&config_path)?;
     let env_table = load_env_table()?;
     let cli_table = load_cli_table(cli_overrides)?;
 
@@ -82,18 +78,7 @@ where
         return Err(ConfigError::AlreadyInitialized);
     }
 
-    let should_bootstrap_on_init =
-        should_bootstrap_home && env_table.is_empty() && cli_table.is_empty();
-    let selvedge_home = if should_bootstrap_on_init {
-        bootstrap_default_home()?
-    } else {
-        selvedge_home
-    };
-    let service = ConfigService::new(
-        base_config,
-        selvedge_home,
-        should_bootstrap_home && !should_bootstrap_on_init,
-    );
+    let service = ConfigService::new(base_config, selvedge_home);
     *global = Some(service);
 
     Ok(())
@@ -128,7 +113,7 @@ pub fn selvedge_home() -> Result<PathBuf, ConfigError> {
         .map_err(|_| ConfigError::LoadFailed("config service lock poisoned".to_owned()))?;
     let service = global.as_ref().ok_or(ConfigError::NotInitialized)?;
 
-    service.selvedge_home()
+    Ok(service.selvedge_home().to_path_buf())
 }
 
 fn apply_update<V>(path: &str, value: V, persist: bool) -> Result<(), ConfigError>
@@ -148,17 +133,15 @@ where
 #[derive(Debug)]
 struct ConfigService {
     base_config: OnceLock<AppConfig>,
-    selvedge_home: RwLock<PathBuf>,
-    can_bootstrap_on_persist: RwLock<bool>,
+    selvedge_home: OnceLock<PathBuf>,
     runtime_patch: RwLock<Table>,
 }
 
 impl ConfigService {
-    fn new(base_config: AppConfig, selvedge_home: PathBuf, can_bootstrap_on_persist: bool) -> Self {
+    fn new(base_config: AppConfig, selvedge_home: PathBuf) -> Self {
         let service = Self {
             base_config: OnceLock::new(),
-            selvedge_home: RwLock::new(selvedge_home),
-            can_bootstrap_on_persist: RwLock::new(can_bootstrap_on_persist),
+            selvedge_home: OnceLock::new(),
             runtime_patch: RwLock::new(Table::new()),
         };
 
@@ -166,6 +149,10 @@ impl ConfigService {
             .base_config
             .set(base_config)
             .expect("base config must be initialized exactly once");
+        service
+            .selvedge_home
+            .set(selvedge_home)
+            .expect("selvedge home must be initialized exactly once");
 
         service
     }
@@ -216,33 +203,8 @@ impl ConfigService {
     }
 
     fn persist_update(&self, path: &str, value: Value) -> Result<(), ConfigError> {
-        let mut selected_home = self.selvedge_home()?;
-        let mut config_path = config_path_for_home(&selected_home);
-
-        if !config_path.exists() {
-            let can_bootstrap = self
-                .can_bootstrap_on_persist
-                .read()
-                .map_err(|_| ConfigError::LoadFailed("bootstrap flag lock poisoned".to_owned()))?;
-            if *can_bootstrap {
-                drop(can_bootstrap);
-
-                selected_home = bootstrap_home_candidate(&selected_home)?;
-                config_path = config_path_for_home(&selected_home);
-
-                let mut home_guard = self.selvedge_home.write().map_err(|_| {
-                    ConfigError::LoadFailed("selvedge home lock poisoned".to_owned())
-                })?;
-                *home_guard = selected_home;
-
-                let mut bootstrap_guard = self.can_bootstrap_on_persist.write().map_err(|_| {
-                    ConfigError::LoadFailed("bootstrap flag lock poisoned".to_owned())
-                })?;
-                *bootstrap_guard = false;
-            }
-        }
-
-        let mut durable_table = load_file_table(Some(&config_path))?;
+        let config_path = config_path_for_home(self.selvedge_home());
+        let mut durable_table = load_file_table_if_exists(&config_path)?;
 
         apply_override(&mut durable_table, path, value)?;
         AppConfig::try_from(durable_table.clone()).map_err(map_model_error)?;
@@ -255,11 +217,10 @@ impl ConfigService {
             .expect("base config must be initialized before use")
     }
 
-    fn selvedge_home(&self) -> Result<PathBuf, ConfigError> {
+    fn selvedge_home(&self) -> &Path {
         self.selvedge_home
-            .read()
-            .map(|home| home.clone())
-            .map_err(|_| ConfigError::LoadFailed("selvedge home lock poisoned".to_owned()))
+            .get()
+            .expect("selvedge home must be initialized before use")
     }
 }
 
@@ -275,10 +236,6 @@ pub enum ConfigError {
     InvalidEnvHome(PathBuf),
     #[error("searched selvedge home is invalid: {0}")]
     InvalidSearchedHome(PathBuf),
-    #[error(
-        "legacy SELVEDGE_CONFIG is unsupported; use SELVEDGE_HOME with a directory path instead: {0}"
-    )]
-    LegacyConfigEnvUnsupported(PathBuf),
     #[error("failed to load config: {0}")]
     LoadFailed(String),
     #[error("config validation failed: {0}")]
@@ -292,7 +249,7 @@ pub enum ConfigError {
 }
 
 fn resolve_explicit_home(home: PathBuf) -> Result<PathBuf, ConfigError> {
-    validate_existing_home(home, ConfigHomeSource::Explicit)
+    resolve_home(home, ConfigHomeSource::Explicit)
 }
 
 fn materialize_current_config() -> Result<AppConfig, ConfigError> {
@@ -305,7 +262,7 @@ fn materialize_current_config() -> Result<AppConfig, ConfigError> {
 }
 
 fn resolve_env_home(home: PathBuf) -> Result<PathBuf, ConfigError> {
-    validate_existing_home(home, ConfigHomeSource::Environment)
+    resolve_home(home, ConfigHomeSource::Environment)
 }
 
 fn resolve_search_home() -> Result<Option<PathBuf>, ConfigError> {
@@ -314,11 +271,7 @@ fn resolve_search_home() -> Result<Option<PathBuf>, ConfigError> {
             continue;
         }
 
-        match validate_existing_home(home.clone(), ConfigHomeSource::Search) {
-            Ok(valid_home) => return Ok(Some(valid_home)),
-            Err(_) if is_project_local_home_candidate(&home) => continue,
-            Err(error) => return Err(error),
-        };
+        return Ok(Some(resolve_home(home, ConfigHomeSource::Search)?));
     }
 
     Ok(None)
@@ -364,15 +317,23 @@ fn load_file_table(path: Option<&Path>) -> Result<Table, ConfigError> {
         .map_err(|error| ConfigError::LoadFailed(format!("{path:?}: {error}")))
 }
 
+fn load_file_table_if_exists(path: &Path) -> Result<Table, ConfigError> {
+    if path.exists() {
+        return load_file_table(Some(path));
+    }
+
+    Ok(Table::new())
+}
+
 fn config_path_for_home(home: &Path) -> PathBuf {
     home.join(CONFIG_FILE_NAME)
 }
 
-fn bootstrap_default_home() -> Result<PathBuf, ConfigError> {
+fn create_default_home() -> Result<PathBuf, ConfigError> {
     let mut last_error = None;
 
     for selvedge_home in default_home_candidates() {
-        match bootstrap_home_candidate(&selvedge_home) {
+        match create_home_with_empty_config(&selvedge_home) {
             Ok(home) => return Ok(home),
             Err(error) => last_error = Some(error),
         }
@@ -381,7 +342,7 @@ fn bootstrap_default_home() -> Result<PathBuf, ConfigError> {
     Err(last_error.unwrap_or_else(|| ConfigError::InvalidSearchedHome(PathBuf::from(".selvedge"))))
 }
 
-fn bootstrap_home_candidate(selvedge_home: &Path) -> Result<PathBuf, ConfigError> {
+fn create_home_with_empty_config(selvedge_home: &Path) -> Result<PathBuf, ConfigError> {
     let config_path = config_path_for_home(selvedge_home);
 
     fs::create_dir_all(selvedge_home).map_err(|error| {
@@ -394,18 +355,12 @@ fn bootstrap_home_candidate(selvedge_home: &Path) -> Result<PathBuf, ConfigError
         })?;
     }
 
-    validate_existing_home(selvedge_home.to_path_buf(), ConfigHomeSource::Search)
-}
-
-fn select_deferred_default_home_candidate() -> PathBuf {
-    let candidates = default_home_candidates();
-
-    candidates
-        .iter()
-        .find(|candidate| likely_bootstrappable_home(candidate))
-        .cloned()
-        .or_else(|| candidates.into_iter().next())
-        .unwrap_or_else(|| PathBuf::from(".selvedge"))
+    fs::canonicalize(selvedge_home).map_err(|_| {
+        ConfigError::LoadFailed(format!(
+            "{}: failed to canonicalize",
+            selvedge_home.display()
+        ))
+    })
 }
 
 fn default_home_candidates() -> Vec<PathBuf> {
@@ -439,28 +394,11 @@ fn default_home_candidates() -> Vec<PathBuf> {
     homes
 }
 
-fn is_project_local_home_candidate(home: &Path) -> bool {
-    home == Path::new("./.selvedge") || home == Path::new(".selvedge")
-}
-
-fn likely_bootstrappable_home(home: &Path) -> bool {
-    let Some(existing_ancestor) = home.ancestors().find(|ancestor| ancestor.exists()) else {
-        return false;
-    };
-    let Ok(metadata) = fs::metadata(existing_ancestor) else {
-        return false;
-    };
-
-    !metadata.permissions().readonly()
-}
-
-fn validate_existing_home(home: PathBuf, source: ConfigHomeSource) -> Result<PathBuf, ConfigError> {
-    if !home.is_dir() {
+fn resolve_home(home: PathBuf, source: ConfigHomeSource) -> Result<PathBuf, ConfigError> {
+    if !home.exists() {
         return Err(source.invalid_home(home));
     }
-
-    let config_path = config_path_for_home(&home);
-    if !config_path.is_file() {
+    if !home.is_dir() {
         return Err(source.invalid_home(home));
     }
 
@@ -733,7 +671,7 @@ mod tests {
     }
 
     #[test]
-    fn init_with_explicit_home_rejects_missing_config_file() {
+    fn init_with_explicit_home_accepts_missing_config_file() {
         let _guard = TEST_LOCK.lock().expect("test lock");
         reset_for_test();
         let tempdir = tempfile::TempDir::new().expect("tempdir");
@@ -741,10 +679,11 @@ mod tests {
 
         std::fs::create_dir_all(&config_home).expect("create config home");
 
-        let error = crate::init_with_home(config_home)
-            .expect_err("home without config file should fail during init");
+        crate::init_with_home(config_home).expect("home without config file should init");
 
-        assert!(matches!(error, ConfigError::InvalidExplicitHome(_)));
+        let port = crate::read(|config| config.server.port).expect("read default config");
+
+        assert_eq!(port, 8080);
     }
 
     #[test]
@@ -932,7 +871,7 @@ request_timeout_ms = 5000
     }
 
     #[test]
-    fn cli_only_init_defers_home_creation_until_persist() {
+    fn cli_only_init_creates_default_home_immediately() {
         let _guard = TEST_LOCK.lock().expect("test lock");
         reset_for_test();
         if env::var_os("SELVEDGE_CONFIG_CLI_ONLY_CHILD").is_some() {
@@ -945,14 +884,9 @@ request_timeout_ms = 5000
             let config_path = config_path_for_home(&selected_home);
 
             assert!(
-                !config_path.exists(),
-                "config home should not exist after cli-only init"
+                config_path.exists(),
+                "config file should exist after cli-only init"
             );
-
-            crate::update_runtime_and_persist("logging.level", "debug").expect("persist update");
-
-            let persisted = std::fs::read_to_string(&config_path).expect("read persisted config");
-            assert!(persisted.contains("level = \"debug\""));
             return;
         }
 
@@ -968,7 +902,7 @@ request_timeout_ms = 5000
 
         let output = Command::new(current_executable)
             .arg("--exact")
-            .arg("tests::cli_only_init_defers_home_creation_until_persist")
+            .arg("tests::cli_only_init_creates_default_home_immediately")
             .current_dir(&work_dir)
             .env("SELVEDGE_CONFIG_CLI_ONLY_CHILD", "1")
             .env("HOME", &home_dir)
@@ -1080,16 +1014,13 @@ request_timeout_ms = 5000
     }
 
     #[test]
-    fn persist_does_not_switch_away_from_initialized_home() {
+    fn persist_recreates_missing_file_in_initialized_home() {
         let _guard = TEST_LOCK.lock().expect("test lock");
         reset_for_test();
         let tempdir = tempfile::TempDir::new().expect("tempdir");
         let config_home = tempdir.path().join("config-home");
         let config_path = config_home.join("config.toml");
-        let fallback_home = tempdir.path().join("fallback-home");
-
         std::fs::create_dir_all(&config_home).expect("create config home");
-        std::fs::create_dir_all(&fallback_home).expect("create fallback home");
         std::fs::write(
             &config_path,
             r#"
@@ -1107,16 +1038,16 @@ level = "info"
         crate::init_with_home(&config_home).expect("init config service");
         std::fs::remove_file(&config_path).expect("remove config file");
 
-        let error = crate::update_runtime_and_persist("logging.level", "debug")
-            .expect_err("persist should fail when initialized config file is removed");
+        crate::update_runtime_and_persist("logging.level", "debug")
+            .expect("persist should recreate missing config file");
         let selected_home = crate::selvedge_home().expect("read selected home");
+        let persisted = std::fs::read_to_string(&config_path).expect("read recreated config");
 
-        assert!(matches!(error, ConfigError::LoadFailed(_)));
         assert_eq!(
             selected_home,
             std::fs::canonicalize(&config_home).expect("canonicalize config home")
         );
-        assert!(!fallback_home.join("config.toml").exists());
+        assert!(persisted.contains("level = \"debug\""));
     }
 
     #[test]
@@ -1133,7 +1064,7 @@ level = "info"
         let bootstrapped_home = (|| -> Result<PathBuf, String> {
             env::set_current_dir(&work_dir).map_err(|error| error.to_string())?;
 
-            crate::bootstrap_home_candidate(Path::new(".selvedge"))
+            crate::create_home_with_empty_config(Path::new(".selvedge"))
                 .map_err(|error| error.to_string())
         })();
 
