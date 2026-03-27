@@ -78,3 +78,23 @@ fn binary_bootstraps_under_xdg_when_home_is_missing() {
     assert!(output.status.success(), "binary failed: {output:?}");
     assert!(expected_config.is_file(), "xdg config was not created");
 }
+
+#[test]
+fn failed_init_does_not_create_default_home() {
+    let tempdir = TempDir::new().expect("tempdir");
+    let mut command = Command::new(env!("CARGO_BIN_EXE_selvedge"));
+    let expected_config = tempdir.path().join(".selvedge/config.toml");
+
+    command.env_remove("SELVEDGE_HOME");
+    command.env("HOME", tempdir.path());
+    command.env("XDG_CONFIG_HOME", tempdir.path().join("xdg-home"));
+    command.env("SELVEDGE_APP_SERVER__PORT", "\"not-a-port\"");
+
+    let output = command.output().expect("run selvedge binary");
+
+    assert!(!output.status.success(), "binary unexpectedly succeeded");
+    assert!(
+        !expected_config.exists(),
+        "default config should not be created on failed init"
+    );
+}

@@ -49,15 +49,19 @@ where
     K: Into<String>,
     V: Into<String>,
 {
-    let selvedge_home = if let Some(home) = explicit_home {
-        resolve_explicit_home(home.into())?
+    let (selvedge_home, should_bootstrap_home) = if let Some(home) = explicit_home {
+        (resolve_explicit_home(home.into())?, false)
     } else if let Some(home) = env::var_os(CONFIG_HOME_ENV) {
-        resolve_env_home(PathBuf::from(home))?
+        (resolve_env_home(PathBuf::from(home))?, false)
     } else {
-        resolve_search_home_or_create_default()?
+        resolve_search_home()?
     };
     let config_path = config_path_for_home(&selvedge_home);
-    let mut merged_table = load_file_table(Some(&config_path))?;
+    let mut merged_table = if should_bootstrap_home {
+        Table::new()
+    } else {
+        load_file_table(Some(&config_path))?
+    };
     let env_table = load_env_table()?;
     let cli_table = load_cli_table(cli_overrides)?;
 
@@ -65,7 +69,6 @@ where
     merge_tables(&mut merged_table, &cli_table);
 
     let base_config = AppConfig::try_from(merged_table).map_err(map_model_error)?;
-    let service = ConfigService::new(base_config, selvedge_home);
     let mut global = CONFIG_SERVICE
         .write()
         .map_err(|_| ConfigError::LoadFailed("config service lock poisoned".to_owned()))?;
@@ -74,6 +77,11 @@ where
         return Err(ConfigError::AlreadyInitialized);
     }
 
+    if should_bootstrap_home {
+        bootstrap_default_home(&selvedge_home)?;
+    }
+
+    let service = ConfigService::new(base_config, selvedge_home);
     *global = Some(service);
 
     Ok(())
@@ -260,16 +268,19 @@ fn resolve_env_home(home: PathBuf) -> Result<PathBuf, ConfigError> {
     validate_existing_home(home, ConfigHomeSource::Environment)
 }
 
-fn resolve_search_home_or_create_default() -> Result<PathBuf, ConfigError> {
+fn resolve_search_home() -> Result<(PathBuf, bool), ConfigError> {
     for home in search_home_candidates() {
         if !home.exists() {
             continue;
         }
 
-        return validate_existing_home(home, ConfigHomeSource::Search);
+        return Ok((
+            validate_existing_home(home, ConfigHomeSource::Search)?,
+            false,
+        ));
     }
 
-    create_default_home()
+    Ok((default_home_path(), true))
 }
 
 fn search_home_candidates() -> Vec<PathBuf> {
@@ -316,11 +327,10 @@ fn config_path_for_home(home: &Path) -> PathBuf {
     home.join(CONFIG_FILE_NAME)
 }
 
-fn create_default_home() -> Result<PathBuf, ConfigError> {
-    let selvedge_home = default_home_path();
-    let config_path = config_path_for_home(&selvedge_home);
+fn bootstrap_default_home(selvedge_home: &Path) -> Result<(), ConfigError> {
+    let config_path = config_path_for_home(selvedge_home);
 
-    fs::create_dir_all(&selvedge_home).map_err(|error| {
+    fs::create_dir_all(selvedge_home).map_err(|error| {
         ConfigError::LoadFailed(format!("{}: {error}", selvedge_home.display()))
     })?;
 
@@ -330,7 +340,7 @@ fn create_default_home() -> Result<PathBuf, ConfigError> {
         })?;
     }
 
-    validate_existing_home(selvedge_home, ConfigHomeSource::Search)
+    validate_existing_home(selvedge_home.to_path_buf(), ConfigHomeSource::Search).map(|_| ())
 }
 
 fn default_home_path() -> PathBuf {
