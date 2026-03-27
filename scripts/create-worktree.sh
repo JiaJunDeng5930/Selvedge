@@ -1,3 +1,5 @@
+#!/usr/bin/env bash
+
 set -euo pipefail
 
 usage() {
@@ -15,13 +17,6 @@ require_command() {
   fi
 }
 
-sanitize_branch_name() {
-  local branch_name="$1"
-
-  printf '%s' "${branch_name}" \
-    | sed -E 's#[^A-Za-z0-9._-]+#-#g; s#-+#-#g; s#(^-+|-+$)##g'
-}
-
 main() {
   require_command git
 
@@ -31,6 +26,11 @@ main() {
   fi
 
   local branch_name="$1"
+  if ! git check-ref-format --branch "${branch_name}" >/dev/null 2>&1; then
+    echo "invalid branch name: ${branch_name}" >&2
+    exit 1
+  fi
+
   local repo_root
   repo_root="$(git rev-parse --show-toplevel 2>/dev/null)" || {
     echo "create-worktree.sh must run inside a git repository" >&2
@@ -54,20 +54,13 @@ main() {
     exit 1
   fi
 
-  local worktree_name
-  worktree_name="$(sanitize_branch_name "${branch_name}")"
-  if [[ -z "${worktree_name}" ]]; then
-    echo "branch name cannot produce an empty worktree directory name" >&2
-    exit 1
-  fi
-
-  local worktree_path=".worktrees/${worktree_name}"
+  local worktree_path=".worktrees/${branch_name}"
   if [[ -e "${worktree_path}" ]]; then
     echo "worktree path already exists: ${worktree_path}" >&2
     exit 1
   fi
 
-  mkdir -p .worktrees
+  mkdir -p "$(dirname "${worktree_path}")"
   git worktree add "${worktree_path}" -b "${branch_name}" main
   printf 'created worktree: %s\n' "${repo_root}/${worktree_path}"
 }

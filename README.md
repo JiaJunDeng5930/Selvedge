@@ -50,7 +50,7 @@ If you want parallel workspaces, keep the repository root as the `main` checkout
 just worktree feature/config-layering
 ```
 
-The helper script creates a new branch and a matching checkout under `.worktrees/`. The directory name is derived from the branch name, with path separators normalized to `-`. `.worktrees/` is Git-ignored on purpose, so worktree contents stay out of the main checkout.
+The helper script creates a new branch and a matching checkout under `.worktrees/`, mirroring the branch name in the directory path. `.worktrees/` is Git-ignored on purpose, so worktree contents stay out of the main checkout.
 
 Run the command from an up-to-date branch based on `main`. The helper fails fast if `.worktrees/` is not ignored, if the branch already exists, or if the target worktree path already exists.
 
