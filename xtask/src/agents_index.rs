@@ -36,7 +36,7 @@ pub fn update_agents_md(
             ));
         }
     };
-    let updated = upsert_index_block(&existing, &prepared.rendered_block)?;
+    let updated = upsert_index_block(&existing, &prepared.rendered_block, prepared.line_ending)?;
     fs::write(&prepared.agents_md_path, updated).map_err(|error| {
         format!(
             "failed to write {}: {error}",
@@ -62,7 +62,7 @@ pub fn check_agents_md(root: &Path, warning_threshold: usize) -> Result<CheckSta
             ));
         }
     };
-    let updated = upsert_index_block(&existing, &prepared.rendered_block)?;
+    let updated = upsert_index_block(&existing, &prepared.rendered_block, prepared.line_ending)?;
     if existing == updated {
         Ok(CheckStatus::Fresh {
             warnings: prepared.warnings,
@@ -77,6 +77,7 @@ pub fn check_agents_md(root: &Path, warning_threshold: usize) -> Result<CheckSta
 struct PreparedIndex {
     agents_md_path: PathBuf,
     rendered_block: String,
+    line_ending: &'static str,
     warnings: Vec<DirectoryWarning>,
 }
 
@@ -88,6 +89,7 @@ fn prepare(root: &Path, warning_threshold: usize) -> Result<PreparedIndex, Strin
     Ok(PreparedIndex {
         agents_md_path: root.join("AGENTS.md"),
         rendered_block,
+        line_ending,
         warnings,
     })
 }
@@ -212,7 +214,7 @@ fn collect_directory_warnings(
     Ok(warnings)
 }
 
-fn upsert_index_block(existing: &str, block: &str) -> Result<String, String> {
+fn upsert_index_block(existing: &str, block: &str, line_ending: &str) -> Result<String, String> {
     let begin_matches = existing.matches(BEGIN_MARKER).count();
     let end_matches = existing.matches(END_MARKER).count();
     if begin_matches > 1 || end_matches > 1 {
@@ -228,10 +230,11 @@ fn upsert_index_block(existing: &str, block: &str) -> Result<String, String> {
             let mut updated = String::new();
             updated.push_str(&existing[..section_start]);
             updated.push_str(PROJECT_INDEX_HEADING);
-            updated.push_str("\n\n");
+            updated.push_str(line_ending);
+            updated.push_str(line_ending);
             updated.push_str(block);
-            if section_end < existing.len() && !existing[section_end..].starts_with('\n') {
-                updated.push('\n');
+            if section_end < existing.len() && !starts_with_newline(&existing[section_end..]) {
+                updated.push_str(line_ending);
             }
             updated.push_str(&existing[section_end..]);
             return Ok(updated);
@@ -240,14 +243,17 @@ fn upsert_index_block(existing: &str, block: &str) -> Result<String, String> {
         let mut appended = existing.trim_end().to_string();
         if appended.is_empty() {
             appended.push_str(PROJECT_INDEX_HEADING);
-            appended.push_str("\n\n");
+            appended.push_str(line_ending);
+            appended.push_str(line_ending);
         } else {
-            appended.push_str("\n\n");
+            appended.push_str(line_ending);
+            appended.push_str(line_ending);
             appended.push_str(PROJECT_INDEX_HEADING);
-            appended.push_str("\n\n");
+            appended.push_str(line_ending);
+            appended.push_str(line_ending);
         }
         appended.push_str(block);
-        appended.push('\n');
+        appended.push_str(line_ending);
         return Ok(appended);
     }
 
@@ -278,6 +284,10 @@ fn detect_line_ending(path: &Path) -> &'static str {
     } else {
         "\n"
     }
+}
+
+fn starts_with_newline(content: &str) -> bool {
+    content.starts_with('\n') || content.starts_with("\r\n")
 }
 
 fn find_project_index_section_start(content: &str) -> Option<usize> {
