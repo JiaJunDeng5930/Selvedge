@@ -413,10 +413,12 @@ fn default_home_candidates() -> Vec<PathBuf> {
 
     if let Some(home_root) = env::var_os("HOME") {
         let home_root = PathBuf::from(home_root);
-        homes.push(home_root.join(".selvedge"));
-        let config_home = home_root.join(".config/selvedge");
-        if !homes.contains(&config_home) {
-            homes.push(config_home);
+        if home_root.exists() {
+            homes.push(home_root.join(".selvedge"));
+            let config_home = home_root.join(".config/selvedge");
+            if !homes.contains(&config_home) {
+                homes.push(config_home);
+            }
         }
     }
 

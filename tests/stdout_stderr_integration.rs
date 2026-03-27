@@ -83,6 +83,37 @@ fn binary_bootstraps_under_xdg_when_home_is_missing() {
 }
 
 #[test]
+fn binary_bootstraps_under_xdg_when_home_path_is_missing() {
+    let tempdir = TempDir::new().expect("tempdir");
+    let mut command = Command::new(env!("CARGO_BIN_EXE_selvedge"));
+    let missing_home = tempdir.path().join("missing-home");
+    let expected_config = tempdir.path().join("xdg-home/selvedge/config.toml");
+
+    command.env_remove("SELVEDGE_HOME");
+    command.env_remove("SELVEDGE_CONFIG");
+    command.env("HOME", &missing_home);
+    command.env("XDG_CONFIG_HOME", tempdir.path().join("xdg-home"));
+
+    for (key, _) in std::env::vars_os() {
+        if key
+            .to_str()
+            .is_some_and(|name| name.starts_with("SELVEDGE_APP_"))
+        {
+            command.env_remove(key);
+        }
+    }
+
+    let output = command.output().expect("run selvedge binary");
+
+    assert!(output.status.success(), "binary failed: {output:?}");
+    assert!(expected_config.is_file(), "xdg config was not created");
+    assert!(
+        !missing_home.join(".selvedge/config.toml").exists(),
+        "missing home path should not be bootstrapped"
+    );
+}
+
+#[test]
 fn failed_init_does_not_create_default_home() {
     let tempdir = TempDir::new().expect("tempdir");
     let mut command = Command::new(env!("CARGO_BIN_EXE_selvedge"));
