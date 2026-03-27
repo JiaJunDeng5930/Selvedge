@@ -82,7 +82,8 @@ struct PreparedIndex {
 
 fn prepare(root: &Path, warning_threshold: usize) -> Result<PreparedIndex, String> {
     let tracked_files = git_tracked_files(root)?;
-    let rendered_block = render_index_block(&tracked_files);
+    let line_ending = detect_line_ending(&root.join("AGENTS.md"));
+    let rendered_block = render_index_block(&tracked_files, line_ending);
     let warnings = collect_directory_warnings(root, &tracked_files, warning_threshold)?;
     Ok(PreparedIndex {
         agents_md_path: root.join("AGENTS.md"),
@@ -114,7 +115,7 @@ fn git_tracked_files(root: &Path) -> Result<Vec<PathBuf>, String> {
     Ok(paths)
 }
 
-fn render_index_block(tracked_files: &[PathBuf]) -> String {
+fn render_index_block(tracked_files: &[PathBuf], line_ending: &str) -> String {
     let directory_map = build_directory_map(tracked_files);
     let mut lines = vec![
         BEGIN_MARKER.to_string(),
@@ -130,7 +131,7 @@ fn render_index_block(tracked_files: &[PathBuf]) -> String {
 
     lines.push("```".to_string());
     lines.push(END_MARKER.to_string());
-    lines.join("\n")
+    lines.join(line_ending)
 }
 
 fn build_directory_map(tracked_files: &[PathBuf]) -> BTreeMap<String, Vec<String>> {
@@ -259,6 +260,17 @@ fn upsert_index_block(existing: &str, block: &str) -> Result<String, String> {
 
 fn os_str_to_string(value: &OsStr) -> String {
     value.to_string_lossy().into_owned()
+}
+
+fn detect_line_ending(path: &Path) -> &'static str {
+    let Ok(content) = fs::read_to_string(path) else {
+        return "\n";
+    };
+    if content.contains("\r\n") {
+        "\r\n"
+    } else {
+        "\n"
+    }
 }
 
 fn find_project_index_section_start(content: &str) -> Option<usize> {
