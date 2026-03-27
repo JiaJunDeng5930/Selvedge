@@ -398,7 +398,6 @@ fn install_test_runtime(recorder: TestRecorder) -> Result<(), InitError> {
 #[cfg(test)]
 mod tests {
     use std::{
-        collections::BTreeMap,
         process::Command,
         sync::{Arc, Mutex, OnceLock},
     };

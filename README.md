@@ -6,8 +6,10 @@ Selvedge is a Rust repository scaffold with a clean local development flow, pre-
 
 - Cargo binary crate with a small library surface for testing
 - `Justfile` shortcuts for bootstrap, formatting, lint, test, and hook execution
+- A dedicated `xtask` command for AGENTS.md project-index maintenance
+- Root `AGENTS.md` guidance for coding agents, including a repository file index
 - `rust-toolchain.toml` to keep the repository on the stable toolchain
-- `.pre-commit-config.yaml` for formatting, lint, and test checks
+- `.pre-commit-config.yaml` for formatting, lint, project-index, and test checks
 - GitHub Actions CI for `fmt`, `clippy`, and `test`
 - Basic repository hygiene files such as `.gitignore` and `.editorconfig`
 
@@ -32,6 +34,9 @@ Run this once in a clean Ubuntu environment. It installs the Rust toolchain, `ju
 just fmt
 just check
 just hooks
+just agents-index
 ```
+
+Use `just agents-index` after adding, removing, or renaming tracked files so the project index in `AGENTS.md` stays current. Use `just agents-index-check` to verify that the index is up to date without rewriting the file. The index is built from Git-tracked files, so ignored and untracked files stay out automatically. Both commands warn when an indexed directory has an unusually large number of direct filesystem entries.
 
 See [CONTRIBUTING.md](./CONTRIBUTING.md) for the contribution workflow and pull request expectations.

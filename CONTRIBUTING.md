@@ -12,6 +12,8 @@ Run the bootstrap script from the repository root in a clean Ubuntu environment:
 
 The script installs the Rust toolchain, `just`, `pre-commit`, and the repository Git hooks.
 
+The installed `pre-commit` hooks check formatting, linting, and whether the project index in `AGENTS.md` is current. The installed `pre-push` hook runs the test suite.
+
 ## Development workflow
 
 1. Start from an up-to-date branch based on `main`.
@@ -36,9 +38,10 @@ just fmt
 just lint
 just test
 just hooks
+just agents-index
 ```
 
-`just fmt` rewrites formatting. `just check` runs the read-only formatting, lint, and test checks used for local validation. `just hooks` runs both configured Git hook stages manually.
+`just fmt` rewrites formatting. `just agents-index` refreshes the project index stored in `AGENTS.md` after tracked files move. `just agents-index-check` verifies the index without rewriting it. Both index commands warn when an indexed directory has an unusually large number of direct filesystem entries. `just check` runs the read-only formatting, lint, test, and project-index checks used for local validation. `just hooks` runs both configured Git hook stages manually.
 
 ## Pull requests
 

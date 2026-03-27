@@ -6,6 +6,12 @@ default:
 bootstrap:
     ./scripts/bootstrap.sh
 
+agents-index:
+    cargo run -p xtask -- agents-index update
+
+agents-index-check:
+    cargo run -p xtask -- agents-index check
+
 run:
     cargo run
 
@@ -16,12 +22,13 @@ fmt-check:
     cargo fmt --all -- --check
 
 lint:
-    cargo clippy --all-targets --all-features -- -D warnings
+    cargo clippy --workspace --all-targets --all-features -- -D warnings
 
 test:
-    cargo test --all-targets --all-features
+    cargo test --workspace --all-targets --all-features
 
 check: fmt-check lint test
+    @just agents-index-check
 
 hooks:
     pre-commit run --all-files
