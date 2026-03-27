@@ -16,6 +16,7 @@ use thiserror::Error;
 use toml::{Table, Value};
 
 const CONFIG_HOME_ENV: &str = "SELVEDGE_HOME";
+const LEGACY_CONFIG_PATH_ENV: &str = "SELVEDGE_CONFIG";
 const CONFIG_ENV_PREFIX: &str = "SELVEDGE_APP";
 const CONFIG_FILE_NAME: &str = "config.toml";
 const SEARCH_HOME_PATTERNS: [&str; 4] = [
@@ -53,13 +54,16 @@ where
         Some(resolve_explicit_home(home.into())?)
     } else if let Some(home) = env::var_os(CONFIG_HOME_ENV) {
         Some(resolve_env_home(PathBuf::from(home))?)
+    } else if let Some(path) = env::var_os(LEGACY_CONFIG_PATH_ENV) {
+        return Err(ConfigError::LegacyConfigEnvUnsupported(PathBuf::from(path)));
     } else {
         resolve_search_home()?
     };
+    let should_create_default_home = resolved_home.is_none();
     let selvedge_home = if let Some(home) = resolved_home {
         home
     } else {
-        create_default_home()?
+        select_default_home_candidate()
     };
     let config_path = config_path_for_home(&selvedge_home);
     let mut merged_table = load_file_table_if_exists(&config_path)?;
@@ -77,6 +81,12 @@ where
     if global.is_some() {
         return Err(ConfigError::AlreadyInitialized);
     }
+
+    let selvedge_home = if should_create_default_home {
+        create_default_home()?
+    } else {
+        selvedge_home
+    };
 
     let service = ConfigService::new(base_config, selvedge_home);
     *global = Some(service);
@@ -236,6 +246,10 @@ pub enum ConfigError {
     InvalidEnvHome(PathBuf),
     #[error("searched selvedge home is invalid: {0}")]
     InvalidSearchedHome(PathBuf),
+    #[error(
+        "legacy SELVEDGE_CONFIG is unsupported; use SELVEDGE_HOME with a directory path instead: {0}"
+    )]
+    LegacyConfigEnvUnsupported(PathBuf),
     #[error("failed to load config: {0}")]
     LoadFailed(String),
     #[error("config validation failed: {0}")]
@@ -334,19 +348,6 @@ fn config_path_for_home(home: &Path) -> PathBuf {
     home.join(CONFIG_FILE_NAME)
 }
 
-fn create_default_home() -> Result<PathBuf, ConfigError> {
-    let mut last_error = None;
-
-    for selvedge_home in default_home_candidates() {
-        match create_home_with_empty_config(&selvedge_home) {
-            Ok(home) => return Ok(home),
-            Err(error) => last_error = Some(error),
-        }
-    }
-
-    Err(last_error.unwrap_or_else(|| ConfigError::InvalidSearchedHome(PathBuf::from(".selvedge"))))
-}
-
 fn create_home_with_empty_config(selvedge_home: &Path) -> Result<PathBuf, ConfigError> {
     let config_path = config_path_for_home(selvedge_home);
 
@@ -368,8 +369,34 @@ fn create_home_with_empty_config(selvedge_home: &Path) -> Result<PathBuf, Config
     })
 }
 
+fn create_default_home() -> Result<PathBuf, ConfigError> {
+    let mut last_error = None;
+
+    for selvedge_home in default_home_candidates() {
+        match create_home_with_empty_config(&selvedge_home) {
+            Ok(home) => return Ok(home),
+            Err(error) => last_error = Some(error),
+        }
+    }
+
+    Err(last_error.unwrap_or_else(|| ConfigError::InvalidSearchedHome(PathBuf::from(".selvedge"))))
+}
+
+fn select_default_home_candidate() -> PathBuf {
+    default_home_candidates()
+        .into_iter()
+        .next()
+        .unwrap_or_else(|| PathBuf::from(".selvedge"))
+}
+
 fn default_home_candidates() -> Vec<PathBuf> {
     let mut homes = Vec::new();
+    let local_home = env::current_dir()
+        .map(|current_dir| current_dir.join(".selvedge"))
+        .unwrap_or_else(|_| PathBuf::from(".selvedge"));
+    if local_home.exists() {
+        homes.push(local_home.clone());
+    }
 
     if let Some(home_root) = env::var_os("HOME") {
         let home_root = PathBuf::from(home_root);
@@ -389,9 +416,6 @@ fn default_home_candidates() -> Vec<PathBuf> {
         }
     }
 
-    let local_home = env::current_dir()
-        .map(|current_dir| current_dir.join(".selvedge"))
-        .unwrap_or_else(|_| PathBuf::from(".selvedge"));
     if !homes.contains(&local_home) {
         homes.push(local_home);
     }
