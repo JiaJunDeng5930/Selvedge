@@ -227,7 +227,7 @@ impl ConfigService {
             if *can_bootstrap {
                 drop(can_bootstrap);
 
-                selected_home = bootstrap_default_home()?;
+                selected_home = bootstrap_home_candidate(&selected_home)?;
                 config_path = config_path_for_home(&selected_home);
 
                 let mut home_guard = self.selvedge_home.write().map_err(|_| {
@@ -951,6 +951,57 @@ request_timeout_ms = 5000
             .env_remove("SELVEDGE_CONFIG")
             .output()
             .expect("run cli-only child test");
+
+        assert!(output.status.success(), "child test failed: {output:?}");
+    }
+
+    #[test]
+    fn cli_only_persist_uses_reported_home() {
+        let _guard = TEST_LOCK.lock().expect("test lock");
+        reset_for_test();
+        if env::var_os("SELVEDGE_CONFIG_CLI_ONLY_PERSIST_CHILD").is_some() {
+            let original_home = crate::init_with_cli(
+                None::<PathBuf>,
+                vec![("server.port".to_owned(), "9100".to_owned())],
+            )
+            .and_then(|_| crate::selvedge_home())
+            .expect("initialize cli-only config");
+            let config_path = config_path_for_home(&original_home);
+
+            crate::update_runtime_and_persist("logging.level", "debug").expect("persist update");
+
+            assert!(
+                config_path.is_file(),
+                "persisted config missing at reported home"
+            );
+            assert_eq!(
+                crate::selvedge_home().expect("read selected home after persist"),
+                original_home
+            );
+            return;
+        }
+
+        let tempdir = tempfile::TempDir::new().expect("tempdir");
+        let work_dir = tempdir.path().join("workspace");
+        let home_dir = tempdir.path().join("isolated-home");
+        let xdg_dir = tempdir.path().join("isolated-xdg");
+        let current_executable = env::current_exe().expect("current test executable");
+
+        std::fs::create_dir_all(&work_dir).expect("create work dir");
+        std::fs::create_dir_all(&home_dir).expect("create home dir");
+        std::fs::create_dir_all(&xdg_dir).expect("create xdg dir");
+
+        let output = Command::new(current_executable)
+            .arg("--exact")
+            .arg("tests::cli_only_persist_uses_reported_home")
+            .current_dir(&work_dir)
+            .env("SELVEDGE_CONFIG_CLI_ONLY_PERSIST_CHILD", "1")
+            .env("HOME", &home_dir)
+            .env("XDG_CONFIG_HOME", &xdg_dir)
+            .env_remove("SELVEDGE_HOME")
+            .env_remove("SELVEDGE_CONFIG")
+            .output()
+            .expect("run cli-only persist child test");
 
         assert!(output.status.success(), "child test failed: {output:?}");
     }
