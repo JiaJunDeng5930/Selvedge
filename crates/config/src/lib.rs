@@ -314,11 +314,11 @@ fn resolve_search_home() -> Result<Option<PathBuf>, ConfigError> {
             continue;
         }
 
-        let Ok(valid_home) = validate_existing_home(home, ConfigHomeSource::Search) else {
-            continue;
+        match validate_existing_home(home.clone(), ConfigHomeSource::Search) {
+            Ok(valid_home) => return Ok(Some(valid_home)),
+            Err(_) if is_project_local_home_candidate(&home) => continue,
+            Err(error) => return Err(error),
         };
-
-        return Ok(Some(valid_home));
     }
 
     Ok(None)
@@ -408,7 +408,12 @@ fn default_home_candidates() -> Vec<PathBuf> {
     let mut homes = Vec::new();
 
     if let Some(home_root) = env::var_os("HOME") {
-        homes.push(PathBuf::from(home_root).join(".selvedge"));
+        let home_root = PathBuf::from(home_root);
+        homes.push(home_root.join(".selvedge"));
+        let config_home = home_root.join(".config/selvedge");
+        if !homes.contains(&config_home) {
+            homes.push(config_home);
+        }
     }
 
     if let Some(xdg_config_home) = env::var_os("XDG_CONFIG_HOME") {
@@ -426,6 +431,10 @@ fn default_home_candidates() -> Vec<PathBuf> {
     }
 
     homes
+}
+
+fn is_project_local_home_candidate(home: &Path) -> bool {
+    home == Path::new("./.selvedge") || home == Path::new(".selvedge")
 }
 
 fn validate_existing_home(home: PathBuf, source: ConfigHomeSource) -> Result<PathBuf, ConfigError> {
