@@ -98,3 +98,38 @@ fn failed_init_does_not_create_default_home() {
         "default config should not be created on failed init"
     );
 }
+
+#[cfg(unix)]
+#[test]
+fn binary_falls_back_when_home_is_not_writable() {
+    use std::fs;
+    use std::os::unix::fs::PermissionsExt;
+
+    let tempdir = TempDir::new().expect("tempdir");
+    let mut command = Command::new(env!("CARGO_BIN_EXE_selvedge"));
+    let home_dir = tempdir.path().join("readonly-home");
+    let xdg_dir = tempdir.path().join("xdg-home");
+    let expected_config = xdg_dir.join("selvedge/config.toml");
+
+    fs::create_dir_all(&home_dir).expect("create home dir");
+    fs::set_permissions(&home_dir, fs::Permissions::from_mode(0o555))
+        .expect("set readonly permissions");
+
+    command.env_remove("SELVEDGE_HOME");
+    command.env("HOME", &home_dir);
+    command.env("XDG_CONFIG_HOME", &xdg_dir);
+
+    for (key, _) in std::env::vars_os() {
+        if key
+            .to_str()
+            .is_some_and(|name| name.starts_with("SELVEDGE_APP_"))
+        {
+            command.env_remove(key);
+        }
+    }
+
+    let output = command.output().expect("run selvedge binary");
+
+    assert!(output.status.success(), "binary failed: {output:?}");
+    assert!(expected_config.is_file(), "xdg config was not created");
+}
