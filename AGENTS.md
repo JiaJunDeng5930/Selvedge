@@ -23,6 +23,11 @@ This file is for coding agents working in this repository.
 - `.worktrees/` must stay Git-ignored. The helper fails fast if the ignore rule is missing.
 - Each worktree should stay focused on one task so review and cleanup remain straightforward.
 
+## Working Notes
+
+- Unless the user explicitly asks otherwise, place temporary task documents (such as specs, plans, and research notes) under `.workpad/`.
+- `.workpad/` is git-ignored on purpose and should be used for task artifacts that should not be committed.
+
 ## Project Index Workflow
 
 - Update the index with `just agents-index`
