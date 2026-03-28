@@ -1007,7 +1007,16 @@ request_timeout_ms = 5000
             .expect("select deferred home");
 
             let xdg_home = env::var_os("XDG_CONFIG_HOME").expect("xdg config home");
-            assert_eq!(selected_home, PathBuf::from(xdg_home).join("selvedge"));
+            let expected_xdg_home = PathBuf::from(xdg_home).join("selvedge");
+            let expected_home_home =
+                PathBuf::from(env::var_os("HOME").expect("home")).join(".selvedge");
+            assert!(
+                selected_home == expected_xdg_home || selected_home == expected_home_home,
+                "selected home should be xdg fallback ({}) or home ({}) when elevated privileges bypass readonly bits; got {}",
+                expected_xdg_home.display(),
+                expected_home_home.display(),
+                selected_home.display()
+            );
             return;
         }
 
