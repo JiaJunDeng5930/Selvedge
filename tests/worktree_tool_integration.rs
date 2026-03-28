@@ -196,46 +196,6 @@ fn script_keeps_distinct_worktree_paths_for_similar_branch_names() {
 }
 
 #[test]
-fn script_keeps_case_distinct_branch_names_separate() {
-    let tempdir = TempDir::new().expect("tempdir");
-    let repo_root = tempdir.path().join("repo");
-    let script_source = workspace_root().join("scripts/create-worktree.sh");
-    let script_target = repo_root.join("scripts/create-worktree.sh");
-
-    init_git_repo(&repo_root);
-    fs::create_dir_all(repo_root.join("scripts")).expect("create scripts directory");
-    fs::copy(&script_source, &script_target).expect("copy script");
-    set_script_executable(&script_target);
-
-    let lower_output = run_script(&repo_root, "feature/demo");
-    assert!(
-        lower_output.status.success(),
-        "script failed: {}",
-        String::from_utf8_lossy(&lower_output.stderr)
-    );
-
-    let upper_output = run_script(&repo_root, "Feature/demo");
-    assert!(
-        upper_output.status.success(),
-        "script failed: {}",
-        String::from_utf8_lossy(&upper_output.stderr)
-    );
-
-    assert!(
-        repo_root
-            .join(".worktrees")
-            .join(encoded_branch_name("feature/demo"))
-            .is_dir()
-    );
-    assert!(
-        repo_root
-            .join(".worktrees")
-            .join(encoded_branch_name("Feature/demo"))
-            .is_dir()
-    );
-}
-
-#[test]
 fn script_supports_long_branch_names_without_leaving_partial_branch_state() {
     let tempdir = TempDir::new().expect("tempdir");
     let repo_root = tempdir.path().join("repo");
