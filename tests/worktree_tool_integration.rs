@@ -77,6 +77,34 @@ fn script_fails_when_worktree_directory_is_not_ignored() {
 }
 
 #[test]
+fn script_requires_repo_local_gitignore_entry_for_worktrees() {
+    let tempdir = TempDir::new().expect("tempdir");
+    let repo_root = tempdir.path().join("repo");
+    let script_source = workspace_root().join("scripts/create-worktree.sh");
+    let script_target = repo_root.join("scripts/create-worktree.sh");
+
+    init_git_repo(&repo_root);
+    fs::write(repo_root.join(".gitignore"), "").expect("clear gitignore");
+    fs::write(repo_root.join(".git/info/exclude"), ".worktrees/\n").expect("write info exclude");
+    fs::create_dir_all(repo_root.join("scripts")).expect("create scripts directory");
+    fs::copy(&script_source, &script_target).expect("copy script");
+    set_script_executable(&script_target);
+
+    let output = run_script(&repo_root, "feature/demo");
+
+    assert!(
+        !output.status.success(),
+        "script should fail when only non-repo ignore rules match"
+    );
+
+    let stderr = String::from_utf8(output.stderr).expect("stderr utf8");
+    assert!(
+        stderr.contains("must be ignored by the repository .gitignore"),
+        "expected repo-local ignore guidance, got {stderr:?}"
+    );
+}
+
+#[test]
 fn script_bases_new_worktree_on_main_even_when_current_branch_is_not_main() {
     let tempdir = TempDir::new().expect("tempdir");
     let repo_root = tempdir.path().join("repo");

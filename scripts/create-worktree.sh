@@ -17,6 +17,22 @@ require_command() {
   fi
 }
 
+require_repo_local_worktree_ignore() {
+  local ignore_details
+  ignore_details="$(git check-ignore -v .worktrees/ 2>/dev/null || true)"
+  if [[ -z "${ignore_details}" ]]; then
+    echo ".worktrees/ is not ignored. Add it to .gitignore before creating worktrees." >&2
+    exit 1
+  fi
+
+  local ignore_source
+  ignore_source="${ignore_details%%:*}"
+  if [[ "${ignore_source}" != ".gitignore" ]]; then
+    echo ".worktrees/ must be ignored by the repository .gitignore." >&2
+    exit 1
+  fi
+}
+
 encode_branch_name() {
   local branch_name="$1"
   local encoded=""
@@ -60,10 +76,7 @@ main() {
 
   cd "${repo_root}"
 
-  if ! git check-ignore -q .worktrees/; then
-    echo ".worktrees/ is not ignored. Add it to .gitignore before creating worktrees." >&2
-    exit 1
-  fi
+  require_repo_local_worktree_ignore
 
   if git show-ref --verify --quiet "refs/heads/${branch_name}"; then
     echo "branch already exists: ${branch_name}" >&2
