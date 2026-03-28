@@ -87,8 +87,7 @@ main() {
   fi
 
   mkdir -p .worktrees
-  git worktree add --detach "${worktree_path}" main
-  git -C "${worktree_path}" switch -c "${branch_name}"
+  git worktree add "${worktree_path}" -b "${branch_name}" main
   printf 'created worktree: %s\n' "${repo_root}/${worktree_path}"
 }
 
