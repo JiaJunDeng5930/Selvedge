@@ -35,17 +35,13 @@ require_repo_local_worktree_ignore() {
 
 encode_branch_name() {
   local branch_name="$1"
-  local encoded=""
+  local encoded="branch-"
   local index
   local character
 
   for ((index = 0; index < ${#branch_name}; index++)); do
     character="${branch_name:index:1}"
-    if [[ "${character}" =~ [A-Za-z0-9.-] ]]; then
-      encoded+="${character}"
-    else
-      printf -v encoded '%s_%02x' "${encoded}" "'${character}"
-    fi
+    printf -v encoded '%s%02x' "${encoded}" "'${character}"
   done
 
   printf '%s\n' "${encoded}"
