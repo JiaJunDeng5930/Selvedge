@@ -235,6 +235,54 @@ fn script_supports_long_branch_names_without_leaving_partial_branch_state() {
 }
 
 #[test]
+fn just_entrypoint_preserves_branch_names_with_shell_syntax() {
+    if !command_exists("just") {
+        return;
+    }
+
+    let tempdir = TempDir::new().expect("tempdir");
+    let repo_root = tempdir.path().join("repo");
+    let script_source = workspace_root().join("scripts/create-worktree.sh");
+    let justfile_source = workspace_root().join("Justfile");
+    let branch_name = "feature/$HOME";
+
+    init_git_repo(&repo_root);
+    fs::create_dir_all(repo_root.join("scripts")).expect("create scripts directory");
+    fs::copy(&script_source, repo_root.join("scripts/create-worktree.sh")).expect("copy script");
+    fs::copy(&justfile_source, repo_root.join("Justfile")).expect("copy justfile");
+    set_script_executable(&repo_root.join("scripts/create-worktree.sh"));
+
+    let output = Command::new("just")
+        .args(["worktree", branch_name])
+        .current_dir(&repo_root)
+        .output()
+        .expect("run just worktree");
+    assert!(
+        output.status.success(),
+        "just worktree failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    assert!(
+        repo_root
+            .join(".worktrees")
+            .join(encoded_branch_name(branch_name))
+            .is_dir()
+    );
+
+    let branch_output = Command::new("git")
+        .args(["branch", "--list", branch_name])
+        .current_dir(&repo_root)
+        .output()
+        .expect("list branches");
+    let branches = String::from_utf8(branch_output.stdout).expect("branches utf8");
+    assert!(
+        branches.contains(branch_name),
+        "expected branch to exist after just invocation"
+    );
+}
+
+#[test]
 fn script_uses_shared_root_when_run_inside_an_existing_worktree() {
     let tempdir = TempDir::new().expect("tempdir");
     let repo_root = tempdir.path().join("repo");
@@ -355,6 +403,14 @@ fn encoded_branch_name(branch_name: &str) -> String {
             .expect("hash stdout utf8")
             .trim()
     )
+}
+
+fn command_exists(command_name: &str) -> bool {
+    Command::new("sh")
+        .args(["-c", &format!("command -v {command_name} >/dev/null 2>&1")])
+        .status()
+        .expect("check command presence")
+        .success()
 }
 
 #[cfg(unix)]
