@@ -236,6 +236,45 @@ fn script_keeps_case_distinct_branch_names_separate() {
 }
 
 #[test]
+fn script_supports_long_branch_names_without_leaving_partial_branch_state() {
+    let tempdir = TempDir::new().expect("tempdir");
+    let repo_root = tempdir.path().join("repo");
+    let script_source = workspace_root().join("scripts/create-worktree.sh");
+    let script_target = repo_root.join("scripts/create-worktree.sh");
+    let long_branch_name = format!("feature/{}", "a".repeat(180));
+
+    init_git_repo(&repo_root);
+    fs::create_dir_all(repo_root.join("scripts")).expect("create scripts directory");
+    fs::copy(&script_source, &script_target).expect("copy script");
+    set_script_executable(&script_target);
+
+    let output = run_script(&repo_root, &long_branch_name);
+    assert!(
+        output.status.success(),
+        "script failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    assert!(
+        repo_root
+            .join(".worktrees")
+            .join(encoded_branch_name(&long_branch_name))
+            .is_dir()
+    );
+
+    let branch_output = Command::new("git")
+        .args(["branch", "--list", &long_branch_name])
+        .current_dir(&repo_root)
+        .output()
+        .expect("list branches");
+    let branches = String::from_utf8(branch_output.stdout).expect("branches utf8");
+    assert!(
+        branches.contains(&long_branch_name),
+        "expected branch to exist after successful creation"
+    );
+}
+
+#[test]
 fn script_uses_shared_root_when_run_inside_an_existing_worktree() {
     let tempdir = TempDir::new().expect("tempdir");
     let repo_root = tempdir.path().join("repo");
@@ -329,11 +368,33 @@ fn workspace_root() -> PathBuf {
 }
 
 fn encoded_branch_name(branch_name: &str) -> String {
-    let mut encoded = String::from("branch-");
-    for byte in branch_name.bytes() {
-        encoded.push_str(&format!("{byte:02x}"));
+    let output = Command::new("git")
+        .args(["hash-object", "--stdin"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .expect("spawn git hash-object");
+    let mut child = output;
+    {
+        use std::io::Write;
+
+        let stdin = child.stdin.as_mut().expect("child stdin");
+        stdin
+            .write_all(branch_name.as_bytes())
+            .expect("write branch name");
     }
-    encoded
+    let output = child.wait_with_output().expect("wait for git hash-object");
+    assert!(
+        output.status.success(),
+        "git hash-object failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    format!(
+        "branch-{}",
+        String::from_utf8(output.stdout)
+            .expect("hash stdout utf8")
+            .trim()
+    )
 }
 
 #[cfg(unix)]

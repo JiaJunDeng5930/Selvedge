@@ -35,16 +35,9 @@ require_repo_local_worktree_ignore() {
 
 encode_branch_name() {
   local branch_name="$1"
-  local encoded="branch-"
-  local index
-  local character
-
-  for ((index = 0; index < ${#branch_name}; index++)); do
-    character="${branch_name:index:1}"
-    printf -v encoded '%s%02x' "${encoded}" "'${character}"
-  done
-
-  printf '%s\n' "${encoded}"
+  local branch_hash
+  branch_hash="$(printf '%s' "${branch_name}" | git hash-object --stdin)"
+  printf 'branch-%s\n' "${branch_hash}"
 }
 
 main() {
@@ -94,7 +87,8 @@ main() {
   fi
 
   mkdir -p .worktrees
-  git worktree add "${worktree_path}" -b "${branch_name}" main
+  git worktree add --detach "${worktree_path}" main
+  git -C "${worktree_path}" switch -c "${branch_name}"
   printf 'created worktree: %s\n' "${repo_root}/${worktree_path}"
 }
 
