@@ -19,16 +19,16 @@ require_command() {
 
 require_repo_local_worktree_ignore() {
   local ignore_details
-  ignore_details="$(git -C "$1" check-ignore -v .worktree/ 2>/dev/null || true)"
+  ignore_details="$(git -C "$1" check-ignore -v .worktrees/ 2>/dev/null || true)"
   if [[ -z "${ignore_details}" ]]; then
-    echo ".worktree/ is not ignored. Add it to .gitignore before creating worktrees." >&2
+    echo ".worktrees/ is not ignored. Add it to .gitignore before creating worktrees." >&2
     exit 1
   fi
 
   local ignore_source
   ignore_source="${ignore_details%%:*}"
   if [[ "${ignore_source}" != ".gitignore" ]]; then
-    echo ".worktree/ must be ignored by the repository .gitignore." >&2
+    echo ".worktrees/ must be ignored by the repository .gitignore." >&2
     exit 1
   fi
 }
@@ -38,11 +38,11 @@ resolve_storage_root() {
   local checkout_root="$2"
 
   if [[ "${checkout_root}" == "${repo_root}" ]]; then
-    printf '%s/.worktree\n' "${repo_root}"
+    printf '%s/.worktrees\n' "${repo_root}"
     return
   fi
 
-  printf '%s.worktree\n' "${checkout_root}"
+  printf '%s.worktrees\n' "${checkout_root}"
 }
 
 encode_branch_name() {

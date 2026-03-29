@@ -25,7 +25,7 @@ fn script_creates_branch_and_worktree_in_hidden_directory() {
     );
 
     let worktree_path = repo_root
-        .join(".worktree")
+        .join(".worktrees")
         .join(encoded_branch_name("feature/demo"));
 
     assert!(worktree_path.is_dir(), "worktree directory should exist");
@@ -66,12 +66,12 @@ fn script_fails_when_worktree_directory_is_not_ignored() {
 
     assert!(
         !output.status.success(),
-        "script should fail when .worktree is not ignored"
+        "script should fail when .worktrees is not ignored"
     );
 
     let stderr = String::from_utf8(output.stderr).expect("stderr utf8");
     assert!(
-        stderr.contains(".worktree/ is not ignored"),
+        stderr.contains(".worktrees/ is not ignored"),
         "expected ignore guidance, got {stderr:?}"
     );
 }
@@ -85,7 +85,7 @@ fn script_requires_repo_local_gitignore_entry_for_worktrees() {
 
     init_git_repo(&repo_root);
     fs::write(repo_root.join(".gitignore"), "").expect("clear gitignore");
-    fs::write(repo_root.join(".git/info/exclude"), ".worktree/\n").expect("write info exclude");
+    fs::write(repo_root.join(".git/info/exclude"), ".worktrees/\n").expect("write info exclude");
     fs::create_dir_all(repo_root.join("scripts")).expect("create scripts directory");
     fs::copy(&script_source, &script_target).expect("copy script");
     set_script_executable(&script_target);
@@ -130,7 +130,7 @@ fn script_bases_new_worktree_on_current_branch_when_current_branch_is_not_main()
     );
 
     let isolated_worktree_path = repo_root
-        .join(".worktree")
+        .join(".worktrees")
         .join(encoded_branch_name("feature/isolated"));
     assert!(
         isolated_worktree_path.join("feature.txt").exists(),
@@ -183,13 +183,13 @@ fn script_keeps_distinct_worktree_paths_for_similar_branch_names() {
 
     assert!(
         repo_root
-            .join(".worktree")
+            .join(".worktrees")
             .join(encoded_branch_name("feature/a"))
             .is_dir()
     );
     assert!(
         repo_root
-            .join(".worktree")
+            .join(".worktrees")
             .join(encoded_branch_name("feature-a"))
             .is_dir()
     );
@@ -217,7 +217,7 @@ fn script_supports_long_branch_names_without_leaving_partial_branch_state() {
 
     assert!(
         repo_root
-            .join(".worktree")
+            .join(".worktrees")
             .join(encoded_branch_name(&long_branch_name))
             .is_dir()
     );
@@ -265,7 +265,7 @@ fn just_entrypoint_preserves_branch_names_with_shell_syntax() {
 
     assert!(
         repo_root
-            .join(".worktree")
+            .join(".worktrees")
             .join(encoded_branch_name(branch_name))
             .is_dir()
     );
@@ -300,14 +300,14 @@ fn script_places_child_worktree_under_current_worktree_when_run_inside_an_existi
         [
             "worktree",
             "add",
-            &format!(".worktree/{first_worktree_name}"),
+            &format!(".worktrees/{first_worktree_name}"),
             "-b",
             "feature/one",
             "main",
         ],
     );
 
-    let nested_worktree = repo_root.join(".worktree").join(&first_worktree_name);
+    let nested_worktree = repo_root.join(".worktrees").join(&first_worktree_name);
     let nested_script_target = nested_worktree.join("scripts/create-worktree.sh");
     fs::create_dir_all(nested_worktree.join("scripts")).expect("create nested scripts directory");
     fs::copy(&script_source, &nested_script_target).expect("copy nested script");
@@ -322,13 +322,13 @@ fn script_places_child_worktree_under_current_worktree_when_run_inside_an_existi
 
     assert!(
         nested_worktree
-            .with_extension("worktree")
+            .with_extension("worktrees")
             .join(encoded_branch_name("feature/two"))
             .is_dir()
     );
     assert!(
         !repo_root
-            .join(".worktree")
+            .join(".worktrees")
             .join(encoded_branch_name("feature/two"))
             .exists()
     );
@@ -352,14 +352,14 @@ fn script_keeps_child_worktree_alive_after_parent_worktree_is_removed() {
         [
             "worktree",
             "add",
-            &format!(".worktree/{parent_worktree_name}"),
+            &format!(".worktrees/{parent_worktree_name}"),
             "-b",
             "feature/one",
             "main",
         ],
     );
 
-    let parent_worktree = repo_root.join(".worktree").join(&parent_worktree_name);
+    let parent_worktree = repo_root.join(".worktrees").join(&parent_worktree_name);
     let parent_script_target = parent_worktree.join("scripts/create-worktree.sh");
     fs::create_dir_all(parent_worktree.join("scripts")).expect("create nested scripts directory");
     fs::copy(&script_source, &parent_script_target).expect("copy nested script");
@@ -373,7 +373,7 @@ fn script_keeps_child_worktree_alive_after_parent_worktree_is_removed() {
     );
 
     let child_worktree = parent_worktree
-        .with_extension("worktree")
+        .with_extension("worktrees")
         .join(encoded_branch_name("feature/two"));
     assert!(
         child_worktree.is_dir(),
@@ -434,7 +434,7 @@ fn init_git_repo(repo_root: &Path) {
     run_git(repo_root, ["init", "-b", "main"]);
     run_git(repo_root, ["config", "user.name", "Selvedge Test"]);
     run_git(repo_root, ["config", "user.email", "selvedge@example.com"]);
-    fs::write(repo_root.join(".gitignore"), ".worktree/\n").expect("write gitignore");
+    fs::write(repo_root.join(".gitignore"), ".worktrees/\n").expect("write gitignore");
     fs::write(repo_root.join("README.md"), "# Temp Repo\n").expect("write readme");
     run_git(repo_root, ["add", "."]);
     run_git(repo_root, ["commit", "-m", "Initial commit"]);
