@@ -1,6 +1,5 @@
 /target
 .DS_Store
-.worktree/
 .worktrees/
 .mantic/
 .workpad/
