@@ -44,14 +44,16 @@ The underlying repository commands are `cargo xtask agents-index update` and `ca
 
 ## Parallel development with worktrees
 
-If you want parallel workspaces, keep the repository root as the `main` checkout and create one worktree per focused task:
+By default, create or switch branches in the repository root and work there. Only use worktrees when you explicitly want multi-branch parallel development.
+
+In that parallel mode, keep the repository root on `main` and create one worktree per focused task:
 
 ```bash
 just worktree feature/config-layering
 ```
 
-The helper script creates a new branch and a matching checkout under `.worktrees/`, using a stable hashed directory name derived from the branch name. `.worktrees/` is Git-ignored on purpose, so worktree contents stay out of the main checkout.
+The helper script creates a new branch from the current branch and a matching checkout under the current checkout's `.worktree/`, using a stable hashed directory name derived from the branch name. `.worktree/` is Git-ignored on purpose, so worktree contents stay out of the tracked checkout.
 
-Run the command from an up-to-date branch based on `main`. The helper fails fast if `.worktrees/` is not ignored, if the branch already exists, or if the target worktree path already exists.
+Run the command from the branch you want to branch off from. If you run it in the repository root on `main`, the new worktree is created under the root `.worktree/`. If you run it inside an existing worktree, the child worktree is created under that worktree's own `.worktree/`. The helper fails fast if `.worktree/` is not ignored, if the branch already exists, or if the target worktree path already exists.
 
 See [CONTRIBUTING.md](./CONTRIBUTING.md) for the contribution workflow and pull request expectations.

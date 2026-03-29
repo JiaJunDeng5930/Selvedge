@@ -19,16 +19,16 @@ require_command() {
 
 require_repo_local_worktree_ignore() {
   local ignore_details
-  ignore_details="$(git check-ignore -v .worktrees/ 2>/dev/null || true)"
+  ignore_details="$(git check-ignore -v .worktree/ 2>/dev/null || true)"
   if [[ -z "${ignore_details}" ]]; then
-    echo ".worktrees/ is not ignored. Add it to .gitignore before creating worktrees." >&2
+    echo ".worktree/ is not ignored. Add it to .gitignore before creating worktrees." >&2
     exit 1
   fi
 
   local ignore_source
   ignore_source="${ignore_details%%:*}"
   if [[ "${ignore_source}" != ".gitignore" ]]; then
-    echo ".worktrees/ must be ignored by the repository .gitignore." >&2
+    echo ".worktree/ must be ignored by the repository .gitignore." >&2
     exit 1
   fi
 }
@@ -54,16 +54,13 @@ main() {
     exit 1
   fi
 
-  local common_git_dir
-  common_git_dir="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || {
+  local checkout_root
+  checkout_root="$(git rev-parse --path-format=absolute --show-toplevel 2>/dev/null)" || {
     echo "create-worktree.sh must run inside a git repository" >&2
     exit 1
   }
 
-  local repo_root
-  repo_root="$(cd "${common_git_dir}/.." && pwd -P)"
-
-  cd "${repo_root}"
+  cd "${checkout_root}"
 
   require_repo_local_worktree_ignore
 
@@ -72,23 +69,30 @@ main() {
     exit 1
   fi
 
-  if ! git show-ref --verify --quiet "refs/heads/main"; then
-    echo "main branch does not exist locally" >&2
+  local base_branch
+  base_branch="$(git branch --show-current)"
+  if [[ -z "${base_branch}" ]]; then
+    echo "create-worktree.sh requires an attached branch checkout" >&2
+    exit 1
+  fi
+
+  if ! git show-ref --verify --quiet "refs/heads/${base_branch}"; then
+    echo "base branch does not exist locally: ${base_branch}" >&2
     exit 1
   fi
 
   local worktree_name
   worktree_name="$(encode_branch_name "${branch_name}")"
 
-  local worktree_path=".worktrees/${worktree_name}"
+  local worktree_path=".worktree/${worktree_name}"
   if [[ -e "${worktree_path}" ]]; then
     echo "worktree path already exists: ${worktree_path}" >&2
     exit 1
   fi
 
-  mkdir -p .worktrees
-  git worktree add "${worktree_path}" -b "${branch_name}" main
-  printf 'created worktree: %s\n' "${repo_root}/${worktree_path}"
+  mkdir -p .worktree
+  git worktree add "${worktree_path}" -b "${branch_name}" "${base_branch}"
+  printf 'created worktree: %s\n' "${checkout_root}/${worktree_path}"
 }
 
 main "$@"
