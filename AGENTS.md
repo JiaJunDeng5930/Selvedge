@@ -27,7 +27,8 @@ This file is for coding agents working in this repository.
 - Only use `just worktree <branch-name>` when the user explicitly asks for multi-branch parallel development.
 - When the user explicitly asks for multi-branch parallel development, keep the repository root on `main`; do not turn the root checkout into a feature branch.
 - A branch created from the repository root should place its worktree under the repository root `.worktree/`.
-- A branch created from an existing worktree should place its child worktree under that worktree's own `.worktree/`, not under the repository root `.worktree/`.
+- A branch created from an existing worktree should place its child worktree under that worktree's own `.worktree` namespace, not under the repository root `.worktree/`.
+- Child worktrees must not live inside their parent worktree checkout; keep them in that parent worktree's adjacent `.worktree` storage so removing the parent does not delete the child.
 - Do not flatten every parallel branch worktree into the repository root `.worktree/` when the new branch belongs under an existing branch worktree.
 - Each `.worktree/` directory must stay Git-ignored. Fail fast if the ignore rule is missing.
 - When working inside a worktree, only edit files inside that worktree and that worktree's own `.workpad/`.
