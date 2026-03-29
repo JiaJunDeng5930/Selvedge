@@ -322,7 +322,7 @@ fn script_places_child_worktree_under_current_worktree_when_run_inside_an_existi
 
     assert!(
         nested_worktree
-            .join(".worktree")
+            .with_extension("worktree")
             .join(encoded_branch_name("feature/two"))
             .is_dir()
     );
@@ -331,6 +331,90 @@ fn script_places_child_worktree_under_current_worktree_when_run_inside_an_existi
             .join(".worktree")
             .join(encoded_branch_name("feature/two"))
             .exists()
+    );
+}
+
+#[test]
+fn script_keeps_child_worktree_alive_after_parent_worktree_is_removed() {
+    let tempdir = TempDir::new().expect("tempdir");
+    let repo_root = tempdir.path().join("repo");
+    let script_source = workspace_root().join("scripts/create-worktree.sh");
+    let root_script_target = repo_root.join("scripts/create-worktree.sh");
+
+    init_git_repo(&repo_root);
+    fs::create_dir_all(repo_root.join("scripts")).expect("create scripts directory");
+    fs::copy(&script_source, &root_script_target).expect("copy root script");
+    set_script_executable(&root_script_target);
+
+    let parent_worktree_name = encoded_branch_name("feature/one");
+    run_git(
+        &repo_root,
+        [
+            "worktree",
+            "add",
+            &format!(".worktree/{parent_worktree_name}"),
+            "-b",
+            "feature/one",
+            "main",
+        ],
+    );
+
+    let parent_worktree = repo_root.join(".worktree").join(&parent_worktree_name);
+    let parent_script_target = parent_worktree.join("scripts/create-worktree.sh");
+    fs::create_dir_all(parent_worktree.join("scripts")).expect("create nested scripts directory");
+    fs::copy(&script_source, &parent_script_target).expect("copy nested script");
+    set_script_executable(&parent_script_target);
+
+    let output = run_script(&parent_worktree, "feature/two");
+    assert!(
+        output.status.success(),
+        "script failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let child_worktree = parent_worktree
+        .with_extension("worktree")
+        .join(encoded_branch_name("feature/two"));
+    assert!(
+        child_worktree.is_dir(),
+        "child worktree should exist before parent removal"
+    );
+
+    run_git(
+        &repo_root,
+        [
+            "worktree",
+            "remove",
+            "--force",
+            parent_worktree.to_str().expect("parent worktree path utf8"),
+        ],
+    );
+
+    assert!(
+        child_worktree.is_dir(),
+        "child worktree should survive parent removal"
+    );
+
+    let list_output = Command::new("git")
+        .args(["worktree", "list", "--porcelain"])
+        .current_dir(&repo_root)
+        .output()
+        .expect("list worktrees");
+    assert!(
+        list_output.status.success(),
+        "git worktree list failed: {}",
+        String::from_utf8_lossy(&list_output.stderr)
+    );
+
+    let listed_worktrees =
+        String::from_utf8(list_output.stdout).expect("worktree list stdout utf8");
+    assert!(
+        listed_worktrees.contains(&child_worktree.display().to_string()),
+        "expected child worktree to remain registered, got {listed_worktrees:?}"
+    );
+    assert!(
+        !listed_worktrees.contains("prunable"),
+        "child worktree should not become prunable after parent removal: {listed_worktrees:?}"
     );
 }
 

@@ -52,8 +52,8 @@ In that parallel mode, keep the repository root on `main` and create one worktre
 just worktree feature/config-layering
 ```
 
-The helper script creates a new branch from the current branch and a matching checkout under the current checkout's `.worktree/`, using a stable hashed directory name derived from the branch name. `.worktree/` is Git-ignored on purpose, so worktree contents stay out of the tracked checkout.
+The helper script creates a new branch from the current branch and a matching checkout under the current checkout's `.worktree` namespace, using a stable hashed directory name derived from the branch name. `.worktree/` is Git-ignored on purpose, so worktree contents stay out of the tracked checkout.
 
-Run the command from the branch you want to branch off from. If you run it in the repository root on `main`, the new worktree is created under the root `.worktree/`. If you run it inside an existing worktree, the child worktree is created under that worktree's own `.worktree/`. The helper fails fast if `.worktree/` is not ignored, if the branch already exists, or if the target worktree path already exists.
+Run the command from the branch you want to branch off from. If you run it in the repository root on `main`, the new worktree is created under the root `.worktree/`. If you run it inside an existing worktree, the child worktree is created in that worktree's adjacent `.worktree` storage instead of inside the parent checkout, so removing the parent worktree does not delete the child. The helper fails fast if `.worktree/` is not ignored, if the branch already exists, or if the target worktree path already exists.
 
 See [CONTRIBUTING.md](./CONTRIBUTING.md) for the contribution workflow and pull request expectations.
