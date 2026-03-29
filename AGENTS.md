@@ -15,12 +15,23 @@ This file is for coding agents working in this repository.
 - `pre-commit` checks that the project index in this file is up to date
 - `pre-push` checks `cargo test --workspace --all-targets --all-features`
 
-## Worktree Workflow
+## Branch Protection
 
-- Keep the repository root on `main`; do not turn the root checkout into a feature branch.
-- Do not default to worktrees for parallel development. Use `just worktree <branch-name>` only when the user explicitly asks you to create a worktree.
-- The helper script creates a new branch and a matching checkout under `.worktrees/`.
-- `.worktrees/` must stay Git-ignored. The helper fails fast if the ignore rule is missing.
+- `main` is a protected branch.
+- Do not commit work directly on `main`.
+- Do not use `main` as the active branch for task work unless the user explicitly asks for a change on `main`.
+
+## Branch And Worktree Workflow
+
+- Default workflow: if the user does not explicitly ask for multi-branch parallel development, create or switch branches in the repository root and work there.
+- Only use `just worktree <branch-name>` when the user explicitly asks for multi-branch parallel development.
+- When the user explicitly asks for multi-branch parallel development, keep the repository root on `main`; do not turn the root checkout into a feature branch.
+- A branch created from the repository root should place its worktree under the repository root `.worktree/`.
+- A branch created from an existing worktree should place its child worktree under that worktree's own `.worktree/`, not under the repository root `.worktree/`.
+- Do not flatten every parallel branch worktree into the repository root `.worktree/` when the new branch belongs under an existing branch worktree.
+- Each `.worktree/` directory must stay Git-ignored. Fail fast if the ignore rule is missing.
+- When working inside a worktree, only edit files inside that worktree and that worktree's own `.workpad/`.
+- Do not edit parent directories, sibling worktrees, or any ancestor `.workpad/` while working inside a worktree.
 - Each worktree should stay focused on one task so review and cleanup remain straightforward.
 
 ## Working Notes
