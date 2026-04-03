@@ -53,11 +53,12 @@ require_supported_checkout_location() {
     return
   fi
 
-  case "${checkout_root}" in
-    "${repo_root}/.worktrees/"*)
-      return
-      ;;
-  esac
+  local relative_checkout_root
+  relative_checkout_root="${checkout_root#${repo_root}/}"
+
+  if [[ "${relative_checkout_root}" =~ ^\.worktrees/[^/]+(\.worktrees/[^/]+)*$ ]]; then
+    return
+  fi
 
   echo "worktrees must live under ${repo_root}/.worktrees/ when using this helper" >&2
   exit 1
