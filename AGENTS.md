@@ -29,6 +29,7 @@ This file is for coding agents working in this repository.
 - A branch created from the repository root should place its worktree under the repository root `.worktrees/`.
 - A branch created from an existing worktree should place its child worktree under that worktree's own `.worktrees` namespace, not under the repository root `.worktrees/`.
 - Child worktrees must not live inside their parent worktree checkout; keep them in that parent worktree's adjacent `.worktrees` storage so removing the parent does not delete the child.
+- Do not use this helper from a worktree that lives outside the repository root `.worktrees/` hierarchy; fail fast instead of creating worktrees in ad-hoc locations.
 - Do not flatten every parallel branch worktree into the repository root `.worktrees/` when the new branch belongs under an existing branch worktree.
 - Each `.worktrees/` directory must stay Git-ignored. Fail fast if the ignore rule is missing.
 - When working inside a worktree, only edit files inside that worktree and that worktree's own `.workpad/`.
