@@ -45,6 +45,24 @@ resolve_storage_root() {
   printf '%s.worktrees\n' "${checkout_root}"
 }
 
+require_supported_checkout_location() {
+  local repo_root="$1"
+  local checkout_root="$2"
+
+  if [[ "${checkout_root}" == "${repo_root}" ]]; then
+    return
+  fi
+
+  case "${checkout_root}" in
+    "${repo_root}/.worktrees/"*)
+      return
+      ;;
+  esac
+
+  echo "worktrees must live under ${repo_root}/.worktrees/ when using this helper" >&2
+  exit 1
+}
+
 encode_branch_name() {
   local branch_name="$1"
   local branch_hash
@@ -83,6 +101,7 @@ main() {
 
   cd "${checkout_root}"
 
+  require_supported_checkout_location "${repo_root}" "${checkout_root}"
   require_repo_local_worktree_ignore "${repo_root}"
 
   if git show-ref --verify --quiet "refs/heads/${branch_name}"; then

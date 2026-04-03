@@ -23,7 +23,7 @@ The installed `pre-commit` hooks check formatting, linting, and whether the proj
 
 `main` is protected, so changes should land through pull requests rather than direct pushes.
 
-If you do not need parallel development, work directly in the repository root by switching to the branch you need. If you do want multi-branch parallel development, keep the repository root on `main` and use `just worktree <branch-name>`. The helper creates a new branch from the current branch and a matching checkout under the current checkout's `.worktrees` namespace, so child branches created from an existing worktree stay grouped with that worktree without being stored inside the parent checkout itself.
+If you do not need parallel development, work directly in the repository root by switching to the branch you need. If you do want multi-branch parallel development, keep the repository root on `main` and use `just worktree <branch-name>`. The helper creates a new branch from the current branch and a matching checkout under the current checkout's `.worktrees` namespace, so child branches created from an existing worktree stay grouped with that worktree without being stored inside the parent checkout itself. The helper only supports the repository root and helper-managed worktrees under the repository root `.worktrees/` hierarchy.
 
 ## Local checks
 
