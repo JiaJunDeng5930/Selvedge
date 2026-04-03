@@ -462,6 +462,62 @@ fn script_fails_when_current_worktree_is_not_in_supported_directory() {
     );
 }
 
+#[test]
+fn script_fails_for_nested_path_inside_worktrees_that_is_not_helper_managed() {
+    let tempdir = TempDir::new().expect("tempdir");
+    let repo_root = tempdir.path().join("repo");
+    let script_source = workspace_root().join("scripts/create-worktree.sh");
+    let root_script_target = repo_root.join("scripts/create-worktree.sh");
+
+    init_git_repo(&repo_root);
+    fs::create_dir_all(repo_root.join("scripts")).expect("create scripts directory");
+    fs::copy(&script_source, &root_script_target).expect("copy root script");
+    set_script_executable(&root_script_target);
+
+    run_git(
+        &repo_root,
+        [
+            "worktree",
+            "add",
+            ".worktrees/parent",
+            "-b",
+            "feature/one",
+            "main",
+        ],
+    );
+
+    let unsupported_worktree = repo_root.join(".worktrees/parent/nested");
+    run_git(
+        &repo_root,
+        [
+            "worktree",
+            "add",
+            ".worktrees/parent/nested",
+            "-b",
+            "feature/manual-nested",
+            "main",
+        ],
+    );
+
+    let unsupported_script_target = unsupported_worktree.join("scripts/create-worktree.sh");
+    fs::create_dir_all(unsupported_worktree.join("scripts"))
+        .expect("create unsupported scripts directory");
+    fs::copy(&script_source, &unsupported_script_target).expect("copy nested script");
+    set_script_executable(&unsupported_script_target);
+
+    let output = run_script(&unsupported_worktree, "feature/two");
+    assert!(
+        !output.status.success(),
+        "script should fail for nested ad-hoc worktree locations"
+    );
+
+    let stderr = String::from_utf8(output.stderr).expect("stderr utf8");
+    assert!(
+        stderr.contains("worktrees must live under"),
+        "expected supported-directory guidance, got {stderr:?}"
+    );
+}
+
 fn run_script(repo_root: &Path, branch_name: &str) -> std::process::Output {
     Command::new("sh")
         .args([
