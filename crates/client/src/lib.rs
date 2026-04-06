@@ -727,6 +727,9 @@ fn sanitize_url_for_output(raw_url: &str) -> String {
         let _ = parsed.set_password(None);
     }
 
+    parsed.set_query(None);
+    parsed.set_fragment(None);
+
     parsed.to_string()
 }
 
@@ -1128,7 +1131,8 @@ mod tests {
     use super::{
         HeaderMap, HeaderValue, HttpMethod, HttpRequest, HttpRequestBody, PreparedBody,
         RequestCompression, ResolvedCallConfig, build_client, build_error, encode_body,
-        maybe_compress_body, parse_absolute_http_url, prepare_request, wrap_stream,
+        maybe_compress_body, parse_absolute_http_url, prepare_request, sanitize_url_for_output,
+        wrap_stream,
     };
     use std::time::Duration;
 
@@ -1288,5 +1292,14 @@ mod tests {
 
         let first = wrapped.next().await.expect("first item");
         assert_eq!(first.expect("first chunk"), Bytes::from_static(b"first"));
+    }
+
+    #[test]
+    fn sanitized_url_removes_userinfo_query_and_fragment() {
+        let sanitized = sanitize_url_for_output(
+            "https://user:pass@example.com/path?access_token=secret#fragment",
+        );
+
+        assert_eq!(sanitized, "https://example.com/path");
     }
 }
