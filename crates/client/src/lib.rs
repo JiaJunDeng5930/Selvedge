@@ -7,7 +7,7 @@ use bytes::{Bytes, BytesMut};
 use futures::{Stream, StreamExt};
 use http::{
     HeaderMap, HeaderValue, StatusCode,
-    header::{CONTENT_ENCODING, CONTENT_TYPE, USER_AGENT},
+    header::{CONTENT_ENCODING, CONTENT_LENGTH, CONTENT_TYPE, USER_AGENT},
 };
 use reqwest::{Certificate, Client, Method, Proxy, Url};
 use tokio::time::{Instant, timeout_at};
@@ -266,7 +266,7 @@ async fn execute_inner(
     .await?;
 
     if !response.status().is_success() {
-        return Err(collect_status_error(response, request_deadline, &prepared.request_url).await);
+        return Err(collect_status_error(response, request_deadline, &prepared.request_url).await?);
     }
 
     let status = response.status();
@@ -295,7 +295,7 @@ async fn stream_inner(
     .await?;
 
     if !response.status().is_success() {
-        return Err(collect_status_error(response, request_deadline, &prepared.request_url).await);
+        return Err(collect_status_error(response, request_deadline, &prepared.request_url).await?);
     }
 
     let status = response.status();
@@ -344,7 +344,7 @@ async fn collect_status_error(
     response: reqwest::Response,
     deadline: Option<Instant>,
     request_url: &str,
-) -> HttpError {
+) -> Result<HttpError, HttpError> {
     let url = response.url().to_string();
     let status = response.status();
     let headers = response.headers().clone();
@@ -362,7 +362,7 @@ async fn collect_status_error(
                         url = url.as_str(),
                         status = status.as_u16()
                     );
-                    break;
+                    return Err(HttpError::Timeout);
                 }
             },
             None => stream.next().await,
@@ -385,12 +385,12 @@ async fn collect_status_error(
         }
     }
 
-    HttpError::Status(HttpStatusError {
+    Ok(HttpError::Status(HttpStatusError {
         url,
         status,
         headers,
         body: body.freeze(),
-    })
+    }))
 }
 
 async fn collect_success_body(
@@ -485,6 +485,7 @@ fn prepare_request(
     body = maybe_compress_body(body, request.compression, &mut headers)?;
 
     let body_len = body.len();
+    reconcile_content_length(&body, &mut headers)?;
     let mut reqwest_request = reqwest::Request::new(request.method.clone().into(), url);
     *reqwest_request.headers_mut() = headers;
 
@@ -498,6 +499,17 @@ fn prepare_request(
         request_url: request.url,
         body_len,
     })
+}
+
+fn reconcile_content_length(body: &PreparedBody, headers: &mut HeaderMap) -> Result<(), HttpError> {
+    if headers.contains_key(CONTENT_LENGTH) {
+        let content_length = HeaderValue::from_str(&body.len().to_string()).map_err(|error| {
+            build_error(format!("invalid computed Content-Length header: {error}"))
+        })?;
+        headers.insert(CONTENT_LENGTH, content_length);
+    }
+
+    Ok(())
 }
 
 fn parse_absolute_http_url(url: &str) -> Result<Url, HttpError> {
