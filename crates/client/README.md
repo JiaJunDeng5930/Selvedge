@@ -56,6 +56,8 @@ assert!(response.status.is_success());
 - callers must run these async functions inside a Tokio runtime
 - every call reads `network.*` config immediately through `selvedge_config::read`
 - `request.timeout` overrides `network.request_timeout_ms` only for that call
+- `network.request_timeout_ms` is optional; when it is unset and no per-call timeout is supplied, this crate does not install a request timeout and leaves timeout behavior to the underlying HTTP client
+- `network.connect_timeout_ms` and `network.stream_idle_timeout_ms` follow the same rule: unset means this crate does not synthesize a fallback value
 
 ## Response semantics
 
