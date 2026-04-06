@@ -11,6 +11,7 @@ Use it to:
 - define validation rules next to those structs
 - materialize `AppConfig` from raw TOML input
 - expose strongly typed logging levels and module-level log overrides
+- expose strongly typed network settings consumed by transport crates
 
 ## This crate is not for
 
@@ -62,6 +63,17 @@ Callers read strongly typed fields from `AppConfig`.
 # let config = AppConfig::try_from(toml::Table::new())?;
 let timeout_ms = config.server.request_timeout_ms;
 # let _ = timeout_ms;
+# Ok::<(), Box<dyn std::error::Error>>(())
+```
+
+Network-facing modules read from `config.network`.
+
+```no_run
+# use std::convert::TryFrom;
+# use selvedge_config_model::AppConfig;
+# let config = AppConfig::try_from(toml::Table::new())?;
+let connect_timeout = config.network.connect_timeout_ms;
+# let _ = connect_timeout;
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
 

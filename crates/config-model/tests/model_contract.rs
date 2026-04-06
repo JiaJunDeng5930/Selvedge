@@ -8,6 +8,9 @@ fn empty_table_materializes_to_valid_defaults() {
     let config = AppConfig::try_from(Table::new()).expect("materialize config");
 
     assert!(config.validate().is_ok());
+    assert_eq!(config.network.connect_timeout_ms, None);
+    assert_eq!(config.network.request_timeout_ms, None);
+    assert_eq!(config.network.stream_idle_timeout_ms, None);
 }
 
 #[test]
@@ -44,5 +47,16 @@ fn cross_field_constraint_is_rejected() {
     assert_eq!(
         config.validate(),
         Err(ValidationError::EnabledFeatureRequiresRollout)
+    );
+}
+
+#[test]
+fn zero_network_timeout_is_rejected() {
+    let mut config = AppConfig::try_from(Table::new()).expect("materialize config");
+    config.network.request_timeout_ms = Some(0);
+
+    assert_eq!(
+        config.validate(),
+        Err(ValidationError::InvalidNetworkRequestTimeout)
     );
 }
