@@ -209,7 +209,12 @@ pub async fn execute(request: HttpRequest) -> Result<HttpResponse, HttpError> {
         body_len = prepared.body_len
     );
 
-    let client = build_client(&call_config, request_deadline).await?;
+    let client = build_client(
+        &call_config,
+        request_deadline,
+        prepared.request.url().scheme() == "https",
+    )
+    .await?;
     let request_url = prepared.request_url.clone();
     let method = prepared.method.clone();
     let body_len = prepared.body_len;
@@ -246,7 +251,12 @@ pub async fn stream(request: HttpRequest) -> Result<HttpStreamResponse, HttpErro
         body_len = prepared.body_len
     );
 
-    let client = build_client(&call_config, request_deadline).await?;
+    let client = build_client(
+        &call_config,
+        request_deadline,
+        prepared.request.url().scheme() == "https",
+    )
+    .await?;
     let idle_timeout = call_config.stream_idle_timeout;
     let request_url = prepared.request_url.clone();
     let method = prepared.method.clone();
@@ -628,6 +638,7 @@ async fn maybe_compress_body(
 async fn build_client(
     call_config: &ResolvedCallConfig,
     request_deadline: Option<Instant>,
+    uses_tls: bool,
 ) -> Result<Client, HttpError> {
     let mut builder = Client::builder().retry(reqwest::retry::never());
 
@@ -643,7 +654,7 @@ async fn build_client(
         builder = builder.no_proxy();
     }
 
-    if let Some(path) = &call_config.ca_bundle_path {
+    if uses_tls && let Some(path) = &call_config.ca_bundle_path {
         let bundle = match request_deadline {
             Some(deadline) => timeout_at(deadline, tokio_fs::read(path))
                 .await
@@ -1220,6 +1231,7 @@ mod tests {
                 user_agent: None,
             },
             None,
+            true,
         )
         .await
         .expect_err("invalid proxy must fail");
