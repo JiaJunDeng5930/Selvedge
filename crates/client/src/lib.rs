@@ -10,7 +10,7 @@ use http::{
     header::{CONTENT_ENCODING, CONTENT_TYPE, USER_AGENT},
 };
 use reqwest::{Certificate, Client, Method, Proxy, Url};
-use tokio::time::{Instant, timeout, timeout_at};
+use tokio::time::{Instant, timeout_at};
 use url::form_urlencoded;
 
 macro_rules! log_event {
@@ -208,11 +208,8 @@ pub async fn execute(request: HttpRequest) -> Result<HttpResponse, HttpError> {
     let request_url = prepared.request_url.clone();
     let method = prepared.method.clone();
     let body_len = prepared.body_len;
-
-    let result = run_with_timeout(request_timeout, async move {
-        execute_inner(client, prepared).await
-    })
-    .await;
+    let request_deadline = request_timeout.map(|duration| Instant::now() + duration);
+    let result = execute_inner(client, prepared, request_deadline).await;
 
     log_result("execute", &method, &request_url, body_len, &result);
 
@@ -250,7 +247,7 @@ pub async fn stream(request: HttpRequest) -> Result<HttpStreamResponse, HttpErro
     let request_deadline = request_timeout.map(|duration| Instant::now() + duration);
     let result = stream_inner(client, prepared, request_deadline, idle_timeout).await;
 
-    log_result("stream", &method, &request_url, body_len, &result);
+    log_stream_result(&method, &request_url, body_len, &result);
 
     result
 }
@@ -258,19 +255,23 @@ pub async fn stream(request: HttpRequest) -> Result<HttpStreamResponse, HttpErro
 async fn execute_inner(
     client: Client,
     prepared: PreparedRequest,
+    request_deadline: Option<Instant>,
 ) -> Result<HttpResponse, HttpError> {
-    let response = send(client, prepared.request, &prepared.request_url).await?;
+    let response = send_with_deadline(
+        client,
+        prepared.request,
+        &prepared.request_url,
+        request_deadline,
+    )
+    .await?;
 
     if !response.status().is_success() {
-        return Err(collect_status_error(response, None, &prepared.request_url).await);
+        return Err(collect_status_error(response, request_deadline, &prepared.request_url).await);
     }
 
     let status = response.status();
     let headers = response.headers().clone();
-    let body = response
-        .bytes()
-        .await
-        .map_err(|error| map_transport_error(error, &prepared.request_url))?;
+    let body = collect_success_body(response, request_deadline, &prepared.request_url).await?;
 
     Ok(HttpResponse {
         status,
@@ -390,6 +391,30 @@ async fn collect_status_error(
         headers,
         body: body.freeze(),
     })
+}
+
+async fn collect_success_body(
+    response: reqwest::Response,
+    deadline: Option<Instant>,
+    request_url: &str,
+) -> Result<Bytes, HttpError> {
+    let mut body = BytesMut::new();
+    let mut stream = Box::pin(response.bytes_stream());
+
+    loop {
+        let next_chunk = match deadline {
+            Some(deadline) => timeout_at(deadline, stream.next())
+                .await
+                .map_err(|_| HttpError::Timeout)?,
+            None => stream.next().await,
+        };
+
+        match next_chunk {
+            Some(Ok(chunk)) => body.extend_from_slice(&chunk),
+            Some(Err(error)) => return Err(map_transport_error(error, request_url)),
+            None => return Ok(body.freeze()),
+        }
+    }
 }
 
 fn resolve_call_config(
@@ -674,27 +699,21 @@ fn wrap_stream(
                     yield Err(mapped);
                     break;
                 }
-                None => break,
+                None => {
+                    log_event!(
+                        selvedge_logging::LogLevel::Debug,
+                        "http stream finished";
+                        mode = "stream",
+                        url = request_url.as_str(),
+                        outcome = "success"
+                    );
+                    break;
+                }
             }
         }
     };
 
     Box::pin(stream)
-}
-
-async fn run_with_timeout<F, T>(
-    timeout_duration: Option<Duration>,
-    future: F,
-) -> Result<T, HttpError>
-where
-    F: std::future::Future<Output = Result<T, HttpError>>,
-{
-    match timeout_duration {
-        Some(timeout_duration) => timeout(timeout_duration, future)
-            .await
-            .map_err(|_| HttpError::Timeout)?,
-        None => future.await,
-    }
 }
 
 fn map_transport_error(error: reqwest::Error, request_url: &str) -> HttpError {
@@ -799,6 +818,40 @@ fn log_result<T>(
         }
         Err(error) => {
             log_transport_error(mode, request_url, error);
+        }
+    }
+}
+
+fn log_stream_result(
+    method: &HttpMethod,
+    request_url: &str,
+    body_len: usize,
+    result: &Result<HttpStreamResponse, HttpError>,
+) {
+    match result {
+        Ok(_) => {
+            log_event!(
+                selvedge_logging::LogLevel::Debug,
+                "http stream established";
+                mode = "stream",
+                method = method.as_str(),
+                url = request_url,
+                body_len = body_len
+            );
+        }
+        Err(HttpError::Status(error)) => {
+            log_event!(
+                selvedge_logging::LogLevel::Warn,
+                "http request returned non-success status";
+                mode = "stream",
+                method = method.as_str(),
+                url = error.url.as_str(),
+                status = error.status.as_u16(),
+                body_len = error.body.len()
+            );
+        }
+        Err(error) => {
+            log_transport_error("stream", request_url, error);
         }
     }
 }
