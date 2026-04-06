@@ -488,10 +488,11 @@ async fn stream_request_timeout_covers_wait_for_first_chunk() {
     const FLAG: &str = "SELVEDGE_CLIENT_STREAM_FIRST_CHUNK_TIMEOUT_CHILD";
 
     if !child_mode(FLAG) {
-        assert_child_success(&run_child(
-            "stream_request_timeout_covers_wait_for_first_chunk",
-            FLAG,
-        ));
+        let output = run_child("stream_request_timeout_covers_wait_for_first_chunk", FLAG);
+        assert_child_success(&output);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(stderr.contains("http stream request timeout"));
+        assert!(!stderr.contains("message=\"http request finished\""));
         return;
     }
 
