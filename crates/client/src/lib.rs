@@ -9,7 +9,7 @@ use http::{
     HeaderMap, HeaderValue, StatusCode,
     header::{
         AUTHORIZATION, CONTENT_ENCODING, CONTENT_LENGTH, CONTENT_TYPE, COOKIE, HOST, LOCATION,
-        ORIGIN, PROXY_AUTHORIZATION, REFERER, USER_AGENT,
+        ORIGIN, REFERER, USER_AGENT,
     },
 };
 use reqwest::{Certificate, Client, Method, Proxy, Url};
@@ -758,7 +758,6 @@ fn strip_origin_bound_headers(headers: &mut HeaderMap) {
     headers.remove(COOKIE);
     headers.remove(HOST);
     headers.remove(ORIGIN);
-    headers.remove(PROXY_AUTHORIZATION);
     headers.remove(REFERER);
 }
 
