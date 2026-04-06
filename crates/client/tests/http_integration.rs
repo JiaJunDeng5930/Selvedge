@@ -408,6 +408,43 @@ async fn execute_uses_explicit_proxy() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn execute_preserves_status_when_error_body_is_truncated() {
+    const FLAG: &str = "SELVEDGE_CLIENT_TRUNCATED_STATUS_CHILD";
+
+    if !child_mode(FLAG) {
+        assert_child_success(&run_child(
+            "execute_preserves_status_when_error_body_is_truncated",
+            FLAG,
+        ));
+        return;
+    }
+
+    let _tempdir = init_client_test().await;
+    let (url, server_handle) = spawn_truncated_status_server().await;
+
+    let error = execute(HttpRequest {
+        method: HttpMethod::Get,
+        url,
+        headers: HeaderMap::new(),
+        body: HttpRequestBody::Empty,
+        timeout: Some(Duration::from_secs(1)),
+        compression: RequestCompression::None,
+    })
+    .await
+    .expect_err("truncated error body should still return status");
+
+    match error {
+        HttpError::Status(status) => {
+            assert_eq!(status.status, StatusCode::BAD_GATEWAY);
+            assert_eq!(status.body, Bytes::from_static(b"par"));
+        }
+        other => panic!("expected status error, got {other:?}"),
+    }
+
+    server_handle.abort();
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn stream_returns_status_before_entering_body() {
     const FLAG: &str = "SELVEDGE_CLIENT_STREAM_STATUS_CHILD";
 
@@ -444,6 +481,49 @@ async fn stream_returns_status_before_entering_body() {
         }
         other => panic!("expected status error, got {other:?}"),
     }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn stream_request_timeout_covers_wait_for_first_chunk() {
+    const FLAG: &str = "SELVEDGE_CLIENT_STREAM_FIRST_CHUNK_TIMEOUT_CHILD";
+
+    if !child_mode(FLAG) {
+        assert_child_success(&run_child(
+            "stream_request_timeout_covers_wait_for_first_chunk",
+            FLAG,
+        ));
+        return;
+    }
+
+    let _tempdir = init_client_test().await;
+    let app = Router::new().route(
+        "/stream",
+        get(|| async {
+            let body = Body::from_stream(async_stream::stream! {
+                sleep(Duration::from_millis(120)).await;
+                yield Ok::<Bytes, Infallible>(Bytes::from_static(b"late"));
+            });
+
+            (StatusCode::OK, body)
+        }),
+    );
+    let server = spawn_http_server(app).await;
+
+    let response = stream(HttpRequest {
+        method: HttpMethod::Get,
+        url: server.url("/stream"),
+        headers: HeaderMap::new(),
+        body: HttpRequestBody::Empty,
+        timeout: Some(Duration::from_millis(50)),
+        compression: RequestCompression::None,
+    })
+    .await
+    .expect("response head should arrive");
+
+    let chunks = response.body.collect::<Vec<_>>().await;
+
+    assert_eq!(chunks.len(), 1);
+    assert!(matches!(chunks[0], Err(HttpError::Timeout)));
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -547,4 +627,23 @@ async fn spawn_broken_chunked_server() -> (String, JoinHandle<()>) {
     });
 
     (format!("http://{addr}/stream"), handle)
+}
+
+async fn spawn_truncated_status_server() -> (String, JoinHandle<()>) {
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind truncated status server");
+    let addr = listener.local_addr().expect("local addr");
+    let handle = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.expect("accept socket");
+        let mut buffer = [0_u8; 2048];
+        let _ = socket.read(&mut buffer).await.expect("read request");
+        socket
+            .write_all(b"HTTP/1.1 502 Bad Gateway\r\ncontent-length: 7\r\n\r\npar")
+            .await
+            .expect("write partial error response");
+        socket.shutdown().await.expect("shutdown socket");
+    });
+
+    (format!("http://{addr}/status"), handle)
 }

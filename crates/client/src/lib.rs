@@ -1,22 +1,16 @@
 #![doc = include_str!("../README.md")]
 #![allow(clippy::result_large_err)]
 
-use std::{
-    error::Error as StdError,
-    fmt, fs,
-    path::PathBuf,
-    pin::Pin,
-    time::{Duration, Instant},
-};
+use std::{error::Error as StdError, fmt, fs, path::PathBuf, pin::Pin, time::Duration};
 
-use bytes::Bytes;
+use bytes::{Bytes, BytesMut};
 use futures::{Stream, StreamExt};
 use http::{
     HeaderMap, HeaderValue, StatusCode,
     header::{CONTENT_ENCODING, CONTENT_TYPE, USER_AGENT},
 };
 use reqwest::{Certificate, Client, Method, Proxy, Url};
-use tokio::time::{timeout, timeout_at};
+use tokio::time::{Instant, timeout, timeout_at};
 use url::form_urlencoded;
 
 macro_rules! log_event {
@@ -116,6 +110,18 @@ enum PreparedBody {
     Buffered {
         bytes: Bytes,
         content_type_if_missing: Option<HeaderValue>,
+    },
+}
+
+#[derive(Debug, Clone, Copy)]
+enum StreamTimeoutState {
+    AwaitingFirstByte {
+        request_deadline: Option<Instant>,
+        idle_timeout: Option<Duration>,
+    },
+    Streaming {
+        idle_timeout: Option<Duration>,
+        idle_deadline: Option<Instant>,
     },
 }
 
@@ -241,10 +247,8 @@ pub async fn stream(request: HttpRequest) -> Result<HttpStreamResponse, HttpErro
     let method = prepared.method.clone();
     let body_len = prepared.body_len;
 
-    let result = run_with_timeout(request_timeout, async move {
-        stream_inner(client, prepared, idle_timeout).await
-    })
-    .await;
+    let request_deadline = request_timeout.map(|duration| Instant::now() + duration);
+    let result = stream_inner(client, prepared, request_deadline, idle_timeout).await;
 
     log_result("stream", &method, &request_url, body_len, &result);
 
@@ -258,7 +262,7 @@ async fn execute_inner(
     let response = send(client, prepared.request, &prepared.request_url).await?;
 
     if !response.status().is_success() {
-        return Err(read_status_error(response, &prepared.request_url).await?);
+        return Err(collect_status_error(response, None, &prepared.request_url).await);
     }
 
     let status = response.status();
@@ -278,18 +282,26 @@ async fn execute_inner(
 async fn stream_inner(
     client: Client,
     prepared: PreparedRequest,
+    request_deadline: Option<Instant>,
     idle_timeout: Option<Duration>,
 ) -> Result<HttpStreamResponse, HttpError> {
-    let response = send(client, prepared.request, &prepared.request_url).await?;
+    let response = send_with_deadline(
+        client,
+        prepared.request,
+        &prepared.request_url,
+        request_deadline,
+    )
+    .await?;
 
     if !response.status().is_success() {
-        return Err(read_status_error(response, &prepared.request_url).await?);
+        return Err(collect_status_error(response, request_deadline, &prepared.request_url).await);
     }
 
     let status = response.status();
     let headers = response.headers().clone();
     let body = wrap_stream(
         prepared.request_url.clone(),
+        request_deadline,
         idle_timeout,
         response.bytes_stream(),
     );
@@ -312,24 +324,72 @@ async fn send(
         .map_err(|error| map_transport_error(error, request_url))
 }
 
-async fn read_status_error(
-    response: reqwest::Response,
+async fn send_with_deadline(
+    client: Client,
+    request: reqwest::Request,
     request_url: &str,
-) -> Result<HttpError, HttpError> {
+    deadline: Option<Instant>,
+) -> Result<reqwest::Response, HttpError> {
+    match deadline {
+        Some(deadline) => timeout_at(deadline, client.execute(request))
+            .await
+            .map_err(|_| HttpError::Timeout)?
+            .map_err(|error| map_transport_error(error, request_url)),
+        None => send(client, request, request_url).await,
+    }
+}
+
+async fn collect_status_error(
+    response: reqwest::Response,
+    deadline: Option<Instant>,
+    request_url: &str,
+) -> HttpError {
     let url = response.url().to_string();
     let status = response.status();
     let headers = response.headers().clone();
-    let body = response
-        .bytes()
-        .await
-        .map_err(|error| map_transport_error(error, request_url))?;
+    let mut body = BytesMut::new();
+    let mut stream = Box::pin(response.bytes_stream());
 
-    Ok(HttpError::Status(HttpStatusError {
+    loop {
+        let next_chunk = match deadline {
+            Some(deadline) => match timeout_at(deadline, stream.next()).await {
+                Ok(next_chunk) => next_chunk,
+                Err(_) => {
+                    log_event!(
+                        selvedge_logging::LogLevel::Warn,
+                        "http non-success response body timed out";
+                        url = url.as_str(),
+                        status = status.as_u16()
+                    );
+                    break;
+                }
+            },
+            None => stream.next().await,
+        };
+
+        match next_chunk {
+            Some(Ok(chunk)) => body.extend_from_slice(&chunk),
+            Some(Err(error)) => {
+                let mapped = map_transport_error(error, request_url);
+                log_event!(
+                    selvedge_logging::LogLevel::Warn,
+                    "http non-success response body truncated";
+                    url = url.as_str(),
+                    status = status.as_u16(),
+                    error = mapped.to_string()
+                );
+                break;
+            }
+            None => break,
+        }
+    }
+
+    HttpError::Status(HttpStatusError {
         url,
         status,
         headers,
-        body,
-    }))
+        body: body.freeze(),
+    })
 }
 
 fn resolve_call_config(
@@ -574,21 +634,25 @@ fn parse_certificates(bundle: &[u8]) -> Result<Vec<Certificate>, HttpError> {
 
 fn wrap_stream(
     request_url: String,
+    request_deadline: Option<Instant>,
     idle_timeout: Option<Duration>,
     stream: impl Stream<Item = Result<Bytes, reqwest::Error>> + Send + 'static,
 ) -> ByteStream {
     let stream = async_stream::stream! {
         let mut stream = Box::pin(stream);
-        let mut deadline = idle_timeout.map(|timeout| Instant::now() + timeout);
+        let mut timeout_state = StreamTimeoutState::AwaitingFirstByte {
+            request_deadline,
+            idle_timeout,
+        };
 
         loop {
-            let next_item = match deadline {
-                Some(deadline) => match timeout_at(deadline.into(), stream.next()).await {
+            let next_item = match timeout_state.deadline() {
+                Some(deadline) => match timeout_at(deadline, stream.next()).await {
                     Ok(item) => item,
                     Err(_) => {
                         log_event!(
                             selvedge_logging::LogLevel::Warn,
-                            "http stream idle timeout";
+                            timeout_state.timeout_message();
                             mode = "stream",
                             url = request_url.as_str()
                         );
@@ -601,10 +665,7 @@ fn wrap_stream(
 
             match next_item {
                 Some(Ok(bytes)) => {
-                    if !bytes.is_empty() {
-                        deadline = idle_timeout.map(|timeout| Instant::now() + timeout);
-                    }
-
+                    timeout_state = timeout_state.on_chunk(&bytes);
                     yield Ok(bytes);
                 }
                 Some(Err(error)) => {
@@ -798,6 +859,61 @@ impl PreparedBody {
         match self {
             Self::Empty => 0,
             Self::Buffered { bytes, .. } => bytes.len(),
+        }
+    }
+}
+
+impl StreamTimeoutState {
+    fn deadline(self) -> Option<Instant> {
+        match self {
+            Self::AwaitingFirstByte {
+                request_deadline, ..
+            } => request_deadline,
+            Self::Streaming { idle_deadline, .. } => idle_deadline,
+        }
+    }
+
+    fn timeout_message(self) -> &'static str {
+        match self {
+            Self::AwaitingFirstByte { .. } => "http stream request timeout",
+            Self::Streaming { .. } => "http stream idle timeout",
+        }
+    }
+
+    fn on_chunk(self, chunk: &Bytes) -> Self {
+        match self {
+            Self::AwaitingFirstByte {
+                request_deadline,
+                idle_timeout,
+            } => {
+                if chunk.is_empty() {
+                    Self::AwaitingFirstByte {
+                        request_deadline,
+                        idle_timeout,
+                    }
+                } else {
+                    Self::Streaming {
+                        idle_timeout,
+                        idle_deadline: idle_timeout.map(|timeout| Instant::now() + timeout),
+                    }
+                }
+            }
+            Self::Streaming {
+                idle_timeout,
+                idle_deadline,
+            } => {
+                if chunk.is_empty() {
+                    Self::Streaming {
+                        idle_timeout,
+                        idle_deadline,
+                    }
+                } else {
+                    Self::Streaming {
+                        idle_timeout,
+                        idle_deadline: idle_timeout.map(|timeout| Instant::now() + timeout),
+                    }
+                }
+            }
         }
     }
 }
