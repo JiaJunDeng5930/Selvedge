@@ -577,15 +577,15 @@ async fn execute_http_request_ignores_invalid_ca_bundle_path() {
     selvedge_config::update_runtime("network.ca_bundle_path", "/definitely/missing-ca.pem")
         .expect("set invalid ca bundle path");
     let server = spawn_http_server(
-        Router::new().route("/direct", post(|| async { (StatusCode::OK, "direct") })),
+        Router::new().route("/direct", get(|| async { (StatusCode::OK, "direct") })),
     )
     .await;
 
     let response = execute(HttpRequest {
-        method: HttpMethod::Post,
+        method: HttpMethod::Get,
         url: server.url("/direct"),
         headers: HeaderMap::new(),
-        body: HttpRequestBody::Bytes(Bytes::from_static(b"payload")),
+        body: HttpRequestBody::Empty,
         timeout: Some(Duration::from_secs(2)),
         compression: RequestCompression::None,
     })
