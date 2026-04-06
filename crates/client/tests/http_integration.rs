@@ -425,6 +425,40 @@ async fn execute_maps_tls_failure() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn execute_redacts_sensitive_url_parts_in_transport_errors() {
+    const FLAG: &str = "SELVEDGE_CLIENT_REDACTED_ERROR_URL_CHILD";
+
+    if !child_mode(FLAG) {
+        assert_child_success(&run_child(
+            "execute_redacts_sensitive_url_parts_in_transport_errors",
+            FLAG,
+        ));
+        return;
+    }
+
+    let _tempdir = init_client_test().await;
+    let server = spawn_https_server(StatusCode::OK, Bytes::from_static(b"secure")).await;
+    let server_url = reqwest::Url::parse(&server.url).expect("parse server url");
+    let port = server_url.port().expect("server port");
+    let url = format!("https://user:pass@localhost:{port}/?token=secret");
+
+    let error = execute(HttpRequest {
+        method: HttpMethod::Get,
+        url,
+        headers: HeaderMap::new(),
+        body: HttpRequestBody::Empty,
+        timeout: Some(Duration::from_secs(2)),
+        compression: RequestCompression::None,
+    })
+    .await
+    .expect_err("tls should fail without custom ca");
+
+    let rendered = error.to_string();
+    assert!(!rendered.contains("user:pass"));
+    assert!(!rendered.contains("token=secret"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn execute_accepts_custom_ca_bundle() {
     const FLAG: &str = "SELVEDGE_CLIENT_CA_BUNDLE_CHILD";
 
