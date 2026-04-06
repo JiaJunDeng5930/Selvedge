@@ -120,11 +120,11 @@ enum PreparedBody {
 #[derive(Debug, Clone, Copy)]
 enum StreamTimeoutState {
     AwaitingFirstByte {
-        request_timeout_remaining: Option<Duration>,
+        request_deadline: Option<Instant>,
         idle_timeout: Option<Duration>,
     },
     Streaming {
-        request_timeout_remaining: Option<Duration>,
+        request_deadline: Option<Instant>,
         idle_timeout: Option<Duration>,
     },
 }
@@ -293,7 +293,7 @@ async fn execute_inner(
 async fn stream_inner(
     call_config: &ResolvedCallConfig,
     prepared: PreparedRequest,
-    request_timeout: Option<Duration>,
+    _request_timeout: Option<Duration>,
     request_deadline: Option<Instant>,
     idle_timeout: Option<Duration>,
 ) -> Result<HttpStreamResponse, HttpError> {
@@ -308,7 +308,7 @@ async fn stream_inner(
     let headers = response.headers().clone();
     let body = wrap_stream(
         request_url,
-        request_timeout.and_then(|_| remaining_duration_until(request_deadline)),
+        request_deadline,
         idle_timeout,
         response.bytes_stream(),
     );
@@ -506,6 +506,11 @@ fn resolve_call_config(
             config.network.user_agent.clone(),
         )
     })?;
+
+    let ca_bundle_path = match ca_bundle_path {
+        Some(path) if path.is_relative() => Some(selvedge_config::selvedge_home()?.join(path)),
+        other => other,
+    };
 
     let config = ResolvedCallConfig {
         connect_timeout: connect_timeout_ms.map(Duration::from_millis),
@@ -830,19 +835,18 @@ fn sanitize_url_for_output(raw_url: &str) -> String {
 
 fn wrap_stream(
     request_url: String,
-    request_timeout: Option<Duration>,
+    request_deadline: Option<Instant>,
     idle_timeout: Option<Duration>,
     stream: impl Stream<Item = Result<Bytes, reqwest::Error>> + Send + 'static,
 ) -> ByteStream {
     let stream = async_stream::stream! {
         let mut stream = Box::pin(stream);
         let mut timeout_state = StreamTimeoutState::AwaitingFirstByte {
-            request_timeout_remaining: request_timeout,
+            request_deadline,
             idle_timeout,
         };
 
         loop {
-            let wait_started_at = Instant::now();
             let next_item = match timeout_state.deadline() {
                 Some(deadline) => match timeout_at(deadline, stream.next()).await {
                     Ok(item) => item,
@@ -859,8 +863,6 @@ fn wrap_stream(
                 },
                 None => stream.next().await,
             };
-            let waited = wait_started_at.elapsed();
-            timeout_state = timeout_state.after_wait(waited);
 
             match next_item {
                 Some(Ok(bytes)) => {
@@ -968,14 +970,6 @@ fn duration_millis_or_zero(duration: Option<Duration>) -> u64 {
 
 fn relative_deadline(timeout: Option<Duration>) -> Option<Instant> {
     timeout.map(|timeout| Instant::now() + timeout)
-}
-
-fn remaining_duration_until(deadline: Option<Instant>) -> Option<Duration> {
-    deadline.map(|deadline| deadline.saturating_duration_since(Instant::now()))
-}
-
-fn subtract_duration(duration: Option<Duration>, waited: Duration) -> Option<Duration> {
-    duration.map(|duration| duration.saturating_sub(waited))
 }
 
 fn min_deadline(left: Option<Instant>, right: Option<Instant>) -> Option<Instant> {
@@ -1139,34 +1133,31 @@ impl StreamTimeoutState {
     fn deadline(self) -> Option<Instant> {
         match self {
             Self::AwaitingFirstByte {
-                request_timeout_remaining,
+                request_deadline,
                 idle_timeout,
-            } => min_deadline(
-                relative_deadline(request_timeout_remaining),
-                relative_deadline(idle_timeout),
-            ),
-            Self::Streaming {
-                request_timeout_remaining,
+            }
+            | Self::Streaming {
+                request_deadline,
                 idle_timeout,
-            } => min_deadline(
-                relative_deadline(request_timeout_remaining),
-                relative_deadline(idle_timeout),
-            ),
+            } => min_deadline(request_deadline, relative_deadline(idle_timeout)),
         }
     }
 
     fn timeout_message(self) -> &'static str {
         match self {
             Self::AwaitingFirstByte {
-                request_timeout_remaining,
+                request_deadline,
                 idle_timeout,
             }
             | Self::Streaming {
-                request_timeout_remaining,
+                request_deadline,
                 idle_timeout,
-            } => match (request_timeout_remaining, idle_timeout) {
-                (Some(request_timeout), Some(idle_timeout)) => {
-                    if idle_timeout <= request_timeout {
+            } => match (request_deadline, idle_timeout) {
+                (Some(request_deadline), Some(idle_timeout)) => {
+                    let request_remaining =
+                        request_deadline.saturating_duration_since(Instant::now());
+
+                    if idle_timeout <= request_remaining {
                         "http stream idle timeout"
                     } else {
                         "http stream request timeout"
@@ -1179,48 +1170,29 @@ impl StreamTimeoutState {
         }
     }
 
-    fn after_wait(self, waited: Duration) -> Self {
-        match self {
-            Self::AwaitingFirstByte {
-                request_timeout_remaining,
-                idle_timeout,
-            } => Self::AwaitingFirstByte {
-                request_timeout_remaining: subtract_duration(request_timeout_remaining, waited),
-                idle_timeout,
-            },
-            Self::Streaming {
-                request_timeout_remaining,
-                idle_timeout,
-            } => Self::Streaming {
-                request_timeout_remaining: subtract_duration(request_timeout_remaining, waited),
-                idle_timeout,
-            },
-        }
-    }
-
     fn on_chunk(self, chunk: &Bytes) -> Self {
         match self {
             Self::AwaitingFirstByte {
-                request_timeout_remaining,
+                request_deadline,
                 idle_timeout,
             } => {
                 if chunk.is_empty() {
                     Self::AwaitingFirstByte {
-                        request_timeout_remaining,
+                        request_deadline,
                         idle_timeout,
                     }
                 } else {
                     Self::Streaming {
-                        request_timeout_remaining,
+                        request_deadline,
                         idle_timeout,
                     }
                 }
             }
             Self::Streaming {
-                request_timeout_remaining,
+                request_deadline,
                 idle_timeout,
             } => Self::Streaming {
-                request_timeout_remaining,
+                request_deadline,
                 idle_timeout,
             },
         }
@@ -1230,7 +1202,7 @@ impl StreamTimeoutState {
 #[cfg(test)]
 mod tests {
     use super::{
-        HeaderMap, HeaderValue, HttpMethod, HttpRequest, HttpRequestBody, PreparedBody,
+        HeaderMap, HeaderValue, HttpError, HttpMethod, HttpRequest, HttpRequestBody, PreparedBody,
         RequestCompression, ResolvedCallConfig, build_client, build_error, encode_body,
         maybe_compress_body, parse_absolute_http_url, prepare_request, sanitize_url_for_output,
         wrap_stream,
@@ -1239,7 +1211,7 @@ mod tests {
 
     use bytes::Bytes;
     use futures::{StreamExt, stream};
-    use tokio::time::sleep;
+    use tokio::time::{Instant, sleep};
 
     #[test]
     fn absolute_http_url_is_required() {
@@ -1372,7 +1344,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "current_thread")]
-    async fn first_chunk_timeout_starts_on_first_poll() {
+    async fn first_chunk_timeout_uses_absolute_deadline() {
         let inner = stream::unfold(0_u8, |state| async move {
             match state {
                 0 => {
@@ -1385,7 +1357,7 @@ mod tests {
 
         let mut wrapped = wrap_stream(
             "http://example.test/stream".to_owned(),
-            Some(Duration::from_millis(50)),
+            Some(Instant::now() + Duration::from_millis(50)),
             None,
             inner,
         );
@@ -1393,7 +1365,7 @@ mod tests {
         sleep(Duration::from_millis(120)).await;
 
         let first = wrapped.next().await.expect("first item");
-        assert_eq!(first.expect("first chunk"), Bytes::from_static(b"first"));
+        assert!(matches!(first, Err(HttpError::Timeout)));
     }
 
     #[test]
