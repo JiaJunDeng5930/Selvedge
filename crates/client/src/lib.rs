@@ -664,35 +664,24 @@ async fn build_client(
         builder = builder.no_proxy();
     }
 
-    if should_load_ca_bundle(call_config, uses_tls, method)
-        && let Some(path) = &call_config.ca_bundle_path
-    {
-        let bundle = match request_deadline {
-            Some(deadline) => timeout_at(deadline, tokio_fs::read(path))
-                .await
-                .map_err(|_| HttpError::Timeout)?,
-            None => tokio_fs::read(path).await,
-        }
-        .map_err(|error| {
-            build_error(format!(
-                "failed to read network.ca_bundle_path {}: {error}",
-                path.display()
-            ))
-        })?;
-        check_request_deadline(request_deadline)?;
-        let path = path.clone();
-        let certificates = run_blocking(move || {
-            parse_certificates(&bundle).map_err(|error| {
-                build_error(format!(
-                    "failed to parse network.ca_bundle_path {}: {error}",
-                    path.display()
-                ))
-            })
-        })
-        .await?;
+    if let Some(path) = &call_config.ca_bundle_path {
+        let tls_proxy = call_config
+            .proxy_url
+            .as_deref()
+            .and_then(|proxy_url| Url::parse(proxy_url).ok())
+            .is_some_and(|proxy_url| proxy_url.scheme() == "https");
+        let ca_load_is_optional = !uses_tls && !tls_proxy && matches!(method, HttpMethod::Get);
 
-        for certificate in certificates {
-            builder = builder.add_root_certificate(certificate);
+        let certificates = match load_ca_bundle(path, request_deadline).await {
+            Ok(certificates) => Some(certificates),
+            Err(_) if ca_load_is_optional => None,
+            Err(error) => return Err(error),
+        };
+
+        if let Some(certificates) = certificates {
+            for certificate in certificates {
+                builder = builder.add_root_certificate(certificate);
+            }
         }
     }
 
@@ -701,20 +690,34 @@ async fn build_client(
         .map_err(|error| build_error(format!("failed to build http client: {error}")))
 }
 
-fn should_load_ca_bundle(
-    call_config: &ResolvedCallConfig,
-    uses_tls: bool,
-    method: &HttpMethod,
-) -> bool {
-    if uses_tls || matches!(method, HttpMethod::Get) {
-        return true;
+async fn load_ca_bundle(
+    path: &std::path::Path,
+    request_deadline: Option<Instant>,
+) -> Result<Vec<Certificate>, HttpError> {
+    let bundle = match request_deadline {
+        Some(deadline) => timeout_at(deadline, tokio_fs::read(path))
+            .await
+            .map_err(|_| HttpError::Timeout)?,
+        None => tokio_fs::read(path).await,
     }
+    .map_err(|error| {
+        build_error(format!(
+            "failed to read network.ca_bundle_path {}: {error}",
+            path.display()
+        ))
+    })?;
+    check_request_deadline(request_deadline)?;
+    let path = path.to_path_buf();
 
-    call_config
-        .proxy_url
-        .as_deref()
-        .and_then(|proxy_url| Url::parse(proxy_url).ok())
-        .is_some_and(|proxy_url| proxy_url.scheme() == "https")
+    run_blocking(move || {
+        parse_certificates(&bundle).map_err(|error| {
+            build_error(format!(
+                "failed to parse network.ca_bundle_path {}: {error}",
+                path.display()
+            ))
+        })
+    })
+    .await
 }
 
 fn parse_certificates(bundle: &[u8]) -> Result<Vec<Certificate>, HttpError> {
