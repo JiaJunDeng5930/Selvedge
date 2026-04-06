@@ -722,7 +722,7 @@ fn compress_bytes_with_deadline(
 
 fn sanitize_url_for_output(raw_url: &str) -> String {
     let Ok(mut parsed) = Url::parse(raw_url) else {
-        return raw_url.to_owned();
+        return "<invalid-url>".to_owned();
     };
 
     if !parsed.username().is_empty() {
@@ -802,7 +802,13 @@ fn wrap_stream(
 }
 
 fn map_transport_error(error: reqwest::Error, request_url: &str) -> HttpError {
-    let reason = format!("{request_url}: {}", render_error_chain(&error));
+    let mut rendered = render_error_chain(&error);
+
+    if let Some(url) = error.url() {
+        rendered = rendered.replace(url.as_str(), &sanitize_url_for_output(url.as_str()));
+    }
+
+    let reason = format!("{request_url}: {rendered}");
 
     if error.is_timeout() {
         HttpError::Timeout
@@ -1307,5 +1313,12 @@ mod tests {
         );
 
         assert_eq!(sanitized, "https://example.com/path");
+    }
+
+    #[test]
+    fn sanitized_invalid_url_does_not_echo_raw_input() {
+        let sanitized = sanitize_url_for_output("://user:pass@example.com/?token=secret");
+
+        assert_eq!(sanitized, "<invalid-url>");
     }
 }
