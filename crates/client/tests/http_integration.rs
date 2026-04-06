@@ -562,6 +562,40 @@ async fn execute_ignores_ambient_proxy_without_config_proxy_url() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn execute_http_request_ignores_invalid_ca_bundle_path() {
+    const FLAG: &str = "SELVEDGE_CLIENT_HTTP_IGNORES_CA_BUNDLE_CHILD";
+
+    if !child_mode(FLAG) {
+        assert_child_success(&run_child(
+            "execute_http_request_ignores_invalid_ca_bundle_path",
+            FLAG,
+        ));
+        return;
+    }
+
+    let _tempdir = init_client_test().await;
+    selvedge_config::update_runtime("network.ca_bundle_path", "/definitely/missing-ca.pem")
+        .expect("set invalid ca bundle path");
+    let server = spawn_http_server(
+        Router::new().route("/direct", get(|| async { (StatusCode::OK, "direct") })),
+    )
+    .await;
+
+    let response = execute(HttpRequest {
+        method: HttpMethod::Get,
+        url: server.url("/direct"),
+        headers: HeaderMap::new(),
+        body: HttpRequestBody::Empty,
+        timeout: Some(Duration::from_secs(2)),
+        compression: RequestCompression::None,
+    })
+    .await
+    .expect("http requests should ignore ca bundle path");
+
+    assert_eq!(response.body, Bytes::from_static(b"direct"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn execute_preserves_status_when_error_body_is_truncated() {
     const FLAG: &str = "SELVEDGE_CLIENT_TRUNCATED_STATUS_CHILD";
 
