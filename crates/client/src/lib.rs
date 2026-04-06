@@ -627,6 +627,8 @@ fn build_client(call_config: &ResolvedCallConfig) -> Result<Client, HttpError> {
         let proxy = Proxy::all(proxy_url)
             .map_err(|error| build_error(format!("invalid network.proxy_url: {error}")))?;
         builder = builder.proxy(proxy);
+    } else {
+        builder = builder.no_proxy();
     }
 
     if let Some(path) = &call_config.ca_bundle_path {
