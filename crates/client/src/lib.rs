@@ -213,6 +213,7 @@ pub async fn execute(request: HttpRequest) -> Result<HttpResponse, HttpError> {
         &call_config,
         request_deadline,
         prepared.request.url().scheme() == "https",
+        &prepared.method,
     )
     .await?;
     let request_url = prepared.request_url.clone();
@@ -255,6 +256,7 @@ pub async fn stream(request: HttpRequest) -> Result<HttpStreamResponse, HttpErro
         &call_config,
         request_deadline,
         prepared.request.url().scheme() == "https",
+        &prepared.method,
     )
     .await?;
     let idle_timeout = call_config.stream_idle_timeout;
@@ -639,8 +641,16 @@ async fn build_client(
     call_config: &ResolvedCallConfig,
     request_deadline: Option<Instant>,
     uses_tls: bool,
+    method: &HttpMethod,
 ) -> Result<Client, HttpError> {
-    let mut builder = Client::builder().retry(reqwest::retry::never());
+    let redirect_policy = if matches!(method, HttpMethod::Get) {
+        reqwest::redirect::Policy::limited(10)
+    } else {
+        reqwest::redirect::Policy::none()
+    };
+    let mut builder = Client::builder()
+        .retry(reqwest::retry::never())
+        .redirect(redirect_policy);
 
     if let Some(connect_timeout) = call_config.connect_timeout {
         builder = builder.connect_timeout(connect_timeout);
@@ -654,7 +664,9 @@ async fn build_client(
         builder = builder.no_proxy();
     }
 
-    if uses_tls && let Some(path) = &call_config.ca_bundle_path {
+    if should_load_ca_bundle(call_config, uses_tls, method)
+        && let Some(path) = &call_config.ca_bundle_path
+    {
         let bundle = match request_deadline {
             Some(deadline) => timeout_at(deadline, tokio_fs::read(path))
                 .await
@@ -687,6 +699,22 @@ async fn build_client(
     builder
         .build()
         .map_err(|error| build_error(format!("failed to build http client: {error}")))
+}
+
+fn should_load_ca_bundle(
+    call_config: &ResolvedCallConfig,
+    uses_tls: bool,
+    method: &HttpMethod,
+) -> bool {
+    if uses_tls || matches!(method, HttpMethod::Get) {
+        return true;
+    }
+
+    call_config
+        .proxy_url
+        .as_deref()
+        .and_then(|proxy_url| Url::parse(proxy_url).ok())
+        .is_some_and(|proxy_url| proxy_url.scheme() == "https")
 }
 
 fn parse_certificates(bundle: &[u8]) -> Result<Vec<Certificate>, HttpError> {
@@ -1232,6 +1260,7 @@ mod tests {
             },
             None,
             true,
+            &HttpMethod::Get,
         )
         .await
         .expect_err("invalid proxy must fail");
