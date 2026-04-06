@@ -7,7 +7,10 @@ use bytes::{Bytes, BytesMut};
 use futures::{Stream, StreamExt};
 use http::{
     HeaderMap, HeaderValue, StatusCode,
-    header::{CONTENT_ENCODING, CONTENT_LENGTH, CONTENT_TYPE, LOCATION, USER_AGENT},
+    header::{
+        AUTHORIZATION, CONTENT_ENCODING, CONTENT_LENGTH, CONTENT_TYPE, COOKIE, HOST, LOCATION,
+        ORIGIN, PROXY_AUTHORIZATION, REFERER, USER_AGENT,
+    },
 };
 use reqwest::{Certificate, Client, Method, Proxy, Url};
 use tokio::time::{Instant, timeout_at};
@@ -374,6 +377,9 @@ async fn send_with_redirects(
                 .map_err(|error| build_error(format!("invalid redirect target URL: {error}")))?;
             let mut next_request = redirect_template
                 .ok_or_else(|| build_error("missing redirect request template"))?;
+            if !same_origin(response.url(), &next_url) {
+                strip_origin_bound_headers(next_request.headers_mut());
+            }
             *next_request.url_mut() = next_url;
             request = next_request;
             redirect_count += 1;
@@ -731,7 +737,7 @@ async fn load_ca_bundle(
     let path = path.to_path_buf();
 
     run_blocking(move || {
-        parse_certificates(&bundle).map_err(|error| {
+        parse_certificates(&bundle, request_deadline).map_err(|error| {
             build_error(format!(
                 "failed to parse network.ca_bundle_path {}: {error}",
                 path.display()
@@ -741,17 +747,38 @@ async fn load_ca_bundle(
     .await
 }
 
-fn parse_certificates(bundle: &[u8]) -> Result<Vec<Certificate>, HttpError> {
+fn same_origin(left: &Url, right: &Url) -> bool {
+    left.scheme() == right.scheme()
+        && left.host_str() == right.host_str()
+        && left.port_or_known_default() == right.port_or_known_default()
+}
+
+fn strip_origin_bound_headers(headers: &mut HeaderMap) {
+    headers.remove(AUTHORIZATION);
+    headers.remove(COOKIE);
+    headers.remove(HOST);
+    headers.remove(ORIGIN);
+    headers.remove(PROXY_AUTHORIZATION);
+    headers.remove(REFERER);
+}
+
+fn parse_certificates(
+    bundle: &[u8],
+    request_deadline: Option<Instant>,
+) -> Result<Vec<Certificate>, HttpError> {
     let mut reader = bundle;
     let mut certificates = Vec::new();
 
     for parsed in rustls_pemfile::certs(&mut reader) {
+        check_request_deadline(request_deadline)?;
         let parsed = parsed
             .map_err(|error| build_error(format!("failed to parse pem certificate: {error}")))?;
         let certificate = Certificate::from_der(parsed.as_ref())
             .map_err(|error| build_error(format!("failed to load pem certificate: {error}")))?;
         certificates.push(certificate);
     }
+
+    check_request_deadline(request_deadline)?;
 
     if certificates.is_empty() {
         return Err(build_error("ca bundle did not contain any certificates"));
