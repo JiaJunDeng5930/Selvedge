@@ -9,6 +9,7 @@ use toml::{Table, Value};
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct AppConfig {
     pub server: ServerConfig,
+    pub network: NetworkConfig,
     pub logging: LoggingConfig,
     pub feature: FeatureConfig,
 }
@@ -16,6 +17,7 @@ pub struct AppConfig {
 impl AppConfig {
     pub fn validate(&self) -> Result<(), ValidationError> {
         self.server.validate()?;
+        self.network.validate()?;
         self.logging.validate()?;
         self.feature.validate()?;
 
@@ -55,6 +57,34 @@ impl ServerConfig {
 
         if self.request_timeout_ms == 0 {
             return Err(ValidationError::InvalidRequestTimeout);
+        }
+
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct NetworkConfig {
+    pub connect_timeout_ms: Option<u64>,
+    pub request_timeout_ms: Option<u64>,
+    pub stream_idle_timeout_ms: Option<u64>,
+    pub proxy_url: Option<String>,
+    pub ca_bundle_path: Option<std::path::PathBuf>,
+    pub user_agent: Option<String>,
+}
+
+impl NetworkConfig {
+    pub fn validate(&self) -> Result<(), ValidationError> {
+        if self.connect_timeout_ms == Some(0) {
+            return Err(ValidationError::InvalidConnectTimeout);
+        }
+
+        if self.request_timeout_ms == Some(0) {
+            return Err(ValidationError::InvalidNetworkRequestTimeout);
+        }
+
+        if self.stream_idle_timeout_ms == Some(0) {
+            return Err(ValidationError::InvalidStreamIdleTimeout);
         }
 
         Ok(())
@@ -138,6 +168,12 @@ pub enum ValidationError {
     InvalidPort,
     #[error("server.request_timeout_ms must be greater than zero")]
     InvalidRequestTimeout,
+    #[error("network.connect_timeout_ms must be greater than zero")]
+    InvalidConnectTimeout,
+    #[error("network.request_timeout_ms must be greater than zero")]
+    InvalidNetworkRequestTimeout,
+    #[error("network.stream_idle_timeout_ms must be greater than zero")]
+    InvalidStreamIdleTimeout,
     #[error("feature.rollout_percentage must be between 0 and 100, got {0}")]
     InvalidRolloutPercentage(u8),
     #[error("feature.rollout_percentage must be greater than zero when feature.enabled is true")]
@@ -148,6 +184,7 @@ pub enum ValidationError {
 #[serde(default, deny_unknown_fields)]
 struct AppConfigInput {
     server: ServerConfigInput,
+    network: NetworkConfigInput,
     logging: LoggingConfigInput,
     feature: FeatureConfigInput,
 }
@@ -156,6 +193,7 @@ impl AppConfigInput {
     fn materialize(self) -> AppConfig {
         AppConfig {
             server: self.server.materialize(),
+            network: self.network.materialize(),
             logging: self.logging.materialize(),
             feature: self.feature.materialize(),
         }
@@ -180,6 +218,30 @@ impl ServerConfigInput {
             request_timeout_ms: self
                 .request_timeout_ms
                 .unwrap_or(ServerConfig::DEFAULT_REQUEST_TIMEOUT_MS),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct NetworkConfigInput {
+    connect_timeout_ms: Option<u64>,
+    request_timeout_ms: Option<u64>,
+    stream_idle_timeout_ms: Option<u64>,
+    proxy_url: Option<String>,
+    ca_bundle_path: Option<std::path::PathBuf>,
+    user_agent: Option<String>,
+}
+
+impl NetworkConfigInput {
+    fn materialize(self) -> NetworkConfig {
+        NetworkConfig {
+            connect_timeout_ms: self.connect_timeout_ms,
+            request_timeout_ms: self.request_timeout_ms,
+            stream_idle_timeout_ms: self.stream_idle_timeout_ms,
+            proxy_url: self.proxy_url,
+            ca_bundle_path: self.ca_bundle_path,
+            user_agent: self.user_agent,
         }
     }
 }
@@ -231,6 +293,12 @@ mod tests {
     fn logging_defaults_to_info_without_module_overrides() {
         let config = AppConfig::try_from(toml::Table::new()).expect("default config");
 
+        assert_eq!(config.network.connect_timeout_ms, None);
+        assert_eq!(config.network.request_timeout_ms, None);
+        assert_eq!(config.network.stream_idle_timeout_ms, None);
+        assert_eq!(config.network.proxy_url, None);
+        assert_eq!(config.network.ca_bundle_path, None);
+        assert_eq!(config.network.user_agent, None);
         assert_eq!(config.logging.level, LogFilter::Info);
         assert!(config.logging.module_levels.is_empty());
     }
@@ -269,5 +337,36 @@ mod tests {
 
         assert_eq!(config.logging.level, LogFilter::Info);
         assert!(config.logging.module_levels.is_empty());
+    }
+
+    #[test]
+    fn network_accepts_optional_transport_settings() {
+        let table = toml::toml! {
+            [network]
+            connect_timeout_ms = 1_000
+            request_timeout_ms = 30_000
+            stream_idle_timeout_ms = 300_000
+            proxy_url = "http://localhost:8080"
+            ca_bundle_path = "/tmp/ca.pem"
+            user_agent = "selvedge-client/test"
+        };
+
+        let config = AppConfig::try_from(table).expect("network config");
+
+        assert_eq!(config.network.connect_timeout_ms, Some(1_000));
+        assert_eq!(config.network.request_timeout_ms, Some(30_000));
+        assert_eq!(config.network.stream_idle_timeout_ms, Some(300_000));
+        assert_eq!(
+            config.network.proxy_url.as_deref(),
+            Some("http://localhost:8080")
+        );
+        assert_eq!(
+            config.network.ca_bundle_path.as_deref(),
+            Some(std::path::Path::new("/tmp/ca.pem"))
+        );
+        assert_eq!(
+            config.network.user_agent.as_deref(),
+            Some("selvedge-client/test")
+        );
     }
 }

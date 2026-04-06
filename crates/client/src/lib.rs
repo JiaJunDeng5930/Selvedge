@@ -1,0 +1,904 @@
+#![doc = include_str!("../README.md")]
+#![allow(clippy::result_large_err)]
+
+use std::{
+    error::Error as StdError,
+    fmt, fs,
+    path::PathBuf,
+    pin::Pin,
+    time::{Duration, Instant},
+};
+
+use bytes::Bytes;
+use futures::{Stream, StreamExt};
+use http::{
+    HeaderMap, HeaderValue, StatusCode,
+    header::{CONTENT_ENCODING, CONTENT_TYPE, USER_AGENT},
+};
+use reqwest::{Certificate, Client, Method, Proxy, Url};
+use tokio::time::{timeout, timeout_at};
+use url::form_urlencoded;
+
+macro_rules! log_event {
+    ($level:expr, $message:expr $(; $($key:ident = $value:expr),+ $(,)?)?) => {{
+        let _ = selvedge_logging::selvedge_log!($level, $message $(; $($key = $value),+)?);
+    }};
+}
+
+pub type ByteStream = Pin<Box<dyn Stream<Item = Result<bytes::Bytes, HttpError>> + Send + 'static>>;
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum HttpMethod {
+    Get,
+    Post,
+    Put,
+    Patch,
+    Delete,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum RequestCompression {
+    None,
+    Zstd,
+}
+
+#[derive(Clone, Debug)]
+pub enum HttpRequestBody {
+    Empty,
+    Json(serde_json::Value),
+    FormUrlEncoded(Vec<(String, String)>),
+    Bytes(bytes::Bytes),
+}
+
+#[derive(Clone, Debug)]
+pub struct HttpRequest {
+    pub method: HttpMethod,
+    pub url: String,
+    pub headers: HeaderMap,
+    pub body: HttpRequestBody,
+    pub timeout: Option<Duration>,
+    pub compression: RequestCompression,
+}
+
+#[derive(Clone, Debug)]
+pub struct HttpResponse {
+    pub status: StatusCode,
+    pub headers: HeaderMap,
+    pub body: bytes::Bytes,
+}
+
+pub struct HttpStreamResponse {
+    pub status: StatusCode,
+    pub headers: HeaderMap,
+    pub body: ByteStream,
+}
+
+#[derive(Debug)]
+pub enum HttpError {
+    Config(selvedge_config::ConfigError),
+    Build { reason: String },
+    Timeout,
+    Connect { reason: String },
+    Tls { reason: String },
+    Io { reason: String },
+    Status(HttpStatusError),
+}
+
+#[derive(Debug)]
+pub struct HttpStatusError {
+    pub url: String,
+    pub status: StatusCode,
+    pub headers: HeaderMap,
+    pub body: bytes::Bytes,
+}
+
+#[derive(Debug, Clone)]
+struct ResolvedCallConfig {
+    connect_timeout: Option<Duration>,
+    request_timeout: Option<Duration>,
+    stream_idle_timeout: Option<Duration>,
+    proxy_url: Option<String>,
+    ca_bundle_path: Option<PathBuf>,
+    user_agent: Option<HeaderValue>,
+}
+
+#[derive(Debug)]
+struct PreparedRequest {
+    request: reqwest::Request,
+    method: HttpMethod,
+    request_url: String,
+    body_len: usize,
+}
+
+#[derive(Debug)]
+enum PreparedBody {
+    Empty,
+    Buffered {
+        bytes: Bytes,
+        content_type_if_missing: Option<HeaderValue>,
+    },
+}
+
+impl fmt::Debug for HttpStreamResponse {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("HttpStreamResponse")
+            .field("status", &self.status)
+            .field("headers", &self.headers)
+            .field("body", &"<byte-stream>")
+            .finish()
+    }
+}
+
+impl fmt::Display for HttpError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Config(error) => write!(formatter, "config error: {error}"),
+            Self::Build { reason } => write!(formatter, "request build failed: {reason}"),
+            Self::Timeout => formatter.write_str("request timed out"),
+            Self::Connect { reason } => write!(formatter, "connection failed: {reason}"),
+            Self::Tls { reason } => write!(formatter, "tls failed: {reason}"),
+            Self::Io { reason } => write!(formatter, "i/o failed: {reason}"),
+            Self::Status(error) => write!(formatter, "{error}"),
+        }
+    }
+}
+
+impl StdError for HttpError {
+    fn source(&self) -> Option<&(dyn StdError + 'static)> {
+        match self {
+            Self::Config(error) => Some(error),
+            Self::Status(error) => Some(error),
+            Self::Build { .. }
+            | Self::Timeout
+            | Self::Connect { .. }
+            | Self::Tls { .. }
+            | Self::Io { .. } => None,
+        }
+    }
+}
+
+impl fmt::Display for HttpStatusError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            formatter,
+            "received non-success status {} for {}",
+            self.status, self.url
+        )
+    }
+}
+
+impl StdError for HttpStatusError {}
+
+impl From<selvedge_config::ConfigError> for HttpError {
+    fn from(error: selvedge_config::ConfigError) -> Self {
+        Self::Config(error)
+    }
+}
+
+pub async fn execute(request: HttpRequest) -> Result<HttpResponse, HttpError> {
+    log_event!(
+        selvedge_logging::LogLevel::Debug,
+        "http request started";
+        mode = "execute",
+        method = request.method.as_str(),
+        url = request.url.as_str()
+    );
+
+    let call_config = resolve_call_config(request.timeout)?;
+    let prepared = prepare_request(request, &call_config)?;
+
+    log_event!(
+        selvedge_logging::LogLevel::Debug,
+        "http request prepared";
+        mode = "execute",
+        method = prepared.method.as_str(),
+        url = prepared.request_url.as_str(),
+        body_len = prepared.body_len
+    );
+
+    let client = build_client(&call_config)?;
+    let request_timeout = call_config.request_timeout;
+    let request_url = prepared.request_url.clone();
+    let method = prepared.method.clone();
+    let body_len = prepared.body_len;
+
+    let result = run_with_timeout(request_timeout, async move {
+        execute_inner(client, prepared).await
+    })
+    .await;
+
+    log_result("execute", &method, &request_url, body_len, &result);
+
+    result
+}
+
+pub async fn stream(request: HttpRequest) -> Result<HttpStreamResponse, HttpError> {
+    log_event!(
+        selvedge_logging::LogLevel::Debug,
+        "http request started";
+        mode = "stream",
+        method = request.method.as_str(),
+        url = request.url.as_str()
+    );
+
+    let call_config = resolve_call_config(request.timeout)?;
+    let prepared = prepare_request(request, &call_config)?;
+
+    log_event!(
+        selvedge_logging::LogLevel::Debug,
+        "http request prepared";
+        mode = "stream",
+        method = prepared.method.as_str(),
+        url = prepared.request_url.as_str(),
+        body_len = prepared.body_len
+    );
+
+    let client = build_client(&call_config)?;
+    let request_timeout = call_config.request_timeout;
+    let idle_timeout = call_config.stream_idle_timeout;
+    let request_url = prepared.request_url.clone();
+    let method = prepared.method.clone();
+    let body_len = prepared.body_len;
+
+    let result = run_with_timeout(request_timeout, async move {
+        stream_inner(client, prepared, idle_timeout).await
+    })
+    .await;
+
+    log_result("stream", &method, &request_url, body_len, &result);
+
+    result
+}
+
+async fn execute_inner(
+    client: Client,
+    prepared: PreparedRequest,
+) -> Result<HttpResponse, HttpError> {
+    let response = send(client, prepared.request, &prepared.request_url).await?;
+
+    if !response.status().is_success() {
+        return Err(read_status_error(response, &prepared.request_url).await?);
+    }
+
+    let status = response.status();
+    let headers = response.headers().clone();
+    let body = response
+        .bytes()
+        .await
+        .map_err(|error| map_transport_error(error, &prepared.request_url))?;
+
+    Ok(HttpResponse {
+        status,
+        headers,
+        body,
+    })
+}
+
+async fn stream_inner(
+    client: Client,
+    prepared: PreparedRequest,
+    idle_timeout: Option<Duration>,
+) -> Result<HttpStreamResponse, HttpError> {
+    let response = send(client, prepared.request, &prepared.request_url).await?;
+
+    if !response.status().is_success() {
+        return Err(read_status_error(response, &prepared.request_url).await?);
+    }
+
+    let status = response.status();
+    let headers = response.headers().clone();
+    let body = wrap_stream(
+        prepared.request_url.clone(),
+        idle_timeout,
+        response.bytes_stream(),
+    );
+
+    Ok(HttpStreamResponse {
+        status,
+        headers,
+        body,
+    })
+}
+
+async fn send(
+    client: Client,
+    request: reqwest::Request,
+    request_url: &str,
+) -> Result<reqwest::Response, HttpError> {
+    client
+        .execute(request)
+        .await
+        .map_err(|error| map_transport_error(error, request_url))
+}
+
+async fn read_status_error(
+    response: reqwest::Response,
+    request_url: &str,
+) -> Result<HttpError, HttpError> {
+    let url = response.url().to_string();
+    let status = response.status();
+    let headers = response.headers().clone();
+    let body = response
+        .bytes()
+        .await
+        .map_err(|error| map_transport_error(error, request_url))?;
+
+    Ok(HttpError::Status(HttpStatusError {
+        url,
+        status,
+        headers,
+        body,
+    }))
+}
+
+fn resolve_call_config(
+    timeout_override: Option<Duration>,
+) -> Result<ResolvedCallConfig, HttpError> {
+    if timeout_override.is_some_and(|timeout| timeout.is_zero()) {
+        return Err(build_error("request.timeout must be greater than zero"));
+    }
+
+    let (
+        connect_timeout_ms,
+        request_timeout_ms,
+        stream_idle_timeout_ms,
+        proxy_url,
+        ca_bundle_path,
+        user_agent,
+    ) = selvedge_config::read(|config| {
+        (
+            config.network.connect_timeout_ms,
+            config.network.request_timeout_ms,
+            config.network.stream_idle_timeout_ms,
+            config.network.proxy_url.clone(),
+            config.network.ca_bundle_path.clone(),
+            config.network.user_agent.clone(),
+        )
+    })?;
+
+    let config = ResolvedCallConfig {
+        connect_timeout: connect_timeout_ms.map(Duration::from_millis),
+        request_timeout: timeout_override.or_else(|| request_timeout_ms.map(Duration::from_millis)),
+        stream_idle_timeout: stream_idle_timeout_ms.map(Duration::from_millis),
+        proxy_url,
+        ca_bundle_path,
+        user_agent: user_agent
+            .as_deref()
+            .map(HeaderValue::from_str)
+            .transpose()
+            .map_err(|error| build_error(format!("invalid network.user_agent header: {error}")))?,
+    };
+
+    log_event!(
+        selvedge_logging::LogLevel::Debug,
+        "http config resolved";
+        connect_timeout_ms = duration_millis_or_zero(config.connect_timeout),
+        request_timeout_ms = duration_millis_or_zero(config.request_timeout),
+        stream_idle_timeout_ms = duration_millis_or_zero(config.stream_idle_timeout),
+        has_proxy = config.proxy_url.is_some(),
+        has_ca_bundle = config.ca_bundle_path.is_some(),
+        has_user_agent = config.user_agent.is_some()
+    );
+
+    Ok(config)
+}
+
+fn prepare_request(
+    request: HttpRequest,
+    call_config: &ResolvedCallConfig,
+) -> Result<PreparedRequest, HttpError> {
+    let url = parse_absolute_http_url(&request.url)?;
+    let mut headers = request.headers;
+    let mut body = encode_body(request.body)?;
+
+    if !headers.contains_key(USER_AGENT)
+        && let Some(user_agent) = &call_config.user_agent
+    {
+        headers.insert(USER_AGENT, user_agent.clone());
+    }
+
+    finalize_headers(&mut headers, &body);
+    body = maybe_compress_body(body, request.compression, &mut headers)?;
+
+    let body_len = body.len();
+    let mut reqwest_request = reqwest::Request::new(request.method.clone().into(), url);
+    *reqwest_request.headers_mut() = headers;
+
+    if let Some(bytes) = body.into_bytes() {
+        *reqwest_request.body_mut() = Some(bytes.into());
+    }
+
+    Ok(PreparedRequest {
+        request: reqwest_request,
+        method: request.method,
+        request_url: request.url,
+        body_len,
+    })
+}
+
+fn parse_absolute_http_url(url: &str) -> Result<Url, HttpError> {
+    let parsed = Url::parse(url)
+        .map_err(|error| build_error(format!("url must be an absolute URL: {error}")))?;
+
+    if !parsed.has_host() || parsed.cannot_be_a_base() {
+        return Err(build_error("url must be an absolute URL"));
+    }
+
+    match parsed.scheme() {
+        "http" | "https" => Ok(parsed),
+        other => Err(build_error(format!(
+            "url scheme must be http or https, got {other}"
+        ))),
+    }
+}
+
+fn encode_body(body: HttpRequestBody) -> Result<PreparedBody, HttpError> {
+    match body {
+        HttpRequestBody::Empty => Ok(PreparedBody::Empty),
+        HttpRequestBody::Json(value) => {
+            let bytes = serde_json::to_vec(&value)
+                .map(Bytes::from)
+                .map_err(|error| build_error(format!("failed to encode json body: {error}")))?;
+
+            Ok(PreparedBody::Buffered {
+                bytes,
+                content_type_if_missing: Some(HeaderValue::from_static("application/json")),
+            })
+        }
+        HttpRequestBody::FormUrlEncoded(pairs) => {
+            let mut encoded = pairs.into_iter().fold(
+                form_urlencoded::Serializer::new(String::new()),
+                |mut serializer, (key, value)| {
+                    serializer.append_pair(&key, &value);
+                    serializer
+                },
+            );
+
+            Ok(PreparedBody::Buffered {
+                bytes: Bytes::from(encoded.finish()),
+                content_type_if_missing: Some(HeaderValue::from_static(
+                    "application/x-www-form-urlencoded",
+                )),
+            })
+        }
+        HttpRequestBody::Bytes(bytes) => Ok(PreparedBody::Buffered {
+            bytes,
+            content_type_if_missing: None,
+        }),
+    }
+}
+
+fn finalize_headers(headers: &mut HeaderMap, body: &PreparedBody) {
+    if let PreparedBody::Buffered {
+        content_type_if_missing: Some(content_type),
+        ..
+    } = body
+        && !headers.contains_key(CONTENT_TYPE)
+    {
+        headers.insert(CONTENT_TYPE, content_type.clone());
+    }
+}
+
+fn maybe_compress_body(
+    body: PreparedBody,
+    compression: RequestCompression,
+    headers: &mut HeaderMap,
+) -> Result<PreparedBody, HttpError> {
+    match (body, compression) {
+        (PreparedBody::Empty, _) => Ok(PreparedBody::Empty),
+        (body, RequestCompression::None) => Ok(body),
+        (
+            PreparedBody::Buffered {
+                bytes,
+                content_type_if_missing,
+            },
+            RequestCompression::Zstd,
+        ) => {
+            if headers.contains_key(CONTENT_ENCODING) {
+                return Err(build_error(
+                    "cannot apply request compression when Content-Encoding is already set",
+                ));
+            }
+
+            let compressed = zstd::stream::encode_all(bytes.as_ref(), 0)
+                .map(Bytes::from)
+                .map_err(|error| build_error(format!("failed to encode zstd body: {error}")))?;
+            headers.insert(CONTENT_ENCODING, HeaderValue::from_static("zstd"));
+
+            Ok(PreparedBody::Buffered {
+                bytes: compressed,
+                content_type_if_missing,
+            })
+        }
+    }
+}
+
+fn build_client(call_config: &ResolvedCallConfig) -> Result<Client, HttpError> {
+    let mut builder = Client::builder().retry(reqwest::retry::never());
+
+    if let Some(connect_timeout) = call_config.connect_timeout {
+        builder = builder.connect_timeout(connect_timeout);
+    }
+
+    if let Some(proxy_url) = &call_config.proxy_url {
+        let proxy = Proxy::all(proxy_url)
+            .map_err(|error| build_error(format!("invalid network.proxy_url: {error}")))?;
+        builder = builder.proxy(proxy);
+    } else {
+        builder = builder.no_proxy();
+    }
+
+    if let Some(path) = &call_config.ca_bundle_path {
+        let bundle = fs::read(path).map_err(|error| {
+            build_error(format!(
+                "failed to read network.ca_bundle_path {}: {error}",
+                path.display()
+            ))
+        })?;
+        let certificates = parse_certificates(&bundle).map_err(|error| {
+            build_error(format!(
+                "failed to parse network.ca_bundle_path {}: {error}",
+                path.display()
+            ))
+        })?;
+
+        for certificate in certificates {
+            builder = builder.add_root_certificate(certificate);
+        }
+    }
+
+    builder
+        .build()
+        .map_err(|error| build_error(format!("failed to build http client: {error}")))
+}
+
+fn parse_certificates(bundle: &[u8]) -> Result<Vec<Certificate>, HttpError> {
+    let mut reader = bundle;
+    let mut certificates = Vec::new();
+
+    for parsed in rustls_pemfile::certs(&mut reader) {
+        let parsed = parsed
+            .map_err(|error| build_error(format!("failed to parse pem certificate: {error}")))?;
+        let certificate = Certificate::from_der(parsed.as_ref())
+            .map_err(|error| build_error(format!("failed to load pem certificate: {error}")))?;
+        certificates.push(certificate);
+    }
+
+    if certificates.is_empty() {
+        return Err(build_error("ca bundle did not contain any certificates"));
+    }
+
+    Ok(certificates)
+}
+
+fn wrap_stream(
+    request_url: String,
+    idle_timeout: Option<Duration>,
+    stream: impl Stream<Item = Result<Bytes, reqwest::Error>> + Send + 'static,
+) -> ByteStream {
+    let stream = async_stream::stream! {
+        let mut stream = Box::pin(stream);
+        let mut deadline = idle_timeout.map(|timeout| Instant::now() + timeout);
+
+        loop {
+            let next_item = match deadline {
+                Some(deadline) => match timeout_at(deadline.into(), stream.next()).await {
+                    Ok(item) => item,
+                    Err(_) => {
+                        log_event!(
+                            selvedge_logging::LogLevel::Warn,
+                            "http stream idle timeout";
+                            mode = "stream",
+                            url = request_url.as_str()
+                        );
+                        yield Err(HttpError::Timeout);
+                        break;
+                    }
+                },
+                None => stream.next().await,
+            };
+
+            match next_item {
+                Some(Ok(bytes)) => {
+                    if !bytes.is_empty() {
+                        deadline = idle_timeout.map(|timeout| Instant::now() + timeout);
+                    }
+
+                    yield Ok(bytes);
+                }
+                Some(Err(error)) => {
+                    let mapped = map_transport_error(error, &request_url);
+                    log_transport_error("stream", &request_url, &mapped);
+                    yield Err(mapped);
+                    break;
+                }
+                None => break,
+            }
+        }
+    };
+
+    Box::pin(stream)
+}
+
+async fn run_with_timeout<F, T>(
+    timeout_duration: Option<Duration>,
+    future: F,
+) -> Result<T, HttpError>
+where
+    F: std::future::Future<Output = Result<T, HttpError>>,
+{
+    match timeout_duration {
+        Some(timeout_duration) => timeout(timeout_duration, future)
+            .await
+            .map_err(|_| HttpError::Timeout)?,
+        None => future.await,
+    }
+}
+
+fn map_transport_error(error: reqwest::Error, request_url: &str) -> HttpError {
+    let reason = format!("{request_url}: {}", render_error_chain(&error));
+
+    if error.is_timeout() {
+        HttpError::Timeout
+    } else if is_tls_error(&error) {
+        HttpError::Tls { reason }
+    } else if error.is_connect() {
+        HttpError::Connect { reason }
+    } else if error.is_builder() || error.is_redirect() || error.is_request() {
+        HttpError::Build { reason }
+    } else {
+        HttpError::Io { reason }
+    }
+}
+
+fn is_tls_error(error: &reqwest::Error) -> bool {
+    let mut source = error.source();
+
+    while let Some(current) = source {
+        let reason = current.to_string().to_ascii_lowercase();
+
+        if [
+            "tls",
+            "rustls",
+            "certificate",
+            "unknown issuer",
+            "self-signed",
+            "dns name",
+            "handshake",
+            "webpki",
+            "peer sent no certificates",
+            "not valid for name",
+        ]
+        .iter()
+        .any(|needle| reason.contains(needle))
+        {
+            return true;
+        }
+
+        source = current.source();
+    }
+
+    false
+}
+
+fn render_error_chain(error: &dyn StdError) -> String {
+    let mut parts = vec![error.to_string()];
+    let mut source = error.source();
+
+    while let Some(current) = source {
+        parts.push(current.to_string());
+        source = current.source();
+    }
+
+    parts.join(": ")
+}
+
+fn build_error(reason: impl Into<String>) -> HttpError {
+    HttpError::Build {
+        reason: reason.into(),
+    }
+}
+
+fn duration_millis_or_zero(duration: Option<Duration>) -> u64 {
+    duration
+        .map(|timeout| timeout.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+fn log_result<T>(
+    mode: &str,
+    method: &HttpMethod,
+    request_url: &str,
+    body_len: usize,
+    result: &Result<T, HttpError>,
+) {
+    match result {
+        Ok(_) => {
+            log_event!(
+                selvedge_logging::LogLevel::Debug,
+                "http request finished";
+                mode = mode,
+                method = method.as_str(),
+                url = request_url,
+                body_len = body_len,
+                outcome = "success"
+            );
+        }
+        Err(HttpError::Status(error)) => {
+            log_event!(
+                selvedge_logging::LogLevel::Warn,
+                "http request returned non-success status";
+                mode = mode,
+                method = method.as_str(),
+                url = error.url.as_str(),
+                status = error.status.as_u16(),
+                body_len = error.body.len()
+            );
+        }
+        Err(error) => {
+            log_transport_error(mode, request_url, error);
+        }
+    }
+}
+
+fn log_transport_error(mode: &str, request_url: &str, error: &HttpError) {
+    let message = match error {
+        HttpError::Timeout => "http request timed out",
+        HttpError::Connect { .. } => "http request connect failure",
+        HttpError::Tls { .. } => "http request tls failure",
+        HttpError::Io { .. } => "http request i/o failure",
+        HttpError::Build { .. } => "http request build failure",
+        HttpError::Config { .. } => "http request config failure",
+        HttpError::Status(_) => "http request status failure",
+    };
+
+    log_event!(
+        selvedge_logging::LogLevel::Warn,
+        message;
+        mode = mode,
+        url = request_url,
+        error = error.to_string()
+    );
+}
+
+impl HttpMethod {
+    fn as_str(&self) -> &'static str {
+        match self {
+            Self::Get => "GET",
+            Self::Post => "POST",
+            Self::Put => "PUT",
+            Self::Patch => "PATCH",
+            Self::Delete => "DELETE",
+        }
+    }
+}
+
+impl From<HttpMethod> for Method {
+    fn from(value: HttpMethod) -> Self {
+        match value {
+            HttpMethod::Get => Method::GET,
+            HttpMethod::Post => Method::POST,
+            HttpMethod::Put => Method::PUT,
+            HttpMethod::Patch => Method::PATCH,
+            HttpMethod::Delete => Method::DELETE,
+        }
+    }
+}
+
+impl PreparedBody {
+    fn into_bytes(self) -> Option<Bytes> {
+        match self {
+            Self::Empty => None,
+            Self::Buffered { bytes, .. } => Some(bytes),
+        }
+    }
+
+    fn len(&self) -> usize {
+        match self {
+            Self::Empty => 0,
+            Self::Buffered { bytes, .. } => bytes.len(),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        HeaderMap, HeaderValue, HttpMethod, HttpRequest, HttpRequestBody, PreparedBody,
+        RequestCompression, ResolvedCallConfig, build_client, build_error, encode_body,
+        maybe_compress_body, parse_absolute_http_url, prepare_request,
+    };
+
+    #[test]
+    fn absolute_http_url_is_required() {
+        let error = parse_absolute_http_url("/relative").expect_err("relative url must fail");
+
+        assert!(matches!(error, super::HttpError::Build { .. }));
+    }
+
+    #[test]
+    fn request_compression_conflicts_with_existing_content_encoding() {
+        let mut headers = HeaderMap::new();
+        headers.insert(super::CONTENT_ENCODING, HeaderValue::from_static("gzip"));
+
+        let body = PreparedBody::Buffered {
+            bytes: bytes::Bytes::from_static(b"payload"),
+            content_type_if_missing: None,
+        };
+
+        let error = maybe_compress_body(body, RequestCompression::Zstd, &mut headers)
+            .expect_err("content-encoding conflict must fail");
+
+        assert!(matches!(error, super::HttpError::Build { .. }));
+    }
+
+    #[test]
+    fn json_body_sets_default_content_type() {
+        let request = HttpRequest {
+            method: HttpMethod::Post,
+            url: "https://example.com".to_owned(),
+            headers: HeaderMap::new(),
+            body: HttpRequestBody::Json(serde_json::json!({ "x": 1 })),
+            timeout: None,
+            compression: RequestCompression::None,
+        };
+
+        let prepared = prepare_request(
+            request,
+            &ResolvedCallConfig {
+                connect_timeout: None,
+                request_timeout: None,
+                stream_idle_timeout: None,
+                proxy_url: None,
+                ca_bundle_path: None,
+                user_agent: None,
+            },
+        )
+        .expect("prepare request");
+
+        assert_eq!(
+            prepared.request.headers().get(super::CONTENT_TYPE),
+            Some(&HeaderValue::from_static("application/json"))
+        );
+    }
+
+    #[test]
+    fn invalid_proxy_url_fails_client_build() {
+        let error = build_client(&ResolvedCallConfig {
+            connect_timeout: None,
+            request_timeout: None,
+            stream_idle_timeout: None,
+            proxy_url: Some("://bad-proxy".to_owned()),
+            ca_bundle_path: None,
+            user_agent: None,
+        })
+        .expect_err("invalid proxy must fail");
+
+        assert!(matches!(error, super::HttpError::Build { .. }));
+    }
+
+    #[test]
+    fn zstd_compression_changes_request_body() {
+        let body = encode_body(HttpRequestBody::Bytes(bytes::Bytes::from_static(
+            b"payload",
+        )))
+        .expect("encode body");
+        let mut headers = HeaderMap::new();
+        let compressed = maybe_compress_body(body, RequestCompression::Zstd, &mut headers)
+            .expect("compress body");
+
+        assert_eq!(
+            headers.get(super::CONTENT_ENCODING),
+            Some(&HeaderValue::from_static("zstd"))
+        );
+        assert!(compressed.len() > 0);
+    }
+
+    #[test]
+    fn build_error_has_stable_shape() {
+        let error = build_error("reason");
+
+        assert!(matches!(error, super::HttpError::Build { reason } if reason == "reason"));
+    }
+}

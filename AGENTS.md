@@ -61,7 +61,11 @@ This file is for coding agents working in this repository.
 |.cargo:{config.toml}
 |.github:{workflows/}
 |.github/workflows:{ci.yml}
-|crates:{config-model/,config/,logging/}
+|crates:{client/,config-model/,config/,logging/}
+|crates/client:{src/,tests/,Cargo.toml,README.md}
+|crates/client/src:{lib.rs}
+|crates/client/tests:{support/,http_integration.rs}
+|crates/client/tests/support:{mod.rs}
 |crates/config:{examples/,src/,tests/,Cargo.toml,README.md}
 |crates/config-model:{src/,tests/,Cargo.toml,README.md}
 |crates/config-model/src:{lib.rs}
