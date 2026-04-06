@@ -7,7 +7,7 @@ use bytes::{Bytes, BytesMut};
 use futures::{Stream, StreamExt};
 use http::{
     HeaderMap, HeaderValue, StatusCode,
-    header::{CONTENT_ENCODING, CONTENT_LENGTH, CONTENT_TYPE, USER_AGENT},
+    header::{CONTENT_ENCODING, CONTENT_LENGTH, CONTENT_TYPE, LOCATION, USER_AGENT},
 };
 use reqwest::{Certificate, Client, Method, Proxy, Url};
 use tokio::time::{Instant, timeout_at};
@@ -209,17 +209,10 @@ pub async fn execute(request: HttpRequest) -> Result<HttpResponse, HttpError> {
         body_len = prepared.body_len
     );
 
-    let client = build_client(
-        &call_config,
-        request_deadline,
-        prepared.request.url().scheme() == "https",
-        &prepared.method,
-    )
-    .await?;
     let request_url = prepared.request_url.clone();
     let method = prepared.method.clone();
     let body_len = prepared.body_len;
-    let result = execute_inner(client, prepared, request_deadline).await;
+    let result = execute_inner(&call_config, prepared, request_deadline).await;
 
     log_result("execute", &method, &request_url, body_len, &result);
 
@@ -252,20 +245,13 @@ pub async fn stream(request: HttpRequest) -> Result<HttpStreamResponse, HttpErro
         body_len = prepared.body_len
     );
 
-    let client = build_client(
-        &call_config,
-        request_deadline,
-        prepared.request.url().scheme() == "https",
-        &prepared.method,
-    )
-    .await?;
     let idle_timeout = call_config.stream_idle_timeout;
     let request_url = prepared.request_url.clone();
     let method = prepared.method.clone();
     let body_len = prepared.body_len;
 
     let result = stream_inner(
-        client,
+        &call_config,
         prepared,
         call_config.request_timeout,
         request_deadline,
@@ -279,25 +265,20 @@ pub async fn stream(request: HttpRequest) -> Result<HttpStreamResponse, HttpErro
 }
 
 async fn execute_inner(
-    client: Client,
+    call_config: &ResolvedCallConfig,
     prepared: PreparedRequest,
     request_deadline: Option<Instant>,
 ) -> Result<HttpResponse, HttpError> {
-    let response = send_with_deadline(
-        client,
-        prepared.request,
-        &prepared.request_url,
-        request_deadline,
-    )
-    .await?;
+    let request_url = prepared.request_url.clone();
+    let response = send_with_redirects(call_config, prepared, request_deadline).await?;
 
     if !response.status().is_success() {
-        return Err(collect_status_error(response, request_deadline, &prepared.request_url).await?);
+        return Err(collect_status_error(response, request_deadline, &request_url).await?);
     }
 
     let status = response.status();
     let headers = response.headers().clone();
-    let body = collect_success_body(response, request_deadline, &prepared.request_url).await?;
+    let body = collect_success_body(response, request_deadline, &request_url).await?;
 
     Ok(HttpResponse {
         status,
@@ -307,28 +288,23 @@ async fn execute_inner(
 }
 
 async fn stream_inner(
-    client: Client,
+    call_config: &ResolvedCallConfig,
     prepared: PreparedRequest,
     request_timeout: Option<Duration>,
     request_deadline: Option<Instant>,
     idle_timeout: Option<Duration>,
 ) -> Result<HttpStreamResponse, HttpError> {
-    let response = send_with_deadline(
-        client,
-        prepared.request,
-        &prepared.request_url,
-        request_deadline,
-    )
-    .await?;
+    let request_url = prepared.request_url.clone();
+    let response = send_with_redirects(call_config, prepared, request_deadline).await?;
 
     if !response.status().is_success() {
-        return Err(collect_status_error(response, request_deadline, &prepared.request_url).await?);
+        return Err(collect_status_error(response, request_deadline, &request_url).await?);
     }
 
     let status = response.status();
     let headers = response.headers().clone();
     let body = wrap_stream(
-        prepared.request_url.clone(),
+        request_url,
         request_timeout.and_then(|_| remaining_duration_until(request_deadline)),
         idle_timeout,
         response.bytes_stream(),
@@ -350,6 +326,62 @@ async fn send(
         .execute(request)
         .await
         .map_err(|error| map_transport_error(error, request_url))
+}
+
+async fn send_with_redirects(
+    call_config: &ResolvedCallConfig,
+    prepared: PreparedRequest,
+    request_deadline: Option<Instant>,
+) -> Result<reqwest::Response, HttpError> {
+    let mut request = prepared.request;
+    let method = prepared.method;
+    let request_url = prepared.request_url;
+    let mut redirect_count = 0_usize;
+
+    loop {
+        check_request_deadline(request_deadline)?;
+        let client = build_client(
+            call_config,
+            request_deadline,
+            request.url().scheme() == "https",
+        )
+        .await?;
+        let redirect_template = if matches!(method, HttpMethod::Get) {
+            Some(
+                request
+                    .try_clone()
+                    .ok_or_else(|| build_error("failed to clone redirectable request"))?,
+            )
+        } else {
+            None
+        };
+        let response = send_with_deadline(client, request, &request_url, request_deadline).await?;
+
+        if matches!(method, HttpMethod::Get) && response.status().is_redirection() {
+            if redirect_count >= 10 {
+                return Err(build_error("too many redirects"));
+            }
+
+            let Some(location) = response.headers().get(LOCATION) else {
+                return Ok(response);
+            };
+            let location = location.to_str().map_err(|error| {
+                build_error(format!("invalid redirect location header: {error}"))
+            })?;
+            let next_url = response
+                .url()
+                .join(location)
+                .map_err(|error| build_error(format!("invalid redirect target URL: {error}")))?;
+            let mut next_request = redirect_template
+                .ok_or_else(|| build_error("missing redirect request template"))?;
+            *next_request.url_mut() = next_url;
+            request = next_request;
+            redirect_count += 1;
+            continue;
+        }
+
+        return Ok(response);
+    }
 }
 
 async fn send_with_deadline(
@@ -641,16 +673,10 @@ async fn build_client(
     call_config: &ResolvedCallConfig,
     request_deadline: Option<Instant>,
     uses_tls: bool,
-    method: &HttpMethod,
 ) -> Result<Client, HttpError> {
-    let redirect_policy = if matches!(method, HttpMethod::Get) {
-        reqwest::redirect::Policy::limited(10)
-    } else {
-        reqwest::redirect::Policy::none()
-    };
     let mut builder = Client::builder()
         .retry(reqwest::retry::never())
-        .redirect(redirect_policy);
+        .redirect(reqwest::redirect::Policy::none());
 
     if let Some(connect_timeout) = call_config.connect_timeout {
         builder = builder.connect_timeout(connect_timeout);
@@ -670,15 +696,10 @@ async fn build_client(
             .as_deref()
             .and_then(|proxy_url| Url::parse(proxy_url).ok())
             .is_some_and(|proxy_url| proxy_url.scheme() == "https");
-        let ca_load_is_optional = !uses_tls && !tls_proxy && matches!(method, HttpMethod::Get);
 
-        let certificates = match load_ca_bundle(path, request_deadline).await {
-            Ok(certificates) => Some(certificates),
-            Err(_) if ca_load_is_optional => None,
-            Err(error) => return Err(error),
-        };
+        if uses_tls || tls_proxy {
+            let certificates = load_ca_bundle(path, request_deadline).await?;
 
-        if let Some(certificates) = certificates {
             for certificate in certificates {
                 builder = builder.add_root_certificate(certificate);
             }
@@ -1263,7 +1284,6 @@ mod tests {
             },
             None,
             true,
-            &HttpMethod::Get,
         )
         .await
         .expect_err("invalid proxy must fail");
