@@ -121,7 +121,6 @@ enum StreamTimeoutState {
     },
     Streaming {
         idle_timeout: Option<Duration>,
-        idle_deadline: Option<Instant>,
     },
 }
 
@@ -930,7 +929,9 @@ impl StreamTimeoutState {
             Self::AwaitingFirstByte {
                 request_deadline, ..
             } => request_deadline,
-            Self::Streaming { idle_deadline, .. } => idle_deadline,
+            Self::Streaming { idle_timeout } => {
+                idle_timeout.map(|timeout| Instant::now() + timeout)
+            }
         }
     }
 
@@ -953,28 +954,10 @@ impl StreamTimeoutState {
                         idle_timeout,
                     }
                 } else {
-                    Self::Streaming {
-                        idle_timeout,
-                        idle_deadline: idle_timeout.map(|timeout| Instant::now() + timeout),
-                    }
+                    Self::Streaming { idle_timeout }
                 }
             }
-            Self::Streaming {
-                idle_timeout,
-                idle_deadline,
-            } => {
-                if chunk.is_empty() {
-                    Self::Streaming {
-                        idle_timeout,
-                        idle_deadline,
-                    }
-                } else {
-                    Self::Streaming {
-                        idle_timeout,
-                        idle_deadline: idle_timeout.map(|timeout| Instant::now() + timeout),
-                    }
-                }
-            }
+            Self::Streaming { idle_timeout } => Self::Streaming { idle_timeout },
         }
     }
 }
@@ -984,8 +967,13 @@ mod tests {
     use super::{
         HeaderMap, HeaderValue, HttpMethod, HttpRequest, HttpRequestBody, PreparedBody,
         RequestCompression, ResolvedCallConfig, build_client, build_error, encode_body,
-        maybe_compress_body, parse_absolute_http_url, prepare_request,
+        maybe_compress_body, parse_absolute_http_url, prepare_request, wrap_stream,
     };
+    use std::time::Duration;
+
+    use bytes::Bytes;
+    use futures::{StreamExt, stream};
+    use tokio::time::sleep;
 
     #[test]
     fn absolute_http_url_is_required() {
@@ -1077,5 +1065,34 @@ mod tests {
         let error = build_error("reason");
 
         assert!(matches!(error, super::HttpError::Build { reason } if reason == "reason"));
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn idle_timeout_starts_when_waiting_for_next_chunk() {
+        let inner = stream::unfold(0_u8, |state| async move {
+            match state {
+                0 => Some((Ok(Bytes::from_static(b"first")), 1)),
+                1 => {
+                    sleep(Duration::from_millis(10)).await;
+                    Some((Ok(Bytes::from_static(b"second")), 2))
+                }
+                _ => None,
+            }
+        });
+
+        let mut wrapped = wrap_stream(
+            "http://example.test/stream".to_owned(),
+            None,
+            Some(Duration::from_millis(50)),
+            inner,
+        );
+
+        let first = wrapped.next().await.expect("first item");
+        assert_eq!(first.expect("first chunk"), Bytes::from_static(b"first"));
+
+        sleep(Duration::from_millis(120)).await;
+
+        let second = wrapped.next().await.expect("second item");
+        assert_eq!(second.expect("second chunk"), Bytes::from_static(b"second"));
     }
 }
