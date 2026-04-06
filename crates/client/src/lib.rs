@@ -1,7 +1,7 @@
 #![doc = include_str!("../README.md")]
 #![allow(clippy::result_large_err)]
 
-use std::{error::Error as StdError, fmt, fs, path::PathBuf, pin::Pin, time::Duration};
+use std::{error::Error as StdError, fmt, io::Write, path::PathBuf, pin::Pin, time::Duration};
 
 use bytes::{Bytes, BytesMut};
 use futures::{Stream, StreamExt};
@@ -10,8 +10,8 @@ use http::{
     header::{CONTENT_ENCODING, CONTENT_LENGTH, CONTENT_TYPE, USER_AGENT},
 };
 use reqwest::{Certificate, Client, Method, Proxy, Url};
-use tokio::task;
 use tokio::time::{Instant, timeout_at};
+use tokio::{fs as tokio_fs, task};
 use url::form_urlencoded;
 
 macro_rules! log_event {
@@ -184,12 +184,13 @@ impl From<selvedge_config::ConfigError> for HttpError {
 }
 
 pub async fn execute(request: HttpRequest) -> Result<HttpResponse, HttpError> {
+    let sanitized_request_url = sanitize_url_for_output(&request.url);
     log_event!(
         selvedge_logging::LogLevel::Debug,
         "http request started";
         mode = "execute",
         method = request.method.as_str(),
-        url = request.url.as_str()
+        url = sanitized_request_url.as_str()
     );
 
     let call_config = resolve_call_config(request.timeout)?;
@@ -220,12 +221,13 @@ pub async fn execute(request: HttpRequest) -> Result<HttpResponse, HttpError> {
 }
 
 pub async fn stream(request: HttpRequest) -> Result<HttpStreamResponse, HttpError> {
+    let sanitized_request_url = sanitize_url_for_output(&request.url);
     log_event!(
         selvedge_logging::LogLevel::Debug,
         "http request started";
         mode = "stream",
         method = request.method.as_str(),
-        url = request.url.as_str()
+        url = sanitized_request_url.as_str()
     );
 
     let call_config = resolve_call_config(request.timeout)?;
@@ -358,7 +360,7 @@ async fn collect_status_error(
     deadline: Option<Instant>,
     request_url: &str,
 ) -> Result<HttpError, HttpError> {
-    let url = response.url().to_string();
+    let url = sanitize_url_for_output(response.url().as_str());
     let status = response.status();
     let headers = response.headers().clone();
     let mut body = BytesMut::new();
@@ -510,7 +512,7 @@ async fn prepare_request(
     Ok(PreparedRequest {
         request: reqwest_request,
         method: request.method,
-        request_url: request.url,
+        request_url: sanitize_url_for_output(&request.url),
         body_len,
     })
 }
@@ -611,12 +613,8 @@ async fn maybe_compress_body(
                 ));
             }
 
-            let compressed = run_blocking_with_deadline(request_deadline, move || {
-                zstd::stream::encode_all(bytes.as_ref(), 0)
-                    .map(Bytes::from)
-                    .map_err(|error| build_error(format!("failed to encode zstd body: {error}")))
-            })
-            .await?;
+            let compressed =
+                run_blocking(move || compress_bytes_with_deadline(bytes, request_deadline)).await?;
             headers.insert(CONTENT_ENCODING, HeaderValue::from_static("zstd"));
 
             Ok(PreparedBody::Buffered {
@@ -646,14 +644,15 @@ async fn build_client(
     }
 
     if let Some(path) = &call_config.ca_bundle_path {
+        let bundle = tokio_fs::read(path).await.map_err(|error| {
+            build_error(format!(
+                "failed to read network.ca_bundle_path {}: {error}",
+                path.display()
+            ))
+        })?;
+        check_request_deadline(request_deadline)?;
         let path = path.clone();
-        let certificates = run_blocking_with_deadline(request_deadline, move || {
-            let bundle = fs::read(&path).map_err(|error| {
-                build_error(format!(
-                    "failed to read network.ca_bundle_path {}: {error}",
-                    path.display()
-                ))
-            })?;
+        let certificates = run_blocking(move || {
             parse_certificates(&bundle).map_err(|error| {
                 build_error(format!(
                     "failed to parse network.ca_bundle_path {}: {error}",
@@ -690,6 +689,45 @@ fn parse_certificates(bundle: &[u8]) -> Result<Vec<Certificate>, HttpError> {
     }
 
     Ok(certificates)
+}
+
+fn compress_bytes_with_deadline(
+    bytes: Bytes,
+    deadline: Option<Instant>,
+) -> Result<Bytes, HttpError> {
+    let mut encoder = zstd::stream::write::Encoder::new(Vec::new(), 0)
+        .map_err(|error| build_error(format!("failed to start zstd encoder: {error}")))?;
+
+    for chunk in bytes.chunks(64 * 1024) {
+        check_request_deadline(deadline)?;
+        encoder
+            .write_all(chunk)
+            .map_err(|error| build_error(format!("failed to encode zstd body: {error}")))?;
+    }
+
+    check_request_deadline(deadline)?;
+
+    let compressed = encoder
+        .finish()
+        .map_err(|error| build_error(format!("failed to finish zstd body: {error}")))?;
+
+    Ok(Bytes::from(compressed))
+}
+
+fn sanitize_url_for_output(raw_url: &str) -> String {
+    let Ok(mut parsed) = Url::parse(raw_url) else {
+        return raw_url.to_owned();
+    };
+
+    if !parsed.username().is_empty() {
+        let _ = parsed.set_username("");
+    }
+
+    if parsed.password().is_some() {
+        let _ = parsed.set_password(None);
+    }
+
+    parsed.to_string()
 }
 
 fn wrap_stream(
@@ -853,23 +891,14 @@ fn check_request_deadline(deadline: Option<Instant>) -> Result<(), HttpError> {
     Ok(())
 }
 
-async fn run_blocking_with_deadline<T, F>(
-    deadline: Option<Instant>,
-    operation: F,
-) -> Result<T, HttpError>
+async fn run_blocking<T, F>(operation: F) -> Result<T, HttpError>
 where
     T: Send + 'static,
     F: FnOnce() -> Result<T, HttpError> + Send + 'static,
 {
     let task = task::spawn_blocking(operation);
 
-    match deadline {
-        Some(deadline) => timeout_at(deadline, task)
-            .await
-            .map_err(|_| HttpError::Timeout)?
-            .expect("blocking task must not panic"),
-        None => task.await.expect("blocking task must not panic"),
-    }
+    task.await.expect("blocking task must not panic")
 }
 
 fn log_result<T>(

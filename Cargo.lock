@@ -1243,9 +1243,11 @@ dependencies = [
 name = "selvedge-config-model"
 version = "0.0.0"
 dependencies = [
+ "http",
  "serde",
  "thiserror",
  "toml",
+ "url",
 ]
 
 [[package]]

@@ -266,46 +266,25 @@ async fn execute_uses_config_user_agent_when_missing() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn execute_ignores_invalid_config_user_agent_when_request_sets_one() {
-    const FLAG: &str = "SELVEDGE_CLIENT_EXPLICIT_USER_AGENT_CHILD";
+async fn invalid_config_user_agent_is_rejected_before_request() {
+    const FLAG: &str = "SELVEDGE_CLIENT_INVALID_USER_AGENT_CONFIG_CHILD";
 
     if !child_mode(FLAG) {
         assert_child_success(&run_child(
-            "execute_ignores_invalid_config_user_agent_when_request_sets_one",
+            "invalid_config_user_agent_is_rejected_before_request",
             FLAG,
         ));
         return;
     }
 
     let _tempdir = init_client_test().await;
-    selvedge_config::update_runtime("network.user_agent", "bad\r\nvalue")
-        .expect("set invalid user agent");
-    let app = Router::new().route(
-        "/agent",
-        get(|headers: HeaderMap| async move {
-            headers
-                .get("user-agent")
-                .and_then(|value| value.to_str().ok())
-                .unwrap_or_default()
-                .to_owned()
-        }),
-    );
-    let server = spawn_http_server(app).await;
-    let mut headers = HeaderMap::new();
-    headers.insert("user-agent", HeaderValue::from_static("explicit-agent"));
+    let error = selvedge_config::update_runtime("network.user_agent", "bad\r\nvalue")
+        .expect_err("invalid user agent must fail during config update");
 
-    let response = execute(HttpRequest {
-        method: HttpMethod::Get,
-        url: server.url("/agent"),
-        headers,
-        body: HttpRequestBody::Empty,
-        timeout: None,
-        compression: RequestCompression::None,
-    })
-    .await
-    .expect("explicit header should win");
-
-    assert_eq!(response.body, Bytes::from_static(b"explicit-agent"));
+    assert!(matches!(
+        error,
+        selvedge_config::ConfigError::ValidationFailed(_)
+    ));
 }
 
 #[tokio::test(flavor = "multi_thread")]
