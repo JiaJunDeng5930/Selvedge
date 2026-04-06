@@ -93,7 +93,7 @@ struct ResolvedCallConfig {
     stream_idle_timeout: Option<Duration>,
     proxy_url: Option<String>,
     ca_bundle_path: Option<PathBuf>,
-    user_agent: Option<HeaderValue>,
+    user_agent: Option<String>,
 }
 
 #[derive(Debug)]
@@ -448,11 +448,7 @@ fn resolve_call_config(
         stream_idle_timeout: stream_idle_timeout_ms.map(Duration::from_millis),
         proxy_url,
         ca_bundle_path,
-        user_agent: user_agent
-            .as_deref()
-            .map(HeaderValue::from_str)
-            .transpose()
-            .map_err(|error| build_error(format!("invalid network.user_agent header: {error}")))?,
+        user_agent,
     };
 
     log_event!(
@@ -480,7 +476,9 @@ fn prepare_request(
     if !headers.contains_key(USER_AGENT)
         && let Some(user_agent) = &call_config.user_agent
     {
-        headers.insert(USER_AGENT, user_agent.clone());
+        let user_agent = HeaderValue::from_str(user_agent)
+            .map_err(|error| build_error(format!("invalid network.user_agent header: {error}")))?;
+        headers.insert(USER_AGENT, user_agent);
     }
 
     finalize_headers(&mut headers, &body);

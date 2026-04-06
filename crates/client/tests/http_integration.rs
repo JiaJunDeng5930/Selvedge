@@ -205,6 +205,49 @@ async fn execute_uses_config_user_agent_when_missing() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn execute_ignores_invalid_config_user_agent_when_request_sets_one() {
+    const FLAG: &str = "SELVEDGE_CLIENT_EXPLICIT_USER_AGENT_CHILD";
+
+    if !child_mode(FLAG) {
+        assert_child_success(&run_child(
+            "execute_ignores_invalid_config_user_agent_when_request_sets_one",
+            FLAG,
+        ));
+        return;
+    }
+
+    let _tempdir = init_client_test().await;
+    selvedge_config::update_runtime("network.user_agent", "bad\r\nvalue")
+        .expect("set invalid user agent");
+    let app = Router::new().route(
+        "/agent",
+        get(|headers: HeaderMap| async move {
+            headers
+                .get("user-agent")
+                .and_then(|value| value.to_str().ok())
+                .unwrap_or_default()
+                .to_owned()
+        }),
+    );
+    let server = spawn_http_server(app).await;
+    let mut headers = HeaderMap::new();
+    headers.insert("user-agent", HeaderValue::from_static("explicit-agent"));
+
+    let response = execute(HttpRequest {
+        method: HttpMethod::Get,
+        url: server.url("/agent"),
+        headers,
+        body: HttpRequestBody::Empty,
+        timeout: None,
+        compression: RequestCompression::None,
+    })
+    .await
+    .expect("explicit header should win");
+
+    assert_eq!(response.body, Bytes::from_static(b"explicit-agent"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn execute_keeps_raw_zstd_response_bytes() {
     const FLAG: &str = "SELVEDGE_CLIENT_RAW_ZSTD_CHILD";
 
