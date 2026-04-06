@@ -191,7 +191,12 @@ pub async fn execute(request: HttpRequest) -> Result<HttpResponse, HttpError> {
     );
 
     let call_config = resolve_call_config(request.timeout)?;
+    let request_deadline = call_config
+        .request_timeout
+        .map(|duration| Instant::now() + duration);
+    check_request_deadline(request_deadline)?;
     let prepared = prepare_request(request, &call_config)?;
+    check_request_deadline(request_deadline)?;
 
     log_event!(
         selvedge_logging::LogLevel::Debug,
@@ -203,11 +208,10 @@ pub async fn execute(request: HttpRequest) -> Result<HttpResponse, HttpError> {
     );
 
     let client = build_client(&call_config)?;
-    let request_timeout = call_config.request_timeout;
+    check_request_deadline(request_deadline)?;
     let request_url = prepared.request_url.clone();
     let method = prepared.method.clone();
     let body_len = prepared.body_len;
-    let request_deadline = request_timeout.map(|duration| Instant::now() + duration);
     let result = execute_inner(client, prepared, request_deadline).await;
 
     log_result("execute", &method, &request_url, body_len, &result);
@@ -225,7 +229,12 @@ pub async fn stream(request: HttpRequest) -> Result<HttpStreamResponse, HttpErro
     );
 
     let call_config = resolve_call_config(request.timeout)?;
+    let request_deadline = call_config
+        .request_timeout
+        .map(|duration| Instant::now() + duration);
+    check_request_deadline(request_deadline)?;
     let prepared = prepare_request(request, &call_config)?;
+    check_request_deadline(request_deadline)?;
 
     log_event!(
         selvedge_logging::LogLevel::Debug,
@@ -237,13 +246,12 @@ pub async fn stream(request: HttpRequest) -> Result<HttpStreamResponse, HttpErro
     );
 
     let client = build_client(&call_config)?;
-    let request_timeout = call_config.request_timeout;
+    check_request_deadline(request_deadline)?;
     let idle_timeout = call_config.stream_idle_timeout;
     let request_url = prepared.request_url.clone();
     let method = prepared.method.clone();
     let body_len = prepared.body_len;
 
-    let request_deadline = request_timeout.map(|duration| Instant::now() + duration);
     let result = stream_inner(client, prepared, request_deadline, idle_timeout).await;
 
     log_stream_result(&method, &request_url, body_len, &result);
@@ -793,6 +801,27 @@ fn duration_millis_or_zero(duration: Option<Duration>) -> u64 {
         .unwrap_or(0)
 }
 
+fn relative_deadline(timeout: Option<Duration>) -> Option<Instant> {
+    timeout.map(|timeout| Instant::now() + timeout)
+}
+
+fn min_deadline(left: Option<Instant>, right: Option<Instant>) -> Option<Instant> {
+    match (left, right) {
+        (Some(left), Some(right)) => Some(left.min(right)),
+        (Some(left), None) => Some(left),
+        (None, Some(right)) => Some(right),
+        (None, None) => None,
+    }
+}
+
+fn check_request_deadline(deadline: Option<Instant>) -> Result<(), HttpError> {
+    if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
+        return Err(HttpError::Timeout);
+    }
+
+    Ok(())
+}
+
 fn log_result<T>(
     mode: &str,
     method: &HttpMethod,
@@ -927,8 +956,9 @@ impl StreamTimeoutState {
     fn deadline(self) -> Option<Instant> {
         match self {
             Self::AwaitingFirstByte {
-                request_deadline, ..
-            } => request_deadline,
+                request_deadline,
+                idle_timeout,
+            } => min_deadline(request_deadline, relative_deadline(idle_timeout)),
             Self::Streaming { idle_timeout } => {
                 idle_timeout.map(|timeout| Instant::now() + timeout)
             }

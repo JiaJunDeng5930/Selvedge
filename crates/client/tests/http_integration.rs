@@ -673,6 +673,51 @@ async fn stream_request_timeout_covers_wait_for_first_chunk() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn stream_idle_timeout_covers_wait_for_first_chunk() {
+    const FLAG: &str = "SELVEDGE_CLIENT_STREAM_FIRST_CHUNK_IDLE_CHILD";
+
+    if !child_mode(FLAG) {
+        assert_child_success(&run_child(
+            "stream_idle_timeout_covers_wait_for_first_chunk",
+            FLAG,
+        ));
+        return;
+    }
+
+    let _tempdir = init_client_test().await;
+    selvedge_config::update_runtime("network.stream_idle_timeout_ms", 50_u64)
+        .expect("set idle timeout");
+    let app = Router::new().route(
+        "/stream",
+        get(|| async {
+            let body = Body::from_stream(async_stream::stream! {
+                sleep(Duration::from_millis(120)).await;
+                yield Ok::<Bytes, Infallible>(Bytes::from_static(b"late"));
+            });
+
+            (StatusCode::OK, body)
+        }),
+    );
+    let server = spawn_http_server(app).await;
+
+    let response = stream(HttpRequest {
+        method: HttpMethod::Get,
+        url: server.url("/stream"),
+        headers: HeaderMap::new(),
+        body: HttpRequestBody::Empty,
+        timeout: None,
+        compression: RequestCompression::None,
+    })
+    .await
+    .expect("response head should arrive");
+
+    let chunks = response.body.collect::<Vec<_>>().await;
+
+    assert_eq!(chunks.len(), 1);
+    assert!(matches!(chunks[0], Err(HttpError::Timeout)));
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn stream_times_out_on_idle_gap() {
     const FLAG: &str = "SELVEDGE_CLIENT_STREAM_IDLE_CHILD";
 
