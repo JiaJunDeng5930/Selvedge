@@ -39,6 +39,19 @@ pub fn run_child(test_name: &str, flag: &str) -> Output {
         .expect("run child test")
 }
 
+pub fn run_child_with_env(test_name: &str, flag: &str, envs: &[(&str, &str)]) -> Output {
+    let current_executable = std::env::current_exe().expect("current test executable");
+    let mut command = Command::new(current_executable);
+
+    command.arg("--exact").arg(test_name).env(flag, "1");
+
+    for (key, value) in envs {
+        command.env(key, value);
+    }
+
+    command.output().expect("run child test with env")
+}
+
 pub fn assert_child_success(output: &Output) {
     assert!(output.status.success(), "child test failed: {output:?}");
 }
