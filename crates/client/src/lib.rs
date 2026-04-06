@@ -10,6 +10,7 @@ use http::{
     header::{CONTENT_ENCODING, CONTENT_LENGTH, CONTENT_TYPE, USER_AGENT},
 };
 use reqwest::{Certificate, Client, Method, Proxy, Url};
+use tokio::task;
 use tokio::time::{Instant, timeout_at};
 use url::form_urlencoded;
 
@@ -116,7 +117,7 @@ enum PreparedBody {
 #[derive(Debug, Clone, Copy)]
 enum StreamTimeoutState {
     AwaitingFirstByte {
-        request_deadline: Option<Instant>,
+        request_timeout: Option<Duration>,
         idle_timeout: Option<Duration>,
     },
     Streaming {
@@ -195,8 +196,7 @@ pub async fn execute(request: HttpRequest) -> Result<HttpResponse, HttpError> {
         .request_timeout
         .map(|duration| Instant::now() + duration);
     check_request_deadline(request_deadline)?;
-    let prepared = prepare_request(request, &call_config)?;
-    check_request_deadline(request_deadline)?;
+    let prepared = prepare_request(request, &call_config, request_deadline).await?;
 
     log_event!(
         selvedge_logging::LogLevel::Debug,
@@ -207,8 +207,7 @@ pub async fn execute(request: HttpRequest) -> Result<HttpResponse, HttpError> {
         body_len = prepared.body_len
     );
 
-    let client = build_client(&call_config)?;
-    check_request_deadline(request_deadline)?;
+    let client = build_client(&call_config, request_deadline).await?;
     let request_url = prepared.request_url.clone();
     let method = prepared.method.clone();
     let body_len = prepared.body_len;
@@ -233,8 +232,7 @@ pub async fn stream(request: HttpRequest) -> Result<HttpStreamResponse, HttpErro
         .request_timeout
         .map(|duration| Instant::now() + duration);
     check_request_deadline(request_deadline)?;
-    let prepared = prepare_request(request, &call_config)?;
-    check_request_deadline(request_deadline)?;
+    let prepared = prepare_request(request, &call_config, request_deadline).await?;
 
     log_event!(
         selvedge_logging::LogLevel::Debug,
@@ -245,14 +243,20 @@ pub async fn stream(request: HttpRequest) -> Result<HttpStreamResponse, HttpErro
         body_len = prepared.body_len
     );
 
-    let client = build_client(&call_config)?;
-    check_request_deadline(request_deadline)?;
+    let client = build_client(&call_config, request_deadline).await?;
     let idle_timeout = call_config.stream_idle_timeout;
     let request_url = prepared.request_url.clone();
     let method = prepared.method.clone();
     let body_len = prepared.body_len;
 
-    let result = stream_inner(client, prepared, request_deadline, idle_timeout).await;
+    let result = stream_inner(
+        client,
+        prepared,
+        call_config.request_timeout,
+        request_deadline,
+        idle_timeout,
+    )
+    .await;
 
     log_stream_result(&method, &request_url, body_len, &result);
 
@@ -290,6 +294,7 @@ async fn execute_inner(
 async fn stream_inner(
     client: Client,
     prepared: PreparedRequest,
+    request_timeout: Option<Duration>,
     request_deadline: Option<Instant>,
     idle_timeout: Option<Duration>,
 ) -> Result<HttpStreamResponse, HttpError> {
@@ -309,7 +314,7 @@ async fn stream_inner(
     let headers = response.headers().clone();
     let body = wrap_stream(
         prepared.request_url.clone(),
-        request_deadline,
+        request_timeout,
         idle_timeout,
         response.bytes_stream(),
     );
@@ -472,9 +477,10 @@ fn resolve_call_config(
     Ok(config)
 }
 
-fn prepare_request(
+async fn prepare_request(
     request: HttpRequest,
     call_config: &ResolvedCallConfig,
+    request_deadline: Option<Instant>,
 ) -> Result<PreparedRequest, HttpError> {
     let url = parse_absolute_http_url(&request.url)?;
     let mut headers = request.headers;
@@ -489,7 +495,7 @@ fn prepare_request(
     }
 
     finalize_headers(&mut headers, &body);
-    body = maybe_compress_body(body, request.compression, &mut headers)?;
+    body = maybe_compress_body(body, request.compression, &mut headers, request_deadline).await?;
 
     let body_len = body.len();
     reconcile_content_length(&body, &mut headers)?;
@@ -582,10 +588,11 @@ fn finalize_headers(headers: &mut HeaderMap, body: &PreparedBody) {
     }
 }
 
-fn maybe_compress_body(
+async fn maybe_compress_body(
     body: PreparedBody,
     compression: RequestCompression,
     headers: &mut HeaderMap,
+    request_deadline: Option<Instant>,
 ) -> Result<PreparedBody, HttpError> {
     match (body, compression) {
         (PreparedBody::Empty, _) => Ok(PreparedBody::Empty),
@@ -603,9 +610,12 @@ fn maybe_compress_body(
                 ));
             }
 
-            let compressed = zstd::stream::encode_all(bytes.as_ref(), 0)
-                .map(Bytes::from)
-                .map_err(|error| build_error(format!("failed to encode zstd body: {error}")))?;
+            let compressed = run_blocking_with_deadline(request_deadline, move || {
+                zstd::stream::encode_all(bytes.as_ref(), 0)
+                    .map(Bytes::from)
+                    .map_err(|error| build_error(format!("failed to encode zstd body: {error}")))
+            })
+            .await?;
             headers.insert(CONTENT_ENCODING, HeaderValue::from_static("zstd"));
 
             Ok(PreparedBody::Buffered {
@@ -616,7 +626,10 @@ fn maybe_compress_body(
     }
 }
 
-fn build_client(call_config: &ResolvedCallConfig) -> Result<Client, HttpError> {
+async fn build_client(
+    call_config: &ResolvedCallConfig,
+    request_deadline: Option<Instant>,
+) -> Result<Client, HttpError> {
     let mut builder = Client::builder().retry(reqwest::retry::never());
 
     if let Some(connect_timeout) = call_config.connect_timeout {
@@ -632,18 +645,22 @@ fn build_client(call_config: &ResolvedCallConfig) -> Result<Client, HttpError> {
     }
 
     if let Some(path) = &call_config.ca_bundle_path {
-        let bundle = fs::read(path).map_err(|error| {
-            build_error(format!(
-                "failed to read network.ca_bundle_path {}: {error}",
-                path.display()
-            ))
-        })?;
-        let certificates = parse_certificates(&bundle).map_err(|error| {
-            build_error(format!(
-                "failed to parse network.ca_bundle_path {}: {error}",
-                path.display()
-            ))
-        })?;
+        let path = path.clone();
+        let certificates = run_blocking_with_deadline(request_deadline, move || {
+            let bundle = fs::read(&path).map_err(|error| {
+                build_error(format!(
+                    "failed to read network.ca_bundle_path {}: {error}",
+                    path.display()
+                ))
+            })?;
+            parse_certificates(&bundle).map_err(|error| {
+                build_error(format!(
+                    "failed to parse network.ca_bundle_path {}: {error}",
+                    path.display()
+                ))
+            })
+        })
+        .await?;
 
         for certificate in certificates {
             builder = builder.add_root_certificate(certificate);
@@ -676,14 +693,14 @@ fn parse_certificates(bundle: &[u8]) -> Result<Vec<Certificate>, HttpError> {
 
 fn wrap_stream(
     request_url: String,
-    request_deadline: Option<Instant>,
+    request_timeout: Option<Duration>,
     idle_timeout: Option<Duration>,
     stream: impl Stream<Item = Result<Bytes, reqwest::Error>> + Send + 'static,
 ) -> ByteStream {
     let stream = async_stream::stream! {
         let mut stream = Box::pin(stream);
         let mut timeout_state = StreamTimeoutState::AwaitingFirstByte {
-            request_deadline,
+            request_timeout,
             idle_timeout,
         };
 
@@ -824,6 +841,25 @@ fn check_request_deadline(deadline: Option<Instant>) -> Result<(), HttpError> {
     Ok(())
 }
 
+async fn run_blocking_with_deadline<T, F>(
+    deadline: Option<Instant>,
+    operation: F,
+) -> Result<T, HttpError>
+where
+    T: Send + 'static,
+    F: FnOnce() -> Result<T, HttpError> + Send + 'static,
+{
+    let task = task::spawn_blocking(operation);
+
+    match deadline {
+        Some(deadline) => timeout_at(deadline, task)
+            .await
+            .map_err(|_| HttpError::Timeout)?
+            .expect("blocking task must not panic"),
+        None => task.await.expect("blocking task must not panic"),
+    }
+}
+
 fn log_result<T>(
     mode: &str,
     method: &HttpMethod,
@@ -958,9 +994,12 @@ impl StreamTimeoutState {
     fn deadline(self) -> Option<Instant> {
         match self {
             Self::AwaitingFirstByte {
-                request_deadline,
+                request_timeout,
                 idle_timeout,
-            } => min_deadline(request_deadline, relative_deadline(idle_timeout)),
+            } => min_deadline(
+                relative_deadline(request_timeout),
+                relative_deadline(idle_timeout),
+            ),
             Self::Streaming { idle_timeout } => {
                 idle_timeout.map(|timeout| Instant::now() + timeout)
             }
@@ -969,7 +1008,21 @@ impl StreamTimeoutState {
 
     fn timeout_message(self) -> &'static str {
         match self {
-            Self::AwaitingFirstByte { .. } => "http stream request timeout",
+            Self::AwaitingFirstByte {
+                request_timeout,
+                idle_timeout,
+            } => match (request_timeout, idle_timeout) {
+                (Some(request_timeout), Some(idle_timeout)) => {
+                    if idle_timeout <= request_timeout {
+                        "http stream idle timeout"
+                    } else {
+                        "http stream request timeout"
+                    }
+                }
+                (Some(_), None) => "http stream request timeout",
+                (None, Some(_)) => "http stream idle timeout",
+                (None, None) => "http stream request timeout",
+            },
             Self::Streaming { .. } => "http stream idle timeout",
         }
     }
@@ -977,12 +1030,12 @@ impl StreamTimeoutState {
     fn on_chunk(self, chunk: &Bytes) -> Self {
         match self {
             Self::AwaitingFirstByte {
-                request_deadline,
+                request_timeout,
                 idle_timeout,
             } => {
                 if chunk.is_empty() {
                     Self::AwaitingFirstByte {
-                        request_deadline,
+                        request_timeout,
                         idle_timeout,
                     }
                 } else {
@@ -1014,8 +1067,8 @@ mod tests {
         assert!(matches!(error, super::HttpError::Build { .. }));
     }
 
-    #[test]
-    fn request_compression_conflicts_with_existing_content_encoding() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn request_compression_conflicts_with_existing_content_encoding() {
         let mut headers = HeaderMap::new();
         headers.insert(super::CONTENT_ENCODING, HeaderValue::from_static("gzip"));
 
@@ -1024,14 +1077,15 @@ mod tests {
             content_type_if_missing: None,
         };
 
-        let error = maybe_compress_body(body, RequestCompression::Zstd, &mut headers)
+        let error = maybe_compress_body(body, RequestCompression::Zstd, &mut headers, None)
+            .await
             .expect_err("content-encoding conflict must fail");
 
         assert!(matches!(error, super::HttpError::Build { .. }));
     }
 
-    #[test]
-    fn json_body_sets_default_content_type() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn json_body_sets_default_content_type() {
         let request = HttpRequest {
             method: HttpMethod::Post,
             url: "https://example.com".to_owned(),
@@ -1051,7 +1105,9 @@ mod tests {
                 ca_bundle_path: None,
                 user_agent: None,
             },
+            None,
         )
+        .await
         .expect("prepare request");
 
         assert_eq!(
@@ -1060,29 +1116,34 @@ mod tests {
         );
     }
 
-    #[test]
-    fn invalid_proxy_url_fails_client_build() {
-        let error = build_client(&ResolvedCallConfig {
-            connect_timeout: None,
-            request_timeout: None,
-            stream_idle_timeout: None,
-            proxy_url: Some("://bad-proxy".to_owned()),
-            ca_bundle_path: None,
-            user_agent: None,
-        })
+    #[tokio::test(flavor = "current_thread")]
+    async fn invalid_proxy_url_fails_client_build() {
+        let error = build_client(
+            &ResolvedCallConfig {
+                connect_timeout: None,
+                request_timeout: None,
+                stream_idle_timeout: None,
+                proxy_url: Some("://bad-proxy".to_owned()),
+                ca_bundle_path: None,
+                user_agent: None,
+            },
+            None,
+        )
+        .await
         .expect_err("invalid proxy must fail");
 
         assert!(matches!(error, super::HttpError::Build { .. }));
     }
 
-    #[test]
-    fn zstd_compression_changes_request_body() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn zstd_compression_changes_request_body() {
         let body = encode_body(HttpRequestBody::Bytes(bytes::Bytes::from_static(
             b"payload",
         )))
         .expect("encode body");
         let mut headers = HeaderMap::new();
-        let compressed = maybe_compress_body(body, RequestCompression::Zstd, &mut headers)
+        let compressed = maybe_compress_body(body, RequestCompression::Zstd, &mut headers, None)
+            .await
             .expect("compress body");
 
         assert_eq!(
@@ -1126,5 +1187,30 @@ mod tests {
 
         let second = wrapped.next().await.expect("second item");
         assert_eq!(second.expect("second chunk"), Bytes::from_static(b"second"));
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn first_chunk_timeout_starts_on_first_poll() {
+        let inner = stream::unfold(0_u8, |state| async move {
+            match state {
+                0 => {
+                    sleep(Duration::from_millis(10)).await;
+                    Some((Ok(Bytes::from_static(b"first")), 1))
+                }
+                _ => None,
+            }
+        });
+
+        let mut wrapped = wrap_stream(
+            "http://example.test/stream".to_owned(),
+            Some(Duration::from_millis(50)),
+            None,
+            inner,
+        );
+
+        sleep(Duration::from_millis(120)).await;
+
+        let first = wrapped.next().await.expect("first item");
+        assert_eq!(first.expect("first chunk"), Bytes::from_static(b"first"));
     }
 }
