@@ -90,8 +90,12 @@ impl NetworkConfig {
         }
 
         if let Some(proxy_url) = &self.proxy_url {
-            Url::parse(proxy_url)
+            let parsed = Url::parse(proxy_url)
                 .map_err(|_| ValidationError::InvalidProxyUrl(proxy_url.clone()))?;
+            match parsed.scheme() {
+                "http" | "https" => {}
+                _ => return Err(ValidationError::InvalidProxyUrl(proxy_url.clone())),
+            }
         }
 
         if let Some(user_agent) = &self.user_agent {

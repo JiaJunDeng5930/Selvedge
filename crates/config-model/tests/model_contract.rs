@@ -73,6 +73,19 @@ fn invalid_proxy_url_is_rejected() {
 }
 
 #[test]
+fn unsupported_proxy_scheme_is_rejected() {
+    let mut config = AppConfig::try_from(Table::new()).expect("materialize config");
+    config.network.proxy_url = Some("mailto://example.com".to_owned());
+
+    assert_eq!(
+        config.validate(),
+        Err(ValidationError::InvalidProxyUrl(
+            "mailto://example.com".to_owned()
+        ))
+    );
+}
+
+#[test]
 fn invalid_user_agent_is_rejected() {
     let mut config = AppConfig::try_from(Table::new()).expect("materialize config");
     config.network.user_agent = Some("bad\r\nvalue".to_owned());
