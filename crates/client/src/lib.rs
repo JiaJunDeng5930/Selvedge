@@ -338,11 +338,11 @@ async fn send_with_redirects(
 ) -> Result<reqwest::Response, HttpError> {
     let mut request = prepared.request;
     let method = prepared.method;
-    let request_url = prepared.request_url;
     let mut redirect_count = 0_usize;
 
     loop {
         check_request_deadline(request_deadline)?;
+        let current_request_url = sanitize_url_for_output(request.url().as_str());
         let client = build_client(
             call_config,
             request_deadline,
@@ -358,7 +358,8 @@ async fn send_with_redirects(
         } else {
             None
         };
-        let response = send_with_deadline(client, request, &request_url, request_deadline).await?;
+        let response =
+            send_with_deadline(client, request, &current_request_url, request_deadline).await?;
 
         if matches!(method, HttpMethod::Get) && response.status().is_redirection() {
             if redirect_count >= 10 {
