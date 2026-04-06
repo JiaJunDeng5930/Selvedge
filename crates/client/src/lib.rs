@@ -644,7 +644,13 @@ async fn build_client(
     }
 
     if let Some(path) = &call_config.ca_bundle_path {
-        let bundle = tokio_fs::read(path).await.map_err(|error| {
+        let bundle = match request_deadline {
+            Some(deadline) => timeout_at(deadline, tokio_fs::read(path))
+                .await
+                .map_err(|_| HttpError::Timeout)?,
+            None => tokio_fs::read(path).await,
+        }
+        .map_err(|error| {
             build_error(format!(
                 "failed to read network.ca_bundle_path {}: {error}",
                 path.display()
