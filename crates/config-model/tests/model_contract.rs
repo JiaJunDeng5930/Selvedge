@@ -60,3 +60,25 @@ fn zero_network_timeout_is_rejected() {
         Err(ValidationError::InvalidNetworkRequestTimeout)
     );
 }
+
+#[test]
+fn invalid_proxy_url_is_rejected() {
+    let mut config = AppConfig::try_from(Table::new()).expect("materialize config");
+    config.network.proxy_url = Some("://bad-proxy".to_owned());
+
+    assert_eq!(
+        config.validate(),
+        Err(ValidationError::InvalidProxyUrl("://bad-proxy".to_owned()))
+    );
+}
+
+#[test]
+fn invalid_user_agent_is_rejected() {
+    let mut config = AppConfig::try_from(Table::new()).expect("materialize config");
+    config.network.user_agent = Some("bad\r\nvalue".to_owned());
+
+    assert_eq!(
+        config.validate(),
+        Err(ValidationError::InvalidUserAgent("bad\r\nvalue".to_owned()))
+    );
+}

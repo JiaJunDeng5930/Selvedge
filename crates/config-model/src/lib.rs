@@ -2,9 +2,11 @@
 
 use std::{collections::BTreeMap, fmt::Display};
 
+use http::HeaderValue;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use toml::{Table, Value};
+use url::Url;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct AppConfig {
@@ -85,6 +87,16 @@ impl NetworkConfig {
 
         if self.stream_idle_timeout_ms == Some(0) {
             return Err(ValidationError::InvalidStreamIdleTimeout);
+        }
+
+        if let Some(proxy_url) = &self.proxy_url {
+            Url::parse(proxy_url)
+                .map_err(|_| ValidationError::InvalidProxyUrl(proxy_url.clone()))?;
+        }
+
+        if let Some(user_agent) = &self.user_agent {
+            HeaderValue::from_str(user_agent)
+                .map_err(|_| ValidationError::InvalidUserAgent(user_agent.clone()))?;
         }
 
         Ok(())
@@ -174,6 +186,10 @@ pub enum ValidationError {
     InvalidNetworkRequestTimeout,
     #[error("network.stream_idle_timeout_ms must be greater than zero")]
     InvalidStreamIdleTimeout,
+    #[error("network.proxy_url must be a valid absolute URL, got {0}")]
+    InvalidProxyUrl(String),
+    #[error("network.user_agent must be a valid HTTP header value, got {0}")]
+    InvalidUserAgent(String),
     #[error("feature.rollout_percentage must be between 0 and 100, got {0}")]
     InvalidRolloutPercentage(u8),
     #[error("feature.rollout_percentage must be greater than zero when feature.enabled is true")]
