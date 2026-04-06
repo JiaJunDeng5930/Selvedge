@@ -164,6 +164,67 @@ async fn execute_applies_request_compression() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn execute_recomputes_content_length_after_compression() {
+    const FLAG: &str = "SELVEDGE_CLIENT_COMPRESSED_LENGTH_CHILD";
+
+    if !child_mode(FLAG) {
+        assert_child_success(&run_child(
+            "execute_recomputes_content_length_after_compression",
+            FLAG,
+        ));
+        return;
+    }
+
+    let _tempdir = init_client_test().await;
+    let app = Router::new().route(
+        "/capture",
+        post(|headers: HeaderMap, body: Bytes| async move {
+            let content_length = headers
+                .get("content-length")
+                .and_then(|value| value.to_str().ok())
+                .unwrap_or_default()
+                .to_owned();
+            let received_len = body.len();
+            let decoded = tokio::task::spawn_blocking(move || {
+                zstd::stream::decode_all(body.as_ref()).expect("decode request body")
+            })
+            .await
+            .expect("join decoder");
+
+            Json(serde_json::json!({
+                "content_length": content_length,
+                "received_len": received_len,
+                "body": String::from_utf8(decoded).expect("utf8 body"),
+            }))
+        }),
+    );
+    let server = spawn_http_server(app).await;
+    let mut headers = HeaderMap::new();
+    headers.insert("content-length", HeaderValue::from_static("7"));
+
+    let response = execute(HttpRequest {
+        method: HttpMethod::Post,
+        url: server.url("/capture"),
+        headers,
+        body: HttpRequestBody::Bytes(Bytes::from_static(b"payload")),
+        timeout: None,
+        compression: RequestCompression::Zstd,
+    })
+    .await
+    .expect("compressed request with explicit content-length");
+
+    let payload: serde_json::Value = serde_json::from_slice(&response.body).expect("json body");
+    assert_eq!(payload["body"], "payload");
+    assert_eq!(
+        payload["content_length"],
+        payload["received_len"]
+            .as_u64()
+            .expect("received length")
+            .to_string()
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn execute_uses_config_user_agent_when_missing() {
     const FLAG: &str = "SELVEDGE_CLIENT_USER_AGENT_CHILD";
 
@@ -485,6 +546,47 @@ async fn execute_preserves_status_when_error_body_is_truncated() {
     }
 
     server_handle.abort();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn execute_times_out_on_slow_non_success_body() {
+    const FLAG: &str = "SELVEDGE_CLIENT_SLOW_ERROR_BODY_CHILD";
+
+    if !child_mode(FLAG) {
+        assert_child_success(&run_child(
+            "execute_times_out_on_slow_non_success_body",
+            FLAG,
+        ));
+        return;
+    }
+
+    let _tempdir = init_client_test().await;
+    let app = Router::new().route(
+        "/error",
+        get(|| async {
+            let body = Body::from_stream(async_stream::stream! {
+                yield Ok::<Bytes, Infallible>(Bytes::from_static(b"part"));
+                sleep(Duration::from_millis(120)).await;
+                yield Ok::<Bytes, Infallible>(Bytes::from_static(b"late"));
+            });
+
+            (StatusCode::BAD_REQUEST, body)
+        }),
+    );
+    let server = spawn_http_server(app).await;
+
+    let error = execute(HttpRequest {
+        method: HttpMethod::Get,
+        url: server.url("/error"),
+        headers: HeaderMap::new(),
+        body: HttpRequestBody::Empty,
+        timeout: Some(Duration::from_millis(50)),
+        compression: RequestCompression::None,
+    })
+    .await
+    .expect_err("slow non-success body should time out");
+
+    assert!(matches!(error, HttpError::Timeout));
 }
 
 #[tokio::test(flavor = "multi_thread")]
