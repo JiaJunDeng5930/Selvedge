@@ -77,6 +77,13 @@ let connect_timeout = config.network.connect_timeout_ms;
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
+`NetworkConfig` intentionally keeps transport-facing settings optional.
+
+- unset `network.*` fields stay `None` in `AppConfig`
+- `config-model` does not inject fallback transport defaults for those fields
+- downstream transport crates decide whether `None` means "do not set this option" or "treat this as an error"
+- this is different from fields such as `server.request_timeout_ms`, which materialize to a concrete default value inside the config model
+
 ## Validation
 
 Each config type validates its own invariants.
