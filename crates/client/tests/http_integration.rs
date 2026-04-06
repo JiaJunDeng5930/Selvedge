@@ -710,6 +710,46 @@ async fn stream_request_timeout_covers_wait_for_first_chunk() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn stream_preserves_remaining_first_chunk_budget_after_slow_headers() {
+    const FLAG: &str = "SELVEDGE_CLIENT_STREAM_REMAINING_BUDGET_CHILD";
+
+    if !child_mode(FLAG) {
+        assert_child_success(&run_child(
+            "stream_preserves_remaining_first_chunk_budget_after_slow_headers",
+            FLAG,
+        ));
+        return;
+    }
+
+    let _tempdir = init_client_test().await;
+    let (url, server_handle) = spawn_slow_header_then_chunk_server().await;
+    let started_at = tokio::time::Instant::now();
+
+    let response = stream(HttpRequest {
+        method: HttpMethod::Get,
+        url,
+        headers: HeaderMap::new(),
+        body: HttpRequestBody::Empty,
+        timeout: Some(Duration::from_millis(50)),
+        compression: RequestCompression::None,
+    })
+    .await
+    .expect("response head should arrive before timeout");
+
+    let chunks = response.body.collect::<Vec<_>>().await;
+    let elapsed = started_at.elapsed();
+
+    assert_eq!(chunks.len(), 1);
+    assert!(matches!(chunks[0], Err(HttpError::Timeout)));
+    assert!(
+        elapsed < Duration::from_millis(80),
+        "remaining budget should be preserved, got {:?}",
+        elapsed
+    );
+    server_handle.abort();
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn stream_idle_timeout_covers_wait_for_first_chunk() {
     const FLAG: &str = "SELVEDGE_CLIENT_STREAM_FIRST_CHUNK_IDLE_CHILD";
 
@@ -851,6 +891,31 @@ async fn spawn_broken_chunked_server() -> (String, JoinHandle<()>) {
             .write_all(b"HTTP/1.1 200 OK\r\ntransfer-encoding: chunked\r\n\r\n5\r\nfirst\r\n")
             .await
             .expect("write partial chunked response");
+        socket.shutdown().await.expect("shutdown socket");
+    });
+
+    (format!("http://{addr}/stream"), handle)
+}
+
+async fn spawn_slow_header_then_chunk_server() -> (String, JoinHandle<()>) {
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind slow header server");
+    let addr = listener.local_addr().expect("local addr");
+    let handle = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.expect("accept socket");
+        let mut buffer = [0_u8; 2048];
+        let _ = socket.read(&mut buffer).await.expect("read request");
+        sleep(Duration::from_millis(35)).await;
+        socket
+            .write_all(b"HTTP/1.1 200 OK\r\ntransfer-encoding: chunked\r\n\r\n")
+            .await
+            .expect("write response head");
+        sleep(Duration::from_millis(40)).await;
+        socket
+            .write_all(b"4\r\nlate\r\n0\r\n\r\n")
+            .await
+            .expect("write response body");
         socket.shutdown().await.expect("shutdown socket");
     });
 

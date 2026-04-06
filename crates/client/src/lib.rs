@@ -314,7 +314,7 @@ async fn stream_inner(
     let headers = response.headers().clone();
     let body = wrap_stream(
         prepared.request_url.clone(),
-        request_timeout,
+        request_timeout.and_then(|_| remaining_duration_until(request_deadline)),
         idle_timeout,
         response.bytes_stream(),
     );
@@ -822,6 +822,10 @@ fn duration_millis_or_zero(duration: Option<Duration>) -> u64 {
 
 fn relative_deadline(timeout: Option<Duration>) -> Option<Instant> {
     timeout.map(|timeout| Instant::now() + timeout)
+}
+
+fn remaining_duration_until(deadline: Option<Instant>) -> Option<Duration> {
+    deadline.map(|deadline| deadline.saturating_duration_since(Instant::now()))
 }
 
 fn min_deadline(left: Option<Instant>, right: Option<Instant>) -> Option<Instant> {
