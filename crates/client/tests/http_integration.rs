@@ -435,6 +435,59 @@ async fn execute_redirect_drops_session_token_headers_on_cross_origin_redirect()
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn execute_redirect_drops_proxy_authorization_on_cross_origin_redirect() {
+    const FLAG: &str = "SELVEDGE_CLIENT_REDIRECT_PROXY_AUTH_STRIP_CHILD";
+
+    if !child_mode(FLAG) {
+        assert_child_success(&run_child(
+            "execute_redirect_drops_proxy_authorization_on_cross_origin_redirect",
+            FLAG,
+        ));
+        return;
+    }
+
+    let _tempdir = init_client_test().await;
+    let target = spawn_http_server(Router::new().route(
+        "/final",
+        get(|headers: HeaderMap| async move {
+            headers
+                .get("proxy-authorization")
+                .and_then(|value| value.to_str().ok())
+                .unwrap_or_default()
+                .to_owned()
+        }),
+    ))
+    .await;
+    let redirect_target = target.url("/final");
+    let redirect = spawn_http_server(Router::new().route(
+        "/redirect",
+        get(move || {
+            let redirect_target = redirect_target.clone();
+            async move { Redirect::temporary(&redirect_target) }
+        }),
+    ))
+    .await;
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        "proxy-authorization",
+        HeaderValue::from_static("Basic c2VjcmV0"),
+    );
+
+    let response = execute(HttpRequest {
+        method: HttpMethod::Get,
+        url: redirect.url("/redirect"),
+        headers,
+        body: HttpRequestBody::Empty,
+        timeout: Some(Duration::from_secs(2)),
+        compression: RequestCompression::None,
+    })
+    .await
+    .expect("cross-origin redirect request");
+
+    assert_eq!(response.body, Bytes::new());
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn execute_applies_request_compression() {
     const FLAG: &str = "SELVEDGE_CLIENT_REQUEST_COMPRESSION_CHILD";
 
