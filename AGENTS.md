@@ -63,7 +63,7 @@ This file is for coding agents working in this repository.
 |.github/workflows:{ci.yml}
 |crates:{client/,config-model/,config/,logging/}
 |crates/client:{src/,tests/,Cargo.toml,README.md}
-|crates/client/src:{config_resolution.rs,lib.rs,redaction.rs,request_prep.rs,runtime.rs}
+|crates/client/src:{config_resolution.rs,lib.rs,redaction.rs,redirect_runtime.rs,request_prep.rs,runtime.rs,single_hop.rs}
 |crates/client/tests:{support/,http_integration.rs}
 |crates/client/tests/support:{mod.rs}
 |crates/config:{examples/,src/,tests/,Cargo.toml,README.md}
