@@ -87,14 +87,6 @@ impl WaitBudget {
         request_remaining: Option<Duration>,
         idle_remaining: Option<Duration>,
     ) -> Result<Self, TimeoutReason> {
-        if request_remaining.is_some_and(|duration| duration.is_zero()) {
-            return Err(TimeoutReason::Request);
-        }
-
-        if idle_remaining.is_some_and(|duration| duration.is_zero()) {
-            return Err(TimeoutReason::Idle);
-        }
-
         let timeout_reason = match (request_remaining, idle_remaining) {
             (Some(request_remaining), Some(idle_remaining)) => {
                 if idle_remaining <= request_remaining {
@@ -603,5 +595,42 @@ fn timeout_message(reason: TimeoutReason) -> &'static str {
     match reason {
         TimeoutReason::Request => "http stream request timeout",
         TimeoutReason::Idle => "http stream idle timeout",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use super::{TimeoutReason, WaitBudget, run_wait};
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn zero_request_budget_allows_ready_poll() {
+        let wait_budget = WaitBudget::new(Some(Duration::ZERO), None).expect("zero request budget");
+        let (value, _) = run_wait(wait_budget, std::future::ready(7_u8))
+            .await
+            .expect("ready future must succeed");
+
+        assert_eq!(value, 7);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn zero_idle_budget_allows_ready_poll() {
+        let wait_budget = WaitBudget::new(None, Some(Duration::ZERO)).expect("zero idle budget");
+        let (value, _) = run_wait(wait_budget, std::future::ready(9_u8))
+            .await
+            .expect("ready future must succeed");
+
+        assert_eq!(value, 9);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn zero_budget_still_times_out_pending_poll() {
+        let wait_budget = WaitBudget::new(Some(Duration::ZERO), None).expect("zero request budget");
+        let error = run_wait(wait_budget, std::future::pending::<()>())
+            .await
+            .expect_err("pending future must time out");
+
+        assert!(matches!(error, TimeoutReason::Request));
     }
 }
