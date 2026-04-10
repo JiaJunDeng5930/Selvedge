@@ -504,6 +504,7 @@ fn matches_compact_sensitive_header(compact: &str) -> bool {
         "refreshtoken",
         "sessionid",
         "sessionkey",
+        "sessiontoken",
         "clientsecret",
         "clienttoken",
         "credential",
@@ -521,6 +522,7 @@ fn matches_sensitive_token_pattern(tokens: &[&str]) -> bool {
             | ["refresh", "token"]
             | ["session", "id"]
             | ["session", "key"]
+            | ["session", "token"]
             | ["client", "secret"]
             | ["client", "token"]
             | ["credential"]
