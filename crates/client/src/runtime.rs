@@ -486,31 +486,45 @@ fn is_cross_origin_sensitive_header(name: &HeaderName) -> bool {
         .collect::<String>();
     let tokens = lower
         .split(|character: char| !character.is_ascii_alphanumeric())
-        .filter(|token| !token.is_empty());
+        .filter(|token| !token.is_empty())
+        .collect::<Vec<_>>();
 
     if matches_compact_sensitive_header(&compact) {
         return true;
     }
 
-    tokens.into_iter().any(|token| {
-        matches!(
-            token,
-            "auth" | "authorization" | "token" | "key" | "secret" | "credential" | "session"
-        )
-    })
+    matches_sensitive_token_pattern(&tokens)
 }
 
 fn matches_compact_sensitive_header(compact: &str) -> bool {
     [
         "apikey",
         "authtoken",
+        "accesstoken",
+        "refreshtoken",
         "sessionid",
         "sessionkey",
+        "clientsecret",
+        "clienttoken",
         "credential",
-        "secret",
     ]
     .iter()
     .any(|needle| compact.contains(needle))
+}
+
+fn matches_sensitive_token_pattern(tokens: &[&str]) -> bool {
+    matches!(
+        tokens,
+        ["api", "key"]
+            | ["auth", "token"]
+            | ["access", "token"]
+            | ["refresh", "token"]
+            | ["session", "id"]
+            | ["session", "key"]
+            | ["client", "secret"]
+            | ["client", "token"]
+            | ["credential"]
+    )
 }
 
 fn is_tls_error(error: &reqwest::Error) -> bool {
