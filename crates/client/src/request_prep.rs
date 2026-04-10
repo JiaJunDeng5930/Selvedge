@@ -2,7 +2,7 @@ use std::io::Write;
 
 use bytes::Bytes;
 use http::{
-    HeaderMap, HeaderValue,
+    HeaderMap, HeaderName, HeaderValue,
     header::{CONTENT_ENCODING, CONTENT_LENGTH, CONTENT_TYPE, USER_AGENT},
 };
 use reqwest::Url;
@@ -166,6 +166,12 @@ pub(crate) async fn maybe_compress_body(
                     "cannot apply request compression when Content-Encoding is already set",
                 ));
             }
+            if let Some(integrity_header) = find_integrity_header(headers) {
+                return Err(build_error(format!(
+                    "cannot apply request compression when {} is already set",
+                    integrity_header.as_str()
+                )));
+            }
 
             let compressed = run_blocking(move || compress_bytes(bytes)).await?;
             headers.insert(CONTENT_ENCODING, HeaderValue::from_static("zstd"));
@@ -176,6 +182,20 @@ pub(crate) async fn maybe_compress_body(
             })
         }
     }
+}
+
+fn find_integrity_header(headers: &HeaderMap) -> Option<HeaderName> {
+    headers
+        .keys()
+        .find(|name| is_integrity_header(name))
+        .cloned()
+}
+
+fn is_integrity_header(name: &HeaderName) -> bool {
+    matches!(
+        name.as_str().to_ascii_lowercase().as_str(),
+        "content-md5" | "digest" | "content-digest" | "repr-digest"
+    )
 }
 
 fn reconcile_content_length(body: &PreparedBody, headers: &mut HeaderMap) -> Result<(), HttpError> {

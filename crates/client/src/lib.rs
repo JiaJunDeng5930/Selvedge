@@ -327,6 +327,26 @@ mod tests {
     }
 
     #[tokio::test(flavor = "current_thread")]
+    async fn request_compression_rejects_existing_integrity_headers() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            http::header::HeaderName::from_static("digest"),
+            HeaderValue::from_static("sha-256=abc"),
+        );
+
+        let body = PreparedBody::Buffered {
+            bytes: Bytes::from_static(b"payload"),
+            content_type_if_missing: None,
+        };
+
+        let error = maybe_compress_body(body, RequestCompression::Zstd, &mut headers)
+            .await
+            .expect_err("integrity headers must fail");
+
+        assert!(matches!(error, HttpError::Build { .. }));
+    }
+
+    #[tokio::test(flavor = "current_thread")]
     async fn json_body_sets_default_content_type() {
         let request = HttpRequest {
             method: HttpMethod::Post,
