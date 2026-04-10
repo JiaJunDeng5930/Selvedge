@@ -55,6 +55,7 @@ assert!(response.status.is_success());
 - callers must initialize `selvedge_config` before using this crate
 - callers must run these async functions inside a Tokio runtime
 - every call reads `network.*` config immediately through `selvedge_config::read`
+- this crate does not support outbound proxies and intentionally ignores environment proxy settings such as `HTTP_PROXY` and `HTTPS_PROXY`
 - `request.timeout` overrides `network.request_timeout_ms` only for that call
 - `network.request_timeout_ms` is optional; when it is unset and no per-call timeout is supplied, this crate does not install a request timeout and leaves timeout behavior to the underlying HTTP client
 - when `request.timeout` or `network.request_timeout_ms` is set, the timeout budget applies to transport wait phases such as sending the request, waiting for response headers, and waiting for response body chunks; it does not count caller-side processing time between stream polls
