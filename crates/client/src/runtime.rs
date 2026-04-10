@@ -4,19 +4,18 @@ use bytes::{Bytes, BytesMut};
 use futures::{Stream, StreamExt};
 use http::{
     HeaderMap,
-    header::{AUTHORIZATION, COOKIE, HOST, LOCATION, ORIGIN, REFERER},
+    header::{AUTHORIZATION, COOKIE, HOST, ORIGIN, REFERER},
 };
 use reqwest::{Certificate, Client, Url};
 use tokio::{fs as tokio_fs, time::Instant};
 
 use crate::{
-    ByteStream, HttpError, HttpMethod, HttpResponse, HttpStatusError, HttpStreamResponse,
-    build_error, run_blocking,
+    ByteStream, HttpError, HttpMethod, HttpStatusError, HttpStreamResponse, build_error,
+    run_blocking,
 };
 use crate::{
     config_resolution::ResolvedCallConfig,
     redaction::{sanitize_error_text, sanitize_parsed_url},
-    request_prep::PreparedRequest,
 };
 
 #[derive(Clone, Copy, Debug)]
@@ -117,118 +116,7 @@ impl WaitBudget {
     }
 }
 
-pub(crate) async fn execute_inner(
-    call_config: &ResolvedCallConfig,
-    prepared: PreparedRequest,
-    mut request_budget: RequestBudget,
-) -> Result<HttpResponse, HttpError> {
-    let request_url = prepared.request_url.clone();
-    let response = send_with_redirects(call_config, prepared, &mut request_budget).await?;
-
-    if !response.status().is_success() {
-        return Err(collect_status_error(response, &mut request_budget, &request_url).await?);
-    }
-
-    let status = response.status();
-    let headers = response.headers().clone();
-    let body = collect_success_body(response, &mut request_budget, &request_url).await?;
-
-    Ok(HttpResponse {
-        status,
-        headers,
-        body,
-    })
-}
-
-pub(crate) async fn stream_inner(
-    call_config: &ResolvedCallConfig,
-    prepared: PreparedRequest,
-    mut request_budget: RequestBudget,
-    idle_timeout: Option<Duration>,
-) -> Result<HttpStreamResponse, HttpError> {
-    let request_url = prepared.request_url.clone();
-    let response = send_with_redirects(call_config, prepared, &mut request_budget).await?;
-
-    if !response.status().is_success() {
-        return Err(collect_status_error(response, &mut request_budget, &request_url).await?);
-    }
-
-    let status = response.status();
-    let headers = response.headers().clone();
-    let body = wrap_stream(
-        request_url,
-        request_budget,
-        idle_timeout,
-        response.bytes_stream(),
-    );
-
-    Ok(HttpStreamResponse {
-        status,
-        headers,
-        body,
-    })
-}
-
-async fn send_with_redirects(
-    call_config: &ResolvedCallConfig,
-    prepared: PreparedRequest,
-    request_budget: &mut RequestBudget,
-) -> Result<reqwest::Response, HttpError> {
-    let mut request = prepared.request;
-    let method = prepared.method;
-    let mut redirect_count = 0_usize;
-
-    loop {
-        let current_request_url = sanitize_parsed_url(request.url());
-        let client = build_client(call_config, request.url().scheme() == "https").await?;
-        let redirect_template = if matches!(method, HttpMethod::Get) {
-            Some(
-                request
-                    .try_clone()
-                    .ok_or_else(|| build_error("failed to clone redirectable request"))?,
-            )
-        } else {
-            None
-        };
-        let response = send_with_budget(
-            client,
-            request,
-            current_request_url.as_str(),
-            request_budget,
-        )
-        .await?;
-
-        if matches!(method, HttpMethod::Get) && response.status().is_redirection() {
-            if redirect_count >= 10 {
-                return Err(build_error("too many redirects"));
-            }
-
-            let Some(location) = response.headers().get(LOCATION) else {
-                return Ok(response);
-            };
-            let location = location.to_str().map_err(|error| {
-                build_error(format!("invalid redirect location header: {error}"))
-            })?;
-            let next_url = response
-                .url()
-                .join(location)
-                .map_err(|error| build_error(format!("invalid redirect target URL: {error}")))?;
-            let mut next_request = redirect_template
-                .ok_or_else(|| build_error("missing redirect request template"))?;
-            if !same_origin(response.url(), &next_url) {
-                strip_origin_bound_headers(next_request.headers_mut());
-            }
-            *next_request.url_mut() = next_url;
-            request = next_request;
-            redirect_count += 1;
-            continue;
-        }
-
-        return Ok(response);
-    }
-}
-
-async fn send_with_budget(
+pub(crate) async fn send_with_budget(
     client: Client,
     request: reqwest::Request,
     request_url: &str,
@@ -244,7 +132,7 @@ async fn send_with_budget(
     response.map_err(|error| map_transport_error(error, request_url))
 }
 
-async fn collect_status_error(
+pub(crate) async fn collect_status_error(
     response: reqwest::Response,
     request_budget: &mut RequestBudget,
     request_url: &str,
@@ -307,7 +195,7 @@ async fn collect_status_error(
     }))
 }
 
-async fn collect_success_body(
+pub(crate) async fn collect_success_body(
     response: reqwest::Response,
     request_budget: &mut RequestBudget,
     request_url: &str,
@@ -517,7 +405,7 @@ pub(crate) fn log_transport_error(mode: &str, request_url: &str, error: &HttpErr
     );
 }
 
-async fn build_client(
+pub(crate) async fn build_client(
     call_config: &ResolvedCallConfig,
     uses_tls: bool,
 ) -> Result<Client, HttpError> {
@@ -584,13 +472,13 @@ fn parse_certificates(bundle: &[u8]) -> Result<Vec<Certificate>, HttpError> {
     Ok(certificates)
 }
 
-fn same_origin(left: &Url, right: &Url) -> bool {
+pub(crate) fn same_origin(left: &Url, right: &Url) -> bool {
     left.scheme() == right.scheme()
         && left.host_str() == right.host_str()
         && left.port_or_known_default() == right.port_or_known_default()
 }
 
-fn strip_origin_bound_headers(headers: &mut HeaderMap) {
+pub(crate) fn strip_origin_bound_headers(headers: &mut HeaderMap) {
     headers.remove(AUTHORIZATION);
     headers.remove(COOKIE);
     headers.remove(HOST);

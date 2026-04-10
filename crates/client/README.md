@@ -63,6 +63,8 @@ assert!(response.status.is_success());
 
 ## Response semantics
 
+- `GET` requests follow standard redirect statuses inside this crate, with a fixed hop limit
+- redirect hops are rebuilt inside the crate; cross-origin hops drop origin-bound request headers such as `Authorization` and `Cookie`
 - `execute(...)` returns a full `HttpResponse` only for `2xx`
 - `stream(...)` returns a raw `ByteStream` only for `2xx`
 - non-`2xx` responses are returned as `HttpError::Status`

@@ -116,6 +116,72 @@ async fn execute_returns_status_error_after_redirect_without_retrying() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn execute_redirect_without_location_fails_build() {
+    const FLAG: &str = "SELVEDGE_CLIENT_REDIRECT_MISSING_LOCATION_CHILD";
+
+    if !child_mode(FLAG) {
+        assert_child_success(&run_child(
+            "execute_redirect_without_location_fails_build",
+            FLAG,
+        ));
+        return;
+    }
+
+    let _tempdir = init_client_test().await;
+    let server = spawn_http_server(Router::new().route(
+        "/redirect",
+        get(|| async { (StatusCode::FOUND, HeaderMap::new(), Bytes::new()) }),
+    ))
+    .await;
+
+    let error = execute(HttpRequest {
+        method: HttpMethod::Get,
+        url: server.url("/redirect"),
+        headers: HeaderMap::new(),
+        body: HttpRequestBody::Empty,
+        timeout: Some(Duration::from_secs(1)),
+        compression: RequestCompression::None,
+    })
+    .await
+    .expect_err("redirect without location must fail");
+
+    assert!(matches!(error, HttpError::Build { .. }));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn execute_logs_redirect_hops() {
+    const FLAG: &str = "SELVEDGE_CLIENT_REDIRECT_LOG_CHILD";
+
+    if !child_mode(FLAG) {
+        let output = run_child("execute_logs_redirect_hops", FLAG);
+        assert_child_success(&output);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(stderr.contains("http request redirected"));
+        assert!(stderr.contains("hop=\"1\""));
+        return;
+    }
+
+    let _tempdir = init_client_test().await;
+    let app = Router::new()
+        .route("/redirect", get(|| async { Redirect::temporary("/ok") }))
+        .route("/ok", get(|| async { (StatusCode::OK, "ready") }));
+    let server = spawn_http_server(app).await;
+
+    let response = execute(HttpRequest {
+        method: HttpMethod::Get,
+        url: server.url("/redirect"),
+        headers: HeaderMap::new(),
+        body: HttpRequestBody::Empty,
+        timeout: Some(Duration::from_secs(1)),
+        compression: RequestCompression::None,
+    })
+    .await
+    .expect("redirect should succeed");
+
+    assert_eq!(response.body, Bytes::from_static(b"ready"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn execute_redirect_drops_origin_bound_headers_on_cross_origin_redirect() {
     const FLAG: &str = "SELVEDGE_CLIENT_REDIRECT_HEADER_STRIP_CHILD";
 

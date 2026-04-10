@@ -3,8 +3,10 @@
 
 mod config_resolution;
 mod redaction;
+mod redirect_runtime;
 mod request_prep;
 mod runtime;
+mod single_hop;
 
 use std::{error::Error as StdError, fmt, pin::Pin, time::Duration};
 
@@ -16,8 +18,9 @@ use tokio::task;
 use crate::{
     config_resolution::resolve_call_config,
     redaction::sanitize_url,
+    redirect_runtime::{execute_inner, stream_inner},
     request_prep::prepare_request,
-    runtime::{RequestBudget, execute_inner, log_result, log_stream_result, stream_inner},
+    runtime::{RequestBudget, log_result, log_stream_result},
 };
 
 macro_rules! log_event {
@@ -163,7 +166,7 @@ pub async fn execute(request: HttpRequest) -> Result<HttpResponse, HttpError> {
     );
 
     let call_config = resolve_call_config(request.timeout)?;
-    let prepared = prepare_request(request, &call_config).await?;
+    let prepared = prepare_request(request.clone(), &call_config).await?;
 
     log_event!(
         selvedge_logging::LogLevel::Debug,
@@ -179,6 +182,7 @@ pub async fn execute(request: HttpRequest) -> Result<HttpResponse, HttpError> {
     let body_len = prepared.body_len;
     let result = execute_inner(
         &call_config,
+        request,
         prepared,
         RequestBudget::new(call_config.request_timeout),
     )
@@ -200,7 +204,7 @@ pub async fn stream(request: HttpRequest) -> Result<HttpStreamResponse, HttpErro
     );
 
     let call_config = resolve_call_config(request.timeout)?;
-    let prepared = prepare_request(request, &call_config).await?;
+    let prepared = prepare_request(request.clone(), &call_config).await?;
 
     log_event!(
         selvedge_logging::LogLevel::Debug,
@@ -216,6 +220,7 @@ pub async fn stream(request: HttpRequest) -> Result<HttpStreamResponse, HttpErro
     let body_len = prepared.body_len;
     let result = stream_inner(
         &call_config,
+        request,
         prepared,
         RequestBudget::new(call_config.request_timeout),
         call_config.stream_idle_timeout,
