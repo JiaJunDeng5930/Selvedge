@@ -138,15 +138,7 @@ pub(crate) async fn collect_status_error(
     loop {
         let wait_budget = match WaitBudget::new(request_budget.remaining(), None) {
             Ok(wait_budget) => wait_budget,
-            Err(_) => {
-                crate::log_event!(
-                    selvedge_logging::LogLevel::Warn,
-                    "http non-success response body timed out";
-                    url = url.as_str(),
-                    status = status.as_u16()
-                );
-                return Err(HttpError::Timeout);
-            }
+            Err(_) => unreachable!("status body collection does not use idle timeout"),
         };
         let (next_chunk, elapsed) = match run_wait(wait_budget, stream.next()).await {
             Ok(result) => result,
@@ -157,7 +149,7 @@ pub(crate) async fn collect_status_error(
                     url = url.as_str(),
                     status = status.as_u16()
                 );
-                return Err(HttpError::Timeout);
+                break;
             }
         };
         request_budget.charge(elapsed);

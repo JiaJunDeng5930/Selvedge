@@ -84,7 +84,7 @@ fn find_next_scheme(text: &str) -> Option<(usize, &'static str)> {
 
     match (http, https) {
         (Some(http), Some(https)) if http <= https => Some((http, "http://")),
-        (Some(http), Some(_)) => Some((http, "http://")),
+        (Some(_), Some(https)) => Some((https, "https://")),
         (Some(http), None) => Some((http, "http://")),
         (None, Some(https)) => Some((https, "https://")),
         (None, None) => None,

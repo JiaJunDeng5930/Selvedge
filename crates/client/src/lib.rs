@@ -476,4 +476,19 @@ mod tests {
         assert!(!sanitized.contains("user:pass"));
         assert!(!sanitized.contains("token=secret"));
     }
+
+    #[test]
+    fn sanitize_error_text_scrubs_earliest_https_url_before_later_http_url() {
+        let raw = concat!(
+            "tls failed for https://user:pass@example.com/path?token=secret ",
+            "before redirecting to http://other.example.test/path?x=1"
+        );
+        let sanitized = sanitize_error_text(raw, &[]);
+
+        assert!(sanitized.contains("https://example.com/path"));
+        assert!(sanitized.contains("http://other.example.test/path"));
+        assert!(!sanitized.contains("user:pass"));
+        assert!(!sanitized.contains("token=secret"));
+        assert!(!sanitized.contains("?x=1"));
+    }
 }
