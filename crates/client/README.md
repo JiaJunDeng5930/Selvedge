@@ -57,7 +57,9 @@ assert!(response.status.is_success());
 - every call reads `network.*` config immediately through `selvedge_config::read`
 - `request.timeout` overrides `network.request_timeout_ms` only for that call
 - `network.request_timeout_ms` is optional; when it is unset and no per-call timeout is supplied, this crate does not install a request timeout and leaves timeout behavior to the underlying HTTP client
+- when `request.timeout` or `network.request_timeout_ms` is set, the timeout budget applies to transport wait phases such as sending the request, waiting for response headers, and waiting for response body chunks; it does not count caller-side processing time between stream polls
 - `network.connect_timeout_ms` and `network.stream_idle_timeout_ms` follow the same rule: unset means this crate does not synthesize a fallback value
+- `network.stream_idle_timeout_ms` applies per wait window while the stream is waiting for the next body bytes; it is reset only when non-empty bytes arrive
 
 ## Response semantics
 

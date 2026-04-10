@@ -823,6 +823,100 @@ async fn stream_idle_timeout_covers_wait_for_first_chunk() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn stream_request_timeout_excludes_delay_before_first_poll() {
+    const FLAG: &str = "SELVEDGE_CLIENT_STREAM_DELAYED_FIRST_POLL_CHILD";
+
+    if !child_mode(FLAG) {
+        assert_child_success(&run_child(
+            "stream_request_timeout_excludes_delay_before_first_poll",
+            FLAG,
+        ));
+        return;
+    }
+
+    let _tempdir = init_client_test().await;
+    let app = Router::new().route(
+        "/stream",
+        get(|| async {
+            let body = Body::from_stream(async_stream::stream! {
+                yield Ok::<Bytes, Infallible>(Bytes::from_static(b"ready"));
+            });
+
+            (StatusCode::OK, body)
+        }),
+    );
+    let server = spawn_http_server(app).await;
+
+    let response = stream(HttpRequest {
+        method: HttpMethod::Get,
+        url: server.url("/stream"),
+        headers: HeaderMap::new(),
+        body: HttpRequestBody::Empty,
+        timeout: Some(Duration::from_millis(50)),
+        compression: RequestCompression::None,
+    })
+    .await
+    .expect("response head should arrive");
+
+    sleep(Duration::from_millis(120)).await;
+
+    let mut body = response.body;
+    let first = body.next().await.expect("first stream item");
+
+    assert_eq!(first.expect("first chunk"), Bytes::from_static(b"ready"));
+    assert!(body.next().await.is_none());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn stream_request_timeout_excludes_consumer_processing_time() {
+    const FLAG: &str = "SELVEDGE_CLIENT_STREAM_CONSUMER_DELAY_CHILD";
+
+    if !child_mode(FLAG) {
+        assert_child_success(&run_child(
+            "stream_request_timeout_excludes_consumer_processing_time",
+            FLAG,
+        ));
+        return;
+    }
+
+    let _tempdir = init_client_test().await;
+    let app = Router::new().route(
+        "/stream",
+        get(|| async {
+            let body = Body::from_stream(async_stream::stream! {
+                yield Ok::<Bytes, Infallible>(Bytes::from_static(b"first"));
+                sleep(Duration::from_millis(20)).await;
+                yield Ok::<Bytes, Infallible>(Bytes::from_static(b"second"));
+            });
+
+            (StatusCode::OK, body)
+        }),
+    );
+    let server = spawn_http_server(app).await;
+
+    let response = stream(HttpRequest {
+        method: HttpMethod::Get,
+        url: server.url("/stream"),
+        headers: HeaderMap::new(),
+        body: HttpRequestBody::Empty,
+        timeout: Some(Duration::from_millis(50)),
+        compression: RequestCompression::None,
+    })
+    .await
+    .expect("start stream");
+
+    let mut body = response.body;
+    let first = body.next().await.expect("first stream item");
+    assert_eq!(first.expect("first chunk"), Bytes::from_static(b"first"));
+
+    sleep(Duration::from_millis(120)).await;
+
+    let second = body.next().await.expect("second stream item");
+    assert_eq!(second.expect("second chunk"), Bytes::from_static(b"second"));
+    assert!(body.next().await.is_none());
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn stream_times_out_on_idle_gap() {
     const FLAG: &str = "SELVEDGE_CLIENT_STREAM_IDLE_CHILD";
 
