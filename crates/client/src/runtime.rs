@@ -4,7 +4,7 @@ use bytes::{Bytes, BytesMut};
 use futures::{Stream, StreamExt};
 use http::{
     HeaderMap, HeaderName,
-    header::{AUTHORIZATION, COOKIE, HOST, ORIGIN, PROXY_AUTHORIZATION, REFERER},
+    header::{ACCEPT, ACCEPT_ENCODING, ACCEPT_LANGUAGE, CACHE_CONTROL, PRAGMA, USER_AGENT},
 };
 use reqwest::{Certificate, Client, Url};
 use tokio::{fs as tokio_fs, time::Instant};
@@ -465,7 +465,7 @@ pub(crate) fn same_origin(left: &Url, right: &Url) -> bool {
 pub(crate) fn strip_origin_bound_headers(headers: &mut HeaderMap) {
     let names_to_remove = headers
         .keys()
-        .filter(|name| is_cross_origin_sensitive_header(name))
+        .filter(|name| !is_cross_origin_whitelisted_header(name))
         .cloned()
         .collect::<Vec<_>>();
 
@@ -474,63 +474,10 @@ pub(crate) fn strip_origin_bound_headers(headers: &mut HeaderMap) {
     }
 }
 
-fn is_cross_origin_sensitive_header(name: &HeaderName) -> bool {
-    if matches!(
-        *name,
-        AUTHORIZATION | COOKIE | HOST | ORIGIN | PROXY_AUTHORIZATION | REFERER
-    ) {
-        return true;
-    }
-
-    let lower = name.as_str().to_ascii_lowercase();
-    let compact = lower
-        .chars()
-        .filter(|character| character.is_ascii_alphanumeric())
-        .collect::<String>();
-    let tokens = lower
-        .split(|character: char| !character.is_ascii_alphanumeric())
-        .filter(|token| !token.is_empty())
-        .collect::<Vec<_>>();
-
-    if matches_compact_sensitive_header(&compact) {
-        return true;
-    }
-
-    matches_sensitive_token_pattern(&tokens)
-}
-
-fn matches_compact_sensitive_header(compact: &str) -> bool {
-    [
-        "apikey",
-        "apitoken",
-        "authtoken",
-        "accesstoken",
-        "refreshtoken",
-        "sessionid",
-        "sessionkey",
-        "sessiontoken",
-        "clientsecret",
-        "clienttoken",
-        "credential",
-    ]
-    .iter()
-    .any(|needle| compact.contains(needle))
-}
-
-fn matches_sensitive_token_pattern(tokens: &[&str]) -> bool {
+fn is_cross_origin_whitelisted_header(name: &HeaderName) -> bool {
     matches!(
-        tokens,
-        ["api", "key"]
-            | ["api", "token"]
-            | ["auth", "token"]
-            | ["access", "token"]
-            | ["refresh", "token"]
-            | ["session", "id"]
-            | ["session", "key"]
-            | ["session", "token"]
-            | ["client", "secret"]
-            | ["client", "token"]
-            | ["credential"]
+        *name,
+        ACCEPT | ACCEPT_ENCODING | ACCEPT_LANGUAGE | CACHE_CONTROL | PRAGMA | USER_AGENT
     )
 }
 
