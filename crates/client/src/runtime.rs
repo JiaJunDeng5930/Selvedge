@@ -496,9 +496,17 @@ fn is_cross_origin_sensitive_header(name: &HeaderName) -> bool {
     }
 
     let lower = name.as_str().to_ascii_lowercase();
+    let compact = lower
+        .chars()
+        .filter(|character| character.is_ascii_alphanumeric())
+        .collect::<String>();
     let tokens = lower
         .split(|character: char| !character.is_ascii_alphanumeric())
         .filter(|token| !token.is_empty());
+
+    if matches_compact_sensitive_header(&compact) {
+        return true;
+    }
 
     tokens.into_iter().any(|token| {
         matches!(
@@ -506,6 +514,19 @@ fn is_cross_origin_sensitive_header(name: &HeaderName) -> bool {
             "auth" | "authorization" | "token" | "key" | "secret" | "credential" | "session"
         )
     })
+}
+
+fn matches_compact_sensitive_header(compact: &str) -> bool {
+    [
+        "apikey",
+        "authtoken",
+        "sessionid",
+        "sessionkey",
+        "credential",
+        "secret",
+    ]
+    .iter()
+    .any(|needle| compact.contains(needle))
 }
 
 fn is_tls_error(error: &reqwest::Error) -> bool {
