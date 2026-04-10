@@ -780,12 +780,12 @@ async fn execute_preserves_status_when_error_body_is_truncated() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn execute_times_out_on_slow_non_success_body() {
+async fn execute_preserves_status_on_slow_non_success_body() {
     const FLAG: &str = "SELVEDGE_CLIENT_SLOW_ERROR_BODY_CHILD";
 
     if !child_mode(FLAG) {
         assert_child_success(&run_child(
-            "execute_times_out_on_slow_non_success_body",
+            "execute_preserves_status_on_slow_non_success_body",
             FLAG,
         ));
         return;
@@ -815,9 +815,15 @@ async fn execute_times_out_on_slow_non_success_body() {
         compression: RequestCompression::None,
     })
     .await
-    .expect_err("slow non-success body should time out");
+    .expect_err("slow non-success body should preserve status");
 
-    assert!(matches!(error, HttpError::Timeout));
+    match error {
+        HttpError::Status(status) => {
+            assert_eq!(status.status, StatusCode::BAD_REQUEST);
+            assert_eq!(status.body, Bytes::from_static(b"part"));
+        }
+        other => panic!("expected status error, got {other:?}"),
+    }
 }
 
 #[tokio::test(flavor = "multi_thread")]
