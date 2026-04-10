@@ -1,10 +1,7 @@
 use std::{
     net::SocketAddr,
     process::{Command, Output},
-    sync::{
-        Arc, OnceLock,
-        atomic::{AtomicUsize, Ordering},
-    },
+    sync::{Arc, OnceLock},
 };
 
 use axum::Router;
@@ -13,7 +10,7 @@ use rcgen::generate_simple_self_signed;
 use tempfile::TempDir;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
-    net::{TcpListener, TcpStream},
+    net::TcpListener,
     task::JoinHandle,
 };
 use tokio_rustls::{
@@ -37,19 +34,6 @@ pub fn run_child(test_name: &str, flag: &str) -> Output {
         .env(flag, "1")
         .output()
         .expect("run child test")
-}
-
-pub fn run_child_with_env(test_name: &str, flag: &str, envs: &[(&str, &str)]) -> Output {
-    let current_executable = std::env::current_exe().expect("current test executable");
-    let mut command = Command::new(current_executable);
-
-    command.arg("--exact").arg(test_name).env(flag, "1");
-
-    for (key, value) in envs {
-        command.env(key, value);
-    }
-
-    command.output().expect("run child test with env")
 }
 
 pub fn assert_child_success(output: &Output) {
@@ -178,97 +162,6 @@ pub async fn spawn_https_server(status: http::StatusCode, body: Bytes) -> HttpsS
         ca_cert_pem,
         handle,
     }
-}
-
-pub struct ProxyServer {
-    pub url: String,
-    pub hits: Arc<AtomicUsize>,
-    handle: JoinHandle<()>,
-}
-
-impl ProxyServer {
-    pub fn hit_count(&self) -> usize {
-        self.hits.load(Ordering::SeqCst)
-    }
-}
-
-impl Drop for ProxyServer {
-    fn drop(&mut self) {
-        self.handle.abort();
-    }
-}
-
-pub async fn spawn_http_proxy() -> ProxyServer {
-    let listener = TcpListener::bind("127.0.0.1:0")
-        .await
-        .expect("bind proxy server");
-    let addr = listener.local_addr().expect("local addr");
-    let hits = Arc::new(AtomicUsize::new(0));
-    let hits_for_server = Arc::clone(&hits);
-    let handle = tokio::spawn(async move {
-        loop {
-            let (mut socket, _) = listener.accept().await.expect("accept proxy socket");
-            let hits = Arc::clone(&hits_for_server);
-            tokio::spawn(async move {
-                hits.fetch_add(1, Ordering::SeqCst);
-                handle_proxy_connection(&mut socket)
-                    .await
-                    .expect("proxy request");
-            });
-        }
-    });
-
-    ProxyServer {
-        url: format!("http://{addr}"),
-        hits,
-        handle,
-    }
-}
-
-async fn handle_proxy_connection(socket: &mut TcpStream) -> Result<(), Box<dyn std::error::Error>> {
-    let mut request_buffer = Vec::new();
-
-    loop {
-        let mut chunk = [0_u8; 1024];
-        let bytes_read = socket.read(&mut chunk).await?;
-
-        if bytes_read == 0 {
-            break;
-        }
-
-        request_buffer.extend_from_slice(&chunk[..bytes_read]);
-
-        if request_buffer
-            .windows(4)
-            .any(|window| window == b"\r\n\r\n")
-        {
-            break;
-        }
-    }
-
-    let request = String::from_utf8(request_buffer)?;
-    let request_line = request.lines().next().expect("proxy request line");
-    let mut parts = request_line.split_whitespace();
-    let method = parts.next().expect("proxy request method");
-    let target = parts.next().expect("proxy request target");
-    let response = reqwest::Client::new()
-        .request(reqwest::Method::from_bytes(method.as_bytes())?, target)
-        .send()
-        .await?;
-    let status = response.status();
-    let body = response.bytes().await?;
-    let response_head = format!(
-        "HTTP/1.1 {} {}\r\ncontent-length: {}\r\n\r\n",
-        status.as_u16(),
-        status.canonical_reason().unwrap_or("OK"),
-        body.len()
-    );
-
-    socket.write_all(response_head.as_bytes()).await?;
-    socket.write_all(&body).await?;
-    socket.shutdown().await?;
-
-    Ok(())
 }
 
 fn install_rustls_provider() {

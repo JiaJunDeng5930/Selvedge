@@ -23,8 +23,8 @@ use selvedge_client::{
     HttpError, HttpMethod, HttpRequest, HttpRequestBody, RequestCompression, execute, stream,
 };
 use support::{
-    assert_child_success, child_mode, init_client_test, run_child, run_child_with_env,
-    spawn_http_proxy, spawn_http_server, spawn_https_server,
+    assert_child_success, child_mode, init_client_test, run_child, spawn_http_server,
+    spawn_https_server,
 };
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -540,75 +540,6 @@ async fn execute_accepts_custom_ca_bundle() {
 
     assert_eq!(response.status, StatusCode::OK);
     assert_eq!(response.body, Bytes::from_static(b"secure"));
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn execute_uses_explicit_proxy() {
-    const FLAG: &str = "SELVEDGE_CLIENT_PROXY_CHILD";
-
-    if !child_mode(FLAG) {
-        assert_child_success(&run_child("execute_uses_explicit_proxy", FLAG));
-        return;
-    }
-
-    let _tempdir = init_client_test().await;
-    let origin = spawn_http_server(
-        Router::new().route("/proxied", get(|| async { (StatusCode::OK, "proxied") })),
-    )
-    .await;
-    let proxy = spawn_http_proxy().await;
-    selvedge_config::update_runtime("network.proxy_url", proxy.url.clone()).expect("set proxy");
-
-    let response = execute(HttpRequest {
-        method: HttpMethod::Get,
-        url: origin.url("/proxied"),
-        headers: HeaderMap::new(),
-        body: HttpRequestBody::Empty,
-        timeout: Some(Duration::from_secs(2)),
-        compression: RequestCompression::None,
-    })
-    .await
-    .expect("request through proxy");
-
-    assert_eq!(response.body, Bytes::from_static(b"proxied"));
-    assert_eq!(proxy.hit_count(), 1);
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn execute_ignores_ambient_proxy_without_config_proxy_url() {
-    const FLAG: &str = "SELVEDGE_CLIENT_IGNORE_ENV_PROXY_CHILD";
-
-    if !child_mode(FLAG) {
-        let output = run_child_with_env(
-            "execute_ignores_ambient_proxy_without_config_proxy_url",
-            FLAG,
-            &[
-                ("HTTP_PROXY", "http://127.0.0.1:9"),
-                ("HTTPS_PROXY", "http://127.0.0.1:9"),
-            ],
-        );
-        assert_child_success(&output);
-        return;
-    }
-
-    let _tempdir = init_client_test().await;
-    let server = spawn_http_server(
-        Router::new().route("/direct", get(|| async { (StatusCode::OK, "direct") })),
-    )
-    .await;
-
-    let response = execute(HttpRequest {
-        method: HttpMethod::Get,
-        url: server.url("/direct"),
-        headers: HeaderMap::new(),
-        body: HttpRequestBody::Empty,
-        timeout: Some(Duration::from_secs(2)),
-        compression: RequestCompression::None,
-    })
-    .await
-    .expect("ambient proxy should be ignored");
-
-    assert_eq!(response.body, Bytes::from_static(b"direct"));
 }
 
 #[tokio::test(flavor = "multi_thread")]

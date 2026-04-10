@@ -6,7 +6,6 @@ use http::HeaderValue;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use toml::{Table, Value};
-use url::Url;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct AppConfig {
@@ -70,7 +69,6 @@ pub struct NetworkConfig {
     pub connect_timeout_ms: Option<u64>,
     pub request_timeout_ms: Option<u64>,
     pub stream_idle_timeout_ms: Option<u64>,
-    pub proxy_url: Option<String>,
     pub ca_bundle_path: Option<std::path::PathBuf>,
     pub user_agent: Option<String>,
 }
@@ -87,15 +85,6 @@ impl NetworkConfig {
 
         if self.stream_idle_timeout_ms == Some(0) {
             return Err(ValidationError::InvalidStreamIdleTimeout);
-        }
-
-        if let Some(proxy_url) = &self.proxy_url {
-            let parsed = Url::parse(proxy_url)
-                .map_err(|_| ValidationError::InvalidProxyUrl(proxy_url.clone()))?;
-            match parsed.scheme() {
-                "http" | "https" => {}
-                _ => return Err(ValidationError::InvalidProxyUrl(proxy_url.clone())),
-            }
         }
 
         if let Some(user_agent) = &self.user_agent {
@@ -190,8 +179,6 @@ pub enum ValidationError {
     InvalidNetworkRequestTimeout,
     #[error("network.stream_idle_timeout_ms must be greater than zero")]
     InvalidStreamIdleTimeout,
-    #[error("network.proxy_url must be a valid absolute URL, got {0}")]
-    InvalidProxyUrl(String),
     #[error("network.user_agent must be a valid HTTP header value, got {0}")]
     InvalidUserAgent(String),
     #[error("feature.rollout_percentage must be between 0 and 100, got {0}")]
@@ -248,7 +235,6 @@ struct NetworkConfigInput {
     connect_timeout_ms: Option<u64>,
     request_timeout_ms: Option<u64>,
     stream_idle_timeout_ms: Option<u64>,
-    proxy_url: Option<String>,
     ca_bundle_path: Option<std::path::PathBuf>,
     user_agent: Option<String>,
 }
@@ -259,7 +245,6 @@ impl NetworkConfigInput {
             connect_timeout_ms: self.connect_timeout_ms,
             request_timeout_ms: self.request_timeout_ms,
             stream_idle_timeout_ms: self.stream_idle_timeout_ms,
-            proxy_url: self.proxy_url,
             ca_bundle_path: self.ca_bundle_path,
             user_agent: self.user_agent,
         }
@@ -316,7 +301,6 @@ mod tests {
         assert_eq!(config.network.connect_timeout_ms, None);
         assert_eq!(config.network.request_timeout_ms, None);
         assert_eq!(config.network.stream_idle_timeout_ms, None);
-        assert_eq!(config.network.proxy_url, None);
         assert_eq!(config.network.ca_bundle_path, None);
         assert_eq!(config.network.user_agent, None);
         assert_eq!(config.logging.level, LogFilter::Info);
@@ -366,7 +350,6 @@ mod tests {
             connect_timeout_ms = 1_000
             request_timeout_ms = 30_000
             stream_idle_timeout_ms = 300_000
-            proxy_url = "http://localhost:8080"
             ca_bundle_path = "/tmp/ca.pem"
             user_agent = "selvedge-client/test"
         };
@@ -376,10 +359,6 @@ mod tests {
         assert_eq!(config.network.connect_timeout_ms, Some(1_000));
         assert_eq!(config.network.request_timeout_ms, Some(30_000));
         assert_eq!(config.network.stream_idle_timeout_ms, Some(300_000));
-        assert_eq!(
-            config.network.proxy_url.as_deref(),
-            Some("http://localhost:8080")
-        );
         assert_eq!(
             config.network.ca_bundle_path.as_deref(),
             Some(std::path::Path::new("/tmp/ca.pem"))
