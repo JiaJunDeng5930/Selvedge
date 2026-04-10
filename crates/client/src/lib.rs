@@ -12,7 +12,7 @@ use http::{
         ORIGIN, REFERER, USER_AGENT,
     },
 };
-use reqwest::{Certificate, Client, Method, Proxy, Url};
+use reqwest::{Certificate, Client, Method, Url};
 use tokio::time::{Instant, timeout_at};
 use tokio::{fs as tokio_fs, task};
 use url::form_urlencoded;
@@ -95,7 +95,6 @@ struct ResolvedCallConfig {
     connect_timeout: Option<Duration>,
     request_timeout: Option<Duration>,
     stream_idle_timeout: Option<Duration>,
-    proxy_url: Option<String>,
     ca_bundle_path: Option<PathBuf>,
     user_agent: Option<String>,
 }
@@ -494,7 +493,6 @@ fn resolve_call_config(
         connect_timeout_ms,
         request_timeout_ms,
         stream_idle_timeout_ms,
-        proxy_url,
         ca_bundle_path,
         user_agent,
     ) = selvedge_config::read(|config| {
@@ -502,7 +500,6 @@ fn resolve_call_config(
             config.network.connect_timeout_ms,
             config.network.request_timeout_ms,
             config.network.stream_idle_timeout_ms,
-            config.network.proxy_url.clone(),
             config.network.ca_bundle_path.clone(),
             config.network.user_agent.clone(),
         )
@@ -517,7 +514,6 @@ fn resolve_call_config(
         connect_timeout: connect_timeout_ms.map(Duration::from_millis),
         request_timeout: timeout_override.or_else(|| request_timeout_ms.map(Duration::from_millis)),
         stream_idle_timeout: stream_idle_timeout_ms.map(Duration::from_millis),
-        proxy_url,
         ca_bundle_path,
         user_agent,
     };
@@ -528,7 +524,6 @@ fn resolve_call_config(
         connect_timeout_ms = duration_millis_or_zero(config.connect_timeout),
         request_timeout_ms = duration_millis_or_zero(config.request_timeout),
         stream_idle_timeout_ms = duration_millis_or_zero(config.stream_idle_timeout),
-        has_proxy = config.proxy_url.is_some(),
         has_ca_bundle = config.ca_bundle_path.is_some(),
         has_user_agent = config.user_agent.is_some()
     );
@@ -693,28 +688,15 @@ async fn build_client(
     if let Some(connect_timeout) = call_config.connect_timeout {
         builder = builder.connect_timeout(connect_timeout);
     }
+    builder = builder.no_proxy();
 
-    if let Some(proxy_url) = &call_config.proxy_url {
-        let proxy = Proxy::all(proxy_url)
-            .map_err(|error| build_error(format!("invalid network.proxy_url: {error}")))?;
-        builder = builder.proxy(proxy);
-    } else {
-        builder = builder.no_proxy();
-    }
+    if let Some(path) = &call_config.ca_bundle_path
+        && uses_tls
+    {
+        let certificates = load_ca_bundle(path, request_deadline).await?;
 
-    if let Some(path) = &call_config.ca_bundle_path {
-        let tls_proxy = call_config
-            .proxy_url
-            .as_deref()
-            .and_then(|proxy_url| Url::parse(proxy_url).ok())
-            .is_some_and(|proxy_url| proxy_url.scheme() == "https");
-
-        if uses_tls || tls_proxy {
-            let certificates = load_ca_bundle(path, request_deadline).await?;
-
-            for certificate in certificates {
-                builder = builder.add_root_certificate(certificate);
-            }
+        for certificate in certificates {
+            builder = builder.add_root_certificate(certificate);
         }
     }
 
@@ -1204,9 +1186,8 @@ impl StreamTimeoutState {
 mod tests {
     use super::{
         HeaderMap, HeaderValue, HttpError, HttpMethod, HttpRequest, HttpRequestBody, PreparedBody,
-        RequestCompression, ResolvedCallConfig, build_client, build_error, encode_body,
-        maybe_compress_body, parse_absolute_http_url, prepare_request, sanitize_url_for_output,
-        wrap_stream,
+        RequestCompression, ResolvedCallConfig, build_error, encode_body, maybe_compress_body,
+        parse_absolute_http_url, prepare_request, sanitize_url_for_output, wrap_stream,
     };
     use std::time::Duration;
 
@@ -1255,7 +1236,6 @@ mod tests {
                 connect_timeout: None,
                 request_timeout: None,
                 stream_idle_timeout: None,
-                proxy_url: None,
                 ca_bundle_path: None,
                 user_agent: None,
             },
@@ -1268,26 +1248,6 @@ mod tests {
             prepared.request.headers().get(super::CONTENT_TYPE),
             Some(&HeaderValue::from_static("application/json"))
         );
-    }
-
-    #[tokio::test(flavor = "current_thread")]
-    async fn invalid_proxy_url_fails_client_build() {
-        let error = build_client(
-            &ResolvedCallConfig {
-                connect_timeout: None,
-                request_timeout: None,
-                stream_idle_timeout: None,
-                proxy_url: Some("://bad-proxy".to_owned()),
-                ca_bundle_path: None,
-                user_agent: None,
-            },
-            None,
-            true,
-        )
-        .await
-        .expect_err("invalid proxy must fail");
-
-        assert!(matches!(error, super::HttpError::Build { .. }));
     }
 
     #[tokio::test(flavor = "current_thread")]

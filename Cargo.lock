@@ -1247,7 +1247,6 @@ dependencies = [
  "serde",
  "thiserror",
  "toml",
- "url",
 ]
 
 [[package]]
