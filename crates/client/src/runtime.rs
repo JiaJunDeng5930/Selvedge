@@ -4,7 +4,7 @@ use bytes::{Bytes, BytesMut};
 use futures::{Stream, StreamExt};
 use http::{
     HeaderMap, HeaderName,
-    header::{AUTHORIZATION, COOKIE, HOST, ORIGIN, REFERER},
+    header::{AUTHORIZATION, COOKIE, HOST, ORIGIN, PROXY_AUTHORIZATION, REFERER},
 };
 use reqwest::{Certificate, Client, Url};
 use tokio::{fs as tokio_fs, time::Instant};
@@ -475,7 +475,10 @@ pub(crate) fn strip_origin_bound_headers(headers: &mut HeaderMap) {
 }
 
 fn is_cross_origin_sensitive_header(name: &HeaderName) -> bool {
-    if matches!(*name, AUTHORIZATION | COOKIE | HOST | ORIGIN | REFERER) {
+    if matches!(
+        *name,
+        AUTHORIZATION | COOKIE | HOST | ORIGIN | PROXY_AUTHORIZATION | REFERER
+    ) {
         return true;
     }
 
