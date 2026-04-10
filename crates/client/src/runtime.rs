@@ -502,6 +502,7 @@ fn is_cross_origin_sensitive_header(name: &HeaderName) -> bool {
 fn matches_compact_sensitive_header(compact: &str) -> bool {
     [
         "apikey",
+        "apitoken",
         "authtoken",
         "accesstoken",
         "refreshtoken",
@@ -520,6 +521,7 @@ fn matches_sensitive_token_pattern(tokens: &[&str]) -> bool {
     matches!(
         tokens,
         ["api", "key"]
+            | ["api", "token"]
             | ["auth", "token"]
             | ["access", "token"]
             | ["refresh", "token"]
