@@ -3,7 +3,7 @@ use std::{error::Error as StdError, future::Future, path::Path, time::Duration};
 use bytes::{Bytes, BytesMut};
 use futures::{Stream, StreamExt};
 use http::{
-    HeaderMap,
+    HeaderMap, HeaderName,
     header::{AUTHORIZATION, COOKIE, HOST, ORIGIN, REFERER},
 };
 use reqwest::{Certificate, Client, Url};
@@ -479,11 +479,33 @@ pub(crate) fn same_origin(left: &Url, right: &Url) -> bool {
 }
 
 pub(crate) fn strip_origin_bound_headers(headers: &mut HeaderMap) {
-    headers.remove(AUTHORIZATION);
-    headers.remove(COOKIE);
-    headers.remove(HOST);
-    headers.remove(ORIGIN);
-    headers.remove(REFERER);
+    let names_to_remove = headers
+        .keys()
+        .filter(|name| is_cross_origin_sensitive_header(name))
+        .cloned()
+        .collect::<Vec<_>>();
+
+    for name in names_to_remove {
+        headers.remove(name);
+    }
+}
+
+fn is_cross_origin_sensitive_header(name: &HeaderName) -> bool {
+    if matches!(*name, AUTHORIZATION | COOKIE | HOST | ORIGIN | REFERER) {
+        return true;
+    }
+
+    let lower = name.as_str().to_ascii_lowercase();
+    let tokens = lower
+        .split(|character: char| !character.is_ascii_alphanumeric())
+        .filter(|token| !token.is_empty());
+
+    tokens.into_iter().any(|token| {
+        matches!(
+            token,
+            "auth" | "authorization" | "token" | "key" | "secret" | "credential" | "session"
+        )
+    })
 }
 
 fn is_tls_error(error: &reqwest::Error) -> bool {
