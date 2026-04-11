@@ -177,3 +177,27 @@ fn chatgpt_auth_rejects_blank_client_id() {
         "llm.providers.chatgpt.auth.client_id must not be blank"
     );
 }
+
+#[test]
+fn chatgpt_auth_rejects_issuer_with_query_or_path() {
+    let query_table = toml::toml! {
+        [llm.providers.chatgpt.auth]
+        issuer = "https://auth.openai.com?x=1"
+    };
+    let path_table = toml::toml! {
+        [llm.providers.chatgpt.auth]
+        issuer = "https://auth.openai.com/codex/device"
+    };
+
+    let query_error = AppConfig::try_from(query_table).expect_err("issuer with query must fail");
+    let path_error = AppConfig::try_from(path_table).expect_err("issuer with path must fail");
+
+    assert_eq!(
+        query_error.to_string(),
+        "llm.providers.chatgpt.auth.issuer must be a clean base URL"
+    );
+    assert_eq!(
+        path_error.to_string(),
+        "llm.providers.chatgpt.auth.issuer must be a clean base URL"
+    );
+}
