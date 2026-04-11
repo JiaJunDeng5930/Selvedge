@@ -206,6 +206,13 @@ impl ChatgptAuthConfig {
     const DEFAULT_CLIENT_ID: &'static str = "app_EMoamEEZ73f0CkXaXp7hrann";
 
     pub fn validate(&self) -> Result<(), ValidationError> {
+        let issuer =
+            url::Url::parse(&self.issuer).map_err(|_| ValidationError::InvalidChatgptIssuer)?;
+
+        if !matches!(issuer.scheme(), "http" | "https") {
+            return Err(ValidationError::InvalidChatgptIssuer);
+        }
+
         if self
             .expected_workspace_id
             .as_deref()
@@ -244,6 +251,8 @@ pub enum ValidationError {
     InvalidRolloutPercentage(u8),
     #[error("feature.rollout_percentage must be greater than zero when feature.enabled is true")]
     EnabledFeatureRequiresRollout,
+    #[error("llm.providers.chatgpt.auth.issuer must be an absolute http or https URL")]
+    InvalidChatgptIssuer,
     #[error("llm.providers.chatgpt.auth.expected_workspace_id must not be blank")]
     BlankExpectedWorkspaceId,
 }
