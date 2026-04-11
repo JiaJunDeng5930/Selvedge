@@ -395,6 +395,67 @@ issuer = "{}"
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn resolve_for_request_rejects_refresh_without_new_id_token_when_old_one_is_unusable() {
+    const FLAG: &str = "CHATGPT_AUTH_MISSING_REPLACEMENT_ID_TOKEN_CHILD";
+
+    if !child_mode(FLAG) {
+        assert_child_success(&run_child(
+            "resolve_for_request_rejects_refresh_without_new_id_token_when_old_one_is_unusable",
+            FLAG,
+        ));
+        return;
+    }
+
+    let server = spawn_http_server(Router::new().route(
+        "/oauth/token",
+        post(|| async {
+            Json(json!({
+                "access_token": "new-access-token"
+            }))
+        }),
+    ))
+    .await;
+
+    let tempdir = init_auth_test(&format!(
+        r#"
+[logging]
+level = "debug"
+
+[llm.providers.chatgpt.auth]
+issuer = "{}"
+"#,
+        server.url("")
+    ));
+    let auth_file_path = write_auth_file(
+        &tempdir,
+        &auth_file_json(
+            &build_jwt(json!({
+                "sub": "subject"
+            })),
+            "opaque-access-token",
+            "refresh-token",
+        ),
+    );
+    let original = std::fs::read_to_string(&auth_file_path).expect("read original auth file");
+
+    let error = resolve_for_request()
+        .await
+        .expect_err("missing replacement id token must fail");
+
+    assert!(matches!(
+        error,
+        ChatgptAuthError::RefreshFailed {
+            status: Some(200),
+            ..
+        }
+    ));
+    assert_eq!(
+        std::fs::read_to_string(&auth_file_path).expect("read original auth file"),
+        original
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn resolve_for_request_maps_unauthorized_refresh_to_reauthentication_required() {
     const FLAG: &str = "CHATGPT_AUTH_REAUTH_REQUIRED_CHILD";
 
@@ -754,6 +815,73 @@ issuer = "{}"
     ));
     assert_eq!(
         fs::read_to_string(&auth_file_path).expect("read original auth file"),
+        original
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn resolve_after_unauthorized_rejects_refresh_response_with_unchanged_access_token() {
+    const FLAG: &str = "CHATGPT_AUTH_FORCE_REFRESH_UNCHANGED_ACCESS_CHILD";
+
+    if !child_mode(FLAG) {
+        assert_child_success(&run_child(
+            "resolve_after_unauthorized_rejects_refresh_response_with_unchanged_access_token",
+            FLAG,
+        ));
+        return;
+    }
+
+    let unchanged_access_token = "known-bad-access-token";
+    let server = spawn_http_server(Router::new().route(
+        "/oauth/token",
+        post(move || async move {
+            Json(json!({
+                "id_token": build_jwt(json!({
+                    "sub": "subject",
+                    "https://api.openai.com/auth.chatgpt_account_id": "workspace-123"
+                })),
+                "access_token": unchanged_access_token
+            }))
+        }),
+    ))
+    .await;
+
+    let tempdir = init_auth_test(&format!(
+        r#"
+[logging]
+level = "debug"
+
+[llm.providers.chatgpt.auth]
+issuer = "{}"
+"#,
+        server.url("")
+    ));
+    let auth_file_path = write_auth_file(
+        &tempdir,
+        &auth_file_json(
+            &build_jwt(json!({
+                "sub": "subject",
+                "https://api.openai.com/auth.chatgpt_account_id": "workspace-123"
+            })),
+            unchanged_access_token,
+            "refresh-token",
+        ),
+    );
+    let original = std::fs::read_to_string(&auth_file_path).expect("read original auth file");
+
+    let error = resolve_after_unauthorized()
+        .await
+        .expect_err("unchanged forced-refresh access token must fail");
+
+    assert!(matches!(
+        error,
+        ChatgptAuthError::RefreshFailed {
+            status: Some(200),
+            ..
+        }
+    ));
+    assert_eq!(
+        std::fs::read_to_string(&auth_file_path).expect("read original auth file"),
         original
     );
 }
