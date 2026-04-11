@@ -9,7 +9,14 @@ pub(crate) struct ChatgptAuthConfig {
 
 pub(crate) fn read_chatgpt_auth_config() -> Result<ChatgptAuthConfig, ChatgptLoginError> {
     selvedge_config::read(|config| ChatgptAuthConfig {
-        issuer: config.llm.providers.chatgpt.auth.issuer.clone(),
+        issuer: config
+            .llm
+            .providers
+            .chatgpt
+            .auth
+            .issuer
+            .trim_end_matches('/')
+            .to_owned(),
         client_id: config.llm.providers.chatgpt.auth.client_id.clone(),
         expected_workspace_id: config
             .llm

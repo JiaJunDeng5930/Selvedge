@@ -180,12 +180,24 @@ enum IntervalValue {
 impl IntervalValue {
     fn into_u64(self) -> Result<u64, ChatgptLoginError> {
         match self {
-            Self::String(value) => value.parse::<u64>().map_err(|error| {
-                ChatgptLoginError::DeviceCodeStartInvalidResponse {
-                    reason: format!("start response interval is invalid: {error}"),
-                }
-            }),
-            Self::Number(value) => Ok(value),
+            Self::String(value) => {
+                validate_interval_seconds(value.parse::<u64>().map_err(|error| {
+                    ChatgptLoginError::DeviceCodeStartInvalidResponse {
+                        reason: format!("start response interval is invalid: {error}"),
+                    }
+                })?)
+            }
+            Self::Number(value) => validate_interval_seconds(value),
         }
     }
+}
+
+fn validate_interval_seconds(value: u64) -> Result<u64, ChatgptLoginError> {
+    if value == 0 {
+        return Err(ChatgptLoginError::DeviceCodeStartInvalidResponse {
+            reason: "start response interval must be greater than zero".to_owned(),
+        });
+    }
+
+    Ok(value)
 }
