@@ -41,6 +41,19 @@ and executes every HTTP request through `selvedge_client`.
   claims from `id_token`, checks `expected_workspace_id` when configured, and
   writes `<selvedge_home>/auth/chatgpt-auth.json` atomically before returning
 
+## Challenge lifetime contract
+
+`DeviceCodeChallenge::expires_at` is an API contract, not a reflection of any
+provider-specific TTL field. This crate always sets `expires_at` to
+`issued_at + 15 minutes`.
+
+This behavior is intentional. It matches the repository-level public contract
+for this crate, and callers may rely on that fixed lifetime when they interpret
+`DeviceCodePollOutcome::Expired` or `ChatgptLoginError::ChallengeExpired`.
+
+If the provider returns a different lifetime value, this crate does not surface
+that value through the public API.
+
 ## Config
 
 This crate reads:
