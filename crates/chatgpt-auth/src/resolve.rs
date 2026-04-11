@@ -21,10 +21,11 @@ async fn resolve(force_refresh: bool) -> Result<ResolvedChatgptAuth, ChatgptAuth
     let _guard = lock::lock_path(&auth_file_path).await?;
     let auth_file = auth_file::load(&auth_file_path)?;
     let access_token_expired = access_token_is_expired(&auth_file.tokens.access_token);
-    let auth_became_usable_while_waiting = refresh_hint
-        .as_ref()
-        .is_some_and(|previous_auth_file| token_sets_differ(previous_auth_file, &auth_file))
-        && !should_refresh(&auth_file, access_token_expired);
+    let id_token_requires_refresh = id_token_requires_refresh(&auth_file);
+    let auth_became_usable_while_waiting =
+        refresh_hint.as_ref().is_some_and(|previous_auth_file| {
+            previous_auth_file.tokens.access_token != auth_file.tokens.access_token
+        }) && !should_refresh(&auth_file, access_token_expired);
 
     if auth_became_usable_while_waiting
         || (!force_refresh && !should_refresh(&auth_file, access_token_expired))
@@ -40,6 +41,7 @@ async fn resolve(force_refresh: bool) -> Result<ResolvedChatgptAuth, ChatgptAuth
         &config,
         &auth_file.tokens,
         force_refresh || access_token_expired,
+        id_token_requires_refresh,
     )
     .await?;
     let refreshed_file = ChatgptAuthFile {
@@ -61,6 +63,10 @@ fn should_refresh(auth_file: &ChatgptAuthFile, access_token_expired: bool) -> bo
         return true;
     }
 
+    id_token_requires_refresh(auth_file)
+}
+
+fn id_token_requires_refresh(auth_file: &ChatgptAuthFile) -> bool {
     let Ok(id_token_claims) = parse_chatgpt_jwt_claims(&auth_file.tokens.id_token) else {
         return true;
     };
@@ -143,10 +149,4 @@ fn access_token_expiration(access_token: &str) -> Option<chrono::DateTime<chrono
     parse_chatgpt_jwt_claims(access_token)
         .ok()
         .and_then(|claims| claims.expires_at)
-}
-
-fn token_sets_differ(previous: &ChatgptAuthFile, current: &ChatgptAuthFile) -> bool {
-    previous.tokens.id_token != current.tokens.id_token
-        || previous.tokens.access_token != current.tokens.access_token
-        || previous.tokens.refresh_token != current.tokens.refresh_token
 }

@@ -7,7 +7,8 @@ use crate::{ChatgptAuthError, ChatgptStoredTokens, config::ChatgptAuthConfig};
 pub(crate) async fn refresh(
     config: &ChatgptAuthConfig,
     current_tokens: &ChatgptStoredTokens,
-    require_new_access_token: bool,
+    require_replacement_access_token: bool,
+    require_new_id_token: bool,
 ) -> Result<ChatgptStoredTokens, ChatgptAuthError> {
     let response = selvedge_client::execute(selvedge_client::HttpRequest {
         method: selvedge_client::HttpMethod::Post,
@@ -29,7 +30,12 @@ pub(crate) async fn refresh(
 
     let payload: RefreshResponse = serde_json::from_slice(&response.body)
         .map_err(|_| invalid_success_response(response.status.as_u16(), None))?;
-    let merged = merge_tokens(current_tokens, payload, require_new_access_token)?;
+    let merged = merge_tokens(
+        current_tokens,
+        payload,
+        require_replacement_access_token,
+        require_new_id_token,
+    )?;
 
     Ok(merged)
 }
@@ -73,13 +79,18 @@ fn is_reauthentication_code(code: &str) -> bool {
 fn merge_tokens(
     current_tokens: &ChatgptStoredTokens,
     response: RefreshResponse,
-    require_new_access_token: bool,
+    require_replacement_access_token: bool,
+    require_new_id_token: bool,
 ) -> Result<ChatgptStoredTokens, ChatgptAuthError> {
-    let id_token = merge_token_value(response.id_token, &current_tokens.id_token, "id_token")?;
+    let id_token = merge_id_token_value(
+        response.id_token,
+        &current_tokens.id_token,
+        require_new_id_token,
+    )?;
     let access_token = merge_access_token_value(
         response.access_token,
         &current_tokens.access_token,
-        require_new_access_token,
+        require_replacement_access_token,
     )?;
     let refresh_token = merge_token_value(
         response.refresh_token,
@@ -116,10 +127,37 @@ fn merge_token_value(
 fn merge_access_token_value(
     response_value: Option<Value>,
     current_value: &str,
-    require_new_access_token: bool,
+    require_replacement_access_token: bool,
 ) -> Result<String, ChatgptAuthError> {
     let Some(value) = response_value else {
-        if require_new_access_token {
+        if require_replacement_access_token {
+            return Err(invalid_success_response(200, None));
+        }
+
+        return Ok(current_value.to_owned());
+    };
+    let token = value
+        .as_str()
+        .ok_or_else(|| invalid_success_response(200, None))?;
+
+    if token.is_empty() {
+        return Err(invalid_success_response(200, None));
+    }
+
+    if require_replacement_access_token && token == current_value {
+        return Err(invalid_success_response(200, None));
+    }
+
+    Ok(token.to_owned())
+}
+
+fn merge_id_token_value(
+    response_value: Option<Value>,
+    current_value: &str,
+    require_new_id_token: bool,
+) -> Result<String, ChatgptAuthError> {
+    let Some(value) = response_value else {
+        if require_new_id_token {
             return Err(invalid_success_response(200, None));
         }
 
