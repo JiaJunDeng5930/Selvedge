@@ -130,6 +130,12 @@ pub(crate) fn load(path: &Path) -> Result<ChatgptAuthFile, ChatgptAuthError> {
     })
 }
 
+pub(crate) fn load_refresh_hint(path: &Path) -> Option<ChatgptAuthFile> {
+    let bytes = fs::read(path).ok()?;
+
+    parse_auth_file(&bytes).ok()
+}
+
 pub(crate) fn persist(path: &Path, tokens: &ChatgptStoredTokens) -> Result<(), ChatgptAuthError> {
     let parent = path
         .parent()

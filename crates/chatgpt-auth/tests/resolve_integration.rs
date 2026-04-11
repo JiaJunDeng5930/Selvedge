@@ -760,6 +760,66 @@ issuer = "{}"
 
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
+async fn resolve_for_request_returns_error_when_lock_file_cannot_be_created() {
+    const FLAG: &str = "CHATGPT_AUTH_LOCK_PERMISSION_CHILD";
+
+    if !child_mode(FLAG) {
+        assert_child_success(&run_child(
+            "resolve_for_request_returns_error_when_lock_file_cannot_be_created",
+            FLAG,
+        ));
+        return;
+    }
+
+    let tempdir = init_auth_test(
+        r#"
+[logging]
+level = "debug"
+
+[llm.providers.chatgpt.auth]
+issuer = "http://127.0.0.1:1"
+"#,
+    );
+    let auth_file_path = write_auth_file(
+        &tempdir,
+        &auth_file_json(
+            &build_jwt(json!({
+                "sub": "subject",
+                "https://api.openai.com/auth.chatgpt_account_id": "workspace-123"
+            })),
+            "opaque-access-token",
+            "refresh-token",
+        ),
+    );
+    let selvedge_home = tempdir.path().join(".selvedge");
+    let lock_file_path = selvedge_home.join(".chatgpt-auth.lock");
+    let mut readonly_permissions = fs::metadata(&selvedge_home)
+        .expect("selvedge home metadata")
+        .permissions();
+    readonly_permissions.set_mode(0o500);
+    fs::set_permissions(&selvedge_home, readonly_permissions)
+        .expect("make selvedge home read-only");
+
+    let error = resolve_for_request()
+        .await
+        .expect_err("lock creation failure must return an error");
+
+    let mut restored_permissions = fs::metadata(&selvedge_home)
+        .expect("selvedge home metadata")
+        .permissions();
+    restored_permissions.set_mode(0o700);
+    fs::set_permissions(&selvedge_home, restored_permissions)
+        .expect("restore selvedge home permissions");
+
+    assert!(!lock_file_path.exists());
+    assert!(matches!(
+        error,
+        ChatgptAuthError::AuthFileReadFailed { path, .. } if path == auth_file_path
+    ));
+}
+
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
 async fn resolve_for_request_preserves_original_file_when_persist_fails() {
     const FLAG: &str = "CHATGPT_AUTH_PERSIST_FAILED_CHILD";
 
@@ -904,6 +964,85 @@ issuer = "{}"
         resolve_for_request(),
         resolve_for_request(),
         resolve_for_request()
+    );
+
+    let first = first.expect("first resolve");
+    let second = second.expect("second resolve");
+    let third = third.expect("third resolve");
+    let persisted = std::fs::read_to_string(&auth_file_path).expect("read persisted auth file");
+
+    assert_eq!(refresh_hits.load(Ordering::SeqCst), 1);
+    assert_eq!(first.access_token, "new-access-token");
+    assert_eq!(second.access_token, "new-access-token");
+    assert_eq!(third.access_token, "new-access-token");
+    assert!(persisted.contains("\"refresh_token\":\"new-refresh-token\""));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn concurrent_forced_refresh_calls_reuse_first_persisted_result() {
+    const FLAG: &str = "CHATGPT_AUTH_CONCURRENT_FORCE_REFRESH_CHILD";
+
+    if !child_mode(FLAG) {
+        assert_child_success(&run_child(
+            "concurrent_forced_refresh_calls_reuse_first_persisted_result",
+            FLAG,
+        ));
+        return;
+    }
+
+    let refresh_hits = Arc::new(AtomicUsize::new(0));
+    let refresh_hits_for_state = Arc::clone(&refresh_hits);
+    let refreshed_id_token = build_jwt(json!({
+        "sub": "subject",
+        "https://api.openai.com/auth.chatgpt_account_id": "workspace-123"
+    }));
+    let server = spawn_http_server(
+        Router::new()
+            .route(
+                "/oauth/token",
+                post(move |State(hits): State<Arc<AtomicUsize>>| {
+                    let refreshed_id_token = refreshed_id_token.clone();
+                    async move {
+                        hits.fetch_add(1, Ordering::SeqCst);
+                        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                        Json(json!({
+                            "id_token": refreshed_id_token,
+                            "access_token": "new-access-token",
+                            "refresh_token": "new-refresh-token"
+                        }))
+                    }
+                }),
+            )
+            .with_state(refresh_hits_for_state),
+    )
+    .await;
+
+    let tempdir = init_auth_test(&format!(
+        r#"
+[logging]
+level = "debug"
+
+[llm.providers.chatgpt.auth]
+issuer = "{}"
+"#,
+        server.url("")
+    ));
+    let auth_file_path = write_auth_file(
+        &tempdir,
+        &auth_file_json(
+            &build_jwt(json!({
+                "sub": "subject",
+                "https://api.openai.com/auth.chatgpt_account_id": "workspace-123"
+            })),
+            "known-bad-access-token",
+            "refresh-token",
+        ),
+    );
+
+    let (first, second, third) = tokio::join!(
+        resolve_after_unauthorized(),
+        resolve_after_unauthorized(),
+        resolve_after_unauthorized()
     );
 
     let first = first.expect("first resolve");
