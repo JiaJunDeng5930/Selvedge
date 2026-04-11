@@ -2,7 +2,9 @@ use http::HeaderMap;
 use serde::Deserialize;
 use serde_json::Value;
 
-use crate::{ChatgptAuthError, ChatgptStoredTokens, config::ChatgptAuthConfig};
+use crate::{
+    ChatgptAuthError, ChatgptStoredTokens, config::ChatgptAuthConfig, jwt, parse_chatgpt_jwt_claims,
+};
 
 pub(crate) async fn refresh(
     config: &ChatgptAuthConfig,
@@ -155,6 +157,10 @@ fn merge_access_token_value(
         return Err(invalid_success_response(200, diagnostics));
     }
 
+    if !access_token_is_usable(token) {
+        return Err(invalid_success_response(200, diagnostics));
+    }
+
     Ok(token.to_owned())
 }
 
@@ -234,6 +240,16 @@ fn read_string_field(object: &serde_json::Map<String, Value>, names: &[&str]) ->
             .filter(|value| !value.is_empty())
             .map(ToOwned::to_owned)
     })
+}
+
+fn access_token_is_usable(token: &str) -> bool {
+    match parse_chatgpt_jwt_claims(token) {
+        Ok(claims) => claims
+            .expires_at
+            .is_none_or(|expires_at| expires_at > chrono::Utc::now()),
+        Err(crate::JwtParseError::InvalidFormat) => !jwt::has_json_header(token),
+        Err(_) => !jwt::has_json_header(token),
+    }
 }
 
 #[derive(Clone, Debug, Default)]

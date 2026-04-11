@@ -84,6 +84,16 @@ fn persist_blocking(target_path: &Path, token_set: &TokenSet) -> Result<(), Chat
 
 fn acquire_auth_lock(target_path: &Path) -> Result<std::fs::File, ChatgptLoginError> {
     let lock_path = lock_file_path(target_path);
+    let lock_parent = lock_path
+        .parent()
+        .ok_or_else(|| ChatgptLoginError::PersistFailed {
+            path: target_path.to_path_buf(),
+            reason: "lock file path must have a parent directory".to_owned(),
+        })?;
+    fs::create_dir_all(lock_parent).map_err(|error| ChatgptLoginError::PersistFailed {
+        path: target_path.to_path_buf(),
+        reason: error.to_string(),
+    })?;
     let lock_file = OpenOptions::new()
         .create(true)
         .truncate(false)

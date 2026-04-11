@@ -171,6 +171,73 @@ issuer = "{}"
     assert!(persisted.contains("\"access_token\":\"access-token\""));
 }
 
+#[tokio::test(flavor = "multi_thread")]
+async fn complete_device_code_login_recreates_missing_selvedge_home_before_persisting() {
+    const FLAG: &str = "CHATGPT_LOGIN_COMPLETE_RECREATE_HOME_CHILD";
+
+    if !child_mode(FLAG) {
+        assert_child_success(&run_child(
+            "complete_device_code_login_recreates_missing_selvedge_home_before_persisting",
+            FLAG,
+        ));
+        return;
+    }
+
+    let id_token = build_test_jwt(json!({
+        "https://api.openai.com/auth.chatgpt_account_id": "workspace-123",
+        "email": "user@example.com"
+    }));
+    let server = spawn_http_server(Router::new().route(
+        "/oauth/token",
+        post(move || {
+            let id_token = id_token.clone();
+            async move {
+                Json(json!({
+                    "id_token": id_token,
+                    "access_token": "access-token",
+                    "refresh_token": "refresh-token"
+                }))
+            }
+        }),
+    ))
+    .await;
+
+    let tempdir = init_login_test(&format!(
+        r#"
+[logging]
+level = "debug"
+
+[llm.providers.chatgpt.auth]
+issuer = "{}"
+"#,
+        server.url("")
+    ));
+    let selvedge_home = tempdir.path().join(".selvedge");
+    std::fs::remove_dir_all(&selvedge_home).expect("remove selvedge home");
+
+    let challenge = DeviceCodeChallenge {
+        verification_url: format!("{}/codex/device", server.url("")),
+        user_code: "ABCD-EFGH".to_owned(),
+        device_auth_id: "device-auth-id".to_owned(),
+        poll_interval: std::time::Duration::from_secs(5),
+        issued_at: chrono::Utc::now(),
+        expires_at: chrono::Utc::now() + chrono::Duration::minutes(15),
+    };
+    let authorization = DeviceCodeAuthorization {
+        authorization_code: "authorization-code".to_owned(),
+        code_verifier: "code-verifier".to_owned(),
+    };
+
+    let result = complete_device_code_login(&challenge, authorization)
+        .await
+        .expect("complete device code login");
+    let persisted_path = tempdir.path().join(".selvedge/auth/chatgpt-auth.json");
+    let persisted = std::fs::read_to_string(&persisted_path).expect("read persisted auth file");
+
+    assert_eq!(result.auth_file_path, persisted_path);
+    assert!(persisted.contains("\"refresh_token\":\"refresh-token\""));
+}
+
 fn build_test_jwt(payload: serde_json::Value) -> String {
     let engine = base64::engine::general_purpose::URL_SAFE_NO_PAD;
     let header = engine.encode(r#"{"alg":"none","typ":"JWT"}"#);

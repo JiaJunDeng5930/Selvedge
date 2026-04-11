@@ -638,6 +638,76 @@ issuer = "{}"
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn resolve_for_request_rejects_refresh_with_already_expired_access_token() {
+    const FLAG: &str = "CHATGPT_AUTH_REFRESH_EXPIRED_RESPONSE_ACCESS_CHILD";
+
+    if !child_mode(FLAG) {
+        assert_child_success(&run_child(
+            "resolve_for_request_rejects_refresh_with_already_expired_access_token",
+            FLAG,
+        ));
+        return;
+    }
+
+    let server = spawn_http_server(Router::new().route(
+        "/oauth/token",
+        post(|| async {
+            Json(json!({
+                "id_token": build_jwt(json!({
+                    "sub": "subject",
+                    "https://api.openai.com/auth.chatgpt_account_id": "workspace-123"
+                })),
+                "access_token": build_jwt(json!({
+                    "exp": 1
+                }))
+            }))
+        }),
+    ))
+    .await;
+
+    let tempdir = init_auth_test(&format!(
+        r#"
+[logging]
+level = "debug"
+
+[llm.providers.chatgpt.auth]
+issuer = "{}"
+"#,
+        server.url("")
+    ));
+    let auth_file_path = write_auth_file(
+        &tempdir,
+        &auth_file_json(
+            &build_jwt(json!({
+                "sub": "subject",
+                "https://api.openai.com/auth.chatgpt_account_id": "workspace-123"
+            })),
+            &build_jwt(json!({
+                "exp": 1
+            })),
+            "refresh-token",
+        ),
+    );
+    let original = std::fs::read_to_string(&auth_file_path).expect("read original auth file");
+
+    let error = resolve_for_request()
+        .await
+        .expect_err("expired response access token must fail");
+
+    assert!(matches!(
+        error,
+        ChatgptAuthError::RefreshFailed {
+            status: Some(200),
+            ..
+        }
+    ));
+    assert_eq!(
+        std::fs::read_to_string(&auth_file_path).expect("read original auth file"),
+        original
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn resolve_for_request_maps_unauthorized_refresh_to_reauthentication_required() {
     const FLAG: &str = "CHATGPT_AUTH_REAUTH_REQUIRED_CHILD";
 
