@@ -516,6 +516,66 @@ issuer = "{}"
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn resolve_for_request_maps_plain_unauthorized_refresh_to_refresh_failed() {
+    const FLAG: &str = "CHATGPT_AUTH_PLAIN_401_CHILD";
+
+    if !child_mode(FLAG) {
+        assert_child_success(&run_child(
+            "resolve_for_request_maps_plain_unauthorized_refresh_to_refresh_failed",
+            FLAG,
+        ));
+        return;
+    }
+
+    let server = spawn_http_server(Router::new().route(
+        "/oauth/token",
+        post(|| async {
+            (
+                StatusCode::UNAUTHORIZED,
+                Json(json!({
+                    "message": "unauthorized client"
+                })),
+            )
+        }),
+    ))
+    .await;
+
+    let tempdir = init_auth_test(&format!(
+        r#"
+[logging]
+level = "debug"
+
+[llm.providers.chatgpt.auth]
+issuer = "{}"
+"#,
+        server.url("")
+    ));
+    write_auth_file(
+        &tempdir,
+        &auth_file_json(
+            &build_jwt(json!({
+                "sub": "subject"
+            })),
+            "opaque-access-token",
+            "refresh-token",
+        ),
+    );
+
+    let error = resolve_for_request()
+        .await
+        .expect_err("plain unauthorized must stay refresh failed");
+
+    assert!(matches!(
+        error,
+        ChatgptAuthError::RefreshFailed {
+            status: Some(401),
+            provider_code: None,
+            provider_message
+        } if provider_message.as_deref() == Some("unauthorized client")
+    ));
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn resolve_for_request_rejects_workspace_mismatch() {
     const FLAG: &str = "CHATGPT_AUTH_WORKSPACE_MISMATCH_CHILD";
 
