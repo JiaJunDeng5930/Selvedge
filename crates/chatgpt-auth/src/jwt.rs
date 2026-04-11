@@ -34,13 +34,19 @@ pub(crate) fn parse(token: &str) -> Result<ChatgptJwtClaims, JwtParseError> {
     })
 }
 
-pub(crate) fn has_json_header(token: &str) -> bool {
+pub(crate) fn header_indicates_jwt(token: &str) -> bool {
     let mut segments = token.split('.');
     let Ok(header) = read_segment(segments.next()) else {
         return false;
     };
+    let Ok(header_object) = decode_json_object_segment(header) else {
+        return false;
+    };
 
-    decode_json_object_segment(header).is_ok()
+    header_object
+        .get("typ")
+        .and_then(Value::as_str)
+        .is_some_and(|value| value.eq_ignore_ascii_case("jwt"))
 }
 
 fn read_segment(segment: Option<&str>) -> Result<&str, JwtParseError> {
