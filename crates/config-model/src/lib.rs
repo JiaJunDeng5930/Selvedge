@@ -216,7 +216,7 @@ impl ChatgptAuthConfig {
         if self
             .expected_workspace_id
             .as_deref()
-            .is_some_and(str::is_empty)
+            .is_some_and(|value| value.trim().is_empty())
         {
             return Err(ValidationError::BlankExpectedWorkspaceId);
         }

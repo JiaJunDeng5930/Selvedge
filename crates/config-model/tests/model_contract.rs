@@ -134,6 +134,21 @@ fn chatgpt_auth_rejects_blank_expected_workspace_id() {
 }
 
 #[test]
+fn chatgpt_auth_rejects_whitespace_only_expected_workspace_id() {
+    let table = toml::toml! {
+        [llm.providers.chatgpt.auth]
+        expected_workspace_id = "   "
+    };
+
+    let error = AppConfig::try_from(table).expect_err("whitespace-only workspace id must fail");
+
+    assert_eq!(
+        error.to_string(),
+        "llm.providers.chatgpt.auth.expected_workspace_id must not be blank"
+    );
+}
+
+#[test]
 fn chatgpt_auth_rejects_invalid_issuer() {
     let table = toml::toml! {
         [llm.providers.chatgpt.auth]
