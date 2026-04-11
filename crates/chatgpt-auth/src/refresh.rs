@@ -39,11 +39,10 @@ fn map_transport_error(error: selvedge_client::HttpError) -> ChatgptAuthError {
         selvedge_client::HttpError::Status(status_error) => {
             let diagnostics = extract_error_diagnostics(&status_error.body);
 
-            if status_error.status.as_u16() == 401
-                || diagnostics
-                    .provider_code
-                    .as_deref()
-                    .is_some_and(is_reauthentication_code)
+            if diagnostics
+                .provider_code
+                .as_deref()
+                .is_some_and(is_reauthentication_code)
             {
                 return ChatgptAuthError::ReauthenticationRequired {
                     provider_code: diagnostics.provider_code,
