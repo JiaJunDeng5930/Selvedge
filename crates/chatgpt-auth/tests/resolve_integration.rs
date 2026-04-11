@@ -10,6 +10,7 @@ use std::{fs, os::unix::fs::PermissionsExt};
 use axum::{Json, Router, extract::State, http::StatusCode, routing::post};
 use base64::Engine;
 use chatgpt_auth::{ChatgptAuthError, resolve_after_unauthorized, resolve_for_request};
+use http::{HeaderMap, HeaderValue};
 use serde_json::json;
 use support::{
     assert_child_success, child_mode, init_auth_test, run_child, spawn_http_server, write_auth_file,
@@ -191,6 +192,81 @@ issuer = "{}"
 
     assert_eq!(refresh_hits.load(Ordering::SeqCst), 1);
     assert_eq!(resolved.access_token, "refreshed-access-token");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn resolve_for_request_sends_refresh_request_as_form_data() {
+    const FLAG: &str = "CHATGPT_AUTH_REFRESH_FORM_CHILD";
+
+    if !child_mode(FLAG) {
+        assert_child_success(&run_child(
+            "resolve_for_request_sends_refresh_request_as_form_data",
+            FLAG,
+        ));
+        return;
+    }
+
+    let server = spawn_http_server(Router::new().route(
+        "/oauth/token",
+        post(|headers: HeaderMap, body: String| async move {
+            let expected_content_type =
+                HeaderValue::from_static("application/x-www-form-urlencoded");
+            let has_expected_content_type = headers
+                .get(http::header::CONTENT_TYPE)
+                .is_some_and(|value| value == expected_content_type);
+            let has_expected_body = body.contains("grant_type=refresh_token")
+                && body.contains("client_id=app_EMoamEEZ73f0CkXaXp7hrann")
+                && body.contains("refresh_token=refresh-token");
+
+            if has_expected_content_type && has_expected_body {
+                (
+                    StatusCode::OK,
+                    Json(json!({
+                        "id_token": build_jwt(json!({
+                            "sub": "subject",
+                            "https://api.openai.com/auth.chatgpt_account_id": "workspace-123"
+                        })),
+                        "access_token": "new-access-token"
+                    })),
+                )
+            } else {
+                (
+                    StatusCode::UNSUPPORTED_MEDIA_TYPE,
+                    Json(json!({
+                        "error": "bad_request_encoding"
+                    })),
+                )
+            }
+        }),
+    ))
+    .await;
+
+    let tempdir = init_auth_test(&format!(
+        r#"
+[logging]
+level = "debug"
+
+[llm.providers.chatgpt.auth]
+issuer = "{}"
+"#,
+        server.url("")
+    ));
+    write_auth_file(
+        &tempdir,
+        &auth_file_json(
+            &build_jwt(json!({
+                "sub": "subject"
+            })),
+            &build_jwt(json!({
+                "exp": 1
+            })),
+            "refresh-token",
+        ),
+    );
+
+    let resolved = resolve_for_request().await.expect("refresh with form body");
+
+    assert_eq!(resolved.access_token, "new-access-token");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -422,6 +498,142 @@ expected_workspace_id = "workspace-expected"
             if expected == "workspace-expected"
                 && actual.as_deref() == Some("workspace-actual")
     ));
+}
+
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn resolve_after_unauthorized_does_not_persist_workspace_mismatch_from_refresh() {
+    const FLAG: &str = "CHATGPT_AUTH_REFRESH_WORKSPACE_MISMATCH_CHILD";
+
+    if !child_mode(FLAG) {
+        assert_child_success(&run_child(
+            "resolve_after_unauthorized_does_not_persist_workspace_mismatch_from_refresh",
+            FLAG,
+        ));
+        return;
+    }
+
+    let mismatched_id_token = build_jwt(json!({
+        "sub": "subject",
+        "https://api.openai.com/auth.chatgpt_account_id": "workspace-actual"
+    }));
+    let server = spawn_http_server(Router::new().route(
+        "/oauth/token",
+        post(move || {
+            let mismatched_id_token = mismatched_id_token.clone();
+            async move {
+                Json(json!({
+                    "id_token": mismatched_id_token,
+                    "access_token": "new-access-token"
+                }))
+            }
+        }),
+    ))
+    .await;
+
+    let tempdir = init_auth_test(&format!(
+        r#"
+[logging]
+level = "debug"
+
+[llm.providers.chatgpt.auth]
+issuer = "{}"
+expected_workspace_id = "workspace-expected"
+"#,
+        server.url("")
+    ));
+    let auth_file_path = write_auth_file(
+        &tempdir,
+        &auth_file_json(
+            &build_jwt(json!({
+                "sub": "subject",
+                "https://api.openai.com/auth.chatgpt_account_id": "workspace-expected"
+            })),
+            "still-valid-access-token",
+            "refresh-token",
+        ),
+    );
+    let original = fs::read_to_string(&auth_file_path).expect("read original auth file");
+
+    let error = resolve_after_unauthorized()
+        .await
+        .expect_err("mismatched workspace refresh must fail");
+
+    assert!(matches!(
+        error,
+        ChatgptAuthError::WorkspaceMismatch { expected, actual }
+            if expected == "workspace-expected"
+                && actual.as_deref() == Some("workspace-actual")
+    ));
+    assert_eq!(
+        fs::read_to_string(&auth_file_path).expect("read original auth file"),
+        original
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn resolve_after_unauthorized_rejects_refresh_response_without_access_token() {
+    const FLAG: &str = "CHATGPT_AUTH_FORCE_REFRESH_MISSING_ACCESS_CHILD";
+
+    if !child_mode(FLAG) {
+        assert_child_success(&run_child(
+            "resolve_after_unauthorized_rejects_refresh_response_without_access_token",
+            FLAG,
+        ));
+        return;
+    }
+
+    let server = spawn_http_server(Router::new().route(
+        "/oauth/token",
+        post(|| async {
+            Json(json!({
+                "id_token": build_jwt(json!({
+                    "sub": "subject",
+                    "https://api.openai.com/auth.chatgpt_account_id": "workspace-123"
+                }))
+            }))
+        }),
+    ))
+    .await;
+
+    let tempdir = init_auth_test(&format!(
+        r#"
+[logging]
+level = "debug"
+
+[llm.providers.chatgpt.auth]
+issuer = "{}"
+"#,
+        server.url("")
+    ));
+    let auth_file_path = write_auth_file(
+        &tempdir,
+        &auth_file_json(
+            &build_jwt(json!({
+                "sub": "subject",
+                "https://api.openai.com/auth.chatgpt_account_id": "workspace-123"
+            })),
+            "known-bad-access-token",
+            "refresh-token",
+        ),
+    );
+    let original = fs::read_to_string(&auth_file_path).expect("read original auth file");
+
+    let error = resolve_after_unauthorized()
+        .await
+        .expect_err("refresh without access token must fail");
+
+    assert!(matches!(
+        error,
+        ChatgptAuthError::RefreshFailed {
+            status: Some(200),
+            ..
+        }
+    ));
+    assert_eq!(
+        fs::read_to_string(&auth_file_path).expect("read original auth file"),
+        original
+    );
 }
 
 #[cfg(unix)]

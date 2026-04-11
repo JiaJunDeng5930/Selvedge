@@ -17,27 +17,38 @@ async fn resolve(force_refresh: bool) -> Result<ResolvedChatgptAuth, ChatgptAuth
     let auth_file_path = auth_file::auth_file_path(&selvedge_home);
     let _guard = lock::lock_path(&auth_file_path).await;
     let auth_file = auth_file::load(&auth_file_path)?;
+    let access_token_expired = access_token_is_expired(&auth_file.tokens.access_token);
 
-    if !force_refresh && !should_refresh(&auth_file) {
-        return build_resolved_auth(auth_file, config.expected_workspace_id.as_deref());
+    if !force_refresh && !should_refresh(&auth_file, access_token_expired) {
+        return build_resolved_auth_from_existing(
+            &auth_file,
+            &auth_file_path,
+            config.expected_workspace_id.as_deref(),
+        );
     }
 
-    let refreshed_tokens = refresh::refresh(&config, &auth_file.tokens).await?;
-
-    auth_file::persist(&auth_file_path, &refreshed_tokens)?;
-
+    let refreshed_tokens = refresh::refresh(
+        &config,
+        &auth_file.tokens,
+        force_refresh || access_token_expired,
+    )
+    .await?;
     let refreshed_file = ChatgptAuthFile {
         schema_version: 1,
         provider: "chatgpt".to_owned(),
         login_method: "device_code".to_owned(),
         tokens: refreshed_tokens,
     };
+    let resolved =
+        build_resolved_auth_from_refresh(&refreshed_file, config.expected_workspace_id.as_deref())?;
 
-    build_resolved_auth(refreshed_file, config.expected_workspace_id.as_deref())
+    auth_file::persist(&auth_file_path, &refreshed_file.tokens)?;
+
+    Ok(resolved)
 }
 
-fn should_refresh(auth_file: &ChatgptAuthFile) -> bool {
-    if access_token_is_expired(&auth_file.tokens.access_token) {
+fn should_refresh(auth_file: &ChatgptAuthFile, access_token_expired: bool) -> bool {
+    if access_token_expired {
         return true;
     }
 
@@ -59,17 +70,42 @@ fn access_token_is_expired(access_token: &str) -> bool {
     expires_at <= chrono::Utc::now()
 }
 
-fn build_resolved_auth(
-    auth_file: ChatgptAuthFile,
+fn build_resolved_auth_from_existing(
+    auth_file: &ChatgptAuthFile,
+    auth_file_path: &std::path::Path,
     expected_workspace_id: Option<&str>,
 ) -> Result<ResolvedChatgptAuth, ChatgptAuthError> {
     let id_token_claims =
         parse_chatgpt_jwt_claims(&auth_file.tokens.id_token).map_err(|error| {
             ChatgptAuthError::AuthFileMalformed {
-                path: std::path::PathBuf::from("<resolved-id-token>"),
+                path: auth_file_path.to_path_buf(),
                 reason: format!("id_token is invalid: {error:?}"),
             }
         })?;
+
+    build_resolved_auth(auth_file, expected_workspace_id, id_token_claims)
+}
+
+fn build_resolved_auth_from_refresh(
+    auth_file: &ChatgptAuthFile,
+    expected_workspace_id: Option<&str>,
+) -> Result<ResolvedChatgptAuth, ChatgptAuthError> {
+    let id_token_claims = parse_chatgpt_jwt_claims(&auth_file.tokens.id_token).map_err(|_| {
+        ChatgptAuthError::RefreshFailed {
+            status: Some(200),
+            provider_code: None,
+            provider_message: None,
+        }
+    })?;
+
+    build_resolved_auth(auth_file, expected_workspace_id, id_token_claims)
+}
+
+fn build_resolved_auth(
+    auth_file: &ChatgptAuthFile,
+    expected_workspace_id: Option<&str>,
+    id_token_claims: ChatgptJwtClaims,
+) -> Result<ResolvedChatgptAuth, ChatgptAuthError> {
     let account_id = id_token_claims
         .account_id
         .clone()
@@ -99,6 +135,3 @@ fn access_token_expiration(access_token: &str) -> Option<chrono::DateTime<chrono
         .ok()
         .and_then(|claims| claims.expires_at)
 }
-
-#[allow(dead_code)]
-fn _claims(_claims: &ChatgptJwtClaims) {}

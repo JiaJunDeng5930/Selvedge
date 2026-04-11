@@ -7,16 +7,20 @@ use crate::{ChatgptAuthError, ChatgptStoredTokens, config::ChatgptAuthConfig};
 pub(crate) async fn refresh(
     config: &ChatgptAuthConfig,
     current_tokens: &ChatgptStoredTokens,
+    require_new_access_token: bool,
 ) -> Result<ChatgptStoredTokens, ChatgptAuthError> {
     let response = selvedge_client::execute(selvedge_client::HttpRequest {
         method: selvedge_client::HttpMethod::Post,
         url: format!("{}/oauth/token", config.issuer),
         headers: HeaderMap::new(),
-        body: selvedge_client::HttpRequestBody::Json(serde_json::json!({
-            "client_id": config.client_id,
-            "grant_type": "refresh_token",
-            "refresh_token": current_tokens.refresh_token,
-        })),
+        body: selvedge_client::HttpRequestBody::FormUrlEncoded(vec![
+            ("client_id".to_owned(), config.client_id.clone()),
+            ("grant_type".to_owned(), "refresh_token".to_owned()),
+            (
+                "refresh_token".to_owned(),
+                current_tokens.refresh_token.clone(),
+            ),
+        ]),
         timeout: None,
         compression: selvedge_client::RequestCompression::None,
     })
@@ -25,7 +29,7 @@ pub(crate) async fn refresh(
 
     let payload: RefreshResponse = serde_json::from_slice(&response.body)
         .map_err(|_| invalid_success_response(response.status.as_u16(), None))?;
-    let merged = merge_tokens(current_tokens, payload)?;
+    let merged = merge_tokens(current_tokens, payload, require_new_access_token)?;
 
     Ok(merged)
 }
@@ -55,12 +59,13 @@ fn map_transport_error(error: selvedge_client::HttpError) -> ChatgptAuthError {
 fn merge_tokens(
     current_tokens: &ChatgptStoredTokens,
     response: RefreshResponse,
+    require_new_access_token: bool,
 ) -> Result<ChatgptStoredTokens, ChatgptAuthError> {
     let id_token = merge_token_value(response.id_token, &current_tokens.id_token, "id_token")?;
-    let access_token = merge_token_value(
+    let access_token = merge_access_token_value(
         response.access_token,
         &current_tokens.access_token,
-        "access_token",
+        require_new_access_token,
     )?;
     let refresh_token = merge_token_value(
         response.refresh_token,
@@ -78,7 +83,7 @@ fn merge_tokens(
 fn merge_token_value(
     response_value: Option<Value>,
     current_value: &str,
-    field: &str,
+    _field: &str,
 ) -> Result<String, ChatgptAuthError> {
     let Some(value) = response_value else {
         return Ok(current_value.to_owned());
@@ -91,7 +96,28 @@ fn merge_token_value(
         return Err(invalid_success_response(200, None));
     }
 
-    let _ = field;
+    Ok(token.to_owned())
+}
+
+fn merge_access_token_value(
+    response_value: Option<Value>,
+    current_value: &str,
+    require_new_access_token: bool,
+) -> Result<String, ChatgptAuthError> {
+    let Some(value) = response_value else {
+        if require_new_access_token {
+            return Err(invalid_success_response(200, None));
+        }
+
+        return Ok(current_value.to_owned());
+    };
+    let token = value
+        .as_str()
+        .ok_or_else(|| invalid_success_response(200, None))?;
+
+    if token.is_empty() {
+        return Err(invalid_success_response(200, None));
+    }
 
     Ok(token.to_owned())
 }
