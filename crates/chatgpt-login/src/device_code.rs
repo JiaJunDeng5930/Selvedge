@@ -44,10 +44,7 @@ pub(crate) async fn start(
         .ok_or_else(|| ChatgptLoginError::DeviceCodeStartInvalidResponse {
             reason: "start response missing interval".to_owned(),
         })?
-        .parse::<u64>()
-        .map_err(|error| ChatgptLoginError::DeviceCodeStartInvalidResponse {
-            reason: format!("start response interval is invalid: {error}"),
-        })?;
+        .into_u64()?;
     let issued_at = Utc::now();
 
     Ok(DeviceCodeChallenge {
@@ -99,6 +96,7 @@ pub(crate) async fn poll(
         Err(selvedge_client::HttpError::Status(status_error))
             if matches!(status_error.status.as_u16(), 403 | 404) =>
         {
+            // The public contract treats both 403 and 404 as "still pending".
             Ok(crate::DeviceCodePollOutcome::Pending {
                 next_poll_after: challenge.poll_interval,
             })
@@ -163,11 +161,31 @@ struct StartDeviceCodeResponse {
     device_auth_id: Option<String>,
     user_code: Option<String>,
     usercode: Option<String>,
-    interval: Option<String>,
+    interval: Option<IntervalValue>,
 }
 
 #[derive(Debug, Deserialize)]
 struct PollDeviceCodeResponse {
     authorization_code: Option<String>,
     code_verifier: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum IntervalValue {
+    String(String),
+    Number(u64),
+}
+
+impl IntervalValue {
+    fn into_u64(self) -> Result<u64, ChatgptLoginError> {
+        match self {
+            Self::String(value) => value.parse::<u64>().map_err(|error| {
+                ChatgptLoginError::DeviceCodeStartInvalidResponse {
+                    reason: format!("start response interval is invalid: {error}"),
+                }
+            }),
+            Self::Number(value) => Ok(value),
+        }
+    }
 }

@@ -40,11 +40,14 @@ pub(crate) fn parse(id_token: &str) -> Result<ParsedIdToken, ChatgptLoginError> 
         serde_json::from_slice(&payload).map_err(|error| ChatgptLoginError::InvalidTokenSet {
             reason: format!("id_token payload is not valid json: {error}"),
         })?;
-    let account_id = claims
-        .account_id
-        .ok_or_else(|| ChatgptLoginError::InvalidTokenSet {
-            reason: "id_token missing account_id".to_owned(),
-        })?;
+    let account_id = match claims.account_id {
+        Some(account_id) if !account_id.is_empty() => account_id,
+        _ => {
+            return Err(ChatgptLoginError::InvalidTokenSet {
+                reason: "id_token missing account_id".to_owned(),
+            });
+        }
+    };
     let user_id = match claims.chatgpt_user_id {
         Some(user_id) if !user_id.is_empty() => Some(user_id),
         _ => claims.sub.filter(|sub| !sub.is_empty()),
