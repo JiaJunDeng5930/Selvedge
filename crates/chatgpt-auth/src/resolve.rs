@@ -1,6 +1,6 @@
 use crate::{
     ChatgptAuthError, ChatgptAuthFile, ChatgptJwtClaims, ResolvedChatgptAuth, auth_file, config,
-    lock, parse_chatgpt_jwt_claims, refresh,
+    jwt, lock, parse_chatgpt_jwt_claims, refresh,
 };
 
 pub(crate) async fn resolve_for_request() -> Result<ResolvedChatgptAuth, ChatgptAuthError> {
@@ -78,6 +78,7 @@ fn access_token_is_expired(access_token: &str) -> bool {
     let claims = match parse_chatgpt_jwt_claims(access_token) {
         Ok(claims) => claims,
         Err(crate::JwtParseError::InvalidFormat) => return false,
+        Err(_) if !jwt::has_json_header(access_token) => return false,
         Err(_) => return true,
     };
     let Some(expires_at) = claims.expires_at else {

@@ -64,6 +64,46 @@ issuer = "http://127.0.0.1:1"
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn resolve_for_request_allows_dotted_opaque_access_token_without_refresh() {
+    const FLAG: &str = "CHATGPT_AUTH_DOTTED_OPAQUE_CHILD";
+
+    if !child_mode(FLAG) {
+        assert_child_success(&run_child(
+            "resolve_for_request_allows_dotted_opaque_access_token_without_refresh",
+            FLAG,
+        ));
+        return;
+    }
+
+    let tempdir = init_auth_test(
+        r#"
+[logging]
+level = "debug"
+
+[llm.providers.chatgpt.auth]
+issuer = "http://127.0.0.1:1"
+"#,
+    );
+    write_auth_file(
+        &tempdir,
+        &auth_file_json(
+            &build_jwt(json!({
+                "sub": "subject",
+                "https://api.openai.com/auth.chatgpt_account_id": "workspace-123"
+            })),
+            "abc.def.ghi",
+            "refresh-token",
+        ),
+    );
+
+    let resolved = resolve_for_request()
+        .await
+        .expect("dotted opaque token should not trigger refresh");
+
+    assert_eq!(resolved.access_token, "abc.def.ghi");
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn resolve_for_request_refreshes_expired_access_token_and_persists_result() {
     const FLAG: &str = "CHATGPT_AUTH_REFRESH_EXPIRED_CHILD";
 
@@ -190,7 +230,11 @@ issuer = "{}"
                 "sub": "subject",
                 "https://api.openai.com/auth.chatgpt_account_id": "workspace-123"
             })),
-            "abc.not-valid-base64.signature",
+            &format!(
+                "{}.not-valid-base64.signature",
+                base64::engine::general_purpose::URL_SAFE_NO_PAD
+                    .encode(r#"{"alg":"none","typ":"JWT"}"#)
+            ),
             "refresh-token",
         ),
     );
@@ -633,6 +677,64 @@ issuer = "{}"
     let error = resolve_for_request()
         .await
         .expect_err("invalid grant must require reauthentication");
+
+    assert!(matches!(
+        error,
+        ChatgptAuthError::ReauthenticationRequired {
+            provider_code,
+            provider_message
+        } if provider_code.as_deref() == Some("invalid_grant")
+            && provider_message.as_deref() == Some("refresh token expired")
+    ));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn resolve_for_request_maps_http_200_error_payload_to_reauthentication_required() {
+    const FLAG: &str = "CHATGPT_AUTH_200_ERROR_PAYLOAD_CHILD";
+
+    if !child_mode(FLAG) {
+        assert_child_success(&run_child(
+            "resolve_for_request_maps_http_200_error_payload_to_reauthentication_required",
+            FLAG,
+        ));
+        return;
+    }
+
+    let server = spawn_http_server(Router::new().route(
+        "/oauth/token",
+        post(|| async {
+            Json(json!({
+                "error": "invalid_grant",
+                "message": "refresh token expired"
+            }))
+        }),
+    ))
+    .await;
+
+    let tempdir = init_auth_test(&format!(
+        r#"
+[logging]
+level = "debug"
+
+[llm.providers.chatgpt.auth]
+issuer = "{}"
+"#,
+        server.url("")
+    ));
+    write_auth_file(
+        &tempdir,
+        &auth_file_json(
+            &build_jwt(json!({
+                "sub": "subject"
+            })),
+            "opaque-access-token",
+            "refresh-token",
+        ),
+    );
+
+    let error = resolve_for_request()
+        .await
+        .expect_err("http 200 error payload must require reauthentication");
 
     assert!(matches!(
         error,

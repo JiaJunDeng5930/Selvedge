@@ -34,6 +34,15 @@ pub(crate) fn parse(token: &str) -> Result<ChatgptJwtClaims, JwtParseError> {
     })
 }
 
+pub(crate) fn has_json_header(token: &str) -> bool {
+    let mut segments = token.split('.');
+    let Ok(header) = read_segment(segments.next()) else {
+        return false;
+    };
+
+    decode_json_object_segment(header).is_ok()
+}
+
 fn read_segment(segment: Option<&str>) -> Result<&str, JwtParseError> {
     match segment {
         Some(segment) if !segment.is_empty() => Ok(segment),
