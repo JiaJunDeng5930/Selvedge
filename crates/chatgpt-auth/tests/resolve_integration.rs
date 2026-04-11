@@ -583,6 +583,41 @@ issuer = "http://127.0.0.1:1"
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn resolve_for_request_recreates_missing_selvedge_home_before_locking() {
+    const FLAG: &str = "CHATGPT_AUTH_RECREATE_HOME_CHILD";
+
+    if !child_mode(FLAG) {
+        assert_child_success(&run_child(
+            "resolve_for_request_recreates_missing_selvedge_home_before_locking",
+            FLAG,
+        ));
+        return;
+    }
+
+    let tempdir = init_auth_test(
+        r#"
+[logging]
+level = "debug"
+
+[llm.providers.chatgpt.auth]
+issuer = "http://127.0.0.1:1"
+"#,
+    );
+    let selvedge_home = tempdir.path().join(".selvedge");
+    std::fs::remove_dir_all(&selvedge_home).expect("remove selvedge home");
+    let expected_path = selvedge_home.join("auth/chatgpt-auth.json");
+
+    let error = resolve_for_request()
+        .await
+        .expect_err("missing recreated home should surface missing auth file");
+
+    assert!(matches!(
+        error,
+        ChatgptAuthError::AuthFileMissing { path } if path == expected_path
+    ));
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn resolve_for_request_maps_illegal_success_response_to_refresh_failed() {
     const FLAG: &str = "CHATGPT_AUTH_ILLEGAL_SUCCESS_CHILD";
 

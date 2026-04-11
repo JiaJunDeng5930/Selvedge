@@ -64,6 +64,17 @@ impl Drop for PathLockGuard {
 }
 
 fn acquire_file_lock(lock_file_path: &Path) -> Result<std::fs::File, ChatgptAuthError> {
+    let lock_parent =
+        lock_file_path
+            .parent()
+            .ok_or_else(|| ChatgptAuthError::AuthFileReadFailed {
+                path: lock_file_path.to_path_buf(),
+                reason: "lock file path must have a parent directory".to_owned(),
+            })?;
+    std::fs::create_dir_all(lock_parent).map_err(|error| ChatgptAuthError::AuthFileReadFailed {
+        path: lock_file_path.to_path_buf(),
+        reason: error.to_string(),
+    })?;
     let lock_file = OpenOptions::new()
         .create(true)
         .truncate(false)
