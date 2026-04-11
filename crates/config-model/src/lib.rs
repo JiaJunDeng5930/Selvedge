@@ -13,6 +13,7 @@ pub struct AppConfig {
     pub network: NetworkConfig,
     pub logging: LoggingConfig,
     pub feature: FeatureConfig,
+    pub llm: LlmConfig,
 }
 
 impl AppConfig {
@@ -21,6 +22,7 @@ impl AppConfig {
         self.network.validate()?;
         self.logging.validate()?;
         self.feature.validate()?;
+        self.llm.validate()?;
 
         Ok(())
     }
@@ -159,6 +161,55 @@ impl FeatureConfig {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct LlmConfig {
+    pub providers: LlmProvidersConfig,
+}
+
+impl LlmConfig {
+    pub fn validate(&self) -> Result<(), ValidationError> {
+        self.providers.validate()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct LlmProvidersConfig {
+    pub chatgpt: ChatgptConfig,
+}
+
+impl LlmProvidersConfig {
+    pub fn validate(&self) -> Result<(), ValidationError> {
+        self.chatgpt.validate()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ChatgptConfig {
+    pub auth: ChatgptAuthConfig,
+}
+
+impl ChatgptConfig {
+    pub fn validate(&self) -> Result<(), ValidationError> {
+        self.auth.validate()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ChatgptAuthConfig {
+    pub issuer: String,
+    pub client_id: String,
+    pub expected_workspace_id: Option<String>,
+}
+
+impl ChatgptAuthConfig {
+    const DEFAULT_ISSUER: &'static str = "https://auth.openai.com";
+    const DEFAULT_CLIENT_ID: &'static str = "app_EMoamEEZ73f0CkXaXp7hrann";
+
+    pub fn validate(&self) -> Result<(), ValidationError> {
+        Ok(())
+    }
+}
+
 #[derive(Debug, Error)]
 pub enum AppConfigError {
     #[error("failed to deserialize config input: {0}")]
@@ -194,6 +245,7 @@ struct AppConfigInput {
     network: NetworkConfigInput,
     logging: LoggingConfigInput,
     feature: FeatureConfigInput,
+    llm: LlmConfigInput,
 }
 
 impl AppConfigInput {
@@ -203,6 +255,7 @@ impl AppConfigInput {
             network: self.network.materialize(),
             logging: self.logging.materialize(),
             feature: self.feature.materialize(),
+            llm: self.llm.materialize(),
         }
     }
 }
@@ -284,6 +337,70 @@ impl FeatureConfigInput {
             rollout_percentage: self
                 .rollout_percentage
                 .unwrap_or(FeatureConfig::DEFAULT_ROLLOUT_PERCENTAGE),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct LlmConfigInput {
+    providers: LlmProvidersConfigInput,
+}
+
+impl LlmConfigInput {
+    fn materialize(self) -> LlmConfig {
+        LlmConfig {
+            providers: self.providers.materialize(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct LlmProvidersConfigInput {
+    chatgpt: ChatgptConfigInput,
+}
+
+impl LlmProvidersConfigInput {
+    fn materialize(self) -> LlmProvidersConfig {
+        LlmProvidersConfig {
+            chatgpt: self.chatgpt.materialize(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct ChatgptConfigInput {
+    auth: ChatgptAuthConfigInput,
+}
+
+impl ChatgptConfigInput {
+    fn materialize(self) -> ChatgptConfig {
+        ChatgptConfig {
+            auth: self.auth.materialize(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct ChatgptAuthConfigInput {
+    issuer: Option<String>,
+    client_id: Option<String>,
+    expected_workspace_id: Option<String>,
+}
+
+impl ChatgptAuthConfigInput {
+    fn materialize(self) -> ChatgptAuthConfig {
+        ChatgptAuthConfig {
+            issuer: self
+                .issuer
+                .unwrap_or_else(|| ChatgptAuthConfig::DEFAULT_ISSUER.to_owned()),
+            client_id: self
+                .client_id
+                .unwrap_or_else(|| ChatgptAuthConfig::DEFAULT_CLIENT_ID.to_owned()),
+            expected_workspace_id: self.expected_workspace_id,
         }
     }
 }

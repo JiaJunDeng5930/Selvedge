@@ -71,3 +71,49 @@ fn invalid_user_agent_is_rejected() {
         Err(ValidationError::InvalidUserAgent("bad\r\nvalue".to_owned()))
     );
 }
+
+#[test]
+fn chatgpt_auth_defaults_materialize_from_empty_config() {
+    let config = AppConfig::try_from(Table::new()).expect("materialize config");
+
+    assert_eq!(
+        config.llm.providers.chatgpt.auth.issuer,
+        "https://auth.openai.com"
+    );
+    assert_eq!(
+        config.llm.providers.chatgpt.auth.client_id,
+        "app_EMoamEEZ73f0CkXaXp7hrann"
+    );
+    assert_eq!(
+        config.llm.providers.chatgpt.auth.expected_workspace_id,
+        None
+    );
+}
+
+#[test]
+fn chatgpt_auth_accepts_explicit_values() {
+    let table = toml::toml! {
+        [llm.providers.chatgpt.auth]
+        issuer = "https://example.com"
+        client_id = "client-123"
+        expected_workspace_id = "workspace-456"
+    };
+
+    let config = AppConfig::try_from(table).expect("materialize config");
+
+    assert_eq!(
+        config.llm.providers.chatgpt.auth.issuer,
+        "https://example.com"
+    );
+    assert_eq!(config.llm.providers.chatgpt.auth.client_id, "client-123");
+    assert_eq!(
+        config
+            .llm
+            .providers
+            .chatgpt
+            .auth
+            .expected_workspace_id
+            .as_deref(),
+        Some("workspace-456")
+    );
+}
