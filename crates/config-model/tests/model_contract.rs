@@ -201,3 +201,33 @@ fn chatgpt_auth_rejects_issuer_with_query_or_path() {
         "llm.providers.chatgpt.auth.issuer must be a clean base URL"
     );
 }
+
+#[test]
+fn chatgpt_auth_rejects_non_loopback_http_issuer() {
+    let table = toml::toml! {
+        [llm.providers.chatgpt.auth]
+        issuer = "http://example.com"
+    };
+
+    let error = AppConfig::try_from(table).expect_err("non-loopback http issuer must fail");
+
+    assert_eq!(
+        error.to_string(),
+        "llm.providers.chatgpt.auth.issuer must use https unless it targets a loopback host"
+    );
+}
+
+#[test]
+fn chatgpt_auth_rejects_issuer_with_userinfo() {
+    let table = toml::toml! {
+        [llm.providers.chatgpt.auth]
+        issuer = "https://user:pass@example.com"
+    };
+
+    let error = AppConfig::try_from(table).expect_err("issuer with userinfo must fail");
+
+    assert_eq!(
+        error.to_string(),
+        "llm.providers.chatgpt.auth.issuer must not contain userinfo"
+    );
+}
