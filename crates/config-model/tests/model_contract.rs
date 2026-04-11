@@ -132,3 +132,18 @@ fn chatgpt_auth_rejects_blank_expected_workspace_id() {
         "llm.providers.chatgpt.auth.expected_workspace_id must not be blank"
     );
 }
+
+#[test]
+fn chatgpt_auth_rejects_invalid_issuer() {
+    let table = toml::toml! {
+        [llm.providers.chatgpt.auth]
+        issuer = "auth.openai.com"
+    };
+
+    let error = AppConfig::try_from(table).expect_err("relative issuer must fail");
+
+    assert_eq!(
+        error.to_string(),
+        "llm.providers.chatgpt.auth.issuer must be an absolute http or https URL"
+    );
+}
