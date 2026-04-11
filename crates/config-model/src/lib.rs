@@ -213,6 +213,11 @@ impl ChatgptAuthConfig {
             return Err(ValidationError::InvalidChatgptIssuer);
         }
 
+        let clean_path = issuer.path().is_empty() || issuer.path() == "/";
+        if !clean_path || issuer.query().is_some() || issuer.fragment().is_some() {
+            return Err(ValidationError::ChatgptIssuerMustBeBaseUrl);
+        }
+
         if self.client_id.trim().is_empty() {
             return Err(ValidationError::BlankChatgptClientId);
         }
@@ -257,6 +262,8 @@ pub enum ValidationError {
     EnabledFeatureRequiresRollout,
     #[error("llm.providers.chatgpt.auth.issuer must be an absolute http or https URL")]
     InvalidChatgptIssuer,
+    #[error("llm.providers.chatgpt.auth.issuer must be a clean base URL")]
+    ChatgptIssuerMustBeBaseUrl,
     #[error("llm.providers.chatgpt.auth.client_id must not be blank")]
     BlankChatgptClientId,
     #[error("llm.providers.chatgpt.auth.expected_workspace_id must not be blank")]
