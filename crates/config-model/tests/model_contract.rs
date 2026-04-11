@@ -117,3 +117,18 @@ fn chatgpt_auth_accepts_explicit_values() {
         Some("workspace-456")
     );
 }
+
+#[test]
+fn chatgpt_auth_rejects_blank_expected_workspace_id() {
+    let table = toml::toml! {
+        [llm.providers.chatgpt.auth]
+        expected_workspace_id = ""
+    };
+
+    let error = AppConfig::try_from(table).expect_err("blank workspace id must fail");
+
+    assert_eq!(
+        error.to_string(),
+        "llm.providers.chatgpt.auth.expected_workspace_id must not be blank"
+    );
+}

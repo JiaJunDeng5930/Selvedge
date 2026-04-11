@@ -206,6 +206,14 @@ impl ChatgptAuthConfig {
     const DEFAULT_CLIENT_ID: &'static str = "app_EMoamEEZ73f0CkXaXp7hrann";
 
     pub fn validate(&self) -> Result<(), ValidationError> {
+        if self
+            .expected_workspace_id
+            .as_deref()
+            .is_some_and(str::is_empty)
+        {
+            return Err(ValidationError::BlankExpectedWorkspaceId);
+        }
+
         Ok(())
     }
 }
@@ -236,6 +244,8 @@ pub enum ValidationError {
     InvalidRolloutPercentage(u8),
     #[error("feature.rollout_percentage must be greater than zero when feature.enabled is true")]
     EnabledFeatureRequiresRollout,
+    #[error("llm.providers.chatgpt.auth.expected_workspace_id must not be blank")]
+    BlankExpectedWorkspaceId,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
