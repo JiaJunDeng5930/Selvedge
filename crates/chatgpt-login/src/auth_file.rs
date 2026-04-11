@@ -14,7 +14,23 @@ pub(crate) fn auth_file_path(selvedge_home: &Path) -> PathBuf {
     selvedge_home.join("auth/chatgpt-auth.json")
 }
 
-pub(crate) fn persist(target_path: &Path, token_set: &TokenSet) -> Result<(), ChatgptLoginError> {
+pub(crate) async fn persist(
+    target_path: &Path,
+    token_set: &TokenSet,
+) -> Result<(), ChatgptLoginError> {
+    let target_path = target_path.to_path_buf();
+    let token_set = token_set.clone();
+    let persist_path = target_path.clone();
+
+    tokio::task::spawn_blocking(move || persist_blocking(&persist_path, &token_set))
+        .await
+        .map_err(|error| ChatgptLoginError::PersistFailed {
+            path: target_path,
+            reason: format!("persist task failed: {error}"),
+        })?
+}
+
+fn persist_blocking(target_path: &Path, token_set: &TokenSet) -> Result<(), ChatgptLoginError> {
     let _lock_file = acquire_auth_lock(target_path)?;
     let parent = target_path
         .parent()

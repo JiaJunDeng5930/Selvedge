@@ -119,7 +119,7 @@ pub async fn complete_device_code_login(
     }
 
     let auth_file_path = auth_file::auth_file_path(&selvedge_home);
-    auth_file::persist(&auth_file_path, &token_set)?;
+    auth_file::persist(&auth_file_path, &token_set).await?;
 
     Ok(auth_file::build_result(auth_file_path, claims))
 }
