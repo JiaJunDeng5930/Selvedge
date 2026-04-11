@@ -162,3 +162,18 @@ fn chatgpt_auth_rejects_invalid_issuer() {
         "llm.providers.chatgpt.auth.issuer must be an absolute http or https URL"
     );
 }
+
+#[test]
+fn chatgpt_auth_rejects_blank_client_id() {
+    let table = toml::toml! {
+        [llm.providers.chatgpt.auth]
+        client_id = "   "
+    };
+
+    let error = AppConfig::try_from(table).expect_err("blank client id must fail");
+
+    assert_eq!(
+        error.to_string(),
+        "llm.providers.chatgpt.auth.client_id must not be blank"
+    );
+}
