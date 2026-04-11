@@ -1,9 +1,11 @@
 use std::{
     fs,
+    fs::OpenOptions,
     io::Write,
     path::{Path, PathBuf},
 };
 
+use fs2::FileExt;
 use serde_json::json;
 
 use crate::{ChatgptLoginError, id_token::ParsedIdToken, token_exchange::TokenSet};
@@ -13,6 +15,7 @@ pub(crate) fn auth_file_path(selvedge_home: &Path) -> PathBuf {
 }
 
 pub(crate) fn persist(target_path: &Path, token_set: &TokenSet) -> Result<(), ChatgptLoginError> {
+    let _lock_file = acquire_auth_lock(target_path)?;
     let parent = target_path
         .parent()
         .ok_or_else(|| ChatgptLoginError::PersistFailed {
@@ -61,6 +64,36 @@ pub(crate) fn persist(target_path: &Path, token_set: &TokenSet) -> Result<(), Ch
         })?;
 
     Ok(())
+}
+
+fn acquire_auth_lock(target_path: &Path) -> Result<std::fs::File, ChatgptLoginError> {
+    let lock_path = lock_file_path(target_path);
+    let lock_file = OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .read(true)
+        .write(true)
+        .open(&lock_path)
+        .map_err(|error| ChatgptLoginError::PersistFailed {
+            path: target_path.to_path_buf(),
+            reason: error.to_string(),
+        })?;
+
+    lock_file
+        .lock_exclusive()
+        .map_err(|error| ChatgptLoginError::PersistFailed {
+            path: target_path.to_path_buf(),
+            reason: error.to_string(),
+        })?;
+
+    Ok(lock_file)
+}
+
+fn lock_file_path(target_path: &Path) -> PathBuf {
+    match target_path.parent().and_then(Path::parent) {
+        Some(selvedge_home) => selvedge_home.join(".chatgpt-auth.lock"),
+        None => target_path.with_extension("lock"),
+    }
 }
 
 pub(crate) fn build_result(

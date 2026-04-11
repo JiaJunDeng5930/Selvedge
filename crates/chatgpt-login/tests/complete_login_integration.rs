@@ -1,12 +1,16 @@
 mod support;
 
+use std::fs::OpenOptions;
+
 use axum::{Json, Router, routing::post};
 use base64::Engine;
 use chatgpt_login::{
     ChatgptLoginError, DeviceCodeAuthorization, DeviceCodeChallenge, complete_device_code_login,
 };
+use fs2::FileExt;
 use serde_json::json;
 use support::{assert_child_success, child_mode, init_login_test, run_child, spawn_http_server};
+use tokio::time::sleep;
 
 #[tokio::test(flavor = "multi_thread")]
 async fn complete_device_code_login_persists_auth_file_and_returns_claims() {
@@ -82,6 +86,89 @@ issuer = "{}"
     assert!(persisted.contains("\"id_token\":\""));
     assert!(persisted.contains("\"access_token\":\"access-token\""));
     assert!(persisted.contains("\"refresh_token\":\"refresh-token\""));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn complete_device_code_login_waits_for_auth_file_lock_before_persisting() {
+    const FLAG: &str = "CHATGPT_LOGIN_COMPLETE_LOCK_WAIT_CHILD";
+
+    if !child_mode(FLAG) {
+        assert_child_success(&run_child(
+            "complete_device_code_login_waits_for_auth_file_lock_before_persisting",
+            FLAG,
+        ));
+        return;
+    }
+
+    let id_token = build_test_jwt(json!({
+        "https://api.openai.com/auth.chatgpt_account_id": "workspace-123",
+        "email": "user@example.com"
+    }));
+    let server = spawn_http_server(Router::new().route(
+        "/oauth/token",
+        post(move || {
+            let id_token = id_token.clone();
+            async move {
+                Json(json!({
+                    "id_token": id_token,
+                    "access_token": "access-token",
+                    "refresh_token": "refresh-token"
+                }))
+            }
+        }),
+    ))
+    .await;
+
+    let tempdir = init_login_test(&format!(
+        r#"
+[logging]
+level = "debug"
+
+[llm.providers.chatgpt.auth]
+issuer = "{}"
+"#,
+        server.url("")
+    ));
+    let persisted_path = tempdir.path().join(".selvedge/auth/chatgpt-auth.json");
+    let lock_path = tempdir.path().join(".selvedge/.chatgpt-auth.lock");
+    let lock_file = OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .read(true)
+        .write(true)
+        .open(&lock_path)
+        .expect("open lock file");
+    lock_file.lock_exclusive().expect("lock auth file");
+
+    let challenge = DeviceCodeChallenge {
+        verification_url: format!("{}/codex/device", server.url("")),
+        user_code: "ABCD-EFGH".to_owned(),
+        device_auth_id: "device-auth-id".to_owned(),
+        poll_interval: std::time::Duration::from_secs(5),
+        issued_at: chrono::Utc::now(),
+        expires_at: chrono::Utc::now() + chrono::Duration::minutes(15),
+    };
+    let authorization = DeviceCodeAuthorization {
+        authorization_code: "authorization-code".to_owned(),
+        code_verifier: "code-verifier".to_owned(),
+    };
+
+    let login_task = tokio::spawn(async move {
+        complete_device_code_login(&challenge, authorization)
+            .await
+            .expect("complete device code login")
+    });
+
+    sleep(std::time::Duration::from_millis(50)).await;
+    assert!(!persisted_path.exists());
+
+    lock_file.unlock().expect("unlock auth file");
+
+    let result = login_task.await.expect("join login task");
+    let persisted = std::fs::read_to_string(&persisted_path).expect("read persisted auth file");
+
+    assert_eq!(result.auth_file_path, persisted_path);
+    assert!(persisted.contains("\"access_token\":\"access-token\""));
 }
 
 fn build_test_jwt(payload: serde_json::Value) -> String {

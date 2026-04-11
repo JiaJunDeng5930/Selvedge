@@ -237,6 +237,7 @@ dependencies = [
  "axum",
  "base64",
  "chrono",
+ "fs2",
  "http",
  "selvedge-client",
  "selvedge-config",
