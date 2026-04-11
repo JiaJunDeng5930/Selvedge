@@ -248,6 +248,77 @@ issuer = "{}"
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn resolve_for_request_refreshes_truncated_jwt_access_token() {
+    const FLAG: &str = "CHATGPT_AUTH_REFRESH_TRUNCATED_ACCESS_CHILD";
+
+    if !child_mode(FLAG) {
+        assert_child_success(&run_child(
+            "resolve_for_request_refreshes_truncated_jwt_access_token",
+            FLAG,
+        ));
+        return;
+    }
+
+    let refresh_hits = Arc::new(AtomicUsize::new(0));
+    let refresh_hits_for_state = Arc::clone(&refresh_hits);
+    let refreshed_id_token = build_jwt(json!({
+        "sub": "subject",
+        "https://api.openai.com/auth.chatgpt_account_id": "workspace-123"
+    }));
+    let server = spawn_http_server(
+        Router::new()
+            .route(
+                "/oauth/token",
+                post(move |State(hits): State<Arc<AtomicUsize>>| {
+                    let refreshed_id_token = refreshed_id_token.clone();
+                    async move {
+                        hits.fetch_add(1, Ordering::SeqCst);
+                        Json(json!({
+                            "id_token": refreshed_id_token,
+                            "access_token": "new-access-token"
+                        }))
+                    }
+                }),
+            )
+            .with_state(refresh_hits_for_state),
+    )
+    .await;
+
+    let tempdir = init_auth_test(&format!(
+        r#"
+[logging]
+level = "debug"
+
+[llm.providers.chatgpt.auth]
+issuer = "{}"
+"#,
+        server.url("")
+    ));
+    let truncated_access_token = format!(
+        "{}.payload",
+        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(r#"{"alg":"none","typ":"JWT"}"#)
+    );
+    write_auth_file(
+        &tempdir,
+        &auth_file_json(
+            &build_jwt(json!({
+                "sub": "subject",
+                "https://api.openai.com/auth.chatgpt_account_id": "workspace-123"
+            })),
+            &truncated_access_token,
+            "refresh-token",
+        ),
+    );
+
+    let resolved = resolve_for_request()
+        .await
+        .expect("truncated jwt access token should refresh");
+
+    assert_eq!(refresh_hits.load(Ordering::SeqCst), 1);
+    assert_eq!(resolved.access_token, "new-access-token");
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn resolve_after_unauthorized_always_refreshes() {
     const FLAG: &str = "CHATGPT_AUTH_FORCE_REFRESH_CHILD";
 
@@ -1277,7 +1348,7 @@ issuer = "{}"
 
 #[tokio::test(flavor = "multi_thread")]
 async fn forced_refresh_reuses_file_repaired_by_waiting_nonforced_refresh() {
-    const FLAG: &str = "CHATGPT_AUTH_REUSE_REPAIRED_FILE_CHILD";
+    const FLAG: &str = "CHATGPT_AUTH_FORCE_REFRESH_CONTINUES_CHILD";
 
     if !child_mode(FLAG) {
         assert_child_success(&run_child(
@@ -1300,11 +1371,18 @@ async fn forced_refresh_reuses_file_repaired_by_waiting_nonforced_refresh() {
                 post(move |State(hits): State<Arc<AtomicUsize>>| {
                     let refreshed_id_token = refreshed_id_token.clone();
                     async move {
-                        hits.fetch_add(1, Ordering::SeqCst);
+                        let hit = hits.fetch_add(1, Ordering::SeqCst);
                         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-                        Json(json!({
-                            "id_token": refreshed_id_token
-                        }))
+                        if hit == 0 {
+                            Json(json!({
+                                "id_token": refreshed_id_token
+                            }))
+                        } else {
+                            Json(json!({
+                                "id_token": refreshed_id_token,
+                                "access_token": "replacement-access-token"
+                            }))
+                        }
                     }
                 }),
             )
@@ -1339,11 +1417,12 @@ issuer = "{}"
     let forced = forced.expect("forced resolve");
     let persisted = std::fs::read_to_string(&auth_file_path).expect("read persisted auth file");
 
-    assert_eq!(refresh_hits.load(Ordering::SeqCst), 1);
+    assert_eq!(refresh_hits.load(Ordering::SeqCst), 2);
     assert_eq!(nonforced.account_id, "workspace-123");
     assert_eq!(forced.account_id, "workspace-123");
-    assert_eq!(forced.access_token, "opaque-access-token");
+    assert_eq!(forced.access_token, "replacement-access-token");
     assert!(persisted.contains("\"id_token\":\""));
+    assert!(persisted.contains("\"access_token\":\"replacement-access-token\""));
 }
 
 #[tokio::test(flavor = "multi_thread")]
