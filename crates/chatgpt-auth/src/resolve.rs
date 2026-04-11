@@ -15,11 +15,20 @@ async fn resolve(force_refresh: bool) -> Result<ResolvedChatgptAuth, ChatgptAuth
     let config = config::read_chatgpt_auth_config()?;
     let selvedge_home = config::read_selvedge_home()?;
     let auth_file_path = auth_file::auth_file_path(&selvedge_home);
-    let _guard = lock::lock_path(&auth_file_path).await;
+    let refresh_hint = force_refresh
+        .then(|| auth_file::load_refresh_hint(&auth_file_path))
+        .flatten();
+    let _guard = lock::lock_path(&auth_file_path).await?;
     let auth_file = auth_file::load(&auth_file_path)?;
     let access_token_expired = access_token_is_expired(&auth_file.tokens.access_token);
+    let auth_became_usable_while_waiting = refresh_hint
+        .as_ref()
+        .is_some_and(|previous_auth_file| token_sets_differ(previous_auth_file, &auth_file))
+        && !should_refresh(&auth_file, access_token_expired);
 
-    if !force_refresh && !should_refresh(&auth_file, access_token_expired) {
+    if auth_became_usable_while_waiting
+        || (!force_refresh && !should_refresh(&auth_file, access_token_expired))
+    {
         return build_resolved_auth_from_existing(
             &auth_file,
             &auth_file_path,
@@ -134,4 +143,10 @@ fn access_token_expiration(access_token: &str) -> Option<chrono::DateTime<chrono
     parse_chatgpt_jwt_claims(access_token)
         .ok()
         .and_then(|claims| claims.expires_at)
+}
+
+fn token_sets_differ(previous: &ChatgptAuthFile, current: &ChatgptAuthFile) -> bool {
+    previous.tokens.id_token != current.tokens.id_token
+        || previous.tokens.access_token != current.tokens.access_token
+        || previous.tokens.refresh_token != current.tokens.refresh_token
 }
