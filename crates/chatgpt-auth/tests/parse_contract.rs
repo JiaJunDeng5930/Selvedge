@@ -139,6 +139,19 @@ fn parse_chatgpt_jwt_claims_rejects_invalid_expiration() {
     assert_eq!(error, JwtParseError::InvalidExpiration);
 }
 
+#[test]
+fn parse_chatgpt_jwt_claims_rejects_invalid_header_json() {
+    let invalid_header = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode("not-json");
+    let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(
+        r#"{"sub":"subject","https://api.openai.com/auth.chatgpt_account_id":"account-id"}"#,
+    );
+    let token = format!("{invalid_header}.{payload}.signature");
+
+    let error = parse_chatgpt_jwt_claims(&token).expect_err("invalid header json must fail");
+
+    assert_eq!(error, JwtParseError::InvalidJson);
+}
+
 fn build_jwt(header_json: &str, payload_json: &str) -> String {
     let header = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(header_json);
     let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(payload_json);

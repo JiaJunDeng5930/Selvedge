@@ -39,7 +39,12 @@ fn map_transport_error(error: selvedge_client::HttpError) -> ChatgptAuthError {
         selvedge_client::HttpError::Status(status_error) => {
             let diagnostics = extract_error_diagnostics(&status_error.body);
 
-            if status_error.status.as_u16() == 401 {
+            if status_error.status.as_u16() == 401
+                || diagnostics
+                    .provider_code
+                    .as_deref()
+                    .is_some_and(is_reauthentication_code)
+            {
                 return ChatgptAuthError::ReauthenticationRequired {
                     provider_code: diagnostics.provider_code,
                     provider_message: diagnostics.provider_message,
@@ -54,6 +59,16 @@ fn map_transport_error(error: selvedge_client::HttpError) -> ChatgptAuthError {
         }
         other => ChatgptAuthError::Transport(other),
     }
+}
+
+fn is_reauthentication_code(code: &str) -> bool {
+    matches!(
+        code,
+        "invalid_grant"
+            | "refresh_token_expired"
+            | "refresh_token_reused"
+            | "refresh_token_invalidated"
+    )
 }
 
 fn merge_tokens(
