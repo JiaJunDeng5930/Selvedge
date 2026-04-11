@@ -359,7 +359,7 @@ issuer = "{}"
     ));
     let truncated_access_token = format!(
         "{}.payload",
-        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(r#"{"alg":"none","typ":"JWT"}"#)
+        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(r#"{"alg":"none"}"#)
     );
     write_auth_file(
         &tempdir,
