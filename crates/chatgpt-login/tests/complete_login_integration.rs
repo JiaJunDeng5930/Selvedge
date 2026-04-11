@@ -285,6 +285,74 @@ issuer = "{}"
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn complete_device_code_login_rejects_blank_account_id_claim() {
+    const FLAG: &str = "CHATGPT_LOGIN_COMPLETE_BLANK_ACCOUNT_ID_CHILD";
+
+    if !child_mode(FLAG) {
+        assert_child_success(&run_child(
+            "complete_device_code_login_rejects_blank_account_id_claim",
+            FLAG,
+        ));
+        return;
+    }
+
+    let id_token = build_test_jwt(json!({
+        "https://api.openai.com/auth.chatgpt_account_id": "",
+        "email": "user@example.com",
+        "sub": "fallback-user-id"
+    }));
+    let server = spawn_http_server(Router::new().route(
+        "/oauth/token",
+        post(move || {
+            let id_token = id_token.clone();
+            async move {
+                Json(json!({
+                    "id_token": id_token,
+                    "access_token": "access-token",
+                    "refresh_token": "refresh-token"
+                }))
+            }
+        }),
+    ))
+    .await;
+
+    let tempdir = init_login_test(&format!(
+        r#"
+[logging]
+level = "debug"
+
+[llm.providers.chatgpt.auth]
+issuer = "{}"
+"#,
+        server.url("")
+    ));
+    let challenge = DeviceCodeChallenge {
+        verification_url: format!("{}/codex/device", server.url("")),
+        user_code: "ABCD-EFGH".to_owned(),
+        device_auth_id: "device-auth-id".to_owned(),
+        poll_interval: std::time::Duration::from_secs(5),
+        issued_at: chrono::Utc::now(),
+        expires_at: chrono::Utc::now() + chrono::Duration::minutes(15),
+    };
+    let authorization = DeviceCodeAuthorization {
+        authorization_code: "authorization-code".to_owned(),
+        code_verifier: "code-verifier".to_owned(),
+    };
+
+    let error = complete_device_code_login(&challenge, authorization)
+        .await
+        .expect_err("blank account_id must fail");
+
+    assert!(matches!(error, ChatgptLoginError::InvalidTokenSet { .. }));
+    assert!(
+        !tempdir
+            .path()
+            .join(".selvedge/auth/chatgpt-auth.json")
+            .exists()
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn complete_device_code_login_reads_current_issuer_from_runtime_config() {
     const FLAG: &str = "CHATGPT_LOGIN_COMPLETE_REFRESH_CONFIG_CHILD";
 
