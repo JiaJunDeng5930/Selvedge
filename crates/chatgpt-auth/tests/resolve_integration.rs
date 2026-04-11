@@ -13,7 +13,8 @@ use chatgpt_auth::{ChatgptAuthError, resolve_after_unauthorized, resolve_for_req
 use http::{HeaderMap, HeaderValue};
 use serde_json::json;
 use support::{
-    assert_child_success, child_mode, init_auth_test, run_child, spawn_http_server, write_auth_file,
+    assert_child_success, child_mode, init_auth_test, run_child, spawn_child, spawn_http_server,
+    write_auth_file,
 };
 
 #[tokio::test(flavor = "multi_thread")]
@@ -914,6 +915,92 @@ issuer = "{}"
     assert_eq!(first.access_token, "new-access-token");
     assert_eq!(second.access_token, "new-access-token");
     assert_eq!(third.access_token, "new-access-token");
+    assert!(persisted.contains("\"refresh_token\":\"new-refresh-token\""));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn refresh_is_serialized_across_processes() {
+    const FLAG: &str = "CHATGPT_AUTH_MULTI_PROCESS_CHILD";
+    const HOME_ENV: &str = "CHATGPT_AUTH_SHARED_HOME";
+
+    if child_mode(FLAG) {
+        let config_home =
+            std::path::PathBuf::from(std::env::var(HOME_ENV).expect("shared home env must exist"));
+
+        selvedge_config::init_with_home(&config_home).expect("init config");
+        selvedge_logging::init().expect("init logging");
+
+        let resolved = resolve_for_request().await.expect("child resolve");
+        assert_eq!(resolved.access_token, "new-access-token");
+        return;
+    }
+
+    let refresh_hits = Arc::new(AtomicUsize::new(0));
+    let refresh_hits_for_state = Arc::clone(&refresh_hits);
+    let refreshed_id_token = build_jwt(json!({
+        "sub": "subject",
+        "https://api.openai.com/auth.chatgpt_account_id": "workspace-123"
+    }));
+    let server = spawn_http_server(
+        Router::new()
+            .route(
+                "/oauth/token",
+                post(move |State(hits): State<Arc<AtomicUsize>>| {
+                    let refreshed_id_token = refreshed_id_token.clone();
+                    async move {
+                        hits.fetch_add(1, Ordering::SeqCst);
+                        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                        Json(json!({
+                            "id_token": refreshed_id_token,
+                            "access_token": "new-access-token",
+                            "refresh_token": "new-refresh-token"
+                        }))
+                    }
+                }),
+            )
+            .with_state(refresh_hits_for_state),
+    )
+    .await;
+
+    let tempdir = init_auth_test(&format!(
+        r#"
+[logging]
+level = "debug"
+
+[llm.providers.chatgpt.auth]
+issuer = "{}"
+"#,
+        server.url("")
+    ));
+    let config_home = tempdir.path().join(".selvedge");
+    let auth_file_path = write_auth_file(
+        &tempdir,
+        &auth_file_json(
+            &build_jwt(json!({
+                "sub": "subject"
+            })),
+            &build_jwt(json!({
+                "exp": 1
+            })),
+            "refresh-token",
+        ),
+    );
+    let config_home_text = config_home.to_string_lossy().into_owned();
+    let child = spawn_child(
+        "refresh_is_serialized_across_processes",
+        FLAG,
+        &[(HOME_ENV, &config_home_text)],
+    );
+
+    tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+
+    let resolved = resolve_for_request().await.expect("parent resolve");
+    let child_output = child.wait_with_output().expect("wait for child");
+    let persisted = std::fs::read_to_string(&auth_file_path).expect("read persisted auth file");
+
+    assert_child_success(&child_output);
+    assert_eq!(refresh_hits.load(Ordering::SeqCst), 1);
+    assert_eq!(resolved.access_token, "new-access-token");
     assert!(persisted.contains("\"refresh_token\":\"new-refresh-token\""));
 }
 
