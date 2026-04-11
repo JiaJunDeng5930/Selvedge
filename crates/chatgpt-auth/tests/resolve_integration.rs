@@ -104,6 +104,69 @@ issuer = "http://127.0.0.1:1"
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn resolve_after_unauthorized_accepts_structured_opaque_access_token_from_refresh() {
+    const FLAG: &str = "CHATGPT_AUTH_STRUCTURED_OPAQUE_REFRESH_CHILD";
+
+    if !child_mode(FLAG) {
+        assert_child_success(&run_child(
+            "resolve_after_unauthorized_accepts_structured_opaque_access_token_from_refresh",
+            FLAG,
+        ));
+        return;
+    }
+
+    let structured_opaque_access_token = format!(
+        "{}.opaque-body.opaque-tag",
+        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(r#"{"alg":"dir","enc":"A256GCM"}"#)
+    );
+    let expected_access_token = structured_opaque_access_token.clone();
+    let server = spawn_http_server(Router::new().route(
+        "/oauth/token",
+        post(move || {
+            let structured_opaque_access_token = structured_opaque_access_token.clone();
+            async move {
+                Json(json!({
+                    "id_token": build_jwt(json!({
+                        "sub": "subject",
+                        "https://api.openai.com/auth.chatgpt_account_id": "workspace-123"
+                    })),
+                    "access_token": structured_opaque_access_token
+                }))
+            }
+        }),
+    ))
+    .await;
+
+    let tempdir = init_auth_test(&format!(
+        r#"
+[logging]
+level = "debug"
+
+[llm.providers.chatgpt.auth]
+issuer = "{}"
+"#,
+        server.url("")
+    ));
+    write_auth_file(
+        &tempdir,
+        &auth_file_json(
+            &build_jwt(json!({
+                "sub": "subject",
+                "https://api.openai.com/auth.chatgpt_account_id": "workspace-123"
+            })),
+            "known-bad-access-token",
+            "refresh-token",
+        ),
+    );
+
+    let resolved = resolve_after_unauthorized()
+        .await
+        .expect("structured opaque access token should be accepted");
+
+    assert_eq!(resolved.access_token, expected_access_token);
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn resolve_for_request_refreshes_expired_access_token_and_persists_result() {
     const FLAG: &str = "CHATGPT_AUTH_REFRESH_EXPIRED_CHILD";
 

@@ -89,10 +89,7 @@ fn id_token_requires_refresh(auth_file: &ChatgptAuthFile) -> bool {
 fn access_token_is_expired(access_token: &str) -> bool {
     let claims = match parse_chatgpt_jwt_claims(access_token) {
         Ok(claims) => claims,
-        Err(crate::JwtParseError::InvalidFormat) if !jwt::has_json_header(access_token) => {
-            return false;
-        }
-        Err(_) if !jwt::has_json_header(access_token) => return false,
+        Err(_) if !jwt::header_indicates_jwt(access_token) => return false,
         Err(_) => return true,
     };
     let Some(expires_at) = claims.expires_at else {

@@ -247,8 +247,7 @@ fn access_token_is_usable(token: &str) -> bool {
         Ok(claims) => claims
             .expires_at
             .is_none_or(|expires_at| expires_at > chrono::Utc::now()),
-        Err(crate::JwtParseError::InvalidFormat) => !jwt::has_json_header(token),
-        Err(_) => !jwt::has_json_header(token),
+        Err(_) => !jwt::header_indicates_jwt(token),
     }
 }
 
