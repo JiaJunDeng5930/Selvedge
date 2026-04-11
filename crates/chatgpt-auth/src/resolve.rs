@@ -22,10 +22,22 @@ async fn resolve(force_refresh: bool) -> Result<ResolvedChatgptAuth, ChatgptAuth
     let auth_file = auth_file::load(&auth_file_path)?;
     let access_token_expired = access_token_is_expired(&auth_file.tokens.access_token);
     let id_token_requires_refresh = id_token_requires_refresh(&auth_file);
-    let auth_became_usable_while_waiting = refresh_hint
-        .as_ref()
-        .is_some_and(|previous_auth_file| token_sets_differ(previous_auth_file, &auth_file))
-        && !should_refresh(&auth_file, access_token_expired);
+    let auth_became_usable_while_waiting =
+        refresh_hint.as_ref().is_some_and(|previous_auth_file| {
+            let tokens_changed = token_sets_differ(previous_auth_file, &auth_file);
+            let access_token_changed =
+                previous_auth_file.tokens.access_token != auth_file.tokens.access_token;
+
+            if !tokens_changed || should_refresh(&auth_file, access_token_expired) {
+                return false;
+            }
+
+            if force_refresh {
+                return access_token_changed;
+            }
+
+            true
+        });
 
     if auth_became_usable_while_waiting
         || (!force_refresh && !should_refresh(&auth_file, access_token_expired))
@@ -77,7 +89,9 @@ fn id_token_requires_refresh(auth_file: &ChatgptAuthFile) -> bool {
 fn access_token_is_expired(access_token: &str) -> bool {
     let claims = match parse_chatgpt_jwt_claims(access_token) {
         Ok(claims) => claims,
-        Err(crate::JwtParseError::InvalidFormat) => return false,
+        Err(crate::JwtParseError::InvalidFormat) if !jwt::has_json_header(access_token) => {
+            return false;
+        }
         Err(_) if !jwt::has_json_header(access_token) => return false,
         Err(_) => return true,
     };
