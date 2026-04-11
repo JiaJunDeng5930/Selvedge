@@ -213,6 +213,10 @@ impl ChatgptAuthConfig {
             return Err(ValidationError::InvalidChatgptIssuer);
         }
 
+        if self.client_id.trim().is_empty() {
+            return Err(ValidationError::BlankChatgptClientId);
+        }
+
         if self
             .expected_workspace_id
             .as_deref()
@@ -253,6 +257,8 @@ pub enum ValidationError {
     EnabledFeatureRequiresRollout,
     #[error("llm.providers.chatgpt.auth.issuer must be an absolute http or https URL")]
     InvalidChatgptIssuer,
+    #[error("llm.providers.chatgpt.auth.client_id must not be blank")]
+    BlankChatgptClientId,
     #[error("llm.providers.chatgpt.auth.expected_workspace_id must not be blank")]
     BlankExpectedWorkspaceId,
 }
