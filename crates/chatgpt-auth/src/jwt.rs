@@ -43,10 +43,15 @@ pub(crate) fn header_indicates_jwt(token: &str) -> bool {
         return false;
     };
 
-    header_object
+    if header_object
         .get("typ")
         .and_then(Value::as_str)
         .is_some_and(|value| value.eq_ignore_ascii_case("jwt"))
+    {
+        return true;
+    }
+
+    header_object.contains_key("alg") && !header_object.contains_key("enc")
 }
 
 fn read_segment(segment: Option<&str>) -> Result<&str, JwtParseError> {
