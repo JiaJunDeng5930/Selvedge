@@ -213,6 +213,14 @@ impl ChatgptAuthConfig {
             return Err(ValidationError::InvalidChatgptIssuer);
         }
 
+        if !issuer.username().is_empty() || issuer.password().is_some() {
+            return Err(ValidationError::ChatgptIssuerMustNotContainUserinfo);
+        }
+
+        if issuer.scheme() == "http" && !issuer_host_is_loopback(&issuer) {
+            return Err(ValidationError::ChatgptIssuerMustUseHttps);
+        }
+
         let clean_path = issuer.path().is_empty() || issuer.path() == "/";
         if !clean_path || issuer.query().is_some() || issuer.fragment().is_some() {
             return Err(ValidationError::ChatgptIssuerMustBeBaseUrl);
@@ -231,6 +239,15 @@ impl ChatgptAuthConfig {
         }
 
         Ok(())
+    }
+}
+
+fn issuer_host_is_loopback(issuer: &url::Url) -> bool {
+    match issuer.host() {
+        Some(url::Host::Domain(host)) => host.eq_ignore_ascii_case("localhost"),
+        Some(url::Host::Ipv4(address)) => address.is_loopback(),
+        Some(url::Host::Ipv6(address)) => address.is_loopback(),
+        None => false,
     }
 }
 
@@ -262,6 +279,10 @@ pub enum ValidationError {
     EnabledFeatureRequiresRollout,
     #[error("llm.providers.chatgpt.auth.issuer must be an absolute http or https URL")]
     InvalidChatgptIssuer,
+    #[error("llm.providers.chatgpt.auth.issuer must use https unless it targets a loopback host")]
+    ChatgptIssuerMustUseHttps,
+    #[error("llm.providers.chatgpt.auth.issuer must not contain userinfo")]
+    ChatgptIssuerMustNotContainUserinfo,
     #[error("llm.providers.chatgpt.auth.issuer must be a clean base URL")]
     ChatgptIssuerMustBeBaseUrl,
     #[error("llm.providers.chatgpt.auth.client_id must not be blank")]
