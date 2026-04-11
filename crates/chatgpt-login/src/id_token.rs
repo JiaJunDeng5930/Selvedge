@@ -13,17 +13,9 @@ pub(crate) struct ParsedIdToken {
 
 pub(crate) fn parse(id_token: &str) -> Result<ParsedIdToken, ChatgptLoginError> {
     let mut segments = id_token.split('.');
-    let _header = segments.next();
-    let payload = segments
-        .next()
-        .ok_or_else(|| ChatgptLoginError::InvalidTokenSet {
-            reason: "id_token must contain a payload segment".to_owned(),
-        })?;
-    let _signature = segments
-        .next()
-        .ok_or_else(|| ChatgptLoginError::InvalidTokenSet {
-            reason: "id_token must contain a signature segment".to_owned(),
-        })?;
+    let header = read_required_segment(segments.next(), "header")?;
+    let payload = read_required_segment(segments.next(), "payload")?;
+    let _signature = read_required_segment(segments.next(), "signature")?;
 
     if segments.next().is_some() {
         return Err(ChatgptLoginError::InvalidTokenSet {
@@ -31,11 +23,8 @@ pub(crate) fn parse(id_token: &str) -> Result<ParsedIdToken, ChatgptLoginError> 
         });
     }
 
-    let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD
-        .decode(payload)
-        .map_err(|error| ChatgptLoginError::InvalidTokenSet {
-            reason: format!("id_token payload is not valid base64url: {error}"),
-        })?;
+    let _header = decode_json_segment(header, "header")?;
+    let payload = decode_json_segment(payload, "payload")?;
     let claims: IdTokenClaims =
         serde_json::from_slice(&payload).map_err(|error| ChatgptLoginError::InvalidTokenSet {
             reason: format!("id_token payload is not valid json: {error}"),
@@ -59,6 +48,38 @@ pub(crate) fn parse(id_token: &str) -> Result<ParsedIdToken, ChatgptLoginError> 
         email: claims.email.filter(|email| !email.is_empty()),
         plan_type: claims.plan_type.filter(|plan_type| !plan_type.is_empty()),
     })
+}
+
+fn read_required_segment<'a>(
+    segment: Option<&'a str>,
+    name: &str,
+) -> Result<&'a str, ChatgptLoginError> {
+    match segment {
+        Some(segment) if !segment.is_empty() => Ok(segment),
+        _ => Err(ChatgptLoginError::InvalidTokenSet {
+            reason: format!("id_token must contain a {name} segment"),
+        }),
+    }
+}
+
+fn decode_json_segment(segment: &str, name: &str) -> Result<Vec<u8>, ChatgptLoginError> {
+    let decoded = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(segment)
+        .map_err(|error| ChatgptLoginError::InvalidTokenSet {
+            reason: format!("id_token {name} is not valid base64url: {error}"),
+        })?;
+    let value: serde_json::Value =
+        serde_json::from_slice(&decoded).map_err(|error| ChatgptLoginError::InvalidTokenSet {
+            reason: format!("id_token {name} is not valid json: {error}"),
+        })?;
+
+    if !value.is_object() {
+        return Err(ChatgptLoginError::InvalidTokenSet {
+            reason: format!("id_token {name} must be a json object"),
+        });
+    }
+
+    Ok(decoded)
 }
 
 #[derive(Debug, Deserialize)]
