@@ -290,6 +290,96 @@ issuer = "{}"
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn start_device_code_login_normalizes_trailing_slash_in_issuer() {
+    const FLAG: &str = "CHATGPT_LOGIN_START_NORMALIZE_ISSUER_CHILD";
+
+    if !child_mode(FLAG) {
+        assert_child_success(&run_child(
+            "start_device_code_login_normalizes_trailing_slash_in_issuer",
+            FLAG,
+        ));
+        return;
+    }
+
+    let server = spawn_http_server(Router::new().route(
+        "/api/accounts/deviceauth/usercode",
+        post(|| async {
+            Json(json!({
+                "device_auth_id": "device-auth-id",
+                "user_code": "ABCD-EFGH",
+                "interval": "5"
+            }))
+        }),
+    ))
+    .await;
+
+    let _tempdir = init_login_test(&format!(
+        r#"
+[logging]
+level = "debug"
+
+[llm.providers.chatgpt.auth]
+issuer = "{}/"
+"#,
+        server.url("")
+    ));
+
+    let challenge = start_device_code_login()
+        .await
+        .expect("issuer with trailing slash must work");
+
+    assert_eq!(
+        challenge.verification_url,
+        format!("{}/codex/device", server.url(""))
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn start_device_code_login_rejects_zero_second_interval() {
+    const FLAG: &str = "CHATGPT_LOGIN_START_ZERO_INTERVAL_CHILD";
+
+    if !child_mode(FLAG) {
+        assert_child_success(&run_child(
+            "start_device_code_login_rejects_zero_second_interval",
+            FLAG,
+        ));
+        return;
+    }
+
+    let server = spawn_http_server(Router::new().route(
+        "/api/accounts/deviceauth/usercode",
+        post(|| async {
+            Json(json!({
+                "device_auth_id": "device-auth-id",
+                "user_code": "ABCD-EFGH",
+                "interval": "0"
+            }))
+        }),
+    ))
+    .await;
+
+    let _tempdir = init_login_test(&format!(
+        r#"
+[logging]
+level = "debug"
+
+[llm.providers.chatgpt.auth]
+issuer = "{}"
+"#,
+        server.url("")
+    ));
+
+    let error = start_device_code_login()
+        .await
+        .expect_err("zero interval must be rejected");
+
+    assert!(matches!(
+        error,
+        ChatgptLoginError::DeviceCodeStartInvalidResponse { .. }
+    ));
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn poll_device_code_login_returns_expired_without_request() {
     const FLAG: &str = "CHATGPT_LOGIN_POLL_EXPIRED_CHILD";
 
