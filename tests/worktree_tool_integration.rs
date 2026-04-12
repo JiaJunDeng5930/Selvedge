@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::OnceLock;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use tempfile::TempDir;
 
@@ -52,13 +52,33 @@ fn script_creates_branch_and_worktree_in_hidden_directory() {
 
 #[test]
 fn script_resets_stale_isolated_git_config_before_running_git_commands() {
+    let test_binary = std::env::current_exe().expect("current test binary");
+    let tempdir = TempDir::new().expect("tempdir");
+    let isolated_home = tempdir.path().join("isolated-home");
+    let isolated_git_config = isolated_home.join("gitconfig");
+
+    fs::create_dir_all(isolated_home.join(".config")).expect("create isolated home");
     fs::write(
-        isolated_git_config_path(),
+        &isolated_git_config,
         "[commit]\n\tgpgSign = true\n[gpg]\n\tprogram = /definitely/missing/git-gpg\n",
     )
     .expect("write stale isolated git config");
 
-    assert_script_creates_branch_and_worktree_in_hidden_directory();
+    let output = Command::new(test_binary)
+        .args([
+            "--exact",
+            "script_creates_branch_and_worktree_in_hidden_directory",
+        ])
+        .env("SELVEDGE_TEST_GIT_ENV_ROOT", &isolated_home)
+        .output()
+        .expect("run nested worktree test");
+
+    assert!(
+        output.status.success(),
+        "expected stale isolated git config to be reset before running git commands\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
 }
 
 fn assert_script_creates_branch_and_worktree_in_hidden_directory() {
@@ -624,38 +644,33 @@ fn isolated_command(program: &str) -> Command {
         }
     }
 
-    let isolated_home = isolated_home_dir();
-    let isolated_git_config = reset_isolated_git_config();
+    let isolated_home = isolated_environment_root();
+    let isolated_git_config = isolated_home.join("gitconfig");
 
-    command.env("HOME", isolated_home);
+    fs::create_dir_all(isolated_home.join(".config")).expect("create isolated home dir");
+    fs::write(&isolated_git_config, "").expect("reset isolated git config");
+
+    command.env("HOME", &isolated_home);
     command.env("XDG_CONFIG_HOME", isolated_home.join(".config"));
-    command.env("GIT_CONFIG_GLOBAL", isolated_git_config);
-    command.env("GIT_CONFIG_SYSTEM", isolated_git_config);
+    command.env("GIT_CONFIG_GLOBAL", &isolated_git_config);
+    command.env("GIT_CONFIG_SYSTEM", &isolated_git_config);
     command.env("GIT_CONFIG_NOSYSTEM", "1");
 
     command
 }
 
-fn isolated_home_dir() -> &'static Path {
-    static ISOLATED_HOME_DIR: OnceLock<PathBuf> = OnceLock::new();
+fn isolated_environment_root() -> PathBuf {
+    if let Some(path) = std::env::var_os("SELVEDGE_TEST_GIT_ENV_ROOT") {
+        return PathBuf::from(path);
+    }
 
-    ISOLATED_HOME_DIR.get_or_init(|| {
-        let path = std::env::temp_dir().join(format!("selvedge-test-home-{}", std::process::id()));
-        fs::create_dir_all(path.join(".config")).expect("create isolated home dir");
-        path
-    })
-}
+    static ISOLATED_ENV_COUNTER: AtomicU64 = AtomicU64::new(0);
 
-fn isolated_git_config_path() -> &'static Path {
-    static ISOLATED_GIT_CONFIG_PATH: OnceLock<PathBuf> = OnceLock::new();
-
-    ISOLATED_GIT_CONFIG_PATH.get_or_init(|| isolated_home_dir().join("gitconfig"))
-}
-
-fn reset_isolated_git_config() -> &'static Path {
-    let path = isolated_git_config_path();
-    fs::write(path, "").expect("reset isolated git config");
-    path
+    let counter = ISOLATED_ENV_COUNTER.fetch_add(1, Ordering::Relaxed);
+    std::env::temp_dir().join(format!(
+        "selvedge-test-home-{}-{counter}",
+        std::process::id()
+    ))
 }
 
 fn encoded_branch_name(branch_name: &str) -> String {
