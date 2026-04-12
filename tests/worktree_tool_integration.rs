@@ -5,6 +5,32 @@ use std::process::Command;
 use tempfile::TempDir;
 
 #[test]
+fn script_ignores_inherited_git_environment_when_creating_temp_repo() {
+    let test_binary = std::env::current_exe().expect("current test binary");
+    let repo_root = workspace_root();
+    let git_dir = repo_root.join(".git");
+    let git_index = git_dir.join("index");
+
+    let output = Command::new(test_binary)
+        .args([
+            "--exact",
+            "script_creates_branch_and_worktree_in_hidden_directory",
+        ])
+        .env("GIT_DIR", &git_dir)
+        .env("GIT_WORK_TREE", &repo_root)
+        .env("GIT_INDEX_FILE", &git_index)
+        .output()
+        .expect("run nested worktree test");
+
+    assert!(
+        output.status.success(),
+        "expected test helper commands to ignore inherited git environment\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn script_creates_branch_and_worktree_in_hidden_directory() {
     let tempdir = TempDir::new().expect("tempdir");
     let repo_root = tempdir.path().join("repo");
