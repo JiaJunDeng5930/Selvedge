@@ -1,6 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::OnceLock;
 
 use tempfile::TempDir;
 
@@ -10,6 +11,14 @@ fn script_ignores_inherited_git_environment_when_creating_temp_repo() {
     let repo_root = workspace_root();
     let git_dir = repo_root.join(".git");
     let git_index = git_dir.join("index");
+    let tempdir = TempDir::new().expect("tempdir");
+    let injected_git_config = tempdir.path().join("gitconfig");
+
+    fs::write(
+        &injected_git_config,
+        "[commit]\n\tgpgSign = true\n[gpg]\n\tprogram = /definitely/missing/git-gpg\n",
+    )
+    .expect("write injected git config");
 
     let output = Command::new(test_binary)
         .args([
@@ -19,6 +28,12 @@ fn script_ignores_inherited_git_environment_when_creating_temp_repo() {
         .env("GIT_DIR", &git_dir)
         .env("GIT_WORK_TREE", &repo_root)
         .env("GIT_INDEX_FILE", &git_index)
+        .env("GIT_CONFIG_GLOBAL", &injected_git_config)
+        .env("GIT_CONFIG_COUNT", "2")
+        .env("GIT_CONFIG_KEY_0", "commit.gpgSign")
+        .env("GIT_CONFIG_VALUE_0", "true")
+        .env("GIT_CONFIG_KEY_1", "gpg.program")
+        .env("GIT_CONFIG_VALUE_1", "/definitely/missing/git-gpg")
         .output()
         .expect("run nested worktree test");
 
@@ -589,32 +604,43 @@ fn isolated_command(program: &str) -> Command {
     let mut command = Command::new(program);
 
     for (key, _) in std::env::vars_os() {
-        let key_text = key.to_string_lossy();
-        if key_text.starts_with("GIT_") && !is_allowed_git_env_var(&key_text) {
+        if key.to_string_lossy().starts_with("GIT_") {
             command.env_remove(&key);
         }
     }
 
+    let isolated_home = isolated_home_dir();
+    let isolated_git_config = isolated_git_config_path();
+
+    command.env("HOME", isolated_home);
+    command.env("XDG_CONFIG_HOME", isolated_home.join(".config"));
+    command.env("GIT_CONFIG_GLOBAL", isolated_git_config);
+    command.env("GIT_CONFIG_SYSTEM", isolated_git_config);
+    command.env("GIT_CONFIG_NOSYSTEM", "1");
+
     command
 }
 
-fn is_allowed_git_env_var(key: &str) -> bool {
-    key.starts_with("GIT_CONFIG_KEY_")
-        || key.starts_with("GIT_CONFIG_VALUE_")
-        || matches!(
-            key,
-            "GIT_EXEC_PATH"
-                | "GIT_SSH"
-                | "GIT_SSH_COMMAND"
-                | "GIT_SSL_CAINFO"
-                | "GIT_SSL_NO_VERIFY"
-                | "GIT_CONFIG_COUNT"
-                | "GIT_CONFIG_GLOBAL"
-                | "GIT_CONFIG_SYSTEM"
-                | "GIT_HTTP_PROXY_AUTHMETHOD"
-                | "GIT_ALLOW_PROTOCOL"
-                | "GIT_ASKPASS"
-        )
+fn isolated_home_dir() -> &'static Path {
+    static ISOLATED_HOME_DIR: OnceLock<PathBuf> = OnceLock::new();
+
+    ISOLATED_HOME_DIR.get_or_init(|| {
+        let path = std::env::temp_dir().join(format!("selvedge-test-home-{}", std::process::id()));
+        fs::create_dir_all(path.join(".config")).expect("create isolated home dir");
+        path
+    })
+}
+
+fn isolated_git_config_path() -> &'static Path {
+    static ISOLATED_GIT_CONFIG_PATH: OnceLock<PathBuf> = OnceLock::new();
+
+    ISOLATED_GIT_CONFIG_PATH.get_or_init(|| {
+        let path = isolated_home_dir().join("gitconfig");
+        if !path.exists() {
+            fs::write(&path, "").expect("write isolated git config");
+        }
+        path
+    })
 }
 
 fn encoded_branch_name(branch_name: &str) -> String {
