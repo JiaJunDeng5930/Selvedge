@@ -47,6 +47,21 @@ fn script_ignores_inherited_git_environment_when_creating_temp_repo() {
 
 #[test]
 fn script_creates_branch_and_worktree_in_hidden_directory() {
+    assert_script_creates_branch_and_worktree_in_hidden_directory();
+}
+
+#[test]
+fn script_resets_stale_isolated_git_config_before_running_git_commands() {
+    fs::write(
+        isolated_git_config_path(),
+        "[commit]\n\tgpgSign = true\n[gpg]\n\tprogram = /definitely/missing/git-gpg\n",
+    )
+    .expect("write stale isolated git config");
+
+    assert_script_creates_branch_and_worktree_in_hidden_directory();
+}
+
+fn assert_script_creates_branch_and_worktree_in_hidden_directory() {
     let tempdir = TempDir::new().expect("tempdir");
     let repo_root = tempdir.path().join("repo");
     let script_source = workspace_root().join("scripts/create-worktree.sh");
@@ -610,7 +625,7 @@ fn isolated_command(program: &str) -> Command {
     }
 
     let isolated_home = isolated_home_dir();
-    let isolated_git_config = isolated_git_config_path();
+    let isolated_git_config = reset_isolated_git_config();
 
     command.env("HOME", isolated_home);
     command.env("XDG_CONFIG_HOME", isolated_home.join(".config"));
@@ -634,13 +649,13 @@ fn isolated_home_dir() -> &'static Path {
 fn isolated_git_config_path() -> &'static Path {
     static ISOLATED_GIT_CONFIG_PATH: OnceLock<PathBuf> = OnceLock::new();
 
-    ISOLATED_GIT_CONFIG_PATH.get_or_init(|| {
-        let path = isolated_home_dir().join("gitconfig");
-        if !path.exists() {
-            fs::write(&path, "").expect("write isolated git config");
-        }
-        path
-    })
+    ISOLATED_GIT_CONFIG_PATH.get_or_init(|| isolated_home_dir().join("gitconfig"))
+}
+
+fn reset_isolated_git_config() -> &'static Path {
+    let path = isolated_git_config_path();
+    fs::write(path, "").expect("reset isolated git config");
+    path
 }
 
 fn encoded_branch_name(branch_name: &str) -> String {
