@@ -56,7 +56,7 @@ fn script_creates_branch_and_worktree_in_hidden_directory() {
 
     assert!(worktree_path.is_dir(), "worktree directory should exist");
 
-    let branch_output = Command::new("git")
+    let branch_output = isolated_command("git")
         .args(["branch", "--list", "feature/demo"])
         .current_dir(&repo_root)
         .output()
@@ -163,12 +163,12 @@ fn script_bases_new_worktree_on_current_branch_when_current_branch_is_not_main()
         "new worktree should inherit commits from the current branch"
     );
 
-    let head_output = Command::new("git")
+    let head_output = isolated_command("git")
         .args(["rev-parse", "HEAD"])
         .current_dir(&isolated_worktree_path)
         .output()
         .expect("read isolated worktree head");
-    let main_output = Command::new("git")
+    let main_output = isolated_command("git")
         .args(["rev-parse", "feature/source"])
         .current_dir(&repo_root)
         .output()
@@ -248,7 +248,7 @@ fn script_supports_long_branch_names_without_leaving_partial_branch_state() {
             .is_dir()
     );
 
-    let branch_output = Command::new("git")
+    let branch_output = isolated_command("git")
         .args(["branch", "--list", &long_branch_name])
         .current_dir(&repo_root)
         .output()
@@ -278,7 +278,7 @@ fn just_entrypoint_preserves_branch_names_with_shell_syntax() {
     fs::copy(&justfile_source, repo_root.join("Justfile")).expect("copy justfile");
     set_script_executable(&repo_root.join("scripts/create-worktree.sh"));
 
-    let output = Command::new("just")
+    let output = isolated_command("just")
         .args(["worktree", branch_name])
         .current_dir(&repo_root)
         .output()
@@ -296,7 +296,7 @@ fn just_entrypoint_preserves_branch_names_with_shell_syntax() {
             .is_dir()
     );
 
-    let branch_output = Command::new("git")
+    let branch_output = isolated_command("git")
         .args(["branch", "--list", branch_name])
         .current_dir(&repo_root)
         .output()
@@ -421,7 +421,7 @@ fn script_keeps_child_worktree_alive_after_parent_worktree_is_removed() {
         "child worktree should survive parent removal"
     );
 
-    let list_output = Command::new("git")
+    let list_output = isolated_command("git")
         .args(["worktree", "list", "--porcelain"])
         .current_dir(&repo_root)
         .output()
@@ -545,7 +545,7 @@ fn script_fails_for_nested_path_inside_worktrees_that_is_not_helper_managed() {
 }
 
 fn run_script(repo_root: &Path, branch_name: &str) -> std::process::Output {
-    Command::new("sh")
+    isolated_command("sh")
         .args([
             "-c",
             &format!("./scripts/create-worktree.sh '{branch_name}'"),
@@ -567,7 +567,7 @@ fn init_git_repo(repo_root: &Path) {
 }
 
 fn run_git<const N: usize>(repo_root: &Path, args: [&str; N]) {
-    let output = Command::new("git")
+    let output = isolated_command("git")
         .args(args)
         .current_dir(repo_root)
         .output()
@@ -585,8 +585,40 @@ fn workspace_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
 }
 
+fn isolated_command(program: &str) -> Command {
+    let mut command = Command::new(program);
+
+    for (key, _) in std::env::vars_os() {
+        let key_text = key.to_string_lossy();
+        if key_text.starts_with("GIT_") && !is_allowed_git_env_var(&key_text) {
+            command.env_remove(&key);
+        }
+    }
+
+    command
+}
+
+fn is_allowed_git_env_var(key: &str) -> bool {
+    key.starts_with("GIT_CONFIG_KEY_")
+        || key.starts_with("GIT_CONFIG_VALUE_")
+        || matches!(
+            key,
+            "GIT_EXEC_PATH"
+                | "GIT_SSH"
+                | "GIT_SSH_COMMAND"
+                | "GIT_SSL_CAINFO"
+                | "GIT_SSL_NO_VERIFY"
+                | "GIT_CONFIG_COUNT"
+                | "GIT_CONFIG_GLOBAL"
+                | "GIT_CONFIG_SYSTEM"
+                | "GIT_HTTP_PROXY_AUTHMETHOD"
+                | "GIT_ALLOW_PROTOCOL"
+                | "GIT_ASKPASS"
+        )
+}
+
 fn encoded_branch_name(branch_name: &str) -> String {
-    let output = Command::new("git")
+    let output = isolated_command("git")
         .args(["hash-object", "--stdin"])
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
@@ -616,7 +648,7 @@ fn encoded_branch_name(branch_name: &str) -> String {
 }
 
 fn command_exists(command_name: &str) -> bool {
-    Command::new("sh")
+    isolated_command("sh")
         .args(["-c", &format!("command -v {command_name} >/dev/null 2>&1")])
         .status()
         .expect("check command presence")
