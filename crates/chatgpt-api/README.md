@@ -40,3 +40,26 @@ stream_completion_timeout_ms = 1800000
 
 `base_url` is the upstream ChatGPT API base URL. `stream_completion_timeout_ms`
 caps the total lifetime of a single successful response stream.
+
+## Timeout Semantics
+
+This crate enforces two independent timeout layers:
+
+- `network.stream_idle_timeout_ms` belongs to `selvedge-client` and limits how
+  long one body-chunk wait may stay idle.
+- `llm.providers.chatgpt.api.stream_completion_timeout_ms` belongs to this crate
+  and limits the total lifetime of one `/responses` stream.
+
+These settings are intentionally separate and are not merged into one budget.
+Both constraints apply to the same request at the same time.
+
+Failure precedence is simple:
+
+- if the transport layer waits too long for the next body bytes,
+  `selvedge-client` returns `HttpError::Timeout`
+- if the overall `/responses` stream lives too long,
+  this crate returns `ChatgptApiLowerLayerError::StreamCompletionTimeout`
+
+Whichever timeout fires first ends the stream first. Callers should therefore
+treat the client-layer timeout and the API-layer completion timeout as distinct
+failure modes rather than aliases.
