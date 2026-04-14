@@ -3,6 +3,7 @@
 
 use std::{
     pin::Pin,
+    sync::{Arc, Mutex},
     task::{Context, Poll},
     time::Duration,
 };
@@ -11,10 +12,7 @@ use futures::StreamExt;
 use futures_core::Stream;
 use http::{HeaderMap, HeaderValue, StatusCode};
 use serde_json::Value;
-use tokio::{
-    sync::mpsc::{self, UnboundedReceiver, UnboundedSender},
-    task::JoinHandle,
-};
+use tokio::{sync::mpsc, task::JoinHandle};
 
 pub type JsonObject = serde_json::Map<String, Value>;
 
@@ -37,15 +35,18 @@ pub async fn stream(
         .map(str::to_owned)
         .or_else(|| request.context.turn_state.clone());
 
-    let (sender, receiver) = mpsc::unbounded_channel();
+    let (sender, receiver) = mpsc::channel(32);
+    let terminal_error = Arc::new(Mutex::new(None));
+    let terminal_error_for_driver = Arc::clone(&terminal_error);
     let timeout = Duration::from_millis(api_config.stream_completion_timeout_ms);
     let driver_task = tokio::spawn(async move {
-        drive_response_stream(response.body, sender, timeout).await;
+        drive_response_stream(response.body, sender, terminal_error_for_driver, timeout).await;
     });
 
     Ok(ChatgptResponseStream::empty(
         effective_turn_state,
         receiver,
+        terminal_error,
         Some(driver_task),
     ))
 }
@@ -159,7 +160,8 @@ fn retry_delay_for_attempt(retry_count: u8, error: &selvedge_client::HttpError) 
 
 async fn drive_response_stream(
     mut body: selvedge_client::ByteStream,
-    sender: UnboundedSender<Result<ChatgptResponseEvent, ChatgptApiError>>,
+    sender: mpsc::Sender<Result<ChatgptResponseEvent, ChatgptApiError>>,
+    terminal_error: Arc<Mutex<Option<ChatgptApiError>>>,
     timeout: Duration,
 ) {
     let deadline = tokio::time::Instant::now() + timeout;
@@ -170,10 +172,14 @@ async fn drive_response_stream(
         if remaining.is_zero() {
             send_stream_item(
                 &sender,
+                &terminal_error,
                 Err(ChatgptApiError::LowerLayer(
                     ChatgptApiLowerLayerError::StreamCompletionTimeout { timeout },
                 )),
-            );
+                deadline,
+                timeout,
+            )
+            .await;
             return;
         }
 
@@ -183,24 +189,56 @@ async fn drive_response_stream(
             Err(_) => {
                 send_stream_item(
                     &sender,
+                    &terminal_error,
                     Err(ChatgptApiError::LowerLayer(
                         ChatgptApiLowerLayerError::StreamCompletionTimeout { timeout },
                     )),
-                );
+                    deadline,
+                    timeout,
+                )
+                .await;
                 return;
             }
         };
 
         let Some(chunk) = maybe_chunk else {
-            let error = if buffer.is_empty() {
-                ChatgptApiError::Endpoint(ChatgptApiEndpointError::PrematureClose)
+            let final_result = if buffer.is_empty() {
+                Err(ChatgptApiError::Endpoint(
+                    ChatgptApiEndpointError::PrematureClose,
+                ))
             } else {
-                ChatgptApiError::Endpoint(ChatgptApiEndpointError::MalformedEvent {
-                    reason: "stream ended before the current SSE frame completed".to_owned(),
-                    raw: Some(String::from_utf8_lossy(&buffer).into_owned()),
+                parse_final_sse_frame(&buffer).and_then(|maybe_payload| match maybe_payload {
+                    None => Err(ChatgptApiError::Endpoint(
+                        ChatgptApiEndpointError::PrematureClose,
+                    )),
+                    Some(payload) => match map_stream_event(&payload) {
+                        Ok(MappedEvent::Event(event)) => Ok(Some(event)),
+                        Ok(MappedEvent::Completed(event)) => Ok(Some(event)),
+                        Ok(MappedEvent::EndpointError(error)) => Err(error),
+                        Err(error) => Err(error),
+                    },
                 })
             };
-            send_stream_item(&sender, Err(error));
+
+            match final_result {
+                Ok(Some(event)) => {
+                    if !send_stream_item(&sender, &terminal_error, Ok(event), deadline, timeout)
+                        .await
+                    {
+                        return;
+                    }
+                }
+                Ok(None) => {}
+                Err(error) => {
+                    send_stream_item(&sender, &terminal_error, Err(error), deadline, timeout).await;
+                    return;
+                }
+            }
+
+            if buffer.is_empty() {
+                return;
+            }
+
             return;
         };
 
@@ -209,10 +247,14 @@ async fn drive_response_stream(
             Err(error) => {
                 send_stream_item(
                     &sender,
+                    &terminal_error,
                     Err(ChatgptApiError::LowerLayer(
                         ChatgptApiLowerLayerError::Client(error),
                     )),
-                );
+                    deadline,
+                    timeout,
+                )
+                .await;
                 return;
             }
         };
@@ -225,13 +267,17 @@ async fn drive_response_stream(
                 Err(_) => {
                     send_stream_item(
                         &sender,
+                        &terminal_error,
                         Err(ChatgptApiError::Endpoint(
                             ChatgptApiEndpointError::MalformedEvent {
                                 reason: "event stream contained non-utf8 bytes".to_owned(),
                                 raw: None,
                             },
                         )),
-                    );
+                        deadline,
+                        timeout,
+                    )
+                    .await;
                     return;
                 }
             };
@@ -244,25 +290,29 @@ async fn drive_response_stream(
                 Ok(Some(payload)) => payload,
                 Ok(None) => continue,
                 Err(error) => {
-                    send_stream_item(&sender, Err(error));
+                    send_stream_item(&sender, &terminal_error, Err(error), deadline, timeout).await;
                     return;
                 }
             };
 
             match map_stream_event(&payload) {
                 Ok(MappedEvent::Event(event)) => {
-                    send_stream_item(&sender, Ok(event));
+                    if !send_stream_item(&sender, &terminal_error, Ok(event), deadline, timeout)
+                        .await
+                    {
+                        return;
+                    }
                 }
                 Ok(MappedEvent::Completed(event)) => {
-                    send_stream_item(&sender, Ok(event));
+                    send_stream_item(&sender, &terminal_error, Ok(event), deadline, timeout).await;
                     return;
                 }
                 Ok(MappedEvent::EndpointError(error)) => {
-                    send_stream_item(&sender, Err(error));
+                    send_stream_item(&sender, &terminal_error, Err(error), deadline, timeout).await;
                     return;
                 }
                 Err(error) => {
-                    send_stream_item(&sender, Err(error));
+                    send_stream_item(&sender, &terminal_error, Err(error), deadline, timeout).await;
                     return;
                 }
             }
@@ -270,11 +320,36 @@ async fn drive_response_stream(
     }
 }
 
-fn send_stream_item(
-    sender: &UnboundedSender<Result<ChatgptResponseEvent, ChatgptApiError>>,
+async fn send_stream_item(
+    sender: &mpsc::Sender<Result<ChatgptResponseEvent, ChatgptApiError>>,
+    terminal_error: &Arc<Mutex<Option<ChatgptApiError>>>,
     item: Result<ChatgptResponseEvent, ChatgptApiError>,
-) {
-    let _ = sender.send(item);
+    deadline: tokio::time::Instant,
+    timeout: Duration,
+) -> bool {
+    match tokio::time::timeout_at(deadline, sender.send(item)).await {
+        Ok(Ok(())) => true,
+        Ok(Err(_)) => false,
+        Err(_) => {
+            if let Ok(mut slot) = terminal_error.lock() {
+                *slot = Some(ChatgptApiError::LowerLayer(
+                    ChatgptApiLowerLayerError::StreamCompletionTimeout { timeout },
+                ));
+            }
+            false
+        }
+    }
+}
+
+fn parse_final_sse_frame(buffer: &[u8]) -> Result<Option<String>, ChatgptApiError> {
+    let frame = std::str::from_utf8(buffer).map_err(|_| {
+        ChatgptApiError::Endpoint(ChatgptApiEndpointError::MalformedEvent {
+            reason: "event stream contained non-utf8 bytes".to_owned(),
+            raw: None,
+        })
+    })?;
+
+    parse_sse_frame(&frame.replace("\r\n", "\n").replace('\r', "\n"))
 }
 
 fn take_next_sse_frame(buffer: &mut Vec<u8>) -> Option<Vec<u8>> {
@@ -1183,7 +1258,8 @@ fn text_verbosity_to_wire(verbosity: TextVerbosity) -> &'static str {
 
 pub struct ChatgptResponseStream {
     effective_turn_state: Option<String>,
-    receiver: UnboundedReceiver<Result<ChatgptResponseEvent, ChatgptApiError>>,
+    receiver: mpsc::Receiver<Result<ChatgptResponseEvent, ChatgptApiError>>,
+    terminal_error: Arc<Mutex<Option<ChatgptApiError>>>,
     driver_task: Option<JoinHandle<()>>,
 }
 
@@ -1194,12 +1270,14 @@ impl ChatgptResponseStream {
 
     fn empty(
         effective_turn_state: Option<String>,
-        receiver: UnboundedReceiver<Result<ChatgptResponseEvent, ChatgptApiError>>,
+        receiver: mpsc::Receiver<Result<ChatgptResponseEvent, ChatgptApiError>>,
+        terminal_error: Arc<Mutex<Option<ChatgptApiError>>>,
         driver_task: Option<JoinHandle<()>>,
     ) -> Self {
         Self {
             effective_turn_state,
             receiver,
+            terminal_error,
             driver_task,
         }
     }
@@ -1217,7 +1295,19 @@ impl Stream for ChatgptResponseStream {
     type Item = Result<ChatgptResponseEvent, ChatgptApiError>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        self.get_mut().receiver.poll_recv(cx)
+        let stream = self.get_mut();
+
+        match stream.receiver.poll_recv(cx) {
+            Poll::Ready(Some(item)) => Poll::Ready(Some(item)),
+            Poll::Ready(None) => Poll::Ready(stream.take_terminal_error().map(Err)),
+            Poll::Pending => Poll::Pending,
+        }
+    }
+}
+
+impl ChatgptResponseStream {
+    fn take_terminal_error(&self) -> Option<ChatgptApiError> {
+        self.terminal_error.lock().ok()?.take()
     }
 }
 
