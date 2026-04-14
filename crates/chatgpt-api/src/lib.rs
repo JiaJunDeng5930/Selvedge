@@ -643,10 +643,7 @@ fn response_item_from_object(item: &JsonObject) -> Result<ResponseItem, ChatgptA
         "reasoning" => Ok(ResponseItem::Reasoning(ReasoningItem {
             id: optional_string(item, "id")?,
             status: optional_string(item, "status")?,
-            summary: item
-                .get("summary")
-                .cloned()
-                .ok_or_else(|| malformed_event("summary", "must be present"))?,
+            summary: item.get("summary").cloned(),
             content: item
                 .get("content")
                 .map(|value| match value {
@@ -1085,17 +1082,21 @@ fn build_request_body(request: &ChatgptResponsesRequest) -> Value {
         );
     }
 
+    let reasoning = build_reasoning_body(request);
+    let reasoning_enabled = !reasoning.is_empty();
+    let needs_encrypted_reasoning_content =
+        reasoning_enabled || request_replays_reasoning_state(&request.input);
     body.insert(
         "reasoning".to_owned(),
-        if request.model_capabilities.supports_reasoning_summaries {
-            Value::Object(build_reasoning_body(request))
+        if reasoning_enabled {
+            Value::Object(reasoning)
         } else {
             Value::Null
         },
     );
     body.insert(
         "include".to_owned(),
-        if request.model_capabilities.supports_reasoning_summaries {
+        if needs_encrypted_reasoning_content {
             serde_json::json!(["reasoning.encrypted_content"])
         } else {
             serde_json::json!([])
@@ -1133,6 +1134,18 @@ fn build_reasoning_body(request: &ChatgptResponsesRequest) -> JsonObject {
     }
 
     reasoning
+}
+
+fn request_replays_reasoning_state(input: &[ResponseItem]) -> bool {
+    input.iter().any(|item| {
+        matches!(
+            item,
+            ResponseItem::Reasoning(ReasoningItem {
+                encrypted_content: Some(_),
+                ..
+            })
+        )
+    })
 }
 
 fn build_text_body(text: &ChatgptTextOptions) -> Option<JsonObject> {
@@ -1224,7 +1237,10 @@ fn response_item_to_json(item: &ResponseItem) -> Value {
                 JsonObject::from_iter([("type".to_owned(), Value::String("reasoning".to_owned()))]);
             insert_optional_string(&mut value, "id", reasoning.id.as_deref());
             insert_optional_string(&mut value, "status", reasoning.status.as_deref());
-            value.insert("summary".to_owned(), reasoning.summary.clone());
+
+            if let Some(summary) = &reasoning.summary {
+                value.insert("summary".to_owned(), summary.clone());
+            }
 
             if let Some(content) = &reasoning.content {
                 value.insert(
@@ -1642,7 +1658,7 @@ pub struct CustomToolCallOutputItem {
 pub struct ReasoningItem {
     pub id: Option<String>,
     pub status: Option<String>,
-    pub summary: Value,
+    pub summary: Option<Value>,
     pub content: Option<Vec<ContentItem>>,
     pub encrypted_content: Option<String>,
 }
@@ -2030,19 +2046,26 @@ mod tests {
             panic!("expected json body");
         };
 
-        assert_eq!(body.get("reasoning"), Some(&serde_json::Value::Null));
-        assert_eq!(body.get("include"), Some(&serde_json::json!([])));
+        assert_eq!(
+            body.pointer("/reasoning/effort"),
+            Some(&serde_json::json!("high"))
+        );
+        assert_eq!(
+            body.get("include"),
+            Some(&serde_json::json!(["reasoning.encrypted_content"]))
+        );
     }
 
     #[test]
-    fn build_http_request_uses_fixed_reasoning_contract_with_summary_support() {
+    fn build_http_request_keeps_encrypted_reasoning_content_for_stateless_replay() {
         let mut request = base_request();
         request.reasoning = ChatgptReasoningOptions::default();
         request.model_capabilities.default_reasoning_effort = None;
+        request.model_capabilities.supports_reasoning_summaries = false;
         request.input.push(ResponseItem::Reasoning(ReasoningItem {
             id: Some("reasoning-1".to_owned()),
             status: Some("completed".to_owned()),
-            summary: serde_json::json!([]),
+            summary: None,
             content: None,
             encrypted_content: Some("encrypted".to_owned()),
         }));
@@ -2057,10 +2080,7 @@ mod tests {
             body.get("include"),
             Some(&serde_json::json!(["reasoning.encrypted_content"]))
         );
-        assert_eq!(
-            body.get("reasoning"),
-            Some(&serde_json::Value::Object(JsonObject::new()))
-        );
+        assert_eq!(body.get("reasoning"), Some(&serde_json::Value::Null));
     }
 
     #[test]
@@ -2149,17 +2169,21 @@ mod tests {
     }
 
     #[test]
-    fn response_item_parser_rejects_reasoning_items_without_summary() {
-        let error = response_item_from_object(&JsonObject::from_iter([
+    fn response_item_parser_accepts_reasoning_items_without_summary() {
+        let item = response_item_from_object(&JsonObject::from_iter([
             ("type".to_owned(), serde_json::json!("reasoning")),
             ("id".to_owned(), serde_json::json!("reasoning-1")),
             ("encrypted_content".to_owned(), serde_json::json!("cipher")),
         ]))
-        .expect_err("reasoning item without summary must fail");
+        .expect("reasoning item without summary");
 
         assert!(matches!(
-            error,
-            ChatgptApiError::Endpoint(ChatgptApiEndpointError::MalformedEvent { .. })
+            item,
+            ResponseItem::Reasoning(ReasoningItem {
+                encrypted_content: Some(encrypted_content),
+                summary,
+                ..
+            }) if encrypted_content == "cipher" && summary.is_none()
         ));
     }
 
