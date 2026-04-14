@@ -633,6 +633,86 @@ base_url = "{}"
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn stream_reports_premature_close_after_non_terminal_final_frame_at_eof() {
+    const FLAG: &str = "CHATGPT_API_EOF_NON_TERMINAL_CHILD";
+
+    if !child_mode(FLAG) {
+        assert_child_success(&run_child(
+            "stream_reports_premature_close_after_non_terminal_final_frame_at_eof",
+            FLAG,
+        ));
+        return;
+    }
+
+    let api_server = spawn_http_server(Router::new().route(
+        "/responses",
+        post(|| async {
+            let body = Body::from_stream(async_stream::stream! {
+                yield Ok::<_, std::convert::Infallible>(bytes::Bytes::from(
+                    "data: {\"type\":\"response.output_text.delta\",\"item_id\":\"item-1\",\"output_index\":0,\"content_index\":0,\"delta\":\"x\"}",
+                ));
+            });
+
+            (
+                StatusCode::OK,
+                [(
+                    http::header::CONTENT_TYPE,
+                    HeaderValue::from_static("text/event-stream"),
+                )],
+                body,
+            )
+        }),
+    ))
+    .await;
+
+    let tempdir = init_api_test(&format!(
+        r#"
+[logging]
+level = "debug"
+
+[llm.providers.chatgpt.auth]
+issuer = "http://127.0.0.1:1"
+
+[llm.providers.chatgpt.api]
+base_url = "{}"
+"#,
+        api_server.url("")
+    ));
+    write_auth_file(
+        &tempdir,
+        &auth_file_json(
+            &build_jwt(json!({
+                "sub": "subject",
+                "https://api.openai.com/auth.chatgpt_account_id": "workspace-123"
+            })),
+            "opaque-access-token",
+            "refresh-token",
+        ),
+    );
+
+    let mut response_stream = stream(base_request()).await.expect("open stream");
+    let event = response_stream
+        .next()
+        .await
+        .expect("delta item")
+        .expect("delta event");
+    let error = response_stream
+        .next()
+        .await
+        .expect("premature close item")
+        .expect_err("non-terminal EOF must fail");
+
+    assert!(matches!(
+        event,
+        ChatgptResponseEvent::OutputTextDelta { .. }
+    ));
+    assert!(matches!(
+        error,
+        ChatgptApiError::Endpoint(ChatgptApiEndpointError::PrematureClose)
+    ));
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn stream_reports_timeout_after_channel_backpressure() {
     const FLAG: &str = "CHATGPT_API_BACKPRESSURE_TIMEOUT_CHILD";
 
@@ -717,6 +797,88 @@ stream_completion_timeout_ms = 10
 
     assert!(received >= 32);
     assert!(timeout_seen);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn stream_overrides_short_global_request_timeout() {
+    const FLAG: &str = "CHATGPT_API_OVERRIDE_GLOBAL_TIMEOUT_CHILD";
+
+    if !child_mode(FLAG) {
+        assert_child_success(&run_child(
+            "stream_overrides_short_global_request_timeout",
+            FLAG,
+        ));
+        return;
+    }
+
+    let api_server = spawn_http_server(Router::new().route(
+        "/responses",
+        post(|| async {
+            let body = Body::from_stream(async_stream::stream! {
+                yield Ok::<_, std::convert::Infallible>(bytes::Bytes::from(
+                    "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp-1\"}}\n\n",
+                ));
+                sleep(Duration::from_millis(25)).await;
+                yield Ok::<_, std::convert::Infallible>(bytes::Bytes::from(
+                    "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp-1\"}}\n\n",
+                ));
+            });
+
+            (
+                StatusCode::OK,
+                [(
+                    http::header::CONTENT_TYPE,
+                    HeaderValue::from_static("text/event-stream"),
+                )],
+                body,
+            )
+        }),
+    ))
+    .await;
+
+    let tempdir = init_api_test(&format!(
+        r#"
+[logging]
+level = "debug"
+
+[network]
+request_timeout_ms = 5
+
+[llm.providers.chatgpt.auth]
+issuer = "http://127.0.0.1:1"
+
+[llm.providers.chatgpt.api]
+base_url = "{}"
+stream_completion_timeout_ms = 100
+"#,
+        api_server.url("")
+    ));
+    write_auth_file(
+        &tempdir,
+        &auth_file_json(
+            &build_jwt(json!({
+                "sub": "subject",
+                "https://api.openai.com/auth.chatgpt_account_id": "workspace-123"
+            })),
+            "opaque-access-token",
+            "refresh-token",
+        ),
+    );
+
+    let mut response_stream = stream(base_request()).await.expect("open stream");
+    let first = response_stream
+        .next()
+        .await
+        .expect("created item")
+        .expect("created event");
+    let second = response_stream
+        .next()
+        .await
+        .expect("completed item")
+        .expect("completed event");
+
+    assert!(matches!(first, ChatgptResponseEvent::Created(_)));
+    assert!(matches!(second, ChatgptResponseEvent::Completed(_)));
 }
 
 fn auth_file_json(id_token: &str, access_token: &str, refresh_token: &str) -> String {

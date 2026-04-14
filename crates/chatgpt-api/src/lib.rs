@@ -221,13 +221,37 @@ async fn drive_response_stream(
             };
 
             match final_result {
-                Ok(Some(event)) => {
-                    if !send_stream_item(&sender, &terminal_error, Ok(event), deadline, timeout)
-                        .await
-                    {
+                Ok(Some(event)) => match map_event_finality(&event) {
+                    FinalEventDisposition::Completed => {
+                        let _ = send_stream_item(
+                            &sender,
+                            &terminal_error,
+                            Ok(event),
+                            deadline,
+                            timeout,
+                        )
+                        .await;
                         return;
                     }
-                }
+                    FinalEventDisposition::NonTerminal => {
+                        if !send_stream_item(&sender, &terminal_error, Ok(event), deadline, timeout)
+                            .await
+                        {
+                            return;
+                        }
+                        send_stream_item(
+                            &sender,
+                            &terminal_error,
+                            Err(ChatgptApiError::Endpoint(
+                                ChatgptApiEndpointError::PrematureClose,
+                            )),
+                            deadline,
+                            timeout,
+                        )
+                        .await;
+                        return;
+                    }
+                },
                 Ok(None) => {}
                 Err(error) => {
                     send_stream_item(&sender, &terminal_error, Err(error), deadline, timeout).await;
@@ -930,9 +954,36 @@ fn build_http_request(
         url,
         headers,
         body: selvedge_client::HttpRequestBody::Json(body),
-        timeout: None,
+        timeout: Some(response_transport_timeout(
+            api_config.stream_completion_timeout_ms,
+        )),
         compression: selvedge_client::RequestCompression::None,
     })
+}
+
+fn response_transport_timeout(stream_completion_timeout_ms: u64) -> Duration {
+    Duration::from_millis(stream_completion_timeout_ms).saturating_add(Duration::from_secs(1))
+}
+
+enum FinalEventDisposition {
+    Completed,
+    NonTerminal,
+}
+
+fn map_event_finality(event: &ChatgptResponseEvent) -> FinalEventDisposition {
+    match event {
+        ChatgptResponseEvent::Completed(_) => FinalEventDisposition::Completed,
+        ChatgptResponseEvent::Created(_)
+        | ChatgptResponseEvent::OutputItemAdded { .. }
+        | ChatgptResponseEvent::OutputItemDone { .. }
+        | ChatgptResponseEvent::OutputTextDelta { .. }
+        | ChatgptResponseEvent::OutputTextDone { .. }
+        | ChatgptResponseEvent::ReasoningSummaryTextDelta { .. }
+        | ChatgptResponseEvent::ReasoningSummaryTextDone { .. }
+        | ChatgptResponseEvent::ReasoningTextDelta { .. }
+        | ChatgptResponseEvent::ReasoningTextDone { .. }
+        | ChatgptResponseEvent::Other(_) => FinalEventDisposition::NonTerminal,
+    }
 }
 
 fn insert_header(
