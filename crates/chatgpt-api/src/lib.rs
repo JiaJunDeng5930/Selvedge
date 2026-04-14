@@ -426,7 +426,7 @@ fn map_stream_event(payload: &str) -> Result<MappedEvent, ChatgptApiError> {
         "response.completed" => Ok(MappedEvent::Completed(ChatgptResponseEvent::Completed(
             response_snapshot_from_field(&raw_object)?,
         ))),
-        "response.failed" => Ok(MappedEvent::EndpointError(failed_endpoint_event(
+        "response.failed" | "error" => Ok(MappedEvent::EndpointError(failed_endpoint_event(
             &raw_object,
             &event_type,
         ))),
@@ -921,17 +921,18 @@ fn build_request_body(request: &ChatgptResponsesRequest) -> Value {
     }
 
     let reasoning = build_reasoning_body(request);
+    let reasoning_enabled = !reasoning.is_empty();
     body.insert(
         "reasoning".to_owned(),
-        if reasoning.is_empty() {
-            Value::Null
-        } else {
+        if reasoning_enabled {
             Value::Object(reasoning)
+        } else {
+            Value::Null
         },
     );
     body.insert(
         "include".to_owned(),
-        if request.model_capabilities.supports_reasoning_summaries {
+        if reasoning_enabled {
             serde_json::json!(["reasoning.encrypted_content"])
         } else {
             serde_json::json!([])
@@ -1809,7 +1810,10 @@ mod tests {
             body.pointer("/reasoning/effort"),
             Some(&serde_json::json!("high"))
         );
-        assert_eq!(body.get("include"), Some(&serde_json::json!([])));
+        assert_eq!(
+            body.get("include"),
+            Some(&serde_json::json!(["reasoning.encrypted_content"]))
+        );
     }
 
     #[test]

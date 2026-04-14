@@ -412,6 +412,77 @@ base_url = "{}"
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn stream_maps_top_level_error_events_to_endpoint_errors() {
+    const FLAG: &str = "CHATGPT_API_TOP_LEVEL_ERROR_CHILD";
+
+    if !child_mode(FLAG) {
+        assert_child_success(&run_child(
+            "stream_maps_top_level_error_events_to_endpoint_errors",
+            FLAG,
+        ));
+        return;
+    }
+
+    let api_server = spawn_http_server(Router::new().route(
+        "/responses",
+        post(|| async {
+            let body = Body::from_stream(async_stream::stream! {
+                yield Ok::<_, std::convert::Infallible>(bytes::Bytes::from(
+                    "data: {\"type\":\"error\",\"code\":\"server_busy\",\"message\":\"try again in 7 seconds\"}\n\n",
+                ));
+            });
+
+            (
+                StatusCode::OK,
+                [(
+                    http::header::CONTENT_TYPE,
+                    HeaderValue::from_static("text/event-stream"),
+                )],
+                body,
+            )
+        }),
+    ))
+    .await;
+
+    let tempdir = init_api_test(&format!(
+        r#"
+[logging]
+level = "debug"
+
+[llm.providers.chatgpt.auth]
+issuer = "http://127.0.0.1:1"
+
+[llm.providers.chatgpt.api]
+base_url = "{}"
+"#,
+        api_server.url("")
+    ));
+    write_auth_file(
+        &tempdir,
+        &auth_file_json(
+            &build_jwt(json!({
+                "sub": "subject",
+                "https://api.openai.com/auth.chatgpt_account_id": "workspace-123"
+            })),
+            "opaque-access-token",
+            "refresh-token",
+        ),
+    );
+
+    let mut response_stream = stream(base_request()).await.expect("open stream");
+    let error = response_stream
+        .next()
+        .await
+        .expect("error item")
+        .expect_err("top-level error must fail");
+
+    assert!(matches!(
+        error,
+        ChatgptApiError::Endpoint(ChatgptApiEndpointError::Other(_))
+    ));
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn stream_reports_completion_timeout() {
     const FLAG: &str = "CHATGPT_API_COMPLETION_TIMEOUT_CHILD";
 

@@ -193,6 +193,32 @@ fn chatgpt_api_rejects_non_loopback_http_base_url() {
 }
 
 #[test]
+fn chatgpt_api_rejects_base_url_without_authority() {
+    let missing_authority_table = toml::toml! {
+        [llm.providers.chatgpt.api]
+        base_url = "https:///backend-api/codex"
+    };
+    let relative_authority_table = toml::toml! {
+        [llm.providers.chatgpt.api]
+        base_url = "https:backend-api/codex"
+    };
+
+    let missing_authority_error = AppConfig::try_from(missing_authority_table)
+        .expect_err("base url without authority must fail");
+    let relative_authority_error = AppConfig::try_from(relative_authority_table)
+        .expect_err("base url with relative authority must fail");
+
+    assert_eq!(
+        missing_authority_error.to_string(),
+        "llm.providers.chatgpt.api.base_url must be an absolute http or https URL"
+    );
+    assert_eq!(
+        relative_authority_error.to_string(),
+        "llm.providers.chatgpt.api.base_url must be an absolute http or https URL"
+    );
+}
+
+#[test]
 fn chatgpt_api_rejects_base_url_with_query_or_fragment() {
     let query_table = toml::toml! {
         [llm.providers.chatgpt.api]
