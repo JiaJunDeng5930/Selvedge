@@ -483,12 +483,12 @@ base_url = "{}"
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn stream_allows_unknown_final_event_at_eof_without_premature_close() {
+async fn stream_reports_premature_close_for_unknown_final_event_at_eof() {
     const FLAG: &str = "CHATGPT_API_UNKNOWN_EOF_EVENT_CHILD";
 
     if !child_mode(FLAG) {
         assert_child_success(&run_child(
-            "stream_allows_unknown_final_event_at_eof_without_premature_close",
+            "stream_reports_premature_close_for_unknown_final_event_at_eof",
             FLAG,
         ));
         return;
@@ -541,23 +541,29 @@ base_url = "{}"
     );
 
     let mut response_stream = stream(base_request()).await.expect("open stream");
-    let event = response_stream
+    let event = response_stream.next().await.expect("other event");
+
+    assert!(matches!(event, Ok(ChatgptResponseEvent::Other(_))));
+
+    let error = response_stream
         .next()
         .await
-        .expect("other event")
-        .expect("other event value");
+        .expect("premature close item")
+        .expect_err("unknown trailing event must still fail at eof");
 
-    assert!(matches!(event, ChatgptResponseEvent::Other(_)));
-    assert!(response_stream.next().await.is_none());
+    assert!(matches!(
+        error,
+        ChatgptApiError::Endpoint(ChatgptApiEndpointError::PrematureClose)
+    ));
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn stream_allows_delimited_unknown_final_event_without_premature_close() {
+async fn stream_reports_premature_close_for_delimited_unknown_final_event() {
     const FLAG: &str = "CHATGPT_API_DELIMITED_UNKNOWN_EOF_CHILD";
 
     if !child_mode(FLAG) {
         assert_child_success(&run_child(
-            "stream_allows_delimited_unknown_final_event_without_premature_close",
+            "stream_reports_premature_close_for_delimited_unknown_final_event",
             FLAG,
         ));
         return;
@@ -610,14 +616,20 @@ base_url = "{}"
     );
 
     let mut response_stream = stream(base_request()).await.expect("open stream");
-    let event = response_stream
+    let event = response_stream.next().await.expect("other event");
+
+    assert!(matches!(event, Ok(ChatgptResponseEvent::Other(_))));
+
+    let error = response_stream
         .next()
         .await
-        .expect("other event")
-        .expect("other event value");
+        .expect("premature close item")
+        .expect_err("unknown trailing event must still fail after delimiter");
 
-    assert!(matches!(event, ChatgptResponseEvent::Other(_)));
-    assert!(response_stream.next().await.is_none());
+    assert!(matches!(
+        error,
+        ChatgptApiError::Endpoint(ChatgptApiEndpointError::PrematureClose)
+    ));
 }
 
 #[tokio::test(flavor = "multi_thread")]

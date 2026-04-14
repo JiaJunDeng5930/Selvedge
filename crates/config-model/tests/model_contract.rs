@@ -266,6 +266,22 @@ fn chatgpt_api_rejects_base_url_with_query_or_fragment() {
 }
 
 #[test]
+fn chatgpt_api_rejects_base_url_that_already_includes_responses_path() {
+    let config_table = toml::toml! {
+        [llm.providers.chatgpt.api]
+        base_url = "https://chatgpt.com/backend-api/codex/responses"
+    };
+
+    let error =
+        AppConfig::try_from(config_table).expect_err("base url ending in /responses must fail");
+
+    assert_eq!(
+        error.to_string(),
+        "llm.providers.chatgpt.api.base_url must be a clean base URL"
+    );
+}
+
+#[test]
 fn chatgpt_api_rejects_blank_or_zero_timeout() {
     let mut config = AppConfig::try_from(Table::new()).expect("materialize config");
     config
