@@ -97,9 +97,12 @@ fn ensure_event_stream_content_type(headers: &HeaderMap) -> Result<(), ChatgptAp
         .and_then(|value| value.to_str().ok())
         .map(str::to_owned);
 
-    let is_event_stream = content_type
-        .as_deref()
-        .is_some_and(|value| value.starts_with("text/event-stream"));
+    let is_event_stream = content_type.as_deref().is_some_and(|value| {
+        value
+            .split(';')
+            .next()
+            .is_some_and(|media_type| media_type.trim().eq_ignore_ascii_case("text/event-stream"))
+    });
 
     if !is_event_stream {
         return Err(ChatgptApiError::Endpoint(
@@ -496,6 +499,13 @@ fn response_item_from_object(item: &JsonObject) -> Result<ResponseItem, ChatgptA
             namespace: optional_string(item, "namespace")?,
             arguments: required_string(item, "arguments")?,
             call_id: required_string(item, "call_id")?,
+        })),
+        "custom_tool_call" => Ok(ResponseItem::CustomToolCall(CustomToolCallItem {
+            id: optional_string(item, "id")?,
+            status: optional_string(item, "status")?,
+            call_id: required_string(item, "call_id")?,
+            name: required_string(item, "name")?,
+            input: required_string(item, "input")?,
         })),
         "function_call_output" => Ok(ResponseItem::FunctionCallOutput(FunctionCallOutputItem {
             id: optional_string(item, "id")?,
@@ -1050,6 +1060,20 @@ fn response_item_to_json(item: &ResponseItem) -> Value {
             ),
             ("call_id".to_owned(), Value::String(call.call_id.clone())),
         ])),
+        ResponseItem::CustomToolCall(call) => Value::Object(JsonObject::from_iter([
+            (
+                "type".to_owned(),
+                Value::String("custom_tool_call".to_owned()),
+            ),
+            ("id".to_owned(), optional_string_value(call.id.as_deref())),
+            (
+                "status".to_owned(),
+                optional_string_value(call.status.as_deref()),
+            ),
+            ("call_id".to_owned(), Value::String(call.call_id.clone())),
+            ("name".to_owned(), Value::String(call.name.clone())),
+            ("input".to_owned(), Value::String(call.input.clone())),
+        ])),
         ResponseItem::FunctionCallOutput(output) => Value::Object(JsonObject::from_iter([
             (
                 "type".to_owned(),
@@ -1447,6 +1471,7 @@ pub struct ChatgptUsage {
 pub enum ResponseItem {
     Message(MessageItem),
     FunctionCall(FunctionCallItem),
+    CustomToolCall(CustomToolCallItem),
     FunctionCallOutput(FunctionCallOutputItem),
     CustomToolCallOutput(CustomToolCallOutputItem),
     Reasoning(ReasoningItem),
@@ -1469,6 +1494,15 @@ pub struct FunctionCallItem {
     pub namespace: Option<String>,
     pub arguments: String,
     pub call_id: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CustomToolCallItem {
+    pub id: Option<String>,
+    pub status: Option<String>,
+    pub call_id: String,
+    pub name: String,
+    pub input: String,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -1615,9 +1649,9 @@ mod tests {
 
     use super::{
         ChatgptModelCapabilities, ChatgptReasoningOptions, ChatgptRequestContext,
-        ChatgptResponsesRequest, ChatgptServiceTier, ChatgptTextOptions, ContentItem, JsonObject,
-        MessageItem, ReasoningItem, ResponseItem, TextVerbosity, ToolDescriptor,
-        build_http_request, chatgpt_usage_from_value,
+        ChatgptResponsesRequest, ChatgptServiceTier, ChatgptTextOptions, ContentItem,
+        CustomToolCallItem, JsonObject, MessageItem, ReasoningItem, ResponseItem, TextVerbosity,
+        ToolDescriptor, build_http_request, chatgpt_usage_from_value, response_item_from_object,
     };
 
     fn base_request() -> ChatgptResponsesRequest {
@@ -1876,5 +1910,28 @@ mod tests {
         assert_eq!(usage.output_tokens, Some(7));
         assert_eq!(usage.reasoning_output_tokens, Some(3));
         assert_eq!(usage.total_tokens, Some(17));
+    }
+
+    #[test]
+    fn response_item_parser_decodes_custom_tool_calls() {
+        let item = response_item_from_object(&JsonObject::from_iter([
+            ("type".to_owned(), serde_json::json!("custom_tool_call")),
+            ("id".to_owned(), serde_json::json!("custom-1")),
+            ("status".to_owned(), serde_json::json!("in_progress")),
+            ("call_id".to_owned(), serde_json::json!("call-1")),
+            ("name".to_owned(), serde_json::json!("apply_patch")),
+            ("input".to_owned(), serde_json::json!("*** Begin Patch")),
+        ]))
+        .expect("custom tool call");
+
+        assert!(matches!(
+            item,
+            ResponseItem::CustomToolCall(CustomToolCallItem {
+                call_id,
+                name,
+                input,
+                ..
+            }) if call_id == "call-1" && name == "apply_patch" && input == "*** Begin Patch"
+        ));
     }
 }
