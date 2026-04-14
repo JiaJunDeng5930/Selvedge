@@ -186,11 +186,12 @@ impl LlmProvidersConfig {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ChatgptConfig {
     pub auth: ChatgptAuthConfig,
+    pub api: ChatgptApiConfig,
 }
 
 impl ChatgptConfig {
     pub fn validate(&self) -> Result<(), ValidationError> {
-        self.auth.validate()
+        self.auth.validate().and_then(|_| self.api.validate())
     }
 }
 
@@ -209,17 +210,12 @@ impl ChatgptAuthConfig {
         let issuer =
             url::Url::parse(&self.issuer).map_err(|_| ValidationError::InvalidChatgptIssuer)?;
 
-        if !matches!(issuer.scheme(), "http" | "https") {
-            return Err(ValidationError::InvalidChatgptIssuer);
-        }
-
-        if !issuer.username().is_empty() || issuer.password().is_some() {
-            return Err(ValidationError::ChatgptIssuerMustNotContainUserinfo);
-        }
-
-        if issuer.scheme() == "http" && !issuer_host_is_loopback(&issuer) {
-            return Err(ValidationError::ChatgptIssuerMustUseHttps);
-        }
+        validate_base_url_scheme_and_authority(
+            &issuer,
+            ValidationError::InvalidChatgptIssuer,
+            ValidationError::ChatgptIssuerMustNotContainUserinfo,
+            ValidationError::ChatgptIssuerMustUseHttps,
+        )?;
 
         let clean_path = issuer.path().is_empty() || issuer.path() == "/";
         if !clean_path || issuer.query().is_some() || issuer.fragment().is_some() {
@@ -240,6 +236,60 @@ impl ChatgptAuthConfig {
 
         Ok(())
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ChatgptApiConfig {
+    pub base_url: String,
+    pub stream_completion_timeout_ms: u64,
+}
+
+impl ChatgptApiConfig {
+    const DEFAULT_BASE_URL: &'static str = "https://chatgpt.com/backend-api/codex";
+    const DEFAULT_STREAM_COMPLETION_TIMEOUT_MS: u64 = 1_800_000;
+
+    pub fn validate(&self) -> Result<(), ValidationError> {
+        let base_url = url::Url::parse(&self.base_url)
+            .map_err(|_| ValidationError::InvalidChatgptApiBaseUrl)?;
+
+        validate_base_url_scheme_and_authority(
+            &base_url,
+            ValidationError::InvalidChatgptApiBaseUrl,
+            ValidationError::ChatgptApiBaseUrlMustNotContainUserinfo,
+            ValidationError::ChatgptApiBaseUrlMustUseHttps,
+        )?;
+
+        if base_url.query().is_some() || base_url.fragment().is_some() {
+            return Err(ValidationError::ChatgptApiBaseUrlMustBeBaseUrl);
+        }
+
+        if self.stream_completion_timeout_ms == 0 {
+            return Err(ValidationError::InvalidChatgptApiStreamCompletionTimeout);
+        }
+
+        Ok(())
+    }
+}
+
+fn validate_base_url_scheme_and_authority(
+    url: &url::Url,
+    invalid_url_error: ValidationError,
+    userinfo_error: ValidationError,
+    https_required_error: ValidationError,
+) -> Result<(), ValidationError> {
+    if !matches!(url.scheme(), "http" | "https") {
+        return Err(invalid_url_error);
+    }
+
+    if !url.username().is_empty() || url.password().is_some() {
+        return Err(userinfo_error);
+    }
+
+    if url.scheme() == "http" && !issuer_host_is_loopback(url) {
+        return Err(https_required_error);
+    }
+
+    Ok(())
 }
 
 fn issuer_host_is_loopback(issuer: &url::Url) -> bool {
@@ -289,6 +339,16 @@ pub enum ValidationError {
     BlankChatgptClientId,
     #[error("llm.providers.chatgpt.auth.expected_workspace_id must not be blank")]
     BlankExpectedWorkspaceId,
+    #[error("llm.providers.chatgpt.api.base_url must be an absolute http or https URL")]
+    InvalidChatgptApiBaseUrl,
+    #[error("llm.providers.chatgpt.api.base_url must use https unless it targets a loopback host")]
+    ChatgptApiBaseUrlMustUseHttps,
+    #[error("llm.providers.chatgpt.api.base_url must not contain userinfo")]
+    ChatgptApiBaseUrlMustNotContainUserinfo,
+    #[error("llm.providers.chatgpt.api.base_url must be a clean base URL")]
+    ChatgptApiBaseUrlMustBeBaseUrl,
+    #[error("llm.providers.chatgpt.api.stream_completion_timeout_ms must be greater than zero")]
+    InvalidChatgptApiStreamCompletionTimeout,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -426,12 +486,14 @@ impl LlmProvidersConfigInput {
 #[serde(default, deny_unknown_fields)]
 struct ChatgptConfigInput {
     auth: ChatgptAuthConfigInput,
+    api: ChatgptApiConfigInput,
 }
 
 impl ChatgptConfigInput {
     fn materialize(self) -> ChatgptConfig {
         ChatgptConfig {
             auth: self.auth.materialize(),
+            api: self.api.materialize(),
         }
     }
 }
@@ -454,6 +516,26 @@ impl ChatgptAuthConfigInput {
                 .client_id
                 .unwrap_or_else(|| ChatgptAuthConfig::DEFAULT_CLIENT_ID.to_owned()),
             expected_workspace_id: self.expected_workspace_id,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct ChatgptApiConfigInput {
+    base_url: Option<String>,
+    stream_completion_timeout_ms: Option<u64>,
+}
+
+impl ChatgptApiConfigInput {
+    fn materialize(self) -> ChatgptApiConfig {
+        ChatgptApiConfig {
+            base_url: self
+                .base_url
+                .unwrap_or_else(|| ChatgptApiConfig::DEFAULT_BASE_URL.to_owned()),
+            stream_completion_timeout_ms: self
+                .stream_completion_timeout_ms
+                .unwrap_or(ChatgptApiConfig::DEFAULT_STREAM_COMPLETION_TIMEOUT_MS),
         }
     }
 }
