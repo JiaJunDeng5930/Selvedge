@@ -209,6 +209,7 @@ impl ChatgptAuthConfig {
     pub fn validate(&self) -> Result<(), ValidationError> {
         let issuer =
             url::Url::parse(&self.issuer).map_err(|_| ValidationError::InvalidChatgptIssuer)?;
+        ensure_explicit_authority(&self.issuer, &issuer, ValidationError::InvalidChatgptIssuer)?;
 
         validate_base_url_scheme_and_authority(
             &issuer,
@@ -251,6 +252,11 @@ impl ChatgptApiConfig {
     pub fn validate(&self) -> Result<(), ValidationError> {
         let base_url = url::Url::parse(&self.base_url)
             .map_err(|_| ValidationError::InvalidChatgptApiBaseUrl)?;
+        ensure_explicit_authority(
+            &self.base_url,
+            &base_url,
+            ValidationError::InvalidChatgptApiBaseUrl,
+        )?;
 
         validate_base_url_scheme_and_authority(
             &base_url,
@@ -287,6 +293,28 @@ fn validate_base_url_scheme_and_authority(
 
     if url.scheme() == "http" && !issuer_host_is_loopback(url) {
         return Err(https_required_error);
+    }
+
+    Ok(())
+}
+
+fn ensure_explicit_authority(
+    raw: &str,
+    url: &url::Url,
+    invalid_url_error: ValidationError,
+) -> Result<(), ValidationError> {
+    let Some((scheme, remainder)) = raw.split_once("://") else {
+        return Err(invalid_url_error);
+    };
+
+    if !matches!(scheme, "http" | "https") {
+        return Err(invalid_url_error);
+    }
+
+    let authority = remainder.split(['/', '?', '#']).next().unwrap_or_default();
+
+    if authority.is_empty() || authority.starts_with('/') || url.host().is_none() {
+        return Err(invalid_url_error);
     }
 
     Ok(())
