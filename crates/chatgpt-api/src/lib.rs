@@ -233,6 +233,17 @@ async fn drive_response_stream(
                         .await;
                         return;
                     }
+                    FinalEventDisposition::Unknown => {
+                        let _ = send_stream_item(
+                            &sender,
+                            &terminal_error,
+                            Ok(event),
+                            deadline,
+                            timeout,
+                        )
+                        .await;
+                        return;
+                    }
                     FinalEventDisposition::NonTerminal => {
                         if !send_stream_item(&sender, &terminal_error, Ok(event), deadline, timeout)
                             .await
@@ -969,6 +980,7 @@ fn response_transport_timeout(stream_completion_timeout_ms: u64) -> Duration {
 enum FinalEventDisposition {
     Completed,
     NonTerminal,
+    Unknown,
 }
 
 fn map_event_finality(event: &ChatgptResponseEvent) -> FinalEventDisposition {
@@ -982,8 +994,8 @@ fn map_event_finality(event: &ChatgptResponseEvent) -> FinalEventDisposition {
         | ChatgptResponseEvent::ReasoningSummaryTextDelta { .. }
         | ChatgptResponseEvent::ReasoningSummaryTextDone { .. }
         | ChatgptResponseEvent::ReasoningTextDelta { .. }
-        | ChatgptResponseEvent::ReasoningTextDone { .. }
-        | ChatgptResponseEvent::Other(_) => FinalEventDisposition::NonTerminal,
+        | ChatgptResponseEvent::ReasoningTextDone { .. } => FinalEventDisposition::NonTerminal,
+        ChatgptResponseEvent::Other(_) => FinalEventDisposition::Unknown,
     }
 }
 
@@ -1149,96 +1161,80 @@ fn request_replays_reasoning_state(input: &[ResponseItem]) -> bool {
 
 fn response_item_to_json(item: &ResponseItem) -> Value {
     match item {
-        ResponseItem::Message(message) => Value::Object(JsonObject::from_iter([
-            ("type".to_owned(), Value::String("message".to_owned())),
-            (
-                "id".to_owned(),
-                optional_string_value(message.id.as_deref()),
-            ),
-            (
-                "status".to_owned(),
-                optional_string_value(message.status.as_deref()),
-            ),
-            (
-                "phase".to_owned(),
-                optional_string_value(message.phase.as_deref()),
-            ),
-            ("role".to_owned(), Value::String(message.role.clone())),
-            (
-                "content".to_owned(),
-                Value::Array(message.content.iter().map(content_item_to_json).collect()),
-            ),
-        ])),
-        ResponseItem::FunctionCall(call) => Value::Object(JsonObject::from_iter([
-            ("type".to_owned(), Value::String("function_call".to_owned())),
-            ("id".to_owned(), optional_string_value(call.id.as_deref())),
-            (
-                "status".to_owned(),
-                optional_string_value(call.status.as_deref()),
-            ),
-            ("name".to_owned(), Value::String(call.name.clone())),
-            (
-                "namespace".to_owned(),
-                optional_string_value(call.namespace.as_deref()),
-            ),
-            (
-                "arguments".to_owned(),
-                Value::String(call.arguments.clone()),
-            ),
-            ("call_id".to_owned(), Value::String(call.call_id.clone())),
-        ])),
-        ResponseItem::CustomToolCall(call) => Value::Object(JsonObject::from_iter([
-            (
-                "type".to_owned(),
-                Value::String("custom_tool_call".to_owned()),
-            ),
-            ("id".to_owned(), optional_string_value(call.id.as_deref())),
-            (
-                "status".to_owned(),
-                optional_string_value(call.status.as_deref()),
-            ),
-            ("call_id".to_owned(), Value::String(call.call_id.clone())),
-            ("name".to_owned(), Value::String(call.name.clone())),
-            ("input".to_owned(), Value::String(call.input.clone())),
-        ])),
-        ResponseItem::FunctionCallOutput(output) => Value::Object(JsonObject::from_iter([
-            (
-                "type".to_owned(),
-                Value::String("function_call_output".to_owned()),
-            ),
-            ("id".to_owned(), optional_string_value(output.id.as_deref())),
-            (
-                "status".to_owned(),
-                optional_string_value(output.status.as_deref()),
-            ),
-            ("call_id".to_owned(), Value::String(output.call_id.clone())),
-            ("output".to_owned(), tool_output_to_json(&output.output)),
-        ])),
-        ResponseItem::CustomToolCallOutput(output) => Value::Object(JsonObject::from_iter([
-            (
-                "type".to_owned(),
-                Value::String("custom_tool_call_output".to_owned()),
-            ),
-            ("id".to_owned(), optional_string_value(output.id.as_deref())),
-            (
-                "status".to_owned(),
-                optional_string_value(output.status.as_deref()),
-            ),
-            ("call_id".to_owned(), Value::String(output.call_id.clone())),
-            ("output".to_owned(), tool_output_to_json(&output.output)),
-        ])),
-        ResponseItem::Reasoning(reasoning) => {
+        ResponseItem::Message(message) => {
             let mut value = JsonObject::from_iter([
-                ("type".to_owned(), Value::String("reasoning".to_owned())),
+                ("type".to_owned(), Value::String("message".to_owned())),
+                ("role".to_owned(), Value::String(message.role.clone())),
                 (
-                    "id".to_owned(),
-                    optional_string_value(reasoning.id.as_deref()),
-                ),
-                (
-                    "status".to_owned(),
-                    optional_string_value(reasoning.status.as_deref()),
+                    "content".to_owned(),
+                    Value::Array(message.content.iter().map(content_item_to_json).collect()),
                 ),
             ]);
+            insert_optional_string(&mut value, "id", message.id.as_deref());
+            insert_optional_string(&mut value, "status", message.status.as_deref());
+            insert_optional_string(&mut value, "phase", message.phase.as_deref());
+            Value::Object(value)
+        }
+        ResponseItem::FunctionCall(call) => {
+            let mut value = JsonObject::from_iter([
+                ("type".to_owned(), Value::String("function_call".to_owned())),
+                ("name".to_owned(), Value::String(call.name.clone())),
+                (
+                    "arguments".to_owned(),
+                    Value::String(call.arguments.clone()),
+                ),
+                ("call_id".to_owned(), Value::String(call.call_id.clone())),
+            ]);
+            insert_optional_string(&mut value, "id", call.id.as_deref());
+            insert_optional_string(&mut value, "status", call.status.as_deref());
+            insert_optional_string(&mut value, "namespace", call.namespace.as_deref());
+            Value::Object(value)
+        }
+        ResponseItem::CustomToolCall(call) => {
+            let mut value = JsonObject::from_iter([
+                (
+                    "type".to_owned(),
+                    Value::String("custom_tool_call".to_owned()),
+                ),
+                ("call_id".to_owned(), Value::String(call.call_id.clone())),
+                ("name".to_owned(), Value::String(call.name.clone())),
+                ("input".to_owned(), Value::String(call.input.clone())),
+            ]);
+            insert_optional_string(&mut value, "id", call.id.as_deref());
+            insert_optional_string(&mut value, "status", call.status.as_deref());
+            Value::Object(value)
+        }
+        ResponseItem::FunctionCallOutput(output) => {
+            let mut value = JsonObject::from_iter([
+                (
+                    "type".to_owned(),
+                    Value::String("function_call_output".to_owned()),
+                ),
+                ("call_id".to_owned(), Value::String(output.call_id.clone())),
+                ("output".to_owned(), tool_output_to_json(&output.output)),
+            ]);
+            insert_optional_string(&mut value, "id", output.id.as_deref());
+            insert_optional_string(&mut value, "status", output.status.as_deref());
+            Value::Object(value)
+        }
+        ResponseItem::CustomToolCallOutput(output) => {
+            let mut value = JsonObject::from_iter([
+                (
+                    "type".to_owned(),
+                    Value::String("custom_tool_call_output".to_owned()),
+                ),
+                ("call_id".to_owned(), Value::String(output.call_id.clone())),
+                ("output".to_owned(), tool_output_to_json(&output.output)),
+            ]);
+            insert_optional_string(&mut value, "id", output.id.as_deref());
+            insert_optional_string(&mut value, "status", output.status.as_deref());
+            Value::Object(value)
+        }
+        ResponseItem::Reasoning(reasoning) => {
+            let mut value =
+                JsonObject::from_iter([("type".to_owned(), Value::String("reasoning".to_owned()))]);
+            insert_optional_string(&mut value, "id", reasoning.id.as_deref());
+            insert_optional_string(&mut value, "status", reasoning.status.as_deref());
 
             if let Some(summary) = &reasoning.summary {
                 value.insert("summary".to_owned(), summary.clone());
@@ -1290,10 +1286,10 @@ fn tool_output_to_json(output: &ToolOutput) -> Value {
     }
 }
 
-fn optional_string_value(value: Option<&str>) -> Value {
-    value
-        .map(|value| Value::String(value.to_owned()))
-        .unwrap_or(Value::Null)
+fn insert_optional_string(object: &mut JsonObject, key: &str, value: Option<&str>) {
+    if let Some(value) = value {
+        object.insert(key.to_owned(), Value::String(value.to_owned()));
+    }
 }
 
 fn service_tier_to_wire(service_tier: ChatgptServiceTier) -> &'static str {
@@ -1985,6 +1981,36 @@ mod tests {
         assert!(body.get("service_tier").is_none());
         assert!(body.get("text").is_none());
         assert_eq!(body.get("tools"), Some(&serde_json::json!([])));
+    }
+
+    #[test]
+    fn build_http_request_omits_missing_optional_request_item_fields() {
+        let mut request = base_request();
+        request.input = vec![ResponseItem::Message(MessageItem {
+            id: None,
+            status: None,
+            phase: None,
+            role: "user".to_owned(),
+            content: vec![ContentItem::InputText {
+                text: "hello".to_owned(),
+            }],
+        })];
+
+        let http_request =
+            build_http_request(&request, &base_auth(), &base_api_config()).expect("http request");
+        let selvedge_client::HttpRequestBody::Json(body) = http_request.body else {
+            panic!("expected json body");
+        };
+        let input_item = body
+            .get("input")
+            .and_then(serde_json::Value::as_array)
+            .and_then(|items| items.first())
+            .and_then(serde_json::Value::as_object)
+            .expect("first input item");
+
+        assert!(!input_item.contains_key("id"));
+        assert!(!input_item.contains_key("status"));
+        assert!(!input_item.contains_key("phase"));
     }
 
     #[test]
