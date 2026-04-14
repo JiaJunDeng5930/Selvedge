@@ -217,7 +217,7 @@ async fn stream_reauthenticates_once_after_unauthorized() {
 
                         (
                             StatusCode::OK,
-                            [(http::header::CONTENT_TYPE, HeaderValue::from_static("text/event-stream"))],
+                            [(http::header::CONTENT_TYPE, HeaderValue::from_static("Text/Event-Stream"))],
                             body,
                         )
                     },
