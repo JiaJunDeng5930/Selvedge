@@ -80,7 +80,7 @@ async fn stream_yields_events_and_updates_effective_turn_state() {
         post(|| async {
             let body = Body::from_stream(async_stream::stream! {
                 yield Ok::<_, std::convert::Infallible>(bytes::Bytes::from(
-                    "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp-1\",\"model\":\"gpt-5\",\"service_tier\":\"default\",\"usage\":{\"input_tokens\":1,\"input_tokens_details\":{\"cached_tokens\":2}}}}\n\n",
+                    "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp-1\",\"model\":\"gpt-5\",\"service_tier\":\"default\",\"usage\":{\"input_tokens\":1,\"input_token_details\":{\"cached_tokens\":2}}}}\n\n",
                 ));
                 yield Ok::<_, std::convert::Infallible>(bytes::Bytes::from_static(
                     b"data: {\"type\":\"response.output_text.delta\",\"item_id\":\"item-1\",\"output_index\":0,\"content_index\":0,\"delta\":\"\xE4",
@@ -92,7 +92,7 @@ async fn stream_yields_events_and_updates_effective_turn_state() {
                     "data: {\"type\":\"response.output_text.done\",\"item_id\":\"item-1\",\"output_index\":0,\"content_index\":0,\"text\":\"hello\"}\n\n",
                 ));
                 yield Ok::<_, std::convert::Infallible>(bytes::Bytes::from(
-                    "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp-1\",\"model\":\"gpt-5\",\"service_tier\":\"default\",\"usage\":{\"output_tokens\":2,\"output_tokens_details\":{\"reasoning_tokens\":3}}}}\n\n",
+                    "data: {\"type\":\"response.done\",\"response\":{\"id\":\"resp-1\",\"model\":\"gpt-5\",\"service_tier\":\"default\",\"usage\":{\"output_tokens\":2,\"output_token_details\":{\"reasoning_tokens\":3}}}}\n\n",
                 ));
             });
 
@@ -702,12 +702,12 @@ stream_completion_timeout_ms = 10
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn stream_accepts_completed_event_at_eof_without_trailing_blank_line() {
+async fn stream_accepts_done_event_at_eof_without_trailing_blank_line() {
     const FLAG: &str = "CHATGPT_API_EOF_COMPLETED_CHILD";
 
     if !child_mode(FLAG) {
         assert_child_success(&run_child(
-            "stream_accepts_completed_event_at_eof_without_trailing_blank_line",
+            "stream_accepts_done_event_at_eof_without_trailing_blank_line",
             FLAG,
         ));
         return;
@@ -718,7 +718,7 @@ async fn stream_accepts_completed_event_at_eof_without_trailing_blank_line() {
         post(|| async {
             let body = Body::from_stream(async_stream::stream! {
                 yield Ok::<_, std::convert::Infallible>(bytes::Bytes::from(
-                    "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp-1\"}}",
+                    "data: {\"type\":\"response.done\",\"response\":{\"id\":\"resp-1\"}}",
                 ));
             });
 

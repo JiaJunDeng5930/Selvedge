@@ -546,9 +546,9 @@ fn map_stream_event(payload: &str) -> Result<MappedEvent, ChatgptApiError> {
                 text: required_string(&raw_object, "text")?,
             },
         )),
-        "response.completed" => Ok(MappedEvent::Completed(ChatgptResponseEvent::Completed(
-            response_snapshot_from_field(&raw_object)?,
-        ))),
+        "response.completed" | "response.done" => Ok(MappedEvent::Completed(
+            ChatgptResponseEvent::Completed(response_snapshot_from_field(&raw_object)?),
+        )),
         "response.failed" | "error" => Ok(MappedEvent::EndpointError(failed_endpoint_event(
             &raw_object,
             &event_type,
@@ -708,10 +708,16 @@ fn chatgpt_usage_from_value(value: &Value) -> Result<ChatgptUsage, ChatgptApiErr
 
     Ok(ChatgptUsage {
         input_tokens: optional_u64(usage, "input_tokens")?,
-        cached_input_tokens: nested_optional_u64(usage, "input_tokens_details", "cached_tokens")?,
-        output_tokens: optional_u64(usage, "output_tokens")?,
-        reasoning_output_tokens: nested_optional_u64(
+        cached_input_tokens: nested_optional_u64_with_fallback(
             usage,
+            "input_token_details",
+            "input_tokens_details",
+            "cached_tokens",
+        )?,
+        output_tokens: optional_u64(usage, "output_tokens")?,
+        reasoning_output_tokens: nested_optional_u64_with_fallback(
+            usage,
+            "output_token_details",
             "output_tokens_details",
             "reasoning_tokens",
         )?,
@@ -905,6 +911,18 @@ fn nested_optional_u64(
     };
 
     optional_u64(child, child_field)
+}
+
+fn nested_optional_u64_with_fallback(
+    object: &JsonObject,
+    primary_parent_field: &'static str,
+    fallback_parent_field: &'static str,
+    child_field: &'static str,
+) -> Result<Option<u64>, ChatgptApiError> {
+    nested_optional_u64(object, primary_parent_field, child_field)?.map_or_else(
+        || nested_optional_u64(object, fallback_parent_field, child_field),
+        |value| Ok(Some(value)),
+    )
 }
 
 fn required_array<'a>(
@@ -1785,11 +1803,11 @@ mod tests {
     use super::{
         ChatgptApiEndpointError, ChatgptApiError, ChatgptModelCapabilities,
         ChatgptOtherEndpointError, ChatgptReasoningOptions, ChatgptRequestContext,
-        ChatgptResponsesRequest, ChatgptServiceTier, ChatgptTextOptions, ContentItem, JsonObject,
-        MessageItem, ReasoningItem, ResponseItem, TextVerbosity, ToolDescriptor,
-        build_http_request, chatgpt_usage_from_value, content_item_from_value,
-        failed_endpoint_event, is_retryable_client_error, response_item_from_object,
-        retry_delay_for_attempt, take_next_sse_frame,
+        ChatgptResponseEvent, ChatgptResponsesRequest, ChatgptServiceTier, ChatgptTextOptions,
+        ContentItem, JsonObject, MessageItem, ReasoningItem, ResponseItem, TextVerbosity,
+        ToolDescriptor, build_http_request, chatgpt_usage_from_value, content_item_from_value,
+        failed_endpoint_event, is_retryable_client_error, map_stream_event,
+        response_item_from_object, retry_delay_for_attempt, take_next_sse_frame,
     };
 
     fn base_request() -> ChatgptResponsesRequest {
@@ -2087,11 +2105,11 @@ mod tests {
     fn chatgpt_usage_reads_nested_cache_and_reasoning_counts() {
         let usage = chatgpt_usage_from_value(&serde_json::json!({
             "input_tokens": 10,
-            "input_tokens_details": {
+            "input_token_details": {
                 "cached_tokens": 4
             },
             "output_tokens": 7,
-            "output_tokens_details": {
+            "output_token_details": {
                 "reasoning_tokens": 3
             },
             "total_tokens": 17
@@ -2204,6 +2222,20 @@ mod tests {
             error,
             ChatgptApiError::Endpoint(ChatgptApiEndpointError::Other(ChatgptOtherEndpointError { raw, .. }))
                 if raw.get("code") == Some(&serde_json::json!("server_busy"))
+        ));
+    }
+
+    #[test]
+    fn response_done_maps_to_completed_terminal_event() {
+        let event = map_stream_event(
+            r#"{"type":"response.done","response":{"id":"resp-1","model":"gpt-5"}}"#,
+        )
+        .expect("mapped event");
+
+        assert!(matches!(
+            event,
+            super::MappedEvent::Completed(ChatgptResponseEvent::Completed(snapshot))
+                if snapshot.id.as_deref() == Some("resp-1")
         ));
     }
 
