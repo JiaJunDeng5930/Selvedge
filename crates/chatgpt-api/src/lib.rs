@@ -392,6 +392,10 @@ fn find_frame_delimiter(buffer: &[u8]) -> Option<(usize, usize)> {
             return Some((index, 2));
         }
 
+        if buffer[index] == b'\r' && buffer[index + 1] == b'\r' {
+            return Some((index, 2));
+        }
+
         if index + 3 < buffer.len()
             && buffer[index] == b'\r'
             && buffer[index + 1] == b'\n'
@@ -978,15 +982,9 @@ fn build_http_request(
         url,
         headers,
         body: selvedge_client::HttpRequestBody::Json(body),
-        timeout: Some(response_transport_timeout(
-            api_config.stream_completion_timeout_ms,
-        )),
+        timeout: None,
         compression: selvedge_client::RequestCompression::None,
     })
-}
-
-fn response_transport_timeout(stream_completion_timeout_ms: u64) -> Duration {
-    Duration::from_millis(stream_completion_timeout_ms).saturating_add(Duration::from_secs(1))
 }
 
 enum FinalEventDisposition {
@@ -1863,6 +1861,7 @@ mod tests {
             "https://chatgpt.com/backend-api/codex/responses"
         );
         assert_eq!(http_request.compression, RequestCompression::None);
+        assert_eq!(http_request.timeout, None);
         assert_eq!(
             http_request
                 .headers
@@ -2227,5 +2226,15 @@ mod tests {
         assert_eq!(frame, b"data: first".to_vec());
         assert_eq!(buffer, b"data: second\n\n".to_vec());
         assert_eq!(buffer.capacity(), original_capacity);
+    }
+
+    #[test]
+    fn take_next_sse_frame_accepts_cr_only_delimiters() {
+        let mut buffer = b"data: first\r\rdata: second\r\r".to_vec();
+
+        let frame = take_next_sse_frame(&mut buffer).expect("first frame");
+
+        assert_eq!(frame, b"data: first".to_vec());
+        assert_eq!(buffer, b"data: second\r\r".to_vec());
     }
 }

@@ -950,12 +950,12 @@ stream_completion_timeout_ms = 10
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn stream_overrides_short_global_request_timeout() {
+async fn stream_preserves_short_global_request_timeout_before_open() {
     const FLAG: &str = "CHATGPT_API_OVERRIDE_GLOBAL_TIMEOUT_CHILD";
 
     if !child_mode(FLAG) {
         assert_child_success(&run_child(
-            "stream_overrides_short_global_request_timeout",
+            "stream_preserves_short_global_request_timeout_before_open",
             FLAG,
         ));
         return;
@@ -964,11 +964,11 @@ async fn stream_overrides_short_global_request_timeout() {
     let api_server = spawn_http_server(Router::new().route(
         "/responses",
         post(|| async {
+            sleep(Duration::from_millis(25)).await;
             let body = Body::from_stream(async_stream::stream! {
                 yield Ok::<_, std::convert::Infallible>(bytes::Bytes::from(
                     "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp-1\"}}\n\n",
                 ));
-                sleep(Duration::from_millis(25)).await;
                 yield Ok::<_, std::convert::Infallible>(bytes::Bytes::from(
                     "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp-1\"}}\n\n",
                 ));
@@ -1015,20 +1015,17 @@ stream_completion_timeout_ms = 100
         ),
     );
 
-    let mut response_stream = stream(base_request()).await.expect("open stream");
-    let first = response_stream
-        .next()
-        .await
-        .expect("created item")
-        .expect("created event");
-    let second = response_stream
-        .next()
-        .await
-        .expect("completed item")
-        .expect("completed event");
+    let error = match stream(base_request()).await {
+        Ok(_) => panic!("short global request timeout must still apply before open"),
+        Err(error) => error,
+    };
 
-    assert!(matches!(first, ChatgptResponseEvent::Created(_)));
-    assert!(matches!(second, ChatgptResponseEvent::Completed(_)));
+    assert!(matches!(
+        error,
+        ChatgptApiError::LowerLayer(chatgpt_api::ChatgptApiLowerLayerError::Client(
+            selvedge_client::HttpError::Timeout
+        ))
+    ));
 }
 
 fn auth_file_json(id_token: &str, access_token: &str, refresh_token: &str) -> String {
