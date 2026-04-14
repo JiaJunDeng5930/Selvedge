@@ -307,7 +307,7 @@ fn ensure_explicit_authority(
         return Err(invalid_url_error);
     };
 
-    if !matches!(scheme, "http" | "https") {
+    if !matches!(scheme.to_ascii_lowercase().as_str(), "http" | "https") {
         return Err(invalid_url_error);
     }
 
