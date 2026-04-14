@@ -61,7 +61,11 @@ This file is for coding agents working in this repository.
 |.cargo:{config.toml}
 |.github:{workflows/}
 |.github/workflows:{ci.yml}
-|crates:{chatgpt-auth/,chatgpt-login/,client/,config-model/,config/,logging/}
+|crates:{chatgpt-api/,chatgpt-auth/,chatgpt-login/,client/,config-model/,config/,logging/}
+|crates/chatgpt-api:{src/,tests/,Cargo.toml,README.md}
+|crates/chatgpt-api/src:{lib.rs}
+|crates/chatgpt-api/tests:{support/,public_api.rs,request_contract.rs,stream_integration.rs}
+|crates/chatgpt-api/tests/support:{mod.rs}
 |crates/chatgpt-auth:{src/,tests/,Cargo.toml,README.md}
 |crates/chatgpt-auth/src:{auth_file.rs,config.rs,jwt.rs,lib.rs,lock.rs,refresh.rs,resolve.rs}
 |crates/chatgpt-auth/tests:{support/,parse_contract.rs,public_api.rs,resolve_integration.rs}
