@@ -6,9 +6,9 @@ use chatgpt_api::{
     ChatgptModelCapabilities, ChatgptOtherEndpointError, ChatgptReasoningOptions,
     ChatgptRequestContext, ChatgptResponseEvent, ChatgptResponseSnapshot, ChatgptResponseStream,
     ChatgptResponsesRequest, ChatgptServiceTier, ChatgptTextOptions, ChatgptUsage, ContentItem,
-    CustomToolCallItem, FunctionCallItem, FunctionCallOutputItem, JsonObject, MessageItem,
-    OpaqueResponseItem, ReasoningItem, RequestValidationError, ResponseItem, TextVerbosity,
-    ToolDescriptor, ToolOutput, stream,
+    FunctionCallItem, FunctionCallOutputItem, JsonObject, MessageItem, OpaqueResponseItem,
+    ReasoningItem, RequestValidationError, ResponseItem, TextVerbosity, ToolDescriptor, ToolOutput,
+    stream,
 };
 
 #[test]
@@ -35,7 +35,6 @@ fn public_api_exposes_chatgpt_response_stream_types() {
         input: vec![ResponseItem::Message(MessageItem {
             id: Some("msg-1".to_owned()),
             status: Some("completed".to_owned()),
-            phase: Some("commentary".to_owned()),
             role: "user".to_owned(),
             content: vec![ContentItem::InputText {
                 text: "hello".to_owned(),
@@ -109,17 +108,10 @@ fn public_api_exposes_chatgpt_response_stream_types() {
         call_id: "call-1".to_owned(),
         output: ToolOutput::Text("done".to_owned()),
     });
-    let custom_tool_call = ResponseItem::CustomToolCall(CustomToolCallItem {
-        id: Some("custom-call".to_owned()),
-        status: Some("completed".to_owned()),
-        call_id: "custom-1".to_owned(),
-        name: "apply_patch".to_owned(),
-        input: "*** Begin Patch".to_owned(),
-    });
     let reasoning_item = ResponseItem::Reasoning(ReasoningItem {
         id: Some("reasoning-1".to_owned()),
         status: Some("completed".to_owned()),
-        summary: Some(serde_json::json!([{ "type": "summary_text", "text": "thinking" }])),
+        summary: serde_json::json!([{ "type": "summary_text", "text": "thinking" }]),
         content: None,
         encrypted_content: Some("cipher".to_owned()),
     });
@@ -139,7 +131,6 @@ fn public_api_exposes_chatgpt_response_stream_types() {
     assert!(matches!(event, ChatgptResponseEvent::Completed(_)));
     assert!(matches!(item, ResponseItem::FunctionCall(_)));
     assert!(matches!(output_item, ResponseItem::FunctionCallOutput(_)));
-    assert!(matches!(custom_tool_call, ResponseItem::CustomToolCall(_)));
     assert!(matches!(reasoning_item, ResponseItem::Reasoning(_)));
     assert!(matches!(opaque, ResponseItem::Opaque(_)));
     assert_eq!(validation_error.field, "model");
