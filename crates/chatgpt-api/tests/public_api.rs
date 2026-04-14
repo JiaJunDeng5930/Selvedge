@@ -111,7 +111,7 @@ fn public_api_exposes_chatgpt_response_stream_types() {
     let reasoning_item = ResponseItem::Reasoning(ReasoningItem {
         id: Some("reasoning-1".to_owned()),
         status: Some("completed".to_owned()),
-        summary: serde_json::json!([{ "type": "summary_text", "text": "thinking" }]),
+        summary: Some(serde_json::json!([{ "type": "summary_text", "text": "thinking" }])),
         content: None,
         encrypted_content: Some("cipher".to_owned()),
     });
