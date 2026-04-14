@@ -11,7 +11,10 @@ use futures::StreamExt;
 use futures_core::Stream;
 use http::{HeaderMap, HeaderValue, StatusCode};
 use serde_json::Value;
-use tokio::{sync::mpsc, task::JoinHandle};
+use tokio::{
+    sync::mpsc::{self, UnboundedReceiver, UnboundedSender},
+    task::JoinHandle,
+};
 
 pub type JsonObject = serde_json::Map<String, Value>;
 
@@ -34,7 +37,7 @@ pub async fn stream(
         .map(str::to_owned)
         .or_else(|| request.context.turn_state.clone());
 
-    let (sender, receiver) = mpsc::channel(32);
+    let (sender, receiver) = mpsc::unbounded_channel();
     let timeout = Duration::from_millis(api_config.stream_completion_timeout_ms);
     let driver_task = tokio::spawn(async move {
         drive_response_stream(response.body, sender, timeout).await;
@@ -156,7 +159,7 @@ fn retry_delay_for_attempt(retry_count: u8, error: &selvedge_client::HttpError) 
 
 async fn drive_response_stream(
     mut body: selvedge_client::ByteStream,
-    sender: mpsc::Sender<Result<ChatgptResponseEvent, ChatgptApiError>>,
+    sender: UnboundedSender<Result<ChatgptResponseEvent, ChatgptApiError>>,
     timeout: Duration,
 ) {
     let deadline = tokio::time::Instant::now() + timeout;
@@ -170,8 +173,7 @@ async fn drive_response_stream(
                 Err(ChatgptApiError::LowerLayer(
                     ChatgptApiLowerLayerError::StreamCompletionTimeout { timeout },
                 )),
-            )
-            .await;
+            );
             return;
         }
 
@@ -184,8 +186,7 @@ async fn drive_response_stream(
                     Err(ChatgptApiError::LowerLayer(
                         ChatgptApiLowerLayerError::StreamCompletionTimeout { timeout },
                     )),
-                )
-                .await;
+                );
                 return;
             }
         };
@@ -199,7 +200,7 @@ async fn drive_response_stream(
                     raw: Some(String::from_utf8_lossy(&buffer).into_owned()),
                 })
             };
-            send_stream_item(&sender, Err(error)).await;
+            send_stream_item(&sender, Err(error));
             return;
         };
 
@@ -211,8 +212,7 @@ async fn drive_response_stream(
                     Err(ChatgptApiError::LowerLayer(
                         ChatgptApiLowerLayerError::Client(error),
                     )),
-                )
-                .await;
+                );
                 return;
             }
         };
@@ -231,8 +231,7 @@ async fn drive_response_stream(
                                 raw: None,
                             },
                         )),
-                    )
-                    .await;
+                    );
                     return;
                 }
             };
@@ -245,25 +244,25 @@ async fn drive_response_stream(
                 Ok(Some(payload)) => payload,
                 Ok(None) => continue,
                 Err(error) => {
-                    send_stream_item(&sender, Err(error)).await;
+                    send_stream_item(&sender, Err(error));
                     return;
                 }
             };
 
             match map_stream_event(&payload) {
                 Ok(MappedEvent::Event(event)) => {
-                    send_stream_item(&sender, Ok(event)).await;
+                    send_stream_item(&sender, Ok(event));
                 }
                 Ok(MappedEvent::Completed(event)) => {
-                    send_stream_item(&sender, Ok(event)).await;
+                    send_stream_item(&sender, Ok(event));
                     return;
                 }
                 Ok(MappedEvent::EndpointError(error)) => {
-                    send_stream_item(&sender, Err(error)).await;
+                    send_stream_item(&sender, Err(error));
                     return;
                 }
                 Err(error) => {
-                    send_stream_item(&sender, Err(error)).await;
+                    send_stream_item(&sender, Err(error));
                     return;
                 }
             }
@@ -271,11 +270,11 @@ async fn drive_response_stream(
     }
 }
 
-async fn send_stream_item(
-    sender: &mpsc::Sender<Result<ChatgptResponseEvent, ChatgptApiError>>,
+fn send_stream_item(
+    sender: &UnboundedSender<Result<ChatgptResponseEvent, ChatgptApiError>>,
     item: Result<ChatgptResponseEvent, ChatgptApiError>,
 ) {
-    let _ = sender.send(item).await;
+    let _ = sender.send(item);
 }
 
 fn take_next_sse_frame(buffer: &mut Vec<u8>) -> Option<Vec<u8>> {
@@ -530,10 +529,7 @@ fn response_item_from_object(item: &JsonObject) -> Result<ResponseItem, ChatgptA
         "reasoning" => Ok(ResponseItem::Reasoning(ReasoningItem {
             id: optional_string(item, "id")?,
             status: optional_string(item, "status")?,
-            summary: item
-                .get("summary")
-                .cloned()
-                .ok_or_else(|| malformed_event("summary", "must be present"))?,
+            summary: item.get("summary").cloned().unwrap_or(Value::Null),
             content: item
                 .get("content")
                 .map(|value| match value {
@@ -1187,7 +1183,7 @@ fn text_verbosity_to_wire(verbosity: TextVerbosity) -> &'static str {
 
 pub struct ChatgptResponseStream {
     effective_turn_state: Option<String>,
-    receiver: mpsc::Receiver<Result<ChatgptResponseEvent, ChatgptApiError>>,
+    receiver: UnboundedReceiver<Result<ChatgptResponseEvent, ChatgptApiError>>,
     driver_task: Option<JoinHandle<()>>,
 }
 
@@ -1198,7 +1194,7 @@ impl ChatgptResponseStream {
 
     fn empty(
         effective_turn_state: Option<String>,
-        receiver: mpsc::Receiver<Result<ChatgptResponseEvent, ChatgptApiError>>,
+        receiver: UnboundedReceiver<Result<ChatgptResponseEvent, ChatgptApiError>>,
         driver_task: Option<JoinHandle<()>>,
     ) -> Self {
         Self {
@@ -1932,6 +1928,25 @@ mod tests {
                 input,
                 ..
             }) if call_id == "call-1" && name == "apply_patch" && input == "*** Begin Patch"
+        ));
+    }
+
+    #[test]
+    fn response_item_parser_accepts_reasoning_items_without_summary() {
+        let item = response_item_from_object(&JsonObject::from_iter([
+            ("type".to_owned(), serde_json::json!("reasoning")),
+            ("id".to_owned(), serde_json::json!("reasoning-1")),
+            ("encrypted_content".to_owned(), serde_json::json!("cipher")),
+        ]))
+        .expect("reasoning item without summary");
+
+        assert!(matches!(
+            item,
+            ResponseItem::Reasoning(ReasoningItem {
+                encrypted_content: Some(encrypted_content),
+                summary,
+                ..
+            }) if encrypted_content == "cipher" && summary.is_null()
         ));
     }
 }
