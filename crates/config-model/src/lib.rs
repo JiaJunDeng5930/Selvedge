@@ -269,6 +269,14 @@ impl ChatgptApiConfig {
             return Err(ValidationError::ChatgptApiBaseUrlMustBeBaseUrl);
         }
 
+        if base_url
+            .path()
+            .trim_end_matches('/')
+            .ends_with("/responses")
+        {
+            return Err(ValidationError::ChatgptApiBaseUrlMustBeBaseUrl);
+        }
+
         if self.stream_completion_timeout_ms == 0 {
             return Err(ValidationError::InvalidChatgptApiStreamCompletionTimeout);
         }

@@ -166,7 +166,6 @@ async fn drive_response_stream(
 ) {
     let deadline = tokio::time::Instant::now() + timeout;
     let mut buffer = Vec::new();
-    let mut last_event_was_unknown = false;
 
     loop {
         let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
@@ -204,24 +203,14 @@ async fn drive_response_stream(
 
         let Some(chunk) = maybe_chunk else {
             let final_result = if buffer.is_empty() {
-                if last_event_was_unknown {
-                    Ok(None)
-                } else {
-                    Err(ChatgptApiError::Endpoint(
-                        ChatgptApiEndpointError::PrematureClose,
-                    ))
-                }
+                Err(ChatgptApiError::Endpoint(
+                    ChatgptApiEndpointError::PrematureClose,
+                ))
             } else {
                 parse_final_sse_frame(&buffer).and_then(|maybe_payload| match maybe_payload {
-                    None => {
-                        if last_event_was_unknown {
-                            Ok(None)
-                        } else {
-                            Err(ChatgptApiError::Endpoint(
-                                ChatgptApiEndpointError::PrematureClose,
-                            ))
-                        }
-                    }
+                    None => Err(ChatgptApiError::Endpoint(
+                        ChatgptApiEndpointError::PrematureClose,
+                    )),
                     Some(payload) => match map_stream_event(&payload) {
                         Ok(MappedEvent::Event(event)) => Ok(Some(event)),
                         Ok(MappedEvent::Completed(event)) => Ok(Some(event)),
@@ -244,18 +233,7 @@ async fn drive_response_stream(
                         .await;
                         return;
                     }
-                    FinalEventDisposition::Unknown => {
-                        let _ = send_stream_item(
-                            &sender,
-                            &terminal_error,
-                            Ok(event),
-                            deadline,
-                            timeout,
-                        )
-                        .await;
-                        return;
-                    }
-                    FinalEventDisposition::NonTerminal => {
+                    FinalEventDisposition::Unknown | FinalEventDisposition::NonTerminal => {
                         if !send_stream_item(&sender, &terminal_error, Ok(event), deadline, timeout)
                             .await
                         {
@@ -343,7 +321,6 @@ async fn drive_response_stream(
 
             match map_stream_event(&payload) {
                 Ok(MappedEvent::Event(event)) => {
-                    last_event_was_unknown = matches!(event, ChatgptResponseEvent::Other(_));
                     if !send_stream_item(&sender, &terminal_error, Ok(event), deadline, timeout)
                         .await
                     {
