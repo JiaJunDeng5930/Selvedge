@@ -119,6 +119,121 @@ fn chatgpt_auth_accepts_explicit_values() {
 }
 
 #[test]
+fn chatgpt_api_defaults_materialize_from_empty_config() {
+    let config = AppConfig::try_from(Table::new()).expect("materialize config");
+
+    assert_eq!(
+        config.llm.providers.chatgpt.api.base_url,
+        "https://chatgpt.com/backend-api/codex"
+    );
+    assert_eq!(
+        config
+            .llm
+            .providers
+            .chatgpt
+            .api
+            .stream_completion_timeout_ms,
+        1_800_000
+    );
+}
+
+#[test]
+fn chatgpt_api_accepts_explicit_values() {
+    let table = toml::toml! {
+        [llm.providers.chatgpt.api]
+        base_url = "https://example.com/backend-api/codex"
+        stream_completion_timeout_ms = 15_000
+    };
+
+    let config = AppConfig::try_from(table).expect("materialize config");
+
+    assert_eq!(
+        config.llm.providers.chatgpt.api.base_url,
+        "https://example.com/backend-api/codex"
+    );
+    assert_eq!(
+        config
+            .llm
+            .providers
+            .chatgpt
+            .api
+            .stream_completion_timeout_ms,
+        15_000
+    );
+}
+
+#[test]
+fn chatgpt_api_rejects_non_absolute_base_url() {
+    let table = toml::toml! {
+        [llm.providers.chatgpt.api]
+        base_url = "/backend-api/codex"
+    };
+
+    let error = AppConfig::try_from(table).expect_err("relative base url must fail");
+
+    assert_eq!(
+        error.to_string(),
+        "llm.providers.chatgpt.api.base_url must be an absolute http or https URL"
+    );
+}
+
+#[test]
+fn chatgpt_api_rejects_non_loopback_http_base_url() {
+    let table = toml::toml! {
+        [llm.providers.chatgpt.api]
+        base_url = "http://example.com/backend-api/codex"
+    };
+
+    let error = AppConfig::try_from(table).expect_err("non-loopback http base url must fail");
+
+    assert_eq!(
+        error.to_string(),
+        "llm.providers.chatgpt.api.base_url must use https unless it targets a loopback host"
+    );
+}
+
+#[test]
+fn chatgpt_api_rejects_base_url_with_query_or_fragment() {
+    let query_table = toml::toml! {
+        [llm.providers.chatgpt.api]
+        base_url = "https://chatgpt.com/backend-api/codex?x=1"
+    };
+    let fragment_table = toml::toml! {
+        [llm.providers.chatgpt.api]
+        base_url = "https://chatgpt.com/backend-api/codex#frag"
+    };
+
+    let query_error = AppConfig::try_from(query_table).expect_err("base url with query must fail");
+    let fragment_error =
+        AppConfig::try_from(fragment_table).expect_err("base url with fragment must fail");
+
+    assert_eq!(
+        query_error.to_string(),
+        "llm.providers.chatgpt.api.base_url must be a clean base URL"
+    );
+    assert_eq!(
+        fragment_error.to_string(),
+        "llm.providers.chatgpt.api.base_url must be a clean base URL"
+    );
+}
+
+#[test]
+fn chatgpt_api_rejects_blank_or_zero_timeout() {
+    let mut config = AppConfig::try_from(Table::new()).expect("materialize config");
+    config
+        .llm
+        .providers
+        .chatgpt
+        .api
+        .stream_completion_timeout_ms = 0;
+
+    assert_eq!(
+        config.validate(),
+        Err(ValidationError::InvalidChatgptApiStreamCompletionTimeout)
+    );
+}
+
+#[test]
 fn chatgpt_auth_rejects_blank_expected_workspace_id() {
     let table = toml::toml! {
         [llm.providers.chatgpt.auth]
