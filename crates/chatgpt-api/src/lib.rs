@@ -922,6 +922,8 @@ fn build_request_body(request: &ChatgptResponsesRequest) -> Value {
 
     let reasoning = build_reasoning_body(request);
     let reasoning_enabled = !reasoning.is_empty();
+    let needs_encrypted_reasoning_content =
+        reasoning_enabled || request_replays_reasoning_state(&request.input);
     body.insert(
         "reasoning".to_owned(),
         if reasoning_enabled {
@@ -932,7 +934,7 @@ fn build_request_body(request: &ChatgptResponsesRequest) -> Value {
     );
     body.insert(
         "include".to_owned(),
-        if reasoning_enabled {
+        if needs_encrypted_reasoning_content {
             serde_json::json!(["reasoning.encrypted_content"])
         } else {
             serde_json::json!([])
@@ -998,6 +1000,18 @@ fn build_text_body(text: &ChatgptTextOptions) -> Option<JsonObject> {
     }
 
     (!body.is_empty()).then_some(body)
+}
+
+fn request_replays_reasoning_state(input: &[ResponseItem]) -> bool {
+    input.iter().any(|item| {
+        matches!(
+            item,
+            ResponseItem::Reasoning(ReasoningItem {
+                encrypted_content: Some(_),
+                ..
+            })
+        )
+    })
 }
 
 fn response_item_to_json(item: &ResponseItem) -> Value {
@@ -1602,8 +1616,8 @@ mod tests {
     use super::{
         ChatgptModelCapabilities, ChatgptReasoningOptions, ChatgptRequestContext,
         ChatgptResponsesRequest, ChatgptServiceTier, ChatgptTextOptions, ContentItem, JsonObject,
-        MessageItem, ResponseItem, TextVerbosity, ToolDescriptor, build_http_request,
-        chatgpt_usage_from_value,
+        MessageItem, ReasoningItem, ResponseItem, TextVerbosity, ToolDescriptor,
+        build_http_request, chatgpt_usage_from_value,
     };
 
     fn base_request() -> ChatgptResponsesRequest {
@@ -1814,6 +1828,32 @@ mod tests {
             body.get("include"),
             Some(&serde_json::json!(["reasoning.encrypted_content"]))
         );
+    }
+
+    #[test]
+    fn build_http_request_keeps_encrypted_reasoning_content_for_stateless_replay() {
+        let mut request = base_request();
+        request.reasoning = ChatgptReasoningOptions::default();
+        request.model_capabilities.default_reasoning_effort = None;
+        request.input.push(ResponseItem::Reasoning(ReasoningItem {
+            id: Some("reasoning-1".to_owned()),
+            status: Some("completed".to_owned()),
+            summary: serde_json::json!([]),
+            content: None,
+            encrypted_content: Some("encrypted".to_owned()),
+        }));
+
+        let http_request =
+            build_http_request(&request, &base_auth(), &base_api_config()).expect("http request");
+        let selvedge_client::HttpRequestBody::Json(body) = http_request.body else {
+            panic!("expected json body");
+        };
+
+        assert_eq!(
+            body.get("include"),
+            Some(&serde_json::json!(["reasoning.encrypted_content"]))
+        );
+        assert_eq!(body.get("reasoning"), Some(&serde_json::Value::Null));
     }
 
     #[test]

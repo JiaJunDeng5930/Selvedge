@@ -119,6 +119,28 @@ fn chatgpt_auth_accepts_explicit_values() {
 }
 
 #[test]
+fn chatgpt_auth_and_api_accept_uppercase_schemes() {
+    let table = toml::toml! {
+        [llm.providers.chatgpt.auth]
+        issuer = "HTTPS://auth.openai.com"
+
+        [llm.providers.chatgpt.api]
+        base_url = "HTTPS://chatgpt.com/backend-api/codex"
+    };
+
+    let config = AppConfig::try_from(table).expect("uppercase schemes should be accepted");
+
+    assert_eq!(
+        config.llm.providers.chatgpt.auth.issuer,
+        "HTTPS://auth.openai.com"
+    );
+    assert_eq!(
+        config.llm.providers.chatgpt.api.base_url,
+        "HTTPS://chatgpt.com/backend-api/codex"
+    );
+}
+
+#[test]
 fn chatgpt_api_defaults_materialize_from_empty_config() {
     let config = AppConfig::try_from(Table::new()).expect("materialize config");
 
