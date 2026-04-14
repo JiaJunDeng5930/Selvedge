@@ -119,9 +119,8 @@ fn ensure_event_stream_content_type(headers: &HeaderMap) -> Result<(), ChatgptAp
 
 fn is_retryable_client_error(error: &selvedge_client::HttpError) -> bool {
     match error {
-        selvedge_client::HttpError::Timeout
-        | selvedge_client::HttpError::Connect { .. }
-        | selvedge_client::HttpError::Io { .. } => true,
+        selvedge_client::HttpError::Timeout => false,
+        selvedge_client::HttpError::Connect { .. } | selvedge_client::HttpError::Io { .. } => true,
         selvedge_client::HttpError::Status(status) => matches!(
             status.status,
             StatusCode::REQUEST_TIMEOUT
@@ -403,8 +402,7 @@ fn parse_final_sse_frame(buffer: &[u8]) -> Result<Option<String>, ChatgptApiErro
 fn take_next_sse_frame(buffer: &mut Vec<u8>) -> Option<Vec<u8>> {
     let (frame_end, delimiter_len) = find_frame_delimiter(buffer)?;
     let frame = buffer[..frame_end].to_vec();
-    let remainder = buffer[frame_end + delimiter_len..].to_vec();
-    *buffer = remainder;
+    buffer.drain(..frame_end + delimiter_len);
 
     Some(frame)
 }
@@ -1774,7 +1772,8 @@ mod tests {
         ChatgptResponsesRequest, ChatgptServiceTier, ChatgptTextOptions, ContentItem, JsonObject,
         MessageItem, ReasoningItem, ResponseItem, TextVerbosity, ToolDescriptor,
         build_http_request, chatgpt_usage_from_value, content_item_from_value,
-        failed_endpoint_event, response_item_from_object, retry_delay_for_attempt,
+        failed_endpoint_event, is_retryable_client_error, response_item_from_object,
+        retry_delay_for_attempt, take_next_sse_frame,
     };
 
     fn base_request() -> ChatgptResponsesRequest {
@@ -2013,6 +2012,13 @@ mod tests {
     }
 
     #[test]
+    fn request_timeouts_are_not_retryable() {
+        assert!(!is_retryable_client_error(
+            &selvedge_client::HttpError::Timeout
+        ));
+    }
+
+    #[test]
     fn build_http_request_uses_fixed_reasoning_contract_without_summary_support() {
         let mut request = base_request();
         request.reasoning.summary = None;
@@ -2175,5 +2181,18 @@ mod tests {
             ChatgptApiError::Endpoint(ChatgptApiEndpointError::Other(ChatgptOtherEndpointError { raw, .. }))
                 if raw.get("code") == Some(&serde_json::json!("server_busy"))
         ));
+    }
+
+    #[test]
+    fn take_next_sse_frame_keeps_buffer_allocation_for_remainder() {
+        let mut buffer = b"data: first\n\ndata: second\n\n".to_vec();
+        buffer.reserve(1024);
+        let original_capacity = buffer.capacity();
+
+        let frame = take_next_sse_frame(&mut buffer).expect("first frame");
+
+        assert_eq!(frame, b"data: first".to_vec());
+        assert_eq!(buffer, b"data: second\n\n".to_vec());
+        assert_eq!(buffer.capacity(), original_capacity);
     }
 }
