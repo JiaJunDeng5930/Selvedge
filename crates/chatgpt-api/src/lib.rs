@@ -140,13 +140,14 @@ fn is_retryable_client_error(error: &selvedge_client::HttpError) -> bool {
 
 fn retry_delay_for_attempt(retry_count: u8, error: &selvedge_client::HttpError) -> Duration {
     if let selvedge_client::HttpError::Status(status) = error
-        && let Some(retry_after) = status
-            .headers
-            .get("retry-after")
-            .and_then(|value| value.to_str().ok())
-            .and_then(|value| value.parse::<u64>().ok())
+        && let Some(retry_after) = parse_retry_after_header(
+            status
+                .headers
+                .get("retry-after")
+                .and_then(|value| value.to_str().ok()),
+        )
     {
-        return Duration::from_secs(retry_after.min(30));
+        return retry_after.min(Duration::from_secs(30));
     }
 
     match retry_count {
@@ -717,13 +718,10 @@ fn chatgpt_usage_from_value(value: &Value) -> Result<ChatgptUsage, ChatgptApiErr
 }
 
 fn failed_endpoint_event(object: &JsonObject, event_type: &str) -> ChatgptApiError {
-    let response = object
-        .get("response")
-        .and_then(Value::as_object)
-        .cloned()
-        .unwrap_or_default();
+    let response = object.get("response").and_then(Value::as_object).cloned();
     let error = response
-        .get("error")
+        .as_ref()
+        .and_then(|response| response.get("error"))
         .and_then(Value::as_object)
         .cloned()
         .or_else(|| object.get("error").and_then(Value::as_object).cloned())
@@ -750,10 +748,11 @@ fn failed_endpoint_event(object: &JsonObject, event_type: &str) -> ChatgptApiErr
         });
 
     let response_id = response
-        .get("id")
+        .as_ref()
+        .and_then(|response| response.get("id"))
         .and_then(Value::as_str)
         .map(str::to_owned);
-    let raw = response;
+    let raw = response.unwrap_or_else(|| object.clone());
 
     match failed_endpoint_kind(code.as_deref()) {
         Some(kind) => ChatgptApiError::Endpoint(ChatgptApiEndpointError::Failed(
@@ -834,6 +833,19 @@ fn parse_retry_after(message: &str) -> Option<Duration> {
     seconds.parse::<u64>().ok().map(Duration::from_secs)
 }
 
+fn parse_retry_after_header(value: Option<&str>) -> Option<Duration> {
+    let value = value?;
+
+    if let Ok(seconds) = value.parse::<u64>() {
+        return Some(Duration::from_secs(seconds));
+    }
+
+    let http_date = httpdate::parse_http_date(value).ok()?;
+    let now = std::time::SystemTime::now();
+
+    http_date.duration_since(now).ok()
+}
+
 fn malformed_event(field: &'static str, reason: &'static str) -> ChatgptApiError {
     ChatgptApiError::Endpoint(ChatgptApiEndpointError::MalformedEvent {
         reason: format!("{field} {reason}"),
@@ -883,8 +895,11 @@ fn nested_optional_u64(
     parent_field: &'static str,
     child_field: &'static str,
 ) -> Result<Option<u64>, ChatgptApiError> {
-    let Some(Value::Object(child)) = object.get(parent_field) else {
+    let Some(parent) = object.get(parent_field) else {
         return Ok(None);
+    };
+    let Value::Object(child) = parent else {
+        return Err(malformed_event(parent_field, "must be an object"));
     };
 
     optional_u64(child, child_field)
@@ -1781,17 +1796,20 @@ pub struct ChatgptOtherEndpointError {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use chatgpt_auth::ResolvedChatgptAuth;
-    use http::HeaderValue;
+    use http::{HeaderMap, HeaderValue, StatusCode};
     use selvedge_client::{HttpMethod, HttpRequestBody, RequestCompression};
     use selvedge_config_model::ChatgptApiConfig;
 
     use super::{
-        ChatgptModelCapabilities, ChatgptReasoningOptions, ChatgptRequestContext,
+        ChatgptApiEndpointError, ChatgptApiError, ChatgptModelCapabilities,
+        ChatgptOtherEndpointError, ChatgptReasoningOptions, ChatgptRequestContext,
         ChatgptResponsesRequest, ChatgptServiceTier, ChatgptTextOptions, ContentItem,
         CustomToolCallItem, JsonObject, MessageItem, ReasoningItem, ResponseItem, TextVerbosity,
         ToolDescriptor, build_http_request, chatgpt_usage_from_value, content_item_from_value,
-        response_item_from_object,
+        failed_endpoint_event, response_item_from_object, retry_delay_for_attempt,
     };
 
     fn base_request() -> ChatgptResponsesRequest {
@@ -2014,6 +2032,25 @@ mod tests {
     }
 
     #[test]
+    fn retry_delay_honors_http_date_retry_after_values() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "retry-after",
+            HeaderValue::from_static("Wed, 21 Oct 2099 07:28:00 GMT"),
+        );
+        let error = selvedge_client::HttpError::Status(selvedge_client::HttpStatusError {
+            url: "https://chatgpt.com/backend-api/codex/responses".to_owned(),
+            status: StatusCode::TOO_MANY_REQUESTS,
+            headers,
+            body: bytes::Bytes::new(),
+        });
+
+        let delay = retry_delay_for_attempt(0, &error);
+
+        assert!(delay > Duration::from_secs(30) || delay == Duration::from_secs(30));
+    }
+
+    #[test]
     fn build_http_request_preserves_reasoning_effort_without_summary_support() {
         let mut request = base_request();
         request.reasoning.summary = None;
@@ -2081,6 +2118,20 @@ mod tests {
         assert_eq!(usage.output_tokens, Some(7));
         assert_eq!(usage.reasoning_output_tokens, Some(3));
         assert_eq!(usage.total_tokens, Some(17));
+    }
+
+    #[test]
+    fn chatgpt_usage_rejects_malformed_nested_detail_objects() {
+        let error = chatgpt_usage_from_value(&serde_json::json!({
+            "input_tokens": 10,
+            "input_tokens_details": "not-an-object"
+        }))
+        .expect_err("malformed nested usage object must fail");
+
+        assert!(matches!(
+            error,
+            ChatgptApiError::Endpoint(ChatgptApiEndpointError::MalformedEvent { .. })
+        ));
     }
 
     #[test]
@@ -2156,6 +2207,26 @@ mod tests {
                 summary,
                 ..
             }) if encrypted_content == "cipher" && summary.is_none()
+        ));
+    }
+
+    #[test]
+    fn failed_endpoint_event_keeps_top_level_error_payload_as_raw() {
+        let payload = JsonObject::from_iter([
+            ("type".to_owned(), serde_json::json!("error")),
+            ("code".to_owned(), serde_json::json!("server_busy")),
+            (
+                "message".to_owned(),
+                serde_json::json!("try again in 3 seconds"),
+            ),
+        ]);
+
+        let error = failed_endpoint_event(&payload, "error");
+
+        assert!(matches!(
+            error,
+            ChatgptApiError::Endpoint(ChatgptApiEndpointError::Other(ChatgptOtherEndpointError { raw, .. }))
+                if raw.get("code") == Some(&serde_json::json!("server_busy"))
         ));
     }
 }

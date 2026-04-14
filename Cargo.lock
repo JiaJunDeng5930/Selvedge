@@ -224,6 +224,7 @@ dependencies = [
  "futures",
  "futures-core",
  "http",
+ "httpdate",
  "selvedge-client",
  "selvedge-config",
  "selvedge-config-model",
