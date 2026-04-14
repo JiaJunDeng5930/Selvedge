@@ -584,6 +584,7 @@ fn response_item_from_object(item: &JsonObject) -> Result<ResponseItem, ChatgptA
         "message" => Ok(ResponseItem::Message(MessageItem {
             id: optional_string(item, "id")?,
             status: optional_string(item, "status")?,
+            phase: optional_string(item, "phase")?,
             role: required_string(item, "role")?,
             content: required_array(item, "content")?
                 .iter()
@@ -628,7 +629,7 @@ fn response_item_from_object(item: &JsonObject) -> Result<ResponseItem, ChatgptA
         "reasoning" => Ok(ResponseItem::Reasoning(ReasoningItem {
             id: optional_string(item, "id")?,
             status: optional_string(item, "status")?,
-            summary: item.get("summary").cloned().unwrap_or(Value::Null),
+            summary: item.get("summary").cloned(),
             content: item
                 .get("content")
                 .map(|value| match value {
@@ -658,7 +659,7 @@ fn content_item_from_value(value: &Value) -> Result<ContentItem, ChatgptApiError
             text: required_string(object, "text")?,
         }),
         "input_image" => Ok(ContentItem::InputImage {
-            image_url: required_string(object, "image_url")?,
+            raw: object.clone(),
         }),
         "output_text" => Ok(ContentItem::OutputText {
             text: required_string(object, "text")?,
@@ -1158,6 +1159,10 @@ fn response_item_to_json(item: &ResponseItem) -> Value {
                 "status".to_owned(),
                 optional_string_value(message.status.as_deref()),
             ),
+            (
+                "phase".to_owned(),
+                optional_string_value(message.phase.as_deref()),
+            ),
             ("role".to_owned(), Value::String(message.role.clone())),
             (
                 "content".to_owned(),
@@ -1233,8 +1238,11 @@ fn response_item_to_json(item: &ResponseItem) -> Value {
                     "status".to_owned(),
                     optional_string_value(reasoning.status.as_deref()),
                 ),
-                ("summary".to_owned(), reasoning.summary.clone()),
             ]);
+
+            if let Some(summary) = &reasoning.summary {
+                value.insert("summary".to_owned(), summary.clone());
+            }
 
             if let Some(content) = &reasoning.content {
                 value.insert(
@@ -1262,10 +1270,7 @@ fn content_item_to_json(item: &ContentItem) -> Value {
             ("type".to_owned(), Value::String("input_text".to_owned())),
             ("text".to_owned(), Value::String(text.clone())),
         ])),
-        ContentItem::InputImage { image_url } => Value::Object(JsonObject::from_iter([
-            ("type".to_owned(), Value::String("input_image".to_owned())),
-            ("image_url".to_owned(), Value::String(image_url.clone())),
-        ])),
+        ContentItem::InputImage { raw } => Value::Object(raw.clone()),
         ContentItem::OutputText { text, raw } => {
             let mut value = raw.clone();
             value.insert("type".to_owned(), Value::String("output_text".to_owned()));
@@ -1619,6 +1624,7 @@ pub enum ResponseItem {
 pub struct MessageItem {
     pub id: Option<String>,
     pub status: Option<String>,
+    pub phase: Option<String>,
     pub role: String,
     pub content: Vec<ContentItem>,
 }
@@ -1662,7 +1668,7 @@ pub struct CustomToolCallOutputItem {
 pub struct ReasoningItem {
     pub id: Option<String>,
     pub status: Option<String>,
-    pub summary: Value,
+    pub summary: Option<Value>,
     pub content: Option<Vec<ContentItem>>,
     pub encrypted_content: Option<String>,
 }
@@ -1676,7 +1682,7 @@ pub struct OpaqueResponseItem {
 #[non_exhaustive]
 pub enum ContentItem {
     InputText { text: String },
-    InputImage { image_url: String },
+    InputImage { raw: JsonObject },
     OutputText { text: String, raw: JsonObject },
     Other { raw: JsonObject },
 }
@@ -1788,7 +1794,8 @@ mod tests {
         ChatgptModelCapabilities, ChatgptReasoningOptions, ChatgptRequestContext,
         ChatgptResponsesRequest, ChatgptServiceTier, ChatgptTextOptions, ContentItem,
         CustomToolCallItem, JsonObject, MessageItem, ReasoningItem, ResponseItem, TextVerbosity,
-        ToolDescriptor, build_http_request, chatgpt_usage_from_value, response_item_from_object,
+        ToolDescriptor, build_http_request, chatgpt_usage_from_value, content_item_from_value,
+        response_item_from_object,
     };
 
     fn base_request() -> ChatgptResponsesRequest {
@@ -1813,6 +1820,7 @@ mod tests {
             input: vec![ResponseItem::Message(MessageItem {
                 id: Some("msg-1".to_owned()),
                 status: Some("completed".to_owned()),
+                phase: Some("commentary".to_owned()),
                 role: "user".to_owned(),
                 content: vec![ContentItem::InputText {
                     text: "hello".to_owned(),
@@ -2009,7 +2017,7 @@ mod tests {
         request.input.push(ResponseItem::Reasoning(ReasoningItem {
             id: Some("reasoning-1".to_owned()),
             status: Some("completed".to_owned()),
-            summary: serde_json::json!([]),
+            summary: Some(serde_json::json!([])),
             content: None,
             encrypted_content: Some("encrypted".to_owned()),
         }));
@@ -2073,6 +2081,40 @@ mod tests {
     }
 
     #[test]
+    fn response_item_parser_preserves_message_phase() {
+        let item = response_item_from_object(&JsonObject::from_iter([
+            ("type".to_owned(), serde_json::json!("message")),
+            ("role".to_owned(), serde_json::json!("assistant")),
+            ("phase".to_owned(), serde_json::json!("final_answer")),
+            ("content".to_owned(), serde_json::json!([])),
+        ]))
+        .expect("message item");
+
+        assert!(matches!(
+            item,
+            ResponseItem::Message(MessageItem {
+                phase: Some(phase),
+                ..
+            }) if phase == "final_answer"
+        ));
+    }
+
+    #[test]
+    fn content_item_parser_accepts_file_backed_input_images() {
+        let item = content_item_from_value(&serde_json::json!({
+            "type": "input_image",
+            "file_id": "file-123",
+            "detail": "high"
+        }))
+        .expect("file-backed input image");
+
+        assert!(matches!(
+            item,
+            ContentItem::InputImage { raw } if raw.get("file_id") == Some(&serde_json::json!("file-123"))
+        ));
+    }
+
+    #[test]
     fn response_item_parser_accepts_reasoning_items_without_summary() {
         let item = response_item_from_object(&JsonObject::from_iter([
             ("type".to_owned(), serde_json::json!("reasoning")),
@@ -2087,7 +2129,7 @@ mod tests {
                 encrypted_content: Some(encrypted_content),
                 summary,
                 ..
-            }) if encrypted_content == "cipher" && summary.is_null()
+            }) if encrypted_content == "cipher" && summary.is_none()
         ));
     }
 }
