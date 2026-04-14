@@ -157,8 +157,7 @@ async fn drive_response_stream(
     timeout: Duration,
 ) {
     let deadline = tokio::time::Instant::now() + timeout;
-    let completed = false;
-    let mut buffer = String::new();
+    let mut buffer = Vec::new();
 
     loop {
         let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
@@ -189,16 +188,12 @@ async fn drive_response_stream(
         };
 
         let Some(chunk) = maybe_chunk else {
-            if completed {
-                return;
-            }
-
-            let error = if buffer.trim().is_empty() {
+            let error = if buffer.is_empty() {
                 ChatgptApiError::Endpoint(ChatgptApiEndpointError::PrematureClose)
             } else {
                 ChatgptApiError::Endpoint(ChatgptApiEndpointError::MalformedEvent {
                     reason: "stream ended before the current SSE frame completed".to_owned(),
-                    raw: Some(buffer),
+                    raw: Some(String::from_utf8_lossy(&buffer).into_owned()),
                 })
             };
             send_stream_item(&sender, Err(error)).await;
@@ -219,25 +214,26 @@ async fn drive_response_stream(
             }
         };
 
-        let chunk = match std::str::from_utf8(&chunk) {
-            Ok(text) => text.replace("\r\n", "\n").replace('\r', "\n"),
-            Err(_) => {
-                send_stream_item(
-                    &sender,
-                    Err(ChatgptApiError::Endpoint(
-                        ChatgptApiEndpointError::MalformedEvent {
-                            reason: "event stream contained non-utf8 bytes".to_owned(),
-                            raw: None,
-                        },
-                    )),
-                )
-                .await;
-                return;
-            }
-        };
-        buffer.push_str(&chunk);
+        buffer.extend_from_slice(&chunk);
 
         while let Some(frame) = take_next_sse_frame(&mut buffer) {
+            let frame = match std::str::from_utf8(&frame) {
+                Ok(text) => text.replace("\r\n", "\n").replace('\r', "\n"),
+                Err(_) => {
+                    send_stream_item(
+                        &sender,
+                        Err(ChatgptApiError::Endpoint(
+                            ChatgptApiEndpointError::MalformedEvent {
+                                reason: "event stream contained non-utf8 bytes".to_owned(),
+                                raw: None,
+                            },
+                        )),
+                    )
+                    .await;
+                    return;
+                }
+            };
+
             if frame.trim().is_empty() {
                 continue;
             }
@@ -279,13 +275,36 @@ async fn send_stream_item(
     let _ = sender.send(item).await;
 }
 
-fn take_next_sse_frame(buffer: &mut String) -> Option<String> {
-    let frame_end = buffer.find("\n\n")?;
-    let frame = buffer[..frame_end].to_owned();
-    let remainder = buffer[frame_end + 2..].to_owned();
+fn take_next_sse_frame(buffer: &mut Vec<u8>) -> Option<Vec<u8>> {
+    let (frame_end, delimiter_len) = find_frame_delimiter(buffer)?;
+    let frame = buffer[..frame_end].to_vec();
+    let remainder = buffer[frame_end + delimiter_len..].to_vec();
     *buffer = remainder;
 
     Some(frame)
+}
+
+fn find_frame_delimiter(buffer: &[u8]) -> Option<(usize, usize)> {
+    let mut index = 0;
+
+    while index + 1 < buffer.len() {
+        if buffer[index] == b'\n' && buffer[index + 1] == b'\n' {
+            return Some((index, 2));
+        }
+
+        if index + 3 < buffer.len()
+            && buffer[index] == b'\r'
+            && buffer[index + 1] == b'\n'
+            && buffer[index + 2] == b'\r'
+            && buffer[index + 3] == b'\n'
+        {
+            return Some((index, 4));
+        }
+
+        index += 1;
+    }
+
+    None
 }
 
 fn parse_sse_frame(frame: &str) -> Result<Option<String>, ChatgptApiError> {
@@ -569,9 +588,13 @@ fn chatgpt_usage_from_value(value: &Value) -> Result<ChatgptUsage, ChatgptApiErr
 
     Ok(ChatgptUsage {
         input_tokens: optional_u64(usage, "input_tokens")?,
-        cached_input_tokens: optional_u64(usage, "cached_input_tokens")?,
+        cached_input_tokens: nested_optional_u64(usage, "input_tokens_details", "cached_tokens")?,
         output_tokens: optional_u64(usage, "output_tokens")?,
-        reasoning_output_tokens: optional_u64(usage, "reasoning_output_tokens")?,
+        reasoning_output_tokens: nested_optional_u64(
+            usage,
+            "output_tokens_details",
+            "reasoning_tokens",
+        )?,
         total_tokens: optional_u64(usage, "total_tokens")?,
     })
 }
@@ -738,6 +761,18 @@ fn optional_u64(object: &JsonObject, field: &'static str) -> Result<Option<u64>,
     }
 }
 
+fn nested_optional_u64(
+    object: &JsonObject,
+    parent_field: &'static str,
+    child_field: &'static str,
+) -> Result<Option<u64>, ChatgptApiError> {
+    let Some(Value::Object(child)) = object.get(parent_field) else {
+        return Ok(None);
+    };
+
+    optional_u64(child, child_field)
+}
+
 fn required_array<'a>(
     object: &'a JsonObject,
     field: &'static str,
@@ -885,18 +920,18 @@ fn build_request_body(request: &ChatgptResponsesRequest) -> Value {
         );
     }
 
-    let reasoning_support = request.model_capabilities.supports_reasoning_summaries;
+    let reasoning = build_reasoning_body(request);
     body.insert(
         "reasoning".to_owned(),
-        if reasoning_support {
-            Value::Object(build_reasoning_body(request))
-        } else {
+        if reasoning.is_empty() {
             Value::Null
+        } else {
+            Value::Object(reasoning)
         },
     );
     body.insert(
         "include".to_owned(),
-        if reasoning_support {
+        if request.model_capabilities.supports_reasoning_summaries {
             serde_json::json!(["reasoning.encrypted_content"])
         } else {
             serde_json::json!([])
@@ -1567,6 +1602,7 @@ mod tests {
         ChatgptModelCapabilities, ChatgptReasoningOptions, ChatgptRequestContext,
         ChatgptResponsesRequest, ChatgptServiceTier, ChatgptTextOptions, ContentItem, JsonObject,
         MessageItem, ResponseItem, TextVerbosity, ToolDescriptor, build_http_request,
+        chatgpt_usage_from_value,
     };
 
     fn base_request() -> ChatgptResponsesRequest {
@@ -1755,5 +1791,46 @@ mod tests {
         assert!(body.get("service_tier").is_none());
         assert!(body.get("text").is_none());
         assert_eq!(body.get("tools"), Some(&serde_json::json!([])));
+    }
+
+    #[test]
+    fn build_http_request_preserves_reasoning_effort_without_summary_support() {
+        let mut request = base_request();
+        request.reasoning.summary = None;
+        request.model_capabilities.supports_reasoning_summaries = false;
+
+        let http_request =
+            build_http_request(&request, &base_auth(), &base_api_config()).expect("http request");
+        let selvedge_client::HttpRequestBody::Json(body) = http_request.body else {
+            panic!("expected json body");
+        };
+
+        assert_eq!(
+            body.pointer("/reasoning/effort"),
+            Some(&serde_json::json!("high"))
+        );
+        assert_eq!(body.get("include"), Some(&serde_json::json!([])));
+    }
+
+    #[test]
+    fn chatgpt_usage_reads_nested_cache_and_reasoning_counts() {
+        let usage = chatgpt_usage_from_value(&serde_json::json!({
+            "input_tokens": 10,
+            "input_tokens_details": {
+                "cached_tokens": 4
+            },
+            "output_tokens": 7,
+            "output_tokens_details": {
+                "reasoning_tokens": 3
+            },
+            "total_tokens": 17
+        }))
+        .expect("usage");
+
+        assert_eq!(usage.input_tokens, Some(10));
+        assert_eq!(usage.cached_input_tokens, Some(4));
+        assert_eq!(usage.output_tokens, Some(7));
+        assert_eq!(usage.reasoning_output_tokens, Some(3));
+        assert_eq!(usage.total_tokens, Some(17));
     }
 }

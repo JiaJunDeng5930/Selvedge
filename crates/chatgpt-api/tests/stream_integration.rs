@@ -80,16 +80,19 @@ async fn stream_yields_events_and_updates_effective_turn_state() {
         post(|| async {
             let body = Body::from_stream(async_stream::stream! {
                 yield Ok::<_, std::convert::Infallible>(bytes::Bytes::from(
-                    "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp-1\",\"model\":\"gpt-5\",\"service_tier\":\"default\",\"usage\":{\"input_tokens\":1}}}\n\n",
+                    "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp-1\",\"model\":\"gpt-5\",\"service_tier\":\"default\",\"usage\":{\"input_tokens\":1,\"input_tokens_details\":{\"cached_tokens\":2}}}}\n\n",
                 ));
-                yield Ok::<_, std::convert::Infallible>(bytes::Bytes::from(
-                    "data: {\"type\":\"response.output_text.delta\",\"item_id\":\"item-1\",\"output_index\":0,\"content_index\":0,\"delta\":\"hel\"}\n\n",
+                yield Ok::<_, std::convert::Infallible>(bytes::Bytes::from_static(
+                    b"data: {\"type\":\"response.output_text.delta\",\"item_id\":\"item-1\",\"output_index\":0,\"content_index\":0,\"delta\":\"\xE4",
+                ));
+                yield Ok::<_, std::convert::Infallible>(bytes::Bytes::from_static(
+                    b"\xBD\xA0\xE5\xA5\xBD\"}\n\n",
                 ));
                 yield Ok::<_, std::convert::Infallible>(bytes::Bytes::from(
                     "data: {\"type\":\"response.output_text.done\",\"item_id\":\"item-1\",\"output_index\":0,\"content_index\":0,\"text\":\"hello\"}\n\n",
                 ));
                 yield Ok::<_, std::convert::Infallible>(bytes::Bytes::from(
-                    "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp-1\",\"model\":\"gpt-5\",\"service_tier\":\"default\",\"usage\":{\"output_tokens\":2}}}\n\n",
+                    "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp-1\",\"model\":\"gpt-5\",\"service_tier\":\"default\",\"usage\":{\"output_tokens\":2,\"output_tokens_details\":{\"reasoning_tokens\":3}}}}\n\n",
                 ));
             });
 
@@ -152,8 +155,13 @@ base_url = "{}"
         Some(ChatgptResponseEvent::Created(_))
     ));
     assert!(matches!(
+        events.first(),
+        Some(ChatgptResponseEvent::Created(snapshot))
+            if snapshot.usage.as_ref().is_some_and(|usage| usage.cached_input_tokens == Some(2))
+    ));
+    assert!(matches!(
         events.get(1),
-        Some(ChatgptResponseEvent::OutputTextDelta { delta, .. }) if delta == "hel"
+        Some(ChatgptResponseEvent::OutputTextDelta { delta, .. }) if delta == "你好"
     ));
     assert!(matches!(
         events.get(2),
@@ -161,7 +169,8 @@ base_url = "{}"
     ));
     assert!(matches!(
         events.last(),
-        Some(ChatgptResponseEvent::Completed(_))
+        Some(ChatgptResponseEvent::Completed(snapshot))
+            if snapshot.usage.as_ref().is_some_and(|usage| usage.reasoning_output_tokens == Some(3))
     ));
 }
 
