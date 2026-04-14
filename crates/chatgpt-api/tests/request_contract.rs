@@ -26,7 +26,6 @@ fn base_request() -> ChatgptResponsesRequest {
         input: vec![ResponseItem::Message(MessageItem {
             id: Some("msg-1".to_owned()),
             status: Some("completed".to_owned()),
-            phase: Some("commentary".to_owned()),
             role: "user".to_owned(),
             content: vec![ContentItem::InputText {
                 text: "hello".to_owned(),
