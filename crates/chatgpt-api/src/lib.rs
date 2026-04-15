@@ -221,8 +221,8 @@ async fn drive_response_stream(
             };
 
             match final_result {
-                Ok(Some(event)) => match map_event_finality(&event) {
-                    FinalEventDisposition::Completed => {
+                Ok(Some(event)) => {
+                    if event_is_completed(&event) {
                         let _ = send_stream_item(
                             &sender,
                             &terminal_error,
@@ -233,25 +233,24 @@ async fn drive_response_stream(
                         .await;
                         return;
                     }
-                    FinalEventDisposition::Unknown | FinalEventDisposition::NonTerminal => {
-                        if !send_stream_item(&sender, &terminal_error, Ok(event), deadline, timeout)
-                            .await
-                        {
-                            return;
-                        }
-                        send_stream_item(
-                            &sender,
-                            &terminal_error,
-                            Err(ChatgptApiError::Endpoint(
-                                ChatgptApiEndpointError::PrematureClose,
-                            )),
-                            deadline,
-                            timeout,
-                        )
-                        .await;
+
+                    if !send_stream_item(&sender, &terminal_error, Ok(event), deadline, timeout)
+                        .await
+                    {
                         return;
                     }
-                },
+                    send_stream_item(
+                        &sender,
+                        &terminal_error,
+                        Err(ChatgptApiError::Endpoint(
+                            ChatgptApiEndpointError::PrematureClose,
+                        )),
+                        deadline,
+                        timeout,
+                    )
+                    .await;
+                    return;
+                }
                 Ok(None) => {}
                 Err(error) => {
                     send_stream_item(&sender, &terminal_error, Err(error), deadline, timeout).await;
@@ -527,21 +526,25 @@ fn map_stream_event(payload: &str) -> Result<MappedEvent, ChatgptApiError> {
                 text: required_string(&raw_object, "text")?,
             },
         )),
-        "response.completed" | "response.done" => Ok(MappedEvent::Completed(
-            ChatgptResponseEvent::Completed(response_snapshot_from_field(&raw_object)?),
-        )),
-        "response.failed" | "error" => Ok(MappedEvent::EndpointError(failed_endpoint_event(
+        "response.completed" => Ok(MappedEvent::Completed(ChatgptResponseEvent::Completed(
+            response_snapshot_from_field(&raw_object)?,
+        ))),
+        "response.failed" => Ok(MappedEvent::EndpointError(failed_endpoint_event(
             &raw_object,
             &event_type,
         ))),
         "response.incomplete" => Ok(MappedEvent::EndpointError(ChatgptApiError::Endpoint(
             ChatgptApiEndpointError::Incomplete(incomplete_endpoint_error(&raw_object)),
         ))),
-        _ => Ok(MappedEvent::Event(ChatgptResponseEvent::Other(
-            ChatgptRawEvent {
+        _ if event_type.starts_with("response.") => Ok(MappedEvent::Event(
+            ChatgptResponseEvent::Other(ChatgptRawEvent {
                 event_type,
                 payload: raw_object,
-            },
+            }),
+        )),
+        _ => Ok(MappedEvent::EndpointError(unknown_endpoint_event(
+            &raw_object,
+            &event_type,
         ))),
     }
 }
@@ -624,7 +627,10 @@ fn response_item_from_object(item: &JsonObject) -> Result<ResponseItem, ChatgptA
         "reasoning" => Ok(ResponseItem::Reasoning(ReasoningItem {
             id: optional_string(item, "id")?,
             status: optional_string(item, "status")?,
-            summary: item.get("summary").cloned(),
+            summary: item
+                .get("summary")
+                .cloned()
+                .ok_or_else(|| malformed_event("summary", "must be present"))?,
             content: item
                 .get("content")
                 .map(|value| match value {
@@ -763,6 +769,41 @@ fn failed_endpoint_event(object: &JsonObject, event_type: &str) -> ChatgptApiErr
             }))
         }
     }
+}
+
+fn unknown_endpoint_event(object: &JsonObject, event_type: &str) -> ChatgptApiError {
+    let code = object
+        .get("code")
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+        .or_else(|| {
+            object
+                .get("error")
+                .and_then(Value::as_object)
+                .and_then(|error| error.get("code"))
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+        });
+    let message = object
+        .get("message")
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+        .or_else(|| {
+            object
+                .get("error")
+                .and_then(Value::as_object)
+                .and_then(|error| error.get("message"))
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+        });
+
+    ChatgptApiError::Endpoint(ChatgptApiEndpointError::Other(ChatgptOtherEndpointError {
+        event_type: Some(event_type.to_owned()),
+        code,
+        message: message.clone(),
+        retry_after: message.as_deref().and_then(parse_retry_after),
+        raw: object.clone(),
+    }))
 }
 
 fn incomplete_endpoint_error(object: &JsonObject) -> ChatgptIncompleteEndpointError {
@@ -987,26 +1028,8 @@ fn build_http_request(
     })
 }
 
-enum FinalEventDisposition {
-    Completed,
-    NonTerminal,
-    Unknown,
-}
-
-fn map_event_finality(event: &ChatgptResponseEvent) -> FinalEventDisposition {
-    match event {
-        ChatgptResponseEvent::Completed(_) => FinalEventDisposition::Completed,
-        ChatgptResponseEvent::Created(_)
-        | ChatgptResponseEvent::OutputItemAdded { .. }
-        | ChatgptResponseEvent::OutputItemDone { .. }
-        | ChatgptResponseEvent::OutputTextDelta { .. }
-        | ChatgptResponseEvent::OutputTextDone { .. }
-        | ChatgptResponseEvent::ReasoningSummaryTextDelta { .. }
-        | ChatgptResponseEvent::ReasoningSummaryTextDone { .. }
-        | ChatgptResponseEvent::ReasoningTextDelta { .. }
-        | ChatgptResponseEvent::ReasoningTextDone { .. } => FinalEventDisposition::NonTerminal,
-        ChatgptResponseEvent::Other(_) => FinalEventDisposition::Unknown,
-    }
+fn event_is_completed(event: &ChatgptResponseEvent) -> bool {
+    matches!(event, ChatgptResponseEvent::Completed(_))
 }
 
 fn insert_header(
@@ -1075,21 +1098,17 @@ fn build_request_body(request: &ChatgptResponsesRequest) -> Value {
         );
     }
 
-    let reasoning = build_reasoning_body(request);
-    let reasoning_enabled = !reasoning.is_empty();
-    let needs_encrypted_reasoning_content =
-        reasoning_enabled || request_replays_reasoning_state(&request.input);
     body.insert(
         "reasoning".to_owned(),
-        if reasoning_enabled {
-            Value::Object(reasoning)
+        if request.model_capabilities.supports_reasoning_summaries {
+            Value::Object(build_reasoning_body(request))
         } else {
             Value::Null
         },
     );
     body.insert(
         "include".to_owned(),
-        if needs_encrypted_reasoning_content {
+        if request.model_capabilities.supports_reasoning_summaries {
             serde_json::json!(["reasoning.encrypted_content"])
         } else {
             serde_json::json!([])
@@ -1127,18 +1146,6 @@ fn build_reasoning_body(request: &ChatgptResponsesRequest) -> JsonObject {
     }
 
     reasoning
-}
-
-fn request_replays_reasoning_state(input: &[ResponseItem]) -> bool {
-    input.iter().any(|item| {
-        matches!(
-            item,
-            ResponseItem::Reasoning(ReasoningItem {
-                encrypted_content: Some(_),
-                ..
-            })
-        )
-    })
 }
 
 fn build_text_body(text: &ChatgptTextOptions) -> Option<JsonObject> {
@@ -1231,9 +1238,7 @@ fn response_item_to_json(item: &ResponseItem) -> Value {
             insert_optional_string(&mut value, "id", reasoning.id.as_deref());
             insert_optional_string(&mut value, "status", reasoning.status.as_deref());
 
-            if let Some(summary) = &reasoning.summary {
-                value.insert("summary".to_owned(), summary.clone());
-            }
+            value.insert("summary".to_owned(), reasoning.summary.clone());
 
             if let Some(content) = &reasoning.content {
                 value.insert(
@@ -1651,7 +1656,7 @@ pub struct CustomToolCallOutputItem {
 pub struct ReasoningItem {
     pub id: Option<String>,
     pub status: Option<String>,
-    pub summary: Option<Value>,
+    pub summary: Value,
     pub content: Option<Vec<ContentItem>>,
     pub encrypted_content: Option<String>,
 }
@@ -2029,10 +2034,11 @@ mod tests {
     }
 
     #[test]
-    fn build_http_request_uses_fixed_reasoning_contract_without_summary_support() {
+    fn build_http_request_uses_null_reasoning_and_empty_include_without_summary_support() {
         let mut request = base_request();
         request.reasoning.summary = None;
         request.model_capabilities.supports_reasoning_summaries = false;
+        request.model_capabilities.default_reasoning_effort = Some("high".to_owned());
 
         let http_request =
             build_http_request(&request, &base_auth(), &base_api_config()).expect("http request");
@@ -2040,18 +2046,12 @@ mod tests {
             panic!("expected json body");
         };
 
-        assert_eq!(
-            body.pointer("/reasoning/effort"),
-            Some(&serde_json::json!("high"))
-        );
-        assert_eq!(
-            body.get("include"),
-            Some(&serde_json::json!(["reasoning.encrypted_content"]))
-        );
+        assert_eq!(body.get("reasoning"), Some(&serde_json::Value::Null));
+        assert_eq!(body.get("include"), Some(&serde_json::json!([])));
     }
 
     #[test]
-    fn build_http_request_keeps_encrypted_reasoning_content_for_stateless_replay() {
+    fn build_http_request_does_not_change_reasoning_contract_for_replay() {
         let mut request = base_request();
         request.reasoning = ChatgptReasoningOptions::default();
         request.model_capabilities.default_reasoning_effort = None;
@@ -2059,7 +2059,7 @@ mod tests {
         request.input.push(ResponseItem::Reasoning(ReasoningItem {
             id: Some("reasoning-1".to_owned()),
             status: Some("completed".to_owned()),
-            summary: None,
+            summary: serde_json::json!([{ "type": "summary_text", "text": "thinking" }]),
             content: None,
             encrypted_content: Some("encrypted".to_owned()),
         }));
@@ -2070,11 +2070,8 @@ mod tests {
             panic!("expected json body");
         };
 
-        assert_eq!(
-            body.get("include"),
-            Some(&serde_json::json!(["reasoning.encrypted_content"]))
-        );
         assert_eq!(body.get("reasoning"), Some(&serde_json::Value::Null));
+        assert_eq!(body.get("include"), Some(&serde_json::json!([])));
     }
 
     #[test]
@@ -2163,21 +2160,17 @@ mod tests {
     }
 
     #[test]
-    fn response_item_parser_accepts_reasoning_items_without_summary() {
+    fn response_item_parser_rejects_reasoning_items_without_summary() {
         let item = response_item_from_object(&JsonObject::from_iter([
             ("type".to_owned(), serde_json::json!("reasoning")),
             ("id".to_owned(), serde_json::json!("reasoning-1")),
             ("encrypted_content".to_owned(), serde_json::json!("cipher")),
         ]))
-        .expect("reasoning item without summary");
+        .expect_err("reasoning item without summary must fail");
 
         assert!(matches!(
             item,
-            ResponseItem::Reasoning(ReasoningItem {
-                encrypted_content: Some(encrypted_content),
-                summary,
-                ..
-            }) if encrypted_content == "cipher" && summary.is_none()
+            ChatgptApiError::Endpoint(ChatgptApiEndpointError::MalformedEvent { .. })
         ));
     }
 
@@ -2202,7 +2195,7 @@ mod tests {
     }
 
     #[test]
-    fn response_done_maps_to_completed_terminal_event() {
+    fn response_done_maps_to_other_nonterminal_event() {
         let event = map_stream_event(
             r#"{"type":"response.done","response":{"id":"resp-1","model":"gpt-5"}}"#,
         )
@@ -2210,8 +2203,23 @@ mod tests {
 
         assert!(matches!(
             event,
-            super::MappedEvent::Completed(ChatgptResponseEvent::Completed(snapshot))
-                if snapshot.id.as_deref() == Some("resp-1")
+            super::MappedEvent::Event(ChatgptResponseEvent::Other(raw))
+                if raw.event_type == "response.done"
+        ));
+    }
+
+    #[test]
+    fn unknown_non_response_event_maps_to_endpoint_other_error() {
+        let event = map_stream_event(
+            r#"{"type":"server.notice","code":"server_busy","message":"retry later"}"#,
+        )
+        .expect("mapped event");
+
+        assert!(matches!(
+            event,
+            super::MappedEvent::EndpointError(ChatgptApiError::Endpoint(
+                ChatgptApiEndpointError::Other(ChatgptOtherEndpointError { event_type, .. })
+            )) if event_type.as_deref() == Some("server.notice")
         ));
     }
 

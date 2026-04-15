@@ -92,7 +92,7 @@ async fn stream_yields_events_and_updates_effective_turn_state() {
                     "data: {\"type\":\"response.output_text.done\",\"item_id\":\"item-1\",\"output_index\":0,\"content_index\":0,\"text\":\"hello\"}\n\n",
                 ));
                 yield Ok::<_, std::convert::Infallible>(bytes::Bytes::from(
-                    "data: {\"type\":\"response.done\",\"response\":{\"id\":\"resp-1\",\"model\":\"gpt-5\",\"service_tier\":\"default\",\"usage\":{\"output_tokens\":2,\"output_token_details\":{\"reasoning_tokens\":3}}}}\n\n",
+                    "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp-1\",\"model\":\"gpt-5\",\"service_tier\":\"default\",\"usage\":{\"output_tokens\":2,\"output_token_details\":{\"reasoning_tokens\":3}}}}\n\n",
                 ));
             });
 
@@ -714,12 +714,12 @@ stream_completion_timeout_ms = 10
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn stream_accepts_done_event_at_eof_without_trailing_blank_line() {
+async fn stream_reports_premature_close_for_done_event_at_eof_without_trailing_blank_line() {
     const FLAG: &str = "CHATGPT_API_EOF_COMPLETED_CHILD";
 
     if !child_mode(FLAG) {
         assert_child_success(&run_child(
-            "stream_accepts_done_event_at_eof_without_trailing_blank_line",
+            "stream_reports_premature_close_for_done_event_at_eof_without_trailing_blank_line",
             FLAG,
         ));
         return;
@@ -775,11 +775,20 @@ base_url = "{}"
     let event = response_stream
         .next()
         .await
-        .expect("completed item")
-        .expect("completed event");
+        .expect("other item")
+        .expect("other event");
 
-    assert!(matches!(event, ChatgptResponseEvent::Completed(_)));
-    assert!(response_stream.next().await.is_none());
+    let error = response_stream
+        .next()
+        .await
+        .expect("premature close item")
+        .expect_err("done without completed must fail");
+
+    assert!(matches!(event, ChatgptResponseEvent::Other(_)));
+    assert!(matches!(
+        error,
+        ChatgptApiError::Endpoint(ChatgptApiEndpointError::PrematureClose)
+    ));
 }
 
 #[tokio::test(flavor = "multi_thread")]
