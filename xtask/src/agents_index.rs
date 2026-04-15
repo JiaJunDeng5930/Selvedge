@@ -95,7 +95,7 @@ fn prepare(root: &Path, warning_threshold: usize) -> Result<PreparedIndex, Strin
 }
 
 fn git_tracked_files(root: &Path) -> Result<Vec<PathBuf>, String> {
-    let output = Command::new("git")
+    let output = isolated_git_command()
         .current_dir(root)
         .args(["ls-files", "-z"])
         .output()
@@ -115,6 +115,18 @@ fn git_tracked_files(root: &Path) -> Result<Vec<PathBuf>, String> {
         .collect::<Vec<_>>();
     paths.sort();
     Ok(paths)
+}
+
+fn isolated_git_command() -> Command {
+    let mut command = Command::new("git");
+
+    for (key, _) in std::env::vars_os() {
+        if key.to_string_lossy().starts_with("GIT_") {
+            command.env_remove(&key);
+        }
+    }
+
+    command
 }
 
 fn render_index_block(tracked_files: &[PathBuf], line_ending: &str) -> String {
