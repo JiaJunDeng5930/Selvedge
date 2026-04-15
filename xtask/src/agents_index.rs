@@ -408,7 +408,7 @@ mod tests {
         }
 
         fn git_add(&self, paths: &[&str]) {
-            let mut command = Command::new("git");
+            let mut command = isolated_git_command();
             command.current_dir(self.path());
             command.arg("add");
             for path in paths {
@@ -424,7 +424,7 @@ mod tests {
     }
 
     fn run_git(root: &Path, args: &[&str]) {
-        let output = Command::new("git")
+        let output = isolated_git_command()
             .current_dir(root)
             .args(args)
             .output()
@@ -435,5 +435,33 @@ mod tests {
             args,
             String::from_utf8_lossy(&output.stderr)
         );
+    }
+
+    fn isolated_git_command() -> Command {
+        let mut command = Command::new("git");
+
+        for (key, _) in std::env::vars_os() {
+            if key.to_string_lossy().starts_with("GIT_") {
+                command.env_remove(&key);
+            }
+        }
+
+        let isolated_home = std::env::temp_dir().join(format!(
+            "xtask-git-home-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("clock should be valid")
+                .as_nanos()
+        ));
+        let isolated_git_config = isolated_home.join("gitconfig");
+
+        fs::create_dir_all(isolated_home.join(".config")).expect("isolated git home should exist");
+        fs::write(&isolated_git_config, "").expect("isolated git config should exist");
+        command.env("HOME", &isolated_home);
+        command.env("XDG_CONFIG_HOME", isolated_home.join(".config"));
+        command.env("GIT_CONFIG_GLOBAL", &isolated_git_config);
+
+        command
     }
 }
