@@ -783,6 +783,87 @@ base_url = "{}"
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn stream_reports_premature_close_after_comment_only_final_frame_at_eof() {
+    const FLAG: &str = "CHATGPT_API_EOF_COMMENT_ONLY_CHILD";
+
+    if !child_mode(FLAG) {
+        assert_child_success(&run_child(
+            "stream_reports_premature_close_after_comment_only_final_frame_at_eof",
+            FLAG,
+        ));
+        return;
+    }
+
+    let api_server = spawn_http_server(Router::new().route(
+        "/responses",
+        post(|| async {
+            let body = Body::from_stream(async_stream::stream! {
+                yield Ok::<_, std::convert::Infallible>(bytes::Bytes::from(
+                    "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp-1\"}}\n\n",
+                ));
+                yield Ok::<_, std::convert::Infallible>(bytes::Bytes::from(
+                    ": keepalive",
+                ));
+            });
+
+            (
+                StatusCode::OK,
+                [(
+                    http::header::CONTENT_TYPE,
+                    HeaderValue::from_static("text/event-stream"),
+                )],
+                body,
+            )
+        }),
+    ))
+    .await;
+
+    let tempdir = init_api_test(&format!(
+        r#"
+[logging]
+level = "debug"
+
+[llm.providers.chatgpt.auth]
+issuer = "http://127.0.0.1:1"
+
+[llm.providers.chatgpt.api]
+base_url = "{}"
+"#,
+        api_server.url("")
+    ));
+    write_auth_file(
+        &tempdir,
+        &auth_file_json(
+            &build_jwt(json!({
+                "sub": "subject",
+                "https://api.openai.com/auth.chatgpt_account_id": "workspace-123"
+            })),
+            "opaque-access-token",
+            "refresh-token",
+        ),
+    );
+
+    let mut response_stream = stream(base_request()).await.expect("open stream");
+    let event = response_stream
+        .next()
+        .await
+        .expect("created item")
+        .expect("created event");
+    assert!(matches!(event, ChatgptResponseEvent::Created(_)));
+
+    let error = response_stream
+        .next()
+        .await
+        .expect("premature close item")
+        .expect_err("comment-only eof must fail");
+
+    assert!(matches!(
+        error,
+        ChatgptApiError::Endpoint(ChatgptApiEndpointError::PrematureClose)
+    ));
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn stream_reports_premature_close_after_non_terminal_final_frame_at_eof() {
     const FLAG: &str = "CHATGPT_API_EOF_NON_TERMINAL_CHILD";
 
