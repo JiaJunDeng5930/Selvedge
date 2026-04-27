@@ -1,11 +1,14 @@
 [workspace]
 members = [
+    "crates/api",
     "crates/chatgpt-api",
     "crates/chatgpt-auth",
     "crates/chatgpt-login",
     "crates/client",
+    "crates/command-model-api-slice",
     "crates/config",
     "crates/config-model",
+    "crates/domain-model-api-slice",
     "crates/logging",
     "xtask",
 ]
