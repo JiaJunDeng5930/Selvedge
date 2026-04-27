@@ -1343,6 +1343,7 @@ dependencies = [
  "async-trait",
  "selvedge-command-model-api-slice",
  "selvedge-domain-model-api-slice",
+ "serde_json",
  "tokio",
 ]
 
@@ -1402,6 +1403,9 @@ dependencies = [
 [[package]]
 name = "selvedge-domain-model-api-slice"
 version = "0.0.0"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "selvedge-logging"

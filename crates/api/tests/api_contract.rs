@@ -325,6 +325,49 @@ async fn response_byte_limit_includes_structural_payload_bytes() {
 }
 
 #[tokio::test]
+async fn response_byte_limit_counts_escaped_structured_payload_bytes() {
+    let request = valid_dispatch_request();
+    let registry = Arc::new(StaticRegistry::new(Some(Arc::new(StaticAdapter::ok(
+        ProviderModelResponse {
+            reply: Some(ModelReply {
+                content: None,
+                tool_calls: vec![ToolCallProposal {
+                    call_id: "call-1".to_owned(),
+                    tool_name: "search".to_owned(),
+                    arguments: StructuredPayload::Object(BTreeMap::from([(
+                        "\"".to_owned(),
+                        StructuredPayload::String("\\\n\"".to_owned()),
+                    )])),
+                }],
+                usage: None,
+                finish_reason: ModelFinishReason::ToolCalls,
+            }),
+        },
+    )))));
+    let (router_tx, mut router_rx) = mpsc::channel(1);
+
+    let status = execute_model_call(
+        request.clone(),
+        router_tx,
+        registry,
+        ApiExecutorConfig {
+            request_timeout: Duration::from_secs(1),
+            max_response_bytes: Some(40),
+        },
+    )
+    .await;
+
+    assert_eq!(status, ApiCallTerminalStatus::OutputSent);
+    let message = router_rx.recv().await.expect("router message");
+
+    assert_failure(
+        message,
+        request.correlation,
+        ModelCallErrorKind::ProviderResponse,
+    );
+}
+
+#[tokio::test]
 async fn closed_router_mailbox_discards_completion_result() {
     let request = valid_dispatch_request();
     let registry = Arc::new(StaticRegistry::new(Some(Arc::new(StaticAdapter::ok(
