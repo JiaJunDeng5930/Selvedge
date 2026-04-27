@@ -1,4 +1,4 @@
-use std::{sync::Arc, time::Duration};
+use std::{collections::BTreeMap, sync::Arc, time::Duration};
 
 use async_trait::async_trait;
 use selvedge_api::{
@@ -12,7 +12,7 @@ use selvedge_command_model_api_slice::{
 };
 use selvedge_domain_model_api_slice::{
     ConversationMessage, ConversationPath, MessageContent, MessageRole, ModelFinishReason,
-    ModelProviderProfile, ModelReply, ResponsePreference,
+    ModelProviderProfile, ModelReply, ResponsePreference, StructuredPayload, ToolCallProposal,
 };
 use tokio::sync::mpsc;
 
@@ -224,6 +224,49 @@ async fn invalid_provider_response_is_classified() {
         ApiExecutorConfig {
             request_timeout: Duration::from_secs(1),
             max_response_bytes: None,
+        },
+    )
+    .await;
+
+    assert_eq!(status, ApiCallTerminalStatus::OutputSent);
+    let message = router_rx.recv().await.expect("router message");
+
+    assert_failure(
+        message,
+        request.correlation,
+        ModelCallErrorKind::ProviderResponse,
+    );
+}
+
+#[tokio::test]
+async fn response_byte_limit_applies_to_tool_call_arguments() {
+    let request = valid_dispatch_request();
+    let registry = Arc::new(StaticRegistry::new(Some(Arc::new(StaticAdapter::ok(
+        ProviderModelResponse {
+            reply: Some(ModelReply {
+                content: None,
+                tool_calls: vec![ToolCallProposal {
+                    call_id: "call-1".to_owned(),
+                    tool_name: "search".to_owned(),
+                    arguments: StructuredPayload::Object(BTreeMap::from([(
+                        "query".to_owned(),
+                        StructuredPayload::String("0123456789".to_owned()),
+                    )])),
+                }],
+                usage: None,
+                finish_reason: ModelFinishReason::ToolCalls,
+            }),
+        },
+    )))));
+    let (router_tx, mut router_rx) = mpsc::channel(1);
+
+    let status = execute_model_call(
+        request.clone(),
+        router_tx,
+        registry,
+        ApiExecutorConfig {
+            request_timeout: Duration::from_secs(1),
+            max_response_bytes: Some(4),
         },
     )
     .await;
