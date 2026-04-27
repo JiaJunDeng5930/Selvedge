@@ -225,16 +225,81 @@ fn exceeds_response_limit(
         return Ok(false);
     };
 
-    Ok(model_reply_payload_bytes(reply)? > max_response_bytes)
+    encoded_model_reply_exceeds_limit(reply, max_response_bytes)
 }
 
-fn model_reply_payload_bytes(reply: &ModelReply) -> Result<usize, ModelCallError> {
-    serde_json::to_vec(reply)
-        .map(|bytes| bytes.len())
-        .map_err(|error| {
-            model_call_error(
-                ModelCallErrorKind::ProviderResponse,
-                format!("provider response could not be encoded: {error}"),
-            )
-        })
+fn encoded_model_reply_exceeds_limit(
+    reply: &ModelReply,
+    max_response_bytes: usize,
+) -> Result<bool, ModelCallError> {
+    let mut counter = BoundedByteCounter::new(max_response_bytes);
+
+    match serde_json::to_writer(&mut counter, reply) {
+        Ok(()) => Ok(false),
+        Err(_) if counter.limit_exceeded() => Ok(true),
+        Err(error) => Err(model_call_error(
+            ModelCallErrorKind::ProviderResponse,
+            format!("provider response could not be encoded: {error}"),
+        )),
+    }
+}
+
+struct BoundedByteCounter {
+    max_bytes: usize,
+    bytes_written: usize,
+    limit_exceeded: bool,
+}
+
+impl BoundedByteCounter {
+    fn new(max_bytes: usize) -> Self {
+        Self {
+            max_bytes,
+            bytes_written: 0,
+            limit_exceeded: false,
+        }
+    }
+
+    fn limit_exceeded(&self) -> bool {
+        self.limit_exceeded
+    }
+}
+
+impl std::io::Write for BoundedByteCounter {
+    fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
+        let Some(next_bytes_written) = self.bytes_written.checked_add(buffer.len()) else {
+            self.limit_exceeded = true;
+            return Err(std::io::Error::other("response byte limit exceeded"));
+        };
+
+        if next_bytes_written > self.max_bytes {
+            self.limit_exceeded = true;
+            return Err(std::io::Error::other("response byte limit exceeded"));
+        }
+
+        self.bytes_written = next_bytes_written;
+
+        Ok(buffer.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::Write;
+
+    use super::BoundedByteCounter;
+
+    #[test]
+    fn bounded_byte_counter_errors_when_limit_is_exceeded() {
+        let mut counter = BoundedByteCounter::new(4);
+
+        counter.write_all(b"1234").expect("within limit");
+        let error = counter.write_all(b"5").expect_err("over limit");
+
+        assert!(counter.limit_exceeded());
+        assert_eq!(error.kind(), std::io::ErrorKind::Other);
+    }
 }
