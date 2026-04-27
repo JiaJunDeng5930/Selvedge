@@ -8,7 +8,7 @@ use selvedge_api::{
 };
 use selvedge_command_model_api_slice::{
     ApiCallCorrelation, ApiEffectId, ApiOutputEnvelope, ModelCallDispatchRequest,
-    ModelCallErrorKind, ModelRunId, RouterIngressApiMessage, TaskId,
+    ModelCallErrorKind, ModelRunId, RouterIngressApiMessage, TaskId, validate_api_output_envelope,
 };
 use selvedge_domain_model_api_slice::{
     ConversationMessage, ConversationPath, MessageContent, MessageRole, ModelFinishReason,
@@ -88,6 +88,49 @@ async fn invalid_dispatch_request_sends_validation_failure_without_provider_call
     let message = router_rx.recv().await.expect("router message");
 
     assert_failure(message, request.correlation, ModelCallErrorKind::Validation);
+}
+
+#[tokio::test]
+async fn invalid_correlation_sends_validation_failure_that_satisfies_output_validation() {
+    let mut request = valid_dispatch_request();
+    request.correlation.api_effect_id = ApiEffectId(String::new());
+    let registry = Arc::new(StaticRegistry::new(Some(Arc::new(StaticAdapter::ok(
+        ProviderModelResponse {
+            reply: Some(ModelReply {
+                content: Some("unused".to_owned()),
+                tool_calls: Vec::new(),
+                usage: None,
+                finish_reason: ModelFinishReason::Stop,
+            }),
+        },
+    )))));
+    let (router_tx, mut router_rx) = mpsc::channel(1);
+
+    let status = execute_model_call(
+        request,
+        router_tx,
+        registry,
+        ApiExecutorConfig {
+            request_timeout: Duration::from_secs(1),
+            max_response_bytes: None,
+        },
+    )
+    .await;
+
+    assert_eq!(status, ApiCallTerminalStatus::OutputSent);
+    let message = router_rx.recv().await.expect("router message");
+
+    match message {
+        RouterIngressApiMessage::ApiOutput(envelope) => {
+            validate_api_output_envelope(&envelope).expect("valid output envelope");
+            match envelope {
+                ApiOutputEnvelope::Failure { error, .. } => {
+                    assert_eq!(error.kind, ModelCallErrorKind::Validation);
+                }
+                ApiOutputEnvelope::Success { .. } => panic!("unexpected success"),
+            }
+        }
+    }
 }
 
 #[tokio::test]
