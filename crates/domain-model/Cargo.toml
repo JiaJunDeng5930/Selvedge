@@ -1,5 +1,5 @@
 [package]
-name = "selvedge-domain-model-api-slice"
+name = "selvedge-domain-model"
 edition = "2024"
 publish = false
 

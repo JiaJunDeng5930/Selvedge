@@ -61,7 +61,7 @@ This file is for coding agents working in this repository.
 |.cargo:{config.toml}
 |.github:{workflows/}
 |.github/workflows:{ci.yml}
-|crates:{api/,chatgpt-api/,chatgpt-auth/,chatgpt-login/,client/,command-model-api-slice/,config-model/,config/,domain-model-api-slice/,logging/}
+|crates:{api/,chatgpt-api/,chatgpt-auth/,chatgpt-login/,client/,command-model/,config-model/,config/,domain-model/,logging/}
 |crates/api:{src/,tests/,Cargo.toml,README.md}
 |crates/api/src:{lib.rs}
 |crates/api/tests:{api_contract.rs}
@@ -81,9 +81,9 @@ This file is for coding agents working in this repository.
 |crates/client/src:{config_resolution.rs,lib.rs,redaction.rs,redirect_runtime.rs,request_prep.rs,runtime.rs,single_hop.rs}
 |crates/client/tests:{support/,http_integration.rs}
 |crates/client/tests/support:{mod.rs}
-|crates/command-model-api-slice:{src/,tests/,Cargo.toml,README.md}
-|crates/command-model-api-slice/src:{lib.rs}
-|crates/command-model-api-slice/tests:{command_contract.rs}
+|crates/command-model:{src/,tests/,Cargo.toml,README.md}
+|crates/command-model/src:{lib.rs}
+|crates/command-model/tests:{command_contract.rs}
 |crates/config:{examples/,src/,tests/,Cargo.toml,README.md}
 |crates/config-model:{src/,tests/,Cargo.toml,README.md}
 |crates/config-model/src:{lib.rs}
@@ -91,9 +91,9 @@ This file is for coding agents working in this repository.
 |crates/config/examples:{README.md,layered_sources.rs,load_defaults.rs,runtime_updates.rs}
 |crates/config/src:{lib.rs}
 |crates/config/tests:{public_api.rs}
-|crates/domain-model-api-slice:{src/,tests/,Cargo.toml,README.md}
-|crates/domain-model-api-slice/src:{lib.rs}
-|crates/domain-model-api-slice/tests:{domain_contract.rs}
+|crates/domain-model:{src/,tests/,Cargo.toml,README.md}
+|crates/domain-model/src:{lib.rs}
+|crates/domain-model/tests:{domain_contract.rs}
 |crates/logging:{src/,Cargo.toml,README.md}
 |crates/logging/src:{lib.rs}
 |scripts:{bootstrap.sh,create-worktree.sh}

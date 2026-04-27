@@ -1,4 +1,4 @@
-# command-model-api-slice
+# command-model
 
 This crate defines the Selvedge command model API slice used to dispatch model calls and return completed API outputs to the router.
 

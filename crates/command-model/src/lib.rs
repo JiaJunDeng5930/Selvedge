@@ -2,7 +2,7 @@
 
 use tokio::sync::mpsc;
 
-use selvedge_domain_model_api_slice::{
+use selvedge_domain_model::{
     ApiDomainValidationError, ConversationPath, ModelProviderProfile, ModelReply,
     ResponsePreference, ToolManifest, validate_conversation_path, validate_model_provider_profile,
     validate_model_reply, validate_tool_manifest,
