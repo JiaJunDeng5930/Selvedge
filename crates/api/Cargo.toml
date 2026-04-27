@@ -1,0 +1,21 @@
+[package]
+name = "selvedge-api"
+edition = "2024"
+publish = false
+
+[dependencies]
+async-trait = "0.1.83"
+selvedge-command-model-api-slice = { path = "../command-model-api-slice" }
+selvedge-domain-model-api-slice = { path = "../domain-model-api-slice" }
+tokio = { version = "1.42.0", features = ["rt", "sync", "time"] }
+
+[dev-dependencies]
+tokio = { version = "1.42.0", features = ["macros", "rt", "sync", "time"] }
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+dbg_macro = "deny"
+todo = "deny"
+unwrap_used = "deny"
