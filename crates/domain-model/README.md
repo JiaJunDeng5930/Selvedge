@@ -1,4 +1,4 @@
-# domain-model-api-slice
+# domain-model
 
 This crate defines the Selvedge domain model API slice used by model-call packages.
 

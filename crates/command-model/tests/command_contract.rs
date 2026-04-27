@@ -1,9 +1,9 @@
-use selvedge_command_model_api_slice::{
+use selvedge_command_model::{
     ApiCallCorrelation, ApiEffectId, ApiOutputEnvelope, ModelCallDispatchRequest, ModelCallError,
     ModelCallErrorKind, ModelRunId, RouterIngressApiMessage, TaskId, validate_api_output_envelope,
     validate_dispatch_request,
 };
-use selvedge_domain_model_api_slice::{
+use selvedge_domain_model::{
     ConversationMessage, ConversationPath, MessageContent, MessageRole, ModelFinishReason,
     ModelProviderProfile, ModelReply, ResponsePreference,
 };

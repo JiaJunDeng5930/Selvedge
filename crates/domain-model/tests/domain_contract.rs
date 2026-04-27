@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use selvedge_domain_model_api_slice::{
+use selvedge_domain_model::{
     ApiDomainValidationError, ConversationMessage, ConversationPath, MessageContent, MessageRole,
     ModelFinishReason, ModelProviderProfile, ModelReply, StructuredPayload, ToolCallProposal,
     ToolManifest, ToolParameter, ToolParameterType, ToolSpec, validate_conversation_path,

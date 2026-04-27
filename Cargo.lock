@@ -1341,8 +1341,8 @@ name = "selvedge-api"
 version = "0.0.0"
 dependencies = [
  "async-trait",
- "selvedge-command-model-api-slice",
- "selvedge-domain-model-api-slice",
+ "selvedge-command-model",
+ "selvedge-domain-model",
  "serde_json",
  "tokio",
 ]
@@ -1371,10 +1371,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "selvedge-command-model-api-slice"
+name = "selvedge-command-model"
 version = "0.0.0"
 dependencies = [
- "selvedge-domain-model-api-slice",
+ "selvedge-domain-model",
  "tokio",
 ]
 
@@ -1401,7 +1401,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "selvedge-domain-model-api-slice"
+name = "selvedge-domain-model"
 version = "0.0.0"
 dependencies = [
  "serde",

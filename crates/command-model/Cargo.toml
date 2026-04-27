@@ -1,10 +1,10 @@
 [package]
-name = "selvedge-command-model-api-slice"
+name = "selvedge-command-model"
 edition = "2024"
 publish = false
 
 [dependencies]
-selvedge-domain-model-api-slice = { path = "../domain-model-api-slice" }
+selvedge-domain-model = { path = "../domain-model" }
 tokio = { version = "1.42.0", features = ["sync"] }
 
 [lints.rust]

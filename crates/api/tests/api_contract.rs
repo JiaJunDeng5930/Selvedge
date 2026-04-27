@@ -6,11 +6,11 @@ use selvedge_api::{
     ProviderCallError, ProviderCallErrorKind, ProviderModelRequest, ProviderModelResponse,
     execute_model_call, spawn_model_call_tokio_task,
 };
-use selvedge_command_model_api_slice::{
+use selvedge_command_model::{
     ApiCallCorrelation, ApiEffectId, ApiOutputEnvelope, ModelCallDispatchRequest,
     ModelCallErrorKind, ModelRunId, RouterIngressApiMessage, TaskId, validate_api_output_envelope,
 };
-use selvedge_domain_model_api_slice::{
+use selvedge_domain_model::{
     ConversationMessage, ConversationPath, MessageContent, MessageRole, ModelFinishReason,
     ModelProviderProfile, ModelReply, ResponsePreference, StructuredPayload, ToolCallProposal,
 };

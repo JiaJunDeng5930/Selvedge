@@ -3,11 +3,11 @@
 use std::{sync::Arc, time::Duration};
 
 use async_trait::async_trait;
-use selvedge_command_model_api_slice::{
+use selvedge_command_model::{
     ApiOutputEnvelope, ModelCallDispatchRequest, ModelCallError, ModelCallErrorKind,
     RouterIngressApiMessage, RouterIngressSender, validate_dispatch_request,
 };
-use selvedge_domain_model_api_slice::{
+use selvedge_domain_model::{
     ConversationPath, ModelProviderProfile, ModelReply, ResponsePreference, ToolManifest,
     validate_model_reply,
 };
