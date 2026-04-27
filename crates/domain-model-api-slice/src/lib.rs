@@ -2,22 +2,24 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+use serde::Serialize;
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
 pub struct HistoryNodeIdRef(pub String);
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct ConversationPath {
     pub messages: Vec<ConversationMessage>,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct ConversationMessage {
     pub role: MessageRole,
     pub content: MessageContent,
     pub source_node_id: Option<HistoryNodeIdRef>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub enum MessageRole {
     System,
     User,
@@ -25,26 +27,26 @@ pub enum MessageRole {
     Tool,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 pub enum MessageContent {
     Text(String),
     Structured(StructuredPayload),
     ToolResultSummary(String),
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct ToolManifest {
     pub tools: Vec<ToolSpec>,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct ToolSpec {
     pub name: String,
     pub description: String,
     pub parameters: Vec<ToolParameter>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct ToolParameter {
     pub name: String,
     pub parameter_type: ToolParameterType,
@@ -52,7 +54,7 @@ pub struct ToolParameter {
     pub required: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub enum ToolParameterType {
     String,
     Integer,
@@ -60,7 +62,7 @@ pub enum ToolParameterType {
     Boolean,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 pub enum StructuredPayload {
     Object(BTreeMap<String, StructuredPayload>),
     Array(Vec<StructuredPayload>),
@@ -70,7 +72,7 @@ pub enum StructuredPayload {
     Null,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct ModelProviderProfile {
     pub provider_name: String,
     pub model_name: String,
@@ -78,7 +80,7 @@ pub struct ModelProviderProfile {
     pub max_output_tokens: Option<u32>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub enum ResponsePreference {
     PlainTextOrToolCalls,
     PlainTextOnly,
@@ -86,7 +88,7 @@ pub enum ResponsePreference {
     StructuredOutput,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct ModelReply {
     pub content: Option<String>,
     pub tool_calls: Vec<ToolCallProposal>,
@@ -94,20 +96,20 @@ pub struct ModelReply {
     pub finish_reason: ModelFinishReason,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct ToolCallProposal {
     pub call_id: String,
     pub tool_name: String,
     pub arguments: StructuredPayload,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct TokenUsage {
     pub input_tokens: u64,
     pub output_tokens: u64,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub enum ModelFinishReason {
     Stop,
     Length,

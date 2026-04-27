@@ -147,7 +147,12 @@ async fn run_model_call(
         );
     };
 
-    if exceeds_response_limit(&reply, config.max_response_bytes) {
+    let exceeds_response_limit = match exceeds_response_limit(&reply, config.max_response_bytes) {
+        Ok(exceeds_response_limit) => exceeds_response_limit,
+        Err(error) => return failure_envelope(request, error),
+    };
+
+    if exceeds_response_limit {
         return failure_envelope(
             request,
             model_call_error(
@@ -212,54 +217,24 @@ fn model_call_error(kind: ModelCallErrorKind, message: impl Into<String>) -> Mod
     }
 }
 
-fn exceeds_response_limit(reply: &ModelReply, max_response_bytes: Option<usize>) -> bool {
+fn exceeds_response_limit(
+    reply: &ModelReply,
+    max_response_bytes: Option<usize>,
+) -> Result<bool, ModelCallError> {
     let Some(max_response_bytes) = max_response_bytes else {
-        return false;
+        return Ok(false);
     };
 
-    model_reply_payload_bytes(reply) > max_response_bytes
+    Ok(model_reply_payload_bytes(reply)? > max_response_bytes)
 }
 
-fn model_reply_payload_bytes(reply: &ModelReply) -> usize {
-    let content_bytes = reply.content.as_ref().map_or(0, |content| content.len());
-    let tool_call_bytes = reply
-        .tool_calls
-        .iter()
-        .map(|tool_call| {
-            tool_call.call_id.len()
-                + tool_call.tool_name.len()
-                + structured_payload_bytes(&tool_call.arguments)
+fn model_reply_payload_bytes(reply: &ModelReply) -> Result<usize, ModelCallError> {
+    serde_json::to_vec(reply)
+        .map(|bytes| bytes.len())
+        .map_err(|error| {
+            model_call_error(
+                ModelCallErrorKind::ProviderResponse,
+                format!("provider response could not be encoded: {error}"),
+            )
         })
-        .sum::<usize>();
-    let usage_bytes = reply.usage.as_ref().map_or(0, |usage| {
-        usage.input_tokens.to_string().len() + usage.output_tokens.to_string().len()
-    });
-    let finish_reason_bytes = format!("{:?}", reply.finish_reason).len();
-
-    content_bytes + tool_call_bytes + usage_bytes + finish_reason_bytes
-}
-
-fn structured_payload_bytes(payload: &selvedge_domain_model_api_slice::StructuredPayload) -> usize {
-    match payload {
-        selvedge_domain_model_api_slice::StructuredPayload::Object(fields) => {
-            let separators = fields.len().saturating_sub(1);
-            2 + separators
-                + fields
-                    .iter()
-                    .map(|(key, value)| 2 + key.len() + 1 + structured_payload_bytes(value))
-                    .sum::<usize>()
-        }
-        selvedge_domain_model_api_slice::StructuredPayload::Array(values) => {
-            let separators = values.len().saturating_sub(1);
-            2 + separators + values.iter().map(structured_payload_bytes).sum::<usize>()
-        }
-        selvedge_domain_model_api_slice::StructuredPayload::String(value) => 2 + value.len(),
-        selvedge_domain_model_api_slice::StructuredPayload::Number(value) => {
-            value.to_string().len()
-        }
-        selvedge_domain_model_api_slice::StructuredPayload::Boolean(value) => {
-            value.to_string().len()
-        }
-        selvedge_domain_model_api_slice::StructuredPayload::Null => 4,
-    }
 }

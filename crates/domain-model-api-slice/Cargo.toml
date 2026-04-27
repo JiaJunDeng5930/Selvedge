@@ -4,6 +4,7 @@ edition = "2024"
 publish = false
 
 [dependencies]
+serde = { version = "1.0.215", features = ["derive"] }
 
 [lints.rust]
 unsafe_code = "forbid"

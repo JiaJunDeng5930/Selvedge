@@ -7,6 +7,7 @@ publish = false
 async-trait = "0.1.83"
 selvedge-command-model-api-slice = { path = "../command-model-api-slice" }
 selvedge-domain-model-api-slice = { path = "../domain-model-api-slice" }
+serde_json = "1.0.149"
 tokio = { version = "1.42.0", features = ["rt", "sync", "time"] }
 
 [dev-dependencies]
