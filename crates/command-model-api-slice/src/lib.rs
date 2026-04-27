@@ -91,8 +91,10 @@ pub fn validate_api_output_envelope(envelope: &ApiOutputEnvelope) -> Result<(), 
             validate_correlation(correlation)?;
             validate_model_reply(reply).map_err(|error| validation_error("reply", error))?;
         }
-        ApiOutputEnvelope::Failure { correlation, .. } => {
-            validate_correlation(correlation)?;
+        ApiOutputEnvelope::Failure { correlation, error } => {
+            if error.kind != ModelCallErrorKind::Validation {
+                validate_correlation(correlation)?;
+            }
         }
     }
 
