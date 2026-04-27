@@ -241,14 +241,19 @@ fn model_reply_payload_bytes(reply: &ModelReply) -> usize {
 
 fn structured_payload_bytes(payload: &selvedge_domain_model_api_slice::StructuredPayload) -> usize {
     match payload {
-        selvedge_domain_model_api_slice::StructuredPayload::Object(fields) => fields
-            .iter()
-            .map(|(key, value)| key.len() + structured_payload_bytes(value))
-            .sum(),
-        selvedge_domain_model_api_slice::StructuredPayload::Array(values) => {
-            values.iter().map(structured_payload_bytes).sum()
+        selvedge_domain_model_api_slice::StructuredPayload::Object(fields) => {
+            let separators = fields.len().saturating_sub(1);
+            2 + separators
+                + fields
+                    .iter()
+                    .map(|(key, value)| 2 + key.len() + 1 + structured_payload_bytes(value))
+                    .sum::<usize>()
         }
-        selvedge_domain_model_api_slice::StructuredPayload::String(value) => value.len(),
+        selvedge_domain_model_api_slice::StructuredPayload::Array(values) => {
+            let separators = values.len().saturating_sub(1);
+            2 + separators + values.iter().map(structured_payload_bytes).sum::<usize>()
+        }
+        selvedge_domain_model_api_slice::StructuredPayload::String(value) => 2 + value.len(),
         selvedge_domain_model_api_slice::StructuredPayload::Number(value) => {
             value.to_string().len()
         }
