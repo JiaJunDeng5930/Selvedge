@@ -217,8 +217,44 @@ fn exceeds_response_limit(reply: &ModelReply, max_response_bytes: Option<usize>)
         return false;
     };
 
-    reply
-        .content
-        .as_ref()
-        .is_some_and(|content| content.len() > max_response_bytes)
+    model_reply_payload_bytes(reply) > max_response_bytes
+}
+
+fn model_reply_payload_bytes(reply: &ModelReply) -> usize {
+    let content_bytes = reply.content.as_ref().map_or(0, |content| content.len());
+    let tool_call_bytes = reply
+        .tool_calls
+        .iter()
+        .map(|tool_call| {
+            tool_call.call_id.len()
+                + tool_call.tool_name.len()
+                + structured_payload_bytes(&tool_call.arguments)
+        })
+        .sum::<usize>();
+    let usage_bytes = reply.usage.as_ref().map_or(0, |usage| {
+        usage.input_tokens.to_string().len() + usage.output_tokens.to_string().len()
+    });
+    let finish_reason_bytes = format!("{:?}", reply.finish_reason).len();
+
+    content_bytes + tool_call_bytes + usage_bytes + finish_reason_bytes
+}
+
+fn structured_payload_bytes(payload: &selvedge_domain_model_api_slice::StructuredPayload) -> usize {
+    match payload {
+        selvedge_domain_model_api_slice::StructuredPayload::Object(fields) => fields
+            .iter()
+            .map(|(key, value)| key.len() + structured_payload_bytes(value))
+            .sum(),
+        selvedge_domain_model_api_slice::StructuredPayload::Array(values) => {
+            values.iter().map(structured_payload_bytes).sum()
+        }
+        selvedge_domain_model_api_slice::StructuredPayload::String(value) => value.len(),
+        selvedge_domain_model_api_slice::StructuredPayload::Number(value) => {
+            value.to_string().len()
+        }
+        selvedge_domain_model_api_slice::StructuredPayload::Boolean(value) => {
+            value.to_string().len()
+        }
+        selvedge_domain_model_api_slice::StructuredPayload::Null => 4,
+    }
 }
