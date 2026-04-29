@@ -270,10 +270,15 @@ impl TaskRuntimeActor {
     }
 
     async fn commit_user_message_and_request_model(&mut self, message_text: String) -> bool {
+        match self.append_user_message(message_text) {
+            Ok(()) => self.request_model_call().await,
+            Err(error) => self.stop_with_db_error(error).await,
+        }
+    }
+
+    fn append_user_message(&mut self, message_text: String) -> Result<(), DbError> {
         let Some(parent_node_id) = self.cursor_node_id else {
-            return self
-                .stop_with_internal_error("task cursor is missing")
-                .await;
+            return Err(DbError::Storage("task cursor is missing".to_owned()));
         };
         match append_history_node_and_move_cursor(
             &self.db,
@@ -289,9 +294,9 @@ impl TaskRuntimeActor {
         ) {
             Ok(node_id) => {
                 self.cursor_node_id = Some(node_id);
-                self.request_model_call().await
+                Ok(())
             }
-            Err(error) => self.stop_with_db_error(error).await,
+            Err(error) => Err(error),
         }
     }
 
@@ -405,15 +410,20 @@ impl TaskRuntimeActor {
     }
 
     async fn drain_queue_or_idle(&mut self) -> bool {
-        match consume_next_queued_user_input(&self.db, &self.task_id) {
-            Ok(Some(input)) => {
+        match load_active_task(&self.db, &self.task_id) {
+            Ok(loaded) => {
+                let Some(input) = loaded.queued_inputs.into_iter().next() else {
+                    self.wait_state = WaitState::Idle;
+                    return false;
+                };
                 self.wait_state = WaitState::Idle;
-                self.commit_user_message_and_request_model(input.message_text)
-                    .await
-            }
-            Ok(None) => {
-                self.wait_state = WaitState::Idle;
-                false
+                if let Err(error) = self.append_user_message(input.message_text) {
+                    return self.stop_with_db_error(error).await;
+                }
+                if let Err(error) = consume_next_queued_user_input(&self.db, &self.task_id) {
+                    return self.stop_with_db_error(error).await;
+                }
+                self.request_model_call().await
             }
             Err(error) => self.stop_with_db_error(error).await,
         }
@@ -554,11 +564,17 @@ fn tool_call_arguments_from_payload(
 
     let mut converted = Vec::with_capacity(arguments.len());
     for (name, value) in arguments {
-        let parameter_type = tool_spec
+        let Some(parameter_type) = tool_spec
             .parameters
             .iter()
             .find(|parameter| parameter.name == name)
-            .map(|parameter| &parameter.parameter_type);
+            .map(|parameter| &parameter.parameter_type)
+        else {
+            return Err(format!(
+                "tool argument is not declared: {}.{}",
+                tool_name.0, name
+            ));
+        };
         let Some(value) = tool_argument_value_from_payload(value, parameter_type) else {
             return Err(format!(
                 "tool argument value cannot be converted: {}.{}",
@@ -575,24 +591,27 @@ fn tool_call_arguments_from_payload(
 
 fn tool_argument_value_from_payload(
     payload: StructuredPayload,
-    parameter_type: Option<&ToolParameterType>,
+    parameter_type: &ToolParameterType,
 ) -> Option<ToolArgumentValue> {
-    match payload {
-        StructuredPayload::String(value) => Some(ToolArgumentValue::String(value)),
-        StructuredPayload::Number(value)
-            if parameter_type == Some(&ToolParameterType::Integer)
-                && value.is_finite()
+    match (parameter_type, payload) {
+        (ToolParameterType::String, StructuredPayload::String(value)) => {
+            Some(ToolArgumentValue::String(value))
+        }
+        (ToolParameterType::Integer, StructuredPayload::Number(value))
+            if value.is_finite()
                 && value.fract() == 0.0
                 && value >= i64::MIN as f64
                 && value <= i64::MAX as f64 =>
         {
             Some(ToolArgumentValue::Integer(value as i64))
         }
-        StructuredPayload::Number(value) => Some(ToolArgumentValue::Number(value)),
-        StructuredPayload::Boolean(value) => Some(ToolArgumentValue::Boolean(value)),
-        StructuredPayload::Object(_) | StructuredPayload::Array(_) | StructuredPayload::Null => {
-            None
+        (ToolParameterType::Number, StructuredPayload::Number(value)) if value.is_finite() => {
+            Some(ToolArgumentValue::Number(value))
         }
+        (ToolParameterType::Boolean, StructuredPayload::Boolean(value)) => {
+            Some(ToolArgumentValue::Boolean(value))
+        }
+        _ => None,
     }
 }
 

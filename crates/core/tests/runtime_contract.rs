@@ -8,8 +8,8 @@ use selvedge_command_model::{
 use selvedge_core::{SpawnTaskRuntimeArgs, TaskRuntimeConfig, spawn_task_runtime};
 use selvedge_db::{
     CreateRootTaskInput, NewHistoryNode, NewHistoryNodeContent, NewMessageNodeContent,
-    OpenDbOptions, ReasoningEffort, TaskId, ToolArgumentValue, UnixTs, create_root_task, open_db,
-    register_tool,
+    OpenDbOptions, ReasoningEffort, TaskId, ToolArgumentValue, UnixTs, create_root_task,
+    load_active_task, open_db, queue_user_input, register_tool,
 };
 use selvedge_domain_model::{
     ModelFinishReason, ModelReply, StructuredPayload, ToolCallProposal, ToolParameter,
@@ -441,6 +441,103 @@ async fn task_runtime_rejects_unconvertible_required_arguments() {
                         arguments: StructuredPayload::Object(BTreeMap::from([(
                             "count".to_owned(),
                             StructuredPayload::Null,
+                        )])),
+                    }],
+                    usage: None,
+                    finish_reason: ModelFinishReason::ToolCalls,
+                },
+            },
+        ))
+        .await
+        .expect("send model reply");
+
+    assert_internal_exit(&mut router_rx).await;
+}
+
+#[tokio::test]
+async fn task_runtime_preserves_queued_input_when_append_fails() {
+    let db = open_db(OpenDbOptions {
+        sqlite_path: ":memory:".to_owned(),
+    })
+    .expect("open db");
+    create_root_task(
+        &db,
+        CreateRootTaskInput {
+            task_id: TaskId("task-1".to_owned()),
+            initial_node: NewHistoryNode {
+                parent_node_id: None,
+                content: NewHistoryNodeContent::Message(NewMessageNodeContent {
+                    message_role: selvedge_db::MessageRole::System,
+                    message_text: "system".to_owned(),
+                }),
+                created_at: UnixTs(4_102_444_800),
+            },
+            model_profile_key: selvedge_db::ModelProfileKey("default".to_owned()),
+            reasoning_effort: ReasoningEffort::Medium,
+            enabled_tools: Vec::new(),
+            now: UnixTs(4_102_444_800),
+        },
+    )
+    .expect("create task");
+    queue_user_input(
+        &db,
+        &TaskId("task-1".to_owned()),
+        "queued".to_owned(),
+        UnixTs(4_102_444_801),
+    )
+    .expect("queue input");
+
+    let (router_tx, mut router_rx) = tokio::sync::mpsc::channel(16);
+    let runtime = spawn_task_runtime(SpawnTaskRuntimeArgs {
+        task_id: TaskId("task-1".to_owned()),
+        db: db.clone(),
+        router_tx,
+        config: TaskRuntimeConfig {
+            mailbox_capacity: 16,
+            model_profiles: model_profiles(),
+        },
+    })
+    .expect("spawn runtime");
+    runtime
+        .task_runtime_tx
+        .send(TaskRuntimeCommand::Start)
+        .await
+        .expect("send start");
+    let _ready = router_rx.recv().await.expect("ready");
+    let _exit = router_rx.recv().await.expect("db error exit");
+
+    let loaded = load_active_task(&db, &TaskId("task-1".to_owned())).expect("load task");
+    assert_eq!(loaded.queued_inputs.len(), 1);
+}
+
+#[tokio::test]
+async fn task_runtime_rejects_fractional_integer_arguments_before_persistence() {
+    let (runtime, mut router_rx) = spawn_runtime_with_task(vec![ToolSpec {
+        name: "repeat".to_owned(),
+        description: "repeat".to_owned(),
+        parameters: vec![ToolParameter {
+            name: "count".to_owned(),
+            parameter_type: ToolParameterType::Integer,
+            description: "count".to_owned(),
+            required: true,
+        }],
+    }])
+    .await;
+    let correlation = start_and_request_model(&runtime, &mut router_rx).await;
+
+    runtime
+        .task_runtime_tx
+        .send(TaskRuntimeCommand::ApiModelReply(
+            ApiOutputEnvelope::Success {
+                correlation,
+                reply: ModelReply {
+                    content: None,
+                    tool_calls: vec![ToolCallProposal {
+                        call_id: "call-1".to_owned(),
+                        tool_name: "repeat".to_owned(),
+                        arguments: StructuredPayload::Object(BTreeMap::from([(
+                            "count".to_owned(),
+                            StructuredPayload::Number(1.5),
                         )])),
                     }],
                     usage: None,
