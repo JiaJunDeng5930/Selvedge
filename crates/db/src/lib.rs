@@ -222,7 +222,9 @@ impl HistoryNode {
 #[derive(Clone, Debug, PartialEq)]
 pub struct CreateRootTaskInput {
     pub task_id: TaskId,
-    pub initial_node: NewHistoryNode,
+    /// Cursor ownership stays at the task layer. The caller selects an
+    /// already-persisted history node; task creation records that pointer.
+    pub cursor_node_id: HistoryNodeId,
     pub model_profile_key: ModelProfileKey,
     pub reasoning_effort: ReasoningEffort,
     pub enabled_tools: Vec<ToolName>,
@@ -352,19 +354,34 @@ pub fn register_tool(db: &DbPool, tool: ToolSpec) -> Result<(), DbError> {
     tx.commit().map_err(map_error)
 }
 
+/// Insert one history node and leave task rows unchanged.
+///
+/// History is a standalone graph. A task may point at any existing node chosen
+/// by the caller's creation strategy; this write only materializes that node.
+pub fn create_history_node(db: &DbPool, node: NewHistoryNode) -> Result<HistoryNodeId, DbError> {
+    let mut connection = db.connection()?;
+    let tx = connection.transaction().map_err(map_error)?;
+    let node_id = insert_history_node(&tx, node)?;
+    tx.commit().map_err(map_error)?;
+    Ok(node_id)
+}
+
+/// Insert one root task whose cursor points at an existing history node.
+///
+/// Task relations and history relations are separate graphs. Creating a task
+/// records the task-layer cursor pointer and tool manifest only.
 pub fn create_root_task(db: &DbPool, input: CreateRootTaskInput) -> Result<TaskRow, DbError> {
     let task_id = input.task_id.clone();
     {
         let mut connection = db.connection()?;
         let tx = connection.transaction().map_err(map_error)?;
-        let node_id = insert_history_node(&tx, input.initial_node)?;
         tx.execute(
             "INSERT INTO tasks
              (task_id, task_status, cursor_node_id, model_profile_key, reasoning_effort, state_version, created_at, updated_at)
              VALUES (?1, 'active', ?2, ?3, ?4, 0, ?5, ?5)",
             params![
                 input.task_id.0,
-                node_id.0,
+                input.cursor_node_id.0,
                 input.model_profile_key.0,
                 reasoning_effort_to_db(&input.reasoning_effort),
                 input.now.0
