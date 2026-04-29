@@ -77,3 +77,44 @@ fn archive_task_clears_queued_inputs_before_status_update() {
 
     archive_task(&db, &TaskId("task-1".to_owned()), UnixTs(12)).expect("archive task");
 }
+
+#[test]
+fn append_history_uses_new_node_timestamp_for_task_updated_at() {
+    let db = open_db(OpenDbOptions {
+        sqlite_path: ":memory:".to_owned(),
+    })
+    .expect("open db");
+    let task = create_root_task(
+        &db,
+        CreateRootTaskInput {
+            task_id: TaskId("task-1".to_owned()),
+            initial_node: NewHistoryNode {
+                parent_node_id: None,
+                content: NewHistoryNodeContent::Message(NewMessageNodeContent {
+                    message_role: MessageRole::User,
+                    message_text: "hello".to_owned(),
+                }),
+                created_at: UnixTs(4_102_444_800),
+            },
+            model_profile_key: selvedge_db::ModelProfileKey("provider/model".to_owned()),
+            reasoning_effort: ReasoningEffort::Medium,
+            enabled_tools: Vec::new(),
+            now: UnixTs(4_102_444_800),
+        },
+    )
+    .expect("create root task");
+
+    selvedge_db::append_history_node_and_move_cursor(
+        &db,
+        &TaskId("task-1".to_owned()),
+        NewHistoryNode {
+            parent_node_id: Some(task.cursor_node_id),
+            content: NewHistoryNodeContent::Message(NewMessageNodeContent {
+                message_role: MessageRole::User,
+                message_text: "future append".to_owned(),
+            }),
+            created_at: UnixTs(4_102_444_801),
+        },
+    )
+    .expect("append history");
+}
