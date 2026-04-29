@@ -307,6 +307,14 @@ impl TaskRuntimeActor {
             "{}-model-{}",
             self.task_id.0, self.model_run_sequence
         ));
+        let Some(provider) = model_provider_profile_from_key(&loaded.task.model_profile_key.0)
+        else {
+            return self
+                .stop_with_internal_error(
+                    "model profile key must be provider/model or provider:model",
+                )
+                .await;
+        };
         let request = ModelCallDispatchRequest {
             correlation: selvedge_command_model::ApiCallCorrelation {
                 api_effect_id: ApiEffectId(format!(
@@ -316,12 +324,7 @@ impl TaskRuntimeActor {
                 task_id: self.task_id.clone(),
                 model_run_id: model_run_id.clone(),
             },
-            provider: ModelProviderProfile {
-                provider_name: loaded.task.model_profile_key.0.clone(),
-                model_name: loaded.task.model_profile_key.0,
-                temperature: None,
-                max_output_tokens: None,
-            },
+            provider,
             conversation: conversation_to_path(conversation),
             tool_manifest: Some(tool_manifest),
             response_preference: ResponsePreference::PlainTextOrToolCalls,
@@ -349,7 +352,11 @@ impl TaskRuntimeActor {
             Err(error) => return self.stop_with_db_error(error).await,
         };
         let arguments =
-            tool_call_arguments_from_payload(tool_call.arguments, &tool_name, &tool_manifest);
+            match tool_call_arguments_from_payload(tool_call.arguments, &tool_name, &tool_manifest)
+            {
+                Ok(arguments) => arguments,
+                Err(message) => return self.stop_with_internal_error(&message).await,
+            };
         let node = NewHistoryNode {
             parent_node_id: Some(parent_node_id),
             content: NewHistoryNodeContent::FunctionCall(NewFunctionCallNodeContent {
@@ -458,6 +465,23 @@ fn conversation_to_path(conversation: selvedge_db::Conversation) -> Conversation
     ConversationPath { messages }
 }
 
+fn model_provider_profile_from_key(model_profile_key: &str) -> Option<ModelProviderProfile> {
+    let (provider_name, model_name) = model_profile_key
+        .split_once('/')
+        .or_else(|| model_profile_key.split_once(':'))?;
+    let provider_name = provider_name.trim();
+    let model_name = model_name.trim();
+    if provider_name.is_empty() || model_name.is_empty() {
+        return None;
+    }
+    Some(ModelProviderProfile {
+        provider_name: provider_name.to_owned(),
+        model_name: model_name.to_owned(),
+        temperature: None,
+        max_output_tokens: None,
+    })
+}
+
 fn conversation_item_to_message(item: ConversationItem) -> ConversationMessage {
     match item {
         ConversationItem::Message { role, text } => ConversationMessage {
@@ -525,29 +549,45 @@ fn tool_call_arguments_from_payload(
     payload: StructuredPayload,
     tool_name: &ToolName,
     tool_manifest: &ToolManifest,
-) -> Vec<ToolCallArgument> {
-    let StructuredPayload::Object(arguments) = payload else {
-        return Vec::new();
+) -> Result<Vec<ToolCallArgument>, String> {
+    let Some(tool_spec) = tool_manifest
+        .tools
+        .iter()
+        .find(|tool| tool.name == tool_name.0)
+    else {
+        return Err(format!("tool is not enabled for task: {}", tool_name.0));
     };
-    arguments
+    let StructuredPayload::Object(arguments) = payload else {
+        return Err(format!("tool arguments must be an object: {}", tool_name.0));
+    };
+    for parameter in tool_spec
+        .parameters
+        .iter()
+        .filter(|parameter| parameter.required)
+    {
+        if !arguments.contains_key(&parameter.name) {
+            return Err(format!(
+                "required tool argument is missing: {}.{}",
+                tool_name.0, parameter.name
+            ));
+        }
+    }
+
+    let converted = arguments
         .into_iter()
         .filter_map(|(name, value)| {
-            let parameter_type = tool_manifest
-                .tools
+            let parameter_type = tool_spec
+                .parameters
                 .iter()
-                .find(|tool| tool.name == tool_name.0)
-                .and_then(|tool| {
-                    tool.parameters
-                        .iter()
-                        .find(|parameter| parameter.name == name)
-                })
+                .find(|parameter| parameter.name == name)
                 .map(|parameter| &parameter.parameter_type);
             Some(ToolCallArgument {
                 name: ToolParameterName(name),
                 value: tool_argument_value_from_payload(value, parameter_type)?,
             })
         })
-        .collect()
+        .collect();
+    Ok(converted)
 }
 
 fn tool_argument_value_from_payload(

@@ -1,8 +1,8 @@
 use std::collections::BTreeMap;
 
 use selvedge_command_model::{
-    ApiCallCorrelation, ApiOutputEnvelope, CoreOutputMessage, RouterIngressMessage,
-    TaskRuntimeCommand, ToolExecutionResult,
+    ApiCallCorrelation, ApiOutputEnvelope, CoreOutputMessage, ModelCallDispatchRequest,
+    RouterIngressMessage, TaskRuntimeCommand, TaskRuntimeExitReason, ToolExecutionResult,
 };
 use selvedge_core::{SpawnTaskRuntimeArgs, TaskRuntimeConfig, spawn_task_runtime};
 use selvedge_db::{
@@ -33,7 +33,7 @@ async fn task_runtime_starts_and_requests_model_call_for_user_input() {
                 }),
                 created_at: UnixTs(1),
             },
-            model_profile_key: selvedge_db::ModelProfileKey("default".to_owned()),
+            model_profile_key: selvedge_db::ModelProfileKey("provider/model".to_owned()),
             reasoning_effort: ReasoningEffort::Medium,
             enabled_tools: Vec::new(),
             now: UnixTs(1),
@@ -78,6 +78,16 @@ async fn task_runtime_starts_and_requests_model_call_for_user_input() {
         RouterIngressMessage::Core(envelope)
             if matches!(envelope.message, CoreOutputMessage::RequestModelCall(_))
     ));
+}
+
+#[tokio::test]
+async fn task_runtime_resolves_model_profile_key_into_provider_and_model() {
+    let (runtime, mut router_rx) = spawn_runtime_with_task(vec![]).await;
+
+    let request = start_and_recv_model_request(&runtime, &mut router_rx).await;
+
+    assert_eq!(request.provider.provider_name, "provider");
+    assert_eq!(request.provider.model_name, "model");
 }
 
 #[tokio::test]
@@ -183,6 +193,113 @@ async fn task_runtime_uses_tool_parameter_type_for_integer_arguments() {
     );
 }
 
+#[tokio::test]
+async fn task_runtime_rejects_tool_calls_outside_enabled_manifest() {
+    let db = open_db(OpenDbOptions {
+        sqlite_path: ":memory:".to_owned(),
+    })
+    .expect("open db");
+    register_tool(
+        &db,
+        ToolSpec {
+            name: "disabled".to_owned(),
+            description: "disabled".to_owned(),
+            parameters: Vec::new(),
+        },
+    )
+    .expect("register disabled tool");
+    create_root_task(
+        &db,
+        CreateRootTaskInput {
+            task_id: TaskId("task-1".to_owned()),
+            initial_node: NewHistoryNode {
+                parent_node_id: None,
+                content: NewHistoryNodeContent::Message(NewMessageNodeContent {
+                    message_role: selvedge_db::MessageRole::System,
+                    message_text: "system".to_owned(),
+                }),
+                created_at: UnixTs(1),
+            },
+            model_profile_key: selvedge_db::ModelProfileKey("provider/model".to_owned()),
+            reasoning_effort: ReasoningEffort::Medium,
+            enabled_tools: Vec::new(),
+            now: UnixTs(1),
+        },
+    )
+    .expect("create task");
+    let (router_tx, mut router_rx) = tokio::sync::mpsc::channel(16);
+    let runtime = spawn_task_runtime(SpawnTaskRuntimeArgs {
+        task_id: TaskId("task-1".to_owned()),
+        db,
+        router_tx,
+        config: TaskRuntimeConfig {
+            mailbox_capacity: 16,
+        },
+    })
+    .expect("spawn runtime");
+    let correlation = start_and_request_model(&runtime, &mut router_rx).await;
+
+    runtime
+        .task_runtime_tx
+        .send(TaskRuntimeCommand::ApiModelReply(
+            ApiOutputEnvelope::Success {
+                correlation,
+                reply: ModelReply {
+                    content: None,
+                    tool_calls: vec![ToolCallProposal {
+                        call_id: "call-1".to_owned(),
+                        tool_name: "disabled".to_owned(),
+                        arguments: StructuredPayload::Object(BTreeMap::new()),
+                    }],
+                    usage: None,
+                    finish_reason: ModelFinishReason::ToolCalls,
+                },
+            },
+        ))
+        .await
+        .expect("send model reply");
+
+    assert_internal_exit(&mut router_rx).await;
+}
+
+#[tokio::test]
+async fn task_runtime_rejects_tool_calls_missing_required_arguments() {
+    let (runtime, mut router_rx) = spawn_runtime_with_task(vec![ToolSpec {
+        name: "repeat".to_owned(),
+        description: "repeat".to_owned(),
+        parameters: vec![ToolParameter {
+            name: "count".to_owned(),
+            parameter_type: ToolParameterType::Integer,
+            description: "count".to_owned(),
+            required: true,
+        }],
+    }])
+    .await;
+    let correlation = start_and_request_model(&runtime, &mut router_rx).await;
+
+    runtime
+        .task_runtime_tx
+        .send(TaskRuntimeCommand::ApiModelReply(
+            ApiOutputEnvelope::Success {
+                correlation,
+                reply: ModelReply {
+                    content: None,
+                    tool_calls: vec![ToolCallProposal {
+                        call_id: "call-1".to_owned(),
+                        tool_name: "repeat".to_owned(),
+                        arguments: StructuredPayload::Object(BTreeMap::new()),
+                    }],
+                    usage: None,
+                    finish_reason: ModelFinishReason::ToolCalls,
+                },
+            },
+        ))
+        .await
+        .expect("send model reply");
+
+    assert_internal_exit(&mut router_rx).await;
+}
+
 async fn spawn_runtime_with_task(
     tools: Vec<ToolSpec>,
 ) -> (
@@ -212,7 +329,7 @@ async fn spawn_runtime_with_task(
                 }),
                 created_at: UnixTs(1),
             },
-            model_profile_key: selvedge_db::ModelProfileKey("default".to_owned()),
+            model_profile_key: selvedge_db::ModelProfileKey("provider/model".to_owned()),
             reasoning_effort: ReasoningEffort::Medium,
             enabled_tools,
             now: UnixTs(1),
@@ -237,6 +354,15 @@ async fn start_and_request_model(
     runtime: &selvedge_core::SpawnedTaskRuntime,
     router_rx: &mut tokio::sync::mpsc::Receiver<RouterIngressMessage>,
 ) -> ApiCallCorrelation {
+    start_and_recv_model_request(runtime, router_rx)
+        .await
+        .correlation
+}
+
+async fn start_and_recv_model_request(
+    runtime: &selvedge_core::SpawnedTaskRuntime,
+    router_rx: &mut tokio::sync::mpsc::Receiver<RouterIngressMessage>,
+) -> ModelCallDispatchRequest {
     runtime
         .task_runtime_tx
         .send(TaskRuntimeCommand::Start)
@@ -258,7 +384,7 @@ async fn start_and_request_model(
     let request = router_rx.recv().await.expect("model request");
     match request {
         RouterIngressMessage::Core(envelope) => match envelope.message {
-            CoreOutputMessage::RequestModelCall(request) => request.correlation,
+            CoreOutputMessage::RequestModelCall(request) => request,
             _ => panic!("unexpected core output"),
         },
         _ => panic!("unexpected router message"),
@@ -274,6 +400,19 @@ async fn recv_tool_request(
             CoreOutputMessage::RequestToolExecution(request) => request,
             _ => panic!("unexpected core output"),
         },
+        _ => panic!("unexpected router message"),
+    }
+}
+
+async fn assert_internal_exit(router_rx: &mut tokio::sync::mpsc::Receiver<RouterIngressMessage>) {
+    let message = router_rx.recv().await.expect("runtime exit");
+    match message {
+        RouterIngressMessage::RuntimeExit(notice) => {
+            assert!(matches!(
+                notice.reason,
+                TaskRuntimeExitReason::InternalError(_)
+            ));
+        }
         _ => panic!("unexpected router message"),
     }
 }
