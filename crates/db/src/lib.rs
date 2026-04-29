@@ -1,5 +1,6 @@
 #![doc = include_str!("../README.md")]
 
+use std::collections::HashSet;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::{error::Error, fmt};
 
@@ -165,6 +166,52 @@ pub struct HistoryFunctionOutputNodeRow {
 }
 
 #[derive(Clone, Debug, PartialEq)]
+pub enum HistoryNode {
+    Message {
+        node_id: HistoryNodeId,
+        parent_node_id: Option<HistoryNodeId>,
+        created_at: UnixTs,
+        message_role: MessageRole,
+        message_text: String,
+    },
+    Reasoning {
+        node_id: HistoryNodeId,
+        parent_node_id: Option<HistoryNodeId>,
+        created_at: UnixTs,
+        reasoning_text: String,
+    },
+    FunctionCall {
+        node_id: HistoryNodeId,
+        parent_node_id: Option<HistoryNodeId>,
+        created_at: UnixTs,
+        function_call_id: FunctionCallId,
+        tool_name: ToolName,
+        arguments: Vec<ToolCallArgument>,
+    },
+    FunctionOutput {
+        node_id: HistoryNodeId,
+        parent_node_id: Option<HistoryNodeId>,
+        created_at: UnixTs,
+        function_call_node_id: HistoryNodeId,
+        function_call_id: FunctionCallId,
+        tool_name: ToolName,
+        output_text: String,
+        is_error: bool,
+    },
+}
+
+impl HistoryNode {
+    pub fn node_id(&self) -> HistoryNodeId {
+        match self {
+            HistoryNode::Message { node_id, .. }
+            | HistoryNode::Reasoning { node_id, .. }
+            | HistoryNode::FunctionCall { node_id, .. }
+            | HistoryNode::FunctionOutput { node_id, .. } => *node_id,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
 pub struct CreateRootTaskInput {
     pub task_id: TaskId,
     pub initial_node: NewHistoryNode,
@@ -185,7 +232,7 @@ pub struct CreateChildTaskInput {
 #[derive(Clone, Debug, PartialEq)]
 pub struct LoadedActiveTask {
     pub task: TaskRow,
-    pub cursor_node: HistoryNodeRow,
+    pub cursor_node: HistoryNode,
     pub tool_manifest: ToolManifest,
     pub queued_inputs: Vec<QueuedUserInputRow>,
 }
@@ -383,7 +430,116 @@ pub fn load_active_task(db: &DbPool, task_id: &TaskId) -> Result<LoadedActiveTas
     })
 }
 
-pub fn append_history_node_and_move_cursor(
+pub fn append_user_message_and_move_cursor(
+    db: &DbPool,
+    task_id: &TaskId,
+    message_text: String,
+    created_at: UnixTs,
+) -> Result<HistoryNodeId, DbError> {
+    append_history_node_and_move_cursor(
+        db,
+        task_id,
+        NewHistoryNode {
+            parent_node_id: None,
+            content: NewHistoryNodeContent::Message(NewMessageNodeContent {
+                message_role: MessageRole::User,
+                message_text,
+            }),
+            created_at,
+        },
+    )
+}
+
+pub fn append_model_reply_with_tool_calls_and_move_cursor(
+    db: &DbPool,
+    task_id: &TaskId,
+    assistant_message_text: Option<String>,
+    tool_calls: Vec<NewFunctionCallNodeContent>,
+    created_at: UnixTs,
+) -> Result<Vec<HistoryNodeId>, DbError> {
+    if tool_calls.is_empty() {
+        return Err(DbError::Constraint(
+            "model reply tool call commit requires at least one function call".to_owned(),
+        ));
+    }
+    let mut connection = db.connection()?;
+    let tx = connection.transaction().map_err(map_error)?;
+    ensure_active_task_in_tx(&tx, task_id)?;
+    if let Some(message_text) = assistant_message_text {
+        append_node_to_current_cursor_in_tx(
+            &tx,
+            task_id,
+            NewHistoryNodeContent::Message(NewMessageNodeContent {
+                message_role: MessageRole::Assistant,
+                message_text,
+            }),
+            created_at,
+        )?;
+    }
+    let mut function_call_node_ids = Vec::with_capacity(tool_calls.len());
+    for tool_call in tool_calls {
+        let node_id = append_node_to_current_cursor_in_tx(
+            &tx,
+            task_id,
+            NewHistoryNodeContent::FunctionCall(tool_call),
+            created_at,
+        )?;
+        function_call_node_ids.push(node_id);
+    }
+    tx.commit().map_err(map_error)?;
+    Ok(function_call_node_ids)
+}
+
+pub fn append_assistant_message_and_drain_queue(
+    db: &DbPool,
+    task_id: &TaskId,
+    message_text: String,
+    created_at: UnixTs,
+) -> Result<HistoryNodeId, DbError> {
+    let mut connection = db.connection()?;
+    let tx = connection.transaction().map_err(map_error)?;
+    ensure_active_task_in_tx(&tx, task_id)?;
+    let mut last_node_id = append_node_to_current_cursor_in_tx(
+        &tx,
+        task_id,
+        NewHistoryNodeContent::Message(NewMessageNodeContent {
+            message_role: MessageRole::Assistant,
+            message_text,
+        }),
+        created_at,
+    )?;
+    if let Some(node_id) = append_all_queued_user_inputs_in_tx(&tx, task_id, created_at)? {
+        last_node_id = node_id;
+    }
+    tx.commit().map_err(map_error)?;
+    Ok(last_node_id)
+}
+
+pub fn append_function_output_and_drain_queue(
+    db: &DbPool,
+    task_id: &TaskId,
+    output: NewFunctionOutputNodeContent,
+    created_at: UnixTs,
+) -> Result<HistoryNodeId, DbError> {
+    let mut connection = db.connection()?;
+    let tx = connection.transaction().map_err(map_error)?;
+    ensure_active_task_in_tx(&tx, task_id)?;
+    let current_cursor_node_id = current_cursor_node_id_in_tx(&tx, task_id)?;
+    ensure_current_path_contains_open_function_call(&tx, current_cursor_node_id, &output)?;
+    let mut last_node_id = append_node_to_current_cursor_in_tx(
+        &tx,
+        task_id,
+        NewHistoryNodeContent::FunctionOutput(output),
+        created_at,
+    )?;
+    if let Some(node_id) = append_all_queued_user_inputs_in_tx(&tx, task_id, created_at)? {
+        last_node_id = node_id;
+    }
+    tx.commit().map_err(map_error)?;
+    Ok(last_node_id)
+}
+
+fn append_history_node_and_move_cursor(
     db: &DbPool,
     task_id: &TaskId,
     mut node: NewHistoryNode,
@@ -391,13 +547,7 @@ pub fn append_history_node_and_move_cursor(
     let mut connection = db.connection()?;
     let tx = connection.transaction().map_err(map_error)?;
     ensure_active_task_in_tx(&tx, task_id)?;
-    let current_cursor_node_id: i64 = tx
-        .query_row(
-            "SELECT cursor_node_id FROM tasks WHERE task_id = ?1 AND task_status = 'active'",
-            params![task_id.0],
-            |row| row.get(0),
-        )
-        .map_err(map_error)?;
+    let current_cursor_node_id = current_cursor_node_id_in_tx(&tx, task_id)?;
 
     // Task edges and history edges are separate models. Append means the DB
     // reads the task cursor, creates a child history node under that cursor,
@@ -406,7 +556,7 @@ pub fn append_history_node_and_move_cursor(
     node.parent_node_id = Some(HistoryNodeId(current_cursor_node_id));
 
     if let NewHistoryNodeContent::FunctionOutput(content) = &node.content {
-        ensure_current_cursor_is_function_call(&tx, current_cursor_node_id, content)?;
+        ensure_current_path_contains_open_function_call(&tx, current_cursor_node_id, content)?;
     }
 
     let updated_at = node.created_at;
@@ -424,6 +574,100 @@ pub fn append_history_node_and_move_cursor(
     }
     tx.commit().map_err(map_error)?;
     Ok(node_id)
+}
+
+fn current_cursor_node_id_in_tx(
+    tx: &rusqlite::Transaction<'_>,
+    task_id: &TaskId,
+) -> Result<i64, DbError> {
+    tx.query_row(
+        "SELECT cursor_node_id FROM tasks WHERE task_id = ?1 AND task_status = 'active'",
+        params![task_id.0],
+        |row| row.get(0),
+    )
+    .map_err(map_error)
+}
+
+fn append_node_to_current_cursor_in_tx(
+    tx: &rusqlite::Transaction<'_>,
+    task_id: &TaskId,
+    content: NewHistoryNodeContent,
+    created_at: UnixTs,
+) -> Result<HistoryNodeId, DbError> {
+    let current_cursor_node_id = current_cursor_node_id_in_tx(tx, task_id)?;
+    let node_id = insert_history_node(
+        tx,
+        NewHistoryNode {
+            parent_node_id: Some(HistoryNodeId(current_cursor_node_id)),
+            content,
+            created_at,
+        },
+    )?;
+    update_task_cursor_in_tx(tx, task_id, node_id, created_at)?;
+    Ok(node_id)
+}
+
+fn append_all_queued_user_inputs_in_tx(
+    tx: &rusqlite::Transaction<'_>,
+    task_id: &TaskId,
+    created_at: UnixTs,
+) -> Result<Option<HistoryNodeId>, DbError> {
+    let queued_inputs = {
+        let mut statement = tx
+            .prepare(
+                "SELECT task_id, seq_no, message_text, queued_at
+                 FROM queued_user_inputs
+                 WHERE task_id = ?1
+                 ORDER BY seq_no ASC",
+            )
+            .map_err(map_error)?;
+        statement
+            .query_map(params![task_id.0], map_queued_user_input_row)
+            .map_err(map_error)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(map_error)?
+    };
+
+    let mut last_node_id = None;
+    for queued in queued_inputs {
+        let node_id = append_node_to_current_cursor_in_tx(
+            tx,
+            task_id,
+            NewHistoryNodeContent::Message(NewMessageNodeContent {
+                message_role: MessageRole::User,
+                message_text: queued.message_text,
+            }),
+            created_at,
+        )?;
+        tx.execute(
+            "DELETE FROM queued_user_inputs WHERE task_id = ?1 AND seq_no = ?2",
+            params![queued.task_id.0, u64_to_i64(queued.seq_no)?],
+        )
+        .map_err(map_error)?;
+        last_node_id = Some(node_id);
+    }
+    Ok(last_node_id)
+}
+
+fn update_task_cursor_in_tx(
+    tx: &rusqlite::Transaction<'_>,
+    task_id: &TaskId,
+    node_id: HistoryNodeId,
+    updated_at: UnixTs,
+) -> Result<(), DbError> {
+    let changed = tx
+        .execute(
+            "UPDATE tasks
+             SET cursor_node_id = ?1, updated_at = ?2, state_version = state_version + 1
+             WHERE task_id = ?3 AND task_status = 'active'",
+            params![node_id.0, updated_at.0, task_id.0],
+        )
+        .map_err(map_error)?;
+    if changed == 0 {
+        Err(DbError::TaskNotActive)
+    } else {
+        Ok(())
+    }
 }
 
 pub fn queue_user_input(
@@ -743,7 +987,7 @@ fn read_task_in_tx(tx: &rusqlite::Transaction<'_>, task_id: &TaskId) -> Result<T
     .ok_or(DbError::NotFound)
 }
 
-fn ensure_current_cursor_is_function_call(
+fn ensure_current_path_contains_open_function_call(
     tx: &rusqlite::Transaction<'_>,
     current_cursor_node_id: i64,
     output: &NewFunctionOutputNodeContent,
@@ -817,9 +1061,61 @@ fn ensure_current_cursor_is_function_call(
     }
 }
 
-fn read_history_node(db: &DbPool, node_id: &HistoryNodeId) -> Result<HistoryNodeRow, DbError> {
+fn read_history_node(db: &DbPool, node_id: &HistoryNodeId) -> Result<HistoryNode, DbError> {
     let connection = db.connection()?;
-    read_history_node_in_connection(&connection, node_id)
+    read_history_node_concrete_in_connection(&connection, node_id)
+}
+
+fn read_history_node_concrete_in_connection(
+    connection: &Connection,
+    node_id: &HistoryNodeId,
+) -> Result<HistoryNode, DbError> {
+    let base = read_history_node_in_connection(connection, node_id)?;
+    match base.content_kind {
+        HistoryContentKindRow::Message => {
+            let row = read_message_node(connection, &base.node_id)?;
+            Ok(HistoryNode::Message {
+                node_id: base.node_id,
+                parent_node_id: base.parent_node_id,
+                created_at: base.created_at,
+                message_role: row.message_role,
+                message_text: row.message_text,
+            })
+        }
+        HistoryContentKindRow::Reasoning => {
+            let row = read_reasoning_node(connection, &base.node_id)?;
+            Ok(HistoryNode::Reasoning {
+                node_id: base.node_id,
+                parent_node_id: base.parent_node_id,
+                created_at: base.created_at,
+                reasoning_text: row.reasoning_text,
+            })
+        }
+        HistoryContentKindRow::FunctionCall => {
+            let row = read_function_call_node(connection, &base.node_id)?;
+            Ok(HistoryNode::FunctionCall {
+                node_id: base.node_id,
+                parent_node_id: base.parent_node_id,
+                created_at: base.created_at,
+                function_call_id: row.function_call_id,
+                tool_name: row.tool_name,
+                arguments: read_function_call_arguments(connection, &base.node_id)?,
+            })
+        }
+        HistoryContentKindRow::FunctionOutput => {
+            let row = read_function_output_node(connection, &base.node_id)?;
+            Ok(HistoryNode::FunctionOutput {
+                node_id: base.node_id,
+                parent_node_id: base.parent_node_id,
+                created_at: base.created_at,
+                function_call_node_id: row.function_call_node_id,
+                function_call_id: row.function_call_id,
+                tool_name: row.tool_name,
+                output_text: row.output_text,
+                is_error: row.is_error,
+            })
+        }
+    }
 }
 
 fn read_history_node_in_connection(
@@ -923,6 +1219,35 @@ fn insert_function_call_node(
     node_id: HistoryNodeId,
     content: NewFunctionCallNodeContent,
 ) -> Result<(), DbError> {
+    let argument_names = content
+        .arguments
+        .iter()
+        .map(|argument| argument.name.0.as_str())
+        .collect::<HashSet<_>>();
+    let required_parameters = {
+        let mut statement = tx
+            .prepare(
+                "SELECT parameter_name
+                 FROM tool_parameters
+                 WHERE tool_name = ?1 AND is_required = 1
+                 ORDER BY parameter_name ASC",
+            )
+            .map_err(map_error)?;
+        statement
+            .query_map(params![content.tool_name.0], |row| row.get::<_, String>(0))
+            .map_err(map_error)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(map_error)?
+    };
+    for parameter_name in required_parameters {
+        if !argument_names.contains(parameter_name.as_str()) {
+            return Err(DbError::Constraint(format!(
+                "required tool argument is missing: {}.{}",
+                content.tool_name.0, parameter_name
+            )));
+        }
+    }
+
     tx.execute(
         "INSERT INTO history_function_call_nodes (node_id, function_call_id, tool_name)
          VALUES (?1, ?2, ?3)",
@@ -1023,6 +1348,24 @@ fn read_message_node(
                     message_role: message_role_from_db(&row.get::<_, String>(1)?)
                         .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?,
                     message_text: row.get(2)?,
+                })
+            },
+        )
+        .map_err(map_error)
+}
+
+fn read_reasoning_node(
+    connection: &Connection,
+    node_id: &HistoryNodeId,
+) -> Result<HistoryReasoningNodeRow, DbError> {
+    connection
+        .query_row(
+            "SELECT node_id, reasoning_text FROM history_reasoning_nodes WHERE node_id = ?1",
+            params![node_id.0],
+            |row| {
+                Ok(HistoryReasoningNodeRow {
+                    node_id: HistoryNodeId(row.get(0)?),
+                    reasoning_text: row.get(1)?,
                 })
             },
         )
