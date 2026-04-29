@@ -96,12 +96,20 @@ enum WaitState {
     },
     WaitingToolResult {
         tool_run_id: ToolExecutionRunId,
-        pending_tool_calls: VecDeque<ValidatedToolCall>,
+        pending_tool_calls: VecDeque<PendingToolCall>,
     },
 }
 
 #[derive(Clone, Debug, PartialEq)]
 struct ValidatedToolCall {
+    function_call_id: FunctionCallId,
+    tool_name: ToolName,
+    arguments: Vec<ToolCallArgument>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct PendingToolCall {
+    function_call_node_id: HistoryNodeId,
     function_call_id: FunctionCallId,
     tool_name: ToolName,
     arguments: Vec<ToolCallArgument>,
@@ -229,12 +237,16 @@ impl TaskRuntimeActor {
                     }
                 }
 
-                let mut pending_tool_calls = pending_tool_calls;
-                if let Some(tool_call) = pending_tool_calls.pop_front() {
-                    self.dispatch_tool_call(tool_call, pending_tool_calls).await
-                } else {
-                    self.wait_state = WaitState::Idle;
-                    self.drain_queue_or_idle().await
+                match self.append_tool_calls(pending_tool_calls) {
+                    Ok(mut pending_tool_calls) => {
+                        if let Some(tool_call) = pending_tool_calls.pop_front() {
+                            self.dispatch_tool_call(tool_call, pending_tool_calls).await
+                        } else {
+                            self.wait_state = WaitState::Idle;
+                            self.drain_queue_or_idle().await
+                        }
+                    }
+                    Err(error) => self.stop_with_db_error(error).await,
                 }
             }
             ApiOutputEnvelope::Failure { correlation, error } => {
@@ -389,39 +401,53 @@ impl TaskRuntimeActor {
             .is_err()
     }
 
+    fn append_tool_calls(
+        &mut self,
+        tool_calls: VecDeque<ValidatedToolCall>,
+    ) -> Result<VecDeque<PendingToolCall>, DbError> {
+        let mut pending_tool_calls = VecDeque::new();
+        for tool_call in tool_calls {
+            let Some(parent_node_id) = self.cursor_node_id else {
+                return Err(DbError::Storage("task cursor is missing".to_owned()));
+            };
+            // A model turn can emit several tool calls at once. Persist every
+            // call from that turn before any tool output so the provider path
+            // remains causal: calls describe requested work, outputs describe
+            // later observations correlated by call id.
+            let node_id = append_history_node_and_move_cursor(
+                &self.db,
+                &self.task_id,
+                NewHistoryNode {
+                    parent_node_id: Some(parent_node_id),
+                    content: NewHistoryNodeContent::FunctionCall(NewFunctionCallNodeContent {
+                        function_call_id: tool_call.function_call_id.clone(),
+                        tool_name: tool_call.tool_name.clone(),
+                        arguments: tool_call.arguments.clone(),
+                    }),
+                    created_at: now(),
+                },
+            )?;
+            self.cursor_node_id = Some(node_id);
+            pending_tool_calls.push_back(PendingToolCall {
+                function_call_node_id: node_id,
+                function_call_id: tool_call.function_call_id,
+                tool_name: tool_call.tool_name,
+                arguments: tool_call.arguments,
+            });
+        }
+        Ok(pending_tool_calls)
+    }
+
     async fn dispatch_tool_call(
         &mut self,
-        tool_call: ValidatedToolCall,
-        pending_tool_calls: VecDeque<ValidatedToolCall>,
+        tool_call: PendingToolCall,
+        pending_tool_calls: VecDeque<PendingToolCall>,
     ) -> bool {
-        let Some(parent_node_id) = self.cursor_node_id else {
-            return self
-                .stop_with_internal_error("task cursor is missing")
-                .await;
-        };
-        let node = NewHistoryNode {
-            parent_node_id: Some(parent_node_id),
-            content: NewHistoryNodeContent::FunctionCall(NewFunctionCallNodeContent {
-                function_call_id: tool_call.function_call_id.clone(),
-                tool_name: tool_call.tool_name.clone(),
-                arguments: tool_call.arguments.clone(),
-            }),
-            created_at: now(),
-        };
-        let function_call_node_id =
-            match append_history_node_and_move_cursor(&self.db, &self.task_id, node) {
-                Ok(node_id) => {
-                    self.cursor_node_id = Some(node_id);
-                    node_id
-                }
-                Err(error) => return self.stop_with_db_error(error).await,
-            };
-
         let tool_run_id = ToolExecutionRunId(format!("{}-tool-{}", self.task_id.0, Uuid::new_v4()));
         let request = ToolExecutionRequest {
             task_id: self.task_id.clone(),
             tool_execution_run_id: tool_run_id.clone(),
-            function_call_node_id,
+            function_call_node_id: tool_call.function_call_node_id,
             function_call_id: tool_call.function_call_id,
             tool_name: tool_call.tool_name,
             arguments: tool_call.arguments,
@@ -437,7 +463,7 @@ impl TaskRuntimeActor {
 
     async fn dispatch_next_tool_or_request_model(
         &mut self,
-        mut pending_tool_calls: VecDeque<ValidatedToolCall>,
+        mut pending_tool_calls: VecDeque<PendingToolCall>,
     ) -> bool {
         if let Some(tool_call) = pending_tool_calls.pop_front() {
             self.dispatch_tool_call(tool_call, pending_tool_calls).await
@@ -506,7 +532,7 @@ fn conversation_to_path(conversation: selvedge_db::Conversation) -> Conversation
 fn validate_conversation_tool_pairs(
     conversation: &selvedge_db::Conversation,
 ) -> Result<(), String> {
-    let mut pending_tool_calls = HashSet::new();
+    let mut pending_tool_calls = HashMap::new();
 
     for item in &conversation.items {
         match item {
@@ -515,8 +541,10 @@ fn validate_conversation_tool_pairs(
                 tool_name,
                 ..
             } => {
-                let key = (function_call_id.0.clone(), tool_name.0.clone());
-                if !pending_tool_calls.insert(key) {
+                if pending_tool_calls
+                    .insert(function_call_id.0.clone(), tool_name.0.clone())
+                    .is_some()
+                {
                     return Err("conversation contains duplicate open tool call id".to_owned());
                 }
             }
@@ -525,11 +553,14 @@ fn validate_conversation_tool_pairs(
                 tool_name,
                 ..
             } => {
-                let key = (function_call_id.0.clone(), tool_name.0.clone());
-                if !pending_tool_calls.remove(&key) {
+                let Some(expected_tool_name) = pending_tool_calls.remove(&function_call_id.0)
+                else {
                     return Err(
                         "conversation contains tool output without matching call".to_owned()
                     );
+                };
+                if expected_tool_name != tool_name.0 {
+                    return Err("conversation contains tool output with mismatched tool".to_owned());
                 }
             }
             ConversationItem::Message { .. } => {}
@@ -630,19 +661,22 @@ fn validate_tool_calls(
     // requested tool call before persisting the first function_call node or
     // dispatching the first tool, so a malformed later call cannot leave
     // earlier side effects behind.
-    tool_calls
-        .into_iter()
-        .map(|tool_call| {
-            let tool_name = ToolName(tool_call.tool_name);
-            let arguments =
-                tool_call_arguments_from_payload(tool_call.arguments, &tool_name, tool_manifest)?;
-            Ok(ValidatedToolCall {
-                function_call_id: FunctionCallId(tool_call.call_id),
-                tool_name,
-                arguments,
-            })
-        })
-        .collect()
+    let mut seen_call_ids = HashSet::new();
+    let mut validated = VecDeque::new();
+    for tool_call in tool_calls {
+        if !seen_call_ids.insert(tool_call.call_id.clone()) {
+            return Err("model reply contains duplicate tool call id".to_owned());
+        }
+        let tool_name = ToolName(tool_call.tool_name);
+        let arguments =
+            tool_call_arguments_from_payload(tool_call.arguments, &tool_name, tool_manifest)?;
+        validated.push_back(ValidatedToolCall {
+            function_call_id: FunctionCallId(tool_call.call_id),
+            tool_name,
+            arguments,
+        });
+    }
+    Ok(validated)
 }
 
 fn tool_call_arguments_from_payload(

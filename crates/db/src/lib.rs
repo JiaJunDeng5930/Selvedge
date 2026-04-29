@@ -10,7 +10,7 @@ pub use selvedge_domain_model::{
     ToolParameterName, ToolParameterType, ToolSpec, UnixTs,
 };
 
-const SCHEMA_VERSION: &str = "router-mediated-redesign-v3";
+const SCHEMA_VERSION: &str = "router-mediated-redesign-v4";
 
 #[derive(Clone)]
 pub struct DbPool {
@@ -748,22 +748,56 @@ fn ensure_current_cursor_is_function_call(
     current_cursor_node_id: i64,
     output: &NewFunctionOutputNodeContent,
 ) -> Result<(), DbError> {
-    if output.function_call_node_id.0 != current_cursor_node_id {
+    // Provider APIs pair tool results with prior tool calls by call id. A
+    // model turn may contain several tool calls, so the matching call can be
+    // earlier in the current conversation path while later sibling calls are
+    // still waiting for results. The DB checks that the output references a
+    // real call on the active path and that this call has a single output.
+    let exists: bool = tx
+        .query_row(
+            "WITH RECURSIVE current_path(node_id, parent_node_id) AS (
+                SELECT node_id, parent_node_id
+                FROM history_nodes
+                WHERE node_id = ?1
+                UNION ALL
+                SELECT parent.node_id, parent.parent_node_id
+                FROM history_nodes parent
+                JOIN current_path child ON parent.node_id = child.parent_node_id
+             )
+             SELECT EXISTS(
+                SELECT 1
+                FROM current_path path
+                JOIN history_function_call_nodes calls ON calls.node_id = path.node_id
+                WHERE calls.node_id = ?2
+                  AND calls.function_call_id = ?3
+                  AND calls.tool_name = ?4
+             )",
+            params![
+                current_cursor_node_id,
+                output.function_call_node_id.0,
+                output.function_call_id.0,
+                output.tool_name.0
+            ],
+            |row| row.get(0),
+        )
+        .map_err(map_error)?;
+
+    if !exists {
         return Err(DbError::Constraint(
-            "function output must append directly after its function call node".to_owned(),
+            "function output must reference an open function call id and tool".to_owned(),
         ));
     }
 
-    // Provider APIs pair tool results with prior tool calls by call id. The
-    // database therefore validates the output against the current function
-    // call node before persisting it, instead of letting a later model request
-    // discover an uncorrelated tool result.
-    let exists: bool = tx
+    let output_exists: bool = tx
         .query_row(
             "SELECT EXISTS(
                 SELECT 1
                 FROM history_function_call_nodes
-                WHERE node_id = ?1 AND function_call_id = ?2 AND tool_name = ?3
+                JOIN history_function_output_nodes
+                  ON history_function_output_nodes.function_call_node_id = history_function_call_nodes.node_id
+                WHERE history_function_call_nodes.node_id = ?1
+                  AND history_function_call_nodes.function_call_id = ?2
+                  AND history_function_call_nodes.tool_name = ?3
              )",
             params![
                 output.function_call_node_id.0,
@@ -774,12 +808,12 @@ fn ensure_current_cursor_is_function_call(
         )
         .map_err(map_error)?;
 
-    if exists {
-        Ok(())
-    } else {
+    if output_exists {
         Err(DbError::Constraint(
-            "function output must reference the current function call id and tool".to_owned(),
+            "function output already exists for function call id and tool".to_owned(),
         ))
+    } else {
+        Ok(())
     }
 }
 
