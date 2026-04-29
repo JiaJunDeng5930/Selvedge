@@ -96,6 +96,7 @@ enum WaitState {
     },
     WaitingToolResult {
         tool_run_id: ToolExecutionRunId,
+        active_tool_call: PendingToolCall,
         pending_tool_calls: VecDeque<PendingToolCall>,
     },
 }
@@ -282,8 +283,14 @@ impl TaskRuntimeActor {
         let pending_tool_calls = match std::mem::replace(&mut self.wait_state, WaitState::Idle) {
             WaitState::WaitingToolResult {
                 tool_run_id,
+                active_tool_call,
                 pending_tool_calls,
-            } if result.task_id == self.task_id && result.tool_execution_run_id == tool_run_id => {
+            } if result.task_id == self.task_id
+                && result.tool_execution_run_id == tool_run_id
+                && result.function_call_node_id == active_tool_call.function_call_node_id
+                && result.function_call_id == active_tool_call.function_call_id
+                && result.tool_name == active_tool_call.tool_name =>
+            {
                 pending_tool_calls
             }
             wait_state @ WaitState::WaitingToolResult { .. } => {
@@ -448,12 +455,13 @@ impl TaskRuntimeActor {
             task_id: self.task_id.clone(),
             tool_execution_run_id: tool_run_id.clone(),
             function_call_node_id: tool_call.function_call_node_id,
-            function_call_id: tool_call.function_call_id,
-            tool_name: tool_call.tool_name,
-            arguments: tool_call.arguments,
+            function_call_id: tool_call.function_call_id.clone(),
+            tool_name: tool_call.tool_name.clone(),
+            arguments: tool_call.arguments.clone(),
         };
         self.wait_state = WaitState::WaitingToolResult {
             tool_run_id,
+            active_tool_call: tool_call,
             pending_tool_calls,
         };
         self.send_core(CoreOutputMessage::RequestToolExecution(request))
@@ -563,7 +571,13 @@ fn validate_conversation_tool_pairs(
                     return Err("conversation contains tool output with mismatched tool".to_owned());
                 }
             }
-            ConversationItem::Message { .. } => {}
+            ConversationItem::Message { .. } => {
+                if !pending_tool_calls.is_empty() {
+                    return Err(
+                        "conversation contains message before tool outputs complete".to_owned()
+                    );
+                }
+            }
         }
     }
 
