@@ -299,11 +299,6 @@ pub fn register_tool(db: &DbPool, tool: ToolSpec) -> Result<(), DbError> {
 
 pub fn create_root_task(db: &DbPool, input: CreateRootTaskInput) -> Result<TaskRow, DbError> {
     let task_id = input.task_id.clone();
-    if input.initial_node.parent_node_id.is_some() {
-        return Err(DbError::Constraint(
-            "root task initial node must not have a parent".to_owned(),
-        ));
-    }
     {
         let mut connection = db.connection()?;
         let tx = connection.transaction().map_err(map_error)?;
@@ -341,11 +336,6 @@ pub fn create_child_task(db: &DbPool, input: CreateChildTaskInput) -> Result<Tas
         let parent = read_task_in_tx(&tx, &input.parent_task_id)?;
         if parent.task_status != TaskStatusRow::Active {
             return Err(DbError::TaskNotActive);
-        }
-        if !history_node_is_on_parent_chain(&tx, input.cursor_node_id, parent.cursor_node_id)? {
-            return Err(DbError::Constraint(
-                "child cursor must belong to the parent task history chain".to_owned(),
-            ));
         }
         tx.execute(
             "INSERT INTO tasks
@@ -396,14 +386,11 @@ pub fn load_active_task(db: &DbPool, task_id: &TaskId) -> Result<LoadedActiveTas
 pub fn append_history_node_and_move_cursor(
     db: &DbPool,
     task_id: &TaskId,
-    node: NewHistoryNode,
+    mut node: NewHistoryNode,
 ) -> Result<HistoryNodeId, DbError> {
     let mut connection = db.connection()?;
     let tx = connection.transaction().map_err(map_error)?;
     ensure_active_task_in_tx(&tx, task_id)?;
-    let expected_parent_node_id = node.parent_node_id.ok_or_else(|| {
-        DbError::Constraint("history append parent must be the current task cursor".to_owned())
-    })?;
     let current_cursor_node_id: i64 = tx
         .query_row(
             "SELECT cursor_node_id FROM tasks WHERE task_id = ?1 AND task_status = 'active'",
@@ -411,30 +398,29 @@ pub fn append_history_node_and_move_cursor(
             |row| row.get(0),
         )
         .map_err(map_error)?;
-    if current_cursor_node_id != expected_parent_node_id.0 {
-        return Err(DbError::Constraint(
-            "history append parent must match the current task cursor".to_owned(),
-        ));
+
+    // Task edges and history edges are separate models. Append means the DB
+    // reads the task cursor, creates a child history node under that cursor,
+    // and moves the task cursor in one transaction. Runtime cursor caches are
+    // hints for request building, not a second source of truth.
+    node.parent_node_id = Some(HistoryNodeId(current_cursor_node_id));
+
+    if let NewHistoryNodeContent::FunctionOutput(content) = &node.content {
+        ensure_current_cursor_is_function_call(&tx, current_cursor_node_id, content)?;
     }
+
     let updated_at = node.created_at;
     let node_id = insert_history_node(&tx, node)?;
     let changed = tx
         .execute(
             "UPDATE tasks
              SET cursor_node_id = ?1, updated_at = ?2, state_version = state_version + 1
-             WHERE task_id = ?3 AND task_status = 'active' AND cursor_node_id = ?4",
-            params![
-                node_id.0,
-                updated_at.0,
-                task_id.0,
-                expected_parent_node_id.0
-            ],
+             WHERE task_id = ?3 AND task_status = 'active'",
+            params![node_id.0, updated_at.0, task_id.0],
         )
         .map_err(map_error)?;
     if changed == 0 {
-        return Err(DbError::Constraint(
-            "history append parent must match the current task cursor".to_owned(),
-        ));
+        return Err(DbError::TaskNotActive);
     }
     tx.commit().map_err(map_error)?;
     Ok(node_id)
@@ -751,24 +737,44 @@ fn read_task_in_tx(tx: &rusqlite::Transaction<'_>, task_id: &TaskId) -> Result<T
     .ok_or(DbError::NotFound)
 }
 
-fn history_node_is_on_parent_chain(
+fn ensure_current_cursor_is_function_call(
     tx: &rusqlite::Transaction<'_>,
-    candidate_node_id: HistoryNodeId,
-    parent_cursor_node_id: HistoryNodeId,
-) -> Result<bool, DbError> {
-    tx.query_row(
-        "WITH RECURSIVE chain(node_id, parent_node_id) AS (
-             SELECT node_id, parent_node_id FROM history_nodes WHERE node_id = ?1
-             UNION ALL
-             SELECT h.node_id, h.parent_node_id
-             FROM history_nodes h
-             INNER JOIN chain c ON h.node_id = c.parent_node_id
-         )
-         SELECT EXISTS(SELECT 1 FROM chain WHERE node_id = ?2)",
-        params![parent_cursor_node_id.0, candidate_node_id.0],
-        |row| row.get(0),
-    )
-    .map_err(map_error)
+    current_cursor_node_id: i64,
+    output: &NewFunctionOutputNodeContent,
+) -> Result<(), DbError> {
+    if output.function_call_node_id.0 != current_cursor_node_id {
+        return Err(DbError::Constraint(
+            "function output must append directly after its function call node".to_owned(),
+        ));
+    }
+
+    // Provider APIs pair tool results with prior tool calls by call id. The
+    // database therefore validates the output against the current function
+    // call node before persisting it, instead of letting a later model request
+    // discover an uncorrelated tool result.
+    let exists: bool = tx
+        .query_row(
+            "SELECT EXISTS(
+                SELECT 1
+                FROM history_function_call_nodes
+                WHERE node_id = ?1 AND function_call_id = ?2 AND tool_name = ?3
+             )",
+            params![
+                output.function_call_node_id.0,
+                output.function_call_id.0,
+                output.tool_name.0
+            ],
+            |row| row.get(0),
+        )
+        .map_err(map_error)?;
+
+    if exists {
+        Ok(())
+    } else {
+        Err(DbError::Constraint(
+            "function output must reference the current function call id and tool".to_owned(),
+        ))
+    }
 }
 
 fn read_history_node(db: &DbPool, node_id: &HistoryNodeId) -> Result<HistoryNodeRow, DbError> {

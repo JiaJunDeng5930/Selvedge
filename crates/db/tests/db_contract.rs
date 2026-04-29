@@ -2,8 +2,9 @@ use selvedge_db::{
     CreateChildTaskInput, CreateRootTaskInput, HistoryContentKindRow, MessageRole, NewHistoryNode,
     NewHistoryNodeContent, NewMessageNodeContent, OpenDbOptions, ReasoningEffort, TaskId,
     TaskStatusRow, UnixTs, append_history_node_and_move_cursor, archive_task, create_child_task,
-    create_root_task, load_active_task, open_db, queue_user_input,
+    create_root_task, load_active_task, open_db, queue_user_input, read_conversation_for_task,
 };
+use selvedge_domain_model::ConversationItem;
 
 #[test]
 fn open_db_creates_schema_and_root_task_transaction_moves_cursor() {
@@ -121,7 +122,7 @@ fn append_history_uses_new_node_timestamp_for_task_updated_at() {
 }
 
 #[test]
-fn append_history_rejects_stale_parent_cursor() {
+fn append_history_uses_database_cursor_as_parent() {
     let db = open_db(OpenDbOptions {
         sqlite_path: ":memory:".to_owned(),
     })
@@ -159,7 +160,7 @@ fn append_history_rejects_stale_parent_cursor() {
     )
     .expect("append once");
 
-    let error = append_history_node_and_move_cursor(
+    append_history_node_and_move_cursor(
         &db,
         &TaskId("task-1".to_owned()),
         NewHistoryNode {
@@ -171,13 +172,23 @@ fn append_history_rejects_stale_parent_cursor() {
             created_at: UnixTs(12),
         },
     )
-    .expect_err("stale append");
+    .expect("append uses database cursor");
 
-    assert!(matches!(error, selvedge_db::DbError::Constraint(_)));
+    let conversation =
+        read_conversation_for_task(&db, &TaskId("task-1".to_owned())).expect("conversation");
+    let messages = conversation
+        .items
+        .into_iter()
+        .filter_map(|item| match item {
+            ConversationItem::Message { text, .. } => Some(text),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(messages, vec!["hello", "first append", "stale append"]);
 }
 
 #[test]
-fn create_child_task_rejects_cursor_outside_parent_chain() {
+fn create_child_task_accepts_strategy_cursor_outside_parent_chain() {
     let db = open_db(OpenDbOptions {
         sqlite_path: ":memory:".to_owned(),
     })
@@ -222,7 +233,7 @@ fn create_child_task_rejects_cursor_outside_parent_chain() {
     .expect("create foreign");
     assert_ne!(parent.cursor_node_id, foreign.cursor_node_id);
 
-    let error = create_child_task(
+    let child = create_child_task(
         &db,
         CreateChildTaskInput {
             parent_task_id: TaskId("parent".to_owned()),
@@ -231,13 +242,13 @@ fn create_child_task_rejects_cursor_outside_parent_chain() {
             now: UnixTs(11),
         },
     )
-    .expect_err("foreign cursor rejected");
+    .expect("create child task");
 
-    assert!(matches!(error, selvedge_db::DbError::Constraint(_)));
+    assert_eq!(child.cursor_node_id, foreign.cursor_node_id);
 }
 
 #[test]
-fn create_root_task_rejects_parented_initial_node() {
+fn create_root_task_accepts_strategy_parented_initial_node() {
     let db = open_db(OpenDbOptions {
         sqlite_path: ":memory:".to_owned(),
     })
@@ -262,7 +273,7 @@ fn create_root_task_rejects_parented_initial_node() {
     )
     .expect("create existing");
 
-    let error = create_root_task(
+    let root = create_root_task(
         &db,
         CreateRootTaskInput {
             task_id: TaskId("root".to_owned()),
@@ -280,7 +291,10 @@ fn create_root_task_rejects_parented_initial_node() {
             now: UnixTs(11),
         },
     )
-    .expect_err("parented root rejected");
+    .expect("create root with strategy parent");
 
-    assert!(matches!(error, selvedge_db::DbError::Constraint(_)));
+    let conversation =
+        read_conversation_for_task(&db, &TaskId("root".to_owned())).expect("conversation");
+    assert_eq!(root.task_id, TaskId("root".to_owned()));
+    assert_eq!(conversation.items.len(), 2);
 }
