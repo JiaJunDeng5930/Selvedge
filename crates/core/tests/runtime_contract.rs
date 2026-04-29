@@ -362,6 +362,56 @@ async fn task_runtime_ignores_unrelated_validation_failure_while_waiting() {
 }
 
 #[tokio::test]
+async fn task_runtime_ignores_replayed_start_after_model_request() {
+    let (runtime, mut router_rx) = spawn_runtime_with_task(vec![]).await;
+    let _correlation = start_and_request_model(&runtime, &mut router_rx).await;
+
+    runtime
+        .task_runtime_tx
+        .send(TaskRuntimeCommand::Start)
+        .await
+        .expect("send replayed start");
+
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_millis(25), router_rx.recv())
+            .await
+            .is_err()
+    );
+}
+
+#[tokio::test]
+async fn task_runtime_uses_fresh_model_run_ids_after_respawn() {
+    let db = open_db(OpenDbOptions {
+        sqlite_path: ":memory:".to_owned(),
+    })
+    .expect("open db");
+    create_root_task(
+        &db,
+        CreateRootTaskInput {
+            task_id: TaskId("task-1".to_owned()),
+            initial_node: NewHistoryNode {
+                parent_node_id: None,
+                content: NewHistoryNodeContent::Message(NewMessageNodeContent {
+                    message_role: selvedge_db::MessageRole::System,
+                    message_text: "system".to_owned(),
+                }),
+                created_at: UnixTs(1),
+            },
+            model_profile_key: selvedge_db::ModelProfileKey("provider/model".to_owned()),
+            reasoning_effort: ReasoningEffort::Medium,
+            enabled_tools: Vec::new(),
+            now: UnixTs(1),
+        },
+    )
+    .expect("create task");
+
+    let first_model_run_id = spawn_runtime_and_start_one_model_call(db.clone()).await;
+    let second_model_run_id = spawn_runtime_and_start_one_model_call(db).await;
+
+    assert_ne!(first_model_run_id, second_model_run_id);
+}
+
+#[tokio::test]
 async fn task_runtime_rejects_unconvertible_required_arguments() {
     let (runtime, mut router_rx) = spawn_runtime_with_task(vec![ToolSpec {
         name: "repeat".to_owned(),
@@ -517,4 +567,24 @@ async fn assert_internal_exit(router_rx: &mut tokio::sync::mpsc::Receiver<Router
         }
         _ => panic!("unexpected router message"),
     }
+}
+
+async fn spawn_runtime_and_start_one_model_call(db: selvedge_db::DbPool) -> ModelRunId {
+    let (router_tx, mut router_rx) = tokio::sync::mpsc::channel(16);
+    let runtime = spawn_task_runtime(SpawnTaskRuntimeArgs {
+        task_id: TaskId("task-1".to_owned()),
+        db,
+        router_tx,
+        config: TaskRuntimeConfig {
+            mailbox_capacity: 16,
+        },
+    })
+    .expect("spawn runtime");
+    let request = start_and_recv_model_request(&runtime, &mut router_rx).await;
+    runtime
+        .task_runtime_tx
+        .send(TaskRuntimeCommand::Stop)
+        .await
+        .expect("stop runtime");
+    request.correlation.model_run_id
 }
