@@ -130,6 +130,7 @@ async fn invalid_correlation_sends_validation_failure_that_satisfies_output_vali
                 ApiOutputEnvelope::Success { .. } => panic!("unexpected success"),
             }
         }
+        _ => panic!("unexpected router message"),
     }
 }
 

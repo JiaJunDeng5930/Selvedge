@@ -1,21 +1,23 @@
 #![doc = include_str!("../README.md")]
 
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 
 use selvedge_domain_model::{
-    ApiDomainValidationError, ConversationPath, ModelProviderProfile, ModelReply,
-    ResponsePreference, ToolManifest, validate_conversation_path, validate_model_provider_profile,
-    validate_model_reply, validate_tool_manifest,
+    ApiDomainValidationError, ConversationPath, FunctionCallId, HistoryNodeId,
+    ModelProviderProfile, ModelReply, ResponsePreference, ToolCallArgument, ToolManifest, ToolName,
+    validate_conversation_path, validate_model_provider_profile, validate_model_reply,
+    validate_tool_manifest,
 };
+
+pub use selvedge_domain_model::TaskId;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ApiEffectId(pub String);
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct TaskId(pub String);
-
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ModelRunId(pub String);
+
+pub type ModelCallId = ModelRunId;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ApiCallCorrelation {
@@ -61,12 +63,111 @@ pub enum ModelCallErrorKind {
     Cancelled,
 }
 
-#[derive(Clone, Debug, PartialEq)]
-pub enum RouterIngressApiMessage {
+#[derive(Debug)]
+pub enum RouterIngressMessage {
     ApiOutput(ApiOutputEnvelope),
+    Core(CoreOutputEnvelope),
+    Tool(ToolExecutionResult),
+    RuntimeExit(TaskRuntimeExitNotice),
+    QueryRuntimeInventory(RuntimeInventoryQuery),
+    PublishToEvents(DomainEventPublishRequest),
 }
 
-pub type RouterIngressSender = mpsc::Sender<RouterIngressApiMessage>;
+pub type RouterIngressApiMessage = RouterIngressMessage;
+pub type RouterIngressSender = mpsc::Sender<RouterIngressMessage>;
+pub type TaskRuntimeSender = mpsc::Sender<TaskRuntimeCommand>;
+pub type ModelCallRequest = ModelCallDispatchRequest;
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct ToolExecutionRunId(pub String);
+
+#[derive(Debug)]
+pub enum TaskRuntimeCommand {
+    Start,
+    UserInput { message_text: String },
+    ApiModelReply(ApiOutputEnvelope),
+    ToolResult(ToolExecutionResult),
+    Archive,
+    Stop,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TaskRuntimeExitNotice {
+    pub task_id: TaskId,
+    pub reason: TaskRuntimeExitReason,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum TaskRuntimeExitReason {
+    Stopped,
+    Archived,
+    DbError(String),
+    InternalError(String),
+}
+
+#[derive(Debug)]
+pub struct CoreOutputEnvelope {
+    pub task_id: TaskId,
+    pub message: CoreOutputMessage,
+}
+
+#[derive(Debug)]
+pub enum CoreOutputMessage {
+    RequestModelCall(ModelCallRequest),
+    RequestToolExecution(ToolExecutionRequest),
+    PublishDomainEvent(DomainEventPublishRequest),
+    RuntimeReady { sender: TaskRuntimeSender },
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ToolExecutionRequest {
+    pub task_id: TaskId,
+    pub tool_execution_run_id: ToolExecutionRunId,
+    pub function_call_node_id: HistoryNodeId,
+    pub function_call_id: FunctionCallId,
+    pub tool_name: ToolName,
+    pub arguments: Vec<ToolCallArgument>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ToolExecutionResult {
+    pub task_id: TaskId,
+    pub tool_execution_run_id: ToolExecutionRunId,
+    pub function_call_node_id: HistoryNodeId,
+    pub function_call_id: FunctionCallId,
+    pub tool_name: ToolName,
+    pub output_text: String,
+    pub is_error: bool,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct DomainEventPublishRequest {
+    pub task_id: TaskId,
+    pub event: DomainEvent,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum DomainEvent {
+    TaskRuntimeReady,
+    UserMessageCommitted { node_id: HistoryNodeId },
+    AssistantMessageCommitted { node_id: HistoryNodeId },
+    ReasoningCommitted { node_id: HistoryNodeId },
+    FunctionCallCommitted { node_id: HistoryNodeId },
+    FunctionOutputCommitted { node_id: HistoryNodeId },
+    TaskArchived,
+    ErrorNotice { message: String },
+}
+
+#[derive(Debug)]
+pub struct RuntimeInventoryQuery {
+    pub reply_to: oneshot::Sender<RuntimeInventoryResponse>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RuntimeInventoryResponse {
+    pub live_task_runtimes: Vec<TaskId>,
+    pub pending_task_runtime_effects: Vec<TaskId>,
+}
 
 pub fn validate_dispatch_request(request: &ModelCallDispatchRequest) -> Result<(), ModelCallError> {
     validate_correlation(&request.correlation)?;
