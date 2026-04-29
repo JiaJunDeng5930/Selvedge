@@ -1053,7 +1053,7 @@ async fn task_runtime_rejects_unpaired_tool_calls_before_model_dispatch() {
 }
 
 #[tokio::test]
-async fn task_runtime_rejects_messages_before_open_tool_calls_are_closed() {
+async fn task_runtime_allows_messages_between_tool_call_and_matching_output() {
     let db = open_db(OpenDbOptions {
         sqlite_path: ":memory:".to_owned(),
     })
@@ -1165,7 +1165,11 @@ async fn task_runtime_rejects_messages_before_open_tool_calls_are_closed() {
         .await
         .expect("send input");
 
-    assert_internal_exit(&mut router_rx).await;
+    let request = recv_model_request(&mut router_rx).await;
+    assert_eq!(
+        tool_transcript_events(&request),
+        vec!["call:call-1", "output:call-1"]
+    );
 }
 
 async fn spawn_runtime_with_task(
