@@ -469,8 +469,15 @@ pub fn consume_next_queued_user_input(
 }
 
 pub fn archive_task(db: &DbPool, task_id: &TaskId, now: UnixTs) -> Result<(), DbError> {
-    let connection = db.connection()?;
-    let changed = connection
+    let mut connection = db.connection()?;
+    let tx = connection.transaction().map_err(map_error)?;
+    ensure_active_task_in_tx(&tx, task_id)?;
+    tx.execute(
+        "DELETE FROM queued_user_inputs WHERE task_id = ?1",
+        params![task_id.0],
+    )
+    .map_err(map_error)?;
+    let changed = tx
         .execute(
             "UPDATE tasks
              SET task_status = 'archived', updated_at = ?1, state_version = state_version + 1
@@ -481,6 +488,7 @@ pub fn archive_task(db: &DbPool, task_id: &TaskId, now: UnixTs) -> Result<(), Db
     if changed == 0 {
         Err(DbError::TaskNotActive)
     } else {
+        tx.commit().map_err(map_error)?;
         Ok(())
     }
 }
