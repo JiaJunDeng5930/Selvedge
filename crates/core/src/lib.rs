@@ -571,21 +571,15 @@ fn validate_conversation_tool_pairs(
                     return Err("conversation contains tool output with mismatched tool".to_owned());
                 }
             }
-            ConversationItem::Message { .. } => {
-                if !pending_tool_calls.is_empty() {
-                    return Err(
-                        "conversation contains message before tool outputs complete".to_owned()
-                    );
-                }
-            }
+            ConversationItem::Message { .. } => {}
         }
     }
 
-    // Model providers require each tool result in a request to correlate with
-    // a previous tool call, and each open tool call must receive its result
-    // before normal conversation continues. This check belongs at dispatch
-    // time: history is a graph, while API conversation path is a linear
-    // provider protocol with stricter call/output pairing rules.
+    // Provider APIs correlate tool outputs by call id. Core only checks that
+    // every output in the selected conversation path has a matching prior
+    // call, and that every call has one matching output before dispatch. The
+    // meaning of messages between those two nodes belongs to the persisted
+    // history path and provider adapter policy, not to task runtime state.
     if pending_tool_calls.is_empty() {
         Ok(())
     } else {
