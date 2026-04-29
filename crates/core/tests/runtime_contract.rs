@@ -13,7 +13,8 @@ use selvedge_db::{
     TaskId, ToolArgumentValue, ToolCallArgument, ToolName, ToolParameterName, UnixTs,
     append_assistant_message_and_drain_queue, append_function_output_and_drain_queue,
     append_model_reply_with_tool_calls_and_move_cursor, append_user_message_and_move_cursor,
-    create_root_task, load_active_task, open_db, queue_user_input, register_tool,
+    create_history_node, create_root_task, load_active_task, open_db, queue_user_input,
+    register_tool,
 };
 use selvedge_domain_model::{
     MessageContent, ModelFinishReason, ModelReply, StructuredPayload, ToolCallProposal,
@@ -30,14 +31,18 @@ async fn task_runtime_starts_and_requests_model_call_from_system_cursor() {
         &db,
         CreateRootTaskInput {
             task_id: TaskId("task-1".to_owned()),
-            initial_node: NewHistoryNode {
-                parent_node_id: None,
-                content: NewHistoryNodeContent::Message(NewMessageNodeContent {
-                    message_role: selvedge_db::MessageRole::System,
-                    message_text: "system".to_owned(),
-                }),
-                created_at: UnixTs(1),
-            },
+            cursor_node_id: create_history_node(
+                &db,
+                NewHistoryNode {
+                    parent_node_id: None,
+                    content: NewHistoryNodeContent::Message(NewMessageNodeContent {
+                        message_role: selvedge_db::MessageRole::System,
+                        message_text: "system".to_owned(),
+                    }),
+                    created_at: UnixTs(1),
+                },
+            )
+            .expect("create cursor node"),
             model_profile_key: selvedge_db::ModelProfileKey("default".to_owned()),
             reasoning_effort: ReasoningEffort::Medium,
             enabled_tools: Vec::new(),
@@ -88,14 +93,18 @@ async fn task_runtime_start_requests_model_from_user_cursor_without_draining_que
         &db,
         CreateRootTaskInput {
             task_id: TaskId("task-1".to_owned()),
-            initial_node: NewHistoryNode {
-                parent_node_id: None,
-                content: NewHistoryNodeContent::Message(NewMessageNodeContent {
-                    message_role: selvedge_db::MessageRole::System,
-                    message_text: "system".to_owned(),
-                }),
-                created_at: UnixTs(1),
-            },
+            cursor_node_id: create_history_node(
+                &db,
+                NewHistoryNode {
+                    parent_node_id: None,
+                    content: NewHistoryNodeContent::Message(NewMessageNodeContent {
+                        message_role: selvedge_db::MessageRole::System,
+                        message_text: "system".to_owned(),
+                    }),
+                    created_at: UnixTs(1),
+                },
+            )
+            .expect("create cursor node"),
             model_profile_key: selvedge_db::ModelProfileKey("default".to_owned()),
             reasoning_effort: ReasoningEffort::Medium,
             enabled_tools: Vec::new(),
@@ -172,14 +181,18 @@ async fn task_runtime_start_promotes_queue_before_awaiting_user_input() {
         &db,
         CreateRootTaskInput {
             task_id: TaskId("task-1".to_owned()),
-            initial_node: NewHistoryNode {
-                parent_node_id: None,
-                content: NewHistoryNodeContent::Message(NewMessageNodeContent {
-                    message_role: selvedge_db::MessageRole::Assistant,
-                    message_text: "assistant".to_owned(),
-                }),
-                created_at: UnixTs(1),
-            },
+            cursor_node_id: create_history_node(
+                &db,
+                NewHistoryNode {
+                    parent_node_id: None,
+                    content: NewHistoryNodeContent::Message(NewMessageNodeContent {
+                        message_role: selvedge_db::MessageRole::Assistant,
+                        message_text: "assistant".to_owned(),
+                    }),
+                    created_at: UnixTs(1),
+                },
+            )
+            .expect("create cursor node"),
             model_profile_key: selvedge_db::ModelProfileKey("default".to_owned()),
             reasoning_effort: ReasoningEffort::Medium,
             enabled_tools: Vec::new(),
@@ -252,14 +265,18 @@ async fn task_runtime_start_dispatches_tool_from_function_call_cursor() {
         &db,
         CreateRootTaskInput {
             task_id: TaskId("task-1".to_owned()),
-            initial_node: NewHistoryNode {
-                parent_node_id: None,
-                content: NewHistoryNodeContent::Message(NewMessageNodeContent {
-                    message_role: selvedge_db::MessageRole::System,
-                    message_text: "system".to_owned(),
-                }),
-                created_at: UnixTs(1),
-            },
+            cursor_node_id: create_history_node(
+                &db,
+                NewHistoryNode {
+                    parent_node_id: None,
+                    content: NewHistoryNodeContent::Message(NewMessageNodeContent {
+                        message_role: selvedge_db::MessageRole::System,
+                        message_text: "system".to_owned(),
+                    }),
+                    created_at: UnixTs(1),
+                },
+            )
+            .expect("create cursor node"),
             model_profile_key: selvedge_db::ModelProfileKey("default".to_owned()),
             reasoning_effort: ReasoningEffort::Medium,
             enabled_tools: vec![ToolName("search".to_owned())],
@@ -326,14 +343,18 @@ async fn task_runtime_start_reconstructs_open_batched_tool_calls_from_history() 
         &db,
         CreateRootTaskInput {
             task_id: TaskId("task-1".to_owned()),
-            initial_node: NewHistoryNode {
-                parent_node_id: None,
-                content: NewHistoryNodeContent::Message(NewMessageNodeContent {
-                    message_role: selvedge_db::MessageRole::System,
-                    message_text: "system".to_owned(),
-                }),
-                created_at: UnixTs(1),
-            },
+            cursor_node_id: create_history_node(
+                &db,
+                NewHistoryNode {
+                    parent_node_id: None,
+                    content: NewHistoryNodeContent::Message(NewMessageNodeContent {
+                        message_role: selvedge_db::MessageRole::System,
+                        message_text: "system".to_owned(),
+                    }),
+                    created_at: UnixTs(1),
+                },
+            )
+            .expect("create cursor node"),
             model_profile_key: selvedge_db::ModelProfileKey("default".to_owned()),
             reasoning_effort: ReasoningEffort::Medium,
             enabled_tools: vec![ToolName("search".to_owned())],
@@ -555,14 +576,18 @@ async fn task_runtime_ignores_tool_result_with_mismatched_call_identity() {
         &db,
         CreateRootTaskInput {
             task_id: TaskId("task-1".to_owned()),
-            initial_node: NewHistoryNode {
-                parent_node_id: None,
-                content: NewHistoryNodeContent::Message(NewMessageNodeContent {
-                    message_role: selvedge_db::MessageRole::System,
-                    message_text: "system".to_owned(),
-                }),
-                created_at: UnixTs(1),
-            },
+            cursor_node_id: create_history_node(
+                &db,
+                NewHistoryNode {
+                    parent_node_id: None,
+                    content: NewHistoryNodeContent::Message(NewMessageNodeContent {
+                        message_role: selvedge_db::MessageRole::System,
+                        message_text: "system".to_owned(),
+                    }),
+                    created_at: UnixTs(1),
+                },
+            )
+            .expect("create cursor node"),
             model_profile_key: selvedge_db::ModelProfileKey("default".to_owned()),
             reasoning_effort: ReasoningEffort::Medium,
             enabled_tools: vec![ToolName("search".to_owned())],
@@ -765,14 +790,18 @@ async fn task_runtime_rejects_tool_calls_outside_enabled_manifest() {
         &db,
         CreateRootTaskInput {
             task_id: TaskId("task-1".to_owned()),
-            initial_node: NewHistoryNode {
-                parent_node_id: None,
-                content: NewHistoryNodeContent::Message(NewMessageNodeContent {
-                    message_role: selvedge_db::MessageRole::System,
-                    message_text: "system".to_owned(),
-                }),
-                created_at: UnixTs(1),
-            },
+            cursor_node_id: create_history_node(
+                &db,
+                NewHistoryNode {
+                    parent_node_id: None,
+                    content: NewHistoryNodeContent::Message(NewMessageNodeContent {
+                        message_role: selvedge_db::MessageRole::System,
+                        message_text: "system".to_owned(),
+                    }),
+                    created_at: UnixTs(1),
+                },
+            )
+            .expect("create cursor node"),
             model_profile_key: selvedge_db::ModelProfileKey("default".to_owned()),
             reasoning_effort: ReasoningEffort::Medium,
             enabled_tools: Vec::new(),
@@ -1043,14 +1072,18 @@ async fn task_runtime_rejects_empty_idle_user_input_before_append() {
         &db,
         CreateRootTaskInput {
             task_id: TaskId("task-1".to_owned()),
-            initial_node: NewHistoryNode {
-                parent_node_id: None,
-                content: NewHistoryNodeContent::Message(NewMessageNodeContent {
-                    message_role: selvedge_db::MessageRole::Assistant,
-                    message_text: "assistant".to_owned(),
-                }),
-                created_at: UnixTs(1),
-            },
+            cursor_node_id: create_history_node(
+                &db,
+                NewHistoryNode {
+                    parent_node_id: None,
+                    content: NewHistoryNodeContent::Message(NewMessageNodeContent {
+                        message_role: selvedge_db::MessageRole::Assistant,
+                        message_text: "assistant".to_owned(),
+                    }),
+                    created_at: UnixTs(1),
+                },
+            )
+            .expect("create cursor node"),
             model_profile_key: selvedge_db::ModelProfileKey("default".to_owned()),
             reasoning_effort: ReasoningEffort::Medium,
             enabled_tools: Vec::new(),
@@ -1148,14 +1181,18 @@ async fn task_runtime_uses_fresh_model_run_ids_after_respawn() {
         &db,
         CreateRootTaskInput {
             task_id: TaskId("task-1".to_owned()),
-            initial_node: NewHistoryNode {
-                parent_node_id: None,
-                content: NewHistoryNodeContent::Message(NewMessageNodeContent {
-                    message_role: selvedge_db::MessageRole::System,
-                    message_text: "system".to_owned(),
-                }),
-                created_at: UnixTs(1),
-            },
+            cursor_node_id: create_history_node(
+                &db,
+                NewHistoryNode {
+                    parent_node_id: None,
+                    content: NewHistoryNodeContent::Message(NewMessageNodeContent {
+                        message_role: selvedge_db::MessageRole::System,
+                        message_text: "system".to_owned(),
+                    }),
+                    created_at: UnixTs(1),
+                },
+            )
+            .expect("create cursor node"),
             model_profile_key: selvedge_db::ModelProfileKey("default".to_owned()),
             reasoning_effort: ReasoningEffort::Medium,
             enabled_tools: Vec::new(),
@@ -1221,14 +1258,18 @@ async fn task_runtime_preserves_queued_input_when_append_fails() {
         &db,
         CreateRootTaskInput {
             task_id: TaskId("task-1".to_owned()),
-            initial_node: NewHistoryNode {
-                parent_node_id: None,
-                content: NewHistoryNodeContent::Message(NewMessageNodeContent {
-                    message_role: selvedge_db::MessageRole::System,
-                    message_text: "system".to_owned(),
-                }),
-                created_at: UnixTs(4_102_444_800),
-            },
+            cursor_node_id: create_history_node(
+                &db,
+                NewHistoryNode {
+                    parent_node_id: None,
+                    content: NewHistoryNodeContent::Message(NewMessageNodeContent {
+                        message_role: selvedge_db::MessageRole::System,
+                        message_text: "system".to_owned(),
+                    }),
+                    created_at: UnixTs(4_102_444_800),
+                },
+            )
+            .expect("create cursor node"),
             model_profile_key: selvedge_db::ModelProfileKey("default".to_owned()),
             reasoning_effort: ReasoningEffort::Medium,
             enabled_tools: Vec::new(),
@@ -1373,14 +1414,18 @@ async fn task_runtime_recovers_open_tool_call_before_model_dispatch() {
         &db,
         CreateRootTaskInput {
             task_id: TaskId("task-1".to_owned()),
-            initial_node: NewHistoryNode {
-                parent_node_id: None,
-                content: NewHistoryNodeContent::Message(NewMessageNodeContent {
-                    message_role: selvedge_db::MessageRole::System,
-                    message_text: "system".to_owned(),
-                }),
-                created_at: UnixTs(1),
-            },
+            cursor_node_id: create_history_node(
+                &db,
+                NewHistoryNode {
+                    parent_node_id: None,
+                    content: NewHistoryNodeContent::Message(NewMessageNodeContent {
+                        message_role: selvedge_db::MessageRole::System,
+                        message_text: "system".to_owned(),
+                    }),
+                    created_at: UnixTs(1),
+                },
+            )
+            .expect("create cursor node"),
             model_profile_key: selvedge_db::ModelProfileKey("default".to_owned()),
             reasoning_effort: ReasoningEffort::Medium,
             enabled_tools: vec![ToolName("repeat".to_owned())],
@@ -1457,14 +1502,18 @@ async fn task_runtime_allows_messages_between_tool_call_and_matching_output() {
         &db,
         CreateRootTaskInput {
             task_id: TaskId("task-1".to_owned()),
-            initial_node: NewHistoryNode {
-                parent_node_id: None,
-                content: NewHistoryNodeContent::Message(NewMessageNodeContent {
-                    message_role: selvedge_db::MessageRole::System,
-                    message_text: "system".to_owned(),
-                }),
-                created_at: UnixTs(1),
-            },
+            cursor_node_id: create_history_node(
+                &db,
+                NewHistoryNode {
+                    parent_node_id: None,
+                    content: NewHistoryNodeContent::Message(NewMessageNodeContent {
+                        message_role: selvedge_db::MessageRole::System,
+                        message_text: "system".to_owned(),
+                    }),
+                    created_at: UnixTs(1),
+                },
+            )
+            .expect("create cursor node"),
             model_profile_key: selvedge_db::ModelProfileKey("default".to_owned()),
             reasoning_effort: ReasoningEffort::Medium,
             enabled_tools: vec![ToolName("repeat".to_owned())],
@@ -1561,14 +1610,18 @@ async fn spawn_runtime_with_task(
         &db,
         CreateRootTaskInput {
             task_id: TaskId("task-1".to_owned()),
-            initial_node: NewHistoryNode {
-                parent_node_id: None,
-                content: NewHistoryNodeContent::Message(NewMessageNodeContent {
-                    message_role: selvedge_db::MessageRole::System,
-                    message_text: "system".to_owned(),
-                }),
-                created_at: UnixTs(1),
-            },
+            cursor_node_id: create_history_node(
+                &db,
+                NewHistoryNode {
+                    parent_node_id: None,
+                    content: NewHistoryNodeContent::Message(NewMessageNodeContent {
+                        message_role: selvedge_db::MessageRole::System,
+                        message_text: "system".to_owned(),
+                    }),
+                    created_at: UnixTs(1),
+                },
+            )
+            .expect("create cursor node"),
             model_profile_key: selvedge_db::ModelProfileKey("default".to_owned()),
             reasoning_effort: ReasoningEffort::Medium,
             enabled_tools,

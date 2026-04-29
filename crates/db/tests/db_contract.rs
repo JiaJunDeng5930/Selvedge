@@ -1,10 +1,32 @@
 use selvedge_db::{
-    CreateChildTaskInput, CreateRootTaskInput, HistoryNode, MessageRole, NewHistoryNode,
-    NewHistoryNodeContent, NewMessageNodeContent, OpenDbOptions, ReasoningEffort, TaskId,
-    TaskStatusRow, UnixTs, append_user_message_and_move_cursor, archive_task, create_child_task,
-    create_root_task, load_active_task, open_db, queue_user_input, read_conversation_for_task,
+    CreateChildTaskInput, CreateRootTaskInput, DbPool, HistoryNode, HistoryNodeId, MessageRole,
+    NewHistoryNode, NewHistoryNodeContent, NewMessageNodeContent, OpenDbOptions, ReasoningEffort,
+    TaskId, TaskStatusRow, UnixTs, append_user_message_and_move_cursor, archive_task,
+    create_child_task, create_history_node, create_root_task, load_active_task, open_db,
+    queue_user_input, read_conversation_for_task,
 };
 use selvedge_domain_model::ConversationItem;
+
+fn create_message_node(
+    db: &DbPool,
+    parent_node_id: Option<HistoryNodeId>,
+    message_role: MessageRole,
+    message_text: &str,
+    created_at: UnixTs,
+) -> HistoryNodeId {
+    create_history_node(
+        db,
+        NewHistoryNode {
+            parent_node_id,
+            content: NewHistoryNodeContent::Message(NewMessageNodeContent {
+                message_role,
+                message_text: message_text.to_owned(),
+            }),
+            created_at,
+        },
+    )
+    .expect("create history node")
+}
 
 #[test]
 fn open_db_creates_schema_and_root_task_transaction_moves_cursor() {
@@ -17,14 +39,7 @@ fn open_db_creates_schema_and_root_task_transaction_moves_cursor() {
         &db,
         CreateRootTaskInput {
             task_id: TaskId("task-1".to_owned()),
-            initial_node: NewHistoryNode {
-                parent_node_id: None,
-                content: NewHistoryNodeContent::Message(NewMessageNodeContent {
-                    message_role: MessageRole::User,
-                    message_text: "hello".to_owned(),
-                }),
-                created_at: UnixTs(10),
-            },
+            cursor_node_id: create_message_node(&db, None, MessageRole::User, "hello", UnixTs(10)),
             model_profile_key: selvedge_db::ModelProfileKey("default".to_owned()),
             reasoning_effort: ReasoningEffort::Medium,
             enabled_tools: Vec::new(),
@@ -51,14 +66,7 @@ fn archive_task_clears_queued_inputs_before_status_update() {
         &db,
         CreateRootTaskInput {
             task_id: TaskId("task-1".to_owned()),
-            initial_node: NewHistoryNode {
-                parent_node_id: None,
-                content: NewHistoryNodeContent::Message(NewMessageNodeContent {
-                    message_role: MessageRole::User,
-                    message_text: "hello".to_owned(),
-                }),
-                created_at: UnixTs(10),
-            },
+            cursor_node_id: create_message_node(&db, None, MessageRole::User, "hello", UnixTs(10)),
             model_profile_key: selvedge_db::ModelProfileKey("default".to_owned()),
             reasoning_effort: ReasoningEffort::Medium,
             enabled_tools: Vec::new(),
@@ -87,14 +95,13 @@ fn append_history_uses_new_node_timestamp_for_task_updated_at() {
         &db,
         CreateRootTaskInput {
             task_id: TaskId("task-1".to_owned()),
-            initial_node: NewHistoryNode {
-                parent_node_id: None,
-                content: NewHistoryNodeContent::Message(NewMessageNodeContent {
-                    message_role: MessageRole::User,
-                    message_text: "hello".to_owned(),
-                }),
-                created_at: UnixTs(4_102_444_800),
-            },
+            cursor_node_id: create_message_node(
+                &db,
+                None,
+                MessageRole::User,
+                "hello",
+                UnixTs(4_102_444_800),
+            ),
             model_profile_key: selvedge_db::ModelProfileKey("default".to_owned()),
             reasoning_effort: ReasoningEffort::Medium,
             enabled_tools: Vec::new(),
@@ -122,14 +129,7 @@ fn append_history_uses_database_cursor_as_parent() {
         &db,
         CreateRootTaskInput {
             task_id: TaskId("task-1".to_owned()),
-            initial_node: NewHistoryNode {
-                parent_node_id: None,
-                content: NewHistoryNodeContent::Message(NewMessageNodeContent {
-                    message_role: MessageRole::User,
-                    message_text: "hello".to_owned(),
-                }),
-                created_at: UnixTs(10),
-            },
+            cursor_node_id: create_message_node(&db, None, MessageRole::User, "hello", UnixTs(10)),
             model_profile_key: selvedge_db::ModelProfileKey("default".to_owned()),
             reasoning_effort: ReasoningEffort::Medium,
             enabled_tools: Vec::new(),
@@ -176,14 +176,7 @@ fn create_child_task_accepts_strategy_cursor_outside_parent_chain() {
         &db,
         CreateRootTaskInput {
             task_id: TaskId("parent".to_owned()),
-            initial_node: NewHistoryNode {
-                parent_node_id: None,
-                content: NewHistoryNodeContent::Message(NewMessageNodeContent {
-                    message_role: MessageRole::User,
-                    message_text: "parent".to_owned(),
-                }),
-                created_at: UnixTs(10),
-            },
+            cursor_node_id: create_message_node(&db, None, MessageRole::User, "parent", UnixTs(10)),
             model_profile_key: selvedge_db::ModelProfileKey("default".to_owned()),
             reasoning_effort: ReasoningEffort::Medium,
             enabled_tools: Vec::new(),
@@ -195,14 +188,13 @@ fn create_child_task_accepts_strategy_cursor_outside_parent_chain() {
         &db,
         CreateRootTaskInput {
             task_id: TaskId("foreign".to_owned()),
-            initial_node: NewHistoryNode {
-                parent_node_id: None,
-                content: NewHistoryNodeContent::Message(NewMessageNodeContent {
-                    message_role: MessageRole::User,
-                    message_text: "foreign".to_owned(),
-                }),
-                created_at: UnixTs(10),
-            },
+            cursor_node_id: create_message_node(
+                &db,
+                None,
+                MessageRole::User,
+                "foreign",
+                UnixTs(10),
+            ),
             model_profile_key: selvedge_db::ModelProfileKey("default".to_owned()),
             reasoning_effort: ReasoningEffort::Medium,
             enabled_tools: Vec::new(),
@@ -227,23 +219,18 @@ fn create_child_task_accepts_strategy_cursor_outside_parent_chain() {
 }
 
 #[test]
-fn create_root_task_accepts_strategy_parented_initial_node() {
+fn create_history_node_accepts_strategy_parent_and_root_task_uses_existing_cursor() {
     let db = open_db(OpenDbOptions {
         sqlite_path: ":memory:".to_owned(),
     })
     .expect("open db");
-    let existing = create_root_task(
+    let existing_node_id =
+        create_message_node(&db, None, MessageRole::User, "existing", UnixTs(10));
+    create_root_task(
         &db,
         CreateRootTaskInput {
             task_id: TaskId("existing".to_owned()),
-            initial_node: NewHistoryNode {
-                parent_node_id: None,
-                content: NewHistoryNodeContent::Message(NewMessageNodeContent {
-                    message_role: MessageRole::User,
-                    message_text: "existing".to_owned(),
-                }),
-                created_at: UnixTs(10),
-            },
+            cursor_node_id: existing_node_id,
             model_profile_key: selvedge_db::ModelProfileKey("default".to_owned()),
             reasoning_effort: ReasoningEffort::Medium,
             enabled_tools: Vec::new(),
@@ -251,19 +238,19 @@ fn create_root_task_accepts_strategy_parented_initial_node() {
         },
     )
     .expect("create existing");
+    let root_node_id = create_message_node(
+        &db,
+        Some(existing_node_id),
+        MessageRole::User,
+        "root",
+        UnixTs(11),
+    );
 
     let root = create_root_task(
         &db,
         CreateRootTaskInput {
             task_id: TaskId("root".to_owned()),
-            initial_node: NewHistoryNode {
-                parent_node_id: Some(existing.cursor_node_id),
-                content: NewHistoryNodeContent::Message(NewMessageNodeContent {
-                    message_role: MessageRole::User,
-                    message_text: "root".to_owned(),
-                }),
-                created_at: UnixTs(11),
-            },
+            cursor_node_id: root_node_id,
             model_profile_key: selvedge_db::ModelProfileKey("default".to_owned()),
             reasoning_effort: ReasoningEffort::Medium,
             enabled_tools: Vec::new(),
