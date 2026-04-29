@@ -4,10 +4,10 @@ use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use selvedge_command_model::{
-    ApiEffectId, ApiOutputEnvelope, CoreOutputEnvelope, CoreOutputMessage,
-    ModelCallDispatchRequest, ModelRunId, RouterIngressMessage, RouterIngressSender,
-    TaskRuntimeCommand, TaskRuntimeExitNotice, TaskRuntimeExitReason, TaskRuntimeSender,
-    ToolExecutionRequest, ToolExecutionResult, ToolExecutionRunId,
+    ApiEffectId, ApiOutputEnvelope, CoreOutputEnvelope, CoreOutputMessage, DomainEvent,
+    DomainEventPublishRequest, ModelCallDispatchRequest, ModelRunId, RouterIngressMessage,
+    RouterIngressSender, TaskRuntimeCommand, TaskRuntimeExitNotice, TaskRuntimeExitReason,
+    TaskRuntimeSender, ToolExecutionRequest, ToolExecutionResult, ToolExecutionRunId,
 };
 use selvedge_db::{
     DbError, DbPool, FunctionCallId, HistoryNodeId, MessageRole, NewFunctionCallNodeContent,
@@ -238,7 +238,23 @@ impl TaskRuntimeActor {
                     return false;
                 }
                 self.wait_state = WaitState::Idle;
-                let _ = error;
+                if self
+                    .send_core(CoreOutputMessage::PublishDomainEvent(
+                        DomainEventPublishRequest {
+                            task_id: self.task_id.clone(),
+                            event: DomainEvent::ErrorNotice {
+                                message: format!(
+                                    "model call failed: {:?}: {}",
+                                    error.kind, error.message
+                                ),
+                            },
+                        },
+                    ))
+                    .await
+                    .is_err()
+                {
+                    return true;
+                }
                 self.drain_queue_or_idle().await
             }
         }

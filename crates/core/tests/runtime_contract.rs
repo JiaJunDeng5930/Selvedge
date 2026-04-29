@@ -1,9 +1,9 @@
 use std::collections::{BTreeMap, HashMap};
 
 use selvedge_command_model::{
-    ApiCallCorrelation, ApiOutputEnvelope, CoreOutputMessage, ModelCallDispatchRequest,
-    ModelCallError, ModelCallErrorKind, ModelRunId, RouterIngressMessage, TaskRuntimeCommand,
-    TaskRuntimeExitReason, ToolExecutionResult,
+    ApiCallCorrelation, ApiOutputEnvelope, CoreOutputMessage, DomainEvent,
+    ModelCallDispatchRequest, ModelCallError, ModelCallErrorKind, ModelRunId, RouterIngressMessage,
+    TaskRuntimeCommand, TaskRuntimeExitReason, ToolExecutionResult,
 };
 use selvedge_core::{SpawnTaskRuntimeArgs, TaskRuntimeConfig, spawn_task_runtime};
 use selvedge_db::{
@@ -402,6 +402,40 @@ async fn task_runtime_ignores_unrelated_validation_failure_while_waiting() {
         next_model_request,
         RouterIngressMessage::Core(envelope)
             if matches!(envelope.message, CoreOutputMessage::RequestModelCall(_))
+    ));
+}
+
+#[tokio::test]
+async fn task_runtime_reports_current_model_call_failure() {
+    let (runtime, mut router_rx) = spawn_runtime_with_task(vec![]).await;
+    let correlation = start_and_request_model(&runtime, &mut router_rx).await;
+
+    runtime
+        .task_runtime_tx
+        .send(TaskRuntimeCommand::ApiModelReply(
+            ApiOutputEnvelope::Failure {
+                correlation,
+                error: ModelCallError {
+                    kind: ModelCallErrorKind::ProviderNetwork,
+                    message: "network failed".to_owned(),
+                },
+            },
+        ))
+        .await
+        .expect("send failure");
+
+    let event = tokio::time::timeout(std::time::Duration::from_millis(25), router_rx.recv())
+        .await
+        .expect("error event timeout")
+        .expect("error event");
+    assert!(matches!(
+        &event,
+        RouterIngressMessage::Core(envelope)
+            if matches!(
+                &envelope.message,
+                CoreOutputMessage::PublishDomainEvent(request)
+                    if matches!(&request.event, DomainEvent::ErrorNotice { .. })
+            )
     ));
 }
 

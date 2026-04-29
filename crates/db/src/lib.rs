@@ -529,13 +529,19 @@ pub fn append_next_queued_user_input_and_move_cursor(
             created_at,
         },
     )?;
-    tx.execute(
-        "UPDATE tasks
+    let changed = tx
+        .execute(
+            "UPDATE tasks
          SET cursor_node_id = ?1, updated_at = ?2, state_version = state_version + 1
          WHERE task_id = ?3 AND task_status = 'active' AND cursor_node_id = ?4",
-        params![node_id.0, created_at.0, task_id.0, current_cursor_node_id],
-    )
-    .map_err(map_error)?;
+            params![node_id.0, created_at.0, task_id.0, current_cursor_node_id],
+        )
+        .map_err(map_error)?;
+    if changed == 0 {
+        return Err(DbError::Constraint(
+            "queued input append cursor changed before update".to_owned(),
+        ));
+    }
     tx.execute(
         "DELETE FROM queued_user_inputs WHERE task_id = ?1 AND seq_no = ?2",
         params![queued.task_id.0, u64_to_i64(queued.seq_no)?],
