@@ -61,7 +61,7 @@ This file is for coding agents working in this repository.
 |.cargo:{config.toml}
 |.github:{workflows/}
 |.github/workflows:{ci.yml}
-|crates:{api/,chatgpt-api/,chatgpt-auth/,chatgpt-login/,client/,command-model/,config-model/,config/,domain-model/,logging/}
+|crates:{api/,chatgpt-api/,chatgpt-auth/,chatgpt-login/,client/,command-model/,config-model/,config/,core/,db/,domain-model/,logging/}
 |crates/api:{src/,tests/,Cargo.toml,README.md}
 |crates/api/src:{lib.rs}
 |crates/api/tests:{api_contract.rs}
@@ -91,6 +91,12 @@ This file is for coding agents working in this repository.
 |crates/config/examples:{README.md,layered_sources.rs,load_defaults.rs,runtime_updates.rs}
 |crates/config/src:{lib.rs}
 |crates/config/tests:{public_api.rs}
+|crates/core:{src/,tests/,Cargo.toml,README.md}
+|crates/core/src:{lib.rs}
+|crates/core/tests:{runtime_contract.rs}
+|crates/db:{src/,tests/,Cargo.toml,README.md}
+|crates/db/src:{lib.rs,schema.sql}
+|crates/db/tests:{db_contract.rs}
 |crates/domain-model:{src/,tests/,Cargo.toml,README.md}
 |crates/domain-model/src:{lib.rs}
 |crates/domain-model/tests:{domain_contract.rs}

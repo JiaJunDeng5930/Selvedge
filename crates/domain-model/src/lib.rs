@@ -7,6 +7,27 @@ use serde::Serialize;
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
 pub struct HistoryNodeIdRef(pub String);
 
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
+pub struct TaskId(pub String);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize)]
+pub struct HistoryNodeId(pub i64);
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize)]
+pub struct ToolName(pub String);
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize)]
+pub struct ToolParameterName(pub String);
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
+pub struct FunctionCallId(pub String);
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
+pub struct ModelProfileKey(pub String);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize)]
+pub struct UnixTs(pub i64);
+
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct ConversationPath {
     pub messages: Vec<ConversationMessage>,
@@ -22,6 +43,7 @@ pub struct ConversationMessage {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub enum MessageRole {
     System,
+    Developer,
     User,
     Assistant,
     Tool,
@@ -60,6 +82,52 @@ pub enum ToolParameterType {
     Integer,
     Number,
     Boolean,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub enum ReasoningEffort {
+    Minimal,
+    Low,
+    Medium,
+    High,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct Conversation {
+    pub items: Vec<ConversationItem>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub enum ConversationItem {
+    Message {
+        role: MessageRole,
+        text: String,
+    },
+    FunctionCall {
+        function_call_id: FunctionCallId,
+        tool_name: ToolName,
+        arguments: Vec<ToolCallArgument>,
+    },
+    FunctionOutput {
+        function_call_id: FunctionCallId,
+        tool_name: ToolName,
+        output_text: String,
+        is_error: bool,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct ToolCallArgument {
+    pub name: ToolParameterName,
+    pub value: ToolArgumentValue,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub enum ToolArgumentValue {
+    String(String),
+    Integer(i64),
+    Number(f64),
+    Boolean(bool),
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]

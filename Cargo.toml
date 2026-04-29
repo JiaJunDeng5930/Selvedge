@@ -8,6 +8,8 @@ members = [
     "crates/command-model",
     "crates/config",
     "crates/config-model",
+    "crates/core",
+    "crates/db",
     "crates/domain-model",
     "crates/logging",
     "xtask",

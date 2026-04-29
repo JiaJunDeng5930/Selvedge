@@ -1,0 +1,19 @@
+[package]
+name = "selvedge-db"
+edition = "2024"
+publish = false
+
+[dependencies]
+rusqlite = { version = "0.32.1", features = ["bundled"] }
+selvedge-domain-model = { path = "../domain-model" }
+
+[dev-dependencies]
+tempfile = "3.14.0"
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+dbg_macro = "deny"
+todo = "deny"
+unwrap_used = "deny"
