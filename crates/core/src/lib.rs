@@ -20,6 +20,7 @@ use selvedge_domain_model::{
     ConversationItem, ConversationMessage, ConversationPath, MessageContent, ModelProviderProfile,
     ResponsePreference, StructuredPayload, ToolCallProposal, ToolManifest, ToolParameterType,
 };
+use uuid::Uuid;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TaskRuntimeConfig {
@@ -63,8 +64,7 @@ pub fn spawn_task_runtime(
         self_tx: task_runtime_tx,
         rx: task_runtime_rx,
         cursor_node_id: None,
-        model_run_sequence: 0,
-        tool_run_sequence: 0,
+        started: false,
         wait_state: WaitState::Idle,
     };
     tokio::spawn(actor.run());
@@ -79,8 +79,7 @@ struct TaskRuntimeActor {
     self_tx: TaskRuntimeSender,
     rx: tokio::sync::mpsc::Receiver<TaskRuntimeCommand>,
     cursor_node_id: Option<HistoryNodeId>,
-    model_run_sequence: u64,
-    tool_run_sequence: u64,
+    started: bool,
     wait_state: WaitState,
 }
 
@@ -122,8 +121,12 @@ impl TaskRuntimeActor {
     }
 
     async fn handle_start(&mut self) -> bool {
+        if self.started {
+            return false;
+        }
         match load_active_task(&self.db, &self.task_id) {
             Ok(task) => {
+                self.started = true;
                 self.cursor_node_id = Some(task.task.cursor_node_id);
                 if self
                     .send_core(CoreOutputMessage::RuntimeReady {
@@ -301,11 +304,7 @@ impl TaskRuntimeActor {
             Ok(loaded) => loaded,
             Err(error) => return self.stop_with_db_error(error).await,
         };
-        self.model_run_sequence += 1;
-        let model_run_id = ModelRunId(format!(
-            "{}-model-{}",
-            self.task_id.0, self.model_run_sequence
-        ));
+        let model_run_id = ModelRunId(format!("{}-model-{}", self.task_id.0, Uuid::new_v4()));
         let Some(provider) = model_provider_profile_from_key(&loaded.task.model_profile_key.0)
         else {
             return self
@@ -316,10 +315,7 @@ impl TaskRuntimeActor {
         };
         let request = ModelCallDispatchRequest {
             correlation: selvedge_command_model::ApiCallCorrelation {
-                api_effect_id: ApiEffectId(format!(
-                    "{}-api-{}",
-                    self.task_id.0, self.model_run_sequence
-                )),
+                api_effect_id: ApiEffectId(format!("{}-api-{}", self.task_id.0, Uuid::new_v4())),
                 task_id: self.task_id.clone(),
                 model_run_id: model_run_id.clone(),
             },
@@ -374,11 +370,7 @@ impl TaskRuntimeActor {
                 Err(error) => return self.stop_with_db_error(error).await,
             };
 
-        self.tool_run_sequence += 1;
-        let tool_run_id = ToolExecutionRunId(format!(
-            "{}-tool-{}",
-            self.task_id.0, self.tool_run_sequence
-        ));
+        let tool_run_id = ToolExecutionRunId(format!("{}-tool-{}", self.task_id.0, Uuid::new_v4()));
         let request = ToolExecutionRequest {
             task_id: self.task_id.clone(),
             tool_execution_run_id: tool_run_id.clone(),

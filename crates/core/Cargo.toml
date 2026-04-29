@@ -8,6 +8,7 @@ selvedge-command-model = { path = "../command-model" }
 selvedge-db = { path = "../db" }
 selvedge-domain-model = { path = "../domain-model" }
 tokio = { version = "1.42.0", features = ["rt", "sync"] }
+uuid = { version = "1.11.0", features = ["v4"] }
 
 [dev-dependencies]
 tokio = { version = "1.42.0", features = ["macros", "rt", "sync", "time"] }
