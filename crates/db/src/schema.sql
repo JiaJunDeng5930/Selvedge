@@ -6,7 +6,7 @@ CREATE TABLE schema_metadata (
 );
 
 INSERT INTO schema_metadata (schema_key, schema_value)
-VALUES ('selvedge_schema_version', 'router-mediated-redesign-v3');
+VALUES ('selvedge_schema_version', 'router-mediated-redesign-v4');
 
 CREATE TABLE tools (
     tool_name TEXT PRIMARY KEY CHECK (length(tool_name) > 0),
@@ -108,7 +108,6 @@ CREATE TABLE history_function_output_nodes (
     output_text TEXT NOT NULL,
     is_error INTEGER NOT NULL CHECK (is_error IN (0, 1)),
     FOREIGN KEY (node_id, node_content_kind) REFERENCES history_nodes(node_id, content_kind) ON UPDATE RESTRICT ON DELETE CASCADE,
-    FOREIGN KEY (node_id, function_call_node_id) REFERENCES history_nodes(node_id, parent_node_id) ON UPDATE RESTRICT ON DELETE CASCADE,
     FOREIGN KEY (function_call_node_id, function_call_id, tool_name) REFERENCES history_function_call_nodes(node_id, function_call_id, tool_name) ON UPDATE RESTRICT ON DELETE RESTRICT,
     UNIQUE (function_call_node_id)
 );

@@ -14,8 +14,8 @@ use selvedge_db::{
     queue_user_input, register_tool,
 };
 use selvedge_domain_model::{
-    ModelFinishReason, ModelReply, StructuredPayload, ToolCallProposal, ToolParameter,
-    ToolParameterType, ToolSpec,
+    MessageContent, ModelFinishReason, ModelReply, StructuredPayload, ToolCallProposal,
+    ToolParameter, ToolParameterType, ToolSpec,
 };
 
 #[tokio::test]
@@ -150,6 +150,132 @@ async fn task_runtime_dispatches_all_tool_calls_before_next_model_call() {
 
     let second_tool_request = recv_tool_request(&mut router_rx).await;
     assert_eq!(second_tool_request.function_call_id.0, "call-2");
+}
+
+#[tokio::test]
+async fn task_runtime_preserves_batched_tool_call_order_in_next_model_request() {
+    let (runtime, mut router_rx) = spawn_runtime_with_task(vec![ToolSpec {
+        name: "search".to_owned(),
+        description: "search".to_owned(),
+        parameters: Vec::new(),
+    }])
+    .await;
+    let correlation = start_and_request_model(&runtime, &mut router_rx).await;
+
+    runtime
+        .task_runtime_tx
+        .send(TaskRuntimeCommand::ApiModelReply(
+            ApiOutputEnvelope::Success {
+                correlation,
+                reply: ModelReply {
+                    content: None,
+                    tool_calls: vec![
+                        ToolCallProposal {
+                            call_id: "call-1".to_owned(),
+                            tool_name: "search".to_owned(),
+                            arguments: StructuredPayload::Object(BTreeMap::new()),
+                        },
+                        ToolCallProposal {
+                            call_id: "call-2".to_owned(),
+                            tool_name: "search".to_owned(),
+                            arguments: StructuredPayload::Object(BTreeMap::new()),
+                        },
+                    ],
+                    usage: None,
+                    finish_reason: ModelFinishReason::ToolCalls,
+                },
+            },
+        ))
+        .await
+        .expect("send model reply");
+
+    let first_tool_request = recv_tool_request(&mut router_rx).await;
+    runtime
+        .task_runtime_tx
+        .send(TaskRuntimeCommand::ToolResult(ToolExecutionResult {
+            task_id: TaskId("task-1".to_owned()),
+            tool_execution_run_id: first_tool_request.tool_execution_run_id,
+            function_call_node_id: first_tool_request.function_call_node_id,
+            function_call_id: first_tool_request.function_call_id,
+            tool_name: first_tool_request.tool_name,
+            output_text: "first".to_owned(),
+            is_error: false,
+        }))
+        .await
+        .expect("send first tool result");
+
+    let second_tool_request = recv_tool_request(&mut router_rx).await;
+    runtime
+        .task_runtime_tx
+        .send(TaskRuntimeCommand::ToolResult(ToolExecutionResult {
+            task_id: TaskId("task-1".to_owned()),
+            tool_execution_run_id: second_tool_request.tool_execution_run_id,
+            function_call_node_id: second_tool_request.function_call_node_id,
+            function_call_id: second_tool_request.function_call_id,
+            tool_name: second_tool_request.tool_name,
+            output_text: "second".to_owned(),
+            is_error: false,
+        }))
+        .await
+        .expect("send second tool result");
+
+    let request = recv_model_request(&mut router_rx).await;
+    assert_eq!(
+        tool_transcript_events(&request),
+        vec![
+            "call:call-1",
+            "call:call-2",
+            "output:call-1",
+            "output:call-2"
+        ]
+    );
+}
+
+#[tokio::test]
+async fn task_runtime_rejects_duplicate_tool_call_ids_in_one_model_reply() {
+    let (runtime, mut router_rx) = spawn_runtime_with_task(vec![
+        ToolSpec {
+            name: "search".to_owned(),
+            description: "search".to_owned(),
+            parameters: Vec::new(),
+        },
+        ToolSpec {
+            name: "lookup".to_owned(),
+            description: "lookup".to_owned(),
+            parameters: Vec::new(),
+        },
+    ])
+    .await;
+    let correlation = start_and_request_model(&runtime, &mut router_rx).await;
+
+    runtime
+        .task_runtime_tx
+        .send(TaskRuntimeCommand::ApiModelReply(
+            ApiOutputEnvelope::Success {
+                correlation,
+                reply: ModelReply {
+                    content: None,
+                    tool_calls: vec![
+                        ToolCallProposal {
+                            call_id: "call-1".to_owned(),
+                            tool_name: "search".to_owned(),
+                            arguments: StructuredPayload::Object(BTreeMap::new()),
+                        },
+                        ToolCallProposal {
+                            call_id: "call-1".to_owned(),
+                            tool_name: "lookup".to_owned(),
+                            arguments: StructuredPayload::Object(BTreeMap::new()),
+                        },
+                    ],
+                    usage: None,
+                    finish_reason: ModelFinishReason::ToolCalls,
+                },
+            },
+        ))
+        .await
+        .expect("send model reply");
+
+    assert_internal_exit(&mut router_rx).await;
 }
 
 #[tokio::test]
@@ -910,6 +1036,42 @@ async fn recv_tool_request(
         },
         _ => panic!("unexpected router message"),
     }
+}
+
+async fn recv_model_request(
+    router_rx: &mut tokio::sync::mpsc::Receiver<RouterIngressMessage>,
+) -> ModelCallDispatchRequest {
+    let message = router_rx.recv().await.expect("model request");
+    match message {
+        RouterIngressMessage::Core(envelope) => match envelope.message {
+            CoreOutputMessage::RequestModelCall(request) => request,
+            _ => panic!("unexpected core output"),
+        },
+        _ => panic!("unexpected router message"),
+    }
+}
+
+fn tool_transcript_events(request: &ModelCallDispatchRequest) -> Vec<String> {
+    request
+        .conversation
+        .messages
+        .iter()
+        .filter_map(|message| {
+            let MessageContent::Structured(StructuredPayload::Object(fields)) = &message.content
+            else {
+                return None;
+            };
+            let Some(StructuredPayload::String(function_call_id)) = fields.get("function_call_id")
+            else {
+                return None;
+            };
+            match message.role {
+                selvedge_db::MessageRole::Assistant => Some(format!("call:{function_call_id}")),
+                selvedge_db::MessageRole::Tool => Some(format!("output:{function_call_id}")),
+                _ => None,
+            }
+        })
+        .collect()
 }
 
 async fn assert_internal_exit(router_rx: &mut tokio::sync::mpsc::Receiver<RouterIngressMessage>) {
