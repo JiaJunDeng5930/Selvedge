@@ -391,13 +391,14 @@ pub fn append_history_node_and_move_cursor(
     let mut connection = db.connection()?;
     let tx = connection.transaction().map_err(map_error)?;
     ensure_active_task_in_tx(&tx, task_id)?;
+    let updated_at = node.created_at;
     let node_id = insert_history_node(&tx, node)?;
     let changed = tx
         .execute(
             "UPDATE tasks
              SET cursor_node_id = ?1, updated_at = ?2, state_version = state_version + 1
              WHERE task_id = ?3 AND task_status = 'active'",
-            params![node_id.0, current_db_time(&tx)?, task_id.0],
+            params![node_id.0, updated_at.0, task_id.0],
         )
         .map_err(map_error)?;
     if changed == 0 {
@@ -850,11 +851,6 @@ fn ensure_active_task_in_tx(
         Some(_) => Err(DbError::TaskNotActive),
         None => Err(DbError::NotFound),
     }
-}
-
-fn current_db_time(tx: &rusqlite::Transaction<'_>) -> Result<i64, DbError> {
-    tx.query_row("SELECT unixepoch()", [], |row| row.get(0))
-        .map_err(map_error)
 }
 
 fn read_message_node(
