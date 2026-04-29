@@ -268,6 +268,46 @@ async fn task_runtime_rejects_tool_calls_outside_enabled_manifest() {
 }
 
 #[tokio::test]
+async fn task_runtime_validates_all_tool_calls_before_dispatching_any() {
+    let (runtime, mut router_rx) = spawn_runtime_with_task(vec![ToolSpec {
+        name: "enabled".to_owned(),
+        description: "enabled".to_owned(),
+        parameters: Vec::new(),
+    }])
+    .await;
+    let correlation = start_and_request_model(&runtime, &mut router_rx).await;
+
+    runtime
+        .task_runtime_tx
+        .send(TaskRuntimeCommand::ApiModelReply(
+            ApiOutputEnvelope::Success {
+                correlation,
+                reply: ModelReply {
+                    content: None,
+                    tool_calls: vec![
+                        ToolCallProposal {
+                            call_id: "call-1".to_owned(),
+                            tool_name: "enabled".to_owned(),
+                            arguments: StructuredPayload::Object(BTreeMap::new()),
+                        },
+                        ToolCallProposal {
+                            call_id: "call-2".to_owned(),
+                            tool_name: "disabled".to_owned(),
+                            arguments: StructuredPayload::Object(BTreeMap::new()),
+                        },
+                    ],
+                    usage: None,
+                    finish_reason: ModelFinishReason::ToolCalls,
+                },
+            },
+        ))
+        .await
+        .expect("send model reply");
+
+    assert_internal_exit(&mut router_rx).await;
+}
+
+#[tokio::test]
 async fn task_runtime_rejects_tool_calls_missing_required_arguments() {
     let (runtime, mut router_rx) = spawn_runtime_with_task(vec![ToolSpec {
         name: "repeat".to_owned(),
