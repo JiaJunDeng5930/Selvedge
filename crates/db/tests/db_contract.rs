@@ -235,3 +235,52 @@ fn create_child_task_rejects_cursor_outside_parent_chain() {
 
     assert!(matches!(error, selvedge_db::DbError::Constraint(_)));
 }
+
+#[test]
+fn create_root_task_rejects_parented_initial_node() {
+    let db = open_db(OpenDbOptions {
+        sqlite_path: ":memory:".to_owned(),
+    })
+    .expect("open db");
+    let existing = create_root_task(
+        &db,
+        CreateRootTaskInput {
+            task_id: TaskId("existing".to_owned()),
+            initial_node: NewHistoryNode {
+                parent_node_id: None,
+                content: NewHistoryNodeContent::Message(NewMessageNodeContent {
+                    message_role: MessageRole::User,
+                    message_text: "existing".to_owned(),
+                }),
+                created_at: UnixTs(10),
+            },
+            model_profile_key: selvedge_db::ModelProfileKey("default".to_owned()),
+            reasoning_effort: ReasoningEffort::Medium,
+            enabled_tools: Vec::new(),
+            now: UnixTs(10),
+        },
+    )
+    .expect("create existing");
+
+    let error = create_root_task(
+        &db,
+        CreateRootTaskInput {
+            task_id: TaskId("root".to_owned()),
+            initial_node: NewHistoryNode {
+                parent_node_id: Some(existing.cursor_node_id),
+                content: NewHistoryNodeContent::Message(NewMessageNodeContent {
+                    message_role: MessageRole::User,
+                    message_text: "root".to_owned(),
+                }),
+                created_at: UnixTs(11),
+            },
+            model_profile_key: selvedge_db::ModelProfileKey("default".to_owned()),
+            reasoning_effort: ReasoningEffort::Medium,
+            enabled_tools: Vec::new(),
+            now: UnixTs(11),
+        },
+    )
+    .expect_err("parented root rejected");
+
+    assert!(matches!(error, selvedge_db::DbError::Constraint(_)));
+}

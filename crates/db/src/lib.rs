@@ -299,6 +299,11 @@ pub fn register_tool(db: &DbPool, tool: ToolSpec) -> Result<(), DbError> {
 
 pub fn create_root_task(db: &DbPool, input: CreateRootTaskInput) -> Result<TaskRow, DbError> {
     let task_id = input.task_id.clone();
+    if input.initial_node.parent_node_id.is_some() {
+        return Err(DbError::Constraint(
+            "root task initial node must not have a parent".to_owned(),
+        ));
+    }
     {
         let mut connection = db.connection()?;
         let tx = connection.transaction().map_err(map_error)?;

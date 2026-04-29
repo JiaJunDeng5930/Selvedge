@@ -505,16 +505,27 @@ fn conversation_item_to_message(item: ConversationItem) -> ConversationMessage {
             source_node_id: None,
         },
         ConversationItem::FunctionOutput {
+            function_call_id,
+            tool_name,
             output_text,
             is_error,
-            ..
         } => ConversationMessage {
             role: MessageRole::Tool,
-            content: MessageContent::ToolResultSummary(if is_error {
-                format!("error: {output_text}")
-            } else {
-                output_text
-            }),
+            content: MessageContent::Structured(StructuredPayload::Object(BTreeMap::from([
+                (
+                    "function_call_id".to_owned(),
+                    StructuredPayload::String(function_call_id.0),
+                ),
+                (
+                    "tool_name".to_owned(),
+                    StructuredPayload::String(tool_name.0),
+                ),
+                (
+                    "output_text".to_owned(),
+                    StructuredPayload::String(output_text),
+                ),
+                ("is_error".to_owned(), StructuredPayload::Boolean(is_error)),
+            ]))),
             source_node_id: None,
         },
     }
