@@ -1,8 +1,8 @@
 use selvedge_db::{
-    CreateRootTaskInput, HistoryContentKindRow, MessageRole, NewHistoryNode, NewHistoryNodeContent,
-    NewMessageNodeContent, OpenDbOptions, ReasoningEffort, TaskId, TaskStatusRow, UnixTs,
-    append_history_node_and_move_cursor, archive_task, create_root_task, load_active_task, open_db,
-    queue_user_input,
+    CreateChildTaskInput, CreateRootTaskInput, HistoryContentKindRow, MessageRole, NewHistoryNode,
+    NewHistoryNodeContent, NewMessageNodeContent, OpenDbOptions, ReasoningEffort, TaskId,
+    TaskStatusRow, UnixTs, append_history_node_and_move_cursor, archive_task, create_child_task,
+    create_root_task, load_active_task, open_db, queue_user_input,
 };
 
 #[test]
@@ -172,6 +172,66 @@ fn append_history_rejects_stale_parent_cursor() {
         },
     )
     .expect_err("stale append");
+
+    assert!(matches!(error, selvedge_db::DbError::Constraint(_)));
+}
+
+#[test]
+fn create_child_task_rejects_cursor_outside_parent_chain() {
+    let db = open_db(OpenDbOptions {
+        sqlite_path: ":memory:".to_owned(),
+    })
+    .expect("open db");
+    let parent = create_root_task(
+        &db,
+        CreateRootTaskInput {
+            task_id: TaskId("parent".to_owned()),
+            initial_node: NewHistoryNode {
+                parent_node_id: None,
+                content: NewHistoryNodeContent::Message(NewMessageNodeContent {
+                    message_role: MessageRole::User,
+                    message_text: "parent".to_owned(),
+                }),
+                created_at: UnixTs(10),
+            },
+            model_profile_key: selvedge_db::ModelProfileKey("default".to_owned()),
+            reasoning_effort: ReasoningEffort::Medium,
+            enabled_tools: Vec::new(),
+            now: UnixTs(10),
+        },
+    )
+    .expect("create parent");
+    let foreign = create_root_task(
+        &db,
+        CreateRootTaskInput {
+            task_id: TaskId("foreign".to_owned()),
+            initial_node: NewHistoryNode {
+                parent_node_id: None,
+                content: NewHistoryNodeContent::Message(NewMessageNodeContent {
+                    message_role: MessageRole::User,
+                    message_text: "foreign".to_owned(),
+                }),
+                created_at: UnixTs(10),
+            },
+            model_profile_key: selvedge_db::ModelProfileKey("default".to_owned()),
+            reasoning_effort: ReasoningEffort::Medium,
+            enabled_tools: Vec::new(),
+            now: UnixTs(10),
+        },
+    )
+    .expect("create foreign");
+    assert_ne!(parent.cursor_node_id, foreign.cursor_node_id);
+
+    let error = create_child_task(
+        &db,
+        CreateChildTaskInput {
+            parent_task_id: TaskId("parent".to_owned()),
+            child_task_id: TaskId("child".to_owned()),
+            cursor_node_id: foreign.cursor_node_id,
+            now: UnixTs(11),
+        },
+    )
+    .expect_err("foreign cursor rejected");
 
     assert!(matches!(error, selvedge_db::DbError::Constraint(_)));
 }

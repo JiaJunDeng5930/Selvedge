@@ -382,6 +382,39 @@ async fn task_runtime_ignores_replayed_start_after_model_request() {
 }
 
 #[tokio::test]
+async fn task_runtime_preserves_model_wait_state_for_stray_tool_result() {
+    let (runtime, mut router_rx) = spawn_runtime_with_task(vec![]).await;
+    let _correlation = start_and_request_model(&runtime, &mut router_rx).await;
+
+    runtime
+        .task_runtime_tx
+        .send(TaskRuntimeCommand::ToolResult(ToolExecutionResult {
+            task_id: TaskId("task-1".to_owned()),
+            tool_execution_run_id: selvedge_command_model::ToolExecutionRunId("stray".to_owned()),
+            function_call_node_id: selvedge_db::HistoryNodeId(1),
+            function_call_id: selvedge_db::FunctionCallId("call".to_owned()),
+            tool_name: selvedge_db::ToolName("tool".to_owned()),
+            output_text: "stray".to_owned(),
+            is_error: false,
+        }))
+        .await
+        .expect("send stray tool result");
+    runtime
+        .task_runtime_tx
+        .send(TaskRuntimeCommand::UserInput {
+            message_text: "queued".to_owned(),
+        })
+        .await
+        .expect("queue input");
+
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_millis(25), router_rx.recv())
+            .await
+            .is_err()
+    );
+}
+
+#[tokio::test]
 async fn task_runtime_uses_fresh_model_run_ids_after_respawn() {
     let db = open_db(OpenDbOptions {
         sqlite_path: ":memory:".to_owned(),

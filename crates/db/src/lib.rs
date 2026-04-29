@@ -337,6 +337,11 @@ pub fn create_child_task(db: &DbPool, input: CreateChildTaskInput) -> Result<Tas
         if parent.task_status != TaskStatusRow::Active {
             return Err(DbError::TaskNotActive);
         }
+        if !history_node_is_on_parent_chain(&tx, input.cursor_node_id, parent.cursor_node_id)? {
+            return Err(DbError::Constraint(
+                "child cursor must belong to the parent task history chain".to_owned(),
+            ));
+        }
         tx.execute(
             "INSERT INTO tasks
              (task_id, task_status, cursor_node_id, model_profile_key, reasoning_effort, state_version, created_at, updated_at)
@@ -489,6 +494,64 @@ pub fn consume_next_queued_user_input(
     }
     tx.commit().map_err(map_error)?;
     Ok(queued)
+}
+
+pub fn append_next_queued_user_input_and_move_cursor(
+    db: &DbPool,
+    task_id: &TaskId,
+    created_at: UnixTs,
+) -> Result<Option<HistoryNodeId>, DbError> {
+    let mut connection = db.connection()?;
+    let tx = connection.transaction().map_err(map_error)?;
+    ensure_active_task_in_tx(&tx, task_id)?;
+    let queued = tx
+        .query_row(
+            "SELECT task_id, seq_no, message_text, queued_at
+             FROM queued_user_inputs
+             WHERE task_id = ?1
+             ORDER BY seq_no ASC
+             LIMIT 1",
+            params![task_id.0],
+            map_queued_user_input_row,
+        )
+        .optional()
+        .map_err(map_error)?;
+    let Some(queued) = queued else {
+        tx.commit().map_err(map_error)?;
+        return Ok(None);
+    };
+    let current_cursor_node_id: i64 = tx
+        .query_row(
+            "SELECT cursor_node_id FROM tasks WHERE task_id = ?1 AND task_status = 'active'",
+            params![task_id.0],
+            |row| row.get(0),
+        )
+        .map_err(map_error)?;
+    let node_id = insert_history_node(
+        &tx,
+        NewHistoryNode {
+            parent_node_id: Some(HistoryNodeId(current_cursor_node_id)),
+            content: NewHistoryNodeContent::Message(NewMessageNodeContent {
+                message_role: MessageRole::User,
+                message_text: queued.message_text,
+            }),
+            created_at,
+        },
+    )?;
+    tx.execute(
+        "UPDATE tasks
+         SET cursor_node_id = ?1, updated_at = ?2, state_version = state_version + 1
+         WHERE task_id = ?3 AND task_status = 'active' AND cursor_node_id = ?4",
+        params![node_id.0, created_at.0, task_id.0, current_cursor_node_id],
+    )
+    .map_err(map_error)?;
+    tx.execute(
+        "DELETE FROM queued_user_inputs WHERE task_id = ?1 AND seq_no = ?2",
+        params![queued.task_id.0, u64_to_i64(queued.seq_no)?],
+    )
+    .map_err(map_error)?;
+    tx.commit().map_err(map_error)?;
+    Ok(Some(node_id))
 }
 
 pub fn archive_task(db: &DbPool, task_id: &TaskId, now: UnixTs) -> Result<(), DbError> {
@@ -681,6 +744,26 @@ fn read_task_in_tx(tx: &rusqlite::Transaction<'_>, task_id: &TaskId) -> Result<T
     .optional()
     .map_err(map_error)?
     .ok_or(DbError::NotFound)
+}
+
+fn history_node_is_on_parent_chain(
+    tx: &rusqlite::Transaction<'_>,
+    candidate_node_id: HistoryNodeId,
+    parent_cursor_node_id: HistoryNodeId,
+) -> Result<bool, DbError> {
+    tx.query_row(
+        "WITH RECURSIVE chain(node_id, parent_node_id) AS (
+             SELECT node_id, parent_node_id FROM history_nodes WHERE node_id = ?1
+             UNION ALL
+             SELECT h.node_id, h.parent_node_id
+             FROM history_nodes h
+             INNER JOIN chain c ON h.node_id = c.parent_node_id
+         )
+         SELECT EXISTS(SELECT 1 FROM chain WHERE node_id = ?2)",
+        params![parent_cursor_node_id.0, candidate_node_id.0],
+        |row| row.get(0),
+    )
+    .map_err(map_error)
 }
 
 fn read_history_node(db: &DbPool, node_id: &HistoryNodeId) -> Result<HistoryNodeRow, DbError> {

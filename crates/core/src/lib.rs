@@ -13,8 +13,9 @@ use selvedge_db::{
     DbError, DbPool, HistoryNodeId, MessageRole, NewFunctionCallNodeContent,
     NewFunctionOutputNodeContent, NewHistoryNode, NewHistoryNodeContent, NewMessageNodeContent,
     TaskId, ToolArgumentValue, ToolCallArgument, ToolName, ToolParameterName, UnixTs,
-    append_history_node_and_move_cursor, archive_task, consume_next_queued_user_input,
-    load_active_task, queue_user_input, read_conversation_for_task, read_tool_manifest_for_task,
+    append_history_node_and_move_cursor, append_next_queued_user_input_and_move_cursor,
+    archive_task, load_active_task, queue_user_input, read_conversation_for_task,
+    read_tool_manifest_for_task,
 };
 use selvedge_domain_model::{
     ConversationItem, ConversationMessage, ConversationPath, MessageContent, ModelProfileKey,
@@ -235,7 +236,10 @@ impl TaskRuntimeActor {
                 self.wait_state = wait_state;
                 return false;
             }
-            WaitState::Idle | WaitState::WaitingModelReply { .. } => return false,
+            wait_state @ (WaitState::Idle | WaitState::WaitingModelReply { .. }) => {
+                self.wait_state = wait_state;
+                return false;
+            }
         };
 
         let node = NewHistoryNode {
@@ -410,20 +414,15 @@ impl TaskRuntimeActor {
     }
 
     async fn drain_queue_or_idle(&mut self) -> bool {
-        match load_active_task(&self.db, &self.task_id) {
-            Ok(loaded) => {
-                let Some(input) = loaded.queued_inputs.into_iter().next() else {
-                    self.wait_state = WaitState::Idle;
-                    return false;
-                };
+        match append_next_queued_user_input_and_move_cursor(&self.db, &self.task_id, now()) {
+            Ok(Some(node_id)) => {
+                self.cursor_node_id = Some(node_id);
                 self.wait_state = WaitState::Idle;
-                if let Err(error) = self.append_user_message(input.message_text) {
-                    return self.stop_with_db_error(error).await;
-                }
-                if let Err(error) = consume_next_queued_user_input(&self.db, &self.task_id) {
-                    return self.stop_with_db_error(error).await;
-                }
                 self.request_model_call().await
+            }
+            Ok(None) => {
+                self.wait_state = WaitState::Idle;
+                false
             }
             Err(error) => self.stop_with_db_error(error).await,
         }
