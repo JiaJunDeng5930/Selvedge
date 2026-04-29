@@ -1,6 +1,6 @@
 #![doc = include_str!("../README.md")]
 
-use std::collections::{BTreeMap, HashMap, VecDeque};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use selvedge_command_model::{
@@ -309,6 +309,9 @@ impl TaskRuntimeActor {
             Ok(conversation) => conversation,
             Err(error) => return self.stop_with_db_error(error).await,
         };
+        if let Err(message) = validate_conversation_tool_pairs(&conversation) {
+            return self.stop_with_internal_error(&message).await;
+        }
         let tool_manifest = match read_tool_manifest_for_task(&self.db, &self.task_id) {
             Ok(tool_manifest) => tool_manifest,
             Err(error) => return self.stop_with_db_error(error).await,
@@ -468,6 +471,51 @@ fn conversation_to_path(conversation: selvedge_db::Conversation) -> Conversation
         .map(conversation_item_to_message)
         .collect();
     ConversationPath { messages }
+}
+
+fn validate_conversation_tool_pairs(
+    conversation: &selvedge_db::Conversation,
+) -> Result<(), String> {
+    let mut pending_tool_calls = HashSet::new();
+
+    for item in &conversation.items {
+        match item {
+            ConversationItem::FunctionCall {
+                function_call_id,
+                tool_name,
+                ..
+            } => {
+                let key = (function_call_id.0.clone(), tool_name.0.clone());
+                if !pending_tool_calls.insert(key) {
+                    return Err("conversation contains duplicate open tool call id".to_owned());
+                }
+            }
+            ConversationItem::FunctionOutput {
+                function_call_id,
+                tool_name,
+                ..
+            } => {
+                let key = (function_call_id.0.clone(), tool_name.0.clone());
+                if !pending_tool_calls.remove(&key) {
+                    return Err(
+                        "conversation contains tool output without matching call".to_owned()
+                    );
+                }
+            }
+            ConversationItem::Message { .. } => {}
+        }
+    }
+
+    // Model providers require each tool result in a request to correlate with
+    // a previous tool call, and each open tool call must receive its result
+    // before normal conversation continues. This check belongs at dispatch
+    // time: history is a graph, while API conversation path is a linear
+    // provider protocol with stricter call/output pairing rules.
+    if pending_tool_calls.is_empty() {
+        Ok(())
+    } else {
+        Err("conversation contains tool call without matching output".to_owned())
+    }
 }
 
 fn conversation_item_to_message(item: ConversationItem) -> ConversationMessage {
