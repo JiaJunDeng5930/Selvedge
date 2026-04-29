@@ -1,6 +1,6 @@
 #![doc = include_str!("../README.md")]
 
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use selvedge_command_model::{
@@ -17,14 +17,16 @@ use selvedge_db::{
     load_active_task, queue_user_input, read_conversation_for_task, read_tool_manifest_for_task,
 };
 use selvedge_domain_model::{
-    ConversationItem, ConversationMessage, ConversationPath, MessageContent, ModelProviderProfile,
-    ResponsePreference, StructuredPayload, ToolCallProposal, ToolManifest, ToolParameterType,
+    ConversationItem, ConversationMessage, ConversationPath, MessageContent, ModelProfileKey,
+    ModelProviderProfile, ResponsePreference, StructuredPayload, ToolCallProposal, ToolManifest,
+    ToolParameterType,
 };
 use uuid::Uuid;
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct TaskRuntimeConfig {
     pub mailbox_capacity: usize,
+    pub model_profiles: HashMap<ModelProfileKey, ModelProviderProfile>,
 }
 
 #[derive(Clone)]
@@ -65,6 +67,7 @@ pub fn spawn_task_runtime(
         rx: task_runtime_rx,
         cursor_node_id: None,
         started: false,
+        model_profiles: args.config.model_profiles,
         wait_state: WaitState::Idle,
     };
     tokio::spawn(actor.run());
@@ -80,6 +83,7 @@ struct TaskRuntimeActor {
     rx: tokio::sync::mpsc::Receiver<TaskRuntimeCommand>,
     cursor_node_id: Option<HistoryNodeId>,
     started: bool,
+    model_profiles: HashMap<ModelProfileKey, ModelProviderProfile>,
     wait_state: WaitState,
 }
 
@@ -305,12 +309,13 @@ impl TaskRuntimeActor {
             Err(error) => return self.stop_with_db_error(error).await,
         };
         let model_run_id = ModelRunId(format!("{}-model-{}", self.task_id.0, Uuid::new_v4()));
-        let Some(provider) = model_provider_profile_from_key(&loaded.task.model_profile_key.0)
+        let Some(provider) = self
+            .model_profiles
+            .get(&loaded.task.model_profile_key)
+            .cloned()
         else {
             return self
-                .stop_with_internal_error(
-                    "model profile key must be provider/model or provider:model",
-                )
+                .stop_with_internal_error("model profile key is not configured")
                 .await;
         };
         let request = ModelCallDispatchRequest {
@@ -454,23 +459,6 @@ fn conversation_to_path(conversation: selvedge_db::Conversation) -> Conversation
         .map(conversation_item_to_message)
         .collect();
     ConversationPath { messages }
-}
-
-fn model_provider_profile_from_key(model_profile_key: &str) -> Option<ModelProviderProfile> {
-    let (provider_name, model_name) = model_profile_key
-        .split_once('/')
-        .or_else(|| model_profile_key.split_once(':'))?;
-    let provider_name = provider_name.trim();
-    let model_name = model_name.trim();
-    if provider_name.is_empty() || model_name.is_empty() {
-        return None;
-    }
-    Some(ModelProviderProfile {
-        provider_name: provider_name.to_owned(),
-        model_name: model_name.to_owned(),
-        temperature: None,
-        max_output_tokens: None,
-    })
 }
 
 fn conversation_item_to_message(item: ConversationItem) -> ConversationMessage {
