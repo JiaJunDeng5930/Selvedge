@@ -391,18 +391,40 @@ pub fn append_history_node_and_move_cursor(
     let mut connection = db.connection()?;
     let tx = connection.transaction().map_err(map_error)?;
     ensure_active_task_in_tx(&tx, task_id)?;
+    let expected_parent_node_id = node.parent_node_id.ok_or_else(|| {
+        DbError::Constraint("history append parent must be the current task cursor".to_owned())
+    })?;
+    let current_cursor_node_id: i64 = tx
+        .query_row(
+            "SELECT cursor_node_id FROM tasks WHERE task_id = ?1 AND task_status = 'active'",
+            params![task_id.0],
+            |row| row.get(0),
+        )
+        .map_err(map_error)?;
+    if current_cursor_node_id != expected_parent_node_id.0 {
+        return Err(DbError::Constraint(
+            "history append parent must match the current task cursor".to_owned(),
+        ));
+    }
     let updated_at = node.created_at;
     let node_id = insert_history_node(&tx, node)?;
     let changed = tx
         .execute(
             "UPDATE tasks
              SET cursor_node_id = ?1, updated_at = ?2, state_version = state_version + 1
-             WHERE task_id = ?3 AND task_status = 'active'",
-            params![node_id.0, updated_at.0, task_id.0],
+             WHERE task_id = ?3 AND task_status = 'active' AND cursor_node_id = ?4",
+            params![
+                node_id.0,
+                updated_at.0,
+                task_id.0,
+                expected_parent_node_id.0
+            ],
         )
         .map_err(map_error)?;
     if changed == 0 {
-        return Err(DbError::TaskNotActive);
+        return Err(DbError::Constraint(
+            "history append parent must match the current task cursor".to_owned(),
+        ));
     }
     tx.commit().map_err(map_error)?;
     Ok(node_id)

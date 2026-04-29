@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 use selvedge_command_model::{
     ApiCallCorrelation, ApiOutputEnvelope, CoreOutputMessage, ModelCallDispatchRequest,
@@ -34,7 +34,7 @@ async fn task_runtime_starts_and_requests_model_call_for_user_input() {
                 }),
                 created_at: UnixTs(1),
             },
-            model_profile_key: selvedge_db::ModelProfileKey("provider/model".to_owned()),
+            model_profile_key: selvedge_db::ModelProfileKey("default".to_owned()),
             reasoning_effort: ReasoningEffort::Medium,
             enabled_tools: Vec::new(),
             now: UnixTs(1),
@@ -49,6 +49,7 @@ async fn task_runtime_starts_and_requests_model_call_for_user_input() {
         router_tx,
         config: TaskRuntimeConfig {
             mailbox_capacity: 8,
+            model_profiles: model_profiles(),
         },
     })
     .expect("spawn runtime");
@@ -221,7 +222,7 @@ async fn task_runtime_rejects_tool_calls_outside_enabled_manifest() {
                 }),
                 created_at: UnixTs(1),
             },
-            model_profile_key: selvedge_db::ModelProfileKey("provider/model".to_owned()),
+            model_profile_key: selvedge_db::ModelProfileKey("default".to_owned()),
             reasoning_effort: ReasoningEffort::Medium,
             enabled_tools: Vec::new(),
             now: UnixTs(1),
@@ -235,6 +236,7 @@ async fn task_runtime_rejects_tool_calls_outside_enabled_manifest() {
         router_tx,
         config: TaskRuntimeConfig {
             mailbox_capacity: 16,
+            model_profiles: model_profiles(),
         },
     })
     .expect("spawn runtime");
@@ -397,7 +399,7 @@ async fn task_runtime_uses_fresh_model_run_ids_after_respawn() {
                 }),
                 created_at: UnixTs(1),
             },
-            model_profile_key: selvedge_db::ModelProfileKey("provider/model".to_owned()),
+            model_profile_key: selvedge_db::ModelProfileKey("default".to_owned()),
             reasoning_effort: ReasoningEffort::Medium,
             enabled_tools: Vec::new(),
             now: UnixTs(1),
@@ -481,7 +483,7 @@ async fn spawn_runtime_with_task(
                 }),
                 created_at: UnixTs(1),
             },
-            model_profile_key: selvedge_db::ModelProfileKey("provider/model".to_owned()),
+            model_profile_key: selvedge_db::ModelProfileKey("default".to_owned()),
             reasoning_effort: ReasoningEffort::Medium,
             enabled_tools,
             now: UnixTs(1),
@@ -496,6 +498,7 @@ async fn spawn_runtime_with_task(
         router_tx,
         config: TaskRuntimeConfig {
             mailbox_capacity: 16,
+            model_profiles: model_profiles(),
         },
     })
     .expect("spawn runtime");
@@ -577,6 +580,7 @@ async fn spawn_runtime_and_start_one_model_call(db: selvedge_db::DbPool) -> Mode
         router_tx,
         config: TaskRuntimeConfig {
             mailbox_capacity: 16,
+            model_profiles: model_profiles(),
         },
     })
     .expect("spawn runtime");
@@ -587,4 +591,17 @@ async fn spawn_runtime_and_start_one_model_call(db: selvedge_db::DbPool) -> Mode
         .await
         .expect("stop runtime");
     request.correlation.model_run_id
+}
+
+fn model_profiles()
+-> HashMap<selvedge_db::ModelProfileKey, selvedge_domain_model::ModelProviderProfile> {
+    HashMap::from([(
+        selvedge_db::ModelProfileKey("default".to_owned()),
+        selvedge_domain_model::ModelProviderProfile {
+            provider_name: "provider".to_owned(),
+            model_name: "model".to_owned(),
+            temperature: None,
+            max_output_tokens: None,
+        },
+    )])
 }
