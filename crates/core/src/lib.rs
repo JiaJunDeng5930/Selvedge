@@ -1,6 +1,6 @@
 #![doc = include_str!("../README.md")]
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use selvedge_command_model::{
@@ -18,7 +18,7 @@ use selvedge_db::{
 };
 use selvedge_domain_model::{
     ConversationItem, ConversationMessage, ConversationPath, MessageContent, ModelProviderProfile,
-    ResponsePreference, StructuredPayload,
+    ResponsePreference, StructuredPayload, ToolCallProposal, ToolManifest, ToolParameterType,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -87,8 +87,13 @@ struct TaskRuntimeActor {
 #[derive(Clone, Debug, PartialEq)]
 enum WaitState {
     Idle,
-    WaitingModelReply { model_run_id: ModelRunId },
-    WaitingToolResult { tool_run_id: ToolExecutionRunId },
+    WaitingModelReply {
+        model_run_id: ModelRunId,
+    },
+    WaitingToolResult {
+        tool_run_id: ToolExecutionRunId,
+        pending_tool_calls: VecDeque<ToolCallProposal>,
+    },
 }
 
 impl TaskRuntimeActor {
@@ -190,8 +195,9 @@ impl TaskRuntimeActor {
                     }
                 }
 
-                if let Some(tool_call) = reply.tool_calls.into_iter().next() {
-                    self.dispatch_tool_call(tool_call).await
+                let mut pending_tool_calls = VecDeque::from(reply.tool_calls);
+                if let Some(tool_call) = pending_tool_calls.pop_front() {
+                    self.dispatch_tool_call(tool_call, pending_tool_calls).await
                 } else {
                     self.wait_state = WaitState::Idle;
                     self.drain_queue_or_idle().await
@@ -212,13 +218,19 @@ impl TaskRuntimeActor {
     }
 
     async fn handle_tool_result(&mut self, result: ToolExecutionResult) -> bool {
-        let expected_tool_run_id = match &self.wait_state {
-            WaitState::WaitingToolResult { tool_run_id } => tool_run_id.clone(),
+        let pending_tool_calls = match std::mem::replace(&mut self.wait_state, WaitState::Idle) {
+            WaitState::WaitingToolResult {
+                tool_run_id,
+                pending_tool_calls,
+            } if result.task_id == self.task_id && result.tool_execution_run_id == tool_run_id => {
+                pending_tool_calls
+            }
+            wait_state @ WaitState::WaitingToolResult { .. } => {
+                self.wait_state = wait_state;
+                return false;
+            }
             WaitState::Idle | WaitState::WaitingModelReply { .. } => return false,
         };
-        if result.task_id != self.task_id || result.tool_execution_run_id != expected_tool_run_id {
-            return false;
-        }
 
         let node = NewHistoryNode {
             parent_node_id: Some(result.function_call_node_id),
@@ -234,7 +246,8 @@ impl TaskRuntimeActor {
         match append_history_node_and_move_cursor(&self.db, &self.task_id, node) {
             Ok(node_id) => {
                 self.cursor_node_id = Some(node_id);
-                self.request_model_call().await
+                self.dispatch_next_tool_or_request_model(pending_tool_calls)
+                    .await
             }
             Err(error) => self.stop_with_db_error(error).await,
         }
@@ -321,7 +334,8 @@ impl TaskRuntimeActor {
 
     async fn dispatch_tool_call(
         &mut self,
-        tool_call: selvedge_domain_model::ToolCallProposal,
+        tool_call: ToolCallProposal,
+        pending_tool_calls: VecDeque<ToolCallProposal>,
     ) -> bool {
         let Some(parent_node_id) = self.cursor_node_id else {
             return self
@@ -330,7 +344,12 @@ impl TaskRuntimeActor {
         };
         let tool_name = ToolName(tool_call.tool_name);
         let function_call_id = selvedge_db::FunctionCallId(tool_call.call_id);
-        let arguments = tool_call_arguments_from_payload(tool_call.arguments);
+        let tool_manifest = match read_tool_manifest_for_task(&self.db, &self.task_id) {
+            Ok(tool_manifest) => tool_manifest,
+            Err(error) => return self.stop_with_db_error(error).await,
+        };
+        let arguments =
+            tool_call_arguments_from_payload(tool_call.arguments, &tool_name, &tool_manifest);
         let node = NewHistoryNode {
             parent_node_id: Some(parent_node_id),
             content: NewHistoryNodeContent::FunctionCall(NewFunctionCallNodeContent {
@@ -362,10 +381,24 @@ impl TaskRuntimeActor {
             tool_name,
             arguments,
         };
-        self.wait_state = WaitState::WaitingToolResult { tool_run_id };
+        self.wait_state = WaitState::WaitingToolResult {
+            tool_run_id,
+            pending_tool_calls,
+        };
         self.send_core(CoreOutputMessage::RequestToolExecution(request))
             .await
             .is_err()
+    }
+
+    async fn dispatch_next_tool_or_request_model(
+        &mut self,
+        mut pending_tool_calls: VecDeque<ToolCallProposal>,
+    ) -> bool {
+        if let Some(tool_call) = pending_tool_calls.pop_front() {
+            self.dispatch_tool_call(tool_call, pending_tool_calls).await
+        } else {
+            self.request_model_call().await
+        }
     }
 
     async fn drain_queue_or_idle(&mut self) -> bool {
@@ -488,24 +521,50 @@ fn argument_to_structured_payload(argument: ToolCallArgument) -> StructuredPaylo
     ]))
 }
 
-fn tool_call_arguments_from_payload(payload: StructuredPayload) -> Vec<ToolCallArgument> {
+fn tool_call_arguments_from_payload(
+    payload: StructuredPayload,
+    tool_name: &ToolName,
+    tool_manifest: &ToolManifest,
+) -> Vec<ToolCallArgument> {
     let StructuredPayload::Object(arguments) = payload else {
         return Vec::new();
     };
     arguments
         .into_iter()
         .filter_map(|(name, value)| {
+            let parameter_type = tool_manifest
+                .tools
+                .iter()
+                .find(|tool| tool.name == tool_name.0)
+                .and_then(|tool| {
+                    tool.parameters
+                        .iter()
+                        .find(|parameter| parameter.name == name)
+                })
+                .map(|parameter| &parameter.parameter_type);
             Some(ToolCallArgument {
                 name: ToolParameterName(name),
-                value: tool_argument_value_from_payload(value)?,
+                value: tool_argument_value_from_payload(value, parameter_type)?,
             })
         })
         .collect()
 }
 
-fn tool_argument_value_from_payload(payload: StructuredPayload) -> Option<ToolArgumentValue> {
+fn tool_argument_value_from_payload(
+    payload: StructuredPayload,
+    parameter_type: Option<&ToolParameterType>,
+) -> Option<ToolArgumentValue> {
     match payload {
         StructuredPayload::String(value) => Some(ToolArgumentValue::String(value)),
+        StructuredPayload::Number(value)
+            if parameter_type == Some(&ToolParameterType::Integer)
+                && value.is_finite()
+                && value.fract() == 0.0
+                && value >= i64::MIN as f64
+                && value <= i64::MAX as f64 =>
+        {
+            Some(ToolArgumentValue::Integer(value as i64))
+        }
         StructuredPayload::Number(value) => Some(ToolArgumentValue::Number(value)),
         StructuredPayload::Boolean(value) => Some(ToolArgumentValue::Boolean(value)),
         StructuredPayload::Object(_) | StructuredPayload::Array(_) | StructuredPayload::Null => {
