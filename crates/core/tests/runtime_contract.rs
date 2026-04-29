@@ -136,7 +136,12 @@ async fn task_runtime_start_requests_model_from_user_cursor_without_draining_que
         .await
         .expect("send start");
     let _ready = router_rx.recv().await.expect("ready");
-    let request = recv_model_request(&mut router_rx).await;
+    let request = tokio::time::timeout(
+        Duration::from_millis(50),
+        recv_model_request(&mut router_rx),
+    )
+    .await
+    .expect("model request from user cursor");
 
     let last_text =
         request
@@ -229,6 +234,83 @@ async fn task_runtime_start_dispatches_tool_from_function_call_cursor() {
 
     assert_eq!(request.function_call_id.0, "call-1");
     assert_eq!(request.tool_name.0, "search");
+}
+
+#[tokio::test]
+async fn task_runtime_start_reconstructs_open_batched_tool_calls_from_history() {
+    let db = open_db(OpenDbOptions {
+        sqlite_path: ":memory:".to_owned(),
+    })
+    .expect("open db");
+    register_tool(
+        &db,
+        ToolSpec {
+            name: "search".to_owned(),
+            description: "search".to_owned(),
+            parameters: Vec::new(),
+        },
+    )
+    .expect("register tool");
+    create_root_task(
+        &db,
+        CreateRootTaskInput {
+            task_id: TaskId("task-1".to_owned()),
+            initial_node: NewHistoryNode {
+                parent_node_id: None,
+                content: NewHistoryNodeContent::Message(NewMessageNodeContent {
+                    message_role: selvedge_db::MessageRole::System,
+                    message_text: "system".to_owned(),
+                }),
+                created_at: UnixTs(1),
+            },
+            model_profile_key: selvedge_db::ModelProfileKey("default".to_owned()),
+            reasoning_effort: ReasoningEffort::Medium,
+            enabled_tools: vec![ToolName("search".to_owned())],
+            now: UnixTs(1),
+        },
+    )
+    .expect("create task");
+    append_model_reply_with_tool_calls_and_move_cursor(
+        &db,
+        &TaskId("task-1".to_owned()),
+        None,
+        vec![
+            NewFunctionCallNodeContent {
+                function_call_id: FunctionCallId("call-1".to_owned()),
+                tool_name: ToolName("search".to_owned()),
+                arguments: Vec::new(),
+            },
+            NewFunctionCallNodeContent {
+                function_call_id: FunctionCallId("call-2".to_owned()),
+                tool_name: ToolName("search".to_owned()),
+                arguments: Vec::new(),
+            },
+        ],
+        UnixTs(2),
+    )
+    .expect("append batched calls");
+
+    let (router_tx, mut router_rx) = tokio::sync::mpsc::channel(16);
+    let runtime = spawn_task_runtime(SpawnTaskRuntimeArgs {
+        task_id: TaskId("task-1".to_owned()),
+        db,
+        router_tx,
+        config: TaskRuntimeConfig {
+            mailbox_capacity: 16,
+            model_profiles: model_profiles(),
+        },
+    })
+    .expect("spawn runtime");
+
+    runtime
+        .task_runtime_tx
+        .send(TaskRuntimeCommand::Start)
+        .await
+        .expect("send start");
+    let _ready = router_rx.recv().await.expect("ready");
+    let first_tool_request = recv_tool_request(&mut router_rx).await;
+
+    assert_eq!(first_tool_request.function_call_id.0, "call-1");
 }
 
 #[tokio::test]
@@ -366,7 +448,12 @@ async fn task_runtime_preserves_batched_tool_call_order_in_next_model_request() 
         .await
         .expect("send second tool result");
 
-    let request = recv_model_request(&mut router_rx).await;
+    let request = tokio::time::timeout(
+        Duration::from_millis(50),
+        recv_model_request(&mut router_rx),
+    )
+    .await
+    .expect("promoted queued model request");
     assert_eq!(
         tool_transcript_events(&request),
         vec![
@@ -831,6 +918,51 @@ async fn task_runtime_reports_current_model_call_failure() {
 }
 
 #[tokio::test]
+async fn task_runtime_promotes_queued_input_after_model_failure() {
+    let (runtime, mut router_rx) = spawn_runtime_with_task(vec![]).await;
+    let correlation = start_and_request_model(&runtime, &mut router_rx).await;
+    runtime
+        .task_runtime_tx
+        .send(TaskRuntimeCommand::UserInput {
+            message_text: "queued".to_owned(),
+        })
+        .await
+        .expect("queue input");
+
+    runtime
+        .task_runtime_tx
+        .send(TaskRuntimeCommand::ApiModelReply(
+            ApiOutputEnvelope::Failure {
+                correlation,
+                error: ModelCallError {
+                    kind: ModelCallErrorKind::ProviderNetwork,
+                    message: "network".to_owned(),
+                },
+            },
+        ))
+        .await
+        .expect("send model failure");
+
+    let event = router_rx.recv().await.expect("error event");
+    assert!(matches!(
+        event,
+        RouterIngressMessage::Core(envelope)
+            if matches!(&envelope.message, CoreOutputMessage::PublishDomainEvent(_))
+    ));
+    let request = recv_model_request(&mut router_rx).await;
+    let last_text =
+        request
+            .conversation
+            .messages
+            .last()
+            .and_then(|message| match &message.content {
+                MessageContent::Text(text) => Some(text.as_str()),
+                _ => None,
+            });
+    assert_eq!(last_text, Some("queued"));
+}
+
+#[tokio::test]
 async fn task_runtime_rejects_empty_idle_user_input_before_append() {
     let db = open_db(OpenDbOptions {
         sqlite_path: ":memory:".to_owned(),
@@ -1147,7 +1279,7 @@ async fn task_runtime_rejects_out_of_range_integer_arguments() {
 }
 
 #[tokio::test]
-async fn task_runtime_rejects_unpaired_tool_calls_before_model_dispatch() {
+async fn task_runtime_recovers_open_tool_call_before_model_dispatch() {
     let db = open_db(OpenDbOptions {
         sqlite_path: ":memory:".to_owned(),
     })
@@ -1225,15 +1357,9 @@ async fn task_runtime_rejects_unpaired_tool_calls_before_model_dispatch() {
         .await
         .expect("send start");
     let _ready = router_rx.recv().await.expect("ready");
-    runtime
-        .task_runtime_tx
-        .send(TaskRuntimeCommand::UserInput {
-            message_text: "hello".to_owned(),
-        })
-        .await
-        .expect("send input");
+    let request = recv_tool_request(&mut router_rx).await;
 
-    assert_internal_exit(&mut router_rx).await;
+    assert_eq!(request.function_call_id.0, "call-1");
 }
 
 #[tokio::test]

@@ -166,6 +166,14 @@ pub struct HistoryFunctionOutputNodeRow {
 }
 
 #[derive(Clone, Debug, PartialEq)]
+pub struct OpenFunctionCall {
+    pub function_call_node_id: HistoryNodeId,
+    pub function_call_id: FunctionCallId,
+    pub tool_name: ToolName,
+    pub arguments: Vec<ToolCallArgument>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
 pub enum HistoryNode {
     Message {
         node_id: HistoryNodeId,
@@ -537,6 +545,80 @@ pub fn append_function_output_and_drain_queue(
     }
     tx.commit().map_err(map_error)?;
     Ok(last_node_id)
+}
+
+pub fn drain_queued_user_inputs_and_move_cursor(
+    db: &DbPool,
+    task_id: &TaskId,
+    created_at: UnixTs,
+) -> Result<Option<HistoryNodeId>, DbError> {
+    let mut connection = db.connection()?;
+    let tx = connection.transaction().map_err(map_error)?;
+    ensure_active_task_in_tx(&tx, task_id)?;
+    let last_node_id = append_all_queued_user_inputs_in_tx(&tx, task_id, created_at)?;
+    tx.commit().map_err(map_error)?;
+    Ok(last_node_id)
+}
+
+pub fn read_open_function_calls_for_task(
+    db: &DbPool,
+    task_id: &TaskId,
+) -> Result<Vec<OpenFunctionCall>, DbError> {
+    let task = load_active_task(db, task_id)?.task;
+    let connection = db.connection()?;
+    let mut nodes = Vec::new();
+    let mut next_node_id = Some(task.cursor_node_id);
+    while let Some(node_id) = next_node_id {
+        let node = read_history_node_concrete_in_connection(&connection, &node_id)?;
+        next_node_id = match &node {
+            HistoryNode::Message { parent_node_id, .. }
+            | HistoryNode::Reasoning { parent_node_id, .. }
+            | HistoryNode::FunctionCall { parent_node_id, .. }
+            | HistoryNode::FunctionOutput { parent_node_id, .. } => *parent_node_id,
+        };
+        nodes.push(node);
+    }
+    nodes.reverse();
+
+    let mut open_calls = Vec::<OpenFunctionCall>::new();
+    for node in nodes {
+        match node {
+            HistoryNode::FunctionCall {
+                node_id,
+                function_call_id,
+                tool_name,
+                arguments,
+                ..
+            } => {
+                open_calls.push(OpenFunctionCall {
+                    function_call_node_id: node_id,
+                    function_call_id,
+                    tool_name,
+                    arguments,
+                });
+            }
+            HistoryNode::FunctionOutput {
+                function_call_node_id,
+                function_call_id,
+                tool_name,
+                ..
+            } => {
+                if let Some(index) = open_calls.iter().position(|call| {
+                    call.function_call_node_id == function_call_node_id
+                        && call.function_call_id == function_call_id
+                        && call.tool_name == tool_name
+                }) {
+                    open_calls.remove(index);
+                } else {
+                    return Err(DbError::Constraint(
+                        "function output must reference a prior open function call".to_owned(),
+                    ));
+                }
+            }
+            HistoryNode::Message { .. } | HistoryNode::Reasoning { .. } => {}
+        }
+    }
+    Ok(open_calls)
 }
 
 fn append_history_node_and_move_cursor(

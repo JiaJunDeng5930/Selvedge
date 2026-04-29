@@ -15,8 +15,8 @@ use selvedge_db::{
     ToolCallArgument, ToolName, ToolParameterName, UnixTs,
     append_assistant_message_and_drain_queue, append_function_output_and_drain_queue,
     append_model_reply_with_tool_calls_and_move_cursor, append_user_message_and_move_cursor,
-    archive_task, load_active_task, queue_user_input, read_conversation_for_task,
-    read_tool_manifest_for_task,
+    archive_task, drain_queued_user_inputs_and_move_cursor, load_active_task, queue_user_input,
+    read_conversation_for_task, read_open_function_calls_for_task, read_tool_manifest_for_task,
 };
 use selvedge_domain_model::{
     ConversationItem, ConversationMessage, ConversationPath, MessageContent, ModelProfileKey,
@@ -163,6 +163,14 @@ impl TaskRuntimeActor {
     }
 
     async fn start_from_cursor_tail(&mut self, loaded: selvedge_db::LoadedActiveTask) -> bool {
+        match read_open_function_calls_for_task(&self.db, &self.task_id) {
+            Ok(open_calls) if !open_calls.is_empty() => {
+                return self.dispatch_open_tool_calls(open_calls).await;
+            }
+            Ok(_) => {}
+            Err(error) => return self.stop_with_db_error(error).await,
+        }
+
         match loaded.cursor_node {
             HistoryNode::Message { message_role, .. } => match message_role {
                 MessageRole::System | MessageRole::User => self.request_model_call().await,
@@ -206,6 +214,25 @@ impl TaskRuntimeActor {
                     .await
             }
         }
+    }
+
+    async fn dispatch_open_tool_calls(
+        &mut self,
+        open_calls: Vec<selvedge_db::OpenFunctionCall>,
+    ) -> bool {
+        let mut pending_tool_calls = open_calls
+            .into_iter()
+            .map(|call| PendingToolCall {
+                function_call_node_id: call.function_call_node_id,
+                function_call_id: call.function_call_id,
+                tool_name: call.tool_name,
+                arguments: call.arguments,
+            })
+            .collect::<VecDeque<_>>();
+        let Some(tool_call) = pending_tool_calls.pop_front() else {
+            return false;
+        };
+        self.dispatch_tool_call(tool_call, pending_tool_calls).await
     }
 
     async fn handle_user_input(&mut self, message_text: String) -> bool {
@@ -300,6 +327,14 @@ impl TaskRuntimeActor {
                     return false;
                 }
                 self.wait_state = WaitState::AwaitingUserInput;
+                let promoted_queued_input = match drain_queued_user_inputs_and_move_cursor(
+                    &self.db,
+                    &self.task_id,
+                    now(),
+                ) {
+                    Ok(node_id) => node_id.is_some(),
+                    Err(error) => return self.stop_with_db_error(error).await,
+                };
                 if self
                     .send_core(CoreOutputMessage::PublishDomainEvent(
                         DomainEventPublishRequest {
@@ -317,7 +352,11 @@ impl TaskRuntimeActor {
                 {
                     return true;
                 }
-                false
+                if promoted_queued_input {
+                    self.request_model_call().await
+                } else {
+                    false
+                }
             }
         }
     }
