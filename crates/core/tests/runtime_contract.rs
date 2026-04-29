@@ -2,7 +2,8 @@ use std::collections::BTreeMap;
 
 use selvedge_command_model::{
     ApiCallCorrelation, ApiOutputEnvelope, CoreOutputMessage, ModelCallDispatchRequest,
-    RouterIngressMessage, TaskRuntimeCommand, TaskRuntimeExitReason, ToolExecutionResult,
+    ModelCallError, ModelCallErrorKind, ModelRunId, RouterIngressMessage, TaskRuntimeCommand,
+    TaskRuntimeExitReason, ToolExecutionResult,
 };
 use selvedge_core::{SpawnTaskRuntimeArgs, TaskRuntimeConfig, spawn_task_runtime};
 use selvedge_db::{
@@ -288,6 +289,107 @@ async fn task_runtime_rejects_tool_calls_missing_required_arguments() {
                         call_id: "call-1".to_owned(),
                         tool_name: "repeat".to_owned(),
                         arguments: StructuredPayload::Object(BTreeMap::new()),
+                    }],
+                    usage: None,
+                    finish_reason: ModelFinishReason::ToolCalls,
+                },
+            },
+        ))
+        .await
+        .expect("send model reply");
+
+    assert_internal_exit(&mut router_rx).await;
+}
+
+#[tokio::test]
+async fn task_runtime_ignores_unrelated_validation_failure_while_waiting() {
+    let (runtime, mut router_rx) = spawn_runtime_with_task(vec![]).await;
+    let correlation = start_and_request_model(&runtime, &mut router_rx).await;
+    runtime
+        .task_runtime_tx
+        .send(TaskRuntimeCommand::UserInput {
+            message_text: "queued".to_owned(),
+        })
+        .await
+        .expect("queue while waiting");
+
+    runtime
+        .task_runtime_tx
+        .send(TaskRuntimeCommand::ApiModelReply(
+            ApiOutputEnvelope::Failure {
+                correlation: ApiCallCorrelation {
+                    api_effect_id: selvedge_command_model::ApiEffectId("other".to_owned()),
+                    task_id: TaskId("other-task".to_owned()),
+                    model_run_id: ModelRunId("other-run".to_owned()),
+                },
+                error: ModelCallError {
+                    kind: ModelCallErrorKind::Validation,
+                    message: "unrelated".to_owned(),
+                },
+            },
+        ))
+        .await
+        .expect("send unrelated failure");
+
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_millis(25), router_rx.recv())
+            .await
+            .is_err()
+    );
+
+    runtime
+        .task_runtime_tx
+        .send(TaskRuntimeCommand::ApiModelReply(
+            ApiOutputEnvelope::Success {
+                correlation,
+                reply: ModelReply {
+                    content: Some("done".to_owned()),
+                    tool_calls: Vec::new(),
+                    usage: None,
+                    finish_reason: ModelFinishReason::Stop,
+                },
+            },
+        ))
+        .await
+        .expect("send current reply");
+
+    let next_model_request = router_rx.recv().await.expect("queued model request");
+    assert!(matches!(
+        next_model_request,
+        RouterIngressMessage::Core(envelope)
+            if matches!(envelope.message, CoreOutputMessage::RequestModelCall(_))
+    ));
+}
+
+#[tokio::test]
+async fn task_runtime_rejects_unconvertible_required_arguments() {
+    let (runtime, mut router_rx) = spawn_runtime_with_task(vec![ToolSpec {
+        name: "repeat".to_owned(),
+        description: "repeat".to_owned(),
+        parameters: vec![ToolParameter {
+            name: "count".to_owned(),
+            parameter_type: ToolParameterType::Integer,
+            description: "count".to_owned(),
+            required: true,
+        }],
+    }])
+    .await;
+    let correlation = start_and_request_model(&runtime, &mut router_rx).await;
+
+    runtime
+        .task_runtime_tx
+        .send(TaskRuntimeCommand::ApiModelReply(
+            ApiOutputEnvelope::Success {
+                correlation,
+                reply: ModelReply {
+                    content: None,
+                    tool_calls: vec![ToolCallProposal {
+                        call_id: "call-1".to_owned(),
+                        tool_name: "repeat".to_owned(),
+                        arguments: StructuredPayload::Object(BTreeMap::from([(
+                            "count".to_owned(),
+                            StructuredPayload::Null,
+                        )])),
                     }],
                     usage: None,
                     finish_reason: ModelFinishReason::ToolCalls,

@@ -5,9 +5,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use selvedge_command_model::{
     ApiEffectId, ApiOutputEnvelope, CoreOutputEnvelope, CoreOutputMessage,
-    ModelCallDispatchRequest, ModelCallErrorKind, ModelRunId, RouterIngressMessage,
-    RouterIngressSender, TaskRuntimeCommand, TaskRuntimeExitNotice, TaskRuntimeExitReason,
-    TaskRuntimeSender, ToolExecutionRequest, ToolExecutionResult, ToolExecutionRunId,
+    ModelCallDispatchRequest, ModelRunId, RouterIngressMessage, RouterIngressSender,
+    TaskRuntimeCommand, TaskRuntimeExitNotice, TaskRuntimeExitReason, TaskRuntimeSender,
+    ToolExecutionRequest, ToolExecutionResult, ToolExecutionRunId,
 };
 use selvedge_db::{
     DbError, DbPool, HistoryNodeId, MessageRole, NewFunctionCallNodeContent,
@@ -204,9 +204,8 @@ impl TaskRuntimeActor {
                 }
             }
             ApiOutputEnvelope::Failure { correlation, error } => {
-                if error.kind != ModelCallErrorKind::Validation
-                    && (correlation.task_id != self.task_id
-                        || correlation.model_run_id != expected_model_run_id)
+                if correlation.task_id != self.task_id
+                    || correlation.model_run_id != expected_model_run_id
                 {
                     return false;
                 }
@@ -573,20 +572,24 @@ fn tool_call_arguments_from_payload(
         }
     }
 
-    let converted = arguments
-        .into_iter()
-        .filter_map(|(name, value)| {
-            let parameter_type = tool_spec
-                .parameters
-                .iter()
-                .find(|parameter| parameter.name == name)
-                .map(|parameter| &parameter.parameter_type);
-            Some(ToolCallArgument {
-                name: ToolParameterName(name),
-                value: tool_argument_value_from_payload(value, parameter_type)?,
-            })
-        })
-        .collect();
+    let mut converted = Vec::with_capacity(arguments.len());
+    for (name, value) in arguments {
+        let parameter_type = tool_spec
+            .parameters
+            .iter()
+            .find(|parameter| parameter.name == name)
+            .map(|parameter| &parameter.parameter_type);
+        let Some(value) = tool_argument_value_from_payload(value, parameter_type) else {
+            return Err(format!(
+                "tool argument value cannot be converted: {}.{}",
+                tool_name.0, name
+            ));
+        };
+        converted.push(ToolCallArgument {
+            name: ToolParameterName(name),
+            value,
+        });
+    }
     Ok(converted)
 }
 
