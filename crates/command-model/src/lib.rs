@@ -116,7 +116,7 @@ pub enum CoreOutputMessage {
     RequestModelCall(ModelCallRequest),
     RequestToolExecution(ToolExecutionRequest),
     PublishDomainEvent(DomainEventPublishRequest),
-    RuntimeReady { sender: TaskRuntimeSender },
+    RuntimeReady,
 }
 
 #[derive(Clone, Debug, PartialEq)]

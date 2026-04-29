@@ -1,7 +1,7 @@
 use selvedge_db::{
-    CreateChildTaskInput, CreateRootTaskInput, HistoryContentKindRow, MessageRole, NewHistoryNode,
+    CreateChildTaskInput, CreateRootTaskInput, HistoryNode, MessageRole, NewHistoryNode,
     NewHistoryNodeContent, NewMessageNodeContent, OpenDbOptions, ReasoningEffort, TaskId,
-    TaskStatusRow, UnixTs, append_history_node_and_move_cursor, archive_task, create_child_task,
+    TaskStatusRow, UnixTs, append_user_message_and_move_cursor, archive_task, create_child_task,
     create_root_task, load_active_task, open_db, queue_user_input, read_conversation_for_task,
 };
 use selvedge_domain_model::ConversationItem;
@@ -38,10 +38,7 @@ fn open_db_creates_schema_and_root_task_transaction_moves_cursor() {
 
     let loaded = load_active_task(&db, &TaskId("task-1".to_owned())).expect("load active task");
     assert_eq!(loaded.task.cursor_node_id, task.cursor_node_id);
-    assert_eq!(
-        loaded.cursor_node.content_kind,
-        HistoryContentKindRow::Message
-    );
+    assert!(matches!(loaded.cursor_node, HistoryNode::Message { .. }));
 }
 
 #[test]
@@ -86,7 +83,7 @@ fn append_history_uses_new_node_timestamp_for_task_updated_at() {
         sqlite_path: ":memory:".to_owned(),
     })
     .expect("open db");
-    let task = create_root_task(
+    create_root_task(
         &db,
         CreateRootTaskInput {
             task_id: TaskId("task-1".to_owned()),
@@ -106,17 +103,11 @@ fn append_history_uses_new_node_timestamp_for_task_updated_at() {
     )
     .expect("create root task");
 
-    selvedge_db::append_history_node_and_move_cursor(
+    append_user_message_and_move_cursor(
         &db,
         &TaskId("task-1".to_owned()),
-        NewHistoryNode {
-            parent_node_id: Some(task.cursor_node_id),
-            content: NewHistoryNodeContent::Message(NewMessageNodeContent {
-                message_role: MessageRole::User,
-                message_text: "future append".to_owned(),
-            }),
-            created_at: UnixTs(4_102_444_801),
-        },
+        "future append".to_owned(),
+        UnixTs(4_102_444_801),
     )
     .expect("append history");
 }
@@ -127,7 +118,7 @@ fn append_history_uses_database_cursor_as_parent() {
         sqlite_path: ":memory:".to_owned(),
     })
     .expect("open db");
-    let task = create_root_task(
+    create_root_task(
         &db,
         CreateRootTaskInput {
             task_id: TaskId("task-1".to_owned()),
@@ -146,31 +137,19 @@ fn append_history_uses_database_cursor_as_parent() {
         },
     )
     .expect("create root task");
-    append_history_node_and_move_cursor(
+    append_user_message_and_move_cursor(
         &db,
         &TaskId("task-1".to_owned()),
-        NewHistoryNode {
-            parent_node_id: Some(task.cursor_node_id),
-            content: NewHistoryNodeContent::Message(NewMessageNodeContent {
-                message_role: MessageRole::User,
-                message_text: "first append".to_owned(),
-            }),
-            created_at: UnixTs(11),
-        },
+        "first append".to_owned(),
+        UnixTs(11),
     )
     .expect("append once");
 
-    append_history_node_and_move_cursor(
+    append_user_message_and_move_cursor(
         &db,
         &TaskId("task-1".to_owned()),
-        NewHistoryNode {
-            parent_node_id: Some(task.cursor_node_id),
-            content: NewHistoryNodeContent::Message(NewMessageNodeContent {
-                message_role: MessageRole::User,
-                message_text: "stale append".to_owned(),
-            }),
-            created_at: UnixTs(12),
-        },
+        "stale append".to_owned(),
+        UnixTs(12),
     )
     .expect("append uses database cursor");
 

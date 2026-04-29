@@ -10,10 +10,11 @@ use selvedge_command_model::{
     TaskRuntimeSender, ToolExecutionRequest, ToolExecutionResult, ToolExecutionRunId,
 };
 use selvedge_db::{
-    DbError, DbPool, FunctionCallId, HistoryNodeId, MessageRole, NewFunctionCallNodeContent,
-    NewFunctionOutputNodeContent, NewHistoryNode, NewHistoryNodeContent, NewMessageNodeContent,
-    TaskId, ToolArgumentValue, ToolCallArgument, ToolName, ToolParameterName, UnixTs,
-    append_history_node_and_move_cursor, append_next_queued_user_input_and_move_cursor,
+    DbError, DbPool, FunctionCallId, HistoryNode, HistoryNodeId, MessageRole,
+    NewFunctionCallNodeContent, NewFunctionOutputNodeContent, TaskId, ToolArgumentValue,
+    ToolCallArgument, ToolName, ToolParameterName, UnixTs,
+    append_assistant_message_and_drain_queue, append_function_output_and_drain_queue,
+    append_model_reply_with_tool_calls_and_move_cursor, append_user_message_and_move_cursor,
     archive_task, load_active_task, queue_user_input, read_conversation_for_task,
     read_tool_manifest_for_task,
 };
@@ -64,12 +65,10 @@ pub fn spawn_task_runtime(
         task_id: args.task_id,
         db: args.db,
         router_tx: args.router_tx,
-        self_tx: task_runtime_tx,
         rx: task_runtime_rx,
-        cursor_node_id: None,
         started: false,
         model_profiles: args.config.model_profiles,
-        wait_state: WaitState::Idle,
+        wait_state: WaitState::AwaitingUserInput,
     };
     tokio::spawn(actor.run());
 
@@ -80,9 +79,7 @@ struct TaskRuntimeActor {
     task_id: TaskId,
     db: DbPool,
     router_tx: RouterIngressSender,
-    self_tx: TaskRuntimeSender,
     rx: tokio::sync::mpsc::Receiver<TaskRuntimeCommand>,
-    cursor_node_id: Option<HistoryNodeId>,
     started: bool,
     model_profiles: HashMap<ModelProfileKey, ModelProviderProfile>,
     wait_state: WaitState,
@@ -90,7 +87,7 @@ struct TaskRuntimeActor {
 
 #[derive(Clone, Debug, PartialEq)]
 enum WaitState {
-    Idle,
+    AwaitingUserInput,
     WaitingModelReply {
         model_run_id: ModelRunId,
     },
@@ -146,24 +143,67 @@ impl TaskRuntimeActor {
             return false;
         }
         match load_active_task(&self.db, &self.task_id) {
-            Ok(task) => {
+            Ok(loaded) => {
                 self.started = true;
-                self.cursor_node_id = Some(task.task.cursor_node_id);
                 if self
-                    .send_core(CoreOutputMessage::RuntimeReady {
-                        sender: self.self_tx.clone(),
-                    })
+                    .send_core(CoreOutputMessage::RuntimeReady)
                     .await
                     .is_err()
                 {
                     return true;
                 }
-                self.drain_queue_or_idle().await
+                self.start_from_cursor_tail(loaded).await
             }
             Err(error) => {
                 self.send_exit(TaskRuntimeExitReason::DbError(error.to_string()))
                     .await;
                 true
+            }
+        }
+    }
+
+    async fn start_from_cursor_tail(&mut self, loaded: selvedge_db::LoadedActiveTask) -> bool {
+        match loaded.cursor_node {
+            HistoryNode::Message { message_role, .. } => match message_role {
+                MessageRole::System | MessageRole::User => self.request_model_call().await,
+                MessageRole::Assistant | MessageRole::Developer => {
+                    if loaded.queued_inputs.is_empty() {
+                        self.wait_state = WaitState::AwaitingUserInput;
+                        false
+                    } else {
+                        self.stop_with_internal_error(
+                            "queued user input cannot exist while cursor awaits user input",
+                        )
+                        .await
+                    }
+                }
+                MessageRole::Tool => {
+                    self.stop_with_internal_error("tool message cannot be a task cursor tail")
+                        .await
+                }
+            },
+            HistoryNode::FunctionOutput { .. } => self.request_model_call().await,
+            HistoryNode::FunctionCall {
+                node_id,
+                function_call_id,
+                tool_name,
+                arguments,
+                ..
+            } => {
+                self.dispatch_tool_call(
+                    PendingToolCall {
+                        function_call_node_id: node_id,
+                        function_call_id,
+                        tool_name,
+                        arguments,
+                    },
+                    VecDeque::new(),
+                )
+                .await
+            }
+            HistoryNode::Reasoning { .. } => {
+                self.stop_with_internal_error("reasoning cannot be a task cursor tail")
+                    .await
             }
         }
     }
@@ -176,7 +216,7 @@ impl TaskRuntimeActor {
         }
 
         match self.wait_state {
-            WaitState::Idle => {
+            WaitState::AwaitingUserInput => {
                 self.commit_user_message_and_request_model(message_text)
                     .await
             }
@@ -192,7 +232,7 @@ impl TaskRuntimeActor {
     async fn handle_model_reply(&mut self, envelope: ApiOutputEnvelope) -> bool {
         let expected_model_run_id = match &self.wait_state {
             WaitState::WaitingModelReply { model_run_id } => model_run_id.clone(),
-            WaitState::Idle | WaitState::WaitingToolResult { .. } => return false,
+            WaitState::AwaitingUserInput | WaitState::WaitingToolResult { .. } => return false,
         };
 
         match envelope {
@@ -202,7 +242,7 @@ impl TaskRuntimeActor {
                 {
                     return false;
                 }
-                let pending_tool_calls = if reply.tool_calls.is_empty() {
+                let validated_tool_calls = if reply.tool_calls.is_empty() {
                     VecDeque::new()
                 } else {
                     let tool_manifest = match read_tool_manifest_for_task(&self.db, &self.task_id) {
@@ -215,39 +255,42 @@ impl TaskRuntimeActor {
                     }
                 };
 
-                if let Some(content) = reply.content.filter(|content| !content.trim().is_empty()) {
-                    let Some(parent_node_id) = self.cursor_node_id else {
+                if validated_tool_calls.is_empty() {
+                    let Some(content) = reply.content.filter(|content| !content.trim().is_empty())
+                    else {
                         return self
-                            .stop_with_internal_error("task cursor is missing")
+                            .stop_with_internal_error("model reply has no terminal history node")
                             .await;
                     };
-                    match append_history_node_and_move_cursor(
+                    let had_queued_inputs = match load_active_task(&self.db, &self.task_id) {
+                        Ok(loaded) => !loaded.queued_inputs.is_empty(),
+                        Err(error) => return self.stop_with_db_error(error).await,
+                    };
+                    match append_assistant_message_and_drain_queue(
                         &self.db,
                         &self.task_id,
-                        NewHistoryNode {
-                            parent_node_id: Some(parent_node_id),
-                            content: NewHistoryNodeContent::Message(NewMessageNodeContent {
-                                message_role: MessageRole::Assistant,
-                                message_text: content,
-                            }),
-                            created_at: now(),
-                        },
+                        content,
+                        now(),
                     ) {
-                        Ok(node_id) => self.cursor_node_id = Some(node_id),
-                        Err(error) => return self.stop_with_db_error(error).await,
-                    }
-                }
-
-                match self.append_tool_calls(pending_tool_calls) {
-                    Ok(mut pending_tool_calls) => {
-                        if let Some(tool_call) = pending_tool_calls.pop_front() {
-                            self.dispatch_tool_call(tool_call, pending_tool_calls).await
-                        } else {
-                            self.wait_state = WaitState::Idle;
-                            self.drain_queue_or_idle().await
+                        Ok(_) if had_queued_inputs => self.request_model_call().await,
+                        Ok(_) => {
+                            self.wait_state = WaitState::AwaitingUserInput;
+                            false
                         }
+                        Err(error) => self.stop_with_db_error(error).await,
                     }
-                    Err(error) => self.stop_with_db_error(error).await,
+                } else {
+                    let assistant_message_text =
+                        reply.content.filter(|content| !content.trim().is_empty());
+                    match self.append_tool_calls(assistant_message_text, validated_tool_calls) {
+                        Ok(mut pending_tool_calls) => {
+                            let tool_call = pending_tool_calls
+                                .pop_front()
+                                .expect("validated tool calls cannot be empty here");
+                            self.dispatch_tool_call(tool_call, pending_tool_calls).await
+                        }
+                        Err(error) => self.stop_with_db_error(error).await,
+                    }
                 }
             }
             ApiOutputEnvelope::Failure { correlation, error } => {
@@ -256,7 +299,7 @@ impl TaskRuntimeActor {
                 {
                     return false;
                 }
-                self.wait_state = WaitState::Idle;
+                self.wait_state = WaitState::AwaitingUserInput;
                 if self
                     .send_core(CoreOutputMessage::PublishDomainEvent(
                         DomainEventPublishRequest {
@@ -274,49 +317,50 @@ impl TaskRuntimeActor {
                 {
                     return true;
                 }
-                self.drain_queue_or_idle().await
+                false
             }
         }
     }
 
     async fn handle_tool_result(&mut self, result: ToolExecutionResult) -> bool {
-        let pending_tool_calls = match std::mem::replace(&mut self.wait_state, WaitState::Idle) {
-            WaitState::WaitingToolResult {
-                tool_run_id,
-                active_tool_call,
-                pending_tool_calls,
-            } if result.task_id == self.task_id
-                && result.tool_execution_run_id == tool_run_id
-                && result.function_call_node_id == active_tool_call.function_call_node_id
-                && result.function_call_id == active_tool_call.function_call_id
-                && result.tool_name == active_tool_call.tool_name =>
-            {
-                pending_tool_calls
-            }
-            wait_state @ WaitState::WaitingToolResult { .. } => {
-                self.wait_state = wait_state;
-                return false;
-            }
-            wait_state @ (WaitState::Idle | WaitState::WaitingModelReply { .. }) => {
-                self.wait_state = wait_state;
-                return false;
-            }
-        };
+        let pending_tool_calls =
+            match std::mem::replace(&mut self.wait_state, WaitState::AwaitingUserInput) {
+                WaitState::WaitingToolResult {
+                    tool_run_id,
+                    active_tool_call,
+                    pending_tool_calls,
+                } if result.task_id == self.task_id
+                    && result.tool_execution_run_id == tool_run_id
+                    && result.function_call_node_id == active_tool_call.function_call_node_id
+                    && result.function_call_id == active_tool_call.function_call_id
+                    && result.tool_name == active_tool_call.tool_name =>
+                {
+                    pending_tool_calls
+                }
+                wait_state @ WaitState::WaitingToolResult { .. } => {
+                    self.wait_state = wait_state;
+                    return false;
+                }
+                wait_state @ (WaitState::AwaitingUserInput
+                | WaitState::WaitingModelReply { .. }) => {
+                    self.wait_state = wait_state;
+                    return false;
+                }
+            };
 
-        let node = NewHistoryNode {
-            parent_node_id: Some(result.function_call_node_id),
-            content: NewHistoryNodeContent::FunctionOutput(NewFunctionOutputNodeContent {
+        match append_function_output_and_drain_queue(
+            &self.db,
+            &self.task_id,
+            NewFunctionOutputNodeContent {
                 function_call_node_id: result.function_call_node_id,
                 function_call_id: result.function_call_id,
                 tool_name: result.tool_name,
                 output_text: result.output_text,
                 is_error: result.is_error,
-            }),
-            created_at: now(),
-        };
-        match append_history_node_and_move_cursor(&self.db, &self.task_id, node) {
-            Ok(node_id) => {
-                self.cursor_node_id = Some(node_id);
+            },
+            now(),
+        ) {
+            Ok(_) => {
                 self.dispatch_next_tool_or_request_model(pending_tool_calls)
                     .await
             }
@@ -342,27 +386,8 @@ impl TaskRuntimeActor {
     }
 
     fn append_user_message(&mut self, message_text: String) -> Result<(), DbError> {
-        let Some(parent_node_id) = self.cursor_node_id else {
-            return Err(DbError::Storage("task cursor is missing".to_owned()));
-        };
-        match append_history_node_and_move_cursor(
-            &self.db,
-            &self.task_id,
-            NewHistoryNode {
-                parent_node_id: Some(parent_node_id),
-                content: NewHistoryNodeContent::Message(NewMessageNodeContent {
-                    message_role: MessageRole::User,
-                    message_text,
-                }),
-                created_at: now(),
-            },
-        ) {
-            Ok(node_id) => {
-                self.cursor_node_id = Some(node_id);
-                Ok(())
-            }
-            Err(error) => Err(error),
-        }
+        append_user_message_and_move_cursor(&self.db, &self.task_id, message_text, now())
+            .map(|_| ())
     }
 
     async fn request_model_call(&mut self) -> bool {
@@ -410,38 +435,37 @@ impl TaskRuntimeActor {
 
     fn append_tool_calls(
         &mut self,
+        assistant_message_text: Option<String>,
         tool_calls: VecDeque<ValidatedToolCall>,
     ) -> Result<VecDeque<PendingToolCall>, DbError> {
-        let mut pending_tool_calls = VecDeque::new();
-        for tool_call in tool_calls {
-            let Some(parent_node_id) = self.cursor_node_id else {
-                return Err(DbError::Storage("task cursor is missing".to_owned()));
-            };
-            // A model turn can emit several tool calls at once. Persist every
-            // call from that turn before any tool output so the provider path
-            // remains causal: calls describe requested work, outputs describe
-            // later observations correlated by call id.
-            let node_id = append_history_node_and_move_cursor(
-                &self.db,
-                &self.task_id,
-                NewHistoryNode {
-                    parent_node_id: Some(parent_node_id),
-                    content: NewHistoryNodeContent::FunctionCall(NewFunctionCallNodeContent {
-                        function_call_id: tool_call.function_call_id.clone(),
-                        tool_name: tool_call.tool_name.clone(),
-                        arguments: tool_call.arguments.clone(),
-                    }),
-                    created_at: now(),
-                },
-            )?;
-            self.cursor_node_id = Some(node_id);
-            pending_tool_calls.push_back(PendingToolCall {
+        // A model turn can emit several tool calls at once. Persist every call
+        // from that turn in one DB transaction before any tool output so the
+        // provider path keeps the reply batch as durable history.
+        let tool_calls = tool_calls.into_iter().collect::<Vec<_>>();
+        let function_call_node_ids = append_model_reply_with_tool_calls_and_move_cursor(
+            &self.db,
+            &self.task_id,
+            assistant_message_text,
+            tool_calls
+                .iter()
+                .map(|tool_call| NewFunctionCallNodeContent {
+                    function_call_id: tool_call.function_call_id.clone(),
+                    tool_name: tool_call.tool_name.clone(),
+                    arguments: tool_call.arguments.clone(),
+                })
+                .collect(),
+            now(),
+        )?;
+        let pending_tool_calls = function_call_node_ids
+            .into_iter()
+            .zip(tool_calls)
+            .map(|(node_id, tool_call)| PendingToolCall {
                 function_call_node_id: node_id,
                 function_call_id: tool_call.function_call_id,
                 tool_name: tool_call.tool_name,
                 arguments: tool_call.arguments,
-            });
-        }
+            })
+            .collect();
         Ok(pending_tool_calls)
     }
 
@@ -477,21 +501,6 @@ impl TaskRuntimeActor {
             self.dispatch_tool_call(tool_call, pending_tool_calls).await
         } else {
             self.request_model_call().await
-        }
-    }
-
-    async fn drain_queue_or_idle(&mut self) -> bool {
-        match append_next_queued_user_input_and_move_cursor(&self.db, &self.task_id, now()) {
-            Ok(Some(node_id)) => {
-                self.cursor_node_id = Some(node_id);
-                self.wait_state = WaitState::Idle;
-                self.request_model_call().await
-            }
-            Ok(None) => {
-                self.wait_state = WaitState::Idle;
-                false
-            }
-            Err(error) => self.stop_with_db_error(error).await,
         }
     }
 

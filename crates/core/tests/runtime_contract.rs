@@ -8,11 +8,12 @@ use selvedge_command_model::{
 };
 use selvedge_core::{SpawnTaskRuntimeArgs, TaskRuntimeConfig, spawn_task_runtime};
 use selvedge_db::{
-    CreateRootTaskInput, FunctionCallId, NewFunctionCallNodeContent, NewHistoryNode,
-    NewHistoryNodeContent, NewMessageNodeContent, OpenDbOptions, ReasoningEffort, TaskId,
-    ToolArgumentValue, ToolCallArgument, ToolName, ToolParameterName, UnixTs,
-    append_history_node_and_move_cursor, create_root_task, load_active_task, open_db,
-    queue_user_input, register_tool,
+    CreateRootTaskInput, FunctionCallId, NewFunctionCallNodeContent, NewFunctionOutputNodeContent,
+    NewHistoryNode, NewHistoryNodeContent, NewMessageNodeContent, OpenDbOptions, ReasoningEffort,
+    TaskId, ToolArgumentValue, ToolCallArgument, ToolName, ToolParameterName, UnixTs,
+    append_assistant_message_and_drain_queue, append_function_output_and_drain_queue,
+    append_model_reply_with_tool_calls_and_move_cursor, append_user_message_and_move_cursor,
+    create_root_task, load_active_task, open_db, queue_user_input, register_tool,
 };
 use selvedge_domain_model::{
     MessageContent, ModelFinishReason, ModelReply, StructuredPayload, ToolCallProposal,
@@ -20,7 +21,7 @@ use selvedge_domain_model::{
 };
 
 #[tokio::test]
-async fn task_runtime_starts_and_requests_model_call_for_user_input() {
+async fn task_runtime_starts_and_requests_model_call_from_system_cursor() {
     let db = open_db(OpenDbOptions {
         sqlite_path: ":memory:".to_owned(),
     })
@@ -66,16 +67,8 @@ async fn task_runtime_starts_and_requests_model_call_for_user_input() {
     assert!(matches!(
         ready,
         RouterIngressMessage::Core(envelope)
-            if matches!(envelope.message, CoreOutputMessage::RuntimeReady { .. })
+            if matches!(envelope.message, CoreOutputMessage::RuntimeReady)
     ));
-
-    runtime
-        .task_runtime_tx
-        .send(TaskRuntimeCommand::UserInput {
-            message_text: "hello".to_owned(),
-        })
-        .await
-        .expect("send input");
 
     let request = router_rx.recv().await.expect("model request");
     assert!(matches!(
@@ -83,6 +76,159 @@ async fn task_runtime_starts_and_requests_model_call_for_user_input() {
         RouterIngressMessage::Core(envelope)
             if matches!(envelope.message, CoreOutputMessage::RequestModelCall(_))
     ));
+}
+
+#[tokio::test]
+async fn task_runtime_start_requests_model_from_user_cursor_without_draining_queue() {
+    let db = open_db(OpenDbOptions {
+        sqlite_path: ":memory:".to_owned(),
+    })
+    .expect("open db");
+    create_root_task(
+        &db,
+        CreateRootTaskInput {
+            task_id: TaskId("task-1".to_owned()),
+            initial_node: NewHistoryNode {
+                parent_node_id: None,
+                content: NewHistoryNodeContent::Message(NewMessageNodeContent {
+                    message_role: selvedge_db::MessageRole::System,
+                    message_text: "system".to_owned(),
+                }),
+                created_at: UnixTs(1),
+            },
+            model_profile_key: selvedge_db::ModelProfileKey("default".to_owned()),
+            reasoning_effort: ReasoningEffort::Medium,
+            enabled_tools: Vec::new(),
+            now: UnixTs(1),
+        },
+    )
+    .expect("create task");
+    append_user_message_and_move_cursor(
+        &db,
+        &TaskId("task-1".to_owned()),
+        "current".to_owned(),
+        UnixTs(2),
+    )
+    .expect("append user cursor");
+    queue_user_input(
+        &db,
+        &TaskId("task-1".to_owned()),
+        "queued".to_owned(),
+        UnixTs(3),
+    )
+    .expect("queue input");
+
+    let (router_tx, mut router_rx) = tokio::sync::mpsc::channel(16);
+    let runtime = spawn_task_runtime(SpawnTaskRuntimeArgs {
+        task_id: TaskId("task-1".to_owned()),
+        db: db.clone(),
+        router_tx,
+        config: TaskRuntimeConfig {
+            mailbox_capacity: 16,
+            model_profiles: model_profiles(),
+        },
+    })
+    .expect("spawn runtime");
+
+    runtime
+        .task_runtime_tx
+        .send(TaskRuntimeCommand::Start)
+        .await
+        .expect("send start");
+    let _ready = router_rx.recv().await.expect("ready");
+    let request = recv_model_request(&mut router_rx).await;
+
+    let last_text =
+        request
+            .conversation
+            .messages
+            .last()
+            .and_then(|message| match &message.content {
+                MessageContent::Text(text) => Some(text.as_str()),
+                _ => None,
+            });
+    assert_eq!(last_text, Some("current"));
+    assert_eq!(
+        load_active_task(&db, &TaskId("task-1".to_owned()))
+            .expect("load task")
+            .queued_inputs
+            .len(),
+        1
+    );
+}
+
+#[tokio::test]
+async fn task_runtime_start_dispatches_tool_from_function_call_cursor() {
+    let db = open_db(OpenDbOptions {
+        sqlite_path: ":memory:".to_owned(),
+    })
+    .expect("open db");
+    register_tool(
+        &db,
+        ToolSpec {
+            name: "search".to_owned(),
+            description: "search".to_owned(),
+            parameters: Vec::new(),
+        },
+    )
+    .expect("register tool");
+    create_root_task(
+        &db,
+        CreateRootTaskInput {
+            task_id: TaskId("task-1".to_owned()),
+            initial_node: NewHistoryNode {
+                parent_node_id: None,
+                content: NewHistoryNodeContent::Message(NewMessageNodeContent {
+                    message_role: selvedge_db::MessageRole::System,
+                    message_text: "system".to_owned(),
+                }),
+                created_at: UnixTs(1),
+            },
+            model_profile_key: selvedge_db::ModelProfileKey("default".to_owned()),
+            reasoning_effort: ReasoningEffort::Medium,
+            enabled_tools: vec![ToolName("search".to_owned())],
+            now: UnixTs(1),
+        },
+    )
+    .expect("create task");
+    append_model_reply_with_tool_calls_and_move_cursor(
+        &db,
+        &TaskId("task-1".to_owned()),
+        None,
+        vec![NewFunctionCallNodeContent {
+            function_call_id: FunctionCallId("call-1".to_owned()),
+            tool_name: ToolName("search".to_owned()),
+            arguments: Vec::new(),
+        }],
+        UnixTs(2),
+    )
+    .expect("append function call");
+
+    let (router_tx, mut router_rx) = tokio::sync::mpsc::channel(16);
+    let runtime = spawn_task_runtime(SpawnTaskRuntimeArgs {
+        task_id: TaskId("task-1".to_owned()),
+        db,
+        router_tx,
+        config: TaskRuntimeConfig {
+            mailbox_capacity: 16,
+            model_profiles: model_profiles(),
+        },
+    })
+    .expect("spawn runtime");
+
+    runtime
+        .task_runtime_tx
+        .send(TaskRuntimeCommand::Start)
+        .await
+        .expect("send start");
+    let _ready = router_rx.recv().await.expect("ready");
+    let request =
+        tokio::time::timeout(Duration::from_millis(50), recv_tool_request(&mut router_rx))
+            .await
+            .expect("tool request");
+
+    assert_eq!(request.function_call_id.0, "call-1");
+    assert_eq!(request.tool_name.0, "search");
 }
 
 #[tokio::test]
@@ -686,7 +832,40 @@ async fn task_runtime_reports_current_model_call_failure() {
 
 #[tokio::test]
 async fn task_runtime_rejects_empty_idle_user_input_before_append() {
-    let (runtime, mut router_rx) = spawn_runtime_with_task(vec![]).await;
+    let db = open_db(OpenDbOptions {
+        sqlite_path: ":memory:".to_owned(),
+    })
+    .expect("open db");
+    create_root_task(
+        &db,
+        CreateRootTaskInput {
+            task_id: TaskId("task-1".to_owned()),
+            initial_node: NewHistoryNode {
+                parent_node_id: None,
+                content: NewHistoryNodeContent::Message(NewMessageNodeContent {
+                    message_role: selvedge_db::MessageRole::Assistant,
+                    message_text: "assistant".to_owned(),
+                }),
+                created_at: UnixTs(1),
+            },
+            model_profile_key: selvedge_db::ModelProfileKey("default".to_owned()),
+            reasoning_effort: ReasoningEffort::Medium,
+            enabled_tools: Vec::new(),
+            now: UnixTs(1),
+        },
+    )
+    .expect("create task");
+    let (router_tx, mut router_rx) = tokio::sync::mpsc::channel(16);
+    let runtime = spawn_task_runtime(SpawnTaskRuntimeArgs {
+        task_id: TaskId("task-1".to_owned()),
+        db,
+        router_tx,
+        config: TaskRuntimeConfig {
+            mailbox_capacity: 16,
+            model_profiles: model_profiles(),
+        },
+    })
+    .expect("spawn runtime");
     runtime
         .task_runtime_tx
         .send(TaskRuntimeCommand::Start)
@@ -987,7 +1166,7 @@ async fn task_runtime_rejects_unpaired_tool_calls_before_model_dispatch() {
         },
     )
     .expect("register tool");
-    let task = create_root_task(
+    create_root_task(
         &db,
         CreateRootTaskInput {
             task_id: TaskId("task-1".to_owned()),
@@ -1006,23 +1185,28 @@ async fn task_runtime_rejects_unpaired_tool_calls_before_model_dispatch() {
         },
     )
     .expect("create task");
-    append_history_node_and_move_cursor(
+    append_model_reply_with_tool_calls_and_move_cursor(
         &db,
         &TaskId("task-1".to_owned()),
-        NewHistoryNode {
-            parent_node_id: Some(task.cursor_node_id),
-            content: NewHistoryNodeContent::FunctionCall(NewFunctionCallNodeContent {
-                function_call_id: FunctionCallId("call-1".to_owned()),
-                tool_name: ToolName("repeat".to_owned()),
-                arguments: vec![ToolCallArgument {
-                    name: ToolParameterName("count".to_owned()),
-                    value: ToolArgumentValue::Integer(1),
-                }],
-            }),
-            created_at: UnixTs(2),
-        },
+        None,
+        vec![NewFunctionCallNodeContent {
+            function_call_id: FunctionCallId("call-1".to_owned()),
+            tool_name: ToolName("repeat".to_owned()),
+            arguments: vec![ToolCallArgument {
+                name: ToolParameterName("count".to_owned()),
+                value: ToolArgumentValue::Integer(1),
+            }],
+        }],
+        UnixTs(2),
     )
     .expect("append unpaired function call");
+    append_assistant_message_and_drain_queue(
+        &db,
+        &TaskId("task-1".to_owned()),
+        "assistant".to_owned(),
+        UnixTs(3),
+    )
+    .expect("append assistant cursor after open call");
     let (router_tx, mut router_rx) = tokio::sync::mpsc::channel(16);
     let runtime = spawn_task_runtime(SpawnTaskRuntimeArgs {
         task_id: TaskId("task-1".to_owned()),
@@ -1072,7 +1256,7 @@ async fn task_runtime_allows_messages_between_tool_call_and_matching_output() {
         },
     )
     .expect("register tool");
-    let task = create_root_task(
+    create_root_task(
         &db,
         CreateRootTaskInput {
             task_id: TaskId("task-1".to_owned()),
@@ -1091,52 +1275,39 @@ async fn task_runtime_allows_messages_between_tool_call_and_matching_output() {
         },
     )
     .expect("create task");
-    let function_call_node_id = append_history_node_and_move_cursor(
+    let function_call_node_id = append_model_reply_with_tool_calls_and_move_cursor(
         &db,
         &TaskId("task-1".to_owned()),
-        NewHistoryNode {
-            parent_node_id: Some(task.cursor_node_id),
-            content: NewHistoryNodeContent::FunctionCall(NewFunctionCallNodeContent {
-                function_call_id: FunctionCallId("call-1".to_owned()),
-                tool_name: ToolName("repeat".to_owned()),
-                arguments: vec![ToolCallArgument {
-                    name: ToolParameterName("count".to_owned()),
-                    value: ToolArgumentValue::Integer(1),
-                }],
-            }),
-            created_at: UnixTs(2),
-        },
+        None,
+        vec![NewFunctionCallNodeContent {
+            function_call_id: FunctionCallId("call-1".to_owned()),
+            tool_name: ToolName("repeat".to_owned()),
+            arguments: vec![ToolCallArgument {
+                name: ToolParameterName("count".to_owned()),
+                value: ToolArgumentValue::Integer(1),
+            }],
+        }],
+        UnixTs(2),
     )
-    .expect("append function call");
-    append_history_node_and_move_cursor(
+    .expect("append function call")[0];
+    append_user_message_and_move_cursor(
         &db,
         &TaskId("task-1".to_owned()),
-        NewHistoryNode {
-            parent_node_id: Some(function_call_node_id),
-            content: NewHistoryNodeContent::Message(NewMessageNodeContent {
-                message_role: selvedge_db::MessageRole::User,
-                message_text: "interleaved".to_owned(),
-            }),
-            created_at: UnixTs(3),
-        },
+        "interleaved".to_owned(),
+        UnixTs(3),
     )
     .expect("append interleaved message");
-    append_history_node_and_move_cursor(
+    append_function_output_and_drain_queue(
         &db,
         &TaskId("task-1".to_owned()),
-        NewHistoryNode {
-            parent_node_id: Some(function_call_node_id),
-            content: NewHistoryNodeContent::FunctionOutput(
-                selvedge_db::NewFunctionOutputNodeContent {
-                    function_call_node_id,
-                    function_call_id: FunctionCallId("call-1".to_owned()),
-                    tool_name: ToolName("repeat".to_owned()),
-                    output_text: "done".to_owned(),
-                    is_error: false,
-                },
-            ),
-            created_at: UnixTs(4),
+        NewFunctionOutputNodeContent {
+            function_call_node_id,
+            function_call_id: FunctionCallId("call-1".to_owned()),
+            tool_name: ToolName("repeat".to_owned()),
+            output_text: "done".to_owned(),
+            is_error: false,
         },
+        UnixTs(4),
     )
     .expect("append function output");
     let (router_tx, mut router_rx) = tokio::sync::mpsc::channel(16);
@@ -1245,15 +1416,8 @@ async fn start_and_recv_model_request(
     assert!(matches!(
         ready,
         RouterIngressMessage::Core(envelope)
-            if matches!(envelope.message, CoreOutputMessage::RuntimeReady { .. })
+            if matches!(envelope.message, CoreOutputMessage::RuntimeReady)
     ));
-    runtime
-        .task_runtime_tx
-        .send(TaskRuntimeCommand::UserInput {
-            message_text: "hello".to_owned(),
-        })
-        .await
-        .expect("send input");
     let request = router_rx.recv().await.expect("model request");
     match request {
         RouterIngressMessage::Core(envelope) => match envelope.message {
