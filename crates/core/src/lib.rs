@@ -160,6 +160,12 @@ impl TaskRuntimeActor {
     }
 
     async fn handle_user_input(&mut self, message_text: String) -> bool {
+        if message_text.is_empty() {
+            return self
+                .stop_with_internal_error("user input must not be empty")
+                .await;
+        }
+
         match self.wait_state {
             WaitState::Idle => {
                 self.commit_user_message_and_request_model(message_text)
