@@ -600,9 +600,14 @@ fn tool_argument_value_from_payload(
             if value.is_finite()
                 && value.fract() == 0.0
                 && value >= i64::MIN as f64
-                && value <= i64::MAX as f64 =>
+                && value < 9_223_372_036_854_775_808.0 =>
         {
-            Some(ToolArgumentValue::Integer(value as i64))
+            let converted = value as i64;
+            if converted as f64 == value {
+                Some(ToolArgumentValue::Integer(converted))
+            } else {
+                None
+            }
         }
         (ToolParameterType::Number, StructuredPayload::Number(value)) if value.is_finite() => {
             Some(ToolArgumentValue::Number(value))

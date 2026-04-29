@@ -584,6 +584,47 @@ async fn task_runtime_rejects_fractional_integer_arguments_before_persistence() 
     assert_internal_exit(&mut router_rx).await;
 }
 
+#[tokio::test]
+async fn task_runtime_rejects_out_of_range_integer_arguments() {
+    let (runtime, mut router_rx) = spawn_runtime_with_task(vec![ToolSpec {
+        name: "repeat".to_owned(),
+        description: "repeat".to_owned(),
+        parameters: vec![ToolParameter {
+            name: "count".to_owned(),
+            parameter_type: ToolParameterType::Integer,
+            description: "count".to_owned(),
+            required: true,
+        }],
+    }])
+    .await;
+    let correlation = start_and_request_model(&runtime, &mut router_rx).await;
+
+    runtime
+        .task_runtime_tx
+        .send(TaskRuntimeCommand::ApiModelReply(
+            ApiOutputEnvelope::Success {
+                correlation,
+                reply: ModelReply {
+                    content: None,
+                    tool_calls: vec![ToolCallProposal {
+                        call_id: "call-1".to_owned(),
+                        tool_name: "repeat".to_owned(),
+                        arguments: StructuredPayload::Object(BTreeMap::from([(
+                            "count".to_owned(),
+                            StructuredPayload::Number(9_223_372_036_854_775_808.0),
+                        )])),
+                    }],
+                    usage: None,
+                    finish_reason: ModelFinishReason::ToolCalls,
+                },
+            },
+        ))
+        .await
+        .expect("send model reply");
+
+    assert_internal_exit(&mut router_rx).await;
+}
+
 async fn spawn_runtime_with_task(
     tools: Vec<ToolSpec>,
 ) -> (
