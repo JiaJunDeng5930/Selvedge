@@ -163,6 +163,77 @@ async fn task_runtime_start_requests_model_from_user_cursor_without_draining_que
 }
 
 #[tokio::test]
+async fn task_runtime_start_promotes_queue_before_awaiting_user_input() {
+    let db = open_db(OpenDbOptions {
+        sqlite_path: ":memory:".to_owned(),
+    })
+    .expect("open db");
+    create_root_task(
+        &db,
+        CreateRootTaskInput {
+            task_id: TaskId("task-1".to_owned()),
+            initial_node: NewHistoryNode {
+                parent_node_id: None,
+                content: NewHistoryNodeContent::Message(NewMessageNodeContent {
+                    message_role: selvedge_db::MessageRole::Assistant,
+                    message_text: "assistant".to_owned(),
+                }),
+                created_at: UnixTs(1),
+            },
+            model_profile_key: selvedge_db::ModelProfileKey("default".to_owned()),
+            reasoning_effort: ReasoningEffort::Medium,
+            enabled_tools: Vec::new(),
+            now: UnixTs(1),
+        },
+    )
+    .expect("create task");
+    queue_user_input(
+        &db,
+        &TaskId("task-1".to_owned()),
+        "queued".to_owned(),
+        UnixTs(2),
+    )
+    .expect("queue input");
+
+    let (router_tx, mut router_rx) = tokio::sync::mpsc::channel(16);
+    let runtime = spawn_task_runtime(SpawnTaskRuntimeArgs {
+        task_id: TaskId("task-1".to_owned()),
+        db: db.clone(),
+        router_tx,
+        config: TaskRuntimeConfig {
+            mailbox_capacity: 16,
+            model_profiles: model_profiles(),
+        },
+    })
+    .expect("spawn runtime");
+
+    runtime
+        .task_runtime_tx
+        .send(TaskRuntimeCommand::Start)
+        .await
+        .expect("send start");
+    let _ready = router_rx.recv().await.expect("ready");
+    let request = recv_model_request(&mut router_rx).await;
+    let last_text =
+        request
+            .conversation
+            .messages
+            .last()
+            .and_then(|message| match &message.content {
+                MessageContent::Text(text) => Some(text.as_str()),
+                _ => None,
+            });
+
+    assert_eq!(last_text, Some("queued"));
+    assert!(
+        load_active_task(&db, &TaskId("task-1".to_owned()))
+            .expect("load task")
+            .queued_inputs
+            .is_empty()
+    );
+}
+
+#[tokio::test]
 async fn task_runtime_start_dispatches_tool_from_function_call_cursor() {
     let db = open_db(OpenDbOptions {
         sqlite_path: ":memory:".to_owned(),

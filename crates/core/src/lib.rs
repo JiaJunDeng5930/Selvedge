@@ -175,15 +175,7 @@ impl TaskRuntimeActor {
             HistoryNode::Message { message_role, .. } => match message_role {
                 MessageRole::System | MessageRole::User => self.request_model_call().await,
                 MessageRole::Assistant | MessageRole::Developer => {
-                    if loaded.queued_inputs.is_empty() {
-                        self.wait_state = WaitState::AwaitingUserInput;
-                        false
-                    } else {
-                        self.stop_with_internal_error(
-                            "queued user input cannot exist while cursor awaits user input",
-                        )
-                        .await
-                    }
+                    self.enter_awaiting_user_input_or_promote_queue().await
                 }
                 MessageRole::Tool => {
                     self.stop_with_internal_error("tool message cannot be a task cursor tail")
@@ -233,6 +225,17 @@ impl TaskRuntimeActor {
             return false;
         };
         self.dispatch_tool_call(tool_call, pending_tool_calls).await
+    }
+
+    async fn enter_awaiting_user_input_or_promote_queue(&mut self) -> bool {
+        match drain_queued_user_inputs_and_move_cursor(&self.db, &self.task_id, now()) {
+            Ok(Some(_)) => self.request_model_call().await,
+            Ok(None) => {
+                self.wait_state = WaitState::AwaitingUserInput;
+                false
+            }
+            Err(error) => self.stop_with_db_error(error).await,
+        }
     }
 
     async fn handle_user_input(&mut self, message_text: String) -> bool {
@@ -300,10 +303,7 @@ impl TaskRuntimeActor {
                         now(),
                     ) {
                         Ok(_) if had_queued_inputs => self.request_model_call().await,
-                        Ok(_) => {
-                            self.wait_state = WaitState::AwaitingUserInput;
-                            false
-                        }
+                        Ok(_) => self.enter_awaiting_user_input_or_promote_queue().await,
                         Err(error) => self.stop_with_db_error(error).await,
                     }
                 } else {
@@ -355,7 +355,7 @@ impl TaskRuntimeActor {
                 if promoted_queued_input {
                     self.request_model_call().await
                 } else {
-                    false
+                    self.enter_awaiting_user_input_or_promote_queue().await
                 }
             }
         }
