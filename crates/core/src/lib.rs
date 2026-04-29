@@ -10,7 +10,7 @@ use selvedge_command_model::{
     ToolExecutionRequest, ToolExecutionResult, ToolExecutionRunId,
 };
 use selvedge_db::{
-    DbError, DbPool, HistoryNodeId, MessageRole, NewFunctionCallNodeContent,
+    DbError, DbPool, FunctionCallId, HistoryNodeId, MessageRole, NewFunctionCallNodeContent,
     NewFunctionOutputNodeContent, NewHistoryNode, NewHistoryNodeContent, NewMessageNodeContent,
     TaskId, ToolArgumentValue, ToolCallArgument, ToolName, ToolParameterName, UnixTs,
     append_history_node_and_move_cursor, append_next_queued_user_input_and_move_cursor,
@@ -96,8 +96,15 @@ enum WaitState {
     },
     WaitingToolResult {
         tool_run_id: ToolExecutionRunId,
-        pending_tool_calls: VecDeque<ToolCallProposal>,
+        pending_tool_calls: VecDeque<ValidatedToolCall>,
     },
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct ValidatedToolCall {
+    function_call_id: FunctionCallId,
+    tool_name: ToolName,
+    arguments: Vec<ToolCallArgument>,
 }
 
 impl TaskRuntimeActor {
@@ -180,6 +187,19 @@ impl TaskRuntimeActor {
                 {
                     return false;
                 }
+                let pending_tool_calls = if reply.tool_calls.is_empty() {
+                    VecDeque::new()
+                } else {
+                    let tool_manifest = match read_tool_manifest_for_task(&self.db, &self.task_id) {
+                        Ok(tool_manifest) => tool_manifest,
+                        Err(error) => return self.stop_with_db_error(error).await,
+                    };
+                    match validate_tool_calls(reply.tool_calls, &tool_manifest) {
+                        Ok(tool_calls) => tool_calls,
+                        Err(message) => return self.stop_with_internal_error(&message).await,
+                    }
+                };
+
                 if let Some(content) = reply.content.filter(|content| !content.trim().is_empty()) {
                     let Some(parent_node_id) = self.cursor_node_id else {
                         return self
@@ -203,7 +223,7 @@ impl TaskRuntimeActor {
                     }
                 }
 
-                let mut pending_tool_calls = VecDeque::from(reply.tool_calls);
+                let mut pending_tool_calls = pending_tool_calls;
                 if let Some(tool_call) = pending_tool_calls.pop_front() {
                     self.dispatch_tool_call(tool_call, pending_tool_calls).await
                 } else {
@@ -349,32 +369,20 @@ impl TaskRuntimeActor {
 
     async fn dispatch_tool_call(
         &mut self,
-        tool_call: ToolCallProposal,
-        pending_tool_calls: VecDeque<ToolCallProposal>,
+        tool_call: ValidatedToolCall,
+        pending_tool_calls: VecDeque<ValidatedToolCall>,
     ) -> bool {
         let Some(parent_node_id) = self.cursor_node_id else {
             return self
                 .stop_with_internal_error("task cursor is missing")
                 .await;
         };
-        let tool_name = ToolName(tool_call.tool_name);
-        let function_call_id = selvedge_db::FunctionCallId(tool_call.call_id);
-        let tool_manifest = match read_tool_manifest_for_task(&self.db, &self.task_id) {
-            Ok(tool_manifest) => tool_manifest,
-            Err(error) => return self.stop_with_db_error(error).await,
-        };
-        let arguments =
-            match tool_call_arguments_from_payload(tool_call.arguments, &tool_name, &tool_manifest)
-            {
-                Ok(arguments) => arguments,
-                Err(message) => return self.stop_with_internal_error(&message).await,
-            };
         let node = NewHistoryNode {
             parent_node_id: Some(parent_node_id),
             content: NewHistoryNodeContent::FunctionCall(NewFunctionCallNodeContent {
-                function_call_id: function_call_id.clone(),
-                tool_name: tool_name.clone(),
-                arguments: arguments.clone(),
+                function_call_id: tool_call.function_call_id.clone(),
+                tool_name: tool_call.tool_name.clone(),
+                arguments: tool_call.arguments.clone(),
             }),
             created_at: now(),
         };
@@ -392,9 +400,9 @@ impl TaskRuntimeActor {
             task_id: self.task_id.clone(),
             tool_execution_run_id: tool_run_id.clone(),
             function_call_node_id,
-            function_call_id,
-            tool_name,
-            arguments,
+            function_call_id: tool_call.function_call_id,
+            tool_name: tool_call.tool_name,
+            arguments: tool_call.arguments,
         };
         self.wait_state = WaitState::WaitingToolResult {
             tool_run_id,
@@ -407,7 +415,7 @@ impl TaskRuntimeActor {
 
     async fn dispatch_next_tool_or_request_model(
         &mut self,
-        mut pending_tool_calls: VecDeque<ToolCallProposal>,
+        mut pending_tool_calls: VecDeque<ValidatedToolCall>,
     ) -> bool {
         if let Some(tool_call) = pending_tool_calls.pop_front() {
             self.dispatch_tool_call(tool_call, pending_tool_calls).await
@@ -590,6 +598,29 @@ fn argument_to_structured_payload(argument: ToolCallArgument) -> StructuredPaylo
             tool_argument_value_to_payload(argument.value),
         ),
     ]))
+}
+
+fn validate_tool_calls(
+    tool_calls: Vec<ToolCallProposal>,
+    tool_manifest: &ToolManifest,
+) -> Result<VecDeque<ValidatedToolCall>, String> {
+    // A provider reply is accepted as one unit. Validate and normalize every
+    // requested tool call before persisting the first function_call node or
+    // dispatching the first tool, so a malformed later call cannot leave
+    // earlier side effects behind.
+    tool_calls
+        .into_iter()
+        .map(|tool_call| {
+            let tool_name = ToolName(tool_call.tool_name);
+            let arguments =
+                tool_call_arguments_from_payload(tool_call.arguments, &tool_name, tool_manifest)?;
+            Ok(ValidatedToolCall {
+                function_call_id: FunctionCallId(tool_call.call_id),
+                tool_name,
+                arguments,
+            })
+        })
+        .collect()
 }
 
 fn tool_call_arguments_from_payload(
