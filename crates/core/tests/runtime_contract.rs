@@ -440,6 +440,27 @@ async fn task_runtime_reports_current_model_call_failure() {
 }
 
 #[tokio::test]
+async fn task_runtime_rejects_empty_idle_user_input_before_append() {
+    let (runtime, mut router_rx) = spawn_runtime_with_task(vec![]).await;
+    runtime
+        .task_runtime_tx
+        .send(TaskRuntimeCommand::Start)
+        .await
+        .expect("send start");
+    let _ready = router_rx.recv().await.expect("ready");
+
+    runtime
+        .task_runtime_tx
+        .send(TaskRuntimeCommand::UserInput {
+            message_text: String::new(),
+        })
+        .await
+        .expect("send empty input");
+
+    assert_internal_exit(&mut router_rx).await;
+}
+
+#[tokio::test]
 async fn task_runtime_ignores_replayed_start_after_model_request() {
     let (runtime, mut router_rx) = spawn_runtime_with_task(vec![]).await;
     let _correlation = start_and_request_model(&runtime, &mut router_rx).await;
