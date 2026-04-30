@@ -1,12 +1,14 @@
 #![doc = include_str!("../README.md")]
 
+use std::collections::BTreeSet;
+
 use tokio::sync::{mpsc, oneshot};
 
 use selvedge_domain_model::{
-    ApiDomainValidationError, ConversationPath, FunctionCallId, HistoryNodeId,
-    ModelProviderProfile, ModelReply, ResponsePreference, ToolCallArgument, ToolManifest, ToolName,
-    validate_conversation_path, validate_model_provider_profile, validate_model_reply,
-    validate_tool_manifest,
+    ApiDomainValidationError, ConversationPath, FunctionCallId, HistoryNodeId, MessageRole,
+    ModelProfileKey, ModelProviderProfile, ModelReply, ReasoningEffort, ResponsePreference,
+    ToolCallArgument, ToolManifest, ToolName, UnixTs, validate_conversation_path,
+    validate_model_provider_profile, validate_model_reply, validate_tool_manifest,
 };
 
 pub use selvedge_domain_model::TaskId;
@@ -77,6 +79,308 @@ pub type RouterIngressApiMessage = RouterIngressMessage;
 pub type RouterIngressSender = mpsc::Sender<RouterIngressMessage>;
 pub type TaskRuntimeSender = mpsc::Sender<TaskRuntimeCommand>;
 pub type ModelCallRequest = ModelCallDispatchRequest;
+pub type EventIngressSender = mpsc::Sender<EventIngress>;
+pub type ClientFrameSender = mpsc::Sender<ClientFrame>;
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct ClientId(pub String);
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct ClientCommandId(pub String);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct DeliverySeq(pub u64);
+
+#[derive(Debug)]
+pub enum EventIngress {
+    Control(EventControlMessage),
+    Raw(RawEvent),
+}
+
+#[derive(Debug)]
+pub enum EventControlMessage {
+    BeginClientHydration(BeginClientHydration),
+    DeliverSnapshot(DeliverSnapshot),
+    DeliverNotice(DeliverNotice),
+    UpdateSubscription(UpdateSubscription),
+    DetachClient(DetachClient),
+}
+
+#[derive(Debug)]
+pub struct BeginClientHydration {
+    pub client_id: ClientId,
+    pub client_command_id: ClientCommandId,
+    pub outbound: ClientFrameSender,
+    pub subscription: ClientSubscription,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct DeliverSnapshot {
+    pub client_id: ClientId,
+    pub client_command_id: ClientCommandId,
+    pub snapshot: ClientSnapshot,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DeliverNotice {
+    pub client_id: ClientId,
+    pub client_command_id: ClientCommandId,
+    pub notice: ClientNotice,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct UpdateSubscription {
+    pub client_id: ClientId,
+    pub subscription: ClientSubscription,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DetachClient {
+    pub client_id: ClientId,
+    pub reason: DetachReason,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ClientSubscription {
+    pub task_scope: TaskScope,
+    pub detail_level: DetailLevel,
+    pub include_model_call_status: bool,
+    pub include_tool_execution_status: bool,
+    pub include_debug_notices: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum TaskScope {
+    AllTasks,
+    TaskIds(BTreeSet<TaskId>),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum DetailLevel {
+    Summary,
+    Verbose,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum RawEvent {
+    TaskChanged(TaskChangedRawEvent),
+    HistoryAppended(HistoryAppendedRawEvent),
+    ModelCallStatus(ModelCallStatusRawEvent),
+    ToolExecutionStatus(ToolExecutionStatusRawEvent),
+    Debug(DebugRawEvent),
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct TaskChangedRawEvent {
+    pub task: TaskProjection,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct HistoryAppendedRawEvent {
+    pub task_id: TaskId,
+    pub task_state_version: u64,
+    pub appended_nodes: Vec<HistoryNodeProjection>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ModelCallStatusRawEvent {
+    pub task_id: TaskId,
+    pub model_call_id: ModelCallId,
+    pub phase: ModelCallStatusPhase,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ToolExecutionStatusRawEvent {
+    pub task_id: TaskId,
+    pub tool_execution_run_id: ToolExecutionRunId,
+    pub function_call_node_id: HistoryNodeId,
+    pub tool_name: ToolName,
+    pub phase: ToolExecutionStatusPhase,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DebugRawEvent {
+    pub task_id: Option<TaskId>,
+    pub message_text: String,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ClientSnapshot {
+    pub generated_at: UnixTs,
+    pub tasks: Vec<TaskProjection>,
+    pub task_parent_edges: Vec<TaskParentProjection>,
+    pub history_nodes: Vec<HistoryNodeProjection>,
+    pub task_versions: Vec<SnapshotTaskVersion>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SnapshotTaskVersion {
+    pub task_id: TaskId,
+    pub state_version: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TaskProjection {
+    pub task_id: TaskId,
+    pub status: TaskProjectionStatus,
+    pub cursor_node_id: HistoryNodeId,
+    pub model_profile_key: ModelProfileKey,
+    pub reasoning_effort: ReasoningEffort,
+    pub state_version: u64,
+    pub created_at: UnixTs,
+    pub updated_at: UnixTs,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum TaskProjectionStatus {
+    Active,
+    Archived,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TaskParentProjection {
+    pub parent_task_id: TaskId,
+    pub child_task_id: TaskId,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct HistoryNodeProjection {
+    pub node_id: HistoryNodeId,
+    pub parent_node_id: Option<HistoryNodeId>,
+    pub created_at: UnixTs,
+    pub body: HistoryNodeProjectionBody,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum HistoryNodeProjectionBody {
+    Message {
+        role: MessageRole,
+        text: String,
+    },
+    Reasoning {
+        text: String,
+    },
+    FunctionCall {
+        function_call_id: FunctionCallId,
+        tool_name: ToolName,
+        arguments: Vec<ToolCallArgument>,
+    },
+    FunctionOutput {
+        function_call_node_id: HistoryNodeId,
+        function_call_id: FunctionCallId,
+        tool_name: ToolName,
+        output_text: String,
+        is_error: bool,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum ClientFrame {
+    Snapshot(ClientSnapshotFrame),
+    Event(ClientEventFrame),
+    Notice(ClientNoticeFrame),
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ClientSnapshotFrame {
+    pub delivery_seq: DeliverySeq,
+    pub client_command_id: ClientCommandId,
+    pub snapshot: ClientSnapshot,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ClientEventFrame {
+    pub delivery_seq: DeliverySeq,
+    pub event: ClientEvent,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ClientNoticeFrame {
+    pub delivery_seq: DeliverySeq,
+    pub client_command_id: ClientCommandId,
+    pub notice: ClientNotice,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum ClientEvent {
+    TaskChanged(TaskChangedEvent),
+    HistoryAppended(HistoryAppendedEvent),
+    ModelCallStatus(ModelCallStatusEvent),
+    ToolExecutionStatus(ToolExecutionStatusEvent),
+    DebugNotice(DebugNoticeEvent),
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct TaskChangedEvent {
+    pub task: TaskProjection,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct HistoryAppendedEvent {
+    pub task_id: TaskId,
+    pub task_state_version: u64,
+    pub appended_nodes: Vec<HistoryNodeProjection>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ModelCallStatusEvent {
+    pub task_id: TaskId,
+    pub model_call_id: ModelCallId,
+    pub phase: ModelCallStatusPhase,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ToolExecutionStatusEvent {
+    pub task_id: TaskId,
+    pub tool_execution_run_id: ToolExecutionRunId,
+    pub function_call_node_id: HistoryNodeId,
+    pub tool_name: ToolName,
+    pub phase: ToolExecutionStatusPhase,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DebugNoticeEvent {
+    pub task_id: Option<TaskId>,
+    pub message_text: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ClientNotice {
+    pub level: ClientNoticeLevel,
+    pub message_text: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ClientNoticeLevel {
+    Info,
+    Warning,
+    Error,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ModelCallStatusPhase {
+    Requested,
+    Completed,
+    Failed,
+    Discarded,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ToolExecutionStatusPhase {
+    Requested,
+    Completed,
+    Failed,
+    Discarded,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum DetachReason {
+    ClientRequested,
+    ReplacedByNewHydration,
+    DeliveryFailed,
+    HydrationBufferOverflow,
+    EventsShutdown,
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ToolExecutionRunId(pub String);
