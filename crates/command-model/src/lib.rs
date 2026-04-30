@@ -131,12 +131,14 @@ pub struct DeliverNotice {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct UpdateSubscription {
     pub client_id: ClientId,
+    pub client_command_id: ClientCommandId,
     pub subscription: ClientSubscription,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DetachClient {
     pub client_id: ClientId,
+    pub client_command_id: ClientCommandId,
     pub reason: DetachReason,
 }
 
