@@ -644,6 +644,7 @@ impl RouterActor {
                 .iter()
                 .any(|command| matches!(command, PendingTaskCommand::Archive));
             let is_stop = matches!(command, PendingTaskCommand::Stop);
+            let pending_command = command.clone();
             let runtime_command = match command {
                 PendingTaskCommand::UserInput { message_text } => {
                     TaskRuntimeCommand::UserInput { message_text }
@@ -664,6 +665,7 @@ impl RouterActor {
                 .is_err()
             {
                 self.runtimes.remove(&task_id);
+                self.requeue_failed_flush(task_id.clone(), pending_command, commands);
                 break;
             }
             if is_stop && has_later_archive {
@@ -867,7 +869,6 @@ impl RouterActor {
             FactoryCommand::EnsureTaskRuntime(command) => {
                 self.effects.remove(&command.effect_id);
                 self.pending_creations_by_task.remove(&command.task_id);
-                self.waiting_task_commands.remove(&command.task_id);
                 self.deferred_ensures.remove(&command.task_id);
                 self.try_send_debug_notice(
                     Some(command.task_id),
@@ -945,6 +946,19 @@ impl RouterActor {
             self.deferred_scan = false;
             self.ensure_missing_task_runtimes();
         }
+    }
+
+    fn requeue_failed_flush(
+        &mut self,
+        task_id: TaskId,
+        command: PendingTaskCommand,
+        mut remaining: VecDeque<PendingTaskCommand>,
+    ) {
+        let mut commands = VecDeque::new();
+        commands.push_back(command);
+        commands.append(&mut remaining);
+        self.waiting_task_commands.insert(task_id.clone(), commands);
+        self.ensure_task_runtime(task_id);
     }
 
     async fn send_failure_notice(&mut self, failure: FactoryFailure) {
