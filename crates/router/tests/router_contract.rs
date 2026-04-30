@@ -989,6 +989,47 @@ async fn domain_history_commit_emits_typed_history_event() {
 }
 
 #[tokio::test]
+async fn runtime_ready_emits_task_changed_event() {
+    let db = open_test_db();
+    create_root(&db, "task-1");
+    let (events_tx, mut events_rx) = tokio::sync::mpsc::channel(8);
+    let handle = spawn_router(RouterStartArgs {
+        db,
+        events_tx,
+        factory_executor: Arc::new(RecordingFactoryExecutor::default()),
+        api_executor: Arc::new(NoopApiExecutor),
+        tool_executor: Arc::new(NoopToolExecutor),
+        ingress_capacity: 8,
+        pending_task_command_limit: 8,
+    })
+    .expect("spawn router");
+
+    handle
+        .router_tx
+        .send(selvedge_command_model::RouterIngressMessage::Core(
+            CoreOutputEnvelope {
+                task_id: TaskId("task-1".to_owned()),
+                message: CoreOutputMessage::RuntimeReady,
+            },
+        ))
+        .await
+        .expect("send runtime ready");
+
+    let event = tokio::time::timeout(std::time::Duration::from_millis(50), events_rx.recv())
+        .await
+        .expect("task changed")
+        .expect("task changed event");
+    match event {
+        EventIngress::Raw(RawEvent::TaskChanged(event)) => {
+            assert_eq!(event.task.task_id, TaskId("task-1".to_owned()));
+        }
+        _ => panic!("unexpected event ingress"),
+    }
+
+    shutdown(handle).await;
+}
+
+#[tokio::test]
 async fn attach_client_begins_hydration_and_delivers_snapshot() {
     let db = open_test_db();
     create_root(&db, "task-1");

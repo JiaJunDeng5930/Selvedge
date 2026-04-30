@@ -710,6 +710,7 @@ impl RouterActor {
     }
 
     async fn handle_core_output(&mut self, envelope: CoreOutputEnvelope) {
+        let task_id = envelope.task_id;
         match envelope.message {
             CoreOutputMessage::RequestModelCall(request) => {
                 let correlation = request.correlation.clone();
@@ -750,7 +751,10 @@ impl RouterActor {
                 let raw = self.domain_event_to_raw(event);
                 let _ = self.events_tx.send(EventIngress::Raw(raw)).await;
             }
-            CoreOutputMessage::RuntimeReady => {}
+            CoreOutputMessage::RuntimeReady => {
+                let raw = self.task_changed_raw_event(task_id);
+                let _ = self.events_tx.send(EventIngress::Raw(raw)).await;
+            }
         }
     }
 
