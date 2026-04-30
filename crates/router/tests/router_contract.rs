@@ -10,7 +10,8 @@ use selvedge_command_model::{
     ModelCallDispatchRequest, ModelRunId, RawEvent, RefreshClientSnapshot, RuntimeInventoryQuery,
     RuntimeInventoryResponse, StopTaskRuntime, SubmitUserInput, TaskId, TaskProjectionStatus,
     TaskRuntimeCommand, TaskRuntimeCreated, TaskRuntimeExitNotice, TaskRuntimeExitReason,
-    TaskRuntimeHandle, TaskRuntimeToken, TaskScope, ToolExecutionRequest, ToolExecutionRunId,
+    TaskRuntimeHandle, TaskRuntimeToken, TaskScope, ToolExecutionRequest, ToolExecutionResult,
+    ToolExecutionRunId,
 };
 use selvedge_db::{
     CreateRootTaskInput, ModelProfileKey, NewHistoryNode, NewHistoryNodeContent,
@@ -20,7 +21,7 @@ use selvedge_db::{
 };
 use selvedge_domain_model::{
     ConversationMessage, ConversationPath, FunctionCallId, HistoryNodeId, MessageContent,
-    MessageRole, ModelProviderProfile, ResponsePreference, ToolName,
+    MessageRole, ModelFinishReason, ModelProviderProfile, ModelReply, ResponsePreference, ToolName,
 };
 use selvedge_router::{
     ApiExecutor, FactoryExecutor, FactorySpawnRequest, RouterStartArgs, SpawnApiEffectError,
@@ -336,6 +337,153 @@ async fn replaced_runtime_discards_stale_core_external_requests() {
         .expect("send stale request");
 
     api.expect_no_request().await;
+
+    shutdown(handle).await;
+}
+
+#[tokio::test]
+async fn api_result_from_replaced_runtime_is_discarded() {
+    let factory = Arc::new(RecordingFactoryExecutor::default());
+    let (events_tx, mut events_rx) = tokio::sync::mpsc::channel(8);
+    let handle = spawn_router(RouterStartArgs {
+        db: open_test_db(),
+        events_tx,
+        factory_executor: factory.clone(),
+        api_executor: Arc::new(NoopApiExecutor),
+        tool_executor: Arc::new(NoopToolExecutor),
+        ingress_capacity: 8,
+        pending_task_command_limit: 8,
+    })
+    .expect("spawn router");
+    let (first_tx, mut first_rx) = tokio::sync::mpsc::channel(8);
+    register_runtime(
+        &handle.router_tx,
+        &factory,
+        first_tx,
+        TaskId("task-1".to_owned()),
+        TaskRuntimeToken("runtime-1".to_owned()),
+    )
+    .await;
+    assert!(matches!(
+        first_rx.recv().await.expect("first start command"),
+        TaskRuntimeCommand::Start
+    ));
+    let request = valid_model_request("task-1");
+
+    handle
+        .router_tx
+        .send(selvedge_command_model::RouterIngressMessage::Core(
+            CoreOutputEnvelope {
+                task_id: TaskId("task-1".to_owned()),
+                runtime_token: TaskRuntimeToken("runtime-1".to_owned()),
+                message: CoreOutputMessage::RequestModelCall(request.clone()),
+            },
+        ))
+        .await
+        .expect("send model request");
+    let _requested = events_rx.recv().await.expect("requested status");
+    let mut second_rx = replace_runtime(
+        &handle.router_tx,
+        &factory,
+        &mut first_rx,
+        TaskRuntimeToken("runtime-1".to_owned()),
+        TaskRuntimeToken("runtime-2".to_owned()),
+    )
+    .await;
+
+    handle
+        .router_tx
+        .send(selvedge_command_model::RouterIngressMessage::Api(
+            ApiOutputEnvelope::Success {
+                correlation: request.correlation,
+                reply: valid_model_reply(),
+            },
+        ))
+        .await
+        .expect("send stale api result");
+
+    tokio::time::timeout(std::time::Duration::from_millis(25), second_rx.recv())
+        .await
+        .expect_err("no runtime command");
+    tokio::time::timeout(std::time::Duration::from_millis(25), events_rx.recv())
+        .await
+        .expect_err("no terminal status");
+
+    shutdown(handle).await;
+}
+
+#[tokio::test]
+async fn tool_result_from_replaced_runtime_is_discarded() {
+    let factory = Arc::new(RecordingFactoryExecutor::default());
+    let (events_tx, mut events_rx) = tokio::sync::mpsc::channel(8);
+    let handle = spawn_router(RouterStartArgs {
+        db: open_test_db(),
+        events_tx,
+        factory_executor: factory.clone(),
+        api_executor: Arc::new(NoopApiExecutor),
+        tool_executor: Arc::new(NoopToolExecutor),
+        ingress_capacity: 8,
+        pending_task_command_limit: 8,
+    })
+    .expect("spawn router");
+    let (first_tx, mut first_rx) = tokio::sync::mpsc::channel(8);
+    register_runtime(
+        &handle.router_tx,
+        &factory,
+        first_tx,
+        TaskId("task-1".to_owned()),
+        TaskRuntimeToken("runtime-1".to_owned()),
+    )
+    .await;
+    assert!(matches!(
+        first_rx.recv().await.expect("first start command"),
+        TaskRuntimeCommand::Start
+    ));
+    let request = valid_tool_request("task-1");
+
+    handle
+        .router_tx
+        .send(selvedge_command_model::RouterIngressMessage::Core(
+            CoreOutputEnvelope {
+                task_id: TaskId("task-1".to_owned()),
+                runtime_token: TaskRuntimeToken("runtime-1".to_owned()),
+                message: CoreOutputMessage::RequestToolExecution(request.clone()),
+            },
+        ))
+        .await
+        .expect("send tool request");
+    let _requested = events_rx.recv().await.expect("requested status");
+    let mut second_rx = replace_runtime(
+        &handle.router_tx,
+        &factory,
+        &mut first_rx,
+        TaskRuntimeToken("runtime-1".to_owned()),
+        TaskRuntimeToken("runtime-2".to_owned()),
+    )
+    .await;
+
+    handle
+        .router_tx
+        .send(selvedge_command_model::RouterIngressMessage::Tool(
+            ToolExecutionResult {
+                task_id: request.task_id,
+                tool_execution_run_id: request.tool_execution_run_id,
+                function_call_node_id: request.function_call_node_id,
+                function_call_id: request.function_call_id,
+                tool_name: request.tool_name,
+                output_text: "late".to_owned(),
+                is_error: false,
+            },
+        ))
+        .await
+        .expect("send stale tool result");
+
+    tokio::time::timeout(std::time::Duration::from_millis(25), second_rx.recv())
+        .await
+        .expect_err("no runtime command");
+    tokio::time::timeout(std::time::Duration::from_millis(25), events_rx.recv())
+        .await
+        .expect_err("no terminal status");
 
     shutdown(handle).await;
 }
@@ -2233,6 +2381,15 @@ fn valid_model_request(task_id: &str) -> ModelCallDispatchRequest {
     }
 }
 
+fn valid_model_reply() -> ModelReply {
+    ModelReply {
+        content: Some("reply".to_owned()),
+        tool_calls: Vec::new(),
+        usage: None,
+        finish_reason: ModelFinishReason::Stop,
+    }
+}
+
 fn valid_tool_request(task_id: &str) -> ToolExecutionRequest {
     ToolExecutionRequest {
         task_id: TaskId(task_id.to_owned()),
@@ -2242,6 +2399,84 @@ fn valid_tool_request(task_id: &str) -> ToolExecutionRequest {
         tool_name: ToolName("tool".to_owned()),
         arguments: Vec::new(),
     }
+}
+
+async fn replace_runtime(
+    router_tx: &selvedge_command_model::RouterIngressSender,
+    factory: &RecordingFactoryExecutor,
+    current_runtime_rx: &mut tokio::sync::mpsc::Receiver<TaskRuntimeCommand>,
+    current_runtime_token: TaskRuntimeToken,
+    replacement_runtime_token: TaskRuntimeToken,
+) -> tokio::sync::mpsc::Receiver<TaskRuntimeCommand> {
+    router_tx
+        .send(selvedge_command_model::RouterIngressMessage::Client(
+            ClientCommandEnvelope {
+                client_id: None,
+                command_id: ClientCommandId("replace-stop".to_owned()),
+                command: ClientCommand::StopTaskRuntime(StopTaskRuntime {
+                    task_id: TaskId("task-1".to_owned()),
+                }),
+            },
+        ))
+        .await
+        .expect("send stop");
+    assert!(matches!(
+        current_runtime_rx.recv().await.expect("stop command"),
+        TaskRuntimeCommand::Stop
+    ));
+    router_tx
+        .send(selvedge_command_model::RouterIngressMessage::RuntimeExit(
+            TaskRuntimeExitNotice {
+                task_id: TaskId("task-1".to_owned()),
+                runtime_token: current_runtime_token,
+                reason: TaskRuntimeExitReason::Stopped,
+            },
+        ))
+        .await
+        .expect("send exit");
+    router_tx
+        .send(selvedge_command_model::RouterIngressMessage::Client(
+            ClientCommandEnvelope {
+                client_id: None,
+                command_id: ClientCommandId("replace-ensure".to_owned()),
+                command: ClientCommand::EnsureTaskRuntime(
+                    selvedge_command_model::EnsureTaskRuntime {
+                        task_id: TaskId("task-1".to_owned()),
+                    },
+                ),
+            },
+        ))
+        .await
+        .expect("send ensure");
+    let recreate = factory.take_one_command().await;
+    let FactoryCommand::EnsureTaskRuntime(recreate) = recreate else {
+        panic!("unexpected factory command");
+    };
+    let (task_runtime_tx, mut task_runtime_rx) = tokio::sync::mpsc::channel(8);
+    router_tx
+        .send(selvedge_command_model::RouterIngressMessage::Factory(
+            FactoryOutputEnvelope {
+                effect_id: recreate.effect_id,
+                output: FactoryOutput::RuntimeCreated(TaskRuntimeCreated {
+                    task_id: TaskId("task-1".to_owned()),
+                    runtime: TaskRuntimeHandle {
+                        runtime_token: replacement_runtime_token,
+                        task_runtime_tx,
+                    },
+                    created_runtime_kind: CreatedRuntimeKind::ExistingTaskRuntime,
+                }),
+            },
+        ))
+        .await
+        .expect("send replacement runtime");
+    assert!(matches!(
+        task_runtime_rx
+            .recv()
+            .await
+            .expect("replacement start command"),
+        TaskRuntimeCommand::Start
+    ));
+    task_runtime_rx
 }
 
 async fn query_inventory(

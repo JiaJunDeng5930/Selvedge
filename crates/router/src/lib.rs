@@ -12,12 +12,12 @@ use selvedge_command_model::{
     DomainEvent, DomainEventPublishRequest, EventControlMessage, EventIngress, EventIngressSender,
     FactoryEffectId, FactoryFailure, FactoryFailureKind, FactoryOutput, FactoryOutputEnvelope,
     HistoryNodeProjection, HistoryNodeProjectionBody, ModelCallDispatchRequest, ModelCallError,
-    ModelCallErrorKind, ModelCallStatusPhase, ModelCallStatusRawEvent, RawEvent,
+    ModelCallErrorKind, ModelCallStatusPhase, ModelCallStatusRawEvent, ModelRunId, RawEvent,
     RouterIngressMessage, RouterIngressSender, RouterShutdown, RuntimeInventoryQuery,
     RuntimeInventoryResponse, SnapshotTaskVersion, StopTaskRuntime, SubmitUserInput, TaskId,
     TaskParentProjection, TaskProjection, TaskProjectionStatus, TaskRuntimeCommand,
     TaskRuntimeExitNotice, TaskRuntimeHandle, TaskRuntimeSender, TaskRuntimeToken, TaskScope,
-    ToolExecutionRequest, ToolExecutionResult, ToolExecutionStatusPhase,
+    ToolExecutionRequest, ToolExecutionResult, ToolExecutionRunId, ToolExecutionStatusPhase,
     ToolExecutionStatusRawEvent,
 };
 use selvedge_db::{DbPool, HistoryNode, TaskRow, TaskStatusRow, UnixTs};
@@ -143,6 +143,8 @@ pub fn spawn_router(args: RouterStartArgs) -> Result<RouterHandle, SpawnRouterEr
         client_sessions: HashMap::new(),
         deferred_ensures: BTreeSet::new(),
         deferred_scan: false,
+        in_flight_model_calls: HashMap::new(),
+        in_flight_tool_executions: HashMap::new(),
     };
     let join_handle = tokio::spawn(actor.run());
 
@@ -168,6 +170,8 @@ struct RouterActor {
     client_sessions: HashMap<ClientId, ClientSession>,
     deferred_ensures: BTreeSet<TaskId>,
     deferred_scan: bool,
+    in_flight_model_calls: HashMap<(TaskId, ModelRunId), TaskRuntimeToken>,
+    in_flight_tool_executions: HashMap<(TaskId, ToolExecutionRunId), TaskRuntimeToken>,
 }
 
 struct RuntimeEntry {
@@ -712,6 +716,9 @@ impl RouterActor {
                 ModelCallStatusPhase::Failed,
             ),
         };
+        if !self.take_matching_model_call(&task_id, &model_call_id) {
+            return;
+        }
         let routed = self
             .route_to_runtime(&task_id, TaskRuntimeCommand::ApiModelReply(envelope))
             .await;
@@ -729,6 +736,9 @@ impl RouterActor {
 
     async fn route_tool_output(&mut self, result: ToolExecutionResult) {
         let task_id = result.task_id.clone();
+        if !self.take_matching_tool_execution(&task_id, &result.tool_execution_run_id) {
+            return;
+        }
         let status = ToolExecutionStatusRawEvent {
             task_id: result.task_id.clone(),
             tool_execution_run_id: result.tool_execution_run_id.clone(),
@@ -776,6 +786,7 @@ impl RouterActor {
                 return Err(());
             }
             self.runtimes.remove(task_id);
+            self.clear_in_flight_for_task(task_id);
             if removing {
                 self.clear_removal_effects_for_task(task_id);
                 self.retry_deferred_ensures();
@@ -812,6 +823,7 @@ impl RouterActor {
                 selvedge_command_model::TaskRuntimeExitReason::Stopped => {}
             }
             self.runtimes.remove(&notice.task_id);
+            self.clear_in_flight_for_task(&notice.task_id);
             self.clear_removal_effects_for_task(&notice.task_id);
             self.retry_deferred_ensures();
             self.retry_deferred_scan();
@@ -823,12 +835,20 @@ impl RouterActor {
         if !self.runtime_token_matches(&task_id, &envelope.runtime_token) {
             return;
         }
+        let runtime_token = envelope.runtime_token;
         match envelope.message {
             CoreOutputMessage::RequestModelCall(request) => {
                 if !self.runtime_accepts_external_requests(&task_id) {
                     return;
                 }
                 let correlation = request.correlation.clone();
+                self.in_flight_model_calls.insert(
+                    (
+                        correlation.task_id.clone(),
+                        correlation.model_run_id.clone(),
+                    ),
+                    runtime_token.clone(),
+                );
                 self.send_model_call_status(
                     correlation.task_id.clone(),
                     correlation.model_run_id.clone(),
@@ -854,6 +874,13 @@ impl RouterActor {
                 if !self.runtime_accepts_external_requests(&task_id) {
                     return;
                 }
+                self.in_flight_tool_executions.insert(
+                    (
+                        request.task_id.clone(),
+                        request.tool_execution_run_id.clone(),
+                    ),
+                    runtime_token.clone(),
+                );
                 self.send_tool_execution_status(ToolExecutionStatusRawEvent {
                     task_id: request.task_id.clone(),
                     tool_execution_run_id: request.tool_execution_run_id.clone(),
@@ -954,6 +981,37 @@ impl RouterActor {
         self.runtimes
             .get(task_id)
             .is_some_and(|entry| &entry.runtime_token == runtime_token)
+    }
+
+    fn take_matching_model_call(&mut self, task_id: &TaskId, model_call_id: &ModelRunId) -> bool {
+        let key = (task_id.clone(), model_call_id.clone());
+        let Some(runtime_token) = self.in_flight_model_calls.remove(&key) else {
+            return false;
+        };
+        self.runtimes
+            .get(task_id)
+            .is_some_and(|entry| entry.runtime_token == runtime_token && !entry.removing)
+    }
+
+    fn take_matching_tool_execution(
+        &mut self,
+        task_id: &TaskId,
+        tool_execution_run_id: &ToolExecutionRunId,
+    ) -> bool {
+        let key = (task_id.clone(), tool_execution_run_id.clone());
+        let Some(runtime_token) = self.in_flight_tool_executions.remove(&key) else {
+            return false;
+        };
+        self.runtimes
+            .get(task_id)
+            .is_some_and(|entry| entry.runtime_token == runtime_token && !entry.removing)
+    }
+
+    fn clear_in_flight_for_task(&mut self, task_id: &TaskId) {
+        self.in_flight_model_calls
+            .retain(|(in_flight_task_id, _), _| in_flight_task_id != task_id);
+        self.in_flight_tool_executions
+            .retain(|(in_flight_task_id, _), _| in_flight_task_id != task_id);
     }
 
     fn finish_task_creation_effect(&mut self, effect: &LifecycleEffect) {
@@ -1303,6 +1361,8 @@ impl RouterActor {
         self.waiting_task_commands.clear();
         self.deferred_ensures.clear();
         self.deferred_scan = false;
+        self.in_flight_model_calls.clear();
+        self.in_flight_tool_executions.clear();
     }
 }
 

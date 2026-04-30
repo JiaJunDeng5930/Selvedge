@@ -6,4 +6,4 @@ Use it to spawn the router mailbox, register task runtime handles returned by th
 
 The router keeps runtime registry, lifecycle effect registry, and waiting task commands in memory. Factory, API, tool execution, events, and task runtimes interact with the router through command-model messages and executor traits.
 
-Core output is accepted only when the envelope runtime token matches the registered live runtime for that task. Model-call and tool-execution requests are additionally discarded while the runtime is in removal.
+Core output is accepted only when the envelope runtime token matches the registered live runtime for that task. Model-call and tool-execution requests are additionally discarded while the runtime is in removal. External request results are routed through an in-flight registry keyed by task plus run id, so stale API or tool replies from replaced runtimes are dropped before status publication.
