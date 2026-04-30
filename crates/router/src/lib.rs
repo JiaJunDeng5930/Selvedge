@@ -867,15 +867,34 @@ impl RouterActor {
             FactoryCommand::EnsureTaskRuntime(command) => {
                 self.effects.remove(&command.effect_id);
                 self.pending_creations_by_task.remove(&command.task_id);
+                self.waiting_task_commands.remove(&command.task_id);
                 self.deferred_ensures.remove(&command.task_id);
+                self.try_send_debug_notice(
+                    Some(command.task_id),
+                    "factory spawn failed before runtime creation output",
+                );
             }
             FactoryCommand::EnsureMissingTaskRuntimes(command) => {
                 self.effects.remove(&command.effect_id);
+                self.try_send_debug_notice(None, "factory spawn failed before scan output");
             }
             FactoryCommand::CreateChildTaskAndRuntime(command) => {
                 self.effects.remove(&command.effect_id);
+                self.try_send_debug_notice(
+                    Some(command.parent_task_id),
+                    "factory spawn failed before child runtime output",
+                );
             }
         }
+    }
+
+    fn try_send_debug_notice(&self, task_id: Option<TaskId>, message_text: &str) {
+        let _ = self.events_tx.try_send(EventIngress::Raw(RawEvent::Debug(
+            selvedge_command_model::DebugRawEvent {
+                task_id,
+                message_text: message_text.to_owned(),
+            },
+        )));
     }
 
     fn session_command_id(
