@@ -637,7 +637,12 @@ impl RouterActor {
             return;
         };
 
-        for command in commands {
+        let mut commands = commands;
+        while let Some(command) = commands.pop_front() {
+            let has_later_archive = commands
+                .iter()
+                .any(|command| matches!(command, PendingTaskCommand::Archive));
+            let is_stop = matches!(command, PendingTaskCommand::Stop);
             let runtime_command = match command {
                 PendingTaskCommand::UserInput { message_text } => {
                     TaskRuntimeCommand::UserInput { message_text }
@@ -658,6 +663,11 @@ impl RouterActor {
                 .is_err()
             {
                 self.runtimes.remove(&task_id);
+                break;
+            }
+            if is_stop && has_later_archive {
+                self.enqueue_waiting_command(task_id.clone(), PendingTaskCommand::Archive);
+                self.deferred_ensures.insert(task_id.clone());
                 break;
             }
         }
@@ -685,16 +695,21 @@ impl RouterActor {
         task_id: &TaskId,
         command: TaskRuntimeCommand,
     ) -> Result<(), ()> {
-        let Some(sender) = self
+        let Some((sender, removing)) = self
             .runtimes
             .get(task_id)
-            .map(|entry| entry.task_runtime_tx.clone())
+            .map(|entry| (entry.task_runtime_tx.clone(), entry.removing))
         else {
             return Err(());
         };
 
         if sender.send(command).await.is_err() {
             self.runtimes.remove(task_id);
+            if removing {
+                self.clear_removal_effects_for_task(task_id);
+                self.retry_deferred_ensures();
+                self.retry_deferred_scan();
+            }
             return Err(());
         }
         Ok(())

@@ -862,6 +862,198 @@ async fn archive_without_runtime_creates_runtime_and_flushes_archive() {
 }
 
 #[tokio::test]
+async fn queued_stop_then_archive_recreates_runtime_for_archive_after_stop_exit() {
+    let factory = Arc::new(RecordingFactoryExecutor::default());
+    let handle =
+        spawn_router(start_args_with_factory(8, 8, factory.clone())).expect("spawn router");
+
+    handle
+        .router_tx
+        .send(selvedge_command_model::RouterIngressMessage::Client(
+            ClientCommandEnvelope {
+                client_id: None,
+                command_id: ClientCommandId("ensure-1".to_owned()),
+                command: ClientCommand::EnsureTaskRuntime(
+                    selvedge_command_model::EnsureTaskRuntime {
+                        task_id: TaskId("task-1".to_owned()),
+                    },
+                ),
+            },
+        ))
+        .await
+        .expect("send ensure");
+    let create = factory.take_one_command().await;
+    let FactoryCommand::EnsureTaskRuntime(create) = create else {
+        panic!("unexpected factory command");
+    };
+    for (command_id, command) in [
+        (
+            "stop-1",
+            ClientCommand::StopTaskRuntime(StopTaskRuntime {
+                task_id: TaskId("task-1".to_owned()),
+            }),
+        ),
+        (
+            "archive-1",
+            ClientCommand::ArchiveTask(ArchiveTask {
+                task_id: TaskId("task-1".to_owned()),
+            }),
+        ),
+    ] {
+        handle
+            .router_tx
+            .send(selvedge_command_model::RouterIngressMessage::Client(
+                ClientCommandEnvelope {
+                    client_id: None,
+                    command_id: ClientCommandId(command_id.to_owned()),
+                    command,
+                },
+            ))
+            .await
+            .expect("send queued command");
+    }
+
+    let (task_runtime_tx, mut task_runtime_rx) = tokio::sync::mpsc::channel(8);
+    handle
+        .router_tx
+        .send(selvedge_command_model::RouterIngressMessage::Factory(
+            FactoryOutputEnvelope {
+                effect_id: create.effect_id,
+                output: FactoryOutput::RuntimeCreated(TaskRuntimeCreated {
+                    task_id: TaskId("task-1".to_owned()),
+                    runtime: TaskRuntimeHandle {
+                        runtime_token: TaskRuntimeToken("runtime-1".to_owned()),
+                        task_runtime_tx,
+                    },
+                    created_runtime_kind: CreatedRuntimeKind::ExistingTaskRuntime,
+                }),
+            },
+        ))
+        .await
+        .expect("send runtime");
+    assert!(matches!(
+        task_runtime_rx.recv().await.expect("stop command"),
+        TaskRuntimeCommand::Stop
+    ));
+    tokio::time::timeout(std::time::Duration::from_millis(25), task_runtime_rx.recv())
+        .await
+        .expect_err("archive waits for recreated runtime");
+
+    handle
+        .router_tx
+        .send(selvedge_command_model::RouterIngressMessage::RuntimeExit(
+            TaskRuntimeExitNotice {
+                task_id: TaskId("task-1".to_owned()),
+                runtime_token: TaskRuntimeToken("runtime-1".to_owned()),
+                reason: TaskRuntimeExitReason::Stopped,
+            },
+        ))
+        .await
+        .expect("send exit");
+    let recreate = factory.take_one_command().await;
+    let FactoryCommand::EnsureTaskRuntime(recreate) = recreate else {
+        panic!("unexpected factory command");
+    };
+
+    let (task_runtime_tx, mut task_runtime_rx) = tokio::sync::mpsc::channel(8);
+    handle
+        .router_tx
+        .send(selvedge_command_model::RouterIngressMessage::Factory(
+            FactoryOutputEnvelope {
+                effect_id: recreate.effect_id,
+                output: FactoryOutput::RuntimeCreated(TaskRuntimeCreated {
+                    task_id: TaskId("task-1".to_owned()),
+                    runtime: TaskRuntimeHandle {
+                        runtime_token: TaskRuntimeToken("runtime-2".to_owned()),
+                        task_runtime_tx,
+                    },
+                    created_runtime_kind: CreatedRuntimeKind::ExistingTaskRuntime,
+                }),
+            },
+        ))
+        .await
+        .expect("send recreated runtime");
+    assert!(matches!(
+        task_runtime_rx.recv().await.expect("archive command"),
+        TaskRuntimeCommand::Archive
+    ));
+
+    shutdown(handle).await;
+}
+
+#[tokio::test]
+async fn closed_removing_runtime_retries_deferred_archive() {
+    let factory = Arc::new(RecordingFactoryExecutor::default());
+    let handle =
+        spawn_router(start_args_with_factory(8, 8, factory.clone())).expect("spawn router");
+    let (task_runtime_tx, mut task_runtime_rx) = tokio::sync::mpsc::channel(8);
+    register_runtime(
+        &handle.router_tx,
+        &factory,
+        task_runtime_tx,
+        TaskId("task-1".to_owned()),
+        TaskRuntimeToken("runtime-1".to_owned()),
+    )
+    .await;
+    assert!(matches!(
+        task_runtime_rx.recv().await.expect("start command"),
+        TaskRuntimeCommand::Start
+    ));
+    handle
+        .router_tx
+        .send(selvedge_command_model::RouterIngressMessage::Client(
+            ClientCommandEnvelope {
+                client_id: None,
+                command_id: ClientCommandId("stop-1".to_owned()),
+                command: ClientCommand::StopTaskRuntime(StopTaskRuntime {
+                    task_id: TaskId("task-1".to_owned()),
+                }),
+            },
+        ))
+        .await
+        .expect("send stop");
+    assert!(matches!(
+        task_runtime_rx.recv().await.expect("stop command"),
+        TaskRuntimeCommand::Stop
+    ));
+    handle
+        .router_tx
+        .send(selvedge_command_model::RouterIngressMessage::Client(
+            ClientCommandEnvelope {
+                client_id: None,
+                command_id: ClientCommandId("archive-1".to_owned()),
+                command: ClientCommand::ArchiveTask(ArchiveTask {
+                    task_id: TaskId("task-1".to_owned()),
+                }),
+            },
+        ))
+        .await
+        .expect("send archive");
+    drop(task_runtime_rx);
+
+    handle
+        .router_tx
+        .send(selvedge_command_model::RouterIngressMessage::Api(
+            ApiOutputEnvelope::Failure {
+                correlation: valid_model_request("task-1").correlation,
+                error: selvedge_command_model::ModelCallError {
+                    kind: selvedge_command_model::ModelCallErrorKind::Cancelled,
+                    message: "late".to_owned(),
+                },
+            },
+        ))
+        .await
+        .expect("send late api");
+    let recreate = factory.take_one_command().await;
+    let FactoryCommand::EnsureTaskRuntime(recreate) = recreate else {
+        panic!("unexpected factory command");
+    };
+    assert_eq!(recreate.task_id, TaskId("task-1".to_owned()));
+
+    shutdown(handle).await;
+}
+
+#[tokio::test]
 async fn archive_send_failure_requeues_archive_for_recreated_runtime() {
     let factory = Arc::new(RecordingFactoryExecutor::default());
     let handle =
