@@ -109,7 +109,7 @@ async fn ensure_missing_task_runtimes_skips_live_and_pending_inventory() {
         .await
         .expect("runtime inventory query")
         .expect("runtime inventory message");
-    let RouterIngressMessage::RuntimeInventoryQuery(query) = query else {
+    let RouterIngressMessage::QueryRuntimeInventory(query) = query else {
         panic!("unexpected router message");
     };
     query
@@ -250,7 +250,7 @@ async fn ensure_missing_task_runtimes_reports_unavailable_inventory() {
     .expect("spawn factory effect");
 
     let query = router_rx.recv().await.expect("runtime inventory query");
-    let RouterIngressMessage::RuntimeInventoryQuery(query) = query else {
+    let RouterIngressMessage::QueryRuntimeInventory(query) = query else {
         panic!("unexpected router message");
     };
     drop(query);

@@ -213,7 +213,7 @@ async fn query_runtime_inventory(
 ) -> Result<RuntimeInventoryResponse, String> {
     let (reply_to, reply_rx) = tokio::sync::oneshot::channel();
     router_tx
-        .send(RouterIngressMessage::RuntimeInventoryQuery(
+        .send(RouterIngressMessage::QueryRuntimeInventory(
             RuntimeInventoryQuery { reply_to },
         ))
         .await

@@ -253,10 +253,10 @@ fn router_ingress_exposes_factory_output_and_runtime_inventory_query() {
     }
 
     let (reply_to, _reply_rx) = tokio::sync::oneshot::channel();
-    let query = RouterIngressMessage::RuntimeInventoryQuery(RuntimeInventoryQuery { reply_to });
+    let query = RouterIngressMessage::QueryRuntimeInventory(RuntimeInventoryQuery { reply_to });
 
     match query {
-        RouterIngressMessage::RuntimeInventoryQuery(query) => {
+        RouterIngressMessage::QueryRuntimeInventory(query) => {
             query
                 .reply_to
                 .send(RuntimeInventoryResponse {
