@@ -597,7 +597,15 @@ impl RouterActor {
                 self.send_failure_notice(failure).await;
             }
             (LifecycleEffect::CreateChildTaskRuntime, FactoryOutput::Failed(failure)) => {
+                let retry_task_id = if retryable_creation_failure(&failure.kind) {
+                    failure.task_id.clone()
+                } else {
+                    None
+                };
                 self.send_failure_notice(failure).await;
+                if let Some(task_id) = retry_task_id {
+                    self.ensure_task_runtime(task_id);
+                }
             }
             (_, FactoryOutput::Failed(failure)) => {
                 self.send_failure_notice(failure).await;
@@ -631,7 +639,7 @@ impl RouterActor {
                 .is_err();
         if start_failed {
             self.runtimes.remove(&task_id);
-            self.waiting_task_commands.remove(&task_id);
+            self.ensure_task_runtime(task_id);
             return;
         }
 
