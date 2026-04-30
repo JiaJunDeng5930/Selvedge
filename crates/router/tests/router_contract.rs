@@ -10,7 +10,7 @@ use selvedge_command_model::{
     ModelCallDispatchRequest, ModelRunId, RawEvent, RefreshClientSnapshot, RuntimeInventoryQuery,
     RuntimeInventoryResponse, StopTaskRuntime, SubmitUserInput, TaskId, TaskProjectionStatus,
     TaskRuntimeCommand, TaskRuntimeCreated, TaskRuntimeExitNotice, TaskRuntimeExitReason,
-    TaskRuntimeHandle, TaskRuntimeToken, TaskScope, ToolExecutionRequest,
+    TaskRuntimeHandle, TaskRuntimeToken, TaskScope, ToolExecutionRequest, ToolExecutionRunId,
 };
 use selvedge_db::{
     CreateRootTaskInput, ModelProfileKey, NewHistoryNode, NewHistoryNodeContent,
@@ -19,8 +19,8 @@ use selvedge_db::{
     open_db,
 };
 use selvedge_domain_model::{
-    ConversationMessage, ConversationPath, MessageContent, MessageRole, ModelProviderProfile,
-    ResponsePreference,
+    ConversationMessage, ConversationPath, FunctionCallId, HistoryNodeId, MessageContent,
+    MessageRole, ModelProviderProfile, ResponsePreference, ToolName,
 };
 use selvedge_router::{
     ApiExecutor, FactoryExecutor, FactorySpawnRequest, RouterStartArgs, SpawnApiEffectError,
@@ -144,6 +144,80 @@ async fn api_spawn_failure_routes_failure_back_to_runtime() {
         }
         _ => panic!("unexpected task runtime command"),
     }
+
+    shutdown(handle).await;
+}
+
+#[tokio::test]
+async fn removing_runtime_discards_late_core_external_requests() {
+    let factory = Arc::new(RecordingFactoryExecutor::default());
+    let api = Arc::new(RecordingApiExecutor::default());
+    let tool = Arc::new(RecordingToolExecutor::default());
+    let handle = spawn_router(RouterStartArgs {
+        db: open_test_db(),
+        events_tx: tokio::sync::mpsc::channel(8).0,
+        factory_executor: factory.clone(),
+        api_executor: api.clone(),
+        tool_executor: tool.clone(),
+        ingress_capacity: 8,
+        pending_task_command_limit: 8,
+    })
+    .expect("spawn router");
+    let (task_runtime_tx, mut task_runtime_rx) = tokio::sync::mpsc::channel(8);
+    register_runtime(
+        &handle.router_tx,
+        &factory,
+        task_runtime_tx,
+        TaskId("task-1".to_owned()),
+        TaskRuntimeToken("runtime-1".to_owned()),
+    )
+    .await;
+    assert!(matches!(
+        task_runtime_rx.recv().await.expect("start command"),
+        TaskRuntimeCommand::Start
+    ));
+
+    handle
+        .router_tx
+        .send(selvedge_command_model::RouterIngressMessage::Client(
+            ClientCommandEnvelope {
+                client_id: None,
+                command_id: ClientCommandId("stop-1".to_owned()),
+                command: ClientCommand::StopTaskRuntime(StopTaskRuntime {
+                    task_id: TaskId("task-1".to_owned()),
+                }),
+            },
+        ))
+        .await
+        .expect("send stop");
+    assert!(matches!(
+        task_runtime_rx.recv().await.expect("stop command"),
+        TaskRuntimeCommand::Stop
+    ));
+
+    handle
+        .router_tx
+        .send(selvedge_command_model::RouterIngressMessage::Core(
+            CoreOutputEnvelope {
+                task_id: TaskId("task-1".to_owned()),
+                message: CoreOutputMessage::RequestModelCall(valid_model_request("task-1")),
+            },
+        ))
+        .await
+        .expect("send model request");
+    handle
+        .router_tx
+        .send(selvedge_command_model::RouterIngressMessage::Core(
+            CoreOutputEnvelope {
+                task_id: TaskId("task-1".to_owned()),
+                message: CoreOutputMessage::RequestToolExecution(valid_tool_request("task-1")),
+            },
+        ))
+        .await
+        .expect("send tool request");
+
+    api.expect_no_request().await;
+    tool.expect_no_request().await;
 
     shutdown(handle).await;
 }
@@ -2011,6 +2085,17 @@ fn valid_model_request(task_id: &str) -> ModelCallDispatchRequest {
     }
 }
 
+fn valid_tool_request(task_id: &str) -> ToolExecutionRequest {
+    ToolExecutionRequest {
+        task_id: TaskId(task_id.to_owned()),
+        tool_execution_run_id: ToolExecutionRunId("tool-run-1".to_owned()),
+        function_call_node_id: HistoryNodeId(1),
+        function_call_id: FunctionCallId("call-1".to_owned()),
+        tool_name: ToolName("tool".to_owned()),
+        arguments: Vec::new(),
+    }
+}
+
 async fn query_inventory(
     router_tx: &selvedge_command_model::RouterIngressSender,
 ) -> RuntimeInventoryResponse {
@@ -2134,6 +2219,32 @@ impl ApiExecutor for FailingApiExecutor {
     }
 }
 
+#[derive(Default)]
+struct RecordingApiExecutor {
+    requests: Mutex<Vec<ModelCallDispatchRequest>>,
+}
+
+impl RecordingApiExecutor {
+    async fn expect_no_request(&self) {
+        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+        assert!(
+            self.requests.lock().expect("lock requests").is_empty(),
+            "no api request"
+        );
+    }
+}
+
+impl ApiExecutor for RecordingApiExecutor {
+    fn spawn_model_call(
+        &self,
+        request: ModelCallDispatchRequest,
+        _router_tx: selvedge_command_model::RouterIngressSender,
+    ) -> Result<tokio::task::JoinHandle<()>, SpawnApiEffectError> {
+        self.requests.lock().expect("lock requests").push(request);
+        Ok(tokio::spawn(async {}))
+    }
+}
+
 struct NoopToolExecutor;
 
 impl ToolExecutor for NoopToolExecutor {
@@ -2142,6 +2253,32 @@ impl ToolExecutor for NoopToolExecutor {
         _request: ToolExecutionRequest,
         _router_tx: selvedge_command_model::RouterIngressSender,
     ) -> Result<tokio::task::JoinHandle<()>, SpawnToolEffectError> {
+        Ok(tokio::spawn(async {}))
+    }
+}
+
+#[derive(Default)]
+struct RecordingToolExecutor {
+    requests: Mutex<Vec<ToolExecutionRequest>>,
+}
+
+impl RecordingToolExecutor {
+    async fn expect_no_request(&self) {
+        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+        assert!(
+            self.requests.lock().expect("lock requests").is_empty(),
+            "no tool request"
+        );
+    }
+}
+
+impl ToolExecutor for RecordingToolExecutor {
+    fn spawn_tool_execution(
+        &self,
+        request: ToolExecutionRequest,
+        _router_tx: selvedge_command_model::RouterIngressSender,
+    ) -> Result<tokio::task::JoinHandle<()>, SpawnToolEffectError> {
+        self.requests.lock().expect("lock requests").push(request);
         Ok(tokio::spawn(async {}))
     }
 }

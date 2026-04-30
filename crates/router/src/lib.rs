@@ -822,6 +822,9 @@ impl RouterActor {
         let task_id = envelope.task_id;
         match envelope.message {
             CoreOutputMessage::RequestModelCall(request) => {
+                if !self.runtime_accepts_external_requests(&task_id) {
+                    return;
+                }
                 let correlation = request.correlation.clone();
                 self.send_model_call_status(
                     correlation.task_id.clone(),
@@ -845,6 +848,9 @@ impl RouterActor {
                 }
             }
             CoreOutputMessage::RequestToolExecution(request) => {
+                if !self.runtime_accepts_external_requests(&task_id) {
+                    return;
+                }
                 self.send_tool_execution_status(ToolExecutionStatusRawEvent {
                     task_id: request.task_id.clone(),
                     tool_execution_run_id: request.tool_execution_run_id.clone(),
@@ -933,6 +939,12 @@ impl RouterActor {
 
     fn runtime_removal_in_flight(&self) -> bool {
         self.runtimes.values().any(|entry| entry.removing)
+    }
+
+    fn runtime_accepts_external_requests(&self, task_id: &TaskId) -> bool {
+        self.runtimes
+            .get(task_id)
+            .is_some_and(|entry| !entry.removing)
     }
 
     fn finish_task_creation_effect(&mut self, effect: &LifecycleEffect) {
