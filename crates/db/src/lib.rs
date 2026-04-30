@@ -460,9 +460,16 @@ pub fn read_history_path_for_task(
     task_id: &TaskId,
 ) -> Result<Vec<HistoryNode>, DbError> {
     let task = read_task(db, task_id)?;
+    read_history_path_from_cursor(db, task.cursor_node_id)
+}
+
+pub fn read_history_path_from_cursor(
+    db: &DbPool,
+    cursor_node_id: HistoryNodeId,
+) -> Result<Vec<HistoryNode>, DbError> {
     let connection = db.connection()?;
     let mut nodes = Vec::new();
-    let mut next_node_id = Some(task.cursor_node_id);
+    let mut next_node_id = Some(cursor_node_id);
     while let Some(node_id) = next_node_id {
         let node = read_history_node_concrete_in_connection(&connection, &node_id)?;
         next_node_id = match &node {

@@ -207,6 +207,135 @@ async fn archived_runtime_exit_publishes_task_changed() {
 }
 
 #[tokio::test]
+async fn fatal_runtime_exit_publishes_debug_event() {
+    let factory = Arc::new(RecordingFactoryExecutor::default());
+    let (events_tx, mut events_rx) = tokio::sync::mpsc::channel(8);
+    let handle = spawn_router(RouterStartArgs {
+        db: open_test_db(),
+        events_tx,
+        factory_executor: factory.clone(),
+        api_executor: Arc::new(NoopApiExecutor),
+        tool_executor: Arc::new(NoopToolExecutor),
+        ingress_capacity: 8,
+        pending_task_command_limit: 8,
+    })
+    .expect("spawn router");
+    let (task_runtime_tx, mut task_runtime_rx) = tokio::sync::mpsc::channel(8);
+    register_runtime(
+        &handle.router_tx,
+        &factory,
+        task_runtime_tx,
+        TaskId("task-1".to_owned()),
+        TaskRuntimeToken("runtime-1".to_owned()),
+    )
+    .await;
+    assert!(matches!(
+        task_runtime_rx.recv().await.expect("start command"),
+        TaskRuntimeCommand::Start
+    ));
+
+    handle
+        .router_tx
+        .send(selvedge_command_model::RouterIngressMessage::RuntimeExit(
+            TaskRuntimeExitNotice {
+                task_id: TaskId("task-1".to_owned()),
+                runtime_token: TaskRuntimeToken("runtime-1".to_owned()),
+                reason: TaskRuntimeExitReason::InternalError("broken".to_owned()),
+            },
+        ))
+        .await
+        .expect("send exit");
+
+    let event = tokio::time::timeout(std::time::Duration::from_millis(50), events_rx.recv())
+        .await
+        .expect("debug event")
+        .expect("debug event message");
+    match event {
+        EventIngress::Raw(RawEvent::Debug(event)) => {
+            assert_eq!(event.task_id, Some(TaskId("task-1".to_owned())));
+            assert!(event.message_text.contains("broken"));
+        }
+        _ => panic!("unexpected event ingress"),
+    }
+
+    shutdown(handle).await;
+}
+
+#[tokio::test]
+async fn ensure_while_runtime_is_removing_retries_after_exit() {
+    let factory = Arc::new(RecordingFactoryExecutor::default());
+    let handle =
+        spawn_router(start_args_with_factory(8, 8, factory.clone())).expect("spawn router");
+    let (task_runtime_tx, mut task_runtime_rx) = tokio::sync::mpsc::channel(8);
+    register_runtime(
+        &handle.router_tx,
+        &factory,
+        task_runtime_tx,
+        TaskId("task-1".to_owned()),
+        TaskRuntimeToken("runtime-1".to_owned()),
+    )
+    .await;
+    assert!(matches!(
+        task_runtime_rx.recv().await.expect("start command"),
+        TaskRuntimeCommand::Start
+    ));
+
+    handle
+        .router_tx
+        .send(selvedge_command_model::RouterIngressMessage::Client(
+            ClientCommandEnvelope {
+                client_id: None,
+                command_id: ClientCommandId("stop-1".to_owned()),
+                command: ClientCommand::StopTaskRuntime(StopTaskRuntime {
+                    task_id: TaskId("task-1".to_owned()),
+                }),
+            },
+        ))
+        .await
+        .expect("send stop");
+    assert!(matches!(
+        task_runtime_rx.recv().await.expect("stop command"),
+        TaskRuntimeCommand::Stop
+    ));
+
+    handle
+        .router_tx
+        .send(selvedge_command_model::RouterIngressMessage::Client(
+            ClientCommandEnvelope {
+                client_id: None,
+                command_id: ClientCommandId("ensure-1".to_owned()),
+                command: ClientCommand::EnsureTaskRuntime(
+                    selvedge_command_model::EnsureTaskRuntime {
+                        task_id: TaskId("task-1".to_owned()),
+                    },
+                ),
+            },
+        ))
+        .await
+        .expect("send ensure");
+    factory.expect_no_command().await;
+
+    handle
+        .router_tx
+        .send(selvedge_command_model::RouterIngressMessage::RuntimeExit(
+            TaskRuntimeExitNotice {
+                task_id: TaskId("task-1".to_owned()),
+                runtime_token: TaskRuntimeToken("runtime-1".to_owned()),
+                reason: TaskRuntimeExitReason::Stopped,
+            },
+        ))
+        .await
+        .expect("send exit");
+    let retry = factory.take_one_command().await;
+    let FactoryCommand::EnsureTaskRuntime(retry) = retry else {
+        panic!("unexpected factory command");
+    };
+    assert_eq!(retry.task_id, TaskId("task-1".to_owned()));
+
+    shutdown(handle).await;
+}
+
+#[tokio::test]
 async fn scan_in_flight_blocks_duplicate_task_specific_creation() {
     let factory = Arc::new(RecordingFactoryExecutor::default());
     let handle =

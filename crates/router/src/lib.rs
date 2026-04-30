@@ -464,6 +464,14 @@ impl RouterActor {
     }
 
     fn ensure_task_runtime(&mut self, task_id: TaskId) {
+        if self
+            .runtimes
+            .get(&task_id)
+            .is_some_and(|entry| entry.removing)
+        {
+            self.deferred_ensures.insert(task_id);
+            return;
+        }
         if self.runtimes.contains_key(&task_id)
             || self.pending_creations_by_task.contains_key(&task_id)
         {
@@ -676,15 +684,28 @@ impl RouterActor {
             .get(&notice.task_id)
             .is_some_and(|entry| entry.runtime_token == notice.runtime_token);
         if should_remove {
-            if matches!(
-                notice.reason,
-                selvedge_command_model::TaskRuntimeExitReason::Archived
-            ) {
-                let raw = self.task_changed_raw_event(notice.task_id.clone());
-                let _ = self.events_tx.send(EventIngress::Raw(raw)).await;
+            match &notice.reason {
+                selvedge_command_model::TaskRuntimeExitReason::Archived => {
+                    let raw = self.task_changed_raw_event(notice.task_id.clone());
+                    let _ = self.events_tx.send(EventIngress::Raw(raw)).await;
+                }
+                selvedge_command_model::TaskRuntimeExitReason::DbError(message)
+                | selvedge_command_model::TaskRuntimeExitReason::InternalError(message) => {
+                    let _ = self
+                        .events_tx
+                        .send(EventIngress::Raw(RawEvent::Debug(
+                            selvedge_command_model::DebugRawEvent {
+                                task_id: Some(notice.task_id.clone()),
+                                message_text: message.clone(),
+                            },
+                        )))
+                        .await;
+                }
+                selvedge_command_model::TaskRuntimeExitReason::Stopped => {}
             }
             self.runtimes.remove(&notice.task_id);
             self.clear_removal_effects_for_task(&notice.task_id);
+            self.retry_deferred_ensures();
         }
     }
 
@@ -944,7 +965,9 @@ impl RouterActor {
             let mut seen_node_ids = HashSet::new();
             let mut history_nodes = Vec::new();
             for task in &tasks {
-                for node in selvedge_db::read_history_path_for_task(&self.db, &task.task_id)? {
+                for node in
+                    selvedge_db::read_history_path_from_cursor(&self.db, task.cursor_node_id)?
+                {
                     if seen_node_ids.insert(node.node_id()) {
                         history_nodes.push(history_node_projection(node));
                     }
