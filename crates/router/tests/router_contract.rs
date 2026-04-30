@@ -4,14 +4,14 @@ use std::sync::{Arc, Mutex};
 use selvedge_command_model::{
     ApiCallCorrelation, ApiEffectId, ApiOutputEnvelope, ArchiveTask, ClientCommand,
     ClientCommandEnvelope, ClientCommandId, ClientId, ClientSubscription, CoreOutputEnvelope,
-    CoreOutputMessage, CreatedRuntimeKind, DetailLevel, DomainEvent, DomainEventPublishRequest,
-    EventControlMessage, EventIngress, FactoryFailure, FactoryFailureKind, FactoryOutput,
-    FactoryOutputEnvelope, FactoryScanOutput, FactoryTaskFailure, HistoryNodeProjectionBody,
-    ModelCallDispatchRequest, ModelRunId, RawEvent, RefreshClientSnapshot, RuntimeInventoryQuery,
-    RuntimeInventoryResponse, StopTaskRuntime, SubmitUserInput, TaskId, TaskProjectionStatus,
-    TaskRuntimeCommand, TaskRuntimeCreated, TaskRuntimeExitNotice, TaskRuntimeExitReason,
-    TaskRuntimeHandle, TaskRuntimeToken, TaskScope, ToolExecutionRequest, ToolExecutionResult,
-    ToolExecutionRunId,
+    CoreOutputMessage, CreatedRuntimeKind, DetachReason, DetailLevel, DomainEvent,
+    DomainEventPublishRequest, EventControlMessage, EventIngress, FactoryFailure,
+    FactoryFailureKind, FactoryOutput, FactoryOutputEnvelope, FactoryScanOutput,
+    FactoryTaskFailure, HistoryNodeProjectionBody, ModelCallDispatchRequest, ModelRunId, RawEvent,
+    RefreshClientSnapshot, RuntimeInventoryQuery, RuntimeInventoryResponse, StopTaskRuntime,
+    SubmitUserInput, TaskId, TaskProjectionStatus, TaskRuntimeCommand, TaskRuntimeCreated,
+    TaskRuntimeExitNotice, TaskRuntimeExitReason, TaskRuntimeHandle, TaskRuntimeToken, TaskScope,
+    ToolExecutionRequest, ToolExecutionResult, ToolExecutionRunId,
 };
 use selvedge_db::{
     CreateRootTaskInput, ModelProfileKey, NewHistoryNode, NewHistoryNodeContent,
@@ -1882,6 +1882,59 @@ async fn domain_history_commit_emits_typed_history_event() {
 }
 
 #[tokio::test]
+async fn core_domain_events_with_mismatched_task_ids_are_discarded() {
+    let db = open_test_db();
+    create_root(&db, "task-1");
+    create_root(&db, "task-2");
+    let factory = Arc::new(RecordingFactoryExecutor::default());
+    let (events_tx, mut events_rx) = tokio::sync::mpsc::channel(8);
+    let handle = spawn_router(RouterStartArgs {
+        db,
+        events_tx,
+        factory_executor: factory.clone(),
+        api_executor: Arc::new(NoopApiExecutor),
+        tool_executor: Arc::new(NoopToolExecutor),
+        ingress_capacity: 8,
+        pending_task_command_limit: 8,
+    })
+    .expect("spawn router");
+    let (task_runtime_tx, mut task_runtime_rx) = tokio::sync::mpsc::channel(8);
+    register_runtime(
+        &handle.router_tx,
+        &factory,
+        task_runtime_tx,
+        TaskId("task-1".to_owned()),
+        TaskRuntimeToken("runtime-1".to_owned()),
+    )
+    .await;
+    assert!(matches!(
+        task_runtime_rx.recv().await.expect("start command"),
+        TaskRuntimeCommand::Start
+    ));
+
+    handle
+        .router_tx
+        .send(selvedge_command_model::RouterIngressMessage::Core(
+            CoreOutputEnvelope {
+                task_id: TaskId("task-1".to_owned()),
+                runtime_token: TaskRuntimeToken("runtime-1".to_owned()),
+                message: CoreOutputMessage::PublishDomainEvent(DomainEventPublishRequest {
+                    task_id: TaskId("task-2".to_owned()),
+                    event: DomainEvent::TaskRuntimeReady,
+                }),
+            },
+        ))
+        .await
+        .expect("send mismatched domain event");
+
+    tokio::time::timeout(std::time::Duration::from_millis(25), events_rx.recv())
+        .await
+        .expect_err("no raw event");
+
+    shutdown(handle).await;
+}
+
+#[tokio::test]
 async fn runtime_ready_emits_task_changed_event() {
     let db = open_test_db();
     create_root(&db, "task-1");
@@ -2029,6 +2082,63 @@ async fn attach_client_begins_hydration_and_delivers_snapshot() {
                 snapshot.client_command_id,
                 ClientCommandId("attach-1".to_owned())
             );
+        }
+        _ => panic!("unexpected event ingress"),
+    }
+
+    shutdown(handle).await;
+}
+
+#[tokio::test]
+async fn attach_snapshot_failure_detaches_hydrating_client() {
+    let (events_tx, mut events_rx) = tokio::sync::mpsc::channel(8);
+    let handle = spawn_router(RouterStartArgs {
+        db: open_corrupted_test_db(),
+        events_tx,
+        factory_executor: Arc::new(RecordingFactoryExecutor::default()),
+        api_executor: Arc::new(NoopApiExecutor),
+        tool_executor: Arc::new(NoopToolExecutor),
+        ingress_capacity: 8,
+        pending_task_command_limit: 8,
+    })
+    .expect("spawn router");
+    let (output_tx, _output_rx) = tokio::sync::mpsc::channel(8);
+
+    handle
+        .router_tx
+        .send(selvedge_command_model::RouterIngressMessage::Client(
+            ClientCommandEnvelope {
+                client_id: Some(ClientId("client-1".to_owned())),
+                command_id: ClientCommandId("attach-1".to_owned()),
+                command: ClientCommand::AttachClient(selvedge_command_model::AttachClient {
+                    client_id: ClientId("client-1".to_owned()),
+                    output_tx,
+                    subscription: subscription(),
+                }),
+            },
+        ))
+        .await
+        .expect("send attach");
+
+    let begin = events_rx.recv().await.expect("begin hydration");
+    assert!(matches!(
+        begin,
+        EventIngress::Control(EventControlMessage::BeginClientHydration(_))
+    ));
+    let notice = events_rx.recv().await.expect("snapshot failure notice");
+    assert!(matches!(
+        notice,
+        EventIngress::Control(EventControlMessage::DeliverNotice(_))
+    ));
+    let detach = events_rx.recv().await.expect("detach client");
+    match detach {
+        EventIngress::Control(EventControlMessage::DetachClient(detach)) => {
+            assert_eq!(detach.client_id, ClientId("client-1".to_owned()));
+            assert_eq!(
+                detach.client_command_id,
+                ClientCommandId("attach-1".to_owned())
+            );
+            assert_eq!(detach.reason, DetachReason::DeliveryFailed);
         }
         _ => panic!("unexpected event ingress"),
     }
@@ -2336,6 +2446,20 @@ fn open_test_db() -> selvedge_db::DbPool {
         sqlite_path: ":memory:".to_owned(),
     })
     .expect("open db")
+}
+
+fn open_corrupted_test_db() -> selvedge_db::DbPool {
+    let file = tempfile::NamedTempFile::new().expect("create temp db file");
+    let path = file.path().to_string_lossy().to_string();
+    let db = open_db(OpenDbOptions {
+        sqlite_path: path.clone(),
+    })
+    .expect("open db");
+    let connection = rusqlite::Connection::open(path).expect("open raw db");
+    connection
+        .execute_batch("DROP TABLE tasks;")
+        .expect("drop tasks table");
+    db
 }
 
 fn create_root(db: &selvedge_db::DbPool, task_id: &str) {

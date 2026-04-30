@@ -288,7 +288,7 @@ impl RouterActor {
                         ),
                     ))
                     .await;
-                self.deliver_snapshot(client_id, envelope.command_id, Some(subscription))
+                self.deliver_snapshot(client_id, envelope.command_id, Some(subscription), true)
                     .await;
             }
             ClientCommand::RefreshClientSnapshot(input) => {
@@ -298,7 +298,7 @@ impl RouterActor {
                     .map(|session| session.command_id.clone())
                     .unwrap_or(envelope.command_id);
                 let subscription = session.map(|session| session.subscription);
-                self.deliver_snapshot(input.client_id, command_id, subscription)
+                self.deliver_snapshot(input.client_id, command_id, subscription, false)
                     .await;
             }
             ClientCommand::UpdateClientSubscription(input) => {
@@ -913,6 +913,9 @@ impl RouterActor {
                 }
             }
             CoreOutputMessage::PublishDomainEvent(event) => {
+                if event.task_id != task_id {
+                    return;
+                }
                 let raw = self.domain_event_to_raw(event);
                 let _ = self.events_tx.send(EventIngress::Raw(raw)).await;
             }
@@ -1201,6 +1204,7 @@ impl RouterActor {
         client_id: selvedge_command_model::ClientId,
         command_id: ClientCommandId,
         subscription: Option<ClientSubscription>,
+        detach_on_failure: bool,
     ) {
         match self.build_snapshot(subscription.as_ref()) {
             Ok(snapshot) => {
@@ -1217,12 +1221,25 @@ impl RouterActor {
             }
             Err(error) => {
                 self.send_notice(
-                    client_id,
-                    command_id,
+                    client_id.clone(),
+                    command_id.clone(),
                     ClientNoticeLevel::Error,
                     &format!("snapshot read failed: {error}"),
                 )
                 .await;
+                if detach_on_failure {
+                    let _ = self
+                        .events_tx
+                        .send(EventIngress::Control(EventControlMessage::DetachClient(
+                            selvedge_command_model::DetachClient {
+                                client_id: client_id.clone(),
+                                client_command_id: command_id,
+                                reason: selvedge_command_model::DetachReason::DeliveryFailed,
+                            },
+                        )))
+                        .await;
+                    self.client_sessions.remove(&client_id);
+                }
             }
         }
     }
