@@ -1,6 +1,6 @@
 #![doc = include_str!("../README.md")]
 
-use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -8,15 +8,15 @@ use selvedge_api::ModelProviderRegistry;
 use selvedge_command_model::{
     ApiOutputEnvelope, ArchiveTask, ClientCommand, ClientCommandEnvelope, ClientCommandId,
     ClientId, ClientNotice, ClientNoticeLevel, ClientSnapshot, ClientSubscription,
-    CoreOutputEnvelope, CoreOutputMessage, DeliverNotice, DeliverSnapshot, DomainEvent,
-    DomainEventPublishRequest, EventControlMessage, EventIngress, EventIngressSender,
-    FactoryEffectId, FactoryFailure, FactoryOutput, FactoryOutputEnvelope, HistoryNodeProjection,
-    HistoryNodeProjectionBody, ModelCallDispatchRequest, ModelCallError, ModelCallErrorKind,
-    RawEvent, RouterIngressMessage, RouterIngressSender, RouterShutdown, RuntimeInventoryQuery,
-    RuntimeInventoryResponse, SnapshotTaskVersion, StopTaskRuntime, SubmitUserInput, TaskId,
-    TaskParentProjection, TaskProjection, TaskProjectionStatus, TaskRuntimeCommand,
-    TaskRuntimeExitNotice, TaskRuntimeHandle, TaskRuntimeSender, TaskRuntimeToken, TaskScope,
-    ToolExecutionRequest, ToolExecutionResult,
+    CoreOutputEnvelope, CoreOutputMessage, DeliverNotice, DeliverSnapshot, DetailLevel,
+    DomainEvent, DomainEventPublishRequest, EventControlMessage, EventIngress, EventIngressSender,
+    FactoryEffectId, FactoryFailure, FactoryFailureKind, FactoryOutput, FactoryOutputEnvelope,
+    HistoryNodeProjection, HistoryNodeProjectionBody, ModelCallDispatchRequest, ModelCallError,
+    ModelCallErrorKind, RawEvent, RouterIngressMessage, RouterIngressSender, RouterShutdown,
+    RuntimeInventoryQuery, RuntimeInventoryResponse, SnapshotTaskVersion, StopTaskRuntime,
+    SubmitUserInput, TaskId, TaskParentProjection, TaskProjection, TaskProjectionStatus,
+    TaskRuntimeCommand, TaskRuntimeExitNotice, TaskRuntimeHandle, TaskRuntimeSender,
+    TaskRuntimeToken, TaskScope, ToolExecutionRequest, ToolExecutionResult,
 };
 use selvedge_db::{DbPool, HistoryNode, TaskRow, TaskStatusRow, UnixTs};
 use selvedge_domain_model::HistoryNodeId;
@@ -544,8 +544,11 @@ impl RouterActor {
                 self.retry_waiting_tasks_without_runtime();
             }
             (LifecycleEffect::CreateTaskRuntime { task_id }, FactoryOutput::Failed(failure)) => {
+                let retryable = retryable_creation_failure(&failure.kind);
                 self.pending_creations_by_task.remove(task_id);
-                self.waiting_task_commands.remove(task_id);
+                if !retryable {
+                    self.waiting_task_commands.remove(task_id);
+                }
                 self.send_failure_notice(failure).await;
             }
             (LifecycleEffect::CreateChildTaskRuntime, FactoryOutput::Failed(failure)) => {
@@ -935,6 +938,22 @@ impl RouterActor {
                 state_version: task.state_version,
             })
             .collect();
+        let history_nodes = if subscription
+            .is_some_and(|subscription| subscription.detail_level == DetailLevel::Verbose)
+        {
+            let mut seen_node_ids = HashSet::new();
+            let mut history_nodes = Vec::new();
+            for task in &tasks {
+                for node in selvedge_db::read_history_path_for_task(&self.db, &task.task_id)? {
+                    if seen_node_ids.insert(node.node_id()) {
+                        history_nodes.push(history_node_projection(node));
+                    }
+                }
+            }
+            history_nodes
+        } else {
+            Vec::new()
+        };
         let tasks = tasks
             .into_iter()
             .map(|task| TaskProjection {
@@ -967,7 +986,7 @@ impl RouterActor {
             generated_at: now(),
             tasks,
             task_parent_edges,
-            history_nodes: Vec::<HistoryNodeProjection>::new(),
+            history_nodes,
             task_versions,
         })
     }
@@ -1041,6 +1060,13 @@ fn now() -> UnixTs {
             .duration_since(UNIX_EPOCH)
             .map(|duration| duration.as_secs() as i64)
             .unwrap_or(0),
+    )
+}
+
+fn retryable_creation_failure(kind: &FactoryFailureKind) -> bool {
+    matches!(
+        kind,
+        FactoryFailureKind::RuntimeInventoryUnavailable | FactoryFailureKind::CoreSpawnFailed
     )
 }
 

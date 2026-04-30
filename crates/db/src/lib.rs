@@ -455,6 +455,28 @@ pub fn load_active_task(db: &DbPool, task_id: &TaskId) -> Result<LoadedActiveTas
     })
 }
 
+pub fn read_history_path_for_task(
+    db: &DbPool,
+    task_id: &TaskId,
+) -> Result<Vec<HistoryNode>, DbError> {
+    let task = read_task(db, task_id)?;
+    let connection = db.connection()?;
+    let mut nodes = Vec::new();
+    let mut next_node_id = Some(task.cursor_node_id);
+    while let Some(node_id) = next_node_id {
+        let node = read_history_node_concrete_in_connection(&connection, &node_id)?;
+        next_node_id = match &node {
+            HistoryNode::Message { parent_node_id, .. }
+            | HistoryNode::Reasoning { parent_node_id, .. }
+            | HistoryNode::FunctionCall { parent_node_id, .. }
+            | HistoryNode::FunctionOutput { parent_node_id, .. } => *parent_node_id,
+        };
+        nodes.push(node);
+    }
+    nodes.reverse();
+    Ok(nodes)
+}
+
 pub fn append_user_message_and_move_cursor(
     db: &DbPool,
     task_id: &TaskId,
