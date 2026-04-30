@@ -350,6 +350,19 @@ impl RouterActor {
             return;
         }
 
+        if self.waiting_queue_has_removal(&task_id) {
+            if let Some(client_id) = client_id {
+                self.send_notice(
+                    client_id,
+                    command_id,
+                    ClientNoticeLevel::Warning,
+                    "task runtime is stopping",
+                )
+                .await;
+            }
+            return;
+        }
+
         if self.runtimes.contains_key(&task_id) {
             let command = TaskRuntimeCommand::UserInput {
                 message_text: input.message_text.clone(),
@@ -835,6 +848,19 @@ impl RouterActor {
         self.runtimes
             .get(task_id)
             .is_some_and(|entry| entry.removing)
+    }
+
+    fn waiting_queue_has_removal(&self, task_id: &TaskId) -> bool {
+        self.waiting_task_commands
+            .get(task_id)
+            .is_some_and(|commands| {
+                commands.iter().any(|command| {
+                    matches!(
+                        command,
+                        PendingTaskCommand::Archive | PendingTaskCommand::Stop
+                    )
+                })
+            })
     }
 
     fn scan_in_flight(&self) -> bool {
