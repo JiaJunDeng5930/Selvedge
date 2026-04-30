@@ -581,6 +581,7 @@ pub enum TaskRuntimeExitReason {
 #[derive(Debug)]
 pub struct CoreOutputEnvelope {
     pub task_id: TaskId,
+    pub runtime_token: TaskRuntimeToken,
     pub message: CoreOutputMessage,
 }
 

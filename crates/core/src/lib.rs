@@ -592,6 +592,7 @@ impl TaskRuntimeActor {
         self.router_tx
             .send(RouterIngressMessage::Core(CoreOutputEnvelope {
                 task_id: self.task_id.clone(),
+                runtime_token: self.runtime_token.clone(),
                 message,
             }))
             .await

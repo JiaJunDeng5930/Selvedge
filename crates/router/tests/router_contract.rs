@@ -126,6 +126,7 @@ async fn api_spawn_failure_routes_failure_back_to_runtime() {
         .send(selvedge_command_model::RouterIngressMessage::Core(
             CoreOutputEnvelope {
                 task_id: TaskId("task-1".to_owned()),
+                runtime_token: TaskRuntimeToken("runtime-1".to_owned()),
                 message: CoreOutputMessage::RequestModelCall(valid_model_request("task-1")),
             },
         ))
@@ -200,6 +201,7 @@ async fn removing_runtime_discards_late_core_external_requests() {
         .send(selvedge_command_model::RouterIngressMessage::Core(
             CoreOutputEnvelope {
                 task_id: TaskId("task-1".to_owned()),
+                runtime_token: TaskRuntimeToken("runtime-1".to_owned()),
                 message: CoreOutputMessage::RequestModelCall(valid_model_request("task-1")),
             },
         ))
@@ -210,6 +212,7 @@ async fn removing_runtime_discards_late_core_external_requests() {
         .send(selvedge_command_model::RouterIngressMessage::Core(
             CoreOutputEnvelope {
                 task_id: TaskId("task-1".to_owned()),
+                runtime_token: TaskRuntimeToken("runtime-1".to_owned()),
                 message: CoreOutputMessage::RequestToolExecution(valid_tool_request("task-1")),
             },
         ))
@@ -218,6 +221,121 @@ async fn removing_runtime_discards_late_core_external_requests() {
 
     api.expect_no_request().await;
     tool.expect_no_request().await;
+
+    shutdown(handle).await;
+}
+
+#[tokio::test]
+async fn replaced_runtime_discards_stale_core_external_requests() {
+    let factory = Arc::new(RecordingFactoryExecutor::default());
+    let api = Arc::new(RecordingApiExecutor::default());
+    let handle = spawn_router(RouterStartArgs {
+        db: open_test_db(),
+        events_tx: tokio::sync::mpsc::channel(8).0,
+        factory_executor: factory.clone(),
+        api_executor: api.clone(),
+        tool_executor: Arc::new(NoopToolExecutor),
+        ingress_capacity: 8,
+        pending_task_command_limit: 8,
+    })
+    .expect("spawn router");
+    let (first_tx, mut first_rx) = tokio::sync::mpsc::channel(8);
+    register_runtime(
+        &handle.router_tx,
+        &factory,
+        first_tx,
+        TaskId("task-1".to_owned()),
+        TaskRuntimeToken("runtime-1".to_owned()),
+    )
+    .await;
+    assert!(matches!(
+        first_rx.recv().await.expect("first start command"),
+        TaskRuntimeCommand::Start
+    ));
+
+    handle
+        .router_tx
+        .send(selvedge_command_model::RouterIngressMessage::Client(
+            ClientCommandEnvelope {
+                client_id: None,
+                command_id: ClientCommandId("stop-1".to_owned()),
+                command: ClientCommand::StopTaskRuntime(StopTaskRuntime {
+                    task_id: TaskId("task-1".to_owned()),
+                }),
+            },
+        ))
+        .await
+        .expect("send stop");
+    assert!(matches!(
+        first_rx.recv().await.expect("stop command"),
+        TaskRuntimeCommand::Stop
+    ));
+    handle
+        .router_tx
+        .send(selvedge_command_model::RouterIngressMessage::RuntimeExit(
+            TaskRuntimeExitNotice {
+                task_id: TaskId("task-1".to_owned()),
+                runtime_token: TaskRuntimeToken("runtime-1".to_owned()),
+                reason: TaskRuntimeExitReason::Stopped,
+            },
+        ))
+        .await
+        .expect("send exit");
+    handle
+        .router_tx
+        .send(selvedge_command_model::RouterIngressMessage::Client(
+            ClientCommandEnvelope {
+                client_id: None,
+                command_id: ClientCommandId("ensure-2".to_owned()),
+                command: ClientCommand::EnsureTaskRuntime(
+                    selvedge_command_model::EnsureTaskRuntime {
+                        task_id: TaskId("task-1".to_owned()),
+                    },
+                ),
+            },
+        ))
+        .await
+        .expect("send ensure");
+    let recreate = factory.take_one_command().await;
+    let FactoryCommand::EnsureTaskRuntime(recreate) = recreate else {
+        panic!("unexpected factory command");
+    };
+    let (second_tx, mut second_rx) = tokio::sync::mpsc::channel(8);
+    handle
+        .router_tx
+        .send(selvedge_command_model::RouterIngressMessage::Factory(
+            FactoryOutputEnvelope {
+                effect_id: recreate.effect_id,
+                output: FactoryOutput::RuntimeCreated(TaskRuntimeCreated {
+                    task_id: TaskId("task-1".to_owned()),
+                    runtime: TaskRuntimeHandle {
+                        runtime_token: TaskRuntimeToken("runtime-2".to_owned()),
+                        task_runtime_tx: second_tx,
+                    },
+                    created_runtime_kind: CreatedRuntimeKind::ExistingTaskRuntime,
+                }),
+            },
+        ))
+        .await
+        .expect("send replacement runtime");
+    assert!(matches!(
+        second_rx.recv().await.expect("second start command"),
+        TaskRuntimeCommand::Start
+    ));
+
+    handle
+        .router_tx
+        .send(selvedge_command_model::RouterIngressMessage::Core(
+            CoreOutputEnvelope {
+                task_id: TaskId("task-1".to_owned()),
+                runtime_token: TaskRuntimeToken("runtime-1".to_owned()),
+                message: CoreOutputMessage::RequestModelCall(valid_model_request("task-1")),
+            },
+        ))
+        .await
+        .expect("send stale request");
+
+    api.expect_no_request().await;
 
     shutdown(handle).await;
 }
@@ -1492,23 +1610,38 @@ async fn domain_history_commit_emits_typed_history_event() {
         UnixTs(2),
     )
     .expect("append user message");
+    let factory = Arc::new(RecordingFactoryExecutor::default());
     let (events_tx, mut events_rx) = tokio::sync::mpsc::channel(8);
     let handle = spawn_router(RouterStartArgs {
         db,
         events_tx,
-        factory_executor: Arc::new(RecordingFactoryExecutor::default()),
+        factory_executor: factory.clone(),
         api_executor: Arc::new(NoopApiExecutor),
         tool_executor: Arc::new(NoopToolExecutor),
         ingress_capacity: 8,
         pending_task_command_limit: 8,
     })
     .expect("spawn router");
+    let (task_runtime_tx, mut task_runtime_rx) = tokio::sync::mpsc::channel(8);
+    register_runtime(
+        &handle.router_tx,
+        &factory,
+        task_runtime_tx,
+        TaskId("task-1".to_owned()),
+        TaskRuntimeToken("runtime-1".to_owned()),
+    )
+    .await;
+    assert!(matches!(
+        task_runtime_rx.recv().await.expect("start command"),
+        TaskRuntimeCommand::Start
+    ));
 
     handle
         .router_tx
         .send(selvedge_command_model::RouterIngressMessage::Core(
             CoreOutputEnvelope {
                 task_id: TaskId("task-1".to_owned()),
+                runtime_token: TaskRuntimeToken("runtime-1".to_owned()),
                 message: CoreOutputMessage::PublishDomainEvent(DomainEventPublishRequest {
                     task_id: TaskId("task-1".to_owned()),
                     event: DomainEvent::UserMessageCommitted { node_id },
@@ -1542,23 +1675,38 @@ async fn domain_history_commit_emits_typed_history_event() {
 async fn runtime_ready_emits_task_changed_event() {
     let db = open_test_db();
     create_root(&db, "task-1");
+    let factory = Arc::new(RecordingFactoryExecutor::default());
     let (events_tx, mut events_rx) = tokio::sync::mpsc::channel(8);
     let handle = spawn_router(RouterStartArgs {
         db,
         events_tx,
-        factory_executor: Arc::new(RecordingFactoryExecutor::default()),
+        factory_executor: factory.clone(),
         api_executor: Arc::new(NoopApiExecutor),
         tool_executor: Arc::new(NoopToolExecutor),
         ingress_capacity: 8,
         pending_task_command_limit: 8,
     })
     .expect("spawn router");
+    let (task_runtime_tx, mut task_runtime_rx) = tokio::sync::mpsc::channel(8);
+    register_runtime(
+        &handle.router_tx,
+        &factory,
+        task_runtime_tx,
+        TaskId("task-1".to_owned()),
+        TaskRuntimeToken("runtime-1".to_owned()),
+    )
+    .await;
+    assert!(matches!(
+        task_runtime_rx.recv().await.expect("start command"),
+        TaskRuntimeCommand::Start
+    ));
 
     handle
         .router_tx
         .send(selvedge_command_model::RouterIngressMessage::Core(
             CoreOutputEnvelope {
                 task_id: TaskId("task-1".to_owned()),
+                runtime_token: TaskRuntimeToken("runtime-1".to_owned()),
                 message: CoreOutputMessage::RuntimeReady,
             },
         ))

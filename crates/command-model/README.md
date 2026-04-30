@@ -12,4 +12,6 @@ This crate is not for network access, database access, filesystem access, provid
 
 Client commands, factory outputs, API outputs, tool outputs, runtime exits, runtime inventory queries, and shutdown all enter through `RouterIngressMessage`.
 
+`CoreOutputEnvelope` includes the task id and runtime token. The router uses the token to discard stale output from a replaced runtime before it reaches external API or tool execution.
+
 Factory effects report through `RouterIngressMessage::Factory`. Runtime inventory requests use `RouterIngressMessage::RuntimeInventoryQuery` and return live plus pending task runtime task ids through a oneshot response. A factory effect may include its own effect id so the router excludes that effect from the pending set returned to the requester.

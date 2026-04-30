@@ -820,6 +820,9 @@ impl RouterActor {
 
     async fn handle_core_output(&mut self, envelope: CoreOutputEnvelope) {
         let task_id = envelope.task_id;
+        if !self.runtime_token_matches(&task_id, &envelope.runtime_token) {
+            return;
+        }
         match envelope.message {
             CoreOutputMessage::RequestModelCall(request) => {
                 if !self.runtime_accepts_external_requests(&task_id) {
@@ -945,6 +948,12 @@ impl RouterActor {
         self.runtimes
             .get(task_id)
             .is_some_and(|entry| !entry.removing)
+    }
+
+    fn runtime_token_matches(&self, task_id: &TaskId, runtime_token: &TaskRuntimeToken) -> bool {
+        self.runtimes
+            .get(task_id)
+            .is_some_and(|entry| &entry.runtime_token == runtime_token)
     }
 
     fn finish_task_creation_effect(&mut self, effect: &LifecycleEffect) {
