@@ -416,6 +416,20 @@ impl RouterActor {
         runtime_command: TaskRuntimeCommand,
     ) {
         if self.runtime_is_removing(&task_id) {
+            if matches!(pending, PendingTaskCommand::Archive) {
+                self.enqueue_waiting_command(task_id.clone(), pending);
+                self.deferred_ensures.insert(task_id);
+                return;
+            }
+            if let Some(client_id) = client_id {
+                self.send_notice(
+                    client_id,
+                    command_id,
+                    ClientNoticeLevel::Warning,
+                    "task runtime is stopping",
+                )
+                .await;
+            }
             return;
         }
 
@@ -911,6 +925,7 @@ impl RouterActor {
         level: ClientNoticeLevel,
         message_text: &str,
     ) {
+        let command_id = self.session_command_id(&client_id, command_id);
         let _ = self
             .events_tx
             .send(EventIngress::Control(EventControlMessage::DeliverNotice(
