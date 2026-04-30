@@ -8,15 +8,17 @@ use selvedge_api::ModelProviderRegistry;
 use selvedge_command_model::{
     ApiOutputEnvelope, ArchiveTask, ClientCommand, ClientCommandEnvelope, ClientCommandId,
     ClientNotice, ClientNoticeLevel, ClientSnapshot, CoreOutputEnvelope, CoreOutputMessage,
-    DeliverNotice, DeliverSnapshot, EventControlMessage, EventIngress, EventIngressSender,
-    FactoryEffectId, FactoryFailure, FactoryOutput, FactoryOutputEnvelope, HistoryNodeProjection,
-    ModelCallDispatchRequest, RouterIngressMessage, RouterIngressSender, RouterShutdown,
+    DeliverNotice, DeliverSnapshot, DomainEvent, DomainEventPublishRequest, EventControlMessage,
+    EventIngress, EventIngressSender, FactoryEffectId, FactoryFailure, FactoryOutput,
+    FactoryOutputEnvelope, HistoryNodeProjection, HistoryNodeProjectionBody,
+    ModelCallDispatchRequest, RawEvent, RouterIngressMessage, RouterIngressSender, RouterShutdown,
     RuntimeInventoryQuery, RuntimeInventoryResponse, SnapshotTaskVersion, StopTaskRuntime,
     SubmitUserInput, TaskId, TaskParentProjection, TaskProjection, TaskProjectionStatus,
     TaskRuntimeCommand, TaskRuntimeExitNotice, TaskRuntimeHandle, TaskRuntimeSender,
     TaskRuntimeToken, ToolExecutionRequest, ToolExecutionResult,
 };
-use selvedge_db::{DbPool, TaskStatusRow, UnixTs};
+use selvedge_db::{DbPool, HistoryNode, TaskRow, TaskStatusRow, UnixTs};
+use selvedge_domain_model::HistoryNodeId;
 use selvedge_task_runtime_factory::{
     CreateChildTaskAndRuntimeCommand, EnsureMissingTaskRuntimesCommand, EnsureTaskRuntimeCommand,
     FactoryCommand, SpawnFactoryEffectError,
@@ -202,10 +204,8 @@ impl RouterActor {
             RouterIngressMessage::RuntimeExit(notice) => self.handle_runtime_exit(notice),
             RouterIngressMessage::Core(envelope) => self.handle_core_output(envelope).await,
             RouterIngressMessage::PublishToEvents(event) => {
-                let _ = self
-                    .events_tx
-                    .send(EventIngress::Raw(domain_event_to_raw(event)))
-                    .await;
+                let raw = self.domain_event_to_raw(event);
+                let _ = self.events_tx.send(EventIngress::Raw(raw)).await;
             }
             RouterIngressMessage::Shutdown(_) => {}
         }
@@ -484,6 +484,14 @@ impl RouterActor {
                     self.register_created_runtime(created.task_id, created.runtime)
                         .await;
                 }
+                for failure in scan.failed {
+                    self.send_failure_notice(FactoryFailure {
+                        task_id: Some(failure.task_id),
+                        kind: failure.kind,
+                        message: failure.message,
+                    })
+                    .await;
+                }
             }
             (LifecycleEffect::CreateTaskRuntime { task_id }, FactoryOutput::Failed(failure)) => {
                 self.pending_creations_by_task.remove(task_id);
@@ -617,10 +625,8 @@ impl RouterActor {
                     .spawn_tool_execution(request, self.router_tx.clone());
             }
             CoreOutputMessage::PublishDomainEvent(event) => {
-                let _ = self
-                    .events_tx
-                    .send(EventIngress::Raw(domain_event_to_raw(event)))
-                    .await;
+                let raw = self.domain_event_to_raw(event);
+                let _ = self.events_tx.send(EventIngress::Raw(raw)).await;
             }
             CoreOutputMessage::RuntimeReady => {}
         }
@@ -629,7 +635,17 @@ impl RouterActor {
     fn answer_runtime_inventory(&mut self, query: RuntimeInventoryQuery) {
         let response = RuntimeInventoryResponse {
             live_task_runtimes: self.runtimes.keys().cloned().collect(),
-            pending_task_runtime_effects: self.pending_creations_by_task.keys().cloned().collect(),
+            pending_task_runtime_effects: self
+                .pending_creations_by_task
+                .iter()
+                .filter(|(_, effect_id)| {
+                    query
+                        .requesting_effect_id
+                        .as_ref()
+                        .is_none_or(|requesting_effect_id| requesting_effect_id != *effect_id)
+                })
+                .map(|(task_id, _)| task_id.clone())
+                .collect(),
         };
         let _ = query.reply_to.send(response);
     }
@@ -779,6 +795,60 @@ impl RouterActor {
         })
     }
 
+    fn domain_event_to_raw(&self, event: DomainEventPublishRequest) -> RawEvent {
+        match event.event {
+            DomainEvent::TaskRuntimeReady | DomainEvent::TaskArchived => {
+                self.task_changed_raw_event(event.task_id)
+            }
+            DomainEvent::UserMessageCommitted { node_id }
+            | DomainEvent::AssistantMessageCommitted { node_id }
+            | DomainEvent::ReasoningCommitted { node_id }
+            | DomainEvent::FunctionCallCommitted { node_id }
+            | DomainEvent::FunctionOutputCommitted { node_id } => {
+                self.history_appended_raw_event(event.task_id, node_id)
+            }
+            DomainEvent::ErrorNotice { message } => {
+                RawEvent::Debug(selvedge_command_model::DebugRawEvent {
+                    task_id: Some(event.task_id),
+                    message_text: message,
+                })
+            }
+        }
+    }
+
+    fn task_changed_raw_event(&self, task_id: TaskId) -> RawEvent {
+        match selvedge_db::read_task(&self.db, &task_id) {
+            Ok(task) => RawEvent::TaskChanged(selvedge_command_model::TaskChangedRawEvent {
+                task: task_projection(task),
+            }),
+            Err(error) => RawEvent::Debug(selvedge_command_model::DebugRawEvent {
+                task_id: Some(task_id),
+                message_text: format!("task event projection failed: {error}"),
+            }),
+        }
+    }
+
+    fn history_appended_raw_event(&self, task_id: TaskId, node_id: HistoryNodeId) -> RawEvent {
+        match (
+            selvedge_db::read_task(&self.db, &task_id),
+            selvedge_db::read_history_node(&self.db, &node_id),
+        ) {
+            (Ok(task), Ok(node)) => {
+                RawEvent::HistoryAppended(selvedge_command_model::HistoryAppendedRawEvent {
+                    task_id,
+                    task_state_version: task.state_version,
+                    appended_nodes: vec![history_node_projection(node)],
+                })
+            }
+            (Err(error), _) | (_, Err(error)) => {
+                RawEvent::Debug(selvedge_command_model::DebugRawEvent {
+                    task_id: Some(task_id),
+                    message_text: format!("history event projection failed: {error}"),
+                })
+            }
+        }
+    }
+
     fn stop(&mut self) {
         self.runtimes.clear();
         self.pending_creations_by_task.clear();
@@ -796,19 +866,89 @@ fn now() -> UnixTs {
     )
 }
 
-fn domain_event_to_raw(
-    event: selvedge_command_model::DomainEventPublishRequest,
-) -> selvedge_command_model::RawEvent {
-    match event.event {
-        selvedge_command_model::DomainEvent::ErrorNotice { message } => {
-            selvedge_command_model::RawEvent::Debug(selvedge_command_model::DebugRawEvent {
-                task_id: Some(event.task_id),
-                message_text: message,
-            })
-        }
-        other => selvedge_command_model::RawEvent::Debug(selvedge_command_model::DebugRawEvent {
-            task_id: Some(event.task_id),
-            message_text: format!("{other:?}"),
-        }),
+fn task_projection(task: TaskRow) -> TaskProjection {
+    TaskProjection {
+        task_id: task.task_id,
+        status: match task.task_status {
+            TaskStatusRow::Active => TaskProjectionStatus::Active,
+            TaskStatusRow::Archived => TaskProjectionStatus::Archived,
+        },
+        cursor_node_id: task.cursor_node_id,
+        model_profile_key: task.model_profile_key,
+        reasoning_effort: task.reasoning_effort,
+        state_version: task.state_version,
+        created_at: task.created_at,
+        updated_at: task.updated_at,
+    }
+}
+
+fn history_node_projection(node: HistoryNode) -> HistoryNodeProjection {
+    match node {
+        HistoryNode::Message {
+            node_id,
+            parent_node_id,
+            created_at,
+            message_role,
+            message_text,
+        } => HistoryNodeProjection {
+            node_id,
+            parent_node_id,
+            created_at,
+            body: HistoryNodeProjectionBody::Message {
+                role: message_role,
+                text: message_text,
+            },
+        },
+        HistoryNode::Reasoning {
+            node_id,
+            parent_node_id,
+            created_at,
+            reasoning_text,
+        } => HistoryNodeProjection {
+            node_id,
+            parent_node_id,
+            created_at,
+            body: HistoryNodeProjectionBody::Reasoning {
+                text: reasoning_text,
+            },
+        },
+        HistoryNode::FunctionCall {
+            node_id,
+            parent_node_id,
+            created_at,
+            function_call_id,
+            tool_name,
+            arguments,
+        } => HistoryNodeProjection {
+            node_id,
+            parent_node_id,
+            created_at,
+            body: HistoryNodeProjectionBody::FunctionCall {
+                function_call_id,
+                tool_name,
+                arguments,
+            },
+        },
+        HistoryNode::FunctionOutput {
+            node_id,
+            parent_node_id,
+            created_at,
+            function_call_node_id,
+            function_call_id,
+            tool_name,
+            output_text,
+            is_error,
+        } => HistoryNodeProjection {
+            node_id,
+            parent_node_id,
+            created_at,
+            body: HistoryNodeProjectionBody::FunctionOutput {
+                function_call_node_id,
+                function_call_id,
+                tool_name,
+                output_text,
+                is_error,
+            },
+        },
     }
 }

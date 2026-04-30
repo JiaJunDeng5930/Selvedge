@@ -74,6 +74,7 @@ async fn run_factory_effect(args: FactoryEffectArgs) {
                 &args.db,
                 &args.router_tx,
                 &args.core_spawn_deps,
+                &command.effect_id,
                 command.task_id,
                 CreatedRuntimeKind::ExistingTaskRuntime,
             )
@@ -81,9 +82,13 @@ async fn run_factory_effect(args: FactoryEffectArgs) {
             send_output(args.router_tx, command.effect_id, output).await;
         }
         FactoryCommand::EnsureMissingTaskRuntimes(command) => {
-            let output =
-                ensure_missing_task_runtimes(&args.db, &args.router_tx, &args.core_spawn_deps)
-                    .await;
+            let output = ensure_missing_task_runtimes(
+                &args.db,
+                &args.router_tx,
+                &args.core_spawn_deps,
+                &command.effect_id,
+            )
+            .await;
             send_output(args.router_tx, command.effect_id, output).await;
         }
         FactoryCommand::CreateChildTaskAndRuntime(command) => {
@@ -134,8 +139,9 @@ async fn ensure_missing_task_runtimes(
     db: &DbPool,
     router_tx: &RouterIngressSender,
     core_spawn_deps: &TaskRuntimeSpawnDeps,
+    effect_id: &FactoryEffectId,
 ) -> FactoryOutput {
-    let inventory = match query_runtime_inventory(router_tx).await {
+    let inventory = match query_runtime_inventory(router_tx, effect_id).await {
         Ok(inventory) => inventory,
         Err(message) => {
             return FactoryOutput::Failed(FactoryFailure {
@@ -211,11 +217,15 @@ async fn ensure_missing_task_runtimes(
 
 async fn query_runtime_inventory(
     router_tx: &RouterIngressSender,
+    effect_id: &FactoryEffectId,
 ) -> Result<RuntimeInventoryResponse, String> {
     let (reply_to, reply_rx) = tokio::sync::oneshot::channel();
     router_tx
         .send(RouterIngressMessage::RuntimeInventoryQuery(
-            RuntimeInventoryQuery { reply_to },
+            RuntimeInventoryQuery {
+                requesting_effect_id: Some(effect_id.clone()),
+                reply_to,
+            },
         ))
         .await
         .map_err(|_| "runtime inventory query could not be sent".to_owned())?;
@@ -228,12 +238,13 @@ async fn ensure_task_runtime(
     db: &DbPool,
     router_tx: &RouterIngressSender,
     core_spawn_deps: &TaskRuntimeSpawnDeps,
+    effect_id: &FactoryEffectId,
     task_id: TaskId,
     created_runtime_kind: CreatedRuntimeKind,
 ) -> FactoryOutput {
     match load_active_task(db, &task_id) {
         Ok(_) => {
-            let inventory = match query_runtime_inventory(router_tx).await {
+            let inventory = match query_runtime_inventory(router_tx, effect_id).await {
                 Ok(inventory) => inventory,
                 Err(message) => {
                     return FactoryOutput::Failed(FactoryFailure {

@@ -1080,7 +1080,7 @@ fn database_is_empty(connection: &Connection) -> Result<bool, DbError> {
     Ok(count == 0)
 }
 
-fn read_task(db: &DbPool, task_id: &TaskId) -> Result<TaskRow, DbError> {
+pub fn read_task(db: &DbPool, task_id: &TaskId) -> Result<TaskRow, DbError> {
     let connection = db.connection()?;
     connection
         .query_row(
@@ -1182,7 +1182,7 @@ fn ensure_current_path_contains_open_function_call(
     }
 }
 
-fn read_history_node(db: &DbPool, node_id: &HistoryNodeId) -> Result<HistoryNode, DbError> {
+pub fn read_history_node(db: &DbPool, node_id: &HistoryNodeId) -> Result<HistoryNode, DbError> {
     let connection = db.connection()?;
     read_history_node_concrete_in_connection(&connection, node_id)
 }

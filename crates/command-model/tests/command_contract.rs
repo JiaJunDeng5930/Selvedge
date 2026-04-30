@@ -264,10 +264,17 @@ fn router_ingress_exposes_factory_output_and_runtime_inventory_query() {
     }
 
     let (reply_to, _reply_rx) = tokio::sync::oneshot::channel();
-    let query = RouterIngressMessage::RuntimeInventoryQuery(RuntimeInventoryQuery { reply_to });
+    let query = RouterIngressMessage::RuntimeInventoryQuery(RuntimeInventoryQuery {
+        requesting_effect_id: Some(FactoryEffectId("factory-1".to_owned())),
+        reply_to,
+    });
 
     match query {
         RouterIngressMessage::RuntimeInventoryQuery(query) => {
+            assert_eq!(
+                query.requesting_effect_id,
+                Some(FactoryEffectId("factory-1".to_owned()))
+            );
             query
                 .reply_to
                 .send(RuntimeInventoryResponse {

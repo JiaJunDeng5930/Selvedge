@@ -633,6 +633,7 @@ pub enum DomainEvent {
 
 #[derive(Debug)]
 pub struct RuntimeInventoryQuery {
+    pub requesting_effect_id: Option<FactoryEffectId>,
     pub reply_to: oneshot::Sender<RuntimeInventoryResponse>,
 }
 
