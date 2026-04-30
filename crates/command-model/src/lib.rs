@@ -160,6 +160,8 @@ pub enum FactoryFailureKind {
     TaskArchived,
     CursorNodeMissing,
     RuntimeInventoryUnavailable,
+    RuntimeAlreadyLive,
+    RuntimeCreationPending,
     CoreSpawnFailed,
 }
 

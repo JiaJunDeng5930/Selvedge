@@ -41,6 +41,8 @@ async fn ensure_task_runtime_creates_runtime_for_existing_active_task() {
         }),
     })
     .expect("spawn factory effect");
+
+    answer_inventory(&mut router_rx, Vec::new(), Vec::new()).await;
     handle.await.expect("factory task joins");
 
     let message = router_rx.recv().await.expect("factory output");
@@ -61,6 +63,37 @@ async fn ensure_task_runtime_creates_runtime_for_existing_active_task() {
     tokio::time::timeout(Duration::from_millis(25), router_rx.recv())
         .await
         .expect_err("factory leaves runtime idle");
+}
+
+#[tokio::test]
+async fn ensure_task_runtime_reports_live_and_pending_inventory() {
+    let db = open_memory_db();
+    create_root(&db, "live");
+    let live = run_ensure_task_runtime_with_inventory(
+        db,
+        "live",
+        vec![TaskId("live".to_owned())],
+        Vec::new(),
+    )
+    .await;
+    let FactoryOutput::Failed(failure) = live else {
+        panic!("unexpected factory output");
+    };
+    assert_eq!(failure.kind, FactoryFailureKind::RuntimeAlreadyLive);
+
+    let db = open_memory_db();
+    create_root(&db, "pending");
+    let pending = run_ensure_task_runtime_with_inventory(
+        db,
+        "pending",
+        Vec::new(),
+        vec![TaskId("pending".to_owned())],
+    )
+    .await;
+    let FactoryOutput::Failed(failure) = pending else {
+        panic!("unexpected factory output");
+    };
+    assert_eq!(failure.kind, FactoryFailureKind::RuntimeCreationPending);
 }
 
 #[tokio::test]
@@ -404,6 +437,36 @@ async fn run_ensure_task_runtime(db: DbPool, task_id: &str) -> FactoryOutput {
     recv_factory_output(&mut router_rx).await
 }
 
+async fn run_ensure_task_runtime_with_inventory(
+    db: DbPool,
+    task_id: &str,
+    live_task_runtimes: Vec<TaskId>,
+    pending_task_runtime_effects: Vec<TaskId>,
+) -> FactoryOutput {
+    let (router_tx, mut router_rx) = tokio::sync::mpsc::channel(8);
+    let handle = spawn_factory_effect(FactoryEffectArgs {
+        command: FactoryCommand::EnsureTaskRuntime(EnsureTaskRuntimeCommand {
+            effect_id: FactoryEffectId("factory-1".to_owned()),
+            task_id: TaskId(task_id.to_owned()),
+        }),
+        db,
+        router_tx,
+        core_spawn_deps: TaskRuntimeSpawnDeps::new(TaskRuntimeConfig {
+            mailbox_capacity: 8,
+            model_profiles: model_profiles(),
+        }),
+    })
+    .expect("spawn factory effect");
+    answer_inventory(
+        &mut router_rx,
+        live_task_runtimes,
+        pending_task_runtime_effects,
+    )
+    .await;
+    handle.await.expect("factory task joins");
+    recv_factory_output(&mut router_rx).await
+}
+
 async fn run_create_child(
     db: DbPool,
     parent_task_id: &str,
@@ -437,6 +500,24 @@ async fn recv_factory_output(
         panic!("unexpected router message");
     };
     envelope.output
+}
+
+async fn answer_inventory(
+    router_rx: &mut tokio::sync::mpsc::Receiver<RouterIngressMessage>,
+    live_task_runtimes: Vec<TaskId>,
+    pending_task_runtime_effects: Vec<TaskId>,
+) {
+    let query = router_rx.recv().await.expect("runtime inventory query");
+    let RouterIngressMessage::QueryRuntimeInventory(query) = query else {
+        panic!("unexpected router message");
+    };
+    query
+        .reply_to
+        .send(RuntimeInventoryResponse {
+            live_task_runtimes,
+            pending_task_runtime_effects,
+        })
+        .expect("send runtime inventory");
 }
 
 struct FailingSpawner;
