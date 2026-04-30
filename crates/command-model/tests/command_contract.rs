@@ -1,14 +1,16 @@
 use selvedge_command_model::{
-    ApiCallCorrelation, ApiEffectId, ApiOutputEnvelope, BeginClientHydration, ClientCommandId,
-    ClientEvent, ClientEventFrame, ClientFrame, ClientId, ClientSnapshot, ClientSnapshotFrame,
-    ClientSubscription, CreatedRuntimeKind, DeliverySeq, DetailLevel, EventControlMessage,
-    EventIngress, FactoryEffectId, FactoryFailure, FactoryFailureKind, FactoryOutput,
-    FactoryOutputEnvelope, FactoryScanOutput, FactorySkipReason, FactorySkippedTask,
-    FactoryTaskFailure, HistoryAppendedEvent, HistoryAppendedRawEvent, ModelCallDispatchRequest,
-    ModelCallError, ModelCallErrorKind, ModelRunId, RouterIngressApiMessage,
-    RouterIngressFactoryMessage, RouterIngressMessage, RuntimeInventoryQuery,
-    RuntimeInventoryResponse, SnapshotTaskVersion, TaskId, TaskProjection, TaskProjectionStatus,
-    TaskRuntimeCreated, TaskScope, validate_api_output_envelope, validate_dispatch_request,
+    ApiCallCorrelation, ApiEffectId, ApiOutputEnvelope, BeginClientHydration, ClientCommand,
+    ClientCommandEnvelope, ClientCommandId, ClientEvent, ClientEventFrame, ClientFrame, ClientId,
+    ClientSnapshot, ClientSnapshotFrame, ClientSubscription, CreatedRuntimeKind, DeliverySeq,
+    DetailLevel, EventControlMessage, EventIngress, FactoryEffectId, FactoryFailure,
+    FactoryFailureKind, FactoryOutput, FactoryOutputEnvelope, FactoryScanOutput, FactorySkipReason,
+    FactorySkippedTask, FactoryTaskFailure, HistoryAppendedEvent, HistoryAppendedRawEvent,
+    ModelCallDispatchRequest, ModelCallError, ModelCallErrorKind, ModelRunId,
+    RouterIngressApiMessage, RouterIngressMessage, RouterShutdown, RuntimeInventoryQuery,
+    RuntimeInventoryResponse, SnapshotTaskVersion, SubmitUserInput, TaskId, TaskProjection,
+    TaskProjectionStatus, TaskRuntimeCreated, TaskRuntimeExitNotice, TaskRuntimeExitReason,
+    TaskRuntimeHandle, TaskRuntimeToken, TaskScope, validate_api_output_envelope,
+    validate_dispatch_request,
 };
 use selvedge_domain_model::{
     ConversationMessage, ConversationPath, HistoryNodeId, MessageContent, MessageRole,
@@ -75,7 +77,7 @@ fn api_output_envelope_carries_exactly_success_or_failure_payload() {
 
 #[test]
 fn router_ingress_api_message_wraps_output_envelope() {
-    let message = RouterIngressApiMessage::ApiOutput(ApiOutputEnvelope::Failure {
+    let message = RouterIngressApiMessage::Api(ApiOutputEnvelope::Failure {
         correlation: valid_correlation(),
         error: ModelCallError {
             kind: ModelCallErrorKind::Cancelled,
@@ -84,7 +86,7 @@ fn router_ingress_api_message_wraps_output_envelope() {
     });
 
     match message {
-        RouterIngressApiMessage::ApiOutput(ApiOutputEnvelope::Failure { error, .. }) => {
+        RouterIngressApiMessage::Api(ApiOutputEnvelope::Failure { error, .. }) => {
             assert_eq!(error.kind, ModelCallErrorKind::Cancelled);
         }
         _ => panic!("unexpected message"),
@@ -173,7 +175,10 @@ fn factory_output_envelope_exposes_runtime_created_scan_and_failure_contract() {
 
     let runtime_created = TaskRuntimeCreated {
         task_id: TaskId("task-1".to_owned()),
-        task_runtime_tx,
+        runtime: TaskRuntimeHandle {
+            runtime_token: TaskRuntimeToken("runtime-1".to_owned()),
+            task_runtime_tx,
+        },
         created_runtime_kind: CreatedRuntimeKind::ExistingTaskRuntime,
     };
     let created = FactoryOutputEnvelope {
@@ -250,20 +255,19 @@ fn router_ingress_exposes_factory_output_and_runtime_inventory_query() {
         }),
     };
 
-    let factory_message =
-        RouterIngressMessage::Factory(RouterIngressFactoryMessage::Output(envelope));
+    let factory_message = RouterIngressMessage::Factory(envelope);
     match factory_message {
-        RouterIngressMessage::Factory(RouterIngressFactoryMessage::Output(envelope)) => {
+        RouterIngressMessage::Factory(envelope) => {
             assert_eq!(envelope.effect_id, FactoryEffectId("factory-1".to_owned()));
         }
         _ => panic!("unexpected router ingress message"),
     }
 
     let (reply_to, _reply_rx) = tokio::sync::oneshot::channel();
-    let query = RouterIngressMessage::QueryRuntimeInventory(RuntimeInventoryQuery { reply_to });
+    let query = RouterIngressMessage::RuntimeInventoryQuery(RuntimeInventoryQuery { reply_to });
 
     match query {
-        RouterIngressMessage::QueryRuntimeInventory(query) => {
+        RouterIngressMessage::RuntimeInventoryQuery(query) => {
             query
                 .reply_to
                 .send(RuntimeInventoryResponse {
@@ -274,6 +278,53 @@ fn router_ingress_exposes_factory_output_and_runtime_inventory_query() {
         }
         _ => panic!("unexpected router ingress message"),
     }
+}
+
+#[test]
+fn router_ingress_exposes_client_shutdown_and_tokened_runtime_exit_contract() {
+    let client_command = ClientCommandEnvelope {
+        client_id: Some(ClientId("client-1".to_owned())),
+        command_id: ClientCommandId("command-1".to_owned()),
+        command: ClientCommand::SubmitUserInput(SubmitUserInput {
+            task_id: TaskId("task-1".to_owned()),
+            message_text: "hello".to_owned(),
+        }),
+    };
+    let message = RouterIngressMessage::Client(client_command);
+    match message {
+        RouterIngressMessage::Client(envelope) => {
+            assert_eq!(envelope.client_id, Some(ClientId("client-1".to_owned())));
+            assert_eq!(envelope.command_id, ClientCommandId("command-1".to_owned()));
+            match envelope.command {
+                ClientCommand::SubmitUserInput(input) => {
+                    assert_eq!(input.task_id, TaskId("task-1".to_owned()));
+                    assert_eq!(input.message_text, "hello");
+                }
+                _ => panic!("unexpected client command"),
+            }
+        }
+        _ => panic!("unexpected router ingress message"),
+    }
+
+    let exit = RouterIngressMessage::RuntimeExit(TaskRuntimeExitNotice {
+        task_id: TaskId("task-1".to_owned()),
+        runtime_token: TaskRuntimeToken("runtime-1".to_owned()),
+        reason: TaskRuntimeExitReason::Stopped,
+    });
+    match exit {
+        RouterIngressMessage::RuntimeExit(notice) => {
+            assert_eq!(
+                notice.runtime_token,
+                TaskRuntimeToken("runtime-1".to_owned())
+            );
+        }
+        _ => panic!("unexpected router ingress message"),
+    }
+
+    assert!(matches!(
+        RouterIngressMessage::Shutdown(RouterShutdown),
+        RouterIngressMessage::Shutdown(_)
+    ));
 }
 
 fn valid_dispatch_request() -> ModelCallDispatchRequest {

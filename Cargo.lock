@@ -1513,6 +1513,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "selvedge-router"
+version = "0.0.0"
+dependencies = [
+ "selvedge-api",
+ "selvedge-command-model",
+ "selvedge-db",
+ "selvedge-domain-model",
+ "selvedge-task-runtime-factory",
+ "tempfile",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "selvedge-task-runtime-factory"
 version = "0.0.0"
 dependencies = [

@@ -67,12 +67,14 @@ pub enum ModelCallErrorKind {
 
 #[derive(Debug)]
 pub enum RouterIngressMessage {
-    ApiOutput(ApiOutputEnvelope),
+    Client(ClientCommandEnvelope),
     Core(CoreOutputEnvelope),
+    Api(ApiOutputEnvelope),
     Tool(ToolExecutionResult),
+    Factory(FactoryOutputEnvelope),
     RuntimeExit(TaskRuntimeExitNotice),
-    Factory(RouterIngressFactoryMessage),
-    QueryRuntimeInventory(RuntimeInventoryQuery),
+    RuntimeInventoryQuery(RuntimeInventoryQuery),
+    Shutdown(RouterShutdown),
     PublishToEvents(DomainEventPublishRequest),
 }
 
@@ -85,11 +87,6 @@ pub type ClientFrameSender = mpsc::Sender<ClientFrame>;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct FactoryEffectId(pub String);
-
-#[derive(Debug)]
-pub enum RouterIngressFactoryMessage {
-    Output(FactoryOutputEnvelope),
-}
 
 #[derive(Debug)]
 pub struct FactoryOutputEnvelope {
@@ -107,7 +104,7 @@ pub enum FactoryOutput {
 #[derive(Debug)]
 pub struct TaskRuntimeCreated {
     pub task_id: TaskId,
-    pub task_runtime_tx: TaskRuntimeSender,
+    pub runtime: TaskRuntimeHandle,
     pub created_runtime_kind: CreatedRuntimeKind,
 }
 
@@ -170,6 +167,83 @@ pub struct ClientId(pub String);
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ClientCommandId(pub String);
+
+#[derive(Debug)]
+pub struct RouterShutdown;
+
+#[derive(Debug)]
+pub struct ClientCommandEnvelope {
+    pub client_id: Option<ClientId>,
+    pub command_id: ClientCommandId,
+    pub command: ClientCommand,
+}
+
+#[derive(Debug)]
+pub enum ClientCommand {
+    SubmitUserInput(SubmitUserInput),
+    ArchiveTask(ArchiveTask),
+    StopTaskRuntime(StopTaskRuntime),
+    EnsureTaskRuntime(EnsureTaskRuntime),
+    EnsureMissingTaskRuntimes(EnsureMissingTaskRuntimes),
+    CreateChildTaskAndRuntime(CreateChildTaskAndRuntime),
+    AttachClient(AttachClient),
+    RefreshClientSnapshot(RefreshClientSnapshot),
+    UpdateClientSubscription(UpdateClientSubscription),
+    DetachClient(DetachClientCommand),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SubmitUserInput {
+    pub task_id: TaskId,
+    pub message_text: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ArchiveTask {
+    pub task_id: TaskId,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StopTaskRuntime {
+    pub task_id: TaskId,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EnsureTaskRuntime {
+    pub task_id: TaskId,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EnsureMissingTaskRuntimes;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CreateChildTaskAndRuntime {
+    pub parent_task_id: TaskId,
+    pub child_cursor_node_id: HistoryNodeId,
+}
+
+#[derive(Debug)]
+pub struct AttachClient {
+    pub client_id: ClientId,
+    pub output_tx: ClientFrameSender,
+    pub subscription: ClientSubscription,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RefreshClientSnapshot {
+    pub client_id: ClientId,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct UpdateClientSubscription {
+    pub client_id: ClientId,
+    pub subscription: ClientSubscription,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DetachClientCommand {
+    pub client_id: ClientId,
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct DeliverySeq(pub u64);
@@ -470,6 +544,15 @@ pub enum DetachReason {
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ToolExecutionRunId(pub String);
 
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct TaskRuntimeToken(pub String);
+
+#[derive(Debug)]
+pub struct TaskRuntimeHandle {
+    pub runtime_token: TaskRuntimeToken,
+    pub task_runtime_tx: TaskRuntimeSender,
+}
+
 #[derive(Debug)]
 pub enum TaskRuntimeCommand {
     Start,
@@ -483,6 +566,7 @@ pub enum TaskRuntimeCommand {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TaskRuntimeExitNotice {
     pub task_id: TaskId,
+    pub runtime_token: TaskRuntimeToken,
     pub reason: TaskRuntimeExitReason,
 }
 

@@ -6,8 +6,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use selvedge_command_model::{
     CreatedRuntimeKind, FactoryEffectId, FactoryFailure, FactoryFailureKind, FactoryOutput,
     FactoryOutputEnvelope, FactoryScanOutput, FactorySkipReason, FactorySkippedTask,
-    FactoryTaskFailure, RouterIngressFactoryMessage, RouterIngressMessage, RouterIngressSender,
-    RuntimeInventoryQuery, RuntimeInventoryResponse, TaskRuntimeCreated,
+    FactoryTaskFailure, RouterIngressMessage, RouterIngressSender, RuntimeInventoryQuery,
+    RuntimeInventoryResponse, TaskRuntimeCreated, TaskRuntimeHandle, TaskRuntimeToken,
 };
 use selvedge_core::{SpawnTaskRuntimeArgs, SpawnTaskRuntimeError, TaskRuntimeSpawnDeps};
 use selvedge_db::{
@@ -214,7 +214,7 @@ async fn query_runtime_inventory(
 ) -> Result<RuntimeInventoryResponse, String> {
     let (reply_to, reply_rx) = tokio::sync::oneshot::channel();
     router_tx
-        .send(RouterIngressMessage::QueryRuntimeInventory(
+        .send(RouterIngressMessage::RuntimeInventoryQuery(
             RuntimeInventoryQuery { reply_to },
         ))
         .await
@@ -299,13 +299,17 @@ fn spawn_task_runtime_created(
         .spawner
         .spawn_task_runtime(SpawnTaskRuntimeArgs {
             task_id: task_id.clone(),
+            runtime_token: TaskRuntimeToken(format!("{}-runtime-{}", task_id.0, Uuid::new_v4())),
             db: db.clone(),
             router_tx: router_tx.clone(),
             config: core_spawn_deps.config.clone(),
         }) {
         Ok(spawned) => Ok(TaskRuntimeCreated {
             task_id: spawned.task_id,
-            task_runtime_tx: spawned.task_runtime_tx,
+            runtime: TaskRuntimeHandle {
+                runtime_token: spawned.runtime_token,
+                task_runtime_tx: spawned.task_runtime_tx,
+            },
             created_runtime_kind,
         }),
         Err(error) => Err(FactoryFailure {
@@ -322,9 +326,10 @@ async fn send_output(
     output: FactoryOutput,
 ) {
     let _ = router_tx
-        .send(RouterIngressMessage::Factory(
-            RouterIngressFactoryMessage::Output(FactoryOutputEnvelope { effect_id, output }),
-        ))
+        .send(RouterIngressMessage::Factory(FactoryOutputEnvelope {
+            effect_id,
+            output,
+        }))
         .await;
 }
 

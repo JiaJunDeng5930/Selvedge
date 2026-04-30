@@ -182,10 +182,7 @@ async fn send_output(
     router_tx: RouterIngressSender,
     envelope: ApiOutputEnvelope,
 ) -> ApiCallTerminalStatus {
-    match router_tx
-        .send(RouterIngressApiMessage::ApiOutput(envelope))
-        .await
-    {
+    match router_tx.send(RouterIngressApiMessage::Api(envelope)).await {
         Ok(()) => ApiCallTerminalStatus::OutputSent,
         Err(_) => ApiCallTerminalStatus::RouterClosed,
     }

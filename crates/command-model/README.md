@@ -10,4 +10,6 @@ This crate is not for network access, database access, filesystem access, provid
 
 `EventIngressSender` is owned by the router. `ClientFrameSender` is supplied by the router for a single client session. Delivery sequencing and hydration buffering live in `selvedge-events`.
 
-Factory effects report through `RouterIngressMessage::Factory`. Runtime inventory requests use `RouterIngressMessage::QueryRuntimeInventory` and return live plus pending task runtime task ids through a oneshot response.
+Client commands, factory outputs, API outputs, tool outputs, runtime exits, runtime inventory queries, and shutdown all enter through `RouterIngressMessage`.
+
+Factory effects report through `RouterIngressMessage::Factory`. Runtime inventory requests use `RouterIngressMessage::RuntimeInventoryQuery` and return live plus pending task runtime task ids through a oneshot response.

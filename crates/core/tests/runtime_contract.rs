@@ -54,6 +54,7 @@ async fn task_runtime_starts_and_requests_model_call_from_system_cursor() {
     let (router_tx, mut router_rx) = tokio::sync::mpsc::channel(8);
     let runtime = spawn_task_runtime(SpawnTaskRuntimeArgs {
         task_id: TaskId("task-1".to_owned()),
+        runtime_token: selvedge_command_model::TaskRuntimeToken("runtime-1".to_owned()),
         db,
         router_tx,
         config: TaskRuntimeConfig {
@@ -130,6 +131,7 @@ async fn task_runtime_start_requests_model_from_user_cursor_without_draining_que
     let (router_tx, mut router_rx) = tokio::sync::mpsc::channel(16);
     let runtime = spawn_task_runtime(SpawnTaskRuntimeArgs {
         task_id: TaskId("task-1".to_owned()),
+        runtime_token: selvedge_command_model::TaskRuntimeToken("runtime-1".to_owned()),
         db: db.clone(),
         router_tx,
         config: TaskRuntimeConfig {
@@ -211,6 +213,7 @@ async fn task_runtime_start_promotes_queue_before_awaiting_user_input() {
     let (router_tx, mut router_rx) = tokio::sync::mpsc::channel(16);
     let runtime = spawn_task_runtime(SpawnTaskRuntimeArgs {
         task_id: TaskId("task-1".to_owned()),
+        runtime_token: selvedge_command_model::TaskRuntimeToken("runtime-1".to_owned()),
         db: db.clone(),
         router_tx,
         config: TaskRuntimeConfig {
@@ -300,6 +303,7 @@ async fn task_runtime_start_dispatches_tool_from_function_call_cursor() {
     let (router_tx, mut router_rx) = tokio::sync::mpsc::channel(16);
     let runtime = spawn_task_runtime(SpawnTaskRuntimeArgs {
         task_id: TaskId("task-1".to_owned()),
+        runtime_token: selvedge_command_model::TaskRuntimeToken("runtime-1".to_owned()),
         db,
         router_tx,
         config: TaskRuntimeConfig {
@@ -385,6 +389,7 @@ async fn task_runtime_start_reconstructs_open_batched_tool_calls_from_history() 
     let (router_tx, mut router_rx) = tokio::sync::mpsc::channel(16);
     let runtime = spawn_task_runtime(SpawnTaskRuntimeArgs {
         task_id: TaskId("task-1".to_owned()),
+        runtime_token: selvedge_command_model::TaskRuntimeToken("runtime-1".to_owned()),
         db,
         router_tx,
         config: TaskRuntimeConfig {
@@ -598,6 +603,7 @@ async fn task_runtime_ignores_tool_result_with_mismatched_call_identity() {
     let (router_tx, mut router_rx) = tokio::sync::mpsc::channel(16);
     let runtime = spawn_task_runtime(SpawnTaskRuntimeArgs {
         task_id: TaskId("task-1".to_owned()),
+        runtime_token: selvedge_command_model::TaskRuntimeToken("runtime-1".to_owned()),
         db: db.clone(),
         router_tx,
         config: TaskRuntimeConfig {
@@ -812,6 +818,7 @@ async fn task_runtime_rejects_tool_calls_outside_enabled_manifest() {
     let (router_tx, mut router_rx) = tokio::sync::mpsc::channel(16);
     let runtime = spawn_task_runtime(SpawnTaskRuntimeArgs {
         task_id: TaskId("task-1".to_owned()),
+        runtime_token: selvedge_command_model::TaskRuntimeToken("runtime-1".to_owned()),
         db,
         router_tx,
         config: TaskRuntimeConfig {
@@ -1094,6 +1101,7 @@ async fn task_runtime_rejects_empty_idle_user_input_before_append() {
     let (router_tx, mut router_rx) = tokio::sync::mpsc::channel(16);
     let runtime = spawn_task_runtime(SpawnTaskRuntimeArgs {
         task_id: TaskId("task-1".to_owned()),
+        runtime_token: selvedge_command_model::TaskRuntimeToken("runtime-1".to_owned()),
         db,
         router_tx,
         config: TaskRuntimeConfig {
@@ -1288,6 +1296,7 @@ async fn task_runtime_preserves_queued_input_when_append_fails() {
     let (router_tx, mut router_rx) = tokio::sync::mpsc::channel(16);
     let runtime = spawn_task_runtime(SpawnTaskRuntimeArgs {
         task_id: TaskId("task-1".to_owned()),
+        runtime_token: selvedge_command_model::TaskRuntimeToken("runtime-1".to_owned()),
         db: db.clone(),
         router_tx,
         config: TaskRuntimeConfig {
@@ -1458,6 +1467,7 @@ async fn task_runtime_recovers_open_tool_call_before_model_dispatch() {
     let (router_tx, mut router_rx) = tokio::sync::mpsc::channel(16);
     let runtime = spawn_task_runtime(SpawnTaskRuntimeArgs {
         task_id: TaskId("task-1".to_owned()),
+        runtime_token: selvedge_command_model::TaskRuntimeToken("runtime-1".to_owned()),
         db,
         router_tx,
         config: TaskRuntimeConfig {
@@ -1559,6 +1569,7 @@ async fn task_runtime_allows_messages_between_tool_call_and_matching_output() {
     let (router_tx, mut router_rx) = tokio::sync::mpsc::channel(16);
     let runtime = spawn_task_runtime(SpawnTaskRuntimeArgs {
         task_id: TaskId("task-1".to_owned()),
+        runtime_token: selvedge_command_model::TaskRuntimeToken("runtime-1".to_owned()),
         db,
         router_tx,
         config: TaskRuntimeConfig {
@@ -1633,6 +1644,7 @@ async fn spawn_runtime_with_task(
     let (router_tx, router_rx) = tokio::sync::mpsc::channel(16);
     let runtime = spawn_task_runtime(SpawnTaskRuntimeArgs {
         task_id: TaskId("task-1".to_owned()),
+        runtime_token: selvedge_command_model::TaskRuntimeToken("runtime-1".to_owned()),
         db,
         router_tx,
         config: TaskRuntimeConfig {
@@ -1744,6 +1756,7 @@ async fn spawn_runtime_and_start_one_model_call(db: selvedge_db::DbPool) -> Mode
     let (router_tx, mut router_rx) = tokio::sync::mpsc::channel(16);
     let runtime = spawn_task_runtime(SpawnTaskRuntimeArgs {
         task_id: TaskId("task-1".to_owned()),
+        runtime_token: selvedge_command_model::TaskRuntimeToken("runtime-1".to_owned()),
         db,
         router_tx,
         config: TaskRuntimeConfig {

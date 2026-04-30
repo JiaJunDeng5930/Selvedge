@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use selvedge_command_model::{
     CreatedRuntimeKind, FactoryEffectId, FactoryFailureKind, FactoryOutput, FactorySkipReason,
-    RouterIngressFactoryMessage, RouterIngressMessage, RuntimeInventoryResponse,
+    RouterIngressMessage, RuntimeInventoryResponse,
 };
 use selvedge_core::{
     SpawnTaskRuntimeArgs, SpawnTaskRuntimeError, SpawnedTaskRuntime, TaskRuntimeConfig,
@@ -46,8 +46,7 @@ async fn ensure_task_runtime_creates_runtime_for_existing_active_task() {
     handle.await.expect("factory task joins");
 
     let message = router_rx.recv().await.expect("factory output");
-    let RouterIngressMessage::Factory(RouterIngressFactoryMessage::Output(envelope)) = message
-    else {
+    let RouterIngressMessage::Factory(envelope) = message else {
         panic!("unexpected router message");
     };
     assert_eq!(envelope.effect_id, FactoryEffectId("factory-1".to_owned()));
@@ -142,7 +141,7 @@ async fn ensure_missing_task_runtimes_skips_live_and_pending_inventory() {
         .await
         .expect("runtime inventory query")
         .expect("runtime inventory message");
-    let RouterIngressMessage::QueryRuntimeInventory(query) = query else {
+    let RouterIngressMessage::RuntimeInventoryQuery(query) = query else {
         panic!("unexpected router message");
     };
     query
@@ -155,8 +154,7 @@ async fn ensure_missing_task_runtimes_skips_live_and_pending_inventory() {
 
     handle.await.expect("factory task joins");
     let message = router_rx.recv().await.expect("factory output");
-    let RouterIngressMessage::Factory(RouterIngressFactoryMessage::Output(envelope)) = message
-    else {
+    let RouterIngressMessage::Factory(envelope) = message else {
         panic!("unexpected router message");
     };
     assert_eq!(
@@ -230,8 +228,7 @@ async fn create_child_task_and_runtime_persists_child_and_copies_parent_settings
     handle.await.expect("factory task joins");
 
     let message = router_rx.recv().await.expect("factory output");
-    let RouterIngressMessage::Factory(RouterIngressFactoryMessage::Output(envelope)) = message
-    else {
+    let RouterIngressMessage::Factory(envelope) = message else {
         panic!("unexpected router message");
     };
     assert_eq!(
@@ -283,7 +280,7 @@ async fn ensure_missing_task_runtimes_reports_unavailable_inventory() {
     .expect("spawn factory effect");
 
     let query = router_rx.recv().await.expect("runtime inventory query");
-    let RouterIngressMessage::QueryRuntimeInventory(query) = query else {
+    let RouterIngressMessage::RuntimeInventoryQuery(query) = query else {
         panic!("unexpected router message");
     };
     drop(query);
@@ -495,8 +492,7 @@ async fn recv_factory_output(
     router_rx: &mut tokio::sync::mpsc::Receiver<RouterIngressMessage>,
 ) -> FactoryOutput {
     let message = router_rx.recv().await.expect("factory output");
-    let RouterIngressMessage::Factory(RouterIngressFactoryMessage::Output(envelope)) = message
-    else {
+    let RouterIngressMessage::Factory(envelope) = message else {
         panic!("unexpected router message");
     };
     envelope.output
@@ -508,7 +504,7 @@ async fn answer_inventory(
     pending_task_runtime_effects: Vec<TaskId>,
 ) {
     let query = router_rx.recv().await.expect("runtime inventory query");
-    let RouterIngressMessage::QueryRuntimeInventory(query) = query else {
+    let RouterIngressMessage::RuntimeInventoryQuery(query) = query else {
         panic!("unexpected router message");
     };
     query

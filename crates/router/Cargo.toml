@@ -1,0 +1,25 @@
+[package]
+name = "selvedge-router"
+edition = "2024"
+publish = false
+
+[dependencies]
+selvedge-api = { path = "../api" }
+selvedge-command-model = { path = "../command-model" }
+selvedge-db = { path = "../db" }
+selvedge-domain-model = { path = "../domain-model" }
+selvedge-task-runtime-factory = { path = "../task-runtime-factory" }
+tokio = { version = "1.42.0", features = ["rt", "sync"] }
+uuid = { version = "1.11.0", features = ["v4"] }
+
+[dev-dependencies]
+tempfile = "3.14.0"
+tokio = { version = "1.42.0", features = ["macros", "rt", "sync", "time"] }
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+dbg_macro = "deny"
+todo = "deny"
+unwrap_used = "deny"

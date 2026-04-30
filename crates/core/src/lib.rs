@@ -8,7 +8,8 @@ use selvedge_command_model::{
     ApiEffectId, ApiOutputEnvelope, CoreOutputEnvelope, CoreOutputMessage, DomainEvent,
     DomainEventPublishRequest, ModelCallDispatchRequest, ModelRunId, RouterIngressMessage,
     RouterIngressSender, TaskRuntimeCommand, TaskRuntimeExitNotice, TaskRuntimeExitReason,
-    TaskRuntimeSender, ToolExecutionRequest, ToolExecutionResult, ToolExecutionRunId,
+    TaskRuntimeSender, TaskRuntimeToken, ToolExecutionRequest, ToolExecutionResult,
+    ToolExecutionRunId,
 };
 use selvedge_db::{
     DbError, DbPool, FunctionCallId, HistoryNode, HistoryNodeId, MessageRole,
@@ -73,6 +74,7 @@ impl TaskRuntimeSpawner for DefaultTaskRuntimeSpawner {
 #[derive(Clone)]
 pub struct SpawnTaskRuntimeArgs {
     pub task_id: TaskId,
+    pub runtime_token: TaskRuntimeToken,
     pub db: DbPool,
     pub router_tx: RouterIngressSender,
     pub config: TaskRuntimeConfig,
@@ -81,6 +83,7 @@ pub struct SpawnTaskRuntimeArgs {
 #[derive(Debug)]
 pub struct SpawnedTaskRuntime {
     pub task_id: TaskId,
+    pub runtime_token: TaskRuntimeToken,
     pub task_runtime_tx: TaskRuntimeSender,
 }
 
@@ -97,11 +100,13 @@ pub fn spawn_task_runtime(
     let (task_runtime_tx, task_runtime_rx) = tokio::sync::mpsc::channel(capacity);
     let spawned = SpawnedTaskRuntime {
         task_id: args.task_id.clone(),
+        runtime_token: args.runtime_token.clone(),
         task_runtime_tx: task_runtime_tx.clone(),
     };
 
     let actor = TaskRuntimeActor {
         task_id: args.task_id,
+        runtime_token: args.runtime_token,
         db: args.db,
         router_tx: args.router_tx,
         rx: task_runtime_rx,
@@ -116,6 +121,7 @@ pub fn spawn_task_runtime(
 
 struct TaskRuntimeActor {
     task_id: TaskId,
+    runtime_token: TaskRuntimeToken,
     db: DbPool,
     router_tx: RouterIngressSender,
     rx: tokio::sync::mpsc::Receiver<TaskRuntimeCommand>,
@@ -597,6 +603,7 @@ impl TaskRuntimeActor {
             .router_tx
             .send(RouterIngressMessage::RuntimeExit(TaskRuntimeExitNotice {
                 task_id: self.task_id.clone(),
+                runtime_token: self.runtime_token.clone(),
                 reason,
             }))
             .await;

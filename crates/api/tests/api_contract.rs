@@ -47,7 +47,7 @@ async fn successful_provider_reply_is_sent_once_with_original_correlation() {
     assert!(router_rx.try_recv().is_err());
 
     match message {
-        RouterIngressApiMessage::ApiOutput(ApiOutputEnvelope::Success { correlation, reply }) => {
+        RouterIngressApiMessage::Api(ApiOutputEnvelope::Success { correlation, reply }) => {
             assert_eq!(correlation.api_effect_id, request.correlation.api_effect_id);
             assert_eq!(correlation.task_id, request.correlation.task_id);
             assert_eq!(correlation.model_run_id, request.correlation.model_run_id);
@@ -121,7 +121,7 @@ async fn invalid_correlation_sends_validation_failure_that_satisfies_output_vali
     let message = router_rx.recv().await.expect("router message");
 
     match message {
-        RouterIngressApiMessage::ApiOutput(envelope) => {
+        RouterIngressApiMessage::Api(envelope) => {
             validate_api_output_envelope(&envelope).expect("valid output envelope");
             match envelope {
                 ApiOutputEnvelope::Failure { error, .. } => {
@@ -479,7 +479,7 @@ fn assert_failure(
     expected_kind: ModelCallErrorKind,
 ) {
     match message {
-        RouterIngressApiMessage::ApiOutput(ApiOutputEnvelope::Failure { correlation, error }) => {
+        RouterIngressApiMessage::Api(ApiOutputEnvelope::Failure { correlation, error }) => {
             assert_eq!(
                 correlation.api_effect_id,
                 expected_correlation.api_effect_id
