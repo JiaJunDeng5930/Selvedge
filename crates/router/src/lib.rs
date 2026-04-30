@@ -570,6 +570,7 @@ impl RouterActor {
                 }
                 self.retry_deferred_ensures();
                 self.retry_waiting_tasks_without_runtime();
+                self.retry_deferred_scan();
             }
             (LifecycleEffect::CreateTaskRuntime { task_id }, FactoryOutput::Failed(failure)) => {
                 let retryable = retryable_creation_failure(&failure.kind);
@@ -587,6 +588,7 @@ impl RouterActor {
                 if matches!(effect, LifecycleEffect::ScanMissingTaskRuntimes) {
                     self.retry_deferred_ensures();
                     self.retry_waiting_tasks_without_runtime();
+                    self.retry_deferred_scan();
                 }
             }
         }
@@ -898,7 +900,7 @@ impl RouterActor {
     }
 
     fn retry_deferred_scan(&mut self) {
-        if self.deferred_scan && !self.runtime_removal_in_flight() {
+        if self.deferred_scan && !self.runtime_removal_in_flight() && !self.scan_in_flight() {
             self.deferred_scan = false;
             self.ensure_missing_task_runtimes();
         }
