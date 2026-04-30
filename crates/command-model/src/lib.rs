@@ -72,7 +72,6 @@ pub enum RouterIngressMessage {
     Tool(ToolExecutionResult),
     RuntimeExit(TaskRuntimeExitNotice),
     Factory(RouterIngressFactoryMessage),
-    RuntimeInventoryQuery(RuntimeInventoryQuery),
     QueryRuntimeInventory(RuntimeInventoryQuery),
     PublishToEvents(DomainEventPublishRequest),
 }
