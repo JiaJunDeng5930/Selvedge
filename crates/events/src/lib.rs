@@ -84,9 +84,7 @@ impl EventsTask {
             EventControlMessage::DeliverSnapshot(snapshot) => self.deliver_snapshot(snapshot).await,
             EventControlMessage::DeliverNotice(notice) => self.deliver_notice(notice).await,
             EventControlMessage::UpdateSubscription(update) => self.update_subscription(update),
-            EventControlMessage::DetachClient(detach) => {
-                self.sessions.remove(&detach.client_id);
-            }
+            EventControlMessage::DetachClient(detach) => self.detach_client(detach),
         }
     }
 
@@ -178,12 +176,28 @@ impl EventsTask {
             return;
         };
 
+        if session.client_command_id != update.client_command_id {
+            return;
+        }
+
         session.subscription = update.subscription;
 
         if let ClientSessionState::Hydrating { buffer, .. } = &mut session.state {
             buffer
                 .retain(|raw| client_event_for_subscription(raw, &session.subscription).is_some());
         }
+    }
+
+    fn detach_client(&mut self, detach: selvedge_command_model::DetachClient) {
+        let Some(session) = self.sessions.get(&detach.client_id) else {
+            return;
+        };
+
+        if session.client_command_id != detach.client_command_id {
+            return;
+        }
+
+        self.sessions.remove(&detach.client_id);
     }
 
     async fn handle_raw(&mut self, raw: RawEvent) {

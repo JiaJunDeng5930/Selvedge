@@ -3,9 +3,9 @@ use std::{collections::BTreeSet, time::Duration};
 use selvedge_command_model::{
     BeginClientHydration, ClientCommandId, ClientEvent, ClientFrame, ClientId, ClientNotice,
     ClientNoticeLevel, ClientSnapshot, ClientSubscription, DebugRawEvent, DeliverNotice,
-    DeliverSnapshot, DetailLevel, EventControlMessage, EventIngress, HistoryAppendedRawEvent,
-    RawEvent, SnapshotTaskVersion, TaskChangedRawEvent, TaskProjection, TaskProjectionStatus,
-    TaskScope, UpdateSubscription,
+    DeliverSnapshot, DetachClient, DetachReason, DetailLevel, EventControlMessage, EventIngress,
+    HistoryAppendedRawEvent, RawEvent, SnapshotTaskVersion, TaskChangedRawEvent, TaskProjection,
+    TaskProjectionStatus, TaskScope, UpdateSubscription,
 };
 use selvedge_domain_model::{HistoryNodeId, ModelProfileKey, ReasoningEffort, TaskId, UnixTs};
 use selvedge_events::{EventsStartArgs, SpawnEventsError, spawn_events_task};
@@ -277,6 +277,7 @@ async fn hydrating_subscription_update_rescreens_buffer_before_snapshot_flush() 
         .send(EventIngress::Control(
             EventControlMessage::UpdateSubscription(UpdateSubscription {
                 client_id: client_id(),
+                client_command_id: ClientCommandId("attach-1".to_owned()),
                 subscription: summary_task_subscription("task-2"),
             }),
         ))
@@ -579,6 +580,97 @@ async fn stale_hydration_snapshot_is_ignored_after_replacement_begin() {
             .await
             .is_err()
     );
+
+    drop(handle.ingress_tx);
+    handle.join_handle.await.expect("events task exits cleanly");
+}
+
+#[tokio::test]
+async fn stale_session_controls_do_not_mutate_replacement_client() {
+    let handle = spawn_events_task(EventsStartArgs {
+        ingress_capacity: 16,
+        client_registry_capacity: 4,
+        hydration_buffer_capacity: 4,
+    })
+    .expect("valid events task");
+    let (first_outbound, mut first_rx) = mpsc::channel(8);
+    let (second_outbound, mut second_rx) = mpsc::channel(8);
+
+    begin_client_with_command(
+        &handle.ingress_tx,
+        first_outbound,
+        ClientCommandId("attach-1".to_owned()),
+        verbose_all_tasks(),
+    )
+    .await;
+    begin_client_with_command(
+        &handle.ingress_tx,
+        second_outbound,
+        ClientCommandId("attach-2".to_owned()),
+        verbose_all_tasks(),
+    )
+    .await;
+
+    handle
+        .ingress_tx
+        .send(EventIngress::Control(
+            EventControlMessage::UpdateSubscription(UpdateSubscription {
+                client_id: client_id(),
+                client_command_id: ClientCommandId("attach-1".to_owned()),
+                subscription: summary_task_subscription("task-2"),
+            }),
+        ))
+        .await
+        .expect("send stale subscription update");
+    handle
+        .ingress_tx
+        .send(EventIngress::Control(EventControlMessage::DetachClient(
+            DetachClient {
+                client_id: client_id(),
+                client_command_id: ClientCommandId("attach-1".to_owned()),
+                reason: DetachReason::ClientRequested,
+            },
+        )))
+        .await
+        .expect("send stale detach");
+
+    assert!(
+        tokio::time::timeout(Duration::from_secs(1), first_rx.recv())
+            .await
+            .expect("first channel closes when replaced")
+            .is_none()
+    );
+
+    handle
+        .ingress_tx
+        .send(EventIngress::Control(EventControlMessage::DeliverSnapshot(
+            DeliverSnapshot {
+                client_id: client_id(),
+                client_command_id: ClientCommandId("attach-2".to_owned()),
+                snapshot: empty_snapshot(),
+            },
+        )))
+        .await
+        .expect("send active snapshot");
+    assert!(matches!(
+        recv_frame(&mut second_rx).await,
+        ClientFrame::Snapshot(_)
+    ));
+
+    handle
+        .ingress_tx
+        .send(EventIngress::Raw(RawEvent::TaskChanged(
+            TaskChangedRawEvent {
+                task: task_projection("task-1", 1),
+            },
+        )))
+        .await
+        .expect("send raw event");
+    let event = recv_frame(&mut second_rx).await;
+    match event {
+        ClientFrame::Event(frame) => assert!(matches!(frame.event, ClientEvent::TaskChanged(_))),
+        _ => panic!("expected task event"),
+    }
 
     drop(handle.ingress_tx);
     handle.join_handle.await.expect("events task exits cleanly");
