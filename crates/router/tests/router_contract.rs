@@ -344,6 +344,124 @@ async fn scan_miss_retries_waiting_task_creation() {
 }
 
 #[tokio::test]
+async fn scan_miss_retries_explicit_ensure() {
+    let factory = Arc::new(RecordingFactoryExecutor::default());
+    let handle =
+        spawn_router(start_args_with_factory(8, 8, factory.clone())).expect("spawn router");
+
+    handle
+        .router_tx
+        .send(selvedge_command_model::RouterIngressMessage::Client(
+            ClientCommandEnvelope {
+                client_id: None,
+                command_id: ClientCommandId("scan-1".to_owned()),
+                command: ClientCommand::EnsureMissingTaskRuntimes(
+                    selvedge_command_model::EnsureMissingTaskRuntimes,
+                ),
+            },
+        ))
+        .await
+        .expect("send scan");
+    let scan = factory.take_one_command().await;
+    let FactoryCommand::EnsureMissingTaskRuntimes(scan) = scan else {
+        panic!("unexpected factory command");
+    };
+
+    handle
+        .router_tx
+        .send(selvedge_command_model::RouterIngressMessage::Client(
+            ClientCommandEnvelope {
+                client_id: None,
+                command_id: ClientCommandId("ensure-1".to_owned()),
+                command: ClientCommand::EnsureTaskRuntime(
+                    selvedge_command_model::EnsureTaskRuntime {
+                        task_id: TaskId("task-1".to_owned()),
+                    },
+                ),
+            },
+        ))
+        .await
+        .expect("send ensure");
+    factory.expect_no_command().await;
+
+    handle
+        .router_tx
+        .send(selvedge_command_model::RouterIngressMessage::Factory(
+            FactoryOutputEnvelope {
+                effect_id: scan.effect_id,
+                output: FactoryOutput::ScanFinished(FactoryScanOutput {
+                    created: Vec::new(),
+                    skipped: Vec::new(),
+                    failed: Vec::new(),
+                }),
+            },
+        ))
+        .await
+        .expect("send scan output");
+
+    let retry = factory.take_one_command().await;
+    let FactoryCommand::EnsureTaskRuntime(retry) = retry else {
+        panic!("unexpected factory command");
+    };
+    assert_eq!(retry.task_id, TaskId("task-1".to_owned()));
+
+    shutdown(handle).await;
+}
+
+#[tokio::test]
+async fn archive_without_runtime_creates_runtime_and_flushes_archive() {
+    let factory = Arc::new(RecordingFactoryExecutor::default());
+    let handle =
+        spawn_router(start_args_with_factory(8, 8, factory.clone())).expect("spawn router");
+
+    handle
+        .router_tx
+        .send(selvedge_command_model::RouterIngressMessage::Client(
+            ClientCommandEnvelope {
+                client_id: Some(ClientId("client-1".to_owned())),
+                command_id: ClientCommandId("archive-1".to_owned()),
+                command: ClientCommand::ArchiveTask(ArchiveTask {
+                    task_id: TaskId("task-1".to_owned()),
+                }),
+            },
+        ))
+        .await
+        .expect("send archive");
+
+    let command = factory.take_one_command().await;
+    let FactoryCommand::EnsureTaskRuntime(command) = command else {
+        panic!("unexpected factory command");
+    };
+    assert_eq!(command.task_id, TaskId("task-1".to_owned()));
+
+    let (task_runtime_tx, mut task_runtime_rx) = tokio::sync::mpsc::channel(8);
+    handle
+        .router_tx
+        .send(selvedge_command_model::RouterIngressMessage::Factory(
+            FactoryOutputEnvelope {
+                effect_id: command.effect_id,
+                output: FactoryOutput::RuntimeCreated(TaskRuntimeCreated {
+                    task_id: TaskId("task-1".to_owned()),
+                    runtime: TaskRuntimeHandle {
+                        runtime_token: TaskRuntimeToken("runtime-1".to_owned()),
+                        task_runtime_tx,
+                    },
+                    created_runtime_kind: CreatedRuntimeKind::ExistingTaskRuntime,
+                }),
+            },
+        ))
+        .await
+        .expect("send factory output");
+
+    assert!(matches!(
+        task_runtime_rx.recv().await.expect("archive command"),
+        TaskRuntimeCommand::Archive
+    ));
+
+    shutdown(handle).await;
+}
+
+#[tokio::test]
 async fn archive_send_failure_requeues_archive_for_recreated_runtime() {
     let factory = Arc::new(RecordingFactoryExecutor::default());
     let handle =

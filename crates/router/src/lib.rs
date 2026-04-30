@@ -1,6 +1,6 @@
 #![doc = include_str!("../README.md")]
 
-use std::collections::{BTreeMap, HashMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -139,6 +139,7 @@ pub fn spawn_router(args: RouterStartArgs) -> Result<RouterHandle, SpawnRouterEr
         effects: HashMap::new(),
         waiting_task_commands: BTreeMap::new(),
         client_sessions: HashMap::new(),
+        deferred_ensures: BTreeSet::new(),
     };
     let join_handle = tokio::spawn(actor.run());
 
@@ -162,6 +163,7 @@ struct RouterActor {
     effects: HashMap<FactoryEffectId, LifecycleEffect>,
     waiting_task_commands: BTreeMap<TaskId, VecDeque<PendingTaskCommand>>,
     client_sessions: HashMap<ClientId, ClientSession>,
+    deferred_ensures: BTreeSet<TaskId>,
 }
 
 struct RuntimeEntry {
@@ -444,6 +446,12 @@ impl RouterActor {
             return;
         }
 
+        if matches!(pending, PendingTaskCommand::Archive) {
+            self.enqueue_waiting_command(task_id.clone(), pending);
+            self.ensure_task_runtime(task_id);
+            return;
+        }
+
         if let Some(client_id) = client_id {
             self.send_notice(
                 client_id,
@@ -458,10 +466,14 @@ impl RouterActor {
     fn ensure_task_runtime(&mut self, task_id: TaskId) {
         if self.runtimes.contains_key(&task_id)
             || self.pending_creations_by_task.contains_key(&task_id)
-            || self.scan_in_flight()
         {
             return;
         }
+        if self.scan_in_flight() {
+            self.deferred_ensures.insert(task_id);
+            return;
+        }
+        self.deferred_ensures.remove(&task_id);
         let effect_id = FactoryEffectId(format!("router-create-{}", Uuid::new_v4()));
         self.pending_creations_by_task
             .insert(task_id.clone(), effect_id.clone());
@@ -528,6 +540,7 @@ impl RouterActor {
                     })
                     .await;
                 }
+                self.retry_deferred_ensures();
                 self.retry_waiting_tasks_without_runtime();
             }
             (LifecycleEffect::CreateTaskRuntime { task_id }, FactoryOutput::Failed(failure)) => {
@@ -541,6 +554,7 @@ impl RouterActor {
             (_, FactoryOutput::Failed(failure)) => {
                 self.send_failure_notice(failure).await;
                 if matches!(effect, LifecycleEffect::ScanMissingTaskRuntimes) {
+                    self.retry_deferred_ensures();
                     self.retry_waiting_tasks_without_runtime();
                 }
             }
@@ -549,6 +563,7 @@ impl RouterActor {
 
     async fn register_created_runtime(&mut self, task_id: TaskId, runtime: TaskRuntimeHandle) {
         self.pending_creations_by_task.remove(&task_id);
+        self.deferred_ensures.remove(&task_id);
         if self.runtimes.contains_key(&task_id) {
             return;
         }
@@ -775,6 +790,7 @@ impl RouterActor {
                 self.effects.remove(&command.effect_id);
                 self.pending_creations_by_task.remove(&command.task_id);
                 self.waiting_task_commands.remove(&command.task_id);
+                self.deferred_ensures.remove(&command.task_id);
             }
             FactoryCommand::EnsureMissingTaskRuntimes(command) => {
                 self.effects.remove(&command.effect_id);
@@ -805,6 +821,19 @@ impl RouterActor {
             .waiting_task_commands
             .keys()
             .cloned()
+            .collect::<Vec<_>>();
+        for task_id in task_ids {
+            if !self.runtimes.contains_key(&task_id)
+                && !self.pending_creations_by_task.contains_key(&task_id)
+            {
+                self.ensure_task_runtime(task_id);
+            }
+        }
+    }
+
+    fn retry_deferred_ensures(&mut self) {
+        let task_ids = std::mem::take(&mut self.deferred_ensures)
+            .into_iter()
             .collect::<Vec<_>>();
         for task_id in task_ids {
             if !self.runtimes.contains_key(&task_id)
@@ -1002,6 +1031,7 @@ impl RouterActor {
         self.pending_creations_by_task.clear();
         self.effects.clear();
         self.waiting_task_commands.clear();
+        self.deferred_ensures.clear();
     }
 }
 
