@@ -543,6 +543,23 @@ async fn stale_hydration_snapshot_is_ignored_after_replacement_begin() {
         _ => panic!("expected buffered event"),
     }
 
+    handle
+        .ingress_tx
+        .send(EventIngress::Control(EventControlMessage::DeliverSnapshot(
+            DeliverSnapshot {
+                client_id: client_id(),
+                client_command_id: ClientCommandId("attach-1".to_owned()),
+                snapshot: empty_snapshot(),
+            },
+        )))
+        .await
+        .expect("send late stale snapshot");
+    assert!(
+        tokio::time::timeout(Duration::from_millis(50), second_rx.recv())
+            .await
+            .is_err()
+    );
+
     drop(handle.ingress_tx);
     handle.join_handle.await.expect("events task exits cleanly");
 }
