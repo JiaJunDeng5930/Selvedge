@@ -1,6 +1,7 @@
 #![doc = include_str!("../README.md")]
 
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use selvedge_command_model::{
@@ -29,6 +30,44 @@ use uuid::Uuid;
 pub struct TaskRuntimeConfig {
     pub mailbox_capacity: usize,
     pub model_profiles: HashMap<ModelProfileKey, ModelProviderProfile>,
+}
+
+#[derive(Clone)]
+pub struct TaskRuntimeSpawnDeps {
+    pub config: TaskRuntimeConfig,
+    pub spawner: Arc<dyn TaskRuntimeSpawner>,
+}
+
+impl TaskRuntimeSpawnDeps {
+    pub fn new(config: TaskRuntimeConfig) -> Self {
+        Self {
+            config,
+            spawner: Arc::new(DefaultTaskRuntimeSpawner),
+        }
+    }
+
+    pub fn with_spawner(config: TaskRuntimeConfig, spawner: Arc<dyn TaskRuntimeSpawner>) -> Self {
+        Self { config, spawner }
+    }
+}
+
+pub trait TaskRuntimeSpawner: Send + Sync {
+    fn spawn_task_runtime(
+        &self,
+        args: SpawnTaskRuntimeArgs,
+    ) -> Result<SpawnedTaskRuntime, SpawnTaskRuntimeError>;
+}
+
+#[derive(Clone, Debug)]
+pub struct DefaultTaskRuntimeSpawner;
+
+impl TaskRuntimeSpawner for DefaultTaskRuntimeSpawner {
+    fn spawn_task_runtime(
+        &self,
+        args: SpawnTaskRuntimeArgs,
+    ) -> Result<SpawnedTaskRuntime, SpawnTaskRuntimeError> {
+        spawn_task_runtime(args)
+    }
 }
 
 #[derive(Clone)]

@@ -71,6 +71,8 @@ pub enum RouterIngressMessage {
     Core(CoreOutputEnvelope),
     Tool(ToolExecutionResult),
     RuntimeExit(TaskRuntimeExitNotice),
+    Factory(RouterIngressFactoryMessage),
+    RuntimeInventoryQuery(RuntimeInventoryQuery),
     QueryRuntimeInventory(RuntimeInventoryQuery),
     PublishToEvents(DomainEventPublishRequest),
 }
@@ -81,6 +83,86 @@ pub type TaskRuntimeSender = mpsc::Sender<TaskRuntimeCommand>;
 pub type ModelCallRequest = ModelCallDispatchRequest;
 pub type EventIngressSender = mpsc::Sender<EventIngress>;
 pub type ClientFrameSender = mpsc::Sender<ClientFrame>;
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct FactoryEffectId(pub String);
+
+#[derive(Debug)]
+pub enum RouterIngressFactoryMessage {
+    Output(FactoryOutputEnvelope),
+}
+
+#[derive(Debug)]
+pub struct FactoryOutputEnvelope {
+    pub effect_id: FactoryEffectId,
+    pub output: FactoryOutput,
+}
+
+#[derive(Debug)]
+pub enum FactoryOutput {
+    RuntimeCreated(TaskRuntimeCreated),
+    ScanFinished(FactoryScanOutput),
+    Failed(FactoryFailure),
+}
+
+#[derive(Debug)]
+pub struct TaskRuntimeCreated {
+    pub task_id: TaskId,
+    pub task_runtime_tx: TaskRuntimeSender,
+    pub created_runtime_kind: CreatedRuntimeKind,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CreatedRuntimeKind {
+    ExistingTaskRuntime,
+    ChildTaskRuntime,
+}
+
+#[derive(Debug)]
+pub struct FactoryScanOutput {
+    pub created: Vec<TaskRuntimeCreated>,
+    pub skipped: Vec<FactorySkippedTask>,
+    pub failed: Vec<FactoryTaskFailure>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FactorySkippedTask {
+    pub task_id: TaskId,
+    pub reason: FactorySkipReason,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum FactorySkipReason {
+    RuntimeAlreadyLive,
+    RuntimeCreationPending,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FactoryTaskFailure {
+    pub task_id: TaskId,
+    pub kind: FactoryFailureKind,
+    pub message: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FactoryFailure {
+    pub task_id: Option<TaskId>,
+    pub kind: FactoryFailureKind,
+    pub message: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum FactoryFailureKind {
+    DbReadFailed,
+    DbWriteFailed,
+    ParentTaskMissing,
+    ParentTaskArchived,
+    TaskMissing,
+    TaskArchived,
+    CursorNodeMissing,
+    RuntimeInventoryUnavailable,
+    CoreSpawnFailed,
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ClientId(pub String);

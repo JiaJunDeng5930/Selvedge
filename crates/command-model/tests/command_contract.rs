@@ -1,11 +1,14 @@
 use selvedge_command_model::{
     ApiCallCorrelation, ApiEffectId, ApiOutputEnvelope, BeginClientHydration, ClientCommandId,
     ClientEvent, ClientEventFrame, ClientFrame, ClientId, ClientSnapshot, ClientSnapshotFrame,
-    ClientSubscription, DeliverySeq, DetailLevel, EventControlMessage, EventIngress,
-    HistoryAppendedEvent, HistoryAppendedRawEvent, ModelCallDispatchRequest, ModelCallError,
-    ModelCallErrorKind, ModelRunId, RouterIngressApiMessage, SnapshotTaskVersion, TaskId,
-    TaskProjection, TaskProjectionStatus, TaskScope, validate_api_output_envelope,
-    validate_dispatch_request,
+    ClientSubscription, CreatedRuntimeKind, DeliverySeq, DetailLevel, EventControlMessage,
+    EventIngress, FactoryEffectId, FactoryFailure, FactoryFailureKind, FactoryOutput,
+    FactoryOutputEnvelope, FactoryScanOutput, FactorySkipReason, FactorySkippedTask,
+    FactoryTaskFailure, HistoryAppendedEvent, HistoryAppendedRawEvent, ModelCallDispatchRequest,
+    ModelCallError, ModelCallErrorKind, ModelRunId, RouterIngressApiMessage,
+    RouterIngressFactoryMessage, RouterIngressMessage, RuntimeInventoryQuery,
+    RuntimeInventoryResponse, SnapshotTaskVersion, TaskId, TaskProjection, TaskProjectionStatus,
+    TaskRuntimeCreated, TaskScope, validate_api_output_envelope, validate_dispatch_request,
 };
 use selvedge_domain_model::{
     ConversationMessage, ConversationPath, HistoryNodeId, MessageContent, MessageRole,
@@ -162,6 +165,108 @@ fn event_ingress_and_client_frames_expose_router_events_contract() {
 
     assert!(matches!(snapshot_frame, ClientFrame::Snapshot(_)));
     assert!(matches!(event_frame, ClientFrame::Event(_)));
+}
+
+#[test]
+fn factory_output_envelope_exposes_runtime_created_scan_and_failure_contract() {
+    let (task_runtime_tx, _task_runtime_rx) = tokio::sync::mpsc::channel(4);
+
+    let runtime_created = TaskRuntimeCreated {
+        task_id: TaskId("task-1".to_owned()),
+        task_runtime_tx,
+        created_runtime_kind: CreatedRuntimeKind::ExistingTaskRuntime,
+    };
+    let created = FactoryOutputEnvelope {
+        effect_id: FactoryEffectId("factory-1".to_owned()),
+        output: FactoryOutput::RuntimeCreated(runtime_created),
+    };
+
+    match created.output {
+        FactoryOutput::RuntimeCreated(created) => {
+            assert_eq!(created.task_id, TaskId("task-1".to_owned()));
+            assert!(matches!(
+                created.created_runtime_kind,
+                CreatedRuntimeKind::ExistingTaskRuntime
+            ));
+        }
+        _ => panic!("unexpected factory output"),
+    }
+
+    let scan = FactoryOutput::ScanFinished(FactoryScanOutput {
+        created: Vec::new(),
+        skipped: vec![FactorySkippedTask {
+            task_id: TaskId("task-live".to_owned()),
+            reason: FactorySkipReason::RuntimeAlreadyLive,
+        }],
+        failed: vec![FactoryTaskFailure {
+            task_id: TaskId("task-failed".to_owned()),
+            kind: FactoryFailureKind::CoreSpawnFailed,
+            message: "spawn failed".to_owned(),
+        }],
+    });
+
+    match scan {
+        FactoryOutput::ScanFinished(scan) => {
+            assert_eq!(scan.skipped[0].task_id, TaskId("task-live".to_owned()));
+            assert!(matches!(
+                scan.skipped[0].reason,
+                FactorySkipReason::RuntimeAlreadyLive
+            ));
+            assert_eq!(scan.failed[0].kind, FactoryFailureKind::CoreSpawnFailed);
+        }
+        _ => panic!("unexpected factory output"),
+    }
+
+    let failed = FactoryOutput::Failed(FactoryFailure {
+        task_id: Some(TaskId("task-archived".to_owned())),
+        kind: FactoryFailureKind::TaskArchived,
+        message: "task is archived".to_owned(),
+    });
+
+    match failed {
+        FactoryOutput::Failed(failure) => {
+            assert_eq!(failure.task_id, Some(TaskId("task-archived".to_owned())));
+            assert_eq!(failure.kind, FactoryFailureKind::TaskArchived);
+        }
+        _ => panic!("unexpected factory output"),
+    }
+}
+
+#[test]
+fn router_ingress_exposes_factory_output_and_runtime_inventory_query() {
+    let envelope = FactoryOutputEnvelope {
+        effect_id: FactoryEffectId("factory-1".to_owned()),
+        output: FactoryOutput::Failed(FactoryFailure {
+            task_id: None,
+            kind: FactoryFailureKind::RuntimeInventoryUnavailable,
+            message: "inventory unavailable".to_owned(),
+        }),
+    };
+
+    let factory_message =
+        RouterIngressMessage::Factory(RouterIngressFactoryMessage::Output(envelope));
+    match factory_message {
+        RouterIngressMessage::Factory(RouterIngressFactoryMessage::Output(envelope)) => {
+            assert_eq!(envelope.effect_id, FactoryEffectId("factory-1".to_owned()));
+        }
+        _ => panic!("unexpected router ingress message"),
+    }
+
+    let (reply_to, _reply_rx) = tokio::sync::oneshot::channel();
+    let query = RouterIngressMessage::RuntimeInventoryQuery(RuntimeInventoryQuery { reply_to });
+
+    match query {
+        RouterIngressMessage::RuntimeInventoryQuery(query) => {
+            query
+                .reply_to
+                .send(RuntimeInventoryResponse {
+                    live_task_runtimes: vec![TaskId("live".to_owned())],
+                    pending_task_runtime_effects: vec![TaskId("pending".to_owned())],
+                })
+                .expect("send runtime inventory response");
+        }
+        _ => panic!("unexpected router ingress message"),
+    }
 }
 
 fn valid_dispatch_request() -> ModelCallDispatchRequest {
