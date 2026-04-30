@@ -336,6 +336,76 @@ async fn ensure_while_runtime_is_removing_retries_after_exit() {
 }
 
 #[tokio::test]
+async fn scan_while_runtime_is_removing_runs_after_exit() {
+    let factory = Arc::new(RecordingFactoryExecutor::default());
+    let handle =
+        spawn_router(start_args_with_factory(8, 8, factory.clone())).expect("spawn router");
+    let (task_runtime_tx, mut task_runtime_rx) = tokio::sync::mpsc::channel(8);
+    register_runtime(
+        &handle.router_tx,
+        &factory,
+        task_runtime_tx,
+        TaskId("task-1".to_owned()),
+        TaskRuntimeToken("runtime-1".to_owned()),
+    )
+    .await;
+    assert!(matches!(
+        task_runtime_rx.recv().await.expect("start command"),
+        TaskRuntimeCommand::Start
+    ));
+
+    handle
+        .router_tx
+        .send(selvedge_command_model::RouterIngressMessage::Client(
+            ClientCommandEnvelope {
+                client_id: None,
+                command_id: ClientCommandId("stop-1".to_owned()),
+                command: ClientCommand::StopTaskRuntime(StopTaskRuntime {
+                    task_id: TaskId("task-1".to_owned()),
+                }),
+            },
+        ))
+        .await
+        .expect("send stop");
+    assert!(matches!(
+        task_runtime_rx.recv().await.expect("stop command"),
+        TaskRuntimeCommand::Stop
+    ));
+
+    handle
+        .router_tx
+        .send(selvedge_command_model::RouterIngressMessage::Client(
+            ClientCommandEnvelope {
+                client_id: None,
+                command_id: ClientCommandId("scan-1".to_owned()),
+                command: ClientCommand::EnsureMissingTaskRuntimes(
+                    selvedge_command_model::EnsureMissingTaskRuntimes,
+                ),
+            },
+        ))
+        .await
+        .expect("send scan");
+    factory.expect_no_command().await;
+
+    handle
+        .router_tx
+        .send(selvedge_command_model::RouterIngressMessage::RuntimeExit(
+            TaskRuntimeExitNotice {
+                task_id: TaskId("task-1".to_owned()),
+                runtime_token: TaskRuntimeToken("runtime-1".to_owned()),
+                reason: TaskRuntimeExitReason::Stopped,
+            },
+        ))
+        .await
+        .expect("send exit");
+
+    let scan = factory.take_one_command().await;
+    assert!(matches!(scan, FactoryCommand::EnsureMissingTaskRuntimes(_)));
+
+    shutdown(handle).await;
+}
+
+#[tokio::test]
 async fn scan_in_flight_blocks_duplicate_task_specific_creation() {
     let factory = Arc::new(RecordingFactoryExecutor::default());
     let handle =

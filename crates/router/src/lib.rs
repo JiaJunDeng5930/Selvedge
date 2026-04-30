@@ -140,6 +140,7 @@ pub fn spawn_router(args: RouterStartArgs) -> Result<RouterHandle, SpawnRouterEr
         waiting_task_commands: BTreeMap::new(),
         client_sessions: HashMap::new(),
         deferred_ensures: BTreeSet::new(),
+        deferred_scan: false,
     };
     let join_handle = tokio::spawn(actor.run());
 
@@ -164,6 +165,7 @@ struct RouterActor {
     waiting_task_commands: BTreeMap<TaskId, VecDeque<PendingTaskCommand>>,
     client_sessions: HashMap<ClientId, ClientSession>,
     deferred_ensures: BTreeSet<TaskId>,
+    deferred_scan: bool,
 }
 
 struct RuntimeEntry {
@@ -497,6 +499,10 @@ impl RouterActor {
     }
 
     fn ensure_missing_task_runtimes(&mut self) {
+        if self.runtime_removal_in_flight() {
+            self.deferred_scan = true;
+            return;
+        }
         let has_scan = self
             .effects
             .values()
@@ -706,6 +712,7 @@ impl RouterActor {
             self.runtimes.remove(&notice.task_id);
             self.clear_removal_effects_for_task(&notice.task_id);
             self.retry_deferred_ensures();
+            self.retry_deferred_scan();
         }
     }
 
@@ -795,6 +802,10 @@ impl RouterActor {
             .any(|effect| matches!(effect, LifecycleEffect::ScanMissingTaskRuntimes))
     }
 
+    fn runtime_removal_in_flight(&self) -> bool {
+        self.runtimes.values().any(|entry| entry.removing)
+    }
+
     fn finish_task_creation_effect(&mut self, effect: &LifecycleEffect) {
         if let LifecycleEffect::CreateTaskRuntime { task_id } = effect {
             self.pending_creations_by_task.remove(task_id);
@@ -869,6 +880,13 @@ impl RouterActor {
             {
                 self.ensure_task_runtime(task_id);
             }
+        }
+    }
+
+    fn retry_deferred_scan(&mut self) {
+        if self.deferred_scan && !self.runtime_removal_in_flight() {
+            self.deferred_scan = false;
+            self.ensure_missing_task_runtimes();
         }
     }
 
@@ -1078,6 +1096,7 @@ impl RouterActor {
         self.effects.clear();
         self.waiting_task_commands.clear();
         self.deferred_ensures.clear();
+        self.deferred_scan = false;
     }
 }
 
