@@ -227,6 +227,68 @@ async fn removing_runtime_discards_late_core_external_requests() {
 }
 
 #[tokio::test]
+async fn core_external_requests_with_mismatched_task_ids_are_discarded() {
+    let factory = Arc::new(RecordingFactoryExecutor::default());
+    let api = Arc::new(RecordingApiExecutor::default());
+    let tool = Arc::new(RecordingToolExecutor::default());
+    let (events_tx, mut events_rx) = tokio::sync::mpsc::channel(8);
+    let handle = spawn_router(RouterStartArgs {
+        db: open_test_db(),
+        events_tx,
+        factory_executor: factory.clone(),
+        api_executor: api.clone(),
+        tool_executor: tool.clone(),
+        ingress_capacity: 8,
+        pending_task_command_limit: 8,
+    })
+    .expect("spawn router");
+    let (task_runtime_tx, mut task_runtime_rx) = tokio::sync::mpsc::channel(8);
+    register_runtime(
+        &handle.router_tx,
+        &factory,
+        task_runtime_tx,
+        TaskId("task-1".to_owned()),
+        TaskRuntimeToken("runtime-1".to_owned()),
+    )
+    .await;
+    assert!(matches!(
+        task_runtime_rx.recv().await.expect("start command"),
+        TaskRuntimeCommand::Start
+    ));
+
+    handle
+        .router_tx
+        .send(selvedge_command_model::RouterIngressMessage::Core(
+            CoreOutputEnvelope {
+                task_id: TaskId("task-1".to_owned()),
+                runtime_token: TaskRuntimeToken("runtime-1".to_owned()),
+                message: CoreOutputMessage::RequestModelCall(valid_model_request("task-2")),
+            },
+        ))
+        .await
+        .expect("send mismatched model request");
+    handle
+        .router_tx
+        .send(selvedge_command_model::RouterIngressMessage::Core(
+            CoreOutputEnvelope {
+                task_id: TaskId("task-1".to_owned()),
+                runtime_token: TaskRuntimeToken("runtime-1".to_owned()),
+                message: CoreOutputMessage::RequestToolExecution(valid_tool_request("task-2")),
+            },
+        ))
+        .await
+        .expect("send mismatched tool request");
+
+    api.expect_no_request().await;
+    tool.expect_no_request().await;
+    tokio::time::timeout(std::time::Duration::from_millis(25), events_rx.recv())
+        .await
+        .expect_err("no status events");
+
+    shutdown(handle).await;
+}
+
+#[tokio::test]
 async fn replaced_runtime_discards_stale_core_external_requests() {
     let factory = Arc::new(RecordingFactoryExecutor::default());
     let api = Arc::new(RecordingApiExecutor::default());

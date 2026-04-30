@@ -842,6 +842,9 @@ impl RouterActor {
                     return;
                 }
                 let correlation = request.correlation.clone();
+                if correlation.task_id != task_id {
+                    return;
+                }
                 self.in_flight_model_calls.insert(
                     (
                         correlation.task_id.clone(),
@@ -872,6 +875,9 @@ impl RouterActor {
             }
             CoreOutputMessage::RequestToolExecution(request) => {
                 if !self.runtime_accepts_external_requests(&task_id) {
+                    return;
+                }
+                if request.task_id != task_id {
                     return;
                 }
                 self.in_flight_tool_executions.insert(
