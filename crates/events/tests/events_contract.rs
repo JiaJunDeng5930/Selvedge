@@ -347,7 +347,7 @@ async fn notice_during_hydration_uses_current_delivery_sequence() {
         .send(EventIngress::Control(EventControlMessage::DeliverNotice(
             DeliverNotice {
                 client_id: client_id(),
-                client_command_id: ClientCommandId("notice-1".to_owned()),
+                client_command_id: ClientCommandId("attach-1".to_owned()),
                 notice: ClientNotice {
                     level: ClientNoticeLevel::Warning,
                     message_text: "heads up".to_owned(),
@@ -364,7 +364,7 @@ async fn notice_during_hydration_uses_current_delivery_sequence() {
             assert_eq!(frame.delivery_seq.0, 1);
             assert_eq!(
                 frame.client_command_id,
-                ClientCommandId("notice-1".to_owned())
+                ClientCommandId("attach-1".to_owned())
             );
             assert_eq!(frame.notice.level, ClientNoticeLevel::Warning);
         }
@@ -475,6 +475,26 @@ async fn stale_hydration_snapshot_is_ignored_after_replacement_begin() {
         verbose_all_tasks(),
     )
     .await;
+
+    handle
+        .ingress_tx
+        .send(EventIngress::Control(EventControlMessage::DeliverNotice(
+            DeliverNotice {
+                client_id: client_id(),
+                client_command_id: ClientCommandId("attach-1".to_owned()),
+                notice: ClientNotice {
+                    level: ClientNoticeLevel::Warning,
+                    message_text: "stale".to_owned(),
+                },
+            },
+        )))
+        .await
+        .expect("send stale notice");
+    assert!(
+        tokio::time::timeout(Duration::from_millis(50), second_rx.recv())
+            .await
+            .is_err()
+    );
 
     handle
         .ingress_tx

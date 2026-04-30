@@ -158,9 +158,13 @@ impl EventsTask {
             return;
         };
 
+        if session.client_command_id != notice.client_command_id {
+            return;
+        }
+
         let frame = ClientFrame::Notice(ClientNoticeFrame {
             delivery_seq: session.next_delivery_seq(),
-            client_command_id: notice.client_command_id,
+            client_command_id: session.client_command_id.clone(),
             notice: notice.notice,
         });
 
