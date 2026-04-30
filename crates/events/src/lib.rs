@@ -96,11 +96,9 @@ impl EventsTask {
             ClientSession {
                 outbound: begin.outbound,
                 subscription: begin.subscription,
+                client_command_id: begin.client_command_id,
                 delivery_seq: 1,
-                state: ClientSessionState::Hydrating {
-                    client_command_id: begin.client_command_id,
-                    buffer: Vec::new(),
-                },
+                state: ClientSessionState::Hydrating { buffer: Vec::new() },
             },
         );
     }
@@ -110,18 +108,14 @@ impl EventsTask {
             return;
         };
 
-        if let ClientSessionState::Hydrating {
-            client_command_id, ..
-        } = &session.state
-            && client_command_id != &snapshot.client_command_id
-        {
+        if session.client_command_id != snapshot.client_command_id {
             return;
         }
 
         let snapshot_versions = snapshot_versions(&snapshot.snapshot);
         let frame = ClientFrame::Snapshot(ClientSnapshotFrame {
             delivery_seq: session.next_delivery_seq(),
-            client_command_id: snapshot.client_command_id,
+            client_command_id: session.client_command_id.clone(),
             snapshot: snapshot.snapshot,
         });
 
@@ -240,6 +234,7 @@ impl EventsTask {
 struct ClientSession {
     outbound: ClientFrameSender,
     subscription: ClientSubscription,
+    client_command_id: selvedge_command_model::ClientCommandId,
     delivery_seq: u64,
     state: ClientSessionState,
 }
@@ -260,10 +255,7 @@ impl ClientSession {
 }
 
 enum ClientSessionState {
-    Hydrating {
-        client_command_id: selvedge_command_model::ClientCommandId,
-        buffer: Vec<RawEvent>,
-    },
+    Hydrating { buffer: Vec<RawEvent> },
     Live,
 }
 
