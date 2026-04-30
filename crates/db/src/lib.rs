@@ -937,6 +937,28 @@ pub fn list_active_tasks(db: &DbPool) -> Result<Vec<TaskRow>, DbError> {
     Ok(rows)
 }
 
+pub fn read_task_parent_edges(db: &DbPool) -> Result<Vec<TaskParentEdgeRow>, DbError> {
+    let connection = db.connection()?;
+    let mut statement = connection
+        .prepare(
+            "SELECT parent_task_id, child_task_id, created_at
+             FROM task_parent_edges
+             ORDER BY parent_task_id ASC, child_task_id ASC",
+        )
+        .map_err(map_error)?;
+    statement
+        .query_map([], |row| {
+            Ok(TaskParentEdgeRow {
+                parent_task_id: TaskId(row.get(0)?),
+                child_task_id: TaskId(row.get(1)?),
+                created_at: UnixTs(row.get(2)?),
+            })
+        })
+        .map_err(map_error)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(map_error)
+}
+
 pub fn read_tool_manifest_for_task(db: &DbPool, task_id: &TaskId) -> Result<ToolManifest, DbError> {
     let connection = db.connection()?;
     ensure_active_task(&connection, task_id)?;

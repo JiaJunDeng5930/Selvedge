@@ -1513,6 +1513,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "selvedge-task-runtime-factory"
+version = "0.0.0"
+dependencies = [
+ "selvedge-command-model",
+ "selvedge-core",
+ "selvedge-db",
+ "selvedge-domain-model",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "semver"
 version = "1.0.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
