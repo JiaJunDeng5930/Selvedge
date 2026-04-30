@@ -60,6 +60,7 @@ pub fn spawn_events_task(args: EventsStartArgs) -> Result<EventsHandle, SpawnEve
 
 struct EventsTask {
     sessions: HashMap<ClientId, ClientSession>,
+    client_registry_capacity: usize,
     hydration_buffer_capacity: usize,
 }
 
@@ -67,6 +68,7 @@ impl EventsTask {
     fn new(args: EventsStartArgs) -> Self {
         Self {
             sessions: HashMap::with_capacity(args.client_registry_capacity),
+            client_registry_capacity: args.client_registry_capacity,
             hydration_buffer_capacity: args.hydration_buffer_capacity,
         }
     }
@@ -89,6 +91,12 @@ impl EventsTask {
     }
 
     fn begin_hydration(&mut self, begin: BeginClientHydration) {
+        if !self.sessions.contains_key(&begin.client_id)
+            && self.sessions.len() >= self.client_registry_capacity
+        {
+            return;
+        }
+
         self.sessions.insert(
             begin.client_id,
             ClientSession {

@@ -333,6 +333,47 @@ async fn hydrating_buffer_overflow_removes_client_session() {
 }
 
 #[tokio::test]
+async fn registry_capacity_rejects_new_clients_after_limit() {
+    let handle = spawn_events_task(EventsStartArgs {
+        ingress_capacity: 8,
+        client_registry_capacity: 1,
+        hydration_buffer_capacity: 4,
+    })
+    .expect("valid events task");
+    let (first_outbound, mut first_rx) = mpsc::channel(8);
+    let (second_outbound, mut second_rx) = mpsc::channel(8);
+
+    begin_named_client(
+        &handle.ingress_tx,
+        ClientId("client-1".to_owned()),
+        first_outbound,
+        verbose_all_tasks(),
+    )
+    .await;
+    begin_named_client(
+        &handle.ingress_tx,
+        ClientId("client-2".to_owned()),
+        second_outbound,
+        verbose_all_tasks(),
+    )
+    .await;
+
+    let rejected = tokio::time::timeout(Duration::from_secs(1), second_rx.recv())
+        .await
+        .expect("rejected client channel closes");
+    assert!(rejected.is_none());
+
+    deliver_named_empty_snapshot(&handle.ingress_tx, ClientId("client-1".to_owned())).await;
+    assert!(matches!(
+        recv_frame(&mut first_rx).await,
+        ClientFrame::Snapshot(_)
+    ));
+
+    drop(handle.ingress_tx);
+    handle.join_handle.await.expect("events task exits cleanly");
+}
+
+#[tokio::test]
 async fn notice_during_hydration_uses_current_delivery_sequence() {
     let handle = spawn_events_task(EventsStartArgs {
         ingress_capacity: 8,
