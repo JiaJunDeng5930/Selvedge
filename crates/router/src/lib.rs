@@ -628,8 +628,8 @@ impl RouterActor {
             .get(task_id)
             .is_none_or(|commands| {
                 commands
-                    .iter()
-                    .any(|command| matches!(command, PendingTaskCommand::UserInput { .. }))
+                    .front()
+                    .is_some_and(|command| matches!(command, PendingTaskCommand::UserInput { .. }))
             })
     }
 
