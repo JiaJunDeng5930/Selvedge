@@ -227,6 +227,13 @@ fn factory_output_envelope_exposes_runtime_created_scan_and_failure_contract() {
         FactoryOutput::Failed(failure) => {
             assert_eq!(failure.task_id, Some(TaskId("task-archived".to_owned())));
             assert_eq!(failure.kind, FactoryFailureKind::TaskArchived);
+
+            let duplicate = FactoryFailure {
+                task_id: Some(TaskId("task-live".to_owned())),
+                kind: FactoryFailureKind::RuntimeAlreadyLive,
+                message: "task runtime is already live".to_owned(),
+            };
+            assert_eq!(duplicate.kind, FactoryFailureKind::RuntimeAlreadyLive);
         }
         _ => panic!("unexpected factory output"),
     }

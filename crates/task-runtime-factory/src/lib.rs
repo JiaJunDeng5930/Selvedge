@@ -76,7 +76,8 @@ async fn run_factory_effect(args: FactoryEffectArgs) {
                 &args.core_spawn_deps,
                 command.task_id,
                 CreatedRuntimeKind::ExistingTaskRuntime,
-            );
+            )
+            .await;
             send_output(args.router_tx, command.effect_id, output).await;
         }
         FactoryCommand::EnsureMissingTaskRuntimes(command) => {
@@ -223,7 +224,7 @@ async fn query_runtime_inventory(
         .map_err(|_| "runtime inventory response was not delivered".to_owned())
 }
 
-fn ensure_task_runtime(
+async fn ensure_task_runtime(
     db: &DbPool,
     router_tx: &RouterIngressSender,
     core_spawn_deps: &TaskRuntimeSpawnDeps,
@@ -231,13 +232,39 @@ fn ensure_task_runtime(
     created_runtime_kind: CreatedRuntimeKind,
 ) -> FactoryOutput {
     match load_active_task(db, &task_id) {
-        Ok(_) => spawn_task_runtime(
-            db,
-            router_tx,
-            core_spawn_deps,
-            task_id,
-            created_runtime_kind,
-        ),
+        Ok(_) => {
+            let inventory = match query_runtime_inventory(router_tx).await {
+                Ok(inventory) => inventory,
+                Err(message) => {
+                    return FactoryOutput::Failed(FactoryFailure {
+                        task_id: Some(task_id),
+                        kind: FactoryFailureKind::RuntimeInventoryUnavailable,
+                        message,
+                    });
+                }
+            };
+            if inventory.live_task_runtimes.contains(&task_id) {
+                return FactoryOutput::Failed(FactoryFailure {
+                    task_id: Some(task_id),
+                    kind: FactoryFailureKind::RuntimeAlreadyLive,
+                    message: "task runtime is already live".to_owned(),
+                });
+            }
+            if inventory.pending_task_runtime_effects.contains(&task_id) {
+                return FactoryOutput::Failed(FactoryFailure {
+                    task_id: Some(task_id),
+                    kind: FactoryFailureKind::RuntimeCreationPending,
+                    message: "task runtime creation is already pending".to_owned(),
+                });
+            }
+            spawn_task_runtime(
+                db,
+                router_tx,
+                core_spawn_deps,
+                task_id,
+                created_runtime_kind,
+            )
+        }
         Err(error) => FactoryOutput::Failed(map_load_task_failure(Some(task_id), error)),
     }
 }
