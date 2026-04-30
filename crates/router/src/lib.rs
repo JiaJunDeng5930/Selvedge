@@ -11,11 +11,12 @@ use selvedge_command_model::{
     CoreOutputMessage, DeliverNotice, DeliverSnapshot, DomainEvent, DomainEventPublishRequest,
     EventControlMessage, EventIngress, EventIngressSender, FactoryEffectId, FactoryFailure,
     FactoryOutput, FactoryOutputEnvelope, HistoryNodeProjection, HistoryNodeProjectionBody,
-    ModelCallDispatchRequest, RawEvent, RouterIngressMessage, RouterIngressSender, RouterShutdown,
-    RuntimeInventoryQuery, RuntimeInventoryResponse, SnapshotTaskVersion, StopTaskRuntime,
-    SubmitUserInput, TaskId, TaskParentProjection, TaskProjection, TaskProjectionStatus,
-    TaskRuntimeCommand, TaskRuntimeExitNotice, TaskRuntimeHandle, TaskRuntimeSender,
-    TaskRuntimeToken, ToolExecutionRequest, ToolExecutionResult,
+    ModelCallDispatchRequest, ModelCallError, ModelCallErrorKind, RawEvent, RouterIngressMessage,
+    RouterIngressSender, RouterShutdown, RuntimeInventoryQuery, RuntimeInventoryResponse,
+    SnapshotTaskVersion, StopTaskRuntime, SubmitUserInput, TaskId, TaskParentProjection,
+    TaskProjection, TaskProjectionStatus, TaskRuntimeCommand, TaskRuntimeExitNotice,
+    TaskRuntimeHandle, TaskRuntimeSender, TaskRuntimeToken, ToolExecutionRequest,
+    ToolExecutionResult,
 };
 use selvedge_db::{DbPool, HistoryNode, TaskRow, TaskStatusRow, UnixTs};
 use selvedge_domain_model::HistoryNodeId;
@@ -203,7 +204,7 @@ impl RouterActor {
             }
             RouterIngressMessage::Api(envelope) => self.route_api_output(envelope).await,
             RouterIngressMessage::Tool(result) => self.route_tool_output(result).await,
-            RouterIngressMessage::RuntimeExit(notice) => self.handle_runtime_exit(notice),
+            RouterIngressMessage::RuntimeExit(notice) => self.handle_runtime_exit(notice).await,
             RouterIngressMessage::Core(envelope) => self.handle_core_output(envelope).await,
             RouterIngressMessage::PublishToEvents(event) => {
                 let raw = self.domain_event_to_raw(event);
@@ -431,6 +432,7 @@ impl RouterActor {
     fn ensure_task_runtime(&mut self, task_id: TaskId) {
         if self.runtimes.contains_key(&task_id)
             || self.pending_creations_by_task.contains_key(&task_id)
+            || self.scan_in_flight()
         {
             return;
         }
@@ -620,12 +622,19 @@ impl RouterActor {
         Ok(())
     }
 
-    fn handle_runtime_exit(&mut self, notice: TaskRuntimeExitNotice) {
+    async fn handle_runtime_exit(&mut self, notice: TaskRuntimeExitNotice) {
         let should_remove = self
             .runtimes
             .get(&notice.task_id)
             .is_some_and(|entry| entry.runtime_token == notice.runtime_token);
         if should_remove {
+            if matches!(
+                notice.reason,
+                selvedge_command_model::TaskRuntimeExitReason::Archived
+            ) {
+                let raw = self.task_changed_raw_event(notice.task_id.clone());
+                let _ = self.events_tx.send(EventIngress::Raw(raw)).await;
+            }
             self.runtimes.remove(&notice.task_id);
             self.clear_removal_effects_for_task(&notice.task_id);
         }
@@ -634,14 +643,39 @@ impl RouterActor {
     async fn handle_core_output(&mut self, envelope: CoreOutputEnvelope) {
         match envelope.message {
             CoreOutputMessage::RequestModelCall(request) => {
-                let _ = self
+                let correlation = request.correlation.clone();
+                if self
                     .api_executor
-                    .spawn_model_call(request, self.router_tx.clone());
+                    .spawn_model_call(request, self.router_tx.clone())
+                    .is_err()
+                {
+                    self.route_api_output(ApiOutputEnvelope::Failure {
+                        correlation,
+                        error: ModelCallError {
+                            kind: ModelCallErrorKind::ProviderRequest,
+                            message: "api executor spawn failed".to_owned(),
+                        },
+                    })
+                    .await;
+                }
             }
             CoreOutputMessage::RequestToolExecution(request) => {
-                let _ = self
+                let failure = ToolExecutionResult {
+                    task_id: request.task_id.clone(),
+                    tool_execution_run_id: request.tool_execution_run_id.clone(),
+                    function_call_node_id: request.function_call_node_id,
+                    function_call_id: request.function_call_id.clone(),
+                    tool_name: request.tool_name.clone(),
+                    output_text: "tool executor spawn failed".to_owned(),
+                    is_error: true,
+                };
+                if self
                     .tool_executor
-                    .spawn_tool_execution(request, self.router_tx.clone());
+                    .spawn_tool_execution(request, self.router_tx.clone())
+                    .is_err()
+                {
+                    self.route_tool_output(failure).await;
+                }
             }
             CoreOutputMessage::PublishDomainEvent(event) => {
                 let raw = self.domain_event_to_raw(event);
@@ -680,6 +714,12 @@ impl RouterActor {
         self.runtimes
             .get(task_id)
             .is_some_and(|entry| entry.removing)
+    }
+
+    fn scan_in_flight(&self) -> bool {
+        self.effects
+            .values()
+            .any(|effect| matches!(effect, LifecycleEffect::ScanMissingTaskRuntimes))
     }
 
     fn finish_task_creation_effect(&mut self, effect: &LifecycleEffect) {
