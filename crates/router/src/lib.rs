@@ -12,11 +12,13 @@ use selvedge_command_model::{
     DomainEvent, DomainEventPublishRequest, EventControlMessage, EventIngress, EventIngressSender,
     FactoryEffectId, FactoryFailure, FactoryFailureKind, FactoryOutput, FactoryOutputEnvelope,
     HistoryNodeProjection, HistoryNodeProjectionBody, ModelCallDispatchRequest, ModelCallError,
-    ModelCallErrorKind, RawEvent, RouterIngressMessage, RouterIngressSender, RouterShutdown,
-    RuntimeInventoryQuery, RuntimeInventoryResponse, SnapshotTaskVersion, StopTaskRuntime,
-    SubmitUserInput, TaskId, TaskParentProjection, TaskProjection, TaskProjectionStatus,
-    TaskRuntimeCommand, TaskRuntimeExitNotice, TaskRuntimeHandle, TaskRuntimeSender,
-    TaskRuntimeToken, TaskScope, ToolExecutionRequest, ToolExecutionResult,
+    ModelCallErrorKind, ModelCallStatusPhase, ModelCallStatusRawEvent, RawEvent,
+    RouterIngressMessage, RouterIngressSender, RouterShutdown, RuntimeInventoryQuery,
+    RuntimeInventoryResponse, SnapshotTaskVersion, StopTaskRuntime, SubmitUserInput, TaskId,
+    TaskParentProjection, TaskProjection, TaskProjectionStatus, TaskRuntimeCommand,
+    TaskRuntimeExitNotice, TaskRuntimeHandle, TaskRuntimeSender, TaskRuntimeToken, TaskScope,
+    ToolExecutionRequest, ToolExecutionResult, ToolExecutionStatusPhase,
+    ToolExecutionStatusRawEvent,
 };
 use selvedge_db::{DbPool, HistoryNode, TaskRow, TaskStatusRow, UnixTs};
 use selvedge_domain_model::HistoryNodeId;
@@ -690,20 +692,58 @@ impl RouterActor {
     }
 
     async fn route_api_output(&mut self, envelope: ApiOutputEnvelope) {
-        let task_id = match &envelope {
-            ApiOutputEnvelope::Success { correlation, .. }
-            | ApiOutputEnvelope::Failure { correlation, .. } => correlation.task_id.clone(),
+        let (task_id, model_call_id, phase) = match &envelope {
+            ApiOutputEnvelope::Success { correlation, .. } => (
+                correlation.task_id.clone(),
+                correlation.model_run_id.clone(),
+                ModelCallStatusPhase::Completed,
+            ),
+            ApiOutputEnvelope::Failure { correlation, .. } => (
+                correlation.task_id.clone(),
+                correlation.model_run_id.clone(),
+                ModelCallStatusPhase::Failed,
+            ),
         };
-        let _ = self
+        let routed = self
             .route_to_runtime(&task_id, TaskRuntimeCommand::ApiModelReply(envelope))
             .await;
+        self.send_model_call_status(
+            task_id,
+            model_call_id,
+            if routed.is_ok() {
+                phase
+            } else {
+                ModelCallStatusPhase::Discarded
+            },
+        )
+        .await;
     }
 
     async fn route_tool_output(&mut self, result: ToolExecutionResult) {
         let task_id = result.task_id.clone();
-        let _ = self
+        let status = ToolExecutionStatusRawEvent {
+            task_id: result.task_id.clone(),
+            tool_execution_run_id: result.tool_execution_run_id.clone(),
+            function_call_node_id: result.function_call_node_id,
+            tool_name: result.tool_name.clone(),
+            phase: if result.is_error {
+                ToolExecutionStatusPhase::Failed
+            } else {
+                ToolExecutionStatusPhase::Completed
+            },
+        };
+        let routed = self
             .route_to_runtime(&task_id, TaskRuntimeCommand::ToolResult(result))
             .await;
+        self.send_tool_execution_status(ToolExecutionStatusRawEvent {
+            phase: if routed.is_ok() {
+                status.phase
+            } else {
+                ToolExecutionStatusPhase::Discarded
+            },
+            ..status
+        })
+        .await;
     }
 
     async fn route_to_runtime(
@@ -775,6 +815,12 @@ impl RouterActor {
         match envelope.message {
             CoreOutputMessage::RequestModelCall(request) => {
                 let correlation = request.correlation.clone();
+                self.send_model_call_status(
+                    correlation.task_id.clone(),
+                    correlation.model_run_id.clone(),
+                    ModelCallStatusPhase::Requested,
+                )
+                .await;
                 if self
                     .api_executor
                     .spawn_model_call(request, self.router_tx.clone())
@@ -791,6 +837,14 @@ impl RouterActor {
                 }
             }
             CoreOutputMessage::RequestToolExecution(request) => {
+                self.send_tool_execution_status(ToolExecutionStatusRawEvent {
+                    task_id: request.task_id.clone(),
+                    tool_execution_run_id: request.tool_execution_run_id.clone(),
+                    function_call_node_id: request.function_call_node_id,
+                    tool_name: request.tool_name.clone(),
+                    phase: ToolExecutionStatusPhase::Requested,
+                })
+                .await;
                 let failure = ToolExecutionResult {
                     task_id: request.task_id.clone(),
                     tool_execution_run_id: request.tool_execution_run_id.clone(),
@@ -972,6 +1026,31 @@ impl RouterActor {
             self.deferred_scan = false;
             self.ensure_missing_task_runtimes();
         }
+    }
+
+    async fn send_model_call_status(
+        &mut self,
+        task_id: TaskId,
+        model_call_id: selvedge_command_model::ModelCallId,
+        phase: ModelCallStatusPhase,
+    ) {
+        let _ = self
+            .events_tx
+            .send(EventIngress::Raw(RawEvent::ModelCallStatus(
+                ModelCallStatusRawEvent {
+                    task_id,
+                    model_call_id,
+                    phase,
+                },
+            )))
+            .await;
+    }
+
+    async fn send_tool_execution_status(&mut self, event: ToolExecutionStatusRawEvent) {
+        let _ = self
+            .events_tx
+            .send(EventIngress::Raw(RawEvent::ToolExecutionStatus(event)))
+            .await;
     }
 
     fn requeue_failed_flush(
