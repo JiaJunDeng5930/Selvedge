@@ -7,16 +7,16 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use selvedge_api::ModelProviderRegistry;
 use selvedge_command_model::{
     ApiOutputEnvelope, ArchiveTask, ClientCommand, ClientCommandEnvelope, ClientCommandId,
-    ClientId, ClientNotice, ClientNoticeLevel, ClientSnapshot, CoreOutputEnvelope,
-    CoreOutputMessage, DeliverNotice, DeliverSnapshot, DomainEvent, DomainEventPublishRequest,
-    EventControlMessage, EventIngress, EventIngressSender, FactoryEffectId, FactoryFailure,
-    FactoryOutput, FactoryOutputEnvelope, HistoryNodeProjection, HistoryNodeProjectionBody,
-    ModelCallDispatchRequest, ModelCallError, ModelCallErrorKind, RawEvent, RouterIngressMessage,
-    RouterIngressSender, RouterShutdown, RuntimeInventoryQuery, RuntimeInventoryResponse,
-    SnapshotTaskVersion, StopTaskRuntime, SubmitUserInput, TaskId, TaskParentProjection,
-    TaskProjection, TaskProjectionStatus, TaskRuntimeCommand, TaskRuntimeExitNotice,
-    TaskRuntimeHandle, TaskRuntimeSender, TaskRuntimeToken, ToolExecutionRequest,
-    ToolExecutionResult,
+    ClientId, ClientNotice, ClientNoticeLevel, ClientSnapshot, ClientSubscription,
+    CoreOutputEnvelope, CoreOutputMessage, DeliverNotice, DeliverSnapshot, DomainEvent,
+    DomainEventPublishRequest, EventControlMessage, EventIngress, EventIngressSender,
+    FactoryEffectId, FactoryFailure, FactoryOutput, FactoryOutputEnvelope, HistoryNodeProjection,
+    HistoryNodeProjectionBody, ModelCallDispatchRequest, ModelCallError, ModelCallErrorKind,
+    RawEvent, RouterIngressMessage, RouterIngressSender, RouterShutdown, RuntimeInventoryQuery,
+    RuntimeInventoryResponse, SnapshotTaskVersion, StopTaskRuntime, SubmitUserInput, TaskId,
+    TaskParentProjection, TaskProjection, TaskProjectionStatus, TaskRuntimeCommand,
+    TaskRuntimeExitNotice, TaskRuntimeHandle, TaskRuntimeSender, TaskRuntimeToken, TaskScope,
+    ToolExecutionRequest, ToolExecutionResult,
 };
 use selvedge_db::{DbPool, HistoryNode, TaskRow, TaskStatusRow, UnixTs};
 use selvedge_domain_model::HistoryNodeId;
@@ -161,7 +161,7 @@ struct RouterActor {
     pending_creations_by_task: BTreeMap<TaskId, FactoryEffectId>,
     effects: HashMap<FactoryEffectId, LifecycleEffect>,
     waiting_task_commands: BTreeMap<TaskId, VecDeque<PendingTaskCommand>>,
-    client_sessions: HashMap<ClientId, ClientCommandId>,
+    client_sessions: HashMap<ClientId, ClientSession>,
 }
 
 struct RuntimeEntry {
@@ -182,6 +182,12 @@ enum PendingTaskCommand {
     UserInput { message_text: String },
     Archive,
     Stop,
+}
+
+#[derive(Clone)]
+struct ClientSession {
+    command_id: ClientCommandId,
+    subscription: ClientSubscription,
 }
 
 impl RouterActor {
@@ -251,8 +257,14 @@ impl RouterActor {
             }
             ClientCommand::AttachClient(input) => {
                 let client_id = input.client_id.clone();
-                self.client_sessions
-                    .insert(client_id.clone(), envelope.command_id.clone());
+                let subscription = input.subscription.clone();
+                self.client_sessions.insert(
+                    client_id.clone(),
+                    ClientSession {
+                        command_id: envelope.command_id.clone(),
+                        subscription: subscription.clone(),
+                    },
+                );
                 let _ = self
                     .events_tx
                     .send(EventIngress::Control(
@@ -261,19 +273,29 @@ impl RouterActor {
                                 client_id: input.client_id,
                                 client_command_id: envelope.command_id.clone(),
                                 outbound: input.output_tx,
-                                subscription: input.subscription,
+                                subscription: subscription.clone(),
                             },
                         ),
                     ))
                     .await;
-                self.deliver_snapshot(client_id, envelope.command_id).await;
+                self.deliver_snapshot(client_id, envelope.command_id, Some(subscription))
+                    .await;
             }
             ClientCommand::RefreshClientSnapshot(input) => {
-                let command_id = self.session_command_id(&input.client_id, envelope.command_id);
-                self.deliver_snapshot(input.client_id, command_id).await;
+                let session = self.client_session(&input.client_id);
+                let command_id = session
+                    .as_ref()
+                    .map(|session| session.command_id.clone())
+                    .unwrap_or(envelope.command_id);
+                let subscription = session.map(|session| session.subscription);
+                self.deliver_snapshot(input.client_id, command_id, subscription)
+                    .await;
             }
             ClientCommand::UpdateClientSubscription(input) => {
                 let command_id = self.session_command_id(&input.client_id, envelope.command_id);
+                if let Some(session) = self.client_sessions.get_mut(&input.client_id) {
+                    session.subscription = input.subscription.clone();
+                }
                 let _ = self
                     .events_tx
                     .send(EventIngress::Control(
@@ -409,6 +431,10 @@ impl RouterActor {
             {
                 self.runtimes.remove(&task_id);
                 self.clear_removal_effects_for_task(&task_id);
+                if matches!(pending, PendingTaskCommand::Archive) {
+                    self.enqueue_waiting_command(task_id.clone(), pending);
+                    self.ensure_task_runtime(task_id);
+                }
             }
             return;
         }
@@ -502,6 +528,7 @@ impl RouterActor {
                     })
                     .await;
                 }
+                self.retry_waiting_tasks_without_runtime();
             }
             (LifecycleEffect::CreateTaskRuntime { task_id }, FactoryOutput::Failed(failure)) => {
                 self.pending_creations_by_task.remove(task_id);
@@ -513,6 +540,9 @@ impl RouterActor {
             }
             (_, FactoryOutput::Failed(failure)) => {
                 self.send_failure_notice(failure).await;
+                if matches!(effect, LifecycleEffect::ScanMissingTaskRuntimes) {
+                    self.retry_waiting_tasks_without_runtime();
+                }
             }
         }
     }
@@ -762,8 +792,27 @@ impl RouterActor {
     ) -> ClientCommandId {
         self.client_sessions
             .get(client_id)
-            .cloned()
+            .map(|session| session.command_id.clone())
             .unwrap_or(fallback)
+    }
+
+    fn client_session(&self, client_id: &ClientId) -> Option<ClientSession> {
+        self.client_sessions.get(client_id).cloned()
+    }
+
+    fn retry_waiting_tasks_without_runtime(&mut self) {
+        let task_ids = self
+            .waiting_task_commands
+            .keys()
+            .cloned()
+            .collect::<Vec<_>>();
+        for task_id in task_ids {
+            if !self.runtimes.contains_key(&task_id)
+                && !self.pending_creations_by_task.contains_key(&task_id)
+            {
+                self.ensure_task_runtime(task_id);
+            }
+        }
     }
 
     async fn send_failure_notice(&mut self, failure: FactoryFailure) {
@@ -806,8 +855,9 @@ impl RouterActor {
         &mut self,
         client_id: selvedge_command_model::ClientId,
         command_id: ClientCommandId,
+        subscription: Option<ClientSubscription>,
     ) {
-        match self.build_snapshot() {
+        match self.build_snapshot(subscription.as_ref()) {
             Ok(snapshot) => {
                 let _ = self
                     .events_tx
@@ -832,8 +882,22 @@ impl RouterActor {
         }
     }
 
-    fn build_snapshot(&self) -> Result<ClientSnapshot, selvedge_db::DbError> {
-        let tasks = selvedge_db::list_active_tasks(&self.db)?;
+    fn build_snapshot(
+        &self,
+        subscription: Option<&ClientSubscription>,
+    ) -> Result<ClientSnapshot, selvedge_db::DbError> {
+        let mut tasks = selvedge_db::list_active_tasks(&self.db)?;
+        if let Some(ClientSubscription {
+            task_scope: TaskScope::TaskIds(task_ids),
+            ..
+        }) = subscription
+        {
+            tasks.retain(|task| task_ids.contains(&task.task_id));
+        }
+        let included_task_ids = tasks
+            .iter()
+            .map(|task| task.task_id.clone())
+            .collect::<std::collections::BTreeSet<_>>();
         let task_parent_edges = selvedge_db::read_task_parent_edges(&self.db)?;
         let task_versions = tasks
             .iter()
@@ -860,6 +924,10 @@ impl RouterActor {
             .collect();
         let task_parent_edges = task_parent_edges
             .into_iter()
+            .filter(|edge| {
+                included_task_ids.contains(&edge.parent_task_id)
+                    && included_task_ids.contains(&edge.child_task_id)
+            })
             .map(|edge| TaskParentProjection {
                 parent_task_id: edge.parent_task_id,
                 child_task_id: edge.child_task_id,

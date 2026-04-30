@@ -1,16 +1,16 @@
-use std::collections::VecDeque;
+use std::collections::{BTreeSet, VecDeque};
 use std::sync::{Arc, Mutex};
 
 use selvedge_command_model::{
-    ApiCallCorrelation, ApiEffectId, ApiOutputEnvelope, ClientCommand, ClientCommandEnvelope,
-    ClientCommandId, ClientId, ClientSubscription, CoreOutputEnvelope, CoreOutputMessage,
-    CreatedRuntimeKind, DetailLevel, DomainEvent, DomainEventPublishRequest, EventControlMessage,
-    EventIngress, FactoryFailureKind, FactoryOutput, FactoryOutputEnvelope, FactoryScanOutput,
-    FactoryTaskFailure, HistoryNodeProjectionBody, ModelCallDispatchRequest, ModelRunId, RawEvent,
-    RefreshClientSnapshot, RuntimeInventoryQuery, RuntimeInventoryResponse, StopTaskRuntime,
-    SubmitUserInput, TaskId, TaskProjectionStatus, TaskRuntimeCommand, TaskRuntimeCreated,
-    TaskRuntimeExitNotice, TaskRuntimeExitReason, TaskRuntimeHandle, TaskRuntimeToken, TaskScope,
-    ToolExecutionRequest,
+    ApiCallCorrelation, ApiEffectId, ApiOutputEnvelope, ArchiveTask, ClientCommand,
+    ClientCommandEnvelope, ClientCommandId, ClientId, ClientSubscription, CoreOutputEnvelope,
+    CoreOutputMessage, CreatedRuntimeKind, DetailLevel, DomainEvent, DomainEventPublishRequest,
+    EventControlMessage, EventIngress, FactoryFailureKind, FactoryOutput, FactoryOutputEnvelope,
+    FactoryScanOutput, FactoryTaskFailure, HistoryNodeProjectionBody, ModelCallDispatchRequest,
+    ModelRunId, RawEvent, RefreshClientSnapshot, RuntimeInventoryQuery, RuntimeInventoryResponse,
+    StopTaskRuntime, SubmitUserInput, TaskId, TaskProjectionStatus, TaskRuntimeCommand,
+    TaskRuntimeCreated, TaskRuntimeExitNotice, TaskRuntimeExitReason, TaskRuntimeHandle,
+    TaskRuntimeToken, TaskScope, ToolExecutionRequest,
 };
 use selvedge_db::{
     CreateRootTaskInput, ModelProfileKey, NewHistoryNode, NewHistoryNodeContent,
@@ -275,6 +275,135 @@ async fn scan_in_flight_blocks_duplicate_task_specific_creation() {
     assert!(matches!(
         task_runtime_rx.recv().await.expect("waiting input"),
         TaskRuntimeCommand::UserInput { .. }
+    ));
+
+    shutdown(handle).await;
+}
+
+#[tokio::test]
+async fn scan_miss_retries_waiting_task_creation() {
+    let factory = Arc::new(RecordingFactoryExecutor::default());
+    let handle =
+        spawn_router(start_args_with_factory(8, 8, factory.clone())).expect("spawn router");
+
+    handle
+        .router_tx
+        .send(selvedge_command_model::RouterIngressMessage::Client(
+            ClientCommandEnvelope {
+                client_id: None,
+                command_id: ClientCommandId("scan-1".to_owned()),
+                command: ClientCommand::EnsureMissingTaskRuntimes(
+                    selvedge_command_model::EnsureMissingTaskRuntimes,
+                ),
+            },
+        ))
+        .await
+        .expect("send scan");
+    let scan = factory.take_one_command().await;
+    let FactoryCommand::EnsureMissingTaskRuntimes(scan) = scan else {
+        panic!("unexpected factory command");
+    };
+
+    handle
+        .router_tx
+        .send(selvedge_command_model::RouterIngressMessage::Client(
+            ClientCommandEnvelope {
+                client_id: Some(ClientId("client-1".to_owned())),
+                command_id: ClientCommandId("input-1".to_owned()),
+                command: ClientCommand::SubmitUserInput(SubmitUserInput {
+                    task_id: TaskId("task-1".to_owned()),
+                    message_text: "hello".to_owned(),
+                }),
+            },
+        ))
+        .await
+        .expect("send input");
+
+    handle
+        .router_tx
+        .send(selvedge_command_model::RouterIngressMessage::Factory(
+            FactoryOutputEnvelope {
+                effect_id: scan.effect_id,
+                output: FactoryOutput::ScanFinished(FactoryScanOutput {
+                    created: Vec::new(),
+                    skipped: Vec::new(),
+                    failed: Vec::new(),
+                }),
+            },
+        ))
+        .await
+        .expect("send scan output");
+
+    let retry = factory.take_one_command().await;
+    let FactoryCommand::EnsureTaskRuntime(retry) = retry else {
+        panic!("unexpected factory command");
+    };
+    assert_eq!(retry.task_id, TaskId("task-1".to_owned()));
+
+    shutdown(handle).await;
+}
+
+#[tokio::test]
+async fn archive_send_failure_requeues_archive_for_recreated_runtime() {
+    let factory = Arc::new(RecordingFactoryExecutor::default());
+    let handle =
+        spawn_router(start_args_with_factory(8, 8, factory.clone())).expect("spawn router");
+    let (stale_tx, mut stale_rx) = tokio::sync::mpsc::channel(1);
+    register_runtime(
+        &handle.router_tx,
+        &factory,
+        stale_tx,
+        TaskId("task-1".to_owned()),
+        TaskRuntimeToken("runtime-stale".to_owned()),
+    )
+    .await;
+    assert!(matches!(
+        stale_rx.recv().await.expect("start command"),
+        TaskRuntimeCommand::Start
+    ));
+    drop(stale_rx);
+
+    handle
+        .router_tx
+        .send(selvedge_command_model::RouterIngressMessage::Client(
+            ClientCommandEnvelope {
+                client_id: Some(ClientId("client-1".to_owned())),
+                command_id: ClientCommandId("archive-1".to_owned()),
+                command: ClientCommand::ArchiveTask(ArchiveTask {
+                    task_id: TaskId("task-1".to_owned()),
+                }),
+            },
+        ))
+        .await
+        .expect("send archive");
+
+    let recreate = factory.take_one_command().await;
+    let FactoryCommand::EnsureTaskRuntime(recreate) = recreate else {
+        panic!("unexpected factory command");
+    };
+    assert_eq!(recreate.task_id, TaskId("task-1".to_owned()));
+
+    let (task_runtime_tx, mut task_runtime_rx) = tokio::sync::mpsc::channel(8);
+    handle
+        .router_tx
+        .send(selvedge_command_model::RouterIngressMessage::Factory(
+            FactoryOutputEnvelope {
+                effect_id: recreate.effect_id,
+                output: FactoryOutput::RuntimeCreated(TaskRuntimeCreated {
+                    task_id: TaskId("task-1".to_owned()),
+                    runtime: TaskRuntimeHandle {
+                        runtime_token: TaskRuntimeToken("runtime-1".to_owned()),
+                        task_runtime_tx,
+                    },
+                    created_runtime_kind: CreatedRuntimeKind::ExistingTaskRuntime,
+                }),
+            },
+        ))
+        .await
+        .expect("send factory output");
+    assert!(matches!(
+        task_runtime_rx.recv().await.expect("archive command"),
+        TaskRuntimeCommand::Archive
     ));
 
     shutdown(handle).await;
@@ -711,6 +840,69 @@ async fn attach_client_begins_hydration_and_delivers_snapshot() {
     shutdown(handle).await;
 }
 
+#[tokio::test]
+async fn attach_snapshot_respects_task_scope() {
+    let db = open_test_db();
+    create_root(&db, "task-1");
+    create_root(&db, "task-2");
+    let (events_tx, mut events_rx) = tokio::sync::mpsc::channel(8);
+    let handle = spawn_router(RouterStartArgs {
+        db,
+        events_tx,
+        factory_executor: Arc::new(RecordingFactoryExecutor::default()),
+        api_executor: Arc::new(NoopApiExecutor),
+        tool_executor: Arc::new(NoopToolExecutor),
+        ingress_capacity: 8,
+        pending_task_command_limit: 8,
+    })
+    .expect("spawn router");
+    let (output_tx, _output_rx) = tokio::sync::mpsc::channel(8);
+    let mut scoped_tasks = BTreeSet::new();
+    scoped_tasks.insert(TaskId("task-1".to_owned()));
+
+    handle
+        .router_tx
+        .send(selvedge_command_model::RouterIngressMessage::Client(
+            ClientCommandEnvelope {
+                client_id: Some(ClientId("client-1".to_owned())),
+                command_id: ClientCommandId("attach-1".to_owned()),
+                command: ClientCommand::AttachClient(selvedge_command_model::AttachClient {
+                    client_id: ClientId("client-1".to_owned()),
+                    output_tx,
+                    subscription: ClientSubscription {
+                        task_scope: TaskScope::TaskIds(scoped_tasks),
+                        detail_level: DetailLevel::Verbose,
+                        include_model_call_status: true,
+                        include_tool_execution_status: true,
+                        include_debug_notices: true,
+                    },
+                }),
+            },
+        ))
+        .await
+        .expect("send attach");
+    let _begin = events_rx.recv().await.expect("begin hydration");
+    let snapshot = events_rx.recv().await.expect("deliver snapshot");
+    match snapshot {
+        EventIngress::Control(EventControlMessage::DeliverSnapshot(snapshot)) => {
+            let task_ids = snapshot
+                .snapshot
+                .tasks
+                .into_iter()
+                .map(|task| task.task_id)
+                .collect::<Vec<_>>();
+            assert_eq!(task_ids, vec![TaskId("task-1".to_owned())]);
+            assert_eq!(
+                snapshot.snapshot.task_versions[0].task_id,
+                TaskId("task-1".to_owned())
+            );
+        }
+        _ => panic!("unexpected event ingress"),
+    }
+
+    shutdown(handle).await;
+}
+
 fn start_args(ingress_capacity: usize, pending_task_command_limit: usize) -> RouterStartArgs {
     start_args_with_factory(
         ingress_capacity,
@@ -904,7 +1096,12 @@ impl RecordingFactoryExecutor {
             if let Some(command) = self.commands.lock().expect("lock commands").pop_front() {
                 return command;
             }
-            self.notify.notified().await;
+            tokio::time::timeout(
+                std::time::Duration::from_millis(100),
+                self.notify.notified(),
+            )
+            .await
+            .expect("factory command");
         }
     }
 
