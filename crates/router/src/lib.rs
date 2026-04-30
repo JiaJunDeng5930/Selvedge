@@ -522,6 +522,7 @@ impl RouterActor {
             .values()
             .any(|effect| matches!(effect, LifecycleEffect::ScanMissingTaskRuntimes));
         if has_scan {
+            self.deferred_scan = true;
             return;
         }
         let effect_id = FactoryEffectId(format!("router-scan-{}", Uuid::new_v4()));
@@ -695,6 +696,10 @@ impl RouterActor {
         task_id: &TaskId,
         command: TaskRuntimeCommand,
     ) -> Result<(), ()> {
+        let is_removal_command = matches!(
+            command,
+            TaskRuntimeCommand::Archive | TaskRuntimeCommand::Stop
+        );
         let Some((sender, removing)) = self
             .runtimes
             .get(task_id)
@@ -704,6 +709,9 @@ impl RouterActor {
         };
 
         if sender.send(command).await.is_err() {
+            if removing && !is_removal_command {
+                return Err(());
+            }
             self.runtimes.remove(task_id);
             if removing {
                 self.clear_removal_effects_for_task(task_id);
@@ -859,7 +867,6 @@ impl RouterActor {
             FactoryCommand::EnsureTaskRuntime(command) => {
                 self.effects.remove(&command.effect_id);
                 self.pending_creations_by_task.remove(&command.task_id);
-                self.waiting_task_commands.remove(&command.task_id);
                 self.deferred_ensures.remove(&command.task_id);
             }
             FactoryCommand::EnsureMissingTaskRuntimes(command) => {

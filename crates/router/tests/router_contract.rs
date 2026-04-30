@@ -1044,6 +1044,19 @@ async fn closed_removing_runtime_retries_deferred_archive() {
         ))
         .await
         .expect("send late api");
+    factory.expect_no_command().await;
+
+    handle
+        .router_tx
+        .send(selvedge_command_model::RouterIngressMessage::RuntimeExit(
+            TaskRuntimeExitNotice {
+                task_id: TaskId("task-1".to_owned()),
+                runtime_token: TaskRuntimeToken("runtime-1".to_owned()),
+                reason: TaskRuntimeExitReason::Stopped,
+            },
+        ))
+        .await
+        .expect("send exit");
     let recreate = factory.take_one_command().await;
     let FactoryCommand::EnsureTaskRuntime(recreate) = recreate else {
         panic!("unexpected factory command");
