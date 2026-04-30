@@ -11,6 +11,7 @@ members = [
     "crates/core",
     "crates/db",
     "crates/domain-model",
+    "crates/events",
     "crates/logging",
     "xtask",
 ]

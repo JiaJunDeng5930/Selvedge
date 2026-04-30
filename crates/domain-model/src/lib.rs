@@ -7,7 +7,7 @@ use serde::Serialize;
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
 pub struct HistoryNodeIdRef(pub String);
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize)]
 pub struct TaskId(pub String);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize)]

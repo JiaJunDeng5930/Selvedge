@@ -61,7 +61,7 @@ This file is for coding agents working in this repository.
 |.cargo:{config.toml}
 |.github:{workflows/}
 |.github/workflows:{ci.yml}
-|crates:{api/,chatgpt-api/,chatgpt-auth/,chatgpt-login/,client/,command-model/,config-model/,config/,core/,db/,domain-model/,logging/}
+|crates:{api/,chatgpt-api/,chatgpt-auth/,chatgpt-login/,client/,command-model/,config-model/,config/,core/,db/,domain-model/,events/,logging/}
 |crates/api:{src/,tests/,Cargo.toml,README.md}
 |crates/api/src:{lib.rs}
 |crates/api/tests:{api_contract.rs}
@@ -100,6 +100,9 @@ This file is for coding agents working in this repository.
 |crates/domain-model:{src/,tests/,Cargo.toml,README.md}
 |crates/domain-model/src:{lib.rs}
 |crates/domain-model/tests:{domain_contract.rs}
+|crates/events:{src/,tests/,Cargo.toml,README.md}
+|crates/events/src:{lib.rs}
+|crates/events/tests:{events_contract.rs}
 |crates/logging:{src/,Cargo.toml,README.md}
 |crates/logging/src:{lib.rs}
 |scripts:{bootstrap.sh,create-worktree.sh}

@@ -1495,6 +1495,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "selvedge-events"
+version = "0.0.0"
+dependencies = [
+ "selvedge-command-model",
+ "selvedge-domain-model",
+ "tokio",
+]
+
+[[package]]
 name = "selvedge-logging"
 version = "0.0.0"
 dependencies = [
