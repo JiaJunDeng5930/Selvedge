@@ -8,7 +8,7 @@ use selvedge_command_model::{
     DeliverSnapshot, DetailLevel, EventControlMessage, EventIngress, EventIngressSender, RawEvent,
     TaskId, TaskScope, UpdateSubscription,
 };
-use tokio::sync::mpsc;
+use tokio::sync::mpsc::{self, error::TrySendError};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct EventsStartArgs {
@@ -97,7 +97,10 @@ impl EventsTask {
                 outbound: begin.outbound,
                 subscription: begin.subscription,
                 delivery_seq: 1,
-                state: ClientSessionState::Hydrating { buffer: Vec::new() },
+                state: ClientSessionState::Hydrating {
+                    client_command_id: begin.client_command_id,
+                    buffer: Vec::new(),
+                },
             },
         );
     }
@@ -107,6 +110,14 @@ impl EventsTask {
             return;
         };
 
+        if let ClientSessionState::Hydrating {
+            client_command_id, ..
+        } = &session.state
+            && client_command_id != &snapshot.client_command_id
+        {
+            return;
+        }
+
         let snapshot_versions = snapshot_versions(&snapshot.snapshot);
         let frame = ClientFrame::Snapshot(ClientSnapshotFrame {
             delivery_seq: session.next_delivery_seq(),
@@ -114,13 +125,13 @@ impl EventsTask {
             snapshot: snapshot.snapshot,
         });
 
-        if session.outbound.send(frame).await.is_err() {
+        if session.send_frame(frame).is_err() {
             self.sessions.remove(&snapshot.client_id);
             return;
         }
 
         match &mut session.state {
-            ClientSessionState::Hydrating { buffer } => {
+            ClientSessionState::Hydrating { buffer, .. } => {
                 let buffered = std::mem::take(buffer);
                 session.state = ClientSessionState::Live;
 
@@ -138,7 +149,7 @@ impl EventsTask {
                         event,
                     });
 
-                    if session.outbound.send(frame).await.is_err() {
+                    if session.send_frame(frame).is_err() {
                         self.sessions.remove(&snapshot.client_id);
                         return;
                     }
@@ -159,7 +170,7 @@ impl EventsTask {
             notice: notice.notice,
         });
 
-        if session.outbound.send(frame).await.is_err() {
+        if session.send_frame(frame).is_err() {
             self.sessions.remove(&notice.client_id);
         }
     }
@@ -171,7 +182,7 @@ impl EventsTask {
 
         session.subscription = update.subscription;
 
-        if let ClientSessionState::Hydrating { buffer } = &mut session.state {
+        if let ClientSessionState::Hydrating { buffer, .. } = &mut session.state {
             buffer
                 .retain(|raw| client_event_for_subscription(raw, &session.subscription).is_some());
         }
@@ -191,7 +202,7 @@ impl EventsTask {
                 };
 
                 match &mut session.state {
-                    ClientSessionState::Hydrating { buffer } => {
+                    ClientSessionState::Hydrating { buffer, .. } => {
                         if client_event_for_subscription(&raw, &session.subscription).is_some() {
                             if buffer.len() >= self.hydration_buffer_capacity {
                                 true
@@ -211,7 +222,7 @@ impl EventsTask {
                                 delivery_seq: session.next_delivery_seq(),
                                 event,
                             });
-                            session.outbound.send(frame).await.is_err()
+                            session.send_frame(frame).is_err()
                         } else {
                             false
                         }
@@ -239,10 +250,20 @@ impl ClientSession {
         self.delivery_seq += 1;
         delivery_seq
     }
+
+    fn send_frame(&self, frame: ClientFrame) -> Result<(), ()> {
+        match self.outbound.try_send(frame) {
+            Ok(()) => Ok(()),
+            Err(TrySendError::Full(_)) | Err(TrySendError::Closed(_)) => Err(()),
+        }
+    }
 }
 
 enum ClientSessionState {
-    Hydrating { buffer: Vec<RawEvent> },
+    Hydrating {
+        client_command_id: selvedge_command_model::ClientCommandId,
+        buffer: Vec<RawEvent>,
+    },
     Live,
 }
 
