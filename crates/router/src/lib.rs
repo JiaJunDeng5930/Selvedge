@@ -7,10 +7,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use selvedge_api::ModelProviderRegistry;
 use selvedge_command_model::{
     ApiOutputEnvelope, ArchiveTask, ClientCommand, ClientCommandEnvelope, ClientCommandId,
-    ClientNotice, ClientNoticeLevel, ClientSnapshot, CoreOutputEnvelope, CoreOutputMessage,
-    DeliverNotice, DeliverSnapshot, DomainEvent, DomainEventPublishRequest, EventControlMessage,
-    EventIngress, EventIngressSender, FactoryEffectId, FactoryFailure, FactoryOutput,
-    FactoryOutputEnvelope, HistoryNodeProjection, HistoryNodeProjectionBody,
+    ClientId, ClientNotice, ClientNoticeLevel, ClientSnapshot, CoreOutputEnvelope,
+    CoreOutputMessage, DeliverNotice, DeliverSnapshot, DomainEvent, DomainEventPublishRequest,
+    EventControlMessage, EventIngress, EventIngressSender, FactoryEffectId, FactoryFailure,
+    FactoryOutput, FactoryOutputEnvelope, HistoryNodeProjection, HistoryNodeProjectionBody,
     ModelCallDispatchRequest, RawEvent, RouterIngressMessage, RouterIngressSender, RouterShutdown,
     RuntimeInventoryQuery, RuntimeInventoryResponse, SnapshotTaskVersion, StopTaskRuntime,
     SubmitUserInput, TaskId, TaskParentProjection, TaskProjection, TaskProjectionStatus,
@@ -137,6 +137,7 @@ pub fn spawn_router(args: RouterStartArgs) -> Result<RouterHandle, SpawnRouterEr
         pending_creations_by_task: BTreeMap::new(),
         effects: HashMap::new(),
         waiting_task_commands: BTreeMap::new(),
+        client_sessions: HashMap::new(),
     };
     let join_handle = tokio::spawn(actor.run());
 
@@ -159,6 +160,7 @@ struct RouterActor {
     pending_creations_by_task: BTreeMap<TaskId, FactoryEffectId>,
     effects: HashMap<FactoryEffectId, LifecycleEffect>,
     waiting_task_commands: BTreeMap<TaskId, VecDeque<PendingTaskCommand>>,
+    client_sessions: HashMap<ClientId, ClientCommandId>,
 }
 
 struct RuntimeEntry {
@@ -248,6 +250,8 @@ impl RouterActor {
             }
             ClientCommand::AttachClient(input) => {
                 let client_id = input.client_id.clone();
+                self.client_sessions
+                    .insert(client_id.clone(), envelope.command_id.clone());
                 let _ = self
                     .events_tx
                     .send(EventIngress::Control(
@@ -264,17 +268,18 @@ impl RouterActor {
                 self.deliver_snapshot(client_id, envelope.command_id).await;
             }
             ClientCommand::RefreshClientSnapshot(input) => {
-                self.deliver_snapshot(input.client_id, envelope.command_id)
-                    .await;
+                let command_id = self.session_command_id(&input.client_id, envelope.command_id);
+                self.deliver_snapshot(input.client_id, command_id).await;
             }
             ClientCommand::UpdateClientSubscription(input) => {
+                let command_id = self.session_command_id(&input.client_id, envelope.command_id);
                 let _ = self
                     .events_tx
                     .send(EventIngress::Control(
                         EventControlMessage::UpdateSubscription(
                             selvedge_command_model::UpdateSubscription {
                                 client_id: input.client_id,
-                                client_command_id: envelope.command_id,
+                                client_command_id: command_id,
                                 subscription: input.subscription,
                             },
                         ),
@@ -282,16 +287,18 @@ impl RouterActor {
                     .await;
             }
             ClientCommand::DetachClient(input) => {
+                let command_id = self.session_command_id(&input.client_id, envelope.command_id);
                 let _ = self
                     .events_tx
                     .send(EventIngress::Control(EventControlMessage::DetachClient(
                         selvedge_command_model::DetachClient {
-                            client_id: input.client_id,
-                            client_command_id: envelope.command_id,
+                            client_id: input.client_id.clone(),
+                            client_command_id: command_id,
                             reason: selvedge_command_model::DetachReason::ClientRequested,
                         },
                     )))
                     .await;
+                self.client_sessions.remove(&input.client_id);
             }
         }
     }
@@ -458,13 +465,14 @@ impl RouterActor {
     }
 
     fn spawn_factory(&mut self, command: FactoryCommand) {
+        let cleanup_command = command.clone();
         let request = FactorySpawnRequest {
             command,
             db: self.db.clone(),
             router_tx: self.router_tx.clone(),
         };
         if self.factory_executor.spawn_factory_effect(request).is_err() {
-            self.clear_failed_factory_spawn();
+            self.clear_failed_factory_spawn(cleanup_command);
         }
     }
 
@@ -520,17 +528,28 @@ impl RouterActor {
         };
         self.runtimes.insert(task_id.clone(), entry);
 
-        if self
-            .route_to_runtime(&task_id, TaskRuntimeCommand::Start)
-            .await
-            .is_err()
-        {
+        let start_failed = self.should_start_before_waiting_commands(&task_id)
+            && self
+                .route_to_runtime(&task_id, TaskRuntimeCommand::Start)
+                .await
+                .is_err();
+        if start_failed {
             self.runtimes.remove(&task_id);
             self.waiting_task_commands.remove(&task_id);
             return;
         }
 
         self.flush_waiting_commands(task_id).await;
+    }
+
+    fn should_start_before_waiting_commands(&self, task_id: &TaskId) -> bool {
+        self.waiting_task_commands
+            .get(task_id)
+            .is_none_or(|commands| {
+                commands
+                    .iter()
+                    .any(|command| matches!(command, PendingTaskCommand::UserInput { .. }))
+            })
     }
 
     async fn flush_waiting_commands(&mut self, task_id: TaskId) {
@@ -680,10 +699,31 @@ impl RouterActor {
         });
     }
 
-    fn clear_failed_factory_spawn(&mut self) {
-        self.effects.clear();
-        self.pending_creations_by_task.clear();
-        self.waiting_task_commands.clear();
+    fn clear_failed_factory_spawn(&mut self, command: FactoryCommand) {
+        match command {
+            FactoryCommand::EnsureTaskRuntime(command) => {
+                self.effects.remove(&command.effect_id);
+                self.pending_creations_by_task.remove(&command.task_id);
+                self.waiting_task_commands.remove(&command.task_id);
+            }
+            FactoryCommand::EnsureMissingTaskRuntimes(command) => {
+                self.effects.remove(&command.effect_id);
+            }
+            FactoryCommand::CreateChildTaskAndRuntime(command) => {
+                self.effects.remove(&command.effect_id);
+            }
+        }
+    }
+
+    fn session_command_id(
+        &self,
+        client_id: &ClientId,
+        fallback: ClientCommandId,
+    ) -> ClientCommandId {
+        self.client_sessions
+            .get(client_id)
+            .cloned()
+            .unwrap_or(fallback)
     }
 
     async fn send_failure_notice(&mut self, failure: FactoryFailure) {
