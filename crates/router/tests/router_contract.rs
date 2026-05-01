@@ -5,10 +5,11 @@ use std::time::Duration;
 use selvedge_api::{ApiExecutorConfig, ModelProviderAdapter, ModelProviderRegistry};
 use selvedge_command_model::{
     ApiCallCorrelation, ApiEffectId, ApiOutputEnvelope, BeginClientHydration, ClientCommandId,
-    ClientId, ClientSubscription, CoreOutputEnvelope, CoreOutputMessage, DetailLevel,
-    EventControlMessage, EventIngress, ModelCallError, ModelCallErrorKind, ModelRunId, RawEvent,
-    RouterCommand, RouterCommandEnvelope, RouterIngressMessage, TaskRuntimeCommand, TaskScope,
-    ToolExecutionRequest, ToolExecutionResult, ToolExecutionRunId,
+    ClientId, ClientSubscription, CoreOutputEnvelope, CoreOutputMessage, DetailLevel, DomainEvent,
+    DomainEventPublishRequest, EventControlMessage, EventIngress, ModelCallError,
+    ModelCallErrorKind, ModelRunId, RawEvent, RouterCommand, RouterCommandEnvelope,
+    RouterIngressMessage, TaskRuntimeCommand, TaskScope, ToolExecutionRequest, ToolExecutionResult,
+    ToolExecutionRunId,
 };
 use selvedge_core::{
     SpawnTaskRuntimeArgs, SpawnTaskRuntimeError, SpawnedTaskRuntime, TaskRuntimeConfig,
@@ -296,6 +297,57 @@ async fn stale_outputs_and_runtime_ready_are_published_to_events() {
         ready,
         Some(TaskId("task-ready".to_owned())),
         "task runtime ready",
+    );
+
+    handle
+        .ingress_tx
+        .send(RouterIngressMessage::StopRouter)
+        .await
+        .expect("stop router");
+    assert_eq!(
+        handle.join_handle.await.expect("join router"),
+        RouterExitStatus::Stopped
+    );
+}
+
+#[tokio::test]
+async fn data_domain_events_are_not_published_to_events() {
+    let db = open_memory_db();
+    let (events_tx, mut events_rx) = tokio::sync::mpsc::channel(8);
+
+    let handle = spawn_router(RouterStartArgs {
+        db,
+        events_tx,
+        api_provider_registry: Arc::new(EmptyProviderRegistry),
+        api_config: ApiExecutorConfig {
+            request_timeout: Duration::from_secs(1),
+            max_response_bytes: None,
+        },
+        tool_executor: Arc::new(NoopToolSpawner),
+        core_spawn_deps: TaskRuntimeSpawnDeps::new(TaskRuntimeConfig {
+            mailbox_capacity: 8,
+            model_profiles: model_profiles(),
+        }),
+        router_mailbox_capacity: 8,
+    })
+    .expect("spawn router");
+
+    handle
+        .ingress_tx
+        .send(RouterIngressMessage::PublishToEvents(
+            DomainEventPublishRequest {
+                task_id: TaskId("task-1".to_owned()),
+                event: DomainEvent::UserMessageCommitted {
+                    node_id: HistoryNodeId(1),
+                },
+            },
+        ))
+        .await
+        .expect("send data event");
+    assert!(
+        tokio::time::timeout(Duration::from_millis(50), events_rx.recv())
+            .await
+            .is_err()
     );
 
     handle
