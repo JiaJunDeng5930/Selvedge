@@ -9,8 +9,8 @@ use selvedge_command_model::{
     DomainEvent, DomainEventPublishRequest, EventControlMessage, EventIngress, EventIngressSender,
     FactoryEffectId, FactoryOutput, FactoryOutputEnvelope, FactoryScanOutput, FactoryTaskFailure,
     RawEvent, RouterCommand, RouterCommandEnvelope, RouterIngressMessage, RouterIngressSender,
-    TaskRuntimeCommand, TaskRuntimeExitNotice, TaskRuntimeSender, ToolExecutionRequest,
-    ToolExecutionResult, validate_router_command,
+    TaskRuntimeCommand, TaskRuntimeExitNotice, TaskRuntimeInstanceId, TaskRuntimeSender,
+    ToolExecutionRequest, ToolExecutionResult, validate_router_command,
 };
 use selvedge_core::TaskRuntimeSpawnDeps;
 use selvedge_db::DbPool;
@@ -102,7 +102,7 @@ struct RouterActor {
     core_spawn_deps: TaskRuntimeSpawnDeps,
     router_tx: RouterIngressSender,
     ingress_rx: tokio::sync::mpsc::Receiver<RouterIngressMessage>,
-    task_runtime_registry: HashMap<TaskId, TaskRuntimeSender>,
+    task_runtime_registry: HashMap<TaskId, RuntimeRegistryEntry>,
     pending_effects: HashMap<FactoryEffectId, PendingRuntimeEffect>,
     pending_effects_by_task: HashMap<TaskId, FactoryEffectId>,
     deferred_commands: HashMap<TaskId, VecDeque<TaskRuntimeCommand>>,
@@ -112,6 +112,12 @@ struct RouterActor {
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct PendingRuntimeEffect {
     task_id: Option<TaskId>,
+}
+
+#[derive(Clone, Debug)]
+struct RuntimeRegistryEntry {
+    task_runtime_instance_id: TaskRuntimeInstanceId,
+    sender: TaskRuntimeSender,
 }
 
 impl RouterActor {
@@ -276,7 +282,11 @@ impl RouterActor {
             | ApiOutputEnvelope::Failure { correlation, .. } => correlation.task_id.clone(),
         };
 
-        if let Some(sender) = self.task_runtime_registry.get(&task_id).cloned() {
+        if let Some(sender) = self
+            .task_runtime_registry
+            .get(&task_id)
+            .map(|entry| entry.sender.clone())
+        {
             self.send_to_task_runtime(
                 task_id,
                 sender,
@@ -295,7 +305,11 @@ impl RouterActor {
         result: ToolExecutionResult,
     ) -> Result<(), RouterExitStatus> {
         let task_id = result.task_id.clone();
-        if let Some(sender) = self.task_runtime_registry.get(&task_id).cloned() {
+        if let Some(sender) = self
+            .task_runtime_registry
+            .get(&task_id)
+            .map(|entry| entry.sender.clone())
+        {
             self.send_to_task_runtime(
                 task_id,
                 sender,
@@ -316,7 +330,7 @@ impl RouterActor {
         let removed = self
             .task_runtime_registry
             .get(&notice.task_id)
-            .is_some_and(|sender| sender.is_closed());
+            .is_some_and(|entry| entry.task_runtime_instance_id == notice.task_runtime_instance_id);
         if removed {
             self.task_runtime_registry.remove(&notice.task_id);
         }
@@ -334,7 +348,11 @@ impl RouterActor {
         command: TaskRuntimeCommand,
         create_when_missing: bool,
     ) -> Result<(), RouterExitStatus> {
-        if let Some(sender) = self.task_runtime_registry.get(&task_id).cloned() {
+        if let Some(sender) = self
+            .task_runtime_registry
+            .get(&task_id)
+            .map(|entry| entry.sender.clone())
+        {
             return self
                 .send_to_task_runtime(task_id, sender, command, create_when_missing)
                 .await;
@@ -486,8 +504,12 @@ impl RouterActor {
 
         match envelope.output {
             FactoryOutput::RuntimeCreated(created) => {
-                self.register_runtime(created.task_id, created.task_runtime_tx)
-                    .await
+                self.register_runtime(
+                    created.task_id,
+                    created.task_runtime_instance_id,
+                    created.task_runtime_tx,
+                )
+                .await
             }
             FactoryOutput::ScanFinished(scan) => self.apply_scan_output(scan).await,
             FactoryOutput::Failed(failure) => {
@@ -501,8 +523,12 @@ impl RouterActor {
 
     async fn apply_scan_output(&mut self, scan: FactoryScanOutput) -> Result<(), RouterExitStatus> {
         for created in scan.created {
-            self.register_runtime(created.task_id, created.task_runtime_tx)
-                .await?;
+            self.register_runtime(
+                created.task_id,
+                created.task_runtime_instance_id,
+                created.task_runtime_tx,
+            )
+            .await?;
         }
         for failure in scan.failed {
             self.publish_factory_task_failure(failure).await?;
@@ -513,10 +539,16 @@ impl RouterActor {
     async fn register_runtime(
         &mut self,
         task_id: TaskId,
+        task_runtime_instance_id: TaskRuntimeInstanceId,
         sender: TaskRuntimeSender,
     ) -> Result<(), RouterExitStatus> {
-        self.task_runtime_registry
-            .insert(task_id.clone(), sender.clone());
+        self.task_runtime_registry.insert(
+            task_id.clone(),
+            RuntimeRegistryEntry {
+                task_runtime_instance_id,
+                sender: sender.clone(),
+            },
+        );
         let mut deferred = self.deferred_commands.remove(&task_id).unwrap_or_default();
         if deferred
             .iter()
@@ -552,8 +584,8 @@ impl RouterActor {
     }
 
     async fn stop_task_runtime(&mut self, task_id: TaskId) -> Result<(), RouterExitStatus> {
-        if let Some(sender) = self.task_runtime_registry.remove(&task_id) {
-            if sender.send(TaskRuntimeCommand::Stop).await.is_err() {
+        if let Some(entry) = self.task_runtime_registry.remove(&task_id) {
+            if entry.sender.send(TaskRuntimeCommand::Stop).await.is_err() {
                 return self
                     .publish_debug(Some(task_id), "task runtime mailbox closed")
                     .await;
@@ -574,7 +606,7 @@ impl RouterActor {
         let senders = self
             .task_runtime_registry
             .drain()
-            .map(|(_, sender)| sender)
+            .map(|(_, entry)| entry.sender)
             .collect::<Vec<_>>();
         for sender in senders {
             let _ = sender.send(TaskRuntimeCommand::Stop).await;

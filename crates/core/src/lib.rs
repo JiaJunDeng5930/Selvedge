@@ -8,7 +8,8 @@ use selvedge_command_model::{
     ApiEffectId, ApiOutputEnvelope, CoreOutputEnvelope, CoreOutputMessage, DomainEvent,
     DomainEventPublishRequest, ModelCallDispatchRequest, ModelRunId, RouterIngressMessage,
     RouterIngressSender, TaskRuntimeCommand, TaskRuntimeExitNotice, TaskRuntimeExitReason,
-    TaskRuntimeSender, ToolExecutionRequest, ToolExecutionResult, ToolExecutionRunId,
+    TaskRuntimeInstanceId, TaskRuntimeSender, ToolExecutionRequest, ToolExecutionResult,
+    ToolExecutionRunId,
 };
 use selvedge_db::{
     DbError, DbPool, FunctionCallId, HistoryNode, HistoryNodeId, MessageRole,
@@ -81,6 +82,7 @@ pub struct SpawnTaskRuntimeArgs {
 #[derive(Debug)]
 pub struct SpawnedTaskRuntime {
     pub task_id: TaskId,
+    pub task_runtime_instance_id: TaskRuntimeInstanceId,
     pub task_runtime_tx: TaskRuntimeSender,
 }
 
@@ -95,13 +97,17 @@ pub fn spawn_task_runtime(
 ) -> Result<SpawnedTaskRuntime, SpawnTaskRuntimeError> {
     let capacity = args.config.mailbox_capacity.max(1);
     let (task_runtime_tx, task_runtime_rx) = tokio::sync::mpsc::channel(capacity);
+    let task_runtime_instance_id =
+        TaskRuntimeInstanceId(format!("{}-runtime-{}", args.task_id.0, Uuid::new_v4()));
     let spawned = SpawnedTaskRuntime {
         task_id: args.task_id.clone(),
+        task_runtime_instance_id: task_runtime_instance_id.clone(),
         task_runtime_tx: task_runtime_tx.clone(),
     };
 
     let actor = TaskRuntimeActor {
         task_id: args.task_id,
+        task_runtime_instance_id,
         db: args.db,
         router_tx: args.router_tx,
         rx: task_runtime_rx,
@@ -116,6 +122,7 @@ pub fn spawn_task_runtime(
 
 struct TaskRuntimeActor {
     task_id: TaskId,
+    task_runtime_instance_id: TaskRuntimeInstanceId,
     db: DbPool,
     router_tx: RouterIngressSender,
     rx: tokio::sync::mpsc::Receiver<TaskRuntimeCommand>,
@@ -597,6 +604,7 @@ impl TaskRuntimeActor {
             .router_tx
             .send(RouterIngressMessage::RuntimeExit(TaskRuntimeExitNotice {
                 task_id: self.task_id.clone(),
+                task_runtime_instance_id: self.task_runtime_instance_id.clone(),
                 reason,
             }))
             .await;

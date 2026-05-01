@@ -9,7 +9,8 @@ use selvedge_command_model::{
     DomainEventPublishRequest, EventControlMessage, EventIngress, ModelCallError,
     ModelCallErrorKind, ModelRunId, RawEvent, RouterCommand, RouterCommandEnvelope,
     RouterIngressMessage, TaskRuntimeCommand, TaskRuntimeExitNotice, TaskRuntimeExitReason,
-    TaskScope, ToolExecutionRequest, ToolExecutionResult, ToolExecutionRunId,
+    TaskRuntimeInstanceId, TaskScope, ToolExecutionRequest, ToolExecutionResult,
+    ToolExecutionRunId,
 };
 use selvedge_core::{
     SpawnTaskRuntimeArgs, SpawnTaskRuntimeError, SpawnedTaskRuntime, TaskRuntimeConfig,
@@ -435,6 +436,7 @@ async fn stale_runtime_exit_preserves_replacement_runtime() {
         .ingress_tx
         .send(RouterIngressMessage::RuntimeExit(TaskRuntimeExitNotice {
             task_id: TaskId("task-1".to_owned()),
+            task_runtime_instance_id: TaskRuntimeInstanceId("task-1-runtime-0".to_owned()),
             reason: TaskRuntimeExitReason::Stopped,
         }))
         .await
@@ -456,6 +458,97 @@ async fn stale_runtime_exit_preserves_replacement_runtime() {
     assert!(matches!(
         replacement_runtime_rx.recv().await.expect("api reply"),
         TaskRuntimeCommand::ApiModelReply(_)
+    ));
+
+    handle
+        .ingress_tx
+        .send(RouterIngressMessage::StopRouter)
+        .await
+        .expect("stop router");
+    assert_eq!(
+        handle.join_handle.await.expect("join router"),
+        RouterExitStatus::Stopped
+    );
+}
+
+#[tokio::test]
+async fn current_runtime_exit_removes_registry_entry() {
+    let db = open_memory_db();
+    create_root(&db, "task-1");
+    let spawner = Arc::new(CapturingRuntimeSpawner::default());
+    let (events_tx, mut events_rx) = tokio::sync::mpsc::channel(8);
+
+    let handle = spawn_router(RouterStartArgs {
+        db,
+        events_tx,
+        api_provider_registry: Arc::new(EmptyProviderRegistry),
+        api_config: ApiExecutorConfig {
+            request_timeout: Duration::from_secs(1),
+            max_response_bytes: None,
+        },
+        tool_executor: Arc::new(NoopToolSpawner),
+        core_spawn_deps: TaskRuntimeSpawnDeps::with_spawner(
+            TaskRuntimeConfig {
+                mailbox_capacity: 8,
+                model_profiles: model_profiles(),
+            },
+            spawner.clone(),
+        ),
+        router_mailbox_capacity: 8,
+    })
+    .expect("spawn router");
+
+    handle
+        .ingress_tx
+        .send(RouterIngressMessage::Command(RouterCommandEnvelope {
+            client_id: None,
+            client_command_id: None,
+            command: RouterCommand::EnsureTaskRuntime {
+                task_id: TaskId("task-1".to_owned()),
+            },
+        }))
+        .await
+        .expect("send ensure");
+    let mut first_runtime_rx = spawner.wait_receiver("task-1").await;
+    assert!(matches!(
+        first_runtime_rx.recv().await.expect("start command"),
+        TaskRuntimeCommand::Start
+    ));
+
+    handle
+        .ingress_tx
+        .send(RouterIngressMessage::RuntimeExit(TaskRuntimeExitNotice {
+            task_id: TaskId("task-1".to_owned()),
+            task_runtime_instance_id: TaskRuntimeInstanceId("task-1-runtime-0".to_owned()),
+            reason: TaskRuntimeExitReason::Stopped,
+        }))
+        .await
+        .expect("send current exit");
+    let exit_debug = events_rx.recv().await.expect("exit debug");
+    assert_debug_contains(
+        exit_debug,
+        Some(TaskId("task-1".to_owned())),
+        "task runtime exited",
+    );
+
+    handle
+        .ingress_tx
+        .send(RouterIngressMessage::Command(RouterCommandEnvelope {
+            client_id: None,
+            client_command_id: None,
+            command: RouterCommand::EnsureTaskRuntime {
+                task_id: TaskId("task-1".to_owned()),
+            },
+        }))
+        .await
+        .expect("send replacement ensure");
+    let mut replacement_runtime_rx = spawner.wait_receiver("task-1").await;
+    assert!(matches!(
+        replacement_runtime_rx
+            .recv()
+            .await
+            .expect("replacement start"),
+        TaskRuntimeCommand::Start
     ));
 
     handle
@@ -871,6 +964,7 @@ impl ToolExecutionSpawner for CapturingToolSpawner {
 #[derive(Default)]
 struct CapturingRuntimeSpawner {
     receivers: Mutex<HashMap<TaskId, tokio::sync::mpsc::Receiver<TaskRuntimeCommand>>>,
+    next_instance_seq: Mutex<u64>,
 }
 
 impl CapturingRuntimeSpawner {
@@ -899,6 +993,13 @@ impl TaskRuntimeSpawner for CapturingRuntimeSpawner {
         args: SpawnTaskRuntimeArgs,
     ) -> Result<SpawnedTaskRuntime, SpawnTaskRuntimeError> {
         let (task_runtime_tx, task_runtime_rx) = tokio::sync::mpsc::channel(8);
+        let mut next_instance_seq = self
+            .next_instance_seq
+            .lock()
+            .map_err(|_| SpawnTaskRuntimeError::TokioSpawnFailed)?;
+        let task_runtime_instance_id =
+            TaskRuntimeInstanceId(format!("{}-runtime-{}", args.task_id.0, *next_instance_seq));
+        *next_instance_seq += 1;
         let mut receivers = self
             .receivers
             .lock()
@@ -906,6 +1007,7 @@ impl TaskRuntimeSpawner for CapturingRuntimeSpawner {
         receivers.insert(args.task_id.clone(), task_runtime_rx);
         Ok(SpawnedTaskRuntime {
             task_id: args.task_id,
+            task_runtime_instance_id,
             task_runtime_tx,
         })
     }

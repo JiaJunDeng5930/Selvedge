@@ -157,6 +157,7 @@ pub enum FactoryOutput {
 #[derive(Debug)]
 pub struct TaskRuntimeCreated {
     pub task_id: TaskId,
+    pub task_runtime_instance_id: TaskRuntimeInstanceId,
     pub task_runtime_tx: TaskRuntimeSender,
     pub created_runtime_kind: CreatedRuntimeKind,
 }
@@ -518,6 +519,9 @@ pub enum DetachReason {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct TaskRuntimeInstanceId(pub String);
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ToolExecutionRunId(pub String);
 
 #[derive(Debug)]
@@ -533,6 +537,7 @@ pub enum TaskRuntimeCommand {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TaskRuntimeExitNotice {
     pub task_id: TaskId,
+    pub task_runtime_instance_id: TaskRuntimeInstanceId,
     pub reason: TaskRuntimeExitReason,
 }
 

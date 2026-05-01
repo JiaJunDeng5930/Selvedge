@@ -270,6 +270,7 @@ fn spawn_task_runtime_created(
         }) {
         Ok(spawned) => Ok(TaskRuntimeCreated {
             task_id: spawned.task_id,
+            task_runtime_instance_id: spawned.task_runtime_instance_id,
             task_runtime_tx: spawned.task_runtime_tx,
             created_runtime_kind,
         }),
