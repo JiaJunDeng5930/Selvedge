@@ -1,8 +1,11 @@
 #![doc = include_str!("../README.md")]
 
 use std::collections::BTreeSet;
+use std::fmt;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{Mutex, Notify, mpsc};
 
 use selvedge_domain_model::{
     ApiDomainValidationError, ConversationPath, FunctionCallId, HistoryNodeId, MessageRole,
@@ -79,7 +82,6 @@ pub enum RouterIngressMessage {
 pub type RouterIngressApiMessage = RouterIngressMessage;
 pub type RouterIngressSender = mpsc::Sender<RouterIngressMessage>;
 pub type TaskRuntimeSender = mpsc::Sender<TaskRuntimeCommand>;
-pub type TaskRuntimeStopAckSender = oneshot::Sender<TaskRuntimeStopAck>;
 pub type ModelCallRequest = ModelCallDispatchRequest;
 pub type EventIngressSender = mpsc::Sender<EventIngress>;
 pub type ClientFrameSender = mpsc::Sender<ClientFrame>;
@@ -158,8 +160,8 @@ pub enum FactoryOutput {
 #[derive(Debug)]
 pub struct TaskRuntimeCreated {
     pub task_id: TaskId,
-    pub task_runtime_instance_id: TaskRuntimeInstanceId,
     pub task_runtime_tx: TaskRuntimeSender,
+    pub task_runtime_control: TaskRuntimeControl,
     pub created_runtime_kind: CreatedRuntimeKind,
 }
 
@@ -519,14 +521,105 @@ pub enum DetachReason {
     EventsShutdown,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct TaskRuntimeInstanceId(pub String);
+#[derive(Clone)]
+pub struct TaskRuntimeControl {
+    inner: Arc<TaskRuntimeControlInner>,
+}
+
+struct TaskRuntimeControlInner {
+    frozen: AtomicBool,
+    stopping: AtomicBool,
+    stop_result: Mutex<Option<TaskRuntimeStopResult>>,
+    actor_notify: Notify,
+    stop_notify: Notify,
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct TaskRuntimeStopAck {
-    pub task_id: TaskId,
-    pub task_runtime_instance_id: TaskRuntimeInstanceId,
+pub struct TaskRuntimeStopResult;
+
+impl TaskRuntimeControl {
+    pub fn new() -> Self {
+        Self {
+            inner: Arc::new(TaskRuntimeControlInner {
+                frozen: AtomicBool::new(false),
+                stopping: AtomicBool::new(false),
+                stop_result: Mutex::new(None),
+                actor_notify: Notify::new(),
+                stop_notify: Notify::new(),
+            }),
+        }
+    }
+
+    pub fn freeze(&self) {
+        self.inner.frozen.store(true, Ordering::SeqCst);
+        self.inner.actor_notify.notify_one();
+    }
+
+    pub fn unfreeze(&self) {
+        self.inner.frozen.store(false, Ordering::SeqCst);
+        self.inner.actor_notify.notify_one();
+    }
+
+    pub fn is_frozen(&self) -> bool {
+        self.inner.frozen.load(Ordering::SeqCst)
+    }
+
+    pub fn is_stopping(&self) -> bool {
+        self.inner.stopping.load(Ordering::SeqCst)
+    }
+
+    pub async fn stop(&self) -> TaskRuntimeStopResult {
+        self.inner.stopping.store(true, Ordering::SeqCst);
+        self.inner.actor_notify.notify_one();
+        loop {
+            let notified = self.inner.stop_notify.notified();
+            if let Some(result) = self.inner.stop_result.lock().await.clone() {
+                return result;
+            }
+            notified.await;
+        }
+    }
+
+    pub async fn wait_for_control_change(&self) {
+        self.inner.actor_notify.notified().await;
+    }
+
+    pub async fn finish_stop(&self, result: TaskRuntimeStopResult) {
+        let mut stop_result = self.inner.stop_result.lock().await;
+        if stop_result.is_none() {
+            *stop_result = Some(result);
+            self.inner.stop_notify.notify_waiters();
+        }
+    }
+
+    pub fn same_control(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.inner, &other.inner)
+    }
 }
+
+impl Default for TaskRuntimeControl {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl fmt::Debug for TaskRuntimeControl {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("TaskRuntimeControl")
+            .field("frozen", &self.is_frozen())
+            .field("stopping", &self.is_stopping())
+            .finish_non_exhaustive()
+    }
+}
+
+impl PartialEq for TaskRuntimeControl {
+    fn eq(&self, other: &Self) -> bool {
+        self.same_control(other)
+    }
+}
+
+impl Eq for TaskRuntimeControl {}
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ToolExecutionRunId(pub String);
@@ -538,13 +631,12 @@ pub enum TaskRuntimeCommand {
     ApiModelReply(ApiOutputEnvelope),
     ToolResult(ToolExecutionResult),
     Archive,
-    Stop { ack_tx: TaskRuntimeStopAckSender },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TaskRuntimeExitNotice {
     pub task_id: TaskId,
-    pub task_runtime_instance_id: TaskRuntimeInstanceId,
+    pub task_runtime_control: TaskRuntimeControl,
     pub reason: TaskRuntimeExitReason,
 }
 

@@ -9,8 +9,8 @@ use selvedge_command_model::{
     DomainEvent, DomainEventPublishRequest, EventControlMessage, EventIngress, EventIngressSender,
     FactoryEffectId, FactoryOutput, FactoryOutputEnvelope, FactoryScanOutput, FactoryTaskFailure,
     RawEvent, RouterCommand, RouterCommandEnvelope, RouterIngressMessage, RouterIngressSender,
-    TaskRuntimeCommand, TaskRuntimeExitNotice, TaskRuntimeInstanceId, TaskRuntimeSender,
-    TaskRuntimeStopAck, ToolExecutionRequest, ToolExecutionResult, validate_router_command,
+    TaskRuntimeCommand, TaskRuntimeControl, TaskRuntimeExitNotice, TaskRuntimeSender,
+    ToolExecutionRequest, ToolExecutionResult, validate_router_command,
 };
 use selvedge_core::TaskRuntimeSpawnDeps;
 use selvedge_db::DbPool;
@@ -116,8 +116,8 @@ struct PendingRuntimeEffect {
 
 #[derive(Clone, Debug)]
 struct RuntimeRegistryEntry {
-    task_runtime_instance_id: TaskRuntimeInstanceId,
     sender: TaskRuntimeSender,
+    control: TaskRuntimeControl,
 }
 
 impl RouterActor {
@@ -328,7 +328,7 @@ impl RouterActor {
         let removed = self
             .task_runtime_registry
             .get(&notice.task_id)
-            .is_some_and(|entry| entry.task_runtime_instance_id == notice.task_runtime_instance_id);
+            .is_some_and(|entry| entry.control.same_control(&notice.task_runtime_control));
         if removed {
             self.task_runtime_registry.remove(&notice.task_id);
         }
@@ -504,8 +504,8 @@ impl RouterActor {
             FactoryOutput::RuntimeCreated(created) => {
                 self.register_runtime(
                     created.task_id,
-                    created.task_runtime_instance_id,
                     created.task_runtime_tx,
+                    created.task_runtime_control,
                 )
                 .await
             }
@@ -523,8 +523,8 @@ impl RouterActor {
         for created in scan.created {
             self.register_runtime(
                 created.task_id,
-                created.task_runtime_instance_id,
                 created.task_runtime_tx,
+                created.task_runtime_control,
             )
             .await?;
         }
@@ -537,14 +537,14 @@ impl RouterActor {
     async fn register_runtime(
         &mut self,
         task_id: TaskId,
-        task_runtime_instance_id: TaskRuntimeInstanceId,
         sender: TaskRuntimeSender,
+        control: TaskRuntimeControl,
     ) -> Result<(), RouterExitStatus> {
         self.task_runtime_registry.insert(
             task_id.clone(),
             RuntimeRegistryEntry {
-                task_runtime_instance_id,
                 sender: sender.clone(),
+                control,
             },
         );
         let mut deferred = self.deferred_commands.remove(&task_id).unwrap_or_default();
@@ -583,12 +583,12 @@ impl RouterActor {
 
     async fn stop_task_runtime(&mut self, task_id: TaskId) -> Result<(), RouterExitStatus> {
         if let Some(entry) = self.task_runtime_registry.get(&task_id).cloned() {
-            if self.stop_runtime_entry(&task_id, entry).await.is_err() {
+            if self.stop_runtime_entry(entry.clone()).await.is_err() {
                 return self
                     .publish_debug(Some(task_id), "task runtime mailbox closed")
                     .await;
             }
-            self.task_runtime_registry.remove(&task_id);
+            self.remove_runtime_if_current(&task_id, &entry);
             return Ok(());
         }
         if self.pending_effects_by_task.remove(&task_id).is_some() {
@@ -602,29 +602,29 @@ impl RouterActor {
     }
 
     async fn stop_runtimes(&mut self) {
-        let entries = self.task_runtime_registry.drain().collect::<Vec<_>>();
+        let entries = self
+            .task_runtime_registry
+            .iter()
+            .map(|(task_id, entry)| (task_id.clone(), entry.clone()))
+            .collect::<Vec<_>>();
         for (task_id, entry) in entries {
-            let _ = self.stop_runtime_entry(&task_id, entry).await;
+            let _ = self.stop_runtime_entry(entry.clone()).await;
+            self.remove_runtime_if_current(&task_id, &entry);
         }
     }
 
-    async fn stop_runtime_entry(
-        &self,
-        task_id: &TaskId,
-        entry: RuntimeRegistryEntry,
-    ) -> Result<TaskRuntimeStopAck, ()> {
-        let (ack_tx, ack_rx) = tokio::sync::oneshot::channel();
-        entry
-            .sender
-            .send(TaskRuntimeCommand::Stop { ack_tx })
-            .await
-            .map_err(|_| ())?;
-        let ack = ack_rx.await.map_err(|_| ())?;
-        if ack.task_id == *task_id && ack.task_runtime_instance_id == entry.task_runtime_instance_id
-        {
-            Ok(ack)
-        } else {
-            Err(())
+    async fn stop_runtime_entry(&self, entry: RuntimeRegistryEntry) -> Result<(), ()> {
+        let _ = entry.control.stop().await;
+        Ok(())
+    }
+
+    fn remove_runtime_if_current(&mut self, task_id: &TaskId, entry: &RuntimeRegistryEntry) {
+        let is_current = self
+            .task_runtime_registry
+            .get(task_id)
+            .is_some_and(|current| current.control.same_control(&entry.control));
+        if is_current {
+            self.task_runtime_registry.remove(task_id);
         }
     }
 
