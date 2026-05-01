@@ -246,17 +246,15 @@ impl RouterActor {
                 Ok(())
             }
             CoreOutputMessage::RequestToolExecution(request) => {
+                let fallback_request = request.clone();
                 match self
                     .tool_executor
                     .spawn_tool_execution(request, self.router_tx.clone())
                 {
                     Ok(_join_handle) => Ok(()),
                     Err(_) => {
-                        self.publish_debug(
-                            Some(envelope.task_id),
-                            "tool execution task spawn failed",
-                        )
-                        .await
+                        self.handle_tool_output(tool_spawn_failed_result(fallback_request))
+                            .await
                     }
                 }
             }
@@ -667,5 +665,17 @@ impl RouterActor {
         let effect_id = FactoryEffectId(format!("router-effect-{}", self.next_effect_seq));
         self.next_effect_seq += 1;
         effect_id
+    }
+}
+
+fn tool_spawn_failed_result(request: ToolExecutionRequest) -> ToolExecutionResult {
+    ToolExecutionResult {
+        task_id: request.task_id,
+        tool_execution_run_id: request.tool_execution_run_id,
+        function_call_node_id: request.function_call_node_id,
+        function_call_id: request.function_call_id,
+        tool_name: request.tool_name,
+        output_text: "tool execution spawn failed".to_owned(),
+        is_error: true,
     }
 }

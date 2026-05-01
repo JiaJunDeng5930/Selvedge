@@ -792,6 +792,78 @@ async fn core_tool_execution_request_uses_configured_tool_spawner() {
     );
 }
 
+#[tokio::test]
+async fn core_tool_execution_spawn_failure_returns_error_tool_result() {
+    let db = open_memory_db();
+    create_root(&db, "task-1");
+    let spawner = Arc::new(CapturingRuntimeSpawner::default());
+    let (events_tx, _events_rx) = tokio::sync::mpsc::channel(8);
+
+    let handle = spawn_router(RouterStartArgs {
+        db,
+        events_tx,
+        api_provider_registry: Arc::new(EmptyProviderRegistry),
+        api_config: ApiExecutorConfig {
+            request_timeout: Duration::from_secs(1),
+            max_response_bytes: None,
+        },
+        tool_executor: Arc::new(FailingToolSpawner),
+        core_spawn_deps: TaskRuntimeSpawnDeps::with_spawner(
+            TaskRuntimeConfig {
+                mailbox_capacity: 8,
+                model_profiles: model_profiles(),
+            },
+            spawner.clone(),
+        ),
+        router_mailbox_capacity: 8,
+    })
+    .expect("spawn router");
+
+    handle
+        .ingress_tx
+        .send(RouterIngressMessage::Command(RouterCommandEnvelope {
+            client_id: None,
+            client_command_id: None,
+            command: RouterCommand::EnsureTaskRuntime {
+                task_id: TaskId("task-1".to_owned()),
+            },
+        }))
+        .await
+        .expect("send ensure");
+    let mut runtime_rx = spawner.wait_receiver("task-1").await;
+    assert!(matches!(
+        runtime_rx.recv().await.expect("start command"),
+        TaskRuntimeCommand::Start
+    ));
+
+    handle
+        .ingress_tx
+        .send(RouterIngressMessage::Core(CoreOutputEnvelope {
+            task_id: TaskId("task-1".to_owned()),
+            message: CoreOutputMessage::RequestToolExecution(tool_request("task-1")),
+        }))
+        .await
+        .expect("send core tool request");
+
+    let TaskRuntimeCommand::ToolResult(result) =
+        runtime_rx.recv().await.expect("tool result command")
+    else {
+        panic!("unexpected task runtime command");
+    };
+    assert!(result.is_error);
+    assert!(result.output_text.contains("tool execution spawn failed"));
+
+    handle
+        .ingress_tx
+        .send(RouterIngressMessage::StopRouter)
+        .await
+        .expect("stop router");
+    assert_eq!(
+        handle.join_handle.await.expect("join router"),
+        RouterExitStatus::Stopped
+    );
+}
+
 #[test]
 fn spawn_router_rejects_zero_mailbox_capacity() {
     let db = open_memory_db();
@@ -919,6 +991,18 @@ impl ToolExecutionSpawner for NoopToolSpawner {
         _router_tx: selvedge_command_model::RouterIngressSender,
     ) -> Result<tokio::task::JoinHandle<()>, ToolExecutionSpawnError> {
         Ok(tokio::spawn(async {}))
+    }
+}
+
+struct FailingToolSpawner;
+
+impl ToolExecutionSpawner for FailingToolSpawner {
+    fn spawn_tool_execution(
+        &self,
+        _request: ToolExecutionRequest,
+        _router_tx: selvedge_command_model::RouterIngressSender,
+    ) -> Result<tokio::task::JoinHandle<()>, ToolExecutionSpawnError> {
+        Err(ToolExecutionSpawnError::TokioSpawnFailed)
     }
 }
 
