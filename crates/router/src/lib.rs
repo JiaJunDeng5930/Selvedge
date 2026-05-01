@@ -570,10 +570,12 @@ impl RouterActor {
                 task_id: Some(request.task_id),
                 message_text: message,
             }),
-            other => RawEvent::Debug(DebugRawEvent {
-                task_id: Some(request.task_id),
-                message_text: format!("domain event: {other:?}"),
-            }),
+            DomainEvent::UserMessageCommitted { .. }
+            | DomainEvent::AssistantMessageCommitted { .. }
+            | DomainEvent::ReasoningCommitted { .. }
+            | DomainEvent::FunctionCallCommitted { .. }
+            | DomainEvent::FunctionOutputCommitted { .. }
+            | DomainEvent::TaskArchived => return Ok(()),
         };
         self.send_event(EventIngress::Raw(raw)).await
     }
