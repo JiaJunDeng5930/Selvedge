@@ -531,10 +531,13 @@ impl RouterActor {
     }
 
     async fn stop_task_runtime(&mut self, task_id: TaskId) -> Result<(), RouterExitStatus> {
-        if let Some(sender) = self.task_runtime_registry.get(&task_id).cloned() {
-            return self
-                .send_to_task_runtime(task_id, sender, TaskRuntimeCommand::Stop, false)
-                .await;
+        if let Some(sender) = self.task_runtime_registry.remove(&task_id) {
+            if sender.send(TaskRuntimeCommand::Stop).await.is_err() {
+                return self
+                    .publish_debug(Some(task_id), "task runtime mailbox closed")
+                    .await;
+            }
+            return Ok(());
         }
         if self.pending_effects_by_task.remove(&task_id).is_some() {
             self.deferred_commands.remove(&task_id);

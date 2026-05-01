@@ -288,6 +288,32 @@ fn router_command_validation_enforces_envelope_and_task_payload_contract() {
         Err(RouterCommandValidationError::MissingClientId)
     );
 
+    let mismatched_client_id = RouterCommandEnvelope {
+        client_id: Some(ClientId("client-1".to_owned())),
+        client_command_id: Some(ClientCommandId("detach-1".to_owned())),
+        command: RouterCommand::DetachClient {
+            client_id: ClientId("client-2".to_owned()),
+            client_command_id: ClientCommandId("detach-1".to_owned()),
+        },
+    };
+    assert_eq!(
+        validate_router_command(&mismatched_client_id),
+        Err(RouterCommandValidationError::MismatchedClientId)
+    );
+
+    let mismatched_client_command_id = RouterCommandEnvelope {
+        client_id: Some(ClientId("client-1".to_owned())),
+        client_command_id: Some(ClientCommandId("detach-1".to_owned())),
+        command: RouterCommand::DetachClient {
+            client_id: ClientId("client-1".to_owned()),
+            client_command_id: ClientCommandId("detach-2".to_owned()),
+        },
+    };
+    assert_eq!(
+        validate_router_command(&mismatched_client_command_id),
+        Err(RouterCommandValidationError::MismatchedClientCommandId)
+    );
+
     let empty_task_id = RouterCommandEnvelope {
         client_id: None,
         client_command_id: None,
