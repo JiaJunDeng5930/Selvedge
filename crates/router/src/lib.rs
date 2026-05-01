@@ -313,7 +313,13 @@ impl RouterActor {
         &mut self,
         notice: TaskRuntimeExitNotice,
     ) -> Result<(), RouterExitStatus> {
-        let removed = self.task_runtime_registry.remove(&notice.task_id).is_some();
+        let removed = self
+            .task_runtime_registry
+            .get(&notice.task_id)
+            .is_some_and(|sender| sender.is_closed());
+        if removed {
+            self.task_runtime_registry.remove(&notice.task_id);
+        }
         let message = if removed {
             format!("task runtime exited: {:?}", notice.reason)
         } else {
@@ -511,6 +517,22 @@ impl RouterActor {
     ) -> Result<(), RouterExitStatus> {
         self.task_runtime_registry
             .insert(task_id.clone(), sender.clone());
+        let mut deferred = self.deferred_commands.remove(&task_id).unwrap_or_default();
+        if deferred
+            .iter()
+            .any(|command| matches!(command, TaskRuntimeCommand::Archive))
+        {
+            while let Some(command) = deferred.pop_front() {
+                if sender.send(command).await.is_err() {
+                    self.task_runtime_registry.remove(&task_id);
+                    return self
+                        .publish_debug(Some(task_id), "deferred task command delivery failed")
+                        .await;
+                }
+            }
+            return Ok(());
+        }
+
         if sender.send(TaskRuntimeCommand::Start).await.is_err() {
             self.task_runtime_registry.remove(&task_id);
             return self
@@ -518,7 +540,6 @@ impl RouterActor {
                 .await;
         }
 
-        let mut deferred = self.deferred_commands.remove(&task_id).unwrap_or_default();
         while let Some(command) = deferred.pop_front() {
             if sender.send(command).await.is_err() {
                 self.task_runtime_registry.remove(&task_id);
