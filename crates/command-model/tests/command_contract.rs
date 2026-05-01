@@ -7,8 +7,8 @@ use selvedge_command_model::{
     FactoryTaskFailure, HistoryAppendedEvent, HistoryAppendedRawEvent, ModelCallDispatchRequest,
     ModelCallError, ModelCallErrorKind, ModelRunId, RouterCommand, RouterCommandEnvelope,
     RouterCommandValidationError, RouterIngressApiMessage, RouterIngressMessage,
-    SnapshotTaskVersion, TaskId, TaskProjection, TaskProjectionStatus, TaskRuntimeCreated,
-    TaskRuntimeInstanceId, TaskScope, validate_api_output_envelope, validate_dispatch_request,
+    SnapshotTaskVersion, TaskId, TaskProjection, TaskProjectionStatus, TaskRuntimeControl,
+    TaskRuntimeCreated, TaskScope, validate_api_output_envelope, validate_dispatch_request,
     validate_router_command,
 };
 use selvedge_domain_model::{
@@ -174,8 +174,8 @@ fn factory_output_envelope_exposes_runtime_created_scan_and_failure_contract() {
 
     let runtime_created = TaskRuntimeCreated {
         task_id: TaskId("task-1".to_owned()),
-        task_runtime_instance_id: TaskRuntimeInstanceId("runtime-1".to_owned()),
         task_runtime_tx,
+        task_runtime_control: TaskRuntimeControl::new(),
         created_runtime_kind: CreatedRuntimeKind::ExistingTaskRuntime,
     };
     let created = FactoryOutputEnvelope {

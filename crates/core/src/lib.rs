@@ -7,8 +7,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use selvedge_command_model::{
     ApiEffectId, ApiOutputEnvelope, CoreOutputEnvelope, CoreOutputMessage, DomainEvent,
     DomainEventPublishRequest, ModelCallDispatchRequest, ModelRunId, RouterIngressMessage,
-    RouterIngressSender, TaskRuntimeCommand, TaskRuntimeExitNotice, TaskRuntimeExitReason,
-    TaskRuntimeInstanceId, TaskRuntimeSender, TaskRuntimeStopAck, ToolExecutionRequest,
+    RouterIngressSender, TaskRuntimeCommand, TaskRuntimeControl, TaskRuntimeExitNotice,
+    TaskRuntimeExitReason, TaskRuntimeSender, TaskRuntimeStopResult, ToolExecutionRequest,
     ToolExecutionResult, ToolExecutionRunId,
 };
 use selvedge_db::{
@@ -82,8 +82,8 @@ pub struct SpawnTaskRuntimeArgs {
 #[derive(Debug)]
 pub struct SpawnedTaskRuntime {
     pub task_id: TaskId,
-    pub task_runtime_instance_id: TaskRuntimeInstanceId,
     pub task_runtime_tx: TaskRuntimeSender,
+    pub task_runtime_control: TaskRuntimeControl,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -97,17 +97,16 @@ pub fn spawn_task_runtime(
 ) -> Result<SpawnedTaskRuntime, SpawnTaskRuntimeError> {
     let capacity = args.config.mailbox_capacity.max(1);
     let (task_runtime_tx, task_runtime_rx) = tokio::sync::mpsc::channel(capacity);
-    let task_runtime_instance_id =
-        TaskRuntimeInstanceId(format!("{}-runtime-{}", args.task_id.0, Uuid::new_v4()));
+    let task_runtime_control = TaskRuntimeControl::new();
     let spawned = SpawnedTaskRuntime {
         task_id: args.task_id.clone(),
-        task_runtime_instance_id: task_runtime_instance_id.clone(),
         task_runtime_tx: task_runtime_tx.clone(),
+        task_runtime_control: task_runtime_control.clone(),
     };
 
     let actor = TaskRuntimeActor {
         task_id: args.task_id,
-        task_runtime_instance_id,
+        task_runtime_control,
         db: args.db,
         router_tx: args.router_tx,
         rx: task_runtime_rx,
@@ -122,7 +121,7 @@ pub fn spawn_task_runtime(
 
 struct TaskRuntimeActor {
     task_id: TaskId,
-    task_runtime_instance_id: TaskRuntimeInstanceId,
+    task_runtime_control: TaskRuntimeControl,
     db: DbPool,
     router_tx: RouterIngressSender,
     rx: tokio::sync::mpsc::Receiver<TaskRuntimeCommand>,
@@ -161,7 +160,27 @@ struct PendingToolCall {
 
 impl TaskRuntimeActor {
     async fn run(mut self) {
-        while let Some(command) = self.rx.recv().await {
+        loop {
+            if self.task_runtime_control.is_stopping() {
+                self.task_runtime_control
+                    .finish_stop(TaskRuntimeStopResult)
+                    .await;
+                break;
+            }
+            let command = if self.task_runtime_control.is_frozen() {
+                self.task_runtime_control.wait_for_control_change().await;
+                continue;
+            } else {
+                tokio::select! {
+                    _ = self.task_runtime_control.wait_for_control_change() => continue,
+                    command = self.rx.recv() => {
+                        let Some(command) = command else {
+                            break;
+                        };
+                        command
+                    }
+                }
+            };
             let should_stop = match command {
                 TaskRuntimeCommand::Start => self.handle_start().await,
                 TaskRuntimeCommand::UserInput { message_text } => {
@@ -172,16 +191,14 @@ impl TaskRuntimeActor {
                 }
                 TaskRuntimeCommand::ToolResult(result) => self.handle_tool_result(result).await,
                 TaskRuntimeCommand::Archive => self.handle_archive().await,
-                TaskRuntimeCommand::Stop { ack_tx } => {
-                    let _ = ack_tx.send(TaskRuntimeStopAck {
-                        task_id: self.task_id.clone(),
-                        task_runtime_instance_id: self.task_runtime_instance_id.clone(),
-                    });
-                    true
-                }
             };
 
             if should_stop {
+                if self.task_runtime_control.is_stopping() {
+                    self.task_runtime_control
+                        .finish_stop(TaskRuntimeStopResult)
+                        .await;
+                }
                 break;
             }
         }
@@ -607,7 +624,7 @@ impl TaskRuntimeActor {
             .router_tx
             .send(RouterIngressMessage::RuntimeExit(TaskRuntimeExitNotice {
                 task_id: self.task_id.clone(),
-                task_runtime_instance_id: self.task_runtime_instance_id.clone(),
+                task_runtime_control: self.task_runtime_control.clone(),
                 reason,
             }))
             .await;

@@ -7,8 +7,8 @@ Use it to define model-call request correlation, dispatch request, output envelo
 This crate is not for network access, database access, filesystem access, provider execution, or task runtime mutation.
 
 `RuntimeReady` is only a readiness signal. The task runtime sender is returned by `selvedge-core::spawn_task_runtime` to the creator that owns router registration.
-`TaskRuntimeInstanceId` identifies one spawned runtime instance so the router can ignore stale exits from replaced runtimes.
-`TaskRuntimeCommand::Stop` carries a one-shot acknowledgement sender. A runtime sends the acknowledgement only after it has processed all commands that were ahead of `Stop` in its mailbox and is ready to exit.
+`TaskRuntimeControl` is the shared control block for one runtime. Freeze is a state bit on that control block. `TaskRuntimeControl::stop` is an async function with synchronous barrier semantics: it sets the stop bit and resolves only after the runtime actor writes `TaskRuntimeStopResult`.
+`TaskRuntimeCommand` carries business input only. Stop is outside the business mailbox.
 
 `EventIngressSender` is owned by the router. `ClientFrameSender` is supplied by the router for a single client session. Delivery sequencing and hydration buffering live in `selvedge-events`.
 

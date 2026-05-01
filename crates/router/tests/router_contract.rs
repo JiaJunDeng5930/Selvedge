@@ -8,8 +8,8 @@ use selvedge_command_model::{
     ClientId, ClientSubscription, CoreOutputEnvelope, CoreOutputMessage, DetailLevel, DomainEvent,
     DomainEventPublishRequest, EventControlMessage, EventIngress, ModelCallError,
     ModelCallErrorKind, ModelRunId, RawEvent, RouterCommand, RouterCommandEnvelope,
-    RouterIngressMessage, TaskRuntimeCommand, TaskRuntimeExitNotice, TaskRuntimeExitReason,
-    TaskRuntimeInstanceId, TaskScope, ToolExecutionRequest, ToolExecutionResult,
+    RouterIngressMessage, TaskRuntimeCommand, TaskRuntimeControl, TaskRuntimeExitNotice,
+    TaskRuntimeExitReason, TaskScope, ToolExecutionRequest, ToolExecutionResult,
     ToolExecutionRunId,
 };
 use selvedge_core::{
@@ -151,11 +151,7 @@ async fn task_local_command_creates_runtime_and_flushes_deferred_user_input() {
         .send(RouterIngressMessage::StopRouter)
         .await
         .expect("stop router");
-    ack_stop(
-        runtime_rx.recv().await.expect("stop command"),
-        "task-1",
-        "task-1-runtime-0",
-    );
+    spawner.finish_stop("task-1").await;
     assert_eq!(
         handle.join_handle.await.expect("join router"),
         RouterExitStatus::Stopped
@@ -234,11 +230,7 @@ async fn api_tool_and_stop_messages_are_routed_to_live_runtime() {
         .send(RouterIngressMessage::StopRouter)
         .await
         .expect("stop router");
-    ack_stop(
-        runtime_rx.recv().await.expect("stop command"),
-        "task-1",
-        "task-1-runtime-0",
-    );
+    spawner.finish_stop("task-1").await;
     assert_eq!(
         handle.join_handle.await.expect("join router"),
         RouterExitStatus::Stopped
@@ -284,6 +276,7 @@ async fn stop_runtime_removes_sender_before_later_task_commands() {
         .await
         .expect("send ensure");
     let mut stopped_runtime_rx = spawner.wait_receiver("task-1").await;
+    let stopped_runtime_control = spawner.wait_control("task-1").await;
     assert!(matches!(
         stopped_runtime_rx.recv().await.expect("start command"),
         TaskRuntimeCommand::Start
@@ -300,11 +293,7 @@ async fn stop_runtime_removes_sender_before_later_task_commands() {
         }))
         .await
         .expect("send stop");
-    ack_stop(
-        stopped_runtime_rx.recv().await.expect("stop command"),
-        "task-1",
-        "task-1-runtime-0",
-    );
+    finish_stop(stopped_runtime_control.clone()).await;
 
     handle
         .ingress_tx
@@ -345,11 +334,7 @@ async fn stop_runtime_removes_sender_before_later_task_commands() {
         .send(RouterIngressMessage::StopRouter)
         .await
         .expect("stop router");
-    ack_stop(
-        replacement_runtime_rx.recv().await.expect("stop command"),
-        "task-1",
-        "task-1-runtime-1",
-    );
+    spawner.finish_stop("task-1").await;
     assert_eq!(
         handle.join_handle.await.expect("join router"),
         RouterExitStatus::Stopped
@@ -395,6 +380,7 @@ async fn stale_runtime_exit_preserves_replacement_runtime() {
         .await
         .expect("send ensure");
     let mut stopped_runtime_rx = spawner.wait_receiver("task-1").await;
+    let stopped_runtime_control = spawner.wait_control("task-1").await;
     assert!(matches!(
         stopped_runtime_rx.recv().await.expect("start command"),
         TaskRuntimeCommand::Start
@@ -411,11 +397,7 @@ async fn stale_runtime_exit_preserves_replacement_runtime() {
         }))
         .await
         .expect("send stop");
-    ack_stop(
-        stopped_runtime_rx.recv().await.expect("stop command"),
-        "task-1",
-        "task-1-runtime-0",
-    );
+    finish_stop(stopped_runtime_control.clone()).await;
 
     handle
         .ingress_tx
@@ -449,7 +431,7 @@ async fn stale_runtime_exit_preserves_replacement_runtime() {
         .ingress_tx
         .send(RouterIngressMessage::RuntimeExit(TaskRuntimeExitNotice {
             task_id: TaskId("task-1".to_owned()),
-            task_runtime_instance_id: TaskRuntimeInstanceId("task-1-runtime-0".to_owned()),
+            task_runtime_control: stopped_runtime_control,
             reason: TaskRuntimeExitReason::Stopped,
         }))
         .await
@@ -478,11 +460,7 @@ async fn stale_runtime_exit_preserves_replacement_runtime() {
         .send(RouterIngressMessage::StopRouter)
         .await
         .expect("stop router");
-    ack_stop(
-        replacement_runtime_rx.recv().await.expect("stop command"),
-        "task-1",
-        "task-1-runtime-1",
-    );
+    spawner.finish_stop("task-1").await;
     assert_eq!(
         handle.join_handle.await.expect("join router"),
         RouterExitStatus::Stopped
@@ -528,6 +506,7 @@ async fn current_runtime_exit_removes_registry_entry() {
         .await
         .expect("send ensure");
     let mut first_runtime_rx = spawner.wait_receiver("task-1").await;
+    let first_runtime_control = spawner.wait_control("task-1").await;
     assert!(matches!(
         first_runtime_rx.recv().await.expect("start command"),
         TaskRuntimeCommand::Start
@@ -537,7 +516,7 @@ async fn current_runtime_exit_removes_registry_entry() {
         .ingress_tx
         .send(RouterIngressMessage::RuntimeExit(TaskRuntimeExitNotice {
             task_id: TaskId("task-1".to_owned()),
-            task_runtime_instance_id: TaskRuntimeInstanceId("task-1-runtime-0".to_owned()),
+            task_runtime_control: first_runtime_control,
             reason: TaskRuntimeExitReason::Stopped,
         }))
         .await
@@ -574,11 +553,7 @@ async fn current_runtime_exit_removes_registry_entry() {
         .send(RouterIngressMessage::StopRouter)
         .await
         .expect("stop router");
-    ack_stop(
-        replacement_runtime_rx.recv().await.expect("stop command"),
-        "task-1",
-        "task-1-runtime-1",
-    );
+    spawner.finish_stop("task-1").await;
     assert_eq!(
         handle.join_handle.await.expect("join router"),
         RouterExitStatus::Stopped
@@ -639,11 +614,7 @@ async fn inactive_archive_is_delivered_before_runtime_start() {
         .send(RouterIngressMessage::StopRouter)
         .await
         .expect("stop router");
-    ack_stop(
-        runtime_rx.recv().await.expect("stop command"),
-        "task-1",
-        "task-1-runtime-0",
-    );
+    spawner.finish_stop("task-1").await;
     assert_eq!(
         handle.join_handle.await.expect("join router"),
         RouterExitStatus::Stopped
@@ -886,11 +857,7 @@ async fn core_tool_execution_spawn_failure_returns_error_tool_result() {
         .send(RouterIngressMessage::StopRouter)
         .await
         .expect("stop router");
-    ack_stop(
-        runtime_rx.recv().await.expect("stop command"),
-        "task-1",
-        "task-1-runtime-0",
-    );
+    spawner.finish_stop("task-1").await;
     assert_eq!(
         handle.join_handle.await.expect("join router"),
         RouterExitStatus::Stopped
@@ -1007,20 +974,15 @@ fn assert_debug_contains(event: EventIngress, task_id: Option<TaskId>, message: 
     assert!(debug.message_text.contains(message));
 }
 
-fn ack_stop(command: TaskRuntimeCommand, task_id: &str, task_runtime_instance_id: &str) {
-    let TaskRuntimeCommand::Stop { ack_tx } = command else {
-        panic!("unexpected task runtime command");
-    };
-    assert!(
-        ack_tx
-            .send(selvedge_command_model::TaskRuntimeStopAck {
-                task_id: TaskId(task_id.to_owned()),
-                task_runtime_instance_id: TaskRuntimeInstanceId(
-                    task_runtime_instance_id.to_owned()
-                ),
-            })
-            .is_ok()
-    );
+async fn finish_stop(control: TaskRuntimeControl) {
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(1);
+    while !control.is_stopping() {
+        assert!(tokio::time::Instant::now() < deadline, "runtime stopping");
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    control
+        .finish_stop(selvedge_command_model::TaskRuntimeStopResult)
+        .await;
 }
 
 struct EmptyProviderRegistry;
@@ -1097,7 +1059,7 @@ impl ToolExecutionSpawner for CapturingToolSpawner {
 #[derive(Default)]
 struct CapturingRuntimeSpawner {
     receivers: Mutex<HashMap<TaskId, tokio::sync::mpsc::Receiver<TaskRuntimeCommand>>>,
-    next_instance_seq: Mutex<u64>,
+    controls: Mutex<HashMap<TaskId, TaskRuntimeControl>>,
 }
 
 impl CapturingRuntimeSpawner {
@@ -1118,6 +1080,26 @@ impl CapturingRuntimeSpawner {
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
     }
+
+    async fn wait_control(&self, task_id: &str) -> TaskRuntimeControl {
+        let task_id = TaskId(task_id.to_owned());
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(1);
+        loop {
+            {
+                let mut controls = self.controls.lock().expect("lock controls");
+                if let Some(control) = controls.remove(&task_id) {
+                    return control;
+                }
+            }
+            assert!(tokio::time::Instant::now() < deadline, "runtime control");
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    }
+
+    async fn finish_stop(&self, task_id: &str) {
+        let control = self.wait_control(task_id).await;
+        finish_stop(control).await;
+    }
 }
 
 impl TaskRuntimeSpawner for CapturingRuntimeSpawner {
@@ -1126,22 +1108,21 @@ impl TaskRuntimeSpawner for CapturingRuntimeSpawner {
         args: SpawnTaskRuntimeArgs,
     ) -> Result<SpawnedTaskRuntime, SpawnTaskRuntimeError> {
         let (task_runtime_tx, task_runtime_rx) = tokio::sync::mpsc::channel(8);
-        let mut next_instance_seq = self
-            .next_instance_seq
-            .lock()
-            .map_err(|_| SpawnTaskRuntimeError::TokioSpawnFailed)?;
-        let task_runtime_instance_id =
-            TaskRuntimeInstanceId(format!("{}-runtime-{}", args.task_id.0, *next_instance_seq));
-        *next_instance_seq += 1;
+        let task_runtime_control = TaskRuntimeControl::new();
         let mut receivers = self
             .receivers
             .lock()
             .map_err(|_| SpawnTaskRuntimeError::TokioSpawnFailed)?;
         receivers.insert(args.task_id.clone(), task_runtime_rx);
+        let mut controls = self
+            .controls
+            .lock()
+            .map_err(|_| SpawnTaskRuntimeError::TokioSpawnFailed)?;
+        controls.insert(args.task_id.clone(), task_runtime_control.clone());
         Ok(SpawnedTaskRuntime {
             task_id: args.task_id,
-            task_runtime_instance_id,
             task_runtime_tx,
+            task_runtime_control,
         })
     }
 }
