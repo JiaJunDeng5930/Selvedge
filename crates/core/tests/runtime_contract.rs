@@ -1753,9 +1753,10 @@ async fn spawn_runtime_and_start_one_model_call(db: selvedge_db::DbPool) -> Mode
     })
     .expect("spawn runtime");
     let request = start_and_recv_model_request(&runtime, &mut router_rx).await;
+    let (ack_tx, _ack_rx) = tokio::sync::oneshot::channel();
     runtime
         .task_runtime_tx
-        .send(TaskRuntimeCommand::Stop)
+        .send(TaskRuntimeCommand::Stop { ack_tx })
         .await
         .expect("stop runtime");
     request.correlation.model_run_id

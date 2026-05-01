@@ -151,6 +151,11 @@ async fn task_local_command_creates_runtime_and_flushes_deferred_user_input() {
         .send(RouterIngressMessage::StopRouter)
         .await
         .expect("stop router");
+    ack_stop(
+        runtime_rx.recv().await.expect("stop command"),
+        "task-1",
+        "task-1-runtime-0",
+    );
     assert_eq!(
         handle.join_handle.await.expect("join router"),
         RouterExitStatus::Stopped
@@ -229,10 +234,11 @@ async fn api_tool_and_stop_messages_are_routed_to_live_runtime() {
         .send(RouterIngressMessage::StopRouter)
         .await
         .expect("stop router");
-    assert!(matches!(
+    ack_stop(
         runtime_rx.recv().await.expect("stop command"),
-        TaskRuntimeCommand::Stop
-    ));
+        "task-1",
+        "task-1-runtime-0",
+    );
     assert_eq!(
         handle.join_handle.await.expect("join router"),
         RouterExitStatus::Stopped
@@ -294,10 +300,11 @@ async fn stop_runtime_removes_sender_before_later_task_commands() {
         }))
         .await
         .expect("send stop");
-    assert!(matches!(
+    ack_stop(
         stopped_runtime_rx.recv().await.expect("stop command"),
-        TaskRuntimeCommand::Stop
-    ));
+        "task-1",
+        "task-1-runtime-0",
+    );
 
     handle
         .ingress_tx
@@ -338,6 +345,11 @@ async fn stop_runtime_removes_sender_before_later_task_commands() {
         .send(RouterIngressMessage::StopRouter)
         .await
         .expect("stop router");
+    ack_stop(
+        replacement_runtime_rx.recv().await.expect("stop command"),
+        "task-1",
+        "task-1-runtime-1",
+    );
     assert_eq!(
         handle.join_handle.await.expect("join router"),
         RouterExitStatus::Stopped
@@ -399,10 +411,11 @@ async fn stale_runtime_exit_preserves_replacement_runtime() {
         }))
         .await
         .expect("send stop");
-    assert!(matches!(
+    ack_stop(
         stopped_runtime_rx.recv().await.expect("stop command"),
-        TaskRuntimeCommand::Stop
-    ));
+        "task-1",
+        "task-1-runtime-0",
+    );
 
     handle
         .ingress_tx
@@ -465,6 +478,11 @@ async fn stale_runtime_exit_preserves_replacement_runtime() {
         .send(RouterIngressMessage::StopRouter)
         .await
         .expect("stop router");
+    ack_stop(
+        replacement_runtime_rx.recv().await.expect("stop command"),
+        "task-1",
+        "task-1-runtime-1",
+    );
     assert_eq!(
         handle.join_handle.await.expect("join router"),
         RouterExitStatus::Stopped
@@ -556,6 +574,11 @@ async fn current_runtime_exit_removes_registry_entry() {
         .send(RouterIngressMessage::StopRouter)
         .await
         .expect("stop router");
+    ack_stop(
+        replacement_runtime_rx.recv().await.expect("stop command"),
+        "task-1",
+        "task-1-runtime-1",
+    );
     assert_eq!(
         handle.join_handle.await.expect("join router"),
         RouterExitStatus::Stopped
@@ -616,6 +639,11 @@ async fn inactive_archive_is_delivered_before_runtime_start() {
         .send(RouterIngressMessage::StopRouter)
         .await
         .expect("stop router");
+    ack_stop(
+        runtime_rx.recv().await.expect("stop command"),
+        "task-1",
+        "task-1-runtime-0",
+    );
     assert_eq!(
         handle.join_handle.await.expect("join router"),
         RouterExitStatus::Stopped
@@ -858,6 +886,11 @@ async fn core_tool_execution_spawn_failure_returns_error_tool_result() {
         .send(RouterIngressMessage::StopRouter)
         .await
         .expect("stop router");
+    ack_stop(
+        runtime_rx.recv().await.expect("stop command"),
+        "task-1",
+        "task-1-runtime-0",
+    );
     assert_eq!(
         handle.join_handle.await.expect("join router"),
         RouterExitStatus::Stopped
@@ -972,6 +1005,22 @@ fn assert_debug_contains(event: EventIngress, task_id: Option<TaskId>, message: 
     };
     assert_eq!(debug.task_id, task_id);
     assert!(debug.message_text.contains(message));
+}
+
+fn ack_stop(command: TaskRuntimeCommand, task_id: &str, task_runtime_instance_id: &str) {
+    let TaskRuntimeCommand::Stop { ack_tx } = command else {
+        panic!("unexpected task runtime command");
+    };
+    assert!(
+        ack_tx
+            .send(selvedge_command_model::TaskRuntimeStopAck {
+                task_id: TaskId(task_id.to_owned()),
+                task_runtime_instance_id: TaskRuntimeInstanceId(
+                    task_runtime_instance_id.to_owned()
+                ),
+            })
+            .is_ok()
+    );
 }
 
 struct EmptyProviderRegistry;

@@ -2,7 +2,7 @@
 
 use std::collections::BTreeSet;
 
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 
 use selvedge_domain_model::{
     ApiDomainValidationError, ConversationPath, FunctionCallId, HistoryNodeId, MessageRole,
@@ -79,6 +79,7 @@ pub enum RouterIngressMessage {
 pub type RouterIngressApiMessage = RouterIngressMessage;
 pub type RouterIngressSender = mpsc::Sender<RouterIngressMessage>;
 pub type TaskRuntimeSender = mpsc::Sender<TaskRuntimeCommand>;
+pub type TaskRuntimeStopAckSender = oneshot::Sender<TaskRuntimeStopAck>;
 pub type ModelCallRequest = ModelCallDispatchRequest;
 pub type EventIngressSender = mpsc::Sender<EventIngress>;
 pub type ClientFrameSender = mpsc::Sender<ClientFrame>;
@@ -521,6 +522,12 @@ pub enum DetachReason {
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct TaskRuntimeInstanceId(pub String);
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TaskRuntimeStopAck {
+    pub task_id: TaskId,
+    pub task_runtime_instance_id: TaskRuntimeInstanceId,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ToolExecutionRunId(pub String);
 
@@ -531,7 +538,7 @@ pub enum TaskRuntimeCommand {
     ApiModelReply(ApiOutputEnvelope),
     ToolResult(ToolExecutionResult),
     Archive,
-    Stop,
+    Stop { ack_tx: TaskRuntimeStopAckSender },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

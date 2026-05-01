@@ -8,8 +8,8 @@ use selvedge_command_model::{
     ApiEffectId, ApiOutputEnvelope, CoreOutputEnvelope, CoreOutputMessage, DomainEvent,
     DomainEventPublishRequest, ModelCallDispatchRequest, ModelRunId, RouterIngressMessage,
     RouterIngressSender, TaskRuntimeCommand, TaskRuntimeExitNotice, TaskRuntimeExitReason,
-    TaskRuntimeInstanceId, TaskRuntimeSender, ToolExecutionRequest, ToolExecutionResult,
-    ToolExecutionRunId,
+    TaskRuntimeInstanceId, TaskRuntimeSender, TaskRuntimeStopAck, ToolExecutionRequest,
+    ToolExecutionResult, ToolExecutionRunId,
 };
 use selvedge_db::{
     DbError, DbPool, FunctionCallId, HistoryNode, HistoryNodeId, MessageRole,
@@ -172,8 +172,11 @@ impl TaskRuntimeActor {
                 }
                 TaskRuntimeCommand::ToolResult(result) => self.handle_tool_result(result).await,
                 TaskRuntimeCommand::Archive => self.handle_archive().await,
-                TaskRuntimeCommand::Stop => {
-                    self.send_exit(TaskRuntimeExitReason::Stopped).await;
+                TaskRuntimeCommand::Stop { ack_tx } => {
+                    let _ = ack_tx.send(TaskRuntimeStopAck {
+                        task_id: self.task_id.clone(),
+                        task_runtime_instance_id: self.task_runtime_instance_id.clone(),
+                    });
                     true
                 }
             };
