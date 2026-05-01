@@ -8,7 +8,8 @@ use selvedge_command_model::{
     ModelCallError, ModelCallErrorKind, ModelRunId, RouterCommand, RouterCommandEnvelope,
     RouterCommandValidationError, RouterIngressApiMessage, RouterIngressMessage,
     SnapshotTaskVersion, TaskId, TaskProjection, TaskProjectionStatus, TaskRuntimeCreated,
-    TaskScope, validate_api_output_envelope, validate_dispatch_request, validate_router_command,
+    TaskRuntimeInstanceId, TaskScope, validate_api_output_envelope, validate_dispatch_request,
+    validate_router_command,
 };
 use selvedge_domain_model::{
     ConversationMessage, ConversationPath, HistoryNodeId, MessageContent, MessageRole,
@@ -173,6 +174,7 @@ fn factory_output_envelope_exposes_runtime_created_scan_and_failure_contract() {
 
     let runtime_created = TaskRuntimeCreated {
         task_id: TaskId("task-1".to_owned()),
+        task_runtime_instance_id: TaskRuntimeInstanceId("runtime-1".to_owned()),
         task_runtime_tx,
         created_runtime_kind: CreatedRuntimeKind::ExistingTaskRuntime,
     };
