@@ -8,6 +8,7 @@ This crate is not for network access, database access, filesystem access, provid
 
 `RuntimeReady` is only a readiness signal. The task runtime sender is returned by `selvedge-core::spawn_task_runtime` to the creator that owns router registration.
 `TaskRuntimeInstanceId` identifies one spawned runtime instance so the router can ignore stale exits from replaced runtimes.
+`TaskRuntimeCommand::Stop` carries a one-shot acknowledgement sender. A runtime sends the acknowledgement only after it has processed all commands that were ahead of `Stop` in its mailbox and is ready to exit.
 
 `EventIngressSender` is owned by the router. `ClientFrameSender` is supplied by the router for a single client session. Delivery sequencing and hydration buffering live in `selvedge-events`.
 

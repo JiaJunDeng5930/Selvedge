@@ -10,7 +10,7 @@ use selvedge_command_model::{
     FactoryEffectId, FactoryOutput, FactoryOutputEnvelope, FactoryScanOutput, FactoryTaskFailure,
     RawEvent, RouterCommand, RouterCommandEnvelope, RouterIngressMessage, RouterIngressSender,
     TaskRuntimeCommand, TaskRuntimeExitNotice, TaskRuntimeInstanceId, TaskRuntimeSender,
-    ToolExecutionRequest, ToolExecutionResult, validate_router_command,
+    TaskRuntimeStopAck, ToolExecutionRequest, ToolExecutionResult, validate_router_command,
 };
 use selvedge_core::TaskRuntimeSpawnDeps;
 use selvedge_db::DbPool;
@@ -582,12 +582,13 @@ impl RouterActor {
     }
 
     async fn stop_task_runtime(&mut self, task_id: TaskId) -> Result<(), RouterExitStatus> {
-        if let Some(entry) = self.task_runtime_registry.remove(&task_id) {
-            if entry.sender.send(TaskRuntimeCommand::Stop).await.is_err() {
+        if let Some(entry) = self.task_runtime_registry.get(&task_id).cloned() {
+            if self.stop_runtime_entry(&task_id, entry).await.is_err() {
                 return self
                     .publish_debug(Some(task_id), "task runtime mailbox closed")
                     .await;
             }
+            self.task_runtime_registry.remove(&task_id);
             return Ok(());
         }
         if self.pending_effects_by_task.remove(&task_id).is_some() {
@@ -601,13 +602,29 @@ impl RouterActor {
     }
 
     async fn stop_runtimes(&mut self) {
-        let senders = self
-            .task_runtime_registry
-            .drain()
-            .map(|(_, entry)| entry.sender)
-            .collect::<Vec<_>>();
-        for sender in senders {
-            let _ = sender.send(TaskRuntimeCommand::Stop).await;
+        let entries = self.task_runtime_registry.drain().collect::<Vec<_>>();
+        for (task_id, entry) in entries {
+            let _ = self.stop_runtime_entry(&task_id, entry).await;
+        }
+    }
+
+    async fn stop_runtime_entry(
+        &self,
+        task_id: &TaskId,
+        entry: RuntimeRegistryEntry,
+    ) -> Result<TaskRuntimeStopAck, ()> {
+        let (ack_tx, ack_rx) = tokio::sync::oneshot::channel();
+        entry
+            .sender
+            .send(TaskRuntimeCommand::Stop { ack_tx })
+            .await
+            .map_err(|_| ())?;
+        let ack = ack_rx.await.map_err(|_| ())?;
+        if ack.task_id == *task_id && ack.task_runtime_instance_id == entry.task_runtime_instance_id
+        {
+            Ok(ack)
+        } else {
+            Err(())
         }
     }
 
