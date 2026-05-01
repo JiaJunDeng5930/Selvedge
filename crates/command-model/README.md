@@ -2,7 +2,7 @@
 
 This crate defines the Selvedge command model API slice used to dispatch model calls, return completed API outputs to the router, and describe router-mediated client event ingress.
 
-Use it to define model-call request correlation, dispatch request, output envelope, call error, router ingress API message types, factory output and runtime inventory messages, event ingress messages, client subscriptions, client snapshots, raw events, and client outbound frames.
+Use it to define model-call request correlation, dispatch request, output envelope, call error, router ingress message types, router commands, factory output messages, event ingress messages, client subscriptions, client snapshots, raw events, and client outbound frames.
 
 This crate is not for network access, database access, filesystem access, provider execution, or task runtime mutation.
 

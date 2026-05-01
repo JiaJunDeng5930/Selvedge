@@ -13,6 +13,7 @@ members = [
     "crates/domain-model",
     "crates/events",
     "crates/logging",
+    "crates/router",
     "crates/task-runtime-factory",
     "xtask",
 ]

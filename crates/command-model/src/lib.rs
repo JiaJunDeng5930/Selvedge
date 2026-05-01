@@ -2,7 +2,7 @@
 
 use std::collections::BTreeSet;
 
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::mpsc;
 
 use selvedge_domain_model::{
     ApiDomainValidationError, ConversationPath, FunctionCallId, HistoryNodeId, MessageRole,
@@ -67,13 +67,13 @@ pub enum ModelCallErrorKind {
 
 #[derive(Debug)]
 pub enum RouterIngressMessage {
+    Command(RouterCommandEnvelope),
     ApiOutput(ApiOutputEnvelope),
     Core(CoreOutputEnvelope),
     Tool(ToolExecutionResult),
     RuntimeExit(TaskRuntimeExitNotice),
-    Factory(RouterIngressFactoryMessage),
-    QueryRuntimeInventory(RuntimeInventoryQuery),
     PublishToEvents(DomainEventPublishRequest),
+    StopRouter,
 }
 
 pub type RouterIngressApiMessage = RouterIngressMessage;
@@ -87,8 +87,56 @@ pub type ClientFrameSender = mpsc::Sender<ClientFrame>;
 pub struct FactoryEffectId(pub String);
 
 #[derive(Debug)]
-pub enum RouterIngressFactoryMessage {
-    Output(FactoryOutputEnvelope),
+pub struct RouterCommandEnvelope {
+    pub client_id: Option<ClientId>,
+    pub client_command_id: Option<ClientCommandId>,
+    pub command: RouterCommand,
+}
+
+#[derive(Debug)]
+pub enum RouterCommand {
+    AttachClient {
+        client_id: ClientId,
+        client_command_id: ClientCommandId,
+        outbound: ClientFrameSender,
+        subscription: ClientSubscription,
+    },
+    DetachClient {
+        client_id: ClientId,
+        client_command_id: ClientCommandId,
+    },
+    UpdateSubscription {
+        client_id: ClientId,
+        client_command_id: ClientCommandId,
+        subscription: ClientSubscription,
+    },
+    SendUserInput {
+        task_id: TaskId,
+        message_text: String,
+    },
+    ArchiveTask {
+        task_id: TaskId,
+    },
+    StopTaskRuntime {
+        task_id: TaskId,
+    },
+    EnsureTaskRuntime {
+        task_id: TaskId,
+    },
+    EnsureMissingTaskRuntimes,
+    CreateChildTaskAndRuntime {
+        parent_task_id: TaskId,
+        child_cursor_node_id: HistoryNodeId,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RouterCommandValidationError {
+    MissingClientId,
+    MissingClientCommandId,
+    EmptyTaskId,
+    EmptyMessageText,
+    EmptyParentTaskId,
 }
 
 #[derive(Debug)]
@@ -547,17 +595,6 @@ pub enum DomainEvent {
     ErrorNotice { message: String },
 }
 
-#[derive(Debug)]
-pub struct RuntimeInventoryQuery {
-    pub reply_to: oneshot::Sender<RuntimeInventoryResponse>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct RuntimeInventoryResponse {
-    pub live_task_runtimes: Vec<TaskId>,
-    pub pending_task_runtime_effects: Vec<TaskId>,
-}
-
 pub fn validate_dispatch_request(request: &ModelCallDispatchRequest) -> Result<(), ModelCallError> {
     validate_correlation(&request.correlation)?;
 
@@ -591,6 +628,52 @@ pub fn validate_api_output_envelope(envelope: &ApiOutputEnvelope) -> Result<(), 
     Ok(())
 }
 
+pub fn validate_router_command(
+    command: &RouterCommandEnvelope,
+) -> Result<(), RouterCommandValidationError> {
+    match &command.command {
+        RouterCommand::AttachClient {
+            client_id,
+            client_command_id,
+            ..
+        }
+        | RouterCommand::DetachClient {
+            client_id,
+            client_command_id,
+        }
+        | RouterCommand::UpdateSubscription {
+            client_id,
+            client_command_id,
+            ..
+        } => {
+            validate_client_id(command.client_id.as_ref())?;
+            validate_client_command_id(command.client_command_id.as_ref())?;
+            validate_client_id(Some(client_id))?;
+            validate_client_command_id(Some(client_command_id))?;
+        }
+        RouterCommand::SendUserInput {
+            task_id,
+            message_text,
+        } => {
+            validate_task_id(task_id)?;
+            if message_text.trim().is_empty() {
+                return Err(RouterCommandValidationError::EmptyMessageText);
+            }
+        }
+        RouterCommand::ArchiveTask { task_id }
+        | RouterCommand::StopTaskRuntime { task_id }
+        | RouterCommand::EnsureTaskRuntime { task_id } => validate_task_id(task_id)?,
+        RouterCommand::EnsureMissingTaskRuntimes => {}
+        RouterCommand::CreateChildTaskAndRuntime { parent_task_id, .. } => {
+            if parent_task_id.0.trim().is_empty() {
+                return Err(RouterCommandValidationError::EmptyParentTaskId);
+            }
+        }
+    }
+
+    Ok(())
+}
+
 fn validate_correlation(correlation: &ApiCallCorrelation) -> Result<(), ModelCallError> {
     if correlation.api_effect_id.0.trim().is_empty() {
         return Err(validation_message("api_effect_id must not be empty"));
@@ -602,6 +685,30 @@ fn validate_correlation(correlation: &ApiCallCorrelation) -> Result<(), ModelCal
 
     if correlation.model_run_id.0.trim().is_empty() {
         return Err(validation_message("model_run_id must not be empty"));
+    }
+
+    Ok(())
+}
+
+fn validate_client_id(client_id: Option<&ClientId>) -> Result<(), RouterCommandValidationError> {
+    match client_id {
+        Some(client_id) if !client_id.0.trim().is_empty() => Ok(()),
+        Some(_) | None => Err(RouterCommandValidationError::MissingClientId),
+    }
+}
+
+fn validate_client_command_id(
+    client_command_id: Option<&ClientCommandId>,
+) -> Result<(), RouterCommandValidationError> {
+    match client_command_id {
+        Some(client_command_id) if !client_command_id.0.trim().is_empty() => Ok(()),
+        Some(_) | None => Err(RouterCommandValidationError::MissingClientCommandId),
+    }
+}
+
+fn validate_task_id(task_id: &TaskId) -> Result<(), RouterCommandValidationError> {
+    if task_id.0.trim().is_empty() {
+        return Err(RouterCommandValidationError::EmptyTaskId);
     }
 
     Ok(())

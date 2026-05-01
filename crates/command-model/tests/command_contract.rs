@@ -5,10 +5,10 @@ use selvedge_command_model::{
     EventIngress, FactoryEffectId, FactoryFailure, FactoryFailureKind, FactoryOutput,
     FactoryOutputEnvelope, FactoryScanOutput, FactorySkipReason, FactorySkippedTask,
     FactoryTaskFailure, HistoryAppendedEvent, HistoryAppendedRawEvent, ModelCallDispatchRequest,
-    ModelCallError, ModelCallErrorKind, ModelRunId, RouterIngressApiMessage,
-    RouterIngressFactoryMessage, RouterIngressMessage, RuntimeInventoryQuery,
-    RuntimeInventoryResponse, SnapshotTaskVersion, TaskId, TaskProjection, TaskProjectionStatus,
-    TaskRuntimeCreated, TaskScope, validate_api_output_envelope, validate_dispatch_request,
+    ModelCallError, ModelCallErrorKind, ModelRunId, RouterCommand, RouterCommandEnvelope,
+    RouterCommandValidationError, RouterIngressApiMessage, RouterIngressMessage,
+    SnapshotTaskVersion, TaskId, TaskProjection, TaskProjectionStatus, TaskRuntimeCreated,
+    TaskScope, validate_api_output_envelope, validate_dispatch_request, validate_router_command,
 };
 use selvedge_domain_model::{
     ConversationMessage, ConversationPath, HistoryNodeId, MessageContent, MessageRole,
@@ -241,39 +241,77 @@ fn factory_output_envelope_exposes_runtime_created_scan_and_failure_contract() {
 
 #[test]
 fn router_ingress_exposes_factory_output_and_runtime_inventory_query() {
-    let envelope = FactoryOutputEnvelope {
-        effect_id: FactoryEffectId("factory-1".to_owned()),
-        output: FactoryOutput::Failed(FactoryFailure {
-            task_id: None,
-            kind: FactoryFailureKind::RuntimeInventoryUnavailable,
-            message: "inventory unavailable".to_owned(),
-        }),
+    let command = RouterIngressMessage::Command(RouterCommandEnvelope {
+        client_id: None,
+        client_command_id: None,
+        command: RouterCommand::EnsureMissingTaskRuntimes,
+    });
+    assert!(matches!(command, RouterIngressMessage::Command(_)));
+
+    let stop = RouterIngressMessage::StopRouter;
+    assert!(matches!(stop, RouterIngressMessage::StopRouter));
+}
+
+#[test]
+fn router_command_validation_enforces_envelope_and_task_payload_contract() {
+    let (outbound, _outbound_rx) = tokio::sync::mpsc::channel(4);
+    let subscription = ClientSubscription {
+        task_scope: TaskScope::AllTasks,
+        detail_level: DetailLevel::Verbose,
+        include_model_call_status: true,
+        include_tool_execution_status: true,
+        include_debug_notices: true,
     };
 
-    let factory_message =
-        RouterIngressMessage::Factory(RouterIngressFactoryMessage::Output(envelope));
-    match factory_message {
-        RouterIngressMessage::Factory(RouterIngressFactoryMessage::Output(envelope)) => {
-            assert_eq!(envelope.effect_id, FactoryEffectId("factory-1".to_owned()));
-        }
-        _ => panic!("unexpected router ingress message"),
-    }
+    let attach = RouterCommandEnvelope {
+        client_id: Some(ClientId("client-1".to_owned())),
+        client_command_id: Some(ClientCommandId("attach-1".to_owned())),
+        command: RouterCommand::AttachClient {
+            client_id: ClientId("client-1".to_owned()),
+            client_command_id: ClientCommandId("attach-1".to_owned()),
+            outbound,
+            subscription,
+        },
+    };
+    validate_router_command(&attach).expect("valid attach command");
 
-    let (reply_to, _reply_rx) = tokio::sync::oneshot::channel();
-    let query = RouterIngressMessage::QueryRuntimeInventory(RuntimeInventoryQuery { reply_to });
+    let missing_client_id = RouterCommandEnvelope {
+        client_id: None,
+        client_command_id: Some(ClientCommandId("detach-1".to_owned())),
+        command: RouterCommand::DetachClient {
+            client_id: ClientId("client-1".to_owned()),
+            client_command_id: ClientCommandId("detach-1".to_owned()),
+        },
+    };
+    assert_eq!(
+        validate_router_command(&missing_client_id),
+        Err(RouterCommandValidationError::MissingClientId)
+    );
 
-    match query {
-        RouterIngressMessage::QueryRuntimeInventory(query) => {
-            query
-                .reply_to
-                .send(RuntimeInventoryResponse {
-                    live_task_runtimes: vec![TaskId("live".to_owned())],
-                    pending_task_runtime_effects: vec![TaskId("pending".to_owned())],
-                })
-                .expect("send runtime inventory response");
-        }
-        _ => panic!("unexpected router ingress message"),
-    }
+    let empty_task_id = RouterCommandEnvelope {
+        client_id: None,
+        client_command_id: None,
+        command: RouterCommand::EnsureTaskRuntime {
+            task_id: TaskId(" ".to_owned()),
+        },
+    };
+    assert_eq!(
+        validate_router_command(&empty_task_id),
+        Err(RouterCommandValidationError::EmptyTaskId)
+    );
+
+    let empty_message = RouterCommandEnvelope {
+        client_id: None,
+        client_command_id: None,
+        command: RouterCommand::SendUserInput {
+            task_id: TaskId("task-1".to_owned()),
+            message_text: " ".to_owned(),
+        },
+    };
+    assert_eq!(
+        validate_router_command(&empty_message),
+        Err(RouterCommandValidationError::EmptyMessageText)
+    );
 }
 
 fn valid_dispatch_request() -> ModelCallDispatchRequest {
