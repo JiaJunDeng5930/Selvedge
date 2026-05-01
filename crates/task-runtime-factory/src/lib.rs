@@ -6,8 +6,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use selvedge_command_model::{
     CreatedRuntimeKind, FactoryEffectId, FactoryFailure, FactoryFailureKind, FactoryOutput,
     FactoryOutputEnvelope, FactoryScanOutput, FactorySkipReason, FactorySkippedTask,
-    FactoryTaskFailure, RouterIngressFactoryMessage, RouterIngressMessage, RouterIngressSender,
-    RuntimeInventoryQuery, RuntimeInventoryResponse, TaskRuntimeCreated,
+    FactoryTaskFailure, RouterIngressSender, TaskRuntimeCreated,
 };
 use selvedge_core::{SpawnTaskRuntimeArgs, SpawnTaskRuntimeError, TaskRuntimeSpawnDeps};
 use selvedge_db::{
@@ -15,7 +14,6 @@ use selvedge_db::{
     load_active_task,
 };
 use selvedge_domain_model::HistoryNodeId;
-use tokio::task::JoinHandle;
 use uuid::Uuid;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -49,42 +47,36 @@ pub struct FactoryEffectArgs {
     pub db: DbPool,
     pub router_tx: RouterIngressSender,
     pub core_spawn_deps: TaskRuntimeSpawnDeps,
+    pub runtime_inventory: FactoryRuntimeInventory,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum SpawnFactoryEffectError {
-    MissingDbHandle,
-    MissingRouterSender,
-    MissingCoreSpawnDeps,
-    TokioSpawnFailed,
+pub struct FactoryRuntimeInventory {
+    pub live_task_runtimes: Vec<TaskId>,
+    pub pending_task_runtime_effects: Vec<TaskId>,
 }
 
-pub fn spawn_factory_effect(
-    args: FactoryEffectArgs,
-) -> Result<JoinHandle<()>, SpawnFactoryEffectError> {
-    Ok(tokio::spawn(async move {
-        run_factory_effect(args).await;
-    }))
-}
-
-async fn run_factory_effect(args: FactoryEffectArgs) {
-    match args.command {
+pub fn run_factory_effect(args: FactoryEffectArgs) -> FactoryOutputEnvelope {
+    let (effect_id, output) = match args.command {
         FactoryCommand::EnsureTaskRuntime(command) => {
             let output = ensure_task_runtime(
                 &args.db,
                 &args.router_tx,
                 &args.core_spawn_deps,
+                &args.runtime_inventory,
                 command.task_id,
                 CreatedRuntimeKind::ExistingTaskRuntime,
-            )
-            .await;
-            send_output(args.router_tx, command.effect_id, output).await;
+            );
+            (command.effect_id, output)
         }
         FactoryCommand::EnsureMissingTaskRuntimes(command) => {
-            let output =
-                ensure_missing_task_runtimes(&args.db, &args.router_tx, &args.core_spawn_deps)
-                    .await;
-            send_output(args.router_tx, command.effect_id, output).await;
+            let output = ensure_missing_task_runtimes(
+                &args.db,
+                &args.router_tx,
+                &args.core_spawn_deps,
+                &args.runtime_inventory,
+            );
+            (command.effect_id, output)
         }
         FactoryCommand::CreateChildTaskAndRuntime(command) => {
             let output = create_child_task_and_runtime(
@@ -94,9 +86,10 @@ async fn run_factory_effect(args: FactoryEffectArgs) {
                 command.parent_task_id,
                 command.child_cursor_node_id,
             );
-            send_output(args.router_tx, command.effect_id, output).await;
+            (command.effect_id, output)
         }
-    }
+    };
+    FactoryOutputEnvelope { effect_id, output }
 }
 
 fn create_child_task_and_runtime(
@@ -130,28 +123,21 @@ fn create_child_task_and_runtime(
     )
 }
 
-async fn ensure_missing_task_runtimes(
+fn ensure_missing_task_runtimes(
     db: &DbPool,
     router_tx: &RouterIngressSender,
     core_spawn_deps: &TaskRuntimeSpawnDeps,
+    runtime_inventory: &FactoryRuntimeInventory,
 ) -> FactoryOutput {
-    let inventory = match query_runtime_inventory(router_tx).await {
-        Ok(inventory) => inventory,
-        Err(message) => {
-            return FactoryOutput::Failed(FactoryFailure {
-                task_id: None,
-                kind: FactoryFailureKind::RuntimeInventoryUnavailable,
-                message,
-            });
-        }
-    };
-    let live_task_runtimes = inventory
+    let live_task_runtimes = runtime_inventory
         .live_task_runtimes
-        .into_iter()
+        .iter()
+        .cloned()
         .collect::<HashSet<_>>();
-    let pending_task_runtime_effects = inventory
+    let pending_task_runtime_effects = runtime_inventory
         .pending_task_runtime_effects
-        .into_iter()
+        .iter()
+        .cloned()
         .collect::<HashSet<_>>();
     let active_tasks = match list_active_tasks(db) {
         Ok(active_tasks) => active_tasks,
@@ -209,48 +195,27 @@ async fn ensure_missing_task_runtimes(
     })
 }
 
-async fn query_runtime_inventory(
-    router_tx: &RouterIngressSender,
-) -> Result<RuntimeInventoryResponse, String> {
-    let (reply_to, reply_rx) = tokio::sync::oneshot::channel();
-    router_tx
-        .send(RouterIngressMessage::QueryRuntimeInventory(
-            RuntimeInventoryQuery { reply_to },
-        ))
-        .await
-        .map_err(|_| "runtime inventory query could not be sent".to_owned())?;
-    reply_rx
-        .await
-        .map_err(|_| "runtime inventory response was not delivered".to_owned())
-}
-
-async fn ensure_task_runtime(
+fn ensure_task_runtime(
     db: &DbPool,
     router_tx: &RouterIngressSender,
     core_spawn_deps: &TaskRuntimeSpawnDeps,
+    runtime_inventory: &FactoryRuntimeInventory,
     task_id: TaskId,
     created_runtime_kind: CreatedRuntimeKind,
 ) -> FactoryOutput {
     match load_active_task(db, &task_id) {
         Ok(_) => {
-            let inventory = match query_runtime_inventory(router_tx).await {
-                Ok(inventory) => inventory,
-                Err(message) => {
-                    return FactoryOutput::Failed(FactoryFailure {
-                        task_id: Some(task_id),
-                        kind: FactoryFailureKind::RuntimeInventoryUnavailable,
-                        message,
-                    });
-                }
-            };
-            if inventory.live_task_runtimes.contains(&task_id) {
+            if runtime_inventory.live_task_runtimes.contains(&task_id) {
                 return FactoryOutput::Failed(FactoryFailure {
                     task_id: Some(task_id),
                     kind: FactoryFailureKind::RuntimeAlreadyLive,
                     message: "task runtime is already live".to_owned(),
                 });
             }
-            if inventory.pending_task_runtime_effects.contains(&task_id) {
+            if runtime_inventory
+                .pending_task_runtime_effects
+                .contains(&task_id)
+            {
                 return FactoryOutput::Failed(FactoryFailure {
                     task_id: Some(task_id),
                     kind: FactoryFailureKind::RuntimeCreationPending,
@@ -314,18 +279,6 @@ fn spawn_task_runtime_created(
             message: spawn_error_message(error),
         }),
     }
-}
-
-async fn send_output(
-    router_tx: RouterIngressSender,
-    effect_id: FactoryEffectId,
-    output: FactoryOutput,
-) {
-    let _ = router_tx
-        .send(RouterIngressMessage::Factory(
-            RouterIngressFactoryMessage::Output(FactoryOutputEnvelope { effect_id, output }),
-        ))
-        .await;
 }
 
 fn map_load_task_failure(task_id: Option<TaskId>, error: DbError) -> FactoryFailure {

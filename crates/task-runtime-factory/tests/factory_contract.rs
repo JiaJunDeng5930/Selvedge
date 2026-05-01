@@ -1,10 +1,8 @@
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Duration;
 
 use selvedge_command_model::{
     CreatedRuntimeKind, FactoryEffectId, FactoryFailureKind, FactoryOutput, FactorySkipReason,
-    RouterIngressFactoryMessage, RouterIngressMessage, RuntimeInventoryResponse,
 };
 use selvedge_core::{
     SpawnTaskRuntimeArgs, SpawnTaskRuntimeError, SpawnedTaskRuntime, TaskRuntimeConfig,
@@ -19,7 +17,7 @@ use selvedge_db::{
 use selvedge_domain_model::ModelProviderProfile;
 use selvedge_task_runtime_factory::{
     CreateChildTaskAndRuntimeCommand, EnsureMissingTaskRuntimesCommand, EnsureTaskRuntimeCommand,
-    FactoryCommand, FactoryEffectArgs, spawn_factory_effect,
+    FactoryCommand, FactoryEffectArgs, FactoryRuntimeInventory, run_factory_effect,
 };
 
 #[tokio::test]
@@ -28,7 +26,7 @@ async fn ensure_task_runtime_creates_runtime_for_existing_active_task() {
     create_root(&db, "task-1");
 
     let (router_tx, mut router_rx) = tokio::sync::mpsc::channel(8);
-    let handle = spawn_factory_effect(FactoryEffectArgs {
+    let envelope = run_factory_effect(FactoryEffectArgs {
         command: FactoryCommand::EnsureTaskRuntime(EnsureTaskRuntimeCommand {
             effect_id: FactoryEffectId("factory-1".to_owned()),
             task_id: TaskId("task-1".to_owned()),
@@ -39,17 +37,8 @@ async fn ensure_task_runtime_creates_runtime_for_existing_active_task() {
             mailbox_capacity: 8,
             model_profiles: model_profiles(),
         }),
-    })
-    .expect("spawn factory effect");
-
-    answer_inventory(&mut router_rx, Vec::new(), Vec::new()).await;
-    handle.await.expect("factory task joins");
-
-    let message = router_rx.recv().await.expect("factory output");
-    let RouterIngressMessage::Factory(RouterIngressFactoryMessage::Output(envelope)) = message
-    else {
-        panic!("unexpected router message");
-    };
+        runtime_inventory: empty_inventory(),
+    });
     assert_eq!(envelope.effect_id, FactoryEffectId("factory-1".to_owned()));
     let FactoryOutput::RuntimeCreated(created) = envelope.output else {
         panic!("unexpected factory output");
@@ -60,9 +49,7 @@ async fn ensure_task_runtime_creates_runtime_for_existing_active_task() {
         CreatedRuntimeKind::ExistingTaskRuntime
     );
 
-    tokio::time::timeout(Duration::from_millis(25), router_rx.recv())
-        .await
-        .expect_err("factory leaves runtime idle");
+    assert!(router_rx.try_recv().is_err());
 }
 
 #[tokio::test]
@@ -124,8 +111,8 @@ async fn ensure_missing_task_runtimes_skips_live_and_pending_inventory() {
     create_root(&db, "pending");
     create_root(&db, "missing");
 
-    let (router_tx, mut router_rx) = tokio::sync::mpsc::channel(8);
-    let handle = spawn_factory_effect(FactoryEffectArgs {
+    let (router_tx, _router_rx) = tokio::sync::mpsc::channel(8);
+    let envelope = run_factory_effect(FactoryEffectArgs {
         command: FactoryCommand::EnsureMissingTaskRuntimes(EnsureMissingTaskRuntimesCommand {
             effect_id: FactoryEffectId("factory-scan".to_owned()),
         }),
@@ -135,30 +122,11 @@ async fn ensure_missing_task_runtimes_skips_live_and_pending_inventory() {
             mailbox_capacity: 8,
             model_profiles: model_profiles(),
         }),
-    })
-    .expect("spawn factory effect");
-
-    let query = tokio::time::timeout(Duration::from_millis(50), router_rx.recv())
-        .await
-        .expect("runtime inventory query")
-        .expect("runtime inventory message");
-    let RouterIngressMessage::QueryRuntimeInventory(query) = query else {
-        panic!("unexpected router message");
-    };
-    query
-        .reply_to
-        .send(RuntimeInventoryResponse {
+        runtime_inventory: FactoryRuntimeInventory {
             live_task_runtimes: vec![TaskId("live".to_owned())],
             pending_task_runtime_effects: vec![TaskId("pending".to_owned())],
-        })
-        .expect("send runtime inventory");
-
-    handle.await.expect("factory task joins");
-    let message = router_rx.recv().await.expect("factory output");
-    let RouterIngressMessage::Factory(RouterIngressFactoryMessage::Output(envelope)) = message
-    else {
-        panic!("unexpected router message");
-    };
+        },
+    });
     assert_eq!(
         envelope.effect_id,
         FactoryEffectId("factory-scan".to_owned())
@@ -212,8 +180,8 @@ async fn create_child_task_and_runtime_persists_child_and_copies_parent_settings
     .expect("create parent task");
     let child_cursor_node_id = create_message_node(&db, None, MessageRole::User, "child cursor");
 
-    let (router_tx, mut router_rx) = tokio::sync::mpsc::channel(8);
-    let handle = spawn_factory_effect(FactoryEffectArgs {
+    let (router_tx, _router_rx) = tokio::sync::mpsc::channel(8);
+    let envelope = run_factory_effect(FactoryEffectArgs {
         command: FactoryCommand::CreateChildTaskAndRuntime(CreateChildTaskAndRuntimeCommand {
             effect_id: FactoryEffectId("factory-child".to_owned()),
             parent_task_id: TaskId("parent".to_owned()),
@@ -225,15 +193,8 @@ async fn create_child_task_and_runtime_persists_child_and_copies_parent_settings
             mailbox_capacity: 8,
             model_profiles: model_profiles(),
         }),
-    })
-    .expect("spawn factory effect");
-    handle.await.expect("factory task joins");
-
-    let message = router_rx.recv().await.expect("factory output");
-    let RouterIngressMessage::Factory(RouterIngressFactoryMessage::Output(envelope)) = message
-    else {
-        panic!("unexpected router message");
-    };
+        runtime_inventory: empty_inventory(),
+    });
     assert_eq!(
         envelope.effect_id,
         FactoryEffectId("factory-child".to_owned())
@@ -261,42 +222,6 @@ async fn create_child_task_and_runtime_persists_child_and_copies_parent_settings
     assert!(edges.iter().any(|edge| {
         edge.parent_task_id == TaskId("parent".to_owned()) && edge.child_task_id == created.task_id
     }));
-}
-
-#[tokio::test]
-async fn ensure_missing_task_runtimes_reports_unavailable_inventory() {
-    let db = open_memory_db();
-    create_root(&db, "task-1");
-
-    let (router_tx, mut router_rx) = tokio::sync::mpsc::channel(8);
-    let handle = spawn_factory_effect(FactoryEffectArgs {
-        command: FactoryCommand::EnsureMissingTaskRuntimes(EnsureMissingTaskRuntimesCommand {
-            effect_id: FactoryEffectId("factory-scan".to_owned()),
-        }),
-        db,
-        router_tx,
-        core_spawn_deps: TaskRuntimeSpawnDeps::new(TaskRuntimeConfig {
-            mailbox_capacity: 8,
-            model_profiles: model_profiles(),
-        }),
-    })
-    .expect("spawn factory effect");
-
-    let query = router_rx.recv().await.expect("runtime inventory query");
-    let RouterIngressMessage::QueryRuntimeInventory(query) = query else {
-        panic!("unexpected router message");
-    };
-    drop(query);
-
-    handle.await.expect("factory task joins");
-    let output = recv_factory_output(&mut router_rx).await;
-    let FactoryOutput::Failed(failure) = output else {
-        panic!("unexpected factory output");
-    };
-    assert_eq!(
-        failure.kind,
-        FactoryFailureKind::RuntimeInventoryUnavailable
-    );
 }
 
 #[tokio::test]
@@ -332,8 +257,8 @@ async fn create_child_task_keeps_durable_child_when_runtime_spawn_fails() {
     create_root(&db, "parent");
     let child_cursor_node_id = create_message_node(&db, None, MessageRole::User, "child cursor");
 
-    let (router_tx, mut router_rx) = tokio::sync::mpsc::channel(8);
-    let handle = spawn_factory_effect(FactoryEffectArgs {
+    let (router_tx, _router_rx) = tokio::sync::mpsc::channel(8);
+    let envelope = run_factory_effect(FactoryEffectArgs {
         command: FactoryCommand::CreateChildTaskAndRuntime(CreateChildTaskAndRuntimeCommand {
             effect_id: FactoryEffectId("factory-child".to_owned()),
             parent_task_id: TaskId("parent".to_owned()),
@@ -348,11 +273,10 @@ async fn create_child_task_keeps_durable_child_when_runtime_spawn_fails() {
             },
             Arc::new(FailingSpawner),
         ),
-    })
-    .expect("spawn factory effect");
-    handle.await.expect("factory task joins");
+        runtime_inventory: empty_inventory(),
+    });
 
-    let output = recv_factory_output(&mut router_rx).await;
+    let output = envelope.output;
     let FactoryOutput::Failed(failure) = output else {
         panic!("unexpected factory output");
     };
@@ -418,8 +342,8 @@ fn open_memory_db() -> DbPool {
 }
 
 async fn run_ensure_task_runtime(db: DbPool, task_id: &str) -> FactoryOutput {
-    let (router_tx, mut router_rx) = tokio::sync::mpsc::channel(8);
-    let handle = spawn_factory_effect(FactoryEffectArgs {
+    let (router_tx, _router_rx) = tokio::sync::mpsc::channel(8);
+    run_factory_effect(FactoryEffectArgs {
         command: FactoryCommand::EnsureTaskRuntime(EnsureTaskRuntimeCommand {
             effect_id: FactoryEffectId("factory-1".to_owned()),
             task_id: TaskId(task_id.to_owned()),
@@ -430,11 +354,9 @@ async fn run_ensure_task_runtime(db: DbPool, task_id: &str) -> FactoryOutput {
             mailbox_capacity: 8,
             model_profiles: model_profiles(),
         }),
+        runtime_inventory: empty_inventory(),
     })
-    .expect("spawn factory effect");
-    handle.await.expect("factory task joins");
-
-    recv_factory_output(&mut router_rx).await
+    .output
 }
 
 async fn run_ensure_task_runtime_with_inventory(
@@ -443,8 +365,8 @@ async fn run_ensure_task_runtime_with_inventory(
     live_task_runtimes: Vec<TaskId>,
     pending_task_runtime_effects: Vec<TaskId>,
 ) -> FactoryOutput {
-    let (router_tx, mut router_rx) = tokio::sync::mpsc::channel(8);
-    let handle = spawn_factory_effect(FactoryEffectArgs {
+    let (router_tx, _router_rx) = tokio::sync::mpsc::channel(8);
+    run_factory_effect(FactoryEffectArgs {
         command: FactoryCommand::EnsureTaskRuntime(EnsureTaskRuntimeCommand {
             effect_id: FactoryEffectId("factory-1".to_owned()),
             task_id: TaskId(task_id.to_owned()),
@@ -455,16 +377,12 @@ async fn run_ensure_task_runtime_with_inventory(
             mailbox_capacity: 8,
             model_profiles: model_profiles(),
         }),
+        runtime_inventory: FactoryRuntimeInventory {
+            live_task_runtimes,
+            pending_task_runtime_effects,
+        },
     })
-    .expect("spawn factory effect");
-    answer_inventory(
-        &mut router_rx,
-        live_task_runtimes,
-        pending_task_runtime_effects,
-    )
-    .await;
-    handle.await.expect("factory task joins");
-    recv_factory_output(&mut router_rx).await
+    .output
 }
 
 async fn run_create_child(
@@ -472,8 +390,8 @@ async fn run_create_child(
     parent_task_id: &str,
     child_cursor_node_id: selvedge_db::HistoryNodeId,
 ) -> FactoryOutput {
-    let (router_tx, mut router_rx) = tokio::sync::mpsc::channel(8);
-    let handle = spawn_factory_effect(FactoryEffectArgs {
+    let (router_tx, _router_rx) = tokio::sync::mpsc::channel(8);
+    run_factory_effect(FactoryEffectArgs {
         command: FactoryCommand::CreateChildTaskAndRuntime(CreateChildTaskAndRuntimeCommand {
             effect_id: FactoryEffectId("factory-child".to_owned()),
             parent_task_id: TaskId(parent_task_id.to_owned()),
@@ -485,39 +403,16 @@ async fn run_create_child(
             mailbox_capacity: 8,
             model_profiles: model_profiles(),
         }),
+        runtime_inventory: empty_inventory(),
     })
-    .expect("spawn factory effect");
-    handle.await.expect("factory task joins");
-    recv_factory_output(&mut router_rx).await
+    .output
 }
 
-async fn recv_factory_output(
-    router_rx: &mut tokio::sync::mpsc::Receiver<RouterIngressMessage>,
-) -> FactoryOutput {
-    let message = router_rx.recv().await.expect("factory output");
-    let RouterIngressMessage::Factory(RouterIngressFactoryMessage::Output(envelope)) = message
-    else {
-        panic!("unexpected router message");
-    };
-    envelope.output
-}
-
-async fn answer_inventory(
-    router_rx: &mut tokio::sync::mpsc::Receiver<RouterIngressMessage>,
-    live_task_runtimes: Vec<TaskId>,
-    pending_task_runtime_effects: Vec<TaskId>,
-) {
-    let query = router_rx.recv().await.expect("runtime inventory query");
-    let RouterIngressMessage::QueryRuntimeInventory(query) = query else {
-        panic!("unexpected router message");
-    };
-    query
-        .reply_to
-        .send(RuntimeInventoryResponse {
-            live_task_runtimes,
-            pending_task_runtime_effects,
-        })
-        .expect("send runtime inventory");
+fn empty_inventory() -> FactoryRuntimeInventory {
+    FactoryRuntimeInventory {
+        live_task_runtimes: Vec::new(),
+        pending_task_runtime_effects: Vec::new(),
+    }
 }
 
 struct FailingSpawner;
