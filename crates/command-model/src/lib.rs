@@ -134,6 +134,8 @@ pub enum RouterCommand {
 pub enum RouterCommandValidationError {
     MissingClientId,
     MissingClientCommandId,
+    MismatchedClientId,
+    MismatchedClientCommandId,
     EmptyTaskId,
     EmptyMessageText,
     EmptyParentTaskId,
@@ -650,6 +652,12 @@ pub fn validate_router_command(
             validate_client_command_id(command.client_command_id.as_ref())?;
             validate_client_id(Some(client_id))?;
             validate_client_command_id(Some(client_command_id))?;
+            if command.client_id.as_ref() != Some(client_id) {
+                return Err(RouterCommandValidationError::MismatchedClientId);
+            }
+            if command.client_command_id.as_ref() != Some(client_command_id) {
+                return Err(RouterCommandValidationError::MismatchedClientCommandId);
+            }
         }
         RouterCommand::SendUserInput {
             task_id,
