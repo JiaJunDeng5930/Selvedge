@@ -19,6 +19,7 @@ use selvedge_task_runtime_factory::{
     CreateChildTaskAndRuntimeCommand, EnsureMissingTaskRuntimesCommand, EnsureTaskRuntimeCommand,
     FactoryCommand, FactoryEffectArgs, FactoryRuntimeInventory, run_factory_effect,
 };
+use tokio::sync::mpsc::WeakUnboundedSender;
 use tokio::task::JoinHandle;
 
 pub struct RouterStartArgs {
@@ -71,7 +72,7 @@ pub fn spawn_router(args: RouterStartArgs) -> Result<RouterHandle, SpawnRouterEr
         api_config: args.api_config,
         tool_executor: args.tool_executor,
         core_spawn_deps: args.core_spawn_deps,
-        router_tx: ingress_tx.clone(),
+        router_tx: ingress_tx.downgrade(),
         ingress_rx,
         task_runtime_registry: HashMap::new(),
         pending_effects: HashMap::new(),
@@ -94,7 +95,7 @@ struct RouterActor {
     api_config: ApiExecutorConfig,
     tool_executor: Arc<dyn ToolExecutionSpawner>,
     core_spawn_deps: TaskRuntimeSpawnDeps,
-    router_tx: RouterIngressSender,
+    router_tx: WeakUnboundedSender<RouterIngressMessage>,
     ingress_rx: tokio::sync::mpsc::UnboundedReceiver<RouterIngressMessage>,
     task_runtime_registry: HashMap<TaskId, RuntimeRegistryEntry>,
     pending_effects: HashMap<FactoryEffectId, PendingRuntimeEffect>,
@@ -115,6 +116,12 @@ struct RuntimeRegistryEntry {
 }
 
 impl RouterActor {
+    fn router_tx(&self) -> Result<RouterIngressSender, RouterExitStatus> {
+        self.router_tx
+            .upgrade()
+            .ok_or(RouterExitStatus::RouterMailboxClosed)
+    }
+
     async fn run(mut self) -> RouterExitStatus {
         while let Some(ingress) = self.ingress_rx.recv().await {
             let result = match ingress {
@@ -235,7 +242,7 @@ impl RouterActor {
             CoreOutputMessage::RequestModelCall(request) => {
                 let _join_handle = spawn_model_call_tokio_task(
                     request,
-                    self.router_tx.clone(),
+                    self.router_tx()?,
                     self.api_provider_registry.clone(),
                     self.api_config.clone(),
                 );
@@ -245,7 +252,7 @@ impl RouterActor {
                 let fallback_request = request.clone();
                 match self
                     .tool_executor
-                    .spawn_tool_execution(request, self.router_tx.clone())
+                    .spawn_tool_execution(request, self.router_tx()?)
                 {
                     Ok(_join_handle) => Ok(()),
                     Err(_) => {
@@ -476,7 +483,7 @@ impl RouterActor {
         let envelope = run_factory_effect(FactoryEffectArgs {
             command,
             db: self.db.clone(),
-            router_tx: self.router_tx.clone(),
+            router_tx: self.router_tx()?,
             core_spawn_deps: self.core_spawn_deps.clone(),
             runtime_inventory: inventory,
         });

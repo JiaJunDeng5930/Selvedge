@@ -846,6 +846,35 @@ async fn spawn_router_uses_unbounded_ingress() {
     );
 }
 
+#[tokio::test]
+async fn router_exits_when_ingress_sender_is_dropped() {
+    let db = open_memory_db();
+    let (events_tx, _events_rx) = tokio::sync::mpsc::channel(8);
+    let handle = spawn_router(RouterStartArgs {
+        db,
+        events_tx,
+        api_provider_registry: Arc::new(EmptyProviderRegistry),
+        api_config: ApiExecutorConfig {
+            request_timeout: Duration::from_secs(1),
+            max_response_bytes: None,
+        },
+        tool_executor: Arc::new(NoopToolSpawner),
+        core_spawn_deps: TaskRuntimeSpawnDeps::new(TaskRuntimeConfig {
+            mailbox_capacity: 8,
+            model_profiles: model_profiles(),
+        }),
+    })
+    .expect("spawn router");
+
+    drop(handle.ingress_tx);
+
+    let status = tokio::time::timeout(Duration::from_millis(50), handle.join_handle)
+        .await
+        .expect("router exit")
+        .expect("join router");
+    assert_eq!(status, RouterExitStatus::RouterMailboxClosed);
+}
+
 fn open_memory_db() -> DbPool {
     open_db(OpenDbOptions {
         sqlite_path: ":memory:".to_owned(),
