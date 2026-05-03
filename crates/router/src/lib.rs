@@ -28,7 +28,6 @@ pub struct RouterStartArgs {
     pub api_config: ApiExecutorConfig,
     pub tool_executor: Arc<dyn ToolExecutionSpawner>,
     pub core_spawn_deps: TaskRuntimeSpawnDeps,
-    pub router_mailbox_capacity: usize,
 }
 
 pub trait ToolExecutionSpawner: Send + Sync {
@@ -60,16 +59,11 @@ pub enum RouterExitStatus {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SpawnRouterError {
-    InvalidMailboxCapacity,
     TokioSpawnFailed,
 }
 
 pub fn spawn_router(args: RouterStartArgs) -> Result<RouterHandle, SpawnRouterError> {
-    if args.router_mailbox_capacity == 0 {
-        return Err(SpawnRouterError::InvalidMailboxCapacity);
-    }
-
-    let (ingress_tx, ingress_rx) = tokio::sync::mpsc::channel(args.router_mailbox_capacity);
+    let (ingress_tx, ingress_rx) = tokio::sync::mpsc::unbounded_channel();
     let actor = RouterActor {
         db: args.db,
         events_tx: args.events_tx,
@@ -101,7 +95,7 @@ struct RouterActor {
     tool_executor: Arc<dyn ToolExecutionSpawner>,
     core_spawn_deps: TaskRuntimeSpawnDeps,
     router_tx: RouterIngressSender,
-    ingress_rx: tokio::sync::mpsc::Receiver<RouterIngressMessage>,
+    ingress_rx: tokio::sync::mpsc::UnboundedReceiver<RouterIngressMessage>,
     task_runtime_registry: HashMap<TaskId, RuntimeRegistryEntry>,
     pending_effects: HashMap<FactoryEffectId, PendingRuntimeEffect>,
     pending_effects_by_task: HashMap<TaskId, FactoryEffectId>,

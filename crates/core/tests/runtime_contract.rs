@@ -51,7 +51,7 @@ async fn task_runtime_starts_and_requests_model_call_from_system_cursor() {
     )
     .expect("create task");
 
-    let (router_tx, mut router_rx) = tokio::sync::mpsc::channel(8);
+    let (router_tx, mut router_rx) = tokio::sync::mpsc::unbounded_channel();
     let runtime = spawn_task_runtime(SpawnTaskRuntimeArgs {
         task_id: TaskId("task-1".to_owned()),
         db,
@@ -127,7 +127,7 @@ async fn task_runtime_start_requests_model_from_user_cursor_without_draining_que
     )
     .expect("queue input");
 
-    let (router_tx, mut router_rx) = tokio::sync::mpsc::channel(16);
+    let (router_tx, mut router_rx) = tokio::sync::mpsc::unbounded_channel();
     let runtime = spawn_task_runtime(SpawnTaskRuntimeArgs {
         task_id: TaskId("task-1".to_owned()),
         db: db.clone(),
@@ -208,7 +208,7 @@ async fn task_runtime_start_promotes_queue_before_awaiting_user_input() {
     )
     .expect("queue input");
 
-    let (router_tx, mut router_rx) = tokio::sync::mpsc::channel(16);
+    let (router_tx, mut router_rx) = tokio::sync::mpsc::unbounded_channel();
     let runtime = spawn_task_runtime(SpawnTaskRuntimeArgs {
         task_id: TaskId("task-1".to_owned()),
         db: db.clone(),
@@ -297,7 +297,7 @@ async fn task_runtime_start_dispatches_tool_from_function_call_cursor() {
     )
     .expect("append function call");
 
-    let (router_tx, mut router_rx) = tokio::sync::mpsc::channel(16);
+    let (router_tx, mut router_rx) = tokio::sync::mpsc::unbounded_channel();
     let runtime = spawn_task_runtime(SpawnTaskRuntimeArgs {
         task_id: TaskId("task-1".to_owned()),
         db,
@@ -382,7 +382,7 @@ async fn task_runtime_start_reconstructs_open_batched_tool_calls_from_history() 
     )
     .expect("append batched calls");
 
-    let (router_tx, mut router_rx) = tokio::sync::mpsc::channel(16);
+    let (router_tx, mut router_rx) = tokio::sync::mpsc::unbounded_channel();
     let runtime = spawn_task_runtime(SpawnTaskRuntimeArgs {
         task_id: TaskId("task-1".to_owned()),
         db,
@@ -471,6 +471,49 @@ async fn task_runtime_dispatches_all_tool_calls_before_next_model_call() {
 
     let second_tool_request = recv_tool_request(&mut router_rx).await;
     assert_eq!(second_tool_request.function_call_id.0, "call-2");
+}
+
+#[tokio::test]
+async fn task_runtime_stop_returns_after_archive_exit() {
+    let (runtime, mut router_rx) = spawn_runtime_with_task(Vec::new()).await;
+
+    runtime
+        .task_runtime_tx
+        .send(TaskRuntimeCommand::Archive)
+        .await
+        .expect("send archive");
+    let message = router_rx.recv().await.expect("runtime exit");
+    assert!(matches!(
+        message,
+        RouterIngressMessage::RuntimeExit(notice)
+            if matches!(notice.reason, TaskRuntimeExitReason::Archived)
+    ));
+
+    tokio::time::timeout(
+        Duration::from_millis(50),
+        runtime.task_runtime_control.stop(),
+    )
+    .await
+    .expect("stop completed");
+}
+
+#[tokio::test]
+async fn task_runtime_stop_completes_when_router_ingress_is_not_drained() {
+    let (runtime, _router_rx) = spawn_runtime_with_task(Vec::new()).await;
+
+    runtime
+        .task_runtime_tx
+        .send(TaskRuntimeCommand::Start)
+        .await
+        .expect("send start");
+    tokio::task::yield_now().await;
+
+    tokio::time::timeout(
+        Duration::from_millis(50),
+        runtime.task_runtime_control.stop(),
+    )
+    .await
+    .expect("stop completed");
 }
 
 #[tokio::test]
@@ -595,7 +638,7 @@ async fn task_runtime_ignores_tool_result_with_mismatched_call_identity() {
         },
     )
     .expect("create task");
-    let (router_tx, mut router_rx) = tokio::sync::mpsc::channel(16);
+    let (router_tx, mut router_rx) = tokio::sync::mpsc::unbounded_channel();
     let runtime = spawn_task_runtime(SpawnTaskRuntimeArgs {
         task_id: TaskId("task-1".to_owned()),
         db: db.clone(),
@@ -809,7 +852,7 @@ async fn task_runtime_rejects_tool_calls_outside_enabled_manifest() {
         },
     )
     .expect("create task");
-    let (router_tx, mut router_rx) = tokio::sync::mpsc::channel(16);
+    let (router_tx, mut router_rx) = tokio::sync::mpsc::unbounded_channel();
     let runtime = spawn_task_runtime(SpawnTaskRuntimeArgs {
         task_id: TaskId("task-1".to_owned()),
         db,
@@ -1091,7 +1134,7 @@ async fn task_runtime_rejects_empty_idle_user_input_before_append() {
         },
     )
     .expect("create task");
-    let (router_tx, mut router_rx) = tokio::sync::mpsc::channel(16);
+    let (router_tx, mut router_rx) = tokio::sync::mpsc::unbounded_channel();
     let runtime = spawn_task_runtime(SpawnTaskRuntimeArgs {
         task_id: TaskId("task-1".to_owned()),
         db,
@@ -1285,7 +1328,7 @@ async fn task_runtime_preserves_queued_input_when_append_fails() {
     )
     .expect("queue input");
 
-    let (router_tx, mut router_rx) = tokio::sync::mpsc::channel(16);
+    let (router_tx, mut router_rx) = tokio::sync::mpsc::unbounded_channel();
     let runtime = spawn_task_runtime(SpawnTaskRuntimeArgs {
         task_id: TaskId("task-1".to_owned()),
         db: db.clone(),
@@ -1455,7 +1498,7 @@ async fn task_runtime_recovers_open_tool_call_before_model_dispatch() {
         UnixTs(3),
     )
     .expect("append assistant cursor after open call");
-    let (router_tx, mut router_rx) = tokio::sync::mpsc::channel(16);
+    let (router_tx, mut router_rx) = tokio::sync::mpsc::unbounded_channel();
     let runtime = spawn_task_runtime(SpawnTaskRuntimeArgs {
         task_id: TaskId("task-1".to_owned()),
         db,
@@ -1556,7 +1599,7 @@ async fn task_runtime_allows_messages_between_tool_call_and_matching_output() {
         UnixTs(4),
     )
     .expect("append function output");
-    let (router_tx, mut router_rx) = tokio::sync::mpsc::channel(16);
+    let (router_tx, mut router_rx) = tokio::sync::mpsc::unbounded_channel();
     let runtime = spawn_task_runtime(SpawnTaskRuntimeArgs {
         task_id: TaskId("task-1".to_owned()),
         db,
@@ -1593,7 +1636,7 @@ async fn spawn_runtime_with_task(
     tools: Vec<ToolSpec>,
 ) -> (
     selvedge_core::SpawnedTaskRuntime,
-    tokio::sync::mpsc::Receiver<RouterIngressMessage>,
+    tokio::sync::mpsc::UnboundedReceiver<RouterIngressMessage>,
 ) {
     let db = open_db(OpenDbOptions {
         sqlite_path: ":memory:".to_owned(),
@@ -1630,7 +1673,7 @@ async fn spawn_runtime_with_task(
     )
     .expect("create task");
 
-    let (router_tx, router_rx) = tokio::sync::mpsc::channel(16);
+    let (router_tx, router_rx) = tokio::sync::mpsc::unbounded_channel();
     let runtime = spawn_task_runtime(SpawnTaskRuntimeArgs {
         task_id: TaskId("task-1".to_owned()),
         db,
@@ -1646,7 +1689,7 @@ async fn spawn_runtime_with_task(
 
 async fn start_and_request_model(
     runtime: &selvedge_core::SpawnedTaskRuntime,
-    router_rx: &mut tokio::sync::mpsc::Receiver<RouterIngressMessage>,
+    router_rx: &mut tokio::sync::mpsc::UnboundedReceiver<RouterIngressMessage>,
 ) -> ApiCallCorrelation {
     start_and_recv_model_request(runtime, router_rx)
         .await
@@ -1655,7 +1698,7 @@ async fn start_and_request_model(
 
 async fn start_and_recv_model_request(
     runtime: &selvedge_core::SpawnedTaskRuntime,
-    router_rx: &mut tokio::sync::mpsc::Receiver<RouterIngressMessage>,
+    router_rx: &mut tokio::sync::mpsc::UnboundedReceiver<RouterIngressMessage>,
 ) -> ModelCallDispatchRequest {
     runtime
         .task_runtime_tx
@@ -1679,7 +1722,7 @@ async fn start_and_recv_model_request(
 }
 
 async fn recv_tool_request(
-    router_rx: &mut tokio::sync::mpsc::Receiver<RouterIngressMessage>,
+    router_rx: &mut tokio::sync::mpsc::UnboundedReceiver<RouterIngressMessage>,
 ) -> selvedge_command_model::ToolExecutionRequest {
     let message = router_rx.recv().await.expect("tool request");
     match message {
@@ -1692,7 +1735,7 @@ async fn recv_tool_request(
 }
 
 async fn recv_model_request(
-    router_rx: &mut tokio::sync::mpsc::Receiver<RouterIngressMessage>,
+    router_rx: &mut tokio::sync::mpsc::UnboundedReceiver<RouterIngressMessage>,
 ) -> ModelCallDispatchRequest {
     let message = router_rx.recv().await.expect("model request");
     match message {
@@ -1727,7 +1770,9 @@ fn tool_transcript_events(request: &ModelCallDispatchRequest) -> Vec<String> {
         .collect()
 }
 
-async fn assert_internal_exit(router_rx: &mut tokio::sync::mpsc::Receiver<RouterIngressMessage>) {
+async fn assert_internal_exit(
+    router_rx: &mut tokio::sync::mpsc::UnboundedReceiver<RouterIngressMessage>,
+) {
     let message = router_rx.recv().await.expect("runtime exit");
     match message {
         RouterIngressMessage::RuntimeExit(notice) => {
@@ -1741,7 +1786,7 @@ async fn assert_internal_exit(router_rx: &mut tokio::sync::mpsc::Receiver<Router
 }
 
 async fn spawn_runtime_and_start_one_model_call(db: selvedge_db::DbPool) -> ModelRunId {
-    let (router_tx, mut router_rx) = tokio::sync::mpsc::channel(16);
+    let (router_tx, mut router_rx) = tokio::sync::mpsc::unbounded_channel();
     let runtime = spawn_task_runtime(SpawnTaskRuntimeArgs {
         task_id: TaskId("task-1".to_owned()),
         db,

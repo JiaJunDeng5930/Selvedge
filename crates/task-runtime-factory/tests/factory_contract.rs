@@ -25,7 +25,7 @@ async fn ensure_task_runtime_creates_runtime_for_existing_active_task() {
     let db = open_memory_db();
     create_root(&db, "task-1");
 
-    let (router_tx, mut router_rx) = tokio::sync::mpsc::channel(8);
+    let (router_tx, mut router_rx) = tokio::sync::mpsc::unbounded_channel();
     let envelope = run_factory_effect(FactoryEffectArgs {
         command: FactoryCommand::EnsureTaskRuntime(EnsureTaskRuntimeCommand {
             effect_id: FactoryEffectId("factory-1".to_owned()),
@@ -111,7 +111,7 @@ async fn ensure_missing_task_runtimes_skips_live_and_pending_inventory() {
     create_root(&db, "pending");
     create_root(&db, "missing");
 
-    let (router_tx, _router_rx) = tokio::sync::mpsc::channel(8);
+    let (router_tx, _router_rx) = tokio::sync::mpsc::unbounded_channel();
     let envelope = run_factory_effect(FactoryEffectArgs {
         command: FactoryCommand::EnsureMissingTaskRuntimes(EnsureMissingTaskRuntimesCommand {
             effect_id: FactoryEffectId("factory-scan".to_owned()),
@@ -180,7 +180,7 @@ async fn create_child_task_and_runtime_persists_child_and_copies_parent_settings
     .expect("create parent task");
     let child_cursor_node_id = create_message_node(&db, None, MessageRole::User, "child cursor");
 
-    let (router_tx, _router_rx) = tokio::sync::mpsc::channel(8);
+    let (router_tx, _router_rx) = tokio::sync::mpsc::unbounded_channel();
     let envelope = run_factory_effect(FactoryEffectArgs {
         command: FactoryCommand::CreateChildTaskAndRuntime(CreateChildTaskAndRuntimeCommand {
             effect_id: FactoryEffectId("factory-child".to_owned()),
@@ -257,7 +257,7 @@ async fn create_child_task_keeps_durable_child_when_runtime_spawn_fails() {
     create_root(&db, "parent");
     let child_cursor_node_id = create_message_node(&db, None, MessageRole::User, "child cursor");
 
-    let (router_tx, _router_rx) = tokio::sync::mpsc::channel(8);
+    let (router_tx, _router_rx) = tokio::sync::mpsc::unbounded_channel();
     let envelope = run_factory_effect(FactoryEffectArgs {
         command: FactoryCommand::CreateChildTaskAndRuntime(CreateChildTaskAndRuntimeCommand {
             effect_id: FactoryEffectId("factory-child".to_owned()),
@@ -342,7 +342,7 @@ fn open_memory_db() -> DbPool {
 }
 
 async fn run_ensure_task_runtime(db: DbPool, task_id: &str) -> FactoryOutput {
-    let (router_tx, _router_rx) = tokio::sync::mpsc::channel(8);
+    let (router_tx, _router_rx) = tokio::sync::mpsc::unbounded_channel();
     run_factory_effect(FactoryEffectArgs {
         command: FactoryCommand::EnsureTaskRuntime(EnsureTaskRuntimeCommand {
             effect_id: FactoryEffectId("factory-1".to_owned()),
@@ -365,7 +365,7 @@ async fn run_ensure_task_runtime_with_inventory(
     live_task_runtimes: Vec<TaskId>,
     pending_task_runtime_effects: Vec<TaskId>,
 ) -> FactoryOutput {
-    let (router_tx, _router_rx) = tokio::sync::mpsc::channel(8);
+    let (router_tx, _router_rx) = tokio::sync::mpsc::unbounded_channel();
     run_factory_effect(FactoryEffectArgs {
         command: FactoryCommand::EnsureTaskRuntime(EnsureTaskRuntimeCommand {
             effect_id: FactoryEffectId("factory-1".to_owned()),
@@ -390,7 +390,7 @@ async fn run_create_child(
     parent_task_id: &str,
     child_cursor_node_id: selvedge_db::HistoryNodeId,
 ) -> FactoryOutput {
-    let (router_tx, _router_rx) = tokio::sync::mpsc::channel(8);
+    let (router_tx, _router_rx) = tokio::sync::mpsc::unbounded_channel();
     run_factory_effect(FactoryEffectArgs {
         command: FactoryCommand::CreateChildTaskAndRuntime(CreateChildTaskAndRuntimeCommand {
             effect_id: FactoryEffectId("factory-child".to_owned()),
