@@ -229,6 +229,8 @@ impl RouterActor {
     }
 
     async fn handle_core(&mut self, envelope: CoreOutputEnvelope) -> Result<(), RouterExitStatus> {
+        // Core output is task-routed. Runtime identity gates registry ownership and exit cleanup;
+        // queued core outputs already in ingress continue through normal task routing.
         match envelope.message {
             CoreOutputMessage::RequestModelCall(request) => {
                 let _join_handle = spawn_model_call_tokio_task(
