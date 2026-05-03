@@ -875,6 +875,53 @@ async fn router_exits_when_ingress_sender_is_dropped() {
     assert_eq!(status, RouterExitStatus::RouterMailboxClosed);
 }
 
+#[tokio::test]
+async fn router_exits_when_ingress_sender_is_dropped_with_live_runtime() {
+    let db = open_memory_db();
+    create_root(&db, "task-1");
+    let (events_tx, mut events_rx) = tokio::sync::mpsc::channel(8);
+    let handle = spawn_router(RouterStartArgs {
+        db,
+        events_tx,
+        api_provider_registry: Arc::new(EmptyProviderRegistry),
+        api_config: ApiExecutorConfig {
+            request_timeout: Duration::from_secs(1),
+            max_response_bytes: None,
+        },
+        tool_executor: Arc::new(NoopToolSpawner),
+        core_spawn_deps: TaskRuntimeSpawnDeps::new(TaskRuntimeConfig {
+            mailbox_capacity: 8,
+            model_profiles: model_profiles(),
+        }),
+    })
+    .expect("spawn router");
+
+    handle
+        .ingress_tx
+        .send(RouterIngressMessage::Command(RouterCommandEnvelope {
+            client_id: None,
+            client_command_id: None,
+            command: RouterCommand::EnsureTaskRuntime {
+                task_id: TaskId("task-1".to_owned()),
+            },
+        }))
+        .expect("send ensure");
+    let ready = events_rx.recv().await.expect("runtime ready");
+    assert_debug_contains(
+        ready,
+        Some(TaskId("task-1".to_owned())),
+        "task runtime ready",
+    );
+
+    drop(handle.ingress_tx);
+
+    let status = tokio::time::timeout(Duration::from_millis(50), handle.join_handle)
+        .await
+        .expect("router exit")
+        .expect("join router");
+    assert_eq!(status, RouterExitStatus::RouterMailboxClosed);
+}
+
 fn open_memory_db() -> DbPool {
     open_db(OpenDbOptions {
         sqlite_path: ":memory:".to_owned(),
@@ -985,7 +1032,7 @@ impl ToolExecutionSpawner for NoopToolSpawner {
     fn spawn_tool_execution(
         &self,
         _request: ToolExecutionRequest,
-        _router_tx: selvedge_command_model::RouterIngressSender,
+        _router_tx: selvedge_command_model::RouterIngressWeakSender,
     ) -> Result<tokio::task::JoinHandle<()>, ToolExecutionSpawnError> {
         Ok(tokio::spawn(async {}))
     }
@@ -997,7 +1044,7 @@ impl ToolExecutionSpawner for FailingToolSpawner {
     fn spawn_tool_execution(
         &self,
         _request: ToolExecutionRequest,
-        _router_tx: selvedge_command_model::RouterIngressSender,
+        _router_tx: selvedge_command_model::RouterIngressWeakSender,
     ) -> Result<tokio::task::JoinHandle<()>, ToolExecutionSpawnError> {
         Err(ToolExecutionSpawnError::TokioSpawnFailed)
     }
@@ -1031,7 +1078,7 @@ impl ToolExecutionSpawner for CapturingToolSpawner {
     fn spawn_tool_execution(
         &self,
         request: ToolExecutionRequest,
-        _router_tx: selvedge_command_model::RouterIngressSender,
+        _router_tx: selvedge_command_model::RouterIngressWeakSender,
     ) -> Result<tokio::task::JoinHandle<()>, ToolExecutionSpawnError> {
         let mut requests = self
             .requests

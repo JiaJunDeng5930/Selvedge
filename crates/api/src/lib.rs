@@ -5,7 +5,7 @@ use std::{sync::Arc, time::Duration};
 use async_trait::async_trait;
 use selvedge_command_model::{
     ApiOutputEnvelope, ModelCallDispatchRequest, ModelCallError, ModelCallErrorKind,
-    RouterIngressApiMessage, RouterIngressSender, validate_dispatch_request,
+    RouterIngressApiMessage, RouterIngressWeakSender, validate_dispatch_request,
 };
 use selvedge_domain_model::{
     ConversationPath, ModelProviderProfile, ModelReply, ResponsePreference, ToolManifest,
@@ -68,7 +68,7 @@ pub enum ProviderCallErrorKind {
 
 pub async fn execute_model_call(
     request: ModelCallDispatchRequest,
-    router_tx: RouterIngressSender,
+    router_tx: RouterIngressWeakSender,
     provider_registry: Arc<dyn ModelProviderRegistry>,
     config: ApiExecutorConfig,
 ) -> ApiCallTerminalStatus {
@@ -78,7 +78,7 @@ pub async fn execute_model_call(
 
 pub fn spawn_model_call_tokio_task(
     request: ModelCallDispatchRequest,
-    router_tx: RouterIngressSender,
+    router_tx: RouterIngressWeakSender,
     provider_registry: Arc<dyn ModelProviderRegistry>,
     config: ApiExecutorConfig,
 ) -> tokio::task::JoinHandle<ApiCallTerminalStatus> {
@@ -179,9 +179,12 @@ async fn run_model_call(
 }
 
 async fn send_output(
-    router_tx: RouterIngressSender,
+    router_tx: RouterIngressWeakSender,
     envelope: ApiOutputEnvelope,
 ) -> ApiCallTerminalStatus {
+    let Some(router_tx) = router_tx.upgrade() else {
+        return ApiCallTerminalStatus::RouterClosed;
+    };
     match router_tx.send(RouterIngressApiMessage::ApiOutput(envelope)) {
         Ok(()) => ApiCallTerminalStatus::OutputSent,
         Err(_) => ApiCallTerminalStatus::RouterClosed,

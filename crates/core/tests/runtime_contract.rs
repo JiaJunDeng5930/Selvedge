@@ -4,7 +4,7 @@ use std::time::Duration;
 use selvedge_command_model::{
     ApiCallCorrelation, ApiOutputEnvelope, CoreOutputMessage, DomainEvent,
     ModelCallDispatchRequest, ModelCallError, ModelCallErrorKind, ModelRunId, RouterIngressMessage,
-    TaskRuntimeCommand, TaskRuntimeExitReason, ToolExecutionResult,
+    RouterIngressSender, TaskRuntimeCommand, TaskRuntimeExitReason, ToolExecutionResult,
 };
 use selvedge_core::{SpawnTaskRuntimeArgs, TaskRuntimeConfig, spawn_task_runtime};
 use selvedge_db::{
@@ -55,7 +55,7 @@ async fn task_runtime_starts_and_requests_model_call_from_system_cursor() {
     let runtime = spawn_task_runtime(SpawnTaskRuntimeArgs {
         task_id: TaskId("task-1".to_owned()),
         db,
-        router_tx,
+        router_tx: router_tx.downgrade(),
         config: TaskRuntimeConfig {
             mailbox_capacity: 8,
             model_profiles: model_profiles(),
@@ -131,7 +131,7 @@ async fn task_runtime_start_requests_model_from_user_cursor_without_draining_que
     let runtime = spawn_task_runtime(SpawnTaskRuntimeArgs {
         task_id: TaskId("task-1".to_owned()),
         db: db.clone(),
-        router_tx,
+        router_tx: router_tx.downgrade(),
         config: TaskRuntimeConfig {
             mailbox_capacity: 16,
             model_profiles: model_profiles(),
@@ -212,7 +212,7 @@ async fn task_runtime_start_promotes_queue_before_awaiting_user_input() {
     let runtime = spawn_task_runtime(SpawnTaskRuntimeArgs {
         task_id: TaskId("task-1".to_owned()),
         db: db.clone(),
-        router_tx,
+        router_tx: router_tx.downgrade(),
         config: TaskRuntimeConfig {
             mailbox_capacity: 16,
             model_profiles: model_profiles(),
@@ -301,7 +301,7 @@ async fn task_runtime_start_dispatches_tool_from_function_call_cursor() {
     let runtime = spawn_task_runtime(SpawnTaskRuntimeArgs {
         task_id: TaskId("task-1".to_owned()),
         db,
-        router_tx,
+        router_tx: router_tx.downgrade(),
         config: TaskRuntimeConfig {
             mailbox_capacity: 16,
             model_profiles: model_profiles(),
@@ -386,7 +386,7 @@ async fn task_runtime_start_reconstructs_open_batched_tool_calls_from_history() 
     let runtime = spawn_task_runtime(SpawnTaskRuntimeArgs {
         task_id: TaskId("task-1".to_owned()),
         db,
-        router_tx,
+        router_tx: router_tx.downgrade(),
         config: TaskRuntimeConfig {
             mailbox_capacity: 16,
             model_profiles: model_profiles(),
@@ -407,7 +407,7 @@ async fn task_runtime_start_reconstructs_open_batched_tool_calls_from_history() 
 
 #[tokio::test]
 async fn task_runtime_resolves_model_profile_key_into_provider_and_model() {
-    let (runtime, mut router_rx) = spawn_runtime_with_task(vec![]).await;
+    let (runtime, mut router_rx, _router_tx) = spawn_runtime_with_task(vec![]).await;
 
     let request = start_and_recv_model_request(&runtime, &mut router_rx).await;
 
@@ -417,7 +417,7 @@ async fn task_runtime_resolves_model_profile_key_into_provider_and_model() {
 
 #[tokio::test]
 async fn task_runtime_dispatches_all_tool_calls_before_next_model_call() {
-    let (runtime, mut router_rx) = spawn_runtime_with_task(vec![ToolSpec {
+    let (runtime, mut router_rx, _router_tx) = spawn_runtime_with_task(vec![ToolSpec {
         name: "search".to_owned(),
         description: "search".to_owned(),
         parameters: Vec::new(),
@@ -475,7 +475,7 @@ async fn task_runtime_dispatches_all_tool_calls_before_next_model_call() {
 
 #[tokio::test]
 async fn task_runtime_stop_returns_after_archive_exit() {
-    let (runtime, mut router_rx) = spawn_runtime_with_task(Vec::new()).await;
+    let (runtime, mut router_rx, _router_tx) = spawn_runtime_with_task(Vec::new()).await;
 
     runtime
         .task_runtime_tx
@@ -499,7 +499,7 @@ async fn task_runtime_stop_returns_after_archive_exit() {
 
 #[tokio::test]
 async fn task_runtime_stop_completes_when_router_ingress_is_not_drained() {
-    let (runtime, _router_rx) = spawn_runtime_with_task(Vec::new()).await;
+    let (runtime, _router_rx, _router_tx) = spawn_runtime_with_task(Vec::new()).await;
 
     runtime
         .task_runtime_tx
@@ -518,7 +518,7 @@ async fn task_runtime_stop_completes_when_router_ingress_is_not_drained() {
 
 #[tokio::test]
 async fn task_runtime_preserves_batched_tool_call_order_in_next_model_request() {
-    let (runtime, mut router_rx) = spawn_runtime_with_task(vec![ToolSpec {
+    let (runtime, mut router_rx, _router_tx) = spawn_runtime_with_task(vec![ToolSpec {
         name: "search".to_owned(),
         description: "search".to_owned(),
         parameters: Vec::new(),
@@ -642,7 +642,7 @@ async fn task_runtime_ignores_tool_result_with_mismatched_call_identity() {
     let runtime = spawn_task_runtime(SpawnTaskRuntimeArgs {
         task_id: TaskId("task-1".to_owned()),
         db: db.clone(),
-        router_tx,
+        router_tx: router_tx.downgrade(),
         config: TaskRuntimeConfig {
             mailbox_capacity: 16,
             model_profiles: model_profiles(),
@@ -724,7 +724,7 @@ async fn task_runtime_ignores_tool_result_with_mismatched_call_identity() {
 
 #[tokio::test]
 async fn task_runtime_rejects_duplicate_tool_call_ids_in_one_model_reply() {
-    let (runtime, mut router_rx) = spawn_runtime_with_task(vec![
+    let (runtime, mut router_rx, _router_tx) = spawn_runtime_with_task(vec![
         ToolSpec {
             name: "search".to_owned(),
             description: "search".to_owned(),
@@ -771,7 +771,7 @@ async fn task_runtime_rejects_duplicate_tool_call_ids_in_one_model_reply() {
 
 #[tokio::test]
 async fn task_runtime_uses_tool_parameter_type_for_integer_arguments() {
-    let (runtime, mut router_rx) = spawn_runtime_with_task(vec![ToolSpec {
+    let (runtime, mut router_rx, _router_tx) = spawn_runtime_with_task(vec![ToolSpec {
         name: "repeat".to_owned(),
         description: "repeat".to_owned(),
         parameters: vec![ToolParameter {
@@ -856,7 +856,7 @@ async fn task_runtime_rejects_tool_calls_outside_enabled_manifest() {
     let runtime = spawn_task_runtime(SpawnTaskRuntimeArgs {
         task_id: TaskId("task-1".to_owned()),
         db,
-        router_tx,
+        router_tx: router_tx.downgrade(),
         config: TaskRuntimeConfig {
             mailbox_capacity: 16,
             model_profiles: model_profiles(),
@@ -890,7 +890,7 @@ async fn task_runtime_rejects_tool_calls_outside_enabled_manifest() {
 
 #[tokio::test]
 async fn task_runtime_validates_all_tool_calls_before_dispatching_any() {
-    let (runtime, mut router_rx) = spawn_runtime_with_task(vec![ToolSpec {
+    let (runtime, mut router_rx, _router_tx) = spawn_runtime_with_task(vec![ToolSpec {
         name: "enabled".to_owned(),
         description: "enabled".to_owned(),
         parameters: Vec::new(),
@@ -930,7 +930,7 @@ async fn task_runtime_validates_all_tool_calls_before_dispatching_any() {
 
 #[tokio::test]
 async fn task_runtime_rejects_tool_calls_missing_required_arguments() {
-    let (runtime, mut router_rx) = spawn_runtime_with_task(vec![ToolSpec {
+    let (runtime, mut router_rx, _router_tx) = spawn_runtime_with_task(vec![ToolSpec {
         name: "repeat".to_owned(),
         description: "repeat".to_owned(),
         parameters: vec![ToolParameter {
@@ -968,7 +968,7 @@ async fn task_runtime_rejects_tool_calls_missing_required_arguments() {
 
 #[tokio::test]
 async fn task_runtime_ignores_unrelated_validation_failure_while_waiting() {
-    let (runtime, mut router_rx) = spawn_runtime_with_task(vec![]).await;
+    let (runtime, mut router_rx, _router_tx) = spawn_runtime_with_task(vec![]).await;
     let correlation = start_and_request_model(&runtime, &mut router_rx).await;
     runtime
         .task_runtime_tx
@@ -1028,7 +1028,7 @@ async fn task_runtime_ignores_unrelated_validation_failure_while_waiting() {
 
 #[tokio::test]
 async fn task_runtime_reports_current_model_call_failure() {
-    let (runtime, mut router_rx) = spawn_runtime_with_task(vec![]).await;
+    let (runtime, mut router_rx, _router_tx) = spawn_runtime_with_task(vec![]).await;
     let correlation = start_and_request_model(&runtime, &mut router_rx).await;
 
     runtime
@@ -1062,7 +1062,7 @@ async fn task_runtime_reports_current_model_call_failure() {
 
 #[tokio::test]
 async fn task_runtime_promotes_queued_input_after_model_failure() {
-    let (runtime, mut router_rx) = spawn_runtime_with_task(vec![]).await;
+    let (runtime, mut router_rx, _router_tx) = spawn_runtime_with_task(vec![]).await;
     let correlation = start_and_request_model(&runtime, &mut router_rx).await;
     runtime
         .task_runtime_tx
@@ -1138,7 +1138,7 @@ async fn task_runtime_rejects_empty_idle_user_input_before_append() {
     let runtime = spawn_task_runtime(SpawnTaskRuntimeArgs {
         task_id: TaskId("task-1".to_owned()),
         db,
-        router_tx,
+        router_tx: router_tx.downgrade(),
         config: TaskRuntimeConfig {
             mailbox_capacity: 16,
             model_profiles: model_profiles(),
@@ -1165,7 +1165,7 @@ async fn task_runtime_rejects_empty_idle_user_input_before_append() {
 
 #[tokio::test]
 async fn task_runtime_ignores_replayed_start_after_model_request() {
-    let (runtime, mut router_rx) = spawn_runtime_with_task(vec![]).await;
+    let (runtime, mut router_rx, _router_tx) = spawn_runtime_with_task(vec![]).await;
     let _correlation = start_and_request_model(&runtime, &mut router_rx).await;
 
     runtime
@@ -1183,7 +1183,7 @@ async fn task_runtime_ignores_replayed_start_after_model_request() {
 
 #[tokio::test]
 async fn task_runtime_preserves_model_wait_state_for_stray_tool_result() {
-    let (runtime, mut router_rx) = spawn_runtime_with_task(vec![]).await;
+    let (runtime, mut router_rx, _router_tx) = spawn_runtime_with_task(vec![]).await;
     let _correlation = start_and_request_model(&runtime, &mut router_rx).await;
 
     runtime
@@ -1252,7 +1252,7 @@ async fn task_runtime_uses_fresh_model_run_ids_after_respawn() {
 
 #[tokio::test]
 async fn task_runtime_rejects_unconvertible_required_arguments() {
-    let (runtime, mut router_rx) = spawn_runtime_with_task(vec![ToolSpec {
+    let (runtime, mut router_rx, _router_tx) = spawn_runtime_with_task(vec![ToolSpec {
         name: "repeat".to_owned(),
         description: "repeat".to_owned(),
         parameters: vec![ToolParameter {
@@ -1332,7 +1332,7 @@ async fn task_runtime_preserves_queued_input_when_append_fails() {
     let runtime = spawn_task_runtime(SpawnTaskRuntimeArgs {
         task_id: TaskId("task-1".to_owned()),
         db: db.clone(),
-        router_tx,
+        router_tx: router_tx.downgrade(),
         config: TaskRuntimeConfig {
             mailbox_capacity: 16,
             model_profiles: model_profiles(),
@@ -1353,7 +1353,7 @@ async fn task_runtime_preserves_queued_input_when_append_fails() {
 
 #[tokio::test]
 async fn task_runtime_rejects_fractional_integer_arguments_before_persistence() {
-    let (runtime, mut router_rx) = spawn_runtime_with_task(vec![ToolSpec {
+    let (runtime, mut router_rx, _router_tx) = spawn_runtime_with_task(vec![ToolSpec {
         name: "repeat".to_owned(),
         description: "repeat".to_owned(),
         parameters: vec![ToolParameter {
@@ -1394,7 +1394,7 @@ async fn task_runtime_rejects_fractional_integer_arguments_before_persistence() 
 
 #[tokio::test]
 async fn task_runtime_rejects_out_of_range_integer_arguments() {
-    let (runtime, mut router_rx) = spawn_runtime_with_task(vec![ToolSpec {
+    let (runtime, mut router_rx, _router_tx) = spawn_runtime_with_task(vec![ToolSpec {
         name: "repeat".to_owned(),
         description: "repeat".to_owned(),
         parameters: vec![ToolParameter {
@@ -1502,7 +1502,7 @@ async fn task_runtime_recovers_open_tool_call_before_model_dispatch() {
     let runtime = spawn_task_runtime(SpawnTaskRuntimeArgs {
         task_id: TaskId("task-1".to_owned()),
         db,
-        router_tx,
+        router_tx: router_tx.downgrade(),
         config: TaskRuntimeConfig {
             mailbox_capacity: 16,
             model_profiles: model_profiles(),
@@ -1603,7 +1603,7 @@ async fn task_runtime_allows_messages_between_tool_call_and_matching_output() {
     let runtime = spawn_task_runtime(SpawnTaskRuntimeArgs {
         task_id: TaskId("task-1".to_owned()),
         db,
-        router_tx,
+        router_tx: router_tx.downgrade(),
         config: TaskRuntimeConfig {
             mailbox_capacity: 16,
             model_profiles: model_profiles(),
@@ -1637,6 +1637,7 @@ async fn spawn_runtime_with_task(
 ) -> (
     selvedge_core::SpawnedTaskRuntime,
     tokio::sync::mpsc::UnboundedReceiver<RouterIngressMessage>,
+    RouterIngressSender,
 ) {
     let db = open_db(OpenDbOptions {
         sqlite_path: ":memory:".to_owned(),
@@ -1677,14 +1678,14 @@ async fn spawn_runtime_with_task(
     let runtime = spawn_task_runtime(SpawnTaskRuntimeArgs {
         task_id: TaskId("task-1".to_owned()),
         db,
-        router_tx,
+        router_tx: router_tx.downgrade(),
         config: TaskRuntimeConfig {
             mailbox_capacity: 16,
             model_profiles: model_profiles(),
         },
     })
     .expect("spawn runtime");
-    (runtime, router_rx)
+    (runtime, router_rx, router_tx)
 }
 
 async fn start_and_request_model(
@@ -1790,7 +1791,7 @@ async fn spawn_runtime_and_start_one_model_call(db: selvedge_db::DbPool) -> Mode
     let runtime = spawn_task_runtime(SpawnTaskRuntimeArgs {
         task_id: TaskId("task-1".to_owned()),
         db,
-        router_tx,
+        router_tx: router_tx.downgrade(),
         config: TaskRuntimeConfig {
             mailbox_capacity: 16,
             model_profiles: model_profiles(),

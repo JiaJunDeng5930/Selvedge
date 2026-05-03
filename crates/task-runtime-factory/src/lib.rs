@@ -6,7 +6,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use selvedge_command_model::{
     CreatedRuntimeKind, FactoryEffectId, FactoryFailure, FactoryFailureKind, FactoryOutput,
     FactoryOutputEnvelope, FactoryScanOutput, FactorySkipReason, FactorySkippedTask,
-    FactoryTaskFailure, RouterIngressSender, TaskRuntimeCreated,
+    FactoryTaskFailure, RouterIngressWeakSender, TaskRuntimeCreated,
 };
 use selvedge_core::{SpawnTaskRuntimeArgs, SpawnTaskRuntimeError, TaskRuntimeSpawnDeps};
 use selvedge_db::{
@@ -45,7 +45,7 @@ pub struct CreateChildTaskAndRuntimeCommand {
 pub struct FactoryEffectArgs {
     pub command: FactoryCommand,
     pub db: DbPool,
-    pub router_tx: RouterIngressSender,
+    pub router_tx: RouterIngressWeakSender,
     pub core_spawn_deps: TaskRuntimeSpawnDeps,
     pub runtime_inventory: FactoryRuntimeInventory,
 }
@@ -94,7 +94,7 @@ pub fn run_factory_effect(args: FactoryEffectArgs) -> FactoryOutputEnvelope {
 
 fn create_child_task_and_runtime(
     db: &DbPool,
-    router_tx: &RouterIngressSender,
+    router_tx: &RouterIngressWeakSender,
     core_spawn_deps: &TaskRuntimeSpawnDeps,
     parent_task_id: TaskId,
     child_cursor_node_id: HistoryNodeId,
@@ -125,7 +125,7 @@ fn create_child_task_and_runtime(
 
 fn ensure_missing_task_runtimes(
     db: &DbPool,
-    router_tx: &RouterIngressSender,
+    router_tx: &RouterIngressWeakSender,
     core_spawn_deps: &TaskRuntimeSpawnDeps,
     runtime_inventory: &FactoryRuntimeInventory,
 ) -> FactoryOutput {
@@ -197,7 +197,7 @@ fn ensure_missing_task_runtimes(
 
 fn ensure_task_runtime(
     db: &DbPool,
-    router_tx: &RouterIngressSender,
+    router_tx: &RouterIngressWeakSender,
     core_spawn_deps: &TaskRuntimeSpawnDeps,
     runtime_inventory: &FactoryRuntimeInventory,
     task_id: TaskId,
@@ -236,7 +236,7 @@ fn ensure_task_runtime(
 
 fn spawn_task_runtime(
     db: &DbPool,
-    router_tx: &RouterIngressSender,
+    router_tx: &RouterIngressWeakSender,
     core_spawn_deps: &TaskRuntimeSpawnDeps,
     task_id: TaskId,
     created_runtime_kind: CreatedRuntimeKind,
@@ -255,7 +255,7 @@ fn spawn_task_runtime(
 
 fn spawn_task_runtime_created(
     db: &DbPool,
-    router_tx: &RouterIngressSender,
+    router_tx: &RouterIngressWeakSender,
     core_spawn_deps: &TaskRuntimeSpawnDeps,
     task_id: TaskId,
     created_runtime_kind: CreatedRuntimeKind,

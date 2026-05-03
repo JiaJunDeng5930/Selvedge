@@ -32,7 +32,7 @@ async fn ensure_task_runtime_creates_runtime_for_existing_active_task() {
             task_id: TaskId("task-1".to_owned()),
         }),
         db,
-        router_tx,
+        router_tx: router_tx.downgrade(),
         core_spawn_deps: TaskRuntimeSpawnDeps::new(TaskRuntimeConfig {
             mailbox_capacity: 8,
             model_profiles: model_profiles(),
@@ -117,7 +117,7 @@ async fn ensure_missing_task_runtimes_skips_live_and_pending_inventory() {
             effect_id: FactoryEffectId("factory-scan".to_owned()),
         }),
         db,
-        router_tx,
+        router_tx: router_tx.downgrade(),
         core_spawn_deps: TaskRuntimeSpawnDeps::new(TaskRuntimeConfig {
             mailbox_capacity: 8,
             model_profiles: model_profiles(),
@@ -188,7 +188,7 @@ async fn create_child_task_and_runtime_persists_child_and_copies_parent_settings
             child_cursor_node_id,
         }),
         db: db.clone(),
-        router_tx,
+        router_tx: router_tx.downgrade(),
         core_spawn_deps: TaskRuntimeSpawnDeps::new(TaskRuntimeConfig {
             mailbox_capacity: 8,
             model_profiles: model_profiles(),
@@ -265,7 +265,7 @@ async fn create_child_task_keeps_durable_child_when_runtime_spawn_fails() {
             child_cursor_node_id,
         }),
         db: db.clone(),
-        router_tx,
+        router_tx: router_tx.downgrade(),
         core_spawn_deps: TaskRuntimeSpawnDeps::with_spawner(
             TaskRuntimeConfig {
                 mailbox_capacity: 8,
@@ -349,7 +349,7 @@ async fn run_ensure_task_runtime(db: DbPool, task_id: &str) -> FactoryOutput {
             task_id: TaskId(task_id.to_owned()),
         }),
         db,
-        router_tx,
+        router_tx: router_tx.downgrade(),
         core_spawn_deps: TaskRuntimeSpawnDeps::new(TaskRuntimeConfig {
             mailbox_capacity: 8,
             model_profiles: model_profiles(),
@@ -372,7 +372,7 @@ async fn run_ensure_task_runtime_with_inventory(
             task_id: TaskId(task_id.to_owned()),
         }),
         db,
-        router_tx,
+        router_tx: router_tx.downgrade(),
         core_spawn_deps: TaskRuntimeSpawnDeps::new(TaskRuntimeConfig {
             mailbox_capacity: 8,
             model_profiles: model_profiles(),
@@ -398,7 +398,7 @@ async fn run_create_child(
             child_cursor_node_id,
         }),
         db,
-        router_tx,
+        router_tx: router_tx.downgrade(),
         core_spawn_deps: TaskRuntimeSpawnDeps::new(TaskRuntimeConfig {
             mailbox_capacity: 8,
             model_profiles: model_profiles(),
