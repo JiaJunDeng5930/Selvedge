@@ -749,6 +749,49 @@ async fn core_tool_execution_request_uses_configured_tool_spawner() {
 }
 
 #[tokio::test]
+async fn mismatched_core_tool_task_id_is_ignored() {
+    let db = open_memory_db();
+    let (events_tx, _events_rx) = tokio::sync::mpsc::channel(8);
+    let tool_spawner = Arc::new(CapturingToolSpawner::default());
+
+    let handle = spawn_router(RouterStartArgs {
+        db,
+        events_tx,
+        api_provider_registry: Arc::new(EmptyProviderRegistry),
+        api_config: ApiExecutorConfig {
+            request_timeout: Duration::from_secs(1),
+            max_response_bytes: None,
+        },
+        tool_executor: tool_spawner.clone(),
+        core_spawn_deps: TaskRuntimeSpawnDeps::new(TaskRuntimeConfig {
+            mailbox_capacity: 8,
+            model_profiles: model_profiles(),
+        }),
+    })
+    .expect("spawn router");
+
+    handle
+        .ingress_tx
+        .send(RouterIngressMessage::Core(CoreOutputEnvelope {
+            task_id: TaskId("task-1".to_owned()),
+            message: CoreOutputMessage::RequestToolExecution(tool_request("task-2")),
+        }))
+        .expect("send core tool request");
+
+    tokio::time::sleep(Duration::from_millis(20)).await;
+    assert_eq!(tool_spawner.request_count(), 0);
+
+    handle
+        .ingress_tx
+        .send(RouterIngressMessage::StopRouter)
+        .expect("stop router");
+    assert_eq!(
+        handle.join_handle.await.expect("join router"),
+        RouterExitStatus::Stopped
+    );
+}
+
+#[tokio::test]
 async fn core_tool_execution_spawn_failure_returns_error_tool_result() {
     let db = open_memory_db();
     create_root(&db, "task-1");
@@ -1056,6 +1099,10 @@ struct CapturingToolSpawner {
 }
 
 impl CapturingToolSpawner {
+    fn request_count(&self) -> usize {
+        self.requests.lock().expect("lock requests").len()
+    }
+
     async fn wait_request(&self) -> ToolExecutionRequest {
         let deadline = tokio::time::Instant::now() + Duration::from_secs(1);
         loop {

@@ -169,6 +169,7 @@ impl TaskRuntimeActor {
                 continue;
             } else {
                 tokio::select! {
+                    biased;
                     _ = self.task_runtime_control.wait_for_control_change() => continue,
                     command = self.rx.recv() => {
                         let Some(command) = command else {
@@ -178,6 +179,9 @@ impl TaskRuntimeActor {
                     }
                 }
             };
+            if self.task_runtime_control.is_stopping() {
+                break;
+            }
             let should_stop = match command {
                 TaskRuntimeCommand::Start => self.handle_start().await,
                 TaskRuntimeCommand::UserInput { message_text } => {
