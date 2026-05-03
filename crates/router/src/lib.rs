@@ -231,8 +231,12 @@ impl RouterActor {
     async fn handle_core(&mut self, envelope: CoreOutputEnvelope) -> Result<(), RouterExitStatus> {
         // Core output is task-routed. Runtime identity gates registry ownership and exit cleanup;
         // queued core outputs already in ingress continue through normal task routing.
+        let task_id = envelope.task_id;
         match envelope.message {
             CoreOutputMessage::RequestModelCall(request) => {
+                if request.correlation.task_id != task_id {
+                    return Ok(());
+                }
                 let _join_handle = spawn_model_call_tokio_task(
                     request,
                     self.router_tx.clone(),
@@ -242,6 +246,9 @@ impl RouterActor {
                 Ok(())
             }
             CoreOutputMessage::RequestToolExecution(request) => {
+                if request.task_id != task_id {
+                    return Ok(());
+                }
                 let fallback_request = request.clone();
                 match self
                     .tool_executor
@@ -255,11 +262,14 @@ impl RouterActor {
                 }
             }
             CoreOutputMessage::PublishDomainEvent(request) => {
+                if request.task_id != task_id {
+                    return Ok(());
+                }
                 self.publish_domain_event(request).await
             }
             CoreOutputMessage::RuntimeReady => {
                 self.publish_domain_event(DomainEventPublishRequest {
-                    task_id: envelope.task_id,
+                    task_id,
                     event: DomainEvent::TaskRuntimeReady,
                 })
                 .await

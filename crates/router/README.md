@@ -9,6 +9,7 @@ This crate does not execute provider calls, tool calls, task-local state transit
 Router ingress is unbounded. The router is the lifecycle coordinator for task runtimes, and runtime-to-router output must enqueue without waiting for router mailbox capacity while the router is synchronously stopping a runtime. The router handle owns the strong ingress sender; runtime, API, tool, and factory producers receive weak ingress senders so dropping external ingress owners closes the router mailbox.
 
 Core output routing is task-id based. A runtime that enqueued core output before a synchronous stop still has that output routed normally; stop controls runtime registry ownership and future task command delivery.
+Core output with an embedded task id must match the envelope task id before the router starts model calls, tool executions, or event publication.
 
 ## Runtime Ownership Decision
 
