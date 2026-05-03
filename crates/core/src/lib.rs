@@ -162,9 +162,6 @@ impl TaskRuntimeActor {
     async fn run(mut self) {
         loop {
             if self.task_runtime_control.is_stopping() {
-                self.task_runtime_control
-                    .finish_stop(TaskRuntimeStopResult)
-                    .await;
                 break;
             }
             let command = if self.task_runtime_control.is_frozen() {
@@ -194,14 +191,12 @@ impl TaskRuntimeActor {
             };
 
             if should_stop {
-                if self.task_runtime_control.is_stopping() {
-                    self.task_runtime_control
-                        .finish_stop(TaskRuntimeStopResult)
-                        .await;
-                }
                 break;
             }
         }
+        self.task_runtime_control
+            .finish_stop(TaskRuntimeStopResult)
+            .await;
     }
 
     async fn handle_start(&mut self) -> bool {
@@ -615,7 +610,6 @@ impl TaskRuntimeActor {
                 task_id: self.task_id.clone(),
                 message,
             }))
-            .await
             .map_err(|_| ())
     }
 
@@ -626,8 +620,7 @@ impl TaskRuntimeActor {
                 task_id: self.task_id.clone(),
                 task_runtime_control: self.task_runtime_control.clone(),
                 reason,
-            }))
-            .await;
+            }));
     }
 
     async fn stop_with_db_error(&self, error: DbError) -> bool {

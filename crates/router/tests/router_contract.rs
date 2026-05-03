@@ -23,8 +23,7 @@ use selvedge_db::{
 };
 use selvedge_domain_model::{FunctionCallId, HistoryNodeId, ModelProviderProfile, ToolName};
 use selvedge_router::{
-    RouterExitStatus, RouterStartArgs, SpawnRouterError, ToolExecutionSpawnError,
-    ToolExecutionSpawner, spawn_router,
+    RouterExitStatus, RouterStartArgs, ToolExecutionSpawnError, ToolExecutionSpawner, spawn_router,
 };
 
 #[tokio::test]
@@ -45,7 +44,6 @@ async fn attach_client_command_is_forwarded_to_events() {
             mailbox_capacity: 8,
             model_profiles: HashMap::new(),
         }),
-        router_mailbox_capacity: 8,
     })
     .expect("spawn router");
 
@@ -69,7 +67,6 @@ async fn attach_client_command_is_forwarded_to_events() {
                 subscription: subscription.clone(),
             },
         }))
-        .await
         .expect("send command");
 
     let event = events_rx.recv().await.expect("events ingress");
@@ -89,7 +86,6 @@ async fn attach_client_command_is_forwarded_to_events() {
     handle
         .ingress_tx
         .send(RouterIngressMessage::StopRouter)
-        .await
         .expect("stop router");
     assert_eq!(
         handle.join_handle.await.expect("join router"),
@@ -120,7 +116,6 @@ async fn task_local_command_creates_runtime_and_flushes_deferred_user_input() {
             },
             spawner.clone(),
         ),
-        router_mailbox_capacity: 8,
     })
     .expect("spawn router");
 
@@ -134,7 +129,6 @@ async fn task_local_command_creates_runtime_and_flushes_deferred_user_input() {
                 message_text: "hello".to_owned(),
             },
         }))
-        .await
         .expect("send command");
 
     let mut runtime_rx = spawner.wait_receiver("task-1").await;
@@ -149,7 +143,6 @@ async fn task_local_command_creates_runtime_and_flushes_deferred_user_input() {
     handle
         .ingress_tx
         .send(RouterIngressMessage::StopRouter)
-        .await
         .expect("stop router");
     spawner.finish_stop("task-1").await;
     assert_eq!(
@@ -181,7 +174,6 @@ async fn api_tool_and_stop_messages_are_routed_to_live_runtime() {
             },
             spawner.clone(),
         ),
-        router_mailbox_capacity: 8,
     })
     .expect("spawn router");
 
@@ -194,7 +186,6 @@ async fn api_tool_and_stop_messages_are_routed_to_live_runtime() {
                 task_id: TaskId("task-1".to_owned()),
             },
         }))
-        .await
         .expect("send ensure");
     let mut runtime_rx = spawner.wait_receiver("task-1").await;
     assert!(matches!(
@@ -212,7 +203,6 @@ async fn api_tool_and_stop_messages_are_routed_to_live_runtime() {
     handle
         .ingress_tx
         .send(RouterIngressMessage::ApiOutput(api_output))
-        .await
         .expect("send api output");
     let api_command = runtime_rx.recv().await.expect("api command");
     assert!(matches!(api_command, TaskRuntimeCommand::ApiModelReply(_)));
@@ -220,7 +210,6 @@ async fn api_tool_and_stop_messages_are_routed_to_live_runtime() {
     handle
         .ingress_tx
         .send(RouterIngressMessage::Tool(tool_result("task-1")))
-        .await
         .expect("send tool output");
     let tool_command = runtime_rx.recv().await.expect("tool command");
     assert!(matches!(tool_command, TaskRuntimeCommand::ToolResult(_)));
@@ -228,7 +217,6 @@ async fn api_tool_and_stop_messages_are_routed_to_live_runtime() {
     handle
         .ingress_tx
         .send(RouterIngressMessage::StopRouter)
-        .await
         .expect("stop router");
     spawner.finish_stop("task-1").await;
     assert_eq!(
@@ -260,7 +248,6 @@ async fn stop_runtime_removes_sender_before_later_task_commands() {
             },
             spawner.clone(),
         ),
-        router_mailbox_capacity: 8,
     })
     .expect("spawn router");
 
@@ -273,7 +260,6 @@ async fn stop_runtime_removes_sender_before_later_task_commands() {
                 task_id: TaskId("task-1".to_owned()),
             },
         }))
-        .await
         .expect("send ensure");
     let mut stopped_runtime_rx = spawner.wait_receiver("task-1").await;
     let stopped_runtime_control = spawner.wait_control("task-1").await;
@@ -291,7 +277,6 @@ async fn stop_runtime_removes_sender_before_later_task_commands() {
                 task_id: TaskId("task-1".to_owned()),
             },
         }))
-        .await
         .expect("send stop");
     finish_stop(stopped_runtime_control.clone()).await;
 
@@ -305,7 +290,6 @@ async fn stop_runtime_removes_sender_before_later_task_commands() {
                 message_text: "after stop".to_owned(),
             },
         }))
-        .await
         .expect("send user input");
     let mut replacement_runtime_rx = spawner.wait_receiver("task-1").await;
     assert!(matches!(
@@ -332,7 +316,6 @@ async fn stop_runtime_removes_sender_before_later_task_commands() {
     handle
         .ingress_tx
         .send(RouterIngressMessage::StopRouter)
-        .await
         .expect("stop router");
     spawner.finish_stop("task-1").await;
     assert_eq!(
@@ -364,7 +347,6 @@ async fn stale_runtime_exit_preserves_replacement_runtime() {
             },
             spawner.clone(),
         ),
-        router_mailbox_capacity: 8,
     })
     .expect("spawn router");
 
@@ -377,7 +359,6 @@ async fn stale_runtime_exit_preserves_replacement_runtime() {
                 task_id: TaskId("task-1".to_owned()),
             },
         }))
-        .await
         .expect("send ensure");
     let mut stopped_runtime_rx = spawner.wait_receiver("task-1").await;
     let stopped_runtime_control = spawner.wait_control("task-1").await;
@@ -395,7 +376,6 @@ async fn stale_runtime_exit_preserves_replacement_runtime() {
                 task_id: TaskId("task-1".to_owned()),
             },
         }))
-        .await
         .expect("send stop");
     finish_stop(stopped_runtime_control.clone()).await;
 
@@ -409,7 +389,6 @@ async fn stale_runtime_exit_preserves_replacement_runtime() {
                 message_text: "after stop".to_owned(),
             },
         }))
-        .await
         .expect("send user input");
     let mut replacement_runtime_rx = spawner.wait_receiver("task-1").await;
     assert!(matches!(
@@ -434,7 +413,6 @@ async fn stale_runtime_exit_preserves_replacement_runtime() {
             task_runtime_control: stopped_runtime_control,
             reason: TaskRuntimeExitReason::Stopped,
         }))
-        .await
         .expect("send stale exit");
 
     handle
@@ -448,7 +426,6 @@ async fn stale_runtime_exit_preserves_replacement_runtime() {
                 },
             },
         ))
-        .await
         .expect("send api output");
     assert!(matches!(
         replacement_runtime_rx.recv().await.expect("api reply"),
@@ -458,7 +435,6 @@ async fn stale_runtime_exit_preserves_replacement_runtime() {
     handle
         .ingress_tx
         .send(RouterIngressMessage::StopRouter)
-        .await
         .expect("stop router");
     spawner.finish_stop("task-1").await;
     assert_eq!(
@@ -490,7 +466,6 @@ async fn current_runtime_exit_removes_registry_entry() {
             },
             spawner.clone(),
         ),
-        router_mailbox_capacity: 8,
     })
     .expect("spawn router");
 
@@ -503,7 +478,6 @@ async fn current_runtime_exit_removes_registry_entry() {
                 task_id: TaskId("task-1".to_owned()),
             },
         }))
-        .await
         .expect("send ensure");
     let mut first_runtime_rx = spawner.wait_receiver("task-1").await;
     let first_runtime_control = spawner.wait_control("task-1").await;
@@ -519,7 +493,6 @@ async fn current_runtime_exit_removes_registry_entry() {
             task_runtime_control: first_runtime_control,
             reason: TaskRuntimeExitReason::Stopped,
         }))
-        .await
         .expect("send current exit");
     let exit_debug = events_rx.recv().await.expect("exit debug");
     assert_debug_contains(
@@ -537,7 +510,6 @@ async fn current_runtime_exit_removes_registry_entry() {
                 task_id: TaskId("task-1".to_owned()),
             },
         }))
-        .await
         .expect("send replacement ensure");
     let mut replacement_runtime_rx = spawner.wait_receiver("task-1").await;
     assert!(matches!(
@@ -551,7 +523,6 @@ async fn current_runtime_exit_removes_registry_entry() {
     handle
         .ingress_tx
         .send(RouterIngressMessage::StopRouter)
-        .await
         .expect("stop router");
     spawner.finish_stop("task-1").await;
     assert_eq!(
@@ -583,7 +554,6 @@ async fn inactive_archive_is_delivered_before_runtime_start() {
             },
             spawner.clone(),
         ),
-        router_mailbox_capacity: 8,
     })
     .expect("spawn router");
 
@@ -596,7 +566,6 @@ async fn inactive_archive_is_delivered_before_runtime_start() {
                 task_id: TaskId("task-1".to_owned()),
             },
         }))
-        .await
         .expect("send archive");
     let mut runtime_rx = spawner.wait_receiver("task-1").await;
     assert!(matches!(
@@ -612,7 +581,6 @@ async fn inactive_archive_is_delivered_before_runtime_start() {
     handle
         .ingress_tx
         .send(RouterIngressMessage::StopRouter)
-        .await
         .expect("stop router");
     spawner.finish_stop("task-1").await;
     assert_eq!(
@@ -639,7 +607,6 @@ async fn stale_outputs_and_runtime_ready_are_published_to_events() {
             mailbox_capacity: 8,
             model_profiles: model_profiles(),
         }),
-        router_mailbox_capacity: 8,
     })
     .expect("spawn router");
 
@@ -654,7 +621,6 @@ async fn stale_outputs_and_runtime_ready_are_published_to_events() {
                 },
             },
         ))
-        .await
         .expect("send api output");
     let stale_api = events_rx.recv().await.expect("stale api debug");
     assert_debug_contains(stale_api, Some(TaskId("missing".to_owned())), "stale api");
@@ -662,7 +628,6 @@ async fn stale_outputs_and_runtime_ready_are_published_to_events() {
     handle
         .ingress_tx
         .send(RouterIngressMessage::Tool(tool_result("missing")))
-        .await
         .expect("send tool output");
     let stale_tool = events_rx.recv().await.expect("stale tool debug");
     assert_debug_contains(stale_tool, Some(TaskId("missing".to_owned())), "stale tool");
@@ -673,7 +638,6 @@ async fn stale_outputs_and_runtime_ready_are_published_to_events() {
             task_id: TaskId("task-ready".to_owned()),
             message: CoreOutputMessage::RuntimeReady,
         }))
-        .await
         .expect("send runtime ready");
     let ready = events_rx.recv().await.expect("ready debug");
     assert_debug_contains(
@@ -685,7 +649,6 @@ async fn stale_outputs_and_runtime_ready_are_published_to_events() {
     handle
         .ingress_tx
         .send(RouterIngressMessage::StopRouter)
-        .await
         .expect("stop router");
     assert_eq!(
         handle.join_handle.await.expect("join router"),
@@ -711,7 +674,6 @@ async fn data_domain_events_are_not_published_to_events() {
             mailbox_capacity: 8,
             model_profiles: model_profiles(),
         }),
-        router_mailbox_capacity: 8,
     })
     .expect("spawn router");
 
@@ -725,7 +687,6 @@ async fn data_domain_events_are_not_published_to_events() {
                 },
             },
         ))
-        .await
         .expect("send data event");
     assert!(
         tokio::time::timeout(Duration::from_millis(50), events_rx.recv())
@@ -736,7 +697,6 @@ async fn data_domain_events_are_not_published_to_events() {
     handle
         .ingress_tx
         .send(RouterIngressMessage::StopRouter)
-        .await
         .expect("stop router");
     assert_eq!(
         handle.join_handle.await.expect("join router"),
@@ -763,7 +723,6 @@ async fn core_tool_execution_request_uses_configured_tool_spawner() {
             mailbox_capacity: 8,
             model_profiles: model_profiles(),
         }),
-        router_mailbox_capacity: 8,
     })
     .expect("spawn router");
 
@@ -773,7 +732,6 @@ async fn core_tool_execution_request_uses_configured_tool_spawner() {
             task_id: TaskId("task-1".to_owned()),
             message: CoreOutputMessage::RequestToolExecution(tool_request("task-1")),
         }))
-        .await
         .expect("send core tool request");
 
     let request = tool_spawner.wait_request().await;
@@ -783,7 +741,6 @@ async fn core_tool_execution_request_uses_configured_tool_spawner() {
     handle
         .ingress_tx
         .send(RouterIngressMessage::StopRouter)
-        .await
         .expect("stop router");
     assert_eq!(
         handle.join_handle.await.expect("join router"),
@@ -814,7 +771,6 @@ async fn core_tool_execution_spawn_failure_returns_error_tool_result() {
             },
             spawner.clone(),
         ),
-        router_mailbox_capacity: 8,
     })
     .expect("spawn router");
 
@@ -827,7 +783,6 @@ async fn core_tool_execution_spawn_failure_returns_error_tool_result() {
                 task_id: TaskId("task-1".to_owned()),
             },
         }))
-        .await
         .expect("send ensure");
     let mut runtime_rx = spawner.wait_receiver("task-1").await;
     assert!(matches!(
@@ -841,7 +796,6 @@ async fn core_tool_execution_spawn_failure_returns_error_tool_result() {
             task_id: TaskId("task-1".to_owned()),
             message: CoreOutputMessage::RequestToolExecution(tool_request("task-1")),
         }))
-        .await
         .expect("send core tool request");
 
     let TaskRuntimeCommand::ToolResult(result) =
@@ -855,7 +809,6 @@ async fn core_tool_execution_spawn_failure_returns_error_tool_result() {
     handle
         .ingress_tx
         .send(RouterIngressMessage::StopRouter)
-        .await
         .expect("stop router");
     spawner.finish_stop("task-1").await;
     assert_eq!(
@@ -864,11 +817,11 @@ async fn core_tool_execution_spawn_failure_returns_error_tool_result() {
     );
 }
 
-#[test]
-fn spawn_router_rejects_zero_mailbox_capacity() {
+#[tokio::test]
+async fn spawn_router_uses_unbounded_ingress() {
     let db = open_memory_db();
     let (events_tx, _events_rx) = tokio::sync::mpsc::channel(8);
-    let result = spawn_router(RouterStartArgs {
+    let handle = spawn_router(RouterStartArgs {
         db,
         events_tx,
         api_provider_registry: Arc::new(EmptyProviderRegistry),
@@ -881,12 +834,16 @@ fn spawn_router_rejects_zero_mailbox_capacity() {
             mailbox_capacity: 8,
             model_profiles: model_profiles(),
         }),
-        router_mailbox_capacity: 0,
-    });
-    let Err(error) = result else {
-        panic!("expected invalid mailbox capacity");
-    };
-    assert_eq!(error, SpawnRouterError::InvalidMailboxCapacity);
+    })
+    .expect("spawn router");
+    handle
+        .ingress_tx
+        .send(RouterIngressMessage::StopRouter)
+        .expect("stop router");
+    assert_eq!(
+        handle.join_handle.await.expect("join router"),
+        RouterExitStatus::Stopped
+    );
 }
 
 fn open_memory_db() -> DbPool {

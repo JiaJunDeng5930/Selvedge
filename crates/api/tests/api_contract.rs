@@ -29,7 +29,7 @@ async fn successful_provider_reply_is_sent_once_with_original_correlation() {
             }),
         },
     )))));
-    let (router_tx, mut router_rx) = mpsc::channel(1);
+    let (router_tx, mut router_rx) = mpsc::unbounded_channel();
 
     let status = execute_model_call(
         request.clone(),
@@ -71,7 +71,7 @@ async fn invalid_dispatch_request_sends_validation_failure_without_provider_call
             }),
         },
     )))));
-    let (router_tx, mut router_rx) = mpsc::channel(1);
+    let (router_tx, mut router_rx) = mpsc::unbounded_channel();
 
     let status = execute_model_call(
         request.clone(),
@@ -104,7 +104,7 @@ async fn invalid_correlation_sends_validation_failure_that_satisfies_output_vali
             }),
         },
     )))));
-    let (router_tx, mut router_rx) = mpsc::channel(1);
+    let (router_tx, mut router_rx) = mpsc::unbounded_channel();
 
     let status = execute_model_call(
         request,
@@ -138,7 +138,7 @@ async fn invalid_correlation_sends_validation_failure_that_satisfies_output_vali
 async fn missing_provider_sends_provider_request_failure() {
     let request = valid_dispatch_request();
     let registry = Arc::new(StaticRegistry::new(None));
-    let (router_tx, mut router_rx) = mpsc::channel(1);
+    let (router_tx, mut router_rx) = mpsc::unbounded_channel();
 
     let status = execute_model_call(
         request.clone(),
@@ -170,7 +170,7 @@ async fn provider_network_failure_is_classified() {
             message: "network".to_owned(),
         },
     )))));
-    let (router_tx, mut router_rx) = mpsc::channel(1);
+    let (router_tx, mut router_rx) = mpsc::unbounded_channel();
 
     let status = execute_model_call(
         request.clone(),
@@ -202,7 +202,7 @@ async fn provider_timeout_is_classified() {
             message: "timeout".to_owned(),
         },
     )))));
-    let (router_tx, mut router_rx) = mpsc::channel(1);
+    let (router_tx, mut router_rx) = mpsc::unbounded_channel();
 
     let status = execute_model_call(
         request.clone(),
@@ -234,7 +234,7 @@ async fn provider_cancelled_failure_is_classified() {
             message: "cancelled".to_owned(),
         },
     )))));
-    let (router_tx, mut router_rx) = mpsc::channel(1);
+    let (router_tx, mut router_rx) = mpsc::unbounded_channel();
 
     let status = execute_model_call(
         request.clone(),
@@ -259,7 +259,7 @@ async fn invalid_provider_response_is_classified() {
     let registry = Arc::new(StaticRegistry::new(Some(Arc::new(StaticAdapter::ok(
         ProviderModelResponse { reply: None },
     )))));
-    let (router_tx, mut router_rx) = mpsc::channel(1);
+    let (router_tx, mut router_rx) = mpsc::unbounded_channel();
 
     let status = execute_model_call(
         request.clone(),
@@ -302,7 +302,7 @@ async fn response_byte_limit_applies_to_tool_call_arguments() {
             }),
         },
     )))));
-    let (router_tx, mut router_rx) = mpsc::channel(1);
+    let (router_tx, mut router_rx) = mpsc::unbounded_channel();
 
     let status = execute_model_call(
         request.clone(),
@@ -345,7 +345,7 @@ async fn response_byte_limit_includes_structural_payload_bytes() {
             }),
         },
     )))));
-    let (router_tx, mut router_rx) = mpsc::channel(1);
+    let (router_tx, mut router_rx) = mpsc::unbounded_channel();
 
     let status = execute_model_call(
         request.clone(),
@@ -388,7 +388,7 @@ async fn response_byte_limit_counts_escaped_structured_payload_bytes() {
             }),
         },
     )))));
-    let (router_tx, mut router_rx) = mpsc::channel(1);
+    let (router_tx, mut router_rx) = mpsc::unbounded_channel();
 
     let status = execute_model_call(
         request.clone(),
@@ -424,7 +424,7 @@ async fn closed_router_mailbox_discards_completion_result() {
             }),
         },
     )))));
-    let (router_tx, router_rx) = mpsc::channel(1);
+    let (router_tx, router_rx) = mpsc::unbounded_channel();
     drop(router_rx);
 
     let status = execute_model_call(
@@ -454,7 +454,7 @@ async fn spawn_model_call_tokio_task_returns_terminal_status() {
             }),
         },
     )))));
-    let (router_tx, mut router_rx) = mpsc::channel(1);
+    let (router_tx, mut router_rx) = mpsc::unbounded_channel();
 
     let handle = spawn_model_call_tokio_task(
         request,
