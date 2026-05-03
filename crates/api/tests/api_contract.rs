@@ -33,7 +33,7 @@ async fn successful_provider_reply_is_sent_once_with_original_correlation() {
 
     let status = execute_model_call(
         request.clone(),
-        router_tx,
+        router_tx.downgrade(),
         registry,
         ApiExecutorConfig {
             request_timeout: Duration::from_secs(1),
@@ -75,7 +75,7 @@ async fn invalid_dispatch_request_sends_validation_failure_without_provider_call
 
     let status = execute_model_call(
         request.clone(),
-        router_tx,
+        router_tx.downgrade(),
         registry,
         ApiExecutorConfig {
             request_timeout: Duration::from_secs(1),
@@ -108,7 +108,7 @@ async fn invalid_correlation_sends_validation_failure_that_satisfies_output_vali
 
     let status = execute_model_call(
         request,
-        router_tx,
+        router_tx.downgrade(),
         registry,
         ApiExecutorConfig {
             request_timeout: Duration::from_secs(1),
@@ -142,7 +142,7 @@ async fn missing_provider_sends_provider_request_failure() {
 
     let status = execute_model_call(
         request.clone(),
-        router_tx,
+        router_tx.downgrade(),
         registry,
         ApiExecutorConfig {
             request_timeout: Duration::from_secs(1),
@@ -174,7 +174,7 @@ async fn provider_network_failure_is_classified() {
 
     let status = execute_model_call(
         request.clone(),
-        router_tx,
+        router_tx.downgrade(),
         registry,
         ApiExecutorConfig {
             request_timeout: Duration::from_secs(1),
@@ -206,7 +206,7 @@ async fn provider_timeout_is_classified() {
 
     let status = execute_model_call(
         request.clone(),
-        router_tx,
+        router_tx.downgrade(),
         registry,
         ApiExecutorConfig {
             request_timeout: Duration::from_secs(1),
@@ -238,7 +238,7 @@ async fn provider_cancelled_failure_is_classified() {
 
     let status = execute_model_call(
         request.clone(),
-        router_tx,
+        router_tx.downgrade(),
         registry,
         ApiExecutorConfig {
             request_timeout: Duration::from_secs(1),
@@ -263,7 +263,7 @@ async fn invalid_provider_response_is_classified() {
 
     let status = execute_model_call(
         request.clone(),
-        router_tx,
+        router_tx.downgrade(),
         registry,
         ApiExecutorConfig {
             request_timeout: Duration::from_secs(1),
@@ -306,7 +306,7 @@ async fn response_byte_limit_applies_to_tool_call_arguments() {
 
     let status = execute_model_call(
         request.clone(),
-        router_tx,
+        router_tx.downgrade(),
         registry,
         ApiExecutorConfig {
             request_timeout: Duration::from_secs(1),
@@ -349,7 +349,7 @@ async fn response_byte_limit_includes_structural_payload_bytes() {
 
     let status = execute_model_call(
         request.clone(),
-        router_tx,
+        router_tx.downgrade(),
         registry,
         ApiExecutorConfig {
             request_timeout: Duration::from_secs(1),
@@ -392,7 +392,7 @@ async fn response_byte_limit_counts_escaped_structured_payload_bytes() {
 
     let status = execute_model_call(
         request.clone(),
-        router_tx,
+        router_tx.downgrade(),
         registry,
         ApiExecutorConfig {
             request_timeout: Duration::from_secs(1),
@@ -429,7 +429,7 @@ async fn closed_router_mailbox_discards_completion_result() {
 
     let status = execute_model_call(
         request,
-        router_tx,
+        router_tx.downgrade(),
         registry,
         ApiExecutorConfig {
             request_timeout: Duration::from_secs(1),
@@ -458,7 +458,7 @@ async fn spawn_model_call_tokio_task_returns_terminal_status() {
 
     let handle = spawn_model_call_tokio_task(
         request,
-        router_tx,
+        router_tx.downgrade(),
         registry,
         ApiExecutorConfig {
             request_timeout: Duration::from_secs(1),

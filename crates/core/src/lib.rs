@@ -7,7 +7,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use selvedge_command_model::{
     ApiEffectId, ApiOutputEnvelope, CoreOutputEnvelope, CoreOutputMessage, DomainEvent,
     DomainEventPublishRequest, ModelCallDispatchRequest, ModelRunId, RouterIngressMessage,
-    RouterIngressSender, TaskRuntimeCommand, TaskRuntimeControl, TaskRuntimeExitNotice,
+    RouterIngressWeakSender, TaskRuntimeCommand, TaskRuntimeControl, TaskRuntimeExitNotice,
     TaskRuntimeExitReason, TaskRuntimeSender, TaskRuntimeStopResult, ToolExecutionRequest,
     ToolExecutionResult, ToolExecutionRunId,
 };
@@ -75,7 +75,7 @@ impl TaskRuntimeSpawner for DefaultTaskRuntimeSpawner {
 pub struct SpawnTaskRuntimeArgs {
     pub task_id: TaskId,
     pub db: DbPool,
-    pub router_tx: RouterIngressSender,
+    pub router_tx: RouterIngressWeakSender,
     pub config: TaskRuntimeConfig,
 }
 
@@ -123,7 +123,7 @@ struct TaskRuntimeActor {
     task_id: TaskId,
     task_runtime_control: TaskRuntimeControl,
     db: DbPool,
-    router_tx: RouterIngressSender,
+    router_tx: RouterIngressWeakSender,
     rx: tokio::sync::mpsc::Receiver<TaskRuntimeCommand>,
     started: bool,
     model_profiles: HashMap<ModelProfileKey, ModelProviderProfile>,
@@ -605,7 +605,10 @@ impl TaskRuntimeActor {
     }
 
     async fn send_core(&self, message: CoreOutputMessage) -> Result<(), ()> {
-        self.router_tx
+        let Some(router_tx) = self.router_tx.upgrade() else {
+            return Err(());
+        };
+        router_tx
             .send(RouterIngressMessage::Core(CoreOutputEnvelope {
                 task_id: self.task_id.clone(),
                 message,
@@ -614,13 +617,14 @@ impl TaskRuntimeActor {
     }
 
     async fn send_exit(&self, reason: TaskRuntimeExitReason) {
-        let _ = self
-            .router_tx
-            .send(RouterIngressMessage::RuntimeExit(TaskRuntimeExitNotice {
-                task_id: self.task_id.clone(),
-                task_runtime_control: self.task_runtime_control.clone(),
-                reason,
-            }));
+        let Some(router_tx) = self.router_tx.upgrade() else {
+            return;
+        };
+        let _ = router_tx.send(RouterIngressMessage::RuntimeExit(TaskRuntimeExitNotice {
+            task_id: self.task_id.clone(),
+            task_runtime_control: self.task_runtime_control.clone(),
+            reason,
+        }));
     }
 
     async fn stop_with_db_error(&self, error: DbError) -> bool {

@@ -81,6 +81,7 @@ pub enum RouterIngressMessage {
 
 pub type RouterIngressApiMessage = RouterIngressMessage;
 pub type RouterIngressSender = mpsc::UnboundedSender<RouterIngressMessage>;
+pub type RouterIngressWeakSender = mpsc::WeakUnboundedSender<RouterIngressMessage>;
 pub type TaskRuntimeSender = mpsc::Sender<TaskRuntimeCommand>;
 pub type ModelCallRequest = ModelCallDispatchRequest;
 pub type EventIngressSender = mpsc::Sender<EventIngress>;
