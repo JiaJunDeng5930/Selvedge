@@ -1,15 +1,24 @@
 #![doc = include_str!("../README.md")]
 
-use std::{sync::Arc, time::Duration};
+use std::collections::BTreeMap;
+use std::io::Write;
+use std::time::Duration;
 
-use async_trait::async_trait;
+use chatgpt_api::{
+    ChatgptApiEndpointError, ChatgptApiError, ChatgptApiLowerLayerError, ChatgptModelCapabilities,
+    ChatgptReasoningOptions, ChatgptRequestContext, ChatgptResponseEvent, ChatgptResponsesRequest,
+    ChatgptTextOptions, ContentItem, FunctionCallItem, FunctionCallOutputItem, MessageItem,
+    ResponseItem, ToolDescriptor, ToolOutput, stream,
+};
+use futures::StreamExt;
 use selvedge_command_model::{
     ApiOutputEnvelope, ModelCallDispatchRequest, ModelCallError, ModelCallErrorKind,
     RouterIngressApiMessage, RouterIngressWeakSender, validate_dispatch_request,
 };
 use selvedge_domain_model::{
-    ConversationPath, ModelProviderProfile, ModelReply, ResponsePreference, ToolManifest,
-    validate_model_reply,
+    ConversationMessage, MessageContent, MessageRole, ModelFinishReason, ModelReply,
+    ResponsePreference, StructuredPayload, TokenUsage, ToolCallProposal, ToolManifest,
+    ToolParameterType, validate_model_reply,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -24,108 +33,49 @@ pub enum ApiCallTerminalStatus {
     RouterClosed,
 }
 
-pub trait ModelProviderRegistry: Send + Sync {
-    fn resolve(&self, provider_name: &str) -> Option<Arc<dyn ModelProviderAdapter>>;
-}
-
-#[async_trait]
-pub trait ModelProviderAdapter: Send + Sync {
-    async fn call_model(
-        &self,
-        request: ProviderModelRequest,
-        timeout: Duration,
-    ) -> Result<ProviderModelResponse, ProviderCallError>;
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct ProviderModelRequest {
-    pub provider: ModelProviderProfile,
-    pub conversation: ConversationPath,
-    pub tool_manifest: Option<ToolManifest>,
-    pub response_preference: ResponsePreference,
-    pub max_response_bytes: Option<usize>,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct ProviderModelResponse {
-    pub reply: Option<ModelReply>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ProviderCallError {
-    pub kind: ProviderCallErrorKind,
-    pub message: String,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum ProviderCallErrorKind {
-    Request,
-    Network,
-    Timeout,
-    Cancelled,
-    Response,
-}
-
 pub async fn execute_model_call(
     request: ModelCallDispatchRequest,
     router_tx: RouterIngressWeakSender,
-    provider_registry: Arc<dyn ModelProviderRegistry>,
     config: ApiExecutorConfig,
 ) -> ApiCallTerminalStatus {
-    let envelope = run_model_call(request, provider_registry, config).await;
+    let envelope = run_model_call(request, config).await;
     send_output(router_tx, envelope).await
 }
 
 pub fn spawn_model_call_tokio_task(
     request: ModelCallDispatchRequest,
     router_tx: RouterIngressWeakSender,
-    provider_registry: Arc<dyn ModelProviderRegistry>,
     config: ApiExecutorConfig,
 ) -> tokio::task::JoinHandle<ApiCallTerminalStatus> {
-    tokio::spawn(execute_model_call(
-        request,
-        router_tx,
-        provider_registry,
-        config,
-    ))
+    tokio::spawn(execute_model_call(request, router_tx, config))
 }
 
 async fn run_model_call(
     request: ModelCallDispatchRequest,
-    provider_registry: Arc<dyn ModelProviderRegistry>,
     config: ApiExecutorConfig,
 ) -> ApiOutputEnvelope {
     if let Err(error) = validate_dispatch_request(&request) {
         return failure_envelope(request, error);
     }
 
-    let Some(adapter) = provider_registry.resolve(&request.provider.provider_name) else {
-        return failure_envelope(
-            request,
-            model_call_error(
-                ModelCallErrorKind::ProviderRequest,
-                "provider adapter is not registered",
-            ),
-        );
+    let reply_result = match request.provider.provider_name.as_str() {
+        "chatgpt" => {
+            tokio::time::timeout(config.request_timeout, call_chatgpt(&request, &config)).await
+        }
+        _ => {
+            return failure_envelope(
+                request,
+                model_call_error(
+                    ModelCallErrorKind::ProviderRequest,
+                    "provider is not supported",
+                ),
+            );
+        }
     };
 
-    let provider_request = ProviderModelRequest {
-        provider: request.provider.clone(),
-        conversation: request.conversation.clone(),
-        tool_manifest: request.tool_manifest.clone(),
-        response_preference: request.response_preference.clone(),
-        max_response_bytes: config.max_response_bytes,
-    };
-
-    let response_result = tokio::time::timeout(
-        config.request_timeout,
-        adapter.call_model(provider_request, config.request_timeout),
-    )
-    .await;
-
-    let response = match response_result {
-        Ok(Ok(response)) => response,
-        Ok(Err(error)) => return failure_envelope(request, map_provider_error(error)),
+    let reply = match reply_result {
+        Ok(Ok(reply)) => reply,
+        Ok(Err(error)) => return failure_envelope(request, error),
         Err(_) => {
             return failure_envelope(
                 request,
@@ -137,29 +87,8 @@ async fn run_model_call(
         }
     };
 
-    let Some(reply) = response.reply else {
-        return failure_envelope(
-            request,
-            model_call_error(
-                ModelCallErrorKind::ProviderResponse,
-                "provider response did not contain a model reply",
-            ),
-        );
-    };
-
-    let exceeds_response_limit = match exceeds_response_limit(&reply, config.max_response_bytes) {
-        Ok(exceeds_response_limit) => exceeds_response_limit,
-        Err(error) => return failure_envelope(request, error),
-    };
-
-    if exceeds_response_limit {
-        return failure_envelope(
-            request,
-            model_call_error(
-                ModelCallErrorKind::ProviderResponse,
-                "provider response exceeded configured byte limit",
-            ),
-        );
+    if let Err(error) = enforce_response_limit(&reply, config.max_response_bytes) {
+        return failure_envelope(request, error);
     }
 
     if let Err(error) = validate_model_reply(&reply) {
@@ -176,6 +105,514 @@ async fn run_model_call(
         correlation: request.correlation,
         reply,
     }
+}
+
+async fn call_chatgpt(
+    request: &ModelCallDispatchRequest,
+    config: &ApiExecutorConfig,
+) -> Result<ModelReply, ModelCallError> {
+    let chatgpt_request = chatgpt_request_from_dispatch(request)?;
+    let mut response_stream = stream(chatgpt_request).await.map_err(map_chatgpt_error)?;
+    let mut byte_counter = config.max_response_bytes.map(BoundedByteCounter::new);
+    let mut text_parts = BTreeMap::new();
+    let mut fallback_text = String::new();
+    let mut tool_calls = Vec::new();
+    let mut usage = None;
+
+    while let Some(item) = response_stream.next().await {
+        match item.map_err(map_chatgpt_error)? {
+            ChatgptResponseEvent::OutputTextDelta {
+                output_index,
+                content_index,
+                delta,
+                ..
+            } => {
+                count_stream_bytes(&mut byte_counter, delta.as_bytes())?;
+                text_parts
+                    .entry((output_index, content_index))
+                    .or_insert_with(String::new)
+                    .push_str(&delta);
+            }
+            ChatgptResponseEvent::OutputTextDone {
+                output_index,
+                content_index,
+                text,
+                ..
+            } => {
+                let existing = text_parts
+                    .get(&(output_index, content_index))
+                    .map(String::as_str)
+                    .unwrap_or_default();
+                if text.len() > existing.len() {
+                    count_stream_bytes(&mut byte_counter, &text.as_bytes()[existing.len()..])?;
+                }
+                text_parts.insert((output_index, content_index), text);
+            }
+            ChatgptResponseEvent::OutputItemDone {
+                item: ResponseItem::Message(message),
+                ..
+            } => {
+                if text_parts.is_empty() {
+                    append_message_content(&mut fallback_text, &message, &mut byte_counter)?;
+                }
+            }
+            ChatgptResponseEvent::OutputItemDone {
+                item: ResponseItem::FunctionCall(function_call),
+                ..
+            } => {
+                count_stream_bytes(&mut byte_counter, function_call.arguments.as_bytes())?;
+                tool_calls.push(tool_call_from_chatgpt(function_call)?);
+            }
+            ChatgptResponseEvent::Completed(snapshot) => {
+                usage = snapshot.usage.and_then(|usage| {
+                    usage.input_tokens.zip(usage.output_tokens).map(
+                        |(input_tokens, output_tokens)| TokenUsage {
+                            input_tokens,
+                            output_tokens,
+                        },
+                    )
+                });
+            }
+            ChatgptResponseEvent::Created(_)
+            | ChatgptResponseEvent::OutputItemAdded { .. }
+            | ChatgptResponseEvent::ReasoningSummaryTextDelta { .. }
+            | ChatgptResponseEvent::ReasoningSummaryTextDone { .. }
+            | ChatgptResponseEvent::ReasoningTextDelta { .. }
+            | ChatgptResponseEvent::ReasoningTextDone { .. }
+            | ChatgptResponseEvent::Other(_) => {}
+            _ => {}
+        }
+    }
+
+    if request.response_preference == ResponsePreference::PlainTextOnly && !tool_calls.is_empty() {
+        return Err(model_call_error(
+            ModelCallErrorKind::ProviderResponse,
+            "chatgpt returned tool calls for a text-only request",
+        ));
+    }
+
+    let content = if text_parts.is_empty() {
+        fallback_text
+    } else {
+        text_parts.into_values().collect::<String>()
+    };
+
+    let finish_reason = if tool_calls.is_empty() {
+        ModelFinishReason::Stop
+    } else {
+        ModelFinishReason::ToolCalls
+    };
+
+    Ok(ModelReply {
+        content: (!content.trim().is_empty()).then_some(content),
+        tool_calls,
+        usage,
+        finish_reason,
+    })
+}
+
+fn chatgpt_request_from_dispatch(
+    request: &ModelCallDispatchRequest,
+) -> Result<ChatgptResponsesRequest, ModelCallError> {
+    Ok(ChatgptResponsesRequest {
+        model: request.provider.model_name.clone(),
+        // HACK: Use fixed optimistic capabilities until Selvedge owns a ChatGPT model capability table.
+        model_capabilities: ChatgptModelCapabilities {
+            supports_reasoning_summaries: true,
+            supports_text_verbosity: true,
+            default_reasoning_effort: Some("medium".to_owned()),
+        },
+        context: ChatgptRequestContext {
+            // HACK: Generate a fresh ChatGPT conversation id until task-to-ChatGPT conversation persistence exists.
+            conversation_id: uuid::Uuid::new_v4().to_string(),
+            // HACK: Keep the initial ChatGPT window generation until replay windows are modeled in Selvedge.
+            window_generation: 0,
+            // HACK: Use a fixed installation id until Selvedge has installation identity config.
+            installation_id: "550e8400-e29b-41d4-a716-446655440000".to_owned(),
+            // HACK: Leave turn state empty until Selvedge persists ChatGPT turn state between calls.
+            turn_state: None,
+            turn_metadata: None,
+            beta_features: Vec::new(),
+            subagent: None,
+            parent_thread_id: None,
+        },
+        instructions: None,
+        input: request
+            .conversation
+            .messages
+            .iter()
+            .map(chatgpt_item_from_message)
+            .collect::<Result<Vec<_>, _>>()?,
+        tools: chatgpt_tools(request.tool_manifest.as_ref(), &request.response_preference),
+        parallel_tool_calls: true,
+        reasoning: ChatgptReasoningOptions::default(),
+        text: ChatgptTextOptions::default(),
+        service_tier: None,
+    })
+}
+
+fn chatgpt_item_from_message(
+    message: &ConversationMessage,
+) -> Result<ResponseItem, ModelCallError> {
+    if let MessageContent::Structured(payload) = &message.content
+        && let Some(item) = chatgpt_tool_history_item(&message.role, payload)?
+    {
+        return Ok(item);
+    }
+
+    Ok(ResponseItem::Message(MessageItem {
+        id: message
+            .source_node_id
+            .as_ref()
+            .map(|node_id| node_id.0.clone()),
+        status: Some("completed".to_owned()),
+        role: chatgpt_role(&message.role).to_owned(),
+        content: vec![chatgpt_content_item_from_message(message)?],
+    }))
+}
+
+fn chatgpt_role(role: &MessageRole) -> &'static str {
+    match role {
+        MessageRole::System => "system",
+        MessageRole::Developer => "developer",
+        MessageRole::User => "user",
+        MessageRole::Assistant => "assistant",
+        MessageRole::Tool => "tool",
+    }
+}
+
+fn chatgpt_content_item_from_message(
+    message: &ConversationMessage,
+) -> Result<ContentItem, ModelCallError> {
+    let text = message_content_text(&message.content)?;
+    if message.role == MessageRole::Assistant {
+        return Ok(ContentItem::OutputText {
+            text,
+            raw: serde_json::Map::new(),
+        });
+    }
+    Ok(ContentItem::InputText { text })
+}
+
+fn message_content_text(content: &MessageContent) -> Result<String, ModelCallError> {
+    match content {
+        MessageContent::Text(text) | MessageContent::ToolResultSummary(text) => Ok(text.clone()),
+        MessageContent::Structured(payload) => serde_json::to_string(payload).map_err(|error| {
+            model_call_error(
+                ModelCallErrorKind::ProviderResponse,
+                format!("structured message content could not be encoded: {error}"),
+            )
+        }),
+    }
+}
+
+fn chatgpt_tool_history_item(
+    role: &MessageRole,
+    payload: &StructuredPayload,
+) -> Result<Option<ResponseItem>, ModelCallError> {
+    let StructuredPayload::Object(object) = payload else {
+        return Ok(None);
+    };
+
+    match role {
+        MessageRole::Assistant => {
+            let Some(function_call_id) = payload_string_field(object, "function_call_id") else {
+                return Ok(None);
+            };
+            let Some(tool_name) = payload_string_field(object, "tool_name") else {
+                return Ok(None);
+            };
+            let arguments = tool_history_arguments_json(
+                object
+                    .get("arguments")
+                    .ok_or_else(|| missing_tool_history_field("arguments"))?,
+            )?;
+            Ok(Some(ResponseItem::FunctionCall(FunctionCallItem {
+                id: None,
+                status: Some("completed".to_owned()),
+                name: tool_name.to_owned(),
+                namespace: None,
+                arguments,
+                call_id: function_call_id.to_owned(),
+            })))
+        }
+        MessageRole::Tool => {
+            let Some(function_call_id) = payload_string_field(object, "function_call_id") else {
+                return Ok(None);
+            };
+            let output_text = payload_string_field(object, "output_text")
+                .ok_or_else(|| missing_tool_history_field("output_text"))?;
+            Ok(Some(ResponseItem::FunctionCallOutput(
+                FunctionCallOutputItem {
+                    id: None,
+                    status: Some("completed".to_owned()),
+                    call_id: function_call_id.to_owned(),
+                    output: ToolOutput::Text(output_text.to_owned()),
+                },
+            )))
+        }
+        MessageRole::System | MessageRole::Developer | MessageRole::User => Ok(None),
+    }
+}
+
+fn payload_string_field<'a>(
+    object: &'a BTreeMap<String, StructuredPayload>,
+    field: &str,
+) -> Option<&'a str> {
+    match object.get(field) {
+        Some(StructuredPayload::String(value)) => Some(value.as_str()),
+        _ => None,
+    }
+}
+
+fn missing_tool_history_field(field: &str) -> ModelCallError {
+    model_call_error(
+        ModelCallErrorKind::ProviderRequest,
+        format!("tool history is missing {field}"),
+    )
+}
+
+fn tool_history_arguments_json(payload: &StructuredPayload) -> Result<String, ModelCallError> {
+    let StructuredPayload::Array(arguments) = payload else {
+        return Err(model_call_error(
+            ModelCallErrorKind::ProviderRequest,
+            "tool history arguments must be an array",
+        ));
+    };
+    let mut object = serde_json::Map::new();
+    for argument in arguments {
+        let StructuredPayload::Object(argument) = argument else {
+            return Err(model_call_error(
+                ModelCallErrorKind::ProviderRequest,
+                "tool history argument must be an object",
+            ));
+        };
+        let name = payload_string_field(argument, "name")
+            .ok_or_else(|| missing_tool_history_field("argument name"))?;
+        let value = argument
+            .get("value")
+            .ok_or_else(|| missing_tool_history_field("argument value"))?;
+        object.insert(name.to_owned(), json_value_from_structured_payload(value));
+    }
+    serde_json::to_string(&object).map_err(|error| {
+        model_call_error(
+            ModelCallErrorKind::ProviderRequest,
+            format!("tool history arguments could not be encoded: {error}"),
+        )
+    })
+}
+
+fn chatgpt_tools(
+    tool_manifest: Option<&ToolManifest>,
+    response_preference: &ResponsePreference,
+) -> Vec<ToolDescriptor> {
+    if *response_preference == ResponsePreference::PlainTextOnly {
+        return Vec::new();
+    }
+    let Some(tool_manifest) = tool_manifest else {
+        return Vec::new();
+    };
+
+    tool_manifest
+        .tools
+        .iter()
+        .map(|tool| {
+            let mut properties = serde_json::Map::new();
+            let mut required = Vec::new();
+            for parameter in &tool.parameters {
+                properties.insert(
+                    parameter.name.clone(),
+                    serde_json::json!({
+                        "type": chatgpt_parameter_type(&parameter.parameter_type),
+                        "description": parameter.description,
+                    }),
+                );
+                if parameter.required {
+                    required.push(serde_json::Value::String(parameter.name.clone()));
+                }
+            }
+
+            ToolDescriptor(serde_json::Map::from_iter([
+                ("type".to_owned(), serde_json::json!("function")),
+                ("name".to_owned(), serde_json::json!(tool.name)),
+                (
+                    "description".to_owned(),
+                    serde_json::json!(tool.description),
+                ),
+                (
+                    "parameters".to_owned(),
+                    serde_json::Value::Object(serde_json::Map::from_iter([
+                        ("type".to_owned(), serde_json::json!("object")),
+                        (
+                            "properties".to_owned(),
+                            serde_json::Value::Object(properties),
+                        ),
+                        ("required".to_owned(), serde_json::Value::Array(required)),
+                    ])),
+                ),
+            ]))
+        })
+        .collect()
+}
+
+fn chatgpt_parameter_type(parameter_type: &ToolParameterType) -> &'static str {
+    match parameter_type {
+        ToolParameterType::String => "string",
+        ToolParameterType::Integer => "integer",
+        ToolParameterType::Number => "number",
+        ToolParameterType::Boolean => "boolean",
+    }
+}
+
+fn append_message_content(
+    content: &mut String,
+    message: &MessageItem,
+    counter: &mut Option<BoundedByteCounter>,
+) -> Result<(), ModelCallError> {
+    for item in &message.content {
+        match item {
+            ContentItem::OutputText { text, .. } | ContentItem::InputText { text } => {
+                count_stream_bytes(counter, text.as_bytes())?;
+                content.push_str(text);
+            }
+            ContentItem::InputImage { .. } | ContentItem::Other { .. } => {}
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
+fn tool_call_from_chatgpt(
+    function_call: FunctionCallItem,
+) -> Result<ToolCallProposal, ModelCallError> {
+    Ok(ToolCallProposal {
+        call_id: function_call.call_id,
+        tool_name: function_call.name,
+        arguments: structured_payload_from_json_string(&function_call.arguments)?,
+    })
+}
+
+fn structured_payload_from_json_string(raw: &str) -> Result<StructuredPayload, ModelCallError> {
+    let value = serde_json::from_str::<serde_json::Value>(raw).map_err(|error| {
+        model_call_error(
+            ModelCallErrorKind::ProviderResponse,
+            format!("chatgpt function-call arguments are invalid JSON: {error}"),
+        )
+    })?;
+    if !value.is_object() {
+        return Err(model_call_error(
+            ModelCallErrorKind::ProviderResponse,
+            "chatgpt function-call arguments must be a JSON object",
+        ));
+    }
+    Ok(structured_payload_from_json_value(value))
+}
+
+fn structured_payload_from_json_value(value: serde_json::Value) -> StructuredPayload {
+    match value {
+        serde_json::Value::Object(object) => StructuredPayload::Object(
+            object
+                .into_iter()
+                .map(|(key, value)| (key, structured_payload_from_json_value(value)))
+                .collect(),
+        ),
+        serde_json::Value::Array(values) => StructuredPayload::Array(
+            values
+                .into_iter()
+                .map(structured_payload_from_json_value)
+                .collect(),
+        ),
+        serde_json::Value::String(value) => StructuredPayload::String(value),
+        serde_json::Value::Number(value) => value
+            .as_f64()
+            .map(StructuredPayload::Number)
+            .unwrap_or(StructuredPayload::Null),
+        serde_json::Value::Bool(value) => StructuredPayload::Boolean(value),
+        serde_json::Value::Null => StructuredPayload::Null,
+    }
+}
+
+fn json_value_from_structured_payload(payload: &StructuredPayload) -> serde_json::Value {
+    match payload {
+        StructuredPayload::Object(object) => serde_json::Value::Object(
+            object
+                .iter()
+                .map(|(key, value)| (key.clone(), json_value_from_structured_payload(value)))
+                .collect(),
+        ),
+        StructuredPayload::Array(values) => serde_json::Value::Array(
+            values
+                .iter()
+                .map(json_value_from_structured_payload)
+                .collect(),
+        ),
+        StructuredPayload::String(value) => serde_json::Value::String(value.clone()),
+        StructuredPayload::Number(value) => serde_json::json!(value),
+        StructuredPayload::Boolean(value) => serde_json::Value::Bool(*value),
+        StructuredPayload::Null => serde_json::Value::Null,
+    }
+}
+
+fn map_chatgpt_error(error: ChatgptApiError) -> ModelCallError {
+    match error {
+        ChatgptApiError::LowerLayer(ChatgptApiLowerLayerError::InvalidInput(error)) => {
+            model_call_error(
+                ModelCallErrorKind::ProviderRequest,
+                format!(
+                    "chatgpt request is invalid: {} {}",
+                    error.field, error.reason
+                ),
+            )
+        }
+        ChatgptApiError::LowerLayer(ChatgptApiLowerLayerError::Config(error)) => model_call_error(
+            ModelCallErrorKind::ProviderRequest,
+            format!("chatgpt config failed: {error}"),
+        ),
+        ChatgptApiError::LowerLayer(ChatgptApiLowerLayerError::Auth(error)) => model_call_error(
+            ModelCallErrorKind::ProviderRequest,
+            format!("chatgpt auth failed: {error:?}"),
+        ),
+        ChatgptApiError::LowerLayer(ChatgptApiLowerLayerError::StreamCompletionTimeout {
+            ..
+        })
+        | ChatgptApiError::LowerLayer(ChatgptApiLowerLayerError::Client(
+            selvedge_client::HttpError::Timeout,
+        )) => model_call_error(
+            ModelCallErrorKind::ProviderTimeout,
+            "chatgpt request timed out",
+        ),
+        ChatgptApiError::LowerLayer(ChatgptApiLowerLayerError::Client(error)) => model_call_error(
+            ModelCallErrorKind::ProviderNetwork,
+            format!("chatgpt transport failed: {error}"),
+        ),
+        ChatgptApiError::Endpoint(ChatgptApiEndpointError::Incomplete(error)) => model_call_error(
+            ModelCallErrorKind::ProviderResponse,
+            format!("chatgpt response was incomplete: {:?}", error.reason),
+        ),
+        ChatgptApiError::Endpoint(error) => model_call_error(
+            ModelCallErrorKind::ProviderResponse,
+            format!("chatgpt endpoint failed: {error}"),
+        ),
+        _ => model_call_error(
+            ModelCallErrorKind::ProviderResponse,
+            "chatgpt provider failed with an unknown error",
+        ),
+    }
+}
+
+fn count_stream_bytes(
+    counter: &mut Option<BoundedByteCounter>,
+    bytes: &[u8],
+) -> Result<(), ModelCallError> {
+    let Some(counter) = counter else {
+        return Ok(());
+    };
+    counter.write_all(bytes).map_err(|_| {
+        model_call_error(
+            ModelCallErrorKind::ProviderResponse,
+            "provider response exceeded configured byte limit",
+        )
+    })
 }
 
 async fn send_output(
@@ -198,18 +635,6 @@ fn failure_envelope(request: ModelCallDispatchRequest, error: ModelCallError) ->
     }
 }
 
-fn map_provider_error(error: ProviderCallError) -> ModelCallError {
-    let kind = match error.kind {
-        ProviderCallErrorKind::Request => ModelCallErrorKind::ProviderRequest,
-        ProviderCallErrorKind::Network => ModelCallErrorKind::ProviderNetwork,
-        ProviderCallErrorKind::Timeout => ModelCallErrorKind::ProviderTimeout,
-        ProviderCallErrorKind::Cancelled => ModelCallErrorKind::Cancelled,
-        ProviderCallErrorKind::Response => ModelCallErrorKind::ProviderResponse,
-    };
-
-    model_call_error(kind, error.message)
-}
-
 fn model_call_error(kind: ModelCallErrorKind, message: impl Into<String>) -> ModelCallError {
     ModelCallError {
         kind,
@@ -217,15 +642,22 @@ fn model_call_error(kind: ModelCallErrorKind, message: impl Into<String>) -> Mod
     }
 }
 
-fn exceeds_response_limit(
+fn enforce_response_limit(
     reply: &ModelReply,
     max_response_bytes: Option<usize>,
-) -> Result<bool, ModelCallError> {
+) -> Result<(), ModelCallError> {
     let Some(max_response_bytes) = max_response_bytes else {
-        return Ok(false);
+        return Ok(());
     };
 
-    encoded_model_reply_exceeds_limit(reply, max_response_bytes)
+    if encoded_model_reply_exceeds_limit(reply, max_response_bytes)? {
+        return Err(model_call_error(
+            ModelCallErrorKind::ProviderResponse,
+            "provider response exceeded configured byte limit",
+        ));
+    }
+
+    Ok(())
 }
 
 fn encoded_model_reply_exceeds_limit(

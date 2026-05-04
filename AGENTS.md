@@ -41,6 +41,16 @@ This file is for coding agents working in this repository.
 - Unless the user explicitly asks otherwise, place temporary task documents (such as specs, plans, and research notes) under `.workpad/`.
 - `.workpad/` is git-ignored on purpose and should be used for task artifacts that should not be committed.
 
+## Code Marker Comments
+
+- Allowed tags: `TODO`, `FIXME`, `HACK`, `NOTE`, `XXX`.
+- Format: `<comment marker> <TAG>(<optional issue>): <specific action or reason>`.
+- `TODO` means known follow-up work while current code is acceptable.
+- `FIXME` means a known defect that needs repair.
+- `HACK` means a temporary workaround that should be replaced by normal design.
+- `NOTE` means important context that affects code understanding.
+- `XXX` means high-risk code that needs reviewer attention.
+
 ## Project Index Workflow
 
 - Update the index with `just agents-index`
