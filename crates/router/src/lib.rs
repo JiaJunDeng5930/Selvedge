@@ -3,7 +3,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 
-use selvedge_api::{ApiExecutorConfig, ModelProviderRegistry, spawn_model_call_tokio_task};
+use selvedge_api::{ApiExecutorConfig, spawn_model_call_tokio_task};
 use selvedge_command_model::{
     ApiOutputEnvelope, CoreOutputEnvelope, CoreOutputMessage, DebugRawEvent, DetachReason,
     DomainEvent, DomainEventPublishRequest, EventControlMessage, EventIngress, EventIngressSender,
@@ -24,7 +24,6 @@ use tokio::task::JoinHandle;
 pub struct RouterStartArgs {
     pub db: DbPool,
     pub events_tx: EventIngressSender,
-    pub api_provider_registry: Arc<dyn ModelProviderRegistry>,
     pub api_config: ApiExecutorConfig,
     pub tool_executor: Arc<dyn ToolExecutionSpawner>,
     pub core_spawn_deps: TaskRuntimeSpawnDeps,
@@ -67,7 +66,6 @@ pub fn spawn_router(args: RouterStartArgs) -> Result<RouterHandle, SpawnRouterEr
     let actor = RouterActor {
         db: args.db,
         events_tx: args.events_tx,
-        api_provider_registry: args.api_provider_registry,
         api_config: args.api_config,
         tool_executor: args.tool_executor,
         core_spawn_deps: args.core_spawn_deps,
@@ -90,7 +88,6 @@ pub fn spawn_router(args: RouterStartArgs) -> Result<RouterHandle, SpawnRouterEr
 struct RouterActor {
     db: DbPool,
     events_tx: EventIngressSender,
-    api_provider_registry: Arc<dyn ModelProviderRegistry>,
     api_config: ApiExecutorConfig,
     tool_executor: Arc<dyn ToolExecutionSpawner>,
     core_spawn_deps: TaskRuntimeSpawnDeps,
@@ -240,7 +237,6 @@ impl RouterActor {
                 let _join_handle = spawn_model_call_tokio_task(
                     request,
                     self.router_tx.clone(),
-                    self.api_provider_registry.clone(),
                     self.api_config.clone(),
                 );
                 Ok(())

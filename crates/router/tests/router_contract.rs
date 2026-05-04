@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use selvedge_api::{ApiExecutorConfig, ModelProviderAdapter, ModelProviderRegistry};
+use selvedge_api::ApiExecutorConfig;
 use selvedge_command_model::{
     ApiCallCorrelation, ApiEffectId, ApiOutputEnvelope, BeginClientHydration, ClientCommandId,
     ClientId, ClientSubscription, CoreOutputEnvelope, CoreOutputMessage, DetailLevel, DomainEvent,
@@ -34,7 +34,6 @@ async fn attach_client_command_is_forwarded_to_events() {
     let handle = spawn_router(RouterStartArgs {
         db,
         events_tx,
-        api_provider_registry: Arc::new(EmptyProviderRegistry),
         api_config: ApiExecutorConfig {
             request_timeout: Duration::from_secs(1),
             max_response_bytes: None,
@@ -103,7 +102,6 @@ async fn task_local_command_creates_runtime_and_flushes_deferred_user_input() {
     let handle = spawn_router(RouterStartArgs {
         db,
         events_tx,
-        api_provider_registry: Arc::new(EmptyProviderRegistry),
         api_config: ApiExecutorConfig {
             request_timeout: Duration::from_secs(1),
             max_response_bytes: None,
@@ -161,7 +159,6 @@ async fn api_tool_and_stop_messages_are_routed_to_live_runtime() {
     let handle = spawn_router(RouterStartArgs {
         db,
         events_tx,
-        api_provider_registry: Arc::new(EmptyProviderRegistry),
         api_config: ApiExecutorConfig {
             request_timeout: Duration::from_secs(1),
             max_response_bytes: None,
@@ -235,7 +232,6 @@ async fn stop_runtime_removes_sender_before_later_task_commands() {
     let handle = spawn_router(RouterStartArgs {
         db,
         events_tx,
-        api_provider_registry: Arc::new(EmptyProviderRegistry),
         api_config: ApiExecutorConfig {
             request_timeout: Duration::from_secs(1),
             max_response_bytes: None,
@@ -334,7 +330,6 @@ async fn stale_runtime_exit_preserves_replacement_runtime() {
     let handle = spawn_router(RouterStartArgs {
         db,
         events_tx,
-        api_provider_registry: Arc::new(EmptyProviderRegistry),
         api_config: ApiExecutorConfig {
             request_timeout: Duration::from_secs(1),
             max_response_bytes: None,
@@ -453,7 +448,6 @@ async fn current_runtime_exit_removes_registry_entry() {
     let handle = spawn_router(RouterStartArgs {
         db,
         events_tx,
-        api_provider_registry: Arc::new(EmptyProviderRegistry),
         api_config: ApiExecutorConfig {
             request_timeout: Duration::from_secs(1),
             max_response_bytes: None,
@@ -541,7 +535,6 @@ async fn inactive_archive_is_delivered_before_runtime_start() {
     let handle = spawn_router(RouterStartArgs {
         db,
         events_tx,
-        api_provider_registry: Arc::new(EmptyProviderRegistry),
         api_config: ApiExecutorConfig {
             request_timeout: Duration::from_secs(1),
             max_response_bytes: None,
@@ -597,7 +590,6 @@ async fn stale_outputs_and_runtime_ready_are_published_to_events() {
     let handle = spawn_router(RouterStartArgs {
         db,
         events_tx,
-        api_provider_registry: Arc::new(EmptyProviderRegistry),
         api_config: ApiExecutorConfig {
             request_timeout: Duration::from_secs(1),
             max_response_bytes: None,
@@ -664,7 +656,6 @@ async fn data_domain_events_are_not_published_to_events() {
     let handle = spawn_router(RouterStartArgs {
         db,
         events_tx,
-        api_provider_registry: Arc::new(EmptyProviderRegistry),
         api_config: ApiExecutorConfig {
             request_timeout: Duration::from_secs(1),
             max_response_bytes: None,
@@ -713,7 +704,6 @@ async fn core_tool_execution_request_uses_configured_tool_spawner() {
     let handle = spawn_router(RouterStartArgs {
         db,
         events_tx,
-        api_provider_registry: Arc::new(EmptyProviderRegistry),
         api_config: ApiExecutorConfig {
             request_timeout: Duration::from_secs(1),
             max_response_bytes: None,
@@ -757,7 +747,6 @@ async fn mismatched_core_tool_task_id_is_ignored() {
     let handle = spawn_router(RouterStartArgs {
         db,
         events_tx,
-        api_provider_registry: Arc::new(EmptyProviderRegistry),
         api_config: ApiExecutorConfig {
             request_timeout: Duration::from_secs(1),
             max_response_bytes: None,
@@ -801,7 +790,6 @@ async fn core_tool_execution_spawn_failure_returns_error_tool_result() {
     let handle = spawn_router(RouterStartArgs {
         db,
         events_tx,
-        api_provider_registry: Arc::new(EmptyProviderRegistry),
         api_config: ApiExecutorConfig {
             request_timeout: Duration::from_secs(1),
             max_response_bytes: None,
@@ -867,7 +855,6 @@ async fn spawn_router_uses_unbounded_ingress() {
     let handle = spawn_router(RouterStartArgs {
         db,
         events_tx,
-        api_provider_registry: Arc::new(EmptyProviderRegistry),
         api_config: ApiExecutorConfig {
             request_timeout: Duration::from_secs(1),
             max_response_bytes: None,
@@ -896,7 +883,6 @@ async fn router_exits_when_ingress_sender_is_dropped() {
     let handle = spawn_router(RouterStartArgs {
         db,
         events_tx,
-        api_provider_registry: Arc::new(EmptyProviderRegistry),
         api_config: ApiExecutorConfig {
             request_timeout: Duration::from_secs(1),
             max_response_bytes: None,
@@ -926,7 +912,6 @@ async fn router_exits_when_ingress_sender_is_dropped_with_live_runtime() {
     let handle = spawn_router(RouterStartArgs {
         db,
         events_tx,
-        api_provider_registry: Arc::new(EmptyProviderRegistry),
         api_config: ApiExecutorConfig {
             request_timeout: Duration::from_secs(1),
             max_response_bytes: None,
@@ -1059,14 +1044,6 @@ async fn finish_stop(control: TaskRuntimeControl) {
     control
         .finish_stop(selvedge_command_model::TaskRuntimeStopResult)
         .await;
-}
-
-struct EmptyProviderRegistry;
-
-impl ModelProviderRegistry for EmptyProviderRegistry {
-    fn resolve(&self, _provider_name: &str) -> Option<Arc<dyn ModelProviderAdapter>> {
-        None
-    }
 }
 
 struct NoopToolSpawner;
