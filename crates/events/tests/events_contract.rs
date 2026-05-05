@@ -3,9 +3,10 @@ use std::{collections::BTreeSet, time::Duration};
 use selvedge_command_model::{
     BeginClientHydration, ClientCommandId, ClientEvent, ClientFrame, ClientId, ClientNotice,
     ClientNoticeLevel, ClientSnapshot, ClientSubscription, DebugRawEvent, DeliverNotice,
-    DeliverSnapshot, DetachClient, DetachReason, DetailLevel, EventControlMessage, EventIngress,
-    HistoryAppendedRawEvent, RawEvent, SnapshotTaskVersion, TaskChangedRawEvent, TaskProjection,
-    TaskProjectionStatus, TaskScope, UpdateSubscription,
+    DeliverSnapshot, DetachClient, DetachReason, DetailLevel, EventClientReservationResult,
+    EventControlMessage, EventIngress, HistoryAppendedRawEvent, RawEvent, ReserveClientSession,
+    SnapshotTaskVersion, TaskChangedRawEvent, TaskProjection, TaskProjectionStatus, TaskScope,
+    UpdateSubscription,
 };
 use selvedge_domain_model::{HistoryNodeId, ModelProfileKey, ReasoningEffort, TaskId, UnixTs};
 use selvedge_events::{EventsStartArgs, SpawnEventsError, spawn_events_task};
@@ -368,6 +369,89 @@ async fn registry_capacity_rejects_new_clients_after_limit() {
         recv_frame(&mut first_rx).await,
         ClientFrame::Snapshot(_)
     ));
+
+    drop(handle.ingress_tx);
+    handle.join_handle.await.expect("events task exits cleanly");
+}
+
+#[tokio::test]
+async fn reservation_capacity_rejects_new_clients_after_limit() {
+    let handle = spawn_events_task(EventsStartArgs {
+        ingress_capacity: 8,
+        client_registry_capacity: 1,
+        hydration_buffer_capacity: 4,
+    })
+    .expect("valid events task");
+
+    assert_eq!(
+        reserve_client_session(
+            &handle.ingress_tx,
+            ClientId("client-1".to_owned()),
+            ClientCommandId("attach-1".to_owned()),
+        )
+        .await,
+        EventClientReservationResult::Reserved
+    );
+    assert_eq!(
+        reserve_client_session(
+            &handle.ingress_tx,
+            ClientId("client-2".to_owned()),
+            ClientCommandId("attach-2".to_owned()),
+        )
+        .await,
+        EventClientReservationResult::ClientRegistryFull
+    );
+
+    drop(handle.ingress_tx);
+    handle.join_handle.await.expect("events task exits cleanly");
+}
+
+#[tokio::test]
+async fn reserved_client_session_is_consumed_by_matching_begin() {
+    let handle = spawn_events_task(EventsStartArgs {
+        ingress_capacity: 8,
+        client_registry_capacity: 1,
+        hydration_buffer_capacity: 4,
+    })
+    .expect("valid events task");
+    let (reserved_outbound, mut reserved_rx) = mpsc::channel(8);
+    let (blocked_outbound, mut blocked_rx) = mpsc::channel(8);
+
+    assert_eq!(
+        reserve_client_session(
+            &handle.ingress_tx,
+            ClientId("client-1".to_owned()),
+            ClientCommandId("attach-1".to_owned()),
+        )
+        .await,
+        EventClientReservationResult::Reserved
+    );
+    begin_named_client(
+        &handle.ingress_tx,
+        ClientId("client-2".to_owned()),
+        blocked_outbound,
+        verbose_all_tasks(),
+    )
+    .await;
+    begin_named_client(
+        &handle.ingress_tx,
+        ClientId("client-1".to_owned()),
+        reserved_outbound,
+        verbose_all_tasks(),
+    )
+    .await;
+
+    deliver_named_empty_snapshot(&handle.ingress_tx, ClientId("client-1".to_owned())).await;
+    assert!(matches!(
+        recv_frame(&mut reserved_rx).await,
+        ClientFrame::Snapshot(_)
+    ));
+    assert!(
+        tokio::time::timeout(Duration::from_secs(1), blocked_rx.recv())
+            .await
+            .expect("blocked client channel closes")
+            .is_none()
+    );
 
     drop(handle.ingress_tx);
     handle.join_handle.await.expect("events task exits cleanly");
@@ -812,6 +896,25 @@ async fn begin_named_client_with_command(
         ))
         .await
         .expect("send begin hydration");
+}
+
+async fn reserve_client_session(
+    ingress_tx: &selvedge_command_model::EventIngressSender,
+    client_id: ClientId,
+    client_command_id: ClientCommandId,
+) -> EventClientReservationResult {
+    let (result_tx, result_rx) = tokio::sync::oneshot::channel();
+    ingress_tx
+        .send(EventIngress::Control(
+            EventControlMessage::ReserveClientSession(ReserveClientSession {
+                client_id,
+                client_command_id,
+                result_tx,
+            }),
+        ))
+        .await
+        .expect("send reservation");
+    result_rx.await.expect("reservation result")
 }
 
 async fn deliver_empty_snapshot(ingress_tx: &selvedge_command_model::EventIngressSender) {

@@ -4,13 +4,13 @@ use std::time::Duration;
 
 use selvedge_api::ApiExecutorConfig;
 use selvedge_command_model::{
-    ApiCallCorrelation, ApiEffectId, ApiOutputEnvelope, BeginClientHydration, ClientCommandId,
-    ClientId, ClientSubscription, CoreOutputEnvelope, CoreOutputMessage, DetailLevel, DomainEvent,
-    DomainEventPublishRequest, EventControlMessage, EventIngress, ModelCallError,
-    ModelCallErrorKind, ModelRunId, RawEvent, RouterCommand, RouterCommandEnvelope,
-    RouterIngressMessage, TaskRuntimeCommand, TaskRuntimeControl, TaskRuntimeExitNotice,
-    TaskRuntimeExitReason, TaskScope, ToolExecutionRequest, ToolExecutionResult,
-    ToolExecutionRunId,
+    ApiCallCorrelation, ApiEffectId, ApiOutputEnvelope, ClientCommandId, ClientId,
+    ClientSubscription, CoreOutputEnvelope, CoreOutputMessage, DetailLevel, DomainEvent,
+    DomainEventPublishRequest, EventClientReservationResult, EventControlMessage, EventIngress,
+    ModelCallError, ModelCallErrorKind, ModelRunId, RawEvent, RouterAttachAdmissionResult,
+    RouterCommand, RouterCommandEnvelope, RouterIngressMessage, TaskRuntimeCommand,
+    TaskRuntimeControl, TaskRuntimeExitNotice, TaskRuntimeExitReason, TaskScope,
+    ToolExecutionRequest, ToolExecutionResult, ToolExecutionRunId,
 };
 use selvedge_core::{
     SpawnTaskRuntimeArgs, SpawnTaskRuntimeError, SpawnedTaskRuntime, TaskRuntimeConfig,
@@ -47,6 +47,7 @@ async fn attach_client_command_is_forwarded_to_events() {
     .expect("spawn router");
 
     let (outbound, _outbound_rx) = tokio::sync::mpsc::channel(4);
+    let (admission_tx, admission_rx) = tokio::sync::oneshot::channel();
     let subscription = ClientSubscription {
         task_scope: TaskScope::AllTasks,
         detail_level: DetailLevel::Verbose,
@@ -64,23 +65,29 @@ async fn attach_client_command_is_forwarded_to_events() {
                 client_command_id: ClientCommandId("attach-1".to_owned()),
                 outbound,
                 subscription: subscription.clone(),
+                admission_tx,
             },
         }))
         .expect("send command");
 
     let event = events_rx.recv().await.expect("events ingress");
-    let EventIngress::Control(EventControlMessage::BeginClientHydration(BeginClientHydration {
-        client_id,
-        client_command_id,
-        subscription: received_subscription,
-        ..
-    })) = event
+    let EventIngress::Control(EventControlMessage::ReserveClientSession(reservation)) = event
     else {
         panic!("unexpected events ingress");
     };
-    assert_eq!(client_id, ClientId("client-1".to_owned()));
-    assert_eq!(client_command_id, ClientCommandId("attach-1".to_owned()));
-    assert_eq!(received_subscription, subscription);
+    assert_eq!(reservation.client_id, ClientId("client-1".to_owned()));
+    assert_eq!(
+        reservation.client_command_id,
+        ClientCommandId("attach-1".to_owned())
+    );
+    reservation
+        .result_tx
+        .send(EventClientReservationResult::Reserved)
+        .expect("send reservation result");
+    assert_eq!(
+        admission_rx.await.expect("admission result"),
+        RouterAttachAdmissionResult::Accepted
+    );
 
     handle
         .ingress_tx

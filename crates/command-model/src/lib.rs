@@ -5,7 +5,7 @@ use std::fmt;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use tokio::sync::{Mutex, Notify, mpsc};
+use tokio::sync::{Mutex, Notify, mpsc, oneshot};
 
 use selvedge_domain_model::{
     ApiDomainValidationError, ConversationPath, FunctionCallId, HistoryNodeId, MessageRole,
@@ -86,6 +86,8 @@ pub type TaskRuntimeSender = mpsc::Sender<TaskRuntimeCommand>;
 pub type ModelCallRequest = ModelCallDispatchRequest;
 pub type EventIngressSender = mpsc::Sender<EventIngress>;
 pub type ClientFrameSender = mpsc::Sender<ClientFrame>;
+pub type RouterAttachAdmissionSender = oneshot::Sender<RouterAttachAdmissionResult>;
+pub type EventClientReservationSender = oneshot::Sender<EventClientReservationResult>;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct FactoryEffectId(pub String);
@@ -104,6 +106,7 @@ pub enum RouterCommand {
         client_command_id: ClientCommandId,
         outbound: ClientFrameSender,
         subscription: ClientSubscription,
+        admission_tx: RouterAttachAdmissionSender,
     },
     DetachClient {
         client_id: ClientId,
@@ -132,6 +135,14 @@ pub enum RouterCommand {
         parent_task_id: TaskId,
         child_cursor_node_id: HistoryNodeId,
     },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RouterAttachAdmissionResult {
+    Accepted,
+    DuplicateAttach,
+    ClientRegistryFull,
+    EventsMailboxClosed,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -237,11 +248,26 @@ pub enum EventIngress {
 
 #[derive(Debug)]
 pub enum EventControlMessage {
+    ReserveClientSession(ReserveClientSession),
     BeginClientHydration(BeginClientHydration),
     DeliverSnapshot(DeliverSnapshot),
     DeliverNotice(DeliverNotice),
     UpdateSubscription(UpdateSubscription),
     DetachClient(DetachClient),
+}
+
+#[derive(Debug)]
+pub struct ReserveClientSession {
+    pub client_id: ClientId,
+    pub client_command_id: ClientCommandId,
+    pub result_tx: EventClientReservationSender,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum EventClientReservationResult {
+    Reserved,
+    DuplicateAttach,
+    ClientRegistryFull,
 }
 
 #[derive(Debug)]

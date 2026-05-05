@@ -13,6 +13,8 @@ Router ingress is unbounded. The router is the lifecycle coordinator for task ru
 Core output routing is task-id based. A runtime that enqueued core output before a synchronous stop still has that output routed normally; stop controls runtime registry ownership and future task command delivery.
 Core output with an embedded task id must match the envelope task id before the router starts model calls, tool executions, or event publication.
 
+Attach routing is an admission boundary. `RouterCommand::AttachClient` sends `ReserveClientSession` to events and answers the command's admission responder with the reservation result; snapshot hydration starts later through client-sync after server observes the accepted admission.
+
 ## Runtime Ownership Decision
 
 The router's runtime uniqueness invariant is route ownership: for one `TaskId`, at most one `TaskRuntimeSender` in `task_runtime_registry` may receive router task commands at a time. Creation is also single-owned through `pending_effects_by_task`.

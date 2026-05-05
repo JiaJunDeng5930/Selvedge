@@ -6,11 +6,13 @@ use std::sync::Arc;
 use selvedge_api::{ApiExecutorConfig, spawn_model_call_tokio_task};
 use selvedge_command_model::{
     ApiOutputEnvelope, CoreOutputEnvelope, CoreOutputMessage, DebugRawEvent, DetachReason,
-    DomainEvent, DomainEventPublishRequest, EventControlMessage, EventIngress, EventIngressSender,
-    FactoryEffectId, FactoryOutput, FactoryOutputEnvelope, FactoryScanOutput, FactoryTaskFailure,
-    RawEvent, RouterCommand, RouterCommandEnvelope, RouterIngressMessage, RouterIngressSender,
-    RouterIngressWeakSender, TaskRuntimeCommand, TaskRuntimeControl, TaskRuntimeExitNotice,
-    TaskRuntimeSender, ToolExecutionRequest, ToolExecutionResult, validate_router_command,
+    DomainEvent, DomainEventPublishRequest, EventClientReservationResult, EventControlMessage,
+    EventIngress, EventIngressSender, FactoryEffectId, FactoryOutput, FactoryOutputEnvelope,
+    FactoryScanOutput, FactoryTaskFailure, RawEvent, ReserveClientSession,
+    RouterAttachAdmissionResult, RouterCommand, RouterCommandEnvelope, RouterIngressMessage,
+    RouterIngressSender, RouterIngressWeakSender, TaskRuntimeCommand, TaskRuntimeControl,
+    TaskRuntimeExitNotice, TaskRuntimeSender, ToolExecutionRequest, ToolExecutionResult,
+    validate_router_command,
 };
 use selvedge_core::TaskRuntimeSpawnDeps;
 use selvedge_db::DbPool;
@@ -153,20 +155,11 @@ impl RouterActor {
             RouterCommand::AttachClient {
                 client_id,
                 client_command_id,
-                outbound,
-                subscription,
+                admission_tx,
+                ..
             } => {
-                self.send_event(EventIngress::Control(
-                    EventControlMessage::BeginClientHydration(
-                        selvedge_command_model::BeginClientHydration {
-                            client_id,
-                            client_command_id,
-                            outbound,
-                            subscription,
-                        },
-                    ),
-                ))
-                .await
+                self.reserve_client_session(client_id, client_command_id, admission_tx)
+                    .await
             }
             RouterCommand::DetachClient {
                 client_id,
@@ -271,6 +264,46 @@ impl RouterActor {
                 .await
             }
         }
+    }
+
+    async fn reserve_client_session(
+        &mut self,
+        client_id: selvedge_command_model::ClientId,
+        client_command_id: selvedge_command_model::ClientCommandId,
+        admission_tx: selvedge_command_model::RouterAttachAdmissionSender,
+    ) -> Result<(), RouterExitStatus> {
+        let (result_tx, result_rx) = tokio::sync::oneshot::channel();
+        match self.events_tx.try_send(EventIngress::Control(
+            EventControlMessage::ReserveClientSession(ReserveClientSession {
+                client_id,
+                client_command_id,
+                result_tx,
+            }),
+        )) {
+            Ok(()) => {}
+            Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
+                let _ = admission_tx.send(RouterAttachAdmissionResult::EventsMailboxClosed);
+                return Ok(());
+            }
+            Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
+                let _ = admission_tx.send(RouterAttachAdmissionResult::EventsMailboxClosed);
+                return Err(RouterExitStatus::EventsMailboxClosed);
+            }
+        }
+
+        let result = match result_rx.await {
+            Ok(EventClientReservationResult::Reserved) => RouterAttachAdmissionResult::Accepted,
+            Ok(EventClientReservationResult::DuplicateAttach) => {
+                RouterAttachAdmissionResult::DuplicateAttach
+            }
+            Ok(EventClientReservationResult::ClientRegistryFull) => {
+                RouterAttachAdmissionResult::ClientRegistryFull
+            }
+            Err(_) => RouterAttachAdmissionResult::EventsMailboxClosed,
+        };
+
+        let _ = admission_tx.send(result);
+        Ok(())
     }
 
     async fn handle_api_output(
