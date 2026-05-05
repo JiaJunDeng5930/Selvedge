@@ -1,12 +1,13 @@
 #![doc = include_str!("../README.md")]
 
+use std::collections::HashMap;
 use std::fmt;
 use std::fs::{File, OpenOptions};
 use std::io;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex as StdMutex};
 use std::task::{Context, Poll};
 
 use fs2::FileExt;
@@ -57,6 +58,8 @@ const DEFAULT_EVENTS_INGRESS_CAPACITY: usize = 64;
 const DEFAULT_CLIENT_REGISTRY_CAPACITY: usize = 64;
 const DEFAULT_HYDRATION_BUFFER_CAPACITY: usize = 256;
 const DEFAULT_CLIENT_SYNC_INGRESS_CAPACITY: usize = 64;
+
+type ActiveAttachRegistry = Arc<StdMutex<HashMap<ClientId, ClientCommandId>>>;
 
 pub struct ServerStartArgs {
     pub explicit_home: Option<PathBuf>,
@@ -251,9 +254,17 @@ impl ServerControl {
             return reject(AttachRejectReason::RouterMailboxClosed);
         }
 
-        let (outbound_tx, outbound_rx) = mpsc::channel(DEFAULT_HYDRATION_BUFFER_CAPACITY);
         let client_id = ClientId(request.client_id.0.clone());
         let client_command_id = ClientCommandId(request.client_command_id.0.clone());
+        let previous_attach = match self
+            .inner
+            .reserve_active_attach(&client_id, &client_command_id)
+        {
+            Ok(previous_attach) => previous_attach,
+            Err(reason) => return reject(reason),
+        };
+
+        let (outbound_tx, outbound_rx) = mpsc::channel(DEFAULT_HYDRATION_BUFFER_CAPACITY);
         let begin = BeginClientHydration {
             client_id: client_id.clone(),
             client_command_id: client_command_id.clone(),
@@ -261,6 +272,8 @@ impl ServerControl {
             subscription: local_subscription_to_command(request.subscription),
         };
         let Some(events_tx) = self.inner.events_tx.lock().await.as_ref().cloned() else {
+            self.inner
+                .restore_active_attach(&client_id, &client_command_id, previous_attach);
             return reject(AttachRejectReason::InternalFailure);
         };
         let client_sync_tx = self.inner.client_sync_tx.lock().await.clone();
@@ -270,8 +283,28 @@ impl ServerControl {
             .await
             .is_err()
         {
+            self.inner
+                .restore_active_attach(&client_id, &client_command_id, previous_attach);
             self.begin_shutdown_locked().await;
             return reject(AttachRejectReason::ClientSyncUnavailable);
+        }
+
+        if let Some(previous_command_id) = previous_attach {
+            let _ = client_sync_tx
+                .send(ClientSyncIngress::CancelHydration(CancelHydration {
+                    client_id: client_id.clone(),
+                    client_command_id: previous_command_id.clone(),
+                }))
+                .await;
+            let _ = events_tx
+                .send(EventIngress::Control(EventControlMessage::DetachClient(
+                    DetachClient {
+                        client_id: client_id.clone(),
+                        client_command_id: previous_command_id,
+                        reason: DetachReason::ReplacedByNewHydration,
+                    },
+                )))
+                .await;
         }
 
         Ok((
@@ -286,6 +319,7 @@ impl ServerControl {
                 client_command_id,
                 events_tx: events_tx.downgrade(),
                 client_sync_tx: client_sync_tx.downgrade(),
+                active_attaches: Arc::clone(&self.inner.active_attaches),
                 closed_reported: false,
             }),
         ))
@@ -381,8 +415,53 @@ struct ServerInner {
     router_tx: RouterIngressSender,
     events_tx: Mutex<Option<EventIngressSender>>,
     client_sync_tx: Mutex<selvedge_client_sync::ClientSyncSender>,
+    active_attaches: ActiveAttachRegistry,
     command_mapper: Arc<dyn LocalCommandMapper>,
     web_control: Mutex<Option<selvedge_web::WebControl>>,
+}
+
+impl ServerInner {
+    fn reserve_active_attach(
+        &self,
+        client_id: &ClientId,
+        client_command_id: &ClientCommandId,
+    ) -> Result<Option<ClientCommandId>, AttachRejectReason> {
+        let mut active = self
+            .active_attaches
+            .lock()
+            .expect("server active attach registry lock");
+
+        if active.get(client_id) == Some(client_command_id) {
+            return Err(AttachRejectReason::DuplicateAttach);
+        }
+
+        if !active.contains_key(client_id) && active.len() >= DEFAULT_CLIENT_REGISTRY_CAPACITY {
+            return Err(AttachRejectReason::ClientRegistryFull);
+        }
+
+        Ok(active.insert(client_id.clone(), client_command_id.clone()))
+    }
+
+    fn restore_active_attach(
+        &self,
+        client_id: &ClientId,
+        client_command_id: &ClientCommandId,
+        previous_attach: Option<ClientCommandId>,
+    ) {
+        let mut active = self
+            .active_attaches
+            .lock()
+            .expect("server active attach registry lock");
+        if active.get(client_id) != Some(client_command_id) {
+            return;
+        }
+
+        if let Some(previous_command_id) = previous_attach {
+            active.insert(client_id.clone(), previous_command_id);
+        } else {
+            active.remove(client_id);
+        }
+    }
 }
 
 impl ServerContext {
@@ -471,6 +550,7 @@ fn start_server_after_lock(
         router_tx: router.ingress_tx.clone(),
         events_tx: Mutex::new(Some(events.ingress_tx.clone())),
         client_sync_tx: Mutex::new(client_sync.ingress_tx.clone()),
+        active_attaches: Arc::new(StdMutex::new(HashMap::new())),
         command_mapper: args.command_mapper,
         web_control: Mutex::new(web.as_ref().map(|handle| handle.control.clone())),
     });
@@ -522,6 +602,7 @@ struct ServerAttachFrameStream {
     // Drop upgrades it only to report client detach.
     events_tx: mpsc::WeakSender<EventIngress>,
     client_sync_tx: mpsc::WeakSender<ClientSyncIngress>,
+    active_attaches: ActiveAttachRegistry,
     closed_reported: bool,
 }
 
@@ -548,6 +629,8 @@ impl Drop for ServerAttachFrameStream {
     fn drop(&mut self) {
         let client_id = self.client_id.clone();
         let client_command_id = self.client_command_id.clone();
+
+        clear_active_attach(&self.active_attaches, &client_id, &client_command_id);
 
         if let Some(client_sync_tx) = self.client_sync_tx.upgrade() {
             let retry_client_sync_tx = client_sync_tx.clone();
@@ -590,6 +673,19 @@ impl Drop for ServerAttachFrameStream {
             }
             Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {}
         }
+    }
+}
+
+fn clear_active_attach(
+    active_attaches: &ActiveAttachRegistry,
+    client_id: &ClientId,
+    client_command_id: &ClientCommandId,
+) {
+    let mut active = active_attaches
+        .lock()
+        .expect("server active attach registry lock");
+    if active.get(client_id) == Some(client_command_id) {
+        active.remove(client_id);
     }
 }
 
@@ -1097,6 +1193,122 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn duplicate_active_attach_rejects_without_second_start() {
+        let (router_tx, _router_rx) = mpsc::unbounded_channel();
+        let (client_sync_tx, mut client_sync_rx) = mpsc::channel(4);
+        let (events_tx, _events_rx) = mpsc::channel(4);
+        let control = test_control(router_tx, client_sync_tx, events_tx);
+
+        let (_accepted, _stream) = control
+            .attach_client(test_attach_request())
+            .await
+            .expect("attach accepted");
+        let _ = timeout(Duration::from_millis(100), client_sync_rx.recv())
+            .await
+            .expect("start hydration arrives")
+            .expect("start hydration");
+
+        let rejected = match control.attach_client(test_attach_request()).await {
+            Ok(_) => panic!("duplicate attach should reject"),
+            Err(rejected) => rejected,
+        };
+
+        assert_eq!(rejected.reason, AttachRejectReason::DuplicateAttach);
+        assert!(matches!(
+            client_sync_rx.try_recv(),
+            Err(tokio::sync::mpsc::error::TryRecvError::Empty)
+        ));
+    }
+
+    #[tokio::test]
+    async fn new_client_attach_rejects_when_registry_capacity_is_reserved() {
+        let (router_tx, _router_rx) = mpsc::unbounded_channel();
+        let (client_sync_tx, mut client_sync_rx) =
+            mpsc::channel(DEFAULT_CLIENT_REGISTRY_CAPACITY + 1);
+        let (events_tx, _events_rx) = mpsc::channel(4);
+        let control = test_control(router_tx, client_sync_tx, events_tx);
+        let mut streams = Vec::new();
+
+        for index in 0..DEFAULT_CLIENT_REGISTRY_CAPACITY {
+            let (_accepted, stream) = control
+                .attach_client(test_attach_request_for(
+                    &format!("client-{index}"),
+                    &format!("attach-{index}"),
+                ))
+                .await
+                .expect("attach accepted");
+            streams.push(stream);
+            let _ = timeout(Duration::from_millis(100), client_sync_rx.recv())
+                .await
+                .expect("start hydration arrives")
+                .expect("start hydration");
+        }
+
+        let rejected = match control
+            .attach_client(test_attach_request_for(
+                "client-overflow",
+                "attach-overflow",
+            ))
+            .await
+        {
+            Ok(_) => panic!("full registry should reject"),
+            Err(rejected) => rejected,
+        };
+
+        assert_eq!(rejected.reason, AttachRejectReason::ClientRegistryFull);
+        assert!(matches!(
+            client_sync_rx.try_recv(),
+            Err(tokio::sync::mpsc::error::TryRecvError::Empty)
+        ));
+    }
+
+    #[tokio::test]
+    async fn stale_stream_drop_after_replacement_preserves_new_active_attach() {
+        let (router_tx, _router_rx) = mpsc::unbounded_channel();
+        let (client_sync_tx, mut client_sync_rx) = mpsc::channel(8);
+        let (events_tx, mut events_rx) = mpsc::channel(8);
+        let control = test_control(router_tx, client_sync_tx, events_tx);
+
+        let (_accepted, old_stream) = control
+            .attach_client(test_attach_request_for("client-1", "attach-1"))
+            .await
+            .expect("first attach accepted");
+        let _ = timeout(Duration::from_millis(100), client_sync_rx.recv())
+            .await
+            .expect("first start hydration arrives")
+            .expect("first start hydration");
+
+        let (_accepted, _new_stream) = control
+            .attach_client(test_attach_request_for("client-1", "attach-2"))
+            .await
+            .expect("replacement attach accepted");
+        let _ = timeout(Duration::from_millis(100), client_sync_rx.recv())
+            .await
+            .expect("replacement start hydration arrives")
+            .expect("replacement start hydration");
+        let _ = timeout(Duration::from_millis(100), client_sync_rx.recv())
+            .await
+            .expect("old cancel hydration arrives")
+            .expect("old cancel hydration");
+        let _ = timeout(Duration::from_millis(100), events_rx.recv())
+            .await
+            .expect("old detach arrives")
+            .expect("old detach");
+
+        drop(old_stream);
+
+        let rejected = match control
+            .attach_client(test_attach_request_for("client-1", "attach-2"))
+            .await
+        {
+            Ok(_) => panic!("new attach should remain active"),
+            Err(rejected) => rejected,
+        };
+
+        assert_eq!(rejected.reason, AttachRejectReason::DuplicateAttach);
+    }
+
+    #[tokio::test]
     async fn dropped_attach_stream_sends_cancel_and_client_disconnect_detach() {
         let (router_tx, _router_rx) = mpsc::unbounded_channel();
         let (client_sync_tx, mut client_sync_rx) = mpsc::channel(4);
@@ -1172,6 +1384,7 @@ mod tests {
                 router_tx,
                 events_tx: Mutex::new(Some(events_tx)),
                 client_sync_tx: Mutex::new(client_sync_tx),
+                active_attaches: Arc::new(StdMutex::new(HashMap::new())),
                 command_mapper: Arc::new(UnusedMapper),
                 web_control: Mutex::new(None),
             }),
@@ -1179,11 +1392,16 @@ mod tests {
     }
 
     fn test_attach_request() -> AttachRequest {
+        test_attach_request_for("client-1", "attach-1")
+    }
+
+    fn test_attach_request_for(client_id: &str, client_command_id: &str) -> AttachRequest {
         AttachRequest {
             protocol_version: current_protocol_version(),
-            client_id: selvedge_local_protocol::LocalClientId::new("client-1")
+            client_id: selvedge_local_protocol::LocalClientId::new(client_id)
                 .expect("valid client id"),
-            client_command_id: LocalClientCommandId::new("attach-1").expect("valid command id"),
+            client_command_id: LocalClientCommandId::new(client_command_id)
+                .expect("valid command id"),
             subscription: selvedge_local_protocol::LocalClientSubscription {
                 task_scope: LocalTaskScope::AllTasks,
                 detail_level: LocalDetailLevel::Summary,
