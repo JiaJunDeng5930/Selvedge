@@ -1,6 +1,5 @@
-use std::future::Future;
-use std::pin::Pin;
-use std::sync::Arc;
+use std::collections::{BTreeSet, VecDeque};
+use std::sync::{Arc, LazyLock, Mutex};
 
 use selvedge_client_sync::{
     CancelHydration, ClientSnapshotBuildFuture, ClientSnapshotBuildRequest, ClientSnapshotBuilder,
@@ -8,110 +7,512 @@ use selvedge_client_sync::{
     SpawnClientSyncError, spawn_client_sync,
 };
 use selvedge_command_model::{
-    ClientCommandId, ClientId, ClientSnapshot, ClientSubscription, DetailLevel, EventIngress,
-    EventIngressSender, TaskScope,
+    BeginClientHydration, ClientCommandId, ClientFrame, ClientId, ClientNoticeLevel,
+    ClientSnapshot, ClientSubscription, DetachReason, DetailLevel, EventControlMessage,
+    EventIngress, TaskScope,
 };
+use selvedge_domain_model::UnixTs;
+use tokio::sync::{Mutex as AsyncMutex, mpsc, oneshot};
+use tokio::time::{Duration, timeout};
 
-#[test]
-fn snapshot_builder_trait_returns_boxed_snapshot_future() {
-    let builder = StaticSnapshotBuilder;
-    let request = build_request("client-1", "attach-1");
-    let future = builder.build_snapshot(request);
+static TEST_LOCK: LazyLock<AsyncMutex<()>> = LazyLock::new(|| AsyncMutex::new(()));
 
-    let _future: ClientSnapshotBuildFuture = future;
+#[tokio::test]
+async fn successful_hydration_sends_begin_before_snapshot() {
+    let _guard = TEST_LOCK.lock().await;
+    let (events_tx, mut events_rx) = mpsc::channel(8);
+    let builder = Arc::new(RecordingBuilder::new(vec![BuildAction::Ready(Ok(
+        empty_snapshot(),
+    ))]));
+    let handle = spawn_client_sync(ClientSyncStartArgs {
+        events_tx,
+        snapshot_builder: builder.clone(),
+        ingress_capacity: 8,
+    })
+    .expect("spawn client sync");
+
+    handle
+        .ingress_tx
+        .send(ClientSyncIngress::StartHydration(begin(
+            "client-1", "attach-1",
+        )))
+        .await
+        .expect("send start");
+
+    let begin = recv_control(&mut events_rx).await;
+    assert_begin(&begin, "client-1", "attach-1");
+    let snapshot = recv_control(&mut events_rx).await;
+    assert_snapshot(&snapshot, "client-1", "attach-1");
+    assert_eq!(builder.requests(), vec![request("client-1", "attach-1")]);
+
+    shutdown(handle).await;
 }
 
 #[tokio::test]
-async fn spawn_client_sync_exposes_ingress_handle_and_shutdown_status() {
-    let args = ClientSyncStartArgs {
-        events_tx: event_sender(),
-        snapshot_builder: Arc::new(StaticSnapshotBuilder),
-        ingress_capacity: 4,
-    };
+async fn builder_failure_sends_error_notice_then_detach() {
+    let _guard = TEST_LOCK.lock().await;
+    let (events_tx, mut events_rx) = mpsc::channel(8);
+    let builder = Arc::new(RecordingBuilder::new(vec![BuildAction::Ready(Err(
+        ClientSyncError::SnapshotBuildFailed("db unavailable".to_owned()),
+    ))]));
+    let handle = spawn_client_sync(ClientSyncStartArgs {
+        events_tx,
+        snapshot_builder: builder,
+        ingress_capacity: 8,
+    })
+    .expect("spawn client sync");
 
-    let handle = spawn_client_sync(args).expect("valid client-sync start args");
+    handle
+        .ingress_tx
+        .send(ClientSyncIngress::StartHydration(begin(
+            "client-1", "attach-1",
+        )))
+        .await
+        .expect("send start");
+
+    assert_begin(&recv_control(&mut events_rx).await, "client-1", "attach-1");
+    let notice = recv_control(&mut events_rx).await;
+    match notice {
+        EventControlMessage::DeliverNotice(notice) => {
+            assert_eq!(notice.client_id, ClientId("client-1".to_owned()));
+            assert_eq!(
+                notice.client_command_id,
+                ClientCommandId("attach-1".to_owned())
+            );
+            assert_eq!(notice.notice.level, ClientNoticeLevel::Error);
+            assert!(notice.notice.message_text.contains("db unavailable"));
+        }
+        other => panic!("expected notice, got {other:?}"),
+    }
+    let detach = recv_control(&mut events_rx).await;
+    match detach {
+        EventControlMessage::DetachClient(detach) => {
+            assert_eq!(detach.client_id, ClientId("client-1".to_owned()));
+            assert_eq!(
+                detach.client_command_id,
+                ClientCommandId("attach-1".to_owned())
+            );
+            assert_eq!(detach.reason, DetachReason::DeliveryFailed);
+        }
+        other => panic!("expected detach, got {other:?}"),
+    }
+
+    shutdown(handle).await;
+}
+
+#[tokio::test]
+async fn begin_send_failure_does_not_call_builder() {
+    let _guard = TEST_LOCK.lock().await;
+    let (events_tx, events_rx) = mpsc::channel(1);
+    drop(events_rx);
+    let builder = Arc::new(RecordingBuilder::new(vec![BuildAction::Ready(Ok(
+        empty_snapshot(),
+    ))]));
+    let handle = spawn_client_sync(ClientSyncStartArgs {
+        events_tx,
+        snapshot_builder: builder.clone(),
+        ingress_capacity: 8,
+    })
+    .expect("spawn client sync");
+
+    handle
+        .ingress_tx
+        .send(ClientSyncIngress::StartHydration(begin(
+            "client-1", "attach-1",
+        )))
+        .await
+        .expect("send start");
+
+    let status = handle.join_handle.await.expect("join client sync");
+    assert!(matches!(
+        status,
+        ClientSyncExitStatus::Fatal(message)
+            if message.contains("beginning client hydration")
+    ));
+    assert!(builder.requests().is_empty());
+}
+
+#[tokio::test]
+async fn snapshot_delivery_send_failure_is_fatal() {
+    let _guard = TEST_LOCK.lock().await;
+    let (events_tx, mut events_rx) = mpsc::channel(8);
+    let (release_tx, release_rx) = oneshot::channel();
+    let builder = Arc::new(RecordingBuilder::new(vec![BuildAction::Wait(release_rx)]));
+    let handle = spawn_client_sync(ClientSyncStartArgs {
+        events_tx,
+        snapshot_builder: builder,
+        ingress_capacity: 8,
+    })
+    .expect("spawn client sync");
+
+    handle
+        .ingress_tx
+        .send(ClientSyncIngress::StartHydration(begin(
+            "client-1", "attach-1",
+        )))
+        .await
+        .expect("send start");
+    assert_begin(&recv_control(&mut events_rx).await, "client-1", "attach-1");
+    drop(events_rx);
+
+    release_tx
+        .send(Ok(empty_snapshot()))
+        .expect("release builder");
+
+    expect_fatal_contains(handle, "delivering client snapshot").await;
+}
+
+#[tokio::test]
+async fn builder_failure_notice_send_failure_is_fatal() {
+    let _guard = TEST_LOCK.lock().await;
+    let (events_tx, mut events_rx) = mpsc::channel(8);
+    let (release_tx, release_rx) = oneshot::channel();
+    let builder = Arc::new(RecordingBuilder::new(vec![BuildAction::Wait(release_rx)]));
+    let handle = spawn_client_sync(ClientSyncStartArgs {
+        events_tx,
+        snapshot_builder: builder,
+        ingress_capacity: 8,
+    })
+    .expect("spawn client sync");
+
+    handle
+        .ingress_tx
+        .send(ClientSyncIngress::StartHydration(begin(
+            "client-1", "attach-1",
+        )))
+        .await
+        .expect("send start");
+    assert_begin(&recv_control(&mut events_rx).await, "client-1", "attach-1");
+    drop(events_rx);
+
+    release_tx
+        .send(Err(ClientSyncError::SnapshotBuildFailed(
+            "db unavailable".to_owned(),
+        )))
+        .expect("release builder");
+
+    expect_fatal_contains(handle, "delivering client hydration failure notice").await;
+}
+
+#[tokio::test]
+async fn duplicate_same_command_does_not_start_second_builder() {
+    let _guard = TEST_LOCK.lock().await;
+    let (events_tx, mut events_rx) = mpsc::channel(8);
+    let (_release_tx, release_rx) = oneshot::channel();
+    let builder = Arc::new(RecordingBuilder::new(vec![BuildAction::Wait(release_rx)]));
+    let handle = spawn_client_sync(ClientSyncStartArgs {
+        events_tx,
+        snapshot_builder: builder.clone(),
+        ingress_capacity: 8,
+    })
+    .expect("spawn client sync");
+
+    handle
+        .ingress_tx
+        .send(ClientSyncIngress::StartHydration(begin(
+            "client-1", "attach-1",
+        )))
+        .await
+        .expect("send first start");
+    handle
+        .ingress_tx
+        .send(ClientSyncIngress::StartHydration(begin(
+            "client-1", "attach-1",
+        )))
+        .await
+        .expect("send duplicate start");
+
+    assert_begin(&recv_control(&mut events_rx).await, "client-1", "attach-1");
+    tokio::time::sleep(Duration::from_millis(10)).await;
+    assert_eq!(builder.requests().len(), 1);
+    assert!(recv_control_timeout(&mut events_rx).await.is_none());
+
+    shutdown(handle).await;
+}
+
+#[tokio::test]
+async fn new_command_replaces_old_late_builder_result() {
+    let _guard = TEST_LOCK.lock().await;
+    let (events_tx, mut events_rx) = mpsc::channel(8);
+    let (old_tx, old_rx) = oneshot::channel();
+    let (new_tx, new_rx) = oneshot::channel();
+    let builder = Arc::new(RecordingBuilder::new(vec![
+        BuildAction::Wait(old_rx),
+        BuildAction::Wait(new_rx),
+    ]));
+    let handle = spawn_client_sync(ClientSyncStartArgs {
+        events_tx,
+        snapshot_builder: builder,
+        ingress_capacity: 8,
+    })
+    .expect("spawn client sync");
+
+    handle
+        .ingress_tx
+        .send(ClientSyncIngress::StartHydration(begin(
+            "client-1", "attach-1",
+        )))
+        .await
+        .expect("send old start");
+    assert_begin(&recv_control(&mut events_rx).await, "client-1", "attach-1");
+
+    handle
+        .ingress_tx
+        .send(ClientSyncIngress::StartHydration(begin(
+            "client-1", "attach-2",
+        )))
+        .await
+        .expect("send new start");
+    assert_begin(&recv_control(&mut events_rx).await, "client-1", "attach-2");
+
+    old_tx.send(Ok(empty_snapshot())).expect("release old");
+    tokio::time::sleep(Duration::from_millis(10)).await;
+    assert!(recv_control_timeout(&mut events_rx).await.is_none());
+
+    new_tx.send(Ok(empty_snapshot())).expect("release new");
+    assert_snapshot(&recv_control(&mut events_rx).await, "client-1", "attach-2");
+
+    shutdown(handle).await;
+}
+
+#[tokio::test]
+async fn cancel_drops_late_builder_result() {
+    let _guard = TEST_LOCK.lock().await;
+    let (events_tx, mut events_rx) = mpsc::channel(8);
+    let (release_tx, release_rx) = oneshot::channel();
+    let builder = Arc::new(RecordingBuilder::new(vec![BuildAction::Wait(release_rx)]));
+    let handle = spawn_client_sync(ClientSyncStartArgs {
+        events_tx,
+        snapshot_builder: builder,
+        ingress_capacity: 8,
+    })
+    .expect("spawn client sync");
+
+    handle
+        .ingress_tx
+        .send(ClientSyncIngress::StartHydration(begin(
+            "client-1", "attach-1",
+        )))
+        .await
+        .expect("send start");
+    assert_begin(&recv_control(&mut events_rx).await, "client-1", "attach-1");
+    handle
+        .ingress_tx
+        .send(ClientSyncIngress::CancelHydration(CancelHydration {
+            client_id: ClientId("client-1".to_owned()),
+            client_command_id: ClientCommandId("attach-1".to_owned()),
+        }))
+        .await
+        .expect("send cancel");
+
+    release_tx
+        .send(Ok(empty_snapshot()))
+        .expect("release builder");
+    tokio::time::sleep(Duration::from_millis(10)).await;
+    assert!(recv_control_timeout(&mut events_rx).await.is_none());
+
+    shutdown(handle).await;
+}
+
+#[tokio::test]
+async fn shutdown_stops_task_and_discards_late_builder_result() {
+    let _guard = TEST_LOCK.lock().await;
+    let (events_tx, mut events_rx) = mpsc::channel(8);
+    let (release_tx, release_rx) = oneshot::channel();
+    let builder = Arc::new(RecordingBuilder::new(vec![BuildAction::Wait(release_rx)]));
+    let handle = spawn_client_sync(ClientSyncStartArgs {
+        events_tx,
+        snapshot_builder: builder,
+        ingress_capacity: 8,
+    })
+    .expect("spawn client sync");
+
+    handle
+        .ingress_tx
+        .send(ClientSyncIngress::StartHydration(begin(
+            "client-1", "attach-1",
+        )))
+        .await
+        .expect("send start");
+    assert_begin(&recv_control(&mut events_rx).await, "client-1", "attach-1");
     handle
         .ingress_tx
         .send(ClientSyncIngress::Shutdown)
         .await
         .expect("send shutdown");
-
     assert_eq!(
-        handle.join_handle.await.expect("join client-sync task"),
+        handle.join_handle.await.expect("join client sync"),
         ClientSyncExitStatus::Stopped
     );
+
+    release_tx
+        .send(Ok(empty_snapshot()))
+        .expect("release builder");
+    tokio::time::sleep(Duration::from_millis(10)).await;
+    assert!(recv_control_timeout(&mut events_rx).await.is_none());
 }
 
-#[test]
-fn spawn_client_sync_rejects_empty_ingress_capacity() {
-    let args = ClientSyncStartArgs {
-        events_tx: event_sender(),
-        snapshot_builder: Arc::new(StaticSnapshotBuilder),
+#[tokio::test]
+async fn invalid_ingress_capacity_is_rejected() {
+    let _guard = TEST_LOCK.lock().await;
+    let (events_tx, _events_rx) = mpsc::channel(8);
+    let builder = Arc::new(RecordingBuilder::new(Vec::new()));
+
+    let result = spawn_client_sync(ClientSyncStartArgs {
+        events_tx,
+        snapshot_builder: builder,
         ingress_capacity: 0,
-    };
+    });
 
     assert!(matches!(
-        spawn_client_sync(args),
+        result,
         Err(SpawnClientSyncError::InvalidIngressCapacity)
     ));
 }
 
-#[test]
-fn client_sync_ingress_carries_cancellation_identity() {
-    let cancel = CancelHydration {
-        client_id: ClientId("client-1".to_owned()),
-        client_command_id: ClientCommandId("attach-1".to_owned()),
-    };
+enum BuildAction {
+    Ready(Result<ClientSnapshot, ClientSyncError>),
+    Wait(oneshot::Receiver<Result<ClientSnapshot, ClientSyncError>>),
+}
 
-    match ClientSyncIngress::CancelHydration(cancel) {
-        ClientSyncIngress::CancelHydration(cancel) => {
-            assert_eq!(cancel.client_id, ClientId("client-1".to_owned()));
-            assert_eq!(
-                cancel.client_command_id,
-                ClientCommandId("attach-1".to_owned())
-            );
+struct RecordingBuilder {
+    actions: Mutex<VecDeque<BuildAction>>,
+    requests: Mutex<Vec<ClientSnapshotBuildRequest>>,
+}
+
+impl RecordingBuilder {
+    fn new(actions: Vec<BuildAction>) -> Self {
+        Self {
+            actions: Mutex::new(actions.into()),
+            requests: Mutex::new(Vec::new()),
         }
-        _ => panic!("unexpected ingress"),
+    }
+
+    fn requests(&self) -> Vec<ClientSnapshotBuildRequest> {
+        self.requests.lock().expect("requests lock").clone()
     }
 }
 
-struct StaticSnapshotBuilder;
-
-impl ClientSnapshotBuilder for StaticSnapshotBuilder {
+impl ClientSnapshotBuilder for RecordingBuilder {
     fn build_snapshot(&self, request: ClientSnapshotBuildRequest) -> ClientSnapshotBuildFuture {
-        assert_eq!(request.client_id.0.trim(), request.client_id.0);
-        Box::pin(snapshot_future())
+        self.requests.lock().expect("requests lock").push(request);
+        let action = self
+            .actions
+            .lock()
+            .expect("actions lock")
+            .pop_front()
+            .expect("builder action");
+
+        Box::pin(async move {
+            match action {
+                BuildAction::Ready(result) => result,
+                BuildAction::Wait(rx) => rx.await.unwrap_or(Err(ClientSyncError::RequestCancelled)),
+            }
+        })
     }
 }
 
-fn snapshot_future() -> Pin<Box<dyn Future<Output = Result<ClientSnapshot, ClientSyncError>> + Send>>
-{
-    Box::pin(async {
-        Ok(ClientSnapshot {
-            generated_at: selvedge_domain_model::UnixTs(1),
-            tasks: Vec::new(),
-            task_parent_edges: Vec::new(),
-            history_nodes: Vec::new(),
-            task_versions: Vec::new(),
-        })
-    })
+fn begin(client_id: &str, command_id: &str) -> BeginClientHydration {
+    let (outbound, _rx) = mpsc::channel::<ClientFrame>(8);
+    BeginClientHydration {
+        client_id: ClientId(client_id.to_owned()),
+        client_command_id: ClientCommandId(command_id.to_owned()),
+        outbound,
+        subscription: subscription(),
+    }
 }
 
-fn build_request(client_id: &str, client_command_id: &str) -> ClientSnapshotBuildRequest {
+fn request(client_id: &str, command_id: &str) -> ClientSnapshotBuildRequest {
     ClientSnapshotBuildRequest {
         client_id: ClientId(client_id.to_owned()),
-        client_command_id: ClientCommandId(client_command_id.to_owned()),
-        subscription: ClientSubscription {
-            task_scope: TaskScope::AllTasks,
-            detail_level: DetailLevel::Summary,
-            include_model_call_status: false,
-            include_tool_execution_status: false,
-            include_debug_notices: false,
-        },
+        client_command_id: ClientCommandId(command_id.to_owned()),
+        subscription: subscription(),
     }
 }
 
-fn event_sender() -> EventIngressSender {
-    let (tx, _rx) = tokio::sync::mpsc::channel::<EventIngress>(4);
-    tx
+fn subscription() -> ClientSubscription {
+    ClientSubscription {
+        task_scope: TaskScope::TaskIds(BTreeSet::new()),
+        detail_level: DetailLevel::Summary,
+        include_model_call_status: false,
+        include_tool_execution_status: false,
+        include_debug_notices: false,
+    }
+}
+
+fn empty_snapshot() -> ClientSnapshot {
+    ClientSnapshot {
+        generated_at: UnixTs(1),
+        tasks: Vec::new(),
+        task_parent_edges: Vec::new(),
+        history_nodes: Vec::new(),
+        task_versions: Vec::new(),
+    }
+}
+
+async fn recv_control(rx: &mut mpsc::Receiver<EventIngress>) -> EventControlMessage {
+    match timeout(Duration::from_secs(1), rx.recv())
+        .await
+        .expect("event timeout")
+        .expect("event")
+    {
+        EventIngress::Control(control) => control,
+        EventIngress::Raw(_) => panic!("expected control event"),
+    }
+}
+
+async fn recv_control_timeout(
+    rx: &mut mpsc::Receiver<EventIngress>,
+) -> Option<EventControlMessage> {
+    match timeout(Duration::from_millis(10), rx.recv()).await {
+        Ok(Some(EventIngress::Control(control))) => Some(control),
+        Ok(Some(EventIngress::Raw(_))) => panic!("expected control event"),
+        Ok(None) | Err(_) => None,
+    }
+}
+
+fn assert_begin(control: &EventControlMessage, client_id: &str, command_id: &str) {
+    match control {
+        EventControlMessage::BeginClientHydration(begin) => {
+            assert_eq!(begin.client_id, ClientId(client_id.to_owned()));
+            assert_eq!(
+                begin.client_command_id,
+                ClientCommandId(command_id.to_owned())
+            );
+        }
+        other => panic!("expected begin, got {other:?}"),
+    }
+}
+
+fn assert_snapshot(control: &EventControlMessage, client_id: &str, command_id: &str) {
+    match control {
+        EventControlMessage::DeliverSnapshot(snapshot) => {
+            assert_eq!(snapshot.client_id, ClientId(client_id.to_owned()));
+            assert_eq!(
+                snapshot.client_command_id,
+                ClientCommandId(command_id.to_owned())
+            );
+        }
+        other => panic!("expected snapshot, got {other:?}"),
+    }
+}
+
+async fn shutdown(handle: selvedge_client_sync::ClientSyncHandle) {
+    handle
+        .ingress_tx
+        .send(ClientSyncIngress::Shutdown)
+        .await
+        .expect("send shutdown");
+    assert_eq!(
+        handle.join_handle.await.expect("join client sync"),
+        ClientSyncExitStatus::Stopped
+    );
+}
+
+async fn expect_fatal_contains(handle: selvedge_client_sync::ClientSyncHandle, expected: &str) {
+    let status = handle.join_handle.await.expect("join client sync");
+    assert!(matches!(
+        status,
+        ClientSyncExitStatus::Fatal(message) if message.contains(expected)
+    ));
 }

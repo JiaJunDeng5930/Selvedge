@@ -9,7 +9,7 @@ tokio = { version = "1.42.0", features = ["rt", "sync"] }
 
 [dev-dependencies]
 selvedge-domain-model = { path = "../domain-model" }
-tokio = { version = "1.42.0", features = ["macros", "rt", "sync"] }
+tokio = { version = "1.42.0", features = ["macros", "rt", "sync", "time"] }
 
 [lints.rust]
 unsafe_code = "forbid"
