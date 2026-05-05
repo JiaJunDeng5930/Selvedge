@@ -1547,6 +1547,7 @@ dependencies = [
 name = "selvedge-server"
 version = "0.0.0"
 dependencies = [
+ "fs2",
  "futures-core",
  "futures-util",
  "selvedge-api",

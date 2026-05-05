@@ -82,6 +82,22 @@ async fn singleton_lock_rejects_second_server_for_same_home() {
 }
 
 #[tokio::test]
+async fn stale_lock_file_does_not_block_server_restart() {
+    let _guard = SERVER_TEST_LOCK.lock().await;
+    let home = SERVER_TEST_HOME.path();
+    std::fs::write(home.join("server.lock"), "stale").expect("write stale lock");
+
+    let handle = spawn_server(test_args(
+        home.to_path_buf(),
+        Arc::new(RecordingMapper::new()),
+    ))
+    .expect("spawn server with stale lock file");
+
+    handle.control.stop().await;
+    handle.join_handle.await.expect("join server");
+}
+
+#[tokio::test]
 async fn command_submit_validates_protocol_and_maps_to_router_mailbox() {
     let _guard = SERVER_TEST_LOCK.lock().await;
     let home = SERVER_TEST_HOME.path();

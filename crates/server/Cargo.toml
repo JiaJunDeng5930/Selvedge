@@ -4,6 +4,7 @@ edition = "2024"
 publish = false
 
 [dependencies]
+fs2 = "0.4.3"
 futures-core = "0.3.31"
 selvedge-api = { path = "../api" }
 selvedge-client-sync = { path = "../client-sync" }
