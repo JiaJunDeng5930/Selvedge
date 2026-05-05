@@ -182,7 +182,6 @@ impl ServerControl {
     }
 
     pub async fn ready(&self, request: ReadyRequest) -> ReadyResponse {
-        let protocol_version = request.protocol_version;
         let state = if validate_ready_request(&request).is_ok()
             && *self.inner.state.read().await == ServerRuntimeState::Ready
         {
@@ -192,7 +191,7 @@ impl ServerControl {
         };
 
         ReadyResponse {
-            protocol_version,
+            protocol_version: current_protocol_version(),
             state,
         }
     }
