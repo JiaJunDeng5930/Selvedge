@@ -48,6 +48,17 @@ async fn spawn_server_initializes_ready_control_and_creates_durable_paths() {
             .state,
         ReadyState::Ready
     );
+    let mismatched_ready = handle
+        .control
+        .ready(ReadyRequest {
+            protocol_version: ProtocolVersion(2),
+        })
+        .await;
+    assert_eq!(
+        mismatched_ready.protocol_version,
+        current_protocol_version()
+    );
+    assert_eq!(mismatched_ready.state, ReadyState::NotReady);
     assert!(home.join("selvedge.sqlite").exists());
     assert!(home.join("server.lock").exists());
 
