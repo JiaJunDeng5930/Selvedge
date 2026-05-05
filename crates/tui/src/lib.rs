@@ -36,6 +36,7 @@ pub enum TuiExitStatus {
     ServerUnavailable,
     ServerNotReady,
     AttachRejected(String),
+    CommandRejected(String),
     Disconnected,
     TerminalFailed(String),
     LocalClientFailed(LocalClientError),
@@ -136,7 +137,15 @@ where
             }
         };
         match response.outcome {
-            CommandOutcome::Accepted | CommandOutcome::Rejected(_) => {}
+            CommandOutcome::Accepted => {}
+            CommandOutcome::Rejected(reason) => {
+                drop(frames);
+                return close_after_error(
+                    &client,
+                    TuiExitStatus::CommandRejected(format!("{reason:?}")),
+                )
+                .await;
+            }
         }
     }
 

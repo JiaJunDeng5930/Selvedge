@@ -78,7 +78,7 @@ async fn attach_rejection_returns_attach_rejected() {
 }
 
 #[tokio::test]
-async fn waits_for_snapshot_then_submits_initial_command_and_exits() {
+async fn waits_for_snapshot_then_submits_initial_command_and_reports_rejection() {
     let _guard = TEST_LOCK.lock().await;
     let state = ready_state();
     {
@@ -103,9 +103,44 @@ async fn waits_for_snapshot_then_submits_initial_command_and_exits() {
     let status =
         run_tui::<FakeTransport, _>(valid_args(Some(valid_command("command-1"))), NoopMapper).await;
 
-    assert_eq!(status, TuiExitStatus::Exited);
+    assert_eq!(
+        status,
+        TuiExitStatus::CommandRejected("UnsupportedCommand".to_owned())
+    );
     let state = state.lock().expect("fake state");
     assert_eq!(state.attach_calls, 1);
+    assert_eq!(state.command_calls, 1);
+    assert_eq!(state.close_calls, 1);
+}
+
+#[tokio::test]
+async fn accepted_initial_command_exits_successfully() {
+    let _guard = TEST_LOCK.lock().await;
+    let state = ready_state();
+    {
+        let mut state_guard = state.lock().expect("fake state");
+        state_guard
+            .attach_responses
+            .push_back(AttachAction::Accepted(vec![Ok(
+                LocalClientFrame::Snapshot(LocalClientSnapshotFrame {
+                    delivery_seq: 1,
+                    client_command_id: LocalClientCommandId::new("attach-1").expect("command id"),
+                    snapshot: empty_snapshot(),
+                }),
+            )]));
+        state_guard.command_responses.push_back(CommandResponse {
+            protocol_version: current_protocol_version(),
+            client_command_id: LocalClientCommandId::new("command-1").expect("command id"),
+            outcome: CommandOutcome::Accepted,
+        });
+    }
+    install_connect_plan(Ok(state.clone()));
+
+    let status =
+        run_tui::<FakeTransport, _>(valid_args(Some(valid_command("command-1"))), NoopMapper).await;
+
+    assert_eq!(status, TuiExitStatus::Exited);
+    let state = state.lock().expect("fake state");
     assert_eq!(state.command_calls, 1);
     assert_eq!(state.close_calls, 1);
 }
