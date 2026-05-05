@@ -82,7 +82,9 @@ impl<B: SystemdBackend> SystemdClient<B> {
 
     pub async fn wait_service_active(&self) -> Result<ServiceStatus, SystemdError> {
         validate_config(&self.config)?;
-        let deadline = Instant::now() + self.config.operation_timeout;
+        let deadline = Instant::now()
+            .checked_add(self.config.operation_timeout)
+            .ok_or(SystemdError::Timeout)?;
         loop {
             let now = Instant::now();
             let remaining = deadline.saturating_duration_since(now);
