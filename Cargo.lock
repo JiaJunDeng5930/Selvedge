@@ -1504,6 +1504,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "selvedge-local-protocol"
+version = "0.0.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "selvedge-logging"
 version = "0.0.0"
 dependencies = [
