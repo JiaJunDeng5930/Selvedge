@@ -273,36 +273,47 @@ impl RouterActor {
         admission_tx: selvedge_command_model::RouterAttachAdmissionSender,
     ) -> Result<(), RouterExitStatus> {
         let (result_tx, result_rx) = tokio::sync::oneshot::channel();
-        match self.events_tx.try_send(EventIngress::Control(
-            EventControlMessage::ReserveClientSession(ReserveClientSession {
-                client_id,
-                client_command_id,
-                result_tx,
-            }),
-        )) {
-            Ok(()) => {}
-            Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
-                let _ = admission_tx.send(RouterAttachAdmissionResult::EventsMailboxClosed);
-                return Ok(());
-            }
-            Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
-                let _ = admission_tx.send(RouterAttachAdmissionResult::EventsMailboxClosed);
-                return Err(RouterExitStatus::EventsMailboxClosed);
-            }
+        let cleanup_client_id = client_id.clone();
+        let cleanup_client_command_id = client_command_id.clone();
+        if self
+            .events_tx
+            .send(EventIngress::Control(
+                EventControlMessage::ReserveClientSession(ReserveClientSession {
+                    client_id,
+                    client_command_id,
+                    result_tx,
+                }),
+            ))
+            .await
+            .is_err()
+        {
+            let _ = admission_tx.send(RouterAttachAdmissionResult::EventsMailboxClosed);
+            return Err(RouterExitStatus::EventsMailboxClosed);
         }
 
-        let result = match result_rx.await {
-            Ok(EventClientReservationResult::Reserved) => RouterAttachAdmissionResult::Accepted,
+        let (result, reserved) = match result_rx.await {
+            Ok(EventClientReservationResult::Reserved) => {
+                (RouterAttachAdmissionResult::Accepted, true)
+            }
             Ok(EventClientReservationResult::DuplicateAttach) => {
-                RouterAttachAdmissionResult::DuplicateAttach
+                (RouterAttachAdmissionResult::DuplicateAttach, false)
             }
             Ok(EventClientReservationResult::ClientRegistryFull) => {
-                RouterAttachAdmissionResult::ClientRegistryFull
+                (RouterAttachAdmissionResult::ClientRegistryFull, false)
             }
-            Err(_) => RouterAttachAdmissionResult::EventsMailboxClosed,
+            Err(_) => (RouterAttachAdmissionResult::EventsMailboxClosed, false),
         };
 
-        let _ = admission_tx.send(result);
+        if admission_tx.send(result).is_err() && reserved {
+            self.send_event(EventIngress::Control(EventControlMessage::DetachClient(
+                selvedge_command_model::DetachClient {
+                    client_id: cleanup_client_id,
+                    client_command_id: cleanup_client_command_id,
+                    reason: DetachReason::ClientDisconnected,
+                },
+            )))
+            .await?;
+        }
         Ok(())
     }
 
