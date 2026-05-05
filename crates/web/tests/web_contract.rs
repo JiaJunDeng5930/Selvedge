@@ -237,14 +237,16 @@ async fn stop_closes_active_attach_stream() {
         .await
         .expect("attach accepted");
 
-    handle.control.stop().await;
-
-    assert!(
+    let next_frame = tokio::spawn(async move {
         timeout(Duration::from_secs(1), frames.next())
             .await
             .expect("stream close timeout")
-            .is_none()
-    );
+    });
+    tokio::time::sleep(Duration::from_millis(10)).await;
+
+    handle.control.stop().await;
+
+    assert!(next_frame.await.expect("join next frame").is_none());
     assert_eq!(
         handle.join_handle.await.expect("join web task"),
         WebExitStatus::Stopped
