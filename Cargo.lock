@@ -1513,6 +1513,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "selvedge-local-client"
+version = "0.0.0"
+dependencies = [
+ "futures-core",
+ "futures-util",
+ "selvedge-local-protocol",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "selvedge-local-protocol"
 version = "0.0.0"
 dependencies = [

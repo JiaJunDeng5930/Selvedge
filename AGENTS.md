@@ -72,7 +72,7 @@ This file is for coding agents working in this repository.
 |.cargo:{config.toml}
 |.github:{workflows/}
 |.github/workflows:{ci.yml}
-|crates:{api/,chatgpt-api/,chatgpt-auth/,chatgpt-login/,client-sync/,client/,command-model/,config-model/,config/,core/,db/,domain-model/,events/,local-protocol/,logging/,router/,server/,task-runtime-factory/,web/}
+|crates:{api/,chatgpt-api/,chatgpt-auth/,chatgpt-login/,client-sync/,client/,command-model/,config-model/,config/,core/,db/,domain-model/,events/,local-client/,local-protocol/,logging/,router/,server/,task-runtime-factory/,web/}
 |crates/api:{src/,tests/,Cargo.toml,README.md}
 |crates/api/src:{lib.rs}
 |crates/api/tests:{api_contract.rs}
@@ -117,6 +117,9 @@ This file is for coding agents working in this repository.
 |crates/events:{src/,tests/,Cargo.toml,README.md}
 |crates/events/src:{lib.rs}
 |crates/events/tests:{events_contract.rs}
+|crates/local-client:{src/,tests/,Cargo.toml,README.md}
+|crates/local-client/src:{lib.rs}
+|crates/local-client/tests:{local_client_contract.rs}
 |crates/local-protocol:{src/,tests/,Cargo.toml,README.md}
 |crates/local-protocol/src:{lib.rs}
 |crates/local-protocol/tests:{local_protocol_contract.rs}
