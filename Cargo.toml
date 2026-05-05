@@ -18,6 +18,7 @@ members = [
     "crates/local-protocol",
     "crates/router",
     "crates/server",
+    "crates/systemd",
     "crates/task-runtime-factory",
     "crates/web",
     "xtask",
