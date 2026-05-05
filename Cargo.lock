@@ -1613,6 +1613,7 @@ name = "selvedge-web"
 version = "0.0.0"
 dependencies = [
  "futures-core",
+ "futures-util",
  "selvedge-local-protocol",
  "serde_json",
  "tokio",
