@@ -7,7 +7,6 @@ use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::task::{Context, Poll};
 
 use fs2::FileExt;
 use futures_core::Stream;
@@ -16,24 +15,14 @@ use selvedge_client_sync::{
     ClientSnapshotBuilder, ClientSyncHandle, ClientSyncIngress, ClientSyncStartArgs,
     SpawnClientSyncError, spawn_client_sync,
 };
-use selvedge_command_model::{
-    BeginClientHydration, ClientCommandId, ClientEvent, ClientFrame, ClientId, ClientNotice,
-    ClientNoticeLevel, ClientSnapshot, ClientSubscription, DetailLevel, RouterCommandEnvelope,
-    RouterIngressMessage, RouterIngressSender, TaskScope,
-};
+use selvedge_command_model::{RouterCommandEnvelope, RouterIngressMessage, RouterIngressSender};
 use selvedge_core::TaskRuntimeSpawnDeps;
 use selvedge_db::{OpenDbOptions, open_db};
 use selvedge_events::{EventsHandle, EventsStartArgs, SpawnEventsError, spawn_events_task};
 use selvedge_local_protocol::{
     AttachAccepted, AttachRejected, AttachRequest, CommandOutcome, CommandRejectReason,
-    CommandRequest, CommandResponse, LocalClientEvent, LocalClientFrame, LocalClientNoticeFrame,
-    LocalClientSnapshot, LocalClientSnapshotFrame, LocalDetailLevel, LocalHistoryNodeProjection,
-    LocalHistoryNodeProjectionBody, LocalMessageRole, LocalModelCallStatusEvent,
-    LocalModelCallStatusPhase, LocalNotice, LocalNoticeLevel, LocalReasoningEffort,
-    LocalSnapshotTaskVersion, LocalTaskParentProjection, LocalTaskProjection,
-    LocalTaskProjectionStatus, LocalTaskScope, LocalToolArgumentValue, LocalToolCallArgument,
-    LocalToolExecutionStatusEvent, LocalToolExecutionStatusPhase, ReadyRequest, ReadyResponse,
-    ReadyState, current_protocol_version, validate_attach_request, validate_command_request,
+    CommandRequest, CommandResponse, LocalClientFrame, ReadyRequest, ReadyResponse, ReadyState,
+    current_protocol_version, validate_attach_request, validate_command_request,
     validate_ready_request,
 };
 use selvedge_router::{RouterHandle, RouterStartArgs, SpawnRouterError, ToolExecutionSpawner};
@@ -41,7 +30,7 @@ use selvedge_web::{
     WebBridge, WebHandle, WebLocalhostBind, WebLocalhostHost, WebStartArgs, WebStartError,
     spawn_web_surface,
 };
-use tokio::sync::{Mutex, Notify, RwLock, mpsc};
+use tokio::sync::{Mutex, Notify, RwLock};
 use tokio::task::JoinHandle;
 
 const SQLITE_FILE_NAME: &str = "selvedge.sqlite";
@@ -50,7 +39,6 @@ const DEFAULT_EVENTS_INGRESS_CAPACITY: usize = 64;
 const DEFAULT_CLIENT_REGISTRY_CAPACITY: usize = 64;
 const DEFAULT_HYDRATION_BUFFER_CAPACITY: usize = 256;
 const DEFAULT_CLIENT_SYNC_INGRESS_CAPACITY: usize = 64;
-const DEFAULT_ATTACH_FRAME_CAPACITY: usize = 64;
 
 pub struct ServerStartArgs {
     pub explicit_home: Option<PathBuf>,
@@ -213,7 +201,6 @@ impl ServerControl {
         request: AttachRequest,
     ) -> Result<(AttachAccepted, ServerFrameStream), AttachRejected> {
         let protocol_version = current_protocol_version();
-        let client_id = request.client_id.clone();
         let client_command_id = request.client_command_id.clone();
 
         let reject = |reason| {
@@ -240,30 +227,11 @@ impl ServerControl {
             return reject(CommandRejectReason::RouterMailboxClosed);
         }
 
-        let (outbound, inbound) = mpsc::channel(DEFAULT_ATTACH_FRAME_CAPACITY);
-        let hydration = BeginClientHydration {
-            client_id: ClientId(client_id.0.clone()),
-            client_command_id: ClientCommandId(client_command_id.0.clone()),
-            outbound,
-            subscription: local_subscription_to_command(&request.subscription),
-        };
-
-        let client_sync_tx = self.inner.client_sync_tx.lock().await.clone();
-        if client_sync_tx
-            .send(ClientSyncIngress::StartHydration(hydration))
-            .await
-            .is_err()
-        {
-            return reject(CommandRejectReason::InternalFailure);
-        }
-
-        let accepted = AttachAccepted {
-            protocol_version,
-            client_id,
-            client_command_id,
-        };
-        let stream = Box::pin(ServerMpscFrameStream { inbound });
-        Ok((accepted, stream))
+        // NOTE: Accepted attach streams require client-sync hydration to deliver
+        // the initial snapshot and event stream. The server stage only owns the
+        // lifecycle/control boundary, so a valid attach request is deferred with
+        // an explicit rejection until the client-sync package supplies hydration.
+        reject(CommandRejectReason::ServerNotReady)
     }
 
     pub async fn stop(&self) {
@@ -495,306 +463,6 @@ impl WebBridge for ServerWebBridge {
                 ),
             ))
         })
-    }
-}
-
-struct ServerMpscFrameStream {
-    inbound: mpsc::Receiver<ClientFrame>,
-}
-
-impl Stream for ServerMpscFrameStream {
-    type Item = Result<LocalClientFrame, ServerRequestError>;
-
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let this = self.get_mut();
-        match this.inbound.poll_recv(cx) {
-            Poll::Ready(Some(frame)) => Poll::Ready(Some(command_frame_to_local(frame))),
-            Poll::Ready(None) => Poll::Ready(None),
-            Poll::Pending => Poll::Pending,
-        }
-    }
-}
-
-fn command_frame_to_local(frame: ClientFrame) -> Result<LocalClientFrame, ServerRequestError> {
-    match frame {
-        ClientFrame::Snapshot(frame) => Ok(LocalClientFrame::Snapshot(LocalClientSnapshotFrame {
-            delivery_seq: frame.delivery_seq.0,
-            client_command_id: selvedge_local_protocol::LocalClientCommandId(
-                frame.client_command_id.0,
-            ),
-            snapshot: client_snapshot_to_local(frame.snapshot),
-        })),
-        ClientFrame::Event(frame) => Ok(LocalClientFrame::Event(
-            selvedge_local_protocol::LocalClientEventFrame {
-                delivery_seq: frame.delivery_seq.0,
-                event: client_event_to_local(frame.event),
-            },
-        )),
-        ClientFrame::Notice(frame) => Ok(LocalClientFrame::Notice(LocalClientNoticeFrame {
-            delivery_seq: frame.delivery_seq.0,
-            client_command_id: selvedge_local_protocol::LocalClientCommandId(
-                frame.client_command_id.0,
-            ),
-            notice: client_notice_to_local(frame.notice),
-        })),
-    }
-}
-
-fn client_snapshot_to_local(snapshot: ClientSnapshot) -> LocalClientSnapshot {
-    LocalClientSnapshot {
-        generated_at: snapshot.generated_at.0,
-        tasks: snapshot
-            .tasks
-            .into_iter()
-            .map(|task| LocalTaskProjection {
-                task_id: task.task_id.0,
-                status: match task.status {
-                    selvedge_command_model::TaskProjectionStatus::Active => {
-                        LocalTaskProjectionStatus::Active
-                    }
-                    selvedge_command_model::TaskProjectionStatus::Archived => {
-                        LocalTaskProjectionStatus::Archived
-                    }
-                },
-                cursor_node_id: task.cursor_node_id.0,
-                model_profile_key: task.model_profile_key.0,
-                reasoning_effort: reasoning_effort_to_local(task.reasoning_effort),
-                state_version: task.state_version,
-                created_at: task.created_at.0,
-                updated_at: task.updated_at.0,
-            })
-            .collect(),
-        task_parent_edges: snapshot
-            .task_parent_edges
-            .into_iter()
-            .map(|edge| LocalTaskParentProjection {
-                parent_task_id: edge.parent_task_id.0,
-                child_task_id: edge.child_task_id.0,
-            })
-            .collect(),
-        history_nodes: snapshot
-            .history_nodes
-            .into_iter()
-            .map(history_node_to_local)
-            .collect(),
-        task_versions: snapshot
-            .task_versions
-            .into_iter()
-            .map(|version| LocalSnapshotTaskVersion {
-                task_id: version.task_id.0,
-                state_version: version.state_version,
-            })
-            .collect(),
-    }
-}
-
-fn history_node_to_local(
-    node: selvedge_command_model::HistoryNodeProjection,
-) -> LocalHistoryNodeProjection {
-    LocalHistoryNodeProjection {
-        node_id: node.node_id.0,
-        parent_node_id: node.parent_node_id.map(|id| id.0),
-        created_at: node.created_at.0,
-        body: match node.body {
-            selvedge_command_model::HistoryNodeProjectionBody::Message { role, text } => {
-                LocalHistoryNodeProjectionBody::Message {
-                    role: message_role_to_local(role),
-                    text,
-                }
-            }
-            selvedge_command_model::HistoryNodeProjectionBody::Reasoning { text } => {
-                LocalHistoryNodeProjectionBody::Reasoning { text }
-            }
-            selvedge_command_model::HistoryNodeProjectionBody::FunctionCall {
-                function_call_id,
-                tool_name,
-                arguments,
-            } => LocalHistoryNodeProjectionBody::FunctionCall {
-                function_call_id: function_call_id.0,
-                tool_name: tool_name.0,
-                arguments: arguments
-                    .into_iter()
-                    .map(|argument| LocalToolCallArgument {
-                        name: argument.name.0,
-                        value: tool_argument_value_to_local(argument.value),
-                    })
-                    .collect(),
-            },
-            selvedge_command_model::HistoryNodeProjectionBody::FunctionOutput {
-                function_call_node_id,
-                function_call_id,
-                tool_name,
-                output_text,
-                is_error,
-            } => LocalHistoryNodeProjectionBody::FunctionOutput {
-                function_call_node_id: function_call_node_id.0,
-                function_call_id: function_call_id.0,
-                tool_name: tool_name.0,
-                output_text,
-                is_error,
-            },
-        },
-    }
-}
-
-fn client_event_to_local(event: ClientEvent) -> LocalClientEvent {
-    match event {
-        ClientEvent::TaskChanged(event) => {
-            LocalClientEvent::TaskChanged(selvedge_local_protocol::LocalTaskChangedEvent {
-                task: client_snapshot_to_local(ClientSnapshot {
-                    generated_at: selvedge_domain_model::UnixTs(0),
-                    tasks: vec![event.task],
-                    task_parent_edges: Vec::new(),
-                    history_nodes: Vec::new(),
-                    task_versions: Vec::new(),
-                })
-                .tasks
-                .remove(0),
-            })
-        }
-        ClientEvent::HistoryAppended(event) => {
-            LocalClientEvent::HistoryAppended(selvedge_local_protocol::LocalHistoryAppendedEvent {
-                task_id: event.task_id.0,
-                task_state_version: event.task_state_version,
-                appended_nodes: event
-                    .appended_nodes
-                    .into_iter()
-                    .map(history_node_to_local)
-                    .collect(),
-            })
-        }
-        ClientEvent::ModelCallStatus(event) => {
-            LocalClientEvent::ModelCallStatus(LocalModelCallStatusEvent {
-                task_id: event.task_id.0,
-                model_call_id: event.model_call_id.0,
-                phase: model_phase_to_local(event.phase),
-            })
-        }
-        ClientEvent::ToolExecutionStatus(event) => {
-            LocalClientEvent::ToolExecutionStatus(LocalToolExecutionStatusEvent {
-                task_id: event.task_id.0,
-                tool_execution_run_id: event.tool_execution_run_id.0,
-                function_call_node_id: event.function_call_node_id.0,
-                tool_name: event.tool_name.0,
-                phase: tool_phase_to_local(event.phase),
-            })
-        }
-        ClientEvent::DebugNotice(event) => {
-            LocalClientEvent::DebugNotice(selvedge_local_protocol::LocalDebugNoticeEvent {
-                task_id: event.task_id.map(|id| id.0),
-                message_text: event.message_text,
-            })
-        }
-    }
-}
-
-fn local_subscription_to_command(
-    subscription: &selvedge_local_protocol::LocalClientSubscription,
-) -> ClientSubscription {
-    ClientSubscription {
-        task_scope: match &subscription.task_scope {
-            LocalTaskScope::AllTasks => TaskScope::AllTasks,
-            LocalTaskScope::TaskIds(task_ids) => TaskScope::TaskIds(
-                task_ids
-                    .iter()
-                    .map(|task_id| selvedge_command_model::TaskId(task_id.clone()))
-                    .collect(),
-            ),
-        },
-        detail_level: match subscription.detail_level {
-            LocalDetailLevel::Summary => DetailLevel::Summary,
-            LocalDetailLevel::Verbose => DetailLevel::Verbose,
-        },
-        include_model_call_status: subscription.include_model_call_status,
-        include_tool_execution_status: subscription.include_tool_execution_status,
-        include_debug_notices: subscription.include_debug_notices,
-    }
-}
-
-fn client_notice_to_local(notice: ClientNotice) -> LocalNotice {
-    LocalNotice {
-        level: match notice.level {
-            ClientNoticeLevel::Info => LocalNoticeLevel::Info,
-            ClientNoticeLevel::Warning => LocalNoticeLevel::Warning,
-            ClientNoticeLevel::Error => LocalNoticeLevel::Error,
-        },
-        message_text: notice.message_text,
-    }
-}
-
-fn reasoning_effort_to_local(
-    effort: selvedge_domain_model::ReasoningEffort,
-) -> LocalReasoningEffort {
-    match effort {
-        selvedge_domain_model::ReasoningEffort::Minimal => LocalReasoningEffort::Minimal,
-        selvedge_domain_model::ReasoningEffort::Low => LocalReasoningEffort::Low,
-        selvedge_domain_model::ReasoningEffort::Medium => LocalReasoningEffort::Medium,
-        selvedge_domain_model::ReasoningEffort::High => LocalReasoningEffort::High,
-    }
-}
-
-fn message_role_to_local(role: selvedge_domain_model::MessageRole) -> LocalMessageRole {
-    match role {
-        selvedge_domain_model::MessageRole::System => LocalMessageRole::System,
-        selvedge_domain_model::MessageRole::Developer => LocalMessageRole::Developer,
-        selvedge_domain_model::MessageRole::User => LocalMessageRole::User,
-        selvedge_domain_model::MessageRole::Assistant => LocalMessageRole::Assistant,
-        selvedge_domain_model::MessageRole::Tool => LocalMessageRole::Tool,
-    }
-}
-
-fn tool_argument_value_to_local(
-    value: selvedge_domain_model::ToolArgumentValue,
-) -> LocalToolArgumentValue {
-    match value {
-        selvedge_domain_model::ToolArgumentValue::String(value) => {
-            LocalToolArgumentValue::String(value)
-        }
-        selvedge_domain_model::ToolArgumentValue::Integer(value) => {
-            LocalToolArgumentValue::Integer(value)
-        }
-        selvedge_domain_model::ToolArgumentValue::Number(value) => {
-            LocalToolArgumentValue::Number(value)
-        }
-        selvedge_domain_model::ToolArgumentValue::Boolean(value) => {
-            LocalToolArgumentValue::Boolean(value)
-        }
-    }
-}
-
-fn model_phase_to_local(
-    phase: selvedge_command_model::ModelCallStatusPhase,
-) -> LocalModelCallStatusPhase {
-    match phase {
-        selvedge_command_model::ModelCallStatusPhase::Requested => {
-            LocalModelCallStatusPhase::Requested
-        }
-        selvedge_command_model::ModelCallStatusPhase::Completed => {
-            LocalModelCallStatusPhase::Completed
-        }
-        selvedge_command_model::ModelCallStatusPhase::Failed => LocalModelCallStatusPhase::Failed,
-        selvedge_command_model::ModelCallStatusPhase::Discarded => {
-            LocalModelCallStatusPhase::Discarded
-        }
-    }
-}
-
-fn tool_phase_to_local(
-    phase: selvedge_command_model::ToolExecutionStatusPhase,
-) -> LocalToolExecutionStatusPhase {
-    match phase {
-        selvedge_command_model::ToolExecutionStatusPhase::Requested => {
-            LocalToolExecutionStatusPhase::Requested
-        }
-        selvedge_command_model::ToolExecutionStatusPhase::Completed => {
-            LocalToolExecutionStatusPhase::Completed
-        }
-        selvedge_command_model::ToolExecutionStatusPhase::Failed => {
-            LocalToolExecutionStatusPhase::Failed
-        }
-        selvedge_command_model::ToolExecutionStatusPhase::Discarded => {
-            LocalToolExecutionStatusPhase::Discarded
-        }
     }
 }
 
