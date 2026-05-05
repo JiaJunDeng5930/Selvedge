@@ -118,25 +118,12 @@ impl EventsTask {
     }
 
     fn begin_hydration(&mut self, begin: BeginClientHydration) {
-        if self
-            .reservations
-            .get(&begin.client_id)
-            .is_some_and(|reserved| reserved != &begin.client_command_id)
-        {
-            return;
-        }
-
         let reserved = self.reservations.get(&begin.client_id) == Some(&begin.client_command_id);
-        if !self.sessions.contains_key(&begin.client_id)
-            && !reserved
-            && self.sessions.len() + self.reservations.len() >= self.client_registry_capacity
-        {
+        if !reserved {
             return;
         }
 
-        if reserved {
-            self.reservations.remove(&begin.client_id);
-        }
+        self.reservations.remove(&begin.client_id);
         self.sessions.insert(
             begin.client_id,
             ClientSession {

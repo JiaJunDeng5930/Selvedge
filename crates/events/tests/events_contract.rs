@@ -65,18 +65,7 @@ async fn hydrating_client_receives_snapshot_before_uncovered_buffered_events() {
     .expect("valid events task");
     let (outbound, mut outbound_rx) = mpsc::channel(8);
 
-    handle
-        .ingress_tx
-        .send(EventIngress::Control(
-            EventControlMessage::BeginClientHydration(BeginClientHydration {
-                client_id: client_id(),
-                client_command_id: ClientCommandId("attach-1".to_owned()),
-                outbound,
-                subscription: verbose_all_tasks(),
-            }),
-        ))
-        .await
-        .expect("send begin hydration");
+    begin_client(&handle.ingress_tx, outbound, verbose_all_tasks()).await;
 
     handle
         .ingress_tx
@@ -450,6 +439,57 @@ async fn reserved_client_session_is_consumed_by_matching_begin() {
         tokio::time::timeout(Duration::from_secs(1), blocked_rx.recv())
             .await
             .expect("blocked client channel closes")
+            .is_none()
+    );
+
+    drop(handle.ingress_tx);
+    handle.join_handle.await.expect("events task exits cleanly");
+}
+
+#[tokio::test]
+async fn begin_without_matching_reservation_does_not_create_session() {
+    let handle = spawn_events_task(EventsStartArgs {
+        ingress_capacity: 8,
+        client_registry_capacity: 1,
+        hydration_buffer_capacity: 4,
+    })
+    .expect("valid events task");
+    let (outbound, mut rx) = mpsc::channel(8);
+
+    assert_eq!(
+        reserve_client_session(
+            &handle.ingress_tx,
+            ClientId("client-1".to_owned()),
+            ClientCommandId("attach-1".to_owned()),
+        )
+        .await,
+        EventClientReservationResult::Reserved
+    );
+    handle
+        .ingress_tx
+        .send(EventIngress::Control(EventControlMessage::DetachClient(
+            DetachClient {
+                client_id: ClientId("client-1".to_owned()),
+                client_command_id: ClientCommandId("attach-1".to_owned()),
+                reason: DetachReason::ClientDisconnected,
+            },
+        )))
+        .await
+        .expect("send detach");
+    begin_named_client_with_command_without_reservation(
+        &handle.ingress_tx,
+        ClientId("client-1".to_owned()),
+        outbound,
+        ClientCommandId("attach-1".to_owned()),
+        verbose_all_tasks(),
+    )
+    .await;
+    deliver_named_empty_snapshot(&handle.ingress_tx, ClientId("client-1".to_owned())).await;
+
+    assert!(
+        tokio::time::timeout(Duration::from_secs(1), rx.recv())
+            .await
+            .expect("unreserved begin channel closes")
             .is_none()
     );
 
@@ -879,6 +919,24 @@ async fn begin_named_client(
 }
 
 async fn begin_named_client_with_command(
+    ingress_tx: &selvedge_command_model::EventIngressSender,
+    client_id: ClientId,
+    outbound: selvedge_command_model::ClientFrameSender,
+    client_command_id: ClientCommandId,
+    subscription: ClientSubscription,
+) {
+    let _ = reserve_client_session(ingress_tx, client_id.clone(), client_command_id.clone()).await;
+    begin_named_client_with_command_without_reservation(
+        ingress_tx,
+        client_id,
+        outbound,
+        client_command_id,
+        subscription,
+    )
+    .await;
+}
+
+async fn begin_named_client_with_command_without_reservation(
     ingress_tx: &selvedge_command_model::EventIngressSender,
     client_id: ClientId,
     outbound: selvedge_command_model::ClientFrameSender,
