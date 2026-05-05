@@ -21,9 +21,10 @@ use selvedge_command_model::{
     BeginClientHydration, ClientCommandId, ClientEvent, ClientFrame, ClientId, ClientNotice,
     ClientNoticeLevel, ClientSnapshot, ClientSubscription, DeliverySeq, DetachClient, DetachReason,
     DetailLevel, EventControlMessage, EventIngress, EventIngressSender, HistoryNodeProjection,
-    HistoryNodeProjectionBody, ModelCallStatusPhase, RouterCommandEnvelope, RouterIngressMessage,
-    RouterIngressSender, SnapshotTaskVersion, TaskParentProjection, TaskProjection,
-    TaskProjectionStatus, TaskScope, ToolExecutionStatusPhase,
+    HistoryNodeProjectionBody, ModelCallStatusPhase, RouterAttachAdmissionResult, RouterCommand,
+    RouterCommandEnvelope, RouterIngressMessage, RouterIngressSender, SnapshotTaskVersion,
+    TaskParentProjection, TaskProjection, TaskProjectionStatus, TaskScope,
+    ToolExecutionStatusPhase,
 };
 use selvedge_core::TaskRuntimeSpawnDeps;
 use selvedge_db::{OpenDbOptions, open_db};
@@ -271,11 +272,46 @@ impl ServerControl {
         );
 
         let (outbound_tx, outbound_rx) = mpsc::channel(DEFAULT_HYDRATION_BUFFER_CAPACITY);
+        let subscription = local_subscription_to_command(request.subscription);
+        let (admission_tx, admission_rx) = tokio::sync::oneshot::channel();
+        if self
+            .inner
+            .router_tx
+            .send(RouterIngressMessage::Command(RouterCommandEnvelope {
+                client_id: Some(client_id.clone()),
+                client_command_id: Some(client_command_id.clone()),
+                command: RouterCommand::AttachClient {
+                    client_id: client_id.clone(),
+                    client_command_id: client_command_id.clone(),
+                    outbound: outbound_tx.clone(),
+                    subscription: subscription.clone(),
+                    admission_tx,
+                },
+            }))
+            .is_err()
+        {
+            self.begin_shutdown_locked().await;
+            return reject(AttachRejectReason::RouterMailboxClosed);
+        }
+
+        match admission_rx.await {
+            Ok(RouterAttachAdmissionResult::Accepted) => {}
+            Ok(RouterAttachAdmissionResult::DuplicateAttach) => {
+                return reject(AttachRejectReason::DuplicateAttach);
+            }
+            Ok(RouterAttachAdmissionResult::ClientRegistryFull) => {
+                return reject(AttachRejectReason::ClientRegistryFull);
+            }
+            Ok(RouterAttachAdmissionResult::EventsMailboxClosed) | Err(_) => {
+                return reject(AttachRejectReason::InternalFailure);
+            }
+        }
+
         let begin = BeginClientHydration {
             client_id: client_id.clone(),
             client_command_id: client_command_id.clone(),
             outbound: outbound_tx,
-            subscription: local_subscription_to_command(request.subscription),
+            subscription,
         };
         let Some(events_tx) = self.inner.events_tx.lock().await.as_ref().cloned() else {
             return reject(AttachRejectReason::InternalFailure);
@@ -285,9 +321,21 @@ impl ServerControl {
         match client_sync_tx.try_send(ClientSyncIngress::StartHydration(begin)) {
             Ok(()) => {}
             Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
+                send_detach_client(
+                    &events_tx,
+                    client_id.clone(),
+                    client_command_id.clone(),
+                    DetachReason::ClientDisconnected,
+                );
                 return reject(AttachRejectReason::ClientSyncUnavailable);
             }
             Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
+                send_detach_client(
+                    &events_tx,
+                    client_id.clone(),
+                    client_command_id.clone(),
+                    DetachReason::ClientDisconnected,
+                );
                 self.begin_shutdown_locked().await;
                 return reject(AttachRejectReason::ClientSyncUnavailable);
             }
@@ -1286,7 +1334,7 @@ mod tests {
 
     #[tokio::test]
     async fn attach_closed_client_sync_shutdown_path_returns_rejection() {
-        let (router_tx, _router_rx) = mpsc::unbounded_channel();
+        let router_tx = accepting_router_sender();
         let (client_sync_tx, client_sync_rx) = mpsc::channel(1);
         drop(client_sync_rx);
         let (events_tx, _events_rx) = mpsc::channel(1);
@@ -1309,7 +1357,7 @@ mod tests {
 
     #[tokio::test]
     async fn duplicate_active_attach_rejects_without_second_start() {
-        let (router_tx, _router_rx) = mpsc::unbounded_channel();
+        let router_tx = accepting_router_sender();
         let (client_sync_tx, mut client_sync_rx) = mpsc::channel(4);
         let (events_tx, _events_rx) = mpsc::channel(4);
         let control = test_control(router_tx, client_sync_tx, events_tx);
@@ -1337,7 +1385,7 @@ mod tests {
 
     #[tokio::test]
     async fn new_client_attach_rejects_when_registry_capacity_is_reserved() {
-        let (router_tx, _router_rx) = mpsc::unbounded_channel();
+        let router_tx = accepting_router_sender();
         let (client_sync_tx, mut client_sync_rx) =
             mpsc::channel(DEFAULT_CLIENT_REGISTRY_CAPACITY + 1);
         let (events_tx, _events_rx) = mpsc::channel(4);
@@ -1379,7 +1427,7 @@ mod tests {
 
     #[tokio::test]
     async fn stale_stream_drop_after_replacement_preserves_new_active_attach() {
-        let (router_tx, _router_rx) = mpsc::unbounded_channel();
+        let router_tx = accepting_router_sender();
         let (client_sync_tx, mut client_sync_rx) = mpsc::channel(8);
         let (events_tx, mut events_rx) = mpsc::channel(8);
         let control = test_control(router_tx, client_sync_tx, events_tx);
@@ -1425,7 +1473,7 @@ mod tests {
 
     #[tokio::test]
     async fn closed_frame_channel_clears_active_attach_before_stream_drop() {
-        let (router_tx, _router_rx) = mpsc::unbounded_channel();
+        let router_tx = accepting_router_sender();
         let (client_sync_tx, mut client_sync_rx) = mpsc::channel(4);
         let (events_tx, _events_rx) = mpsc::channel(4);
         let control = test_control(router_tx, client_sync_tx, events_tx);
@@ -1455,7 +1503,7 @@ mod tests {
 
     #[tokio::test]
     async fn backpressured_client_sync_rejects_and_restores_attach_slot() {
-        let (router_tx, _router_rx) = mpsc::unbounded_channel();
+        let router_tx = accepting_router_sender();
         let (client_sync_tx, mut client_sync_rx) = mpsc::channel(1);
         client_sync_tx
             .send(ClientSyncIngress::Shutdown)
@@ -1479,7 +1527,7 @@ mod tests {
 
     #[tokio::test]
     async fn dropped_attach_stream_sends_cancel_and_client_disconnect_detach() {
-        let (router_tx, _router_rx) = mpsc::unbounded_channel();
+        let router_tx = accepting_router_sender();
         let (client_sync_tx, mut client_sync_rx) = mpsc::channel(4);
         let (events_tx, mut events_rx) = mpsc::channel(4);
         let control = test_control(router_tx, client_sync_tx, events_tx);
@@ -1539,7 +1587,7 @@ mod tests {
 
     #[tokio::test]
     async fn full_events_mailbox_delays_active_attach_release_until_detach_is_queued() {
-        let (router_tx, _router_rx) = mpsc::unbounded_channel();
+        let router_tx = accepting_router_sender();
         let (client_sync_tx, mut client_sync_rx) = mpsc::channel(4);
         let (events_tx, mut events_rx) = mpsc::channel(1);
         events_tx
@@ -1609,6 +1657,25 @@ mod tests {
             .attach_client(test_attach_request())
             .await
             .expect("attach accepted after detach queued");
+    }
+
+    fn accepting_router_sender() -> RouterIngressSender {
+        let (router_tx, mut router_rx) = mpsc::unbounded_channel();
+        tokio::spawn(async move {
+            while let Some(message) = router_rx.recv().await {
+                match message {
+                    RouterIngressMessage::Command(RouterCommandEnvelope {
+                        command: RouterCommand::AttachClient { admission_tx, .. },
+                        ..
+                    }) => {
+                        let _ = admission_tx.send(RouterAttachAdmissionResult::Accepted);
+                    }
+                    RouterIngressMessage::StopRouter => break,
+                    _ => {}
+                }
+            }
+        });
+        router_tx
     }
 
     fn test_control(

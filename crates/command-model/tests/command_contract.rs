@@ -264,6 +264,7 @@ fn router_command_validation_enforces_envelope_and_task_payload_contract() {
         include_tool_execution_status: true,
         include_debug_notices: true,
     };
+    let (admission_tx, _admission_rx) = tokio::sync::oneshot::channel();
 
     let attach = RouterCommandEnvelope {
         client_id: Some(ClientId("client-1".to_owned())),
@@ -273,6 +274,7 @@ fn router_command_validation_enforces_envelope_and_task_payload_contract() {
             client_command_id: ClientCommandId("attach-1".to_owned()),
             outbound,
             subscription,
+            admission_tx,
         },
     };
     validate_router_command(&attach).expect("valid attach command");

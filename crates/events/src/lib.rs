@@ -5,8 +5,8 @@ use std::collections::{BTreeMap, HashMap};
 use selvedge_command_model::{
     BeginClientHydration, ClientEvent, ClientEventFrame, ClientFrame, ClientFrameSender, ClientId,
     ClientNoticeFrame, ClientSnapshot, ClientSnapshotFrame, ClientSubscription, DeliverNotice,
-    DeliverSnapshot, DetailLevel, EventControlMessage, EventIngress, EventIngressSender, RawEvent,
-    TaskId, TaskScope, UpdateSubscription,
+    DeliverSnapshot, DetailLevel, EventClientReservationResult, EventControlMessage, EventIngress,
+    EventIngressSender, RawEvent, ReserveClientSession, TaskId, TaskScope, UpdateSubscription,
 };
 use tokio::sync::mpsc::{self, error::TrySendError};
 
@@ -60,6 +60,7 @@ pub fn spawn_events_task(args: EventsStartArgs) -> Result<EventsHandle, SpawnEve
 
 struct EventsTask {
     sessions: HashMap<ClientId, ClientSession>,
+    reservations: HashMap<ClientId, selvedge_command_model::ClientCommandId>,
     client_registry_capacity: usize,
     hydration_buffer_capacity: usize,
 }
@@ -68,6 +69,7 @@ impl EventsTask {
     fn new(args: EventsStartArgs) -> Self {
         Self {
             sessions: HashMap::with_capacity(args.client_registry_capacity),
+            reservations: HashMap::with_capacity(args.client_registry_capacity),
             client_registry_capacity: args.client_registry_capacity,
             hydration_buffer_capacity: args.hydration_buffer_capacity,
         }
@@ -82,6 +84,9 @@ impl EventsTask {
 
     async fn handle_control(&mut self, control: EventControlMessage) {
         match control {
+            EventControlMessage::ReserveClientSession(reservation) => {
+                self.reserve_client_session(reservation)
+            }
             EventControlMessage::BeginClientHydration(begin) => self.begin_hydration(begin),
             EventControlMessage::DeliverSnapshot(snapshot) => self.deliver_snapshot(snapshot).await,
             EventControlMessage::DeliverNotice(notice) => self.deliver_notice(notice).await,
@@ -90,13 +95,48 @@ impl EventsTask {
         }
     }
 
+    fn reserve_client_session(&mut self, reservation: ReserveClientSession) {
+        let result = if self
+            .sessions
+            .get(&reservation.client_id)
+            .is_some_and(|session| session.client_command_id == reservation.client_command_id)
+            || self.reservations.get(&reservation.client_id) == Some(&reservation.client_command_id)
+        {
+            EventClientReservationResult::DuplicateAttach
+        } else if !self.sessions.contains_key(&reservation.client_id)
+            && !self.reservations.contains_key(&reservation.client_id)
+            && self.sessions.len() + self.reservations.len() >= self.client_registry_capacity
+        {
+            EventClientReservationResult::ClientRegistryFull
+        } else {
+            self.reservations
+                .insert(reservation.client_id, reservation.client_command_id);
+            EventClientReservationResult::Reserved
+        };
+
+        let _ = reservation.result_tx.send(result);
+    }
+
     fn begin_hydration(&mut self, begin: BeginClientHydration) {
-        if !self.sessions.contains_key(&begin.client_id)
-            && self.sessions.len() >= self.client_registry_capacity
+        if self
+            .reservations
+            .get(&begin.client_id)
+            .is_some_and(|reserved| reserved != &begin.client_command_id)
         {
             return;
         }
 
+        let reserved = self.reservations.get(&begin.client_id) == Some(&begin.client_command_id);
+        if !self.sessions.contains_key(&begin.client_id)
+            && !reserved
+            && self.sessions.len() + self.reservations.len() >= self.client_registry_capacity
+        {
+            return;
+        }
+
+        if reserved {
+            self.reservations.remove(&begin.client_id);
+        }
         self.sessions.insert(
             begin.client_id,
             ClientSession {
@@ -197,6 +237,10 @@ impl EventsTask {
     }
 
     fn detach_client(&mut self, detach: selvedge_command_model::DetachClient) {
+        if self.reservations.get(&detach.client_id) == Some(&detach.client_command_id) {
+            self.reservations.remove(&detach.client_id);
+        }
+
         let Some(session) = self.sessions.get(&detach.client_id) else {
             return;
         };
