@@ -3,14 +3,13 @@
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU8, Ordering};
 
 use futures_core::Stream;
 use selvedge_local_protocol::{
     AttachAccepted, AttachRejected, AttachRequest, CommandRequest, CommandResponse,
     LocalClientFrame, ReadyRequest, ReadyResponse,
 };
-use tokio::sync::Notify;
+use tokio::sync::watch;
 use tokio::task::JoinHandle;
 
 pub struct WebStartArgs {
@@ -41,8 +40,7 @@ pub struct WebControl {
 }
 
 struct WebControlInner {
-    state: AtomicU8,
-    stop_notify: Notify,
+    state_tx: watch::Sender<WebRuntimeState>,
 }
 
 pub type WebFrameStream =
@@ -105,26 +103,18 @@ pub fn spawn_web_surface(args: WebStartArgs) -> Result<WebHandle, WebStartError>
     }
 
     let _bridge = args.bridge;
+    let (state_tx, mut state_rx) = watch::channel(WebRuntimeState::Listening);
     let control = WebControl {
-        inner: Arc::new(WebControlInner {
-            state: AtomicU8::new(web_state_code(WebRuntimeState::Listening)),
-            stop_notify: Notify::new(),
-        }),
+        inner: Arc::new(WebControlInner { state_tx }),
     };
     let task_control = control.clone();
     let join_handle = tokio::spawn(async move {
-        loop {
-            if task_control.inner.state.load(Ordering::SeqCst)
-                == web_state_code(WebRuntimeState::Closing)
-            {
+        while state_rx.changed().await.is_ok() {
+            if *state_rx.borrow() == WebRuntimeState::Closing {
                 break;
             }
-            task_control.inner.stop_notify.notified().await;
         }
-        task_control
-            .inner
-            .state
-            .store(web_state_code(WebRuntimeState::Stopped), Ordering::SeqCst);
+        let _ = task_control.inner.state_tx.send(WebRuntimeState::Stopped);
         WebExitStatus::Stopped
     });
 
@@ -136,33 +126,10 @@ pub fn spawn_web_surface(args: WebStartArgs) -> Result<WebHandle, WebStartError>
 
 impl WebControl {
     pub async fn state(&self) -> WebRuntimeState {
-        web_state_from_code(self.inner.state.load(Ordering::SeqCst))
+        self.inner.state_tx.borrow().clone()
     }
 
     pub async fn stop(&self) {
-        self.inner
-            .state
-            .store(web_state_code(WebRuntimeState::Closing), Ordering::SeqCst);
-        self.inner.stop_notify.notify_waiters();
-    }
-}
-
-fn web_state_code(state: WebRuntimeState) -> u8 {
-    match state {
-        WebRuntimeState::Binding => 0,
-        WebRuntimeState::Listening => 1,
-        WebRuntimeState::Closing => 2,
-        WebRuntimeState::Stopped => 3,
-        WebRuntimeState::Failed => 4,
-    }
-}
-
-fn web_state_from_code(code: u8) -> WebRuntimeState {
-    match code {
-        0 => WebRuntimeState::Binding,
-        1 => WebRuntimeState::Listening,
-        2 => WebRuntimeState::Closing,
-        3 => WebRuntimeState::Stopped,
-        _ => WebRuntimeState::Failed,
+        let _ = self.inner.state_tx.send(WebRuntimeState::Closing);
     }
 }
