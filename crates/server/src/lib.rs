@@ -282,13 +282,15 @@ impl ServerControl {
         };
         let client_sync_tx = self.inner.client_sync_tx.lock().await.clone();
 
-        if client_sync_tx
-            .send(ClientSyncIngress::StartHydration(begin))
-            .await
-            .is_err()
-        {
-            self.begin_shutdown_locked().await;
-            return reject(AttachRejectReason::ClientSyncUnavailable);
+        match client_sync_tx.try_send(ClientSyncIngress::StartHydration(begin)) {
+            Ok(()) => {}
+            Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
+                return reject(AttachRejectReason::ClientSyncUnavailable);
+            }
+            Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
+                self.begin_shutdown_locked().await;
+                return reject(AttachRejectReason::ClientSyncUnavailable);
+            }
         }
 
         if let Some(previous_command_id) = reservation.previous_attach() {
@@ -660,8 +662,6 @@ impl Drop for ServerAttachFrameStream {
         let client_id = self.client_id.clone();
         let client_command_id = self.client_command_id.clone();
 
-        clear_active_attach(&self.active_attaches, &client_id, &client_command_id);
-
         if let Some(client_sync_tx) = self.client_sync_tx.upgrade() {
             send_cancel_hydration(
                 &client_sync_tx,
@@ -671,13 +671,15 @@ impl Drop for ServerAttachFrameStream {
         }
 
         let Some(events_tx) = self.events_tx.upgrade() else {
+            clear_active_attach(&self.active_attaches, &client_id, &client_command_id);
             return;
         };
-        send_detach_client(
+        send_detach_client_and_clear_active(
             &events_tx,
             client_id,
             client_command_id,
             DetachReason::ClientDisconnected,
+            Arc::clone(&self.active_attaches),
         );
     }
 }
@@ -729,6 +731,35 @@ fn send_detach_client(
             }
         }
         Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {}
+    }
+}
+
+fn send_detach_client_and_clear_active(
+    events_tx: &EventIngressSender,
+    client_id: ClientId,
+    client_command_id: ClientCommandId,
+    reason: DetachReason,
+    active_attaches: ActiveAttachRegistry,
+) {
+    let retry_events_tx = events_tx.clone();
+    let detach = EventIngress::Control(EventControlMessage::DetachClient(DetachClient {
+        client_id: client_id.clone(),
+        client_command_id: client_command_id.clone(),
+        reason,
+    }));
+
+    match events_tx.try_send(detach) {
+        Ok(()) | Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
+            clear_active_attach(&active_attaches, &client_id, &client_command_id);
+        }
+        Err(tokio::sync::mpsc::error::TrySendError::Full(detach)) => {
+            if let Ok(handle) = tokio::runtime::Handle::try_current() {
+                handle.spawn(async move {
+                    let _ = retry_events_tx.send(detach).await;
+                    clear_active_attach(&active_attaches, &client_id, &client_command_id);
+                });
+            }
+        }
     }
 }
 
@@ -1416,7 +1447,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn cancelled_attach_future_restores_reserved_attach_slot() {
+    async fn backpressured_client_sync_rejects_and_restores_attach_slot() {
         let (router_tx, _router_rx) = mpsc::unbounded_channel();
         let (client_sync_tx, mut client_sync_rx) = mpsc::channel(1);
         client_sync_tx
@@ -1425,28 +1456,12 @@ mod tests {
             .expect("fill client-sync mailbox");
         let (events_tx, _events_rx) = mpsc::channel(4);
         let control = test_control(router_tx, client_sync_tx, events_tx);
-        let task_control = control.clone();
-        let attach_task =
-            tokio::spawn(async move { task_control.attach_client(test_attach_request()).await });
 
-        timeout(Duration::from_millis(100), async {
-            loop {
-                if !control
-                    .inner
-                    .active_attaches
-                    .lock()
-                    .expect("active attach registry")
-                    .is_empty()
-                {
-                    break;
-                }
-                tokio::task::yield_now().await;
-            }
-        })
-        .await
-        .expect("attach reservation appears");
-        attach_task.abort();
-        let _ = attach_task.await;
+        let rejected = match control.attach_client(test_attach_request()).await {
+            Ok(_) => panic!("backpressured client-sync should reject"),
+            Err(rejected) => rejected,
+        };
+        assert_eq!(rejected.reason, AttachRejectReason::ClientSyncUnavailable);
         let _ = client_sync_rx.recv().await.expect("drain filled mailbox");
 
         let (_accepted, _stream) = control
@@ -1513,6 +1528,78 @@ mod tests {
             }
             _ => panic!("unexpected events ingress"),
         }
+    }
+
+    #[tokio::test]
+    async fn full_events_mailbox_delays_active_attach_release_until_detach_is_queued() {
+        let (router_tx, _router_rx) = mpsc::unbounded_channel();
+        let (client_sync_tx, mut client_sync_rx) = mpsc::channel(4);
+        let (events_tx, mut events_rx) = mpsc::channel(1);
+        events_tx
+            .try_send(EventIngress::Control(EventControlMessage::DetachClient(
+                DetachClient {
+                    client_id: ClientId("occupied-client".to_owned()),
+                    client_command_id: ClientCommandId("occupied-attach".to_owned()),
+                    reason: DetachReason::ClientRequested,
+                },
+            )))
+            .expect("fill events mailbox");
+        let control = test_control(router_tx, client_sync_tx, events_tx);
+
+        let (_accepted, stream) = control
+            .attach_client(test_attach_request())
+            .await
+            .expect("attach accepted");
+        let _ = timeout(Duration::from_millis(100), client_sync_rx.recv())
+            .await
+            .expect("start hydration arrives")
+            .expect("start hydration");
+        drop(stream);
+
+        let rejected = match control.attach_client(test_attach_request()).await {
+            Ok(_) => panic!("attach should remain active until detach is queued"),
+            Err(rejected) => rejected,
+        };
+        assert_eq!(rejected.reason, AttachRejectReason::DuplicateAttach);
+
+        let _ = events_rx.recv().await.expect("drain occupied events slot");
+        match timeout(Duration::from_millis(100), events_rx.recv())
+            .await
+            .expect("client detach arrives")
+            .expect("client detach")
+        {
+            EventIngress::Control(EventControlMessage::DetachClient(detach)) => {
+                assert_eq!(detach.client_id, ClientId("client-1".to_owned()));
+                assert_eq!(
+                    detach.client_command_id,
+                    ClientCommandId("attach-1".to_owned())
+                );
+                assert_eq!(detach.reason, DetachReason::ClientDisconnected);
+            }
+            _ => panic!("unexpected events ingress"),
+        }
+
+        timeout(Duration::from_millis(100), async {
+            loop {
+                if control
+                    .inner
+                    .active_attaches
+                    .lock()
+                    .expect("active attach registry")
+                    .is_empty()
+                {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("active attach clears after detach is queued");
+
+        let (_accepted, _stream) = control
+            .attach_client(test_attach_request())
+            .await
+            .expect("attach accepted after detach queued");
     }
 
     fn test_control(
