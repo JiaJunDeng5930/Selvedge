@@ -214,6 +214,7 @@ async fn call_chatgpt(
 fn chatgpt_request_from_dispatch(
     request: &ModelCallDispatchRequest,
 ) -> Result<ChatgptResponsesRequest, ModelCallError> {
+    // NOTE: chatgpt-api currently has no request field for ModelProviderProfile::max_output_tokens.
     Ok(ChatgptResponsesRequest {
         model: request.provider.model_name.clone(),
         // HACK: Use fixed optimistic capabilities until Selvedge owns a ChatGPT model capability table.
