@@ -147,17 +147,15 @@ pub async fn run_server(args: ServerStartArgs) -> ServerExitStatus {
 pub fn spawn_server(args: ServerStartArgs) -> Result<ServerHandle, ServerStartupError> {
     validate_bind_target(&args.local_binding.bind_target)?;
     if let Some(web_binding) = &args.web_binding {
-        validate_bind_target(&web_binding.bind_target)?;
+        validate_web_bind_target(&web_binding.bind_target)?;
     }
 
     init_config(args.explicit_home.as_ref())?;
     let home = resolve_home(args.explicit_home.clone())?;
     let singleton_lock = acquire_singleton_lock(&home)?;
 
-    let startup_home = home.clone();
     let startup_result = start_server_after_lock(args, home, singleton_lock);
     if let Err(error) = &startup_result {
-        let _ = std::fs::remove_file(lock_path_for_home(&startup_home));
         return Err(error.clone());
     }
 
@@ -468,6 +466,15 @@ impl WebBridge for ServerWebBridge {
 
 fn validate_bind_target(bind_target: &LocalhostBindTarget) -> Result<(), ServerStartupError> {
     match bind_target {
+        LocalhostBindTarget::Ipv4 { .. } | LocalhostBindTarget::Ipv6 { .. } => Ok(()),
+    }
+}
+
+fn validate_web_bind_target(bind_target: &LocalhostBindTarget) -> Result<(), ServerStartupError> {
+    match bind_target {
+        LocalhostBindTarget::Ipv4 { port } | LocalhostBindTarget::Ipv6 { port } if *port == 0 => {
+            Err(ServerStartupError::InvalidBindTarget)
+        }
         LocalhostBindTarget::Ipv4 { .. } | LocalhostBindTarget::Ipv6 { .. } => Ok(()),
     }
 }

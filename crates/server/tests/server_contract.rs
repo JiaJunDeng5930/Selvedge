@@ -20,7 +20,7 @@ use selvedge_local_protocol::{
 use selvedge_router::{ToolExecutionSpawnError, ToolExecutionSpawner};
 use selvedge_server::{
     LocalBindingConfig, LocalCommandMapper, LocalhostBindTarget, ServerRequestError,
-    ServerRuntimeState, ServerStartArgs, ServerStartupError, spawn_server,
+    ServerRuntimeState, ServerStartArgs, ServerStartupError, WebBindingConfig, spawn_server,
 };
 use tempfile::TempDir;
 use tokio::sync::Mutex as AsyncMutex;
@@ -106,6 +106,56 @@ async fn stale_lock_file_does_not_block_server_restart() {
 
     handle.control.stop().await;
     handle.join_handle.await.expect("join server");
+}
+
+#[tokio::test]
+async fn startup_failure_after_lock_leaves_recoverable_lock_file() {
+    let _guard = SERVER_TEST_LOCK.lock().await;
+    let home = SERVER_TEST_HOME.path();
+    let sqlite_path = home.join("selvedge.sqlite");
+    let lock_path = home.join("server.lock");
+    let _ = std::fs::remove_file(&lock_path);
+    let _ = std::fs::remove_file(&sqlite_path);
+    let _ = std::fs::remove_dir_all(&sqlite_path);
+    std::fs::create_dir(&sqlite_path).expect("create sqlite path directory");
+
+    let failed = spawn_server(test_args(
+        home.to_path_buf(),
+        Arc::new(RecordingMapper::new()),
+    ));
+
+    assert!(matches!(failed, Err(ServerStartupError::DbOpenFailed(_))));
+    assert!(lock_path.exists());
+
+    std::fs::remove_dir(&sqlite_path).expect("remove sqlite path directory");
+    let restarted = spawn_server(test_args(
+        home.to_path_buf(),
+        Arc::new(RecordingMapper::new()),
+    ))
+    .expect("stale lock file should remain recoverable");
+    restarted.control.stop().await;
+    restarted.join_handle.await.expect("join restarted server");
+}
+
+#[tokio::test]
+async fn invalid_web_bind_target_is_rejected_before_durable_startup_side_effects() {
+    let _guard = SERVER_TEST_LOCK.lock().await;
+    let home = SERVER_TEST_HOME.path();
+    let sqlite_path = home.join("selvedge.sqlite");
+    let lock_path = home.join("server.lock");
+    let _ = std::fs::remove_file(&lock_path);
+    let _ = std::fs::remove_file(&sqlite_path);
+
+    let mut args = test_args(home.to_path_buf(), Arc::new(RecordingMapper::new()));
+    args.web_binding = Some(WebBindingConfig {
+        bind_target: LocalhostBindTarget::Ipv4 { port: 0 },
+    });
+
+    let failed = spawn_server(args);
+
+    assert!(matches!(failed, Err(ServerStartupError::InvalidBindTarget)));
+    assert!(!sqlite_path.exists());
+    assert!(!lock_path.exists());
 }
 
 #[tokio::test]
