@@ -13,15 +13,16 @@ use fs2::FileExt;
 use futures_core::Stream;
 use selvedge_api::ApiExecutorConfig;
 use selvedge_client_sync::{
-    CancelHydration, ClientSnapshotBuilder, ClientSyncHandle, ClientSyncIngress,
-    ClientSyncStartArgs, SpawnClientSyncError, spawn_client_sync,
+    ClientSnapshotBuilder, ClientSyncHandle, ClientSyncIngress, ClientSyncStartArgs,
+    SpawnClientSyncError, spawn_client_sync,
 };
 use selvedge_command_model::{
     BeginClientHydration, ClientCommandId, ClientEvent, ClientFrame, ClientId, ClientNotice,
-    ClientNoticeLevel, ClientSnapshot, ClientSubscription, DeliverySeq, DetailLevel,
-    HistoryNodeProjection, HistoryNodeProjectionBody, ModelCallStatusPhase, RouterCommandEnvelope,
-    RouterIngressMessage, RouterIngressSender, SnapshotTaskVersion, TaskParentProjection,
-    TaskProjection, TaskProjectionStatus, TaskScope, ToolExecutionStatusPhase,
+    ClientNoticeLevel, ClientSnapshot, ClientSubscription, DeliverySeq, DetachClient, DetachReason,
+    DetailLevel, EventControlMessage, EventIngress, EventIngressSender, HistoryNodeProjection,
+    HistoryNodeProjectionBody, ModelCallStatusPhase, RouterCommandEnvelope, RouterIngressMessage,
+    RouterIngressSender, SnapshotTaskVersion, TaskParentProjection, TaskProjection,
+    TaskProjectionStatus, TaskScope, ToolExecutionStatusPhase,
 };
 use selvedge_core::TaskRuntimeSpawnDeps;
 use selvedge_db::{OpenDbOptions, open_db};
@@ -222,6 +223,7 @@ impl ServerControl {
         &self,
         request: AttachRequest,
     ) -> Result<(AttachAccepted, ServerFrameStream), AttachRejected> {
+        let _request_guard = self.inner.request_gate.lock().await;
         let protocol_version = current_protocol_version();
         let client_command_id = request.client_command_id.clone();
 
@@ -258,6 +260,9 @@ impl ServerControl {
             outbound: outbound_tx,
             subscription: local_subscription_to_command(request.subscription),
         };
+        let Some(events_tx) = self.inner.events_tx.lock().await.as_ref().cloned() else {
+            return reject(CommandRejectReason::InternalFailure);
+        };
         let client_sync_tx = self.inner.client_sync_tx.lock().await.clone();
 
         if client_sync_tx
@@ -277,10 +282,9 @@ impl ServerControl {
             },
             Box::pin(ServerAttachFrameStream {
                 inner: outbound_rx,
-                client_sync_tx,
                 client_id,
                 client_command_id,
-                cancel_sent: false,
+                events_tx: events_tx.downgrade(),
                 closed_reported: false,
             }),
         ))
@@ -356,6 +360,7 @@ impl ServerControl {
         if let Some(web_control) = self.inner.web_control.lock().await.as_ref() {
             web_control.stop().await;
         }
+        let _ = self.inner.events_tx.lock().await.take();
         self.inner.stop_notify.notify_waiters();
     }
 }
@@ -373,6 +378,7 @@ struct ServerInner {
     lock_path: PathBuf,
     _singleton_lock: File,
     router_tx: RouterIngressSender,
+    events_tx: Mutex<Option<EventIngressSender>>,
     client_sync_tx: Mutex<selvedge_client_sync::ClientSyncSender>,
     command_mapper: Arc<dyn LocalCommandMapper>,
     web_control: Mutex<Option<selvedge_web::WebControl>>,
@@ -462,6 +468,7 @@ fn start_server_after_lock(
         lock_path: lock_path_for_home(&home),
         _singleton_lock: singleton_lock,
         router_tx: router.ingress_tx.clone(),
+        events_tx: Mutex::new(Some(events.ingress_tx.clone())),
         client_sync_tx: Mutex::new(client_sync.ingress_tx.clone()),
         command_mapper: args.command_mapper,
         web_control: Mutex::new(web.as_ref().map(|handle| handle.control.clone())),
@@ -508,10 +515,11 @@ fn spawn_server_join_task(
 
 struct ServerAttachFrameStream {
     inner: mpsc::Receiver<ClientFrame>,
-    client_sync_tx: selvedge_client_sync::ClientSyncSender,
     client_id: ClientId,
     client_command_id: ClientCommandId,
-    cancel_sent: bool,
+    // NOTE: Weak sender lets server shutdown close events while callers still hold frame streams;
+    // Drop upgrades it only to report client detach.
+    events_tx: mpsc::WeakSender<EventIngress>,
     closed_reported: bool,
 }
 
@@ -536,16 +544,28 @@ impl futures_core::Stream for ServerAttachFrameStream {
 
 impl Drop for ServerAttachFrameStream {
     fn drop(&mut self) {
-        if self.cancel_sent {
+        let Some(events_tx) = self.events_tx.upgrade() else {
             return;
+        };
+        let retry_events_tx = events_tx.clone();
+        let client_id = self.client_id.clone();
+        let client_command_id = self.client_command_id.clone();
+        let detach = EventIngress::Control(EventControlMessage::DetachClient(DetachClient {
+            client_id,
+            client_command_id,
+            reason: DetachReason::ClientRequested,
+        }));
+
+        match events_tx.try_send(detach) {
+            Ok(()) => {}
+            Err(error) => {
+                if let Ok(handle) = tokio::runtime::Handle::try_current() {
+                    handle.spawn(async move {
+                        let _ = retry_events_tx.send(error.into_inner()).await;
+                    });
+                }
+            }
         }
-        self.cancel_sent = true;
-        let _ = self
-            .client_sync_tx
-            .try_send(ClientSyncIngress::CancelHydration(CancelHydration {
-                client_id: self.client_id.clone(),
-                client_command_id: self.client_command_id.clone(),
-            }));
     }
 }
 

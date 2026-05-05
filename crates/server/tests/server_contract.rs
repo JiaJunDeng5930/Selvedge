@@ -374,6 +374,39 @@ async fn attach_client_accepts_and_streams_initial_snapshot() {
 }
 
 #[tokio::test]
+async fn dropped_attach_stream_detaches_events_session() {
+    let _guard = SERVER_TEST_LOCK.lock().await;
+    let home = SERVER_TEST_HOME.path();
+    let handle = spawn_server(test_args(
+        home.to_path_buf(),
+        Arc::new(RecordingMapper::new()),
+    ))
+    .expect("spawn server");
+
+    for index in 0..70 {
+        let (_accepted, mut frames) = handle
+            .control
+            .attach_client(valid_attach_for(
+                &format!("client-{index}"),
+                &format!("attach-{index}"),
+            ))
+            .await
+            .expect("attach accepted");
+        let frame = timeout(Duration::from_secs(1), frames.next())
+            .await
+            .expect("snapshot timeout")
+            .expect("snapshot frame")
+            .expect("snapshot frame ok");
+        assert!(matches!(frame, LocalClientFrame::Snapshot(_)));
+        drop(frames);
+        tokio::task::yield_now().await;
+    }
+
+    handle.control.stop().await;
+    handle.join_handle.await.expect("join server");
+}
+
+#[tokio::test]
 async fn stopped_server_rejects_new_command_submissions() {
     let _guard = SERVER_TEST_LOCK.lock().await;
     let home = SERVER_TEST_HOME.path();
@@ -582,9 +615,13 @@ fn valid_command(command_id: &str) -> CommandRequest {
 }
 
 fn valid_attach(command_id: &str) -> AttachRequest {
+    valid_attach_for("client-1", command_id)
+}
+
+fn valid_attach_for(client_id: &str, command_id: &str) -> AttachRequest {
     AttachRequest {
         protocol_version: current_protocol_version(),
-        client_id: LocalClientId::new("client-1").expect("valid client id"),
+        client_id: LocalClientId::new(client_id).expect("valid client id"),
         client_command_id: LocalClientCommandId::new(command_id).expect("valid command id"),
         subscription: LocalClientSubscription {
             task_scope: LocalTaskScope::AllTasks,
