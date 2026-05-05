@@ -175,6 +175,19 @@ async fn wait_service_active_times_out_when_status_query_stalls() {
 }
 
 #[tokio::test]
+async fn wait_service_active_returns_error_for_oversized_timeout() {
+    let _guard = TEST_LOCK.lock().await;
+    let backend = FakeSystemdBackend::new(vec![Ok(ServiceStatus::Active)]);
+    let client = SystemdClient::new(wait_config(Duration::MAX), backend.clone()).expect("client");
+
+    assert_eq!(
+        client.wait_service_active().await,
+        Err(SystemdError::Timeout)
+    );
+    assert_eq!(backend.query_calls(), 0);
+}
+
+#[tokio::test]
 async fn dropping_wait_future_stops_polling_without_cancelled_error() {
     let _guard = TEST_LOCK.lock().await;
     let backend = FakeSystemdBackend::repeat(ServiceStatus::Activating);
