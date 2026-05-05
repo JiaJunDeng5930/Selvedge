@@ -401,6 +401,64 @@ async fn attach_closure_during_pending_command_restores_ready_after_command_succ
 }
 
 #[tokio::test]
+async fn dropping_exhausted_old_stream_does_not_clear_newer_attach_stream() {
+    let _guard = TEST_LOCK.lock().await;
+    let state = FakeTransportState::new_handle();
+    {
+        let mut state = state.lock().expect("fake state");
+        state.attach_responses.push_back(AttachAction::Response(Ok((
+            AttachAccepted {
+                protocol_version: current_protocol_version(),
+                client_id: LocalClientId::new("client-1").expect("client id"),
+                client_command_id: LocalClientCommandId::new("attach-1").expect("command id"),
+            },
+            Box::pin(stream::empty()),
+        ))));
+        state.attach_responses.push_back(AttachAction::Response(Ok((
+            AttachAccepted {
+                protocol_version: current_protocol_version(),
+                client_id: LocalClientId::new("client-1").expect("client id"),
+                client_command_id: LocalClientCommandId::new("attach-2").expect("command id"),
+            },
+            Box::pin(stream::pending()),
+        ))));
+        state.attach_responses.push_back(AttachAction::Response(Ok((
+            AttachAccepted {
+                protocol_version: current_protocol_version(),
+                client_id: LocalClientId::new("client-1").expect("client id"),
+                client_command_id: LocalClientCommandId::new("attach-3").expect("command id"),
+            },
+            Box::pin(stream::empty()),
+        ))));
+    }
+    let client = connected_client(state.clone()).await;
+    let (_accepted, mut old_frames) = client
+        .attach(valid_attach("attach-1"))
+        .await
+        .expect("attach");
+    assert_eq!(
+        old_frames.next().await,
+        Some(Err(LocalClientError::StreamClosed))
+    );
+    assert_eq!(client.state().await, LocalClientState::Ready);
+
+    let (_accepted, _new_frames) = client
+        .attach(valid_attach("attach-2"))
+        .await
+        .expect("second attach");
+    drop(old_frames);
+
+    assert_eq!(client.state().await, LocalClientState::Attached);
+    assert!(matches!(
+        client.attach(valid_attach("attach-3")).await,
+        Err(AttachRejectedOrClientError::Client(
+            LocalClientError::AlreadyAttached
+        ))
+    ));
+    assert_eq!(state.lock().expect("fake state").attach_calls, 2);
+}
+
+#[tokio::test]
 async fn attach_validates_request_before_transport() {
     let _guard = TEST_LOCK.lock().await;
     let state = FakeTransportState::new_handle();

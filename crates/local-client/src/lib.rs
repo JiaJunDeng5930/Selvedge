@@ -100,6 +100,7 @@ pub enum AttachRejectedOrClientError {
 struct ClientState {
     state: LocalClientState,
     attach_open: bool,
+    attach_generation: u64,
     recent_error: Option<LocalClientError>,
 }
 
@@ -108,6 +109,7 @@ impl ClientState {
         Self {
             state: LocalClientState::Ready,
             attach_open: false,
+            attach_generation: 0,
             recent_error: None,
         }
     }
@@ -172,10 +174,11 @@ impl<T: LocalTransport> LocalClient<T> {
 
         match result {
             Ok(Ok((accepted, stream))) => {
-                guard.complete_attach_success();
+                let attach_generation = guard.complete_attach_success();
                 let stream = Box::pin(ClientFrameStream {
                     inner: stream,
                     state: Arc::clone(&self.inner),
+                    attach_generation,
                     closed_reported: false,
                 });
                 Ok((accepted, stream))
@@ -322,14 +325,17 @@ impl RequestGuard {
         self.active = false;
     }
 
-    fn complete_attach_success(mut self) {
+    fn complete_attach_success(mut self) -> u64 {
         let mut state = self.state.lock().expect("local client state lock");
         if state.state == self.pending {
+            state.attach_generation = state.attach_generation.wrapping_add(1);
             state.attach_open = true;
             state.state = LocalClientState::Attached;
             state.recent_error = None;
         }
+        let attach_generation = state.attach_generation;
         self.active = false;
+        attach_generation
     }
 }
 
@@ -349,6 +355,7 @@ impl Drop for RequestGuard {
 struct ClientFrameStream {
     inner: LocalFrameStream,
     state: Arc<Mutex<ClientState>>,
+    attach_generation: u64,
     closed_reported: bool,
 }
 
@@ -361,7 +368,7 @@ impl Stream for ClientFrameStream {
             Poll::Ready(Some(frame)) => Poll::Ready(Some(frame)),
             Poll::Ready(None) if !this.closed_reported => {
                 this.closed_reported = true;
-                clear_attached_state(&this.state);
+                clear_attached_state(&this.state, this.attach_generation);
                 Poll::Ready(Some(Err(LocalClientError::StreamClosed)))
             }
             Poll::Ready(None) => Poll::Ready(None),
@@ -372,12 +379,15 @@ impl Stream for ClientFrameStream {
 
 impl Drop for ClientFrameStream {
     fn drop(&mut self) {
-        clear_attached_state(&self.state);
+        clear_attached_state(&self.state, self.attach_generation);
     }
 }
 
-fn clear_attached_state(state: &Arc<Mutex<ClientState>>) {
+fn clear_attached_state(state: &Arc<Mutex<ClientState>>, attach_generation: u64) {
     let mut state = state.lock().expect("local client state lock");
+    if state.attach_generation != attach_generation {
+        return;
+    }
     state.attach_open = false;
     if state.state == LocalClientState::Attached {
         state.state = LocalClientState::Ready;
