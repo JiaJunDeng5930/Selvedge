@@ -160,7 +160,7 @@ async fn command_mapper_can_reject_unsupported_local_command() {
 }
 
 #[tokio::test]
-async fn attach_client_accepts_valid_subscription_and_rejects_malformed_request() {
+async fn attach_client_defers_accepted_stream_until_client_sync_hydration_exists() {
     let _guard = SERVER_TEST_LOCK.lock().await;
     let home = SERVER_TEST_HOME.path();
     let handle = spawn_server(test_args(
@@ -169,13 +169,11 @@ async fn attach_client_accepts_valid_subscription_and_rejects_malformed_request(
     ))
     .expect("spawn server");
 
-    let accepted = handle
-        .control
-        .attach_client(valid_attach("attach-1"))
-        .await
-        .expect("valid attach request");
-
-    assert_eq!(accepted.0.client_command_id.0, "attach-1");
+    let deferred = match handle.control.attach_client(valid_attach("attach-1")).await {
+        Ok(_) => panic!("server stage should defer accepted attach streams"),
+        Err(rejected) => rejected,
+    };
+    assert_eq!(deferred.reason, CommandRejectReason::ServerNotReady);
 
     let rejected = match handle
         .control
