@@ -62,10 +62,12 @@ impl<B: SystemdBackend> SystemdClient<B> {
     }
 
     pub async fn query_service_status(&self) -> Result<ServiceStatus, SystemdError> {
+        validate_config(&self.config)?;
         self.backend.query_status(&self.config.unit_name).await
     }
 
     pub async fn start_service(&self) -> Result<StartServiceOutcome, SystemdError> {
+        validate_config(&self.config)?;
         match self.query_service_status().await? {
             ServiceStatus::Active => Ok(StartServiceOutcome::AlreadyRunning),
             ServiceStatus::Activating => Ok(StartServiceOutcome::AlreadyStarting),
@@ -79,9 +81,21 @@ impl<B: SystemdBackend> SystemdClient<B> {
     }
 
     pub async fn wait_service_active(&self) -> Result<ServiceStatus, SystemdError> {
+        validate_config(&self.config)?;
         let deadline = Instant::now() + self.config.operation_timeout;
         loop {
-            match self.query_service_status().await? {
+            let now = Instant::now();
+            let remaining = deadline.saturating_duration_since(now);
+            if remaining.is_zero() {
+                return Err(SystemdError::Timeout);
+            }
+
+            let status =
+                tokio::time::timeout(remaining, self.backend.query_status(&self.config.unit_name))
+                    .await
+                    .map_err(|_| SystemdError::Timeout)??;
+
+            match status {
                 ServiceStatus::Active => return Ok(ServiceStatus::Active),
                 status @ ServiceStatus::Failed { .. } => return Ok(status),
                 ServiceStatus::NotInstalled => return Err(SystemdError::UnitNotFound),

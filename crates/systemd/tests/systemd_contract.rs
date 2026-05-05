@@ -162,6 +162,19 @@ async fn wait_service_active_times_out() {
 }
 
 #[tokio::test]
+async fn wait_service_active_times_out_when_status_query_stalls() {
+    let _guard = TEST_LOCK.lock().await;
+    let backend = FakeSystemdBackend::new(Vec::new());
+    let client =
+        SystemdClient::new(wait_config(Duration::from_millis(10)), backend).expect("client");
+
+    assert_eq!(
+        client.wait_service_active().await,
+        Err(SystemdError::Timeout)
+    );
+}
+
+#[tokio::test]
 async fn dropping_wait_future_stops_polling_without_cancelled_error() {
     let _guard = TEST_LOCK.lock().await;
     let backend = FakeSystemdBackend::repeat(ServiceStatus::Activating);
@@ -195,6 +208,28 @@ async fn invalid_unit_name_is_rejected_before_backend_calls() {
     );
 
     assert!(matches!(result, Err(SystemdError::InvalidUnitName)));
+    assert_eq!(backend.query_calls(), 0);
+}
+
+#[tokio::test]
+async fn public_operations_revalidate_mutated_config_before_backend_calls() {
+    let _guard = TEST_LOCK.lock().await;
+    let backend = FakeSystemdBackend::new(vec![Ok(ServiceStatus::Active)]);
+    let mut client = SystemdClient::new(valid_config(), backend.clone()).expect("client");
+    client.config.unit_name = " ".to_owned();
+
+    assert_eq!(
+        client.query_service_status().await,
+        Err(SystemdError::InvalidUnitName)
+    );
+    assert_eq!(
+        client.start_service().await,
+        Err(SystemdError::InvalidUnitName)
+    );
+    assert_eq!(
+        client.wait_service_active().await,
+        Err(SystemdError::InvalidUnitName)
+    );
     assert_eq!(backend.query_calls(), 0);
 }
 
