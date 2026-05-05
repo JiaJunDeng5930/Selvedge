@@ -309,6 +309,7 @@ impl ServerControl {
                 return reject(AttachRejectReason::ClientRegistryFull);
             }
             Ok(RouterAttachAdmissionResult::EventsMailboxClosed) | Err(_) => {
+                self.begin_shutdown_locked().await;
                 return reject(AttachRejectReason::InternalFailure);
             }
         }
@@ -1370,6 +1371,28 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn attach_closed_events_admission_starts_shutdown() {
+        let router_tx = events_closed_router_sender();
+        let (client_sync_tx, _client_sync_rx) = mpsc::channel(1);
+        let (events_tx, _events_rx) = mpsc::channel(1);
+        let control = test_control(router_tx, client_sync_tx, events_tx);
+
+        let rejected = match timeout(
+            Duration::from_millis(100),
+            control.attach_client(test_attach_request()),
+        )
+        .await
+        .expect("attach returns")
+        {
+            Ok(_) => panic!("attach should reject after events admission closes"),
+            Err(rejected) => rejected,
+        };
+
+        assert_eq!(rejected.reason, AttachRejectReason::InternalFailure);
+        assert_eq!(control.state().await, ServerRuntimeState::Closing);
+    }
+
+    #[tokio::test]
     async fn duplicate_active_attach_rejects_without_second_start() {
         let router_tx = accepting_router_sender();
         let (client_sync_tx, mut client_sync_rx) = mpsc::channel(4);
@@ -1707,6 +1730,25 @@ mod tests {
                         ..
                     }) => {
                         let _ = admission_tx.send(RouterAttachAdmissionResult::Accepted);
+                    }
+                    RouterIngressMessage::StopRouter => break,
+                    _ => {}
+                }
+            }
+        });
+        router_tx
+    }
+
+    fn events_closed_router_sender() -> RouterIngressSender {
+        let (router_tx, mut router_rx) = mpsc::unbounded_channel();
+        tokio::spawn(async move {
+            while let Some(message) = router_rx.recv().await {
+                match message {
+                    RouterIngressMessage::Command(RouterCommandEnvelope {
+                        command: RouterCommand::AttachClient { admission_tx, .. },
+                        ..
+                    }) => {
+                        let _ = admission_tx.send(RouterAttachAdmissionResult::EventsMailboxClosed);
                     }
                     RouterIngressMessage::StopRouter => break,
                     _ => {}
