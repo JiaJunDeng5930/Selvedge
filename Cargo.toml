@@ -5,6 +5,7 @@ members = [
     "crates/chatgpt-auth",
     "crates/chatgpt-login",
     "crates/client",
+    "crates/client-sync",
     "crates/command-model",
     "crates/config",
     "crates/config-model",
@@ -16,6 +17,7 @@ members = [
     "crates/local-protocol",
     "crates/router",
     "crates/task-runtime-factory",
+    "crates/web",
     "xtask",
 ]
 resolver = "2"
