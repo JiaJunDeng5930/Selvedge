@@ -99,6 +99,7 @@ pub enum AttachRejectedOrClientError {
 #[derive(Debug)]
 struct ClientState {
     state: LocalClientState,
+    attach_open: bool,
     recent_error: Option<LocalClientError>,
 }
 
@@ -106,6 +107,7 @@ impl ClientState {
     fn ready() -> Self {
         Self {
             state: LocalClientState::Ready,
+            attach_open: false,
             recent_error: None,
         }
     }
@@ -202,6 +204,7 @@ impl<T: LocalTransport> LocalClient<T> {
                 LocalClientState::Closing => return Err(LocalClientError::Closing),
                 _ => {
                     state.state = LocalClientState::Closing;
+                    state.attach_open = false;
                     state.recent_error = None;
                 }
             }
@@ -293,6 +296,7 @@ impl<T: LocalTransport> LocalClient<T> {
         let mut state = self.inner.lock().expect("local client state lock");
         if state.state == guard.pending {
             state.state = LocalClientState::Failed;
+            state.attach_open = false;
             state.recent_error = Some(error.clone());
         }
         guard.active = false;
@@ -312,7 +316,12 @@ impl RequestGuard {
     fn complete_as(mut self, next_state: LocalClientState) {
         let mut state = self.state.lock().expect("local client state lock");
         if state.state == self.pending {
-            state.state = next_state;
+            if next_state == LocalClientState::Attached {
+                state.attach_open = true;
+                state.state = LocalClientState::Attached;
+            } else {
+                state.state = resolved_state(next_state, state.attach_open);
+            }
             state.recent_error = None;
         }
         self.active = false;
@@ -327,7 +336,7 @@ impl Drop for RequestGuard {
 
         let mut state = self.state.lock().expect("local client state lock");
         if state.state == self.pending {
-            state.state = self.return_state.clone();
+            state.state = resolved_state(self.return_state.clone(), state.attach_open);
         }
     }
 }
@@ -364,8 +373,17 @@ impl Drop for ClientFrameStream {
 
 fn clear_attached_state(state: &Arc<Mutex<ClientState>>) {
     let mut state = state.lock().expect("local client state lock");
+    state.attach_open = false;
     if state.state == LocalClientState::Attached {
         state.state = LocalClientState::Ready;
+    }
+}
+
+fn resolved_state(next_state: LocalClientState, attach_open: bool) -> LocalClientState {
+    if next_state == LocalClientState::Attached && !attach_open {
+        LocalClientState::Ready
+    } else {
+        next_state
     }
 }
 

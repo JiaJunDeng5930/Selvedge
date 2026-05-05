@@ -294,6 +294,55 @@ async fn attach_allows_one_active_stream_and_reports_stream_closed_after_ordered
 }
 
 #[tokio::test]
+async fn attach_closure_during_pending_command_restores_ready_after_command_cancel() {
+    let _guard = TEST_LOCK.lock().await;
+    let state = FakeTransportState::new_handle();
+    {
+        let mut state = state.lock().expect("fake state");
+        state.attach_responses.push_back(AttachAction::Response(Ok((
+            AttachAccepted {
+                protocol_version: current_protocol_version(),
+                client_id: LocalClientId::new("client-1").expect("client id"),
+                client_command_id: LocalClientCommandId::new("attach-1").expect("command id"),
+            },
+            Box::pin(stream::pending()),
+        ))));
+        state.command_responses.push_back(CommandAction::Hang);
+        state.attach_responses.push_back(AttachAction::Response(Ok((
+            AttachAccepted {
+                protocol_version: current_protocol_version(),
+                client_id: LocalClientId::new("client-1").expect("client id"),
+                client_command_id: LocalClientCommandId::new("attach-2").expect("command id"),
+            },
+            Box::pin(stream::empty()),
+        ))));
+    }
+    let client = connected_client(state.clone()).await;
+    let (_accepted, frames) = client
+        .attach(valid_attach("attach-1"))
+        .await
+        .expect("attach");
+
+    let mut command = Box::pin(client.submit_command(valid_command("command-1")));
+    assert!(
+        timeout(Duration::from_millis(5), command.as_mut())
+            .await
+            .is_err()
+    );
+    assert_eq!(client.state().await, LocalClientState::CommandPending);
+
+    drop(frames);
+    drop(command);
+
+    assert_eq!(client.state().await, LocalClientState::Ready);
+    let (_accepted, _frames) = client
+        .attach(valid_attach("attach-2"))
+        .await
+        .expect("reattach");
+    assert_eq!(state.lock().expect("fake state").attach_calls, 2);
+}
+
+#[tokio::test]
 async fn attach_validates_request_before_transport() {
     let _guard = TEST_LOCK.lock().await;
     let state = FakeTransportState::new_handle();
