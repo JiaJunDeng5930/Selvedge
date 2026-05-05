@@ -1,0 +1,21 @@
+[package]
+name = "selvedge-tui"
+edition = "2024"
+publish = false
+
+[dependencies]
+futures-util = "0.3.31"
+selvedge-local-client = { path = "../local-client" }
+selvedge-local-protocol = { path = "../local-protocol" }
+
+[dev-dependencies]
+serde_json = "1.0.135"
+tokio = { version = "1.42.0", features = ["macros", "rt", "sync"] }
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+dbg_macro = "deny"
+todo = "deny"
+unwrap_used = "deny"
