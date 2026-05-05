@@ -5,7 +5,7 @@ use std::collections::BTreeSet;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 
-pub const LOCAL_PROTOCOL_VERSION: u32 = 1;
+pub const LOCAL_PROTOCOL_VERSION: u32 = 2;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProtocolVersion(pub u32);
