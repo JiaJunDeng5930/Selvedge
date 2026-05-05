@@ -27,8 +27,8 @@ use selvedge_local_protocol::{
 };
 use selvedge_router::{RouterHandle, RouterStartArgs, SpawnRouterError, ToolExecutionSpawner};
 use selvedge_web::{
-    WebBridge, WebHandle, WebLocalhostBind, WebLocalhostHost, WebStartArgs, WebStartError,
-    spawn_web_surface,
+    ReservedWebStartArgs, WebBindReservation, WebBridge, WebHandle, WebLocalhostBind,
+    WebLocalhostHost, WebStartError, reserve_web_bind, spawn_reserved_web_surface,
 };
 use tokio::sync::{Mutex, Notify, RwLock};
 use tokio::task::JoinHandle;
@@ -149,12 +149,13 @@ pub fn spawn_server(args: ServerStartArgs) -> Result<ServerHandle, ServerStartup
     if let Some(web_binding) = &args.web_binding {
         validate_web_bind_target(&web_binding.bind_target)?;
     }
+    let web_bind = reserve_web_binding(args.web_binding.as_ref())?;
 
     init_config(args.explicit_home.as_ref())?;
     let home = resolve_home()?;
     let singleton_lock = acquire_singleton_lock(&home)?;
 
-    let startup_result = start_server_after_lock(args, home, singleton_lock);
+    let startup_result = start_server_after_lock(args, home, singleton_lock, web_bind);
     if let Err(error) = &startup_result {
         return Err(error.clone());
     }
@@ -337,6 +338,7 @@ fn start_server_after_lock(
     args: ServerStartArgs,
     home: PathBuf,
     singleton_lock: File,
+    web_bind: Option<WebBindReservation>,
 ) -> Result<ServerContext, ServerStartupError> {
     if let Err(error) = init_logging() {
         cleanup_startup_lock(&home);
@@ -391,7 +393,7 @@ fn start_server_after_lock(
         }
     };
 
-    let web = match start_web(args.web_binding, &args.command_mapper) {
+    let web = match start_web(web_bind, &args.command_mapper) {
         Ok(web) => web,
         Err(error) => {
             cleanup_startup_lock(&home);
@@ -452,18 +454,30 @@ fn spawn_server_join_task(
 }
 
 fn start_web(
-    web_binding: Option<WebBindingConfig>,
+    web_bind: Option<WebBindReservation>,
     bridge: &Arc<dyn LocalCommandMapper>,
 ) -> Result<Option<WebHandle>, ServerStartupError> {
+    let Some(bind) = web_bind else {
+        return Ok(None);
+    };
+
+    let bridge = Arc::new(ServerWebBridge {
+        _command_mapper: Arc::clone(bridge),
+    });
+    spawn_reserved_web_surface(ReservedWebStartArgs { bind, bridge })
+        .map(Some)
+        .map_err(map_web_start_error)
+}
+
+fn reserve_web_binding(
+    web_binding: Option<&WebBindingConfig>,
+) -> Result<Option<WebBindReservation>, ServerStartupError> {
     let Some(web_binding) = web_binding else {
         return Ok(None);
     };
 
-    let bind = local_bind_to_web_bind(web_binding.bind_target)?;
-    let bridge = Arc::new(ServerWebBridge {
-        _command_mapper: Arc::clone(bridge),
-    });
-    spawn_web_surface(WebStartArgs { bind, bridge })
+    let bind = local_bind_to_web_bind(web_binding.bind_target.clone())?;
+    reserve_web_bind(bind)
         .map(Some)
         .map_err(map_web_start_error)
 }
