@@ -413,6 +413,83 @@ base_url = "{}"
     }
 }
 
+#[tokio::test(flavor = "multi_thread")]
+async fn chatgpt_imprecise_integer_tool_argument_sends_provider_response_failure() {
+    const FLAG: &str = "SELVEDGE_API_CHATGPT_IMPRECISE_INTEGER_CHILD";
+
+    if !child_mode(FLAG) {
+        assert_child_success(&run_child(
+            "chatgpt_imprecise_integer_tool_argument_sends_provider_response_failure",
+            FLAG,
+        ));
+        return;
+    }
+
+    let api_server = spawn_http_server(Router::new().route(
+        "/responses",
+        post(|| async move {
+            let body = Body::from_stream(async_stream::stream! {
+                yield Ok::<_, std::convert::Infallible>(bytes::Bytes::from(
+                    "data: {\"type\":\"response.output_item.done\",\"output_index\":0,\"item\":{\"type\":\"function_call\",\"id\":\"item-1\",\"status\":\"completed\",\"name\":\"lookup\",\"arguments\":\"{\\\"id\\\":9007199254740993}\",\"call_id\":\"call-1\"}}\n\n",
+                ));
+            });
+
+            (
+                StatusCode::OK,
+                [(
+                    http::header::CONTENT_TYPE,
+                    HeaderValue::from_static("text/event-stream"),
+                )],
+                body,
+            )
+        }),
+    ))
+    .await;
+
+    let tempdir = init_api_test(&format!(
+        r#"
+[llm.providers.chatgpt.auth]
+issuer = "http://127.0.0.1:1"
+
+[llm.providers.chatgpt.api]
+base_url = "{}"
+"#,
+        api_server.url("")
+    ));
+    write_auth_file(
+        &tempdir,
+        &auth_file_json(
+            &build_jwt(serde_json::json!({
+                "sub": "subject",
+                "https://api.openai.com/auth.chatgpt_account_id": "workspace-123"
+            })),
+            "opaque-access-token",
+            "refresh-token",
+        ),
+    );
+
+    let request = valid_dispatch_request();
+    let (router_tx, mut router_rx) = mpsc::unbounded_channel();
+
+    let status = execute_model_call(
+        request.clone(),
+        router_tx.downgrade(),
+        ApiExecutorConfig {
+            request_timeout: Duration::from_secs(5),
+            max_response_bytes: None,
+        },
+    )
+    .await;
+
+    assert_eq!(status, ApiCallTerminalStatus::OutputSent);
+    let message = router_rx.recv().await.expect("router message");
+    assert_failure(
+        message,
+        request.correlation,
+        ModelCallErrorKind::ProviderResponse,
+    );
+}
+
 #[tokio::test]
 async fn unsupported_provider_name_sends_provider_request_failure_without_external_registry() {
     let mut request = valid_dispatch_request();
