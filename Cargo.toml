@@ -20,6 +20,7 @@ members = [
     "crates/server",
     "crates/systemd",
     "crates/task-runtime-factory",
+    "crates/tui",
     "crates/web",
     "xtask",
 ]

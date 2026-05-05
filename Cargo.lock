@@ -1598,6 +1598,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "selvedge-tui"
+version = "0.0.0"
+dependencies = [
+ "futures-util",
+ "selvedge-local-client",
+ "selvedge-local-protocol",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "selvedge-web"
 version = "0.0.0"
 dependencies = [
