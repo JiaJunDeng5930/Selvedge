@@ -7,30 +7,47 @@ use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::task::{Context, Poll};
 
 use fs2::FileExt;
 use futures_core::Stream;
 use selvedge_api::ApiExecutorConfig;
 use selvedge_client_sync::{
-    ClientSnapshotBuilder, ClientSyncHandle, ClientSyncIngress, ClientSyncStartArgs,
-    SpawnClientSyncError, spawn_client_sync,
+    CancelHydration, ClientSnapshotBuilder, ClientSyncHandle, ClientSyncIngress,
+    ClientSyncStartArgs, SpawnClientSyncError, spawn_client_sync,
 };
-use selvedge_command_model::{RouterCommandEnvelope, RouterIngressMessage, RouterIngressSender};
+use selvedge_command_model::{
+    BeginClientHydration, ClientCommandId, ClientEvent, ClientFrame, ClientId, ClientNotice,
+    ClientNoticeLevel, ClientSnapshot, ClientSubscription, DeliverySeq, DetailLevel,
+    HistoryNodeProjection, HistoryNodeProjectionBody, ModelCallStatusPhase, RouterCommandEnvelope,
+    RouterIngressMessage, RouterIngressSender, SnapshotTaskVersion, TaskParentProjection,
+    TaskProjection, TaskProjectionStatus, TaskScope, ToolExecutionStatusPhase,
+};
 use selvedge_core::TaskRuntimeSpawnDeps;
 use selvedge_db::{OpenDbOptions, open_db};
+use selvedge_domain_model::{
+    MessageRole, ReasoningEffort, TaskId, ToolArgumentValue, ToolCallArgument,
+};
 use selvedge_events::{EventsHandle, EventsStartArgs, SpawnEventsError, spawn_events_task};
 use selvedge_local_protocol::{
     AttachAccepted, AttachRejected, AttachRequest, CommandOutcome, CommandRejectReason,
-    CommandRequest, CommandResponse, LocalClientFrame, ReadyRequest, ReadyResponse, ReadyState,
-    current_protocol_version, validate_attach_request, validate_command_request,
-    validate_ready_request,
+    CommandRequest, CommandResponse, LocalClientCommandId, LocalClientEvent, LocalClientEventFrame,
+    LocalClientFrame, LocalClientSnapshot, LocalClientSnapshotFrame, LocalDebugNoticeEvent,
+    LocalDetailLevel, LocalHistoryAppendedEvent, LocalHistoryNodeProjection,
+    LocalHistoryNodeProjectionBody, LocalMessageRole, LocalModelCallStatusEvent,
+    LocalModelCallStatusPhase, LocalNotice, LocalNoticeLevel, LocalReasoningEffort,
+    LocalSnapshotTaskVersion, LocalTaskChangedEvent, LocalTaskParentProjection,
+    LocalTaskProjection, LocalTaskProjectionStatus, LocalTaskScope, LocalToolArgumentValue,
+    LocalToolCallArgument, LocalToolExecutionStatusEvent, LocalToolExecutionStatusPhase,
+    ReadyRequest, ReadyResponse, ReadyState, current_protocol_version, validate_attach_request,
+    validate_command_request, validate_ready_request,
 };
 use selvedge_router::{RouterHandle, RouterStartArgs, SpawnRouterError, ToolExecutionSpawner};
 use selvedge_web::{
     ReservedWebStartArgs, WebBindReservation, WebBridge, WebHandle, WebLocalhostBind,
     WebLocalhostHost, WebStartError, reserve_web_bind, spawn_reserved_web_surface,
 };
-use tokio::sync::{Mutex, Notify, RwLock};
+use tokio::sync::{Mutex, Notify, RwLock, mpsc};
 use tokio::task::JoinHandle;
 
 const SQLITE_FILE_NAME: &str = "selvedge.sqlite";
@@ -232,11 +249,41 @@ impl ServerControl {
             return reject(CommandRejectReason::RouterMailboxClosed);
         }
 
-        // NOTE: Accepted attach streams require client-sync hydration to deliver
-        // the initial snapshot and event stream. The server stage only owns the
-        // lifecycle/control boundary, so a valid attach request is deferred with
-        // an explicit rejection until the client-sync package supplies hydration.
-        reject(CommandRejectReason::ServerNotReady)
+        let (outbound_tx, outbound_rx) = mpsc::channel(DEFAULT_HYDRATION_BUFFER_CAPACITY);
+        let client_id = ClientId(request.client_id.0.clone());
+        let client_command_id = ClientCommandId(request.client_command_id.0.clone());
+        let begin = BeginClientHydration {
+            client_id: client_id.clone(),
+            client_command_id: client_command_id.clone(),
+            outbound: outbound_tx,
+            subscription: local_subscription_to_command(request.subscription),
+        };
+        let client_sync_tx = self.inner.client_sync_tx.lock().await.clone();
+
+        if client_sync_tx
+            .send(ClientSyncIngress::StartHydration(begin))
+            .await
+            .is_err()
+        {
+            self.begin_shutdown().await;
+            return reject(CommandRejectReason::InternalFailure);
+        }
+
+        Ok((
+            AttachAccepted {
+                protocol_version,
+                client_id: request.client_id,
+                client_command_id: request.client_command_id,
+            },
+            Box::pin(ServerAttachFrameStream {
+                inner: outbound_rx,
+                client_sync_tx,
+                client_id,
+                client_command_id,
+                cancel_sent: false,
+                closed_reported: false,
+            }),
+        ))
     }
 
     pub async fn stop(&self) {
@@ -457,6 +504,296 @@ fn spawn_server_join_task(
         *inner.state.write().await = ServerRuntimeState::Stopped;
         ServerExitStatus::Stopped
     })
+}
+
+struct ServerAttachFrameStream {
+    inner: mpsc::Receiver<ClientFrame>,
+    client_sync_tx: selvedge_client_sync::ClientSyncSender,
+    client_id: ClientId,
+    client_command_id: ClientCommandId,
+    cancel_sent: bool,
+    closed_reported: bool,
+}
+
+impl futures_core::Stream for ServerAttachFrameStream {
+    type Item = Result<LocalClientFrame, ServerRequestError>;
+
+    fn poll_next(self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let this = self.get_mut();
+        if this.closed_reported {
+            return Poll::Ready(None);
+        }
+        match this.inner.poll_recv(context) {
+            Poll::Ready(Some(frame)) => Poll::Ready(Some(Ok(client_frame_to_local(frame)))),
+            Poll::Ready(None) => {
+                this.closed_reported = true;
+                Poll::Ready(Some(Err(ServerRequestError::AttachChannelFailed)))
+            }
+            Poll::Pending => Poll::Pending,
+        }
+    }
+}
+
+impl Drop for ServerAttachFrameStream {
+    fn drop(&mut self) {
+        if self.cancel_sent {
+            return;
+        }
+        self.cancel_sent = true;
+        let _ = self
+            .client_sync_tx
+            .try_send(ClientSyncIngress::CancelHydration(CancelHydration {
+                client_id: self.client_id.clone(),
+                client_command_id: self.client_command_id.clone(),
+            }));
+    }
+}
+
+fn local_subscription_to_command(
+    subscription: selvedge_local_protocol::LocalClientSubscription,
+) -> ClientSubscription {
+    ClientSubscription {
+        task_scope: match subscription.task_scope {
+            LocalTaskScope::AllTasks => TaskScope::AllTasks,
+            LocalTaskScope::TaskIds(task_ids) => {
+                TaskScope::TaskIds(task_ids.into_iter().map(TaskId).collect())
+            }
+        },
+        detail_level: match subscription.detail_level {
+            LocalDetailLevel::Summary => DetailLevel::Summary,
+            LocalDetailLevel::Verbose => DetailLevel::Verbose,
+        },
+        include_model_call_status: subscription.include_model_call_status,
+        include_tool_execution_status: subscription.include_tool_execution_status,
+        include_debug_notices: subscription.include_debug_notices,
+    }
+}
+
+fn client_frame_to_local(frame: ClientFrame) -> LocalClientFrame {
+    match frame {
+        ClientFrame::Snapshot(frame) => LocalClientFrame::Snapshot(LocalClientSnapshotFrame {
+            delivery_seq: local_delivery_seq(frame.delivery_seq),
+            client_command_id: LocalClientCommandId(frame.client_command_id.0),
+            snapshot: client_snapshot_to_local(frame.snapshot),
+        }),
+        ClientFrame::Event(frame) => LocalClientFrame::Event(LocalClientEventFrame {
+            delivery_seq: local_delivery_seq(frame.delivery_seq),
+            event: client_event_to_local(frame.event),
+        }),
+        ClientFrame::Notice(frame) => {
+            LocalClientFrame::Notice(selvedge_local_protocol::LocalClientNoticeFrame {
+                delivery_seq: local_delivery_seq(frame.delivery_seq),
+                client_command_id: LocalClientCommandId(frame.client_command_id.0),
+                notice: client_notice_to_local(frame.notice),
+            })
+        }
+    }
+}
+
+fn local_delivery_seq(delivery_seq: DeliverySeq) -> u64 {
+    delivery_seq.0
+}
+
+fn client_snapshot_to_local(snapshot: ClientSnapshot) -> LocalClientSnapshot {
+    LocalClientSnapshot {
+        generated_at: snapshot.generated_at.0,
+        tasks: snapshot.tasks.into_iter().map(task_to_local).collect(),
+        task_parent_edges: snapshot
+            .task_parent_edges
+            .into_iter()
+            .map(parent_edge_to_local)
+            .collect(),
+        history_nodes: snapshot
+            .history_nodes
+            .into_iter()
+            .map(history_node_to_local)
+            .collect(),
+        task_versions: snapshot
+            .task_versions
+            .into_iter()
+            .map(snapshot_task_version_to_local)
+            .collect(),
+    }
+}
+
+fn snapshot_task_version_to_local(version: SnapshotTaskVersion) -> LocalSnapshotTaskVersion {
+    LocalSnapshotTaskVersion {
+        task_id: version.task_id.0,
+        state_version: version.state_version,
+    }
+}
+
+fn task_to_local(task: TaskProjection) -> LocalTaskProjection {
+    LocalTaskProjection {
+        task_id: task.task_id.0,
+        status: match task.status {
+            TaskProjectionStatus::Active => LocalTaskProjectionStatus::Active,
+            TaskProjectionStatus::Archived => LocalTaskProjectionStatus::Archived,
+        },
+        cursor_node_id: task.cursor_node_id.0,
+        model_profile_key: task.model_profile_key.0,
+        reasoning_effort: reasoning_effort_to_local(task.reasoning_effort),
+        state_version: task.state_version,
+        created_at: task.created_at.0,
+        updated_at: task.updated_at.0,
+    }
+}
+
+fn parent_edge_to_local(edge: TaskParentProjection) -> LocalTaskParentProjection {
+    LocalTaskParentProjection {
+        parent_task_id: edge.parent_task_id.0,
+        child_task_id: edge.child_task_id.0,
+    }
+}
+
+fn history_node_to_local(node: HistoryNodeProjection) -> LocalHistoryNodeProjection {
+    LocalHistoryNodeProjection {
+        node_id: node.node_id.0,
+        parent_node_id: node.parent_node_id.map(|node_id| node_id.0),
+        created_at: node.created_at.0,
+        body: history_node_body_to_local(node.body),
+    }
+}
+
+fn history_node_body_to_local(body: HistoryNodeProjectionBody) -> LocalHistoryNodeProjectionBody {
+    match body {
+        HistoryNodeProjectionBody::Message { role, text } => {
+            LocalHistoryNodeProjectionBody::Message {
+                role: message_role_to_local(role),
+                text,
+            }
+        }
+        HistoryNodeProjectionBody::Reasoning { text } => {
+            LocalHistoryNodeProjectionBody::Reasoning { text }
+        }
+        HistoryNodeProjectionBody::FunctionCall {
+            function_call_id,
+            tool_name,
+            arguments,
+        } => LocalHistoryNodeProjectionBody::FunctionCall {
+            function_call_id: function_call_id.0,
+            tool_name: tool_name.0,
+            arguments: arguments.into_iter().map(tool_argument_to_local).collect(),
+        },
+        HistoryNodeProjectionBody::FunctionOutput {
+            function_call_node_id,
+            function_call_id,
+            tool_name,
+            output_text,
+            is_error,
+        } => LocalHistoryNodeProjectionBody::FunctionOutput {
+            function_call_node_id: function_call_node_id.0,
+            function_call_id: function_call_id.0,
+            tool_name: tool_name.0,
+            output_text,
+            is_error,
+        },
+    }
+}
+
+fn client_event_to_local(event: ClientEvent) -> LocalClientEvent {
+    match event {
+        ClientEvent::TaskChanged(event) => LocalClientEvent::TaskChanged(LocalTaskChangedEvent {
+            task: task_to_local(event.task),
+        }),
+        ClientEvent::HistoryAppended(event) => {
+            LocalClientEvent::HistoryAppended(LocalHistoryAppendedEvent {
+                task_id: event.task_id.0,
+                task_state_version: event.task_state_version,
+                appended_nodes: event
+                    .appended_nodes
+                    .into_iter()
+                    .map(history_node_to_local)
+                    .collect(),
+            })
+        }
+        ClientEvent::ModelCallStatus(event) => {
+            LocalClientEvent::ModelCallStatus(LocalModelCallStatusEvent {
+                task_id: event.task_id.0,
+                model_call_id: event.model_call_id.0,
+                phase: model_call_status_phase_to_local(event.phase),
+            })
+        }
+        ClientEvent::ToolExecutionStatus(event) => {
+            LocalClientEvent::ToolExecutionStatus(LocalToolExecutionStatusEvent {
+                task_id: event.task_id.0,
+                tool_execution_run_id: event.tool_execution_run_id.0,
+                function_call_node_id: event.function_call_node_id.0,
+                tool_name: event.tool_name.0,
+                phase: tool_execution_status_phase_to_local(event.phase),
+            })
+        }
+        ClientEvent::DebugNotice(event) => LocalClientEvent::DebugNotice(LocalDebugNoticeEvent {
+            task_id: event.task_id.map(|task_id| task_id.0),
+            message_text: event.message_text,
+        }),
+    }
+}
+
+fn client_notice_to_local(notice: ClientNotice) -> LocalNotice {
+    LocalNotice {
+        level: match notice.level {
+            ClientNoticeLevel::Info => LocalNoticeLevel::Info,
+            ClientNoticeLevel::Warning => LocalNoticeLevel::Warning,
+            ClientNoticeLevel::Error => LocalNoticeLevel::Error,
+        },
+        message_text: notice.message_text,
+    }
+}
+
+fn model_call_status_phase_to_local(phase: ModelCallStatusPhase) -> LocalModelCallStatusPhase {
+    match phase {
+        ModelCallStatusPhase::Requested => LocalModelCallStatusPhase::Requested,
+        ModelCallStatusPhase::Completed => LocalModelCallStatusPhase::Completed,
+        ModelCallStatusPhase::Failed => LocalModelCallStatusPhase::Failed,
+        ModelCallStatusPhase::Discarded => LocalModelCallStatusPhase::Discarded,
+    }
+}
+
+fn tool_execution_status_phase_to_local(
+    phase: ToolExecutionStatusPhase,
+) -> LocalToolExecutionStatusPhase {
+    match phase {
+        ToolExecutionStatusPhase::Requested => LocalToolExecutionStatusPhase::Requested,
+        ToolExecutionStatusPhase::Completed => LocalToolExecutionStatusPhase::Completed,
+        ToolExecutionStatusPhase::Failed => LocalToolExecutionStatusPhase::Failed,
+        ToolExecutionStatusPhase::Discarded => LocalToolExecutionStatusPhase::Discarded,
+    }
+}
+
+fn reasoning_effort_to_local(reasoning_effort: ReasoningEffort) -> LocalReasoningEffort {
+    match reasoning_effort {
+        ReasoningEffort::Minimal => LocalReasoningEffort::Minimal,
+        ReasoningEffort::Low => LocalReasoningEffort::Low,
+        ReasoningEffort::Medium => LocalReasoningEffort::Medium,
+        ReasoningEffort::High => LocalReasoningEffort::High,
+    }
+}
+
+fn message_role_to_local(role: MessageRole) -> LocalMessageRole {
+    match role {
+        MessageRole::System => LocalMessageRole::System,
+        MessageRole::Developer => LocalMessageRole::Developer,
+        MessageRole::User => LocalMessageRole::User,
+        MessageRole::Assistant => LocalMessageRole::Assistant,
+        MessageRole::Tool => LocalMessageRole::Tool,
+    }
+}
+
+fn tool_argument_to_local(argument: ToolCallArgument) -> LocalToolCallArgument {
+    LocalToolCallArgument {
+        name: argument.name.0,
+        value: tool_argument_value_to_local(argument.value),
+    }
+}
+
+fn tool_argument_value_to_local(value: ToolArgumentValue) -> LocalToolArgumentValue {
+    match value {
+        ToolArgumentValue::String(value) => LocalToolArgumentValue::String(value),
+        ToolArgumentValue::Integer(value) => LocalToolArgumentValue::Integer(value),
+        ToolArgumentValue::Number(value) => LocalToolArgumentValue::Number(value),
+        ToolArgumentValue::Boolean(value) => LocalToolArgumentValue::Boolean(value),
+    }
 }
 
 fn start_web(
