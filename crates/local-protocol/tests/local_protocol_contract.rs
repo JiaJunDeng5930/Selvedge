@@ -150,6 +150,18 @@ fn frame_validation_enforces_delivery_sequence_snapshot_and_notice_contracts() {
         Err(LocalProtocolValidationError::InvalidParentHistoryNodeId)
     );
 
+    let empty_parent_edge_task = LocalClientSnapshot {
+        task_parent_edges: vec![LocalTaskParentProjection {
+            parent_task_id: " ".to_owned(),
+            child_task_id: "task-2".to_owned(),
+        }],
+        ..snapshot.clone()
+    };
+    assert_eq!(
+        validate_snapshot(&empty_parent_edge_task),
+        Err(LocalProtocolValidationError::EmptyTaskId)
+    );
+
     let empty_tool_argument = LocalClientSnapshot {
         history_nodes: vec![LocalHistoryNodeProjection {
             body: LocalHistoryNodeProjectionBody::FunctionCall {
@@ -180,6 +192,21 @@ fn frame_validation_enforces_delivery_sequence_snapshot_and_notice_contracts() {
     assert_eq!(
         validate_client_frame(&empty_notice),
         Err(LocalProtocolValidationError::EmptyNoticeText)
+    );
+
+    let invalid_tool_status = LocalClientFrame::Event(LocalClientEventFrame {
+        delivery_seq: 1,
+        event: LocalClientEvent::ToolExecutionStatus(LocalToolExecutionStatusEvent {
+            task_id: "task-1".to_owned(),
+            tool_execution_run_id: "tool-run-1".to_owned(),
+            function_call_node_id: 0,
+            tool_name: "tool".to_owned(),
+            phase: LocalToolExecutionStatusPhase::Failed,
+        }),
+    });
+    assert_eq!(
+        validate_client_frame(&invalid_tool_status),
+        Err(LocalProtocolValidationError::InvalidHistoryNodeId)
     );
 }
 
@@ -269,6 +296,14 @@ fn protocol_messages_round_trip_through_json() {
         child_task_id: "child".to_owned(),
     };
     assert_eq!(parent_edge.child_task_id, "child");
+
+    let error_json = serde_json::to_string(&LocalProtocolValidationError::EmptyTaskId)
+        .expect("serialize validation error");
+    assert_eq!(
+        serde_json::from_str::<LocalProtocolValidationError>(&error_json)
+            .expect("deserialize validation error"),
+        LocalProtocolValidationError::EmptyTaskId
+    );
 }
 
 fn valid_snapshot() -> LocalClientSnapshot {

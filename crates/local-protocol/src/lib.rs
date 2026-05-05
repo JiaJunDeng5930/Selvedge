@@ -308,7 +308,7 @@ pub enum LocalToolArgumentValue {
     Boolean(bool),
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum LocalProtocolValidationError {
     ProtocolVersionMismatch,
     EmptyClientId,
@@ -427,6 +427,11 @@ pub fn validate_snapshot(
 ) -> Result<(), LocalProtocolValidationError> {
     for task in &snapshot.tasks {
         validate_task_projection(task)?;
+    }
+
+    for parent_edge in &snapshot.task_parent_edges {
+        validate_task_id(&parent_edge.parent_task_id)?;
+        validate_task_id(&parent_edge.child_task_id)?;
     }
 
     for history_node in &snapshot.history_nodes {
@@ -562,13 +567,28 @@ fn validate_client_event(event: &LocalClientEvent) -> Result<(), LocalProtocolVa
     match event {
         LocalClientEvent::TaskChanged(event) => validate_task_projection(&event.task),
         LocalClientEvent::HistoryAppended(event) => {
+            validate_task_id(&event.task_id)?;
             for node in &event.appended_nodes {
                 validate_history_node(node)?;
             }
             Ok(())
         }
-        LocalClientEvent::ModelCallStatus(_)
-        | LocalClientEvent::ToolExecutionStatus(_)
-        | LocalClientEvent::DebugNotice(_) => Ok(()),
+        LocalClientEvent::ModelCallStatus(event) => validate_task_id(&event.task_id),
+        LocalClientEvent::ToolExecutionStatus(event) => {
+            validate_task_id(&event.task_id)?;
+            if event.function_call_node_id <= 0 {
+                return Err(LocalProtocolValidationError::InvalidHistoryNodeId);
+            }
+            validate_tool_name(&event.tool_name)
+        }
+        LocalClientEvent::DebugNotice(event) => {
+            if let Some(task_id) = &event.task_id {
+                validate_task_id(task_id)?;
+            }
+            if event.message_text.trim().is_empty() {
+                return Err(LocalProtocolValidationError::EmptyNoticeText);
+            }
+            Ok(())
+        }
     }
 }
