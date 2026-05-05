@@ -225,10 +225,10 @@ async fn call_chatgpt(
 fn chatgpt_request_from_dispatch(
     request: &ModelCallDispatchRequest,
 ) -> Result<ChatgptResponsesRequest, ModelCallError> {
-    // NOTE: ChatGPT dispatch ignores max_output_tokens because chatgpt-api has no request field for this control.
+    // NOTE: ChatGPT dispatch ignores max_output_tokens because chatgpt-api exposes no request field for this control; max-token incompletes are reported as Length replies.
     Ok(ChatgptResponsesRequest {
         model: request.provider.model_name.clone(),
-        // HACK: Use fixed optimistic capabilities until Selvedge owns a ChatGPT model capability table.
+        // HACK: Pin direct ChatGPT dispatch to the current Selvedge capability decision until a capability source exists.
         model_capabilities: ChatgptModelCapabilities {
             supports_reasoning_summaries: true,
             supports_text_verbosity: true,
