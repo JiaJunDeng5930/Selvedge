@@ -5,7 +5,7 @@ publish = false
 
 [dependencies]
 selvedge-command-model = { path = "../command-model" }
-tokio = { version = "1.42.0", features = ["rt", "sync"] }
+tokio = { version = "1.42.0", features = ["macros", "rt", "sync"] }
 
 [dev-dependencies]
 selvedge-domain-model = { path = "../domain-model" }
