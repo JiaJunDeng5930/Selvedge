@@ -26,7 +26,7 @@ pub enum LocalEndpoint {
 }
 
 pub struct LocalClient<T: LocalTransport> {
-    pub transport: T,
+    transport: T,
     request_timeout: Duration,
     inner: Arc<Mutex<ClientState>>,
 }
