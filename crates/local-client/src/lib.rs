@@ -172,7 +172,7 @@ impl<T: LocalTransport> LocalClient<T> {
 
         match result {
             Ok(Ok((accepted, stream))) => {
-                guard.complete_as(LocalClientState::Attached);
+                guard.complete_attach_success();
                 let stream = Box::pin(ClientFrameStream {
                     inner: stream,
                     state: Arc::clone(&self.inner),
@@ -316,12 +316,17 @@ impl RequestGuard {
     fn complete_as(mut self, next_state: LocalClientState) {
         let mut state = self.state.lock().expect("local client state lock");
         if state.state == self.pending {
-            if next_state == LocalClientState::Attached {
-                state.attach_open = true;
-                state.state = LocalClientState::Attached;
-            } else {
-                state.state = resolved_state(next_state, state.attach_open);
-            }
+            state.state = resolved_state(next_state, state.attach_open);
+            state.recent_error = None;
+        }
+        self.active = false;
+    }
+
+    fn complete_attach_success(mut self) {
+        let mut state = self.state.lock().expect("local client state lock");
+        if state.state == self.pending {
+            state.attach_open = true;
+            state.state = LocalClientState::Attached;
             state.recent_error = None;
         }
         self.active = false;

@@ -16,7 +16,7 @@ use selvedge_local_protocol::{
     LocalClientSubscription, LocalDetailLevel, LocalNotice, LocalNoticeLevel, LocalTaskScope,
     ReadyRequest, ReadyResponse, ReadyState, current_protocol_version,
 };
-use tokio::sync::Mutex as AsyncMutex;
+use tokio::sync::{Mutex as AsyncMutex, oneshot};
 use tokio::time::timeout;
 
 static TEST_LOCK: LazyLock<AsyncMutex<()>> = LazyLock::new(|| AsyncMutex::new(()));
@@ -343,6 +343,64 @@ async fn attach_closure_during_pending_command_restores_ready_after_command_canc
 }
 
 #[tokio::test]
+async fn attach_closure_during_pending_command_restores_ready_after_command_success() {
+    let _guard = TEST_LOCK.lock().await;
+    let state = FakeTransportState::new_handle();
+    let (release_tx, release_rx) = oneshot::channel();
+    {
+        let mut state = state.lock().expect("fake state");
+        state.attach_responses.push_back(AttachAction::Response(Ok((
+            AttachAccepted {
+                protocol_version: current_protocol_version(),
+                client_id: LocalClientId::new("client-1").expect("client id"),
+                client_command_id: LocalClientCommandId::new("attach-1").expect("command id"),
+            },
+            Box::pin(stream::pending()),
+        ))));
+        state
+            .command_responses
+            .push_back(CommandAction::WaitForRelease {
+                release_rx,
+                response: Ok(CommandResponse {
+                    protocol_version: current_protocol_version(),
+                    client_command_id: LocalClientCommandId::new("command-1").expect("command id"),
+                    outcome: CommandOutcome::Accepted,
+                }),
+            });
+        state.attach_responses.push_back(AttachAction::Response(Ok((
+            AttachAccepted {
+                protocol_version: current_protocol_version(),
+                client_id: LocalClientId::new("client-1").expect("client id"),
+                client_command_id: LocalClientCommandId::new("attach-2").expect("command id"),
+            },
+            Box::pin(stream::empty()),
+        ))));
+    }
+    let client = connected_client(state.clone()).await;
+    let (_accepted, frames) = client
+        .attach(valid_attach("attach-1"))
+        .await
+        .expect("attach");
+
+    let mut command = Box::pin(client.submit_command(valid_command("command-1")));
+    assert!(
+        timeout(Duration::from_millis(5), command.as_mut())
+            .await
+            .is_err()
+    );
+    drop(frames);
+    release_tx.send(()).expect("release command");
+    command.await.expect("command response");
+
+    assert_eq!(client.state().await, LocalClientState::Ready);
+    let (_accepted, _frames) = client
+        .attach(valid_attach("attach-2"))
+        .await
+        .expect("reattach");
+    assert_eq!(state.lock().expect("fake state").attach_calls, 2);
+}
+
+#[tokio::test]
 async fn attach_validates_request_before_transport() {
     let _guard = TEST_LOCK.lock().await;
     let state = FakeTransportState::new_handle();
@@ -451,6 +509,10 @@ enum ReadyAction {
 
 enum CommandAction {
     Response(Result<CommandResponse, LocalClientError>),
+    WaitForRelease {
+        release_rx: oneshot::Receiver<()>,
+        response: Result<CommandResponse, LocalClientError>,
+    },
     Hang,
 }
 
@@ -526,6 +588,13 @@ impl LocalTransport for FakeTransport {
 
         match action {
             CommandAction::Response(response) => response,
+            CommandAction::WaitForRelease {
+                release_rx,
+                response,
+            } => {
+                let _ = release_rx.await;
+                response
+            }
             CommandAction::Hang => future::pending().await,
         }
     }
