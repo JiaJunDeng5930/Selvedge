@@ -812,6 +812,34 @@ async fn close_closes_transport_and_later_methods_return_closed() {
 }
 
 #[tokio::test]
+async fn close_fuses_existing_attach_stream() {
+    let _guard = TEST_LOCK.lock().await;
+    let state = FakeTransportState::new_handle();
+    state
+        .lock()
+        .expect("fake state")
+        .attach_responses
+        .push_back(AttachAction::Response(Ok((
+            AttachAccepted {
+                protocol_version: current_protocol_version(),
+                client_id: LocalClientId::new("client-1").expect("client id"),
+                client_command_id: LocalClientCommandId::new("attach-1").expect("command id"),
+            },
+            Box::pin(stream::iter(vec![Ok(notice_frame(1))])),
+        ))));
+    let client = connected_client(state).await;
+    let (_accepted, mut frames) = client
+        .attach(valid_attach("attach-1"))
+        .await
+        .expect("attach");
+
+    client.close().await.expect("close client");
+
+    assert_eq!(frames.next().await, None);
+    assert_eq!(client.state().await, LocalClientState::Closed);
+}
+
+#[tokio::test]
 async fn cancelling_pending_close_restores_previous_state() {
     let _guard = TEST_LOCK.lock().await;
     let state = FakeTransportState::new_handle();
