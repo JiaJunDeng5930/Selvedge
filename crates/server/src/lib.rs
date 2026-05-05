@@ -247,7 +247,7 @@ impl ServerControl {
         }
 
         if self.inner.router_tx.is_closed() {
-            self.begin_shutdown().await;
+            self.begin_shutdown_locked().await;
             return reject(CommandRejectReason::RouterMailboxClosed);
         }
 
@@ -270,7 +270,7 @@ impl ServerControl {
             .await
             .is_err()
         {
-            self.begin_shutdown().await;
+            self.begin_shutdown_locked().await;
             return reject(CommandRejectReason::InternalFailure);
         }
 
@@ -1005,6 +1005,108 @@ fn map_web_start_error(error: WebStartError) -> ServerStartupError {
         WebStartError::BindFailed(message) => ServerStartupError::LocalhostBindFailed(message),
         WebStartError::TokioSpawnFailed => {
             ServerStartupError::LocalhostBindFailed("tokio spawn failed".to_owned())
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+    use tokio::time::timeout;
+
+    struct UnusedMapper;
+
+    impl LocalCommandMapper for UnusedMapper {
+        fn map_command(
+            &self,
+            _request: CommandRequest,
+        ) -> Result<RouterCommandEnvelope, ServerRequestError> {
+            unreachable!("attach shutdown-path tests never submit commands")
+        }
+    }
+
+    #[tokio::test]
+    async fn attach_closed_router_shutdown_path_returns_rejection() {
+        let (router_tx, router_rx) = mpsc::unbounded_channel();
+        drop(router_rx);
+        let (client_sync_tx, _client_sync_rx) = mpsc::channel(1);
+        let (events_tx, _events_rx) = mpsc::channel(1);
+        let control = test_control(router_tx, client_sync_tx, events_tx);
+
+        let rejected = match timeout(
+            Duration::from_millis(100),
+            control.attach_client(test_attach_request()),
+        )
+        .await
+        .expect("attach returns")
+        {
+            Ok(_) => panic!("attach should reject after router mailbox closes"),
+            Err(rejected) => rejected,
+        };
+
+        assert_eq!(rejected.reason, CommandRejectReason::RouterMailboxClosed);
+        assert_eq!(control.state().await, ServerRuntimeState::Closing);
+    }
+
+    #[tokio::test]
+    async fn attach_closed_client_sync_shutdown_path_returns_rejection() {
+        let (router_tx, _router_rx) = mpsc::unbounded_channel();
+        let (client_sync_tx, client_sync_rx) = mpsc::channel(1);
+        drop(client_sync_rx);
+        let (events_tx, _events_rx) = mpsc::channel(1);
+        let control = test_control(router_tx, client_sync_tx, events_tx);
+
+        let rejected = match timeout(
+            Duration::from_millis(100),
+            control.attach_client(test_attach_request()),
+        )
+        .await
+        .expect("attach returns")
+        {
+            Ok(_) => panic!("attach should reject after client-sync mailbox closes"),
+            Err(rejected) => rejected,
+        };
+
+        assert_eq!(rejected.reason, CommandRejectReason::InternalFailure);
+        assert_eq!(control.state().await, ServerRuntimeState::Closing);
+    }
+
+    fn test_control(
+        router_tx: RouterIngressSender,
+        client_sync_tx: selvedge_client_sync::ClientSyncSender,
+        events_tx: EventIngressSender,
+    ) -> ServerControl {
+        ServerControl {
+            inner: Arc::new(ServerInner {
+                state: RwLock::new(ServerRuntimeState::Ready),
+                closing: AtomicBool::new(false),
+                request_gate: Mutex::new(()),
+                stop_notify: Notify::new(),
+                lock_path: std::env::temp_dir().join("selvedge-server-unit-test.lock"),
+                _singleton_lock: tempfile::tempfile().expect("temp singleton lock"),
+                router_tx,
+                events_tx: Mutex::new(Some(events_tx)),
+                client_sync_tx: Mutex::new(client_sync_tx),
+                command_mapper: Arc::new(UnusedMapper),
+                web_control: Mutex::new(None),
+            }),
+        }
+    }
+
+    fn test_attach_request() -> AttachRequest {
+        AttachRequest {
+            protocol_version: current_protocol_version(),
+            client_id: selvedge_local_protocol::LocalClientId::new("client-1")
+                .expect("valid client id"),
+            client_command_id: LocalClientCommandId::new("attach-1").expect("valid command id"),
+            subscription: selvedge_local_protocol::LocalClientSubscription {
+                task_scope: LocalTaskScope::AllTasks,
+                detail_level: LocalDetailLevel::Summary,
+                include_model_call_status: false,
+                include_tool_execution_status: false,
+                include_debug_notices: false,
+            },
         }
     }
 }
