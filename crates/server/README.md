@@ -8,6 +8,6 @@ Use it to start the server runtime, hold the singleton lock, initialize config a
 
 The singleton lock is `<selvedge_home>/server.lock`. The lock file is removed during normal shutdown and startup-failure cleanup.
 
-This crate currently exposes the in-process control surface and validates localhost bind targets. Wire protocol routes and framing are owned by the local-client package stage.
+This crate exposes the in-process control surface, validates localhost bind targets, and accepts attach requests by sending hydration starts into `selvedge-client-sync`.
 
-`ServerControl::attach_client` validates attach requests and returns an explicit rejection while the client-sync package still lacks hydration delivery. Returning `Accepted` requires the initial snapshot and event stream to be backed by client-sync.
+`ServerControl::attach_client` creates an internal client frame channel, sends `StartHydration` to client-sync, and returns a local-protocol frame stream. Frames from `selvedge-events` are converted from command-model client frames into local-protocol frames without reordering.

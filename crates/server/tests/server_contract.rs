@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, LazyLock, Mutex, mpsc as std_mpsc};
 use std::time::Duration;
 
+use futures_util::StreamExt;
 use selvedge_api::ApiExecutorConfig;
 use selvedge_client_sync::{
     ClientSnapshotBuildFuture, ClientSnapshotBuildRequest, ClientSnapshotBuilder,
@@ -14,8 +15,8 @@ use selvedge_core::{TaskRuntimeConfig, TaskRuntimeSpawnDeps};
 use selvedge_domain_model::{ModelProfileKey, UnixTs};
 use selvedge_local_protocol::{
     AttachRequest, CommandOutcome, CommandRejectReason, CommandRequest, LocalClientCommandId,
-    LocalClientId, LocalClientSubscription, LocalDetailLevel, LocalTaskScope, ProtocolVersion,
-    ReadyRequest, ReadyState, current_protocol_version,
+    LocalClientFrame, LocalClientId, LocalClientSubscription, LocalDetailLevel, LocalTaskScope,
+    ProtocolVersion, ReadyRequest, ReadyState, current_protocol_version,
 };
 use selvedge_router::{ToolExecutionSpawnError, ToolExecutionSpawner};
 use selvedge_server::{
@@ -305,7 +306,7 @@ async fn command_mapper_can_reject_unsupported_local_command() {
 }
 
 #[tokio::test]
-async fn attach_client_defers_accepted_stream_until_client_sync_hydration_exists() {
+async fn attach_client_accepts_and_streams_initial_snapshot() {
     let _guard = SERVER_TEST_LOCK.lock().await;
     let home = SERVER_TEST_HOME.path();
     let handle = spawn_server(test_args(
@@ -314,11 +315,21 @@ async fn attach_client_defers_accepted_stream_until_client_sync_hydration_exists
     ))
     .expect("spawn server");
 
-    let deferred = match handle.control.attach_client(valid_attach("attach-1")).await {
-        Ok(_) => panic!("server stage should defer accepted attach streams"),
-        Err(rejected) => rejected,
-    };
-    assert_eq!(deferred.reason, CommandRejectReason::ServerNotReady);
+    let (accepted, mut frames) = handle
+        .control
+        .attach_client(valid_attach("attach-1"))
+        .await
+        .expect("attach accepted");
+    assert_eq!(
+        accepted.client_command_id,
+        LocalClientCommandId::new("attach-1").expect("valid command id")
+    );
+    let frame = timeout(Duration::from_secs(1), frames.next())
+        .await
+        .expect("snapshot timeout")
+        .expect("snapshot frame")
+        .expect("snapshot frame ok");
+    assert!(matches!(frame, LocalClientFrame::Snapshot(_)));
 
     let rejected = match handle
         .control
