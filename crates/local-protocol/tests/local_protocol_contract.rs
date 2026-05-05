@@ -174,11 +174,29 @@ fn frame_validation_enforces_delivery_sequence_snapshot_and_notice_contracts() {
             },
             ..valid_history_message()
         }],
-        ..snapshot
+        ..snapshot.clone()
     };
     assert_eq!(
         validate_snapshot(&empty_tool_argument),
         Err(LocalProtocolValidationError::EmptyToolArgumentName)
+    );
+
+    let invalid_function_output_ref = LocalClientSnapshot {
+        history_nodes: vec![LocalHistoryNodeProjection {
+            body: LocalHistoryNodeProjectionBody::FunctionOutput {
+                function_call_node_id: 0,
+                function_call_id: "call-1".to_owned(),
+                tool_name: "tool".to_owned(),
+                output_text: "done".to_owned(),
+                is_error: false,
+            },
+            ..valid_history_message()
+        }],
+        ..snapshot
+    };
+    assert_eq!(
+        validate_snapshot(&invalid_function_output_ref),
+        Err(LocalProtocolValidationError::InvalidHistoryNodeId)
     );
 
     let empty_notice = LocalClientFrame::Notice(LocalClientNoticeFrame {

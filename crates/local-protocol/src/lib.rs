@@ -541,7 +541,14 @@ fn validate_history_node_body(
             }
             Ok(())
         }
-        LocalHistoryNodeProjectionBody::FunctionOutput { tool_name, .. } => {
+        LocalHistoryNodeProjectionBody::FunctionOutput {
+            function_call_node_id,
+            tool_name,
+            ..
+        } => {
+            if *function_call_node_id <= 0 {
+                return Err(LocalProtocolValidationError::InvalidHistoryNodeId);
+            }
             validate_tool_name(tool_name)
         }
     }
