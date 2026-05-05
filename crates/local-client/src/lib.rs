@@ -221,7 +221,6 @@ impl<T: LocalTransport> LocalClient<T> {
         let previous_state = state.state.clone();
         let previous_attach_open = state.attach_open;
         state.state = LocalClientState::Closing;
-        state.attach_open = false;
         state.recent_error = None;
 
         Ok(CloseGuard {
