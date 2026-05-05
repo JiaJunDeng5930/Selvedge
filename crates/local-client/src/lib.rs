@@ -200,23 +200,33 @@ impl<T: LocalTransport> LocalClient<T> {
     }
 
     pub async fn close(&self) -> Result<(), LocalClientError> {
-        {
-            let mut state = self.inner.lock().expect("local client state lock");
-            match state.state {
-                LocalClientState::Closed => return Err(LocalClientError::Closed),
-                LocalClientState::Closing => return Err(LocalClientError::Closing),
-                _ => {
-                    state.state = LocalClientState::Closing;
-                    state.attach_open = false;
-                    state.recent_error = None;
-                }
-            }
-        }
+        let guard = self.begin_close()?;
 
         self.transport.close().await;
-        let mut state = self.inner.lock().expect("local client state lock");
-        state.state = LocalClientState::Closed;
+        guard.complete_closed();
         Ok(())
+    }
+
+    fn begin_close(&self) -> Result<CloseGuard, LocalClientError> {
+        let mut state = self.inner.lock().expect("local client state lock");
+        match state.state {
+            LocalClientState::Closed => return Err(LocalClientError::Closed),
+            LocalClientState::Closing => return Err(LocalClientError::Closing),
+            _ => {}
+        }
+
+        let previous_state = state.state.clone();
+        let previous_attach_open = state.attach_open;
+        state.state = LocalClientState::Closing;
+        state.attach_open = false;
+        state.recent_error = None;
+
+        Ok(CloseGuard {
+            state: Arc::clone(&self.inner),
+            previous_state,
+            previous_attach_open,
+            active: true,
+        })
     }
 
     fn begin_request(&self, pending: LocalClientState) -> Result<RequestGuard, LocalClientError> {
@@ -313,6 +323,39 @@ struct RequestGuard {
     return_state: LocalClientState,
     timeout: Duration,
     active: bool,
+}
+
+struct CloseGuard {
+    state: Arc<Mutex<ClientState>>,
+    previous_state: LocalClientState,
+    previous_attach_open: bool,
+    active: bool,
+}
+
+impl CloseGuard {
+    fn complete_closed(mut self) {
+        let mut state = self.state.lock().expect("local client state lock");
+        if state.state == LocalClientState::Closing {
+            state.state = LocalClientState::Closed;
+            state.attach_open = false;
+            state.recent_error = None;
+        }
+        self.active = false;
+    }
+}
+
+impl Drop for CloseGuard {
+    fn drop(&mut self) {
+        if !self.active {
+            return;
+        }
+
+        let mut state = self.state.lock().expect("local client state lock");
+        if state.state == LocalClientState::Closing {
+            state.state = self.previous_state.clone();
+            state.attach_open = self.previous_attach_open;
+        }
+    }
 }
 
 impl RequestGuard {
