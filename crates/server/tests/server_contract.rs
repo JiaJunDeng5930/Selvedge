@@ -109,7 +109,7 @@ async fn stale_lock_file_does_not_block_server_restart() {
 }
 
 #[tokio::test]
-async fn startup_failure_after_lock_leaves_recoverable_lock_file() {
+async fn startup_failure_after_lock_removes_recoverable_lock_file() {
     let _guard = SERVER_TEST_LOCK.lock().await;
     let home = SERVER_TEST_HOME.path();
     let sqlite_path = home.join("selvedge.sqlite");
@@ -125,7 +125,7 @@ async fn startup_failure_after_lock_leaves_recoverable_lock_file() {
     ));
 
     assert!(matches!(failed, Err(ServerStartupError::DbOpenFailed(_))));
-    assert!(lock_path.exists());
+    assert!(!lock_path.exists());
 
     std::fs::remove_dir(&sqlite_path).expect("remove sqlite path directory");
     let restarted = spawn_server(test_args(

@@ -330,37 +330,66 @@ fn start_server_after_lock(
     home: PathBuf,
     singleton_lock: File,
 ) -> Result<ServerContext, ServerStartupError> {
-    init_logging()?;
+    if let Err(error) = init_logging() {
+        cleanup_startup_lock(&home);
+        return Err(error);
+    }
 
-    let db = open_db(OpenDbOptions {
+    let db = match open_db(OpenDbOptions {
         sqlite_path: sqlite_path_for_home(&home).to_string_lossy().to_string(),
-    })
-    .map_err(|error| ServerStartupError::DbOpenFailed(error.to_string()))?;
+    }) {
+        Ok(db) => db,
+        Err(error) => {
+            cleanup_startup_lock(&home);
+            return Err(ServerStartupError::DbOpenFailed(error.to_string()));
+        }
+    };
 
-    let events = spawn_events_task(EventsStartArgs {
+    let events = match spawn_events_task(EventsStartArgs {
         ingress_capacity: DEFAULT_EVENTS_INGRESS_CAPACITY,
         client_registry_capacity: DEFAULT_CLIENT_REGISTRY_CAPACITY,
         hydration_buffer_capacity: DEFAULT_HYDRATION_BUFFER_CAPACITY,
-    })
-    .map_err(map_events_start_error)?;
+    }) {
+        Ok(events) => events,
+        Err(error) => {
+            cleanup_startup_lock(&home);
+            return Err(map_events_start_error(error));
+        }
+    };
 
-    let client_sync = spawn_client_sync(ClientSyncStartArgs {
+    let client_sync = match spawn_client_sync(ClientSyncStartArgs {
         events_tx: events.ingress_tx.clone(),
         snapshot_builder: args.snapshot_builder,
         ingress_capacity: DEFAULT_CLIENT_SYNC_INGRESS_CAPACITY,
-    })
-    .map_err(map_client_sync_start_error)?;
+    }) {
+        Ok(client_sync) => client_sync,
+        Err(error) => {
+            cleanup_startup_lock(&home);
+            return Err(map_client_sync_start_error(error));
+        }
+    };
 
-    let router = selvedge_router::spawn_router(RouterStartArgs {
+    let router = match selvedge_router::spawn_router(RouterStartArgs {
         db,
         events_tx: events.ingress_tx.clone(),
         api_config: args.api_config,
         tool_executor: args.tool_executor,
         core_spawn_deps: args.core_spawn_deps,
-    })
-    .map_err(map_router_start_error)?;
+    }) {
+        Ok(router) => router,
+        Err(error) => {
+            cleanup_startup_lock(&home);
+            return Err(map_router_start_error(error));
+        }
+    };
 
-    let web = start_web(args.web_binding, &args.command_mapper)?;
+    let web = match start_web(args.web_binding, &args.command_mapper) {
+        Ok(web) => web,
+        Err(error) => {
+            cleanup_startup_lock(&home);
+            return Err(error);
+        }
+    };
 
     let inner = Arc::new(ServerInner {
         state: RwLock::new(ServerRuntimeState::Ready),
@@ -376,6 +405,10 @@ fn start_server_after_lock(
     let join_handle = spawn_server_join_task(inner.clone(), router, events, client_sync, web);
 
     Ok(ServerContext { inner, join_handle })
+}
+
+fn cleanup_startup_lock(home: &Path) {
+    let _ = std::fs::remove_file(lock_path_for_home(home));
 }
 
 fn spawn_server_join_task(
