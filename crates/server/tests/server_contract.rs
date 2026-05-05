@@ -160,6 +160,32 @@ async fn invalid_web_bind_target_is_rejected_before_durable_startup_side_effects
 }
 
 #[tokio::test]
+async fn occupied_web_bind_target_is_rejected_before_runtime_tasks_start() {
+    let _guard = SERVER_TEST_LOCK.lock().await;
+    let home = SERVER_TEST_HOME.path();
+    let sqlite_path = home.join("selvedge.sqlite");
+    let lock_path = home.join("server.lock");
+    let _ = std::fs::remove_file(&lock_path);
+    let _ = std::fs::remove_file(&sqlite_path);
+    let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).expect("bind occupied port");
+    let port = listener.local_addr().expect("occupied addr").port();
+
+    let mut args = test_args(home.to_path_buf(), Arc::new(RecordingMapper::new()));
+    args.web_binding = Some(WebBindingConfig {
+        bind_target: LocalhostBindTarget::Ipv4 { port },
+    });
+
+    let failed = spawn_server(args);
+
+    assert!(matches!(
+        failed,
+        Err(ServerStartupError::LocalhostBindFailed(_))
+    ));
+    assert!(!sqlite_path.exists());
+    assert!(!lock_path.exists());
+}
+
+#[tokio::test]
 async fn command_submit_validates_protocol_and_maps_to_router_mailbox() {
     let _guard = SERVER_TEST_LOCK.lock().await;
     let home = SERVER_TEST_HOME.path();

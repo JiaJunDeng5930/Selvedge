@@ -14,9 +14,15 @@ use selvedge_local_protocol::{
 };
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
+use tokio_stream::wrappers::WatchStream;
 
 pub struct WebStartArgs {
     pub bind: WebLocalhostBind,
+    pub bridge: Arc<dyn WebBridge>,
+}
+
+pub struct ReservedWebStartArgs {
+    pub bind: WebBindReservation,
     pub bridge: Arc<dyn WebBridge>,
 }
 
@@ -30,6 +36,11 @@ pub struct WebLocalhostBind {
 pub enum WebLocalhostHost {
     Ipv4Loopback,
     Ipv6Loopback,
+}
+
+pub struct WebBindReservation {
+    bind: WebLocalhostBind,
+    listener: TcpListener,
 }
 
 pub struct WebHandle {
@@ -108,13 +119,29 @@ pub enum AttachRejectedOrBridgeError {
 }
 
 pub fn spawn_web_surface(args: WebStartArgs) -> Result<WebHandle, WebStartError> {
-    if args.bind.port == 0 {
+    let bind = reserve_web_bind(args.bind)?;
+    spawn_reserved_web_surface(ReservedWebStartArgs {
+        bind,
+        bridge: args.bridge,
+    })
+}
+
+pub fn reserve_web_bind(bind: WebLocalhostBind) -> Result<WebBindReservation, WebStartError> {
+    if bind.port == 0 {
+        return Err(WebStartError::InvalidBindTarget);
+    }
+    let listener = bind_localhost(&bind)?;
+    Ok(WebBindReservation { bind, listener })
+}
+
+pub fn spawn_reserved_web_surface(args: ReservedWebStartArgs) -> Result<WebHandle, WebStartError> {
+    if args.bind.bind.port == 0 {
         return Err(WebStartError::InvalidBindTarget);
     }
 
     let handle =
         tokio::runtime::Handle::try_current().map_err(|_| WebStartError::TokioSpawnFailed)?;
-    let listener = bind_localhost(&args.bind)?;
+    let listener = args.bind.listener;
     let (state_tx, mut state_rx) = watch::channel(WebRuntimeState::Listening);
     let control = WebControl {
         inner: Arc::new(WebControlInner {
@@ -240,7 +267,7 @@ impl WebControl {
     fn wrap_frame_stream(&self, inner: WebFrameStream) -> WebFrameStream {
         Box::pin(WebBrowserFrameStream {
             inner,
-            state_rx: self.inner.state_tx.subscribe(),
+            state_stream: WatchStream::new(self.inner.state_tx.subscribe()),
             closed_after_error: false,
         })
     }
@@ -248,7 +275,7 @@ impl WebControl {
 
 struct WebBrowserFrameStream {
     inner: WebFrameStream,
-    state_rx: watch::Receiver<WebRuntimeState>,
+    state_stream: WatchStream<WebRuntimeState>,
     closed_after_error: bool,
 }
 
@@ -257,13 +284,19 @@ impl Stream for WebBrowserFrameStream {
 
     fn poll_next(self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = self.get_mut();
-        if this.closed_after_error
-            || matches!(
-                *this.state_rx.borrow(),
-                WebRuntimeState::Closing | WebRuntimeState::Stopped | WebRuntimeState::Failed
-            )
-        {
+        if this.closed_after_error {
             return Poll::Ready(None);
+        }
+
+        loop {
+            match Pin::new(&mut this.state_stream).poll_next(context) {
+                Poll::Ready(Some(
+                    WebRuntimeState::Closing | WebRuntimeState::Stopped | WebRuntimeState::Failed,
+                )) => return Poll::Ready(None),
+                Poll::Ready(Some(_)) => {}
+                Poll::Ready(None) => return Poll::Ready(None),
+                Poll::Pending => break,
+            }
         }
 
         match this.inner.as_mut().poll_next(context) {
@@ -272,29 +305,7 @@ impl Stream for WebBrowserFrameStream {
                 Poll::Ready(Some(Err(error)))
             }
             Poll::Ready(item) => Poll::Ready(item),
-            Poll::Pending => {
-                let state_changed = {
-                    let changed = this.state_rx.changed();
-                    tokio::pin!(changed);
-                    Future::poll(changed.as_mut(), context)
-                };
-                match state_changed {
-                    Poll::Ready(Ok(())) => {
-                        if matches!(
-                            *this.state_rx.borrow(),
-                            WebRuntimeState::Closing
-                                | WebRuntimeState::Stopped
-                                | WebRuntimeState::Failed
-                        ) {
-                            Poll::Ready(None)
-                        } else {
-                            Poll::Pending
-                        }
-                    }
-                    Poll::Ready(Err(_)) => Poll::Ready(None),
-                    Poll::Pending => Poll::Pending,
-                }
-            }
+            Poll::Pending => Poll::Pending,
         }
     }
 }

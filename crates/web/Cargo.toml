@@ -7,6 +7,7 @@ publish = false
 futures-core = "0.3.31"
 selvedge-local-protocol = { path = "../local-protocol" }
 tokio = { version = "1.42.0", features = ["rt", "sync"] }
+tokio-stream = { version = "0.1.17", features = ["sync"] }
 
 [dev-dependencies]
 futures-util = "0.3.31"
