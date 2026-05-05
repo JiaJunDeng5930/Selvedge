@@ -168,6 +168,22 @@ async fn attach_client_accepts_valid_subscription_and_rejects_malformed_request(
 
     assert_eq!(rejected.reason, CommandRejectReason::MalformedRequest);
 
+    let version_mismatch = match handle
+        .control
+        .attach_client(AttachRequest {
+            protocol_version: ProtocolVersion(2),
+            ..valid_attach("attach-3")
+        })
+        .await
+    {
+        Ok(_) => panic!("version-mismatched attach request should be rejected"),
+        Err(rejected) => rejected,
+    };
+    assert_eq!(
+        version_mismatch.reason,
+        CommandRejectReason::ProtocolVersionMismatch
+    );
+
     handle.control.stop().await;
     handle.join_handle.await.expect("join server");
 }

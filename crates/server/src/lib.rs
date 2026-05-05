@@ -161,6 +161,7 @@ pub fn spawn_server(args: ServerStartArgs) -> Result<ServerHandle, ServerStartup
         validate_bind_target(&web_binding.bind_target)?;
     }
 
+    init_config(args.explicit_home.as_ref())?;
     let home = resolve_home(args.explicit_home.clone())?;
     let singleton_lock = acquire_singleton_lock(&home)?;
 
@@ -228,6 +229,9 @@ impl ServerControl {
         }
 
         if validate_attach_request(&request).is_err() {
+            if request.protocol_version != current_protocol_version() {
+                return reject(CommandRejectReason::ProtocolVersionMismatch);
+            }
             return reject(CommandRejectReason::MalformedRequest);
         }
 
@@ -360,7 +364,6 @@ fn start_server_after_lock(
     home: PathBuf,
     singleton_lock: File,
 ) -> Result<ServerContext, ServerStartupError> {
-    init_config(args.explicit_home.as_ref())?;
     init_logging()?;
 
     let db = open_db(OpenDbOptions {
