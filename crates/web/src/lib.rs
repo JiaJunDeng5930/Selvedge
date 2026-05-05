@@ -8,9 +8,9 @@ use std::task::{Context, Poll};
 
 use futures_core::Stream;
 use selvedge_local_protocol::{
-    AttachAccepted, AttachRejected, AttachRequest, CommandOutcome, CommandRejectReason,
-    CommandRequest, CommandResponse, LocalClientFrame, ReadyRequest, ReadyResponse,
-    current_protocol_version, validate_attach_request, validate_command_request,
+    AttachAccepted, AttachRejectReason, AttachRejected, AttachRequest, CommandOutcome,
+    CommandRejectReason, CommandRequest, CommandResponse, LocalClientFrame, ReadyRequest,
+    ReadyResponse, current_protocol_version, validate_attach_request, validate_command_request,
 };
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
@@ -219,9 +219,9 @@ impl WebControl {
         let client_command_id = request.client_command_id.clone();
         if validate_attach_request(&request).is_err() {
             let reason = if request.protocol_version != current_protocol_version() {
-                CommandRejectReason::ProtocolVersionMismatch
+                AttachRejectReason::ProtocolVersionMismatch
             } else {
-                CommandRejectReason::MalformedRequest
+                AttachRejectReason::MalformedRequest
             };
             return Err(AttachRejectedOrBridgeError::Rejected(AttachRejected {
                 protocol_version,
@@ -236,14 +236,14 @@ impl WebControl {
                 Err(AttachRejectedOrBridgeError::Rejected(AttachRejected {
                     protocol_version,
                     client_command_id,
-                    reason: CommandRejectReason::ServerNotReady,
+                    reason: AttachRejectReason::ServerNotReady,
                 }))
             }
             Err(AttachRejectedOrBridgeError::Bridge(WebBridgeError::ProtocolValidationFailed)) => {
                 Err(AttachRejectedOrBridgeError::Rejected(AttachRejected {
                     protocol_version,
                     client_command_id,
-                    reason: CommandRejectReason::MalformedRequest,
+                    reason: AttachRejectReason::MalformedRequest,
                 }))
             }
             Err(error) => Err(error),

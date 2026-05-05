@@ -516,6 +516,7 @@ pub enum ToolExecutionStatusPhase {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum DetachReason {
     ClientRequested,
+    ClientDisconnected,
     ReplacedByNewHydration,
     DeliveryFailed,
     HydrationBufferOverflow,

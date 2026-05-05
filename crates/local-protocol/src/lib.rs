@@ -66,6 +66,19 @@ pub enum CommandRejectReason {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AttachRejectReason {
+    ProtocolVersionMismatch,
+    MalformedRequest,
+    ServerNotReady,
+    DuplicateAttach,
+    ClientRegistryFull,
+    RouterMailboxClosed,
+    ClientSyncUnavailable,
+    AttachChannelFailed,
+    InternalFailure,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AttachRequest {
     pub protocol_version: ProtocolVersion,
     pub client_id: LocalClientId,
@@ -84,7 +97,7 @@ pub struct AttachAccepted {
 pub struct AttachRejected {
     pub protocol_version: ProtocolVersion,
     pub client_command_id: LocalClientCommandId,
-    pub reason: CommandRejectReason,
+    pub reason: AttachRejectReason,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
