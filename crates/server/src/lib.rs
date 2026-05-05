@@ -707,6 +707,10 @@ impl futures_core::Stream for ServerAttachFrameStream {
 
 impl Drop for ServerAttachFrameStream {
     fn drop(&mut self) {
+        if self.closed_reported {
+            return;
+        }
+
         let client_id = self.client_id.clone();
         let client_command_id = self.client_command_id.clone();
 
@@ -1499,6 +1503,15 @@ mod tests {
             .attach_client(test_attach_request())
             .await
             .expect("retry attach accepted after channel close");
+        let _ = timeout(Duration::from_millis(100), client_sync_rx.recv())
+            .await
+            .expect("retry start hydration arrives")
+            .expect("retry start hydration");
+        drop(stream);
+        assert!(matches!(
+            client_sync_rx.try_recv(),
+            Err(tokio::sync::mpsc::error::TryRecvError::Empty)
+        ));
     }
 
     #[tokio::test]
