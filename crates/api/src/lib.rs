@@ -515,31 +515,55 @@ fn structured_payload_from_json_string(raw: &str) -> Result<StructuredPayload, M
             "chatgpt function-call arguments must be a JSON object",
         ));
     }
-    Ok(structured_payload_from_json_value(value))
+    structured_payload_from_json_value(value)
 }
 
-fn structured_payload_from_json_value(value: serde_json::Value) -> StructuredPayload {
+fn structured_payload_from_json_value(
+    value: serde_json::Value,
+) -> Result<StructuredPayload, ModelCallError> {
     match value {
-        serde_json::Value::Object(object) => StructuredPayload::Object(
+        serde_json::Value::Object(object) => Ok(StructuredPayload::Object(
             object
                 .into_iter()
-                .map(|(key, value)| (key, structured_payload_from_json_value(value)))
-                .collect(),
-        ),
-        serde_json::Value::Array(values) => StructuredPayload::Array(
+                .map(|(key, value)| Ok((key, structured_payload_from_json_value(value)?)))
+                .collect::<Result<BTreeMap<_, _>, ModelCallError>>()?,
+        )),
+        serde_json::Value::Array(values) => Ok(StructuredPayload::Array(
             values
                 .into_iter()
                 .map(structured_payload_from_json_value)
-                .collect(),
-        ),
-        serde_json::Value::String(value) => StructuredPayload::String(value),
-        serde_json::Value::Number(value) => value
-            .as_f64()
-            .map(StructuredPayload::Number)
-            .unwrap_or(StructuredPayload::Null),
-        serde_json::Value::Bool(value) => StructuredPayload::Boolean(value),
-        serde_json::Value::Null => StructuredPayload::Null,
+                .collect::<Result<Vec<_>, _>>()?,
+        )),
+        serde_json::Value::String(value) => Ok(StructuredPayload::String(value)),
+        serde_json::Value::Number(value) => {
+            Ok(StructuredPayload::Number(f64_from_json_number(&value)?))
+        }
+        serde_json::Value::Bool(value) => Ok(StructuredPayload::Boolean(value)),
+        serde_json::Value::Null => Ok(StructuredPayload::Null),
     }
+}
+
+fn f64_from_json_number(value: &serde_json::Number) -> Result<f64, ModelCallError> {
+    const MAX_EXACT_INTEGER: u64 = 9_007_199_254_740_992;
+
+    if let Some(unsigned) = value.as_u64() {
+        if unsigned > MAX_EXACT_INTEGER {
+            return Err(imprecise_chatgpt_number_error());
+        }
+    } else if let Some(signed) = value.as_i64()
+        && signed.unsigned_abs() > MAX_EXACT_INTEGER
+    {
+        return Err(imprecise_chatgpt_number_error());
+    }
+
+    value.as_f64().ok_or_else(imprecise_chatgpt_number_error)
+}
+
+fn imprecise_chatgpt_number_error() -> ModelCallError {
+    model_call_error(
+        ModelCallErrorKind::ProviderResponse,
+        "chatgpt function-call arguments contain a number that cannot be represented without precision loss",
+    )
 }
 
 fn json_value_from_structured_payload(payload: &StructuredPayload) -> serde_json::Value {
