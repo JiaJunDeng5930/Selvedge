@@ -421,6 +421,10 @@ impl Stream for ClientFrameStream {
         if this.closed_reported {
             return Poll::Ready(None);
         }
+        if stream_is_closed_by_client(&this.state, this.attach_generation) {
+            this.closed_reported = true;
+            return Poll::Ready(None);
+        }
 
         match this.inner.as_mut().poll_next(cx) {
             Poll::Ready(Some(Ok(frame))) => Poll::Ready(Some(Ok(frame))),
@@ -455,6 +459,12 @@ fn clear_attached_state(state: &Arc<Mutex<ClientState>>, attach_generation: u64)
     if state.state == LocalClientState::Attached {
         state.state = LocalClientState::Ready;
     }
+}
+
+fn stream_is_closed_by_client(state: &Arc<Mutex<ClientState>>, attach_generation: u64) -> bool {
+    let state = state.lock().expect("local client state lock");
+    state.state == LocalClientState::Closed
+        || (state.attach_generation == attach_generation && !state.attach_open)
 }
 
 fn resolved_state(next_state: LocalClientState, attach_open: bool) -> LocalClientState {
