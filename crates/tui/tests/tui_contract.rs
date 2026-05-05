@@ -9,10 +9,11 @@ use selvedge_local_client::{
     LocalFrameStream, LocalTransport,
 };
 use selvedge_local_protocol::{
-    AttachAccepted, AttachRejected, AttachRequest, CommandOutcome, CommandRejectReason,
-    CommandRequest, CommandResponse, LocalClientCommandId, LocalClientFrame, LocalClientId,
-    LocalClientSnapshot, LocalClientSnapshotFrame, LocalClientSubscription, LocalDetailLevel,
-    LocalTaskScope, ReadyRequest, ReadyResponse, ReadyState, current_protocol_version,
+    AttachAccepted, AttachRejectReason, AttachRejected, AttachRequest, CommandOutcome,
+    CommandRejectReason, CommandRequest, CommandResponse, LocalClientCommandId, LocalClientFrame,
+    LocalClientId, LocalClientSnapshot, LocalClientSnapshotFrame, LocalClientSubscription,
+    LocalDetailLevel, LocalTaskScope, ReadyRequest, ReadyResponse, ReadyState,
+    current_protocol_version,
 };
 use selvedge_tui::{TuiExitStatus, TuiInputAction, TuiStartArgs, run_tui};
 use tokio::sync::Mutex as AsyncMutex;
@@ -64,7 +65,7 @@ async fn attach_rejection_returns_attach_rejected() {
         .push_back(AttachAction::Rejected(AttachRejected {
             protocol_version: current_protocol_version(),
             client_command_id: LocalClientCommandId::new("attach-1").expect("command id"),
-            reason: CommandRejectReason::ServerNotReady,
+            reason: AttachRejectReason::ServerNotReady,
         }));
     install_connect_plan(Ok(state.clone()));
 

@@ -13,8 +13,8 @@ use fs2::FileExt;
 use futures_core::Stream;
 use selvedge_api::ApiExecutorConfig;
 use selvedge_client_sync::{
-    ClientSnapshotBuilder, ClientSyncHandle, ClientSyncIngress, ClientSyncStartArgs,
-    SpawnClientSyncError, spawn_client_sync,
+    CancelHydration, ClientSnapshotBuilder, ClientSyncHandle, ClientSyncIngress,
+    ClientSyncStartArgs, SpawnClientSyncError, spawn_client_sync,
 };
 use selvedge_command_model::{
     BeginClientHydration, ClientCommandId, ClientEvent, ClientFrame, ClientId, ClientNotice,
@@ -31,10 +31,10 @@ use selvedge_domain_model::{
 };
 use selvedge_events::{EventsHandle, EventsStartArgs, SpawnEventsError, spawn_events_task};
 use selvedge_local_protocol::{
-    AttachAccepted, AttachRejected, AttachRequest, CommandOutcome, CommandRejectReason,
-    CommandRequest, CommandResponse, LocalClientCommandId, LocalClientEvent, LocalClientEventFrame,
-    LocalClientFrame, LocalClientSnapshot, LocalClientSnapshotFrame, LocalDebugNoticeEvent,
-    LocalDetailLevel, LocalHistoryAppendedEvent, LocalHistoryNodeProjection,
+    AttachAccepted, AttachRejectReason, AttachRejected, AttachRequest, CommandOutcome,
+    CommandRejectReason, CommandRequest, CommandResponse, LocalClientCommandId, LocalClientEvent,
+    LocalClientEventFrame, LocalClientFrame, LocalClientSnapshot, LocalClientSnapshotFrame,
+    LocalDebugNoticeEvent, LocalDetailLevel, LocalHistoryAppendedEvent, LocalHistoryNodeProjection,
     LocalHistoryNodeProjectionBody, LocalMessageRole, LocalModelCallStatusEvent,
     LocalModelCallStatusPhase, LocalNotice, LocalNoticeLevel, LocalReasoningEffort,
     LocalSnapshotTaskVersion, LocalTaskChangedEvent, LocalTaskParentProjection,
@@ -236,19 +236,19 @@ impl ServerControl {
         };
 
         if *self.inner.state.read().await != ServerRuntimeState::Ready {
-            return reject(CommandRejectReason::ServerNotReady);
+            return reject(AttachRejectReason::ServerNotReady);
         }
 
         if validate_attach_request(&request).is_err() {
             if request.protocol_version != current_protocol_version() {
-                return reject(CommandRejectReason::ProtocolVersionMismatch);
+                return reject(AttachRejectReason::ProtocolVersionMismatch);
             }
-            return reject(CommandRejectReason::MalformedRequest);
+            return reject(AttachRejectReason::MalformedRequest);
         }
 
         if self.inner.router_tx.is_closed() {
             self.begin_shutdown_locked().await;
-            return reject(CommandRejectReason::RouterMailboxClosed);
+            return reject(AttachRejectReason::RouterMailboxClosed);
         }
 
         let (outbound_tx, outbound_rx) = mpsc::channel(DEFAULT_HYDRATION_BUFFER_CAPACITY);
@@ -261,7 +261,7 @@ impl ServerControl {
             subscription: local_subscription_to_command(request.subscription),
         };
         let Some(events_tx) = self.inner.events_tx.lock().await.as_ref().cloned() else {
-            return reject(CommandRejectReason::InternalFailure);
+            return reject(AttachRejectReason::InternalFailure);
         };
         let client_sync_tx = self.inner.client_sync_tx.lock().await.clone();
 
@@ -271,7 +271,7 @@ impl ServerControl {
             .is_err()
         {
             self.begin_shutdown_locked().await;
-            return reject(CommandRejectReason::InternalFailure);
+            return reject(AttachRejectReason::ClientSyncUnavailable);
         }
 
         Ok((
@@ -285,6 +285,7 @@ impl ServerControl {
                 client_id,
                 client_command_id,
                 events_tx: events_tx.downgrade(),
+                client_sync_tx: client_sync_tx.downgrade(),
                 closed_reported: false,
             }),
         ))
@@ -520,6 +521,7 @@ struct ServerAttachFrameStream {
     // NOTE: Weak sender lets server shutdown close events while callers still hold frame streams;
     // Drop upgrades it only to report client detach.
     events_tx: mpsc::WeakSender<EventIngress>,
+    client_sync_tx: mpsc::WeakSender<ClientSyncIngress>,
     closed_reported: bool,
 }
 
@@ -544,27 +546,49 @@ impl futures_core::Stream for ServerAttachFrameStream {
 
 impl Drop for ServerAttachFrameStream {
     fn drop(&mut self) {
+        let client_id = self.client_id.clone();
+        let client_command_id = self.client_command_id.clone();
+
+        if let Some(client_sync_tx) = self.client_sync_tx.upgrade() {
+            let retry_client_sync_tx = client_sync_tx.clone();
+            let cancel = ClientSyncIngress::CancelHydration(CancelHydration {
+                client_id: client_id.clone(),
+                client_command_id: client_command_id.clone(),
+            });
+
+            match client_sync_tx.try_send(cancel) {
+                Ok(()) => {}
+                Err(tokio::sync::mpsc::error::TrySendError::Full(cancel)) => {
+                    if let Ok(handle) = tokio::runtime::Handle::try_current() {
+                        handle.spawn(async move {
+                            let _ = retry_client_sync_tx.send(cancel).await;
+                        });
+                    }
+                }
+                Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {}
+            }
+        }
+
         let Some(events_tx) = self.events_tx.upgrade() else {
             return;
         };
         let retry_events_tx = events_tx.clone();
-        let client_id = self.client_id.clone();
-        let client_command_id = self.client_command_id.clone();
         let detach = EventIngress::Control(EventControlMessage::DetachClient(DetachClient {
             client_id,
             client_command_id,
-            reason: DetachReason::ClientRequested,
+            reason: DetachReason::ClientDisconnected,
         }));
 
         match events_tx.try_send(detach) {
             Ok(()) => {}
-            Err(error) => {
+            Err(tokio::sync::mpsc::error::TrySendError::Full(detach)) => {
                 if let Ok(handle) = tokio::runtime::Handle::try_current() {
                     handle.spawn(async move {
-                        let _ = retry_events_tx.send(error.into_inner()).await;
+                        let _ = retry_events_tx.send(detach).await;
                     });
                 }
             }
+            Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {}
         }
     }
 }
@@ -1045,7 +1069,7 @@ mod tests {
             Err(rejected) => rejected,
         };
 
-        assert_eq!(rejected.reason, CommandRejectReason::RouterMailboxClosed);
+        assert_eq!(rejected.reason, AttachRejectReason::RouterMailboxClosed);
         assert_eq!(control.state().await, ServerRuntimeState::Closing);
     }
 
@@ -1068,8 +1092,68 @@ mod tests {
             Err(rejected) => rejected,
         };
 
-        assert_eq!(rejected.reason, CommandRejectReason::InternalFailure);
+        assert_eq!(rejected.reason, AttachRejectReason::ClientSyncUnavailable);
         assert_eq!(control.state().await, ServerRuntimeState::Closing);
+    }
+
+    #[tokio::test]
+    async fn dropped_attach_stream_sends_cancel_and_client_disconnect_detach() {
+        let (router_tx, _router_rx) = mpsc::unbounded_channel();
+        let (client_sync_tx, mut client_sync_rx) = mpsc::channel(4);
+        let (events_tx, mut events_rx) = mpsc::channel(4);
+        let control = test_control(router_tx, client_sync_tx, events_tx);
+
+        let (_accepted, stream) = control
+            .attach_client(test_attach_request())
+            .await
+            .expect("attach accepted");
+        match timeout(Duration::from_millis(100), client_sync_rx.recv())
+            .await
+            .expect("start hydration arrives")
+            .expect("start hydration")
+        {
+            ClientSyncIngress::StartHydration(begin) => {
+                assert_eq!(begin.client_id, ClientId("client-1".to_owned()));
+                assert_eq!(
+                    begin.client_command_id,
+                    ClientCommandId("attach-1".to_owned())
+                );
+            }
+            _ => panic!("unexpected client-sync ingress"),
+        }
+
+        drop(stream);
+
+        match timeout(Duration::from_millis(100), client_sync_rx.recv())
+            .await
+            .expect("cancel hydration arrives")
+            .expect("cancel hydration")
+        {
+            ClientSyncIngress::CancelHydration(cancel) => {
+                assert_eq!(cancel.client_id, ClientId("client-1".to_owned()));
+                assert_eq!(
+                    cancel.client_command_id,
+                    ClientCommandId("attach-1".to_owned())
+                );
+            }
+            _ => panic!("unexpected client-sync ingress"),
+        }
+
+        match timeout(Duration::from_millis(100), events_rx.recv())
+            .await
+            .expect("detach arrives")
+            .expect("detach")
+        {
+            EventIngress::Control(EventControlMessage::DetachClient(detach)) => {
+                assert_eq!(detach.client_id, ClientId("client-1".to_owned()));
+                assert_eq!(
+                    detach.client_command_id,
+                    ClientCommandId("attach-1".to_owned())
+                );
+                assert_eq!(detach.reason, DetachReason::ClientDisconnected);
+            }
+            _ => panic!("unexpected events ingress"),
+        }
     }
 
     fn test_control(

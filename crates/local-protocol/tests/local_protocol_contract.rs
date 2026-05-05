@@ -1,9 +1,9 @@
 use selvedge_local_protocol::{
-    AttachAccepted, AttachRejected, AttachRequest, CommandOutcome, CommandRejectReason,
-    CommandRequest, CommandResponse, LocalClientCommandId, LocalClientEvent, LocalClientEventFrame,
-    LocalClientFrame, LocalClientId, LocalClientNoticeFrame, LocalClientSnapshot,
-    LocalClientSnapshotFrame, LocalClientSubscription, LocalDebugNoticeEvent, LocalDetailLevel,
-    LocalHistoryNodeProjection, LocalHistoryNodeProjectionBody, LocalMessageRole,
+    AttachAccepted, AttachRejectReason, AttachRejected, AttachRequest, CommandOutcome,
+    CommandRejectReason, CommandRequest, CommandResponse, LocalClientCommandId, LocalClientEvent,
+    LocalClientEventFrame, LocalClientFrame, LocalClientId, LocalClientNoticeFrame,
+    LocalClientSnapshot, LocalClientSnapshotFrame, LocalClientSubscription, LocalDebugNoticeEvent,
+    LocalDetailLevel, LocalHistoryNodeProjection, LocalHistoryNodeProjectionBody, LocalMessageRole,
     LocalModelCallStatusEvent, LocalModelCallStatusPhase, LocalNotice, LocalNoticeLevel,
     LocalProtocolValidationError, LocalReasoningEffort, LocalSnapshotTaskVersion,
     LocalTaskParentProjection, LocalTaskProjection, LocalTaskProjectionStatus, LocalTaskScope,
@@ -266,7 +266,7 @@ fn protocol_messages_round_trip_through_json() {
     let rejected = AttachRejected {
         protocol_version: current_protocol_version(),
         client_command_id: LocalClientCommandId::new("attach-2").expect("valid command id"),
-        reason: CommandRejectReason::ProtocolVersionMismatch,
+        reason: AttachRejectReason::ProtocolVersionMismatch,
     };
     let rejected_json = serde_json::to_string(&rejected).expect("serialize attach rejected");
     assert_eq!(

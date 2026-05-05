@@ -14,9 +14,10 @@ use selvedge_command_model::{
 use selvedge_core::{TaskRuntimeConfig, TaskRuntimeSpawnDeps};
 use selvedge_domain_model::{ModelProfileKey, UnixTs};
 use selvedge_local_protocol::{
-    AttachRequest, CommandOutcome, CommandRejectReason, CommandRequest, LocalClientCommandId,
-    LocalClientFrame, LocalClientId, LocalClientSubscription, LocalDetailLevel, LocalTaskScope,
-    ProtocolVersion, ReadyRequest, ReadyState, current_protocol_version,
+    AttachRejectReason, AttachRequest, CommandOutcome, CommandRejectReason, CommandRequest,
+    LocalClientCommandId, LocalClientFrame, LocalClientId, LocalClientSubscription,
+    LocalDetailLevel, LocalTaskScope, ProtocolVersion, ReadyRequest, ReadyState,
+    current_protocol_version,
 };
 use selvedge_router::{ToolExecutionSpawnError, ToolExecutionSpawner};
 use selvedge_server::{
@@ -351,7 +352,7 @@ async fn attach_client_accepts_and_streams_initial_snapshot() {
         Err(rejected) => rejected,
     };
 
-    assert_eq!(rejected.reason, CommandRejectReason::MalformedRequest);
+    assert_eq!(rejected.reason, AttachRejectReason::MalformedRequest);
 
     let version_mismatch = match handle
         .control
@@ -366,7 +367,7 @@ async fn attach_client_accepts_and_streams_initial_snapshot() {
     };
     assert_eq!(
         version_mismatch.reason,
-        CommandRejectReason::ProtocolVersionMismatch
+        AttachRejectReason::ProtocolVersionMismatch
     );
 
     handle.control.stop().await;

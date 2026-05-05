@@ -11,10 +11,10 @@ use selvedge_local_client::{
     LocalEndpoint, LocalFrameStream, LocalTransport, connect,
 };
 use selvedge_local_protocol::{
-    AttachAccepted, AttachRejected, AttachRequest, CommandOutcome, CommandRejectReason,
-    CommandRequest, CommandResponse, LocalClientCommandId, LocalClientFrame, LocalClientId,
-    LocalClientSubscription, LocalDetailLevel, LocalNotice, LocalNoticeLevel, LocalTaskScope,
-    ReadyRequest, ReadyResponse, ReadyState, current_protocol_version,
+    AttachAccepted, AttachRejectReason, AttachRejected, AttachRequest, CommandOutcome,
+    CommandRejectReason, CommandRequest, CommandResponse, LocalClientCommandId, LocalClientFrame,
+    LocalClientId, LocalClientSubscription, LocalDetailLevel, LocalNotice, LocalNoticeLevel,
+    LocalTaskScope, ReadyRequest, ReadyResponse, ReadyState, current_protocol_version,
 };
 use tokio::sync::{Mutex as AsyncMutex, oneshot};
 use tokio::time::timeout;
@@ -771,7 +771,7 @@ async fn attach_rejection_restores_idle_state() {
             AttachRejectedOrClientError::Rejected(AttachRejected {
                 protocol_version: current_protocol_version(),
                 client_command_id: LocalClientCommandId::new("attach-1").expect("command id"),
-                reason: CommandRejectReason::ServerNotReady,
+                reason: AttachRejectReason::ServerNotReady,
             }),
         )));
     let client = connected_client(state).await;
@@ -784,7 +784,7 @@ async fn attach_rejection_restores_idle_state() {
     assert!(matches!(
         rejected,
         AttachRejectedOrClientError::Rejected(AttachRejected {
-            reason: CommandRejectReason::ServerNotReady,
+            reason: AttachRejectReason::ServerNotReady,
             ..
         })
     ));
