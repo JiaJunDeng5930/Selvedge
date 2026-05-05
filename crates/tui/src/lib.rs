@@ -38,6 +38,7 @@ pub enum TuiExitStatus {
     AttachRejected(String),
     CommandRejected(String),
     Disconnected,
+    SnapshotTimeout,
     TerminalFailed(String),
     LocalClientFailed(LocalClientError),
     InvalidArgs(String),
@@ -74,6 +75,7 @@ where
         Err(error) => return TuiExitStatus::InvalidArgs(format!("{error:?}")),
     };
 
+    let snapshot_timeout = args.client_config.request_timeout;
     let client = match connect::<T>(args.client_config).await {
         Ok(client) => client,
         Err(LocalClientError::ConnectFailed(_)) => return TuiExitStatus::ServerUnavailable,
@@ -117,14 +119,15 @@ where
         }
     };
 
-    loop {
-        match frames.next().await {
-            Some(Ok(LocalClientFrame::Snapshot(_))) => break,
-            Some(Ok(LocalClientFrame::Notice(_))) | Some(Ok(LocalClientFrame::Event(_))) => {}
-            Some(Err(_)) | None => {
-                drop(frames);
-                return close_after_error(&client, TuiExitStatus::Disconnected).await;
-            }
+    match tokio::time::timeout(snapshot_timeout, wait_for_initial_snapshot(&mut frames)).await {
+        Ok(Ok(())) => {}
+        Ok(Err(status)) => {
+            drop(frames);
+            return close_after_error(&client, status).await;
+        }
+        Err(_) => {
+            drop(frames);
+            return close_after_error(&client, TuiExitStatus::SnapshotTimeout).await;
         }
     }
 
@@ -152,6 +155,18 @@ where
     drop(frames);
     let _ = client.close().await;
     TuiExitStatus::Exited
+}
+
+async fn wait_for_initial_snapshot(
+    frames: &mut selvedge_local_client::LocalFrameStream,
+) -> Result<(), TuiExitStatus> {
+    loop {
+        match frames.next().await {
+            Some(Ok(LocalClientFrame::Snapshot(_))) => return Ok(()),
+            Some(Ok(LocalClientFrame::Notice(_))) | Some(Ok(LocalClientFrame::Event(_))) => {}
+            Some(Err(_)) | None => return Err(TuiExitStatus::Disconnected),
+        }
+    }
 }
 
 async fn close_after_error<T: LocalTransport>(

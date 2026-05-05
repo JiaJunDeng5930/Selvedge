@@ -7,6 +7,7 @@ publish = false
 futures-util = "0.3.31"
 selvedge-local-client = { path = "../local-client" }
 selvedge-local-protocol = { path = "../local-protocol" }
+tokio = { version = "1.42.0", features = ["time"] }
 
 [dev-dependencies]
 serde_json = "1.0.135"

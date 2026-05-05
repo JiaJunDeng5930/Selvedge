@@ -162,6 +162,25 @@ async fn stream_closed_before_snapshot_returns_disconnected() {
     assert_eq!(state.lock().expect("fake state").close_calls, 1);
 }
 
+#[tokio::test]
+async fn snapshot_wait_timeout_returns_snapshot_timeout() {
+    let _guard = TEST_LOCK.lock().await;
+    let state = ready_state();
+    state
+        .lock()
+        .expect("fake state")
+        .attach_responses
+        .push_back(AttachAction::Pending);
+    install_connect_plan(Ok(state.clone()));
+
+    let mut args = valid_args(None);
+    args.client_config.request_timeout = Duration::from_millis(5);
+    let status = run_tui::<FakeTransport, _>(args, NoopMapper).await;
+
+    assert_eq!(status, TuiExitStatus::SnapshotTimeout);
+    assert_eq!(state.lock().expect("fake state").close_calls, 1);
+}
+
 struct NoopMapper;
 
 impl selvedge_tui::TuiCommandMapper for NoopMapper {
@@ -189,6 +208,7 @@ struct FakeTransportState {
 enum AttachAction {
     Accepted(Vec<Result<LocalClientFrame, LocalClientError>>),
     Rejected(AttachRejected),
+    Pending,
 }
 
 impl FakeTransportState {
@@ -256,6 +276,14 @@ impl LocalTransport for FakeTransport {
             Some(AttachAction::Rejected(rejected)) => {
                 Err(AttachRejectedOrClientError::Rejected(rejected))
             }
+            Some(AttachAction::Pending) => Ok((
+                AttachAccepted {
+                    protocol_version: current_protocol_version(),
+                    client_id: request.client_id,
+                    client_command_id: request.client_command_id,
+                },
+                Box::pin(stream::pending()),
+            )),
             None => Ok((
                 AttachAccepted {
                     protocol_version: current_protocol_version(),
