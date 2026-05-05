@@ -151,7 +151,7 @@ pub fn spawn_server(args: ServerStartArgs) -> Result<ServerHandle, ServerStartup
     }
 
     init_config(args.explicit_home.as_ref())?;
-    let home = resolve_home(args.explicit_home.clone())?;
+    let home = resolve_home()?;
     let singleton_lock = acquire_singleton_lock(&home)?;
 
     let startup_result = start_server_after_lock(args, home, singleton_lock);
@@ -237,6 +237,8 @@ impl ServerControl {
     }
 
     async fn submit_command_outcome(&self, request: CommandRequest) -> CommandOutcome {
+        let _request_guard = self.inner.request_gate.lock().await;
+
         if *self.inner.state.read().await != ServerRuntimeState::Ready {
             return CommandOutcome::Rejected(CommandRejectReason::ServerNotReady);
         }
@@ -254,7 +256,7 @@ impl ServerControl {
                 return CommandOutcome::Rejected(CommandRejectReason::UnsupportedCommand);
             }
             Err(ServerRequestError::RouterMailboxClosed) => {
-                self.begin_shutdown().await;
+                self.begin_shutdown_locked().await;
                 return CommandOutcome::Rejected(CommandRejectReason::RouterMailboxClosed);
             }
             Err(ServerRequestError::NotReady) => {
@@ -276,7 +278,7 @@ impl ServerControl {
             .send(RouterIngressMessage::Command(command))
             .is_err()
         {
-            self.begin_shutdown().await;
+            self.begin_shutdown_locked().await;
             return CommandOutcome::Rejected(CommandRejectReason::RouterMailboxClosed);
         }
 
@@ -284,6 +286,11 @@ impl ServerControl {
     }
 
     async fn begin_shutdown(&self) {
+        let _request_guard = self.inner.request_gate.lock().await;
+        self.begin_shutdown_locked().await;
+    }
+
+    async fn begin_shutdown_locked(&self) {
         if self.inner.closing.swap(true, Ordering::SeqCst) {
             return;
         }
@@ -307,6 +314,7 @@ struct ServerContext {
 struct ServerInner {
     state: RwLock<ServerRuntimeState>,
     closing: AtomicBool,
+    request_gate: Mutex<()>,
     stop_notify: Notify,
     lock_path: PathBuf,
     _singleton_lock: File,
@@ -394,6 +402,7 @@ fn start_server_after_lock(
     let inner = Arc::new(ServerInner {
         state: RwLock::new(ServerRuntimeState::Ready),
         closing: AtomicBool::new(false),
+        request_gate: Mutex::new(()),
         stop_notify: Notify::new(),
         lock_path: lock_path_for_home(&home),
         _singleton_lock: singleton_lock,
@@ -527,11 +536,7 @@ fn local_bind_to_web_bind(
     })
 }
 
-fn resolve_home(explicit_home: Option<PathBuf>) -> Result<PathBuf, ServerStartupError> {
-    if let Some(home) = explicit_home {
-        return Ok(home);
-    }
-
+fn resolve_home() -> Result<PathBuf, ServerStartupError> {
     selvedge_config::selvedge_home()
         .map_err(|error| ServerStartupError::ConfigInitFailed(error.to_string()))
 }

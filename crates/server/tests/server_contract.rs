@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::sync::{Arc, LazyLock, Mutex};
+use std::sync::{Arc, LazyLock, Mutex, mpsc as std_mpsc};
 use std::time::Duration;
 
 use selvedge_api::ApiExecutorConfig;
@@ -25,6 +25,7 @@ use selvedge_server::{
 use tempfile::TempDir;
 use tokio::sync::Mutex as AsyncMutex;
 use tokio::task::JoinHandle;
+use tokio::time::timeout;
 
 static SERVER_TEST_LOCK: LazyLock<AsyncMutex<()>> = LazyLock::new(|| AsyncMutex::new(()));
 static SERVER_TEST_HOME: LazyLock<TempDir> = LazyLock::new(|| TempDir::new().expect("temp home"));
@@ -189,6 +190,48 @@ async fn command_submit_validates_protocol_and_maps_to_router_mailbox() {
 }
 
 #[tokio::test]
+async fn stop_waits_for_in_flight_command_acceptance_decision() {
+    let _guard = SERVER_TEST_LOCK.lock().await;
+    let home = SERVER_TEST_HOME.path();
+    let (entered_tx, entered_rx) = std_mpsc::channel();
+    let (release_tx, release_rx) = std_mpsc::channel();
+    let handle = spawn_server(test_args(
+        home.to_path_buf(),
+        Arc::new(BlockingMapper {
+            entered_tx,
+            release_rx: Mutex::new(release_rx),
+        }),
+    ))
+    .expect("spawn server");
+
+    let runtime_handle = tokio::runtime::Handle::current();
+    let submit_control = handle.control.clone();
+    let submit_thread = std::thread::spawn(move || {
+        runtime_handle.block_on(async move {
+            submit_control
+                .submit_command(valid_command("command-1"))
+                .await
+        })
+    });
+    entered_rx
+        .recv_timeout(Duration::from_secs(1))
+        .expect("mapper should enter command acceptance");
+
+    let stop_control = handle.control.clone();
+    let mut stop_task = tokio::spawn(async move { stop_control.stop().await });
+    let stop_waited = timeout(Duration::from_millis(50), &mut stop_task)
+        .await
+        .is_err();
+
+    release_tx.send(()).expect("release mapper");
+    assert!(stop_waited);
+    let response = submit_thread.join().expect("join submit thread");
+    assert_eq!(response.outcome, CommandOutcome::Accepted);
+    stop_task.await.expect("join stop task");
+    handle.join_handle.await.expect("join server");
+}
+
+#[tokio::test]
 async fn command_mapper_can_reject_unsupported_local_command() {
     let _guard = SERVER_TEST_LOCK.lock().await;
     let home = SERVER_TEST_HOME.path();
@@ -315,6 +358,32 @@ async fn initialized_config_rejects_mismatched_explicit_home() {
     ));
 }
 
+#[tokio::test]
+async fn relative_explicit_home_cleans_lock_after_working_directory_changes() {
+    let _guard = SERVER_TEST_LOCK.lock().await;
+    let home = SERVER_TEST_HOME.path();
+    let parent = home.parent().expect("temp home parent").to_path_buf();
+    let home_name = home.file_name().expect("temp home name").to_os_string();
+    let original_cwd = std::env::current_dir().expect("current dir");
+    let _ = std::fs::remove_file(home.join("server.lock"));
+
+    std::env::set_current_dir(&parent).expect("enter home parent");
+    let handle = spawn_server(test_args(
+        std::path::PathBuf::from(home_name),
+        Arc::new(RecordingMapper::new()),
+    ))
+    .expect("spawn server with relative home");
+    assert!(home.join("server.lock").exists());
+
+    let other_cwd = TempDir::new().expect("other cwd");
+    std::env::set_current_dir(other_cwd.path()).expect("change cwd");
+    handle.control.stop().await;
+    handle.join_handle.await.expect("join server");
+    std::env::set_current_dir(original_cwd).expect("restore cwd");
+
+    assert!(!home.join("server.lock").exists());
+}
+
 struct RejectingMapper;
 
 impl LocalCommandMapper for RejectingMapper {
@@ -351,6 +420,30 @@ impl LocalCommandMapper for RecordingMapper {
             .lock()
             .expect("mapper lock")
             .push(request.command_name);
+        Ok(RouterCommandEnvelope {
+            client_id: None,
+            client_command_id: None,
+            command: RouterCommand::EnsureMissingTaskRuntimes,
+        })
+    }
+}
+
+struct BlockingMapper {
+    entered_tx: std_mpsc::Sender<()>,
+    release_rx: Mutex<std_mpsc::Receiver<()>>,
+}
+
+impl LocalCommandMapper for BlockingMapper {
+    fn map_command(
+        &self,
+        _request: CommandRequest,
+    ) -> Result<RouterCommandEnvelope, ServerRequestError> {
+        self.entered_tx.send(()).expect("send mapper entry");
+        self.release_rx
+            .lock()
+            .expect("release lock")
+            .recv_timeout(Duration::from_secs(1))
+            .expect("mapper release");
         Ok(RouterCommandEnvelope {
             client_id: None,
             client_command_id: None,
