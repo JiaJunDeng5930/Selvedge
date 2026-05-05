@@ -1,12 +1,14 @@
 #![doc = include_str!("../README.md")]
 
+use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 
 use selvedge_command_model::{
-    BeginClientHydration, ClientCommandId, ClientId, ClientSnapshot, ClientSubscription,
-    EventIngressSender,
+    BeginClientHydration, ClientCommandId, ClientId, ClientNotice, ClientNoticeLevel,
+    ClientSnapshot, ClientSubscription, DeliverNotice, DeliverSnapshot, DetachClient, DetachReason,
+    EventControlMessage, EventIngress, EventIngressSender,
 };
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
@@ -74,6 +76,11 @@ pub trait ClientSnapshotBuilder: Send + Sync + 'static {
     fn build_snapshot(&self, request: ClientSnapshotBuildRequest) -> ClientSnapshotBuildFuture;
 }
 
+struct HydrationBuildResult {
+    request: ClientSnapshotBuildRequest,
+    result: Result<ClientSnapshot, ClientSyncError>,
+}
+
 pub fn spawn_client_sync(
     args: ClientSyncStartArgs,
 ) -> Result<ClientSyncHandle, SpawnClientSyncError> {
@@ -82,20 +89,162 @@ pub fn spawn_client_sync(
     }
 
     let (ingress_tx, mut ingress_rx) = mpsc::channel(args.ingress_capacity);
-    let _events_tx = args.events_tx;
-    let _snapshot_builder = args.snapshot_builder;
-    let join_handle = tokio::spawn(async move {
-        while let Some(message) = ingress_rx.recv().await {
-            if matches!(message, ClientSyncIngress::Shutdown) {
-                return ClientSyncExitStatus::Stopped;
+    let (result_tx, mut result_rx) = mpsc::unbounded_channel();
+    let events_tx = args.events_tx;
+    let snapshot_builder = args.snapshot_builder;
+    let handle = tokio::runtime::Handle::try_current()
+        .map_err(|_| SpawnClientSyncError::TokioSpawnFailed)?;
+    let join_handle = handle.spawn(async move {
+        let mut current = HashMap::<ClientId, ClientCommandId>::new();
+
+        loop {
+            tokio::select! {
+                message = ingress_rx.recv() => {
+                    match message {
+                        Some(ClientSyncIngress::StartHydration(begin)) => {
+                            let client_id = begin.client_id.clone();
+                            let client_command_id = begin.client_command_id.clone();
+
+                            if current.get(&client_id) == Some(&client_command_id) {
+                                continue;
+                            }
+
+                            current.insert(client_id.clone(), client_command_id.clone());
+                            let request = ClientSnapshotBuildRequest {
+                                client_id,
+                                client_command_id,
+                                subscription: begin.subscription.clone(),
+                            };
+
+                            // NOTE: Begin is the state handoff to events. Snapshot building starts after
+                            // that mailbox accepts Begin, so a closed events mailbox is a fatal hydration
+                            // boundary failure and the builder remains untouched.
+                            if send_control(
+                                &events_tx,
+                                EventControlMessage::BeginClientHydration(begin),
+                            )
+                            .await
+                            .is_err()
+                            {
+                                current.clear();
+                                return ClientSyncExitStatus::Fatal(
+                                    "events mailbox closed while beginning client hydration".to_owned(),
+                                );
+                            }
+
+                            spawn_snapshot_build(
+                                snapshot_builder.clone(),
+                                result_tx.clone(),
+                                request,
+                            );
+                        }
+                        Some(ClientSyncIngress::CancelHydration(cancel)) => {
+                            if current.get(&cancel.client_id) == Some(&cancel.client_command_id) {
+                                current.remove(&cancel.client_id);
+                            }
+                        }
+                        Some(ClientSyncIngress::Shutdown) => {
+                            current.clear();
+                            return ClientSyncExitStatus::Stopped;
+                        }
+                        None => {
+                            current.clear();
+                            return ClientSyncExitStatus::IngressClosed;
+                        }
+                    }
+                }
+                Some(build_result) = result_rx.recv() => {
+                    // NOTE: This loop owns the current hydration map. Builder results deliver only
+                    // while their client command is still current after replacement or cancellation.
+                    if current.get(&build_result.request.client_id)
+                        != Some(&build_result.request.client_command_id)
+                    {
+                        continue;
+                    }
+                    let result_client_id = build_result.request.client_id.clone();
+
+                    let stage = deliver_build_result(
+                        &events_tx,
+                        build_result,
+                    )
+                    .await
+                    .err();
+
+                    if let Some(stage) = stage {
+                        current.clear();
+                        return ClientSyncExitStatus::Fatal(format!(
+                            "events mailbox closed while {stage}"
+                        ));
+                    }
+
+                    current.remove(&result_client_id);
+                }
             }
         }
-
-        ClientSyncExitStatus::IngressClosed
     });
 
     Ok(ClientSyncHandle {
         ingress_tx,
         join_handle,
     })
+}
+
+fn spawn_snapshot_build(
+    snapshot_builder: Arc<dyn ClientSnapshotBuilder>,
+    result_tx: mpsc::UnboundedSender<HydrationBuildResult>,
+    request: ClientSnapshotBuildRequest,
+) {
+    tokio::spawn(async move {
+        let result = snapshot_builder.build_snapshot(request.clone()).await;
+        let _ = result_tx.send(HydrationBuildResult { request, result });
+    });
+}
+
+async fn deliver_build_result(
+    events_tx: &EventIngressSender,
+    build_result: HydrationBuildResult,
+) -> Result<(), &'static str> {
+    match build_result.result {
+        Ok(snapshot) => send_control(
+            events_tx,
+            EventControlMessage::DeliverSnapshot(DeliverSnapshot {
+                client_id: build_result.request.client_id,
+                client_command_id: build_result.request.client_command_id,
+                snapshot,
+            }),
+        )
+        .await
+        .map_err(|_| "delivering client snapshot"),
+        Err(error) => {
+            let notice = DeliverNotice {
+                client_id: build_result.request.client_id.clone(),
+                client_command_id: build_result.request.client_command_id.clone(),
+                notice: ClientNotice {
+                    level: ClientNoticeLevel::Error,
+                    message_text: format!("client snapshot build failed: {error:?}"),
+                },
+            };
+            send_control(events_tx, EventControlMessage::DeliverNotice(notice))
+                .await
+                .map_err(|_| "delivering client hydration failure notice")?;
+
+            send_control(
+                events_tx,
+                EventControlMessage::DetachClient(DetachClient {
+                    client_id: build_result.request.client_id,
+                    client_command_id: build_result.request.client_command_id,
+                    reason: DetachReason::DeliveryFailed,
+                }),
+            )
+            .await
+            .map_err(|_| "detaching failed client hydration")
+        }
+    }
+}
+
+async fn send_control(
+    events_tx: &EventIngressSender,
+    control: EventControlMessage,
+) -> Result<(), mpsc::error::SendError<EventIngress>> {
+    events_tx.send(EventIngress::Control(control)).await
 }
