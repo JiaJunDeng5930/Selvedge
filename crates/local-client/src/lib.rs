@@ -220,6 +220,7 @@ impl<T: LocalTransport> LocalClient<T> {
 
         let previous_state = state.state.clone();
         let previous_attach_open = state.attach_open;
+        let previous_recent_error = state.recent_error.clone();
         state.state = LocalClientState::Closing;
         state.recent_error = None;
 
@@ -228,6 +229,7 @@ impl<T: LocalTransport> LocalClient<T> {
             previous_state,
             previous_attach_open,
             previous_attach_generation: state.attach_generation,
+            previous_recent_error,
             active: true,
         })
     }
@@ -333,6 +335,7 @@ struct CloseGuard {
     previous_state: LocalClientState,
     previous_attach_open: bool,
     previous_attach_generation: u64,
+    previous_recent_error: Option<LocalClientError>,
     active: bool,
 }
 
@@ -361,6 +364,7 @@ impl Drop for CloseGuard {
                 && state.attach_generation == self.previous_attach_generation;
             state.attach_open = attach_still_open;
             state.state = resolved_state(self.previous_state.clone(), attach_still_open);
+            state.recent_error = self.previous_recent_error.clone();
         }
     }
 }
@@ -414,8 +418,11 @@ impl Stream for ClientFrameStream {
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = self.get_mut();
+        if this.closed_reported {
+            return Poll::Ready(None);
+        }
+
         match this.inner.as_mut().poll_next(cx) {
-            Poll::Ready(Some(_)) if this.closed_reported => Poll::Ready(None),
             Poll::Ready(Some(Ok(frame))) => Poll::Ready(Some(Ok(frame))),
             Poll::Ready(Some(Err(error))) => {
                 clear_attached_state(&this.state, this.attach_generation);
