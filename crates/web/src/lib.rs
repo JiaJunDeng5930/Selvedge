@@ -271,7 +271,30 @@ impl Stream for WebBrowserFrameStream {
                 this.closed_after_error = true;
                 Poll::Ready(Some(Err(error)))
             }
-            other => other,
+            Poll::Ready(item) => Poll::Ready(item),
+            Poll::Pending => {
+                let state_changed = {
+                    let changed = this.state_rx.changed();
+                    tokio::pin!(changed);
+                    Future::poll(changed.as_mut(), context)
+                };
+                match state_changed {
+                    Poll::Ready(Ok(())) => {
+                        if matches!(
+                            *this.state_rx.borrow(),
+                            WebRuntimeState::Closing
+                                | WebRuntimeState::Stopped
+                                | WebRuntimeState::Failed
+                        ) {
+                            Poll::Ready(None)
+                        } else {
+                            Poll::Pending
+                        }
+                    }
+                    Poll::Ready(Err(_)) => Poll::Ready(None),
+                    Poll::Pending => Poll::Pending,
+                }
+            }
         }
     }
 }
