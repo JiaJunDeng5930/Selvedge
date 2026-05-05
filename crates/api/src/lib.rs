@@ -164,10 +164,8 @@ async fn call_chatgpt(
             ChatgptResponseEvent::OutputItemDone {
                 item: ResponseItem::Message(message),
                 ..
-            } => {
-                if text_parts.is_empty() {
-                    append_message_content(&mut fallback_text, &message, &mut byte_counter)?;
-                }
+            } if text_parts.is_empty() => {
+                append_message_content(&mut fallback_text, &message, &mut byte_counter)?;
             }
             ChatgptResponseEvent::OutputItemDone {
                 item: ResponseItem::FunctionCall(function_call),
