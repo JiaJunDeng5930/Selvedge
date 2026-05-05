@@ -702,6 +702,8 @@ fn send_cancel_hydration(
                 handle.spawn(async move {
                     let _ = retry_client_sync_tx.send(cancel).await;
                 });
+            } else {
+                let _ = retry_client_sync_tx.blocking_send(cancel);
             }
         }
         Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {}
@@ -728,6 +730,8 @@ fn send_detach_client(
                 handle.spawn(async move {
                     let _ = retry_events_tx.send(detach).await;
                 });
+            } else {
+                let _ = retry_events_tx.blocking_send(detach);
             }
         }
         Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {}
@@ -758,6 +762,9 @@ fn send_detach_client_and_clear_active(
                     let _ = retry_events_tx.send(detach).await;
                     clear_active_attach(&active_attaches, &client_id, &client_command_id);
                 });
+            } else {
+                let _ = retry_events_tx.blocking_send(detach);
+                clear_active_attach(&active_attaches, &client_id, &client_command_id);
             }
         }
     }
@@ -1554,7 +1561,8 @@ mod tests {
             .await
             .expect("start hydration arrives")
             .expect("start hydration");
-        drop(stream);
+        let drop_thread = std::thread::spawn(move || drop(stream));
+        tokio::time::sleep(Duration::from_millis(10)).await;
 
         let rejected = match control.attach_client(test_attach_request()).await {
             Ok(_) => panic!("attach should remain active until detach is queued"),
@@ -1563,6 +1571,7 @@ mod tests {
         assert_eq!(rejected.reason, AttachRejectReason::DuplicateAttach);
 
         let _ = events_rx.recv().await.expect("drain occupied events slot");
+        drop_thread.join().expect("drop thread completes");
         match timeout(Duration::from_millis(100), events_rx.recv())
             .await
             .expect("client detach arrives")
