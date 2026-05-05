@@ -536,6 +536,36 @@ async fn close_closes_transport_and_later_methods_return_closed() {
     );
 }
 
+#[tokio::test]
+async fn cancelling_pending_close_restores_previous_state() {
+    let _guard = TEST_LOCK.lock().await;
+    let state = FakeTransportState::new_handle();
+    state.lock().expect("fake state").close_action = CloseAction::Hang;
+    let client = connected_client(state).await;
+
+    let mut close = Box::pin(client.close());
+    assert!(
+        timeout(Duration::from_millis(5), close.as_mut())
+            .await
+            .is_err()
+    );
+    assert_eq!(client.state().await, LocalClientState::Closing);
+
+    drop(close);
+
+    assert_eq!(client.state().await, LocalClientState::Ready);
+    assert_eq!(
+        client
+            .ready(ReadyRequest {
+                protocol_version: current_protocol_version(),
+            })
+            .await
+            .expect("ready after close cancellation")
+            .state,
+        ReadyState::Ready
+    );
+}
+
 #[test]
 fn crate_has_no_systemd_dependency() {
     let manifest = fs::read_to_string(format!("{}/Cargo.toml", env!("CARGO_MANIFEST_DIR")))
@@ -555,9 +585,16 @@ struct FakeTransportState {
     command_calls: usize,
     attach_calls: usize,
     close_calls: usize,
+    close_action: CloseAction,
     ready_responses: VecDeque<ReadyAction>,
     command_responses: VecDeque<CommandAction>,
     attach_responses: VecDeque<AttachAction>,
+}
+
+#[derive(Clone, Copy)]
+enum CloseAction {
+    Complete,
+    Hang,
 }
 
 enum ReadyAction {
@@ -587,6 +624,7 @@ impl FakeTransportState {
             command_calls: 0,
             attach_calls: 0,
             close_calls: 0,
+            close_action: CloseAction::Complete,
             ready_responses: VecDeque::new(),
             command_responses: VecDeque::new(),
             attach_responses: VecDeque::new(),
@@ -684,7 +722,16 @@ impl LocalTransport for FakeTransport {
     }
 
     async fn close(&self) {
-        self.state.lock().expect("fake state").close_calls += 1;
+        let action = {
+            let mut state = self.state.lock().expect("fake state");
+            state.close_calls += 1;
+            state.close_action
+        };
+
+        match action {
+            CloseAction::Complete => {}
+            CloseAction::Hang => future::pending().await,
+        }
     }
 }
 
