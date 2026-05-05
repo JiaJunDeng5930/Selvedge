@@ -617,6 +617,11 @@ impl futures_core::Stream for ServerAttachFrameStream {
         match this.inner.poll_recv(context) {
             Poll::Ready(Some(frame)) => Poll::Ready(Some(Ok(client_frame_to_local(frame)))),
             Poll::Ready(None) => {
+                clear_active_attach(
+                    &this.active_attaches,
+                    &this.client_id,
+                    &this.client_command_id,
+                );
                 this.closed_reported = true;
                 Poll::Ready(Some(Err(ServerRequestError::AttachChannelFailed)))
             }
@@ -1132,6 +1137,7 @@ fn map_web_start_error(error: WebStartError) -> ServerStartupError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use futures_util::StreamExt;
     use std::time::Duration;
     use tokio::time::timeout;
 
@@ -1306,6 +1312,36 @@ mod tests {
         };
 
         assert_eq!(rejected.reason, AttachRejectReason::DuplicateAttach);
+    }
+
+    #[tokio::test]
+    async fn closed_frame_channel_clears_active_attach_before_stream_drop() {
+        let (router_tx, _router_rx) = mpsc::unbounded_channel();
+        let (client_sync_tx, mut client_sync_rx) = mpsc::channel(4);
+        let (events_tx, _events_rx) = mpsc::channel(4);
+        let control = test_control(router_tx, client_sync_tx, events_tx);
+
+        let (_accepted, mut stream) = control
+            .attach_client(test_attach_request())
+            .await
+            .expect("attach accepted");
+        let start = timeout(Duration::from_millis(100), client_sync_rx.recv())
+            .await
+            .expect("start hydration arrives")
+            .expect("start hydration");
+        drop(start);
+
+        let error = timeout(Duration::from_millis(100), stream.next())
+            .await
+            .expect("stream terminal item arrives")
+            .expect("stream terminal item")
+            .expect_err("closed frame channel reports error");
+        assert_eq!(error, ServerRequestError::AttachChannelFailed);
+
+        let (_accepted, _retry_stream) = control
+            .attach_client(test_attach_request())
+            .await
+            .expect("retry attach accepted after channel close");
     }
 
     #[tokio::test]

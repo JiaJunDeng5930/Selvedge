@@ -16,10 +16,10 @@ use serde_json::json;
 
 #[test]
 fn request_validation_enforces_protocol_version_and_required_client_fields() {
-    assert_eq!(current_protocol_version(), ProtocolVersion(1));
+    assert_eq!(current_protocol_version(), ProtocolVersion(2));
 
     let ready = ReadyRequest {
-        protocol_version: ProtocolVersion(2),
+        protocol_version: ProtocolVersion(3),
     };
     assert_eq!(
         validate_ready_request(&ready),

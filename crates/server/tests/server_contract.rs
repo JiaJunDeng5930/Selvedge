@@ -54,7 +54,7 @@ async fn spawn_server_initializes_ready_control_and_creates_durable_paths() {
     let mismatched_ready = handle
         .control
         .ready(ReadyRequest {
-            protocol_version: ProtocolVersion(2),
+            protocol_version: ProtocolVersion(3),
         })
         .await;
     assert_eq!(
@@ -223,7 +223,7 @@ async fn command_submit_validates_protocol_and_maps_to_router_mailbox() {
     let invalid = handle
         .control
         .submit_command(CommandRequest {
-            protocol_version: ProtocolVersion(2),
+            protocol_version: ProtocolVersion(3),
             ..valid_command("bad-version")
         })
         .await;
@@ -357,7 +357,7 @@ async fn attach_client_accepts_and_streams_initial_snapshot() {
     let version_mismatch = match handle
         .control
         .attach_client(AttachRequest {
-            protocol_version: ProtocolVersion(2),
+            protocol_version: ProtocolVersion(3),
             ..valid_attach("attach-3")
         })
         .await
