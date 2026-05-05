@@ -212,6 +212,9 @@ impl<T: LocalTransport> LocalClient<T> {
         match state.state {
             LocalClientState::Closed => return Err(LocalClientError::Closed),
             LocalClientState::Closing => return Err(LocalClientError::Closing),
+            LocalClientState::CommandPending | LocalClientState::AttachPending => {
+                return Err(LocalClientError::Busy);
+            }
             _ => {}
         }
 
@@ -408,7 +411,11 @@ impl Stream for ClientFrameStream {
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = self.get_mut();
         match this.inner.as_mut().poll_next(cx) {
-            Poll::Ready(Some(frame)) => Poll::Ready(Some(frame)),
+            Poll::Ready(Some(Ok(frame))) => Poll::Ready(Some(Ok(frame))),
+            Poll::Ready(Some(Err(error))) => {
+                clear_attached_state(&this.state, this.attach_generation);
+                Poll::Ready(Some(Err(error)))
+            }
             Poll::Ready(None) if !this.closed_reported => {
                 this.closed_reported = true;
                 clear_attached_state(&this.state, this.attach_generation);
