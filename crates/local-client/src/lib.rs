@@ -228,6 +228,7 @@ impl<T: LocalTransport> LocalClient<T> {
             state: Arc::clone(&self.inner),
             previous_state,
             previous_attach_open,
+            previous_attach_generation: state.attach_generation,
             active: true,
         })
     }
@@ -332,6 +333,7 @@ struct CloseGuard {
     state: Arc<Mutex<ClientState>>,
     previous_state: LocalClientState,
     previous_attach_open: bool,
+    previous_attach_generation: u64,
     active: bool,
 }
 
@@ -355,8 +357,11 @@ impl Drop for CloseGuard {
 
         let mut state = self.state.lock().expect("local client state lock");
         if state.state == LocalClientState::Closing {
-            state.state = self.previous_state.clone();
-            state.attach_open = self.previous_attach_open;
+            let attach_still_open = self.previous_attach_open
+                && state.attach_open
+                && state.attach_generation == self.previous_attach_generation;
+            state.attach_open = attach_still_open;
+            state.state = resolved_state(self.previous_state.clone(), attach_still_open);
         }
     }
 }
@@ -411,9 +416,11 @@ impl Stream for ClientFrameStream {
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = self.get_mut();
         match this.inner.as_mut().poll_next(cx) {
+            Poll::Ready(Some(_)) if this.closed_reported => Poll::Ready(None),
             Poll::Ready(Some(Ok(frame))) => Poll::Ready(Some(Ok(frame))),
             Poll::Ready(Some(Err(error))) => {
                 clear_attached_state(&this.state, this.attach_generation);
+                this.closed_reported = true;
                 Poll::Ready(Some(Err(error)))
             }
             Poll::Ready(None) if !this.closed_reported => {
