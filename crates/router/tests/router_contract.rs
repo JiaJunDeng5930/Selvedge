@@ -5,12 +5,12 @@ use std::time::Duration;
 use selvedge_api::ApiExecutorConfig;
 use selvedge_command_model::{
     ApiCallCorrelation, ApiEffectId, ApiOutputEnvelope, ClientCommandId, ClientId,
-    ClientSubscription, CoreOutputEnvelope, CoreOutputMessage, DetailLevel, DomainEvent,
-    DomainEventPublishRequest, EventClientReservationResult, EventControlMessage, EventIngress,
-    ModelCallError, ModelCallErrorKind, ModelRunId, RawEvent, RouterAttachAdmissionResult,
-    RouterCommand, RouterCommandEnvelope, RouterIngressMessage, TaskRuntimeCommand,
-    TaskRuntimeControl, TaskRuntimeExitNotice, TaskRuntimeExitReason, TaskScope,
-    ToolExecutionRequest, ToolExecutionResult, ToolExecutionRunId,
+    ClientSubscription, CoreOutputEnvelope, CoreOutputMessage, DetachReason, DetailLevel,
+    DomainEvent, DomainEventPublishRequest, EventClientReservationResult, EventControlMessage,
+    EventIngress, ModelCallError, ModelCallErrorKind, ModelRunId, RawEvent,
+    RouterAttachAdmissionResult, RouterCommand, RouterCommandEnvelope, RouterIngressMessage,
+    TaskRuntimeCommand, TaskRuntimeControl, TaskRuntimeExitNotice, TaskRuntimeExitReason,
+    TaskScope, ToolExecutionRequest, ToolExecutionResult, ToolExecutionRunId,
 };
 use selvedge_core::{
     SpawnTaskRuntimeArgs, SpawnTaskRuntimeError, SpawnedTaskRuntime, TaskRuntimeConfig,
@@ -88,6 +88,75 @@ async fn attach_client_command_is_forwarded_to_events() {
         admission_rx.await.expect("admission result"),
         RouterAttachAdmissionResult::Accepted
     );
+
+    handle
+        .ingress_tx
+        .send(RouterIngressMessage::StopRouter)
+        .expect("stop router");
+    assert_eq!(
+        handle.join_handle.await.expect("join router"),
+        RouterExitStatus::Stopped
+    );
+}
+
+#[tokio::test]
+async fn cancelled_attach_admission_detaches_reserved_events_session() {
+    let db = open_memory_db();
+    let (events_tx, mut events_rx) = tokio::sync::mpsc::channel(8);
+
+    let handle = spawn_router(RouterStartArgs {
+        db,
+        events_tx,
+        api_config: ApiExecutorConfig {
+            request_timeout: Duration::from_secs(1),
+            max_response_bytes: None,
+        },
+        tool_executor: Arc::new(NoopToolSpawner),
+        core_spawn_deps: TaskRuntimeSpawnDeps::new(TaskRuntimeConfig {
+            mailbox_capacity: 8,
+            model_profiles: HashMap::new(),
+        }),
+    })
+    .expect("spawn router");
+
+    let (outbound, _outbound_rx) = tokio::sync::mpsc::channel(4);
+    let (admission_tx, admission_rx) = tokio::sync::oneshot::channel();
+    drop(admission_rx);
+    handle
+        .ingress_tx
+        .send(RouterIngressMessage::Command(RouterCommandEnvelope {
+            client_id: Some(ClientId("client-1".to_owned())),
+            client_command_id: Some(ClientCommandId("attach-1".to_owned())),
+            command: RouterCommand::AttachClient {
+                client_id: ClientId("client-1".to_owned()),
+                client_command_id: ClientCommandId("attach-1".to_owned()),
+                outbound,
+                subscription: verbose_subscription(),
+                admission_tx,
+            },
+        }))
+        .expect("send command");
+
+    let EventIngress::Control(EventControlMessage::ReserveClientSession(reservation)) =
+        events_rx.recv().await.expect("reservation")
+    else {
+        panic!("unexpected events ingress");
+    };
+    reservation
+        .result_tx
+        .send(EventClientReservationResult::Reserved)
+        .expect("send reservation result");
+    let EventIngress::Control(EventControlMessage::DetachClient(detach)) =
+        events_rx.recv().await.expect("detach")
+    else {
+        panic!("unexpected events ingress");
+    };
+    assert_eq!(detach.client_id, ClientId("client-1".to_owned()));
+    assert_eq!(
+        detach.client_command_id,
+        ClientCommandId("attach-1".to_owned())
+    );
+    assert_eq!(detach.reason, DetachReason::ClientDisconnected);
 
     handle
         .ingress_tx
@@ -1117,6 +1186,16 @@ impl ToolExecutionSpawner for CapturingToolSpawner {
             .map_err(|_| ToolExecutionSpawnError::ToolExecutorUnavailable)?;
         requests.push(request);
         Ok(tokio::spawn(async {}))
+    }
+}
+
+fn verbose_subscription() -> ClientSubscription {
+    ClientSubscription {
+        task_scope: TaskScope::AllTasks,
+        detail_level: DetailLevel::Verbose,
+        include_model_call_status: true,
+        include_tool_execution_status: true,
+        include_debug_notices: true,
     }
 }
 

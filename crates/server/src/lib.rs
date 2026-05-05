@@ -255,6 +255,9 @@ impl ServerControl {
             return reject(AttachRejectReason::RouterMailboxClosed);
         }
 
+        let Some(events_tx) = self.inner.events_tx.lock().await.as_ref().cloned() else {
+            return reject(AttachRejectReason::InternalFailure);
+        };
         let client_id = ClientId(request.client_id.0.clone());
         let client_command_id = ClientCommandId(request.client_command_id.0.clone());
         let previous_attach = match self
@@ -269,6 +272,7 @@ impl ServerControl {
             client_id.clone(),
             client_command_id.clone(),
             previous_attach,
+            Some(events_tx.clone()),
         );
 
         let (outbound_tx, outbound_rx) = mpsc::channel(DEFAULT_HYDRATION_BUFFER_CAPACITY);
@@ -295,7 +299,9 @@ impl ServerControl {
         }
 
         match admission_rx.await {
-            Ok(RouterAttachAdmissionResult::Accepted) => {}
+            Ok(RouterAttachAdmissionResult::Accepted) => {
+                reservation.mark_events_reserved();
+            }
             Ok(RouterAttachAdmissionResult::DuplicateAttach) => {
                 return reject(AttachRejectReason::DuplicateAttach);
             }
@@ -313,29 +319,14 @@ impl ServerControl {
             outbound: outbound_tx,
             subscription,
         };
-        let Some(events_tx) = self.inner.events_tx.lock().await.as_ref().cloned() else {
-            return reject(AttachRejectReason::InternalFailure);
-        };
         let client_sync_tx = self.inner.client_sync_tx.lock().await.clone();
 
         match client_sync_tx.try_send(ClientSyncIngress::StartHydration(begin)) {
             Ok(()) => {}
             Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
-                send_detach_client(
-                    &events_tx,
-                    client_id.clone(),
-                    client_command_id.clone(),
-                    DetachReason::ClientDisconnected,
-                );
                 return reject(AttachRejectReason::ClientSyncUnavailable);
             }
             Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
-                send_detach_client(
-                    &events_tx,
-                    client_id.clone(),
-                    client_command_id.clone(),
-                    DetachReason::ClientDisconnected,
-                );
                 self.begin_shutdown_locked().await;
                 return reject(AttachRejectReason::ClientSyncUnavailable);
             }
@@ -498,6 +489,8 @@ struct ActiveAttachReservation {
     client_id: ClientId,
     client_command_id: ClientCommandId,
     previous_attach: Option<ClientCommandId>,
+    events_tx: Option<EventIngressSender>,
+    events_reserved: bool,
     active: bool,
 }
 
@@ -507,12 +500,15 @@ impl ActiveAttachReservation {
         client_id: ClientId,
         client_command_id: ClientCommandId,
         previous_attach: Option<ClientCommandId>,
+        events_tx: Option<EventIngressSender>,
     ) -> Self {
         Self {
             active_attaches,
             client_id,
             client_command_id,
             previous_attach,
+            events_tx,
+            events_reserved: false,
             active: true,
         }
     }
@@ -524,11 +520,25 @@ impl ActiveAttachReservation {
     fn commit(&mut self) {
         self.active = false;
     }
+
+    fn mark_events_reserved(&mut self) {
+        self.events_reserved = true;
+    }
 }
 
 impl Drop for ActiveAttachReservation {
     fn drop(&mut self) {
         if self.active {
+            if self.events_reserved
+                && let Some(events_tx) = &self.events_tx
+            {
+                send_detach_client(
+                    events_tx,
+                    self.client_id.clone(),
+                    self.client_command_id.clone(),
+                    DetachReason::ClientDisconnected,
+                );
+            }
             restore_active_attach(
                 &self.active_attaches,
                 &self.client_id,
@@ -1522,7 +1532,7 @@ mod tests {
             .send(ClientSyncIngress::Shutdown)
             .await
             .expect("fill client-sync mailbox");
-        let (events_tx, _events_rx) = mpsc::channel(4);
+        let (events_tx, mut events_rx) = mpsc::channel(4);
         let control = test_control(router_tx, client_sync_tx, events_tx);
 
         let rejected = match control.attach_client(test_attach_request()).await {
@@ -1530,6 +1540,21 @@ mod tests {
             Err(rejected) => rejected,
         };
         assert_eq!(rejected.reason, AttachRejectReason::ClientSyncUnavailable);
+        match timeout(Duration::from_millis(100), events_rx.recv())
+            .await
+            .expect("reservation cleanup detach arrives")
+            .expect("reservation cleanup detach")
+        {
+            EventIngress::Control(EventControlMessage::DetachClient(detach)) => {
+                assert_eq!(detach.client_id, ClientId("client-1".to_owned()));
+                assert_eq!(
+                    detach.client_command_id,
+                    ClientCommandId("attach-1".to_owned())
+                );
+                assert_eq!(detach.reason, DetachReason::ClientDisconnected);
+            }
+            _ => panic!("unexpected events ingress"),
+        }
         let _ = client_sync_rx.recv().await.expect("drain filled mailbox");
 
         let (_accepted, _stream) = control
