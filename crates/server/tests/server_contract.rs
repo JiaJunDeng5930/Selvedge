@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 use std::time::Duration;
 
 use selvedge_api::ApiExecutorConfig;
@@ -23,15 +23,19 @@ use selvedge_server::{
     ServerRuntimeState, ServerStartArgs, ServerStartupError, spawn_server,
 };
 use tempfile::TempDir;
+use tokio::sync::Mutex as AsyncMutex;
 use tokio::task::JoinHandle;
+
+static SERVER_TEST_LOCK: LazyLock<AsyncMutex<()>> = LazyLock::new(|| AsyncMutex::new(()));
+static SERVER_TEST_HOME: LazyLock<TempDir> = LazyLock::new(|| TempDir::new().expect("temp home"));
 
 #[tokio::test]
 async fn spawn_server_initializes_ready_control_and_creates_durable_paths() {
-    let home = TempDir::new().expect("temp home");
+    let _guard = SERVER_TEST_LOCK.lock().await;
+    let home = SERVER_TEST_HOME.path();
     let mapper = Arc::new(RecordingMapper::new());
 
-    let handle =
-        spawn_server(test_args(home.path().to_path_buf(), mapper.clone())).expect("spawn server");
+    let handle = spawn_server(test_args(home.to_path_buf(), mapper.clone())).expect("spawn server");
 
     assert_eq!(handle.control.state().await, ServerRuntimeState::Ready);
     assert_eq!(
@@ -44,26 +48,27 @@ async fn spawn_server_initializes_ready_control_and_creates_durable_paths() {
             .state,
         ReadyState::Ready
     );
-    assert!(home.path().join("selvedge.sqlite").exists());
-    assert!(home.path().join("server.lock").exists());
+    assert!(home.join("selvedge.sqlite").exists());
+    assert!(home.join("server.lock").exists());
 
     handle.control.stop().await;
     handle.join_handle.await.expect("join server");
     assert_eq!(handle.control.state().await, ServerRuntimeState::Stopped);
-    assert!(!home.path().join("server.lock").exists());
+    assert!(!home.join("server.lock").exists());
 }
 
 #[tokio::test]
 async fn singleton_lock_rejects_second_server_for_same_home() {
-    let home = TempDir::new().expect("temp home");
+    let _guard = SERVER_TEST_LOCK.lock().await;
+    let home = SERVER_TEST_HOME.path();
     let first = spawn_server(test_args(
-        home.path().to_path_buf(),
+        home.to_path_buf(),
         Arc::new(RecordingMapper::new()),
     ))
     .expect("spawn first server");
 
     let second = spawn_server(test_args(
-        home.path().to_path_buf(),
+        home.to_path_buf(),
         Arc::new(RecordingMapper::new()),
     ));
 
@@ -78,10 +83,10 @@ async fn singleton_lock_rejects_second_server_for_same_home() {
 
 #[tokio::test]
 async fn command_submit_validates_protocol_and_maps_to_router_mailbox() {
-    let home = TempDir::new().expect("temp home");
+    let _guard = SERVER_TEST_LOCK.lock().await;
+    let home = SERVER_TEST_HOME.path();
     let mapper = Arc::new(RecordingMapper::new());
-    let handle =
-        spawn_server(test_args(home.path().to_path_buf(), mapper.clone())).expect("spawn server");
+    let handle = spawn_server(test_args(home.to_path_buf(), mapper.clone())).expect("spawn server");
 
     let invalid = handle
         .control
@@ -108,12 +113,10 @@ async fn command_submit_validates_protocol_and_maps_to_router_mailbox() {
 
 #[tokio::test]
 async fn command_mapper_can_reject_unsupported_local_command() {
-    let home = TempDir::new().expect("temp home");
-    let handle = spawn_server(test_args(
-        home.path().to_path_buf(),
-        Arc::new(RejectingMapper),
-    ))
-    .expect("spawn server");
+    let _guard = SERVER_TEST_LOCK.lock().await;
+    let home = SERVER_TEST_HOME.path();
+    let handle = spawn_server(test_args(home.to_path_buf(), Arc::new(RejectingMapper)))
+        .expect("spawn server");
 
     let rejected = handle
         .control
@@ -131,9 +134,10 @@ async fn command_mapper_can_reject_unsupported_local_command() {
 
 #[tokio::test]
 async fn attach_client_accepts_valid_subscription_and_rejects_malformed_request() {
-    let home = TempDir::new().expect("temp home");
+    let _guard = SERVER_TEST_LOCK.lock().await;
+    let home = SERVER_TEST_HOME.path();
     let handle = spawn_server(test_args(
-        home.path().to_path_buf(),
+        home.to_path_buf(),
         Arc::new(RecordingMapper::new()),
     ))
     .expect("spawn server");
@@ -190,9 +194,10 @@ async fn attach_client_accepts_valid_subscription_and_rejects_malformed_request(
 
 #[tokio::test]
 async fn stopped_server_rejects_new_command_submissions() {
-    let home = TempDir::new().expect("temp home");
+    let _guard = SERVER_TEST_LOCK.lock().await;
+    let home = SERVER_TEST_HOME.path();
     let handle = spawn_server(test_args(
-        home.path().to_path_buf(),
+        home.to_path_buf(),
         Arc::new(RecordingMapper::new()),
     ))
     .expect("spawn server");
@@ -209,6 +214,30 @@ async fn stopped_server_rejects_new_command_submissions() {
     );
 
     handle.join_handle.await.expect("join server");
+}
+
+#[tokio::test]
+async fn initialized_config_rejects_mismatched_explicit_home() {
+    let _guard = SERVER_TEST_LOCK.lock().await;
+    let home = SERVER_TEST_HOME.path();
+    let handle = spawn_server(test_args(
+        home.to_path_buf(),
+        Arc::new(RecordingMapper::new()),
+    ))
+    .expect("spawn server");
+    handle.control.stop().await;
+    handle.join_handle.await.expect("join server");
+
+    let other_home = TempDir::new().expect("other temp home");
+    let result = spawn_server(test_args(
+        other_home.path().to_path_buf(),
+        Arc::new(RecordingMapper::new()),
+    ));
+
+    assert!(matches!(
+        result,
+        Err(ServerStartupError::ConfigInitFailed(_))
+    ));
 }
 
 struct RejectingMapper;

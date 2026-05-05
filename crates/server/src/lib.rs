@@ -837,7 +837,23 @@ fn init_config(explicit_home: Option<&PathBuf>) -> Result<(), ServerStartupError
 
     match result {
         Ok(()) => Ok(()),
-        Err(error) if error.to_string().contains("already") => Ok(()),
+        Err(error) if error.to_string().contains("already") => {
+            if let Some(home) = explicit_home {
+                let selected_home = selvedge_config::selvedge_home()
+                    .map_err(|error| ServerStartupError::ConfigInitFailed(error.to_string()))?;
+                let requested_home = std::fs::canonicalize(home)
+                    .map_err(|error| ServerStartupError::ConfigInitFailed(error.to_string()))?;
+                if selected_home != requested_home {
+                    return Err(ServerStartupError::ConfigInitFailed(format!(
+                        "config service is initialized for {}, requested {}",
+                        selected_home.display(),
+                        requested_home.display()
+                    )));
+                }
+            }
+
+            Ok(())
+        }
         Err(error) => Err(ServerStartupError::ConfigInitFailed(error.to_string())),
     }
 }
