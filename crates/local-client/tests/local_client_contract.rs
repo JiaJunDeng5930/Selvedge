@@ -664,6 +664,76 @@ async fn attach_stream_error_terminates_old_stream() {
 }
 
 #[tokio::test]
+async fn attach_stream_error_fuses_even_when_inner_stream_stays_pending() {
+    let _guard = TEST_LOCK.lock().await;
+    let state = FakeTransportState::new_handle();
+    state
+        .lock()
+        .expect("fake state")
+        .attach_responses
+        .push_back(AttachAction::Response(Ok((
+            AttachAccepted {
+                protocol_version: current_protocol_version(),
+                client_id: LocalClientId::new("client-1").expect("client id"),
+                client_command_id: LocalClientCommandId::new("attach-1").expect("command id"),
+            },
+            Box::pin(
+                stream::iter(vec![Err(LocalClientError::TransportClosed)]).chain(stream::pending()),
+            ),
+        ))));
+    let client = connected_client(state).await;
+    let (_accepted, mut frames) = client
+        .attach(valid_attach("attach-1"))
+        .await
+        .expect("attach");
+
+    assert_eq!(
+        frames.next().await,
+        Some(Err(LocalClientError::TransportClosed))
+    );
+    assert_eq!(
+        timeout(Duration::from_millis(5), frames.next()).await,
+        Ok(None)
+    );
+}
+
+#[tokio::test]
+async fn cancelled_close_from_failed_state_preserves_recent_error() {
+    let _guard = TEST_LOCK.lock().await;
+    let state = FakeTransportState::new_handle();
+    {
+        let mut state = state.lock().expect("fake state");
+        state.close_action = CloseAction::Hang;
+        state.ready_responses.push_back(ReadyAction::Hang);
+    }
+    let client = connected_client_with_timeout(state, Duration::from_millis(5)).await;
+    assert_eq!(
+        client
+            .ready(ReadyRequest {
+                protocol_version: current_protocol_version(),
+            })
+            .await,
+        Err(LocalClientError::Timeout)
+    );
+    let mut close = Box::pin(client.close());
+    assert!(
+        timeout(Duration::from_millis(5), close.as_mut())
+            .await
+            .is_err()
+    );
+
+    drop(close);
+
+    assert_eq!(client.state().await, LocalClientState::Failed);
+    assert_eq!(
+        client
+            .submit_command(valid_command("after-failed-close"))
+            .await,
+        Err(LocalClientError::Timeout)
+    );
+}
+
+#[tokio::test]
 async fn attach_validates_request_before_transport() {
     let _guard = TEST_LOCK.lock().await;
     let state = FakeTransportState::new_handle();
