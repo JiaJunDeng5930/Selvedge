@@ -1438,6 +1438,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "selvedge-client-sync"
+version = "0.0.0"
+dependencies = [
+ "selvedge-command-model",
+ "selvedge-domain-model",
+ "tokio",
+]
+
+[[package]]
 name = "selvedge-command-model"
 version = "0.0.0"
 dependencies = [
@@ -1544,6 +1553,16 @@ dependencies = [
  "selvedge-domain-model",
  "tokio",
  "uuid",
+]
+
+[[package]]
+name = "selvedge-web"
+version = "0.0.0"
+dependencies = [
+ "futures-core",
+ "selvedge-local-protocol",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]
