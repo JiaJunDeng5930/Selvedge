@@ -149,11 +149,17 @@ pub fn spawn_server(args: ServerStartArgs) -> Result<ServerHandle, ServerStartup
     if let Some(web_binding) = &args.web_binding {
         validate_web_bind_target(&web_binding.bind_target)?;
     }
-    let web_bind = reserve_web_binding(args.web_binding.as_ref())?;
 
     init_config(args.explicit_home.as_ref())?;
     let home = resolve_home()?;
     let singleton_lock = acquire_singleton_lock(&home)?;
+    let web_bind = match reserve_web_binding(args.web_binding.as_ref()) {
+        Ok(web_bind) => web_bind,
+        Err(error) => {
+            cleanup_startup_lock(&home);
+            return Err(error);
+        }
+    };
 
     let startup_result = start_server_after_lock(args, home, singleton_lock, web_bind);
     if let Err(error) = &startup_result {

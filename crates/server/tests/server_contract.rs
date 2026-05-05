@@ -94,6 +94,32 @@ async fn singleton_lock_rejects_second_server_for_same_home() {
 }
 
 #[tokio::test]
+async fn singleton_lock_rejects_second_web_enabled_server_before_port_bind() {
+    let _guard = SERVER_TEST_LOCK.lock().await;
+    let home = SERVER_TEST_HOME.path();
+    let port = unused_tcp_v4_port();
+    let mut first_args = test_args(home.to_path_buf(), Arc::new(RecordingMapper::new()));
+    first_args.web_binding = Some(WebBindingConfig {
+        bind_target: LocalhostBindTarget::Ipv4 { port },
+    });
+    let first = spawn_server(first_args).expect("spawn first server");
+
+    let mut second_args = test_args(home.to_path_buf(), Arc::new(RecordingMapper::new()));
+    second_args.web_binding = Some(WebBindingConfig {
+        bind_target: LocalhostBindTarget::Ipv4 { port },
+    });
+    let second = spawn_server(second_args);
+
+    assert!(matches!(
+        second,
+        Err(ServerStartupError::SingletonAlreadyRunning)
+    ));
+
+    first.control.stop().await;
+    first.join_handle.await.expect("join first server");
+}
+
+#[tokio::test]
 async fn stale_lock_file_does_not_block_server_restart() {
     let _guard = SERVER_TEST_LOCK.lock().await;
     let home = SERVER_TEST_HOME.path();
@@ -525,6 +551,13 @@ fn test_args(home: std::path::PathBuf, mapper: Arc<dyn LocalCommandMapper>) -> S
         },
         web_binding: None,
     }
+}
+
+fn unused_tcp_v4_port() -> u16 {
+    let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).expect("bind unused port");
+    let port = listener.local_addr().expect("unused addr").port();
+    drop(listener);
+    port
 }
 
 fn valid_command(command_id: &str) -> CommandRequest {
