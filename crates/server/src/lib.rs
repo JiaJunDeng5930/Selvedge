@@ -5,8 +5,8 @@ use std::fs::{File, OpenOptions};
 use std::io;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex as StdMutex};
 use std::task::{Context, Poll};
 
 use futures_core::Stream;
@@ -326,7 +326,13 @@ impl ServerControl {
         let _ = self.inner.router_tx.send(RouterIngressMessage::StopRouter);
         let client_sync_tx = self.inner.client_sync_tx.lock().await.clone();
         let _ = client_sync_tx.send(ClientSyncIngress::Shutdown).await;
-        if let Some(web_control) = self.inner.web_control.lock().await.as_ref() {
+        let web_control = self
+            .inner
+            .web_control
+            .lock()
+            .expect("web control lock")
+            .clone();
+        if let Some(web_control) = web_control {
             web_control.stop().await;
         }
         self.inner.stop_notify.notify_waiters();
@@ -347,7 +353,7 @@ struct ServerInner {
     router_tx: RouterIngressSender,
     client_sync_tx: Mutex<selvedge_client_sync::ClientSyncSender>,
     command_mapper: Arc<dyn LocalCommandMapper>,
-    web_control: Mutex<Option<selvedge_web::WebControl>>,
+    web_control: StdMutex<Option<selvedge_web::WebControl>>,
 }
 
 impl ServerContext {
@@ -394,8 +400,6 @@ fn start_server_after_lock(
     })
     .map_err(map_router_start_error)?;
 
-    let web = start_web(args.web_binding, &args.command_mapper)?;
-
     let inner = Arc::new(ServerInner {
         state: RwLock::new(ServerRuntimeState::Ready),
         closing: AtomicBool::new(false),
@@ -405,8 +409,15 @@ fn start_server_after_lock(
         router_tx: router.ingress_tx.clone(),
         client_sync_tx: Mutex::new(client_sync.ingress_tx.clone()),
         command_mapper: args.command_mapper,
-        web_control: Mutex::new(web.as_ref().map(|handle| handle.control.clone())),
+        web_control: StdMutex::new(None),
     });
+    let control = ServerControl {
+        inner: inner.clone(),
+    };
+    let web = start_web(args.web_binding, control)?;
+    if let Some(web_handle) = &web {
+        *inner.web_control.lock().expect("web control lock") = Some(web_handle.control.clone());
+    }
     let join_handle = spawn_server_join_task(inner.clone(), router, events, client_sync, web);
 
     Ok(ServerContext { inner, join_handle })
@@ -445,56 +456,88 @@ fn spawn_server_join_task(
 
 fn start_web(
     web_binding: Option<WebBindingConfig>,
-    bridge: &Arc<dyn LocalCommandMapper>,
+    control: ServerControl,
 ) -> Result<Option<WebHandle>, ServerStartupError> {
     let Some(web_binding) = web_binding else {
         return Ok(None);
     };
 
     let bind = local_bind_to_web_bind(web_binding.bind_target)?;
-    let bridge = Arc::new(ServerWebBridge {
-        _command_mapper: Arc::clone(bridge),
-    });
+    let bridge = Arc::new(ServerWebBridge { control });
     spawn_web_surface(WebStartArgs { bind, bridge })
         .map(Some)
         .map_err(map_web_start_error)
 }
 
 struct ServerWebBridge {
-    _command_mapper: Arc<dyn LocalCommandMapper>,
+    control: ServerControl,
 }
 
 impl WebBridge for ServerWebBridge {
-    fn ready(&self, _request: ReadyRequest) -> selvedge_web::WebBridgeFuture<ReadyResponse> {
-        Box::pin(async {
-            Ok(ReadyResponse {
-                protocol_version: current_protocol_version(),
-                state: ReadyState::Ready,
-            })
-        })
+    fn ready(&self, request: ReadyRequest) -> selvedge_web::WebBridgeFuture<ReadyResponse> {
+        let control = self.control.clone();
+        Box::pin(async move { Ok(control.ready(request).await) })
     }
 
     fn submit_command(
         &self,
         request: CommandRequest,
     ) -> selvedge_web::WebBridgeFuture<CommandResponse> {
-        Box::pin(async move {
-            Ok(CommandResponse {
-                protocol_version: current_protocol_version(),
-                client_command_id: request.client_command_id,
-                outcome: CommandOutcome::Rejected(CommandRejectReason::InternalFailure),
-            })
-        })
+        let control = self.control.clone();
+        Box::pin(async move { Ok(control.submit_command(request).await) })
     }
 
-    fn attach(&self, _request: AttachRequest) -> selvedge_web::WebAttachFuture {
-        Box::pin(async {
-            Err(selvedge_web::AttachRejectedOrBridgeError::Bridge(
-                selvedge_web::WebBridgeError::InternalFailure(
-                    "server web bridge is owned by the server runtime".to_owned(),
-                ),
-            ))
+    fn attach(&self, request: AttachRequest) -> selvedge_web::WebAttachFuture {
+        let control = self.control.clone();
+        Box::pin(async move {
+            match control.attach_client(request).await {
+                Ok((accepted, stream)) => Ok((
+                    accepted,
+                    Box::pin(WebServerFrameStream { inner: stream })
+                        as selvedge_web::WebFrameStream,
+                )),
+                Err(rejected) => Err(selvedge_web::AttachRejectedOrBridgeError::Rejected(
+                    rejected,
+                )),
+            }
         })
+    }
+}
+
+struct WebServerFrameStream {
+    inner: ServerFrameStream,
+}
+
+impl Stream for WebServerFrameStream {
+    type Item = Result<LocalClientFrame, selvedge_web::WebBridgeError>;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let this = self.get_mut();
+        match this.inner.as_mut().poll_next(cx) {
+            Poll::Ready(Some(Ok(frame))) => Poll::Ready(Some(Ok(frame))),
+            Poll::Ready(Some(Err(error))) => {
+                Poll::Ready(Some(Err(server_request_error_to_web_bridge(error))))
+            }
+            Poll::Ready(None) => Poll::Ready(None),
+            Poll::Pending => Poll::Pending,
+        }
+    }
+}
+
+fn server_request_error_to_web_bridge(error: ServerRequestError) -> selvedge_web::WebBridgeError {
+    match error {
+        ServerRequestError::NotReady => selvedge_web::WebBridgeError::ServerNotReady,
+        ServerRequestError::ProtocolValidationFailed => {
+            selvedge_web::WebBridgeError::ProtocolValidationFailed
+        }
+        ServerRequestError::UnsupportedCommand => {
+            selvedge_web::WebBridgeError::CommandRejected("unsupported command".to_owned())
+        }
+        ServerRequestError::RouterMailboxClosed => selvedge_web::WebBridgeError::StreamClosed,
+        ServerRequestError::AttachChannelFailed => selvedge_web::WebBridgeError::StreamClosed,
+        ServerRequestError::InternalFailure(message) => {
+            selvedge_web::WebBridgeError::InternalFailure(message)
+        }
     }
 }
 
