@@ -9,6 +9,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::task::{Context, Poll};
 
+use fs2::FileExt;
 use futures_core::Stream;
 use selvedge_api::ApiExecutorConfig;
 use selvedge_client_sync::{
@@ -915,14 +916,19 @@ fn acquire_singleton_lock(home: &Path) -> Result<File, ServerStartupError> {
     })?;
 
     match OpenOptions::new()
-        .create_new(true)
+        .create(true)
+        .truncate(false)
         .write(true)
+        .read(true)
         .open(lock_path_for_home(home))
     {
-        Ok(file) => Ok(file),
-        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
-            Err(ServerStartupError::SingletonAlreadyRunning)
-        }
+        Ok(file) => match file.try_lock_exclusive() {
+            Ok(()) => Ok(file),
+            Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                Err(ServerStartupError::SingletonAlreadyRunning)
+            }
+            Err(error) => Err(ServerStartupError::ConfigInitFailed(error.to_string())),
+        },
         Err(error) => Err(ServerStartupError::ConfigInitFailed(error.to_string())),
     }
 }
