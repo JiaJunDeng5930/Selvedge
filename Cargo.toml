@@ -16,6 +16,7 @@ members = [
     "crates/logging",
     "crates/local-protocol",
     "crates/router",
+    "crates/server",
     "crates/task-runtime-factory",
     "crates/web",
     "xtask",

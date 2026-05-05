@@ -72,7 +72,7 @@ This file is for coding agents working in this repository.
 |.cargo:{config.toml}
 |.github:{workflows/}
 |.github/workflows:{ci.yml}
-|crates:{api/,chatgpt-api/,chatgpt-auth/,chatgpt-login/,client-sync/,client/,command-model/,config-model/,config/,core/,db/,domain-model/,events/,local-protocol/,logging/,router/,task-runtime-factory/,web/}
+|crates:{api/,chatgpt-api/,chatgpt-auth/,chatgpt-login/,client-sync/,client/,command-model/,config-model/,config/,core/,db/,domain-model/,events/,local-protocol/,logging/,router/,server/,task-runtime-factory/,web/}
 |crates/api:{src/,tests/,Cargo.toml,README.md}
 |crates/api/src:{lib.rs}
 |crates/api/tests:{api_contract.rs}
@@ -125,6 +125,9 @@ This file is for coding agents working in this repository.
 |crates/router:{src/,tests/,Cargo.toml,README.md}
 |crates/router/src:{lib.rs}
 |crates/router/tests:{router_contract.rs}
+|crates/server:{src/,tests/,Cargo.toml,README.md}
+|crates/server/src:{lib.rs}
+|crates/server/tests:{server_contract.rs}
 |crates/task-runtime-factory:{src/,tests/,Cargo.toml,README.md}
 |crates/task-runtime-factory/src:{lib.rs}
 |crates/task-runtime-factory/tests:{factory_contract.rs}

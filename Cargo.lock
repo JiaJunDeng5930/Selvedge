@@ -1544,6 +1544,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "selvedge-server"
+version = "0.0.0"
+dependencies = [
+ "futures-core",
+ "futures-util",
+ "selvedge-api",
+ "selvedge-client-sync",
+ "selvedge-command-model",
+ "selvedge-config",
+ "selvedge-core",
+ "selvedge-db",
+ "selvedge-domain-model",
+ "selvedge-events",
+ "selvedge-local-protocol",
+ "selvedge-logging",
+ "selvedge-router",
+ "selvedge-web",
+ "serde_json",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
 name = "selvedge-task-runtime-factory"
 version = "0.0.0"
 dependencies = [
