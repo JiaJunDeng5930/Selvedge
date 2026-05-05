@@ -20,9 +20,9 @@ use selvedge_command_model::{
     ModelCallErrorKind, ModelRunId, RouterIngressApiMessage, TaskId, validate_api_output_envelope,
 };
 use selvedge_domain_model::{
-    ConversationMessage, ConversationPath, MessageContent, MessageRole, ModelProviderProfile,
-    ResponsePreference, StructuredPayload, ToolManifest, ToolParameter, ToolParameterType,
-    ToolSpec,
+    ConversationMessage, ConversationPath, MessageContent, MessageRole, ModelFinishReason,
+    ModelProviderProfile, ResponsePreference, StructuredPayload, ToolManifest, ToolParameter,
+    ToolParameterType, ToolSpec,
 };
 use tempfile::TempDir;
 use tokio::{net::TcpListener, sync::mpsc, task::JoinHandle};
@@ -100,7 +100,8 @@ base_url = "{}"
         ),
     );
 
-    let request = valid_dispatch_request();
+    let mut request = valid_dispatch_request();
+    request.provider.max_output_tokens = Some(10);
     let (router_tx, mut router_rx) = mpsc::unbounded_channel();
 
     let status = execute_model_call(
@@ -148,6 +149,7 @@ base_url = "{}"
         captured_body.pointer("/reasoning/effort"),
         Some(&serde_json::json!("medium"))
     );
+    assert!(captured_body.get("max_output_tokens").is_none());
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -326,6 +328,89 @@ base_url = "{}"
         captured_body.pointer("/tools/0/name"),
         Some(&serde_json::json!("search"))
     );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn chatgpt_max_output_tokens_incomplete_returns_length_reply() {
+    const FLAG: &str = "SELVEDGE_API_CHATGPT_LENGTH_CHILD";
+
+    if !child_mode(FLAG) {
+        assert_child_success(&run_child(
+            "chatgpt_max_output_tokens_incomplete_returns_length_reply",
+            FLAG,
+        ));
+        return;
+    }
+
+    let api_server = spawn_http_server(Router::new().route(
+        "/responses",
+        post(|| async move {
+            let body = Body::from_stream(async_stream::stream! {
+                yield Ok::<_, std::convert::Infallible>(bytes::Bytes::from(
+                    "data: {\"type\":\"response.output_text.done\",\"item_id\":\"item-1\",\"output_index\":0,\"content_index\":0,\"text\":\"truncated\"}\n\n",
+                ));
+                yield Ok::<_, std::convert::Infallible>(bytes::Bytes::from(
+                    "data: {\"type\":\"response.incomplete\",\"response\":{\"id\":\"resp-1\",\"reason\":\"max_output_tokens\"}}\n\n",
+                ));
+            });
+
+            (
+                StatusCode::OK,
+                [(
+                    http::header::CONTENT_TYPE,
+                    HeaderValue::from_static("text/event-stream"),
+                )],
+                body,
+            )
+        }),
+    ))
+    .await;
+
+    let tempdir = init_api_test(&format!(
+        r#"
+[llm.providers.chatgpt.auth]
+issuer = "http://127.0.0.1:1"
+
+[llm.providers.chatgpt.api]
+base_url = "{}"
+"#,
+        api_server.url("")
+    ));
+    write_auth_file(
+        &tempdir,
+        &auth_file_json(
+            &build_jwt(serde_json::json!({
+                "sub": "subject",
+                "https://api.openai.com/auth.chatgpt_account_id": "workspace-123"
+            })),
+            "opaque-access-token",
+            "refresh-token",
+        ),
+    );
+
+    let request = valid_dispatch_request();
+    let (router_tx, mut router_rx) = mpsc::unbounded_channel();
+
+    let status = execute_model_call(
+        request,
+        router_tx.downgrade(),
+        ApiExecutorConfig {
+            request_timeout: Duration::from_secs(5),
+            max_response_bytes: None,
+        },
+    )
+    .await;
+
+    assert_eq!(status, ApiCallTerminalStatus::OutputSent);
+    let message = router_rx.recv().await.expect("router message");
+
+    match message {
+        RouterIngressApiMessage::ApiOutput(ApiOutputEnvelope::Success { reply, .. }) => {
+            assert_eq!(reply.content.as_deref(), Some("truncated"));
+            assert_eq!(reply.finish_reason, ModelFinishReason::Length);
+        }
+        _ => panic!("unexpected router message"),
+    }
 }
 
 #[tokio::test]

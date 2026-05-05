@@ -5,10 +5,11 @@ use std::io::Write;
 use std::time::Duration;
 
 use chatgpt_api::{
-    ChatgptApiEndpointError, ChatgptApiError, ChatgptApiLowerLayerError, ChatgptModelCapabilities,
-    ChatgptReasoningOptions, ChatgptRequestContext, ChatgptResponseEvent, ChatgptResponsesRequest,
-    ChatgptTextOptions, ContentItem, FunctionCallItem, FunctionCallOutputItem, MessageItem,
-    ResponseItem, ToolDescriptor, ToolOutput, stream,
+    ChatgptApiEndpointError, ChatgptApiError, ChatgptApiLowerLayerError,
+    ChatgptIncompleteEndpointError, ChatgptModelCapabilities, ChatgptReasoningOptions,
+    ChatgptRequestContext, ChatgptResponseEvent, ChatgptResponsesRequest, ChatgptTextOptions,
+    ContentItem, FunctionCallItem, FunctionCallOutputItem, MessageItem, ResponseItem,
+    ToolDescriptor, ToolOutput, stream,
 };
 use futures::StreamExt;
 use selvedge_command_model::{
@@ -118,9 +119,21 @@ async fn call_chatgpt(
     let mut fallback_text = String::new();
     let mut tool_calls = Vec::new();
     let mut usage = None;
+    let mut finish_reason = ModelFinishReason::Stop;
 
     while let Some(item) = response_stream.next().await {
-        match item.map_err(map_chatgpt_error)? {
+        let event = match item {
+            Ok(event) => event,
+            Err(ChatgptApiError::Endpoint(ChatgptApiEndpointError::Incomplete(error)))
+                if is_chatgpt_output_length_incomplete(&error) =>
+            {
+                finish_reason = ModelFinishReason::Length;
+                break;
+            }
+            Err(error) => return Err(map_chatgpt_error(error)),
+        };
+
+        match event {
             ChatgptResponseEvent::OutputTextDelta {
                 output_index,
                 content_index,
@@ -197,11 +210,9 @@ async fn call_chatgpt(
         text_parts.into_values().collect::<String>()
     };
 
-    let finish_reason = if tool_calls.is_empty() {
-        ModelFinishReason::Stop
-    } else {
-        ModelFinishReason::ToolCalls
-    };
+    if !tool_calls.is_empty() && finish_reason == ModelFinishReason::Stop {
+        finish_reason = ModelFinishReason::ToolCalls;
+    }
 
     Ok(ModelReply {
         content: (!content.trim().is_empty()).then_some(content),
@@ -214,7 +225,7 @@ async fn call_chatgpt(
 fn chatgpt_request_from_dispatch(
     request: &ModelCallDispatchRequest,
 ) -> Result<ChatgptResponsesRequest, ModelCallError> {
-    // NOTE: chatgpt-api currently has no request field for ModelProviderProfile::max_output_tokens.
+    // NOTE: ChatGPT dispatch ignores max_output_tokens because chatgpt-api has no request field for this control.
     Ok(ChatgptResponsesRequest {
         model: request.provider.model_name.clone(),
         // HACK: Use fixed optimistic capabilities until Selvedge owns a ChatGPT model capability table.
@@ -552,6 +563,10 @@ fn json_value_from_structured_payload(payload: &StructuredPayload) -> serde_json
         StructuredPayload::Boolean(value) => serde_json::Value::Bool(*value),
         StructuredPayload::Null => serde_json::Value::Null,
     }
+}
+
+fn is_chatgpt_output_length_incomplete(error: &ChatgptIncompleteEndpointError) -> bool {
+    error.reason.as_deref() == Some("max_output_tokens")
 }
 
 fn map_chatgpt_error(error: ChatgptApiError) -> ModelCallError {

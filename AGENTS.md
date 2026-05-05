@@ -45,6 +45,7 @@ This file is for coding agents working in this repository.
 
 - Allowed tags: `TODO`, `FIXME`, `HACK`, `NOTE`, `XXX`.
 - Format: `<comment marker> <TAG>(<optional issue>): <specific action or reason>`.
+- Marker comments must explain the intent, decision, risk, or follow-up behind the code. Do not use marker comments to restate facts already visible from the code.
 - `TODO` means known follow-up work while current code is acceptable.
 - `FIXME` means a known defect that needs repair.
 - `HACK` means a temporary workaround that should be replaced by normal design.
