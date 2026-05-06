@@ -396,6 +396,56 @@ async fn reservation_capacity_rejects_new_clients_after_limit() {
 }
 
 #[tokio::test]
+async fn replacement_reservation_shares_existing_client_capacity_slot() {
+    let handle = spawn_events_task(EventsStartArgs {
+        ingress_capacity: 8,
+        client_registry_capacity: 2,
+        hydration_buffer_capacity: 4,
+    })
+    .expect("valid events task");
+    let (outbound, _rx) = mpsc::channel(8);
+
+    begin_named_client_with_command(
+        &handle.ingress_tx,
+        ClientId("client-1".to_owned()),
+        outbound,
+        ClientCommandId("attach-1".to_owned()),
+        verbose_all_tasks(),
+    )
+    .await;
+    assert_eq!(
+        reserve_client_session(
+            &handle.ingress_tx,
+            ClientId("client-1".to_owned()),
+            ClientCommandId("attach-2".to_owned()),
+        )
+        .await,
+        EventClientReservationResult::Reserved
+    );
+    assert_eq!(
+        reserve_client_session(
+            &handle.ingress_tx,
+            ClientId("client-2".to_owned()),
+            ClientCommandId("attach-1".to_owned()),
+        )
+        .await,
+        EventClientReservationResult::Reserved
+    );
+    assert_eq!(
+        reserve_client_session(
+            &handle.ingress_tx,
+            ClientId("client-3".to_owned()),
+            ClientCommandId("attach-1".to_owned()),
+        )
+        .await,
+        EventClientReservationResult::ClientRegistryFull
+    );
+
+    drop(handle.ingress_tx);
+    handle.join_handle.await.expect("events task exits cleanly");
+}
+
+#[tokio::test]
 async fn reserved_client_session_is_consumed_by_matching_begin() {
     let handle = spawn_events_task(EventsStartArgs {
         ingress_capacity: 8,

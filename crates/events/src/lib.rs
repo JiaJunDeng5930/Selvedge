@@ -96,6 +96,14 @@ impl EventsTask {
     }
 
     fn reserve_client_session(&mut self, reservation: ReserveClientSession) {
+        // NOTE: A replacement reservation for an active ClientId shares that
+        // ClientId's registry slot until BeginClientHydration installs it.
+        let occupied_client_slots = self.sessions.len()
+            + self
+                .reservations
+                .keys()
+                .filter(|client_id| !self.sessions.contains_key(*client_id))
+                .count();
         let result = if self
             .sessions
             .get(&reservation.client_id)
@@ -105,7 +113,7 @@ impl EventsTask {
             EventClientReservationResult::DuplicateAttach
         } else if !self.sessions.contains_key(&reservation.client_id)
             && !self.reservations.contains_key(&reservation.client_id)
-            && self.sessions.len() + self.reservations.len() >= self.client_registry_capacity
+            && occupied_client_slots >= self.client_registry_capacity
         {
             EventClientReservationResult::ClientRegistryFull
         } else {
