@@ -60,7 +60,7 @@ pub fn spawn_events_task(args: EventsStartArgs) -> Result<EventsHandle, SpawnEve
 
 struct EventsTask {
     sessions: HashMap<ClientId, ClientSession>,
-    reservations: HashMap<ClientId, selvedge_command_model::ClientCommandId>,
+    reservations: HashMap<ClientId, Vec<selvedge_command_model::ClientCommandId>>,
     client_registry_capacity: usize,
     hydration_buffer_capacity: usize,
 }
@@ -113,7 +113,11 @@ impl EventsTask {
             .sessions
             .get(&client_id)
             .is_some_and(|session| session.client_command_id == client_command_id)
-            || self.reservations.get(&client_id) == Some(&client_command_id)
+            || self
+                .reservations
+                .get(&client_id)
+                .and_then(|stack| stack.last())
+                == Some(&client_command_id)
         {
             EventClientReservationResult::DuplicateAttach
         } else if !self.sessions.contains_key(&client_id)
@@ -123,20 +127,30 @@ impl EventsTask {
             EventClientReservationResult::ClientRegistryFull
         } else {
             self.reservations
-                .insert(client_id.clone(), client_command_id.clone());
+                .entry(client_id.clone())
+                .or_default()
+                .push(client_command_id.clone());
             EventClientReservationResult::Reserved
         };
 
         if result_tx.send(result.clone()).is_err()
             && result == EventClientReservationResult::Reserved
-            && self.reservations.get(&client_id) == Some(&client_command_id)
+            && self
+                .reservations
+                .get(&client_id)
+                .and_then(|stack| stack.last())
+                == Some(&client_command_id)
         {
-            self.reservations.remove(&client_id);
+            self.pop_current_reservation(&client_id);
         }
     }
 
     fn begin_hydration(&mut self, begin: BeginClientHydration) {
-        let reserved = self.reservations.get(&begin.client_id) == Some(&begin.client_command_id);
+        let reserved = self
+            .reservations
+            .get(&begin.client_id)
+            .and_then(|stack| stack.last())
+            == Some(&begin.client_command_id);
         if !reserved {
             return;
         }
@@ -242,8 +256,13 @@ impl EventsTask {
     }
 
     fn detach_client(&mut self, detach: selvedge_command_model::DetachClient) {
-        if self.reservations.get(&detach.client_id) == Some(&detach.client_command_id) {
-            self.reservations.remove(&detach.client_id);
+        if self
+            .reservations
+            .get(&detach.client_id)
+            .and_then(|stack| stack.last())
+            == Some(&detach.client_command_id)
+        {
+            self.pop_current_reservation(&detach.client_id);
         }
 
         let Some(session) = self.sessions.get(&detach.client_id) else {
@@ -255,6 +274,16 @@ impl EventsTask {
         }
 
         self.sessions.remove(&detach.client_id);
+    }
+
+    fn pop_current_reservation(&mut self, client_id: &ClientId) {
+        let Some(stack) = self.reservations.get_mut(client_id) else {
+            return;
+        };
+        stack.pop();
+        if stack.is_empty() {
+            self.reservations.remove(client_id);
+        }
     }
 
     async fn handle_raw(&mut self, raw: RawEvent) {
