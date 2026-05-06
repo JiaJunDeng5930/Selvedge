@@ -540,6 +540,64 @@ async fn failed_pending_replacement_restores_previous_reservation() {
 }
 
 #[tokio::test]
+async fn hidden_begin_hydrates_after_failed_pending_replacement() {
+    let handle = spawn_events_task(EventsStartArgs {
+        ingress_capacity: 8,
+        client_registry_capacity: 1,
+        hydration_buffer_capacity: 4,
+    })
+    .expect("valid events task");
+    let (outbound, mut rx) = mpsc::channel(8);
+
+    assert_eq!(
+        reserve_client_session(
+            &handle.ingress_tx,
+            ClientId("client-1".to_owned()),
+            ClientCommandId("attach-1".to_owned()),
+        )
+        .await,
+        EventClientReservationResult::Reserved
+    );
+    assert_eq!(
+        reserve_client_session(
+            &handle.ingress_tx,
+            ClientId("client-1".to_owned()),
+            ClientCommandId("attach-2".to_owned()),
+        )
+        .await,
+        EventClientReservationResult::Reserved
+    );
+    begin_named_client_with_command_without_reservation(
+        &handle.ingress_tx,
+        ClientId("client-1".to_owned()),
+        outbound,
+        ClientCommandId("attach-1".to_owned()),
+        verbose_all_tasks(),
+    )
+    .await;
+    handle
+        .ingress_tx
+        .send(EventIngress::Control(EventControlMessage::DetachClient(
+            DetachClient {
+                client_id: ClientId("client-1".to_owned()),
+                client_command_id: ClientCommandId("attach-2".to_owned()),
+                reason: DetachReason::ClientDisconnected,
+            },
+        )))
+        .await
+        .expect("send failed replacement cleanup");
+    deliver_named_empty_snapshot(&handle.ingress_tx, ClientId("client-1".to_owned())).await;
+
+    assert!(matches!(
+        recv_frame(&mut rx).await,
+        ClientFrame::Snapshot(_)
+    ));
+
+    drop(handle.ingress_tx);
+    handle.join_handle.await.expect("events task exits cleanly");
+}
+
+#[tokio::test]
 async fn reserved_client_session_is_consumed_by_matching_begin() {
     let handle = spawn_events_task(EventsStartArgs {
         ingress_capacity: 8,

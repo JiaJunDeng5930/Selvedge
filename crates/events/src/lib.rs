@@ -61,6 +61,8 @@ pub fn spawn_events_task(args: EventsStartArgs) -> Result<EventsHandle, SpawnEve
 struct EventsTask {
     sessions: HashMap<ClientId, ClientSession>,
     reservations: HashMap<ClientId, Vec<selvedge_command_model::ClientCommandId>>,
+    pending_begins:
+        HashMap<(ClientId, selvedge_command_model::ClientCommandId), BeginClientHydration>,
     client_registry_capacity: usize,
     hydration_buffer_capacity: usize,
 }
@@ -70,6 +72,7 @@ impl EventsTask {
         Self {
             sessions: HashMap::with_capacity(args.client_registry_capacity),
             reservations: HashMap::with_capacity(args.client_registry_capacity),
+            pending_begins: HashMap::new(),
             client_registry_capacity: args.client_registry_capacity,
             hydration_buffer_capacity: args.hydration_buffer_capacity,
         }
@@ -151,11 +154,28 @@ impl EventsTask {
             .get(&begin.client_id)
             .and_then(|stack| stack.last())
             == Some(&begin.client_command_id);
-        if !reserved {
+        if reserved {
+            self.install_begin_hydration(begin);
             return;
         }
 
-        self.reservations.remove(&begin.client_id);
+        let hidden_by_replacement = self
+            .reservations
+            .get(&begin.client_id)
+            .is_some_and(|stack| stack.contains(&begin.client_command_id));
+        if hidden_by_replacement {
+            self.pending_begins.insert(
+                (begin.client_id.clone(), begin.client_command_id.clone()),
+                begin,
+            );
+        }
+    }
+
+    fn install_begin_hydration(&mut self, begin: BeginClientHydration) {
+        let client_id = begin.client_id.clone();
+        self.reservations.remove(&client_id);
+        self.pending_begins
+            .retain(|(pending_client_id, _), _| pending_client_id != &client_id);
         self.sessions.insert(
             begin.client_id,
             ClientSession {
@@ -281,8 +301,23 @@ impl EventsTask {
             return;
         };
         stack.pop();
-        if stack.is_empty() {
+        let restored_command_id = if stack.is_empty() {
+            None
+        } else {
+            stack.last().cloned()
+        };
+        if restored_command_id.is_none() {
             self.reservations.remove(client_id);
+            self.pending_begins
+                .retain(|(pending_client_id, _), _| pending_client_id != client_id);
+            return;
+        }
+
+        if let Some(begin) = self.pending_begins.remove(&(
+            client_id.clone(),
+            restored_command_id.expect("restored command id"),
+        )) {
+            self.install_begin_hydration(begin);
         }
     }
 
