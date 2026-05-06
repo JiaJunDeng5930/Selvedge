@@ -763,11 +763,26 @@ impl futures_core::Stream for ServerAttachFrameStream {
         match this.inner.poll_recv(context) {
             Poll::Ready(Some(frame)) => Poll::Ready(Some(Ok(client_frame_to_local(frame)))),
             Poll::Ready(None) => {
-                clear_active_attach(
-                    &this.active_attaches,
-                    &this.client_id,
-                    &this.client_command_id,
-                );
+                let client_id = this.client_id.clone();
+                let client_command_id = this.client_command_id.clone();
+                if let Some(client_sync_tx) = this.client_sync_tx.upgrade() {
+                    send_cancel_hydration(
+                        &client_sync_tx,
+                        client_id.clone(),
+                        client_command_id.clone(),
+                    );
+                }
+                if let Some(events_tx) = this.events_tx.upgrade() {
+                    send_detach_client_and_clear_active(
+                        &events_tx,
+                        client_id,
+                        client_command_id,
+                        DetachReason::ClientDisconnected,
+                        Arc::clone(&this.active_attaches),
+                    );
+                } else {
+                    clear_active_attach(&this.active_attaches, &client_id, &client_command_id);
+                }
                 this.closed_reported = true;
                 Poll::Ready(Some(Err(ServerRequestError::AttachChannelFailed)))
             }
@@ -1692,7 +1707,7 @@ mod tests {
     async fn closed_frame_channel_clears_active_attach_before_stream_drop() {
         let router_tx = accepting_router_sender();
         let (client_sync_tx, mut client_sync_rx) = mpsc::channel(4);
-        let (events_tx, _events_rx) = mpsc::channel(4);
+        let (events_tx, mut events_rx) = mpsc::channel(4);
         let control = test_control(router_tx, client_sync_tx, events_tx);
 
         let (_accepted, mut stream) = control
@@ -1711,6 +1726,35 @@ mod tests {
             .expect("stream terminal item")
             .expect_err("closed frame channel reports error");
         assert_eq!(error, ServerRequestError::AttachChannelFailed);
+        match timeout(Duration::from_millis(100), client_sync_rx.recv())
+            .await
+            .expect("channel close cancel arrives")
+            .expect("channel close cancel")
+        {
+            ClientSyncIngress::CancelHydration(cancel) => {
+                assert_eq!(cancel.client_id, ClientId("client-1".to_owned()));
+                assert_eq!(
+                    cancel.client_command_id,
+                    ClientCommandId("attach-1".to_owned())
+                );
+            }
+            _ => panic!("unexpected client-sync ingress"),
+        }
+        match timeout(Duration::from_millis(100), events_rx.recv())
+            .await
+            .expect("channel close detach arrives")
+            .expect("channel close detach")
+        {
+            EventIngress::Control(EventControlMessage::DetachClient(detach)) => {
+                assert_eq!(detach.client_id, ClientId("client-1".to_owned()));
+                assert_eq!(
+                    detach.client_command_id,
+                    ClientCommandId("attach-1".to_owned())
+                );
+                assert_eq!(detach.reason, DetachReason::ClientDisconnected);
+            }
+            _ => panic!("unexpected events ingress"),
+        }
 
         let (_accepted, _retry_stream) = control
             .attach_client(test_attach_request())
