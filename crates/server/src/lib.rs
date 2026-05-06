@@ -18,13 +18,13 @@ use selvedge_client_sync::{
     ClientSyncStartArgs, SpawnClientSyncError, spawn_client_sync,
 };
 use selvedge_command_model::{
-    BeginClientHydration, ClientCommandId, ClientEvent, ClientFrame, ClientId, ClientNotice,
-    ClientNoticeLevel, ClientSnapshot, ClientSubscription, DeliverySeq, DetachClient, DetachReason,
-    DetailLevel, EventControlMessage, EventIngress, EventIngressSender, HistoryNodeProjection,
-    HistoryNodeProjectionBody, ModelCallStatusPhase, RouterAttachAdmissionResult, RouterCommand,
-    RouterCommandEnvelope, RouterIngressMessage, RouterIngressSender, SnapshotTaskVersion,
-    TaskParentProjection, TaskProjection, TaskProjectionStatus, TaskScope,
-    ToolExecutionStatusPhase,
+    BeginClientHydration, ClientCommandId, ClientEvent, ClientFrame, ClientFrameSender, ClientId,
+    ClientNotice, ClientNoticeLevel, ClientSnapshot, ClientSubscription, DeliverySeq, DetachClient,
+    DetachReason, DetailLevel, EventControlMessage, EventIngress, EventIngressSender,
+    HistoryNodeProjection, HistoryNodeProjectionBody, ModelCallStatusPhase,
+    RouterAttachAdmissionResult, RouterCommand, RouterCommandEnvelope, RouterIngressMessage,
+    RouterIngressSender, SnapshotTaskVersion, TaskParentProjection, TaskProjection,
+    TaskProjectionStatus, TaskScope, ToolExecutionStatusPhase,
 };
 use selvedge_core::TaskRuntimeSpawnDeps;
 use selvedge_db::{OpenDbOptions, open_db};
@@ -61,6 +61,24 @@ const DEFAULT_HYDRATION_BUFFER_CAPACITY: usize = 256;
 const DEFAULT_CLIENT_SYNC_INGRESS_CAPACITY: usize = 64;
 
 type ActiveAttachRegistry = Arc<StdMutex<HashMap<ClientId, ClientCommandId>>>;
+
+trait AttachFrameChannelFactory: Send + Sync {
+    fn create(
+        &self,
+        capacity: usize,
+    ) -> Result<(ClientFrameSender, mpsc::Receiver<ClientFrame>), AttachRejectReason>;
+}
+
+struct TokioAttachFrameChannelFactory;
+
+impl AttachFrameChannelFactory for TokioAttachFrameChannelFactory {
+    fn create(
+        &self,
+        capacity: usize,
+    ) -> Result<(ClientFrameSender, mpsc::Receiver<ClientFrame>), AttachRejectReason> {
+        Ok(mpsc::channel(capacity))
+    }
+}
 
 pub struct ServerStartArgs {
     pub explicit_home: Option<PathBuf>,
@@ -275,7 +293,14 @@ impl ServerControl {
             Some(events_tx.clone()),
         );
 
-        let (outbound_tx, outbound_rx) = mpsc::channel(DEFAULT_HYDRATION_BUFFER_CAPACITY);
+        let (outbound_tx, outbound_rx) = match self
+            .inner
+            .frame_channel_factory
+            .create(DEFAULT_HYDRATION_BUFFER_CAPACITY)
+        {
+            Ok(channel) => channel,
+            Err(reason) => return reject(reason),
+        };
         let subscription = local_subscription_to_command(request.subscription);
         let (admission_tx, admission_rx) = tokio::sync::oneshot::channel();
         if self
@@ -458,6 +483,7 @@ struct ServerInner {
     events_tx: Mutex<Option<EventIngressSender>>,
     client_sync_tx: Mutex<selvedge_client_sync::ClientSyncSender>,
     active_attaches: ActiveAttachRegistry,
+    frame_channel_factory: Arc<dyn AttachFrameChannelFactory>,
     command_mapper: Arc<dyn LocalCommandMapper>,
     web_control: Mutex<Option<selvedge_web::WebControl>>,
 }
@@ -637,6 +663,7 @@ fn start_server_after_lock(
         events_tx: Mutex::new(Some(events.ingress_tx.clone())),
         client_sync_tx: Mutex::new(client_sync.ingress_tx.clone()),
         active_attaches: Arc::new(StdMutex::new(HashMap::new())),
+        frame_channel_factory: Arc::new(TokioAttachFrameChannelFactory),
         command_mapper: args.command_mapper,
         web_control: Mutex::new(web.as_ref().map(|handle| handle.control.clone())),
     });
@@ -1324,6 +1351,31 @@ mod tests {
         }
     }
 
+    struct FailOnceAttachFrameChannelFactory {
+        failed: AtomicBool,
+    }
+
+    impl FailOnceAttachFrameChannelFactory {
+        fn new() -> Self {
+            Self {
+                failed: AtomicBool::new(false),
+            }
+        }
+    }
+
+    impl AttachFrameChannelFactory for FailOnceAttachFrameChannelFactory {
+        fn create(
+            &self,
+            capacity: usize,
+        ) -> Result<(ClientFrameSender, mpsc::Receiver<ClientFrame>), AttachRejectReason> {
+            if !self.failed.swap(true, Ordering::SeqCst) {
+                return Err(AttachRejectReason::AttachChannelFailed);
+            }
+
+            Ok(mpsc::channel(capacity))
+        }
+    }
+
     #[tokio::test]
     async fn attach_closed_router_shutdown_path_returns_rejection() {
         let (router_tx, router_rx) = mpsc::unbounded_channel();
@@ -1460,6 +1512,39 @@ mod tests {
             client_sync_rx.try_recv(),
             Err(tokio::sync::mpsc::error::TryRecvError::Empty)
         ));
+    }
+
+    #[tokio::test]
+    async fn frame_channel_creation_failure_rejects_and_restores_attach_slot() {
+        let router_tx = accepting_router_sender();
+        let (client_sync_tx, mut client_sync_rx) = mpsc::channel(4);
+        let (events_tx, _events_rx) = mpsc::channel(4);
+        let control = test_control_with_frame_channel_factory(
+            router_tx,
+            client_sync_tx,
+            events_tx,
+            Arc::new(FailOnceAttachFrameChannelFactory::new()),
+        );
+
+        let rejected = match control.attach_client(test_attach_request()).await {
+            Ok(_) => panic!("frame channel failure should reject"),
+            Err(rejected) => rejected,
+        };
+
+        assert_eq!(rejected.reason, AttachRejectReason::AttachChannelFailed);
+        assert!(matches!(
+            client_sync_rx.try_recv(),
+            Err(tokio::sync::mpsc::error::TryRecvError::Empty)
+        ));
+
+        let (_accepted, _stream) = control
+            .attach_client(test_attach_request())
+            .await
+            .expect("retry attach accepted after failed channel creation");
+        let _ = timeout(Duration::from_millis(100), client_sync_rx.recv())
+            .await
+            .expect("retry start hydration arrives")
+            .expect("retry start hydration");
     }
 
     #[tokio::test]
@@ -1763,6 +1848,20 @@ mod tests {
         client_sync_tx: selvedge_client_sync::ClientSyncSender,
         events_tx: EventIngressSender,
     ) -> ServerControl {
+        test_control_with_frame_channel_factory(
+            router_tx,
+            client_sync_tx,
+            events_tx,
+            Arc::new(TokioAttachFrameChannelFactory),
+        )
+    }
+
+    fn test_control_with_frame_channel_factory(
+        router_tx: RouterIngressSender,
+        client_sync_tx: selvedge_client_sync::ClientSyncSender,
+        events_tx: EventIngressSender,
+        frame_channel_factory: Arc<dyn AttachFrameChannelFactory>,
+    ) -> ServerControl {
         ServerControl {
             inner: Arc::new(ServerInner {
                 state: RwLock::new(ServerRuntimeState::Ready),
@@ -1775,6 +1874,7 @@ mod tests {
                 events_tx: Mutex::new(Some(events_tx)),
                 client_sync_tx: Mutex::new(client_sync_tx),
                 active_attaches: Arc::new(StdMutex::new(HashMap::new())),
+                frame_channel_factory,
                 command_mapper: Arc::new(UnusedMapper),
                 web_control: Mutex::new(None),
             }),
