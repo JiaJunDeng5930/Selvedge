@@ -350,9 +350,11 @@ impl ServerControl {
         match client_sync_tx.try_send(ClientSyncIngress::StartHydration(begin)) {
             Ok(()) => {}
             Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
+                reservation.cleanup_events_reservation_before_reject().await;
                 return reject(AttachRejectReason::ClientSyncUnavailable);
             }
             Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
+                reservation.cleanup_events_reservation_before_reject().await;
                 self.begin_shutdown_locked().await;
                 return reject(AttachRejectReason::ClientSyncUnavailable);
             }
@@ -551,6 +553,27 @@ impl ActiveAttachReservation {
     fn mark_events_reserved(&mut self) {
         self.events_reserved = true;
     }
+
+    async fn cleanup_events_reservation_before_reject(&mut self) {
+        if self.events_reserved
+            && let Some(events_tx) = &self.events_tx
+        {
+            send_detach_client_await(
+                events_tx,
+                self.client_id.clone(),
+                self.client_command_id.clone(),
+                DetachReason::ClientDisconnected,
+            )
+            .await;
+        }
+        restore_active_attach(
+            &self.active_attaches,
+            &self.client_id,
+            &self.client_command_id,
+            self.previous_attach.clone(),
+        );
+        self.active = false;
+    }
 }
 
 impl Drop for ActiveAttachReservation {
@@ -559,19 +582,22 @@ impl Drop for ActiveAttachReservation {
             if self.events_reserved
                 && let Some(events_tx) = &self.events_tx
             {
-                send_detach_client(
+                send_detach_client_and_restore_active(
                     events_tx,
                     self.client_id.clone(),
                     self.client_command_id.clone(),
                     DetachReason::ClientDisconnected,
+                    Arc::clone(&self.active_attaches),
+                    self.previous_attach.clone(),
+                );
+            } else {
+                restore_active_attach(
+                    &self.active_attaches,
+                    &self.client_id,
+                    &self.client_command_id,
+                    self.previous_attach.clone(),
                 );
             }
-            restore_active_attach(
-                &self.active_attaches,
-                &self.client_id,
-                &self.client_command_id,
-                self.previous_attach.clone(),
-            );
         }
     }
 }
@@ -825,6 +851,68 @@ fn send_detach_client(
             }
         }
         Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {}
+    }
+}
+
+async fn send_detach_client_await(
+    events_tx: &EventIngressSender,
+    client_id: ClientId,
+    client_command_id: ClientCommandId,
+    reason: DetachReason,
+) {
+    let detach = EventIngress::Control(EventControlMessage::DetachClient(DetachClient {
+        client_id,
+        client_command_id,
+        reason,
+    }));
+    let _ = events_tx.send(detach).await;
+}
+
+fn send_detach_client_and_restore_active(
+    events_tx: &EventIngressSender,
+    client_id: ClientId,
+    client_command_id: ClientCommandId,
+    reason: DetachReason,
+    active_attaches: ActiveAttachRegistry,
+    previous_attach: Option<ClientCommandId>,
+) {
+    let retry_events_tx = events_tx.clone();
+    let detach = EventIngress::Control(EventControlMessage::DetachClient(DetachClient {
+        client_id: client_id.clone(),
+        client_command_id: client_command_id.clone(),
+        reason,
+    }));
+
+    match events_tx.try_send(detach) {
+        Ok(()) | Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
+            restore_active_attach(
+                &active_attaches,
+                &client_id,
+                &client_command_id,
+                previous_attach,
+            );
+        }
+        Err(tokio::sync::mpsc::error::TrySendError::Full(detach)) => {
+            if let Ok(handle) = tokio::runtime::Handle::try_current() {
+                handle.spawn(async move {
+                    let _ = retry_events_tx.send(detach).await;
+                    restore_active_attach(
+                        &active_attaches,
+                        &client_id,
+                        &client_command_id,
+                        previous_attach,
+                    );
+                });
+            } else {
+                let _ = retry_events_tx.blocking_send(detach);
+                restore_active_attach(
+                    &active_attaches,
+                    &client_id,
+                    &client_command_id,
+                    previous_attach,
+                );
+            }
+        }
     }
 }
 
@@ -1669,6 +1757,65 @@ mod tests {
             .attach_client(test_attach_request())
             .await
             .expect("attach accepted after cancelled future");
+    }
+
+    #[tokio::test]
+    async fn rejected_attach_waits_for_full_events_cleanup_before_returning() {
+        let router_tx = accepting_router_sender();
+        let (client_sync_tx, mut client_sync_rx) = mpsc::channel(1);
+        client_sync_tx
+            .send(ClientSyncIngress::Shutdown)
+            .await
+            .expect("fill client-sync mailbox");
+        let (events_tx, mut events_rx) = mpsc::channel(1);
+        events_tx
+            .try_send(EventIngress::Control(EventControlMessage::DetachClient(
+                DetachClient {
+                    client_id: ClientId("occupied-client".to_owned()),
+                    client_command_id: ClientCommandId("occupied-attach".to_owned()),
+                    reason: DetachReason::ClientRequested,
+                },
+            )))
+            .expect("fill events mailbox");
+        let control = test_control(router_tx, client_sync_tx, events_tx);
+
+        let mut attach_task = tokio::spawn({
+            let control = control.clone();
+            async move { control.attach_client(test_attach_request()).await }
+        });
+        assert!(
+            timeout(Duration::from_millis(10), &mut attach_task)
+                .await
+                .is_err()
+        );
+
+        let _ = events_rx.recv().await.expect("drain occupied events slot");
+        match timeout(Duration::from_millis(100), events_rx.recv())
+            .await
+            .expect("reservation cleanup detach arrives")
+            .expect("reservation cleanup detach")
+        {
+            EventIngress::Control(EventControlMessage::DetachClient(detach)) => {
+                assert_eq!(detach.client_id, ClientId("client-1".to_owned()));
+                assert_eq!(
+                    detach.client_command_id,
+                    ClientCommandId("attach-1".to_owned())
+                );
+                assert_eq!(detach.reason, DetachReason::ClientDisconnected);
+            }
+            _ => panic!("unexpected events ingress"),
+        }
+        let rejected = match attach_task.await.expect("attach task joins") {
+            Ok(_) => panic!("backpressured client-sync should reject"),
+            Err(rejected) => rejected,
+        };
+        assert_eq!(rejected.reason, AttachRejectReason::ClientSyncUnavailable);
+
+        let _ = client_sync_rx.recv().await.expect("drain filled mailbox");
+        let (_accepted, _stream) = control
+            .attach_client(test_attach_request())
+            .await
+            .expect("attach accepted after queued cleanup");
     }
 
     #[tokio::test]
