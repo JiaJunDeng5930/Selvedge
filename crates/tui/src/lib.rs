@@ -203,7 +203,7 @@ async fn wait_for_initial_snapshot<Term: TuiTerminal>(
 
 async fn interactive_loop<T, M, Term>(
     client: &selvedge_local_client::LocalClient<T>,
-    _frames: &mut selvedge_local_client::LocalFrameStream,
+    frames: &mut selvedge_local_client::LocalFrameStream,
     mapper: &M,
     terminal: &mut Term,
 ) -> TuiExitStatus
@@ -213,6 +213,10 @@ where
     Term: TuiTerminal,
 {
     loop {
+        if let Err(status) = drain_ready_frames(frames, terminal).await {
+            return status;
+        }
+
         let input = match terminal.read_input() {
             Ok(input) => input,
             Err(error) => {
@@ -235,7 +239,11 @@ where
                     Err(error) => return TuiExitStatus::LocalClientFailed(error),
                 };
                 match response.outcome {
-                    CommandOutcome::Accepted => {}
+                    CommandOutcome::Accepted => {
+                        if let Err(status) = drain_ready_frames(frames, terminal).await {
+                            return status;
+                        }
+                    }
                     CommandOutcome::Rejected(reason) => {
                         return TuiExitStatus::CommandRejected(format!("{reason:?}"));
                     }
@@ -245,6 +253,25 @@ where
                 let _ = terminal.render_error(&error);
                 return TuiExitStatus::TerminalFailed(error);
             }
+        }
+    }
+}
+
+async fn drain_ready_frames<Term: TuiTerminal>(
+    frames: &mut selvedge_local_client::LocalFrameStream,
+    terminal: &mut Term,
+) -> Result<(), TuiExitStatus> {
+    loop {
+        match tokio::time::timeout(std::time::Duration::from_millis(1), frames.next()).await {
+            Ok(Some(Ok(frame))) => terminal
+                .render_frame(&frame)
+                .map_err(TuiExitStatus::TerminalFailed)?,
+            Ok(Some(Err(selvedge_local_client::LocalClientError::StreamClosed))) => {
+                return Ok(());
+            }
+            Ok(Some(Err(_))) => return Err(TuiExitStatus::Disconnected),
+            Ok(None) => return Ok(()),
+            Err(_) => return Ok(()),
         }
     }
 }

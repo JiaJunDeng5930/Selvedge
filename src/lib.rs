@@ -150,6 +150,10 @@ impl Default for DefaultCliServerStartArgsBuilder {
 
 impl CliServerStartArgsBuilder for DefaultCliServerStartArgsBuilder {
     fn build(&self, resolved_config: &CliResolvedConfig) -> Result<ServerStartArgs, CliError> {
+        let local_bind_target = match resolved_config.local_client_config.endpoint {
+            LocalEndpoint::TcpIpv4 { port } => LocalhostBindTarget::Ipv4 { port },
+            LocalEndpoint::TcpIpv6 { port } => LocalhostBindTarget::Ipv6 { port },
+        };
         Ok(ServerStartArgs {
             explicit_home: selvedge_config::selvedge_home().ok(),
             api_config: ApiExecutorConfig {
@@ -164,12 +168,11 @@ impl CliServerStartArgsBuilder for DefaultCliServerStartArgsBuilder {
             snapshot_builder: Arc::new(EmptySnapshotBuilder),
             command_mapper: Arc::new(UnsupportedCommandMapper),
             local_binding: LocalBindingConfig {
-                bind_target: match resolved_config.local_client_config.endpoint {
-                    LocalEndpoint::TcpIpv4 { port } => LocalhostBindTarget::Ipv4 { port },
-                    LocalEndpoint::TcpIpv6 { port } => LocalhostBindTarget::Ipv6 { port },
-                },
+                bind_target: local_bind_target.clone(),
             },
-            web_binding: None,
+            web_binding: Some(selvedge_server::WebBindingConfig {
+                bind_target: local_bind_target,
+            }),
         })
     }
 }

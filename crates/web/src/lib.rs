@@ -1,7 +1,8 @@
 #![doc = include_str!("../README.md")]
 
 use std::future::Future;
-use std::net::{Ipv4Addr, Ipv6Addr, TcpListener};
+use std::io;
+use std::net::{Ipv4Addr, Ipv6Addr, TcpListener as StdTcpListener};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
@@ -9,13 +10,22 @@ use std::task::{Context, Poll};
 use futures_core::Stream;
 use selvedge_local_protocol::{
     AttachAccepted, AttachRejectReason, AttachRejected, AttachRequest, CommandOutcome,
-    CommandRejectReason, CommandRequest, CommandResponse, LocalClientFrame, ReadyRequest,
-    ReadyResponse, ReadyState, current_protocol_version, validate_attach_request,
-    validate_command_request, validate_ready_request,
+    CommandRejectReason, CommandRequest, CommandResponse, LocalAttachStreamItem,
+    LocalClientCommandId, LocalClientFrame, LocalHttpProblemCode, LocalStreamError,
+    LocalStreamErrorReason, ReadyRequest, ReadyResponse, ReadyState, current_protocol_version,
+    http_problem, validate_attach_request, validate_command_request, validate_ready_request,
 };
+use serde::Serialize;
+use serde::de::DeserializeOwned;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
+use tokio_stream::StreamExt;
 use tokio_stream::wrappers::WatchStream;
+
+const JSON_CONTENT_TYPE: &str = "application/json";
+const NDJSON_CONTENT_TYPE: &str = "application/x-ndjson";
 
 pub struct WebStartArgs {
     pub bind: WebLocalhostBind,
@@ -41,7 +51,7 @@ pub enum WebLocalhostHost {
 
 pub struct WebBindReservation {
     bind: WebLocalhostBind,
-    listener: TcpListener,
+    listener: StdTcpListener,
 }
 
 pub struct WebHandle {
@@ -142,7 +152,8 @@ pub fn spawn_reserved_web_surface(args: ReservedWebStartArgs) -> Result<WebHandl
 
     let handle =
         tokio::runtime::Handle::try_current().map_err(|_| WebStartError::TokioSpawnFailed)?;
-    let listener = args.bind.listener;
+    let listener =
+        TcpListener::from_std(args.bind.listener).map_err(|_| WebStartError::TokioSpawnFailed)?;
     let (state_tx, mut state_rx) = watch::channel(WebRuntimeState::Listening);
     let control = WebControl {
         inner: Arc::new(WebControlInner {
@@ -152,10 +163,24 @@ pub fn spawn_reserved_web_surface(args: ReservedWebStartArgs) -> Result<WebHandl
     };
     let task_control = control.clone();
     let join_handle = handle.spawn(async move {
-        let _listener = listener;
-        while state_rx.changed().await.is_ok() {
-            if *state_rx.borrow() == WebRuntimeState::Closing {
-                break;
+        loop {
+            tokio::select! {
+                state_change = state_rx.changed() => {
+                    if state_change.is_err() || *state_rx.borrow() == WebRuntimeState::Closing {
+                        break;
+                    }
+                }
+                accepted = listener.accept() => {
+                    match accepted {
+                        Ok((stream, _addr)) => {
+                            let connection_control = task_control.clone();
+                            tokio::spawn(async move {
+                                let _ = handle_http_connection(connection_control, stream).await;
+                            });
+                        }
+                        Err(error) => return WebExitStatus::Fatal(error.to_string()),
+                    }
+                }
             }
         }
         let _ = task_control.inner.state_tx.send(WebRuntimeState::Stopped);
@@ -344,10 +369,311 @@ fn not_ready_response() -> ReadyResponse {
     }
 }
 
-fn bind_localhost(bind: &WebLocalhostBind) -> Result<TcpListener, WebStartError> {
+struct HttpRequest {
+    method: String,
+    path: String,
+    content_type: Option<String>,
+    body: Vec<u8>,
+}
+
+async fn handle_http_connection(mut control: WebControl, mut stream: TcpStream) -> io::Result<()> {
+    let request = read_http_request(&mut stream).await?;
+    match request.path.as_str() {
+        "/" if request.method == "GET" => match control.page().await {
+            Ok(page) => {
+                write_raw_response(&mut stream, 200, &page.content_type, page.body.as_bytes()).await
+            }
+            Err(error) => {
+                write_problem_response(
+                    &mut stream,
+                    500,
+                    LocalHttpProblemCode::InternalFailure,
+                    format!("{error:?}"),
+                )
+                .await
+            }
+        },
+        "/selvedge/local/v1/ready" | "/selvedge/web/v1/ready" => {
+            handle_ready_route(&control, &mut stream, request).await
+        }
+        "/selvedge/local/v1/command" | "/selvedge/web/v1/command" => {
+            handle_command_route(&control, &mut stream, request).await
+        }
+        "/selvedge/local/v1/attach" | "/selvedge/web/v1/attach" => {
+            handle_attach_route(&mut control, &mut stream, request).await
+        }
+        _ => {
+            write_problem_response(
+                &mut stream,
+                404,
+                LocalHttpProblemCode::RouteNotFound,
+                "route not found",
+            )
+            .await
+        }
+    }
+}
+
+async fn handle_ready_route(
+    control: &WebControl,
+    stream: &mut TcpStream,
+    request: HttpRequest,
+) -> io::Result<()> {
+    if request.method != "POST" {
+        return write_problem_response(
+            stream,
+            405,
+            LocalHttpProblemCode::MethodNotAllowed,
+            "method not allowed",
+        )
+        .await;
+    }
+    let Some(ready_request) = parse_json_request::<ReadyRequest>(&request) else {
+        return write_problem_response(
+            stream,
+            400,
+            LocalHttpProblemCode::MalformedJson,
+            "malformed ready request",
+        )
+        .await;
+    };
+    match control.ready(ready_request).await {
+        Ok(response) => write_json_response(stream, 200, &response).await,
+        Err(error) => {
+            write_problem_response(
+                stream,
+                500,
+                LocalHttpProblemCode::InternalFailure,
+                format!("{error:?}"),
+            )
+            .await
+        }
+    }
+}
+
+async fn handle_command_route(
+    control: &WebControl,
+    stream: &mut TcpStream,
+    request: HttpRequest,
+) -> io::Result<()> {
+    if request.method != "POST" {
+        return write_problem_response(
+            stream,
+            405,
+            LocalHttpProblemCode::MethodNotAllowed,
+            "method not allowed",
+        )
+        .await;
+    }
+    let Some(command_request) = parse_json_request::<CommandRequest>(&request) else {
+        return write_problem_response(
+            stream,
+            400,
+            LocalHttpProblemCode::MalformedJson,
+            "malformed command request",
+        )
+        .await;
+    };
+    match control.submit_command(command_request).await {
+        Ok(response) => write_json_response(stream, 200, &response).await,
+        Err(error) => {
+            write_problem_response(
+                stream,
+                500,
+                LocalHttpProblemCode::InternalFailure,
+                format!("{error:?}"),
+            )
+            .await
+        }
+    }
+}
+
+async fn handle_attach_route(
+    control: &mut WebControl,
+    stream: &mut TcpStream,
+    request: HttpRequest,
+) -> io::Result<()> {
+    if request.method != "POST" {
+        return write_problem_response(
+            stream,
+            405,
+            LocalHttpProblemCode::MethodNotAllowed,
+            "method not allowed",
+        )
+        .await;
+    }
+    let Some(attach_request) = parse_json_request::<AttachRequest>(&request) else {
+        return write_problem_response(
+            stream,
+            400,
+            LocalHttpProblemCode::MalformedJson,
+            "malformed attach request",
+        )
+        .await;
+    };
+    let client_command_id = attach_request.client_command_id.clone();
+    match control.attach(attach_request).await {
+        Ok((accepted, mut frames)) => {
+            write_stream_headers(stream).await?;
+            write_attach_stream_item(stream, &LocalAttachStreamItem::Accepted(accepted)).await?;
+            while let Some(frame) = next_web_frame(&mut frames, &client_command_id).await {
+                write_attach_stream_item(stream, &frame).await?;
+                if matches!(frame, LocalAttachStreamItem::StreamError(_)) {
+                    break;
+                }
+            }
+            Ok(())
+        }
+        Err(AttachRejectedOrBridgeError::Rejected(rejected)) => {
+            write_json_response(stream, 409, &rejected).await
+        }
+        Err(AttachRejectedOrBridgeError::Bridge(error)) => {
+            write_problem_response(
+                stream,
+                500,
+                LocalHttpProblemCode::InternalFailure,
+                format!("{error:?}"),
+            )
+            .await
+        }
+    }
+}
+
+async fn next_web_frame(
+    frames: &mut WebFrameStream,
+    client_command_id: &LocalClientCommandId,
+) -> Option<LocalAttachStreamItem> {
+    frames.as_mut().next().await.map(|frame| match frame {
+        Ok(frame) => LocalAttachStreamItem::Frame(frame),
+        Err(error) => LocalAttachStreamItem::StreamError(LocalStreamError {
+            protocol_version: current_protocol_version(),
+            client_command_id: client_command_id.clone(),
+            reason: LocalStreamErrorReason::InternalFailure,
+            message_text: format!("{error:?}"),
+        }),
+    })
+}
+
+async fn read_http_request(stream: &mut TcpStream) -> io::Result<HttpRequest> {
+    let mut raw_headers = Vec::new();
+    let mut byte = [0_u8; 1];
+    while !raw_headers.ends_with(b"\r\n\r\n") {
+        let read = stream.read(&mut byte).await?;
+        if read == 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                "connection closed before headers",
+            ));
+        }
+        raw_headers.push(byte[0]);
+    }
+    let header_text = String::from_utf8(raw_headers)
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error.to_string()))?;
+    let mut lines = header_text.split("\r\n");
+    let request_line = lines.next().unwrap_or_default();
+    let mut request_parts = request_line.split_whitespace();
+    let method = request_parts.next().unwrap_or_default().to_owned();
+    let path = request_parts.next().unwrap_or_default().to_owned();
+    let mut content_type = None;
+    let mut content_length = 0_usize;
+    for line in lines {
+        if line.is_empty() {
+            continue;
+        }
+        if let Some((name, value)) = line.split_once(':') {
+            if name.eq_ignore_ascii_case("content-type") {
+                content_type = Some(value.trim().to_ascii_lowercase());
+            } else if name.eq_ignore_ascii_case("content-length") {
+                content_length = value.trim().parse().unwrap_or_default();
+            }
+        }
+    }
+    let mut body = vec![0_u8; content_length];
+    stream.read_exact(&mut body).await?;
+    Ok(HttpRequest {
+        method,
+        path,
+        content_type,
+        body,
+    })
+}
+
+fn parse_json_request<T: DeserializeOwned>(request: &HttpRequest) -> Option<T> {
+    let content_type = request.content_type.as_ref()?;
+    if content_type.split(';').next()?.trim() != JSON_CONTENT_TYPE {
+        return None;
+    }
+    serde_json::from_slice(&request.body).ok()
+}
+
+async fn write_json_response<T: Serialize>(
+    stream: &mut TcpStream,
+    status_code: u16,
+    response: &T,
+) -> io::Result<()> {
+    let body = serde_json::to_vec(response).map_err(|error| io::Error::other(error.to_string()))?;
+    write_raw_response(stream, status_code, JSON_CONTENT_TYPE, &body).await
+}
+
+async fn write_problem_response(
+    stream: &mut TcpStream,
+    status_code: u16,
+    code: LocalHttpProblemCode,
+    message_text: impl Into<String>,
+) -> io::Result<()> {
+    write_json_response(stream, status_code, &http_problem(code, message_text)).await
+}
+
+async fn write_raw_response(
+    stream: &mut TcpStream,
+    status_code: u16,
+    content_type: &str,
+    body: &[u8],
+) -> io::Result<()> {
+    let headers = format!(
+        "HTTP/1.1 {} {}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        status_code,
+        status_text(status_code),
+        body.len()
+    );
+    stream.write_all(headers.as_bytes()).await?;
+    stream.write_all(body).await?;
+    stream.flush().await
+}
+
+async fn write_stream_headers(stream: &mut TcpStream) -> io::Result<()> {
+    let headers = format!(
+        "HTTP/1.1 200 OK\r\nContent-Type: {NDJSON_CONTENT_TYPE}\r\nConnection: close\r\n\r\n"
+    );
+    stream.write_all(headers.as_bytes()).await
+}
+
+async fn write_attach_stream_item(
+    stream: &mut TcpStream,
+    item: &LocalAttachStreamItem,
+) -> io::Result<()> {
+    let mut body = serde_json::to_vec(item).map_err(|error| io::Error::other(error.to_string()))?;
+    body.push(b'\n');
+    stream.write_all(&body).await?;
+    stream.flush().await
+}
+
+fn status_text(status_code: u16) -> &'static str {
+    match status_code {
+        200 => "OK",
+        400 => "Bad Request",
+        404 => "Not Found",
+        405 => "Method Not Allowed",
+        409 => "Conflict",
+        415 => "Unsupported Media Type",
+        _ => "Internal Server Error",
+    }
+}
+
+fn bind_localhost(bind: &WebLocalhostBind) -> Result<StdTcpListener, WebStartError> {
     let listener = match bind.host {
-        WebLocalhostHost::Ipv4Loopback => TcpListener::bind((Ipv4Addr::LOCALHOST, bind.port)),
-        WebLocalhostHost::Ipv6Loopback => TcpListener::bind((Ipv6Addr::LOCALHOST, bind.port)),
+        WebLocalhostHost::Ipv4Loopback => StdTcpListener::bind((Ipv4Addr::LOCALHOST, bind.port)),
+        WebLocalhostHost::Ipv6Loopback => StdTcpListener::bind((Ipv6Addr::LOCALHOST, bind.port)),
     }
     .map_err(|error| WebStartError::BindFailed(error.to_string()))?;
     listener
