@@ -96,6 +96,11 @@ impl EventsTask {
     }
 
     fn reserve_client_session(&mut self, reservation: ReserveClientSession) {
+        let ReserveClientSession {
+            client_id,
+            client_command_id,
+            result_tx,
+        } = reservation;
         // NOTE: A replacement reservation for an active ClientId shares that
         // ClientId's registry slot until BeginClientHydration installs it.
         let occupied_client_slots = self.sessions.len()
@@ -106,23 +111,28 @@ impl EventsTask {
                 .count();
         let result = if self
             .sessions
-            .get(&reservation.client_id)
-            .is_some_and(|session| session.client_command_id == reservation.client_command_id)
-            || self.reservations.get(&reservation.client_id) == Some(&reservation.client_command_id)
+            .get(&client_id)
+            .is_some_and(|session| session.client_command_id == client_command_id)
+            || self.reservations.get(&client_id) == Some(&client_command_id)
         {
             EventClientReservationResult::DuplicateAttach
-        } else if !self.sessions.contains_key(&reservation.client_id)
-            && !self.reservations.contains_key(&reservation.client_id)
+        } else if !self.sessions.contains_key(&client_id)
+            && !self.reservations.contains_key(&client_id)
             && occupied_client_slots >= self.client_registry_capacity
         {
             EventClientReservationResult::ClientRegistryFull
         } else {
             self.reservations
-                .insert(reservation.client_id, reservation.client_command_id);
+                .insert(client_id.clone(), client_command_id.clone());
             EventClientReservationResult::Reserved
         };
 
-        let _ = reservation.result_tx.send(result);
+        if result_tx.send(result.clone()).is_err()
+            && result == EventClientReservationResult::Reserved
+            && self.reservations.get(&client_id) == Some(&client_command_id)
+        {
+            self.reservations.remove(&client_id);
+        }
     }
 
     fn begin_hydration(&mut self, begin: BeginClientHydration) {
