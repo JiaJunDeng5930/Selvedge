@@ -46,7 +46,7 @@ selvedge-router = { path = "crates/router" }
 selvedge-server = { path = "crates/server" }
 selvedge-systemd = { path = "crates/systemd" }
 serde_json = "1.0.145"
-tokio = { version = "1.42.0", features = ["rt", "time"] }
+tokio = { version = "1.42.0", features = ["net", "rt", "time"] }
 
 [dev-dependencies]
 selvedge-config = { path = "crates/config" }
