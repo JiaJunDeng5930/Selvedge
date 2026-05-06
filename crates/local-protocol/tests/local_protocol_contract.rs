@@ -1,16 +1,19 @@
 use selvedge_local_protocol::{
     AttachAccepted, AttachRejectReason, AttachRejected, AttachRequest, CommandOutcome,
-    CommandRejectReason, CommandRequest, CommandResponse, LocalClientCommandId, LocalClientEvent,
-    LocalClientEventFrame, LocalClientFrame, LocalClientId, LocalClientNoticeFrame,
-    LocalClientSnapshot, LocalClientSnapshotFrame, LocalClientSubscription, LocalDebugNoticeEvent,
-    LocalDetailLevel, LocalHistoryNodeProjection, LocalHistoryNodeProjectionBody, LocalMessageRole,
+    CommandRejectReason, CommandRequest, CommandResponse, LocalAttachStreamItem,
+    LocalAttachStreamOrderError, LocalAttachStreamValidationState, LocalAttachStreamValidator,
+    LocalClientCommandId, LocalClientEvent, LocalClientEventFrame, LocalClientFrame, LocalClientId,
+    LocalClientNoticeFrame, LocalClientSnapshot, LocalClientSnapshotFrame, LocalClientSubscription,
+    LocalDebugNoticeEvent, LocalDetailLevel, LocalHistoryNodeProjection,
+    LocalHistoryNodeProjectionBody, LocalHttpProblemCode, LocalMessageRole,
     LocalModelCallStatusEvent, LocalModelCallStatusPhase, LocalNotice, LocalNoticeLevel,
-    LocalProtocolValidationError, LocalReasoningEffort, LocalSnapshotTaskVersion,
-    LocalTaskParentProjection, LocalTaskProjection, LocalTaskProjectionStatus, LocalTaskScope,
-    LocalToolArgumentValue, LocalToolCallArgument, LocalToolExecutionStatusEvent,
-    LocalToolExecutionStatusPhase, ProtocolVersion, ReadyRequest, ReadyResponse, ReadyState,
-    current_protocol_version, validate_attach_request, validate_client_frame,
-    validate_command_request, validate_ready_request, validate_snapshot, validate_subscription,
+    LocalProtocolValidationError, LocalReasoningEffort, LocalSnapshotTaskVersion, LocalStreamError,
+    LocalStreamErrorReason, LocalTaskParentProjection, LocalTaskProjection,
+    LocalTaskProjectionStatus, LocalTaskScope, LocalToolArgumentValue, LocalToolCallArgument,
+    LocalToolExecutionStatusEvent, LocalToolExecutionStatusPhase, ProtocolVersion, ReadyRequest,
+    ReadyResponse, ReadyState, current_protocol_version, http_problem, validate_attach_request,
+    validate_attach_stream_item, validate_client_frame, validate_command_request,
+    validate_ready_request, validate_snapshot, validate_subscription,
 };
 use serde_json::json;
 
@@ -324,6 +327,144 @@ fn protocol_messages_round_trip_through_json() {
     );
 }
 
+#[test]
+fn http_problem_uses_current_protocol_version_and_payload_text() {
+    let problem = http_problem(LocalHttpProblemCode::MalformedJson, "invalid json");
+
+    assert_eq!(problem.protocol_version, current_protocol_version());
+    assert_eq!(problem.code, LocalHttpProblemCode::MalformedJson);
+    assert_eq!(problem.message_text, "invalid json");
+}
+
+#[test]
+fn attach_stream_item_validation_checks_internal_payload_only() {
+    let frame_item =
+        LocalAttachStreamItem::Frame(LocalClientFrame::Snapshot(LocalClientSnapshotFrame {
+            delivery_seq: 1,
+            client_command_id: LocalClientCommandId::new("attach-1").expect("command id"),
+            snapshot: valid_snapshot(),
+        }));
+    validate_attach_stream_item(&frame_item).expect("valid frame item");
+
+    let invalid_frame =
+        LocalAttachStreamItem::Frame(LocalClientFrame::Notice(LocalClientNoticeFrame {
+            delivery_seq: 0,
+            client_command_id: LocalClientCommandId::new("attach-1").expect("command id"),
+            notice: LocalNotice {
+                level: LocalNoticeLevel::Error,
+                message_text: "bad".to_owned(),
+            },
+        }));
+    assert_eq!(
+        validate_attach_stream_item(&invalid_frame),
+        Err(LocalProtocolValidationError::InvalidDeliverySeq)
+    );
+
+    let stream_error = LocalAttachStreamItem::StreamError(LocalStreamError {
+        protocol_version: current_protocol_version(),
+        client_command_id: LocalClientCommandId::new("attach-1").expect("command id"),
+        reason: LocalStreamErrorReason::StreamClosed,
+        message_text: "closed".to_owned(),
+    });
+    validate_attach_stream_item(&stream_error).expect("valid stream error");
+}
+
+#[test]
+fn attach_stream_validator_enforces_accepted_first_and_terminal_error_order() {
+    let mut validator = LocalAttachStreamValidator::new();
+    assert_eq!(
+        validator.state(),
+        LocalAttachStreamValidationState::WaitingAccepted
+    );
+
+    assert_eq!(
+        validator.validate_next(&LocalAttachStreamItem::Frame(LocalClientFrame::Notice(
+            LocalClientNoticeFrame {
+                delivery_seq: 1,
+                client_command_id: LocalClientCommandId::new("attach-1").expect("command id"),
+                notice: LocalNotice {
+                    level: LocalNoticeLevel::Info,
+                    message_text: "hello".to_owned(),
+                },
+            },
+        ))),
+        Err(LocalAttachStreamOrderError::FrameBeforeAccepted)
+    );
+    assert_eq!(
+        validator.state(),
+        LocalAttachStreamValidationState::WaitingAccepted
+    );
+
+    validator
+        .validate_next(&LocalAttachStreamItem::Accepted(valid_attach_accepted()))
+        .expect("accepted first");
+    assert_eq!(
+        validator.state(),
+        LocalAttachStreamValidationState::Streaming
+    );
+
+    assert_eq!(
+        validator.validate_next(&LocalAttachStreamItem::Accepted(valid_attach_accepted())),
+        Err(LocalAttachStreamOrderError::DuplicateAccepted)
+    );
+
+    validator
+        .validate_next(&LocalAttachStreamItem::Frame(LocalClientFrame::Notice(
+            LocalClientNoticeFrame {
+                delivery_seq: 1,
+                client_command_id: LocalClientCommandId::new("attach-1").expect("command id"),
+                notice: LocalNotice {
+                    level: LocalNoticeLevel::Info,
+                    message_text: "hello".to_owned(),
+                },
+            },
+        )))
+        .expect("frame after accepted");
+
+    validator
+        .validate_next(&LocalAttachStreamItem::StreamError(LocalStreamError {
+            protocol_version: current_protocol_version(),
+            client_command_id: LocalClientCommandId::new("attach-1").expect("command id"),
+            reason: LocalStreamErrorReason::ServerShuttingDown,
+            message_text: "shutdown".to_owned(),
+        }))
+        .expect("stream error ends stream");
+    assert_eq!(validator.state(), LocalAttachStreamValidationState::Ended);
+
+    assert_eq!(
+        validator.validate_next(&LocalAttachStreamItem::Frame(LocalClientFrame::Notice(
+            LocalClientNoticeFrame {
+                delivery_seq: 2,
+                client_command_id: LocalClientCommandId::new("attach-1").expect("command id"),
+                notice: LocalNotice {
+                    level: LocalNoticeLevel::Info,
+                    message_text: "late".to_owned(),
+                },
+            },
+        ))),
+        Err(LocalAttachStreamOrderError::ItemAfterEnded)
+    );
+}
+
+#[test]
+fn attach_stream_validator_rejects_stream_error_as_first_item() {
+    let mut validator = LocalAttachStreamValidator::new();
+
+    assert_eq!(
+        validator.validate_next(&LocalAttachStreamItem::StreamError(LocalStreamError {
+            protocol_version: current_protocol_version(),
+            client_command_id: LocalClientCommandId::new("attach-1").expect("command id"),
+            reason: LocalStreamErrorReason::InternalFailure,
+            message_text: "boom".to_owned(),
+        })),
+        Err(LocalAttachStreamOrderError::ExpectedAcceptedFirst)
+    );
+    assert_eq!(
+        validator.state(),
+        LocalAttachStreamValidationState::WaitingAccepted
+    );
+}
+
 fn valid_snapshot() -> LocalClientSnapshot {
     LocalClientSnapshot {
         generated_at: 100,
@@ -334,6 +475,14 @@ fn valid_snapshot() -> LocalClientSnapshot {
             task_id: "task-1".to_owned(),
             state_version: 1,
         }],
+    }
+}
+
+fn valid_attach_accepted() -> AttachAccepted {
+    AttachAccepted {
+        protocol_version: current_protocol_version(),
+        client_id: LocalClientId::new("client-1").expect("valid client id"),
+        client_command_id: LocalClientCommandId::new("attach-1").expect("valid command id"),
     }
 }
 

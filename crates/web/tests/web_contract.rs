@@ -99,6 +99,99 @@ async fn page_request_returns_static_page_without_bridge_call() {
 }
 
 #[tokio::test]
+async fn ready_request_returns_bridge_response() {
+    let bridge = Arc::new(RecordingBridge::default());
+    bridge.push_ready_response(Ok(ReadyResponse {
+        protocol_version: current_protocol_version(),
+        state: ReadyState::Ready,
+    }));
+    let handle = spawn_web_surface(WebStartArgs {
+        bind: unused_loopback_bind(),
+        bridge: bridge.clone(),
+    })
+    .expect("valid web start args");
+
+    let response = handle
+        .control
+        .ready(ReadyRequest {
+            protocol_version: current_protocol_version(),
+        })
+        .await
+        .expect("ready response");
+
+    assert_eq!(response.state, ReadyState::Ready);
+    assert_eq!(bridge.ready_call_count(), 1);
+    handle.control.stop().await;
+    assert_eq!(
+        handle.join_handle.await.expect("join web task"),
+        WebExitStatus::Stopped
+    );
+}
+
+#[tokio::test]
+async fn ready_request_maps_server_not_ready_and_invalid_protocol_without_bridge_error() {
+    let bridge = Arc::new(RecordingBridge::default());
+    bridge.push_ready_response(Err(WebBridgeError::ServerNotReady));
+    let handle = spawn_web_surface(WebStartArgs {
+        bind: unused_loopback_bind(),
+        bridge: bridge.clone(),
+    })
+    .expect("valid web start args");
+
+    let response = handle
+        .control
+        .ready(ReadyRequest {
+            protocol_version: current_protocol_version(),
+        })
+        .await
+        .expect("not ready response");
+    assert_eq!(response.state, ReadyState::NotReady);
+    assert_eq!(bridge.ready_call_count(), 1);
+
+    let response = handle
+        .control
+        .ready(ReadyRequest {
+            protocol_version: selvedge_local_protocol::ProtocolVersion(999),
+        })
+        .await
+        .expect("invalid protocol maps to not ready");
+    assert_eq!(response.state, ReadyState::NotReady);
+    assert_eq!(bridge.ready_call_count(), 1);
+
+    handle.control.stop().await;
+    assert_eq!(
+        handle.join_handle.await.expect("join web task"),
+        WebExitStatus::Stopped
+    );
+}
+
+#[tokio::test]
+async fn ready_request_preserves_bridge_failure() {
+    let bridge = Arc::new(RecordingBridge::default());
+    bridge.push_ready_response(Err(WebBridgeError::InternalFailure("boom".to_owned())));
+    let handle = spawn_web_surface(WebStartArgs {
+        bind: unused_loopback_bind(),
+        bridge,
+    })
+    .expect("valid web start args");
+
+    let error = handle
+        .control
+        .ready(ReadyRequest {
+            protocol_version: current_protocol_version(),
+        })
+        .await
+        .expect_err("bridge failure should return error");
+
+    assert_eq!(error, WebBridgeError::InternalFailure("boom".to_owned()));
+    handle.control.stop().await;
+    assert_eq!(
+        handle.join_handle.await.expect("join web task"),
+        WebExitStatus::Stopped
+    );
+}
+
+#[tokio::test]
 async fn invalid_command_request_returns_rejection_without_bridge_call() {
     let bridge = Arc::new(RecordingBridge::default());
     let handle = spawn_web_surface(WebStartArgs {
@@ -286,15 +379,24 @@ impl WebBridge for StaticBridge {
 
 #[derive(Default)]
 struct RecordingBridge {
+    ready_responses: std::sync::Mutex<Vec<Result<ReadyResponse, WebBridgeError>>>,
     command_responses: std::sync::Mutex<Vec<Result<CommandResponse, WebBridgeError>>>,
     attach_responses: std::sync::Mutex<
         Vec<Result<(AttachAccepted, WebFrameStream), AttachRejectedOrBridgeError>>,
     >,
+    ready_calls: AtomicUsize,
     command_calls: AtomicUsize,
     attach_calls: AtomicUsize,
 }
 
 impl RecordingBridge {
+    fn push_ready_response(&self, response: Result<ReadyResponse, WebBridgeError>) {
+        self.ready_responses
+            .lock()
+            .expect("ready responses")
+            .push(response);
+    }
+
     fn push_command_response(&self, response: Result<CommandResponse, WebBridgeError>) {
         self.command_responses
             .lock()
@@ -313,7 +415,11 @@ impl RecordingBridge {
     }
 
     fn page_observable_call_count(&self) -> usize {
-        self.command_call_count() + self.attach_call_count()
+        self.ready_call_count() + self.command_call_count() + self.attach_call_count()
+    }
+
+    fn ready_call_count(&self) -> usize {
+        self.ready_calls.load(Ordering::SeqCst)
     }
 
     fn command_call_count(&self) -> usize {
@@ -327,11 +433,16 @@ impl RecordingBridge {
 
 impl WebBridge for RecordingBridge {
     fn ready(&self, _request: ReadyRequest) -> WebBridgeFuture<ReadyResponse> {
-        Box::pin(async {
-            Ok(ReadyResponse {
-                protocol_version: current_protocol_version(),
-                state: ReadyState::Ready,
-            })
+        self.ready_calls.fetch_add(1, Ordering::SeqCst);
+        let response = self.ready_responses.lock().expect("ready responses").pop();
+        Box::pin(async move {
+            match response {
+                Some(response) => response,
+                None => Ok(ReadyResponse {
+                    protocol_version: current_protocol_version(),
+                    state: ReadyState::Ready,
+                }),
+            }
         })
     }
 

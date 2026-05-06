@@ -16,6 +16,7 @@ pub struct TuiStartArgs {
     pub attach_command_id: String,
     pub subscription: LocalClientSubscription,
     pub initial_command: Option<CommandRequest>,
+    pub snapshot_timeout: std::time::Duration,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -51,20 +52,35 @@ pub enum TuiInputAction {
     Noop,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum TuiTerminalInput {
+    Line(String),
+    Eof,
+}
+
 pub trait TuiCommandMapper: Send + Sync + 'static {
     fn map_input(&self, input_text: &str) -> Result<TuiInputAction, String>;
 }
 
-pub async fn run_tui<T, M>(args: TuiStartArgs, mapper: M) -> TuiExitStatus
+pub trait TuiTerminal: Send + Sync + 'static {
+    fn read_input(&mut self) -> Result<TuiTerminalInput, String>;
+
+    fn render_frame(&mut self, frame: &LocalClientFrame) -> Result<(), String>;
+
+    fn render_error(&mut self, error: &str) -> Result<(), String>;
+}
+
+pub async fn run_tui<T, M, Term>(args: TuiStartArgs, mapper: M, terminal: Term) -> TuiExitStatus
 where
     T: LocalTransport,
     M: TuiCommandMapper,
+    Term: TuiTerminal,
 {
     // NOTE(package-order): `selvedge-local-client` currently exposes only the
     // `LocalTransport` abstraction. After the real localhost transport lands in
     // that dependency package, this entry point must be repaired to select and
     // call that concrete transport directly instead of requiring `T`.
-    let _mapper = mapper;
+    let mut terminal = terminal;
 
     let client_id = match LocalClientId::new(args.client_id) {
         Ok(client_id) => client_id,
@@ -75,7 +91,7 @@ where
         Err(error) => return TuiExitStatus::InvalidArgs(format!("{error:?}")),
     };
 
-    let snapshot_timeout = args.client_config.request_timeout;
+    let snapshot_timeout = args.snapshot_timeout;
     let client = match connect::<T>(args.client_config).await {
         Ok(client) => client,
         Err(LocalClientError::ConnectFailed(_)) => return TuiExitStatus::ServerUnavailable,
@@ -119,7 +135,12 @@ where
         }
     };
 
-    match tokio::time::timeout(snapshot_timeout, wait_for_initial_snapshot(&mut frames)).await {
+    match tokio::time::timeout(
+        snapshot_timeout,
+        wait_for_initial_snapshot(&mut frames, &mut terminal),
+    )
+    .await
+    {
         Ok(Ok(())) => {}
         Ok(Err(status)) => {
             drop(frames);
@@ -152,19 +173,78 @@ where
         }
     }
 
+    let status = interactive_loop(&client, &mut frames, &mapper, &mut terminal).await;
     drop(frames);
-    let _ = client.close().await;
-    TuiExitStatus::Exited
+    close_after_error(&client, status).await
 }
 
-async fn wait_for_initial_snapshot(
+async fn wait_for_initial_snapshot<Term: TuiTerminal>(
     frames: &mut selvedge_local_client::LocalFrameStream,
+    terminal: &mut Term,
 ) -> Result<(), TuiExitStatus> {
     loop {
         match frames.next().await {
-            Some(Ok(LocalClientFrame::Snapshot(_))) => return Ok(()),
-            Some(Ok(LocalClientFrame::Notice(_))) | Some(Ok(LocalClientFrame::Event(_))) => {}
+            Some(Ok(frame @ LocalClientFrame::Snapshot(_))) => {
+                terminal
+                    .render_frame(&frame)
+                    .map_err(TuiExitStatus::TerminalFailed)?;
+                return Ok(());
+            }
+            Some(Ok(frame @ LocalClientFrame::Notice(_)))
+            | Some(Ok(frame @ LocalClientFrame::Event(_))) => {
+                terminal
+                    .render_frame(&frame)
+                    .map_err(TuiExitStatus::TerminalFailed)?;
+            }
             Some(Err(_)) | None => return Err(TuiExitStatus::Disconnected),
+        }
+    }
+}
+
+async fn interactive_loop<T, M, Term>(
+    client: &selvedge_local_client::LocalClient<T>,
+    _frames: &mut selvedge_local_client::LocalFrameStream,
+    mapper: &M,
+    terminal: &mut Term,
+) -> TuiExitStatus
+where
+    T: LocalTransport,
+    M: TuiCommandMapper,
+    Term: TuiTerminal,
+{
+    loop {
+        let input = match terminal.read_input() {
+            Ok(input) => input,
+            Err(error) => {
+                let _ = terminal.render_error(&error);
+                return TuiExitStatus::TerminalFailed(error);
+            }
+        };
+
+        let input_text = match input {
+            TuiTerminalInput::Eof => return TuiExitStatus::Exited,
+            TuiTerminalInput::Line(input_text) => input_text,
+        };
+
+        match mapper.map_input(&input_text) {
+            Ok(TuiInputAction::Noop) => {}
+            Ok(TuiInputAction::Exit) => return TuiExitStatus::Exited,
+            Ok(TuiInputAction::SubmitCommand(command)) => {
+                let response = match client.submit_command(command).await {
+                    Ok(response) => response,
+                    Err(error) => return TuiExitStatus::LocalClientFailed(error),
+                };
+                match response.outcome {
+                    CommandOutcome::Accepted => {}
+                    CommandOutcome::Rejected(reason) => {
+                        return TuiExitStatus::CommandRejected(format!("{reason:?}"));
+                    }
+                }
+            }
+            Err(error) => {
+                let _ = terminal.render_error(&error);
+                return TuiExitStatus::TerminalFailed(error);
+            }
         }
     }
 }

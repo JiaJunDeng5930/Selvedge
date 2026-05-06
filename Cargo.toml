@@ -33,14 +33,27 @@ publish = false
 description = "Rust project foundation for Selvedge"
 
 [dependencies]
+selvedge-api = { path = "crates/api" }
+selvedge-client-sync = { path = "crates/client-sync" }
+selvedge-command-model = { path = "crates/command-model" }
 selvedge-config = { path = "crates/config" }
+selvedge-core = { path = "crates/core" }
+selvedge-domain-model = { path = "crates/domain-model" }
+selvedge-local-client = { path = "crates/local-client" }
+selvedge-local-protocol = { path = "crates/local-protocol" }
 selvedge-logging = { path = "crates/logging" }
+selvedge-router = { path = "crates/router" }
+selvedge-server = { path = "crates/server" }
+selvedge-systemd = { path = "crates/systemd" }
+serde_json = "1.0.145"
+tokio = { version = "1.42.0", features = ["rt", "time"] }
 
 [dev-dependencies]
 selvedge-config = { path = "crates/config" }
 selvedge-config-model = { path = "crates/config-model" }
 selvedge-logging = { path = "crates/logging" }
 tempfile = "3.14.0"
+tokio = { version = "1.42.0", features = ["macros", "rt", "sync", "time"] }
 
 [lints.rust]
 unsafe_code = "forbid"

@@ -9,9 +9,23 @@ use std::time::Duration;
 use futures_core::Stream;
 use selvedge_local_protocol::{
     AttachAccepted, AttachRejected, AttachRequest, CommandRequest, CommandResponse,
-    LocalClientFrame, ReadyRequest, ReadyResponse, validate_attach_request,
-    validate_command_request, validate_ready_request,
+    LocalAttachStreamItem, LocalAttachStreamValidator, LocalClientFrame, LocalHttpProblem,
+    ReadyRequest, ReadyResponse, current_protocol_version, validate_attach_request,
+    validate_attach_stream_item, validate_command_request, validate_ready_request,
 };
+use serde::Serialize;
+use serde::de::DeserializeOwned;
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+use tokio::net::TcpStream;
+use tokio::net::tcp::OwnedReadHalf;
+use tokio_stream::StreamExt;
+use tokio_stream::wrappers::LinesStream;
+
+const READY_PATH: &str = "/selvedge/local/v1/ready";
+const COMMAND_PATH: &str = "/selvedge/local/v1/command";
+const ATTACH_PATH: &str = "/selvedge/local/v1/attach";
+const JSON_CONTENT_TYPE: &str = "application/json";
+const NDJSON_CONTENT_TYPE: &str = "application/x-ndjson";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LocalClientConfig {
@@ -23,6 +37,10 @@ pub struct LocalClientConfig {
 pub enum LocalEndpoint {
     TcpIpv4 { port: u16 },
     TcpIpv6 { port: u16 },
+}
+
+pub struct HttpLocalTransport {
+    endpoint: LocalEndpoint,
 }
 
 pub struct LocalClient<T: LocalTransport> {
@@ -127,6 +145,63 @@ pub async fn connect<T: LocalTransport>(
         request_timeout,
         inner: Arc::new(Mutex::new(ClientState::ready())),
     })
+}
+
+pub async fn connect_http(
+    config: LocalClientConfig,
+) -> Result<LocalClient<HttpLocalTransport>, LocalClientError> {
+    connect::<HttpLocalTransport>(config).await
+}
+
+impl LocalTransport for HttpLocalTransport {
+    async fn connect(config: LocalClientConfig) -> Result<Self, LocalClientError>
+    where
+        Self: Sized,
+    {
+        TcpStream::connect(socket_target(&config.endpoint))
+            .await
+            .map_err(|error| LocalClientError::ConnectFailed(error.to_string()))?;
+
+        Ok(Self {
+            endpoint: config.endpoint,
+        })
+    }
+
+    async fn ready(&self, request: ReadyRequest) -> Result<ReadyResponse, LocalClientError> {
+        let response = post_json(&self.endpoint, READY_PATH, &request, JSON_CONTENT_TYPE).await?;
+        let ready: ReadyResponse = parse_json_body(response).await?;
+        validate_response_protocol_version(ready.protocol_version)?;
+        Ok(ready)
+    }
+
+    async fn submit_command(
+        &self,
+        request: CommandRequest,
+    ) -> Result<CommandResponse, LocalClientError> {
+        let response = post_json(&self.endpoint, COMMAND_PATH, &request, JSON_CONTENT_TYPE).await?;
+        let command: CommandResponse = parse_json_body(response).await?;
+        validate_response_protocol_version(command.protocol_version)?;
+        validate_response_protocol_version(current_protocol_version())?;
+        Ok(command)
+    }
+
+    async fn attach(
+        &self,
+        request: AttachRequest,
+    ) -> Result<(AttachAccepted, LocalFrameStream), AttachRejectedOrClientError> {
+        let response = post_json(&self.endpoint, ATTACH_PATH, &request, NDJSON_CONTENT_TYPE)
+            .await
+            .map_err(AttachRejectedOrClientError::Client)?;
+
+        match response.status_code {
+            200 => parse_attach_accepted_stream(response)
+                .await
+                .map_err(AttachRejectedOrClientError::Client),
+            _ => parse_attach_rejected_response(response).await,
+        }
+    }
+
+    async fn close(&self) {}
 }
 
 impl<T: LocalTransport> LocalClient<T> {
@@ -481,5 +556,299 @@ fn validate_endpoint(endpoint: &LocalEndpoint) -> Result<(), LocalClientError> {
             LocalClientError::ProtocolValidationFailed("endpoint port must be nonzero".to_owned()),
         ),
         LocalEndpoint::TcpIpv4 { .. } | LocalEndpoint::TcpIpv6 { .. } => Ok(()),
+    }
+}
+
+struct HttpResponse {
+    status_code: u16,
+    content_type: Option<String>,
+    reader: BufReader<OwnedReadHalf>,
+}
+
+struct HttpAttachFrameStream {
+    lines: LinesStream<BufReader<OwnedReadHalf>>,
+    validator: LocalAttachStreamValidator,
+    ended: bool,
+}
+
+impl Stream for HttpAttachFrameStream {
+    type Item = Result<LocalClientFrame, LocalClientError>;
+
+    fn poll_next(self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let this = self.get_mut();
+        if this.ended {
+            return Poll::Ready(None);
+        }
+
+        match Pin::new(&mut this.lines).poll_next(context) {
+            Poll::Ready(Some(Ok(line))) => Poll::Ready(Some(parse_attach_frame_line(
+                line,
+                &mut this.validator,
+                &mut this.ended,
+            ))),
+            Poll::Ready(Some(Err(error))) => {
+                this.ended = true;
+                Poll::Ready(Some(Err(LocalClientError::TransportFailed(
+                    error.to_string(),
+                ))))
+            }
+            Poll::Ready(None) => {
+                this.ended = true;
+                Poll::Ready(None)
+            }
+            Poll::Pending => Poll::Pending,
+        }
+    }
+}
+
+async fn post_json<T: Serialize>(
+    endpoint: &LocalEndpoint,
+    path: &str,
+    request: &T,
+    accept: &str,
+) -> Result<HttpResponse, LocalClientError> {
+    let body = serde_json::to_vec(request)
+        .map_err(|error| LocalClientError::ProtocolValidationFailed(error.to_string()))?;
+    let mut stream = TcpStream::connect(socket_target(endpoint))
+        .await
+        .map_err(|error| LocalClientError::ConnectFailed(error.to_string()))?;
+    let request = format!(
+        "POST {path} HTTP/1.1\r\nHost: {}\r\nContent-Type: {JSON_CONTENT_TYPE}\r\nAccept: {accept}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        host_header(endpoint),
+        body.len()
+    );
+
+    stream
+        .write_all(request.as_bytes())
+        .await
+        .map_err(|error| LocalClientError::TransportFailed(error.to_string()))?;
+    stream
+        .write_all(&body)
+        .await
+        .map_err(|error| LocalClientError::TransportFailed(error.to_string()))?;
+    stream
+        .flush()
+        .await
+        .map_err(|error| LocalClientError::TransportFailed(error.to_string()))?;
+
+    read_response_headers(stream).await
+}
+
+async fn read_response_headers(stream: TcpStream) -> Result<HttpResponse, LocalClientError> {
+    let (read_half, _write_half) = stream.into_split();
+    let mut reader = BufReader::new(read_half);
+    let mut status_line = String::new();
+    read_header_line(&mut reader, &mut status_line).await?;
+    let status_code = parse_status_code(&status_line)?;
+    let mut content_type = None;
+
+    loop {
+        let mut line = String::new();
+        read_header_line(&mut reader, &mut line).await?;
+        let trimmed = line.trim_end_matches(['\r', '\n']);
+        if trimmed.is_empty() {
+            break;
+        }
+
+        if let Some((name, value)) = trimmed.split_once(':')
+            && name.eq_ignore_ascii_case("content-type")
+        {
+            content_type = Some(value.trim().to_ascii_lowercase());
+        }
+    }
+
+    Ok(HttpResponse {
+        status_code,
+        content_type,
+        reader,
+    })
+}
+
+async fn read_header_line(
+    reader: &mut BufReader<OwnedReadHalf>,
+    line: &mut String,
+) -> Result<(), LocalClientError> {
+    let bytes = reader
+        .read_line(line)
+        .await
+        .map_err(|error| LocalClientError::TransportFailed(error.to_string()))?;
+    if bytes == 0 {
+        return Err(LocalClientError::TransportClosed);
+    }
+
+    Ok(())
+}
+
+fn parse_status_code(status_line: &str) -> Result<u16, LocalClientError> {
+    status_line
+        .split_whitespace()
+        .nth(1)
+        .ok_or_else(|| LocalClientError::TransportFailed("missing HTTP status code".to_owned()))?
+        .parse()
+        .map_err(|error| LocalClientError::TransportFailed(format!("invalid HTTP status: {error}")))
+}
+
+async fn parse_json_body<T: DeserializeOwned>(
+    mut response: HttpResponse,
+) -> Result<T, LocalClientError> {
+    require_content_type(&response, JSON_CONTENT_TYPE)?;
+    let mut body = Vec::new();
+    response
+        .reader
+        .read_to_end(&mut body)
+        .await
+        .map_err(|error| LocalClientError::TransportFailed(error.to_string()))?;
+
+    if response.status_code != 200 {
+        return Err(parse_problem(&body).unwrap_or_else(|| {
+            LocalClientError::TransportFailed(format!(
+                "unexpected HTTP status {}",
+                response.status_code
+            ))
+        }));
+    }
+
+    serde_json::from_slice(&body)
+        .map_err(|error| LocalClientError::ProtocolValidationFailed(error.to_string()))
+}
+
+async fn parse_attach_rejected_response(
+    mut response: HttpResponse,
+) -> Result<(AttachAccepted, LocalFrameStream), AttachRejectedOrClientError> {
+    require_content_type(&response, JSON_CONTENT_TYPE)
+        .map_err(AttachRejectedOrClientError::Client)?;
+    let mut body = Vec::new();
+    response
+        .reader
+        .read_to_end(&mut body)
+        .await
+        .map_err(|error| {
+            AttachRejectedOrClientError::Client(LocalClientError::TransportFailed(
+                error.to_string(),
+            ))
+        })?;
+
+    match serde_json::from_slice::<AttachRejected>(&body) {
+        Ok(rejected) => Err(AttachRejectedOrClientError::Rejected(rejected)),
+        Err(_) => Err(AttachRejectedOrClientError::Client(
+            parse_problem(&body).unwrap_or_else(|| {
+                LocalClientError::ProtocolValidationFailed("invalid attach reject body".to_owned())
+            }),
+        )),
+    }
+}
+
+async fn parse_attach_accepted_stream(
+    response: HttpResponse,
+) -> Result<(AttachAccepted, LocalFrameStream), LocalClientError> {
+    require_content_type(&response, NDJSON_CONTENT_TYPE)?;
+    let mut lines = LinesStream::new(response.reader.lines());
+    let Some(first) = lines.next().await else {
+        return Err(LocalClientError::TransportClosed);
+    };
+    let first = first.map_err(|error| LocalClientError::TransportFailed(error.to_string()))?;
+    let item = parse_attach_stream_item(&first)?;
+    validate_attach_stream_item(&item)
+        .map_err(|error| LocalClientError::ProtocolValidationFailed(format!("{error:?}")))?;
+    let mut validator = LocalAttachStreamValidator::new();
+    validator
+        .validate_next(&item)
+        .map_err(|error| LocalClientError::TransportFailed(format!("{error:?}")))?;
+
+    let LocalAttachStreamItem::Accepted(accepted) = item else {
+        return Err(LocalClientError::TransportFailed(
+            "attach stream must start with accepted item".to_owned(),
+        ));
+    };
+    validate_response_protocol_version(accepted.protocol_version)?;
+
+    Ok((
+        accepted,
+        Box::pin(HttpAttachFrameStream {
+            lines,
+            validator,
+            ended: false,
+        }),
+    ))
+}
+
+fn parse_attach_frame_line(
+    line: String,
+    validator: &mut LocalAttachStreamValidator,
+    ended: &mut bool,
+) -> Result<LocalClientFrame, LocalClientError> {
+    let item = parse_attach_stream_item(&line)?;
+    validate_attach_stream_item(&item)
+        .map_err(|error| LocalClientError::ProtocolValidationFailed(format!("{error:?}")))?;
+    validator
+        .validate_next(&item)
+        .map_err(|error| LocalClientError::TransportFailed(format!("{error:?}")))?;
+
+    match item {
+        LocalAttachStreamItem::Frame(frame) => Ok(frame),
+        LocalAttachStreamItem::StreamError(error) => {
+            *ended = true;
+            Err(LocalClientError::TransportFailed(error.message_text))
+        }
+        LocalAttachStreamItem::Accepted(_) => Err(LocalClientError::TransportFailed(
+            "duplicate attach accepted item".to_owned(),
+        )),
+    }
+}
+
+fn parse_attach_stream_item(line: &str) -> Result<LocalAttachStreamItem, LocalClientError> {
+    serde_json::from_str(line)
+        .map_err(|error| LocalClientError::ProtocolValidationFailed(error.to_string()))
+}
+
+fn require_content_type(response: &HttpResponse, expected: &str) -> Result<(), LocalClientError> {
+    let Some(content_type) = &response.content_type else {
+        return Err(LocalClientError::ProtocolValidationFailed(
+            "missing content type".to_owned(),
+        ));
+    };
+
+    if content_type
+        .split(';')
+        .next()
+        .is_some_and(|media_type| media_type.trim() == expected)
+    {
+        return Ok(());
+    }
+
+    Err(LocalClientError::ProtocolValidationFailed(format!(
+        "unexpected content type {content_type}"
+    )))
+}
+
+fn parse_problem(body: &[u8]) -> Option<LocalClientError> {
+    serde_json::from_slice::<LocalHttpProblem>(body)
+        .ok()
+        .map(|problem| LocalClientError::TransportFailed(problem.message_text))
+}
+
+fn validate_response_protocol_version(
+    protocol_version: selvedge_local_protocol::ProtocolVersion,
+) -> Result<(), LocalClientError> {
+    if protocol_version == current_protocol_version() {
+        Ok(())
+    } else {
+        Err(LocalClientError::ProtocolValidationFailed(
+            "protocol version mismatch".to_owned(),
+        ))
+    }
+}
+
+fn socket_target(endpoint: &LocalEndpoint) -> String {
+    match endpoint {
+        LocalEndpoint::TcpIpv4 { port } => format!("127.0.0.1:{port}"),
+        LocalEndpoint::TcpIpv6 { port } => format!("[::1]:{port}"),
+    }
+}
+
+fn host_header(endpoint: &LocalEndpoint) -> String {
+    match endpoint {
+        LocalEndpoint::TcpIpv4 { port } => format!("127.0.0.1:{port}"),
+        LocalEndpoint::TcpIpv6 { port } => format!("[::1]:{port}"),
     }
 }

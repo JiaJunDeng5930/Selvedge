@@ -1,7 +1,12 @@
 #![doc = include_str!("../README.md")]
 
 use std::future::Future;
+use std::path::PathBuf;
+use std::pin::Pin;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
+
+const SYSTEMCTL_OPERATION_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SystemdConfig {
@@ -30,11 +35,41 @@ pub enum StartServiceOutcome {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SystemdError {
     InvalidUnitName,
+    InvalidOperationTimeout,
+    InvalidPollInterval,
     Unavailable(String),
     UnitNotFound,
     StartRejected(String),
     Timeout,
     BackendFailure(String),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SystemdScope {
+    System,
+    User,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SystemctlBackendConfig {
+    pub systemctl_path: PathBuf,
+    pub scope: SystemdScope,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SystemctlProcessOutput {
+    pub exit_code: Option<i32>,
+    pub stdout: Vec<u8>,
+    pub stderr: Vec<u8>,
+}
+
+pub trait SystemctlProcessRunner {
+    fn run(
+        &self,
+        program: &str,
+        args: &[String],
+        timeout: Duration,
+    ) -> impl Future<Output = Result<SystemctlProcessOutput, SystemdError>> + Send;
 }
 
 pub trait SystemdBackend: Send + Sync + 'static {
@@ -49,9 +84,137 @@ pub trait SystemdBackend: Send + Sync + 'static {
     ) -> impl Future<Output = Result<StartServiceOutcome, SystemdError>> + Send;
 }
 
+pub struct SystemctlBackend {
+    config: SystemctlBackendConfig,
+    runner: Arc<dyn ErasedSystemctlProcessRunner>,
+}
+
 pub struct SystemdClient<B: SystemdBackend> {
     pub config: SystemdConfig,
     pub backend: B,
+}
+
+trait ErasedSystemctlProcessRunner: Send + Sync {
+    fn run_boxed<'a>(
+        &'a self,
+        program: &'a str,
+        args: &'a [String],
+        timeout: Duration,
+    ) -> Pin<Box<dyn Future<Output = Result<SystemctlProcessOutput, SystemdError>> + Send + 'a>>;
+}
+
+impl<R> ErasedSystemctlProcessRunner for R
+where
+    R: SystemctlProcessRunner + Send + Sync + 'static,
+{
+    fn run_boxed<'a>(
+        &'a self,
+        program: &'a str,
+        args: &'a [String],
+        timeout: Duration,
+    ) -> Pin<Box<dyn Future<Output = Result<SystemctlProcessOutput, SystemdError>> + Send + 'a>>
+    {
+        Box::pin(self.run(program, args, timeout))
+    }
+}
+
+struct StdSystemctlProcessRunner;
+
+impl SystemctlProcessRunner for StdSystemctlProcessRunner {
+    async fn run(
+        &self,
+        program: &str,
+        args: &[String],
+        timeout: Duration,
+    ) -> Result<SystemctlProcessOutput, SystemdError> {
+        let program = program.to_owned();
+        let args = args.to_vec();
+        let output = tokio::time::timeout(
+            timeout,
+            tokio::task::spawn_blocking(move || {
+                std::process::Command::new(program)
+                    .args(args)
+                    .output()
+                    .map_err(|error| SystemdError::Unavailable(error.to_string()))
+            }),
+        )
+        .await
+        .map_err(|_| SystemdError::Timeout)?
+        .map_err(|error| SystemdError::BackendFailure(error.to_string()))??;
+
+        Ok(SystemctlProcessOutput {
+            exit_code: output.status.code(),
+            stdout: output.stdout,
+            stderr: output.stderr,
+        })
+    }
+}
+
+impl SystemctlBackend {
+    pub fn new(config: SystemctlBackendConfig) -> Result<Self, SystemdError> {
+        Self::new_with_runner(config, StdSystemctlProcessRunner)
+    }
+
+    pub fn new_with_runner<R>(
+        config: SystemctlBackendConfig,
+        runner: R,
+    ) -> Result<Self, SystemdError>
+    where
+        R: SystemctlProcessRunner + Send + Sync + 'static,
+    {
+        validate_systemctl_config(&config)?;
+
+        Ok(Self {
+            config,
+            runner: Arc::new(runner),
+        })
+    }
+
+    fn program(&self) -> Result<&str, SystemdError> {
+        self.config
+            .systemctl_path
+            .to_str()
+            .ok_or_else(|| SystemdError::Unavailable("systemctl path is not UTF-8".to_owned()))
+    }
+
+    fn scope_arg(&self) -> String {
+        match self.config.scope {
+            SystemdScope::System => "--system".to_owned(),
+            SystemdScope::User => "--user".to_owned(),
+        }
+    }
+}
+
+impl SystemdBackend for SystemctlBackend {
+    async fn query_status(&self, unit_name: &str) -> Result<ServiceStatus, SystemdError> {
+        let args = vec![
+            self.scope_arg(),
+            "show".to_owned(),
+            "--property=LoadState".to_owned(),
+            "--property=ActiveState".to_owned(),
+            unit_name.to_owned(),
+        ];
+        let output = self
+            .runner
+            .run_boxed(self.program()?, &args, SYSTEMCTL_OPERATION_TIMEOUT)
+            .await?;
+
+        parse_systemctl_show_output(output)
+    }
+
+    async fn start_unit(&self, unit_name: &str) -> Result<StartServiceOutcome, SystemdError> {
+        let args = vec![self.scope_arg(), "start".to_owned(), unit_name.to_owned()];
+        let output = self
+            .runner
+            .run_boxed(self.program()?, &args, SYSTEMCTL_OPERATION_TIMEOUT)
+            .await?;
+
+        if output.exit_code == Some(0) {
+            Ok(StartServiceOutcome::StartRequested)
+        } else {
+            Err(SystemdError::StartRejected(stderr_text(&output)))
+        }
+    }
 }
 
 impl<B: SystemdBackend> SystemdClient<B> {
@@ -126,9 +289,73 @@ fn validate_config(config: &SystemdConfig) -> Result<(), SystemdError> {
         return Err(SystemdError::InvalidUnitName);
     }
 
-    if config.operation_timeout.is_zero() || config.poll_interval.is_zero() {
+    if config.unit_name.chars().any(char::is_whitespace) {
         return Err(SystemdError::InvalidUnitName);
     }
 
+    if config.operation_timeout.is_zero() {
+        return Err(SystemdError::InvalidOperationTimeout);
+    }
+
+    if config.poll_interval.is_zero() {
+        return Err(SystemdError::InvalidPollInterval);
+    }
+
     Ok(())
+}
+
+fn validate_systemctl_config(config: &SystemctlBackendConfig) -> Result<(), SystemdError> {
+    if config.systemctl_path.as_os_str().is_empty() {
+        return Err(SystemdError::Unavailable(
+            "systemctl path must be nonempty".to_owned(),
+        ));
+    }
+
+    Ok(())
+}
+
+fn parse_systemctl_show_output(
+    output: SystemctlProcessOutput,
+) -> Result<ServiceStatus, SystemdError> {
+    if output.exit_code != Some(0) {
+        return Err(SystemdError::BackendFailure(stderr_text(&output)));
+    }
+
+    let stdout = String::from_utf8(output.stdout)
+        .map_err(|error| SystemdError::BackendFailure(error.to_string()))?;
+    let mut load_state = None;
+    let mut active_state = None;
+
+    for line in stdout.lines() {
+        if let Some(value) = line.strip_prefix("LoadState=") {
+            load_state = Some(value.to_owned());
+        } else if let Some(value) = line.strip_prefix("ActiveState=") {
+            active_state = Some(value.to_owned());
+        }
+    }
+
+    if load_state.as_deref() == Some("not-found") {
+        return Ok(ServiceStatus::NotInstalled);
+    }
+
+    match active_state.as_deref().unwrap_or_default() {
+        "active" => Ok(ServiceStatus::Active),
+        "inactive" => Ok(ServiceStatus::Inactive),
+        "activating" => Ok(ServiceStatus::Activating),
+        "failed" => Ok(ServiceStatus::Failed {
+            message: "failed".to_owned(),
+        }),
+        raw_state => Ok(ServiceStatus::Unknown {
+            raw_state: raw_state.to_owned(),
+        }),
+    }
+}
+
+fn stderr_text(output: &SystemctlProcessOutput) -> String {
+    let text = String::from_utf8_lossy(&output.stderr).trim().to_owned();
+    if text.is_empty() {
+        "systemctl failed".to_owned()
+    } else {
+        text
+    }
 }

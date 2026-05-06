@@ -1,11 +1,14 @@
 use std::collections::VecDeque;
 use std::fs;
 use std::future;
+use std::path::PathBuf;
 use std::sync::{Arc, LazyLock, Mutex};
 use std::time::Duration;
 
 use selvedge_systemd::{
-    ServiceStatus, StartServiceOutcome, SystemdBackend, SystemdClient, SystemdConfig, SystemdError,
+    ServiceStatus, StartServiceOutcome, SystemctlBackend, SystemctlBackendConfig,
+    SystemctlProcessOutput, SystemctlProcessRunner, SystemdBackend, SystemdClient, SystemdConfig,
+    SystemdError, SystemdScope,
 };
 use tokio::sync::Mutex as AsyncMutex;
 use tokio::time::timeout;
@@ -225,6 +228,110 @@ async fn invalid_unit_name_is_rejected_before_backend_calls() {
 }
 
 #[tokio::test]
+async fn config_validation_reports_first_invalid_field_in_order() {
+    let _guard = TEST_LOCK.lock().await;
+    let backend = FakeSystemdBackend::new(vec![Ok(ServiceStatus::Active)]);
+
+    let result = SystemdClient::new(
+        SystemdConfig {
+            unit_name: "selvedge server.service".to_owned(),
+            operation_timeout: Duration::ZERO,
+            poll_interval: Duration::ZERO,
+        },
+        backend.clone(),
+    );
+    assert!(matches!(result, Err(SystemdError::InvalidUnitName)));
+
+    let result = SystemdClient::new(
+        SystemdConfig {
+            operation_timeout: Duration::ZERO,
+            ..valid_config()
+        },
+        backend.clone(),
+    );
+    assert!(matches!(result, Err(SystemdError::InvalidOperationTimeout)));
+
+    let result = SystemdClient::new(
+        SystemdConfig {
+            poll_interval: Duration::ZERO,
+            ..valid_config()
+        },
+        backend,
+    );
+    assert!(matches!(result, Err(SystemdError::InvalidPollInterval)));
+}
+
+#[tokio::test]
+async fn systemctl_backend_uses_runner_and_maps_show_output() {
+    let _guard = TEST_LOCK.lock().await;
+    let runner = RecordingProcessRunner::new(vec![Ok(SystemctlProcessOutput {
+        exit_code: Some(0),
+        stdout: b"LoadState=loaded\nActiveState=active\n".to_vec(),
+        stderr: Vec::new(),
+    })]);
+    let backend = SystemctlBackend::new_with_runner(systemctl_config(), runner.clone())
+        .expect("systemctl backend");
+
+    assert_eq!(
+        backend.query_status("selvedge-server.service").await,
+        Ok(ServiceStatus::Active)
+    );
+    assert_eq!(
+        runner.calls(),
+        vec![ProcessCall {
+            program: "/bin/systemctl".to_owned(),
+            args: vec![
+                "--system".to_owned(),
+                "show".to_owned(),
+                "--property=LoadState".to_owned(),
+                "--property=ActiveState".to_owned(),
+                "selvedge-server.service".to_owned(),
+            ],
+            timeout: Duration::from_secs(5),
+        }]
+    );
+}
+
+#[tokio::test]
+async fn systemctl_backend_maps_missing_unit_unknown_state_and_start_rejection() {
+    let _guard = TEST_LOCK.lock().await;
+    let runner = RecordingProcessRunner::new(vec![
+        Ok(SystemctlProcessOutput {
+            exit_code: Some(0),
+            stdout: b"LoadState=not-found\nActiveState=inactive\n".to_vec(),
+            stderr: Vec::new(),
+        }),
+        Ok(SystemctlProcessOutput {
+            exit_code: Some(0),
+            stdout: b"LoadState=loaded\nActiveState=maintenance\n".to_vec(),
+            stderr: Vec::new(),
+        }),
+        Ok(SystemctlProcessOutput {
+            exit_code: Some(1),
+            stdout: Vec::new(),
+            stderr: b"masked".to_vec(),
+        }),
+    ]);
+    let backend =
+        SystemctlBackend::new_with_runner(systemctl_config(), runner).expect("systemctl backend");
+
+    assert_eq!(
+        backend.query_status("selvedge-server.service").await,
+        Ok(ServiceStatus::NotInstalled)
+    );
+    assert_eq!(
+        backend.query_status("selvedge-server.service").await,
+        Ok(ServiceStatus::Unknown {
+            raw_state: "maintenance".to_owned()
+        })
+    );
+    assert_eq!(
+        backend.start_unit("selvedge-server.service").await,
+        Err(SystemdError::StartRejected("masked".to_owned()))
+    );
+}
+
+#[tokio::test]
 async fn public_operations_revalidate_mutated_config_before_backend_calls() {
     let _guard = TEST_LOCK.lock().await;
     let backend = FakeSystemdBackend::new(vec![Ok(ServiceStatus::Active)]);
@@ -261,6 +368,62 @@ fn tui_and_web_do_not_depend_on_systemd_crate() {
 #[derive(Clone)]
 struct FakeSystemdBackend {
     state: Arc<Mutex<FakeSystemdState>>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct ProcessCall {
+    program: String,
+    args: Vec<String>,
+    timeout: Duration,
+}
+
+#[derive(Clone)]
+struct RecordingProcessRunner {
+    state: Arc<Mutex<RecordingProcessRunnerState>>,
+}
+
+struct RecordingProcessRunnerState {
+    calls: Vec<ProcessCall>,
+    outputs: VecDeque<Result<SystemctlProcessOutput, SystemdError>>,
+}
+
+impl RecordingProcessRunner {
+    fn new(outputs: Vec<Result<SystemctlProcessOutput, SystemdError>>) -> Self {
+        Self {
+            state: Arc::new(Mutex::new(RecordingProcessRunnerState {
+                calls: Vec::new(),
+                outputs: outputs.into(),
+            })),
+        }
+    }
+
+    fn calls(&self) -> Vec<ProcessCall> {
+        self.state
+            .lock()
+            .expect("process runner lock")
+            .calls
+            .clone()
+    }
+}
+
+impl SystemctlProcessRunner for RecordingProcessRunner {
+    async fn run(
+        &self,
+        program: &str,
+        args: &[String],
+        timeout: Duration,
+    ) -> Result<SystemctlProcessOutput, SystemdError> {
+        let mut state = self.state.lock().expect("process runner lock");
+        state.calls.push(ProcessCall {
+            program: program.to_owned(),
+            args: args.to_vec(),
+            timeout,
+        });
+        state
+            .outputs
+            .pop_front()
+            .unwrap_or_else(|| Err(SystemdError::BackendFailure("no output".to_owned())))
+    }
 }
 
 struct FakeSystemdState {
@@ -356,5 +519,12 @@ fn wait_config(timeout: Duration) -> SystemdConfig {
         operation_timeout: timeout,
         poll_interval: Duration::from_millis(1),
         ..valid_config()
+    }
+}
+
+fn systemctl_config() -> SystemctlBackendConfig {
+    SystemctlBackendConfig {
+        systemctl_path: PathBuf::from("/bin/systemctl"),
+        scope: SystemdScope::System,
     }
 }
