@@ -598,6 +598,47 @@ async fn hidden_begin_hydrates_after_failed_pending_replacement() {
 }
 
 #[tokio::test]
+async fn hidden_reservation_duplicate_is_rejected() {
+    let handle = spawn_events_task(EventsStartArgs {
+        ingress_capacity: 8,
+        client_registry_capacity: 1,
+        hydration_buffer_capacity: 4,
+    })
+    .expect("valid events task");
+
+    assert_eq!(
+        reserve_client_session(
+            &handle.ingress_tx,
+            ClientId("client-1".to_owned()),
+            ClientCommandId("attach-1".to_owned()),
+        )
+        .await,
+        EventClientReservationResult::Reserved
+    );
+    assert_eq!(
+        reserve_client_session(
+            &handle.ingress_tx,
+            ClientId("client-1".to_owned()),
+            ClientCommandId("attach-2".to_owned()),
+        )
+        .await,
+        EventClientReservationResult::Reserved
+    );
+    assert_eq!(
+        reserve_client_session(
+            &handle.ingress_tx,
+            ClientId("client-1".to_owned()),
+            ClientCommandId("attach-1".to_owned()),
+        )
+        .await,
+        EventClientReservationResult::DuplicateAttach
+    );
+
+    drop(handle.ingress_tx);
+    handle.join_handle.await.expect("events task exits cleanly");
+}
+
+#[tokio::test]
 async fn reserved_client_session_is_consumed_by_matching_begin() {
     let handle = spawn_events_task(EventsStartArgs {
         ingress_capacity: 8,
