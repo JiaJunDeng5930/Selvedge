@@ -282,6 +282,8 @@ impl EventsTask {
             == Some(&detach.client_command_id)
         {
             self.pop_current_reservation(&detach.client_id);
+        } else {
+            self.remove_hidden_reservation(&detach.client_id, &detach.client_command_id);
         }
 
         let Some(session) = self.sessions.get(&detach.client_id) else {
@@ -317,6 +319,28 @@ impl EventsTask {
             restored_command_id.expect("restored command id"),
         )) {
             self.install_begin_hydration(begin);
+        }
+    }
+
+    fn remove_hidden_reservation(
+        &mut self,
+        client_id: &ClientId,
+        client_command_id: &selvedge_command_model::ClientCommandId,
+    ) {
+        let Some(stack) = self.reservations.get_mut(client_id) else {
+            return;
+        };
+        let Some(index) = stack
+            .iter()
+            .position(|stacked_command_id| stacked_command_id == client_command_id)
+        else {
+            return;
+        };
+        stack.remove(index);
+        self.pending_begins
+            .remove(&(client_id.clone(), client_command_id.clone()));
+        if stack.is_empty() {
+            self.reservations.remove(client_id);
         }
     }
 
