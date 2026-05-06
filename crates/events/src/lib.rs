@@ -119,8 +119,7 @@ impl EventsTask {
             || self
                 .reservations
                 .get(&client_id)
-                .and_then(|stack| stack.last())
-                == Some(&client_command_id)
+                .is_some_and(|stack| stack.contains(&client_command_id))
         {
             EventClientReservationResult::DuplicateAttach
         } else if !self.sessions.contains_key(&client_id)
