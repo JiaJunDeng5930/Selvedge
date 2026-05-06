@@ -14,8 +14,8 @@ use fs2::FileExt;
 use futures_core::Stream;
 use selvedge_api::ApiExecutorConfig;
 use selvedge_client_sync::{
-    CancelHydration, ClientSnapshotBuilder, ClientSyncHandle, ClientSyncIngress,
-    ClientSyncStartArgs, SpawnClientSyncError, spawn_client_sync,
+    CancelHydration, ClientSnapshotBuilder, ClientSyncExitStatus, ClientSyncHandle,
+    ClientSyncIngress, ClientSyncStartArgs, SpawnClientSyncError, spawn_client_sync,
 };
 use selvedge_command_model::{
     BeginClientHydration, ClientCommandId, ClientEvent, ClientFrame, ClientFrameSender, ClientId,
@@ -45,13 +45,15 @@ use selvedge_local_protocol::{
     ReadyRequest, ReadyResponse, ReadyState, current_protocol_version, validate_attach_request,
     validate_command_request, validate_ready_request,
 };
-use selvedge_router::{RouterHandle, RouterStartArgs, SpawnRouterError, ToolExecutionSpawner};
+use selvedge_router::{
+    RouterExitStatus, RouterHandle, RouterStartArgs, SpawnRouterError, ToolExecutionSpawner,
+};
 use selvedge_web::{
     ReservedWebStartArgs, WebBindReservation, WebBridge, WebHandle, WebLocalhostBind,
     WebLocalhostHost, WebStartError, reserve_web_bind, spawn_reserved_web_surface,
 };
 use tokio::sync::{Mutex, Notify, RwLock, mpsc};
-use tokio::task::JoinHandle;
+use tokio::task::{JoinError, JoinHandle};
 
 const SQLITE_FILE_NAME: &str = "selvedge.sqlite";
 const LOCK_FILE_NAME: &str = "server.lock";
@@ -462,7 +464,13 @@ impl ServerControl {
         let _ = self.inner.router_tx.send(RouterIngressMessage::StopRouter);
         let client_sync_tx = self.inner.client_sync_tx.lock().await.clone();
         let _ = client_sync_tx.send(ClientSyncIngress::Shutdown).await;
-        if let Some(web_control) = self.inner.web_control.lock().await.as_ref() {
+        let web_control = self
+            .inner
+            .web_control
+            .lock()
+            .expect("server web control lock")
+            .clone();
+        if let Some(web_control) = web_control {
             web_control.stop().await;
         }
         let _ = self.inner.events_tx.lock().await.take();
@@ -488,7 +496,7 @@ struct ServerInner {
     active_attaches: ActiveAttachRegistry,
     frame_channel_factory: Arc<dyn AttachFrameChannelFactory>,
     command_mapper: Arc<dyn LocalCommandMapper>,
-    web_control: Mutex<Option<selvedge_web::WebControl>>,
+    web_control: StdMutex<Option<selvedge_web::WebControl>>,
 }
 
 impl ServerInner {
@@ -677,14 +685,6 @@ fn start_server_after_lock(
         }
     };
 
-    let web = match start_web(web_bind, &args.command_mapper) {
-        Ok(web) => web,
-        Err(error) => {
-            cleanup_startup_lock(&home);
-            return Err(error);
-        }
-    };
-
     let inner = Arc::new(ServerInner {
         state: RwLock::new(ServerRuntimeState::Ready),
         closing: AtomicBool::new(false),
@@ -698,8 +698,22 @@ fn start_server_after_lock(
         active_attaches: Arc::new(StdMutex::new(HashMap::new())),
         frame_channel_factory: Arc::new(TokioAttachFrameChannelFactory),
         command_mapper: args.command_mapper,
-        web_control: Mutex::new(web.as_ref().map(|handle| handle.control.clone())),
+        web_control: StdMutex::new(None),
     });
+    let web = match start_web(
+        web_bind,
+        ServerControl {
+            inner: inner.clone(),
+        },
+    ) {
+        Ok(web) => web,
+        Err(error) => {
+            cleanup_startup_lock(&home);
+            return Err(error);
+        }
+    };
+    *inner.web_control.lock().expect("server web control lock") =
+        web.as_ref().map(|handle| handle.control.clone());
     let join_handle = spawn_server_join_task(inner.clone(), router, events, client_sync, web);
 
     Ok(ServerContext { inner, join_handle })
@@ -717,27 +731,227 @@ fn spawn_server_join_task(
     web: Option<WebHandle>,
 ) -> JoinHandle<ServerExitStatus> {
     tokio::spawn(async move {
-        loop {
-            if inner.closing.load(Ordering::SeqCst) {
-                break;
-            }
-            let notified = inner.stop_notify.notified();
-            if inner.closing.load(Ordering::SeqCst) {
-                break;
-            }
-            notified.await;
+        let router_tx = router.ingress_tx;
+        let mut router_join = Some(router.join_handle);
+        let mut events_join = Some(events.join_handle);
+        let mut client_sync_join = Some(client_sync.join_handle);
+        let client_sync_tx = client_sync.ingress_tx;
+        let (web_control, mut web_join) = web
+            .map(|handle| (Some(handle.control), Some(handle.join_handle)))
+            .unwrap_or((None, None));
+
+        let first_worker_exit = tokio::select! {
+            _ = wait_for_server_stop(inner.clone()) => None,
+            result = wait_for_join(&mut router_join) => {
+                router_join = None;
+                Some(ServerWorkerExit::Router(result))
+            },
+            result = wait_for_join(&mut events_join) => {
+                events_join = None;
+                Some(ServerWorkerExit::Events(result))
+            },
+            result = wait_for_join(&mut client_sync_join) => {
+                client_sync_join = None;
+                Some(ServerWorkerExit::ClientSync(result))
+            },
+            result = wait_for_join(&mut web_join) => {
+                web_join = None;
+                Some(ServerWorkerExit::Web(result))
+            },
+        };
+
+        let first_worker_expected_shutdown = inner.closing.load(Ordering::SeqCst);
+        if first_worker_exit.is_some() && !first_worker_expected_shutdown {
+            begin_supervised_shutdown(&inner, &router_tx, &client_sync_tx, web_control.as_ref())
+                .await;
         }
-        let _ = router.join_handle.await;
-        drop(events.ingress_tx);
-        let _ = events.join_handle.await;
-        let _ = client_sync.join_handle.await;
-        if let Some(web) = web {
-            let _ = web.join_handle.await;
-        }
+
+        let status = collect_server_exit_status(
+            first_worker_exit,
+            first_worker_expected_shutdown,
+            router_join,
+            events_join,
+            client_sync_join,
+            web_join,
+            events.ingress_tx,
+        )
+        .await;
+
         let _ = std::fs::remove_file(&inner.lock_path);
-        *inner.state.write().await = ServerRuntimeState::Stopped;
-        ServerExitStatus::Stopped
+        *inner.state.write().await = match status {
+            ServerExitStatus::Stopped => ServerRuntimeState::Stopped,
+            ServerExitStatus::StartupFailed(_)
+            | ServerExitStatus::RouterStopped
+            | ServerExitStatus::Fatal(_) => ServerRuntimeState::Failed,
+        };
+        status
     })
+}
+
+enum ServerWorkerExit {
+    Router(Result<RouterExitStatus, JoinError>),
+    Events(Result<(), JoinError>),
+    ClientSync(Result<ClientSyncExitStatus, JoinError>),
+    Web(Result<selvedge_web::WebExitStatus, JoinError>),
+}
+
+async fn wait_for_server_stop(inner: Arc<ServerInner>) {
+    loop {
+        if inner.closing.load(Ordering::SeqCst) {
+            break;
+        }
+        let notified = inner.stop_notify.notified();
+        if inner.closing.load(Ordering::SeqCst) {
+            break;
+        }
+        notified.await;
+    }
+}
+
+async fn wait_for_join<T>(join_handle: &mut Option<JoinHandle<T>>) -> Result<T, JoinError> {
+    match join_handle.as_mut() {
+        Some(join_handle) => join_handle.await,
+        None => std::future::pending().await,
+    }
+}
+
+async fn begin_supervised_shutdown(
+    inner: &ServerInner,
+    router_tx: &RouterIngressSender,
+    client_sync_tx: &selvedge_client_sync::ClientSyncSender,
+    web_control: Option<&selvedge_web::WebControl>,
+) {
+    if inner.closing.swap(true, Ordering::SeqCst) {
+        return;
+    }
+
+    *inner.state.write().await = ServerRuntimeState::Closing;
+    let _ = router_tx.send(RouterIngressMessage::StopRouter);
+    let _ = client_sync_tx.send(ClientSyncIngress::Shutdown).await;
+    if let Some(web_control) = web_control {
+        web_control.stop().await;
+    }
+    let _ = inner.events_tx.lock().await.take();
+    inner.stop_notify.notify_waiters();
+}
+
+async fn collect_server_exit_status(
+    first_worker_exit: Option<ServerWorkerExit>,
+    first_worker_expected_shutdown: bool,
+    router_join: Option<JoinHandle<RouterExitStatus>>,
+    events_join: Option<JoinHandle<()>>,
+    client_sync_join: Option<JoinHandle<ClientSyncExitStatus>>,
+    web_join: Option<JoinHandle<selvedge_web::WebExitStatus>>,
+    events_tx: EventIngressSender,
+) -> ServerExitStatus {
+    let mut status = first_worker_exit
+        .map(|exit| server_worker_exit_status(exit, first_worker_expected_shutdown))
+        .unwrap_or(ServerExitStatus::Stopped);
+
+    let router_status = match router_join {
+        Some(join_handle) => router_join_status(join_handle.await, true),
+        None => ServerExitStatus::Stopped,
+    };
+    status = merge_server_exit_status(status, router_status);
+
+    drop(events_tx);
+
+    let events_status = match events_join {
+        Some(join_handle) => events_join_status(join_handle.await, true),
+        None => ServerExitStatus::Stopped,
+    };
+    status = merge_server_exit_status(status, events_status);
+
+    let client_sync_status = match client_sync_join {
+        Some(join_handle) => client_sync_join_status(join_handle.await, true),
+        None => ServerExitStatus::Stopped,
+    };
+    status = merge_server_exit_status(status, client_sync_status);
+
+    let web_status = match web_join {
+        Some(join_handle) => web_join_status(join_handle.await, true),
+        None => ServerExitStatus::Stopped,
+    };
+    merge_server_exit_status(status, web_status)
+}
+
+fn server_worker_exit_status(exit: ServerWorkerExit, expected_shutdown: bool) -> ServerExitStatus {
+    match exit {
+        ServerWorkerExit::Router(result) => router_join_status(result, expected_shutdown),
+        ServerWorkerExit::Events(result) => events_join_status(result, expected_shutdown),
+        ServerWorkerExit::ClientSync(result) => client_sync_join_status(result, expected_shutdown),
+        ServerWorkerExit::Web(result) => web_join_status(result, expected_shutdown),
+    }
+}
+
+fn router_join_status(
+    result: Result<RouterExitStatus, JoinError>,
+    expected_shutdown: bool,
+) -> ServerExitStatus {
+    match result {
+        Ok(RouterExitStatus::Stopped) if expected_shutdown => ServerExitStatus::Stopped,
+        Ok(RouterExitStatus::Stopped | RouterExitStatus::RouterMailboxClosed) => {
+            ServerExitStatus::RouterStopped
+        }
+        Ok(RouterExitStatus::EventsMailboxClosed) => {
+            ServerExitStatus::Fatal("router events mailbox closed".to_owned())
+        }
+        Ok(RouterExitStatus::FatalError(message)) => ServerExitStatus::Fatal(message),
+        Err(error) => ServerExitStatus::Fatal(format!("router task join failed: {error}")),
+    }
+}
+
+fn events_join_status(result: Result<(), JoinError>, expected_shutdown: bool) -> ServerExitStatus {
+    match result {
+        Ok(()) if expected_shutdown => ServerExitStatus::Stopped,
+        Ok(()) => ServerExitStatus::Fatal("events task exited unexpectedly".to_owned()),
+        Err(error) => ServerExitStatus::Fatal(format!("events task join failed: {error}")),
+    }
+}
+
+fn client_sync_join_status(
+    result: Result<ClientSyncExitStatus, JoinError>,
+    expected_shutdown: bool,
+) -> ServerExitStatus {
+    match result {
+        Ok(ClientSyncExitStatus::Stopped) if expected_shutdown => ServerExitStatus::Stopped,
+        Ok(ClientSyncExitStatus::Stopped) => {
+            ServerExitStatus::Fatal("client-sync task exited unexpectedly".to_owned())
+        }
+        Ok(ClientSyncExitStatus::IngressClosed) => {
+            ServerExitStatus::Fatal("client-sync ingress closed".to_owned())
+        }
+        Ok(ClientSyncExitStatus::Fatal(message)) => ServerExitStatus::Fatal(message),
+        Err(error) => ServerExitStatus::Fatal(format!("client-sync task join failed: {error}")),
+    }
+}
+
+fn web_join_status(
+    result: Result<selvedge_web::WebExitStatus, JoinError>,
+    expected_shutdown: bool,
+) -> ServerExitStatus {
+    match result {
+        Ok(selvedge_web::WebExitStatus::Stopped) if expected_shutdown => ServerExitStatus::Stopped,
+        Ok(selvedge_web::WebExitStatus::Stopped) => {
+            ServerExitStatus::Fatal("web task exited unexpectedly".to_owned())
+        }
+        Ok(selvedge_web::WebExitStatus::Fatal(message)) => ServerExitStatus::Fatal(message),
+        Err(error) => ServerExitStatus::Fatal(format!("web task join failed: {error}")),
+    }
+}
+
+fn merge_server_exit_status(current: ServerExitStatus, next: ServerExitStatus) -> ServerExitStatus {
+    match (current, next) {
+        (ServerExitStatus::Fatal(message), _) | (_, ServerExitStatus::Fatal(message)) => {
+            ServerExitStatus::Fatal(message)
+        }
+        (ServerExitStatus::RouterStopped, _) | (_, ServerExitStatus::RouterStopped) => {
+            ServerExitStatus::RouterStopped
+        }
+        (ServerExitStatus::StartupFailed(error), _)
+        | (_, ServerExitStatus::StartupFailed(error)) => ServerExitStatus::StartupFailed(error),
+        (ServerExitStatus::Stopped, ServerExitStatus::Stopped) => ServerExitStatus::Stopped,
+    }
 }
 
 struct ServerAttachFrameStream {
@@ -1252,15 +1466,13 @@ fn tool_argument_value_to_local(value: ToolArgumentValue) -> LocalToolArgumentVa
 
 fn start_web(
     web_bind: Option<WebBindReservation>,
-    bridge: &Arc<dyn LocalCommandMapper>,
+    control: ServerControl,
 ) -> Result<Option<WebHandle>, ServerStartupError> {
     let Some(bind) = web_bind else {
         return Ok(None);
     };
 
-    let bridge = Arc::new(ServerWebBridge {
-        _command_mapper: Arc::clone(bridge),
-    });
+    let bridge = Arc::new(ServerWebBridge { control });
     spawn_reserved_web_surface(ReservedWebStartArgs { bind, bridge })
         .map(Some)
         .map_err(map_web_start_error)
@@ -1280,40 +1492,75 @@ fn reserve_web_binding(
 }
 
 struct ServerWebBridge {
-    _command_mapper: Arc<dyn LocalCommandMapper>,
+    control: ServerControl,
 }
 
 impl WebBridge for ServerWebBridge {
-    fn ready(&self, _request: ReadyRequest) -> selvedge_web::WebBridgeFuture<ReadyResponse> {
-        Box::pin(async {
-            Ok(ReadyResponse {
-                protocol_version: current_protocol_version(),
-                state: ReadyState::Ready,
-            })
-        })
+    fn ready(&self, request: ReadyRequest) -> selvedge_web::WebBridgeFuture<ReadyResponse> {
+        let control = self.control.clone();
+        Box::pin(async move { Ok(control.ready(request).await) })
     }
 
     fn submit_command(
         &self,
         request: CommandRequest,
     ) -> selvedge_web::WebBridgeFuture<CommandResponse> {
-        Box::pin(async move {
-            Ok(CommandResponse {
-                protocol_version: current_protocol_version(),
-                client_command_id: request.client_command_id,
-                outcome: CommandOutcome::Rejected(CommandRejectReason::InternalFailure),
-            })
-        })
+        let control = self.control.clone();
+        Box::pin(async move { Ok(control.submit_command(request).await) })
     }
 
-    fn attach(&self, _request: AttachRequest) -> selvedge_web::WebAttachFuture {
-        Box::pin(async {
-            Err(selvedge_web::AttachRejectedOrBridgeError::Bridge(
-                selvedge_web::WebBridgeError::InternalFailure(
-                    "server web bridge is owned by the server runtime".to_owned(),
-                ),
-            ))
+    fn attach(&self, request: AttachRequest) -> selvedge_web::WebAttachFuture {
+        let control = self.control.clone();
+        Box::pin(async move {
+            control
+                .attach_client(request)
+                .await
+                .map(|(accepted, stream)| {
+                    (
+                        accepted,
+                        Box::pin(ServerWebFrameStream { inner: stream })
+                            as selvedge_web::WebFrameStream,
+                    )
+                })
+                .map_err(selvedge_web::AttachRejectedOrBridgeError::Rejected)
         })
+    }
+}
+
+struct ServerWebFrameStream {
+    inner: ServerFrameStream,
+}
+
+impl Stream for ServerWebFrameStream {
+    type Item = Result<LocalClientFrame, selvedge_web::WebBridgeError>;
+
+    fn poll_next(self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let this = self.get_mut();
+        this.inner
+            .as_mut()
+            .poll_next(context)
+            .map(|item| item.map(|frame| frame.map_err(server_request_error_to_web_bridge_error)))
+    }
+}
+
+fn server_request_error_to_web_bridge_error(
+    error: ServerRequestError,
+) -> selvedge_web::WebBridgeError {
+    match error {
+        ServerRequestError::NotReady => selvedge_web::WebBridgeError::ServerNotReady,
+        ServerRequestError::ProtocolValidationFailed => {
+            selvedge_web::WebBridgeError::ProtocolValidationFailed
+        }
+        ServerRequestError::UnsupportedCommand => {
+            selvedge_web::WebBridgeError::CommandRejected("unsupported command".to_owned())
+        }
+        ServerRequestError::RouterMailboxClosed => selvedge_web::WebBridgeError::ServerNotReady,
+        ServerRequestError::AttachChannelFailed => {
+            selvedge_web::WebBridgeError::AttachRejected("attach channel failed".to_owned())
+        }
+        ServerRequestError::InternalFailure(message) => {
+            selvedge_web::WebBridgeError::InternalFailure(message)
+        }
     }
 }
 
@@ -1448,6 +1695,7 @@ mod tests {
     use super::*;
     use futures_util::StreamExt;
     use std::time::Duration;
+    use tokio::sync::oneshot;
     use tokio::time::timeout;
 
     struct UnusedMapper;
@@ -1458,6 +1706,21 @@ mod tests {
             _request: CommandRequest,
         ) -> Result<RouterCommandEnvelope, ServerRequestError> {
             unreachable!("attach shutdown-path tests never submit commands")
+        }
+    }
+
+    struct AcceptingMapper;
+
+    impl LocalCommandMapper for AcceptingMapper {
+        fn map_command(
+            &self,
+            request: CommandRequest,
+        ) -> Result<RouterCommandEnvelope, ServerRequestError> {
+            Ok(RouterCommandEnvelope {
+                client_id: Some(ClientId(request.client_id.0)),
+                client_command_id: Some(ClientCommandId(request.client_command_id.0)),
+                command: RouterCommand::EnsureMissingTaskRuntimes,
+            })
         }
     }
 
@@ -1507,6 +1770,133 @@ mod tests {
 
         assert_eq!(rejected.reason, AttachRejectReason::RouterMailboxClosed);
         assert_eq!(control.state().await, ServerRuntimeState::Closing);
+    }
+
+    #[tokio::test]
+    async fn server_web_bridge_forwards_commands_to_server_control() {
+        let router_tx = accepting_router_sender();
+        let (client_sync_tx, _client_sync_rx) = mpsc::channel(1);
+        let (events_tx, _events_rx) = mpsc::channel(1);
+        let control = test_control_with_mapper(
+            router_tx,
+            client_sync_tx,
+            events_tx,
+            Arc::new(AcceptingMapper),
+        );
+        let bridge = ServerWebBridge { control };
+
+        let response = bridge
+            .submit_command(test_command_request())
+            .await
+            .expect("web command forwards");
+
+        assert_eq!(response.outcome, CommandOutcome::Accepted);
+    }
+
+    #[tokio::test]
+    async fn server_web_bridge_forwards_attach_to_server_control() {
+        let router_tx = accepting_router_sender();
+        let (client_sync_tx, mut client_sync_rx) = mpsc::channel(1);
+        let (events_tx, _events_rx) = mpsc::channel(1);
+        let control = test_control(router_tx, client_sync_tx, events_tx);
+        let bridge = ServerWebBridge { control };
+
+        let (accepted, _stream) = bridge
+            .attach(test_attach_request())
+            .await
+            .expect("web attach forwards");
+
+        assert_eq!(
+            accepted.client_command_id,
+            test_attach_request().client_command_id
+        );
+        match client_sync_rx.recv().await.expect("start hydration") {
+            ClientSyncIngress::StartHydration(begin) => {
+                assert_eq!(begin.client_id, ClientId("client-1".to_owned()));
+                assert_eq!(
+                    begin.client_command_id,
+                    ClientCommandId("attach-1".to_owned())
+                );
+            }
+            ClientSyncIngress::CancelHydration(_) | ClientSyncIngress::Shutdown => {
+                panic!("expected start hydration")
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn server_join_task_reports_unexpected_router_failure() {
+        let (router_tx, _router_rx) = mpsc::unbounded_channel();
+        let (events_tx, events_rx) = mpsc::channel(1);
+        let (client_sync_tx, client_sync_rx) = mpsc::channel(1);
+        let control = test_control(router_tx.clone(), client_sync_tx.clone(), events_tx.clone());
+        let join_handle = spawn_server_join_task(
+            control.inner.clone(),
+            RouterHandle {
+                ingress_tx: router_tx,
+                join_handle: tokio::spawn(async {
+                    RouterExitStatus::FatalError("router failed".to_owned())
+                }),
+            },
+            EventsHandle {
+                ingress_tx: events_tx,
+                join_handle: events_join_for_test(events_rx),
+            },
+            ClientSyncHandle {
+                ingress_tx: client_sync_tx,
+                join_handle: client_sync_join_for_test(client_sync_rx),
+            },
+            None,
+        );
+
+        let status = timeout(Duration::from_millis(100), join_handle)
+            .await
+            .expect("server join returns")
+            .expect("server join succeeds");
+
+        assert_eq!(status, ServerExitStatus::Fatal("router failed".to_owned()));
+        assert_eq!(control.state().await, ServerRuntimeState::Failed);
+    }
+
+    #[tokio::test]
+    async fn server_join_task_preserves_router_failure_during_shutdown() {
+        let (router_tx, _router_rx) = mpsc::unbounded_channel();
+        let (events_tx, events_rx) = mpsc::channel(1);
+        let (client_sync_tx, client_sync_rx) = mpsc::channel(1);
+        let (release_router_tx, release_router_rx) = oneshot::channel();
+        let control = test_control(router_tx.clone(), client_sync_tx.clone(), events_tx.clone());
+        let join_handle = spawn_server_join_task(
+            control.inner.clone(),
+            RouterHandle {
+                ingress_tx: router_tx,
+                join_handle: tokio::spawn(async {
+                    release_router_rx.await.expect("release router");
+                    RouterExitStatus::EventsMailboxClosed
+                }),
+            },
+            EventsHandle {
+                ingress_tx: events_tx,
+                join_handle: events_join_for_test(events_rx),
+            },
+            ClientSyncHandle {
+                ingress_tx: client_sync_tx,
+                join_handle: client_sync_join_for_test(client_sync_rx),
+            },
+            None,
+        );
+
+        control.stop().await;
+        release_router_tx.send(()).expect("release router");
+        let status = timeout(Duration::from_millis(100), join_handle)
+            .await
+            .expect("server join returns")
+            .expect("server join succeeds");
+
+        assert_eq!(
+            status,
+            ServerExitStatus::Fatal("router events mailbox closed".to_owned())
+        );
+        assert_eq!(control.state().await, ServerRuntimeState::Failed);
     }
 
     #[tokio::test]
@@ -2119,6 +2509,37 @@ mod tests {
         events_tx: EventIngressSender,
         frame_channel_factory: Arc<dyn AttachFrameChannelFactory>,
     ) -> ServerControl {
+        test_control_with_frame_channel_factory_and_mapper(
+            router_tx,
+            client_sync_tx,
+            events_tx,
+            frame_channel_factory,
+            Arc::new(UnusedMapper),
+        )
+    }
+
+    fn test_control_with_mapper(
+        router_tx: RouterIngressSender,
+        client_sync_tx: selvedge_client_sync::ClientSyncSender,
+        events_tx: EventIngressSender,
+        command_mapper: Arc<dyn LocalCommandMapper>,
+    ) -> ServerControl {
+        test_control_with_frame_channel_factory_and_mapper(
+            router_tx,
+            client_sync_tx,
+            events_tx,
+            Arc::new(TokioAttachFrameChannelFactory),
+            command_mapper,
+        )
+    }
+
+    fn test_control_with_frame_channel_factory_and_mapper(
+        router_tx: RouterIngressSender,
+        client_sync_tx: selvedge_client_sync::ClientSyncSender,
+        events_tx: EventIngressSender,
+        frame_channel_factory: Arc<dyn AttachFrameChannelFactory>,
+        command_mapper: Arc<dyn LocalCommandMapper>,
+    ) -> ServerControl {
         ServerControl {
             inner: Arc::new(ServerInner {
                 state: RwLock::new(ServerRuntimeState::Ready),
@@ -2132,9 +2553,37 @@ mod tests {
                 client_sync_tx: Mutex::new(client_sync_tx),
                 active_attaches: Arc::new(StdMutex::new(HashMap::new())),
                 frame_channel_factory,
-                command_mapper: Arc::new(UnusedMapper),
-                web_control: Mutex::new(None),
+                command_mapper,
+                web_control: StdMutex::new(None),
             }),
+        }
+    }
+
+    fn events_join_for_test(mut events_rx: mpsc::Receiver<EventIngress>) -> JoinHandle<()> {
+        tokio::spawn(async move { while events_rx.recv().await.is_some() {} })
+    }
+
+    fn client_sync_join_for_test(
+        mut client_sync_rx: mpsc::Receiver<ClientSyncIngress>,
+    ) -> JoinHandle<ClientSyncExitStatus> {
+        tokio::spawn(async move {
+            while let Some(message) = client_sync_rx.recv().await {
+                if matches!(message, ClientSyncIngress::Shutdown) {
+                    return ClientSyncExitStatus::Stopped;
+                }
+            }
+            ClientSyncExitStatus::IngressClosed
+        })
+    }
+
+    fn test_command_request() -> CommandRequest {
+        CommandRequest {
+            protocol_version: current_protocol_version(),
+            client_id: selvedge_local_protocol::LocalClientId::new("client-1")
+                .expect("valid client id"),
+            client_command_id: LocalClientCommandId::new("command-1").expect("valid command id"),
+            command_name: "send-user-input".to_owned(),
+            payload: serde_json::json!({"message": "hello"}),
         }
     }
 
