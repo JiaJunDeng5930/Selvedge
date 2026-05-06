@@ -639,6 +639,82 @@ async fn hidden_reservation_duplicate_is_rejected() {
 }
 
 #[tokio::test]
+async fn hidden_reservation_detach_prevents_later_restore() {
+    let handle = spawn_events_task(EventsStartArgs {
+        ingress_capacity: 8,
+        client_registry_capacity: 1,
+        hydration_buffer_capacity: 4,
+    })
+    .expect("valid events task");
+    let (outbound, mut rx) = mpsc::channel(8);
+
+    assert_eq!(
+        reserve_client_session(
+            &handle.ingress_tx,
+            ClientId("client-1".to_owned()),
+            ClientCommandId("attach-1".to_owned()),
+        )
+        .await,
+        EventClientReservationResult::Reserved
+    );
+    assert_eq!(
+        reserve_client_session(
+            &handle.ingress_tx,
+            ClientId("client-1".to_owned()),
+            ClientCommandId("attach-2".to_owned()),
+        )
+        .await,
+        EventClientReservationResult::Reserved
+    );
+    begin_named_client_with_command_without_reservation(
+        &handle.ingress_tx,
+        ClientId("client-1".to_owned()),
+        outbound,
+        ClientCommandId("attach-1".to_owned()),
+        verbose_all_tasks(),
+    )
+    .await;
+    handle
+        .ingress_tx
+        .send(EventIngress::Control(EventControlMessage::DetachClient(
+            DetachClient {
+                client_id: ClientId("client-1".to_owned()),
+                client_command_id: ClientCommandId("attach-1".to_owned()),
+                reason: DetachReason::ClientDisconnected,
+            },
+        )))
+        .await
+        .expect("send hidden detach");
+    handle
+        .ingress_tx
+        .send(EventIngress::Control(EventControlMessage::DetachClient(
+            DetachClient {
+                client_id: ClientId("client-1".to_owned()),
+                client_command_id: ClientCommandId("attach-2".to_owned()),
+                reason: DetachReason::ClientDisconnected,
+            },
+        )))
+        .await
+        .expect("send top detach");
+    deliver_named_empty_snapshot(&handle.ingress_tx, ClientId("client-1".to_owned())).await;
+    if let Ok(Some(_)) = tokio::time::timeout(Duration::from_millis(50), rx.recv()).await {
+        panic!("detached hidden reservation should not receive frames");
+    }
+    assert_eq!(
+        reserve_client_session(
+            &handle.ingress_tx,
+            ClientId("client-2".to_owned()),
+            ClientCommandId("attach-1".to_owned()),
+        )
+        .await,
+        EventClientReservationResult::Reserved
+    );
+
+    drop(handle.ingress_tx);
+    handle.join_handle.await.expect("events task exits cleanly");
+}
+
+#[tokio::test]
 async fn reserved_client_session_is_consumed_by_matching_begin() {
     let handle = spawn_events_task(EventsStartArgs {
         ingress_capacity: 8,
