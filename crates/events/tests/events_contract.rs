@@ -446,6 +446,42 @@ async fn replacement_reservation_shares_existing_client_capacity_slot() {
 }
 
 #[tokio::test]
+async fn dropped_reservation_waiter_does_not_consume_capacity() {
+    let handle = spawn_events_task(EventsStartArgs {
+        ingress_capacity: 8,
+        client_registry_capacity: 1,
+        hydration_buffer_capacity: 4,
+    })
+    .expect("valid events task");
+    let (result_tx, result_rx) = tokio::sync::oneshot::channel();
+    drop(result_rx);
+
+    handle
+        .ingress_tx
+        .send(EventIngress::Control(
+            EventControlMessage::ReserveClientSession(ReserveClientSession {
+                client_id: ClientId("client-1".to_owned()),
+                client_command_id: ClientCommandId("attach-1".to_owned()),
+                result_tx,
+            }),
+        ))
+        .await
+        .expect("send abandoned reservation");
+    assert_eq!(
+        reserve_client_session(
+            &handle.ingress_tx,
+            ClientId("client-2".to_owned()),
+            ClientCommandId("attach-1".to_owned()),
+        )
+        .await,
+        EventClientReservationResult::Reserved
+    );
+
+    drop(handle.ingress_tx);
+    handle.join_handle.await.expect("events task exits cleanly");
+}
+
+#[tokio::test]
 async fn reserved_client_session_is_consumed_by_matching_begin() {
     let handle = spawn_events_task(EventsStartArgs {
         ingress_capacity: 8,

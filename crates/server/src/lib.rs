@@ -322,6 +322,7 @@ impl ServerControl {
             self.begin_shutdown_locked().await;
             return reject(AttachRejectReason::RouterMailboxClosed);
         }
+        reservation.mark_router_attach_sent();
 
         match admission_rx.await {
             Ok(RouterAttachAdmissionResult::Accepted) => {
@@ -520,6 +521,7 @@ struct ActiveAttachReservation {
     previous_attach: Option<ClientCommandId>,
     events_tx: Option<EventIngressSender>,
     events_reserved: bool,
+    router_attach_sent: bool,
     active: bool,
 }
 
@@ -538,6 +540,7 @@ impl ActiveAttachReservation {
             previous_attach,
             events_tx,
             events_reserved: false,
+            router_attach_sent: false,
             active: true,
         }
     }
@@ -552,6 +555,10 @@ impl ActiveAttachReservation {
 
     fn mark_events_reserved(&mut self) {
         self.events_reserved = true;
+    }
+
+    fn mark_router_attach_sent(&mut self) {
+        self.router_attach_sent = true;
     }
 
     async fn cleanup_events_reservation_before_reject(&mut self) {
@@ -579,7 +586,7 @@ impl ActiveAttachReservation {
 impl Drop for ActiveAttachReservation {
     fn drop(&mut self) {
         if self.active {
-            if self.events_reserved
+            if (self.events_reserved || self.router_attach_sent)
                 && let Some(events_tx) = &self.events_tx
             {
                 send_detach_client_and_restore_active(
@@ -1816,6 +1823,65 @@ mod tests {
             .attach_client(test_attach_request())
             .await
             .expect("attach accepted after queued cleanup");
+    }
+
+    #[tokio::test]
+    async fn cancelled_attach_after_router_send_detaches_possible_reservation() {
+        let (router_tx, mut router_rx) = mpsc::unbounded_channel();
+        let (router_seen_tx, router_seen_rx) = tokio::sync::oneshot::channel();
+        tokio::spawn(async move {
+            let mut router_seen_tx = Some(router_seen_tx);
+            while let Some(message) = router_rx.recv().await {
+                match message {
+                    RouterIngressMessage::Command(RouterCommandEnvelope {
+                        command: RouterCommand::AttachClient { admission_tx, .. },
+                        ..
+                    }) => {
+                        if let Some(router_seen_tx) = router_seen_tx.take() {
+                            let _ = router_seen_tx.send(());
+                        }
+                        let _admission_tx = admission_tx;
+                        std::future::pending::<()>().await;
+                    }
+                    RouterIngressMessage::StopRouter => break,
+                    _ => {}
+                }
+            }
+        });
+        let (client_sync_tx, mut client_sync_rx) = mpsc::channel(4);
+        let (events_tx, mut events_rx) = mpsc::channel(4);
+        let control = test_control(router_tx, client_sync_tx, events_tx);
+        let attach_task = tokio::spawn({
+            let control = control.clone();
+            async move { control.attach_client(test_attach_request()).await }
+        });
+
+        router_seen_rx.await.expect("router attach command arrives");
+        attach_task.abort();
+        match attach_task.await {
+            Ok(_) => panic!("attach task should abort"),
+            Err(error) => assert!(error.is_cancelled()),
+        }
+
+        match timeout(Duration::from_millis(100), events_rx.recv())
+            .await
+            .expect("cancelled attach detach arrives")
+            .expect("cancelled attach detach")
+        {
+            EventIngress::Control(EventControlMessage::DetachClient(detach)) => {
+                assert_eq!(detach.client_id, ClientId("client-1".to_owned()));
+                assert_eq!(
+                    detach.client_command_id,
+                    ClientCommandId("attach-1".to_owned())
+                );
+                assert_eq!(detach.reason, DetachReason::ClientDisconnected);
+            }
+            _ => panic!("unexpected events ingress"),
+        }
+        assert!(matches!(
+            client_sync_rx.try_recv(),
+            Err(tokio::sync::mpsc::error::TryRecvError::Empty)
+        ));
     }
 
     #[tokio::test]
