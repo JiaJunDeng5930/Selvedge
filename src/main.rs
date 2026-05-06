@@ -1,8 +1,11 @@
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    selvedge_config::init()?;
-    selvedge_logging::init()?;
-    selvedge_logging::selvedge_log!(selvedge_logging::LogLevel::Info, "selvedge started")?;
-    println!("{}", selvedge::startup_message());
+fn main() {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_time()
+        .build()
+        .expect("create CLI runtime");
+    let status = runtime.block_on(selvedge::run_cli(selvedge::CliRunArgs {
+        argv: std::env::args().collect(),
+    }));
 
-    Ok(())
+    std::process::exit(selvedge::exit_code(&status));
 }

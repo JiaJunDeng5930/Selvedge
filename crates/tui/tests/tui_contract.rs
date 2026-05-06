@@ -15,7 +15,7 @@ use selvedge_local_protocol::{
     LocalDetailLevel, LocalTaskScope, ReadyRequest, ReadyResponse, ReadyState,
     current_protocol_version,
 };
-use selvedge_tui::{TuiExitStatus, TuiInputAction, TuiStartArgs, run_tui};
+use selvedge_tui::{TuiExitStatus, TuiInputAction, TuiStartArgs, TuiTerminalInput, run_tui};
 use tokio::sync::Mutex as AsyncMutex;
 
 static TEST_LOCK: LazyLock<AsyncMutex<()>> = LazyLock::new(|| AsyncMutex::new(()));
@@ -29,7 +29,8 @@ async fn connect_failure_returns_server_unavailable() {
     let _guard = TEST_LOCK.lock().await;
     install_connect_plan(Err(LocalClientError::ConnectFailed("refused".to_owned())));
 
-    let status = run_tui::<FakeTransport, _>(valid_args(None), NoopMapper).await;
+    let status =
+        run_tui::<FakeTransport, _, _>(valid_args(None), NoopMapper, FakeTerminal::eof()).await;
 
     assert_eq!(status, TuiExitStatus::ServerUnavailable);
 }
@@ -48,7 +49,8 @@ async fn not_ready_returns_server_not_ready() {
         });
     install_connect_plan(Ok(state.clone()));
 
-    let status = run_tui::<FakeTransport, _>(valid_args(None), NoopMapper).await;
+    let status =
+        run_tui::<FakeTransport, _, _>(valid_args(None), NoopMapper, FakeTerminal::eof()).await;
 
     assert_eq!(status, TuiExitStatus::ServerNotReady);
     assert_eq!(state.lock().expect("fake state").close_calls, 1);
@@ -69,7 +71,8 @@ async fn attach_rejection_returns_attach_rejected() {
         }));
     install_connect_plan(Ok(state.clone()));
 
-    let status = run_tui::<FakeTransport, _>(valid_args(None), NoopMapper).await;
+    let status =
+        run_tui::<FakeTransport, _, _>(valid_args(None), NoopMapper, FakeTerminal::eof()).await;
 
     assert_eq!(
         status,
@@ -101,8 +104,12 @@ async fn waits_for_snapshot_then_submits_initial_command_and_reports_rejection()
     }
     install_connect_plan(Ok(state.clone()));
 
-    let status =
-        run_tui::<FakeTransport, _>(valid_args(Some(valid_command("command-1"))), NoopMapper).await;
+    let status = run_tui::<FakeTransport, _, _>(
+        valid_args(Some(valid_command("command-1"))),
+        NoopMapper,
+        FakeTerminal::eof(),
+    )
+    .await;
 
     assert_eq!(
         status,
@@ -137,8 +144,12 @@ async fn accepted_initial_command_exits_successfully() {
     }
     install_connect_plan(Ok(state.clone()));
 
-    let status =
-        run_tui::<FakeTransport, _>(valid_args(Some(valid_command("command-1"))), NoopMapper).await;
+    let status = run_tui::<FakeTransport, _, _>(
+        valid_args(Some(valid_command("command-1"))),
+        NoopMapper,
+        FakeTerminal::eof(),
+    )
+    .await;
 
     assert_eq!(status, TuiExitStatus::Exited);
     let state = state.lock().expect("fake state");
@@ -157,7 +168,8 @@ async fn stream_closed_before_snapshot_returns_disconnected() {
         .push_back(AttachAction::Accepted(Vec::new()));
     install_connect_plan(Ok(state.clone()));
 
-    let status = run_tui::<FakeTransport, _>(valid_args(None), NoopMapper).await;
+    let status =
+        run_tui::<FakeTransport, _, _>(valid_args(None), NoopMapper, FakeTerminal::eof()).await;
 
     assert_eq!(status, TuiExitStatus::Disconnected);
     assert_eq!(state.lock().expect("fake state").close_calls, 1);
@@ -175,10 +187,50 @@ async fn snapshot_wait_timeout_returns_snapshot_timeout() {
     install_connect_plan(Ok(state.clone()));
 
     let mut args = valid_args(None);
-    args.client_config.request_timeout = Duration::from_millis(5);
-    let status = run_tui::<FakeTransport, _>(args, NoopMapper).await;
+    args.snapshot_timeout = Duration::from_millis(5);
+    let status = run_tui::<FakeTransport, _, _>(args, NoopMapper, FakeTerminal::eof()).await;
 
     assert_eq!(status, TuiExitStatus::SnapshotTimeout);
+    assert_eq!(state.lock().expect("fake state").close_calls, 1);
+}
+
+#[tokio::test]
+async fn terminal_eof_after_snapshot_exits_and_empty_line_is_input() {
+    let _guard = TEST_LOCK.lock().await;
+    let state = ready_state();
+    state
+        .lock()
+        .expect("fake state")
+        .attach_responses
+        .push_back(AttachAction::Accepted(vec![Ok(
+            LocalClientFrame::Snapshot(LocalClientSnapshotFrame {
+                delivery_seq: 1,
+                client_command_id: LocalClientCommandId::new("attach-1").expect("command id"),
+                snapshot: empty_snapshot(),
+            }),
+        )]));
+    install_connect_plan(Ok(state.clone()));
+    let mapper = RecordingMapper::default();
+    let terminal = FakeTerminal::new(vec![
+        Ok(TuiTerminalInput::Line(String::new())),
+        Ok(TuiTerminalInput::Eof),
+    ]);
+    let terminal_state = terminal.state.clone();
+
+    let status = run_tui::<FakeTransport, _, _>(valid_args(None), mapper.clone(), terminal).await;
+
+    assert_eq!(status, TuiExitStatus::Exited);
+    assert_eq!(
+        mapper.inputs.lock().expect("mapper inputs").as_slice(),
+        [String::new()]
+    );
+    assert_eq!(
+        terminal_state
+            .lock()
+            .expect("terminal state")
+            .rendered_frames,
+        1
+    );
     assert_eq!(state.lock().expect("fake state").close_calls, 1);
 }
 
@@ -187,6 +239,72 @@ struct NoopMapper;
 impl selvedge_tui::TuiCommandMapper for NoopMapper {
     fn map_input(&self, _input_text: &str) -> Result<TuiInputAction, String> {
         Ok(TuiInputAction::Noop)
+    }
+}
+
+#[derive(Clone, Default)]
+struct RecordingMapper {
+    inputs: Arc<Mutex<Vec<String>>>,
+}
+
+impl selvedge_tui::TuiCommandMapper for RecordingMapper {
+    fn map_input(&self, input_text: &str) -> Result<TuiInputAction, String> {
+        self.inputs
+            .lock()
+            .expect("mapper inputs")
+            .push(input_text.to_owned());
+        Ok(TuiInputAction::Noop)
+    }
+}
+
+struct FakeTerminal {
+    state: Arc<Mutex<FakeTerminalState>>,
+}
+
+struct FakeTerminalState {
+    inputs: VecDeque<Result<TuiTerminalInput, String>>,
+    rendered_frames: usize,
+    rendered_errors: Vec<String>,
+}
+
+impl FakeTerminal {
+    fn eof() -> Self {
+        Self::new(vec![Ok(TuiTerminalInput::Eof)])
+    }
+
+    fn new(inputs: Vec<Result<TuiTerminalInput, String>>) -> Self {
+        Self {
+            state: Arc::new(Mutex::new(FakeTerminalState {
+                inputs: inputs.into(),
+                rendered_frames: 0,
+                rendered_errors: Vec::new(),
+            })),
+        }
+    }
+}
+
+impl selvedge_tui::TuiTerminal for FakeTerminal {
+    fn read_input(&mut self) -> Result<TuiTerminalInput, String> {
+        self.state
+            .lock()
+            .expect("terminal state")
+            .inputs
+            .pop_front()
+            .unwrap_or(Ok(TuiTerminalInput::Eof))
+    }
+
+    fn render_frame(&mut self, _frame: &LocalClientFrame) -> Result<(), String> {
+        self.state.lock().expect("terminal state").rendered_frames += 1;
+        Ok(())
+    }
+
+    fn render_error(&mut self, error: &str) -> Result<(), String> {
+        self.state
+            .lock()
+            .expect("terminal state")
+            .rendered_errors
+            .push(error.to_owned());
+        Ok(())
     }
 }
 
@@ -338,6 +456,7 @@ fn valid_args(initial_command: Option<CommandRequest>) -> TuiStartArgs {
             include_debug_notices: false,
         },
         initial_command,
+        snapshot_timeout: Duration::from_secs(1),
     }
 }
 

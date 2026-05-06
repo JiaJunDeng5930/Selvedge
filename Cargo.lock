@@ -1386,10 +1386,22 @@ checksum = "9774ba4a74de5f7b1c1451ed6cd5285a32eddb5cccb8cc655a4e50009e06477f"
 name = "selvedge"
 version = "0.0.0"
 dependencies = [
+ "selvedge-api",
+ "selvedge-client-sync",
+ "selvedge-command-model",
  "selvedge-config",
  "selvedge-config-model",
+ "selvedge-core",
+ "selvedge-domain-model",
+ "selvedge-local-client",
+ "selvedge-local-protocol",
  "selvedge-logging",
+ "selvedge-router",
+ "selvedge-server",
+ "selvedge-systemd",
+ "serde_json",
  "tempfile",
+ "tokio",
 ]
 
 [[package]]
@@ -1519,8 +1531,10 @@ dependencies = [
  "futures-core",
  "futures-util",
  "selvedge-local-protocol",
+ "serde",
  "serde_json",
  "tokio",
+ "tokio-stream",
 ]
 
 [[package]]

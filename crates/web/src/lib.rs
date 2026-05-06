@@ -10,7 +10,8 @@ use futures_core::Stream;
 use selvedge_local_protocol::{
     AttachAccepted, AttachRejectReason, AttachRejected, AttachRequest, CommandOutcome,
     CommandRejectReason, CommandRequest, CommandResponse, LocalClientFrame, ReadyRequest,
-    ReadyResponse, current_protocol_version, validate_attach_request, validate_command_request,
+    ReadyResponse, ReadyState, current_protocol_version, validate_attach_request,
+    validate_command_request, validate_ready_request,
 };
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
@@ -172,6 +173,21 @@ impl WebControl {
         self.inner.state_tx.borrow().clone()
     }
 
+    pub async fn ready(&self, request: ReadyRequest) -> Result<ReadyResponse, WebBridgeError> {
+        self.ensure_listening()?;
+        if validate_ready_request(&request).is_err() {
+            return Ok(not_ready_response());
+        }
+
+        match self.inner.bridge.ready(request).await {
+            Ok(response) => Ok(response),
+            Err(WebBridgeError::ServerNotReady) | Err(WebBridgeError::ProtocolValidationFailed) => {
+                Ok(not_ready_response())
+            }
+            Err(error) => Err(error),
+        }
+    }
+
     pub async fn page(&self) -> Result<WebPageResponse, WebBridgeError> {
         self.ensure_listening()?;
         Ok(WebPageResponse {
@@ -318,6 +334,13 @@ fn rejected_command_response(
         protocol_version: current_protocol_version(),
         client_command_id,
         outcome: CommandOutcome::Rejected(reason),
+    }
+}
+
+fn not_ready_response() -> ReadyResponse {
+    ReadyResponse {
+        protocol_version: current_protocol_version(),
+        state: ReadyState::NotReady,
     }
 }
 

@@ -339,6 +339,68 @@ pub enum LocalProtocolValidationError {
     EmptyNoticeText,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LocalHttpProblem {
+    pub protocol_version: ProtocolVersion,
+    pub code: LocalHttpProblemCode,
+    pub message_text: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum LocalHttpProblemCode {
+    MethodNotAllowed,
+    UnsupportedContentType,
+    MalformedJson,
+    BodyTooLarge,
+    RouteNotFound,
+    ServerClosing,
+    InternalFailure,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub enum LocalAttachStreamItem {
+    Accepted(AttachAccepted),
+    Frame(LocalClientFrame),
+    StreamError(LocalStreamError),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LocalStreamError {
+    pub protocol_version: ProtocolVersion,
+    pub client_command_id: LocalClientCommandId,
+    pub reason: LocalStreamErrorReason,
+    pub message_text: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum LocalStreamErrorReason {
+    StreamClosed,
+    ServerShuttingDown,
+    EncodeFailed,
+    InternalFailure,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum LocalAttachStreamValidationState {
+    WaitingAccepted,
+    Streaming,
+    Ended,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum LocalAttachStreamOrderError {
+    ExpectedAcceptedFirst,
+    DuplicateAccepted,
+    RejectedInsideStream,
+    FrameBeforeAccepted,
+    ItemAfterEnded,
+}
+
+#[derive(Clone, Debug)]
+pub struct LocalAttachStreamValidator {
+    state: LocalAttachStreamValidationState,
+}
+
 impl LocalClientId {
     pub fn new(value: impl Into<String>) -> Result<Self, LocalProtocolValidationError> {
         let value = value.into();
@@ -460,6 +522,99 @@ pub fn validate_snapshot(
     }
 
     Ok(())
+}
+
+pub fn validate_attach_stream_item(
+    item: &LocalAttachStreamItem,
+) -> Result<(), LocalProtocolValidationError> {
+    match item {
+        LocalAttachStreamItem::Accepted(accepted) => {
+            validate_protocol_version(accepted.protocol_version)?;
+            validate_client_id(&accepted.client_id)?;
+            validate_client_command_id(&accepted.client_command_id)
+        }
+        LocalAttachStreamItem::Frame(frame) => validate_client_frame(frame),
+        LocalAttachStreamItem::StreamError(error) => {
+            validate_protocol_version(error.protocol_version)?;
+            validate_client_command_id(&error.client_command_id)?;
+            if error.message_text.trim().is_empty() {
+                return Err(LocalProtocolValidationError::EmptyNoticeText);
+            }
+            Ok(())
+        }
+    }
+}
+
+pub fn http_problem(
+    code: LocalHttpProblemCode,
+    message_text: impl Into<String>,
+) -> LocalHttpProblem {
+    LocalHttpProblem {
+        protocol_version: current_protocol_version(),
+        code,
+        message_text: message_text.into(),
+    }
+}
+
+impl LocalAttachStreamValidator {
+    pub fn new() -> Self {
+        Self {
+            state: LocalAttachStreamValidationState::WaitingAccepted,
+        }
+    }
+
+    pub fn state(&self) -> LocalAttachStreamValidationState {
+        self.state.clone()
+    }
+
+    pub fn validate_next(
+        &mut self,
+        item: &LocalAttachStreamItem,
+    ) -> Result<(), LocalAttachStreamOrderError> {
+        if self.state == LocalAttachStreamValidationState::Ended {
+            return Err(LocalAttachStreamOrderError::ItemAfterEnded);
+        }
+
+        match (&self.state, item) {
+            (
+                LocalAttachStreamValidationState::WaitingAccepted,
+                LocalAttachStreamItem::Accepted(_),
+            ) => {
+                self.state = LocalAttachStreamValidationState::Streaming;
+                Ok(())
+            }
+            (
+                LocalAttachStreamValidationState::WaitingAccepted,
+                LocalAttachStreamItem::Frame(_),
+            ) => Err(LocalAttachStreamOrderError::FrameBeforeAccepted),
+            (
+                LocalAttachStreamValidationState::WaitingAccepted,
+                LocalAttachStreamItem::StreamError(_),
+            ) => Err(LocalAttachStreamOrderError::ExpectedAcceptedFirst),
+            (LocalAttachStreamValidationState::Streaming, LocalAttachStreamItem::Accepted(_)) => {
+                Err(LocalAttachStreamOrderError::DuplicateAccepted)
+            }
+            (LocalAttachStreamValidationState::Streaming, LocalAttachStreamItem::Frame(_)) => {
+                Ok(())
+            }
+            (
+                LocalAttachStreamValidationState::Streaming,
+                LocalAttachStreamItem::StreamError(_),
+            ) => {
+                self.state = LocalAttachStreamValidationState::Ended;
+                Ok(())
+            }
+            (LocalAttachStreamValidationState::Ended, _) => {
+                Err(LocalAttachStreamOrderError::ItemAfterEnded)
+            }
+        }
+    }
+}
+
+impl Default for LocalAttachStreamValidator {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 fn validate_protocol_version(

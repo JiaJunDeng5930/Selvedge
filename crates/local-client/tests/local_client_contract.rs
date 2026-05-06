@@ -8,7 +8,7 @@ use futures_util::StreamExt;
 use futures_util::stream;
 use selvedge_local_client::{
     AttachRejectedOrClientError, LocalClientConfig, LocalClientError, LocalClientState,
-    LocalEndpoint, LocalFrameStream, LocalTransport, connect,
+    LocalEndpoint, LocalFrameStream, LocalTransport, connect, connect_http,
 };
 use selvedge_local_protocol::{
     AttachAccepted, AttachRejectReason, AttachRejected, AttachRequest, CommandOutcome,
@@ -16,7 +16,10 @@ use selvedge_local_protocol::{
     LocalClientId, LocalClientSubscription, LocalDetailLevel, LocalNotice, LocalNoticeLevel,
     LocalTaskScope, ReadyRequest, ReadyResponse, ReadyState, current_protocol_version,
 };
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{Mutex as AsyncMutex, oneshot};
+use tokio::task::JoinHandle;
 use tokio::time::timeout;
 
 static TEST_LOCK: LazyLock<AsyncMutex<()>> = LazyLock::new(|| AsyncMutex::new(()));
@@ -869,6 +872,155 @@ async fn cancelling_pending_close_restores_previous_state() {
     );
 }
 
+#[tokio::test]
+async fn http_transport_posts_ready_to_local_protocol_route() {
+    let _guard = TEST_LOCK.lock().await;
+    let body = serde_json::to_vec(&ReadyResponse {
+        protocol_version: current_protocol_version(),
+        state: ReadyState::Ready,
+    })
+    .expect("ready response json");
+    let (port, server) =
+        spawn_http_contract_server(vec![None, Some(HttpContractResponse::json(200, body))]).await;
+    let client = connect_http(http_config(port))
+        .await
+        .expect("connect http client");
+
+    let response = client
+        .ready(ReadyRequest {
+            protocol_version: current_protocol_version(),
+        })
+        .await
+        .expect("ready over http");
+
+    assert_eq!(response.state, ReadyState::Ready);
+    let captures = server.await.expect("join http contract server");
+    let ready = captures
+        .iter()
+        .find(|capture| capture.path == "/selvedge/local/v1/ready")
+        .expect("ready request captured");
+    assert_eq!(ready.method, "POST");
+    assert_eq!(ready.content_type.as_deref(), Some("application/json"));
+    assert_eq!(
+        serde_json::from_slice::<ReadyRequest>(&ready.body).expect("ready request body"),
+        ReadyRequest {
+            protocol_version: current_protocol_version()
+        }
+    );
+}
+
+#[tokio::test]
+async fn http_transport_posts_command_to_local_protocol_route() {
+    let _guard = TEST_LOCK.lock().await;
+    let body = serde_json::to_vec(&CommandResponse {
+        protocol_version: current_protocol_version(),
+        client_command_id: LocalClientCommandId::new("command-1").expect("command id"),
+        outcome: CommandOutcome::Accepted,
+    })
+    .expect("command response json");
+    let (port, server) =
+        spawn_http_contract_server(vec![None, Some(HttpContractResponse::json(200, body))]).await;
+    let client = connect_http(http_config(port))
+        .await
+        .expect("connect http client");
+
+    let response = client
+        .submit_command(valid_command("command-1"))
+        .await
+        .expect("command over http");
+
+    assert_eq!(response.outcome, CommandOutcome::Accepted);
+    let captures = server.await.expect("join http contract server");
+    let command = captures
+        .iter()
+        .find(|capture| capture.path == "/selvedge/local/v1/command")
+        .expect("command request captured");
+    assert_eq!(command.method, "POST");
+    assert_eq!(command.content_type.as_deref(), Some("application/json"));
+    assert_eq!(
+        serde_json::from_slice::<CommandRequest>(&command.body).expect("command request body"),
+        valid_command("command-1")
+    );
+}
+
+#[tokio::test]
+async fn http_transport_reads_attach_accepted_ndjson_stream() {
+    let _guard = TEST_LOCK.lock().await;
+    let accepted = AttachAccepted {
+        protocol_version: current_protocol_version(),
+        client_id: LocalClientId::new("client-1").expect("client id"),
+        client_command_id: LocalClientCommandId::new("attach-1").expect("command id"),
+    };
+    let ndjson = format!(
+        "{}\n{}\n",
+        serde_json::to_string(&selvedge_local_protocol::LocalAttachStreamItem::Accepted(
+            accepted.clone()
+        ))
+        .expect("accepted item json"),
+        serde_json::to_string(&selvedge_local_protocol::LocalAttachStreamItem::Frame(
+            notice_frame(7)
+        ))
+        .expect("frame item json")
+    )
+    .into_bytes();
+    let (port, server) =
+        spawn_http_contract_server(vec![None, Some(HttpContractResponse::ndjson(200, ndjson))])
+            .await;
+    let client = connect_http(http_config(port))
+        .await
+        .expect("connect http client");
+
+    let (actual_accepted, mut frames) = client
+        .attach(valid_attach("attach-1"))
+        .await
+        .expect("attach over http");
+
+    assert_eq!(actual_accepted, accepted);
+    assert_eq!(next_seq(&mut frames).await, Ok(7));
+    let captures = server.await.expect("join http contract server");
+    let attach = captures
+        .iter()
+        .find(|capture| capture.path == "/selvedge/local/v1/attach")
+        .expect("attach request captured");
+    assert_eq!(attach.method, "POST");
+    assert_eq!(attach.content_type.as_deref(), Some("application/json"));
+    assert_eq!(attach.accept.as_deref(), Some("application/x-ndjson"));
+    assert_eq!(
+        serde_json::from_slice::<AttachRequest>(&attach.body).expect("attach request body"),
+        valid_attach("attach-1")
+    );
+}
+
+#[tokio::test]
+async fn http_transport_preserves_attach_rejection_response() {
+    let _guard = TEST_LOCK.lock().await;
+    let rejected = AttachRejected {
+        protocol_version: current_protocol_version(),
+        client_command_id: LocalClientCommandId::new("attach-1").expect("command id"),
+        reason: AttachRejectReason::ServerNotReady,
+    };
+    let body = serde_json::to_vec(&rejected).expect("attach rejected json");
+    let (port, server) =
+        spawn_http_contract_server(vec![None, Some(HttpContractResponse::json(409, body))]).await;
+    let client = connect_http(http_config(port))
+        .await
+        .expect("connect http client");
+
+    let error = client.attach(valid_attach("attach-1")).await;
+
+    match error {
+        Err(AttachRejectedOrClientError::Rejected(actual)) => assert_eq!(actual, rejected),
+        Ok(_) => panic!("attach should be rejected"),
+        Err(other) => panic!("unexpected attach error: {other:?}"),
+    }
+    let captures = server.await.expect("join http contract server");
+    assert!(
+        captures
+            .iter()
+            .any(|capture| capture.path == "/selvedge/local/v1/attach")
+    );
+}
+
 #[test]
 fn crate_has_no_systemd_dependency() {
     let manifest = fs::read_to_string(format!("{}/Cargo.toml", env!("CARGO_MANIFEST_DIR")))
@@ -892,6 +1044,21 @@ struct FakeTransportState {
     ready_responses: VecDeque<ReadyAction>,
     command_responses: VecDeque<CommandAction>,
     attach_responses: VecDeque<AttachAction>,
+}
+
+struct HttpContractResponse {
+    status_code: u16,
+    content_type: &'static str,
+    body: Vec<u8>,
+}
+
+#[derive(Debug)]
+struct CapturedHttpRequest {
+    method: String,
+    path: String,
+    content_type: Option<String>,
+    accept: Option<String>,
+    body: Vec<u8>,
 }
 
 #[derive(Clone, Copy)]
@@ -1116,5 +1283,137 @@ async fn next_seq(stream: &mut LocalFrameStream) -> Result<u64, LocalClientError
         )),
         Some(Err(error)) => Err(error),
         None => Err(LocalClientError::StreamClosed),
+    }
+}
+
+impl HttpContractResponse {
+    fn json(status_code: u16, body: Vec<u8>) -> Self {
+        Self {
+            status_code,
+            content_type: "application/json",
+            body,
+        }
+    }
+
+    fn ndjson(status_code: u16, body: Vec<u8>) -> Self {
+        Self {
+            status_code,
+            content_type: "application/x-ndjson",
+            body,
+        }
+    }
+}
+
+async fn spawn_http_contract_server(
+    responses: Vec<Option<HttpContractResponse>>,
+) -> (u16, JoinHandle<Vec<CapturedHttpRequest>>) {
+    let listener = TcpListener::bind(("127.0.0.1", 0))
+        .await
+        .expect("bind local http contract server");
+    let port = listener.local_addr().expect("local addr").port();
+    let handle = tokio::spawn(async move {
+        let mut captures = Vec::new();
+        for response in responses {
+            let (mut stream, _addr) = listener.accept().await.expect("accept http connection");
+            let capture = read_captured_http_request(&mut stream)
+                .await
+                .expect("read captured http request");
+            if !capture.method.is_empty() {
+                captures.push(capture);
+            }
+            if let Some(response) = response {
+                write_contract_response(&mut stream, response)
+                    .await
+                    .expect("write contract response");
+            }
+        }
+
+        captures
+    });
+
+    (port, handle)
+}
+
+async fn read_captured_http_request(
+    stream: &mut TcpStream,
+) -> std::io::Result<CapturedHttpRequest> {
+    let mut raw = Vec::new();
+    let mut byte = [0_u8; 1];
+    while !raw.ends_with(b"\r\n\r\n") {
+        let read = stream.read(&mut byte).await?;
+        if read == 0 {
+            return Ok(CapturedHttpRequest {
+                method: String::new(),
+                path: String::new(),
+                content_type: None,
+                accept: None,
+                body: Vec::new(),
+            });
+        }
+        raw.push(byte[0]);
+    }
+
+    let headers = String::from_utf8(raw).expect("request headers are utf8");
+    let mut lines = headers.split("\r\n");
+    let request_line = lines.next().expect("request line");
+    let mut request_parts = request_line.split_whitespace();
+    let method = request_parts.next().unwrap_or_default().to_owned();
+    let path = request_parts.next().unwrap_or_default().to_owned();
+    let mut content_type = None;
+    let mut accept = None;
+    let mut content_length = 0_usize;
+
+    for line in lines {
+        if line.is_empty() {
+            continue;
+        }
+        if let Some((name, value)) = line.split_once(':') {
+            let value = value.trim().to_owned();
+            if name.eq_ignore_ascii_case("content-type") {
+                content_type = Some(value.to_ascii_lowercase());
+            } else if name.eq_ignore_ascii_case("accept") {
+                accept = Some(value.to_ascii_lowercase());
+            } else if name.eq_ignore_ascii_case("content-length") {
+                content_length = value.parse().expect("content length");
+            }
+        }
+    }
+
+    let mut body = vec![0_u8; content_length];
+    stream.read_exact(&mut body).await?;
+
+    Ok(CapturedHttpRequest {
+        method,
+        path,
+        content_type,
+        accept,
+        body,
+    })
+}
+
+async fn write_contract_response(
+    stream: &mut TcpStream,
+    response: HttpContractResponse,
+) -> std::io::Result<()> {
+    let status_text = if response.status_code == 200 {
+        "OK"
+    } else {
+        "Rejected"
+    };
+    let headers = format!(
+        "HTTP/1.1 {} {status_text}\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        response.status_code,
+        response.content_type,
+        response.body.len()
+    );
+    stream.write_all(headers.as_bytes()).await?;
+    stream.write_all(&response.body).await?;
+    stream.flush().await
+}
+
+fn http_config(port: u16) -> LocalClientConfig {
+    LocalClientConfig {
+        endpoint: LocalEndpoint::TcpIpv4 { port },
+        request_timeout: Duration::from_secs(1),
     }
 }
