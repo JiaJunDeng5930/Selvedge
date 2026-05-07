@@ -180,7 +180,7 @@ pub fn spawn_reserved_web_surface(args: ReservedWebStartArgs) -> Result<WebHandl
                                 let _ = handle_http_connection(connection_control, stream).await;
                             });
                         }
-                        Err(error) => return WebExitStatus::Fatal(error.to_string()),
+                        Err(error) => return fail_web_surface(&task_control, error),
                     }
                 }
             }
@@ -193,6 +193,11 @@ pub fn spawn_reserved_web_surface(args: ReservedWebStartArgs) -> Result<WebHandl
         control,
         join_handle,
     })
+}
+
+fn fail_web_surface(control: &WebControl, error: io::Error) -> WebExitStatus {
+    let _ = control.inner.state_tx.send(WebRuntimeState::Failed);
+    WebExitStatus::Fatal(error.to_string())
 }
 
 impl WebControl {
@@ -734,4 +739,59 @@ fn bind_localhost(bind: &WebLocalhostBind) -> Result<StdTcpListener, WebStartErr
         .set_nonblocking(true)
         .map_err(|error| WebStartError::BindFailed(error.to_string()))?;
     Ok(listener)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct TestBridge;
+
+    impl WebBridge for TestBridge {
+        fn ready(&self, _request: ReadyRequest) -> WebBridgeFuture<ReadyResponse> {
+            Box::pin(async {
+                Ok(ReadyResponse {
+                    protocol_version: current_protocol_version(),
+                    state: ReadyState::Ready,
+                })
+            })
+        }
+
+        fn submit_command(&self, request: CommandRequest) -> WebBridgeFuture<CommandResponse> {
+            Box::pin(async move {
+                Ok(CommandResponse {
+                    protocol_version: current_protocol_version(),
+                    client_command_id: request.client_command_id,
+                    outcome: CommandOutcome::Accepted,
+                })
+            })
+        }
+
+        fn attach(&self, _request: AttachRequest) -> WebAttachFuture {
+            Box::pin(async {
+                Err(AttachRejectedOrBridgeError::Bridge(
+                    WebBridgeError::ServerNotReady,
+                ))
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn accept_error_marks_web_surface_failed() {
+        let (state_tx, _state_rx) = watch::channel(WebRuntimeState::Listening);
+        let control = WebControl {
+            inner: Arc::new(WebControlInner {
+                state_tx,
+                bridge: Arc::new(TestBridge),
+            }),
+        };
+
+        let status = fail_web_surface(
+            &control,
+            io::Error::new(io::ErrorKind::ConnectionAborted, "accept failed"),
+        );
+
+        assert!(matches!(status, WebExitStatus::Fatal(_)));
+        assert_eq!(control.state().await, WebRuntimeState::Failed);
+    }
 }
