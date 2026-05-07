@@ -919,6 +919,42 @@ async fn close_drops_active_attach_inner_stream() {
 }
 
 #[tokio::test]
+async fn close_wakes_pending_attach_reader() {
+    let _guard = TEST_LOCK.lock().await;
+    let state = FakeTransportState::new_handle();
+    let (polled_tx, polled_rx) = oneshot::channel();
+    state
+        .lock()
+        .expect("fake state")
+        .attach_responses
+        .push_back(AttachAction::Response(Ok((
+            AttachAccepted {
+                protocol_version: current_protocol_version(),
+                client_id: LocalClientId::new("client-1").expect("client id"),
+                client_command_id: LocalClientCommandId::new("attach-1").expect("command id"),
+            },
+            Box::pin(PollNotifyingStream {
+                polled: Some(polled_tx),
+            }),
+        ))));
+    let client = connected_client(state).await;
+    let (_accepted, mut frames) = client
+        .attach(valid_attach("attach-1"))
+        .await
+        .expect("attach");
+    let reader = tokio::spawn(async move { frames.next().await });
+
+    polled_rx.await.expect("reader polls attach stream");
+    client.close().await.expect("close client");
+
+    let next = timeout(Duration::from_secs(1), reader)
+        .await
+        .expect("reader wakes after close")
+        .expect("reader task joins");
+    assert_eq!(next, None);
+}
+
+#[tokio::test]
 async fn cancelling_pending_close_restores_previous_state() {
     let _guard = TEST_LOCK.lock().await;
     let state = FakeTransportState::new_handle();
@@ -1270,10 +1306,25 @@ struct DropNotifyingStream {
     drops: Arc<AtomicUsize>,
 }
 
+struct PollNotifyingStream {
+    polled: Option<oneshot::Sender<()>>,
+}
+
 impl futures_core::Stream for DropNotifyingStream {
     type Item = Result<LocalClientFrame, LocalClientError>;
 
     fn poll_next(self: Pin<&mut Self>, _context: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        Poll::Pending
+    }
+}
+
+impl futures_core::Stream for PollNotifyingStream {
+    type Item = Result<LocalClientFrame, LocalClientError>;
+
+    fn poll_next(mut self: Pin<&mut Self>, _context: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        if let Some(polled) = self.polled.take() {
+            let _ = polled.send(());
+        }
         Poll::Pending
     }
 }
