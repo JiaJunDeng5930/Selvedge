@@ -178,10 +178,15 @@ impl LocalTransport for HttpLocalTransport {
         &self,
         request: CommandRequest,
     ) -> Result<CommandResponse, LocalClientError> {
+        let expected_command_id = request.client_command_id.clone();
         let response = post_json(&self.endpoint, COMMAND_PATH, &request, JSON_CONTENT_TYPE).await?;
         let command: CommandResponse = parse_json_body(response).await?;
         validate_response_protocol_version(command.protocol_version)?;
-        validate_response_protocol_version(current_protocol_version())?;
+        if command.client_command_id != expected_command_id {
+            return Err(LocalClientError::ProtocolValidationFailed(
+                "command response id mismatch".to_owned(),
+            ));
+        }
         Ok(command)
     }
 

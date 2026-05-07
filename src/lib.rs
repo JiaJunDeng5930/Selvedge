@@ -186,13 +186,11 @@ pub trait CliServerRunner: Send + Sync + 'static {
 
 pub async fn run_cli(args: CliRunArgs) -> CliExitStatus {
     let parsed_command = parse_cli_args(&args.argv);
-    if !matches!(parsed_command, Ok(CliCommand::RunServer)) {
-        if let Err(error) = selvedge_config::init() {
-            return CliExitStatus::ConfigFailed(error.to_string());
-        }
-        if let Err(error) = selvedge_logging::init() {
-            return CliExitStatus::LoggingFailed(error.to_string());
-        }
+    if let Err(error) = selvedge_config::init() {
+        return CliExitStatus::ConfigFailed(error.to_string());
+    }
+    if let Err(error) = selvedge_logging::init() {
+        return CliExitStatus::LoggingFailed(error.to_string());
     }
     if let Err(error) = parsed_command {
         return CliExitStatus::InvalidArgs(error);
@@ -233,7 +231,11 @@ where
         Ok(command) => command,
         Err(error) => return CliExitStatus::InvalidArgs(error),
     };
-    let resolved_config = CliResolvedConfig::default();
+    let resolved_config = match resolve_cli_config() {
+        Ok(config) => config,
+        Err(CliConfigResolution::NotInitialized) => CliResolvedConfig::default(),
+        Err(CliConfigResolution::Failed(error)) => return CliExitStatus::ConfigFailed(error),
+    };
 
     match command {
         CliCommand::RunServer => {
@@ -255,6 +257,51 @@ where
             .await
         }
     }
+}
+
+enum CliConfigResolution {
+    NotInitialized,
+    Failed(String),
+}
+
+fn resolve_cli_config() -> Result<CliResolvedConfig, CliConfigResolution> {
+    selvedge_config::read(cli_resolved_config_from_app_config).map_err(|error| match error {
+        selvedge_config::ConfigError::NotInitialized => CliConfigResolution::NotInitialized,
+        error => CliConfigResolution::Failed(error.to_string()),
+    })?
+}
+
+fn cli_resolved_config_from_app_config(
+    config: &selvedge_config_model::AppConfig,
+) -> Result<CliResolvedConfig, CliConfigResolution> {
+    let endpoint = match config.server.host.as_str() {
+        "127.0.0.1" | "localhost" => LocalEndpoint::TcpIpv4 {
+            port: config.server.port,
+        },
+        "::1" | "[::1]" => LocalEndpoint::TcpIpv6 {
+            port: config.server.port,
+        },
+        host => {
+            return Err(CliConfigResolution::Failed(format!(
+                "server.host must be loopback, got {host}"
+            )));
+        }
+    };
+    let request_timeout = Duration::from_millis(config.server.request_timeout_ms);
+
+    Ok(CliResolvedConfig {
+        local_client_config: LocalClientConfig {
+            endpoint,
+            request_timeout,
+        },
+        systemd_config: SystemdConfig {
+            unit_name: DEFAULT_SYSTEMD_UNIT.to_owned(),
+            operation_timeout: request_timeout,
+            poll_interval: DEFAULT_READY_POLL_INTERVAL,
+        },
+        ready_timeout: request_timeout,
+        ready_poll_interval: DEFAULT_READY_POLL_INTERVAL,
+    })
 }
 
 pub fn exit_code(status: &CliExitStatus) -> i32 {
