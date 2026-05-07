@@ -180,6 +180,9 @@ pub fn spawn_reserved_web_surface(args: ReservedWebStartArgs) -> Result<WebHandl
                                 let _ = handle_http_connection(connection_control, stream).await;
                             });
                         }
+                        // NOTE: The web surface owns a long-lived localhost listener. The package
+                        // state machine classifies listener accept errors as surface failures so
+                        // callers observe the failed state and restart through server lifecycle.
                         Err(error) => return fail_web_surface(&task_control, error),
                     }
                 }
