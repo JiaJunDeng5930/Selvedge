@@ -3,7 +3,7 @@
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
-use std::task::{Context, Poll};
+use std::task::{Context, Poll, Waker};
 use std::time::Duration;
 
 use futures_core::Stream;
@@ -257,7 +257,10 @@ impl<T: LocalTransport> LocalClient<T> {
 
         match result {
             Ok(Ok((accepted, stream))) => {
-                let stream = Arc::new(Mutex::new(Some(stream)));
+                let stream = Arc::new(Mutex::new(SharedAttachStreamState {
+                    inner: Some(stream),
+                    waker: None,
+                }));
                 let attach_generation = guard.complete_attach_success(Arc::clone(&stream));
                 let stream = Box::pin(ClientFrameStream {
                     inner: stream,
@@ -514,7 +517,12 @@ struct ClientFrameStream {
     closed_reported: bool,
 }
 
-type SharedAttachStream = Arc<Mutex<Option<LocalFrameStream>>>;
+struct SharedAttachStreamState {
+    inner: Option<LocalFrameStream>,
+    waker: Option<Waker>,
+}
+
+type SharedAttachStream = Arc<Mutex<SharedAttachStreamState>>;
 
 impl Stream for ClientFrameStream {
     type Item = Result<LocalClientFrame, LocalClientError>;
@@ -532,8 +540,15 @@ impl Stream for ClientFrameStream {
 
         let item = {
             let mut inner = this.inner.lock().expect("local attach stream lock");
-            match inner.as_mut() {
-                Some(inner) => inner.as_mut().poll_next(cx),
+            match inner.inner.as_mut() {
+                Some(stream) => {
+                    let item = stream.as_mut().poll_next(cx);
+                    match &item {
+                        Poll::Pending => inner.waker = Some(cx.waker().clone()),
+                        Poll::Ready(_) => inner.waker = None,
+                    }
+                    item
+                }
                 None => Poll::Ready(None),
             }
         };
@@ -582,8 +597,14 @@ fn clear_attached_state(state: &Arc<Mutex<ClientState>>, attach_generation: u64)
 }
 
 fn drop_shared_attach_stream(stream: &SharedAttachStream) {
-    let mut stream = stream.lock().expect("local attach stream lock");
-    let _ = stream.take();
+    let waker = {
+        let mut stream = stream.lock().expect("local attach stream lock");
+        let _ = stream.inner.take();
+        stream.waker.take()
+    };
+    if let Some(waker) = waker {
+        waker.wake();
+    }
 }
 
 fn stream_is_closed_by_client(state: &Arc<Mutex<ClientState>>, attach_generation: u64) -> bool {
