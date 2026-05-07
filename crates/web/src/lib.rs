@@ -74,12 +74,6 @@ struct WebControlInner {
     bridge: Arc<dyn WebBridge>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct WebPageResponse {
-    pub content_type: String,
-    pub body: String,
-}
-
 pub type WebFrameStream =
     Pin<Box<dyn Stream<Item = Result<LocalClientFrame, WebBridgeError>> + Send>>;
 pub type WebBridgeFuture<T> = Pin<Box<dyn Future<Output = Result<T, WebBridgeError>> + Send>>;
@@ -224,14 +218,6 @@ impl WebControl {
             }
             Err(error) => Err(error),
         }
-    }
-
-    pub async fn page(&self) -> Result<WebPageResponse, WebBridgeError> {
-        self.ensure_listening()?;
-        Ok(WebPageResponse {
-            content_type: "text/html; charset=utf-8".to_owned(),
-            body: "<!doctype html><html><head><title>Selvedge</title></head><body><main id=\"selvedge-root\">Selvedge</main></body></html>".to_owned(),
-        })
     }
 
     pub async fn submit_command(
@@ -409,27 +395,9 @@ async fn handle_http_connection(mut control: WebControl, mut stream: TcpStream) 
         }
     };
     match request.path.as_str() {
-        "/" if request.method == "GET" => match control.page().await {
-            Ok(page) => {
-                write_raw_response(&mut stream, 200, &page.content_type, page.body.as_bytes()).await
-            }
-            Err(error) => {
-                write_problem_response(
-                    &mut stream,
-                    500,
-                    LocalHttpProblemCode::InternalFailure,
-                    format!("{error:?}"),
-                )
-                .await
-            }
-        },
-        "/selvedge/local/v1/ready" | "/selvedge/web/v1/ready" => {
-            handle_ready_route(&control, &mut stream, request).await
-        }
-        "/selvedge/local/v1/command" | "/selvedge/web/v1/command" => {
-            handle_command_route(&control, &mut stream, request).await
-        }
-        "/selvedge/local/v1/attach" | "/selvedge/web/v1/attach" => {
+        "/selvedge/local/v1/ready" => handle_ready_route(&control, &mut stream, request).await,
+        "/selvedge/local/v1/command" => handle_command_route(&control, &mut stream, request).await,
+        "/selvedge/local/v1/attach" => {
             handle_attach_route(&mut control, &mut stream, request).await
         }
         _ => {
