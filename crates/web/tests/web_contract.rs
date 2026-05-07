@@ -80,27 +80,6 @@ fn web_bridge_trait_exposes_ready_command_and_attach_futures() {
 }
 
 #[tokio::test]
-async fn page_request_returns_static_page_without_bridge_call() {
-    let bridge = Arc::new(RecordingBridge::default());
-    let handle = spawn_web_surface(WebStartArgs {
-        bind: unused_loopback_bind(),
-        bridge: bridge.clone(),
-    })
-    .expect("valid web start args");
-
-    let page = handle.control.page().await.expect("page response");
-
-    assert_eq!(page.content_type, "text/html; charset=utf-8");
-    assert!(page.body.contains("Selvedge"));
-    assert_eq!(bridge.page_observable_call_count(), 0);
-    handle.control.stop().await;
-    assert_eq!(
-        handle.join_handle.await.expect("join web task"),
-        WebExitStatus::Stopped
-    );
-}
-
-#[tokio::test]
 async fn ready_request_returns_bridge_response() {
     let bridge = Arc::new(RecordingBridge::default());
     bridge.push_ready_response(Ok(ReadyResponse {
@@ -377,6 +356,34 @@ async fn http_route_returns_body_too_large_before_allocating_body() {
 }
 
 #[tokio::test]
+async fn root_page_route_is_not_exposed() {
+    let bind = unused_loopback_bind();
+    let port = bind.port;
+    let handle = spawn_web_surface(WebStartArgs {
+        bind,
+        bridge: Arc::new(StaticBridge),
+    })
+    .expect("valid web start args");
+
+    let response = send_raw_http_request(
+        port,
+        "GET / HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n",
+    )
+    .await;
+
+    assert!(response.starts_with("HTTP/1.1 404"));
+    assert_eq!(
+        extract_problem(&response).code,
+        LocalHttpProblemCode::RouteNotFound
+    );
+    handle.control.stop().await;
+    assert_eq!(
+        handle.join_handle.await.expect("join web task"),
+        WebExitStatus::Stopped
+    );
+}
+
+#[tokio::test]
 async fn http_route_returns_body_too_large_for_oversized_headers() {
     let bind = unused_loopback_bind();
     let port = bind.port;
@@ -498,10 +505,6 @@ impl RecordingBridge {
             .lock()
             .expect("attach responses")
             .push(response);
-    }
-
-    fn page_observable_call_count(&self) -> usize {
-        self.ready_call_count() + self.command_call_count() + self.attach_call_count()
     }
 
     fn ready_call_count(&self) -> usize {
