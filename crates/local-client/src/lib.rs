@@ -194,12 +194,14 @@ impl LocalTransport for HttpLocalTransport {
         &self,
         request: AttachRequest,
     ) -> Result<(AttachAccepted, LocalFrameStream), AttachRejectedOrClientError> {
+        let expected_client_id = request.client_id.clone();
+        let expected_command_id = request.client_command_id.clone();
         let response = post_json(&self.endpoint, ATTACH_PATH, &request, NDJSON_CONTENT_TYPE)
             .await
             .map_err(AttachRejectedOrClientError::Client)?;
 
         match response.status_code {
-            200 => parse_attach_accepted_stream(response)
+            200 => parse_attach_accepted_stream(response, expected_client_id, expected_command_id)
                 .await
                 .map_err(AttachRejectedOrClientError::Client),
             _ => parse_attach_rejected_response(response).await,
@@ -745,6 +747,8 @@ async fn parse_attach_rejected_response(
 
 async fn parse_attach_accepted_stream(
     response: HttpResponse,
+    expected_client_id: selvedge_local_protocol::LocalClientId,
+    expected_command_id: selvedge_local_protocol::LocalClientCommandId,
 ) -> Result<(AttachAccepted, LocalFrameStream), LocalClientError> {
     require_content_type(&response, NDJSON_CONTENT_TYPE)?;
     let mut lines = LinesStream::new(response.reader.lines());
@@ -766,6 +770,12 @@ async fn parse_attach_accepted_stream(
         ));
     };
     validate_response_protocol_version(accepted.protocol_version)?;
+    if accepted.client_id != expected_client_id || accepted.client_command_id != expected_command_id
+    {
+        return Err(LocalClientError::ProtocolValidationFailed(
+            "attach accepted identity mismatch".to_owned(),
+        ));
+    }
 
     Ok((
         accepted,

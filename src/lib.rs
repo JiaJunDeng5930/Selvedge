@@ -319,9 +319,19 @@ fn parse_cli_args(args: &[String]) -> Result<CliCommand, String> {
     }
 
     let mut client_id = None;
-    let mut positionals = Vec::new();
+    let mut command_name = None;
+    let mut json_payload = None;
     let mut index = 0;
     while index < tokens.len() {
+        if command_name.is_some() {
+            if json_payload.is_some() {
+                return Err("unexpected extra positional argument".to_owned());
+            }
+            json_payload = Some(tokens[index].to_owned());
+            index += 1;
+            continue;
+        }
+
         match tokens[index] {
             "--client-id" => {
                 if client_id.is_some() {
@@ -337,23 +347,21 @@ fn parse_cli_args(args: &[String]) -> Result<CliCommand, String> {
                 client_id = Some((*value).to_owned());
             }
             token if token.starts_with('-') => return Err(format!("unknown flag {token}")),
-            token => positionals.push(token.to_owned()),
+            token => command_name = Some(token.to_owned()),
         }
         index += 1;
     }
 
     let client_id = client_id.ok_or_else(|| "missing --client-id".to_owned())?;
-    if positionals.len() != 2 {
-        return Err("expected command name and json payload".to_owned());
-    }
-    let command_name = positionals[0].clone();
+    let command_name = command_name.ok_or_else(|| "expected command name".to_owned())?;
     if command_name.trim().is_empty() || command_name == "server" || command_name.starts_with('-') {
         return Err("invalid command name".to_owned());
     }
-    if positionals[1].is_empty() {
+    let json_payload = json_payload.ok_or_else(|| "expected json payload".to_owned())?;
+    if json_payload.is_empty() {
         return Err("empty json payload".to_owned());
     }
-    let payload = serde_json::from_str(&positionals[1])
+    let payload = serde_json::from_str(&json_payload)
         .map_err(|error| format!("invalid json payload: {error}"))?;
 
     Ok(CliCommand::SubmitCommand {
@@ -707,6 +715,27 @@ mod tests {
         assert_eq!(connector_state.lock().expect("connector").connect_calls, 0);
         assert_eq!(systemd.start_calls(), 0);
         assert_eq!(runner_state.lock().expect("runner").run_calls, 0);
+    }
+
+    #[test]
+    fn parser_accepts_json_payload_that_starts_with_dash() {
+        let command = parse_cli_args(&[
+            "selvedge".to_owned(),
+            "--client-id".to_owned(),
+            "client-1".to_owned(),
+            "set-number".to_owned(),
+            "-1".to_owned(),
+        ])
+        .expect("negative JSON number should parse as payload");
+
+        assert_eq!(
+            command,
+            CliCommand::SubmitCommand {
+                command_name: "set-number".to_owned(),
+                payload: serde_json::json!(-1),
+                client_id: "client-1".to_owned(),
+            }
+        );
     }
 
     #[tokio::test]

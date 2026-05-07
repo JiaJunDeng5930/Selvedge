@@ -1024,6 +1024,46 @@ async fn http_transport_reads_attach_accepted_ndjson_stream() {
 }
 
 #[tokio::test]
+async fn http_transport_rejects_mismatched_attach_accepted_identity() {
+    let _guard = TEST_LOCK.lock().await;
+    let accepted = AttachAccepted {
+        protocol_version: current_protocol_version(),
+        client_id: LocalClientId::new("other-client").expect("client id"),
+        client_command_id: LocalClientCommandId::new("attach-1").expect("command id"),
+    };
+    let ndjson = format!(
+        "{}\n",
+        serde_json::to_string(&selvedge_local_protocol::LocalAttachStreamItem::Accepted(
+            accepted
+        ))
+        .expect("accepted item json")
+    )
+    .into_bytes();
+    let (port, server) =
+        spawn_http_contract_server(vec![None, Some(HttpContractResponse::ndjson(200, ndjson))])
+            .await;
+    let client = connect_http(http_config(port))
+        .await
+        .expect("connect http client");
+
+    let error = match client.attach(valid_attach("attach-1")).await {
+        Ok(_) => panic!("mismatched attach identity should fail"),
+        Err(error) => error,
+    };
+
+    assert!(matches!(
+        error,
+        AttachRejectedOrClientError::Client(LocalClientError::ProtocolValidationFailed(_))
+    ));
+    let captures = server.await.expect("join http contract server");
+    assert!(
+        captures
+            .iter()
+            .any(|capture| capture.path == "/selvedge/local/v1/attach")
+    );
+}
+
+#[tokio::test]
 async fn http_transport_preserves_attach_rejection_response() {
     let _guard = TEST_LOCK.lock().await;
     let rejected = AttachRejected {
