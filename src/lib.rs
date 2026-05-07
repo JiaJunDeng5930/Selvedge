@@ -448,18 +448,39 @@ where
 
     let deadline = tokio::time::Instant::now() + resolved_config.ready_timeout;
     loop {
+        if tokio::time::Instant::now() >= deadline {
+            return CliExitStatus::ServerReadyTimeout;
+        }
         match connect_and_ready(&local_client_connector, &resolved_config).await {
             ReadyProbe::Ready(mut client) => {
                 return submit_ready_command(&mut client, request).await;
             }
             ReadyProbe::Unavailable | ReadyProbe::NotReady => {
-                if tokio::time::Instant::now() >= deadline {
+                let now = tokio::time::Instant::now();
+                let Some(sleep_for) =
+                    ready_retry_sleep_duration(now, deadline, resolved_config.ready_poll_interval)
+                else {
                     return CliExitStatus::ServerReadyTimeout;
+                };
+                if sleep_for.is_zero() {
+                    continue;
                 }
-                tokio::time::sleep(resolved_config.ready_poll_interval).await;
+                tokio::time::sleep(sleep_for).await;
             }
         }
     }
+}
+
+fn ready_retry_sleep_duration(
+    now: tokio::time::Instant,
+    deadline: tokio::time::Instant,
+    poll_interval: Duration,
+) -> Option<Duration> {
+    if now >= deadline {
+        return None;
+    }
+
+    Some(std::cmp::min(poll_interval, deadline.duration_since(now)))
 }
 
 enum ReadyProbe<C> {
@@ -691,6 +712,29 @@ mod tests {
         assert_eq!(
             status,
             CliExitStatus::CommandRejected("UnsupportedCommand".to_owned())
+        );
+    }
+
+    #[test]
+    fn ready_retry_sleep_is_capped_to_remaining_time() {
+        let now = tokio::time::Instant::now();
+        let deadline = now + Duration::from_millis(10);
+
+        assert_eq!(
+            ready_retry_sleep_duration(now, deadline, Duration::from_millis(100)),
+            Some(Duration::from_millis(10))
+        );
+        assert_eq!(
+            ready_retry_sleep_duration(deadline, deadline, Duration::from_millis(100)),
+            None
+        );
+        assert_eq!(
+            ready_retry_sleep_duration(
+                deadline + Duration::from_millis(1),
+                deadline,
+                Duration::from_millis(100)
+            ),
+            None
         );
     }
 
