@@ -950,7 +950,11 @@ mod tests {
     }
 
     impl SystemdBackend for FakeSystemdBackend {
-        async fn query_status(&self, _unit_name: &str) -> Result<ServiceStatus, SystemdError> {
+        async fn query_status(
+            &self,
+            _unit_name: &str,
+            _operation_timeout: Duration,
+        ) -> Result<ServiceStatus, SystemdError> {
             self.state
                 .lock()
                 .expect("systemd")
@@ -959,7 +963,11 @@ mod tests {
                 .unwrap_or(Ok(ServiceStatus::Active))
         }
 
-        async fn start_unit(&self, _unit_name: &str) -> Result<StartServiceOutcome, SystemdError> {
+        async fn start_unit(
+            &self,
+            _unit_name: &str,
+            _operation_timeout: Duration,
+        ) -> Result<StartServiceOutcome, SystemdError> {
             let mut state = self.state.lock().expect("systemd");
             state.start_calls += 1;
             state
