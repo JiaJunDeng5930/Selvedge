@@ -6,6 +6,8 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use tokio::io::AsyncReadExt;
+
 const SYSTEMCTL_OPERATION_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -120,6 +122,17 @@ where
 
 struct StdSystemctlProcessRunner;
 
+async fn read_child_pipe<R>(mut pipe: R) -> Result<Vec<u8>, SystemdError>
+where
+    R: tokio::io::AsyncRead + Unpin,
+{
+    let mut output = Vec::new();
+    pipe.read_to_end(&mut output)
+        .await
+        .map_err(|error| SystemdError::BackendFailure(error.to_string()))?;
+    Ok(output)
+}
+
 impl SystemctlProcessRunner for StdSystemctlProcessRunner {
     async fn run(
         &self,
@@ -127,25 +140,44 @@ impl SystemctlProcessRunner for StdSystemctlProcessRunner {
         args: &[String],
         timeout: Duration,
     ) -> Result<SystemctlProcessOutput, SystemdError> {
-        let program = program.to_owned();
-        let args = args.to_vec();
-        let output = tokio::time::timeout(
-            timeout,
-            tokio::task::spawn_blocking(move || {
-                std::process::Command::new(program)
-                    .args(args)
-                    .output()
-                    .map_err(|error| SystemdError::Unavailable(error.to_string()))
-            }),
-        )
-        .await
-        .map_err(|_| SystemdError::Timeout)?
-        .map_err(|error| SystemdError::BackendFailure(error.to_string()))??;
+        let mut child = tokio::process::Command::new(program)
+            .args(args)
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .kill_on_drop(true)
+            .spawn()
+            .map_err(|error| SystemdError::Unavailable(error.to_string()))?;
+
+        let stdout = child.stdout.take().ok_or_else(|| {
+            SystemdError::BackendFailure("failed to capture systemctl stdout".to_owned())
+        })?;
+        let stderr = child.stderr.take().ok_or_else(|| {
+            SystemdError::BackendFailure("failed to capture systemctl stderr".to_owned())
+        })?;
+        let stdout_reader = tokio::spawn(read_child_pipe(stdout));
+        let stderr_reader = tokio::spawn(read_child_pipe(stderr));
+
+        let status = match tokio::time::timeout(timeout, child.wait()).await {
+            Ok(Ok(status)) => status,
+            Ok(Err(error)) => return Err(SystemdError::BackendFailure(error.to_string())),
+            Err(_) => {
+                let _ = child.start_kill();
+                let _ = child.wait().await;
+                return Err(SystemdError::Timeout);
+            }
+        };
+
+        let stdout = stdout_reader
+            .await
+            .map_err(|error| SystemdError::BackendFailure(error.to_string()))??;
+        let stderr = stderr_reader
+            .await
+            .map_err(|error| SystemdError::BackendFailure(error.to_string()))??;
 
         Ok(SystemctlProcessOutput {
-            exit_code: output.status.code(),
-            stdout: output.stdout,
-            stderr: output.stderr,
+            exit_code: status.code(),
+            stdout,
+            stderr,
         })
     }
 }

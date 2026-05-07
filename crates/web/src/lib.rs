@@ -26,6 +26,8 @@ use tokio_stream::wrappers::WatchStream;
 
 const JSON_CONTENT_TYPE: &str = "application/json";
 const NDJSON_CONTENT_TYPE: &str = "application/x-ndjson";
+const MAX_HTTP_HEADER_BYTES: usize = 16 * 1024;
+const MAX_HTTP_BODY_BYTES: usize = 4 * 1024 * 1024;
 
 pub struct WebStartArgs {
     pub bind: WebLocalhostBind,
@@ -377,7 +379,18 @@ struct HttpRequest {
 }
 
 async fn handle_http_connection(mut control: WebControl, mut stream: TcpStream) -> io::Result<()> {
-    let request = read_http_request(&mut stream).await?;
+    let request = match read_http_request(&mut stream).await? {
+        Ok(request) => request,
+        Err(HttpRequestReadError::BodyTooLarge) => {
+            return write_problem_response(
+                &mut stream,
+                413,
+                LocalHttpProblemCode::BodyTooLarge,
+                "request body too large",
+            )
+            .await;
+        }
+    };
     match request.path.as_str() {
         "/" if request.method == "GET" => match control.page().await {
             Ok(page) => {
@@ -554,7 +567,13 @@ async fn next_web_frame(
     })
 }
 
-async fn read_http_request(stream: &mut TcpStream) -> io::Result<HttpRequest> {
+enum HttpRequestReadError {
+    BodyTooLarge,
+}
+
+async fn read_http_request(
+    stream: &mut TcpStream,
+) -> io::Result<Result<HttpRequest, HttpRequestReadError>> {
     let mut raw_headers = Vec::new();
     let mut byte = [0_u8; 1];
     while !raw_headers.ends_with(b"\r\n\r\n") {
@@ -566,6 +585,9 @@ async fn read_http_request(stream: &mut TcpStream) -> io::Result<HttpRequest> {
             ));
         }
         raw_headers.push(byte[0]);
+        if raw_headers.len() > MAX_HTTP_HEADER_BYTES {
+            return Ok(Err(HttpRequestReadError::BodyTooLarge));
+        }
     }
     let header_text = String::from_utf8(raw_headers)
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error.to_string()))?;
@@ -588,14 +610,17 @@ async fn read_http_request(stream: &mut TcpStream) -> io::Result<HttpRequest> {
             }
         }
     }
+    if content_length > MAX_HTTP_BODY_BYTES {
+        return Ok(Err(HttpRequestReadError::BodyTooLarge));
+    }
     let mut body = vec![0_u8; content_length];
     stream.read_exact(&mut body).await?;
-    Ok(HttpRequest {
+    Ok(Ok(HttpRequest {
         method,
         path,
         content_type,
         body,
-    })
+    }))
 }
 
 fn parse_json_request<T: DeserializeOwned>(request: &HttpRequest) -> Option<T> {
@@ -665,6 +690,7 @@ fn status_text(status_code: u16) -> &'static str {
         404 => "Not Found",
         405 => "Method Not Allowed",
         409 => "Conflict",
+        413 => "Content Too Large",
         415 => "Unsupported Media Type",
         _ => "Internal Server Error",
     }

@@ -7,14 +7,16 @@ use selvedge_local_protocol::{
     AttachAccepted, AttachRequest, CommandOutcome, CommandRejectReason, CommandRequest,
     CommandResponse, LocalClientCommandId, LocalClientEvent, LocalClientEventFrame,
     LocalClientFrame, LocalClientId, LocalClientSnapshot, LocalClientSnapshotFrame,
-    LocalClientSubscription, LocalDetailLevel, LocalTaskScope, ReadyRequest, ReadyResponse,
-    ReadyState, current_protocol_version,
+    LocalClientSubscription, LocalDetailLevel, LocalHttpProblem, LocalHttpProblemCode,
+    LocalTaskScope, ReadyRequest, ReadyResponse, ReadyState, current_protocol_version,
 };
 use selvedge_web::{
     AttachRejectedOrBridgeError, WebAttachFuture, WebBridge, WebBridgeError, WebBridgeFuture,
     WebExitStatus, WebFrameStream, WebLocalhostBind, WebLocalhostHost, WebRuntimeState,
     WebStartArgs, WebStartError, spawn_web_surface,
 };
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpStream;
 use tokio::time::{Duration, timeout};
 
 #[tokio::test]
@@ -346,6 +348,62 @@ async fn stop_closes_active_attach_stream() {
     );
 }
 
+#[tokio::test]
+async fn http_route_returns_body_too_large_before_allocating_body() {
+    let bind = unused_loopback_bind();
+    let port = bind.port;
+    let handle = spawn_web_surface(WebStartArgs {
+        bind,
+        bridge: Arc::new(StaticBridge),
+    })
+    .expect("valid web start args");
+
+    let response = send_raw_http_request(
+        port,
+        "POST /selvedge/local/v1/ready HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\nContent-Length: 4194305\r\nConnection: close\r\n\r\n",
+    )
+    .await;
+
+    assert!(response.starts_with("HTTP/1.1 413"));
+    assert_eq!(
+        extract_problem(&response).code,
+        LocalHttpProblemCode::BodyTooLarge
+    );
+    handle.control.stop().await;
+    assert_eq!(
+        handle.join_handle.await.expect("join web task"),
+        WebExitStatus::Stopped
+    );
+}
+
+#[tokio::test]
+async fn http_route_returns_body_too_large_for_oversized_headers() {
+    let bind = unused_loopback_bind();
+    let port = bind.port;
+    let handle = spawn_web_surface(WebStartArgs {
+        bind,
+        bridge: Arc::new(StaticBridge),
+    })
+    .expect("valid web start args");
+    let request = format!(
+        "POST /selvedge/local/v1/ready HTTP/1.1\r\nHost: 127.0.0.1\r\nX-Large: {}\r\nContent-Type: application/json\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{{}}",
+        "a".repeat(16 * 1024)
+    );
+
+    let response = send_raw_http_request(port, &request).await;
+
+    assert!(response.starts_with("HTTP/1.1 413"));
+    assert_eq!(
+        extract_problem(&response).code,
+        LocalHttpProblemCode::BodyTooLarge
+    );
+    handle.control.stop().await;
+    assert_eq!(
+        handle.join_handle.await.expect("join web task"),
+        WebExitStatus::Stopped
+    );
+}
+
 struct StaticBridge;
 
 impl WebBridge for StaticBridge {
@@ -497,6 +555,33 @@ fn unused_loopback_bind() -> WebLocalhostBind {
         host: WebLocalhostHost::Ipv4Loopback,
         port,
     }
+}
+
+async fn send_raw_http_request(port: u16, request: &str) -> String {
+    let mut stream = TcpStream::connect(("127.0.0.1", port))
+        .await
+        .expect("connect web surface");
+    stream
+        .write_all(request.as_bytes())
+        .await
+        .expect("write request");
+    stream.shutdown().await.expect("shutdown request writer");
+    let mut bytes = Vec::new();
+    let mut chunk = [0_u8; 1024];
+    loop {
+        match stream.read(&mut chunk).await {
+            Ok(0) => break,
+            Ok(read) => bytes.extend_from_slice(&chunk[..read]),
+            Err(error) if error.kind() == std::io::ErrorKind::ConnectionReset => break,
+            Err(error) => panic!("read response: {error}"),
+        }
+    }
+    String::from_utf8(bytes).expect("utf8 response")
+}
+
+fn extract_problem(response: &str) -> LocalHttpProblem {
+    let body = response.split("\r\n\r\n").nth(1).expect("response body");
+    serde_json::from_str(body).expect("problem body")
 }
 
 fn valid_command_request() -> CommandRequest {

@@ -4,10 +4,10 @@ edition = "2024"
 publish = false
 
 [dependencies]
-tokio = { version = "1.42.0", features = ["rt", "time"] }
+tokio = { version = "1.42.0", features = ["io-util", "process", "rt", "time"] }
 
 [dev-dependencies]
-tokio = { version = "1.42.0", features = ["macros", "rt", "sync", "time"] }
+tokio = { version = "1.42.0", features = ["io-util", "macros", "process", "rt", "sync", "time"] }
 
 [lints.rust]
 unsafe_code = "forbid"
