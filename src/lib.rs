@@ -429,6 +429,7 @@ where
 
     match connect_and_ready(&local_client_connector, &resolved_config).await {
         ReadyProbe::Ready(mut client) => return submit_ready_command(&mut client, request).await,
+        ReadyProbe::Failed(error) => return CliExitStatus::LocalClientFailed(format!("{error:?}")),
         ReadyProbe::Unavailable | ReadyProbe::NotReady => {}
     }
 
@@ -458,6 +459,9 @@ where
         match connect_and_ready(&local_client_connector, &resolved_config).await {
             ReadyProbe::Ready(mut client) => {
                 return submit_ready_command(&mut client, request).await;
+            }
+            ReadyProbe::Failed(error) => {
+                return CliExitStatus::LocalClientFailed(format!("{error:?}"));
             }
             ReadyProbe::Unavailable | ReadyProbe::NotReady => {
                 let now = tokio::time::Instant::now();
@@ -495,6 +499,7 @@ enum ReadyProbe<C> {
     Ready(C),
     NotReady,
     Unavailable,
+    Failed(CliError),
 }
 
 async fn connect_and_ready<C>(
@@ -522,7 +527,7 @@ where
             ..
         }) => ReadyProbe::Ready(client),
         Ok(_) => ReadyProbe::NotReady,
-        Err(_) => ReadyProbe::Unavailable,
+        Err(error) => ReadyProbe::Failed(error),
     }
 }
 
@@ -699,6 +704,34 @@ mod tests {
         assert_eq!(status, CliExitStatus::Success);
         assert_eq!(connector_state.lock().expect("connector").connect_calls, 2);
         assert_eq!(systemd.start_calls(), 1);
+    }
+
+    #[tokio::test]
+    async fn command_ready_failure_returns_local_client_failure_without_systemd_start() {
+        let connector = FakeConnector::new(vec![Ok(FakeClientPlan {
+            ready: Err(CliError::LocalClientFailed("protocol mismatch".to_owned())),
+            submit: Ok(CommandResponse {
+                protocol_version: current_protocol_version(),
+                client_command_id: LocalClientCommandId::new("response-1").expect("command id"),
+                outcome: CommandOutcome::Accepted,
+            }),
+        })]);
+        let systemd = FakeSystemdBackend::new(Vec::new(), Vec::new());
+
+        let status = run_cli_with_deps(
+            command_argv(),
+            systemd.clone(),
+            FakeServerRunner::stopped(),
+            connector,
+            DefaultCliServerStartArgsBuilder::new(),
+        )
+        .await;
+
+        assert_eq!(
+            status,
+            CliExitStatus::LocalClientFailed("LocalClientFailed(\"protocol mismatch\")".to_owned())
+        );
+        assert_eq!(systemd.start_calls(), 0);
     }
 
     #[tokio::test]
