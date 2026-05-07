@@ -8,8 +8,6 @@ use std::time::{Duration, Instant};
 
 use tokio::io::AsyncReadExt;
 
-const SYSTEMCTL_OPERATION_TIMEOUT: Duration = Duration::from_secs(5);
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SystemdConfig {
     pub unit_name: String,
@@ -78,11 +76,13 @@ pub trait SystemdBackend: Send + Sync + 'static {
     fn query_status(
         &self,
         unit_name: &str,
+        operation_timeout: Duration,
     ) -> impl Future<Output = Result<ServiceStatus, SystemdError>> + Send;
 
     fn start_unit(
         &self,
         unit_name: &str,
+        operation_timeout: Duration,
     ) -> impl Future<Output = Result<StartServiceOutcome, SystemdError>> + Send;
 }
 
@@ -218,7 +218,11 @@ impl SystemctlBackend {
 }
 
 impl SystemdBackend for SystemctlBackend {
-    async fn query_status(&self, unit_name: &str) -> Result<ServiceStatus, SystemdError> {
+    async fn query_status(
+        &self,
+        unit_name: &str,
+        operation_timeout: Duration,
+    ) -> Result<ServiceStatus, SystemdError> {
         let args = vec![
             self.scope_arg(),
             "show".to_owned(),
@@ -228,17 +232,21 @@ impl SystemdBackend for SystemctlBackend {
         ];
         let output = self
             .runner
-            .run_boxed(self.program()?, &args, SYSTEMCTL_OPERATION_TIMEOUT)
+            .run_boxed(self.program()?, &args, operation_timeout)
             .await?;
 
         parse_systemctl_show_output(output)
     }
 
-    async fn start_unit(&self, unit_name: &str) -> Result<StartServiceOutcome, SystemdError> {
+    async fn start_unit(
+        &self,
+        unit_name: &str,
+        operation_timeout: Duration,
+    ) -> Result<StartServiceOutcome, SystemdError> {
         let args = vec![self.scope_arg(), "start".to_owned(), unit_name.to_owned()];
         let output = self
             .runner
-            .run_boxed(self.program()?, &args, SYSTEMCTL_OPERATION_TIMEOUT)
+            .run_boxed(self.program()?, &args, operation_timeout)
             .await?;
 
         if output.exit_code == Some(0) {
@@ -258,7 +266,9 @@ impl<B: SystemdBackend> SystemdClient<B> {
 
     pub async fn query_service_status(&self) -> Result<ServiceStatus, SystemdError> {
         validate_config(&self.config)?;
-        self.backend.query_status(&self.config.unit_name).await
+        self.backend
+            .query_status(&self.config.unit_name, self.config.operation_timeout)
+            .await
     }
 
     pub async fn start_service(&self) -> Result<StartServiceOutcome, SystemdError> {
@@ -270,7 +280,9 @@ impl<B: SystemdBackend> SystemdClient<B> {
             ServiceStatus::Inactive
             | ServiceStatus::Failed { .. }
             | ServiceStatus::Unknown { .. } => {
-                self.backend.start_unit(&self.config.unit_name).await
+                self.backend
+                    .start_unit(&self.config.unit_name, self.config.operation_timeout)
+                    .await
             }
         }
     }
@@ -287,10 +299,12 @@ impl<B: SystemdBackend> SystemdClient<B> {
                 return Err(SystemdError::Timeout);
             }
 
-            let status =
-                tokio::time::timeout(remaining, self.backend.query_status(&self.config.unit_name))
-                    .await
-                    .map_err(|_| SystemdError::Timeout)??;
+            let status = tokio::time::timeout(
+                remaining,
+                self.backend.query_status(&self.config.unit_name, remaining),
+            )
+            .await
+            .map_err(|_| SystemdError::Timeout)??;
 
             match status {
                 ServiceStatus::Active => return Ok(ServiceStatus::Active),
@@ -349,10 +363,8 @@ fn validate_systemctl_config(config: &SystemctlBackendConfig) -> Result<(), Syst
 fn parse_systemctl_show_output(
     output: SystemctlProcessOutput,
 ) -> Result<ServiceStatus, SystemdError> {
-    if output.exit_code != Some(0) {
-        return Err(SystemdError::BackendFailure(stderr_text(&output)));
-    }
-
+    let exit_code = output.exit_code;
+    let stderr = output.stderr.clone();
     let stdout = String::from_utf8(output.stdout)
         .map_err(|error| SystemdError::BackendFailure(error.to_string()))?;
     let mut load_state = None;
@@ -370,6 +382,10 @@ fn parse_systemctl_show_output(
         return Ok(ServiceStatus::NotInstalled);
     }
 
+    if exit_code != Some(0) {
+        return Err(SystemdError::BackendFailure(stderr_text_bytes(&stderr)));
+    }
+
     match active_state.as_deref().unwrap_or_default() {
         "active" => Ok(ServiceStatus::Active),
         "inactive" => Ok(ServiceStatus::Inactive),
@@ -384,7 +400,11 @@ fn parse_systemctl_show_output(
 }
 
 fn stderr_text(output: &SystemctlProcessOutput) -> String {
-    let text = String::from_utf8_lossy(&output.stderr).trim().to_owned();
+    stderr_text_bytes(&output.stderr)
+}
+
+fn stderr_text_bytes(stderr: &[u8]) -> String {
+    let text = String::from_utf8_lossy(stderr).trim().to_owned();
     if text.is_empty() {
         "systemctl failed".to_owned()
     } else {

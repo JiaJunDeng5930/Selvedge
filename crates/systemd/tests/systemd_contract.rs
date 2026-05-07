@@ -273,7 +273,9 @@ async fn systemctl_backend_uses_runner_and_maps_show_output() {
         .expect("systemctl backend");
 
     assert_eq!(
-        backend.query_status("selvedge-server.service").await,
+        backend
+            .query_status("selvedge-server.service", Duration::from_millis(123))
+            .await,
         Ok(ServiceStatus::Active)
     );
     assert_eq!(
@@ -287,7 +289,7 @@ async fn systemctl_backend_uses_runner_and_maps_show_output() {
                 "--property=ActiveState".to_owned(),
                 "selvedge-server.service".to_owned(),
             ],
-            timeout: Duration::from_secs(5),
+            timeout: Duration::from_millis(123),
         }]
     );
 }
@@ -297,7 +299,7 @@ async fn systemctl_backend_maps_missing_unit_unknown_state_and_start_rejection()
     let _guard = TEST_LOCK.lock().await;
     let runner = RecordingProcessRunner::new(vec![
         Ok(SystemctlProcessOutput {
-            exit_code: Some(0),
+            exit_code: Some(1),
             stdout: b"LoadState=not-found\nActiveState=inactive\n".to_vec(),
             stderr: Vec::new(),
         }),
@@ -316,17 +318,23 @@ async fn systemctl_backend_maps_missing_unit_unknown_state_and_start_rejection()
         SystemctlBackend::new_with_runner(systemctl_config(), runner).expect("systemctl backend");
 
     assert_eq!(
-        backend.query_status("selvedge-server.service").await,
+        backend
+            .query_status("selvedge-server.service", Duration::from_millis(50))
+            .await,
         Ok(ServiceStatus::NotInstalled)
     );
     assert_eq!(
-        backend.query_status("selvedge-server.service").await,
+        backend
+            .query_status("selvedge-server.service", Duration::from_millis(50))
+            .await,
         Ok(ServiceStatus::Unknown {
             raw_state: "maintenance".to_owned()
         })
     );
     assert_eq!(
-        backend.start_unit("selvedge-server.service").await,
+        backend
+            .start_unit("selvedge-server.service", Duration::from_millis(50))
+            .await,
         Err(SystemdError::StartRejected("masked".to_owned()))
     );
 }
@@ -477,7 +485,11 @@ impl FakeSystemdBackend {
 }
 
 impl SystemdBackend for FakeSystemdBackend {
-    async fn query_status(&self, _unit_name: &str) -> Result<ServiceStatus, SystemdError> {
+    async fn query_status(
+        &self,
+        _unit_name: &str,
+        _operation_timeout: Duration,
+    ) -> Result<ServiceStatus, SystemdError> {
         let next = {
             let mut state = self.state.lock().expect("fake systemd lock");
             state.query_calls += 1;
@@ -496,7 +508,11 @@ impl SystemdBackend for FakeSystemdBackend {
         future::pending().await
     }
 
-    async fn start_unit(&self, _unit_name: &str) -> Result<StartServiceOutcome, SystemdError> {
+    async fn start_unit(
+        &self,
+        _unit_name: &str,
+        _operation_timeout: Duration,
+    ) -> Result<StartServiceOutcome, SystemdError> {
         let mut state = self.state.lock().expect("fake systemd lock");
         state.start_calls += 1;
         state
