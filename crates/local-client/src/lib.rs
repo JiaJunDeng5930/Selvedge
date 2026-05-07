@@ -204,7 +204,7 @@ impl LocalTransport for HttpLocalTransport {
             200 => parse_attach_accepted_stream(response, expected_client_id, expected_command_id)
                 .await
                 .map_err(AttachRejectedOrClientError::Client),
-            _ => parse_attach_rejected_response(response).await,
+            _ => parse_attach_rejected_response(response, expected_command_id).await,
         }
     }
 
@@ -721,6 +721,7 @@ async fn parse_json_body<T: DeserializeOwned>(
 
 async fn parse_attach_rejected_response(
     mut response: HttpResponse,
+    expected_command_id: selvedge_local_protocol::LocalClientCommandId,
 ) -> Result<(AttachAccepted, LocalFrameStream), AttachRejectedOrClientError> {
     require_content_type(&response, JSON_CONTENT_TYPE)
         .map_err(AttachRejectedOrClientError::Client)?;
@@ -736,7 +737,18 @@ async fn parse_attach_rejected_response(
         })?;
 
     match serde_json::from_slice::<AttachRejected>(&body) {
-        Ok(rejected) => Err(AttachRejectedOrClientError::Rejected(rejected)),
+        Ok(rejected) => {
+            validate_response_protocol_version(rejected.protocol_version)
+                .map_err(AttachRejectedOrClientError::Client)?;
+            if rejected.client_command_id != expected_command_id {
+                return Err(AttachRejectedOrClientError::Client(
+                    LocalClientError::ProtocolValidationFailed(
+                        "attach rejected identity mismatch".to_owned(),
+                    ),
+                ));
+            }
+            Err(AttachRejectedOrClientError::Rejected(rejected))
+        }
         Err(_) => Err(AttachRejectedOrClientError::Client(
             parse_problem(&body).unwrap_or_else(|| {
                 LocalClientError::ProtocolValidationFailed("invalid attach reject body".to_owned())

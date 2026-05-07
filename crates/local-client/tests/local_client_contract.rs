@@ -1093,6 +1093,38 @@ async fn http_transport_preserves_attach_rejection_response() {
     );
 }
 
+#[tokio::test]
+async fn http_transport_rejects_mismatched_attach_rejection_identity() {
+    let _guard = TEST_LOCK.lock().await;
+    let rejected = AttachRejected {
+        protocol_version: current_protocol_version(),
+        client_command_id: LocalClientCommandId::new("other-attach").expect("command id"),
+        reason: AttachRejectReason::ServerNotReady,
+    };
+    let body = serde_json::to_vec(&rejected).expect("attach rejected json");
+    let (port, server) =
+        spawn_http_contract_server(vec![None, Some(HttpContractResponse::json(409, body))]).await;
+    let client = connect_http(http_config(port))
+        .await
+        .expect("connect http client");
+
+    let error = match client.attach(valid_attach("attach-1")).await {
+        Ok(_) => panic!("mismatched attach rejection should fail"),
+        Err(error) => error,
+    };
+
+    assert!(matches!(
+        error,
+        AttachRejectedOrClientError::Client(LocalClientError::ProtocolValidationFailed(_))
+    ));
+    let captures = server.await.expect("join http contract server");
+    assert!(
+        captures
+            .iter()
+            .any(|capture| capture.path == "/selvedge/local/v1/attach")
+    );
+}
+
 #[test]
 fn crate_has_no_systemd_dependency() {
     let manifest = fs::read_to_string(format!("{}/Cargo.toml", env!("CARGO_MANIFEST_DIR")))
