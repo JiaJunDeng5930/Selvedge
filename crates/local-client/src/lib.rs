@@ -395,12 +395,19 @@ impl<T: LocalTransport> LocalClient<T> {
         mut guard: RequestGuard,
         error: LocalClientError,
     ) -> LocalClientError {
-        let mut state = self.inner.lock().expect("local client state lock");
-        if state.state == guard.pending {
-            state.state = LocalClientState::Failed;
-            state.attach_open = false;
-            state.active_attach_stream = None;
-            state.recent_error = Some(error.clone());
+        let active_stream = {
+            let mut state = self.inner.lock().expect("local client state lock");
+            if state.state == guard.pending {
+                state.state = LocalClientState::Failed;
+                state.attach_open = false;
+                state.recent_error = Some(error.clone());
+                state.active_attach_stream.take()
+            } else {
+                None
+            }
+        };
+        if let Some(active_stream) = active_stream {
+            drop_shared_attach_stream(&active_stream);
         }
         guard.active = false;
         error
