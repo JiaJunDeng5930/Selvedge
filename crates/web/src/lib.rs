@@ -6,6 +6,7 @@ use std::net::{Ipv4Addr, Ipv6Addr, TcpListener as StdTcpListener};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
+use std::time::Duration;
 
 use futures_core::Stream;
 use selvedge_local_protocol::{
@@ -21,6 +22,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
+use tokio::time::timeout;
 use tokio_stream::StreamExt;
 use tokio_stream::wrappers::WatchStream;
 
@@ -28,6 +30,7 @@ const JSON_CONTENT_TYPE: &str = "application/json";
 const NDJSON_CONTENT_TYPE: &str = "application/x-ndjson";
 const MAX_HTTP_HEADER_BYTES: usize = 16 * 1024;
 const MAX_HTTP_BODY_BYTES: usize = 4 * 1024 * 1024;
+const HTTP_REQUEST_READ_TIMEOUT: Duration = Duration::from_secs(5);
 
 pub struct WebStartArgs {
     pub bind: WebLocalhostBind,
@@ -379,6 +382,7 @@ fn not_ready_response() -> ReadyResponse {
     }
 }
 
+#[derive(Debug)]
 struct HttpRequest {
     method: String,
     path: String,
@@ -565,11 +569,31 @@ async fn next_web_frame(
     })
 }
 
+#[derive(Debug)]
 enum HttpRequestReadError {
     BodyTooLarge,
 }
 
 async fn read_http_request(
+    stream: &mut TcpStream,
+) -> io::Result<Result<HttpRequest, HttpRequestReadError>> {
+    read_http_request_with_timeout(stream, HTTP_REQUEST_READ_TIMEOUT).await
+}
+
+async fn read_http_request_with_timeout(
+    stream: &mut TcpStream,
+    read_timeout: Duration,
+) -> io::Result<Result<HttpRequest, HttpRequestReadError>> {
+    match timeout(read_timeout, read_http_request_inner(stream)).await {
+        Ok(result) => result,
+        Err(_) => Err(io::Error::new(
+            io::ErrorKind::TimedOut,
+            "HTTP request read timed out",
+        )),
+    }
+}
+
+async fn read_http_request_inner(
     stream: &mut TcpStream,
 ) -> io::Result<Result<HttpRequest, HttpRequestReadError>> {
     let mut raw_headers = Vec::new();
@@ -796,5 +820,31 @@ mod tests {
 
         assert!(matches!(status, WebExitStatus::Fatal(_)));
         assert_eq!(control.state().await, WebRuntimeState::Failed);
+    }
+
+    #[tokio::test]
+    async fn request_read_times_out_when_headers_stall() {
+        let listener = TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .expect("bind test listener");
+        let addr = listener.local_addr().expect("listener addr");
+        let client = tokio::spawn(async move {
+            let mut stream = TcpStream::connect(addr).await.expect("connect listener");
+            stream
+                .write_all(b"POST /")
+                .await
+                .expect("write partial request");
+            stream
+        });
+        let (mut server_stream, _addr) = listener.accept().await.expect("accept client");
+
+        let result =
+            read_http_request_with_timeout(&mut server_stream, Duration::from_millis(1)).await;
+
+        assert_eq!(
+            result.expect_err("stalled headers should time out").kind(),
+            io::ErrorKind::TimedOut
+        );
+        let _ = client.await.expect("client task");
     }
 }

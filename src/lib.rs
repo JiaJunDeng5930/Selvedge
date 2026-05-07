@@ -448,7 +448,9 @@ where
         Err(error) => return CliExitStatus::ServerStartFailed(format!("{error:?}")),
     }
 
-    let deadline = tokio::time::Instant::now() + resolved_config.ready_timeout;
+    let Some(deadline) = ready_deadline_from_now(resolved_config.ready_timeout) else {
+        return CliExitStatus::ServerReadyTimeout;
+    };
     loop {
         if tokio::time::Instant::now() >= deadline {
             return CliExitStatus::ServerReadyTimeout;
@@ -483,6 +485,10 @@ fn ready_retry_sleep_duration(
     }
 
     Some(std::cmp::min(poll_interval, deadline.duration_since(now)))
+}
+
+fn ready_deadline_from_now(timeout: Duration) -> Option<tokio::time::Instant> {
+    tokio::time::Instant::now().checked_add(timeout)
 }
 
 enum ReadyProbe<C> {
@@ -742,6 +748,11 @@ mod tests {
             ),
             None
         );
+    }
+
+    #[test]
+    fn ready_deadline_overflow_is_handled() {
+        assert_eq!(ready_deadline_from_now(Duration::MAX), None);
     }
 
     #[tokio::test]
