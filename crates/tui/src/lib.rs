@@ -266,9 +266,6 @@ async fn drain_ready_frames<Term: TuiTerminal>(
             Ok(Some(Ok(frame))) => terminal
                 .render_frame(&frame)
                 .map_err(TuiExitStatus::TerminalFailed)?,
-            Ok(Some(Err(selvedge_local_client::LocalClientError::StreamClosed))) => {
-                return Ok(());
-            }
             Ok(Some(Err(_))) => return Err(TuiExitStatus::Disconnected),
             Ok(None) => return Ok(()),
             Err(_) => return Ok(()),

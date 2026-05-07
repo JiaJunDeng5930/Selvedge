@@ -185,11 +185,17 @@ pub trait CliServerRunner: Send + Sync + 'static {
 }
 
 pub async fn run_cli(args: CliRunArgs) -> CliExitStatus {
-    if let Err(error) = selvedge_config::init() {
-        return CliExitStatus::ConfigFailed(error.to_string());
+    let parsed_command = parse_cli_args(&args.argv);
+    if !matches!(parsed_command, Ok(CliCommand::RunServer)) {
+        if let Err(error) = selvedge_config::init() {
+            return CliExitStatus::ConfigFailed(error.to_string());
+        }
+        if let Err(error) = selvedge_logging::init() {
+            return CliExitStatus::LoggingFailed(error.to_string());
+        }
     }
-    if let Err(error) = selvedge_logging::init() {
-        return CliExitStatus::LoggingFailed(error.to_string());
+    if let Err(error) = parsed_command {
+        return CliExitStatus::InvalidArgs(error);
     }
 
     let systemd_backend = match SystemctlBackend::new(SystemctlBackendConfig {
