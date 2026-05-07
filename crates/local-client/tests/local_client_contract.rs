@@ -944,6 +944,38 @@ async fn http_transport_posts_command_to_local_protocol_route() {
 }
 
 #[tokio::test]
+async fn http_transport_rejects_mismatched_command_response_id() {
+    let _guard = TEST_LOCK.lock().await;
+    let body = serde_json::to_vec(&CommandResponse {
+        protocol_version: current_protocol_version(),
+        client_command_id: LocalClientCommandId::new("other-command").expect("command id"),
+        outcome: CommandOutcome::Accepted,
+    })
+    .expect("command response json");
+    let (port, server) =
+        spawn_http_contract_server(vec![None, Some(HttpContractResponse::json(200, body))]).await;
+    let client = connect_http(http_config(port))
+        .await
+        .expect("connect http client");
+
+    let error = client
+        .submit_command(valid_command("command-1"))
+        .await
+        .expect_err("mismatched response id should fail");
+
+    assert!(matches!(
+        error,
+        LocalClientError::ProtocolValidationFailed(_)
+    ));
+    let captures = server.await.expect("join http contract server");
+    assert!(
+        captures
+            .iter()
+            .any(|capture| capture.path == "/selvedge/local/v1/command")
+    );
+}
+
+#[tokio::test]
 async fn http_transport_reads_attach_accepted_ndjson_stream() {
     let _guard = TEST_LOCK.lock().await;
     let accepted = AttachAccepted {

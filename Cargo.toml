@@ -37,6 +37,7 @@ selvedge-api = { path = "crates/api" }
 selvedge-client-sync = { path = "crates/client-sync" }
 selvedge-command-model = { path = "crates/command-model" }
 selvedge-config = { path = "crates/config" }
+selvedge-config-model = { path = "crates/config-model" }
 selvedge-core = { path = "crates/core" }
 selvedge-domain-model = { path = "crates/domain-model" }
 selvedge-local-client = { path = "crates/local-client" }
@@ -50,7 +51,6 @@ tokio = { version = "1.42.0", features = ["net", "rt", "time"] }
 
 [dev-dependencies]
 selvedge-config = { path = "crates/config" }
-selvedge-config-model = { path = "crates/config-model" }
 selvedge-logging = { path = "crates/logging" }
 tempfile = "3.14.0"
 tokio = { version = "1.42.0", features = ["macros", "rt", "sync", "time"] }
