@@ -378,6 +378,11 @@ struct HttpRequest {
     body: Vec<u8>,
 }
 
+enum JsonRequestParseError {
+    UnsupportedContentType,
+    MalformedJson,
+}
+
 async fn handle_http_connection(mut control: WebControl, mut stream: TcpStream) -> io::Result<()> {
     let request = match read_http_request(&mut stream).await? {
         Ok(request) => request,
@@ -441,14 +446,9 @@ async fn handle_ready_route(
         )
         .await;
     }
-    let Some(ready_request) = parse_json_request::<ReadyRequest>(&request) else {
-        return write_problem_response(
-            stream,
-            400,
-            LocalHttpProblemCode::MalformedJson,
-            "malformed ready request",
-        )
-        .await;
+    let ready_request = match parse_json_request::<ReadyRequest>(&request) {
+        Ok(request) => request,
+        Err(error) => return write_json_parse_error(stream, error, "ready").await,
     };
     match control.ready(ready_request).await {
         Ok(response) => write_json_response(stream, 200, &response).await,
@@ -478,14 +478,9 @@ async fn handle_command_route(
         )
         .await;
     }
-    let Some(command_request) = parse_json_request::<CommandRequest>(&request) else {
-        return write_problem_response(
-            stream,
-            400,
-            LocalHttpProblemCode::MalformedJson,
-            "malformed command request",
-        )
-        .await;
+    let command_request = match parse_json_request::<CommandRequest>(&request) {
+        Ok(request) => request,
+        Err(error) => return write_json_parse_error(stream, error, "command").await,
     };
     match control.submit_command(command_request).await {
         Ok(response) => write_json_response(stream, 200, &response).await,
@@ -515,14 +510,9 @@ async fn handle_attach_route(
         )
         .await;
     }
-    let Some(attach_request) = parse_json_request::<AttachRequest>(&request) else {
-        return write_problem_response(
-            stream,
-            400,
-            LocalHttpProblemCode::MalformedJson,
-            "malformed attach request",
-        )
-        .await;
+    let attach_request = match parse_json_request::<AttachRequest>(&request) {
+        Ok(request) => request,
+        Err(error) => return write_json_parse_error(stream, error, "attach").await,
     };
     let client_command_id = attach_request.client_command_id.clone();
     match control.attach(attach_request).await {
@@ -623,12 +613,50 @@ async fn read_http_request(
     }))
 }
 
-fn parse_json_request<T: DeserializeOwned>(request: &HttpRequest) -> Option<T> {
-    let content_type = request.content_type.as_ref()?;
-    if content_type.split(';').next()?.trim() != JSON_CONTENT_TYPE {
-        return None;
+fn parse_json_request<T: DeserializeOwned>(
+    request: &HttpRequest,
+) -> Result<T, JsonRequestParseError> {
+    let content_type = request
+        .content_type
+        .as_ref()
+        .ok_or(JsonRequestParseError::UnsupportedContentType)?;
+    if content_type
+        .split(';')
+        .next()
+        .ok_or(JsonRequestParseError::UnsupportedContentType)?
+        .trim()
+        != JSON_CONTENT_TYPE
+    {
+        return Err(JsonRequestParseError::UnsupportedContentType);
     }
-    serde_json::from_slice(&request.body).ok()
+    serde_json::from_slice(&request.body).map_err(|_| JsonRequestParseError::MalformedJson)
+}
+
+async fn write_json_parse_error(
+    stream: &mut TcpStream,
+    error: JsonRequestParseError,
+    request_kind: &str,
+) -> io::Result<()> {
+    match error {
+        JsonRequestParseError::UnsupportedContentType => {
+            write_problem_response(
+                stream,
+                415,
+                LocalHttpProblemCode::UnsupportedContentType,
+                "unsupported content type",
+            )
+            .await
+        }
+        JsonRequestParseError::MalformedJson => {
+            write_problem_response(
+                stream,
+                400,
+                LocalHttpProblemCode::MalformedJson,
+                format!("malformed {request_kind} request"),
+            )
+            .await
+        }
+    }
 }
 
 async fn write_json_response<T: Serialize>(

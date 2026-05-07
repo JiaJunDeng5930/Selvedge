@@ -3,6 +3,7 @@ use std::future;
 use std::sync::{Arc, LazyLock, Mutex};
 use std::time::Duration;
 
+use futures_util::StreamExt;
 use futures_util::stream;
 use selvedge_local_client::{
     AttachRejectedOrClientError, LocalClientConfig, LocalClientError, LocalEndpoint,
@@ -89,7 +90,7 @@ async fn waits_for_snapshot_then_submits_initial_command_and_reports_rejection()
         let mut state_guard = state.lock().expect("fake state");
         state_guard
             .attach_responses
-            .push_back(AttachAction::Accepted(vec![Ok(
+            .push_back(AttachAction::AcceptedThenPending(vec![Ok(
                 LocalClientFrame::Snapshot(LocalClientSnapshotFrame {
                     delivery_seq: 1,
                     client_command_id: LocalClientCommandId::new("attach-1").expect("command id"),
@@ -129,7 +130,7 @@ async fn accepted_initial_command_exits_successfully() {
         let mut state_guard = state.lock().expect("fake state");
         state_guard
             .attach_responses
-            .push_back(AttachAction::Accepted(vec![Ok(
+            .push_back(AttachAction::AcceptedThenPending(vec![Ok(
                 LocalClientFrame::Snapshot(LocalClientSnapshotFrame {
                     delivery_seq: 1,
                     client_command_id: LocalClientCommandId::new("attach-1").expect("command id"),
@@ -202,7 +203,7 @@ async fn terminal_eof_after_snapshot_exits_and_empty_line_is_input() {
         .lock()
         .expect("fake state")
         .attach_responses
-        .push_back(AttachAction::Accepted(vec![Ok(
+        .push_back(AttachAction::AcceptedThenPending(vec![Ok(
             LocalClientFrame::Snapshot(LocalClientSnapshotFrame {
                 delivery_seq: 1,
                 client_command_id: LocalClientCommandId::new("attach-1").expect("command id"),
@@ -326,6 +327,7 @@ struct FakeTransportState {
 
 enum AttachAction {
     Accepted(Vec<Result<LocalClientFrame, LocalClientError>>),
+    AcceptedThenPending(Vec<Result<LocalClientFrame, LocalClientError>>),
     Rejected(AttachRejected),
     Pending,
 }
@@ -391,6 +393,14 @@ impl LocalTransport for FakeTransport {
                     client_command_id: request.client_command_id,
                 },
                 Box::pin(stream::iter(frames)),
+            )),
+            Some(AttachAction::AcceptedThenPending(frames)) => Ok((
+                AttachAccepted {
+                    protocol_version: current_protocol_version(),
+                    client_id: request.client_id,
+                    client_command_id: request.client_command_id,
+                },
+                Box::pin(stream::iter(frames).chain(stream::pending())),
             )),
             Some(AttachAction::Rejected(rejected)) => {
                 Err(AttachRejectedOrClientError::Rejected(rejected))

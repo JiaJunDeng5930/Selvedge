@@ -404,6 +404,34 @@ async fn http_route_returns_body_too_large_for_oversized_headers() {
     );
 }
 
+#[tokio::test]
+async fn http_route_returns_unsupported_media_type_for_non_json_body() {
+    let bind = unused_loopback_bind();
+    let port = bind.port;
+    let handle = spawn_web_surface(WebStartArgs {
+        bind,
+        bridge: Arc::new(StaticBridge),
+    })
+    .expect("valid web start args");
+
+    let response = send_raw_http_request(
+        port,
+        "POST /selvedge/local/v1/ready HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: text/plain\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}",
+    )
+    .await;
+
+    assert!(response.starts_with("HTTP/1.1 415"));
+    assert_eq!(
+        extract_problem(&response).code,
+        LocalHttpProblemCode::UnsupportedContentType
+    );
+    handle.control.stop().await;
+    assert_eq!(
+        handle.join_handle.await.expect("join web task"),
+        WebExitStatus::Stopped
+    );
+}
+
 struct StaticBridge;
 
 impl WebBridge for StaticBridge {
