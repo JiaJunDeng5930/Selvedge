@@ -165,6 +165,8 @@ impl CliServerStartArgsBuilder for DefaultCliServerStartArgsBuilder {
                 mailbox_capacity: 64,
                 model_profiles: HashMap::new(),
             }),
+            // NOTE: Skeleton startup wires explicit placeholders for command
+            // mapping and snapshot hydration package contracts.
             snapshot_builder: Arc::new(EmptySnapshotBuilder),
             command_mapper: Arc::new(UnsupportedCommandMapper),
             local_binding: LocalBindingConfig {
@@ -597,6 +599,8 @@ impl ToolExecutionSpawner for UnavailableToolExecutor {
     }
 }
 
+// NOTE: Skeleton snapshot hydration returns an empty snapshot with a stable
+// zero timestamp, so attach clients receive a deterministic initial frame.
 struct EmptySnapshotBuilder;
 
 impl ClientSnapshotBuilder for EmptySnapshotBuilder {
@@ -613,6 +617,8 @@ impl ClientSnapshotBuilder for EmptySnapshotBuilder {
     }
 }
 
+// NOTE: Skeleton command mapping rejects all command names through the normal
+// server unsupported-command outcome.
 struct UnsupportedCommandMapper;
 
 impl LocalCommandMapper for UnsupportedCommandMapper {
