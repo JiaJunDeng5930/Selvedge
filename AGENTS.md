@@ -64,7 +64,7 @@ This file is for coding agents working in this repository.
 - Search source comments for an ID before changing Rust behavior, constraints, structural abstractions, or tests.
 - After changing requirement tags, run `cargo xtask req fmt-agents` and stage `AGENTS.md`.
 - Before committing, run `cargo xtask req check --staged`.
-- CI runs `cargo xtask req check --all` on a clean checkout.
+- CI runs `cargo xtask req check --all` and `cargo xtask req check --base <git-ref>` on a clean checkout.
 - Generated requirement index rows are updated only through `cargo xtask req fmt-agents`.
 
 ## Requirement Index
@@ -83,15 +83,23 @@ This file is for coding agents working in this repository.
 |req.api.report|req.api.report.{}
 |req.api.status|req.api.status.{}
 |req.api.tag|req.api.tag.{}
-|req.check|req.check.{}
-|req.cli|req.cli.{}
-|req.detector|req.detector.{assertion,contract,field,signature,structure}
+|req.check|req.check.{git_ref_list,git_ref_read,git_ref_status,head_snapshot}
+|req.check.git_ref_list|req.check.git_ref_list.{}
+|req.check.git_ref_read|req.check.git_ref_read.{}
+|req.check.git_ref_status|req.check.git_ref_status.{}
+|req.check.head_snapshot|req.check.head_snapshot.{}
+|req.cli|req.cli.{base_error}
+|req.cli.base_error|req.cli.base_error.{}
+|req.detector|req.detector.{assertion,contract,diff_command,field,hunk_parse,signature,structure}
 |req.detector.assertion|req.detector.assertion.{}
 |req.detector.contract|req.detector.contract.{}
+|req.detector.diff_command|req.detector.diff_command.{}
 |req.detector.field|req.detector.field.{}
+|req.detector.hunk_parse|req.detector.hunk_parse.{}
 |req.detector.signature|req.detector.signature.{}
 |req.detector.structure|req.detector.structure.{}
-|req.format|req.format.{}
+|req.format|req.format.{index_block}
+|req.format.index_block|req.format.index_block.{}
 |req.scan|req.scan.{}
 <!-- END AGENTS_MD_REQUIREMENT_INDEX -->
 

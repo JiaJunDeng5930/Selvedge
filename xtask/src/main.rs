@@ -89,6 +89,29 @@ fn main() {
                     );
                     1
                 }
+                // @behavior req.cli.base_error The base-check branch prints requirement check errors and exits with failure.
+                Err(error) => {
+                    eprintln!("{error}");
+                    1
+                }
+            }
+        }
+        [command, action, flag, git_ref]
+            if command == "req" && action == "check" && flag == "--base" =>
+        {
+            match check_requirements(
+                &root,
+                RequirementCheckMode::Base {
+                    git_ref: git_ref.to_string(),
+                },
+            ) {
+                Ok(RequirementCheckStatus::Fresh) => 0,
+                Ok(RequirementCheckStatus::StaleAgentsIndex) => {
+                    eprintln!(
+                        "AGENTS.md:1: stale-requirement-index: run `cargo xtask req fmt-agents`"
+                    );
+                    1
+                }
                 Err(error) => {
                     eprintln!("{error}");
                     1
@@ -97,7 +120,7 @@ fn main() {
         }
         _ => {
             eprintln!(
-                "usage: cargo xtask agents-index <update|check>\n       cargo xtask req <scan|fmt-agents>\n       cargo xtask req check <--staged|--all>"
+                "usage: cargo xtask agents-index <update|check>\n       cargo xtask req <scan|fmt-agents>\n       cargo xtask req check <--staged|--all|--base <git-ref>>"
             );
             2
         }
