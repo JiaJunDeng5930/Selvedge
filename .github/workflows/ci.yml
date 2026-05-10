@@ -13,6 +13,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -36,3 +38,11 @@ jobs:
 
       - name: Check requirement comments
         run: cargo xtask req check --all
+
+      - name: Check requirement anchors
+        run: |
+          if git show origin/${{ github.base_ref }}:AGENTS.md | grep -q "BEGIN AGENTS_MD_REQUIREMENT_INDEX"; then
+            cargo xtask req check --base origin/${{ github.base_ref }}
+          else
+            echo "requirement anchor base check starts after the requirement system exists on the base branch"
+          fi

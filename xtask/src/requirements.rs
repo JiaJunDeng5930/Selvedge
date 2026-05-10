@@ -10,11 +10,12 @@ use std::process::Command;
 const BEGIN_MARKER: &str = "<!-- BEGIN AGENTS_MD_REQUIREMENT_INDEX -->";
 const END_MARKER: &str = "<!-- END AGENTS_MD_REQUIREMENT_INDEX -->";
 
-/// @constraint req.api.mode The check mode enum limits validation to either the full checkout or the staged Git snapshot.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// @constraint req.api.mode The check mode enum limits validation to the full checkout, the staged Git snapshot, or a base ref diff.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RequirementCheckMode {
     All,
     Staged,
+    Base { git_ref: String },
 }
 
 /// @constraint req.api.status The check status enum reports either a fresh requirement index or a stale AGENTS block.
@@ -112,15 +113,62 @@ pub fn check_requirements(
     let snapshot = match mode {
         RequirementCheckMode::All => Snapshot::from_worktree(root)?,
         RequirementCheckMode::Staged => Snapshot::from_index(root)?,
+        RequirementCheckMode::Base { .. } => Snapshot::from_worktree(root)?,
     };
     let mut report = scan_snapshot(&snapshot);
 
-    if mode == RequirementCheckMode::Staged {
-        report.diagnostics.extend(classify_staged_diff(
-            root,
-            &snapshot.files,
-            &snapshot.records,
-        )?);
+    let current_records = report
+        .declarations
+        .iter()
+        .cloned()
+        .chain(report.verifications.iter().cloned())
+        .collect::<Vec<_>>();
+
+    match &mode {
+        RequirementCheckMode::All => {}
+        RequirementCheckMode::Staged => {
+            // @behavior req.check.head_snapshot The staged check uses an empty old snapshot when HEAD is unavailable.
+            let old_snapshot = match Snapshot::from_git_ref(root, "HEAD") {
+                Ok(snapshot) => snapshot,
+                Err(_) => Snapshot { files: Vec::new() },
+            };
+            let old_report = scan_snapshot(&old_snapshot);
+            let old_records = old_report
+                .declarations
+                .iter()
+                .cloned()
+                .chain(old_report.verifications.iter().cloned())
+                .collect::<Vec<_>>();
+            report.diagnostics.extend(classify_git_diff(
+                root,
+                &["diff", "--cached", "--unified=0", "--", "*.rs"],
+                "git diff --cached",
+                &snapshot.files,
+                &current_records,
+                &old_snapshot.files,
+                &old_records,
+            )?);
+        }
+        RequirementCheckMode::Base { git_ref } => {
+            let old_snapshot = Snapshot::from_git_ref(root, git_ref)?;
+            let old_report = scan_snapshot(&old_snapshot);
+            let old_records = old_report
+                .declarations
+                .iter()
+                .cloned()
+                .chain(old_report.verifications.iter().cloned())
+                .collect::<Vec<_>>();
+            let range = format!("{git_ref}...HEAD");
+            report.diagnostics.extend(classify_git_diff(
+                root,
+                &["diff", "--unified=0", &range, "--", "*.rs"],
+                "git diff --base",
+                &snapshot.files,
+                &current_records,
+                &old_snapshot.files,
+                &old_records,
+            )?);
+        }
     }
 
     if !report.diagnostics.is_empty() {
@@ -464,7 +512,7 @@ fn render_requirement_index_block(declarations: &[RequirementRecord], line_endin
     lines.push(END_MARKER.to_string());
     lines.join(line_ending)
 }
-
+/// @behavior req.format.index_block The index block updater preserves AGENTS content around the generated requirement block.
 fn upsert_requirement_index_block(
     existing: &str,
     block: &str,
@@ -503,108 +551,150 @@ fn upsert_requirement_index_block(
     Ok(updated)
 }
 
-fn classify_staged_diff(
+fn classify_git_diff(
     root: &Path,
-    files: &[SnapshotFile],
-    records: &[RequirementRecord],
+    args: &[&str],
+    command_name: &str,
+    new_files: &[SnapshotFile],
+    new_records: &[RequirementRecord],
+    old_files: &[SnapshotFile],
+    old_records: &[RequirementRecord],
 ) -> Result<Vec<Diagnostic>, String> {
-    let output = isolated_git_command()
-        .current_dir(root)
-        .args(["diff", "--cached", "--unified=0", "--", "*.rs"])
-        .output()
-        .map_err(|error| format!("failed to run git diff --cached: {error}"))?;
+    // @behavior req.detector.diff_command The diff classifier maps Git command execution failure into a tool diagnostic.
+    let output = match isolated_git_command().current_dir(root).args(args).output() {
+        Ok(output) => output,
+        Err(error) => return Err(format!("failed to run {command_name}: {error}")),
+    };
     if !output.status.success() {
         return Err(format!(
-            "git diff --cached failed: {}",
+            "{command_name} failed: {}",
             String::from_utf8_lossy(&output.stderr).trim()
         ));
     }
 
     let mut diagnostics = Vec::new();
-    let mut current_path = None::<String>;
+    let mut removed_line_records = old_records.to_vec();
+    removed_line_records.extend_from_slice(new_records);
+    let mut old_path = None::<String>;
+    let mut new_path = None::<String>;
+    let mut old_line = 0usize;
     let mut new_line = 0usize;
     for line in String::from_utf8_lossy(&output.stdout).lines() {
+        if let Some(path) = line.strip_prefix("--- a/") {
+            old_path = Some(path.to_string());
+            continue;
+        }
         if let Some(path) = line.strip_prefix("+++ b/") {
-            current_path = Some(path.to_string());
+            new_path = Some(path.to_string());
             continue;
         }
         if let Some(hunk) = line.strip_prefix("@@ ") {
-            new_line = parse_hunk_new_start(hunk);
+            let (parsed_old_line, parsed_new_line) = parse_hunk_starts(hunk);
+            old_line = parsed_old_line;
+            new_line = parsed_new_line;
             continue;
         }
-        if !line.starts_with('+') || line.starts_with("+++") {
-            if new_line > 0 && !line.starts_with('-') {
-                new_line += 1;
-            }
-            continue;
-        }
-        let Some(path) = current_path.as_deref() else {
-            continue;
-        };
-        let added = line.trim_start_matches('+').trim();
-        if added.is_empty() || added.starts_with("//") || added.starts_with("/*") {
+        if line.starts_with('+') && !line.starts_with("+++") {
+            let Some(path) = new_path.as_deref() else {
+                continue;
+            };
+            classify_diff_line(
+                &mut diagnostics,
+                path,
+                new_line,
+                line.trim_start_matches('+').trim(),
+                new_files,
+                new_records,
+            );
             new_line += 1;
             continue;
         }
-
-        let staged_file = files.iter().find(|file| file.path == path);
-        let classified_line = classify_added_line(added).or_else(|| {
-            staged_file
-                .filter(|file| is_visible_signature_continuation(file, new_line, added))
-                .map(|_| {
-                    (
-                        "missing-contract-anchor",
-                        vec![RequirementTag::Behavior, RequirementTag::Constraint],
-                    )
-                })
-        });
-        if let Some((rule, required)) = classified_line {
-            let in_test_context = staged_file
-                .is_some_and(|file| is_inline_test_context(file, new_line))
-                || is_test_path(path);
-            if in_test_context && rule != "missing-test-expectation-anchor" {
-                new_line += 1;
+        if line.starts_with('-') && !line.starts_with("---") {
+            let Some(path) = old_path.as_deref() else {
                 continue;
-            }
-            let (rule, required) = if !in_test_context && rule == "missing-test-expectation-anchor"
-            {
-                if is_assertion_line(added) {
-                    (
-                        "missing-failure-policy-anchor",
-                        vec![RequirementTag::Behavior, RequirementTag::Constraint],
-                    )
-                } else {
-                    new_line += 1;
-                    continue;
-                }
-            } else {
-                (rule, required)
             };
-            let has_anchor = records.iter().any(|record| {
-                record.path == path
-                    && required.contains(&record.tag)
-                    && record.line <= new_line
-                    && new_line.saturating_sub(record.line) <= 8
-            });
-            if !has_anchor {
-                diagnostics.push(Diagnostic {
-                    path: path.to_string(),
-                    line: new_line,
-                    rule,
-                    message: format!(
-                        "changed Rust hunk requires one of {} near the enclosing code unit",
-                        required
-                            .iter()
-                            .map(|tag| tag.as_str())
-                            .collect::<Vec<_>>()
-                            .join(" or ")
-                    ),
-                });
-            }
+            classify_diff_line(
+                &mut diagnostics,
+                path,
+                old_line,
+                line.trim_start_matches('-').trim(),
+                old_files,
+                &removed_line_records,
+            );
+            old_line += 1;
+            continue;
         }
-        new_line += 1;
+        if !line.starts_with('\\') {
+            old_line += 1;
+            new_line += 1;
+        }
     }
     Ok(diagnostics)
+}
+
+fn classify_diff_line(
+    diagnostics: &mut Vec<Diagnostic>,
+    path: &str,
+    line: usize,
+    changed: &str,
+    files: &[SnapshotFile],
+    records: &[RequirementRecord],
+) {
+    if changed.is_empty() || changed.starts_with("//") || changed.starts_with("/*") {
+        return;
+    }
+
+    let changed_file = files.iter().find(|file| file.path == path);
+    let classified_line = classify_added_line(changed).or_else(|| {
+        changed_file
+            .filter(|file| is_visible_signature_continuation(file, line, changed))
+            .map(|_| {
+                (
+                    "missing-contract-anchor",
+                    vec![RequirementTag::Behavior, RequirementTag::Constraint],
+                )
+            })
+    });
+    if let Some((rule, required)) = classified_line {
+        let in_test_context = changed_file.is_some_and(|file| is_inline_test_context(file, line))
+            || is_test_path(path);
+        if in_test_context && rule != "missing-test-expectation-anchor" {
+            return;
+        }
+        let (rule, required) = if !in_test_context && rule == "missing-test-expectation-anchor" {
+            if is_assertion_line(changed) {
+                (
+                    "missing-failure-policy-anchor",
+                    vec![RequirementTag::Behavior, RequirementTag::Constraint],
+                )
+            } else {
+                return;
+            }
+        } else {
+            (rule, required)
+        };
+        let has_anchor = records.iter().any(|record| {
+            record.path == path
+                && required.contains(&record.tag)
+                && record.line <= line
+                && line.saturating_sub(record.line) <= 8
+        });
+        if !has_anchor {
+            diagnostics.push(Diagnostic {
+                path: path.to_string(),
+                line,
+                rule,
+                message: format!(
+                    "changed Rust hunk requires one of {} near the enclosing code unit",
+                    required
+                        .iter()
+                        .map(|tag| tag.as_str())
+                        .collect::<Vec<_>>()
+                        .join(" or ")
+                ),
+            });
+        }
+    }
 }
 
 /// @intent req.detector The diff detector table maps Rust syntax signals to required requirement tags.
@@ -685,7 +775,6 @@ fn is_visible_contract_line(line: &str) -> bool {
             || is_visible_field_remainder(rest)
     })
 }
-
 /// @behavior req.detector.field The visible field detector classifies public Rust struct fields as contract changes.
 fn is_visible_field_remainder(rest: &str) -> bool {
     let Some((name, _)) = rest.split_once(':') else {
@@ -771,12 +860,17 @@ fn is_visible_signature_continuation(file: &SnapshotFile, line: usize, added: &s
     false
 }
 
-fn parse_hunk_new_start(hunk: &str) -> usize {
+fn parse_hunk_starts(hunk: &str) -> (usize, usize) {
+    (parse_hunk_start(hunk, '-'), parse_hunk_start(hunk, '+'))
+}
+
+/// @behavior req.detector.hunk_parse The hunk parser returns zero when a diff hunk omits a parseable line start.
+fn parse_hunk_start(hunk: &str, prefix: char) -> usize {
     hunk.split_whitespace()
-        .find_map(|part| part.strip_prefix('+'))
+        .find_map(|part| part.strip_prefix(prefix))
         .and_then(|part| part.split(',').next())
         .and_then(|line| line.parse::<usize>().ok())
-        .unwrap_or(0)
+        .unwrap_or_default()
 }
 
 fn extract_requirement_comments(file: &SnapshotFile) -> Vec<RawRequirementComment> {
@@ -970,7 +1064,6 @@ struct RawRequirementComment {
 #[derive(Debug)]
 struct Snapshot {
     files: Vec<SnapshotFile>,
-    records: Vec<RequirementRecord>,
 }
 
 impl Snapshot {
@@ -990,8 +1083,7 @@ impl Snapshot {
                 }
             }
         }
-        let records = Vec::new();
-        Ok(Self { files, records })
+        Ok(Self { files })
     }
 
     fn from_index(root: &Path) -> Result<Self, String> {
@@ -1016,18 +1108,40 @@ impl Snapshot {
                 content,
             });
         }
-        let report = scan_snapshot(&Self {
-            files: files.clone(),
-            records: Vec::new(),
-        });
-        Ok(Self {
-            files,
-            records: report
-                .declarations
-                .into_iter()
-                .chain(report.verifications)
-                .collect(),
-        })
+        Ok(Self { files })
+    }
+
+    fn from_git_ref(root: &Path, git_ref: &str) -> Result<Self, String> {
+        let paths = git_ref_files(root, git_ref)?;
+        let mut files = Vec::new();
+        for path in paths {
+            let path_string = path_to_string(&path);
+            let output = match isolated_git_command()
+                .current_dir(root)
+                .arg("show")
+                .arg(format!("{git_ref}:{path_string}"))
+                .output()
+            {
+                Ok(output) => output,
+                // @behavior req.check.git_ref_read The ref snapshot reader reports object read failures for the requested Git ref.
+                Err(error) => {
+                    return Err(format!(
+                        "failed to read {path_string} from {git_ref}: {error}"
+                    ));
+                }
+            };
+            if !output.status.success() {
+                continue;
+            }
+            let Ok(content) = String::from_utf8(output.stdout) else {
+                continue;
+            };
+            files.push(SnapshotFile {
+                path: path_string,
+                content,
+            });
+        }
+        Ok(Self { files })
     }
 }
 
@@ -1043,6 +1157,33 @@ fn git_ls_files(root: &Path) -> Result<Vec<PathBuf>, String> {
 
 fn git_ls_files_cached(root: &Path) -> Result<Vec<PathBuf>, String> {
     git_path_list(root, &["ls-files", "-z", "--cached"])
+}
+
+fn git_ref_files(root: &Path, git_ref: &str) -> Result<Vec<PathBuf>, String> {
+    let output = match isolated_git_command()
+        .current_dir(root)
+        .args(["ls-tree", "-r", "--name-only", "-z", git_ref])
+        .output()
+    {
+        Ok(output) => output,
+        // @behavior req.check.git_ref_list The ref file lister reports Git tree listing failures for the requested Git ref.
+        Err(error) => return Err(format!("failed to run git ls-tree for {git_ref}: {error}")),
+    };
+    // @behavior req.check.git_ref_status The ref file lister reports unsuccessful Git tree listing status for the requested Git ref.
+    if !output.status.success() {
+        return Err(format!(
+            "git ls-tree {git_ref} failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    let mut paths = output
+        .stdout
+        .split(|byte| *byte == b'\0')
+        .filter(|entry| !entry.is_empty())
+        .map(|entry| PathBuf::from(String::from_utf8_lossy(entry).into_owned()))
+        .collect::<Vec<_>>();
+    paths.sort();
+    Ok(paths)
 }
 
 fn git_path_list(root: &Path, args: &[&str]) -> Result<Vec<PathBuf>, String> {
@@ -1131,6 +1272,7 @@ mod tests {
 
     #[test]
     // @verifies req.format The test verifies that fmt-agents writes requirement tree rows into AGENTS.md.
+    // @verifies req.format.index_block The test verifies that requirement index formatting preserves AGENTS content.
     // @verifies req.api.report The test verifies that the generated index is derived from discovered declarations.
     fn fmt_agents_generates_requirement_index_from_source_comments() {
         let repo = TestRepo::new();
@@ -1429,6 +1571,90 @@ mod tests {
         // @verifies req.detector.signature The assertion verifies that multiline signature edits use contract diagnostics.
         let error = check_requirements(repo.path(), RequirementCheckMode::Staged)
             .expect_err("multiline public signature edit should fail staged check");
+
+        assert!(error.contains("missing-contract-anchor"));
+    }
+
+    #[test]
+    // @verifies req.check The test verifies that deletion-only staged hunks run requirement anchor detection.
+    fn staged_check_rejects_unanchored_deleted_contract_lines() {
+        let repo = TestRepo::new();
+        repo.write(
+            "AGENTS.md",
+            "# AGENTS.md\n\n<!-- BEGIN AGENTS_MD_REQUIREMENT_INDEX -->\n<!-- END AGENTS_MD_REQUIREMENT_INDEX -->\n",
+        );
+        repo.write(
+            "src/lib.rs",
+            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\npub fn removed_contract() {}\n",
+        );
+        // @verifies req.check The fixture verifies deletion detection with an existing test.
+        repo.write(
+            "tests/scan_contract.rs",
+            "// @verifies req.scan The test verifies that scan comments are indexed.\n#[test]\nfn scan_comments_are_indexed() {\n    assert!(true);\n}\n",
+        );
+        repo.git_add(&["AGENTS.md", "src/lib.rs", "tests/scan_contract.rs"]);
+        format_agents_requirement_index(repo.path()).expect("format should succeed");
+        repo.git_add(&["AGENTS.md"]);
+        repo.git_commit("initial requirement comments");
+
+        repo.write(
+            "src/lib.rs",
+            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n",
+        );
+        repo.git_add(&["src/lib.rs"]);
+
+        // @verifies req.check The assertion verifies that removed public contracts require anchors.
+        let error = check_requirements(repo.path(), RequirementCheckMode::Staged)
+            .expect_err("deleted public contract should fail staged check");
+
+        assert!(error.contains("missing-contract-anchor"));
+    }
+
+    #[test]
+    // @verifies req.cli.base_error The test verifies that base-check failures are observable as command errors.
+    // @verifies req.api.mode The test verifies that base-check mode classifies changed hunks against a Git ref.
+    // @verifies req.check The test verifies that CI-style base checks enforce requirement anchors.
+    // @verifies req.check.head_snapshot The test verifies that staged checks tolerate repositories without HEAD snapshots.
+    // @verifies req.check.git_ref_read The test verifies that base mode reads source files from a Git ref.
+    // @verifies req.check.git_ref_list The test verifies that base mode lists source files from a Git ref.
+    // @verifies req.check.git_ref_status The test verifies that base mode checks Git ref listing status.
+    // @verifies req.detector.hunk_parse The test verifies that base mode parses diff hunk starts for diagnostics.
+    // @verifies req.detector.diff_command The test verifies that diff command failures are part of check diagnostics.
+    fn base_check_rejects_unanchored_contract_additions() {
+        let repo = TestRepo::new();
+        repo.write(
+            "AGENTS.md",
+            "# AGENTS.md\n\n<!-- BEGIN AGENTS_MD_REQUIREMENT_INDEX -->\n<!-- END AGENTS_MD_REQUIREMENT_INDEX -->\n",
+        );
+        repo.write(
+            "src/lib.rs",
+            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n",
+        );
+        // @verifies req.check The fixture verifies base mode with an existing test.
+        repo.write(
+            "tests/scan_contract.rs",
+            "// @verifies req.scan The test verifies that scan comments are indexed.\n#[test]\nfn scan_comments_are_indexed() {\n    assert!(true);\n}\n",
+        );
+        repo.git_add(&["AGENTS.md", "src/lib.rs", "tests/scan_contract.rs"]);
+        format_agents_requirement_index(repo.path()).expect("format should succeed");
+        repo.git_add(&["AGENTS.md"]);
+        repo.git_commit("initial requirement comments");
+
+        repo.write(
+            "src/lib.rs",
+            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\npub fn added_contract() {}\n",
+        );
+        repo.git_add(&["src/lib.rs"]);
+        repo.git_commit("add unanchored contract");
+
+        // @verifies req.check The assertion verifies that base mode reports contract anchor diagnostics.
+        let error = check_requirements(
+            repo.path(),
+            RequirementCheckMode::Base {
+                git_ref: "HEAD~1".to_string(),
+            },
+        )
+        .expect_err("base check should fail unanchored contract addition");
 
         assert!(error.contains("missing-contract-anchor"));
     }
