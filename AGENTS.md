@@ -13,6 +13,7 @@ This file is for coding agents working in this repository.
 - `pre-commit` checks `cargo fmt --all -- --check`
 - `pre-commit` checks `cargo clippy --workspace --all-targets --all-features -- -D warnings`
 - `pre-commit` checks that the project index in this file is up to date
+- `pre-commit` checks requirement comments with `cargo xtask req check --staged`
 - `pre-push` checks `cargo test --workspace --all-targets --all-features`
 
 ## Branch Protection
@@ -51,6 +52,43 @@ This file is for coding agents working in this repository.
 - `HACK` means a temporary workaround that should be replaced by normal design.
 - `NOTE` means important context that affects code understanding.
 - `XXX` means high-risk code that needs reviewer attention.
+
+## Requirement Comments
+
+- Requirement truth lives only in source comments next to Rust code.
+- Requirement comments use `@behavior`, `@constraint`, `@intent`, and `@verifies`.
+- Every requirement comment body is one sentence.
+- Dotted IDs form an arbitrary-depth requirement tree.
+- Details belong in narrower descendant IDs near the code units that implement them.
+- The generated requirement index helps agents find IDs; the full sentence lives in the source comment.
+- Search source comments for an ID before changing Rust behavior, constraints, structural abstractions, or tests.
+- After changing requirement tags, run `cargo xtask req fmt-agents` and stage `AGENTS.md`.
+- Before committing, run `cargo xtask req check --staged`.
+- CI runs `cargo xtask req check --all` on a clean checkout.
+- Generated requirement index rows are updated only through `cargo xtask req fmt-agents`.
+
+## Requirement Index
+
+<!-- BEGIN AGENTS_MD_REQUIREMENT_INDEX -->
+[Requirement Index]|root:.
+|IMPORTANT: Requirement truth lives in source comments; search source comments for an ID before changing code.
+|source:source_comments_only
+|comment_body:single_sentence
+|tags:{@behavior,@constraint,@intent,@verifies}
+|req|req.{api,check,cli,detector,format,scan}
+|req.api|req.api.{diagnostic,mode,record,report,status,tag}
+|req.api.diagnostic|req.api.diagnostic.{}
+|req.api.mode|req.api.mode.{}
+|req.api.record|req.api.record.{}
+|req.api.report|req.api.report.{}
+|req.api.status|req.api.status.{}
+|req.api.tag|req.api.tag.{}
+|req.check|req.check.{}
+|req.cli|req.cli.{}
+|req.detector|req.detector.{}
+|req.format|req.format.{}
+|req.scan|req.scan.{}
+<!-- END AGENTS_MD_REQUIREMENT_INDEX -->
 
 ## Project Index Workflow
 
@@ -146,7 +184,7 @@ This file is for coding agents working in this repository.
 |scripts:{bootstrap.sh,create-worktree.sh}
 |src:{lib.rs,main.rs}
 |tests:{config_integration.rs,stdout_stderr_integration.rs,worktree_tool_integration.rs}
-|xtask:{src/,Cargo.toml}
-|xtask/src:{agents_index.rs,lib.rs,main.rs}
+|xtask:{src/,Cargo.toml,README.md}
+|xtask/src:{agents_index.rs,lib.rs,main.rs,requirements.rs}
 ```
 <!-- END AGENTS_MD_PROJECT_INDEX -->

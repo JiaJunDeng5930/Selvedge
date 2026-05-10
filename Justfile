@@ -15,6 +15,15 @@ agents-index:
 agents-index-check:
     cargo xtask agents-index check
 
+req-scan:
+    cargo xtask req scan
+
+req-fmt:
+    cargo xtask req fmt-agents
+
+req-check:
+    cargo xtask req check --all
+
 run:
     cargo run
 
@@ -32,6 +41,7 @@ test:
 
 check: fmt-check lint test
     @just agents-index-check
+    @just req-check
 
 hooks:
     pre-commit run --all-files

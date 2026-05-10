@@ -7,6 +7,7 @@ Selvedge is a Rust repository scaffold with a clean local development flow, pre-
 - Cargo binary crate with a small library surface for testing
 - `Justfile` shortcuts for bootstrap, formatting, lint, test, and hook execution
 - A dedicated `cargo xtask` command for AGENTS.md project-index maintenance
+- A dedicated `cargo xtask req` command family for source-comment requirement checks
 - Root `AGENTS.md` guidance for coding agents, including a repository file index
 - `rust-toolchain.toml` to keep the repository on the stable toolchain
 - `.pre-commit-config.yaml` for formatting, lint, project-index, and test checks
@@ -35,12 +36,15 @@ just fmt
 just check
 just hooks
 just agents-index
+just req-check
 just worktree feature/my-change
 ```
 
 Use `just agents-index` after adding, removing, or renaming tracked files so the project index in `AGENTS.md` stays current. Use `just agents-index-check` to verify that the index is up to date without rewriting the file. The index is built from Git-tracked files, so ignored and untracked files stay out automatically. Both commands warn when an indexed directory has an unusually large number of direct filesystem entries.
 
 The underlying repository commands are `cargo xtask agents-index update` and `cargo xtask agents-index check`.
+
+Use `cargo xtask req fmt-agents` after changing requirement comments so the generated requirement index in `AGENTS.md` stays current. Use `cargo xtask req check --all` for full-checkout validation and `cargo xtask req check --staged` for pre-commit staged validation.
 
 ## Parallel development with worktrees
 
