@@ -822,7 +822,10 @@ fn is_assertion_line(line: &str) -> bool {
 
 /// @behavior req.detector.structure The structure detector classifies visible trait declarations as structure-intent changes.
 fn is_visible_trait_line(line: &str) -> bool {
-    visible_line_remainder(line).is_some_and(|rest| rest.starts_with("trait "))
+    visible_line_remainder(line).is_some_and(|rest| {
+        let rest = rest.strip_prefix("unsafe ").unwrap_or(rest);
+        rest.starts_with("trait ")
+    })
 }
 
 fn is_visible_contract_line(line: &str) -> bool {
@@ -830,6 +833,7 @@ fn is_visible_contract_line(line: &str) -> bool {
         is_visible_function_remainder(rest)
             || rest.starts_with("struct ")
             || rest.starts_with("enum ")
+            || rest.starts_with("union ")
             || rest.starts_with("type ")
             || rest.starts_with("const ")
             || rest.starts_with("static ")
@@ -1422,8 +1426,8 @@ fn isolated_git_command() -> Command {
 mod tests {
     use super::{
         RequirementCheckMode, RequirementCheckStatus, check_requirements,
-        format_agents_requirement_index, is_visible_contract_line, parse_requirement_comment,
-        scan_requirements,
+        format_agents_requirement_index, is_visible_contract_line, is_visible_trait_line,
+        parse_requirement_comment, scan_requirements,
     };
     use std::fs;
     use std::path::Path;
@@ -1665,6 +1669,41 @@ mod tests {
     }
 
     #[test]
+    // @verifies req.detector.contract The test verifies that public unions are contract changes.
+    fn staged_check_rejects_unanchored_public_union_changes() {
+        let repo = TestRepo::new();
+        repo.write(
+            "AGENTS.md",
+            "# AGENTS.md\n\n<!-- BEGIN AGENTS_MD_REQUIREMENT_INDEX -->\n<!-- END AGENTS_MD_REQUIREMENT_INDEX -->\n",
+        );
+        repo.write(
+            "src/lib.rs",
+            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n",
+        );
+        // @verifies req.detector.contract The fixture verifies public union checks with an existing test.
+        repo.write(
+            "tests/scan_contract.rs",
+            "// @verifies req.scan The test verifies that scan comments are indexed.\n#[test]\nfn scan_comments_are_indexed() {\n    assert!(true);\n}\n",
+        );
+        repo.git_add(&["AGENTS.md", "src/lib.rs", "tests/scan_contract.rs"]);
+        format_agents_requirement_index(repo.path()).expect("format should succeed");
+        repo.git_add(&["AGENTS.md"]);
+        repo.git_commit("initial requirement comments");
+
+        repo.write(
+            "src/lib.rs",
+            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\npub union AddedContract {\n    bits: u64,\n}\n",
+        );
+        repo.git_add(&["src/lib.rs"]);
+
+        // @verifies req.detector.contract The assertion verifies that public unions use contract diagnostics.
+        let error = check_requirements(repo.path(), RequirementCheckMode::Staged)
+            .expect_err("public union should fail staged check");
+
+        assert!(error.contains("missing-contract-anchor"));
+    }
+
+    #[test]
     // @verifies req.detector.assertion The test verifies that production assertions require behavior or constraint anchors.
     fn staged_check_rejects_unanchored_production_assertions_as_failure_policy() {
         let repo = TestRepo::new();
@@ -1731,6 +1770,41 @@ mod tests {
         // @verifies req.detector.structure The assertion verifies that restricted traits use structure-intent diagnostics.
         let error = check_requirements(repo.path(), RequirementCheckMode::Staged)
             .expect_err("restricted trait should fail staged check");
+
+        assert!(error.contains("missing-structure-intent"));
+    }
+
+    #[test]
+    // @verifies req.detector.structure The test verifies that unsafe public traits require intent anchors.
+    fn staged_check_rejects_unanchored_unsafe_public_trait_changes() {
+        let repo = TestRepo::new();
+        repo.write(
+            "AGENTS.md",
+            "# AGENTS.md\n\n<!-- BEGIN AGENTS_MD_REQUIREMENT_INDEX -->\n<!-- END AGENTS_MD_REQUIREMENT_INDEX -->\n",
+        );
+        repo.write(
+            "src/lib.rs",
+            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n",
+        );
+        // @verifies req.detector.structure The fixture verifies unsafe trait detector checks with an existing test.
+        repo.write(
+            "tests/scan_contract.rs",
+            "// @verifies req.scan The test verifies that scan comments are indexed.\n#[test]\nfn scan_comments_are_indexed() {\n    assert!(true);\n}\n",
+        );
+        repo.git_add(&["AGENTS.md", "src/lib.rs", "tests/scan_contract.rs"]);
+        format_agents_requirement_index(repo.path()).expect("format should succeed");
+        repo.git_add(&["AGENTS.md"]);
+        repo.git_commit("initial requirement comments");
+
+        repo.write(
+            "src/lib.rs",
+            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\npub unsafe trait AddedContract {}\n",
+        );
+        repo.git_add(&["src/lib.rs"]);
+
+        // @verifies req.detector.structure The assertion verifies that unsafe traits use structure-intent diagnostics.
+        let error = check_requirements(repo.path(), RequirementCheckMode::Staged)
+            .expect_err("unsafe public trait should fail staged check");
 
         assert!(error.contains("missing-structure-intent"));
     }
@@ -2319,6 +2393,8 @@ mod tests {
         assert!(is_visible_contract_line("pub mod foo;"));
         assert!(is_visible_contract_line("pub(crate) mod foo {}"));
         assert!(is_visible_contract_line("pub(crate) use foo::Bar;"));
+        assert!(is_visible_contract_line("pub union Bits { value: u64 }"));
+        assert!(is_visible_trait_line("pub unsafe trait Refresh {}"));
         // @verifies req.detector.field The assertions verify that public fields are contract changes.
         assert!(is_visible_contract_line("pub id: Id,"));
         assert!(is_visible_contract_line("pub(crate) id: Id,"));
