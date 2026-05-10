@@ -714,8 +714,7 @@ fn classify_added_line(line: &str) -> Option<(&'static str, Vec<RequirementTag>)
         ));
     }
     // @behavior req.detector.contract The visible contract detector classifies unrestricted and restricted Rust APIs as contract changes.
-    if is_visible_contract_line(line) || line.contains("Serialize") || line.contains("Deserialize")
-    {
+    if is_visible_contract_line(line) {
         return Some((
             "missing-contract-anchor",
             vec![RequirementTag::Behavior, RequirementTag::Constraint],
@@ -795,6 +794,8 @@ fn is_contract_attribute_line(line: &str) -> bool {
         || line.starts_with("#[repr(")
         || line.starts_with("#[must_use")
         || line.starts_with("#[serde(")
+        || (line.starts_with("#[derive(")
+            && (line.contains("Serialize") || line.contains("Deserialize")))
 }
 
 /// @behavior req.detector.assertion The assertion detector classifies production assertions as failure-policy changes and test assertions as verification changes.
@@ -825,13 +826,32 @@ fn is_visible_contract_line(line: &str) -> bool {
 }
 /// @behavior req.detector.field The visible field detector classifies public Rust struct fields as contract changes.
 fn is_visible_field_remainder(rest: &str) -> bool {
-    let Some((name, _)) = rest.split_once(':') else {
-        return false;
-    };
-    let name = name.trim();
+    if let Some((name, _)) = rest.split_once(':') {
+        return is_rust_field_name(name.trim());
+    }
+    is_visible_tuple_field_remainder(rest)
+}
+
+fn is_rust_field_name(name: &str) -> bool {
     let mut characters = name.chars();
     matches!(characters.next(), Some(first) if first == '_' || first.is_ascii_alphabetic())
         && characters.all(|character| character == '_' || character.is_ascii_alphanumeric())
+}
+
+/// @behavior req.detector.field.tuple The tuple field detector recognizes public tuple fields by comma-terminated type syntax.
+fn is_visible_tuple_field_remainder(rest: &str) -> bool {
+    let rest = rest.trim();
+    if !rest.ends_with(',') || rest.contains(':') || rest.contains('=') {
+        return false;
+    }
+    let ty = rest.trim_end_matches(',').trim();
+    matches!(
+        ty.chars().next(),
+        Some('&' | '(' | '[') | Some('A'..='Z') | Some('_')
+    ) || ty.starts_with("crate::")
+        || ty.starts_with("super::")
+        || ty.starts_with("self::")
+        || ty.starts_with("::")
 }
 
 fn visible_line_remainder(line: &str) -> Option<&str> {
@@ -1748,6 +1768,76 @@ mod tests {
     }
 
     #[test]
+    // @verifies req.detector.contract The test verifies that serde derive attributes can use anchors bound to the public item.
+    fn staged_check_accepts_anchored_serde_derive_contract_attributes() {
+        let repo = TestRepo::new();
+        repo.write(
+            "AGENTS.md",
+            "# AGENTS.md\n\n<!-- BEGIN AGENTS_MD_REQUIREMENT_INDEX -->\n<!-- END AGENTS_MD_REQUIREMENT_INDEX -->\n",
+        );
+        repo.write(
+            "src/lib.rs",
+            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n\n// @behavior req.visible The visible type is serialized by callers.\npub struct Visible;\n",
+        );
+        // @verifies req.detector.contract The fixture verifies serde derive detector checks with an existing test.
+        repo.write(
+            "tests/scan_contract.rs",
+            "// @verifies req.scan The test verifies that scan comments are indexed.\n#[test]\nfn scan_comments_are_indexed() {\n    assert!(true);\n}\n\n// @verifies req.visible The test verifies that the visible type requirement is covered.\n#[test]\nfn visible_type_is_covered() {\n    assert!(true);\n}\n",
+        );
+        repo.git_add(&["AGENTS.md", "src/lib.rs", "tests/scan_contract.rs"]);
+        format_agents_requirement_index(repo.path()).expect("format should succeed");
+        repo.git_add(&["AGENTS.md"]);
+        repo.git_commit("initial requirement comments");
+
+        repo.write(
+            "src/lib.rs",
+            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n\n// @behavior req.visible The visible type is serialized by callers.\n#[derive(Serialize)]\npub struct Visible;\n",
+        );
+        repo.git_add(&["src/lib.rs"]);
+
+        // @verifies req.detector.contract The assertion verifies that serde derive changes match the item anchor.
+        let status = check_requirements(repo.path(), RequirementCheckMode::Staged)
+            .expect("anchored serde derive should pass staged check");
+
+        assert_eq!(status, RequirementCheckStatus::Fresh);
+    }
+
+    #[test]
+    // @verifies req.detector.field.tuple The test verifies that public tuple struct fields are contract changes.
+    fn staged_check_rejects_unanchored_public_tuple_field_changes() {
+        let repo = TestRepo::new();
+        repo.write(
+            "AGENTS.md",
+            "# AGENTS.md\n\n<!-- BEGIN AGENTS_MD_REQUIREMENT_INDEX -->\n<!-- END AGENTS_MD_REQUIREMENT_INDEX -->\n",
+        );
+        repo.write(
+            "src/lib.rs",
+            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\npub struct Visible(\n    String,\n);\n",
+        );
+        // @verifies req.detector.field.tuple The fixture verifies tuple field detector checks with an existing test.
+        repo.write(
+            "tests/scan_contract.rs",
+            "// @verifies req.scan The test verifies that scan comments are indexed.\n#[test]\nfn scan_comments_are_indexed() {\n    assert!(true);\n}\n",
+        );
+        repo.git_add(&["AGENTS.md", "src/lib.rs", "tests/scan_contract.rs"]);
+        format_agents_requirement_index(repo.path()).expect("format should succeed");
+        repo.git_add(&["AGENTS.md"]);
+        repo.git_commit("initial requirement comments");
+
+        repo.write(
+            "src/lib.rs",
+            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\npub struct Visible(\n    pub String,\n);\n",
+        );
+        repo.git_add(&["src/lib.rs"]);
+
+        // @verifies req.detector.field.tuple The assertion verifies that public tuple fields use contract diagnostics.
+        let error = check_requirements(repo.path(), RequirementCheckMode::Staged)
+            .expect_err("public tuple field should fail staged check");
+
+        assert!(error.contains("missing-contract-anchor"));
+    }
+
+    #[test]
     // @verifies req.cli.base_error The test verifies that base-check failures are observable as command errors.
     // @verifies req.api.mode The test verifies that base-check mode classifies changed hunks against a Git ref.
     // @verifies req.check The test verifies that CI-style base checks enforce requirement anchors.
@@ -1844,6 +1934,9 @@ mod tests {
         // @verifies req.detector.field The assertions verify that public fields are contract changes.
         assert!(is_visible_contract_line("pub id: Id,"));
         assert!(is_visible_contract_line("pub(crate) id: Id,"));
+        // @verifies req.detector.field.tuple The assertions verify that public tuple fields are contract changes.
+        assert!(is_visible_contract_line("pub String,"));
+        assert!(is_visible_contract_line("pub(crate) crate::types::Id,"));
     }
 
     #[test]
