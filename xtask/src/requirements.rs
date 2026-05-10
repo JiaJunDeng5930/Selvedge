@@ -418,7 +418,6 @@ fn is_test_path(path: &str) -> bool {
         || path.starts_with("tests/")
         || path.contains("/examples/")
         || path.ends_with("_test.rs")
-        || path.starts_with("xtask/src/")
 }
 
 fn render_requirement_index_block(declarations: &[RequirementRecord], line_ending: &str) -> String {
@@ -595,13 +594,7 @@ fn classify_added_line(line: &str) -> Option<(&'static str, Vec<RequirementTag>)
             vec![RequirementTag::Verifies],
         ));
     }
-    if line.starts_with("pub fn ")
-        || line.starts_with("pub async fn ")
-        || line.starts_with("pub struct ")
-        || line.starts_with("pub enum ")
-        || line.starts_with("pub type ")
-        || line.starts_with("pub const ")
-        || line.starts_with("pub static ")
+    if is_visible_contract_line(line)
         || line.starts_with("pub use ")
         || line.contains("Serialize")
         || line.contains("Deserialize")
@@ -644,6 +637,29 @@ fn classify_added_line(line: &str) -> Option<(&'static str, Vec<RequirementTag>)
         ));
     }
     None
+}
+
+/// @behavior req.detector.contract The visible contract detector classifies unrestricted and restricted Rust APIs as contract changes.
+fn is_visible_contract_line(line: &str) -> bool {
+    let Some(rest) = line.strip_prefix("pub") else {
+        return false;
+    };
+    let rest = rest.trim_start();
+    let rest = if let Some(rest) = rest.strip_prefix('(') {
+        let Some((_, after_visibility)) = rest.split_once(')') else {
+            return false;
+        };
+        after_visibility.trim_start()
+    } else {
+        rest
+    };
+    rest.starts_with("fn ")
+        || rest.starts_with("async fn ")
+        || rest.starts_with("struct ")
+        || rest.starts_with("enum ")
+        || rest.starts_with("type ")
+        || rest.starts_with("const ")
+        || rest.starts_with("static ")
 }
 
 fn parse_hunk_new_start(hunk: &str) -> usize {
@@ -1106,6 +1122,31 @@ mod tests {
     }
 
     #[test]
+    // @verifies req.check The test verifies that xtask production source is rejected as a verification site.
+    fn scan_rejects_verification_comments_in_xtask_production_code() {
+        let repo = TestRepo::new();
+        repo.write(
+            "AGENTS.md",
+            "# AGENTS.md\n\n<!-- BEGIN AGENTS_MD_REQUIREMENT_INDEX -->\n<!-- END AGENTS_MD_REQUIREMENT_INDEX -->\n",
+        );
+        repo.write(
+            "xtask/src/lib.rs",
+            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n// @verifies req.scan The production comment must not verify requirements.\npub fn production_verifier() {}\n",
+        );
+        repo.git_add(&["AGENTS.md", "xtask/src/lib.rs"]);
+
+        let report = scan_requirements(repo.path()).expect("scan should run");
+
+        // @verifies req.check The assertion verifies that production xtask verifications are rejected.
+        assert!(
+            report
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.rule == "verification-outside-test")
+        );
+    }
+
+    #[test]
     // @verifies req.check The test verifies that staged hunk anchors must be near the changed Rust line.
     fn staged_check_rejects_far_file_level_anchor_for_contract_changes() {
         let repo = TestRepo::new();
@@ -1136,6 +1177,41 @@ mod tests {
         // @verifies req.check The assertion verifies that far file anchors fail staged contract validation.
         let error = check_requirements(repo.path(), RequirementCheckMode::Staged)
             .expect_err("far anchor should fail staged check");
+
+        assert!(error.contains("missing-contract-anchor"));
+    }
+
+    #[test]
+    // @verifies req.detector.contract The test verifies that restricted visibility APIs are contract changes.
+    fn staged_check_rejects_unanchored_restricted_visibility_contract_changes() {
+        let repo = TestRepo::new();
+        repo.write(
+            "AGENTS.md",
+            "# AGENTS.md\n\n<!-- BEGIN AGENTS_MD_REQUIREMENT_INDEX -->\n<!-- END AGENTS_MD_REQUIREMENT_INDEX -->\n",
+        );
+        repo.write(
+            "src/lib.rs",
+            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n",
+        );
+        // @verifies req.detector.contract The fixture verifies staged detector checks with an existing test.
+        repo.write(
+            "tests/scan_contract.rs",
+            "// @verifies req.scan The test verifies that scan comments are indexed.\n#[test]\nfn scan_comments_are_indexed() {\n    assert!(true);\n}\n",
+        );
+        repo.git_add(&["AGENTS.md", "src/lib.rs", "tests/scan_contract.rs"]);
+        format_agents_requirement_index(repo.path()).expect("format should succeed");
+        repo.git_add(&["AGENTS.md"]);
+        repo.git_commit("initial requirement comments");
+
+        repo.write(
+            "src/lib.rs",
+            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\npub(crate) fn added_contract() {}\n",
+        );
+        repo.git_add(&["src/lib.rs"]);
+
+        // @verifies req.detector.contract The assertion verifies that pub(crate) APIs require contract anchors.
+        let error = check_requirements(repo.path(), RequirementCheckMode::Staged)
+            .expect_err("restricted visibility contract should fail staged check");
 
         assert!(error.contains("missing-contract-anchor"));
     }
