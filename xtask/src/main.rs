@@ -1,8 +1,14 @@
+//! @behavior req.cli The xtask CLI dispatches AGENTS index and requirement commands from one entrypoint.
+
 use std::env;
 use std::path::PathBuf;
 use std::process;
 
 use xtask::agents_index::{CheckStatus, DirectoryWarning, check_agents_md, update_agents_md};
+use xtask::requirements::{
+    RequirementCheckMode, RequirementCheckStatus, check_requirements,
+    format_agents_requirement_index, scan_requirements,
+};
 
 const WARNING_THRESHOLD: usize = 200;
 
@@ -39,8 +45,60 @@ fn main() {
                 }
             }
         }
+        [command, action] if command == "req" && action == "scan" => match scan_requirements(&root)
+        {
+            Ok(report) => {
+                print_requirement_report(&report);
+                if report.diagnostics.is_empty() { 0 } else { 1 }
+            }
+            Err(error) => {
+                eprintln!("{error}");
+                1
+            }
+        },
+        [command, action] if command == "req" && action == "fmt-agents" => {
+            match format_agents_requirement_index(&root) {
+                Ok(()) => 0,
+                Err(error) => {
+                    eprintln!("{error}");
+                    1
+                }
+            }
+        }
+        [command, action, flag] if command == "req" && action == "check" && flag == "--staged" => {
+            match check_requirements(&root, RequirementCheckMode::Staged) {
+                Ok(RequirementCheckStatus::Fresh) => 0,
+                Ok(RequirementCheckStatus::StaleAgentsIndex) => {
+                    eprintln!(
+                        "AGENTS.md:1: stale-requirement-index: run `cargo xtask req fmt-agents` and stage AGENTS.md"
+                    );
+                    1
+                }
+                Err(error) => {
+                    eprintln!("{error}");
+                    1
+                }
+            }
+        }
+        [command, action, flag] if command == "req" && action == "check" && flag == "--all" => {
+            match check_requirements(&root, RequirementCheckMode::All) {
+                Ok(RequirementCheckStatus::Fresh) => 0,
+                Ok(RequirementCheckStatus::StaleAgentsIndex) => {
+                    eprintln!(
+                        "AGENTS.md:1: stale-requirement-index: run `cargo xtask req fmt-agents`"
+                    );
+                    1
+                }
+                Err(error) => {
+                    eprintln!("{error}");
+                    1
+                }
+            }
+        }
         _ => {
-            eprintln!("usage: cargo run -p xtask -- agents-index <update|check>");
+            eprintln!(
+                "usage: cargo xtask agents-index <update|check>\n       cargo xtask req <scan|fmt-agents>\n       cargo xtask req check <--staged|--all>"
+            );
             2
         }
     };
@@ -60,6 +118,35 @@ fn print_warnings(warnings: &[DirectoryWarning]) {
         eprintln!(
             "warning: index path `{}` has {} direct filesystem entries",
             warning.path, warning.entry_count
+        );
+    }
+}
+
+fn print_requirement_report(report: &xtask::requirements::RequirementScanReport) {
+    for declaration in &report.declarations {
+        println!(
+            "{}:{}: {} {} -> {}",
+            declaration.path,
+            declaration.line,
+            declaration.tag.as_str(),
+            declaration.id,
+            declaration.binding
+        );
+    }
+    for verification in &report.verifications {
+        println!(
+            "{}:{}: {} {} -> {}",
+            verification.path,
+            verification.line,
+            verification.tag.as_str(),
+            verification.id,
+            verification.binding
+        );
+    }
+    for diagnostic in &report.diagnostics {
+        eprintln!(
+            "{}:{}: {}: {}",
+            diagnostic.path, diagnostic.line, diagnostic.rule, diagnostic.message
         );
     }
 }
