@@ -1205,7 +1205,7 @@ fn is_inline_test_context(file: &SnapshotFile, line: usize) -> bool {
         if trimmed.starts_with("#[cfg(test)]") {
             pending_cfg_test = true;
         }
-        if trimmed.starts_with("#[test]") {
+        if is_test_attribute_line(trimmed) {
             pending_direct_test = true;
         }
 
@@ -1242,7 +1242,7 @@ fn binds_to_direct_test_function(file: &SnapshotFile, line: usize) -> bool {
             let trimmed = source_line.trim();
             !trimmed.is_empty() && normalize_line_comment(trimmed).is_none()
         })
-        .is_some_and(|source_line| source_line.trim().starts_with("#[test]"));
+        .is_some_and(|source_line| is_test_attribute_line(source_line.trim()));
 
     let mut pending_test_attr = has_previous_test_attr;
     for source_line in lines.iter().skip(line.saturating_sub(1)).take(8) {
@@ -1250,7 +1250,7 @@ fn binds_to_direct_test_function(file: &SnapshotFile, line: usize) -> bool {
         if trimmed.is_empty() || normalize_line_comment(trimmed).is_some() {
             continue;
         }
-        if trimmed.starts_with("#[test]") {
+        if is_test_attribute_line(trimmed) {
             pending_test_attr = true;
             continue;
         }
@@ -1264,6 +1264,19 @@ fn binds_to_direct_test_function(file: &SnapshotFile, line: usize) -> bool {
 
 fn is_test_function_line(trimmed: &str) -> bool {
     trimmed.starts_with("fn ") || trimmed.starts_with("async fn ")
+}
+
+fn is_test_attribute_line(trimmed: &str) -> bool {
+    let Some(attribute) = trimmed
+        .strip_prefix("#[")
+        .and_then(|rest| rest.strip_suffix(']'))
+    else {
+        return false;
+    };
+    attribute == "test"
+        || attribute.starts_with("test(")
+        || attribute.ends_with("::test")
+        || attribute.contains("::test(")
 }
 
 fn is_attribute_line(trimmed: &str) -> bool {
@@ -1717,6 +1730,32 @@ mod tests {
         let report = scan_requirements(repo.path()).expect("scan should run");
 
         // @verifies req.check The assertion verifies that direct test comments avoid outside-test diagnostics.
+        assert!(
+            report
+                .diagnostics
+                .iter()
+                .all(|diagnostic| diagnostic.rule != "verification-outside-test")
+        );
+    }
+
+    #[test]
+    // @verifies req.check The test verifies that async direct test functions are valid verification sites.
+    fn scan_accepts_verification_comments_inside_async_direct_test_functions() {
+        let repo = TestRepo::new();
+        repo.write(
+            "AGENTS.md",
+            "# AGENTS.md\n\n<!-- BEGIN AGENTS_MD_REQUIREMENT_INDEX -->\n<!-- END AGENTS_MD_REQUIREMENT_INDEX -->\n",
+        );
+        // @verifies req.check The fixture verifies async direct test functions with assertion bodies.
+        repo.write(
+            "src/lib.rs",
+            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n\n#[tokio::test(flavor = \"current_thread\")]\n// @verifies req.scan The test verifies that async unit tests can verify requirements.\nasync fn async_direct_test_verifies_requirement() {\n    assert!(true);\n}\n",
+        );
+        repo.git_add(&["AGENTS.md", "src/lib.rs"]);
+
+        let report = scan_requirements(repo.path()).expect("scan should run");
+
+        // @verifies req.check The assertion verifies that async direct test comments avoid outside-test diagnostics.
         assert!(
             report
                 .diagnostics
