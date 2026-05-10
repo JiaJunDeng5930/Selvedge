@@ -936,7 +936,7 @@ fn is_visible_signature_continuation(file: &SnapshotFile, line: usize, added: &s
         if index != start_index && trimmed.ends_with(';') {
             return false;
         }
-        if is_visible_contract_line(trimmed) && trimmed.contains('(') {
+        if is_visible_contract_line(trimmed) && (trimmed.contains('(') || trimmed.contains('<')) {
             return true;
         }
         if index == 0 {
@@ -1801,6 +1801,41 @@ mod tests {
         // @verifies req.detector.signature The assertion verifies that bound-only signature edits use contract diagnostics.
         let error = check_requirements(repo.path(), RequirementCheckMode::Staged)
             .expect_err("multiline public bound edit should fail staged check");
+
+        assert!(error.contains("missing-contract-anchor"));
+    }
+
+    #[test]
+    // @verifies req.detector.signature The test verifies that generic-list edits inside public signatures require contract anchors.
+    fn staged_check_rejects_unanchored_multiline_public_generic_bound_edits() {
+        let repo = TestRepo::new();
+        repo.write(
+            "AGENTS.md",
+            "# AGENTS.md\n\n<!-- BEGIN AGENTS_MD_REQUIREMENT_INDEX -->\n<!-- END AGENTS_MD_REQUIREMENT_INDEX -->\n",
+        );
+        repo.write(
+            "src/lib.rs",
+            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\npub fn visible<\n    T,\n>(value: T) {\n    drop(value);\n}\n",
+        );
+        // @verifies req.detector.signature The fixture verifies generic-list detector checks with an existing test.
+        repo.write(
+            "tests/scan_contract.rs",
+            "// @verifies req.scan The test verifies that scan comments are indexed.\n#[test]\nfn scan_comments_are_indexed() {\n    assert!(true);\n}\n",
+        );
+        repo.git_add(&["AGENTS.md", "src/lib.rs", "tests/scan_contract.rs"]);
+        format_agents_requirement_index(repo.path()).expect("format should succeed");
+        repo.git_add(&["AGENTS.md"]);
+        repo.git_commit("initial requirement comments");
+
+        repo.write(
+            "src/lib.rs",
+            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\npub fn visible<\n    T: Copy,\n>(value: T) {\n    drop(value);\n}\n",
+        );
+        repo.git_add(&["src/lib.rs"]);
+
+        // @verifies req.detector.signature The assertion verifies that generic-list edits use contract diagnostics.
+        let error = check_requirements(repo.path(), RequirementCheckMode::Staged)
+            .expect_err("generic bound edit should fail staged check");
 
         assert!(error.contains("missing-contract-anchor"));
     }
