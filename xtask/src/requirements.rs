@@ -1318,15 +1318,18 @@ fn is_inline_test_context(file: &SnapshotFile, line: usize) -> bool {
 
 fn binds_to_direct_test_function(file: &SnapshotFile, line: usize) -> bool {
     let lines = file.content.lines().collect::<Vec<_>>();
-    let has_previous_test_attr = lines
-        .iter()
-        .take(line.saturating_sub(1))
-        .rev()
-        .find(|source_line| {
-            let trimmed = source_line.trim();
-            !trimmed.is_empty() && normalize_line_comment(trimmed).is_none()
-        })
-        .is_some_and(|source_line| is_test_attribute_line(source_line.trim()));
+    let mut has_previous_test_attr = false;
+    for source_line in lines.iter().take(line.saturating_sub(1)).rev() {
+        let trimmed = source_line.trim();
+        if trimmed.is_empty() || normalize_line_comment(trimmed).is_some() {
+            continue;
+        }
+        if trimmed.starts_with("#[") {
+            has_previous_test_attr |= is_test_attribute_line(trimmed);
+            continue;
+        }
+        break;
+    }
 
     let mut pending_test_attr = has_previous_test_attr;
     for source_line in lines.iter().skip(line.saturating_sub(1)).take(8) {
@@ -1853,6 +1856,32 @@ mod tests {
         let report = scan_requirements(repo.path()).expect("scan should run");
 
         // @verifies req.check The assertion verifies that direct test comments avoid outside-test diagnostics.
+        assert!(
+            report
+                .diagnostics
+                .iter()
+                .all(|diagnostic| diagnostic.rule != "verification-outside-test")
+        );
+    }
+
+    #[test]
+    // @verifies req.check The test verifies that stacked direct-test attributes keep verification sites valid.
+    fn scan_accepts_verification_comments_after_stacked_test_attributes() {
+        let repo = TestRepo::new();
+        repo.write(
+            "AGENTS.md",
+            "# AGENTS.md\n\n<!-- BEGIN AGENTS_MD_REQUIREMENT_INDEX -->\n<!-- END AGENTS_MD_REQUIREMENT_INDEX -->\n",
+        );
+        // @verifies req.check The fixture verifies direct test functions with stacked attributes.
+        repo.write(
+            "src/lib.rs",
+            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n\n#[test]\n#[ignore]\n// @verifies req.scan The test verifies that ignored direct tests can verify requirements.\nfn ignored_direct_test_verifies_requirement() {\n    assert!(true);\n}\n",
+        );
+        repo.git_add(&["AGENTS.md", "src/lib.rs"]);
+
+        let report = scan_requirements(repo.path()).expect("scan should run");
+
+        // @verifies req.check The assertion verifies that stacked-attribute direct tests avoid outside-test diagnostics.
         assert!(
             report
                 .diagnostics
