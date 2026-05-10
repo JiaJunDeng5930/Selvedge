@@ -77,7 +77,8 @@ This file is for coding agents working in this repository.
 |tags:{@behavior,@constraint,@intent,@verifies}
 |req|req.{api,check,cli,detector,format,scan}
 |req.api|req.api.{diagnostic,mode,record,report,status,tag}
-|req.api.diagnostic|req.api.diagnostic.{}
+|req.api.diagnostic|req.api.diagnostic.{macro}
+|req.api.diagnostic.macro|req.api.diagnostic.macro.{}
 |req.api.mode|req.api.mode.{}
 |req.api.record|req.api.record.{}
 |req.api.report|req.api.report.{}
