@@ -417,6 +417,8 @@ fn is_test_path(path: &str) -> bool {
     path.contains("/tests/")
         || path.starts_with("tests/")
         || path.contains("/examples/")
+        || path == "tests.rs"
+        || path.ends_with("/tests.rs")
         || path.ends_with("_test.rs")
 }
 
@@ -604,10 +606,8 @@ fn classify_added_line(line: &str) -> Option<(&'static str, Vec<RequirementTag>)
             vec![RequirementTag::Verifies],
         ));
     }
-    if is_visible_contract_line(line)
-        || line.starts_with("pub use ")
-        || line.contains("Serialize")
-        || line.contains("Deserialize")
+    // @behavior req.detector.contract The visible contract detector classifies unrestricted and restricted Rust APIs as contract changes.
+    if is_visible_contract_line(line) || line.contains("Serialize") || line.contains("Deserialize")
     {
         return Some((
             "missing-contract-anchor",
@@ -663,7 +663,6 @@ fn is_visible_trait_line(line: &str) -> bool {
     visible_line_remainder(line).is_some_and(|rest| rest.starts_with("trait "))
 }
 
-/// @behavior req.detector.contract The visible contract detector classifies unrestricted and restricted Rust APIs as contract changes.
 fn is_visible_contract_line(line: &str) -> bool {
     visible_line_remainder(line).is_some_and(|rest| {
         is_visible_function_remainder(rest)
@@ -672,6 +671,8 @@ fn is_visible_contract_line(line: &str) -> bool {
             || rest.starts_with("type ")
             || rest.starts_with("const ")
             || rest.starts_with("static ")
+            || rest.starts_with("mod ")
+            || rest.starts_with("use ")
     })
 }
 
@@ -1386,6 +1387,39 @@ mod tests {
         assert!(is_visible_contract_line("pub unsafe fn refresh() {}"));
         assert!(is_visible_contract_line("pub extern \"C\" fn refresh() {}"));
         assert!(is_visible_contract_line("pub async unsafe fn refresh() {}"));
+        assert!(is_visible_contract_line("pub mod foo;"));
+        assert!(is_visible_contract_line("pub(crate) mod foo {}"));
+        assert!(is_visible_contract_line("pub(crate) use foo::Bar;"));
+    }
+
+    #[test]
+    // @verifies req.check The test verifies that external tests modules are valid verification sites.
+    fn scan_accepts_verification_comments_inside_external_tests_modules() {
+        let repo = TestRepo::new();
+        repo.write(
+            "AGENTS.md",
+            "# AGENTS.md\n\n<!-- BEGIN AGENTS_MD_REQUIREMENT_INDEX -->\n<!-- END AGENTS_MD_REQUIREMENT_INDEX -->\n",
+        );
+        repo.write(
+            "src/lib.rs",
+            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n",
+        );
+        // @verifies req.check The fixture verifies assertions inside external tests modules.
+        repo.write(
+            "src/tests.rs",
+            "// @verifies req.scan The external test module verifies source requirements.\n#[test]\nfn external_tests_module_verifies_requirement() {\n    assert!(true);\n}\n",
+        );
+        repo.git_add(&["AGENTS.md", "src/lib.rs", "src/tests.rs"]);
+
+        let report = scan_requirements(repo.path()).expect("scan should run");
+
+        // @verifies req.check The assertion verifies that external tests modules avoid outside-test diagnostics.
+        assert!(
+            report
+                .diagnostics
+                .iter()
+                .all(|diagnostic| diagnostic.rule != "verification-outside-test")
+        );
     }
 
     struct TestRepo {
