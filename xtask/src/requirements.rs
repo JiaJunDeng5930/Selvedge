@@ -673,7 +673,19 @@ fn is_visible_contract_line(line: &str) -> bool {
             || rest.starts_with("static ")
             || rest.starts_with("mod ")
             || rest.starts_with("use ")
+            || is_visible_field_remainder(rest)
     })
+}
+
+/// @behavior req.detector.field The visible field detector classifies public Rust struct fields as contract changes.
+fn is_visible_field_remainder(rest: &str) -> bool {
+    let Some((name, _)) = rest.split_once(':') else {
+        return false;
+    };
+    let name = name.trim();
+    let mut characters = name.chars();
+    matches!(characters.next(), Some(first) if first == '_' || first.is_ascii_alphabetic())
+        && characters.all(|character| character == '_' || character.is_ascii_alphanumeric())
 }
 
 fn visible_line_remainder(line: &str) -> Option<&str> {
@@ -1390,6 +1402,9 @@ mod tests {
         assert!(is_visible_contract_line("pub mod foo;"));
         assert!(is_visible_contract_line("pub(crate) mod foo {}"));
         assert!(is_visible_contract_line("pub(crate) use foo::Bar;"));
+        // @verifies req.detector.field The assertions verify that public fields are contract changes.
+        assert!(is_visible_contract_line("pub id: Id,"));
+        assert!(is_visible_contract_line("pub(crate) id: Id,"));
     }
 
     #[test]
