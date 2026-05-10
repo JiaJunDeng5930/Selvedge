@@ -1088,9 +1088,14 @@ fn parse_hunk_start(hunk: &str, prefix: char) -> usize {
 fn extract_requirement_comments(file: &SnapshotFile) -> Vec<RawRequirementComment> {
     let mut comments = Vec::new();
     let lines = file.content.lines().collect::<Vec<_>>();
+    let string_literal_lines = string_literal_lines(file);
     let mut index = 0usize;
     while index < lines.len() {
         let line = lines[index];
+        if string_literal_lines.contains(&(index + 1)) {
+            index += 1;
+            continue;
+        }
         let trimmed = line.trim_start();
         if let Some(normalized) = normalize_line_comment(trimmed) {
             if normalized.starts_with('@') {
@@ -1140,6 +1145,33 @@ fn extract_requirement_comments(file: &SnapshotFile) -> Vec<RawRequirementCommen
         index += 1;
     }
     comments
+}
+
+fn string_literal_lines(file: &SnapshotFile) -> BTreeSet<usize> {
+    let mut parser = tree_sitter::Parser::new();
+    let language = tree_sitter_rust::LANGUAGE.into();
+    if parser.set_language(&language).is_err() {
+        return BTreeSet::new();
+    }
+    let Some(tree) = parser.parse(&file.content, None) else {
+        return BTreeSet::new();
+    };
+    let mut lines = BTreeSet::new();
+    collect_string_literal_lines(tree.root_node(), &mut lines);
+    lines
+}
+
+fn collect_string_literal_lines(node: tree_sitter::Node<'_>, lines: &mut BTreeSet<usize>) {
+    if node.kind().contains("string_literal") {
+        for row in node.start_position().row..=node.end_position().row {
+            lines.insert(row + 1);
+        }
+        return;
+    }
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        collect_string_literal_lines(child, lines);
+    }
 }
 
 fn normalize_block_comment_body(body: &[String]) -> String {
@@ -1194,6 +1226,8 @@ fn is_inline_test_context(file: &SnapshotFile, line: usize) -> bool {
 
     let mut pending_cfg_test = false;
     let mut pending_direct_test = false;
+    let mut pending_test_module_brace = None::<usize>;
+    let mut pending_test_function_brace = None::<usize>;
     let mut brace_depth = 0usize;
     let mut test_module_depths = Vec::new();
     let mut test_function_depths = Vec::new();
@@ -1211,15 +1245,34 @@ fn is_inline_test_context(file: &SnapshotFile, line: usize) -> bool {
 
         let opens = source_line.matches('{').count();
         let closes = source_line.matches('}').count();
-        if pending_cfg_test && trimmed.contains("mod ") && trimmed.contains('{') {
-            test_module_depths.push(brace_depth);
+        if pending_cfg_test && trimmed.contains("mod ") {
+            if trimmed.contains('{') {
+                test_module_depths.push(brace_depth);
+            } else {
+                pending_test_module_brace = Some(brace_depth);
+            }
             pending_cfg_test = false;
-        } else if pending_direct_test && is_test_function_line(trimmed) && trimmed.contains('{') {
-            test_function_depths.push(brace_depth);
+        } else if pending_direct_test && is_test_function_line(trimmed) {
+            if trimmed.contains('{') {
+                test_function_depths.push(brace_depth);
+            } else {
+                pending_test_function_brace = Some(brace_depth);
+            }
             pending_direct_test = false;
+        } else if trimmed.starts_with('{') {
+            if let Some(module_depth) = pending_test_module_brace.take() {
+                test_module_depths.push(module_depth);
+            }
+            if let Some(function_depth) = pending_test_function_brace.take() {
+                test_function_depths.push(function_depth);
+            }
         } else if !trimmed.starts_with("#[") && !trimmed.is_empty() {
             pending_cfg_test = false;
             pending_direct_test = false;
+            if trimmed.ends_with(';') {
+                pending_test_module_brace = None;
+                pending_test_function_brace = None;
+            }
         }
         brace_depth = brace_depth.saturating_add(opens).saturating_sub(closes);
     }
@@ -1636,6 +1689,31 @@ mod tests {
     }
 
     #[test]
+    // @verifies req.scan The test verifies that requirement-looking text inside strings is ignored.
+    fn scan_ignores_requirement_comments_inside_string_literals() {
+        let repo = TestRepo::new();
+        repo.write(
+            "AGENTS.md",
+            "# AGENTS.md\n\n<!-- BEGIN AGENTS_MD_REQUIREMENT_INDEX -->\n<!-- END AGENTS_MD_REQUIREMENT_INDEX -->\n",
+        );
+        repo.write(
+            "src/lib.rs",
+            "//! @behavior req The module owns requirement automation.\npub fn fixture() -> &'static str {\n    r#\"\n// @behavior req.fake The fake requirement stays inside a raw string.\n\"#\n}\n",
+        );
+        repo.git_add(&["AGENTS.md", "src/lib.rs"]);
+
+        let report = scan_requirements(repo.path()).expect("scan should run");
+
+        // @verifies req.scan The assertion verifies that string literal content is absent from declarations.
+        assert!(
+            report
+                .declarations
+                .iter()
+                .all(|record| record.id != "req.fake")
+        );
+    }
+
+    #[test]
     // @verifies req.check The test verifies that check reports a stale AGENTS requirement index.
     // @verifies req.api.status The test verifies that stale AGENTS state is reported through the check status enum.
     fn check_reports_stale_requirement_index() {
@@ -1756,6 +1834,58 @@ mod tests {
         let report = scan_requirements(repo.path()).expect("scan should run");
 
         // @verifies req.check The assertion verifies that async direct test comments avoid outside-test diagnostics.
+        assert!(
+            report
+                .diagnostics
+                .iter()
+                .all(|diagnostic| diagnostic.rule != "verification-outside-test")
+        );
+    }
+
+    #[test]
+    // @verifies req.check The test verifies that next-line test braces keep direct tests as verification sites.
+    fn scan_accepts_verification_comments_inside_next_line_brace_tests() {
+        let repo = TestRepo::new();
+        repo.write(
+            "AGENTS.md",
+            "# AGENTS.md\n\n<!-- BEGIN AGENTS_MD_REQUIREMENT_INDEX -->\n<!-- END AGENTS_MD_REQUIREMENT_INDEX -->\n",
+        );
+        // @verifies req.check The fixture verifies direct test functions with next-line braces.
+        repo.write(
+            "src/lib.rs",
+            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n\n#[test]\nfn direct_test_verifies_requirement()\n{\n    // @verifies req.scan The test verifies that next-line brace tests can verify requirements.\n    assert!(true);\n}\n",
+        );
+        repo.git_add(&["AGENTS.md", "src/lib.rs"]);
+
+        let report = scan_requirements(repo.path()).expect("scan should run");
+
+        // @verifies req.check The assertion verifies that next-line brace direct tests avoid outside-test diagnostics.
+        assert!(
+            report
+                .diagnostics
+                .iter()
+                .all(|diagnostic| diagnostic.rule != "verification-outside-test")
+        );
+    }
+
+    #[test]
+    // @verifies req.check The test verifies that next-line module braces keep cfg-test modules as verification sites.
+    fn scan_accepts_verification_comments_inside_next_line_brace_test_modules() {
+        let repo = TestRepo::new();
+        repo.write(
+            "AGENTS.md",
+            "# AGENTS.md\n\n<!-- BEGIN AGENTS_MD_REQUIREMENT_INDEX -->\n<!-- END AGENTS_MD_REQUIREMENT_INDEX -->\n",
+        );
+        // @verifies req.check The fixture verifies cfg-test modules with next-line braces.
+        repo.write(
+            "src/lib.rs",
+            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n\n#[cfg(test)]\nmod tests\n{\n    #[test]\n    fn module_test_verifies_requirement() {\n        // @verifies req.scan The test verifies that next-line brace modules can verify requirements.\n        assert!(true);\n    }\n}\n",
+        );
+        repo.git_add(&["AGENTS.md", "src/lib.rs"]);
+
+        let report = scan_requirements(repo.path()).expect("scan should run");
+
+        // @verifies req.check The assertion verifies that next-line brace test modules avoid outside-test diagnostics.
         assert!(
             report
                 .diagnostics
