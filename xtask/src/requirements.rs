@@ -739,7 +739,7 @@ fn classify_added_line(line: &str) -> Option<(&'static str, Vec<RequirementTag>)
     if line.contains("tokio::time::timeout")
         || line.contains("map_err")
         || line.contains("panic!")
-        || line.contains("unwrap")
+        || is_panicking_unwrap_line(line)
         || line.contains("expect(")
         || line.contains("Err(")
     {
@@ -821,6 +821,11 @@ fn is_assertion_line(line: &str) -> bool {
         || line.contains("matches!")
 }
 
+/// @behavior req.detector.assertion.unwrap The assertion detector treats panicking unwrap calls as failure-policy changes while accepting fallback helpers.
+fn is_panicking_unwrap_line(line: &str) -> bool {
+    line.contains(".unwrap()") || line.contains(".unwrap_err()")
+}
+
 /// @behavior req.detector.structure The structure detector classifies visible trait declarations as structure-intent changes.
 fn is_visible_trait_line(line: &str) -> bool {
     visible_line_remainder(line).is_some_and(|rest| {
@@ -869,6 +874,9 @@ fn is_visible_tuple_field_remainder(rest: &str) -> bool {
 
 fn visible_line_remainder(line: &str) -> Option<&str> {
     let rest = line.strip_prefix("pub")?;
+    if !(rest.starts_with(char::is_whitespace) || rest.starts_with('(')) {
+        return None;
+    }
     let rest = rest.trim_start();
     let rest = if let Some(rest) = rest.strip_prefix('(') {
         let (_, after_visibility) = rest.split_once(')')?;
@@ -1770,6 +1778,41 @@ mod tests {
     }
 
     #[test]
+    // @verifies req.detector.assertion.unwrap The test verifies that fallback unwrap helpers are implementation changes.
+    fn staged_check_accepts_unwrap_or_fallbacks() {
+        let repo = TestRepo::new();
+        repo.write(
+            "AGENTS.md",
+            "# AGENTS.md\n\n<!-- BEGIN AGENTS_MD_REQUIREMENT_INDEX -->\n<!-- END AGENTS_MD_REQUIREMENT_INDEX -->\n",
+        );
+        repo.write(
+            "src/lib.rs",
+            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n",
+        );
+        // @verifies req.detector.assertion.unwrap The fixture verifies fallback unwrap detector checks with an existing test.
+        repo.write(
+            "tests/scan_contract.rs",
+            "// @verifies req.scan The test verifies that scan comments are indexed.\n#[test]\nfn scan_comments_are_indexed() {\n    assert!(true);\n}\n",
+        );
+        repo.git_add(&["AGENTS.md", "src/lib.rs", "tests/scan_contract.rs"]);
+        format_agents_requirement_index(repo.path()).expect("format should succeed");
+        repo.git_add(&["AGENTS.md"]);
+        repo.git_commit("initial requirement comments");
+
+        repo.write(
+            "src/lib.rs",
+            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n\nfn fallback() -> i32 {\n    Some(1).unwrap_or_default()\n}\n",
+        );
+        repo.git_add(&["src/lib.rs"]);
+
+        // @verifies req.detector.assertion.unwrap The assertion verifies that fallback unwrap helpers avoid failure-policy diagnostics.
+        let status = check_requirements(repo.path(), RequirementCheckMode::Staged)
+            .expect("unwrap_or fallback should pass staged check");
+
+        assert_eq!(status, RequirementCheckStatus::Fresh);
+    }
+
+    #[test]
     // @verifies req.detector.structure The test verifies that restricted visibility traits require intent anchors.
     fn staged_check_rejects_unanchored_restricted_visibility_trait_changes() {
         let repo = TestRepo::new();
@@ -2534,6 +2577,8 @@ mod tests {
         assert!(is_visible_contract_line("pub(crate) crate::types::Id,"));
         assert!(is_visible_contract_line("pub u64,"));
         assert!(is_visible_contract_line("pub std::path::PathBuf,"));
+        assert!(!is_visible_contract_line("published_at: Instant,"));
+        assert!(!is_visible_contract_line("public_key: String,"));
     }
 
     #[test]
