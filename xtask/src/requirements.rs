@@ -41,6 +41,7 @@ pub struct RequirementRecord {
     pub id: String,
     pub sentence: String,
     pub binding: String,
+    pub in_test_context: bool,
 }
 
 /// @constraint req.api.tag The tag enum contains exactly the four requirement comment tags accepted by the protocol.
@@ -85,7 +86,7 @@ pub fn scan_requirements(root: &Path) -> Result<RequirementScanReport, String> {
     Ok(scan_snapshot(&snapshot))
 }
 
-/// @behavior req.format The fmt-agents command rewrites only the generated requirement index block in AGENTS md.
+/// @behavior req.format The fmt-agents command rewrites only the generated requirement index block in AGENTS.md.
 pub fn format_agents_requirement_index(root: &Path) -> Result<(), String> {
     let snapshot = Snapshot::from_worktree(root)?;
     let report = scan_snapshot(&snapshot);
@@ -115,9 +116,11 @@ pub fn check_requirements(
     let mut report = scan_snapshot(&snapshot);
 
     if mode == RequirementCheckMode::Staged {
-        report
-            .diagnostics
-            .extend(classify_staged_diff(root, &snapshot.records)?);
+        report.diagnostics.extend(classify_staged_diff(
+            root,
+            &snapshot.files,
+            &snapshot.records,
+        )?);
     }
 
     if !report.diagnostics.is_empty() {
@@ -162,6 +165,7 @@ fn scan_snapshot(snapshot: &Snapshot) -> RequirementScanReport {
                             id: parsed.id,
                             sentence: parsed.sentence,
                             binding,
+                            in_test_context: is_inline_test_context(file, raw.line),
                         };
                         if record.tag == RequirementTag::Verifies {
                             verifications.push(record);
@@ -271,11 +275,25 @@ fn has_one_sentence(sentence: &str) -> bool {
     if !trimmed.ends_with(['.', '!', '?']) {
         return false;
     }
-    trimmed
-        .chars()
-        .filter(|character| matches!(character, '.' | '!' | '?'))
-        .count()
-        == 1
+    sentence_boundary_count(trimmed) == 1
+}
+
+fn sentence_boundary_count(sentence: &str) -> usize {
+    let mut count = 0usize;
+    let mut characters = sentence.char_indices().peekable();
+    while let Some((_, character)) = characters.next() {
+        if !matches!(character, '.' | '!' | '?') {
+            continue;
+        }
+        let is_last = characters.peek().is_none();
+        let next_is_whitespace = characters
+            .peek()
+            .is_some_and(|(_, next)| next.is_whitespace());
+        if is_last || next_is_whitespace {
+            count += 1;
+        }
+    }
+    count
 }
 
 fn validate_registry(
@@ -320,7 +338,7 @@ fn validate_registry(
     let mut verified_ids = BTreeSet::new();
     for verification in verifications {
         verified_ids.insert(verification.id.as_str());
-        if !is_test_path(&verification.path) {
+        if !is_test_path(&verification.path) && !verification.in_test_context {
             diagnostics.push(Diagnostic {
                 path: verification.path.clone(),
                 line: verification.line,
@@ -486,6 +504,7 @@ fn upsert_requirement_index_block(
 
 fn classify_staged_diff(
     root: &Path,
+    files: &[SnapshotFile],
     records: &[RequirementRecord],
 ) -> Result<Vec<Diagnostic>, String> {
     let output = isolated_git_command()
@@ -528,9 +547,20 @@ fn classify_staged_diff(
         }
 
         if let Some((rule, required)) = classify_added_line(added) {
-            let has_anchor = records
+            let in_test_context = files
                 .iter()
-                .any(|record| record.path == path && required.contains(&record.tag));
+                .find(|file| file.path == path)
+                .is_some_and(|file| is_inline_test_context(file, new_line));
+            if in_test_context && rule != "missing-test-expectation-anchor" {
+                new_line += 1;
+                continue;
+            }
+            let has_anchor = records.iter().any(|record| {
+                record.path == path
+                    && required.contains(&record.tag)
+                    && record.line <= new_line
+                    && new_line.saturating_sub(record.line) <= 8
+            });
             if !has_anchor {
                 diagnostics.push(Diagnostic {
                     path: path.to_string(),
@@ -717,6 +747,34 @@ fn bind_comment(file: &SnapshotFile, raw: &RawRequirementComment) -> Option<Stri
     } else {
         None
     }
+}
+
+fn is_inline_test_context(file: &SnapshotFile, line: usize) -> bool {
+    let mut pending_cfg_test = false;
+    let mut brace_depth = 0usize;
+    let mut test_module_depths = Vec::new();
+
+    for source_line in file.content.lines().take(line.saturating_sub(1)) {
+        let trimmed = source_line.trim();
+        test_module_depths.retain(|module_depth| brace_depth > *module_depth);
+        if trimmed.starts_with("#[cfg(test)]") {
+            pending_cfg_test = true;
+        }
+
+        let opens = source_line.matches('{').count();
+        let closes = source_line.matches('}').count();
+        if pending_cfg_test && trimmed.contains("mod ") && trimmed.contains('{') {
+            test_module_depths.push(brace_depth);
+            pending_cfg_test = false;
+        } else if !trimmed.starts_with("#[") && !trimmed.is_empty() {
+            pending_cfg_test = false;
+        }
+        brace_depth = brace_depth.saturating_add(opens).saturating_sub(closes);
+    }
+
+    test_module_depths
+        .iter()
+        .any(|module_depth| brace_depth > *module_depth)
 }
 
 fn is_attribute_line(trimmed: &str) -> bool {
@@ -936,7 +994,17 @@ mod tests {
     }
 
     #[test]
-    // @verifies req.format The test verifies that fmt-agents writes requirement tree rows into AGENTS md.
+    // @verifies req.format The test verifies that dotted code tokens inside one sentence are accepted.
+    fn parser_accepts_one_sentence_requirement_comments_with_dotted_tokens() {
+        let parsed =
+            parse_requirement_comment("@behavior req.format The command updates AGENTS.md.")
+                .expect("dotted token should stay inside one sentence");
+
+        assert_eq!(parsed.sentence, "The command updates AGENTS.md.");
+    }
+
+    #[test]
+    // @verifies req.format The test verifies that fmt-agents writes requirement tree rows into AGENTS.md.
     // @verifies req.api.report The test verifies that the generated index is derived from discovered declarations.
     fn fmt_agents_generates_requirement_index_from_source_comments() {
         let repo = TestRepo::new();
@@ -1002,12 +1070,74 @@ mod tests {
 
         let report = scan_requirements(repo.path()).expect("scan should run");
 
+        // @verifies req.check The assertion verifies that inline test comments avoid outside-test diagnostics.
         assert!(
             report
                 .diagnostics
                 .iter()
                 .any(|diagnostic| diagnostic.rule == "unverified-leaf-requirement")
         );
+    }
+
+    #[test]
+    // @verifies req.check The test verifies that inline cfg test modules are valid verification sites.
+    fn scan_accepts_verification_comments_inside_inline_test_modules() {
+        let repo = TestRepo::new();
+        repo.write(
+            "AGENTS.md",
+            "# AGENTS.md\n\n<!-- BEGIN AGENTS_MD_REQUIREMENT_INDEX -->\n<!-- END AGENTS_MD_REQUIREMENT_INDEX -->\n",
+        );
+        // @verifies req.check The fixture verifies inline tests with assertion bodies.
+        repo.write(
+            "src/lib.rs",
+            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n\n#[cfg(test)]\nmod tests {\n    #[test]\n    // @verifies req.scan The test verifies that inline unit tests can verify requirements.\n    fn inline_test_verifies_requirement() {\n        assert!(true);\n    }\n}\n",
+        );
+        repo.git_add(&["AGENTS.md", "src/lib.rs"]);
+
+        let report = scan_requirements(repo.path()).expect("scan should run");
+
+        // @verifies req.check The assertion verifies that inline test comments avoid outside-test diagnostics.
+        assert!(
+            report
+                .diagnostics
+                .iter()
+                .all(|diagnostic| diagnostic.rule != "verification-outside-test")
+        );
+    }
+
+    #[test]
+    // @verifies req.check The test verifies that staged hunk anchors must be near the changed Rust line.
+    fn staged_check_rejects_far_file_level_anchor_for_contract_changes() {
+        let repo = TestRepo::new();
+        repo.write(
+            "AGENTS.md",
+            "# AGENTS.md\n\n<!-- BEGIN AGENTS_MD_REQUIREMENT_INDEX -->\n<!-- END AGENTS_MD_REQUIREMENT_INDEX -->\n",
+        );
+        repo.write(
+            "src/lib.rs",
+            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n",
+        );
+        // @verifies req.check The fixture verifies staged checks with existing test assertions.
+        repo.write(
+            "tests/scan_contract.rs",
+            "// @verifies req.scan The test verifies that scan comments are indexed.\n#[test]\nfn scan_comments_are_indexed() {\n    assert!(true);\n}\n",
+        );
+        repo.git_add(&["AGENTS.md", "src/lib.rs", "tests/scan_contract.rs"]);
+        format_agents_requirement_index(repo.path()).expect("format should succeed");
+        repo.git_add(&["AGENTS.md"]);
+        repo.git_commit("initial requirement comments");
+
+        repo.write(
+            "src/lib.rs",
+            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\npub fn added_contract() {}\n",
+        );
+        repo.git_add(&["src/lib.rs"]);
+
+        // @verifies req.check The assertion verifies that far file anchors fail staged contract validation.
+        let error = check_requirements(repo.path(), RequirementCheckMode::Staged)
+            .expect_err("far anchor should fail staged check");
+
+        assert!(error.contains("missing-contract-anchor"));
     }
 
     struct TestRepo {
@@ -1053,6 +1183,20 @@ mod tests {
             assert!(
                 output.status.success(),
                 "git add failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+
+        fn git_commit(&self, message: &str) {
+            let output = isolated_git_command()
+                .current_dir(self.path())
+                .args(["-c", "commit.gpgsign=false", "commit", "-m", message])
+                .output()
+                .expect("git commit should run");
+            // @verifies req.check The assertion verifies that fixture commits fail loudly when Git rejects them.
+            assert!(
+                output.status.success(),
+                "git commit failed: {}",
                 String::from_utf8_lossy(&output.stderr)
             );
         }
