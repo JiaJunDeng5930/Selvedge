@@ -549,7 +549,8 @@ fn classify_staged_diff(
             let in_test_context = files
                 .iter()
                 .find(|file| file.path == path)
-                .is_some_and(|file| is_inline_test_context(file, new_line));
+                .is_some_and(|file| is_inline_test_context(file, new_line))
+                || is_test_path(path);
             if in_test_context && rule != "missing-test-expectation-anchor" {
                 new_line += 1;
                 continue;
@@ -665,8 +666,7 @@ fn is_visible_trait_line(line: &str) -> bool {
 /// @behavior req.detector.contract The visible contract detector classifies unrestricted and restricted Rust APIs as contract changes.
 fn is_visible_contract_line(line: &str) -> bool {
     visible_line_remainder(line).is_some_and(|rest| {
-        rest.starts_with("fn ")
-            || rest.starts_with("async fn ")
+        is_visible_function_remainder(rest)
             || rest.starts_with("struct ")
             || rest.starts_with("enum ")
             || rest.starts_with("type ")
@@ -685,6 +685,36 @@ fn visible_line_remainder(line: &str) -> Option<&str> {
         rest
     };
     Some(rest)
+}
+
+fn is_visible_function_remainder(rest: &str) -> bool {
+    let mut rest = rest.trim_start();
+    loop {
+        if let Some(next) = rest.strip_prefix("async ") {
+            rest = next.trim_start();
+            continue;
+        }
+        if let Some(next) = rest.strip_prefix("unsafe ") {
+            rest = next.trim_start();
+            continue;
+        }
+        if let Some(next) = rest.strip_prefix("const ") {
+            rest = next.trim_start();
+            continue;
+        }
+        if let Some(next) = rest.strip_prefix("extern ") {
+            rest = next.trim_start();
+            if let Some(abi) = rest.strip_prefix('"')
+                && let Some((_, after_abi)) = abi.split_once('"')
+            {
+                rest = after_abi.trim_start();
+                continue;
+            }
+            continue;
+        }
+        break;
+    }
+    rest.starts_with("fn ")
 }
 
 fn parse_hunk_new_start(hunk: &str) -> usize {
@@ -1002,7 +1032,8 @@ fn isolated_git_command() -> Command {
 mod tests {
     use super::{
         RequirementCheckMode, RequirementCheckStatus, check_requirements,
-        format_agents_requirement_index, parse_requirement_comment, scan_requirements,
+        format_agents_requirement_index, is_visible_contract_line, parse_requirement_comment,
+        scan_requirements,
     };
     use std::fs;
     use std::path::Path;
@@ -1053,7 +1084,6 @@ mod tests {
             "AGENTS.md",
             "# AGENTS.md\n\n<!-- BEGIN AGENTS_MD_REQUIREMENT_INDEX -->\n<!-- END AGENTS_MD_REQUIREMENT_INDEX -->\n",
         );
-        // @verifies req.detector.assertion The fixture verifies staged detector checks with a production assertion.
         repo.write(
             "src/lib.rs",
             "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n",
@@ -1084,6 +1114,7 @@ mod tests {
             "src/lib.rs",
             "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n",
         );
+        // @verifies req.check The fixture verifies added integration-test assertions.
         repo.write(
             "tests/scan_contract.rs",
             "// @verifies req.scan The test verifies that scan comments are indexed.\n#[test]\nfn scan_comments_are_indexed() {\n    assert!(true);\n}\n",
@@ -1311,6 +1342,50 @@ mod tests {
             .expect_err("restricted trait should fail staged check");
 
         assert!(error.contains("missing-structure-intent"));
+    }
+
+    #[test]
+    // @verifies req.check The test verifies that integration-test assertions use verification anchors.
+    fn staged_check_accepts_nearby_verification_for_test_path_assertions() {
+        let repo = TestRepo::new();
+        repo.write(
+            "AGENTS.md",
+            "# AGENTS.md\n\n<!-- BEGIN AGENTS_MD_REQUIREMENT_INDEX -->\n<!-- END AGENTS_MD_REQUIREMENT_INDEX -->\n",
+        );
+        repo.write(
+            "src/lib.rs",
+            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n",
+        );
+        // @verifies req.check The fixture verifies initial integration-test assertions.
+        repo.write(
+            "tests/scan_contract.rs",
+            "// @verifies req.scan The test verifies that scan comments are indexed.\n#[test]\nfn scan_comments_are_indexed() {\n    assert!(true);\n}\n",
+        );
+        repo.git_add(&["AGENTS.md", "src/lib.rs", "tests/scan_contract.rs"]);
+        format_agents_requirement_index(repo.path()).expect("format should succeed");
+        repo.git_add(&["AGENTS.md"]);
+        repo.git_commit("initial requirement comments");
+
+        // @verifies req.check The fixture verifies added integration-test assertions.
+        repo.write(
+            "tests/scan_contract.rs",
+            "// @verifies req.scan The test verifies that scan comments are indexed.\n#[test]\nfn scan_comments_are_indexed() {\n    assert!(true);\n}\n\n#[test]\n// @verifies req.scan The test verifies that test-path assertions use verification anchors.\nfn added_test_path_assertion() {\n    assert_eq!(1, 1);\n}\n",
+        );
+        repo.git_add(&["tests/scan_contract.rs"]);
+
+        // @verifies req.check The assertion verifies that test-path assertions accept nearby verifies comments.
+        let status = check_requirements(repo.path(), RequirementCheckMode::Staged)
+            .expect("test-path assertion should pass staged check");
+
+        assert_eq!(status, RequirementCheckStatus::Fresh);
+    }
+
+    #[test]
+    // @verifies req.detector.contract The test verifies that qualified public functions are contract changes.
+    fn visible_contract_detector_accepts_qualified_public_functions() {
+        assert!(is_visible_contract_line("pub unsafe fn refresh() {}"));
+        assert!(is_visible_contract_line("pub extern \"C\" fn refresh() {}"));
+        assert!(is_visible_contract_line("pub async unsafe fn refresh() {}"));
     }
 
     struct TestRepo {
