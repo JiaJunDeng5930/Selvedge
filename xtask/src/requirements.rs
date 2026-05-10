@@ -330,8 +330,11 @@ fn has_one_sentence(sentence: &str) -> bool {
 fn sentence_boundary_count(sentence: &str) -> usize {
     let mut count = 0usize;
     let mut characters = sentence.char_indices().peekable();
-    while let Some((_, character)) = characters.next() {
+    while let Some((index, character)) = characters.next() {
         if !matches!(character, '.' | '!' | '?') {
+            continue;
+        }
+        if character == '!' && is_known_macro_bang(sentence, index) {
             continue;
         }
         let is_last = characters.peek().is_none();
@@ -343,6 +346,34 @@ fn sentence_boundary_count(sentence: &str) -> usize {
         }
     }
     count
+}
+
+/// @constraint req.api.diagnostic.macro The sentence counter ignores bang punctuation for known Rust macro names.
+fn is_known_macro_bang(sentence: &str, bang_index: usize) -> bool {
+    let name_start = sentence[..bang_index]
+        .char_indices()
+        .rev()
+        .find(|(_, character)| !(character.is_ascii_alphanumeric() || *character == '_'))
+        .map_or(0, |(index, character)| index + character.len_utf8());
+    let name = &sentence[name_start..bang_index];
+    matches!(
+        name,
+        "assert"
+            | "assert_eq"
+            | "assert_ne"
+            | "dbg"
+            | "eprintln"
+            | "format"
+            | "matches"
+            | "panic"
+            | "println"
+            | "todo"
+            | "unimplemented"
+            | "unreachable"
+            | "vec"
+            | "write"
+            | "writeln"
+    )
 }
 
 fn validate_registry(
@@ -1628,6 +1659,20 @@ mod tests {
                 .expect("dotted token should stay inside one sentence");
 
         assert_eq!(parsed.sentence, "The command updates AGENTS.md.");
+    }
+
+    #[test]
+    // @verifies req.api.diagnostic.macro The test verifies that Rust macro names with bang punctuation stay inside one sentence.
+    fn parser_accepts_one_sentence_requirement_comments_with_macro_names() {
+        let parsed = parse_requirement_comment(
+            "@verifies req.scan The test verifies assert! calls and panic! paths.",
+        )
+        .expect("macro bang punctuation should stay inside one sentence");
+
+        assert_eq!(
+            parsed.sentence,
+            "The test verifies assert! calls and panic! paths."
+        );
     }
 
     #[test]
