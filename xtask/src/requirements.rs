@@ -554,6 +554,20 @@ fn classify_staged_diff(
                 new_line += 1;
                 continue;
             }
+            let (rule, required) = if !in_test_context && rule == "missing-test-expectation-anchor"
+            {
+                if is_assertion_line(added) {
+                    (
+                        "missing-failure-policy-anchor",
+                        vec![RequirementTag::Behavior, RequirementTag::Constraint],
+                    )
+                } else {
+                    new_line += 1;
+                    continue;
+                }
+            } else {
+                (rule, required)
+            };
             let has_anchor = records.iter().any(|record| {
                 record.path == path
                     && required.contains(&record.tag)
@@ -583,12 +597,7 @@ fn classify_staged_diff(
 
 /// @intent req.detector The diff detector table maps Rust syntax signals to required requirement tags.
 fn classify_added_line(line: &str) -> Option<(&'static str, Vec<RequirementTag>)> {
-    if line.contains("assert!")
-        || line.contains("assert_eq!")
-        || line.contains("assert_ne!")
-        || line.contains("mock")
-        || line.contains("fixture")
-    {
+    if is_assertion_line(line) || line.contains("mock") || line.contains("fixture") {
         return Some((
             "missing-test-expectation-anchor",
             vec![RequirementTag::Verifies],
@@ -606,6 +615,7 @@ fn classify_added_line(line: &str) -> Option<(&'static str, Vec<RequirementTag>)
     }
     if line.starts_with("pub trait ")
         || line.starts_with("trait ")
+        || is_visible_trait_line(line)
         || line.contains("dyn ")
         || line.contains("Box<dyn")
         || line.contains("Arc<dyn")
@@ -639,27 +649,42 @@ fn classify_added_line(line: &str) -> Option<(&'static str, Vec<RequirementTag>)
     None
 }
 
+/// @behavior req.detector.assertion The assertion detector classifies production assertions as failure-policy changes and test assertions as verification changes.
+fn is_assertion_line(line: &str) -> bool {
+    line.contains("assert!")
+        || line.contains("assert_eq!")
+        || line.contains("assert_ne!")
+        || line.contains("matches!")
+}
+
+/// @behavior req.detector.structure The structure detector classifies visible trait declarations as structure-intent changes.
+fn is_visible_trait_line(line: &str) -> bool {
+    visible_line_remainder(line).is_some_and(|rest| rest.starts_with("trait "))
+}
+
 /// @behavior req.detector.contract The visible contract detector classifies unrestricted and restricted Rust APIs as contract changes.
 fn is_visible_contract_line(line: &str) -> bool {
-    let Some(rest) = line.strip_prefix("pub") else {
-        return false;
-    };
+    visible_line_remainder(line).is_some_and(|rest| {
+        rest.starts_with("fn ")
+            || rest.starts_with("async fn ")
+            || rest.starts_with("struct ")
+            || rest.starts_with("enum ")
+            || rest.starts_with("type ")
+            || rest.starts_with("const ")
+            || rest.starts_with("static ")
+    })
+}
+
+fn visible_line_remainder(line: &str) -> Option<&str> {
+    let rest = line.strip_prefix("pub")?;
     let rest = rest.trim_start();
     let rest = if let Some(rest) = rest.strip_prefix('(') {
-        let Some((_, after_visibility)) = rest.split_once(')') else {
-            return false;
-        };
+        let (_, after_visibility) = rest.split_once(')')?;
         after_visibility.trim_start()
     } else {
         rest
     };
-    rest.starts_with("fn ")
-        || rest.starts_with("async fn ")
-        || rest.starts_with("struct ")
-        || rest.starts_with("enum ")
-        || rest.starts_with("type ")
-        || rest.starts_with("const ")
-        || rest.starts_with("static ")
+    Some(rest)
 }
 
 fn parse_hunk_new_start(hunk: &str) -> usize {
@@ -1028,6 +1053,7 @@ mod tests {
             "AGENTS.md",
             "# AGENTS.md\n\n<!-- BEGIN AGENTS_MD_REQUIREMENT_INDEX -->\n<!-- END AGENTS_MD_REQUIREMENT_INDEX -->\n",
         );
+        // @verifies req.detector.assertion The fixture verifies staged detector checks with a production assertion.
         repo.write(
             "src/lib.rs",
             "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n",
@@ -1214,6 +1240,77 @@ mod tests {
             .expect_err("restricted visibility contract should fail staged check");
 
         assert!(error.contains("missing-contract-anchor"));
+    }
+
+    #[test]
+    // @verifies req.detector.assertion The test verifies that production assertions require behavior or constraint anchors.
+    fn staged_check_rejects_unanchored_production_assertions_as_failure_policy() {
+        let repo = TestRepo::new();
+        repo.write(
+            "AGENTS.md",
+            "# AGENTS.md\n\n<!-- BEGIN AGENTS_MD_REQUIREMENT_INDEX -->\n<!-- END AGENTS_MD_REQUIREMENT_INDEX -->\n",
+        );
+        repo.write(
+            "src/lib.rs",
+            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n",
+        );
+        // @verifies req.detector.assertion The fixture verifies production assertion detection with an existing test.
+        repo.write(
+            "tests/scan_contract.rs",
+            "// @verifies req.scan The test verifies that scan comments are indexed.\n#[test]\nfn scan_comments_are_indexed() {\n    assert!(true);\n}\n",
+        );
+        repo.git_add(&["AGENTS.md", "src/lib.rs", "tests/scan_contract.rs"]);
+        format_agents_requirement_index(repo.path()).expect("format should succeed");
+        repo.git_add(&["AGENTS.md"]);
+        repo.git_commit("initial requirement comments");
+
+        // @verifies req.detector.assertion The fixture verifies staged detector checks with a production assertion.
+        repo.write(
+            "src/lib.rs",
+            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\nfn added_assertion() { assert!(true); }\n",
+        );
+        repo.git_add(&["src/lib.rs"]);
+
+        // @verifies req.detector.assertion The assertion verifies that production assertions use failure-policy diagnostics.
+        let error = check_requirements(repo.path(), RequirementCheckMode::Staged)
+            .expect_err("production assertion should fail staged check");
+
+        assert!(error.contains("missing-failure-policy-anchor"));
+    }
+
+    #[test]
+    // @verifies req.detector.structure The test verifies that restricted visibility traits require intent anchors.
+    fn staged_check_rejects_unanchored_restricted_visibility_trait_changes() {
+        let repo = TestRepo::new();
+        repo.write(
+            "AGENTS.md",
+            "# AGENTS.md\n\n<!-- BEGIN AGENTS_MD_REQUIREMENT_INDEX -->\n<!-- END AGENTS_MD_REQUIREMENT_INDEX -->\n",
+        );
+        repo.write(
+            "src/lib.rs",
+            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n",
+        );
+        // @verifies req.detector.structure The fixture verifies structure detector checks with an existing test.
+        repo.write(
+            "tests/scan_contract.rs",
+            "// @verifies req.scan The test verifies that scan comments are indexed.\n#[test]\nfn scan_comments_are_indexed() {\n    assert!(true);\n}\n",
+        );
+        repo.git_add(&["AGENTS.md", "src/lib.rs", "tests/scan_contract.rs"]);
+        format_agents_requirement_index(repo.path()).expect("format should succeed");
+        repo.git_add(&["AGENTS.md"]);
+        repo.git_commit("initial requirement comments");
+
+        repo.write(
+            "src/lib.rs",
+            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\npub(crate) trait AddedContract {}\n",
+        );
+        repo.git_add(&["src/lib.rs"]);
+
+        // @verifies req.detector.structure The assertion verifies that restricted traits use structure-intent diagnostics.
+        let error = check_requirements(repo.path(), RequirementCheckMode::Staged)
+            .expect_err("restricted trait should fail staged check");
+
+        assert!(error.contains("missing-structure-intent"));
     }
 
     struct TestRepo {
