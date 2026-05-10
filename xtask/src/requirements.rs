@@ -645,15 +645,17 @@ fn classify_diff_line(
     }
 
     let changed_file = files.iter().find(|file| file.path == path);
+    let signature_continuation =
+        changed_file.is_some_and(|file| is_visible_signature_continuation(file, line, changed));
+    let contract_attribute =
+        changed_file.is_some_and(|file| is_visible_contract_attribute(file, line, changed));
     let classified_line = classify_added_line(changed).or_else(|| {
-        changed_file
-            .filter(|file| is_visible_signature_continuation(file, line, changed))
-            .map(|_| {
-                (
-                    "missing-contract-anchor",
-                    vec![RequirementTag::Behavior, RequirementTag::Constraint],
-                )
-            })
+        (signature_continuation || contract_attribute).then(|| {
+            (
+                "missing-contract-anchor",
+                vec![RequirementTag::Behavior, RequirementTag::Constraint],
+            )
+        })
     });
     if let Some((rule, required)) = classified_line {
         let in_test_context = changed_file.is_some_and(|file| is_inline_test_context(file, line))
@@ -673,11 +675,17 @@ fn classify_diff_line(
         } else {
             (rule, required)
         };
+        let item_start = is_visible_contract_line(changed) || is_visible_trait_line(changed);
         let has_anchor = records.iter().any(|record| {
             record.path == path
                 && required.contains(&record.tag)
-                && record.line <= line
-                && line.saturating_sub(record.line) <= 8
+                && anchor_matches_changed_line(
+                    record,
+                    line,
+                    item_start,
+                    contract_attribute,
+                    signature_continuation,
+                )
         });
         if !has_anchor {
             diagnostics.push(Diagnostic {
@@ -747,6 +755,46 @@ fn classify_added_line(line: &str) -> Option<(&'static str, Vec<RequirementTag>)
         ));
     }
     None
+}
+
+fn anchor_matches_changed_line(
+    record: &RequirementRecord,
+    line: usize,
+    item_start: bool,
+    attribute_contract: bool,
+    signature_continuation: bool,
+) -> bool {
+    let Some(binding_line) = binding_target_line(record) else {
+        if item_start || attribute_contract || signature_continuation {
+            return false;
+        }
+        return record.line <= line && line.saturating_sub(record.line) <= 8;
+    };
+    if item_start {
+        return binding_line == line;
+    }
+    if attribute_contract {
+        return line <= binding_line && binding_line.saturating_sub(line) <= 8;
+    }
+    if signature_continuation {
+        return binding_line <= line && line.saturating_sub(binding_line) <= 8;
+    }
+    binding_line <= line && line.saturating_sub(binding_line) <= 8
+}
+
+fn binding_target_line(record: &RequirementRecord) -> Option<usize> {
+    record
+        .binding
+        .strip_prefix("line ")
+        .and_then(|rest| rest.split_whitespace().next())
+        .and_then(|line| line.parse::<usize>().ok())
+}
+
+fn is_contract_attribute_line(line: &str) -> bool {
+    line.starts_with("#[cfg(")
+        || line.starts_with("#[repr(")
+        || line.starts_with("#[must_use")
+        || line.starts_with("#[serde(")
 }
 
 /// @behavior req.detector.assertion The assertion detector classifies production assertions as failure-policy changes and test assertions as verification changes.
@@ -856,6 +904,25 @@ fn is_visible_signature_continuation(file: &SnapshotFile, line: usize, added: &s
             break;
         }
         index -= 1;
+    }
+    false
+}
+
+fn is_visible_contract_attribute(file: &SnapshotFile, line: usize, added: &str) -> bool {
+    if !is_contract_attribute_line(added) {
+        return false;
+    }
+
+    let lines = file.content.lines().collect::<Vec<_>>();
+    let Some(start_index) = line.checked_sub(1) else {
+        return false;
+    };
+    for source_line in lines.iter().skip(start_index + 1).take(8) {
+        let trimmed = source_line.trim();
+        if trimmed.is_empty() || is_attribute_line(trimmed) {
+            continue;
+        }
+        return is_visible_contract_line(trimmed) || is_visible_trait_line(trimmed);
     }
     false
 }
@@ -1606,6 +1673,76 @@ mod tests {
         // @verifies req.check The assertion verifies that removed public contracts require anchors.
         let error = check_requirements(repo.path(), RequirementCheckMode::Staged)
             .expect_err("deleted public contract should fail staged check");
+
+        assert!(error.contains("missing-contract-anchor"));
+    }
+
+    #[test]
+    // @verifies req.check The test verifies that a requirement bound to the previous item does not satisfy a new public contract.
+    fn staged_check_rejects_previous_item_anchor_for_new_contracts() {
+        let repo = TestRepo::new();
+        repo.write(
+            "AGENTS.md",
+            "# AGENTS.md\n\n<!-- BEGIN AGENTS_MD_REQUIREMENT_INDEX -->\n<!-- END AGENTS_MD_REQUIREMENT_INDEX -->\n",
+        );
+        repo.write(
+            "src/lib.rs",
+            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n",
+        );
+        // @verifies req.check The fixture verifies anchor matching with an existing test.
+        repo.write(
+            "tests/scan_contract.rs",
+            "// @verifies req.scan The test verifies that scan comments are indexed.\n#[test]\nfn scan_comments_are_indexed() {\n    assert!(true);\n}\n",
+        );
+        repo.git_add(&["AGENTS.md", "src/lib.rs", "tests/scan_contract.rs"]);
+        format_agents_requirement_index(repo.path()).expect("format should succeed");
+        repo.git_add(&["AGENTS.md"]);
+        repo.git_commit("initial requirement comments");
+
+        repo.write(
+            "src/lib.rs",
+            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\npub fn added_contract() {}\n",
+        );
+        repo.git_add(&["src/lib.rs"]);
+
+        // @verifies req.check The assertion verifies that anchor matching uses the bound code item.
+        let error = check_requirements(repo.path(), RequirementCheckMode::Staged)
+            .expect_err("new public contract should fail staged check");
+
+        assert!(error.contains("missing-contract-anchor"));
+    }
+
+    #[test]
+    // @verifies req.detector.contract The test verifies that public contract attribute changes require contract anchors.
+    fn staged_check_rejects_unanchored_public_contract_attribute_changes() {
+        let repo = TestRepo::new();
+        repo.write(
+            "AGENTS.md",
+            "# AGENTS.md\n\n<!-- BEGIN AGENTS_MD_REQUIREMENT_INDEX -->\n<!-- END AGENTS_MD_REQUIREMENT_INDEX -->\n",
+        );
+        repo.write(
+            "src/lib.rs",
+            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\npub fn visible() {}\n",
+        );
+        // @verifies req.detector.contract The fixture verifies attribute detector checks with an existing test.
+        repo.write(
+            "tests/scan_contract.rs",
+            "// @verifies req.scan The test verifies that scan comments are indexed.\n#[test]\nfn scan_comments_are_indexed() {\n    assert!(true);\n}\n",
+        );
+        repo.git_add(&["AGENTS.md", "src/lib.rs", "tests/scan_contract.rs"]);
+        format_agents_requirement_index(repo.path()).expect("format should succeed");
+        repo.git_add(&["AGENTS.md"]);
+        repo.git_commit("initial requirement comments");
+
+        repo.write(
+            "src/lib.rs",
+            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n#[must_use]\npub fn visible() {}\n",
+        );
+        repo.git_add(&["src/lib.rs"]);
+
+        // @verifies req.detector.contract The assertion verifies that public attributes use contract diagnostics.
+        let error = check_requirements(repo.path(), RequirementCheckMode::Staged)
+            .expect_err("public contract attribute should fail staged check");
 
         assert!(error.contains("missing-contract-anchor"));
     }
