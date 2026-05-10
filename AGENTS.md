@@ -93,7 +93,8 @@ This file is for coding agents working in this repository.
 |req.detector|req.detector.{assertion,contract,diff_command,field,hunk_parse,signature,structure}
 |req.detector.assertion|req.detector.assertion.{}
 |req.detector.contract|req.detector.contract.{container}
-|req.detector.contract.container|req.detector.contract.container.{}
+|req.detector.contract.container|req.detector.contract.container.{header}
+|req.detector.contract.container.header|req.detector.contract.container.header.{}
 |req.detector.diff_command|req.detector.diff_command.{}
 |req.detector.field|req.detector.field.{tuple}
 |req.detector.field.tuple|req.detector.field.tuple.{}

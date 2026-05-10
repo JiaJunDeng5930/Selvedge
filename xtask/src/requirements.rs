@@ -1021,14 +1021,18 @@ fn enclosing_public_container_contract_line(
         })
 }
 
+/// @constraint req.detector.contract.container.header The container header detector normalizes public unsafe trait headers before classifying member changes.
 fn public_container_header_kind(line: &str) -> Option<PublicContainerKind> {
     visible_line_remainder(line).and_then(|rest| {
         if rest.starts_with("enum ") {
             Some(PublicContainerKind::Enum)
-        } else if rest.starts_with("trait ") {
-            Some(PublicContainerKind::Trait)
         } else {
-            None
+            let rest = rest.strip_prefix("unsafe ").unwrap_or(rest);
+            if rest.starts_with("trait ") {
+                Some(PublicContainerKind::Trait)
+            } else {
+                None
+            }
         }
     })
 }
@@ -2225,6 +2229,41 @@ mod tests {
         // @verifies req.detector.contract.container The assertion verifies that trait required items use contract diagnostics.
         let error = check_requirements(repo.path(), RequirementCheckMode::Staged)
             .expect_err("public trait item should fail staged check");
+
+        assert!(error.contains("missing-contract-anchor"));
+    }
+
+    #[test]
+    // @verifies req.detector.contract.container.header The test verifies that unsafe public trait required items are contract changes.
+    fn staged_check_rejects_unanchored_unsafe_public_trait_required_items() {
+        let repo = TestRepo::new();
+        repo.write(
+            "AGENTS.md",
+            "# AGENTS.md\n\n<!-- BEGIN AGENTS_MD_REQUIREMENT_INDEX -->\n<!-- END AGENTS_MD_REQUIREMENT_INDEX -->\n",
+        );
+        repo.write(
+            "src/lib.rs",
+            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\npub unsafe trait Visible {\n    fn existing(&self);\n}\n",
+        );
+        // @verifies req.detector.contract.container.header The fixture verifies unsafe trait item detector checks with an existing test.
+        repo.write(
+            "tests/scan_contract.rs",
+            "// @verifies req.scan The test verifies that scan comments are indexed.\n#[test]\nfn scan_comments_are_indexed() {\n    assert!(true);\n}\n",
+        );
+        repo.git_add(&["AGENTS.md", "src/lib.rs", "tests/scan_contract.rs"]);
+        format_agents_requirement_index(repo.path()).expect("format should succeed");
+        repo.git_add(&["AGENTS.md"]);
+        repo.git_commit("initial requirement comments");
+
+        repo.write(
+            "src/lib.rs",
+            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\npub unsafe trait Visible {\n    fn existing(&self);\n    fn added(&self);\n}\n",
+        );
+        repo.git_add(&["src/lib.rs"]);
+
+        // @verifies req.detector.contract.container.header The assertion verifies that unsafe trait items use contract diagnostics.
+        let error = check_requirements(repo.path(), RequirementCheckMode::Staged)
+            .expect_err("unsafe public trait item should fail staged check");
 
         assert!(error.contains("missing-contract-anchor"));
     }
