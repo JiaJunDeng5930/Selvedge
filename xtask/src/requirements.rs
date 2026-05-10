@@ -1111,22 +1111,21 @@ fn extract_requirement_comments(file: &SnapshotFile) -> Vec<RawRequirementCommen
             .or_else(|| trimmed.strip_prefix("/*").map(|rest| (rest, false)))
         {
             let start = index;
-            let mut body = String::new();
+            let mut body = Vec::new();
             let mut current = rest;
             loop {
                 if let Some(end) = current.find("*/") {
-                    body.push_str(&current[..end]);
+                    body.push(current[..end].to_string());
                     break;
                 }
-                body.push_str(current);
+                body.push(current.to_string());
                 index += 1;
                 if index >= lines.len() {
                     break;
                 }
-                body.push(' ');
                 current = lines[index].trim();
             }
-            let normalized = body.trim().trim_start_matches('*').trim();
+            let normalized = normalize_block_comment_body(&body);
             if normalized.starts_with('@') {
                 comments.push(RawRequirementComment {
                     line: start + 1,
@@ -1141,6 +1140,14 @@ fn extract_requirement_comments(file: &SnapshotFile) -> Vec<RawRequirementCommen
         index += 1;
     }
     comments
+}
+
+fn normalize_block_comment_body(body: &[String]) -> String {
+    body.iter()
+        .map(|segment| segment.trim().trim_start_matches('*').trim())
+        .filter(|segment| !segment.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 fn normalize_line_comment(trimmed: &str) -> Option<&str> {
@@ -1181,15 +1188,25 @@ fn bind_comment(file: &SnapshotFile, raw: &RawRequirementComment) -> Option<Stri
 }
 
 fn is_inline_test_context(file: &SnapshotFile, line: usize) -> bool {
+    if binds_to_direct_test_function(file, line) {
+        return true;
+    }
+
     let mut pending_cfg_test = false;
+    let mut pending_direct_test = false;
     let mut brace_depth = 0usize;
     let mut test_module_depths = Vec::new();
+    let mut test_function_depths = Vec::new();
 
     for source_line in file.content.lines().take(line.saturating_sub(1)) {
         let trimmed = source_line.trim();
         test_module_depths.retain(|module_depth| brace_depth > *module_depth);
+        test_function_depths.retain(|function_depth| brace_depth > *function_depth);
         if trimmed.starts_with("#[cfg(test)]") {
             pending_cfg_test = true;
+        }
+        if trimmed.starts_with("#[test]") {
+            pending_direct_test = true;
         }
 
         let opens = source_line.matches('{').count();
@@ -1197,8 +1214,12 @@ fn is_inline_test_context(file: &SnapshotFile, line: usize) -> bool {
         if pending_cfg_test && trimmed.contains("mod ") && trimmed.contains('{') {
             test_module_depths.push(brace_depth);
             pending_cfg_test = false;
+        } else if pending_direct_test && is_test_function_line(trimmed) && trimmed.contains('{') {
+            test_function_depths.push(brace_depth);
+            pending_direct_test = false;
         } else if !trimmed.starts_with("#[") && !trimmed.is_empty() {
             pending_cfg_test = false;
+            pending_direct_test = false;
         }
         brace_depth = brace_depth.saturating_add(opens).saturating_sub(closes);
     }
@@ -1206,6 +1227,43 @@ fn is_inline_test_context(file: &SnapshotFile, line: usize) -> bool {
     test_module_depths
         .iter()
         .any(|module_depth| brace_depth > *module_depth)
+        || test_function_depths
+            .iter()
+            .any(|function_depth| brace_depth > *function_depth)
+}
+
+fn binds_to_direct_test_function(file: &SnapshotFile, line: usize) -> bool {
+    let lines = file.content.lines().collect::<Vec<_>>();
+    let has_previous_test_attr = lines
+        .iter()
+        .take(line.saturating_sub(1))
+        .rev()
+        .find(|source_line| {
+            let trimmed = source_line.trim();
+            !trimmed.is_empty() && normalize_line_comment(trimmed).is_none()
+        })
+        .is_some_and(|source_line| source_line.trim().starts_with("#[test]"));
+
+    let mut pending_test_attr = has_previous_test_attr;
+    for source_line in lines.iter().skip(line.saturating_sub(1)).take(8) {
+        let trimmed = source_line.trim();
+        if trimmed.is_empty() || normalize_line_comment(trimmed).is_some() {
+            continue;
+        }
+        if trimmed.starts_with("#[test]") {
+            pending_test_attr = true;
+            continue;
+        }
+        if trimmed.starts_with("#[") {
+            continue;
+        }
+        return pending_test_attr && is_test_function_line(trimmed);
+    }
+    false
+}
+
+fn is_test_function_line(trimmed: &str) -> bool {
+    trimmed.starts_with("fn ") || trimmed.starts_with("async fn ")
 }
 
 fn is_attribute_line(trimmed: &str) -> bool {
@@ -1520,7 +1578,7 @@ mod tests {
             "src/lib.rs",
             "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n",
         );
-        // @verifies req.check.merge_base.status The fixture verifies merge-base handling on an advanced base branch.
+        // @verifies req.format The fixture verifies formatting with an existing test.
         repo.write(
             "tests/scan_contract.rs",
             "// @verifies req.scan The test verifies that scan comments are indexed.\n#[test]\nfn scan_comments_are_indexed() {\n    assert!(true);\n}\n",
@@ -1532,6 +1590,36 @@ mod tests {
         let agents = repo.read("AGENTS.md");
         assert!(agents.contains("|req|req.{scan}"));
         assert!(agents.contains("|req.scan|req.scan.{}"));
+    }
+
+    #[test]
+    // @verifies req.scan The test verifies that starred block requirement comments are indexed.
+    fn scan_accepts_starred_block_requirement_comments() {
+        let repo = TestRepo::new();
+        repo.write(
+            "AGENTS.md",
+            "# AGENTS.md\n\n<!-- BEGIN AGENTS_MD_REQUIREMENT_INDEX -->\n<!-- END AGENTS_MD_REQUIREMENT_INDEX -->\n",
+        );
+        repo.write(
+            "src/lib.rs",
+            "//! @behavior req The module owns requirement automation.\n/**\n * @behavior req.block The block requirement is indexed from a starred comment.\n */\npub fn block() {}\n",
+        );
+        // @verifies req.scan The fixture verifies block comment scanning with an existing test.
+        repo.write(
+            "tests/scan_contract.rs",
+            "// @verifies req.block The test verifies that block comments are indexed.\n#[test]\nfn block_comment_is_indexed() {\n    assert!(true);\n}\n",
+        );
+        repo.git_add(&["AGENTS.md", "src/lib.rs", "tests/scan_contract.rs"]);
+
+        let report = scan_requirements(repo.path()).expect("scan should run");
+
+        // @verifies req.scan The assertion verifies that the starred block declaration is present.
+        assert!(
+            report
+                .declarations
+                .iter()
+                .any(|record| record.id == "req.block")
+        );
     }
 
     #[test]
@@ -1603,6 +1691,32 @@ mod tests {
         let report = scan_requirements(repo.path()).expect("scan should run");
 
         // @verifies req.check The assertion verifies that inline test comments avoid outside-test diagnostics.
+        assert!(
+            report
+                .diagnostics
+                .iter()
+                .all(|diagnostic| diagnostic.rule != "verification-outside-test")
+        );
+    }
+
+    #[test]
+    // @verifies req.check The test verifies that direct test functions are valid verification sites.
+    fn scan_accepts_verification_comments_inside_direct_test_functions() {
+        let repo = TestRepo::new();
+        repo.write(
+            "AGENTS.md",
+            "# AGENTS.md\n\n<!-- BEGIN AGENTS_MD_REQUIREMENT_INDEX -->\n<!-- END AGENTS_MD_REQUIREMENT_INDEX -->\n",
+        );
+        // @verifies req.check The fixture verifies direct test functions with assertion bodies.
+        repo.write(
+            "src/lib.rs",
+            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n\n#[test]\n// @verifies req.scan The test verifies that direct unit tests can verify requirements.\nfn direct_test_verifies_requirement() {\n    assert!(true);\n}\n",
+        );
+        repo.git_add(&["AGENTS.md", "src/lib.rs"]);
+
+        let report = scan_requirements(repo.path()).expect("scan should run");
+
+        // @verifies req.check The assertion verifies that direct test comments avoid outside-test diagnostics.
         assert!(
             report
                 .diagnostics
