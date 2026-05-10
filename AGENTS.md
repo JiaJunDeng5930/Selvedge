@@ -94,7 +94,8 @@ This file is for coding agents working in this repository.
 |req.detector.assertion|req.detector.assertion.{}
 |req.detector.contract|req.detector.contract.{}
 |req.detector.diff_command|req.detector.diff_command.{}
-|req.detector.field|req.detector.field.{}
+|req.detector.field|req.detector.field.{tuple}
+|req.detector.field.tuple|req.detector.field.tuple.{}
 |req.detector.hunk_parse|req.detector.hunk_parse.{}
 |req.detector.signature|req.detector.signature.{}
 |req.detector.structure|req.detector.structure.{}
