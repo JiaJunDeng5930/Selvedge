@@ -85,10 +85,11 @@ This file is for coding agents working in this repository.
 |req.api.tag|req.api.tag.{}
 |req.check|req.check.{}
 |req.cli|req.cli.{}
-|req.detector|req.detector.{assertion,contract,field,structure}
+|req.detector|req.detector.{assertion,contract,field,signature,structure}
 |req.detector.assertion|req.detector.assertion.{}
 |req.detector.contract|req.detector.contract.{}
 |req.detector.field|req.detector.field.{}
+|req.detector.signature|req.detector.signature.{}
 |req.detector.structure|req.detector.structure.{}
 |req.format|req.format.{}
 |req.scan|req.scan.{}
