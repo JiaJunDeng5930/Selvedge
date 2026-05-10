@@ -547,10 +547,19 @@ fn classify_staged_diff(
             continue;
         }
 
-        if let Some((rule, required)) = classify_added_line(added) {
-            let in_test_context = files
-                .iter()
-                .find(|file| file.path == path)
+        let staged_file = files.iter().find(|file| file.path == path);
+        let classified_line = classify_added_line(added).or_else(|| {
+            staged_file
+                .filter(|file| is_visible_signature_continuation(file, new_line, added))
+                .map(|_| {
+                    (
+                        "missing-contract-anchor",
+                        vec![RequirementTag::Behavior, RequirementTag::Constraint],
+                    )
+                })
+        });
+        if let Some((rule, required)) = classified_line {
+            let in_test_context = staged_file
                 .is_some_and(|file| is_inline_test_context(file, new_line))
                 || is_test_path(path);
             if in_test_context && rule != "missing-test-expectation-anchor" {
@@ -728,6 +737,38 @@ fn is_visible_function_remainder(rest: &str) -> bool {
         break;
     }
     rest.starts_with("fn ")
+}
+
+/// @behavior req.detector.signature The staged signature detector classifies edited lines inside visible Rust function signatures as contract changes.
+fn is_visible_signature_continuation(file: &SnapshotFile, line: usize, added: &str) -> bool {
+    let added = added.trim();
+    if !(added.contains(':') || added.starts_with(')') || added.starts_with("->")) {
+        return false;
+    }
+
+    let lines = file.content.lines().collect::<Vec<_>>();
+    let Some(mut index) = line.checked_sub(1) else {
+        return false;
+    };
+    let start_index = index;
+    let lower_bound = index.saturating_sub(20);
+    while index >= lower_bound {
+        let Some(source_line) = lines.get(index) else {
+            return false;
+        };
+        let trimmed = source_line.trim();
+        if is_visible_contract_line(trimmed) && trimmed.contains('(') {
+            return true;
+        }
+        if index != start_index && (trimmed.contains('{') || trimmed.ends_with(';')) {
+            return false;
+        }
+        if index == 0 {
+            break;
+        }
+        index -= 1;
+    }
+    false
 }
 
 fn parse_hunk_new_start(hunk: &str) -> usize {
@@ -1355,6 +1396,41 @@ mod tests {
             .expect_err("restricted trait should fail staged check");
 
         assert!(error.contains("missing-structure-intent"));
+    }
+
+    #[test]
+    // @verifies req.detector.signature The test verifies that edits inside multiline public signatures require contract anchors.
+    fn staged_check_rejects_unanchored_multiline_public_signature_edits() {
+        let repo = TestRepo::new();
+        repo.write(
+            "AGENTS.md",
+            "# AGENTS.md\n\n<!-- BEGIN AGENTS_MD_REQUIREMENT_INDEX -->\n<!-- END AGENTS_MD_REQUIREMENT_INDEX -->\n",
+        );
+        repo.write(
+            "src/lib.rs",
+            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n\npub struct OldType;\npub struct NewType;\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\npub fn visible(\n    value: OldType,\n) {}\n",
+        );
+        // @verifies req.detector.signature The fixture verifies signature detector checks with an existing test.
+        repo.write(
+            "tests/scan_contract.rs",
+            "// @verifies req.scan The test verifies that scan comments are indexed.\n#[test]\nfn scan_comments_are_indexed() {\n    assert!(true);\n}\n",
+        );
+        repo.git_add(&["AGENTS.md", "src/lib.rs", "tests/scan_contract.rs"]);
+        format_agents_requirement_index(repo.path()).expect("format should succeed");
+        repo.git_add(&["AGENTS.md"]);
+        repo.git_commit("initial requirement comments");
+
+        repo.write(
+            "src/lib.rs",
+            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n\npub struct OldType;\npub struct NewType;\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\npub fn visible(\n    value: NewType,\n) {}\n",
+        );
+        repo.git_add(&["src/lib.rs"]);
+
+        // @verifies req.detector.signature The assertion verifies that multiline signature edits use contract diagnostics.
+        let error = check_requirements(repo.path(), RequirementCheckMode::Staged)
+            .expect_err("multiline public signature edit should fail staged check");
+
+        assert!(error.contains("missing-contract-anchor"));
     }
 
     #[test]
