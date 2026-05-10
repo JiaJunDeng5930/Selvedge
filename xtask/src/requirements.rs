@@ -465,6 +465,7 @@ fn is_test_path(path: &str) -> bool {
     path.contains("/tests/")
         || path.starts_with("tests/")
         || path.contains("/examples/")
+        || path.starts_with("examples/")
         || path == "tests.rs"
         || path.ends_with("/tests.rs")
         || path.ends_with("_test.rs")
@@ -912,7 +913,12 @@ fn is_visible_function_remainder(rest: &str) -> bool {
 /// @behavior req.detector.signature The staged signature detector classifies edited lines inside visible Rust function signatures as contract changes.
 fn is_visible_signature_continuation(file: &SnapshotFile, line: usize, added: &str) -> bool {
     let added = added.trim();
-    if !(added.contains(':') || added.starts_with(')') || added.starts_with("->")) {
+    if !(added.contains(':')
+        || added.starts_with(')')
+        || added.starts_with("->")
+        || added.starts_with('+')
+        || added.starts_with("where "))
+    {
         return false;
     }
 
@@ -927,11 +933,17 @@ fn is_visible_signature_continuation(file: &SnapshotFile, line: usize, added: &s
             return false;
         };
         let trimmed = source_line.trim();
+        if trimmed.contains('{') {
+            if index == start_index && (added.starts_with(')') || added.starts_with("->")) {
+                return true;
+            }
+            return false;
+        }
+        if index != start_index && trimmed.ends_with(';') {
+            return false;
+        }
         if is_visible_contract_line(trimmed) && trimmed.contains('(') {
             return true;
-        }
-        if index != start_index && (trimmed.contains('{') || trimmed.ends_with(';')) {
-            return false;
         }
         if index == 0 {
             break;
@@ -1753,6 +1765,76 @@ mod tests {
     }
 
     #[test]
+    // @verifies req.detector.signature The test verifies that bound-only multiline public signature edits require contract anchors.
+    fn staged_check_rejects_unanchored_multiline_public_bound_edits() {
+        let repo = TestRepo::new();
+        repo.write(
+            "AGENTS.md",
+            "# AGENTS.md\n\n<!-- BEGIN AGENTS_MD_REQUIREMENT_INDEX -->\n<!-- END AGENTS_MD_REQUIREMENT_INDEX -->\n",
+        );
+        repo.write(
+            "src/lib.rs",
+            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n\npub trait Thing {}\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\npub fn visible() -> impl Thing\n{\n    loop {}\n}\n",
+        );
+        // @verifies req.detector.signature The fixture verifies bound detector checks with an existing test.
+        repo.write(
+            "tests/scan_contract.rs",
+            "// @verifies req.scan The test verifies that scan comments are indexed.\n#[test]\nfn scan_comments_are_indexed() {\n    assert!(true);\n}\n",
+        );
+        repo.git_add(&["AGENTS.md", "src/lib.rs", "tests/scan_contract.rs"]);
+        format_agents_requirement_index(repo.path()).expect("format should succeed");
+        repo.git_add(&["AGENTS.md"]);
+        repo.git_commit("initial requirement comments");
+
+        repo.write(
+            "src/lib.rs",
+            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n\npub trait Thing {}\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\npub fn visible() -> impl Thing\n    + Send\n{\n    loop {}\n}\n",
+        );
+        repo.git_add(&["src/lib.rs"]);
+
+        // @verifies req.detector.signature The assertion verifies that bound-only signature edits use contract diagnostics.
+        let error = check_requirements(repo.path(), RequirementCheckMode::Staged)
+            .expect_err("multiline public bound edit should fail staged check");
+
+        assert!(error.contains("missing-contract-anchor"));
+    }
+
+    #[test]
+    // @verifies req.detector.signature The test verifies that public function body type annotations are implementation changes.
+    fn staged_check_accepts_public_function_body_type_annotations() {
+        let repo = TestRepo::new();
+        repo.write(
+            "AGENTS.md",
+            "# AGENTS.md\n\n<!-- BEGIN AGENTS_MD_REQUIREMENT_INDEX -->\n<!-- END AGENTS_MD_REQUIREMENT_INDEX -->\n",
+        );
+        repo.write(
+            "src/lib.rs",
+            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\npub fn visible() {\n}\n",
+        );
+        // @verifies req.detector.signature The fixture verifies body-line detector checks with an existing test.
+        repo.write(
+            "tests/scan_contract.rs",
+            "// @verifies req.scan The test verifies that scan comments are indexed.\n#[test]\nfn scan_comments_are_indexed() {\n    assert!(true);\n}\n",
+        );
+        repo.git_add(&["AGENTS.md", "src/lib.rs", "tests/scan_contract.rs"]);
+        format_agents_requirement_index(repo.path()).expect("format should succeed");
+        repo.git_add(&["AGENTS.md"]);
+        repo.git_commit("initial requirement comments");
+
+        repo.write(
+            "src/lib.rs",
+            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\npub fn visible() {\n    let value: Option<String> = None;\n    drop(value);\n}\n",
+        );
+        repo.git_add(&["src/lib.rs"]);
+
+        // @verifies req.detector.signature The assertion verifies that body type annotations avoid contract diagnostics.
+        let status = check_requirements(repo.path(), RequirementCheckMode::Staged)
+            .expect("public function body type annotation should pass staged check");
+
+        assert_eq!(status, RequirementCheckStatus::Fresh);
+    }
+
+    #[test]
     // @verifies req.check The test verifies that deletion-only staged hunks run requirement anchor detection.
     fn staged_check_rejects_unanchored_deleted_contract_lines() {
         let repo = TestRepo::new();
@@ -2156,6 +2238,36 @@ mod tests {
         let report = scan_requirements(repo.path()).expect("scan should run");
 
         // @verifies req.check The assertion verifies that external tests modules avoid outside-test diagnostics.
+        assert!(
+            report
+                .diagnostics
+                .iter()
+                .all(|diagnostic| diagnostic.rule != "verification-outside-test")
+        );
+    }
+
+    #[test]
+    // @verifies req.check The test verifies that root Cargo examples are valid verification sites.
+    fn scan_accepts_verification_comments_inside_root_examples() {
+        let repo = TestRepo::new();
+        repo.write(
+            "AGENTS.md",
+            "# AGENTS.md\n\n<!-- BEGIN AGENTS_MD_REQUIREMENT_INDEX -->\n<!-- END AGENTS_MD_REQUIREMENT_INDEX -->\n",
+        );
+        repo.write(
+            "src/lib.rs",
+            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n",
+        );
+        // @verifies req.check The fixture verifies assertions inside root Cargo examples.
+        repo.write(
+            "examples/scan_contract.rs",
+            "// @verifies req.scan The example verifies source requirements.\nfn main() {\n    assert!(true);\n}\n",
+        );
+        repo.git_add(&["AGENTS.md", "src/lib.rs", "examples/scan_contract.rs"]);
+
+        let report = scan_requirements(repo.path()).expect("scan should run");
+
+        // @verifies req.check The assertion verifies that root examples avoid outside-test diagnostics.
         assert!(
             report
                 .diagnostics
