@@ -85,8 +85,10 @@ This file is for coding agents working in this repository.
 |req.api.tag|req.api.tag.{}
 |req.check|req.check.{}
 |req.cli|req.cli.{}
-|req.detector|req.detector.{contract}
+|req.detector|req.detector.{assertion,contract,structure}
+|req.detector.assertion|req.detector.assertion.{}
 |req.detector.contract|req.detector.contract.{}
+|req.detector.structure|req.detector.structure.{}
 |req.format|req.format.{}
 |req.scan|req.scan.{}
 <!-- END AGENTS_MD_REQUIREMENT_INDEX -->
