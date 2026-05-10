@@ -649,13 +649,17 @@ fn classify_diff_line(
         changed_file.is_some_and(|file| is_visible_signature_continuation(file, line, changed));
     let contract_attribute =
         changed_file.is_some_and(|file| is_visible_contract_attribute(file, line, changed));
+    let container_contract_line =
+        changed_file.and_then(|file| enclosing_public_container_contract_line(file, line, changed));
     let classified_line = classify_added_line(changed).or_else(|| {
-        (signature_continuation || contract_attribute).then(|| {
-            (
-                "missing-contract-anchor",
-                vec![RequirementTag::Behavior, RequirementTag::Constraint],
-            )
-        })
+        (signature_continuation || contract_attribute || container_contract_line.is_some()).then(
+            || {
+                (
+                    "missing-contract-anchor",
+                    vec![RequirementTag::Behavior, RequirementTag::Constraint],
+                )
+            },
+        )
     });
     if let Some((rule, required)) = classified_line {
         let in_test_context = changed_file.is_some_and(|file| is_inline_test_context(file, line))
@@ -685,6 +689,7 @@ fn classify_diff_line(
                     item_start,
                     contract_attribute,
                     signature_continuation,
+                    container_contract_line,
                 )
         });
         if !has_anchor {
@@ -762,13 +767,21 @@ fn anchor_matches_changed_line(
     item_start: bool,
     attribute_contract: bool,
     signature_continuation: bool,
+    container_contract_line: Option<usize>,
 ) -> bool {
     let Some(binding_line) = binding_target_line(record) else {
-        if item_start || attribute_contract || signature_continuation {
+        if item_start
+            || attribute_contract
+            || signature_continuation
+            || container_contract_line.is_some()
+        {
             return false;
         }
         return record.line <= line && line.saturating_sub(record.line) <= 8;
     };
+    if let Some(container_line) = container_contract_line {
+        return binding_line == container_line;
+    }
     if item_start {
         return binding_line == line;
     }
@@ -945,6 +958,83 @@ fn is_visible_contract_attribute(file: &SnapshotFile, line: usize, added: &str) 
         return is_visible_contract_line(trimmed) || is_visible_trait_line(trimmed);
     }
     false
+}
+
+#[derive(Clone, Copy)]
+enum PublicContainerKind {
+    Enum,
+    Trait,
+}
+
+/// @behavior req.detector.contract.container The public container detector classifies enum variants and trait required items as contract changes.
+fn enclosing_public_container_contract_line(
+    file: &SnapshotFile,
+    line: usize,
+    changed: &str,
+) -> Option<usize> {
+    let changed = changed.trim();
+    if changed.is_empty() || changed.starts_with("#[") || changed.starts_with('}') {
+        return None;
+    }
+
+    let lines = file.content.lines().collect::<Vec<_>>();
+    let mut brace_depth = 0usize;
+    let mut containers = Vec::<(usize, usize, PublicContainerKind)>::new();
+    for (index, source_line) in lines.iter().take(line.saturating_sub(1)).enumerate() {
+        let trimmed = source_line.trim();
+        containers.retain(|(container_depth, _, _)| brace_depth > *container_depth);
+        if let Some(kind) = public_container_kind(trimmed) {
+            containers.push((brace_depth, index + 1, kind));
+        }
+        brace_depth = brace_depth
+            .saturating_add(source_line.matches('{').count())
+            .saturating_sub(source_line.matches('}').count());
+    }
+
+    containers
+        .into_iter()
+        .rev()
+        .find_map(|(_, container_line, kind)| {
+            public_container_member_contract(kind, changed).then_some(container_line)
+        })
+}
+
+fn public_container_kind(line: &str) -> Option<PublicContainerKind> {
+    visible_line_remainder(line).and_then(|rest| {
+        if rest.starts_with("enum ") && line.contains('{') {
+            Some(PublicContainerKind::Enum)
+        } else if rest.starts_with("trait ") && line.contains('{') {
+            Some(PublicContainerKind::Trait)
+        } else {
+            None
+        }
+    })
+}
+
+fn public_container_member_contract(kind: PublicContainerKind, line: &str) -> bool {
+    match kind {
+        PublicContainerKind::Enum => is_enum_variant_line(line),
+        PublicContainerKind::Trait => is_trait_required_item_line(line),
+    }
+}
+
+fn is_enum_variant_line(line: &str) -> bool {
+    let line = line.trim_end_matches(',').trim();
+    let Some(first) = line.chars().next() else {
+        return false;
+    };
+    (first == '_' || first.is_ascii_uppercase())
+        && !line.starts_with("Self")
+        && !line.contains("=>")
+}
+
+fn is_trait_required_item_line(line: &str) -> bool {
+    let line = line.trim_start();
+    line.starts_with("fn ")
+        || line.starts_with("async fn ")
+        || line.starts_with("unsafe fn ")
+        || line.starts_with("type ")
+        || line.starts_with("const ")
 }
 
 fn parse_hunk_starts(hunk: &str) -> (usize, usize) {
@@ -1833,6 +1923,111 @@ mod tests {
         // @verifies req.detector.field.tuple The assertion verifies that public tuple fields use contract diagnostics.
         let error = check_requirements(repo.path(), RequirementCheckMode::Staged)
             .expect_err("public tuple field should fail staged check");
+
+        assert!(error.contains("missing-contract-anchor"));
+    }
+
+    #[test]
+    // @verifies req.detector.contract.container The test verifies that public enum variants can use the enclosing enum anchor.
+    fn staged_check_accepts_enclosing_anchor_for_public_enum_variants() {
+        let repo = TestRepo::new();
+        repo.write(
+            "AGENTS.md",
+            "# AGENTS.md\n\n<!-- BEGIN AGENTS_MD_REQUIREMENT_INDEX -->\n<!-- END AGENTS_MD_REQUIREMENT_INDEX -->\n",
+        );
+        repo.write(
+            "src/lib.rs",
+            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n\n// @behavior req.visible The visible enum describes caller-facing modes.\npub enum Visible {\n    Existing,\n}\n",
+        );
+        // @verifies req.detector.contract.container The fixture verifies enum member checks with an existing test.
+        repo.write(
+            "tests/scan_contract.rs",
+            "// @verifies req.scan The test verifies that scan comments are indexed.\n#[test]\nfn scan_comments_are_indexed() {\n    assert!(true);\n}\n\n// @verifies req.visible The test verifies that the visible enum requirement is covered.\n#[test]\nfn visible_enum_is_covered() {\n    assert!(true);\n}\n",
+        );
+        repo.git_add(&["AGENTS.md", "src/lib.rs", "tests/scan_contract.rs"]);
+        format_agents_requirement_index(repo.path()).expect("format should succeed");
+        repo.git_add(&["AGENTS.md"]);
+        repo.git_commit("initial requirement comments");
+
+        repo.write(
+            "src/lib.rs",
+            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n\n// @behavior req.visible The visible enum describes caller-facing modes.\npub enum Visible {\n    Existing,\n    Added,\n}\n",
+        );
+        repo.git_add(&["src/lib.rs"]);
+
+        // @verifies req.detector.contract.container The assertion verifies that enum variants match the enum anchor.
+        let status = check_requirements(repo.path(), RequirementCheckMode::Staged)
+            .expect("anchored enum variant should pass staged check");
+
+        assert_eq!(status, RequirementCheckStatus::Fresh);
+    }
+
+    #[test]
+    // @verifies req.detector.contract.container The test verifies that public enum variants are contract changes.
+    fn staged_check_rejects_unanchored_public_enum_variant_changes() {
+        let repo = TestRepo::new();
+        repo.write(
+            "AGENTS.md",
+            "# AGENTS.md\n\n<!-- BEGIN AGENTS_MD_REQUIREMENT_INDEX -->\n<!-- END AGENTS_MD_REQUIREMENT_INDEX -->\n",
+        );
+        repo.write(
+            "src/lib.rs",
+            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\npub enum Visible {\n    Existing,\n}\n",
+        );
+        // @verifies req.detector.contract.container The fixture verifies enum variant detector checks with an existing test.
+        repo.write(
+            "tests/scan_contract.rs",
+            "// @verifies req.scan The test verifies that scan comments are indexed.\n#[test]\nfn scan_comments_are_indexed() {\n    assert!(true);\n}\n",
+        );
+        repo.git_add(&["AGENTS.md", "src/lib.rs", "tests/scan_contract.rs"]);
+        format_agents_requirement_index(repo.path()).expect("format should succeed");
+        repo.git_add(&["AGENTS.md"]);
+        repo.git_commit("initial requirement comments");
+
+        repo.write(
+            "src/lib.rs",
+            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\npub enum Visible {\n    Existing,\n    Added,\n}\n",
+        );
+        repo.git_add(&["src/lib.rs"]);
+
+        // @verifies req.detector.contract.container The assertion verifies that enum variants use contract diagnostics.
+        let error = check_requirements(repo.path(), RequirementCheckMode::Staged)
+            .expect_err("public enum variant should fail staged check");
+
+        assert!(error.contains("missing-contract-anchor"));
+    }
+
+    #[test]
+    // @verifies req.detector.contract.container The test verifies that public trait required items are contract changes.
+    fn staged_check_rejects_unanchored_public_trait_required_items() {
+        let repo = TestRepo::new();
+        repo.write(
+            "AGENTS.md",
+            "# AGENTS.md\n\n<!-- BEGIN AGENTS_MD_REQUIREMENT_INDEX -->\n<!-- END AGENTS_MD_REQUIREMENT_INDEX -->\n",
+        );
+        repo.write(
+            "src/lib.rs",
+            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\npub trait Visible {\n    fn existing(&self);\n}\n",
+        );
+        // @verifies req.detector.contract.container The fixture verifies trait item detector checks with an existing test.
+        repo.write(
+            "tests/scan_contract.rs",
+            "// @verifies req.scan The test verifies that scan comments are indexed.\n#[test]\nfn scan_comments_are_indexed() {\n    assert!(true);\n}\n",
+        );
+        repo.git_add(&["AGENTS.md", "src/lib.rs", "tests/scan_contract.rs"]);
+        format_agents_requirement_index(repo.path()).expect("format should succeed");
+        repo.git_add(&["AGENTS.md"]);
+        repo.git_commit("initial requirement comments");
+
+        repo.write(
+            "src/lib.rs",
+            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\npub trait Visible {\n    fn existing(&self);\n    fn added(&self);\n}\n",
+        );
+        repo.git_add(&["src/lib.rs"]);
+
+        // @verifies req.detector.contract.container The assertion verifies that trait required items use contract diagnostics.
+        let error = check_requirements(repo.path(), RequirementCheckMode::Staged)
+            .expect_err("public trait item should fail staged check");
 
         assert!(error.contains("missing-contract-anchor"));
     }
