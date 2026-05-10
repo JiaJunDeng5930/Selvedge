@@ -93,7 +93,8 @@ This file is for coding agents working in this repository.
 |req.cli|req.cli.{base_error}
 |req.cli.base_error|req.cli.base_error.{}
 |req.detector|req.detector.{assertion,contract,diff_command,field,hunk_parse,signature,structure}
-|req.detector.assertion|req.detector.assertion.{}
+|req.detector.assertion|req.detector.assertion.{unwrap}
+|req.detector.assertion.unwrap|req.detector.assertion.unwrap.{}
 |req.detector.contract|req.detector.contract.{container}
 |req.detector.contract.container|req.detector.contract.container.{header}
 |req.detector.contract.container.header|req.detector.contract.container.header.{}
