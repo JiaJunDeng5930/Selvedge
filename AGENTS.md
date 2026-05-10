@@ -83,11 +83,13 @@ This file is for coding agents working in this repository.
 |req.api.report|req.api.report.{}
 |req.api.status|req.api.status.{}
 |req.api.tag|req.api.tag.{}
-|req.check|req.check.{git_ref_list,git_ref_read,git_ref_status,head_snapshot}
+|req.check|req.check.{git_ref_list,git_ref_read,git_ref_status,head_snapshot,merge_base}
 |req.check.git_ref_list|req.check.git_ref_list.{}
 |req.check.git_ref_read|req.check.git_ref_read.{}
 |req.check.git_ref_status|req.check.git_ref_status.{}
 |req.check.head_snapshot|req.check.head_snapshot.{}
+|req.check.merge_base|req.check.merge_base.{status}
+|req.check.merge_base.status|req.check.merge_base.status.{}
 |req.cli|req.cli.{base_error}
 |req.cli.base_error|req.cli.base_error.{}
 |req.detector|req.detector.{assertion,contract,diff_command,field,hunk_parse,signature,structure}

@@ -150,7 +150,8 @@ pub fn check_requirements(
             )?);
         }
         RequirementCheckMode::Base { git_ref } => {
-            let old_snapshot = Snapshot::from_git_ref(root, git_ref)?;
+            let merge_base = git_merge_base(root, git_ref)?;
+            let old_snapshot = Snapshot::from_git_ref(root, &merge_base)?;
             let old_report = scan_snapshot(&old_snapshot);
             let old_records = old_report
                 .declarations
@@ -158,7 +159,7 @@ pub fn check_requirements(
                 .cloned()
                 .chain(old_report.verifications.iter().cloned())
                 .collect::<Vec<_>>();
-            let range = format!("{git_ref}...HEAD");
+            let range = format!("{merge_base}...HEAD");
             report.diagnostics.extend(classify_git_diff(
                 root,
                 &["diff", "--unified=0", &range, "--", "*.rs"],
@@ -1389,6 +1390,30 @@ fn git_ref_files(root: &Path, git_ref: &str) -> Result<Vec<PathBuf>, String> {
     Ok(paths)
 }
 
+/// @behavior req.check.merge_base The base checker resolves the Git merge base before reading old snapshot files.
+fn git_merge_base(root: &Path, git_ref: &str) -> Result<String, String> {
+    let output = match isolated_git_command()
+        .current_dir(root)
+        .args(["merge-base", git_ref, "HEAD"])
+        .output()
+    {
+        Ok(output) => output,
+        Err(error) => {
+            return Err(format!(
+                "failed to run git merge-base for {git_ref}: {error}"
+            ));
+        }
+    };
+    // @constraint req.check.merge_base.status The merge-base resolver reports unsuccessful Git merge-base status for the requested base ref.
+    if !output.status.success() {
+        return Err(format!(
+            "git merge-base {git_ref} HEAD failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+}
+
 fn git_path_list(root: &Path, args: &[&str]) -> Result<Vec<PathBuf>, String> {
     let output = isolated_git_command()
         .current_dir(root)
@@ -1487,6 +1512,7 @@ mod tests {
             "src/lib.rs",
             "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n",
         );
+        // @verifies req.check.merge_base.status The fixture verifies merge-base handling on an advanced base branch.
         repo.write(
             "tests/scan_contract.rs",
             "// @verifies req.scan The test verifies that scan comments are indexed.\n#[test]\nfn scan_comments_are_indexed() {\n    assert!(true);\n}\n",
@@ -2385,6 +2411,72 @@ mod tests {
         .expect_err("base check should fail unanchored contract addition");
 
         assert!(error.contains("missing-contract-anchor"));
+    }
+
+    #[test]
+    // @verifies req.check.merge_base The test verifies that base mode reads old records from the merge-base tree.
+    fn base_check_uses_merge_base_snapshot_for_deleted_contracts() {
+        let repo = TestRepo::new();
+        repo.write(
+            "AGENTS.md",
+            "# AGENTS.md\n\n<!-- BEGIN AGENTS_MD_REQUIREMENT_INDEX -->\n<!-- END AGENTS_MD_REQUIREMENT_INDEX -->\n",
+        );
+        repo.write(
+            "src/lib.rs",
+            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n\n// @behavior req.visible The visible function is part of the public API.\npub fn visible() {}\n",
+        );
+        // @verifies req.check.merge_base The fixture verifies merge-base records with existing tests.
+        repo.write(
+            "tests/scan_contract.rs",
+            "// @verifies req.scan The test verifies that scan comments are indexed.\n#[test]\nfn scan_comments_are_indexed() {\n    assert!(true);\n}\n\n// @verifies req.visible The test verifies that visible public API is covered.\n#[test]\nfn visible_is_covered() {\n    assert!(true);\n}\n",
+        );
+        repo.git_add(&["AGENTS.md", "src/lib.rs", "tests/scan_contract.rs"]);
+        format_agents_requirement_index(repo.path()).expect("format should succeed");
+        repo.git_add(&["AGENTS.md"]);
+        repo.git_commit("initial requirement comments");
+        run_git(repo.path(), &["branch", "base"]);
+        run_git(repo.path(), &["checkout", "-b", "topic"]);
+
+        run_git(repo.path(), &["checkout", "base"]);
+        repo.write(
+            "src/lib.rs",
+            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n",
+        );
+        // @verifies req.check.merge_base.status The fixture verifies merge-base handling on an advanced base branch.
+        repo.write(
+            "tests/scan_contract.rs",
+            "// @verifies req.scan The test verifies that scan comments are indexed.\n#[test]\nfn scan_comments_are_indexed() {\n    assert!(true);\n}\n",
+        );
+        repo.git_add(&["src/lib.rs", "tests/scan_contract.rs"]);
+        format_agents_requirement_index(repo.path()).expect("format should succeed");
+        repo.git_add(&["AGENTS.md"]);
+        repo.git_commit("advance base branch");
+
+        run_git(repo.path(), &["checkout", "topic"]);
+        repo.write(
+            "src/lib.rs",
+            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n",
+        );
+        // @verifies req.check.merge_base.status The fixture verifies merge-base handling on the topic branch.
+        repo.write(
+            "tests/scan_contract.rs",
+            "// @verifies req.scan The test verifies that scan comments are indexed.\n#[test]\nfn scan_comments_are_indexed() {\n    assert!(true);\n}\n",
+        );
+        repo.git_add(&["src/lib.rs", "tests/scan_contract.rs"]);
+        format_agents_requirement_index(repo.path()).expect("format should succeed");
+        repo.git_add(&["AGENTS.md"]);
+        repo.git_commit("delete visible contract");
+
+        // @verifies req.check.merge_base The assertion verifies that advanced base tips do not replace merge-base records.
+        let status = check_requirements(
+            repo.path(),
+            RequirementCheckMode::Base {
+                git_ref: "base".to_string(),
+            },
+        )
+        .expect("base check should use merge-base records");
+
+        assert_eq!(status, RequirementCheckStatus::Fresh);
     }
 
     #[test]
