@@ -28,20 +28,30 @@ pub enum RequirementCheckStatus {
 /// @behavior req.api.report The scan report returns discovered declarations, verification links, and diagnostics together.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RequirementScanReport {
+    /// @behavior req.api.report.declarations The declarations field carries behavior, constraint, and intent records discovered from source comments.
     pub declarations: Vec<RequirementRecord>,
+    /// @behavior req.api.report.verifications The verifications field carries test expectation records discovered from source comments.
     pub verifications: Vec<RequirementRecord>,
+    /// @behavior req.api.report.diagnostics The diagnostics field carries every validation problem discovered during scanning.
     pub diagnostics: Vec<Diagnostic>,
 }
 
 /// @behavior req.api.record The requirement record stores the source location, tag, ID, sentence, and binding target.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RequirementRecord {
+    /// @behavior req.api.record.path The path field stores the repository-relative Rust source path for the requirement comment.
     pub path: String,
+    /// @behavior req.api.record.line The line field stores the one-based source line where the requirement comment begins.
     pub line: usize,
+    /// @behavior req.api.record.tag The tag field stores the parsed semantic kind of the requirement comment.
     pub tag: RequirementTag,
+    /// @behavior req.api.record.id The id field stores the dotted requirement tree position for the record.
     pub id: String,
+    /// @behavior req.api.record.sentence The sentence field stores the one-sentence requirement body without the tag and ID.
     pub sentence: String,
+    /// @behavior req.api.record.binding The binding field stores the Rust item or statement attached to the requirement comment.
     pub binding: String,
+    /// @behavior req.api.record.test_context The test-context field records whether the requirement comment is inside an inline test scope.
     pub in_test_context: bool,
 }
 
@@ -55,6 +65,7 @@ pub enum RequirementTag {
 }
 
 impl RequirementTag {
+    /// @behavior req.api.tag.string The tag renderer returns the exact source token for each accepted requirement tag.
     pub fn as_str(self) -> &'static str {
         match self {
             RequirementTag::Behavior => "@behavior",
@@ -75,9 +86,13 @@ impl RequirementTag {
 /// @behavior req.api.diagnostic The diagnostic struct renders compiler-style file, line, rule, and message fields.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Diagnostic {
+    /// @behavior req.api.diagnostic.path The diagnostic path field stores the repository-relative source path for a validation problem.
     pub path: String,
+    /// @behavior req.api.diagnostic.line The diagnostic line field stores the one-based source line for a validation problem.
     pub line: usize,
+    /// @behavior req.api.diagnostic.rule The diagnostic rule field stores the stable rule identifier for a validation problem.
     pub rule: &'static str,
+    /// @behavior req.api.diagnostic.message The diagnostic message field stores the human-readable validation problem.
     pub message: String,
 }
 
@@ -96,11 +111,13 @@ pub fn format_agents_requirement_index(root: &Path) -> Result<(), String> {
     }
 
     let agents_path = root.join("AGENTS.md");
+    // @behavior req.format.read The fmt-agents command reports filesystem read failures for AGENTS.md.
     let existing = fs::read_to_string(&agents_path)
         .map_err(|error| format!("failed to read {}: {error}", agents_path.display()))?;
     let line_ending = detect_line_ending(&existing);
     let block = render_requirement_index_block(&report.declarations, line_ending);
     let updated = upsert_requirement_index_block(&existing, &block, line_ending)?;
+    // @behavior req.format.write The fmt-agents command reports filesystem write failures for AGENTS.md.
     fs::write(&agents_path, updated)
         .map_err(|error| format!("failed to write {}: {error}", agents_path.display()))
 }
@@ -172,6 +189,7 @@ pub fn check_requirements(
         }
     }
 
+    // @behavior req.check.diagnostics The check command renders accumulated diagnostics as a failing result.
     if !report.diagnostics.is_empty() {
         return Err(render_diagnostics(&report.diagnostics));
     }
@@ -230,6 +248,7 @@ fn scan_snapshot(snapshot: &Snapshot) -> RequirementScanReport {
                             .to_string(),
                     }),
                 },
+                // @behavior req.scan.parse_error The scanner stores parser failures as invalid requirement comment diagnostics.
                 Err(message) => diagnostics.push(Diagnostic {
                     path: file.path.clone(),
                     line: raw.line,
@@ -279,6 +298,7 @@ fn validate_rust_parses(file: &SnapshotFile) -> Vec<Diagnostic> {
     }
 }
 
+/// @behavior req.api.parse The requirement parser converts one normalized comment body into its tag, ID, and sentence.
 fn parse_requirement_comment(content: &str) -> Result<ParsedRequirement, String> {
     let mut parts = content.splitn(3, char::is_whitespace);
     let tag = match parts.next().unwrap_or_default() {
@@ -286,20 +306,25 @@ fn parse_requirement_comment(content: &str) -> Result<ParsedRequirement, String>
         "@constraint" => RequirementTag::Constraint,
         "@intent" => RequirementTag::Intent,
         "@verifies" => RequirementTag::Verifies,
+        // @constraint req.api.parse.tag The parser rejects comments whose first token is outside the allowed requirement tag set.
         _ => return Err("requirement comment must start with an allowed tag".to_string()),
     };
     let Some(id) = parts.next().filter(|id| !id.is_empty()) else {
+        // @constraint req.api.parse.id_presence The parser rejects comments that omit the dotted requirement ID.
         return Err("requirement comment must include a dotted ID".to_string());
     };
     if !valid_requirement_id(id) {
+        // @constraint req.api.parse.id_grammar The parser rejects IDs that violate the dotted lowercase grammar.
         return Err(format!(
             "requirement ID `{id}` violates the dotted ID grammar"
         ));
     }
     let Some(sentence) = parts.next().map(str::trim).filter(|text| !text.is_empty()) else {
+        // @constraint req.api.parse.sentence_presence The parser rejects comments that omit the one-sentence requirement body.
         return Err("requirement comment must include one sentence".to_string());
     };
     if !has_one_sentence(sentence) {
+        // @constraint req.api.parse.sentence_count The parser rejects comments whose requirement body contains more or less than one sentence.
         return Err("requirement comments must contain exactly one sentence".to_string());
     }
     Ok(ParsedRequirement {
@@ -427,11 +452,13 @@ fn validate_registry(
             });
         }
         match declared.get(verification.id.as_str()) {
+            // @constraint req.check.registry.target_declaration Verification targets must resolve to behavior or constraint declarations.
             Some(record)
                 if matches!(
                     record.tag,
                     RequirementTag::Behavior | RequirementTag::Constraint
                 ) => {}
+            // @constraint req.check.registry.target_kind Verification comments can target only behavior or constraint declarations.
             Some(_) => diagnostics.push(Diagnostic {
                 path: verification.path.clone(),
                 line: verification.line,
@@ -524,9 +551,11 @@ fn upsert_requirement_index_block(
     let begin_matches = existing.matches(BEGIN_MARKER).count();
     let end_matches = existing.matches(END_MARKER).count();
     if begin_matches > 1 || end_matches > 1 {
+        // @constraint req.format.index_block.marker_count The index updater rejects duplicate generated-block markers in AGENTS.md.
         return Err("AGENTS.md contains duplicate requirement index markers".to_string());
     }
     if begin_matches != end_matches {
+        // @constraint req.format.index_block.marker_balance The index updater rejects unbalanced generated-block markers in AGENTS.md.
         return Err("AGENTS.md requirement index markers are unbalanced".to_string());
     }
     if begin_matches == 0 {
@@ -542,9 +571,11 @@ fn upsert_requirement_index_block(
 
     let start = existing
         .find(BEGIN_MARKER)
+        // @constraint req.format.index_block.marker_lookup_begin The index updater treats begin-marker lookup failure as unreachable after marker counts pass.
         .expect("marker count already checked");
     let end = existing
         .find(END_MARKER)
+        // @constraint req.format.index_block.marker_lookup_end The index updater treats end-marker lookup failure as unreachable after marker counts pass.
         .expect("marker count already checked")
         + END_MARKER.len();
     let mut updated = String::new();
@@ -554,6 +585,7 @@ fn upsert_requirement_index_block(
     Ok(updated)
 }
 
+/// @behavior req.detector.diff The diff classifier walks Git unified diff lines and validates changed Rust hunks against nearby anchors.
 fn classify_git_diff(
     root: &Path,
     args: &[&str],
@@ -635,6 +667,7 @@ fn classify_git_diff(
     Ok(diagnostics)
 }
 
+/// @behavior req.detector.line The line classifier checks one changed Rust line against detector rules and nearby requirement anchors.
 fn classify_diff_line(
     diagnostics: &mut Vec<Diagnostic>,
     path: &str,
@@ -728,6 +761,7 @@ fn classify_added_line(line: &str) -> Option<(&'static str, Vec<RequirementTag>)
             vec![RequirementTag::Behavior, RequirementTag::Constraint],
         ));
     }
+    // @intent req.detector.structure.trait_object The structure detector treats trait declarations and trait object mentions as abstraction-boundary changes.
     if line.starts_with("pub trait ")
         || line.starts_with("trait ")
         || is_visible_trait_line(line)
@@ -737,6 +771,7 @@ fn classify_added_line(line: &str) -> Option<(&'static str, Vec<RequirementTag>)
     {
         return Some(("missing-structure-intent", vec![RequirementTag::Intent]));
     }
+    // @behavior req.detector.failure The detector classifies timeout, panic, unwrap, expect, and Err patterns as failure-policy changes.
     if line.contains("tokio::time::timeout")
         || line.contains("map_err")
         || line.contains("panic!")
@@ -749,6 +784,7 @@ fn classify_added_line(line: &str) -> Option<(&'static str, Vec<RequirementTag>)
             vec![RequirementTag::Behavior, RequirementTag::Constraint],
         ));
     }
+    // @behavior req.detector.side_effect The detector classifies filesystem, channel send, and tracing patterns as side-effect changes.
     if line.contains("std::fs::")
         || line.contains("tokio::fs::")
         || line.contains("File::create")
@@ -764,6 +800,7 @@ fn classify_added_line(line: &str) -> Option<(&'static str, Vec<RequirementTag>)
     None
 }
 
+/// @behavior req.detector.anchor The anchor matcher accepts a requirement record when its binding is close enough to the changed code unit.
 fn anchor_matches_changed_line(
     record: &RequirementRecord,
     line: usize,
@@ -1404,6 +1441,7 @@ struct Snapshot {
 }
 
 impl Snapshot {
+    /// @behavior req.check.snapshot The snapshot reader loads tracked Rust inputs from the worktree, index, or Git ref for validation.
     fn from_worktree(root: &Path) -> Result<Self, String> {
         let paths = git_ls_files(root)?;
         let mut files = Vec::new();
@@ -1414,7 +1452,9 @@ impl Snapshot {
                     path: path_to_string(&path),
                     content,
                 }),
+                // @behavior req.check.snapshot.worktree_invalid The worktree snapshot reader skips tracked files whose bytes are not valid UTF-8 text.
                 Err(error) if error.kind() == io::ErrorKind::InvalidData => continue,
+                // @behavior req.check.snapshot.worktree_read The worktree snapshot reader reports filesystem read failures for tracked paths.
                 Err(error) => {
                     return Err(format!("failed to read {}: {error}", full_path.display()));
                 }
@@ -1433,6 +1473,7 @@ impl Snapshot {
                 .arg("show")
                 .arg(format!(":{path_string}"))
                 .output()
+                // @behavior req.check.snapshot.staged_read The staged snapshot reader reports Git object read failures for staged paths.
                 .map_err(|error| format!("failed to read staged {path_string}: {error}"))?;
             if !output.status.success() {
                 continue;
@@ -1552,7 +1593,9 @@ fn git_path_list(root: &Path, args: &[&str]) -> Result<Vec<PathBuf>, String> {
         .current_dir(root)
         .args(args)
         .output()
+        // @behavior req.check.git_path_list The Git path lister reports command execution failures for tracked path discovery.
         .map_err(|error| format!("failed to run git {}: {error}", args.join(" ")))?;
+    // @behavior req.check.git_path_list_status The Git path lister reports unsuccessful Git status for tracked path discovery.
     if !output.status.success() {
         return Err(format!(
             "git {} failed: {}",
@@ -1669,6 +1712,7 @@ mod tests {
         format_agents_requirement_index(repo.path()).expect("format should succeed");
 
         let agents = repo.read("AGENTS.md");
+        // @verifies req.format.index_block The assertions verify that the generated index contains the root and leaf rows.
         assert!(agents.contains("|req|req.{scan}"));
         assert!(agents.contains("|req.scan|req.scan.{}"));
     }
@@ -1751,6 +1795,7 @@ mod tests {
         let status =
             check_requirements(repo.path(), RequirementCheckMode::All).expect("check should run");
 
+        // @verifies req.api.status The assertion verifies that stale AGENTS state is reported through the check status enum.
         assert_eq!(status, RequirementCheckStatus::StaleAgentsIndex);
     }
 
@@ -3035,6 +3080,7 @@ mod tests {
                 command.arg(path);
             }
             let output = command.output().expect("git add should run");
+            // @verifies req.check The assertion verifies that fixture staging fails loudly when Git rejects it.
             assert!(
                 output.status.success(),
                 "git add failed: {}",
@@ -3063,6 +3109,7 @@ mod tests {
             .args(args)
             .output()
             .expect("git command should run");
+        // @verifies req.check The assertion verifies that helper Git commands fail loudly when Git rejects them.
         assert!(
             output.status.success(),
             "git {:?} failed: {}",
