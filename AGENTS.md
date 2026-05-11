@@ -113,6 +113,16 @@ This file is for coding agents working in this repository.
 |req.format|req.format.{index_block}
 |req.format.index_block|req.format.index_block.{}
 |req.scan|req.scan.{}
+|selvedge|selvedge.{auth,config,events,lifecycle,local,model,operations,state,task}
+|selvedge.auth|selvedge.auth.{}
+|selvedge.config|selvedge.config.{}
+|selvedge.events|selvedge.events.{}
+|selvedge.lifecycle|selvedge.lifecycle.{}
+|selvedge.local|selvedge.local.{}
+|selvedge.model|selvedge.model.{}
+|selvedge.operations|selvedge.operations.{}
+|selvedge.state|selvedge.state.{}
+|selvedge.task|selvedge.task.{}
 <!-- END AGENTS_MD_REQUIREMENT_INDEX -->
 
 ## Project Index Workflow

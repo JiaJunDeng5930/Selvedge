@@ -1,3 +1,6 @@
+//! @behavior selvedge The Selvedge system starts a local server, accepts local clients, coordinates task runtimes, and dispatches model work through routed effects.
+//! @behavior selvedge.lifecycle The lifecycle domain resolves CLI intent into server startup, readiness polling, local command submission, and typed exit status.
+
 use std::collections::HashMap;
 use std::future::Future;
 use std::sync::Arc;

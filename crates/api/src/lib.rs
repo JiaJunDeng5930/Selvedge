@@ -1,4 +1,5 @@
 #![doc = include_str!("../README.md")]
+//! @behavior selvedge.model The model-call domain validates dispatch requests, invokes provider adapters, normalizes provider output, classifies failures, and returns completion envelopes to the router.
 
 use std::collections::BTreeMap;
 use std::io::Write;

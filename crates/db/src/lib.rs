@@ -1,4 +1,5 @@
 #![doc = include_str!("../README.md")]
+//! @behavior selvedge.state The durable-state domain stores router-mediated task history, task lifecycle, tool registry, queued input, runtime state, and model context in SQLite.
 
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex, MutexGuard};
