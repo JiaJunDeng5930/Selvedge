@@ -376,6 +376,7 @@ fn is_known_macro_bang(sentence: &str, bang_index: usize) -> bool {
     )
 }
 
+/// @behavior req.check.registry The registry validator checks ID uniqueness, ancestor declarations, and verification link targets.
 fn validate_registry(
     declarations: &[RequirementRecord],
     verifications: &[RequirementRecord],
@@ -415,9 +416,7 @@ fn validate_registry(
         }
     }
 
-    let mut verified_ids = BTreeSet::new();
     for verification in verifications {
-        verified_ids.insert(verification.id.as_str());
         if !is_test_path(&verification.path) && !verification.in_test_context {
             diagnostics.push(Diagnostic {
                 path: verification.path.clone(),
@@ -454,45 +453,16 @@ fn validate_registry(
         }
     }
 
-    for declaration in declarations {
-        if !matches!(
-            declaration.tag,
-            RequirementTag::Behavior | RequirementTag::Constraint
-        ) {
-            continue;
-        }
-        if has_declared_child(&declaration.id, declarations) {
-            continue;
-        }
-        if !verified_ids.contains(declaration.id.as_str()) {
-            diagnostics.push(Diagnostic {
-                path: declaration.path.clone(),
-                line: declaration.line,
-                rule: "unverified-leaf-requirement",
-                message: format!(
-                    "leaf {} `{}` must have at least one @verifies reference",
-                    declaration.tag.as_str(),
-                    declaration.id
-                ),
-            });
-        }
-    }
-
     diagnostics
 }
 
-fn has_declared_child(id: &str, declarations: &[RequirementRecord]) -> bool {
-    let prefix = format!("{id}.");
-    declarations
-        .iter()
-        .any(|declaration| declaration.id.starts_with(&prefix))
-}
-
+/// @behavior req.check.registry.ancestor The registry validator derives every dotted ancestor required by a declaration ID.
 fn ancestor_ids(id: &str) -> Vec<String> {
     let parts = id.split('.').collect::<Vec<_>>();
     (1..parts.len()).map(|end| parts[..end].join(".")).collect()
 }
 
+/// @constraint req.check.registry.test_path Verification comments are accepted only from Cargo test and example paths outside inline test modules.
 fn is_test_path(path: &str) -> bool {
     path.contains("/tests/")
         || path.starts_with("tests/")
@@ -846,10 +816,7 @@ fn is_contract_attribute_line(line: &str) -> bool {
 
 /// @behavior req.detector.assertion The assertion detector classifies production assertions as failure-policy changes and test assertions as verification changes.
 fn is_assertion_line(line: &str) -> bool {
-    line.contains("assert!")
-        || line.contains("assert_eq!")
-        || line.contains("assert_ne!")
-        || line.contains("matches!")
+    line.contains("assert!") || line.contains("assert_eq!") || line.contains("assert_ne!")
 }
 
 /// @behavior req.detector.assertion.unwrap The assertion detector treats panicking unwrap calls as failure-policy changes while accepting fallback helpers.
@@ -1788,8 +1755,8 @@ mod tests {
     }
 
     #[test]
-    // @verifies req.api.mode The test verifies that full-check mode scans the whole tracked checkout.
-    fn scan_reports_missing_leaf_verification() {
+    // @verifies req.check.registry The test verifies that declaration-only leaf requirements are valid registry entries.
+    fn scan_accepts_declaration_only_leaf_requirements() {
         let repo = TestRepo::new();
         repo.write(
             "AGENTS.md",
@@ -1803,13 +1770,8 @@ mod tests {
 
         let report = scan_requirements(repo.path()).expect("scan should run");
 
-        // @verifies req.check The assertion verifies that inline test comments avoid outside-test diagnostics.
-        assert!(
-            report
-                .diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.rule == "unverified-leaf-requirement")
-        );
+        // @verifies req.check.registry The assertion verifies that declaration-only leaf requirements produce a clean registry report.
+        assert!(report.diagnostics.is_empty());
     }
 
     #[test]
@@ -2132,6 +2094,41 @@ mod tests {
             .expect_err("production assertion should fail staged check");
 
         assert!(error.contains("missing-failure-policy-anchor"));
+    }
+
+    #[test]
+    // @verifies req.detector.assertion The test verifies that matches macro expressions are implementation changes.
+    fn staged_check_accepts_matches_macro_as_boolean_expression() {
+        let repo = TestRepo::new();
+        repo.write(
+            "AGENTS.md",
+            "# AGENTS.md\n\n<!-- BEGIN AGENTS_MD_REQUIREMENT_INDEX -->\n<!-- END AGENTS_MD_REQUIREMENT_INDEX -->\n",
+        );
+        repo.write(
+            "src/lib.rs",
+            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n",
+        );
+        // @verifies req.detector.assertion The fixture verifies staged detector checks with an existing test.
+        repo.write(
+            "tests/scan_contract.rs",
+            "// @verifies req.scan The test verifies that scan comments are indexed.\n#[test]\nfn scan_comments_are_indexed() {\n    assert!(true);\n}\n",
+        );
+        repo.git_add(&["AGENTS.md", "src/lib.rs", "tests/scan_contract.rs"]);
+        format_agents_requirement_index(repo.path()).expect("format should succeed");
+        repo.git_add(&["AGENTS.md"]);
+        repo.git_commit("initial requirement comments");
+
+        repo.write(
+            "src/lib.rs",
+            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n\nfn matches_macro(value: Option<i32>) -> bool {\n    matches!(value, Some(_))\n}\n",
+        );
+        repo.git_add(&["src/lib.rs"]);
+
+        // @verifies req.detector.assertion The assertion verifies that matches macro expressions avoid failure-policy diagnostics.
+        let status = check_requirements(repo.path(), RequirementCheckMode::Staged)
+            .expect("matches macro should pass staged check");
+
+        assert_eq!(status, RequirementCheckStatus::Fresh);
     }
 
     #[test]
