@@ -1,5 +1,5 @@
 #![doc = include_str!("../README.md")]
-//! @behavior selvedge.task The task coordination domain carries router commands, runtime output, model-call effects, factory effects, tool effects, client events, and task snapshots across package boundaries.
+//! @behavior selvedge.task An active task advances user input through a single ordered path that may request models, request tools, publish events, and stop with a recorded reason.
 
 use std::collections::BTreeSet;
 use std::fmt;

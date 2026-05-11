@@ -59,7 +59,9 @@ This file is for coding agents working in this repository.
 - Requirement comments use `@behavior`, `@constraint`, `@intent`, and `@verifies`.
 - Every requirement comment body is one sentence.
 - Dotted IDs form an arbitrary-depth requirement tree.
-- Requirement tree shape follows requirement domains, behavior decomposition, constraints, and intent relationships.
+- Each requirement node states the trunk commitment that fits at that depth of thought.
+- Each child node states the next direct commitment, branch, boundary, invariant, side effect, or failure path needed to make the parent true.
+- Sibling nodes should read like the immediate answers that appear when the parent requirement is examined one layer deeper.
 - Package names, directories, and architecture layers are retrieval context for locating the source comment.
 - Details belong in narrower descendant IDs near the code units that implement them.
 - The generated requirement index helps agents find IDs; the full sentence lives in the source comment.
@@ -113,14 +115,14 @@ This file is for coding agents working in this repository.
 |req.format|req.format.{index_block}
 |req.format.index_block|req.format.index_block.{}
 |req.scan|req.scan.{}
-|selvedge|selvedge.{auth,config,events,lifecycle,local,model,operations,state,task}
+|selvedge|selvedge.{auth,client,config,model,operations,session,startup,state,task}
 |selvedge.auth|selvedge.auth.{}
+|selvedge.client|selvedge.client.{}
 |selvedge.config|selvedge.config.{}
-|selvedge.events|selvedge.events.{}
-|selvedge.lifecycle|selvedge.lifecycle.{}
-|selvedge.local|selvedge.local.{}
 |selvedge.model|selvedge.model.{}
 |selvedge.operations|selvedge.operations.{}
+|selvedge.session|selvedge.session.{}
+|selvedge.startup|selvedge.startup.{}
 |selvedge.state|selvedge.state.{}
 |selvedge.task|selvedge.task.{}
 <!-- END AGENTS_MD_REQUIREMENT_INDEX -->

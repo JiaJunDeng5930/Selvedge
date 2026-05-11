@@ -1,5 +1,5 @@
 #![doc = include_str!("../README.md")]
-//! @behavior selvedge.events The client-event domain reserves client sessions, delivers attach snapshots, applies subscriptions, detaches clients, and fans out router-mediated event frames.
+//! @behavior selvedge.session An attached client receives an initial snapshot before subscribed task changes continue as ordered frames.
 
 use std::collections::{BTreeMap, HashMap};
 

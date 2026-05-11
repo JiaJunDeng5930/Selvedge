@@ -1,5 +1,5 @@
 #![doc = include_str!("../README.md")]
-//! @behavior selvedge.local The local control domain exposes versioned ready, command, attach, subscription, frame, snapshot, and validation contracts for localhost clients and the server.
+//! @behavior selvedge.client A localhost client can prove protocol compatibility, submit a command, and attach to the task stream through the local protocol.
 
 use std::collections::BTreeSet;
 
