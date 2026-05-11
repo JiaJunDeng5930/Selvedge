@@ -51,6 +51,7 @@ fn main() {
                 print_requirement_report(&report);
                 if report.diagnostics.is_empty() { 0 } else { 1 }
             }
+            // @behavior req.cli.scan_error The scan command prints scanner errors and exits with failure.
             Err(error) => {
                 eprintln!("{error}");
                 1
@@ -59,6 +60,7 @@ fn main() {
         [command, action] if command == "req" && action == "fmt-agents" => {
             match format_agents_requirement_index(&root) {
                 Ok(()) => 0,
+                // @behavior req.cli.format_error The fmt-agents command prints formatter errors and exits with failure.
                 Err(error) => {
                     eprintln!("{error}");
                     1
@@ -74,6 +76,7 @@ fn main() {
                     );
                     1
                 }
+                // @behavior req.cli.staged_error The staged-check branch prints requirement check errors and exits with failure.
                 Err(error) => {
                     eprintln!("{error}");
                     1
@@ -89,7 +92,7 @@ fn main() {
                     );
                     1
                 }
-                // @behavior req.cli.base_error The base-check branch prints requirement check errors and exits with failure.
+                // @behavior req.cli.all_error The all-check branch prints requirement check errors and exits with failure.
                 Err(error) => {
                     eprintln!("{error}");
                     1
@@ -99,12 +102,9 @@ fn main() {
         [command, action, flag, git_ref]
             if command == "req" && action == "check" && flag == "--base" =>
         {
-            match check_requirements(
-                &root,
-                RequirementCheckMode::Base {
-                    git_ref: git_ref.to_string(),
-                },
-            ) {
+            // @behavior req.cli.base_ref The base-check branch passes the user supplied Git ref into base diff validation.
+            let git_ref = git_ref.to_string();
+            match check_requirements(&root, RequirementCheckMode::Base { git_ref }) {
                 Ok(RequirementCheckStatus::Fresh) => 0,
                 Ok(RequirementCheckStatus::StaleAgentsIndex) => {
                     eprintln!(
@@ -112,6 +112,7 @@ fn main() {
                     );
                     1
                 }
+                // @behavior req.cli.base_error The base-check branch prints requirement check errors and exits with failure.
                 Err(error) => {
                     eprintln!("{error}");
                     1
