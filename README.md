@@ -44,7 +44,7 @@ Use `just agents-index` after adding, removing, or renaming tracked files so the
 
 The underlying repository commands are `cargo xtask agents-index update` and `cargo xtask agents-index check`.
 
-Use `cargo xtask req fmt-agents` after changing requirement comments so the generated requirement index in `AGENTS.md` stays current. Use `cargo xtask req check --all` for full-checkout validation, `cargo xtask req check --staged` for pre-commit staged validation, and `cargo xtask req check --base <git-ref>` for CI hunk validation.
+Use `cargo xtask req fmt-agents` after changing requirement comments so the generated requirement index in `AGENTS.md` stays current. Use `cargo xtask req check --all` to validate every tracked Rust source line in the checkout against nearby requirement anchors, `cargo xtask req check --staged` for staged hunk validation, and `cargo xtask req check --base <git-ref>` for merge-base hunk validation.
 
 ## Parallel development with worktrees
 

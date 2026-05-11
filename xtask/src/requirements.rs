@@ -142,7 +142,11 @@ pub fn check_requirements(
         .collect::<Vec<_>>();
 
     match &mode {
-        RequirementCheckMode::All => {}
+        RequirementCheckMode::All => {
+            // @behavior req.check.all_anchors The all check classifies every Rust source line in the current checkout with the same anchor rules used for changed hunks.
+            let all_anchor_diagnostics = classify_full_snapshot(&snapshot.files, &current_records);
+            report.diagnostics.extend(all_anchor_diagnostics);
+        }
         RequirementCheckMode::Staged => {
             // @behavior req.check.head_snapshot The staged check uses an empty old snapshot when HEAD is unavailable.
             let old_snapshot = match Snapshot::from_git_ref(root, "HEAD") {
@@ -585,6 +589,28 @@ fn upsert_requirement_index_block(
     Ok(updated)
 }
 
+/// @behavior req.detector.full The full classifier validates every Rust source line in a snapshot against nearby requirement anchors.
+fn classify_full_snapshot(
+    files: &[SnapshotFile],
+    records: &[RequirementRecord],
+) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+    for file in files.iter().filter(|file| file.path.ends_with(".rs")) {
+        for (index, line) in file.content.lines().enumerate() {
+            classify_rust_line(
+                &mut diagnostics,
+                &file.path,
+                index + 1,
+                line.trim(),
+                files,
+                records,
+                "Rust line",
+            );
+        }
+    }
+    diagnostics
+}
+
 /// @behavior req.detector.diff The diff classifier walks Git unified diff lines and validates changed Rust hunks against nearby anchors.
 fn classify_git_diff(
     root: &Path,
@@ -633,13 +659,14 @@ fn classify_git_diff(
             let Some(path) = new_path.as_deref() else {
                 continue;
             };
-            classify_diff_line(
+            classify_rust_line(
                 &mut diagnostics,
                 path,
                 new_line,
                 line.trim_start_matches('+').trim(),
                 new_files,
                 new_records,
+                "changed Rust hunk",
             );
             new_line += 1;
             continue;
@@ -648,13 +675,14 @@ fn classify_git_diff(
             let Some(path) = old_path.as_deref() else {
                 continue;
             };
-            classify_diff_line(
+            classify_rust_line(
                 &mut diagnostics,
                 path,
                 old_line,
                 line.trim_start_matches('-').trim(),
                 old_files,
                 &removed_line_records,
+                "changed Rust hunk",
             );
             old_line += 1;
             continue;
@@ -667,14 +695,15 @@ fn classify_git_diff(
     Ok(diagnostics)
 }
 
-/// @behavior req.detector.line The line classifier checks one changed Rust line against detector rules and nearby requirement anchors.
-fn classify_diff_line(
+/// @behavior req.detector.line The line classifier checks one Rust source line against detector rules and nearby requirement anchors.
+fn classify_rust_line(
     diagnostics: &mut Vec<Diagnostic>,
     path: &str,
     line: usize,
     changed: &str,
     files: &[SnapshotFile],
     records: &[RequirementRecord],
+    subject: &'static str,
 ) {
     if changed.is_empty() || changed.starts_with("//") || changed.starts_with("/*") {
         return;
@@ -734,7 +763,7 @@ fn classify_diff_line(
                 line,
                 rule,
                 message: format!(
-                    "changed Rust hunk requires one of {} near the enclosing code unit",
+                    "{subject} requires one of {} near the enclosing code unit",
                     required
                         .iter()
                         .map(|tag| tag.as_str())
@@ -1797,6 +1826,52 @@ mod tests {
 
         // @verifies req.api.status The assertion verifies that stale AGENTS state is reported through the check status enum.
         assert_eq!(status, RequirementCheckStatus::StaleAgentsIndex);
+    }
+
+    #[test]
+    // @verifies req.check.all_anchors The test verifies that all-check mode applies anchor rules to every Rust source line.
+    // @verifies req.detector.full The test verifies that full-check diagnostics come from snapshot line classification.
+    fn all_check_rejects_unanchored_contracts_in_existing_code() {
+        let repo = TestRepo::new();
+        repo.write(
+            "AGENTS.md",
+            "# AGENTS.md\n\n<!-- BEGIN AGENTS_MD_REQUIREMENT_INDEX -->\n<!-- END AGENTS_MD_REQUIREMENT_INDEX -->\n",
+        );
+        repo.write(
+            "src/lib.rs",
+            "//! @behavior req The module owns requirement automation.\npub fn unanchored_contract() {}\n",
+        );
+        repo.git_add(&["AGENTS.md", "src/lib.rs"]);
+
+        let error = check_requirements(repo.path(), RequirementCheckMode::All)
+            .expect_err("full checkout should require a nearby contract anchor");
+
+        // @verifies req.check.all_anchors The assertions verify that all-check mode reports full-line contract diagnostics.
+        assert!(error.contains("missing-contract-anchor"));
+        assert!(error.contains("Rust line requires"));
+    }
+
+    #[test]
+    // @verifies req.check.all_anchors The test verifies that all-check mode accepts anchored Rust source lines.
+    fn all_check_accepts_anchored_contracts_in_existing_code() {
+        let repo = TestRepo::new();
+        repo.write(
+            "AGENTS.md",
+            "# AGENTS.md\n\n<!-- BEGIN AGENTS_MD_REQUIREMENT_INDEX -->\n<!-- END AGENTS_MD_REQUIREMENT_INDEX -->\n",
+        );
+        repo.write(
+            "src/lib.rs",
+            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The scan function exposes a checked contract.\npub fn scan() {}\n",
+        );
+        repo.git_add(&["AGENTS.md", "src/lib.rs"]);
+        format_agents_requirement_index(repo.path()).expect("format should succeed");
+        repo.git_add(&["AGENTS.md"]);
+
+        let status =
+            check_requirements(repo.path(), RequirementCheckMode::All).expect("check should run");
+
+        // @verifies req.check.all_anchors The assertion verifies that anchored full-check code returns fresh status.
+        assert_eq!(status, RequirementCheckStatus::Fresh);
     }
 
     #[test]
