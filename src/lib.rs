@@ -1,5 +1,5 @@
-//! @behavior selvedge The Selvedge system starts a local server, accepts local clients, coordinates task runtimes, and dispatches model work through routed effects.
-//! @behavior selvedge.lifecycle The lifecycle domain resolves CLI intent into server startup, readiness polling, local command submission, and typed exit status.
+//! @behavior selvedge Selvedge lets a local user keep AI-assisted tasks running on this machine and control them through localhost clients.
+//! @behavior selvedge.startup A local user can ask the CLI to start or contact the Selvedge service and receive a typed result for that attempt.
 
 use std::collections::HashMap;
 use std::future::Future;

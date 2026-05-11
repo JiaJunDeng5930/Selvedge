@@ -1,5 +1,5 @@
 #![doc = include_str!("../README.md")]
-//! @behavior selvedge.operations The operations domain validates configured systemd units, queries service status, starts the server unit, and waits for terminal service activation states.
+//! @behavior selvedge.operations The CLI can ask systemd to start the configured Selvedge unit and wait until the unit reaches a terminal startup state.
 
 use std::future::Future;
 use std::path::PathBuf;
