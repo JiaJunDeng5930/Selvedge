@@ -67,8 +67,9 @@ This file is for coding agents working in this repository.
 - The generated requirement index helps agents find IDs; the full sentence lives in the source comment.
 - Search source comments for an ID before changing Rust behavior, constraints, structural abstractions, or tests.
 - After changing requirement tags, run `cargo xtask req fmt-agents` and stage `AGENTS.md`.
-- Before committing, run `cargo xtask req check --staged`.
-- CI runs `cargo xtask req check --all` and `cargo xtask req check --base <git-ref>` on a clean checkout.
+- Before committing, run `cargo xtask req check --staged` to validate staged Rust hunks against nearby requirement anchors.
+- CI runs `cargo xtask req check --all` to validate every tracked Rust source line in the checkout against nearby requirement anchors.
+- CI runs `cargo xtask req check --base <git-ref>` to validate changed Rust hunks against the merge-base snapshot.
 - Generated requirement index rows are updated only through `cargo xtask req fmt-agents`.
 
 ## Requirement Index
@@ -110,7 +111,8 @@ This file is for coding agents working in this repository.
 |req.api.status|req.api.status.{}
 |req.api.tag|req.api.tag.{string}
 |req.api.tag.string|req.api.tag.string.{}
-|req.check|req.check.{diagnostics,git_path_list,git_path_list_status,git_ref_list,git_ref_read,git_ref_status,head_snapshot,merge_base,registry,snapshot}
+|req.check|req.check.{all_anchors,diagnostics,git_path_list,git_path_list_status,git_ref_list,git_ref_read,git_ref_status,head_snapshot,merge_base,registry,snapshot}
+|req.check.all_anchors|req.check.all_anchors.{}
 |req.check.diagnostics|req.check.diagnostics.{}
 |req.check.git_path_list|req.check.git_path_list.{}
 |req.check.git_path_list_status|req.check.git_path_list_status.{}
@@ -136,7 +138,7 @@ This file is for coding agents working in this repository.
 |req.cli.format_error|req.cli.format_error.{}
 |req.cli.scan_error|req.cli.scan_error.{}
 |req.cli.staged_error|req.cli.staged_error.{}
-|req.detector|req.detector.{anchor,assertion,contract,diff,diff_command,failure,field,hunk_parse,line,side_effect,signature,structure}
+|req.detector|req.detector.{anchor,assertion,contract,diff,diff_command,failure,field,full,hunk_parse,line,side_effect,signature,structure}
 |req.detector.anchor|req.detector.anchor.{}
 |req.detector.assertion|req.detector.assertion.{unwrap}
 |req.detector.assertion.unwrap|req.detector.assertion.unwrap.{}
@@ -148,6 +150,7 @@ This file is for coding agents working in this repository.
 |req.detector.failure|req.detector.failure.{}
 |req.detector.field|req.detector.field.{tuple}
 |req.detector.field.tuple|req.detector.field.tuple.{}
+|req.detector.full|req.detector.full.{}
 |req.detector.hunk_parse|req.detector.hunk_parse.{}
 |req.detector.line|req.detector.line.{}
 |req.detector.side_effect|req.detector.side_effect.{}
