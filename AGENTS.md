@@ -59,6 +59,8 @@ This file is for coding agents working in this repository.
 - Requirement comments use `@behavior`, `@constraint`, `@intent`, and `@verifies`.
 - Every requirement comment body is one sentence.
 - Dotted IDs form an arbitrary-depth requirement tree.
+- Requirement tree shape follows requirement domains, behavior decomposition, constraints, and intent relationships.
+- Package names, directories, and architecture layers are retrieval context for locating the source comment.
 - Details belong in narrower descendant IDs near the code units that implement them.
 - The generated requirement index helps agents find IDs; the full sentence lives in the source comment.
 - Search source comments for an ID before changing Rust behavior, constraints, structural abstractions, or tests.
