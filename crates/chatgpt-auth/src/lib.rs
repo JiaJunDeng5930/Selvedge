@@ -1,5 +1,6 @@
 #![doc = include_str!("../README.md")]
 #![allow(clippy::result_large_err)]
+//! @behavior selvedge.auth The provider-auth domain resolves stored ChatGPT credentials and refreshes request-time access tokens for provider execution.
 
 mod auth_file;
 mod config;

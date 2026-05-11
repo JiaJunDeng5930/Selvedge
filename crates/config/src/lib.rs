@@ -1,4 +1,5 @@
 #![doc = include_str!("../README.md")]
+//! @behavior selvedge.config The configuration domain initializes Selvedge home, layers runtime and persisted config, applies environment overrides, and exposes the active application config.
 
 use std::{
     env,
