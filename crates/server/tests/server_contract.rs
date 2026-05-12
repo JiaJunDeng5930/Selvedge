@@ -32,6 +32,7 @@ use tokio::time::timeout;
 static SERVER_TEST_LOCK: LazyLock<AsyncMutex<()>> = LazyLock::new(|| AsyncMutex::new(()));
 static SERVER_TEST_HOME: LazyLock<TempDir> = LazyLock::new(|| TempDir::new().expect("temp home"));
 
+// @verifies selvedge.startup.server
 #[tokio::test]
 async fn spawn_server_initializes_ready_control_and_creates_durable_paths() {
     let _guard = SERVER_TEST_LOCK.lock().await;
@@ -57,20 +58,27 @@ async fn spawn_server_initializes_ready_control_and_creates_durable_paths() {
             protocol_version: ProtocolVersion(3),
         })
         .await;
+    // @verifies selvedge.startup.server.lifecycle
     assert_eq!(
         mismatched_ready.protocol_version,
         current_protocol_version()
     );
+    // @verifies selvedge.startup.server.lifecycle
     assert_eq!(mismatched_ready.state, ReadyState::NotReady);
+    // @verifies selvedge.startup.server.lifecycle
     assert!(home.join("selvedge.sqlite").exists());
+    // @verifies selvedge.startup.server.lifecycle
     assert!(home.join("server.lock").exists());
 
     handle.control.stop().await;
     handle.join_handle.await.expect("join server");
+    // @verifies selvedge.startup.server.lifecycle
     assert_eq!(handle.control.state().await, ServerRuntimeState::Stopped);
+    // @verifies selvedge.startup.server.lifecycle
     assert!(!home.join("server.lock").exists());
 }
 
+// @verifies selvedge.startup.server
 #[tokio::test]
 async fn singleton_lock_rejects_second_server_for_same_home() {
     let _guard = SERVER_TEST_LOCK.lock().await;
@@ -86,6 +94,7 @@ async fn singleton_lock_rejects_second_server_for_same_home() {
         Arc::new(RecordingMapper::new()),
     ));
 
+    // @verifies selvedge.startup.server.lifecycle
     assert!(matches!(
         second,
         Err(ServerStartupError::SingletonAlreadyRunning)
@@ -95,6 +104,7 @@ async fn singleton_lock_rejects_second_server_for_same_home() {
     first.join_handle.await.expect("join first server");
 }
 
+// @verifies selvedge.startup.server
 #[tokio::test]
 async fn singleton_lock_rejects_second_web_enabled_server_before_port_bind() {
     let _guard = SERVER_TEST_LOCK.lock().await;
@@ -112,6 +122,7 @@ async fn singleton_lock_rejects_second_web_enabled_server_before_port_bind() {
     });
     let second = spawn_server(second_args);
 
+    // @verifies selvedge.startup.server.lifecycle
     assert!(matches!(
         second,
         Err(ServerStartupError::SingletonAlreadyRunning)
@@ -121,6 +132,7 @@ async fn singleton_lock_rejects_second_web_enabled_server_before_port_bind() {
     first.join_handle.await.expect("join first server");
 }
 
+// @verifies selvedge.startup.server
 #[tokio::test]
 async fn stale_lock_file_does_not_block_server_restart() {
     let _guard = SERVER_TEST_LOCK.lock().await;
@@ -137,6 +149,7 @@ async fn stale_lock_file_does_not_block_server_restart() {
     handle.join_handle.await.expect("join server");
 }
 
+// @verifies selvedge.startup.server
 #[tokio::test]
 async fn startup_failure_after_lock_removes_recoverable_lock_file() {
     let _guard = SERVER_TEST_LOCK.lock().await;
@@ -153,7 +166,9 @@ async fn startup_failure_after_lock_removes_recoverable_lock_file() {
         Arc::new(RecordingMapper::new()),
     ));
 
+    // @verifies selvedge.startup.server.lifecycle
     assert!(matches!(failed, Err(ServerStartupError::DbOpenFailed(_))));
+    // @verifies selvedge.startup.server.lifecycle
     assert!(!lock_path.exists());
 
     std::fs::remove_dir(&sqlite_path).expect("remove sqlite path directory");
@@ -166,6 +181,7 @@ async fn startup_failure_after_lock_removes_recoverable_lock_file() {
     restarted.join_handle.await.expect("join restarted server");
 }
 
+// @verifies selvedge.startup.server
 #[tokio::test]
 async fn invalid_web_bind_target_is_rejected_before_durable_startup_side_effects() {
     let _guard = SERVER_TEST_LOCK.lock().await;
@@ -182,11 +198,15 @@ async fn invalid_web_bind_target_is_rejected_before_durable_startup_side_effects
 
     let failed = spawn_server(args);
 
+    // @verifies selvedge.startup.server.lifecycle
     assert!(matches!(failed, Err(ServerStartupError::InvalidBindTarget)));
+    // @verifies selvedge.startup.server.lifecycle
     assert!(!sqlite_path.exists());
+    // @verifies selvedge.startup.server.lifecycle
     assert!(!lock_path.exists());
 }
 
+// @verifies selvedge.startup.server
 #[tokio::test]
 async fn occupied_web_bind_target_is_rejected_before_runtime_tasks_start() {
     let _guard = SERVER_TEST_LOCK.lock().await;
@@ -205,14 +225,18 @@ async fn occupied_web_bind_target_is_rejected_before_runtime_tasks_start() {
 
     let failed = spawn_server(args);
 
+    // @verifies selvedge.startup.server.lifecycle
     assert!(matches!(
         failed,
         Err(ServerStartupError::LocalhostBindFailed(_))
     ));
+    // @verifies selvedge.startup.server.lifecycle
     assert!(!sqlite_path.exists());
+    // @verifies selvedge.startup.server.lifecycle
     assert!(!lock_path.exists());
 }
 
+// @verifies selvedge.startup.server
 #[tokio::test]
 async fn command_submit_validates_protocol_and_maps_to_router_mailbox() {
     let _guard = SERVER_TEST_LOCK.lock().await;
@@ -227,6 +251,7 @@ async fn command_submit_validates_protocol_and_maps_to_router_mailbox() {
             ..valid_command("bad-version")
         })
         .await;
+    // @verifies selvedge.startup.server.lifecycle
     assert_eq!(
         invalid.outcome,
         CommandOutcome::Rejected(CommandRejectReason::ProtocolVersionMismatch)
@@ -236,13 +261,16 @@ async fn command_submit_validates_protocol_and_maps_to_router_mailbox() {
         .control
         .submit_command(valid_command("command-1"))
         .await;
+    // @verifies selvedge.startup.server.lifecycle
     assert_eq!(accepted.outcome, CommandOutcome::Accepted);
+    // @verifies selvedge.startup.server.lifecycle
     assert_eq!(mapper.seen_commands(), vec!["send-user-input".to_owned()]);
 
     handle.control.stop().await;
     handle.join_handle.await.expect("join server");
 }
 
+// @verifies selvedge.startup.server
 #[tokio::test]
 async fn stop_waits_for_in_flight_command_acceptance_decision() {
     let _guard = SERVER_TEST_LOCK.lock().await;
@@ -278,13 +306,16 @@ async fn stop_waits_for_in_flight_command_acceptance_decision() {
         .is_err();
 
     release_tx.send(()).expect("release mapper");
+    // @verifies selvedge.startup.server.lifecycle
     assert!(stop_waited);
     let response = submit_thread.join().expect("join submit thread");
+    // @verifies selvedge.startup.server.lifecycle
     assert_eq!(response.outcome, CommandOutcome::Accepted);
     stop_task.await.expect("join stop task");
     handle.join_handle.await.expect("join server");
 }
 
+// @verifies selvedge.startup.server
 #[tokio::test]
 async fn command_mapper_can_reject_unsupported_local_command() {
     let _guard = SERVER_TEST_LOCK.lock().await;
@@ -297,6 +328,7 @@ async fn command_mapper_can_reject_unsupported_local_command() {
         .submit_command(valid_command("command-1"))
         .await;
 
+    // @verifies selvedge.startup.server.lifecycle
     assert_eq!(
         rejected.outcome,
         CommandOutcome::Rejected(CommandRejectReason::UnsupportedCommand)
@@ -306,6 +338,7 @@ async fn command_mapper_can_reject_unsupported_local_command() {
     handle.join_handle.await.expect("join server");
 }
 
+// @verifies selvedge.startup.server
 #[tokio::test]
 async fn attach_client_accepts_and_streams_initial_snapshot() {
     let _guard = SERVER_TEST_LOCK.lock().await;
@@ -321,6 +354,7 @@ async fn attach_client_accepts_and_streams_initial_snapshot() {
         .attach_client(valid_attach("attach-1"))
         .await
         .expect("attach accepted");
+    // @verifies selvedge.startup.server.lifecycle
     assert_eq!(
         accepted.client_command_id,
         LocalClientCommandId::new("attach-1").expect("valid command id")
@@ -330,6 +364,7 @@ async fn attach_client_accepts_and_streams_initial_snapshot() {
         .expect("snapshot timeout")
         .expect("snapshot frame")
         .expect("snapshot frame ok");
+    // @verifies selvedge.startup.server.lifecycle
     assert!(matches!(frame, LocalClientFrame::Snapshot(_)));
 
     let rejected = match handle
@@ -352,6 +387,7 @@ async fn attach_client_accepts_and_streams_initial_snapshot() {
         Err(rejected) => rejected,
     };
 
+    // @verifies selvedge.startup.server.lifecycle
     assert_eq!(rejected.reason, AttachRejectReason::MalformedRequest);
 
     let version_mismatch = match handle
@@ -365,6 +401,7 @@ async fn attach_client_accepts_and_streams_initial_snapshot() {
         Ok(_) => panic!("version-mismatched attach request should be rejected"),
         Err(rejected) => rejected,
     };
+    // @verifies selvedge.startup.server.lifecycle
     assert_eq!(
         version_mismatch.reason,
         AttachRejectReason::ProtocolVersionMismatch
@@ -374,6 +411,7 @@ async fn attach_client_accepts_and_streams_initial_snapshot() {
     handle.join_handle.await.expect("join server");
 }
 
+// @verifies selvedge.startup.server
 #[tokio::test]
 async fn dropped_attach_stream_detaches_events_session() {
     let _guard = SERVER_TEST_LOCK.lock().await;
@@ -398,6 +436,7 @@ async fn dropped_attach_stream_detaches_events_session() {
             .expect("snapshot timeout")
             .expect("snapshot frame")
             .expect("snapshot frame ok");
+        // @verifies selvedge.startup.server.lifecycle
         assert!(matches!(frame, LocalClientFrame::Snapshot(_)));
         drop(frames);
         tokio::task::yield_now().await;
@@ -407,6 +446,7 @@ async fn dropped_attach_stream_detaches_events_session() {
     handle.join_handle.await.expect("join server");
 }
 
+// @verifies selvedge.startup.server
 #[tokio::test]
 async fn stopped_server_rejects_new_command_submissions() {
     let _guard = SERVER_TEST_LOCK.lock().await;
@@ -423,6 +463,7 @@ async fn stopped_server_rejects_new_command_submissions() {
         .control
         .submit_command(valid_command("command-1"))
         .await;
+    // @verifies selvedge.startup.server.lifecycle
     assert_eq!(
         response.outcome,
         CommandOutcome::Rejected(CommandRejectReason::ServerNotReady)
@@ -431,6 +472,7 @@ async fn stopped_server_rejects_new_command_submissions() {
     handle.join_handle.await.expect("join server");
 }
 
+// @verifies selvedge.startup.server
 #[tokio::test]
 async fn initialized_config_rejects_mismatched_explicit_home() {
     let _guard = SERVER_TEST_LOCK.lock().await;
@@ -449,12 +491,14 @@ async fn initialized_config_rejects_mismatched_explicit_home() {
         Arc::new(RecordingMapper::new()),
     ));
 
+    // @verifies selvedge.startup.server.lifecycle
     assert!(matches!(
         result,
         Err(ServerStartupError::ConfigInitFailed(_))
     ));
 }
 
+// @verifies selvedge.startup.server
 #[tokio::test]
 async fn relative_explicit_home_cleans_lock_after_working_directory_changes() {
     let _guard = SERVER_TEST_LOCK.lock().await;
@@ -470,6 +514,7 @@ async fn relative_explicit_home_cleans_lock_after_working_directory_changes() {
         Arc::new(RecordingMapper::new()),
     ))
     .expect("spawn server with relative home");
+    // @verifies selvedge.startup.server.lifecycle
     assert!(home.join("server.lock").exists());
 
     let other_cwd = TempDir::new().expect("other cwd");
@@ -478,6 +523,7 @@ async fn relative_explicit_home_cleans_lock_after_working_directory_changes() {
     handle.join_handle.await.expect("join server");
     std::env::set_current_dir(original_cwd).expect("restore cwd");
 
+    // @verifies selvedge.startup.server.lifecycle
     assert!(!home.join("server.lock").exists());
 }
 

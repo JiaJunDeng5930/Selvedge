@@ -5,6 +5,7 @@ use crate::{
     runtime::{RequestBudget, build_client, send_with_budget},
 };
 
+// @behavior selvedge.client.transport.single_hop Each redirect hop builds a fresh HTTP client and sends exactly one prepared request.
 pub(crate) async fn send_single_hop(
     call_config: &ResolvedCallConfig,
     prepared: PreparedRequest,

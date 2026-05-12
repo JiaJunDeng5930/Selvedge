@@ -47,6 +47,7 @@ format = "text"
     })
     .expect("read before update");
 
+    // @verifies selvedge.config
     assert_eq!(before, (9100, false, LogFilter::Info));
 
     update_runtime("feature.rollout_percentage", 100_u8).expect("set rollout");
@@ -64,15 +65,20 @@ format = "text"
     let persisted = fs::read_to_string(config_path).expect("read persisted file");
     let selected_home = selvedge_home().expect("read selected home");
 
+    // @verifies selvedge.config
     assert_eq!(after, (9100, true, LogFilter::Debug));
+    // @verifies selvedge.config
     assert_eq!(
         selected_home,
         fs::canonicalize(config_home).expect("canonicalize config home")
     );
+    // @verifies selvedge.config
     assert!(persisted.contains("level = \"debug\""));
+    // @verifies selvedge.config
     assert!(!persisted.contains("enabled = true"));
     let loaded = read(|config| (config.server.port, config.server.request_timeout_ms))
         .expect("read config with cli overrides");
 
+    // @verifies selvedge.config
     assert_eq!(loaded, (9100, 10_000));
 }

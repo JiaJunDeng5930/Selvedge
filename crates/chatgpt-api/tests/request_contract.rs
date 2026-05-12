@@ -49,6 +49,7 @@ fn base_request() -> ChatgptResponsesRequest {
 fn request_validation_accepts_a_complete_request() {
     let request = base_request();
 
+    // @verifies selvedge.model.chatgpt.event.verify_surface
     request.validate().expect("valid request");
 }
 
@@ -61,6 +62,7 @@ fn request_validation_rejects_reasoning_summary_for_unsupported_models() {
         .validate()
         .expect_err("reasoning summary should be rejected");
 
+    // @verifies selvedge.model.chatgpt.event.verify_surface
     assert_eq!(error.field, "reasoning.summary");
 }
 
@@ -73,6 +75,7 @@ fn request_validation_rejects_verbosity_for_unsupported_models() {
         .validate()
         .expect_err("verbosity should be rejected");
 
+    // @verifies selvedge.model.chatgpt.event.verify_surface
     assert_eq!(error.field, "text.verbosity");
 }
 
@@ -85,6 +88,7 @@ fn request_validation_rejects_header_unsafe_values() {
         .validate()
         .expect_err("header unsafe values should be rejected");
 
+    // @verifies selvedge.model.chatgpt.event.verify_surface
     assert_eq!(error.field, "context.turn_metadata");
 }
 
@@ -97,5 +101,6 @@ fn request_validation_rejects_conversation_ids_with_colons() {
         .validate()
         .expect_err("conversation ids with colons should be rejected");
 
+    // @verifies selvedge.model.chatgpt.event.verify_surface
     assert_eq!(error.field, "context.conversation_id");
 }

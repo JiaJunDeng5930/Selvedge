@@ -1,4 +1,5 @@
 #![doc = include_str!("../README.md")]
+//! @behavior selvedge.config.model Callers materialize typed application configuration from TOML tables with defaults and validation errors exposed as typed results.
 
 use std::{collections::BTreeMap, fmt::Display};
 
@@ -8,15 +9,22 @@ use thiserror::Error;
 use toml::{Table, Value};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+// @behavior selvedge.config.model.app The materialized application config exposes server, network, logging, feature, and LLM provider settings as typed fields.
 pub struct AppConfig {
+    // @behavior selvedge.config.model.app.server AppConfig exposes materialized server settings to callers.
     pub server: ServerConfig,
+    // @behavior selvedge.config.model.app.network AppConfig exposes materialized network settings to callers.
     pub network: NetworkConfig,
+    // @behavior selvedge.config.model.app.logging AppConfig exposes materialized logging settings to callers.
     pub logging: LoggingConfig,
+    // @behavior selvedge.config.model.app.feature AppConfig exposes materialized feature settings to callers.
     pub feature: FeatureConfig,
+    // @behavior selvedge.config.model.app.llm AppConfig exposes materialized LLM provider settings to callers.
     pub llm: LlmConfig,
 }
 
 impl AppConfig {
+    // @behavior selvedge.config.model.validate Validating an application config returns the first typed validation error from any config section.
     pub fn validate(&self) -> Result<(), ValidationError> {
         self.server.validate()?;
         self.network.validate()?;
@@ -31,6 +39,7 @@ impl AppConfig {
 impl TryFrom<Table> for AppConfig {
     type Error = AppConfigError;
 
+    // @behavior selvedge.config.model.materialize TOML table conversion applies config defaults and rejects deserialization or validation failures through AppConfigError.
     fn try_from(table: Table) -> Result<Self, Self::Error> {
         let input: AppConfigInput = Value::Table(table).try_into()?;
         let config = input.materialize();
@@ -42,9 +51,13 @@ impl TryFrom<Table> for AppConfig {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+// @behavior selvedge.config.model.server The server config exposes the host, port, and request timeout used by callers.
 pub struct ServerConfig {
+    // @behavior selvedge.config.model.server.host Server config exposes the configured bind host string.
     pub host: String,
+    // @behavior selvedge.config.model.server.port Server config exposes the configured nonzero bind port.
     pub port: u16,
+    // @behavior selvedge.config.model.server.timeout Server config exposes the configured nonzero request timeout in milliseconds.
     pub request_timeout_ms: u64,
 }
 
@@ -53,11 +66,14 @@ impl ServerConfig {
     const DEFAULT_PORT: u16 = 8080;
     const DEFAULT_REQUEST_TIMEOUT_MS: u64 = 5_000;
 
+    // @constraint selvedge.config.model.server.valid Server config validation rejects port zero and request timeout zero.
     pub fn validate(&self) -> Result<(), ValidationError> {
+        // @constraint selvedge.config.model.server.valid.port Server config validation returns InvalidPort for port zero.
         if self.port == 0 {
             return Err(ValidationError::InvalidPort);
         }
 
+        // @constraint selvedge.config.model.server.valid.timeout Server config validation returns InvalidRequestTimeout for timeout zero.
         if self.request_timeout_ms == 0 {
             return Err(ValidationError::InvalidRequestTimeout);
         }
@@ -67,28 +83,39 @@ impl ServerConfig {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+// @behavior selvedge.config.model.network The network config exposes optional transport settings without substituting transport fallback values.
 pub struct NetworkConfig {
+    // @behavior selvedge.config.model.network.connect_timeout Network config exposes the optional connection timeout in milliseconds.
     pub connect_timeout_ms: Option<u64>,
+    // @behavior selvedge.config.model.network.request_timeout Network config exposes the optional request timeout in milliseconds.
     pub request_timeout_ms: Option<u64>,
+    // @behavior selvedge.config.model.network.stream_idle_timeout Network config exposes the optional stream idle timeout in milliseconds.
     pub stream_idle_timeout_ms: Option<u64>,
+    // @behavior selvedge.config.model.network.ca_bundle Network config exposes the optional CA bundle path.
     pub ca_bundle_path: Option<std::path::PathBuf>,
+    // @behavior selvedge.config.model.network.user_agent Network config exposes the optional HTTP user agent string.
     pub user_agent: Option<String>,
 }
 
 impl NetworkConfig {
+    // @constraint selvedge.config.model.network.valid Network config validation rejects zero timeout values and user agents that cannot be represented as HTTP header values.
     pub fn validate(&self) -> Result<(), ValidationError> {
+        // @constraint selvedge.config.model.network.valid.connect_timeout Network config validation returns InvalidConnectTimeout for connection timeout zero.
         if self.connect_timeout_ms == Some(0) {
             return Err(ValidationError::InvalidConnectTimeout);
         }
 
+        // @constraint selvedge.config.model.network.valid.request_timeout Network config validation returns InvalidNetworkRequestTimeout for request timeout zero.
         if self.request_timeout_ms == Some(0) {
             return Err(ValidationError::InvalidNetworkRequestTimeout);
         }
 
+        // @constraint selvedge.config.model.network.valid.stream_idle_timeout Network config validation returns InvalidStreamIdleTimeout for stream idle timeout zero.
         if self.stream_idle_timeout_ms == Some(0) {
             return Err(ValidationError::InvalidStreamIdleTimeout);
         }
 
+        // @constraint selvedge.config.model.network.valid.user_agent Network config validation returns InvalidUserAgent for header-invalid user agent values.
         if let Some(user_agent) = &self.user_agent {
             HeaderValue::from_str(user_agent)
                 .map_err(|_| ValidationError::InvalidUserAgent(user_agent.clone()))?;
@@ -99,14 +126,18 @@ impl NetworkConfig {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+// @behavior selvedge.config.model.logging The logging config exposes a global log filter and module-level log filter overrides.
 pub struct LoggingConfig {
+    // @behavior selvedge.config.model.logging.level Logging config exposes the global log filter.
     pub level: LogFilter,
+    // @behavior selvedge.config.model.logging.module_levels Logging config exposes module path log filter overrides.
     pub module_levels: BTreeMap<String, LogFilter>,
 }
 
 impl LoggingConfig {
     const DEFAULT_LEVEL: LogFilter = LogFilter::Info;
 
+    // @behavior selvedge.config.model.logging.valid Logging config validation accepts the strongly typed logging fields.
     pub fn validate(&self) -> Result<(), ValidationError> {
         Ok(())
     }
@@ -114,6 +145,7 @@ impl LoggingConfig {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+// @behavior selvedge.config.model.logging.filter Log filters deserialize from lowercase config values and render back to lowercase strings.
 pub enum LogFilter {
     Trace,
     Debug,
@@ -123,6 +155,7 @@ pub enum LogFilter {
 }
 
 impl Display for LogFilter {
+    // @behavior selvedge.config.model.logging.filter.display Formatting a log filter returns the lowercase config spelling.
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let rendered = match self {
             Self::Trace => "trace",
@@ -132,13 +165,17 @@ impl Display for LogFilter {
             Self::Error => "error",
         };
 
+        // @behavior selvedge.config.model.logging.filter.display.write Formatting writes the lowercase log filter spelling to the formatter.
         formatter.write_str(rendered)
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+// @behavior selvedge.config.model.feature The feature config exposes feature enablement and rollout percentage to callers.
 pub struct FeatureConfig {
+    // @behavior selvedge.config.model.feature.enabled Feature config exposes whether the feature is enabled.
     pub enabled: bool,
+    // @behavior selvedge.config.model.feature.rollout Feature config exposes the rollout percentage.
     pub rollout_percentage: u8,
 }
 
@@ -146,13 +183,16 @@ impl FeatureConfig {
     const DEFAULT_ENABLED: bool = false;
     const DEFAULT_ROLLOUT_PERCENTAGE: u8 = 0;
 
+    // @constraint selvedge.config.model.feature.valid Feature validation rejects rollout percentages above 100 and enabled features with zero rollout.
     pub fn validate(&self) -> Result<(), ValidationError> {
+        // @constraint selvedge.config.model.feature.valid.range Feature validation returns InvalidRolloutPercentage for values above 100.
         if self.rollout_percentage > 100 {
             return Err(ValidationError::InvalidRolloutPercentage(
                 self.rollout_percentage,
             ));
         }
 
+        // @constraint selvedge.config.model.feature.valid.enabled_rollout Feature validation returns EnabledFeatureRequiresRollout for enabled features with zero rollout.
         if self.enabled && self.rollout_percentage == 0 {
             return Err(ValidationError::EnabledFeatureRequiresRollout);
         }
@@ -162,43 +202,57 @@ impl FeatureConfig {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+// @behavior selvedge.config.model.llm The LLM config exposes provider-specific settings to callers.
 pub struct LlmConfig {
+    // @behavior selvedge.config.model.llm.providers_field LLM config exposes provider settings.
     pub providers: LlmProvidersConfig,
 }
 
 impl LlmConfig {
+    // @behavior selvedge.config.model.llm.valid LLM config validation returns provider validation errors as typed validation results.
     pub fn validate(&self) -> Result<(), ValidationError> {
         self.providers.validate()
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+// @behavior selvedge.config.model.llm.providers The LLM providers config exposes ChatGPT provider settings.
 pub struct LlmProvidersConfig {
+    // @behavior selvedge.config.model.llm.providers.chatgpt LLM provider config exposes ChatGPT settings.
     pub chatgpt: ChatgptConfig,
 }
 
 impl LlmProvidersConfig {
+    // @behavior selvedge.config.model.llm.providers.valid LLM provider validation returns ChatGPT provider validation errors as typed validation results.
     pub fn validate(&self) -> Result<(), ValidationError> {
         self.chatgpt.validate()
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+// @behavior selvedge.config.model.chatgpt The ChatGPT provider config exposes authentication and backend API settings.
 pub struct ChatgptConfig {
+    // @behavior selvedge.config.model.chatgpt.auth_field ChatGPT config exposes authentication settings.
     pub auth: ChatgptAuthConfig,
+    // @behavior selvedge.config.model.chatgpt.api_field ChatGPT config exposes backend API settings.
     pub api: ChatgptApiConfig,
 }
 
 impl ChatgptConfig {
+    // @behavior selvedge.config.model.chatgpt.valid ChatGPT config validation returns authentication or API validation errors as typed validation results.
     pub fn validate(&self) -> Result<(), ValidationError> {
         self.auth.validate().and_then(|_| self.api.validate())
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+// @behavior selvedge.config.model.chatgpt.auth ChatGPT auth config exposes issuer, client ID, and optional expected workspace ID.
 pub struct ChatgptAuthConfig {
+    // @behavior selvedge.config.model.chatgpt.auth.issuer ChatGPT auth config exposes the issuer base URL.
     pub issuer: String,
+    // @behavior selvedge.config.model.chatgpt.auth.client_id ChatGPT auth config exposes the OAuth client ID.
     pub client_id: String,
+    // @behavior selvedge.config.model.chatgpt.auth.expected_workspace_id ChatGPT auth config exposes the optional expected workspace ID.
     pub expected_workspace_id: Option<String>,
 }
 
@@ -206,7 +260,9 @@ impl ChatgptAuthConfig {
     const DEFAULT_ISSUER: &'static str = "https://auth.openai.com";
     const DEFAULT_CLIENT_ID: &'static str = "app_EMoamEEZ73f0CkXaXp7hrann";
 
+    // @constraint selvedge.config.model.chatgpt.auth.valid ChatGPT auth validation accepts only clean http or https issuer base URLs, nonblank client IDs, and nonblank workspace IDs when present.
     pub fn validate(&self) -> Result<(), ValidationError> {
+        // @constraint selvedge.config.model.chatgpt.auth.valid.parse ChatGPT auth validation returns InvalidChatgptIssuer for unparsable issuer URLs.
         let issuer =
             url::Url::parse(&self.issuer).map_err(|_| ValidationError::InvalidChatgptIssuer)?;
         ensure_explicit_authority(&self.issuer, &issuer, ValidationError::InvalidChatgptIssuer)?;
@@ -218,15 +274,18 @@ impl ChatgptAuthConfig {
             ValidationError::ChatgptIssuerMustUseHttps,
         )?;
 
+        // @constraint selvedge.config.model.chatgpt.auth.valid.base ChatGPT auth validation returns ChatgptIssuerMustBeBaseUrl for issuer paths, queries, or fragments.
         let clean_path = issuer.path().is_empty() || issuer.path() == "/";
         if !clean_path || issuer.query().is_some() || issuer.fragment().is_some() {
             return Err(ValidationError::ChatgptIssuerMustBeBaseUrl);
         }
 
+        // @constraint selvedge.config.model.chatgpt.auth.valid.client_id ChatGPT auth validation returns BlankChatgptClientId for blank client IDs.
         if self.client_id.trim().is_empty() {
             return Err(ValidationError::BlankChatgptClientId);
         }
 
+        // @constraint selvedge.config.model.chatgpt.auth.valid.workspace ChatGPT auth validation returns BlankExpectedWorkspaceId for blank expected workspace IDs.
         if self
             .expected_workspace_id
             .as_deref()
@@ -240,8 +299,11 @@ impl ChatgptAuthConfig {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+// @behavior selvedge.config.model.chatgpt.api ChatGPT API config exposes the backend base URL and stream completion timeout.
 pub struct ChatgptApiConfig {
+    // @behavior selvedge.config.model.chatgpt.api.base_url ChatGPT API config exposes the backend base URL.
     pub base_url: String,
+    // @behavior selvedge.config.model.chatgpt.api.stream_timeout ChatGPT API config exposes the stream completion timeout in milliseconds.
     pub stream_completion_timeout_ms: u64,
 }
 
@@ -249,7 +311,9 @@ impl ChatgptApiConfig {
     const DEFAULT_BASE_URL: &'static str = "https://chatgpt.com/backend-api/codex";
     const DEFAULT_STREAM_COMPLETION_TIMEOUT_MS: u64 = 1_800_000;
 
+    // @constraint selvedge.config.model.chatgpt.api.valid ChatGPT API validation accepts only clean http or https base URLs without a responses suffix and nonzero stream completion timeout.
     pub fn validate(&self) -> Result<(), ValidationError> {
+        // @constraint selvedge.config.model.chatgpt.api.valid.parse ChatGPT API validation returns InvalidChatgptApiBaseUrl for unparsable base URLs.
         let base_url = url::Url::parse(&self.base_url)
             .map_err(|_| ValidationError::InvalidChatgptApiBaseUrl)?;
         ensure_explicit_authority(
@@ -265,10 +329,12 @@ impl ChatgptApiConfig {
             ValidationError::ChatgptApiBaseUrlMustUseHttps,
         )?;
 
+        // @constraint selvedge.config.model.chatgpt.api.valid.query_fragment ChatGPT API validation returns ChatgptApiBaseUrlMustBeBaseUrl for query or fragment values.
         if base_url.query().is_some() || base_url.fragment().is_some() {
             return Err(ValidationError::ChatgptApiBaseUrlMustBeBaseUrl);
         }
 
+        // @constraint selvedge.config.model.chatgpt.api.valid.responses_path ChatGPT API validation returns ChatgptApiBaseUrlMustBeBaseUrl for base URLs ending in responses.
         if base_url
             .path()
             .trim_end_matches('/')
@@ -277,6 +343,7 @@ impl ChatgptApiConfig {
             return Err(ValidationError::ChatgptApiBaseUrlMustBeBaseUrl);
         }
 
+        // @constraint selvedge.config.model.chatgpt.api.valid.timeout ChatGPT API validation returns InvalidChatgptApiStreamCompletionTimeout for timeout zero.
         if self.stream_completion_timeout_ms == 0 {
             return Err(ValidationError::InvalidChatgptApiStreamCompletionTimeout);
         }
@@ -285,20 +352,24 @@ impl ChatgptApiConfig {
     }
 }
 
+// @constraint selvedge.config.model.url.scheme Configured ChatGPT URLs use http or https, omit userinfo, and use https for non-loopback hosts.
 fn validate_base_url_scheme_and_authority(
     url: &url::Url,
     invalid_url_error: ValidationError,
     userinfo_error: ValidationError,
     https_required_error: ValidationError,
 ) -> Result<(), ValidationError> {
+    // @constraint selvedge.config.model.url.scheme.allowed ChatGPT URL validation returns the configured invalid URL error for schemes outside http and https.
     if !matches!(url.scheme(), "http" | "https") {
         return Err(invalid_url_error);
     }
 
+    // @constraint selvedge.config.model.url.scheme.userinfo ChatGPT URL validation returns the configured userinfo error for URLs containing username or password values.
     if !url.username().is_empty() || url.password().is_some() {
         return Err(userinfo_error);
     }
 
+    // @constraint selvedge.config.model.url.scheme.https ChatGPT URL validation returns the configured HTTPS-required error for non-loopback http URLs.
     if url.scheme() == "http" && !issuer_host_is_loopback(url) {
         return Err(https_required_error);
     }
@@ -306,21 +377,26 @@ fn validate_base_url_scheme_and_authority(
     Ok(())
 }
 
+// @constraint selvedge.config.model.url ChatGPT URL validation preserves absolute authority, scheme, userinfo, and loopback HTTPS rules.
 fn ensure_explicit_authority(
     raw: &str,
     url: &url::Url,
     invalid_url_error: ValidationError,
 ) -> Result<(), ValidationError> {
+    // @constraint selvedge.config.model.url.authority Configured ChatGPT URLs must contain an explicit http or https authority.
+    // @constraint selvedge.config.model.url.authority.separator ChatGPT URL validation returns the configured invalid URL error when the scheme separator is absent.
     let Some((scheme, remainder)) = raw.split_once("://") else {
         return Err(invalid_url_error);
     };
 
+    // @constraint selvedge.config.model.url.authority.scheme ChatGPT URL validation returns the configured invalid URL error when the explicit scheme is outside http and https.
     if !matches!(scheme.to_ascii_lowercase().as_str(), "http" | "https") {
         return Err(invalid_url_error);
     }
 
     let authority = remainder.split(['/', '?', '#']).next().unwrap_or_default();
 
+    // @constraint selvedge.config.model.url.authority.host ChatGPT URL validation returns the configured invalid URL error when the authority lacks a host.
     if authority.is_empty() || authority.starts_with('/') || url.host().is_none() {
         return Err(invalid_url_error);
     }
@@ -328,7 +404,10 @@ fn ensure_explicit_authority(
     Ok(())
 }
 
+// @constraint selvedge.config.model.url.loopback Loopback URL detection returns true only for localhost and loopback IP hosts.
 fn issuer_host_is_loopback(issuer: &url::Url) -> bool {
+    // @behavior selvedge.config.model.url.loopback.result Loopback URL detection treats localhost, IPv4 loopback, and IPv6 loopback hosts as local development targets.
+    // @constraint selvedge.config.model.url.loopback.host Loopback URL detection returns false when a URL has no host.
     match issuer.host() {
         Some(url::Host::Domain(host)) => host.eq_ignore_ascii_case("localhost"),
         Some(url::Host::Ipv4(address)) => address.is_loopback(),
@@ -338,6 +417,7 @@ fn issuer_host_is_loopback(issuer: &url::Url) -> bool {
 }
 
 #[derive(Debug, Error)]
+// @behavior selvedge.config.model.error App config conversion errors expose deserialization failures and validation failures to callers.
 pub enum AppConfigError {
     #[error("failed to deserialize config input: {0}")]
     Deserialize(#[from] toml::de::Error),
@@ -346,6 +426,7 @@ pub enum AppConfigError {
 }
 
 #[derive(Debug, Error, PartialEq, Eq)]
+// @behavior selvedge.config.model.validation_error Validation errors expose stable messages for invalid config fields and cross-field constraints.
 pub enum ValidationError {
     #[error("server.port must be greater than zero")]
     InvalidPort,
@@ -389,6 +470,7 @@ pub enum ValidationError {
 
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
+// @intent selvedge.config.model.input The input config layer accepts partial TOML sections before materializing the public typed config.
 struct AppConfigInput {
     server: ServerConfigInput,
     network: NetworkConfigInput,
@@ -398,6 +480,7 @@ struct AppConfigInput {
 }
 
 impl AppConfigInput {
+    // @behavior selvedge.config.model.input.materialize Partial app config input materializes every top-level section into the public typed config.
     fn materialize(self) -> AppConfig {
         AppConfig {
             server: self.server.materialize(),
@@ -411,6 +494,7 @@ impl AppConfigInput {
 
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
+// @intent selvedge.config.model.server.input The server input layer accepts omitted fields before applying server defaults.
 struct ServerConfigInput {
     host: Option<String>,
     port: Option<u16>,
@@ -418,6 +502,7 @@ struct ServerConfigInput {
 }
 
 impl ServerConfigInput {
+    // @behavior selvedge.config.model.server.defaults Missing server input fields materialize to host 127.0.0.1, port 8080, and request timeout 5000 milliseconds.
     fn materialize(self) -> ServerConfig {
         ServerConfig {
             host: self
@@ -433,6 +518,7 @@ impl ServerConfigInput {
 
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
+// @intent selvedge.config.model.network.input The network input layer preserves optional transport settings from TOML.
 struct NetworkConfigInput {
     connect_timeout_ms: Option<u64>,
     request_timeout_ms: Option<u64>,
@@ -442,6 +528,7 @@ struct NetworkConfigInput {
 }
 
 impl NetworkConfigInput {
+    // @behavior selvedge.config.model.network.defaults Missing network input fields materialize to None for every optional transport setting.
     fn materialize(self) -> NetworkConfig {
         NetworkConfig {
             connect_timeout_ms: self.connect_timeout_ms,
@@ -455,6 +542,7 @@ impl NetworkConfigInput {
 
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
+// @intent selvedge.config.model.logging.input The logging input layer accepts current logging fields and the legacy format field.
 struct LoggingConfigInput {
     level: Option<LogFilter>,
     module_levels: BTreeMap<String, LogFilter>,
@@ -462,6 +550,7 @@ struct LoggingConfigInput {
 }
 
 impl LoggingConfigInput {
+    // @behavior selvedge.config.model.logging.defaults Missing logging input fields materialize to the info level with no module overrides while the legacy format value is ignored.
     fn materialize(self) -> LoggingConfig {
         let _ = self.format;
 
@@ -474,12 +563,14 @@ impl LoggingConfigInput {
 
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
+// @intent selvedge.config.model.feature.input The feature input layer accepts omitted feature fields before applying feature defaults.
 struct FeatureConfigInput {
     enabled: Option<bool>,
     rollout_percentage: Option<u8>,
 }
 
 impl FeatureConfigInput {
+    // @behavior selvedge.config.model.feature.defaults Missing feature input fields materialize to disabled with zero rollout percentage.
     fn materialize(self) -> FeatureConfig {
         FeatureConfig {
             enabled: self.enabled.unwrap_or(FeatureConfig::DEFAULT_ENABLED),
@@ -492,11 +583,13 @@ impl FeatureConfigInput {
 
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
+// @intent selvedge.config.model.llm.input The LLM input layer accepts omitted provider sections before applying provider defaults.
 struct LlmConfigInput {
     providers: LlmProvidersConfigInput,
 }
 
 impl LlmConfigInput {
+    // @behavior selvedge.config.model.llm.defaults Missing LLM input sections materialize through provider defaults.
     fn materialize(self) -> LlmConfig {
         LlmConfig {
             providers: self.providers.materialize(),
@@ -506,11 +599,13 @@ impl LlmConfigInput {
 
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
+// @intent selvedge.config.model.llm.providers.input The LLM providers input layer accepts omitted ChatGPT provider settings before applying provider defaults.
 struct LlmProvidersConfigInput {
     chatgpt: ChatgptConfigInput,
 }
 
 impl LlmProvidersConfigInput {
+    // @behavior selvedge.config.model.llm.providers.defaults Missing provider input sections materialize through ChatGPT defaults.
     fn materialize(self) -> LlmProvidersConfig {
         LlmProvidersConfig {
             chatgpt: self.chatgpt.materialize(),
@@ -520,12 +615,14 @@ impl LlmProvidersConfigInput {
 
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
+// @intent selvedge.config.model.chatgpt.input The ChatGPT input layer accepts omitted auth and API sections before applying ChatGPT defaults.
 struct ChatgptConfigInput {
     auth: ChatgptAuthConfigInput,
     api: ChatgptApiConfigInput,
 }
 
 impl ChatgptConfigInput {
+    // @behavior selvedge.config.model.chatgpt.defaults Missing ChatGPT input sections materialize through auth and API defaults.
     fn materialize(self) -> ChatgptConfig {
         ChatgptConfig {
             auth: self.auth.materialize(),
@@ -536,6 +633,7 @@ impl ChatgptConfigInput {
 
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
+// @intent selvedge.config.model.chatgpt.auth.input The ChatGPT auth input layer accepts omitted auth fields before applying auth defaults.
 struct ChatgptAuthConfigInput {
     issuer: Option<String>,
     client_id: Option<String>,
@@ -543,6 +641,7 @@ struct ChatgptAuthConfigInput {
 }
 
 impl ChatgptAuthConfigInput {
+    // @behavior selvedge.config.model.chatgpt.auth.defaults Missing ChatGPT auth input fields materialize to the default issuer, default client ID, and no expected workspace ID.
     fn materialize(self) -> ChatgptAuthConfig {
         ChatgptAuthConfig {
             issuer: self
@@ -558,12 +657,14 @@ impl ChatgptAuthConfigInput {
 
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
+// @intent selvedge.config.model.chatgpt.api.input The ChatGPT API input layer accepts omitted API fields before applying API defaults.
 struct ChatgptApiConfigInput {
     base_url: Option<String>,
     stream_completion_timeout_ms: Option<u64>,
 }
 
 impl ChatgptApiConfigInput {
+    // @behavior selvedge.config.model.chatgpt.api.defaults Missing ChatGPT API input fields materialize to the default backend base URL and 1800000 millisecond stream completion timeout.
     fn materialize(self) -> ChatgptApiConfig {
         ChatgptApiConfig {
             base_url: self
@@ -586,12 +687,19 @@ mod tests {
     fn logging_defaults_to_info_without_module_overrides() {
         let config = AppConfig::try_from(toml::Table::new()).expect("default config");
 
+        // @verifies selvedge.config.model.network.defaults
         assert_eq!(config.network.connect_timeout_ms, None);
+        // @verifies selvedge.config.model.network.defaults
         assert_eq!(config.network.request_timeout_ms, None);
+        // @verifies selvedge.config.model.network.defaults
         assert_eq!(config.network.stream_idle_timeout_ms, None);
+        // @verifies selvedge.config.model.network.defaults
         assert_eq!(config.network.ca_bundle_path, None);
+        // @verifies selvedge.config.model.network.defaults
         assert_eq!(config.network.user_agent, None);
+        // @verifies selvedge.config.model.logging.defaults
         assert_eq!(config.logging.level, LogFilter::Info);
+        // @verifies selvedge.config.model.logging.defaults
         assert!(config.logging.module_levels.is_empty());
     }
 
@@ -613,7 +721,9 @@ mod tests {
             ("selvedge::worker".to_owned(), LogFilter::Error),
         ]);
 
+        // @verifies selvedge.config.model.logging.level
         assert_eq!(config.logging.level, LogFilter::Warn);
+        // @verifies selvedge.config.model.logging.module_levels
         assert_eq!(config.logging.module_levels, expected);
     }
 
@@ -627,7 +737,9 @@ mod tests {
 
         let config = AppConfig::try_from(table).expect("config with legacy format field");
 
+        // @verifies selvedge.config.model.logging.defaults
         assert_eq!(config.logging.level, LogFilter::Info);
+        // @verifies selvedge.config.model.logging.defaults
         assert!(config.logging.module_levels.is_empty());
     }
 
@@ -644,13 +756,18 @@ mod tests {
 
         let config = AppConfig::try_from(table).expect("network config");
 
+        // @verifies selvedge.config.model.network.connect_timeout
         assert_eq!(config.network.connect_timeout_ms, Some(1_000));
+        // @verifies selvedge.config.model.network.request_timeout
         assert_eq!(config.network.request_timeout_ms, Some(30_000));
+        // @verifies selvedge.config.model.network.stream_idle_timeout
         assert_eq!(config.network.stream_idle_timeout_ms, Some(300_000));
+        // @verifies selvedge.config.model.network.ca_bundle
         assert_eq!(
             config.network.ca_bundle_path.as_deref(),
             Some(std::path::Path::new("/tmp/ca.pem"))
         );
+        // @verifies selvedge.config.model.network.user_agent
         assert_eq!(
             config.network.user_agent.as_deref(),
             Some("selvedge-client/test")

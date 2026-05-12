@@ -15,6 +15,7 @@ use tokio::time::timeout;
 
 static TEST_LOCK: LazyLock<AsyncMutex<()>> = LazyLock::new(|| AsyncMutex::new(()));
 
+// @verifies selvedge.operations
 #[tokio::test]
 async fn query_maps_backend_statuses_without_ready_semantics() {
     let _guard = TEST_LOCK.lock().await;
@@ -32,37 +33,45 @@ async fn query_maps_backend_statuses_without_ready_semantics() {
     ]);
     let client = SystemdClient::new(valid_config(), backend.clone()).expect("client");
 
+    // @verifies selvedge.operations.systemd
     assert_eq!(
         client.query_service_status().await,
         Ok(ServiceStatus::Active)
     );
+    // @verifies selvedge.operations.systemd
     assert_eq!(
         client.query_service_status().await,
         Ok(ServiceStatus::Inactive)
     );
+    // @verifies selvedge.operations.systemd
     assert_eq!(
         client.query_service_status().await,
         Ok(ServiceStatus::Activating)
     );
+    // @verifies selvedge.operations.systemd
     assert_eq!(
         client.query_service_status().await,
         Ok(ServiceStatus::Failed {
             message: "exit code 1".to_owned()
         })
     );
+    // @verifies selvedge.operations.systemd
     assert_eq!(
         client.query_service_status().await,
         Ok(ServiceStatus::NotInstalled)
     );
+    // @verifies selvedge.operations.systemd
     assert_eq!(
         client.query_service_status().await,
         Ok(ServiceStatus::Unknown {
             raw_state: "maintenance".to_owned()
         })
     );
+    // @verifies selvedge.operations.systemd
     assert_eq!(backend.query_calls(), 6);
 }
 
+// @verifies selvedge.operations
 #[tokio::test]
 async fn start_service_uses_status_preflight_and_avoids_duplicate_start_requests() {
     let _guard = TEST_LOCK.lock().await;
@@ -75,25 +84,31 @@ async fn start_service_uses_status_preflight_and_avoids_duplicate_start_requests
     backend.push_start(Ok(StartServiceOutcome::StartRequested));
     let client = SystemdClient::new(valid_config(), backend.clone()).expect("client");
 
+    // @verifies selvedge.operations.systemd
     assert_eq!(
         client.start_service().await,
         Ok(StartServiceOutcome::StartRequested)
     );
+    // @verifies selvedge.operations.systemd
     assert_eq!(
         client.start_service().await,
         Ok(StartServiceOutcome::AlreadyRunning)
     );
+    // @verifies selvedge.operations.systemd
     assert_eq!(
         client.start_service().await,
         Ok(StartServiceOutcome::AlreadyStarting)
     );
+    // @verifies selvedge.operations.systemd
     assert_eq!(
         client.start_service().await,
         Err(SystemdError::UnitNotFound)
     );
+    // @verifies selvedge.operations.systemd
     assert_eq!(backend.start_calls(), 1);
 }
 
+// @verifies selvedge.operations
 #[tokio::test]
 async fn start_service_returns_backend_rejection() {
     let _guard = TEST_LOCK.lock().await;
@@ -107,6 +122,7 @@ async fn start_service_returns_backend_rejection() {
     );
 }
 
+// @verifies selvedge.operations
 #[tokio::test]
 async fn unavailable_backend_errors_are_preserved() {
     let _guard = TEST_LOCK.lock().await;
@@ -121,6 +137,7 @@ async fn unavailable_backend_errors_are_preserved() {
     );
 }
 
+// @verifies selvedge.operations
 #[tokio::test]
 async fn wait_service_active_returns_active_or_failed_status() {
     let _guard = TEST_LOCK.lock().await;
@@ -143,6 +160,7 @@ async fn wait_service_active_returns_active_or_failed_status() {
     ]);
     let failed_client =
         SystemdClient::new(wait_config(Duration::from_millis(50)), failed_backend).expect("client");
+    // @verifies selvedge.operations.systemd
     assert_eq!(
         failed_client.wait_service_active().await,
         Ok(ServiceStatus::Failed {
@@ -151,6 +169,7 @@ async fn wait_service_active_returns_active_or_failed_status() {
     );
 }
 
+// @verifies selvedge.operations
 #[tokio::test]
 async fn wait_service_active_times_out() {
     let _guard = TEST_LOCK.lock().await;
@@ -164,6 +183,7 @@ async fn wait_service_active_times_out() {
     );
 }
 
+// @verifies selvedge.operations
 #[tokio::test]
 async fn wait_service_active_times_out_when_status_query_stalls() {
     let _guard = TEST_LOCK.lock().await;
@@ -177,6 +197,7 @@ async fn wait_service_active_times_out_when_status_query_stalls() {
     );
 }
 
+// @verifies selvedge.operations
 #[tokio::test]
 async fn wait_service_active_returns_error_for_oversized_timeout() {
     let _guard = TEST_LOCK.lock().await;
@@ -187,9 +208,11 @@ async fn wait_service_active_returns_error_for_oversized_timeout() {
         client.wait_service_active().await,
         Err(SystemdError::Timeout)
     );
+    // @verifies selvedge.operations.systemd
     assert_eq!(backend.query_calls(), 0);
 }
 
+// @verifies selvedge.operations
 #[tokio::test]
 async fn dropping_wait_future_stops_polling_without_cancelled_error() {
     let _guard = TEST_LOCK.lock().await;
@@ -207,9 +230,11 @@ async fn dropping_wait_future_stops_polling_without_cancelled_error() {
     drop(wait);
     tokio::time::sleep(Duration::from_millis(20)).await;
 
+    // @verifies selvedge.operations.systemd
     assert_eq!(backend.query_calls(), calls_before_drop);
 }
 
+// @verifies selvedge.operations
 #[tokio::test]
 async fn invalid_unit_name_is_rejected_before_backend_calls() {
     let _guard = TEST_LOCK.lock().await;
@@ -223,10 +248,13 @@ async fn invalid_unit_name_is_rejected_before_backend_calls() {
         backend.clone(),
     );
 
+    // @verifies selvedge.operations.systemd
     assert!(matches!(result, Err(SystemdError::InvalidUnitName)));
+    // @verifies selvedge.operations.systemd
     assert_eq!(backend.query_calls(), 0);
 }
 
+// @verifies selvedge.operations
 #[tokio::test]
 async fn config_validation_reports_first_invalid_field_in_order() {
     let _guard = TEST_LOCK.lock().await;
@@ -240,6 +268,7 @@ async fn config_validation_reports_first_invalid_field_in_order() {
         },
         backend.clone(),
     );
+    // @verifies selvedge.operations.systemd
     assert!(matches!(result, Err(SystemdError::InvalidUnitName)));
 
     let result = SystemdClient::new(
@@ -249,6 +278,7 @@ async fn config_validation_reports_first_invalid_field_in_order() {
         },
         backend.clone(),
     );
+    // @verifies selvedge.operations.systemd
     assert!(matches!(result, Err(SystemdError::InvalidOperationTimeout)));
 
     let result = SystemdClient::new(
@@ -258,9 +288,11 @@ async fn config_validation_reports_first_invalid_field_in_order() {
         },
         backend,
     );
+    // @verifies selvedge.operations.systemd
     assert!(matches!(result, Err(SystemdError::InvalidPollInterval)));
 }
 
+// @verifies selvedge.operations
 #[tokio::test]
 async fn systemctl_backend_uses_runner_and_maps_show_output() {
     let _guard = TEST_LOCK.lock().await;
@@ -272,12 +304,14 @@ async fn systemctl_backend_uses_runner_and_maps_show_output() {
     let backend = SystemctlBackend::new_with_runner(systemctl_config(), runner.clone())
         .expect("systemctl backend");
 
+    // @verifies selvedge.operations.systemd
     assert_eq!(
         backend
             .query_status("selvedge-server.service", Duration::from_millis(123))
             .await,
         Ok(ServiceStatus::Active)
     );
+    // @verifies selvedge.operations.systemd
     assert_eq!(
         runner.calls(),
         vec![ProcessCall {
@@ -294,6 +328,7 @@ async fn systemctl_backend_uses_runner_and_maps_show_output() {
     );
 }
 
+// @verifies selvedge.operations
 #[tokio::test]
 async fn systemctl_backend_maps_missing_unit_unknown_state_and_start_rejection() {
     let _guard = TEST_LOCK.lock().await;
@@ -317,12 +352,14 @@ async fn systemctl_backend_maps_missing_unit_unknown_state_and_start_rejection()
     let backend =
         SystemctlBackend::new_with_runner(systemctl_config(), runner).expect("systemctl backend");
 
+    // @verifies selvedge.operations.systemd
     assert_eq!(
         backend
             .query_status("selvedge-server.service", Duration::from_millis(50))
             .await,
         Ok(ServiceStatus::NotInstalled)
     );
+    // @verifies selvedge.operations.systemd
     assert_eq!(
         backend
             .query_status("selvedge-server.service", Duration::from_millis(50))
@@ -331,6 +368,7 @@ async fn systemctl_backend_maps_missing_unit_unknown_state_and_start_rejection()
             raw_state: "maintenance".to_owned()
         })
     );
+    // @verifies selvedge.operations.systemd
     assert_eq!(
         backend
             .start_unit("selvedge-server.service", Duration::from_millis(50))
@@ -339,6 +377,7 @@ async fn systemctl_backend_maps_missing_unit_unknown_state_and_start_rejection()
     );
 }
 
+// @verifies selvedge.operations
 #[tokio::test]
 async fn public_operations_revalidate_mutated_config_before_backend_calls() {
     let _guard = TEST_LOCK.lock().await;
@@ -350,17 +389,21 @@ async fn public_operations_revalidate_mutated_config_before_backend_calls() {
         client.query_service_status().await,
         Err(SystemdError::InvalidUnitName)
     );
+    // @verifies selvedge.operations.systemd
     assert_eq!(
         client.start_service().await,
         Err(SystemdError::InvalidUnitName)
     );
+    // @verifies selvedge.operations.systemd
     assert_eq!(
         client.wait_service_active().await,
         Err(SystemdError::InvalidUnitName)
     );
+    // @verifies selvedge.operations.systemd
     assert_eq!(backend.query_calls(), 0);
 }
 
+// @verifies selvedge.operations
 #[test]
 fn tui_and_web_do_not_depend_on_systemd_crate() {
     let root = env!("CARGO_MANIFEST_DIR");

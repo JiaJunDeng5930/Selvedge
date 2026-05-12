@@ -1,4 +1,5 @@
 fn main() {
+    // @behavior selvedge.cli.process.main The CLI binary runs selvedge::run_cli on a current-thread Tokio runtime and exits with the mapped process code.
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_io()
         .enable_time()

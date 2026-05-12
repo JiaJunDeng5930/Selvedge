@@ -7,6 +7,7 @@ use chatgpt_login::{
 };
 use chrono::{TimeZone, Utc};
 
+// @verifies selvedge.login.errors
 #[test]
 fn public_api_exposes_chatgpt_device_code_types_and_functions() {
     let challenge = DeviceCodeChallenge {
@@ -35,16 +36,21 @@ fn public_api_exposes_chatgpt_device_code_types_and_functions() {
         plan_type: Some("plus".to_owned()),
     };
 
+    // @verifies selvedge.login
     assert_eq!(
         challenge.verification_url,
         "https://auth.openai.com/codex/device"
     );
+    // @verifies selvedge.login
     assert_eq!(authorization.code_verifier, "code-verifier");
+    // @verifies selvedge.login
     assert_eq!(result.account_id, "account-id");
+    // @verifies selvedge.login
     assert!(matches!(
         DeviceCodePollOutcome::Authorized(authorization.clone()),
         DeviceCodePollOutcome::Authorized(DeviceCodeAuthorization { .. })
     ));
+    // @verifies selvedge.login
     assert!(matches!(
         ChatgptLoginError::ChallengeExpired,
         ChatgptLoginError::ChallengeExpired

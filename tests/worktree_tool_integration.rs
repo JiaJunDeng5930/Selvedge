@@ -37,6 +37,7 @@ fn script_ignores_inherited_git_environment_when_creating_temp_repo() {
         .output()
         .expect("run nested worktree test");
 
+    // @verifies selvedge.worktree
     assert!(
         output.status.success(),
         "expected test helper commands to ignore inherited git environment\nstdout:\n{}\nstderr:\n{}",
@@ -73,6 +74,7 @@ fn script_resets_stale_isolated_git_config_before_running_git_commands() {
         .output()
         .expect("run nested worktree test");
 
+    // @verifies selvedge.worktree
     assert!(
         output.status.success(),
         "expected stale isolated git config to be reset before running git commands\nstdout:\n{}\nstderr:\n{}",
@@ -94,6 +96,7 @@ fn assert_script_creates_branch_and_worktree_in_hidden_directory() {
 
     let output = run_script(&repo_root, "feature/demo");
 
+    // @verifies selvedge.worktree
     assert!(
         output.status.success(),
         "script failed: {}",
@@ -104,6 +107,7 @@ fn assert_script_creates_branch_and_worktree_in_hidden_directory() {
         .join(".worktrees")
         .join(encoded_branch_name("feature/demo"));
 
+    // @verifies selvedge.worktree
     assert!(worktree_path.is_dir(), "worktree directory should exist");
 
     let branch_output = isolated_command("git")
@@ -113,12 +117,14 @@ fn assert_script_creates_branch_and_worktree_in_hidden_directory() {
         .expect("list branches");
     let branches = String::from_utf8(branch_output.stdout).expect("branches utf8");
 
+    // @verifies selvedge.worktree
     assert!(
         branches.contains("feature/demo"),
         "expected feature/demo branch, got {branches:?}"
     );
 
     let stdout = String::from_utf8(output.stdout).expect("stdout utf8");
+    // @verifies selvedge.worktree
     assert!(
         stdout.contains(&encoded_branch_name("feature/demo")),
         "expected created path in stdout, got {stdout:?}"
@@ -140,12 +146,14 @@ fn script_fails_when_worktree_directory_is_not_ignored() {
 
     let output = run_script(&repo_root, "feature/demo");
 
+    // @verifies selvedge.worktree
     assert!(
         !output.status.success(),
         "script should fail when .worktrees is not ignored"
     );
 
     let stderr = String::from_utf8(output.stderr).expect("stderr utf8");
+    // @verifies selvedge.worktree
     assert!(
         stderr.contains(".worktrees/ is not ignored"),
         "expected ignore guidance, got {stderr:?}"
@@ -168,12 +176,14 @@ fn script_requires_repo_local_gitignore_entry_for_worktrees() {
 
     let output = run_script(&repo_root, "feature/demo");
 
+    // @verifies selvedge.worktree
     assert!(
         !output.status.success(),
         "script should fail when only non-repo ignore rules match"
     );
 
     let stderr = String::from_utf8(output.stderr).expect("stderr utf8");
+    // @verifies selvedge.worktree
     assert!(
         stderr.contains("must be ignored by the repository .gitignore"),
         "expected repo-local ignore guidance, got {stderr:?}"
@@ -199,6 +209,7 @@ fn script_bases_new_worktree_on_current_branch_when_current_branch_is_not_main()
 
     let output = run_script(&repo_root, "feature/isolated");
 
+    // @verifies selvedge.worktree
     assert!(
         output.status.success(),
         "script failed: {}",
@@ -208,6 +219,7 @@ fn script_bases_new_worktree_on_current_branch_when_current_branch_is_not_main()
     let isolated_worktree_path = repo_root
         .join(".worktrees")
         .join(encoded_branch_name("feature/isolated"));
+    // @verifies selvedge.worktree
     assert!(
         isolated_worktree_path.join("feature.txt").exists(),
         "new worktree should inherit commits from the current branch"
@@ -224,6 +236,7 @@ fn script_bases_new_worktree_on_current_branch_when_current_branch_is_not_main()
         .output()
         .expect("read feature/source head");
 
+    // @verifies selvedge.worktree
     assert_eq!(
         String::from_utf8(head_output.stdout).expect("isolated head utf8"),
         String::from_utf8(main_output.stdout).expect("feature/source head utf8"),
@@ -244,6 +257,7 @@ fn script_keeps_distinct_worktree_paths_for_similar_branch_names() {
     set_script_executable(&script_target);
 
     let slash_output = run_script(&repo_root, "feature/a");
+    // @verifies selvedge.worktree
     assert!(
         slash_output.status.success(),
         "script failed: {}",
@@ -251,18 +265,21 @@ fn script_keeps_distinct_worktree_paths_for_similar_branch_names() {
     );
 
     let dash_output = run_script(&repo_root, "feature-a");
+    // @verifies selvedge.worktree
     assert!(
         dash_output.status.success(),
         "script failed: {}",
         String::from_utf8_lossy(&dash_output.stderr)
     );
 
+    // @verifies selvedge.worktree
     assert!(
         repo_root
             .join(".worktrees")
             .join(encoded_branch_name("feature/a"))
             .is_dir()
     );
+    // @verifies selvedge.worktree
     assert!(
         repo_root
             .join(".worktrees")
@@ -285,12 +302,14 @@ fn script_supports_long_branch_names_without_leaving_partial_branch_state() {
     set_script_executable(&script_target);
 
     let output = run_script(&repo_root, &long_branch_name);
+    // @verifies selvedge.worktree
     assert!(
         output.status.success(),
         "script failed: {}",
         String::from_utf8_lossy(&output.stderr)
     );
 
+    // @verifies selvedge.worktree
     assert!(
         repo_root
             .join(".worktrees")
@@ -304,6 +323,7 @@ fn script_supports_long_branch_names_without_leaving_partial_branch_state() {
         .output()
         .expect("list branches");
     let branches = String::from_utf8(branch_output.stdout).expect("branches utf8");
+    // @verifies selvedge.worktree
     assert!(
         branches.contains(&long_branch_name),
         "expected branch to exist after successful creation"
@@ -333,12 +353,14 @@ fn just_entrypoint_preserves_branch_names_with_shell_syntax() {
         .current_dir(&repo_root)
         .output()
         .expect("run just worktree");
+    // @verifies selvedge.worktree
     assert!(
         output.status.success(),
         "just worktree failed: {}",
         String::from_utf8_lossy(&output.stderr)
     );
 
+    // @verifies selvedge.worktree
     assert!(
         repo_root
             .join(".worktrees")
@@ -352,6 +374,7 @@ fn just_entrypoint_preserves_branch_names_with_shell_syntax() {
         .output()
         .expect("list branches");
     let branches = String::from_utf8(branch_output.stdout).expect("branches utf8");
+    // @verifies selvedge.worktree
     assert!(
         branches.contains(branch_name),
         "expected branch to exist after just invocation"
@@ -390,18 +413,21 @@ fn script_places_child_worktree_under_current_worktree_when_run_inside_an_existi
     set_script_executable(&nested_script_target);
 
     let output = run_script(&nested_worktree, "feature/two");
+    // @verifies selvedge.worktree
     assert!(
         output.status.success(),
         "script failed: {}",
         String::from_utf8_lossy(&output.stderr)
     );
 
+    // @verifies selvedge.worktree
     assert!(
         nested_worktree
             .with_extension("worktrees")
             .join(encoded_branch_name("feature/two"))
             .is_dir()
     );
+    // @verifies selvedge.worktree
     assert!(
         !repo_root
             .join(".worktrees")
@@ -442,6 +468,7 @@ fn script_keeps_child_worktree_alive_after_parent_worktree_is_removed() {
     set_script_executable(&parent_script_target);
 
     let output = run_script(&parent_worktree, "feature/two");
+    // @verifies selvedge.worktree
     assert!(
         output.status.success(),
         "script failed: {}",
@@ -451,6 +478,7 @@ fn script_keeps_child_worktree_alive_after_parent_worktree_is_removed() {
     let child_worktree = parent_worktree
         .with_extension("worktrees")
         .join(encoded_branch_name("feature/two"));
+    // @verifies selvedge.worktree
     assert!(
         child_worktree.is_dir(),
         "child worktree should exist before parent removal"
@@ -466,6 +494,7 @@ fn script_keeps_child_worktree_alive_after_parent_worktree_is_removed() {
         ],
     );
 
+    // @verifies selvedge.worktree
     assert!(
         child_worktree.is_dir(),
         "child worktree should survive parent removal"
@@ -476,6 +505,7 @@ fn script_keeps_child_worktree_alive_after_parent_worktree_is_removed() {
         .current_dir(&repo_root)
         .output()
         .expect("list worktrees");
+    // @verifies selvedge.worktree
     assert!(
         list_output.status.success(),
         "git worktree list failed: {}",
@@ -484,10 +514,12 @@ fn script_keeps_child_worktree_alive_after_parent_worktree_is_removed() {
 
     let listed_worktrees =
         String::from_utf8(list_output.stdout).expect("worktree list stdout utf8");
+    // @verifies selvedge.worktree
     assert!(
         listed_worktrees.contains(&child_worktree.display().to_string()),
         "expected child worktree to remain registered, got {listed_worktrees:?}"
     );
+    // @verifies selvedge.worktree
     assert!(
         !listed_worktrees.contains("prunable"),
         "child worktree should not become prunable after parent removal: {listed_worktrees:?}"
@@ -526,12 +558,14 @@ fn script_fails_when_current_worktree_is_not_in_supported_directory() {
     set_script_executable(&unsupported_script_target);
 
     let output = run_script(&unsupported_worktree, "feature/two");
+    // @verifies selvedge.worktree
     assert!(
         !output.status.success(),
         "script should fail for unsupported worktree locations"
     );
 
     let stderr = String::from_utf8(output.stderr).expect("stderr utf8");
+    // @verifies selvedge.worktree
     assert!(
         stderr.contains("worktrees must live under"),
         "expected supported-directory guidance, got {stderr:?}"
@@ -582,12 +616,14 @@ fn script_fails_for_nested_path_inside_worktrees_that_is_not_helper_managed() {
     set_script_executable(&unsupported_script_target);
 
     let output = run_script(&unsupported_worktree, "feature/two");
+    // @verifies selvedge.worktree
     assert!(
         !output.status.success(),
         "script should fail for nested ad-hoc worktree locations"
     );
 
     let stderr = String::from_utf8(output.stderr).expect("stderr utf8");
+    // @verifies selvedge.worktree
     assert!(
         stderr.contains("worktrees must live under"),
         "expected supported-directory guidance, got {stderr:?}"
@@ -623,6 +659,7 @@ fn run_git<const N: usize>(repo_root: &Path, args: [&str; N]) {
         .output()
         .expect("run git command");
 
+    // @verifies selvedge.worktree
     assert!(
         output.status.success(),
         "git command {:?} failed: {}",
@@ -690,6 +727,7 @@ fn encoded_branch_name(branch_name: &str) -> String {
             .expect("write branch name");
     }
     let output = child.wait_with_output().expect("wait for git hash-object");
+    // @verifies selvedge.worktree
     assert!(
         output.status.success(),
         "git hash-object failed: {}",

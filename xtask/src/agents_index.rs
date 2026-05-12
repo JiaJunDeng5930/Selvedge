@@ -9,18 +9,23 @@ const BEGIN_MARKER: &str = "<!-- BEGIN AGENTS_MD_PROJECT_INDEX -->";
 const END_MARKER: &str = "<!-- END AGENTS_MD_PROJECT_INDEX -->";
 const PROJECT_INDEX_HEADING: &str = "## Project Index";
 
+/// @constraint req.project_index.warning The project index reports tracked directories whose direct filesystem entry count is high enough to slow agent context lookup.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DirectoryWarning {
+    /// @constraint req.project_index.warning.path A directory warning names the indexed path whose current filesystem contents exceed the threshold.
     pub path: String,
+    /// @constraint req.project_index.warning.entry_count A directory warning exposes the observed direct entry count for that path.
     pub entry_count: usize,
 }
 
+/// @behavior req.project_index.status The project index check reports whether the AGENTS.md project index matches the tracked checkout.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CheckStatus {
     Fresh { warnings: Vec<DirectoryWarning> },
     Stale { warnings: Vec<DirectoryWarning> },
 }
 
+/// @behavior req.project_index.update The project index update command rewrites the generated AGENTS.md project index from Git-tracked files.
 pub fn update_agents_md(
     root: &Path,
     warning_threshold: usize,
@@ -29,6 +34,7 @@ pub fn update_agents_md(
     let existing = match fs::read_to_string(&prepared.agents_md_path) {
         Ok(content) => content,
         Err(error) if error.kind() == io::ErrorKind::NotFound => String::new(),
+        // @behavior req.project_index.update.read_error The project index update command reports AGENTS.md read errors with the affected path.
         Err(error) => {
             return Err(format!(
                 "failed to read {}: {error}",
@@ -37,6 +43,7 @@ pub fn update_agents_md(
         }
     };
     let updated = upsert_index_block(&existing, &prepared.rendered_block, prepared.line_ending)?;
+    // @behavior req.project_index.update.write The project index update command persists the generated block back into AGENTS.md.
     fs::write(&prepared.agents_md_path, updated).map_err(|error| {
         format!(
             "failed to write {}: {error}",
@@ -46,15 +53,18 @@ pub fn update_agents_md(
     Ok(prepared.warnings)
 }
 
+/// @behavior req.project_index.check The project index check command compares AGENTS.md with the tracked-file index that would be generated now.
 pub fn check_agents_md(root: &Path, warning_threshold: usize) -> Result<CheckStatus, String> {
     let prepared = prepare(root, warning_threshold)?;
     let existing = match fs::read_to_string(&prepared.agents_md_path) {
         Ok(content) => content,
+        // @behavior req.project_index.check.missing_agents The project index check reports a stale index when AGENTS.md is absent.
         Err(error) if error.kind() == io::ErrorKind::NotFound => {
             return Ok(CheckStatus::Stale {
                 warnings: prepared.warnings,
             });
         }
+        // @behavior req.project_index.check.read_error The project index check reports AGENTS.md read errors with the affected path.
         Err(error) => {
             return Err(format!(
                 "failed to read {}: {error}",
@@ -94,6 +104,7 @@ fn prepare(root: &Path, warning_threshold: usize) -> Result<PreparedIndex, Strin
     })
 }
 
+/// @behavior req.project_index.git_files The project index reads the tracked-file set from `git ls-files -z`.
 fn git_tracked_files(root: &Path) -> Result<Vec<PathBuf>, String> {
     let output = isolated_git_command()
         .current_dir(root)
@@ -101,6 +112,7 @@ fn git_tracked_files(root: &Path) -> Result<Vec<PathBuf>, String> {
         .output()
         .map_err(|error| format!("failed to run git ls-files: {error}"))?;
     if !output.status.success() {
+        // @behavior req.project_index.git_files.failure The project index reports Git stderr when tracked-file discovery fails.
         return Err(format!(
             "git ls-files failed: {}",
             String::from_utf8_lossy(&output.stderr).trim()
@@ -117,6 +129,7 @@ fn git_tracked_files(root: &Path) -> Result<Vec<PathBuf>, String> {
     Ok(paths)
 }
 
+/// @constraint req.project_index.git_env Git-backed project index reads ignore inherited Git environment variables.
 fn isolated_git_command() -> Command {
     let mut command = Command::new("git");
 
@@ -129,6 +142,7 @@ fn isolated_git_command() -> Command {
     command
 }
 
+/// @behavior req.project_index.render The project index renders tracked files into the generated AGENTS.md project index block.
 fn render_index_block(tracked_files: &[PathBuf], line_ending: &str) -> String {
     let directory_map = build_directory_map(tracked_files);
     let mut lines = vec![
@@ -148,6 +162,7 @@ fn render_index_block(tracked_files: &[PathBuf], line_ending: &str) -> String {
     lines.join(line_ending)
 }
 
+/// @behavior req.project_index.directory_map The project index groups tracked files into deterministic directory rows.
 fn build_directory_map(tracked_files: &[PathBuf]) -> BTreeMap<String, Vec<String>> {
     let mut directories: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     directories.entry(".".to_string()).or_default();
@@ -172,6 +187,7 @@ fn build_directory_map(tracked_files: &[PathBuf]) -> BTreeMap<String, Vec<String
         directories
             .entry(parent)
             .or_default()
+            // @constraint req.project_index.directory_map.nonempty_path Tracked file rows must contain at least one path segment before they enter the project index.
             .insert(parts.last().cloned().expect("path parts are non-empty"));
     }
 
@@ -191,6 +207,7 @@ fn build_directory_map(tracked_files: &[PathBuf]) -> BTreeMap<String, Vec<String
         .collect()
 }
 
+/// @behavior req.project_index.warning.collect The project index warning collector reports indexed directories with many direct filesystem entries.
 fn collect_directory_warnings(
     root: &Path,
     tracked_files: &[PathBuf],
@@ -207,7 +224,9 @@ fn collect_directory_warnings(
         };
         let entry_count = match fs::read_dir(&directory_path) {
             Ok(entries) => entries.count(),
+            // @behavior req.project_index.warning.missing_dir Missing indexed directories are skipped during warning collection.
             Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+            // @behavior req.project_index.warning.read_error The project index reports unreadable indexed directories with their filesystem path.
             Err(error) => {
                 return Err(format!(
                     "failed to read {}: {error}",
@@ -226,13 +245,16 @@ fn collect_directory_warnings(
     Ok(warnings)
 }
 
+/// @behavior req.project_index.upsert The project index updater replaces the generated block or creates the project-index section in AGENTS.md.
 fn upsert_index_block(existing: &str, block: &str, line_ending: &str) -> Result<String, String> {
     let begin_matches = existing.matches(BEGIN_MARKER).count();
     let end_matches = existing.matches(END_MARKER).count();
     if begin_matches > 1 || end_matches > 1 {
+        // @constraint req.project_index.upsert.marker_count AGENTS.md must contain at most one generated project-index block.
         return Err("AGENTS.md contains duplicate project index markers".to_string());
     }
     if begin_matches != end_matches {
+        // @constraint req.project_index.upsert.marker_balance AGENTS.md generated project-index markers must be balanced.
         return Err("AGENTS.md project index markers are unbalanced".to_string());
     }
 
@@ -271,9 +293,11 @@ fn upsert_index_block(existing: &str, block: &str, line_ending: &str) -> Result<
 
     let start = existing
         .find(BEGIN_MARKER)
+        // @constraint req.project_index.upsert.marker_lookup_begin Begin-marker lookup must succeed after marker counts pass.
         .expect("marker count already checked");
     let end = existing
         .find(END_MARKER)
+        // @constraint req.project_index.upsert.marker_lookup_end End-marker lookup must succeed after marker counts pass.
         .expect("marker count already checked")
         + END_MARKER.len();
     let mut updated = String::new();
@@ -345,9 +369,11 @@ mod tests {
 
         let warnings = update_agents_md(repo.path(), 200).expect("update should succeed");
 
+        // @verifies req.project_index.update
         assert!(warnings.is_empty(), "unexpected warnings: {warnings:?}");
 
         let agents_md = repo.read("AGENTS.md");
+        // @verifies req.project_index.render
         assert!(agents_md.contains("|.:{src/,.gitignore,README.md}"));
         assert!(agents_md.contains("|src:{lib.rs}"));
         assert!(agents_md.contains(".gitignore"));
@@ -367,6 +393,7 @@ mod tests {
 
         let status = check_agents_md(repo.path(), 200).expect("check should run");
 
+        // @verifies req.project_index.status
         assert!(matches!(status, CheckStatus::Stale { .. }));
     }
 
@@ -382,6 +409,7 @@ mod tests {
 
         let warnings = update_agents_md(repo.path(), 200).expect("update should succeed");
 
+        // @verifies req.project_index.warning
         assert_eq!(warnings.len(), 1, "warnings: {warnings:?}");
         assert_eq!(warnings[0].path, "bulk");
         assert_eq!(warnings[0].entry_count, 202);
@@ -427,6 +455,7 @@ mod tests {
                 command.arg(path);
             }
             let output = command.output().expect("git add should run");
+            // @verifies req.project_index.git_files
             assert!(
                 output.status.success(),
                 "git add failed: {}",
@@ -441,6 +470,7 @@ mod tests {
             .args(args)
             .output()
             .expect("git command should run");
+        // @verifies req.project_index.git_env
         assert!(
             output.status.success(),
             "git {:?} failed: {}",

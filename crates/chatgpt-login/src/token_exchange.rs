@@ -3,13 +3,19 @@ use serde::Deserialize;
 
 use crate::{ChatgptLoginError, config::ChatgptAuthConfig};
 
+// @behavior selvedge.login.token_exchange Completed ChatGPT login exchanges provider authorization for tokens before local persistence.
+// @behavior selvedge.login.token_exchange.tokens Successful authorization exchange returns id, access, and refresh tokens for persistence.
 #[derive(Clone, Debug)]
 pub(crate) struct TokenSet {
+    // @behavior selvedge.login.token_exchange.id_token Successful authorization exchange returns the id token persisted into the ChatGPT auth file.
     pub id_token: String,
+    // @behavior selvedge.login.token_exchange.access_token Successful authorization exchange returns the access token persisted into the ChatGPT auth file.
     pub access_token: String,
+    // @behavior selvedge.login.token_exchange.refresh_token Successful authorization exchange returns the refresh token persisted into the ChatGPT auth file.
     pub refresh_token: String,
 }
 
+// @behavior selvedge.login.token_exchange.request Completing device-code login exchanges the authorization code and verifier at the configured issuer OAuth token endpoint.
 pub(crate) async fn exchange(
     config: &ChatgptAuthConfig,
     authorization: &crate::DeviceCodeAuthorization,
@@ -35,6 +41,7 @@ pub(crate) async fn exchange(
         compression: selvedge_client::RequestCompression::None,
     })
     .await
+    // @behavior selvedge.login.token_exchange.transport Token exchange transport failures are mapped into caller-visible ChatGPT login errors.
     .map_err(map_exchange_error)?;
     let payload: TokenExchangeResponse =
         serde_json::from_slice(&response.body).map_err(|error| {
@@ -50,6 +57,7 @@ pub(crate) async fn exchange(
     })
 }
 
+// @behavior selvedge.login.token_exchange.error_status Token exchange status failures expose provider status and optional response body to callers.
 fn map_exchange_error(error: selvedge_client::HttpError) -> ChatgptLoginError {
     match error {
         selvedge_client::HttpError::Status(status_error) => {
@@ -66,6 +74,7 @@ fn map_exchange_error(error: selvedge_client::HttpError) -> ChatgptLoginError {
     }
 }
 
+// @constraint selvedge.login.token_exchange.required_tokens Token exchange success responses must contain nonempty id, access, and refresh tokens before login can complete.
 fn read_required_token(
     value: Option<String>,
     field_name: &str,
@@ -78,6 +87,7 @@ fn read_required_token(
     }
 }
 
+// @intent selvedge.login.token_exchange.response The token exchange response adapter carries provider token fields into required token validation.
 #[derive(Debug, Deserialize)]
 struct TokenExchangeResponse {
     id_token: Option<String>,
