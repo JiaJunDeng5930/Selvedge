@@ -48,11 +48,15 @@ fn open_db_creates_schema_and_root_task_transaction_moves_cursor() {
     )
     .expect("create root task");
 
+    // @verifies selvedge.state.task.create_root.call
     assert_eq!(task.task_status, TaskStatusRow::Active);
+    // @verifies selvedge.state.task.create_root.call
     assert_eq!(task.state_version, 0);
 
     let loaded = load_active_task(&db, &TaskId("task-1".to_owned())).expect("load active task");
+    // @verifies selvedge.state.task.load_active
     assert_eq!(loaded.task.cursor_node_id, task.cursor_node_id);
+    // @verifies selvedge.state.task.load_active
     assert!(matches!(loaded.cursor_node, HistoryNode::Message { .. }));
 }
 
@@ -163,6 +167,7 @@ fn append_history_uses_database_cursor_as_parent() {
             _ => None,
         })
         .collect::<Vec<_>>();
+    // @verifies selvedge.state.history.append_user
     assert_eq!(messages, vec!["hello", "first append", "stale append"]);
 }
 
@@ -202,6 +207,7 @@ fn create_child_task_accepts_strategy_cursor_outside_parent_chain() {
         },
     )
     .expect("create foreign");
+    // @verifies selvedge.state.task.create_child.call
     assert_ne!(parent.cursor_node_id, foreign.cursor_node_id);
 
     let child = create_child_task(
@@ -215,6 +221,7 @@ fn create_child_task_accepts_strategy_cursor_outside_parent_chain() {
     )
     .expect("create child task");
 
+    // @verifies selvedge.state.task.create_child.call
     assert_eq!(child.cursor_node_id, foreign.cursor_node_id);
 }
 
@@ -261,6 +268,8 @@ fn create_history_node_accepts_strategy_parent_and_root_task_uses_existing_curso
 
     let conversation =
         read_conversation_for_task(&db, &TaskId("root".to_owned())).expect("conversation");
+    // @verifies selvedge.state.task.create_root.call
     assert_eq!(root.task_id, TaskId("root".to_owned()));
+    // @verifies selvedge.state.conversation.read
     assert_eq!(conversation.items.len(), 2);
 }

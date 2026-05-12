@@ -10,6 +10,7 @@ use crate::{
     ChatgptAuthError, ChatgptAuthFile, ChatgptAuthParseError, ChatgptStoredTokens, parse_auth_file,
 };
 
+// @behavior selvedge.auth.file.parse.schema Auth file parsing accepts only the ChatGPT device-code schema version and token fields that request resolution can consume.
 pub(crate) fn parse(bytes: &[u8]) -> Result<ChatgptAuthFile, ChatgptAuthParseError> {
     let json: Value =
         serde_json::from_slice(bytes).map_err(|error| ChatgptAuthParseError::InvalidJson {
@@ -27,12 +28,14 @@ pub(crate) fn parse(bytes: &[u8]) -> Result<ChatgptAuthFile, ChatgptAuthParseErr
     let tokens = read_tokens(object.get("tokens"))?;
 
     if schema_version != 1 {
+        // @behavior selvedge.auth.file.parse.unsupported_schema Auth file parsing reports unsupported schema versions as structured parse errors.
         return Err(ChatgptAuthParseError::UnsupportedSchemaVersion {
             version: schema_version,
         });
     }
 
     if provider != "chatgpt" {
+        // @behavior selvedge.auth.file.parse.provider Auth file parsing reports provider values outside the ChatGPT contract as structured parse errors.
         return Err(ChatgptAuthParseError::InvalidField {
             field: "provider",
             reason: "must equal \"chatgpt\"".to_owned(),
@@ -40,6 +43,7 @@ pub(crate) fn parse(bytes: &[u8]) -> Result<ChatgptAuthFile, ChatgptAuthParseErr
     }
 
     if login_method != "device_code" {
+        // @behavior selvedge.auth.file.parse.login_method Auth file parsing reports login methods outside the device-code contract as structured parse errors.
         return Err(ChatgptAuthParseError::InvalidField {
             field: "login_method",
             reason: "must equal \"device_code\"".to_owned(),
@@ -54,6 +58,7 @@ pub(crate) fn parse(bytes: &[u8]) -> Result<ChatgptAuthFile, ChatgptAuthParseErr
     })
 }
 
+// @constraint selvedge.auth.file.schema_version The persisted ChatGPT auth schema version must be a positive integer that fits in a u32.
 fn read_schema_version(value: Option<&Value>) -> Result<u32, ChatgptAuthParseError> {
     let value = value.ok_or(ChatgptAuthParseError::MissingField {
         field: "schema_version",
@@ -65,12 +70,14 @@ fn read_schema_version(value: Option<&Value>) -> Result<u32, ChatgptAuthParseErr
             reason: "must be a positive integer".to_owned(),
         })?;
 
+    // @constraint selvedge.auth.file.schema_version.range Auth file parsing rejects schema versions that exceed the public u32 schema field.
     u32::try_from(integer).map_err(|_| ChatgptAuthParseError::InvalidField {
         field: "schema_version",
         reason: "must fit in u32".to_owned(),
     })
 }
 
+// @behavior selvedge.auth.file.tokens.required Auth file parsing requires id_token, access_token, and refresh_token values before credentials can be resolved.
 fn read_tokens(value: Option<&Value>) -> Result<ChatgptStoredTokens, ChatgptAuthParseError> {
     let object = value
         .ok_or(ChatgptAuthParseError::MissingField { field: "tokens" })?
@@ -87,6 +94,7 @@ fn read_tokens(value: Option<&Value>) -> Result<ChatgptStoredTokens, ChatgptAuth
     })
 }
 
+// @constraint selvedge.auth.file.required_string Required auth file string fields must be present and nonempty in caller-visible parse results.
 fn read_required_string(
     value: Option<&Value>,
     field: &'static str,
@@ -100,6 +108,7 @@ fn read_required_string(
         })?;
 
     if text.is_empty() {
+        // @constraint selvedge.auth.file.required_string.empty Required auth file string fields must contain a value before parsing succeeds.
         return Err(ChatgptAuthParseError::InvalidField {
             field,
             reason: "must not be empty".to_owned(),
@@ -109,10 +118,12 @@ fn read_required_string(
     Ok(text.to_owned())
 }
 
+// @behavior selvedge.auth.file.path ChatGPT auth state is read from and written to `<selvedge_home>/auth/chatgpt-auth.json`.
 pub(crate) fn auth_file_path(selvedge_home: &Path) -> PathBuf {
     selvedge_home.join("auth/chatgpt-auth.json")
 }
 
+// @behavior selvedge.auth.file.load Auth file loading maps absent, unreadable, and malformed local auth files into caller-visible auth resolution errors.
 pub(crate) fn load(path: &Path) -> Result<ChatgptAuthFile, ChatgptAuthError> {
     let bytes = fs::read(path).map_err(|error| match error.kind() {
         std::io::ErrorKind::NotFound => ChatgptAuthError::AuthFileMissing {
@@ -124,25 +135,30 @@ pub(crate) fn load(path: &Path) -> Result<ChatgptAuthFile, ChatgptAuthError> {
         },
     })?;
 
+    // @behavior selvedge.auth.file.load.malformed Malformed local auth file content is returned as a caller-visible auth file malformed error with the target path.
     parse_auth_file(&bytes).map_err(|error| ChatgptAuthError::AuthFileMalformed {
         path: path.to_path_buf(),
         reason: format!("{error:?}"),
     })
 }
 
+// @behavior selvedge.auth.file.refresh_hint Forced refreshes may observe a pre-lock auth file snapshot to detect whether another caller already repaired credentials.
 pub(crate) fn load_refresh_hint(path: &Path) -> Option<ChatgptAuthFile> {
     let bytes = fs::read(path).ok()?;
 
     parse_auth_file(&bytes).ok()
 }
 
+// @behavior selvedge.auth.file.persist Successful auth refresh writes the ChatGPT auth file atomically with schema version one and device-code token fields.
 pub(crate) fn persist(path: &Path, tokens: &ChatgptStoredTokens) -> Result<(), ChatgptAuthError> {
     let parent = path
         .parent()
+        // @behavior selvedge.auth.file.persist.parent Persisting ChatGPT auth reports target paths without parent directories as persist failures.
         .ok_or_else(|| ChatgptAuthError::PersistFailed {
             path: path.to_path_buf(),
             reason: "auth file path must have a parent directory".to_owned(),
         })?;
+    // @behavior selvedge.auth.file.persist.directory Persisting ChatGPT auth creates the target auth directory or reports a persist failure.
     fs::create_dir_all(parent).map_err(|error| ChatgptAuthError::PersistFailed {
         path: path.to_path_buf(),
         reason: error.to_string(),
@@ -158,11 +174,13 @@ pub(crate) fn persist(path: &Path, tokens: &ChatgptStoredTokens) -> Result<(), C
             "refresh_token": tokens.refresh_token,
         }
     }))
+    // @behavior selvedge.auth.file.persist.encode Persisting ChatGPT auth reports serialization failures as persist failures with the target path.
     .map_err(|error| ChatgptAuthError::PersistFailed {
         path: path.to_path_buf(),
         reason: error.to_string(),
     })?;
 
+    // @behavior selvedge.auth.file.persist.temp Persisting ChatGPT auth reports temporary file creation failures as persist failures with the target path.
     let mut temp_file = tempfile::NamedTempFile::new_in(parent).map_err(|error| {
         ChatgptAuthError::PersistFailed {
             path: path.to_path_buf(),
@@ -173,6 +191,7 @@ pub(crate) fn persist(path: &Path, tokens: &ChatgptStoredTokens) -> Result<(), C
     temp_file
         .write_all(&payload)
         .and_then(|_| temp_file.as_file_mut().sync_all())
+        // @behavior selvedge.auth.file.persist.write Persisting ChatGPT auth reports payload write and sync failures as persist failures with the target path.
         .map_err(|error| ChatgptAuthError::PersistFailed {
             path: path.to_path_buf(),
             reason: error.to_string(),
@@ -180,6 +199,7 @@ pub(crate) fn persist(path: &Path, tokens: &ChatgptStoredTokens) -> Result<(), C
 
     temp_file
         .persist(path)
+        // @behavior selvedge.auth.file.persist.replace Persisting ChatGPT auth reports atomic replacement failures as persist failures with the target path.
         .map_err(|error| ChatgptAuthError::PersistFailed {
             path: path.to_path_buf(),
             reason: error.error.to_string(),

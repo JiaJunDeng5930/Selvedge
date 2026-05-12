@@ -43,6 +43,7 @@ async fn successful_hydration_sends_begin_before_snapshot() {
     assert_begin(&begin, "client-1", "attach-1");
     let snapshot = recv_control(&mut events_rx).await;
     assert_snapshot(&snapshot, "client-1", "attach-1");
+    // @verifies selvedge.client.sync
     assert_eq!(builder.requests(), vec![request("client-1", "attach-1")]);
 
     shutdown(handle).await;
@@ -74,12 +75,16 @@ async fn builder_failure_sends_error_notice_then_detach() {
     let notice = recv_control(&mut events_rx).await;
     match notice {
         EventControlMessage::DeliverNotice(notice) => {
+            // @verifies selvedge.client.sync
             assert_eq!(notice.client_id, ClientId("client-1".to_owned()));
+            // @verifies selvedge.client.sync
             assert_eq!(
                 notice.client_command_id,
                 ClientCommandId("attach-1".to_owned())
             );
+            // @verifies selvedge.client.sync
             assert_eq!(notice.notice.level, ClientNoticeLevel::Error);
+            // @verifies selvedge.client.sync
             assert!(notice.notice.message_text.contains("db unavailable"));
         }
         other => panic!("expected notice, got {other:?}"),
@@ -87,11 +92,14 @@ async fn builder_failure_sends_error_notice_then_detach() {
     let detach = recv_control(&mut events_rx).await;
     match detach {
         EventControlMessage::DetachClient(detach) => {
+            // @verifies selvedge.client.sync
             assert_eq!(detach.client_id, ClientId("client-1".to_owned()));
+            // @verifies selvedge.client.sync
             assert_eq!(
                 detach.client_command_id,
                 ClientCommandId("attach-1".to_owned())
             );
+            // @verifies selvedge.client.sync
             assert_eq!(detach.reason, DetachReason::DeliveryFailed);
         }
         other => panic!("expected detach, got {other:?}"),
@@ -124,11 +132,13 @@ async fn begin_send_failure_does_not_call_builder() {
         .expect("send start");
 
     let status = handle.join_handle.await.expect("join client sync");
+    // @verifies selvedge.client.sync
     assert!(matches!(
         status,
         ClientSyncExitStatus::Fatal(message)
             if message.contains("beginning client hydration")
     ));
+    // @verifies selvedge.client.sync
     assert!(builder.requests().is_empty());
 }
 
@@ -224,7 +234,9 @@ async fn duplicate_same_command_does_not_start_second_builder() {
 
     assert_begin(&recv_control(&mut events_rx).await, "client-1", "attach-1");
     tokio::time::sleep(Duration::from_millis(10)).await;
+    // @verifies selvedge.client.sync
     assert_eq!(builder.requests().len(), 1);
+    // @verifies selvedge.client.sync
     assert!(recv_control_timeout(&mut events_rx).await.is_none());
 
     shutdown(handle).await;
@@ -267,6 +279,7 @@ async fn new_command_replaces_old_late_builder_result() {
 
     old_tx.send(Ok(empty_snapshot())).expect("release old");
     tokio::time::sleep(Duration::from_millis(10)).await;
+    // @verifies selvedge.client.sync
     assert!(recv_control_timeout(&mut events_rx).await.is_none());
 
     new_tx.send(Ok(empty_snapshot())).expect("release new");
@@ -309,6 +322,7 @@ async fn cancel_drops_late_builder_result() {
         .send(Ok(empty_snapshot()))
         .expect("release builder");
     tokio::time::sleep(Duration::from_millis(10)).await;
+    // @verifies selvedge.client.sync
     assert!(recv_control_timeout(&mut events_rx).await.is_none());
 
     shutdown(handle).await;
@@ -340,6 +354,7 @@ async fn shutdown_stops_task_and_discards_late_builder_result() {
         .send(ClientSyncIngress::Shutdown)
         .await
         .expect("send shutdown");
+    // @verifies selvedge.client.sync
     assert_eq!(
         handle.join_handle.await.expect("join client sync"),
         ClientSyncExitStatus::Stopped
@@ -349,6 +364,7 @@ async fn shutdown_stops_task_and_discards_late_builder_result() {
         .send(Ok(empty_snapshot()))
         .expect("release builder");
     tokio::time::sleep(Duration::from_millis(10)).await;
+    // @verifies selvedge.client.sync
     assert!(recv_control_timeout(&mut events_rx).await.is_none());
 }
 
@@ -364,6 +380,7 @@ async fn invalid_ingress_capacity_is_rejected() {
         ingress_capacity: 0,
     });
 
+    // @verifies selvedge.client.sync
     assert!(matches!(
         result,
         Err(SpawnClientSyncError::InvalidIngressCapacity)
@@ -474,7 +491,9 @@ async fn recv_control_timeout(
 fn assert_begin(control: &EventControlMessage, client_id: &str, command_id: &str) {
     match control {
         EventControlMessage::BeginClientHydration(begin) => {
+            // @verifies selvedge.client.sync
             assert_eq!(begin.client_id, ClientId(client_id.to_owned()));
+            // @verifies selvedge.client.sync
             assert_eq!(
                 begin.client_command_id,
                 ClientCommandId(command_id.to_owned())
@@ -487,7 +506,9 @@ fn assert_begin(control: &EventControlMessage, client_id: &str, command_id: &str
 fn assert_snapshot(control: &EventControlMessage, client_id: &str, command_id: &str) {
     match control {
         EventControlMessage::DeliverSnapshot(snapshot) => {
+            // @verifies selvedge.client.sync
             assert_eq!(snapshot.client_id, ClientId(client_id.to_owned()));
+            // @verifies selvedge.client.sync
             assert_eq!(
                 snapshot.client_command_id,
                 ClientCommandId(command_id.to_owned())
@@ -503,6 +524,7 @@ async fn shutdown(handle: selvedge_client_sync::ClientSyncHandle) {
         .send(ClientSyncIngress::Shutdown)
         .await
         .expect("send shutdown");
+    // @verifies selvedge.client.sync
     assert_eq!(
         handle.join_handle.await.expect("join client sync"),
         ClientSyncExitStatus::Stopped
@@ -511,6 +533,7 @@ async fn shutdown(handle: selvedge_client_sync::ClientSyncHandle) {
 
 async fn expect_fatal_contains(handle: selvedge_client_sync::ClientSyncHandle, expected: &str) {
     let status = handle.join_handle.await.expect("join client sync");
+    // @verifies selvedge.client.sync
     assert!(matches!(
         status,
         ClientSyncExitStatus::Fatal(message) if message.contains(expected)

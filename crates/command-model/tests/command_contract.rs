@@ -23,21 +23,27 @@ fn dispatch_request_requires_complete_correlation_provider_and_conversation() {
     request.correlation.api_effect_id = ApiEffectId(" ".to_owned());
 
     let error = validate_dispatch_request(&request).expect_err("empty api effect id");
+    // @verifies selvedge.task
     assert_eq!(error.kind, ModelCallErrorKind::Validation);
+    // @verifies selvedge.task
     assert!(error.message.contains("api_effect_id"));
 
     let mut request = valid_dispatch_request();
     request.provider.provider_name.clear();
 
     let error = validate_dispatch_request(&request).expect_err("empty provider name");
+    // @verifies selvedge.task
     assert_eq!(error.kind, ModelCallErrorKind::Validation);
+    // @verifies selvedge.task
     assert!(error.message.contains("provider"));
 
     let mut request = valid_dispatch_request();
     request.conversation.messages.clear();
 
     let error = validate_dispatch_request(&request).expect_err("empty conversation");
+    // @verifies selvedge.task
     assert_eq!(error.kind, ModelCallErrorKind::Validation);
+    // @verifies selvedge.task
     assert!(error.message.contains("conversation"));
 }
 
@@ -86,6 +92,7 @@ fn router_ingress_api_message_wraps_output_envelope() {
 
     match message {
         RouterIngressApiMessage::ApiOutput(ApiOutputEnvelope::Failure { error, .. }) => {
+            // @verifies selvedge.task
             assert_eq!(error.kind, ModelCallErrorKind::Cancelled);
         }
         _ => panic!("unexpected message"),
@@ -114,11 +121,14 @@ fn event_ingress_and_client_frames_expose_router_events_contract() {
 
     match ingress {
         EventIngress::Control(EventControlMessage::BeginClientHydration(begin)) => {
+            // @verifies selvedge.task
             assert_eq!(begin.client_id, ClientId("client-1".to_owned()));
+            // @verifies selvedge.task
             assert_eq!(
                 begin.client_command_id,
                 ClientCommandId("attach-1".to_owned())
             );
+            // @verifies selvedge.task
             assert_eq!(begin.subscription.detail_level, DetailLevel::Verbose);
         }
         _ => panic!("unexpected event ingress"),
@@ -134,7 +144,9 @@ fn event_ingress_and_client_frames_expose_router_events_contract() {
 
     match raw {
         EventIngress::Raw(selvedge_command_model::RawEvent::HistoryAppended(event)) => {
+            // @verifies selvedge.task
             assert_eq!(event.task_id, TaskId("task-1".to_owned()));
+            // @verifies selvedge.task
             assert_eq!(event.task_state_version, 8);
         }
         _ => panic!("unexpected raw event"),
@@ -164,7 +176,9 @@ fn event_ingress_and_client_frames_expose_router_events_contract() {
         }),
     });
 
+    // @verifies selvedge.task
     assert!(matches!(snapshot_frame, ClientFrame::Snapshot(_)));
+    // @verifies selvedge.task
     assert!(matches!(event_frame, ClientFrame::Event(_)));
 }
 
@@ -185,7 +199,9 @@ fn factory_output_envelope_exposes_runtime_created_scan_and_failure_contract() {
 
     match created.output {
         FactoryOutput::RuntimeCreated(created) => {
+            // @verifies selvedge.task
             assert_eq!(created.task_id, TaskId("task-1".to_owned()));
+            // @verifies selvedge.task
             assert!(matches!(
                 created.created_runtime_kind,
                 CreatedRuntimeKind::ExistingTaskRuntime
@@ -209,11 +225,14 @@ fn factory_output_envelope_exposes_runtime_created_scan_and_failure_contract() {
 
     match scan {
         FactoryOutput::ScanFinished(scan) => {
+            // @verifies selvedge.task
             assert_eq!(scan.skipped[0].task_id, TaskId("task-live".to_owned()));
+            // @verifies selvedge.task
             assert!(matches!(
                 scan.skipped[0].reason,
                 FactorySkipReason::RuntimeAlreadyLive
             ));
+            // @verifies selvedge.task
             assert_eq!(scan.failed[0].kind, FactoryFailureKind::CoreSpawnFailed);
         }
         _ => panic!("unexpected factory output"),
@@ -227,7 +246,9 @@ fn factory_output_envelope_exposes_runtime_created_scan_and_failure_contract() {
 
     match failed {
         FactoryOutput::Failed(failure) => {
+            // @verifies selvedge.task
             assert_eq!(failure.task_id, Some(TaskId("task-archived".to_owned())));
+            // @verifies selvedge.task
             assert_eq!(failure.kind, FactoryFailureKind::TaskArchived);
 
             let duplicate = FactoryFailure {
@@ -235,6 +256,7 @@ fn factory_output_envelope_exposes_runtime_created_scan_and_failure_contract() {
                 kind: FactoryFailureKind::RuntimeAlreadyLive,
                 message: "task runtime is already live".to_owned(),
             };
+            // @verifies selvedge.task
             assert_eq!(duplicate.kind, FactoryFailureKind::RuntimeAlreadyLive);
         }
         _ => panic!("unexpected factory output"),
@@ -248,9 +270,11 @@ fn router_ingress_exposes_factory_output_and_runtime_inventory_query() {
         client_command_id: None,
         command: RouterCommand::EnsureMissingTaskRuntimes,
     });
+    // @verifies selvedge.task
     assert!(matches!(command, RouterIngressMessage::Command(_)));
 
     let stop = RouterIngressMessage::StopRouter;
+    // @verifies selvedge.task
     assert!(matches!(stop, RouterIngressMessage::StopRouter));
 }
 
@@ -287,6 +311,7 @@ fn router_command_validation_enforces_envelope_and_task_payload_contract() {
             client_command_id: ClientCommandId("detach-1".to_owned()),
         },
     };
+    // @verifies selvedge.task
     assert_eq!(
         validate_router_command(&missing_client_id),
         Err(RouterCommandValidationError::MissingClientId)
@@ -300,6 +325,7 @@ fn router_command_validation_enforces_envelope_and_task_payload_contract() {
             client_command_id: ClientCommandId("detach-1".to_owned()),
         },
     };
+    // @verifies selvedge.task
     assert_eq!(
         validate_router_command(&mismatched_client_id),
         Err(RouterCommandValidationError::MismatchedClientId)
@@ -313,6 +339,7 @@ fn router_command_validation_enforces_envelope_and_task_payload_contract() {
             client_command_id: ClientCommandId("detach-2".to_owned()),
         },
     };
+    // @verifies selvedge.task
     assert_eq!(
         validate_router_command(&mismatched_client_command_id),
         Err(RouterCommandValidationError::MismatchedClientCommandId)
@@ -325,6 +352,7 @@ fn router_command_validation_enforces_envelope_and_task_payload_contract() {
             task_id: TaskId(" ".to_owned()),
         },
     };
+    // @verifies selvedge.task
     assert_eq!(
         validate_router_command(&empty_task_id),
         Err(RouterCommandValidationError::EmptyTaskId)
@@ -338,6 +366,7 @@ fn router_command_validation_enforces_envelope_and_task_payload_contract() {
             message_text: " ".to_owned(),
         },
     };
+    // @verifies selvedge.task
     assert_eq!(
         validate_router_command(&empty_message),
         Err(RouterCommandValidationError::EmptyMessageText)

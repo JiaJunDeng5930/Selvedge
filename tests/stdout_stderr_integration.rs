@@ -21,12 +21,15 @@ fn binary_usage_error_keeps_stdout_empty() {
 
     let output = command.output().expect("run selvedge binary");
 
+    // @verifies selvedge.cli.process
     assert!(!output.status.success(), "binary should fail without args");
 
     let stdout = String::from_utf8(output.stdout).expect("stdout utf8");
     let stderr = String::from_utf8(output.stderr).expect("stderr utf8");
 
+    // @verifies selvedge.cli.process
     assert_eq!(stdout.trim(), "");
+    // @verifies selvedge.cli.process
     assert_eq!(stderr.trim(), "");
 }
 
@@ -52,7 +55,9 @@ fn binary_creates_default_selvedge_home_when_missing() {
 
     let output = command.output().expect("run selvedge binary");
 
+    // @verifies selvedge.cli.process
     assert!(!output.status.success(), "binary should fail without args");
+    // @verifies selvedge.cli.process
     assert!(expected_config.is_file(), "default config was not created");
 }
 
@@ -78,7 +83,9 @@ fn binary_bootstraps_under_xdg_when_home_is_missing() {
 
     let output = command.output().expect("run selvedge binary");
 
+    // @verifies selvedge.cli.process
     assert!(!output.status.success(), "binary should fail without args");
+    // @verifies selvedge.cli.process
     assert!(expected_config.is_file(), "xdg config was not created");
 }
 
@@ -105,8 +112,11 @@ fn binary_bootstraps_under_xdg_when_home_path_is_missing() {
 
     let output = command.output().expect("run selvedge binary");
 
+    // @verifies selvedge.cli.process
     assert!(!output.status.success(), "binary should fail without args");
+    // @verifies selvedge.cli.process
     assert!(expected_config.is_file(), "xdg config was not created");
+    // @verifies selvedge.cli.process
     assert!(
         !missing_home.join(".selvedge/config.toml").exists(),
         "missing home path should not be bootstrapped"
@@ -146,7 +156,9 @@ fn binary_falls_back_when_home_is_not_writable() {
 
     let output = command.output().expect("run selvedge binary");
 
+    // @verifies selvedge.cli.process
     assert!(!output.status.success(), "binary should fail without args");
+    // @verifies selvedge.cli.process
     assert!(
         expected_config.is_file() || home_config.is_file(),
         "expected either xdg fallback config ({}) or home config ({}) to exist",
@@ -188,5 +200,6 @@ level = "info"
 
     let output = command.output().expect("run selvedge binary");
 
+    // @verifies selvedge.cli.process
     assert!(!output.status.success(), "binary should fail without args");
 }

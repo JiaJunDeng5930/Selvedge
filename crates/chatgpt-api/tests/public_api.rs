@@ -117,22 +117,33 @@ fn public_api_exposes_chatgpt_response_stream_types() {
     });
     let opaque = ResponseItem::Opaque(OpaqueResponseItem { raw: json_object });
 
+    // @verifies selvedge.model.chatgpt.event.verify_surface
     assert_eq!(request.model, "gpt-5");
+    // @verifies selvedge.model.chatgpt.event.verify_surface
     assert!(matches!(
         lower_error,
         ChatgptApiLowerLayerError::StreamCompletionTimeout { .. }
     ));
+    // @verifies selvedge.model.chatgpt.event.verify_surface
     assert!(matches!(endpoint_error, ChatgptApiEndpointError::Failed(_)));
+    // @verifies selvedge.model.chatgpt.event.verify_surface
     assert!(matches!(
         other_endpoint_error,
         ChatgptApiEndpointError::Incomplete(_)
     ));
+    // @verifies selvedge.model.chatgpt.event.verify_surface
     assert!(matches!(other, ChatgptApiEndpointError::Other(_)));
+    // @verifies selvedge.model.chatgpt.event.verify_surface
     assert!(matches!(event, ChatgptResponseEvent::Completed(_)));
+    // @verifies selvedge.model.chatgpt.event.verify_surface
     assert!(matches!(item, ResponseItem::FunctionCall(_)));
+    // @verifies selvedge.model.chatgpt.event.verify_surface
     assert!(matches!(output_item, ResponseItem::FunctionCallOutput(_)));
+    // @verifies selvedge.model.chatgpt.event.verify_surface
     assert!(matches!(reasoning_item, ResponseItem::Reasoning(_)));
+    // @verifies selvedge.model.chatgpt.event.verify_surface
     assert!(matches!(opaque, ResponseItem::Opaque(_)));
+    // @verifies selvedge.model.chatgpt.event.verify_surface
     assert_eq!(validation_error.field, "model");
 
     let _ = ChatgptResponseStream::effective_turn_state;

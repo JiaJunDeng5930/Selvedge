@@ -17,11 +17,13 @@ use support::{
     write_auth_file,
 };
 
+// @verifies selvedge.auth.resolve.existing
 #[tokio::test(flavor = "multi_thread")]
 async fn resolve_for_request_returns_current_auth_without_refresh() {
     const FLAG: &str = "CHATGPT_AUTH_RESOLVE_DIRECT_CHILD";
 
     if !child_mode(FLAG) {
+        // @verifies selvedge.auth
         assert_child_success(&run_child(
             "resolve_for_request_returns_current_auth_without_refresh",
             FLAG,
@@ -55,19 +57,27 @@ issuer = "http://127.0.0.1:1"
 
     let resolved = resolve_for_request().await.expect("resolve auth");
 
+    // @verifies selvedge.auth
     assert_eq!(resolved.access_token, "opaque-access-token");
+    // @verifies selvedge.auth
     assert_eq!(resolved.access_token_expires_at, None);
+    // @verifies selvedge.auth
     assert_eq!(resolved.account_id, "workspace-123");
+    // @verifies selvedge.auth
     assert_eq!(resolved.user_id.as_deref(), Some("user-456"));
+    // @verifies selvedge.auth
     assert_eq!(resolved.email.as_deref(), Some("user@example.com"));
+    // @verifies selvedge.auth
     assert_eq!(resolved.plan_type.as_deref(), Some("plus"));
 }
 
+// @verifies selvedge.auth.resolve.access_expiration
 #[tokio::test(flavor = "multi_thread")]
 async fn resolve_for_request_allows_dotted_opaque_access_token_without_refresh() {
     const FLAG: &str = "CHATGPT_AUTH_DOTTED_OPAQUE_CHILD";
 
     if !child_mode(FLAG) {
+        // @verifies selvedge.auth
         assert_child_success(&run_child(
             "resolve_for_request_allows_dotted_opaque_access_token_without_refresh",
             FLAG,
@@ -100,14 +110,17 @@ issuer = "http://127.0.0.1:1"
         .await
         .expect("dotted opaque token should not trigger refresh");
 
+    // @verifies selvedge.auth
     assert_eq!(resolved.access_token, "abc.def.ghi");
 }
 
+// @verifies selvedge.auth.refresh.access_usable
 #[tokio::test(flavor = "multi_thread")]
 async fn resolve_after_unauthorized_accepts_structured_opaque_access_token_from_refresh() {
     const FLAG: &str = "CHATGPT_AUTH_STRUCTURED_OPAQUE_REFRESH_CHILD";
 
     if !child_mode(FLAG) {
+        // @verifies selvedge.auth
         assert_child_success(&run_child(
             "resolve_after_unauthorized_accepts_structured_opaque_access_token_from_refresh",
             FLAG,
@@ -163,14 +176,17 @@ issuer = "{}"
         .await
         .expect("structured opaque access token should be accepted");
 
+    // @verifies selvedge.auth
     assert_eq!(resolved.access_token, expected_access_token);
 }
 
+// @verifies selvedge.auth.file.persist
 #[tokio::test(flavor = "multi_thread")]
 async fn resolve_for_request_refreshes_expired_access_token_and_persists_result() {
     const FLAG: &str = "CHATGPT_AUTH_REFRESH_EXPIRED_CHILD";
 
     if !child_mode(FLAG) {
+        // @verifies selvedge.auth
         assert_child_success(&run_child(
             "resolve_for_request_refreshes_expired_access_token_and_persists_result",
             FLAG,
@@ -232,18 +248,25 @@ issuer = "{}"
     let resolved = resolve_for_request().await.expect("resolve auth");
     let persisted = std::fs::read_to_string(&auth_file_path).expect("read persisted auth file");
 
+    // @verifies selvedge.auth
     assert_eq!(refresh_hits.load(Ordering::SeqCst), 1);
+    // @verifies selvedge.auth
     assert_eq!(resolved.access_token, "new-access-token");
+    // @verifies selvedge.auth
     assert_eq!(resolved.account_id, "workspace-123");
+    // @verifies selvedge.auth
     assert!(persisted.contains("\"access_token\":\"new-access-token\""));
+    // @verifies selvedge.auth
     assert!(persisted.contains("\"refresh_token\":\"refresh-token\""));
 }
 
+// @verifies selvedge.auth.resolve.access_expiration
 #[tokio::test(flavor = "multi_thread")]
 async fn resolve_for_request_refreshes_malformed_jwt_access_token() {
     const FLAG: &str = "CHATGPT_AUTH_REFRESH_MALFORMED_ACCESS_CHILD";
 
     if !child_mode(FLAG) {
+        // @verifies selvedge.auth
         assert_child_success(&run_child(
             "resolve_for_request_refreshes_malformed_jwt_access_token",
             FLAG,
@@ -306,15 +329,19 @@ issuer = "{}"
         .await
         .expect("malformed jwt access token should refresh");
 
+    // @verifies selvedge.auth
     assert_eq!(refresh_hits.load(Ordering::SeqCst), 1);
+    // @verifies selvedge.auth
     assert_eq!(resolved.access_token, "new-access-token");
 }
 
+// @verifies selvedge.auth.jwt.header
 #[tokio::test(flavor = "multi_thread")]
 async fn resolve_for_request_refreshes_truncated_jwt_access_token() {
     const FLAG: &str = "CHATGPT_AUTH_REFRESH_TRUNCATED_ACCESS_CHILD";
 
     if !child_mode(FLAG) {
+        // @verifies selvedge.auth
         assert_child_success(&run_child(
             "resolve_for_request_refreshes_truncated_jwt_access_token",
             FLAG,
@@ -377,15 +404,19 @@ issuer = "{}"
         .await
         .expect("truncated jwt access token should refresh");
 
+    // @verifies selvedge.auth
     assert_eq!(refresh_hits.load(Ordering::SeqCst), 1);
+    // @verifies selvedge.auth
     assert_eq!(resolved.access_token, "new-access-token");
 }
 
+// @verifies selvedge.auth.resolve.unauthorized
 #[tokio::test(flavor = "multi_thread")]
 async fn resolve_after_unauthorized_always_refreshes() {
     const FLAG: &str = "CHATGPT_AUTH_FORCE_REFRESH_CHILD";
 
     if !child_mode(FLAG) {
+        // @verifies selvedge.auth
         assert_child_success(&run_child(
             "resolve_after_unauthorized_always_refreshes",
             FLAG,
@@ -436,15 +467,19 @@ issuer = "{}"
         .await
         .expect("force refresh auth");
 
+    // @verifies selvedge.auth
     assert_eq!(refresh_hits.load(Ordering::SeqCst), 1);
+    // @verifies selvedge.auth
     assert_eq!(resolved.access_token, "refreshed-access-token");
 }
 
+// @verifies selvedge.auth.refresh.request
 #[tokio::test(flavor = "multi_thread")]
 async fn resolve_for_request_sends_refresh_request_as_form_data() {
     const FLAG: &str = "CHATGPT_AUTH_REFRESH_FORM_CHILD";
 
     if !child_mode(FLAG) {
+        // @verifies selvedge.auth
         assert_child_success(&run_child(
             "resolve_for_request_sends_refresh_request_as_form_data",
             FLAG,
@@ -512,14 +547,17 @@ issuer = "{}"
 
     let resolved = resolve_for_request().await.expect("refresh with form body");
 
+    // @verifies selvedge.auth
     assert_eq!(resolved.access_token, "new-access-token");
 }
 
+// @verifies selvedge.auth.file.load
 #[tokio::test(flavor = "multi_thread")]
 async fn resolve_for_request_returns_auth_file_read_failed_when_path_is_directory() {
     const FLAG: &str = "CHATGPT_AUTH_READ_FAILED_CHILD";
 
     if !child_mode(FLAG) {
+        // @verifies selvedge.auth
         assert_child_success(&run_child(
             "resolve_for_request_returns_auth_file_read_failed_when_path_is_directory",
             FLAG,
@@ -543,17 +581,20 @@ issuer = "http://127.0.0.1:1"
         .await
         .expect_err("directory path must fail to read");
 
+    // @verifies selvedge.auth
     assert!(matches!(
         error,
         ChatgptAuthError::AuthFileReadFailed { path, .. } if path == auth_file_path
     ));
 }
 
+// @verifies selvedge.auth.file.load
 #[tokio::test(flavor = "multi_thread")]
 async fn resolve_for_request_returns_auth_file_missing_when_file_is_absent() {
     const FLAG: &str = "CHATGPT_AUTH_FILE_MISSING_CHILD";
 
     if !child_mode(FLAG) {
+        // @verifies selvedge.auth
         assert_child_success(&run_child(
             "resolve_for_request_returns_auth_file_missing_when_file_is_absent",
             FLAG,
@@ -576,17 +617,20 @@ issuer = "http://127.0.0.1:1"
         .await
         .expect_err("missing auth file must fail");
 
+    // @verifies selvedge.auth
     assert!(matches!(
         error,
         ChatgptAuthError::AuthFileMissing { path } if path == expected_path
     ));
 }
 
+// @verifies selvedge.auth.lock.file
 #[tokio::test(flavor = "multi_thread")]
 async fn resolve_for_request_recreates_missing_selvedge_home_before_locking() {
     const FLAG: &str = "CHATGPT_AUTH_RECREATE_HOME_CHILD";
 
     if !child_mode(FLAG) {
+        // @verifies selvedge.auth
         assert_child_success(&run_child(
             "resolve_for_request_recreates_missing_selvedge_home_before_locking",
             FLAG,
@@ -611,17 +655,20 @@ issuer = "http://127.0.0.1:1"
         .await
         .expect_err("missing recreated home should surface missing auth file");
 
+    // @verifies selvedge.auth
     assert!(matches!(
         error,
         ChatgptAuthError::AuthFileMissing { path } if path == expected_path
     ));
 }
 
+// @verifies selvedge.auth.refresh.invalid_success
 #[tokio::test(flavor = "multi_thread")]
 async fn resolve_for_request_maps_illegal_success_response_to_refresh_failed() {
     const FLAG: &str = "CHATGPT_AUTH_ILLEGAL_SUCCESS_CHILD";
 
     if !child_mode(FLAG) {
+        // @verifies selvedge.auth
         assert_child_success(&run_child(
             "resolve_for_request_maps_illegal_success_response_to_refresh_failed",
             FLAG,
@@ -661,6 +708,7 @@ issuer = "{}"
         .await
         .expect_err("illegal success response must fail");
 
+    // @verifies selvedge.auth
     assert!(matches!(
         error,
         ChatgptAuthError::RefreshFailed {
@@ -668,17 +716,20 @@ issuer = "{}"
             ..
         }
     ));
+    // @verifies selvedge.auth
     assert_eq!(
         std::fs::read_to_string(&auth_file_path).expect("read original auth file"),
         original
     );
 }
 
+// @verifies selvedge.auth.refresh.id_token
 #[tokio::test(flavor = "multi_thread")]
 async fn resolve_for_request_rejects_refresh_without_new_id_token_when_old_one_is_unusable() {
     const FLAG: &str = "CHATGPT_AUTH_MISSING_REPLACEMENT_ID_TOKEN_CHILD";
 
     if !child_mode(FLAG) {
+        // @verifies selvedge.auth
         assert_child_success(&run_child(
             "resolve_for_request_rejects_refresh_without_new_id_token_when_old_one_is_unusable",
             FLAG,
@@ -722,6 +773,7 @@ issuer = "{}"
         .await
         .expect_err("missing replacement id token must fail");
 
+    // @verifies selvedge.auth
     assert!(matches!(
         error,
         ChatgptAuthError::RefreshFailed {
@@ -729,17 +781,20 @@ issuer = "{}"
             ..
         }
     ));
+    // @verifies selvedge.auth
     assert_eq!(
         std::fs::read_to_string(&auth_file_path).expect("read original auth file"),
         original
     );
 }
 
+// @verifies selvedge.auth.refresh.access_token
 #[tokio::test(flavor = "multi_thread")]
 async fn resolve_for_request_rejects_refresh_with_already_expired_access_token() {
     const FLAG: &str = "CHATGPT_AUTH_REFRESH_EXPIRED_RESPONSE_ACCESS_CHILD";
 
     if !child_mode(FLAG) {
+        // @verifies selvedge.auth
         assert_child_success(&run_child(
             "resolve_for_request_rejects_refresh_with_already_expired_access_token",
             FLAG,
@@ -792,6 +847,7 @@ issuer = "{}"
         .await
         .expect_err("expired response access token must fail");
 
+    // @verifies selvedge.auth
     assert!(matches!(
         error,
         ChatgptAuthError::RefreshFailed {
@@ -799,17 +855,20 @@ issuer = "{}"
             ..
         }
     ));
+    // @verifies selvedge.auth
     assert_eq!(
         std::fs::read_to_string(&auth_file_path).expect("read original auth file"),
         original
     );
 }
 
+// @verifies selvedge.auth.refresh.error_status
 #[tokio::test(flavor = "multi_thread")]
 async fn resolve_for_request_maps_unauthorized_refresh_to_reauthentication_required() {
     const FLAG: &str = "CHATGPT_AUTH_REAUTH_REQUIRED_CHILD";
 
     if !child_mode(FLAG) {
+        // @verifies selvedge.auth
         assert_child_success(&run_child(
             "resolve_for_request_maps_unauthorized_refresh_to_reauthentication_required",
             FLAG,
@@ -856,6 +915,7 @@ issuer = "{}"
         .await
         .expect_err("unauthorized refresh must fail");
 
+    // @verifies selvedge.auth
     assert!(matches!(
         error,
         ChatgptAuthError::ReauthenticationRequired {
@@ -866,11 +926,13 @@ issuer = "{}"
     ));
 }
 
+// @verifies selvedge.auth.refresh.reauthentication_codes
 #[tokio::test(flavor = "multi_thread")]
 async fn resolve_for_request_maps_invalid_grant_refresh_to_reauthentication_required() {
     const FLAG: &str = "CHATGPT_AUTH_INVALID_GRANT_CHILD";
 
     if !child_mode(FLAG) {
+        // @verifies selvedge.auth
         assert_child_success(&run_child(
             "resolve_for_request_maps_invalid_grant_refresh_to_reauthentication_required",
             FLAG,
@@ -917,6 +979,7 @@ issuer = "{}"
         .await
         .expect_err("invalid grant must require reauthentication");
 
+    // @verifies selvedge.auth
     assert!(matches!(
         error,
         ChatgptAuthError::ReauthenticationRequired {
@@ -927,11 +990,13 @@ issuer = "{}"
     ));
 }
 
+// @verifies selvedge.auth.refresh.invalid_success
 #[tokio::test(flavor = "multi_thread")]
 async fn resolve_for_request_maps_http_200_error_payload_to_reauthentication_required() {
     const FLAG: &str = "CHATGPT_AUTH_200_ERROR_PAYLOAD_CHILD";
 
     if !child_mode(FLAG) {
+        // @verifies selvedge.auth
         assert_child_success(&run_child(
             "resolve_for_request_maps_http_200_error_payload_to_reauthentication_required",
             FLAG,
@@ -975,6 +1040,7 @@ issuer = "{}"
         .await
         .expect_err("http 200 error payload must require reauthentication");
 
+    // @verifies selvedge.auth
     assert!(matches!(
         error,
         ChatgptAuthError::ReauthenticationRequired {
@@ -985,11 +1051,13 @@ issuer = "{}"
     ));
 }
 
+// @verifies selvedge.auth.refresh.diagnostics
 #[tokio::test(flavor = "multi_thread")]
 async fn resolve_for_request_maps_plain_unauthorized_refresh_to_refresh_failed() {
     const FLAG: &str = "CHATGPT_AUTH_PLAIN_401_CHILD";
 
     if !child_mode(FLAG) {
+        // @verifies selvedge.auth
         assert_child_success(&run_child(
             "resolve_for_request_maps_plain_unauthorized_refresh_to_refresh_failed",
             FLAG,
@@ -1035,6 +1103,7 @@ issuer = "{}"
         .await
         .expect_err("plain unauthorized must stay refresh failed");
 
+    // @verifies selvedge.auth
     assert!(matches!(
         error,
         ChatgptAuthError::RefreshFailed {
@@ -1045,11 +1114,13 @@ issuer = "{}"
     ));
 }
 
+// @verifies selvedge.auth.resolve.workspace
 #[tokio::test(flavor = "multi_thread")]
 async fn resolve_for_request_rejects_workspace_mismatch() {
     const FLAG: &str = "CHATGPT_AUTH_WORKSPACE_MISMATCH_CHILD";
 
     if !child_mode(FLAG) {
+        // @verifies selvedge.auth
         assert_child_success(&run_child(
             "resolve_for_request_rejects_workspace_mismatch",
             FLAG,
@@ -1083,6 +1154,7 @@ expected_workspace_id = "workspace-expected"
         .await
         .expect_err("workspace mismatch must fail");
 
+    // @verifies selvedge.auth
     assert!(matches!(
         error,
         ChatgptAuthError::WorkspaceMismatch { expected, actual }
@@ -1092,11 +1164,13 @@ expected_workspace_id = "workspace-expected"
 }
 
 #[cfg(unix)]
+// @verifies selvedge.auth.resolve.workspace
 #[tokio::test(flavor = "multi_thread")]
 async fn resolve_after_unauthorized_does_not_persist_workspace_mismatch_from_refresh() {
     const FLAG: &str = "CHATGPT_AUTH_REFRESH_WORKSPACE_MISMATCH_CHILD";
 
     if !child_mode(FLAG) {
+        // @verifies selvedge.auth
         assert_child_success(&run_child(
             "resolve_after_unauthorized_does_not_persist_workspace_mismatch_from_refresh",
             FLAG,
@@ -1150,23 +1224,27 @@ expected_workspace_id = "workspace-expected"
         .await
         .expect_err("mismatched workspace refresh must fail");
 
+    // @verifies selvedge.auth
     assert!(matches!(
         error,
         ChatgptAuthError::WorkspaceMismatch { expected, actual }
             if expected == "workspace-expected"
                 && actual.as_deref() == Some("workspace-actual")
     ));
+    // @verifies selvedge.auth
     assert_eq!(
         fs::read_to_string(&auth_file_path).expect("read original auth file"),
         original
     );
 }
 
+// @verifies selvedge.auth.refresh.access_token
 #[tokio::test(flavor = "multi_thread")]
 async fn resolve_after_unauthorized_rejects_refresh_response_without_access_token() {
     const FLAG: &str = "CHATGPT_AUTH_FORCE_REFRESH_MISSING_ACCESS_CHILD";
 
     if !child_mode(FLAG) {
+        // @verifies selvedge.auth
         assert_child_success(&run_child(
             "resolve_after_unauthorized_rejects_refresh_response_without_access_token",
             FLAG,
@@ -1214,6 +1292,7 @@ issuer = "{}"
         .await
         .expect_err("refresh without access token must fail");
 
+    // @verifies selvedge.auth
     assert!(matches!(
         error,
         ChatgptAuthError::RefreshFailed {
@@ -1221,17 +1300,20 @@ issuer = "{}"
             ..
         }
     ));
+    // @verifies selvedge.auth
     assert_eq!(
         fs::read_to_string(&auth_file_path).expect("read original auth file"),
         original
     );
 }
 
+// @verifies selvedge.auth.refresh.access_token
 #[tokio::test(flavor = "multi_thread")]
 async fn resolve_after_unauthorized_rejects_refresh_response_with_unchanged_access_token() {
     const FLAG: &str = "CHATGPT_AUTH_FORCE_REFRESH_UNCHANGED_ACCESS_CHILD";
 
     if !child_mode(FLAG) {
+        // @verifies selvedge.auth
         assert_child_success(&run_child(
             "resolve_after_unauthorized_rejects_refresh_response_with_unchanged_access_token",
             FLAG,
@@ -1281,6 +1363,7 @@ issuer = "{}"
         .await
         .expect_err("unchanged forced-refresh access token must fail");
 
+    // @verifies selvedge.auth
     assert!(matches!(
         error,
         ChatgptAuthError::RefreshFailed {
@@ -1288,6 +1371,7 @@ issuer = "{}"
             ..
         }
     ));
+    // @verifies selvedge.auth
     assert_eq!(
         std::fs::read_to_string(&auth_file_path).expect("read original auth file"),
         original
@@ -1295,11 +1379,13 @@ issuer = "{}"
 }
 
 #[cfg(unix)]
+// @verifies selvedge.auth.lock.file
 #[tokio::test(flavor = "multi_thread")]
 async fn resolve_for_request_returns_error_when_lock_file_cannot_be_created() {
     const FLAG: &str = "CHATGPT_AUTH_LOCK_PERMISSION_CHILD";
 
     if !child_mode(FLAG) {
+        // @verifies selvedge.auth
         assert_child_success(&run_child(
             "resolve_for_request_returns_error_when_lock_file_cannot_be_created",
             FLAG,
@@ -1347,7 +1433,9 @@ issuer = "http://127.0.0.1:1"
     fs::set_permissions(&selvedge_home, restored_permissions)
         .expect("restore selvedge home permissions");
 
+    // @verifies selvedge.auth
     assert!(!lock_file_path.exists());
+    // @verifies selvedge.auth
     assert!(matches!(
         error,
         ChatgptAuthError::AuthFileReadFailed { path, .. } if path == auth_file_path
@@ -1355,11 +1443,13 @@ issuer = "http://127.0.0.1:1"
 }
 
 #[cfg(unix)]
+// @verifies selvedge.auth.file.persist
 #[tokio::test(flavor = "multi_thread")]
 async fn resolve_for_request_preserves_original_file_when_persist_fails() {
     const FLAG: &str = "CHATGPT_AUTH_PERSIST_FAILED_CHILD";
 
     if !child_mode(FLAG) {
+        // @verifies selvedge.auth
         assert_child_success(&run_child(
             "resolve_for_request_preserves_original_file_when_persist_fails",
             FLAG,
@@ -1427,18 +1517,22 @@ issuer = "{}"
     restored_permissions.set_mode(0o700);
     fs::set_permissions(auth_dir, restored_permissions).expect("restore auth dir permissions");
 
+    // @verifies selvedge.auth
     assert!(matches!(error, ChatgptAuthError::PersistFailed { .. }));
+    // @verifies selvedge.auth
     assert_eq!(
         fs::read_to_string(&auth_file_path).expect("read original auth file"),
         original
     );
 }
 
+// @verifies selvedge.auth.lock
 #[tokio::test(flavor = "multi_thread")]
 async fn concurrent_calls_refresh_once_for_same_auth_file() {
     const FLAG: &str = "CHATGPT_AUTH_CONCURRENT_REFRESH_CHILD";
 
     if !child_mode(FLAG) {
+        // @verifies selvedge.auth
         assert_child_success(&run_child(
             "concurrent_calls_refresh_once_for_same_auth_file",
             FLAG,
@@ -1507,18 +1601,25 @@ issuer = "{}"
     let third = third.expect("third resolve");
     let persisted = std::fs::read_to_string(&auth_file_path).expect("read persisted auth file");
 
+    // @verifies selvedge.auth
     assert_eq!(refresh_hits.load(Ordering::SeqCst), 1);
+    // @verifies selvedge.auth
     assert_eq!(first.access_token, "new-access-token");
+    // @verifies selvedge.auth
     assert_eq!(second.access_token, "new-access-token");
+    // @verifies selvedge.auth
     assert_eq!(third.access_token, "new-access-token");
+    // @verifies selvedge.auth
     assert!(persisted.contains("\"refresh_token\":\"new-refresh-token\""));
 }
 
+// @verifies selvedge.auth.resolve.concurrent_reuse
 #[tokio::test(flavor = "multi_thread")]
 async fn forced_refresh_reuses_file_repaired_by_waiting_nonforced_refresh() {
     const FLAG: &str = "CHATGPT_AUTH_FORCE_REFRESH_CONTINUES_CHILD";
 
     if !child_mode(FLAG) {
+        // @verifies selvedge.auth
         assert_child_success(&run_child(
             "forced_refresh_reuses_file_repaired_by_waiting_nonforced_refresh",
             FLAG,
@@ -1585,19 +1686,27 @@ issuer = "{}"
     let forced = forced.expect("forced resolve");
     let persisted = std::fs::read_to_string(&auth_file_path).expect("read persisted auth file");
 
+    // @verifies selvedge.auth
     assert_eq!(refresh_hits.load(Ordering::SeqCst), 2);
+    // @verifies selvedge.auth
     assert_eq!(nonforced.account_id, "workspace-123");
+    // @verifies selvedge.auth
     assert_eq!(forced.account_id, "workspace-123");
+    // @verifies selvedge.auth
     assert_eq!(forced.access_token, "replacement-access-token");
+    // @verifies selvedge.auth
     assert!(persisted.contains("\"id_token\":\""));
+    // @verifies selvedge.auth
     assert!(persisted.contains("\"access_token\":\"replacement-access-token\""));
 }
 
+// @verifies selvedge.auth.file.refresh_hint
 #[tokio::test(flavor = "multi_thread")]
 async fn concurrent_forced_refresh_calls_reuse_first_persisted_result() {
     const FLAG: &str = "CHATGPT_AUTH_CONCURRENT_FORCE_REFRESH_CHILD";
 
     if !child_mode(FLAG) {
+        // @verifies selvedge.auth
         assert_child_success(&run_child(
             "concurrent_forced_refresh_calls_reuse_first_persisted_result",
             FLAG,
@@ -1665,13 +1774,19 @@ issuer = "{}"
     let third = third.expect("third resolve");
     let persisted = std::fs::read_to_string(&auth_file_path).expect("read persisted auth file");
 
+    // @verifies selvedge.auth
     assert_eq!(refresh_hits.load(Ordering::SeqCst), 1);
+    // @verifies selvedge.auth
     assert_eq!(first.access_token, "new-access-token");
+    // @verifies selvedge.auth
     assert_eq!(second.access_token, "new-access-token");
+    // @verifies selvedge.auth
     assert_eq!(third.access_token, "new-access-token");
+    // @verifies selvedge.auth
     assert!(persisted.contains("\"refresh_token\":\"new-refresh-token\""));
 }
 
+// @verifies selvedge.auth.lock
 #[tokio::test(flavor = "multi_thread")]
 async fn refresh_is_serialized_across_processes() {
     const FLAG: &str = "CHATGPT_AUTH_MULTI_PROCESS_CHILD";
@@ -1685,6 +1800,7 @@ async fn refresh_is_serialized_across_processes() {
         selvedge_logging::init().expect("init logging");
 
         let resolved = resolve_for_request().await.expect("child resolve");
+        // @verifies selvedge.auth
         assert_eq!(resolved.access_token, "new-access-token");
         return;
     }
@@ -1752,12 +1868,17 @@ issuer = "{}"
     let child_output = child.wait_with_output().expect("wait for child");
     let persisted = std::fs::read_to_string(&auth_file_path).expect("read persisted auth file");
 
+    // @verifies selvedge.auth
     assert_child_success(&child_output);
+    // @verifies selvedge.auth
     assert_eq!(refresh_hits.load(Ordering::SeqCst), 1);
+    // @verifies selvedge.auth
     assert_eq!(resolved.access_token, "new-access-token");
+    // @verifies selvedge.auth
     assert!(persisted.contains("\"refresh_token\":\"new-refresh-token\""));
 }
 
+// @intent selvedge.auth.tests.auth_file_json The resolve integration tests build local auth files that match the persisted ChatGPT device-code schema.
 fn auth_file_json(id_token: &str, access_token: &str, refresh_token: &str) -> String {
     json!({
         "schema_version": 1,
@@ -1772,6 +1893,7 @@ fn auth_file_json(id_token: &str, access_token: &str, refresh_token: &str) -> St
     .to_string()
 }
 
+// @intent selvedge.auth.tests.jwt The resolve integration tests build unsigned JWT-shaped tokens for claim and expiration scenarios.
 fn build_jwt(payload: serde_json::Value) -> String {
     let engine = base64::engine::general_purpose::URL_SAFE_NO_PAD;
     let header = engine.encode(r#"{"alg":"none","typ":"JWT"}"#);

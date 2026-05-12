@@ -58,7 +58,9 @@ async fn execute_returns_full_response_body() {
     .await
     .expect("execute request");
 
+    // @verifies selvedge.client.execute
     assert_eq!(response.status, StatusCode::OK);
+    // @verifies selvedge.client.response.body
     assert_eq!(response.body, Bytes::from_static(b"ready"));
 }
 
@@ -73,6 +75,7 @@ async fn execute_returns_status_error_after_redirect_without_retrying() {
         );
         assert_child_success(&output);
         let stderr = String::from_utf8_lossy(&output.stderr);
+        // @verifies selvedge.client.log.status
         assert!(stderr.contains("http request returned non-success status"));
         return;
     }
@@ -105,13 +108,17 @@ async fn execute_returns_status_error_after_redirect_without_retrying() {
 
     match error {
         HttpError::Status(status) => {
+            // @verifies selvedge.client.status.code
             assert_eq!(status.status, StatusCode::IM_A_TEAPOT);
+            // @verifies selvedge.client.status.url
             assert_eq!(status.url, server.url("/final"));
+            // @verifies selvedge.client.status.body
             assert_eq!(status.body, Bytes::from_static(b"nope"));
         }
         other => panic!("expected status error, got {other:?}"),
     }
 
+    // @verifies selvedge.client.transport.config
     assert_eq!(hits.load(Ordering::SeqCst), 1);
 }
 
@@ -145,6 +152,7 @@ async fn execute_redirect_without_location_fails_build() {
     .await
     .expect_err("redirect without location must fail");
 
+    // @verifies selvedge.client.redirect.location
     assert!(matches!(error, HttpError::Build { .. }));
 }
 
@@ -156,7 +164,9 @@ async fn execute_logs_redirect_hops() {
         let output = run_child("execute_logs_redirect_hops", FLAG);
         assert_child_success(&output);
         let stderr = String::from_utf8_lossy(&output.stderr);
+        // @verifies selvedge.client.redirect.log
         assert!(stderr.contains("http request redirected"));
+        // @verifies selvedge.client.redirect.log
         assert!(stderr.contains("hop=\"1\""));
         return;
     }
@@ -178,6 +188,7 @@ async fn execute_logs_redirect_hops() {
     .await
     .expect("redirect should succeed");
 
+    // @verifies selvedge.client.redirect
     assert_eq!(response.body, Bytes::from_static(b"ready"));
 }
 
@@ -228,6 +239,7 @@ async fn execute_redirect_drops_origin_bound_headers_on_cross_origin_redirect() 
     .await
     .expect("cross-origin redirect request");
 
+    // @verifies selvedge.client.redirect.headers
     assert_eq!(response.body, Bytes::new());
 }
 
@@ -278,6 +290,7 @@ async fn execute_redirect_drops_custom_credential_headers_on_cross_origin_redire
     .await
     .expect("cross-origin redirect request");
 
+    // @verifies selvedge.client.redirect.headers
     assert_eq!(response.body, Bytes::new());
 }
 
@@ -328,6 +341,7 @@ async fn execute_redirect_drops_compact_custom_credential_headers_on_cross_origi
     .await
     .expect("cross-origin redirect request");
 
+    // @verifies selvedge.client.redirect.headers
     assert_eq!(response.body, Bytes::new());
 }
 
@@ -378,6 +392,7 @@ async fn execute_redirect_drops_non_whitelisted_headers_on_cross_origin_redirect
     .await
     .expect("cross-origin redirect request");
 
+    // @verifies selvedge.client.redirect.headers
     assert_eq!(response.body, Bytes::new());
 }
 
@@ -428,6 +443,7 @@ async fn execute_redirect_preserves_whitelisted_headers_on_cross_origin_redirect
     .await
     .expect("cross-origin redirect request");
 
+    // @verifies selvedge.client.redirect.headers
     assert_eq!(response.body, Bytes::from_static(b"en-US"));
 }
 
@@ -481,6 +497,7 @@ async fn execute_redirect_drops_session_token_headers_on_cross_origin_redirect()
     .await
     .expect("cross-origin redirect request");
 
+    // @verifies selvedge.client.redirect.headers
     assert_eq!(response.body, Bytes::new());
 }
 
@@ -534,6 +551,7 @@ async fn execute_redirect_drops_proxy_authorization_on_cross_origin_redirect() {
     .await
     .expect("cross-origin redirect request");
 
+    // @verifies selvedge.client.redirect.headers
     assert_eq!(response.body, Bytes::new());
 }
 
@@ -584,6 +602,7 @@ async fn execute_redirect_drops_api_token_headers_on_cross_origin_redirect() {
     .await
     .expect("cross-origin redirect request");
 
+    // @verifies selvedge.client.redirect.headers
     assert_eq!(response.body, Bytes::new());
 }
 
@@ -631,7 +650,9 @@ async fn execute_applies_request_compression() {
     .expect("compressed request");
 
     let payload: serde_json::Value = serde_json::from_slice(&response.body).expect("json body");
+    // @verifies selvedge.client.request.compression.zstd
     assert_eq!(payload["encoding"], "zstd");
+    // @verifies selvedge.client.request.compression.zstd
     assert_eq!(payload["body"], "payload");
 }
 
@@ -686,7 +707,9 @@ async fn execute_recomputes_content_length_after_compression() {
     .expect("compressed request with explicit content-length");
 
     let payload: serde_json::Value = serde_json::from_slice(&response.body).expect("json body");
+    // @verifies selvedge.client.request.compression.zstd
     assert_eq!(payload["body"], "payload");
+    // @verifies selvedge.client.request.content_length.final
     assert_eq!(
         payload["content_length"],
         payload["received_len"]
@@ -734,6 +757,7 @@ async fn execute_uses_config_user_agent_when_missing() {
     .await
     .expect("execute request");
 
+    // @verifies selvedge.client.request.user_agent
     assert_eq!(response.body, Bytes::from_static(b"selvedge-client/test"));
 }
 
@@ -753,6 +777,7 @@ async fn invalid_config_user_agent_is_rejected_before_request() {
     let error = selvedge_config::update_runtime("network.user_agent", "bad\r\nvalue")
         .expect_err("invalid user agent must fail during config update");
 
+    // @verifies selvedge.config.model.network.valid.user_agent
     assert!(matches!(
         error,
         selvedge_config::ConfigError::ValidationFailed(_)
@@ -804,6 +829,7 @@ async fn execute_keeps_raw_zstd_response_bytes() {
     .await
     .expect("execute request");
 
+    // @verifies selvedge.client.response.body
     assert_eq!(response.body, expected);
 }
 
@@ -837,6 +863,7 @@ async fn execute_times_out_entire_request() {
     .await
     .expect_err("request should time out");
 
+    // @verifies selvedge.client.transport.timeout
     assert!(matches!(error, HttpError::Timeout));
 }
 
@@ -867,6 +894,7 @@ async fn execute_maps_connect_failure() {
     .await
     .expect_err("connect should fail");
 
+    // @verifies selvedge.client.transport.error
     assert!(matches!(error, HttpError::Connect { .. }));
 }
 
@@ -893,6 +921,7 @@ async fn execute_maps_tls_failure() {
     .await
     .expect_err("tls should fail without custom ca");
 
+    // @verifies selvedge.client.transport.error
     assert!(matches!(error, HttpError::Tls { .. }));
 }
 
@@ -926,7 +955,9 @@ async fn execute_redacts_sensitive_url_parts_in_transport_errors() {
     .expect_err("tls should fail without custom ca");
 
     let rendered = error.to_string();
+    // @verifies selvedge.client.redaction.parts
     assert!(!rendered.contains("user:pass"));
+    // @verifies selvedge.client.redaction.parts
     assert!(!rendered.contains("token=secret"));
 }
 
@@ -960,7 +991,9 @@ async fn execute_accepts_custom_ca_bundle() {
     .await
     .expect("custom ca should succeed");
 
+    // @verifies selvedge.client.tls.ca_bundle
     assert_eq!(response.status, StatusCode::OK);
+    // @verifies selvedge.client.tls.ca_bundle
     assert_eq!(response.body, Bytes::from_static(b"secure"));
 }
 
@@ -995,6 +1028,7 @@ async fn execute_http_request_ignores_invalid_ca_bundle_path() {
     .await
     .expect("http requests should ignore ca bundle path");
 
+    // @verifies selvedge.client.tls.ca_bundle.http_skip
     assert_eq!(response.body, Bytes::from_static(b"direct"));
 }
 
@@ -1026,7 +1060,9 @@ async fn execute_preserves_status_when_error_body_is_truncated() {
 
     match error {
         HttpError::Status(status) => {
+            // @verifies selvedge.client.status.code
             assert_eq!(status.status, StatusCode::BAD_GATEWAY);
+            // @verifies selvedge.client.status.truncated
             assert_eq!(status.body, Bytes::from_static(b"par"));
         }
         other => panic!("expected status error, got {other:?}"),
@@ -1075,7 +1111,9 @@ async fn execute_preserves_status_on_slow_non_success_body() {
 
     match error {
         HttpError::Status(status) => {
+            // @verifies selvedge.client.status.code
             assert_eq!(status.status, StatusCode::BAD_REQUEST);
+            // @verifies selvedge.client.status.timeout
             assert_eq!(status.body, Bytes::from_static(b"part"));
         }
         other => panic!("expected status error, got {other:?}"),
@@ -1114,7 +1152,9 @@ async fn stream_returns_status_before_entering_body() {
 
     match error {
         HttpError::Status(status) => {
+            // @verifies selvedge.client.stream.status_error
             assert_eq!(status.status, StatusCode::BAD_REQUEST);
+            // @verifies selvedge.client.status.body
             assert_eq!(status.body, Bytes::from_static(b"bad request"));
         }
         other => panic!("expected status error, got {other:?}"),
@@ -1129,7 +1169,9 @@ async fn stream_request_timeout_covers_wait_for_first_chunk() {
         let output = run_child("stream_request_timeout_covers_wait_for_first_chunk", FLAG);
         assert_child_success(&output);
         let stderr = String::from_utf8_lossy(&output.stderr);
+        // @verifies selvedge.client.stream.wait_timeout
         assert!(stderr.contains("http stream request timeout"));
+        // @verifies selvedge.client.stream.wait_timeout
         assert!(!stderr.contains("message=\"http request finished\""));
         return;
     }
@@ -1161,7 +1203,9 @@ async fn stream_request_timeout_covers_wait_for_first_chunk() {
 
     let chunks = response.body.collect::<Vec<_>>().await;
 
+    // @verifies selvedge.client.stream.wait_timeout_item
     assert_eq!(chunks.len(), 1);
+    // @verifies selvedge.client.stream.wait_timeout_item
     assert!(matches!(chunks[0], Err(HttpError::Timeout)));
 }
 
@@ -1195,8 +1239,11 @@ async fn stream_preserves_remaining_first_chunk_budget_after_slow_headers() {
     let chunks = response.body.collect::<Vec<_>>().await;
     let elapsed = started_at.elapsed();
 
+    // @verifies selvedge.client.stream.wait_timeout_item
     assert_eq!(chunks.len(), 1);
+    // @verifies selvedge.client.stream.wait_timeout_item
     assert!(matches!(chunks[0], Err(HttpError::Timeout)));
+    // @verifies selvedge.client.stream.wait_budget
     assert!(
         elapsed < Duration::from_millis(80),
         "remaining budget should be preserved, got {:?}",
@@ -1246,7 +1293,9 @@ async fn stream_idle_timeout_covers_wait_for_first_chunk() {
 
     let chunks = response.body.collect::<Vec<_>>().await;
 
+    // @verifies selvedge.client.stream.wait_timeout_item
     assert_eq!(chunks.len(), 1);
+    // @verifies selvedge.client.stream.wait_timeout_item
     assert!(matches!(chunks[0], Err(HttpError::Timeout)));
 }
 
@@ -1291,7 +1340,9 @@ async fn stream_request_timeout_excludes_delay_before_first_poll() {
     let mut body = response.body;
     let first = body.next().await.expect("first stream item");
 
+    // @verifies selvedge.client.stream.inter_poll
     assert_eq!(first.expect("first chunk"), Bytes::from_static(b"ready"));
+    // @verifies selvedge.client.stream.body
     assert!(body.next().await.is_none());
 }
 
@@ -1335,12 +1386,15 @@ async fn stream_request_timeout_excludes_consumer_processing_time() {
 
     let mut body = response.body;
     let first = body.next().await.expect("first stream item");
+    // @verifies selvedge.client.stream.body
     assert_eq!(first.expect("first chunk"), Bytes::from_static(b"first"));
 
     sleep(Duration::from_millis(120)).await;
 
     let second = body.next().await.expect("second stream item");
+    // @verifies selvedge.client.stream.inter_poll
     assert_eq!(second.expect("second chunk"), Bytes::from_static(b"second"));
+    // @verifies selvedge.client.stream.body
     assert!(body.next().await.is_none());
 }
 
@@ -1383,11 +1437,14 @@ async fn stream_times_out_on_idle_gap() {
 
     let chunks = response.body.collect::<Vec<_>>().await;
 
+    // @verifies selvedge.client.stream.wait_timeout_item
     assert_eq!(chunks.len(), 2);
+    // @verifies selvedge.client.stream.body
     assert_eq!(
         chunks[0].as_ref().expect("first chunk"),
         &Bytes::from_static(b"first")
     );
+    // @verifies selvedge.client.stream.wait_timeout_item
     assert!(matches!(chunks[1], Err(HttpError::Timeout)));
 }
 
@@ -1419,11 +1476,14 @@ async fn stream_returns_transport_error_once_after_body_starts() {
 
     let chunks = response.body.collect::<Vec<_>>().await;
 
+    // @verifies selvedge.client.stream.transport_error
     assert_eq!(chunks.len(), 2);
+    // @verifies selvedge.client.stream.body
     assert_eq!(
         chunks[0].as_ref().expect("first chunk"),
         &Bytes::from_static(b"first")
     );
+    // @verifies selvedge.client.stream.transport_error
     assert!(matches!(chunks[1], Err(HttpError::Io { .. })));
     server_handle.abort();
 }

@@ -37,6 +37,7 @@ pub fn run_child(test_name: &str, flag: &str) -> Output {
 }
 
 pub fn assert_child_success(output: &Output) {
+    // @verifies selvedge.client
     assert!(output.status.success(), "child test failed: {output:?}");
 }
 

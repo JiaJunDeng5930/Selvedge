@@ -19,6 +19,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::time::{Duration, timeout};
 
+// @verifies selvedge.client.web.spawn
 #[tokio::test]
 async fn spawn_web_surface_exposes_control_handle_and_stop_status() {
     let bridge = Arc::new(RecordingBridge::default());
@@ -32,12 +33,14 @@ async fn spawn_web_surface_exposes_control_handle_and_stop_status() {
 
     handle.control.stop().await;
 
+    // @verifies selvedge.client.web.r2
     assert_eq!(
         handle.join_handle.await.expect("join web task"),
         WebExitStatus::Stopped
     );
 }
 
+// @verifies selvedge.client.web.spawn
 #[test]
 fn spawn_web_surface_rejects_zero_port() {
     let result = spawn_web_surface(WebStartArgs {
@@ -48,9 +51,11 @@ fn spawn_web_surface_rejects_zero_port() {
         bridge: Arc::new(StaticBridge),
     });
 
+    // @verifies selvedge.client.web.r2
     assert!(matches!(result, Err(WebStartError::InvalidBindTarget)));
 }
 
+// @verifies selvedge.client.web.spawn
 #[tokio::test]
 async fn spawn_web_surface_reports_bind_failure() {
     let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).expect("bind held port");
@@ -64,9 +69,11 @@ async fn spawn_web_surface_reports_bind_failure() {
         bridge: Arc::new(StaticBridge),
     });
 
+    // @verifies selvedge.client.web.r2
     assert!(matches!(result, Err(WebStartError::BindFailed(_))));
 }
 
+// @verifies selvedge.client.web.spawn
 #[test]
 fn web_bridge_trait_exposes_ready_command_and_attach_futures() {
     let bridge = StaticBridge;
@@ -79,6 +86,7 @@ fn web_bridge_trait_exposes_ready_command_and_attach_futures() {
     drop((ready, command, attach));
 }
 
+// @verifies selvedge.client.web.spawn
 #[tokio::test]
 async fn ready_request_returns_bridge_response() {
     let bridge = Arc::new(RecordingBridge::default());
@@ -100,15 +108,19 @@ async fn ready_request_returns_bridge_response() {
         .await
         .expect("ready response");
 
+    // @verifies selvedge.client.web.r2
     assert_eq!(response.state, ReadyState::Ready);
+    // @verifies selvedge.client.web.r2
     assert_eq!(bridge.ready_call_count(), 1);
     handle.control.stop().await;
+    // @verifies selvedge.client.web.r2
     assert_eq!(
         handle.join_handle.await.expect("join web task"),
         WebExitStatus::Stopped
     );
 }
 
+// @verifies selvedge.client.web.spawn
 #[tokio::test]
 async fn ready_request_maps_server_not_ready_and_invalid_protocol_without_bridge_error() {
     let bridge = Arc::new(RecordingBridge::default());
@@ -126,7 +138,9 @@ async fn ready_request_maps_server_not_ready_and_invalid_protocol_without_bridge
         })
         .await
         .expect("not ready response");
+    // @verifies selvedge.client.web.r2
     assert_eq!(response.state, ReadyState::NotReady);
+    // @verifies selvedge.client.web.r2
     assert_eq!(bridge.ready_call_count(), 1);
 
     let response = handle
@@ -136,16 +150,20 @@ async fn ready_request_maps_server_not_ready_and_invalid_protocol_without_bridge
         })
         .await
         .expect("invalid protocol maps to not ready");
+    // @verifies selvedge.client.web.r2
     assert_eq!(response.state, ReadyState::NotReady);
+    // @verifies selvedge.client.web.r2
     assert_eq!(bridge.ready_call_count(), 1);
 
     handle.control.stop().await;
+    // @verifies selvedge.client.web.r2
     assert_eq!(
         handle.join_handle.await.expect("join web task"),
         WebExitStatus::Stopped
     );
 }
 
+// @verifies selvedge.client.web.spawn
 #[tokio::test]
 async fn ready_request_preserves_bridge_failure() {
     let bridge = Arc::new(RecordingBridge::default());
@@ -164,14 +182,17 @@ async fn ready_request_preserves_bridge_failure() {
         .await
         .expect_err("bridge failure should return error");
 
+    // @verifies selvedge.client.web.r2
     assert_eq!(error, WebBridgeError::InternalFailure("boom".to_owned()));
     handle.control.stop().await;
+    // @verifies selvedge.client.web.r2
     assert_eq!(
         handle.join_handle.await.expect("join web task"),
         WebExitStatus::Stopped
     );
 }
 
+// @verifies selvedge.client.web.spawn
 #[tokio::test]
 async fn invalid_command_request_returns_rejection_without_bridge_call() {
     let bridge = Arc::new(RecordingBridge::default());
@@ -190,18 +211,22 @@ async fn invalid_command_request_returns_rejection_without_bridge_call() {
         .await
         .expect("command response");
 
+    // @verifies selvedge.client.web.r2
     assert_eq!(
         response.outcome,
         CommandOutcome::Rejected(CommandRejectReason::MalformedRequest)
     );
+    // @verifies selvedge.client.web.r2
     assert_eq!(bridge.command_call_count(), 0);
     handle.control.stop().await;
+    // @verifies selvedge.client.web.r2
     assert_eq!(
         handle.join_handle.await.expect("join web task"),
         WebExitStatus::Stopped
     );
 }
 
+// @verifies selvedge.client.web.spawn
 #[tokio::test]
 async fn command_request_returns_bridge_response() {
     let bridge = Arc::new(RecordingBridge::default());
@@ -222,18 +247,22 @@ async fn command_request_returns_bridge_response() {
         .await
         .expect("command response");
 
+    // @verifies selvedge.client.web.r2
     assert_eq!(
         response.outcome,
         CommandOutcome::Rejected(CommandRejectReason::UnsupportedCommand)
     );
+    // @verifies selvedge.client.web.r2
     assert_eq!(bridge.command_call_count(), 1);
     handle.control.stop().await;
+    // @verifies selvedge.client.web.r2
     assert_eq!(
         handle.join_handle.await.expect("join web task"),
         WebExitStatus::Stopped
     );
 }
 
+// @verifies selvedge.client.web.spawn
 #[tokio::test]
 async fn attach_request_forwards_bridge_frames_in_order() {
     let bridge = Arc::new(RecordingBridge::default());
@@ -272,23 +301,29 @@ async fn attach_request_forwards_bridge_frames_in_order() {
         .await
         .expect("attach accepted");
 
+    // @verifies selvedge.client.web.r2
     assert!(matches!(
         frames.next().await,
         Some(Ok(LocalClientFrame::Snapshot(_)))
     ));
+    // @verifies selvedge.client.web.r2
     assert!(matches!(
         frames.next().await,
         Some(Ok(LocalClientFrame::Event(_)))
     ));
+    // @verifies selvedge.client.web.r2
     assert!(frames.next().await.is_none());
+    // @verifies selvedge.client.web.r2
     assert_eq!(bridge.attach_call_count(), 1);
     handle.control.stop().await;
+    // @verifies selvedge.client.web.r2
     assert_eq!(
         handle.join_handle.await.expect("join web task"),
         WebExitStatus::Stopped
     );
 }
 
+// @verifies selvedge.client.web.spawn
 #[tokio::test]
 async fn stop_closes_active_attach_stream() {
     let bridge = Arc::new(RecordingBridge::default());
@@ -320,13 +355,16 @@ async fn stop_closes_active_attach_stream() {
 
     handle.control.stop().await;
 
+    // @verifies selvedge.client.web.r2
     assert!(next_frame.await.expect("join next frame").is_none());
+    // @verifies selvedge.client.web.r2
     assert_eq!(
         handle.join_handle.await.expect("join web task"),
         WebExitStatus::Stopped
     );
 }
 
+// @verifies selvedge.client.web.spawn
 #[tokio::test]
 async fn http_route_returns_body_too_large_before_allocating_body() {
     let bind = unused_loopback_bind();
@@ -343,18 +381,22 @@ async fn http_route_returns_body_too_large_before_allocating_body() {
     )
     .await;
 
+    // @verifies selvedge.client.web.r2
     assert!(response.starts_with("HTTP/1.1 413"));
+    // @verifies selvedge.client.web.r2
     assert_eq!(
         extract_problem(&response).code,
         LocalHttpProblemCode::BodyTooLarge
     );
     handle.control.stop().await;
+    // @verifies selvedge.client.web.r2
     assert_eq!(
         handle.join_handle.await.expect("join web task"),
         WebExitStatus::Stopped
     );
 }
 
+// @verifies selvedge.client.web.spawn
 #[tokio::test]
 async fn root_page_route_is_not_exposed() {
     let bind = unused_loopback_bind();
@@ -371,18 +413,22 @@ async fn root_page_route_is_not_exposed() {
     )
     .await;
 
+    // @verifies selvedge.client.web.r2
     assert!(response.starts_with("HTTP/1.1 404"));
+    // @verifies selvedge.client.web.r2
     assert_eq!(
         extract_problem(&response).code,
         LocalHttpProblemCode::RouteNotFound
     );
     handle.control.stop().await;
+    // @verifies selvedge.client.web.r2
     assert_eq!(
         handle.join_handle.await.expect("join web task"),
         WebExitStatus::Stopped
     );
 }
 
+// @verifies selvedge.client.web.spawn
 #[tokio::test]
 async fn http_route_returns_body_too_large_for_oversized_headers() {
     let bind = unused_loopback_bind();
@@ -399,18 +445,22 @@ async fn http_route_returns_body_too_large_for_oversized_headers() {
 
     let response = send_raw_http_request(port, &request).await;
 
+    // @verifies selvedge.client.web.r2
     assert!(response.starts_with("HTTP/1.1 413"));
+    // @verifies selvedge.client.web.r2
     assert_eq!(
         extract_problem(&response).code,
         LocalHttpProblemCode::BodyTooLarge
     );
     handle.control.stop().await;
+    // @verifies selvedge.client.web.r2
     assert_eq!(
         handle.join_handle.await.expect("join web task"),
         WebExitStatus::Stopped
     );
 }
 
+// @verifies selvedge.client.web.spawn
 #[tokio::test]
 async fn http_route_returns_unsupported_media_type_for_non_json_body() {
     let bind = unused_loopback_bind();
@@ -427,12 +477,15 @@ async fn http_route_returns_unsupported_media_type_for_non_json_body() {
     )
     .await;
 
+    // @verifies selvedge.client.web.r2
     assert!(response.starts_with("HTTP/1.1 415"));
+    // @verifies selvedge.client.web.r2
     assert_eq!(
         extract_problem(&response).code,
         LocalHttpProblemCode::UnsupportedContentType
     );
     handle.control.stop().await;
+    // @verifies selvedge.client.web.r2
     assert_eq!(
         handle.join_handle.await.expect("join web task"),
         WebExitStatus::Stopped

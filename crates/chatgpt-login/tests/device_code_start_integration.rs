@@ -8,11 +8,13 @@ use chatgpt_login::{
 use serde_json::json;
 use support::{assert_child_success, child_mode, init_login_test, run_child, spawn_http_server};
 
+// @verifies selvedge.login.start
 #[tokio::test(flavor = "multi_thread")]
 async fn start_device_code_login_returns_challenge_from_provider_response() {
     const FLAG: &str = "CHATGPT_LOGIN_START_SUCCESS_CHILD";
 
     if !child_mode(FLAG) {
+        // @verifies selvedge.login
         assert_child_success(&run_child(
             "start_device_code_login_returns_challenge_from_provider_response",
             FLAG,
@@ -47,13 +49,18 @@ issuer = "{}"
         .await
         .expect("start device code login");
 
+    // @verifies selvedge.login
     assert_eq!(
         challenge.verification_url,
         format!("{}/codex/device", server.url(""))
     );
+    // @verifies selvedge.login
     assert_eq!(challenge.user_code, "ABCD-EFGH");
+    // @verifies selvedge.login
     assert_eq!(challenge.device_auth_id, "device-auth-id");
+    // @verifies selvedge.login
     assert_eq!(challenge.poll_interval.as_secs(), 5);
+    // @verifies selvedge.login
     assert_eq!(
         challenge
             .expires_at
@@ -62,11 +69,13 @@ issuer = "{}"
     );
 }
 
+// @verifies selvedge.login.poll_outcome
 #[tokio::test(flavor = "multi_thread")]
 async fn poll_device_code_login_returns_pending_for_forbidden_response() {
     const FLAG: &str = "CHATGPT_LOGIN_POLL_PENDING_CHILD";
 
     if !child_mode(FLAG) {
+        // @verifies selvedge.login
         assert_child_success(&run_child(
             "poll_device_code_login_returns_pending_for_forbidden_response",
             FLAG,
@@ -104,6 +113,7 @@ issuer = "{}"
         .await
         .expect("poll device code login");
 
+    // @verifies selvedge.login
     assert!(matches!(
         outcome,
         DeviceCodePollOutcome::Pending {
@@ -112,11 +122,13 @@ issuer = "{}"
     ));
 }
 
+// @verifies selvedge.login.authorization
 #[tokio::test(flavor = "multi_thread")]
 async fn poll_device_code_login_returns_authorization_from_success_response() {
     const FLAG: &str = "CHATGPT_LOGIN_POLL_AUTHORIZED_CHILD";
 
     if !child_mode(FLAG) {
+        // @verifies selvedge.login
         assert_child_success(&run_child(
             "poll_device_code_login_returns_authorization_from_success_response",
             FLAG,
@@ -159,6 +171,7 @@ issuer = "{}"
         .await
         .expect("poll device code login");
 
+    // @verifies selvedge.login
     assert!(matches!(
         outcome,
         DeviceCodePollOutcome::Authorized(authorization)
@@ -167,11 +180,13 @@ issuer = "{}"
     ));
 }
 
+// @verifies selvedge.login.start.error_status
 #[tokio::test(flavor = "multi_thread")]
 async fn start_device_code_login_returns_unsupported_for_not_found() {
     const FLAG: &str = "CHATGPT_LOGIN_START_UNSUPPORTED_CHILD";
 
     if !child_mode(FLAG) {
+        // @verifies selvedge.login
         assert_child_success(&run_child(
             "start_device_code_login_returns_unsupported_for_not_found",
             FLAG,
@@ -200,14 +215,17 @@ issuer = "{}"
         .await
         .expect_err("start must reject unsupported provider");
 
+    // @verifies selvedge.login
     assert!(matches!(error, ChatgptLoginError::DeviceCodeUnsupported));
 }
 
+// @verifies selvedge.login.start.required_fields
 #[tokio::test(flavor = "multi_thread")]
 async fn start_device_code_login_rejects_invalid_success_body() {
     const FLAG: &str = "CHATGPT_LOGIN_START_INVALID_BODY_CHILD";
 
     if !child_mode(FLAG) {
+        // @verifies selvedge.login
         assert_child_success(&run_child(
             "start_device_code_login_rejects_invalid_success_body",
             FLAG,
@@ -241,17 +259,20 @@ issuer = "{}"
         .await
         .expect_err("start must reject invalid success body");
 
+    // @verifies selvedge.login
     assert!(matches!(
         error,
         ChatgptLoginError::DeviceCodeStartInvalidResponse { .. }
     ));
 }
 
+// @verifies selvedge.login.start.interval_value
 #[tokio::test(flavor = "multi_thread")]
 async fn start_device_code_login_accepts_numeric_interval_values() {
     const FLAG: &str = "CHATGPT_LOGIN_START_NUMERIC_INTERVAL_CHILD";
 
     if !child_mode(FLAG) {
+        // @verifies selvedge.login
         assert_child_success(&run_child(
             "start_device_code_login_accepts_numeric_interval_values",
             FLAG,
@@ -286,14 +307,17 @@ issuer = "{}"
         .await
         .expect("numeric interval must be accepted");
 
+    // @verifies selvedge.login
     assert_eq!(challenge.poll_interval, std::time::Duration::from_secs(7));
 }
 
+// @verifies selvedge.login.config.read
 #[tokio::test(flavor = "multi_thread")]
 async fn start_device_code_login_normalizes_trailing_slash_in_issuer() {
     const FLAG: &str = "CHATGPT_LOGIN_START_NORMALIZE_ISSUER_CHILD";
 
     if !child_mode(FLAG) {
+        // @verifies selvedge.login
         assert_child_success(&run_child(
             "start_device_code_login_normalizes_trailing_slash_in_issuer",
             FLAG,
@@ -328,17 +352,20 @@ issuer = "{}/"
         .await
         .expect("issuer with trailing slash must work");
 
+    // @verifies selvedge.login
     assert_eq!(
         challenge.verification_url,
         format!("{}/codex/device", server.url(""))
     );
 }
 
+// @verifies selvedge.login.start.interval_positive
 #[tokio::test(flavor = "multi_thread")]
 async fn start_device_code_login_rejects_zero_second_interval() {
     const FLAG: &str = "CHATGPT_LOGIN_START_ZERO_INTERVAL_CHILD";
 
     if !child_mode(FLAG) {
+        // @verifies selvedge.login
         assert_child_success(&run_child(
             "start_device_code_login_rejects_zero_second_interval",
             FLAG,
@@ -373,17 +400,20 @@ issuer = "{}"
         .await
         .expect_err("zero interval must be rejected");
 
+    // @verifies selvedge.login
     assert!(matches!(
         error,
         ChatgptLoginError::DeviceCodeStartInvalidResponse { .. }
     ));
 }
 
+// @verifies selvedge.login.poll
 #[tokio::test(flavor = "multi_thread")]
 async fn poll_device_code_login_returns_expired_without_request() {
     const FLAG: &str = "CHATGPT_LOGIN_POLL_EXPIRED_CHILD";
 
     if !child_mode(FLAG) {
+        // @verifies selvedge.login
         assert_child_success(&run_child(
             "poll_device_code_login_returns_expired_without_request",
             FLAG,
@@ -411,14 +441,17 @@ level = "debug"
         .await
         .expect("expired challenge should not error");
 
+    // @verifies selvedge.login
     assert!(matches!(outcome, DeviceCodePollOutcome::Expired));
 }
 
+// @verifies selvedge.login.poll_outcome
 #[tokio::test(flavor = "multi_thread")]
 async fn poll_device_code_login_returns_pending_for_not_found_response() {
     const FLAG: &str = "CHATGPT_LOGIN_POLL_NOT_FOUND_CHILD";
 
     if !child_mode(FLAG) {
+        // @verifies selvedge.login
         assert_child_success(&run_child(
             "poll_device_code_login_returns_pending_for_not_found_response",
             FLAG,
@@ -456,6 +489,7 @@ issuer = "{}"
         .await
         .expect("404 must map to pending per contract");
 
+    // @verifies selvedge.login
     assert!(matches!(
         outcome,
         DeviceCodePollOutcome::Pending {

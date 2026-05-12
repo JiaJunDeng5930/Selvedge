@@ -114,11 +114,13 @@ base_url = "{}"
     )
     .await;
 
+    // @verifies selvedge.model.dispatch.success
     assert_eq!(status, ApiCallTerminalStatus::OutputSent);
     let message = router_rx.recv().await.expect("router message");
 
     match message {
         RouterIngressApiMessage::ApiOutput(ApiOutputEnvelope::Success { correlation, reply }) => {
+            // @verifies selvedge.model.dispatch.success
             assert_eq!(correlation, request.correlation);
             assert_eq!(reply.content.as_deref(), Some("hello from chatgpt"));
             assert!(reply.tool_calls.is_empty());
@@ -132,23 +134,28 @@ base_url = "{}"
         .expect("captured body lock")
         .clone()
         .expect("captured request body");
+    // @verifies selvedge.model.chatgpt.build
     assert_eq!(
         captured_body.get("model"),
         Some(&serde_json::json!("gpt-5"))
     );
+    // @verifies selvedge.model.chatgpt.message
     assert_eq!(
         captured_body.pointer("/input/0/content/0/text"),
         Some(&serde_json::json!("hello"))
     );
+    // @verifies selvedge.model.chatgpt.build
     assert!(
         captured_body
             .pointer("/client_metadata/x-codex-installation-id")
             .is_some_and(|value| value == "550e8400-e29b-41d4-a716-446655440000")
     );
+    // @verifies selvedge.model.chatgpt.build
     assert_eq!(
         captured_body.pointer("/reasoning/effort"),
         Some(&serde_json::json!("medium"))
     );
+    // @verifies selvedge.model.chatgpt.build
     assert!(captured_body.get("max_output_tokens").is_none());
 }
 
@@ -297,7 +304,9 @@ base_url = "{}"
     )
     .await;
 
+    // @verifies selvedge.model.dispatch.success
     assert_eq!(status, ApiCallTerminalStatus::OutputSent);
+    // @verifies selvedge.model.dispatch.success
     assert!(matches!(
         router_rx.recv().await.expect("router message"),
         RouterIngressApiMessage::ApiOutput(ApiOutputEnvelope::Success { .. })
@@ -308,22 +317,27 @@ base_url = "{}"
         .expect("captured body lock")
         .clone()
         .expect("captured request body");
+    // @verifies selvedge.model.chatgpt.tool_history
     assert_eq!(
         captured_body.pointer("/input/1/type"),
         Some(&serde_json::json!("function_call"))
     );
+    // @verifies selvedge.model.chatgpt.tool_args
     assert_eq!(
         captured_body.pointer("/input/1/arguments"),
         Some(&serde_json::json!("{\"query\":\"rust\"}"))
     );
+    // @verifies selvedge.model.chatgpt.tool_history
     assert_eq!(
         captured_body.pointer("/input/2/type"),
         Some(&serde_json::json!("function_call_output"))
     );
+    // @verifies selvedge.model.chatgpt.content
     assert_eq!(
         captured_body.pointer("/input/3/content/0/type"),
         Some(&serde_json::json!("output_text"))
     );
+    // @verifies selvedge.model.chatgpt.tool_schema
     assert_eq!(
         captured_body.pointer("/tools/0/name"),
         Some(&serde_json::json!("search"))
@@ -401,11 +415,13 @@ base_url = "{}"
     )
     .await;
 
+    // @verifies selvedge.model.dispatch.success
     assert_eq!(status, ApiCallTerminalStatus::OutputSent);
     let message = router_rx.recv().await.expect("router message");
 
     match message {
         RouterIngressApiMessage::ApiOutput(ApiOutputEnvelope::Success { reply, .. }) => {
+            // @verifies selvedge.model.chatgpt.event
             assert_eq!(reply.content.as_deref(), Some("truncated"));
             assert_eq!(reply.finish_reason, ModelFinishReason::Length);
         }
@@ -481,6 +497,7 @@ base_url = "{}"
     )
     .await;
 
+    // @verifies selvedge.model.chatgpt.number
     assert_eq!(status, ApiCallTerminalStatus::OutputSent);
     let message = router_rx.recv().await.expect("router message");
     assert_failure(
@@ -506,6 +523,7 @@ async fn unsupported_provider_name_sends_provider_request_failure_without_extern
     )
     .await;
 
+    // @verifies selvedge.model.dispatch.unsupported
     assert_eq!(status, ApiCallTerminalStatus::OutputSent);
     let message = router_rx.recv().await.expect("router message");
 
@@ -532,6 +550,7 @@ async fn invalid_dispatch_request_sends_validation_failure_before_provider_dispa
     )
     .await;
 
+    // @verifies selvedge.model.dispatch.input
     assert_eq!(status, ApiCallTerminalStatus::OutputSent);
     let message = router_rx.recv().await.expect("router message");
 
@@ -554,6 +573,7 @@ async fn invalid_correlation_sends_validation_failure_that_satisfies_output_vali
     )
     .await;
 
+    // @verifies selvedge.model.dispatch.input
     assert_eq!(status, ApiCallTerminalStatus::OutputSent);
     let message = router_rx.recv().await.expect("router message");
 
@@ -562,6 +582,7 @@ async fn invalid_correlation_sends_validation_failure_that_satisfies_output_vali
             validate_api_output_envelope(&envelope).expect("valid output envelope");
             match envelope {
                 ApiOutputEnvelope::Failure { error, .. } => {
+                    // @verifies selvedge.model.dispatch.input
                     assert_eq!(error.kind, ModelCallErrorKind::Validation);
                 }
                 ApiOutputEnvelope::Success { .. } => panic!("unexpected success"),
@@ -588,6 +609,7 @@ async fn closed_router_mailbox_discards_completion_result() {
     )
     .await;
 
+    // @verifies selvedge.model.router
     assert_eq!(status, ApiCallTerminalStatus::RouterClosed);
 }
 
@@ -606,10 +628,12 @@ async fn spawn_model_call_tokio_task_returns_terminal_status() {
         },
     );
 
+    // @verifies selvedge.model.dispatch.spawn
     assert_eq!(
         handle.await.expect("join handle"),
         ApiCallTerminalStatus::OutputSent
     );
+    // @verifies selvedge.model.dispatch.spawn
     assert!(router_rx.recv().await.is_some());
 }
 
@@ -620,12 +644,14 @@ fn assert_failure(
 ) {
     match message {
         RouterIngressApiMessage::ApiOutput(ApiOutputEnvelope::Failure { correlation, error }) => {
+            // @verifies selvedge.model.failure
             assert_eq!(
                 correlation.api_effect_id,
                 expected_correlation.api_effect_id
             );
             assert_eq!(correlation.task_id, expected_correlation.task_id);
             assert_eq!(correlation.model_run_id, expected_correlation.model_run_id);
+            // @verifies selvedge.model.failure
             assert_eq!(error.kind, expected_kind);
         }
         _ => panic!("unexpected router message"),
@@ -673,6 +699,7 @@ fn run_child(test_name: &str, flag: &str) -> Output {
 }
 
 fn assert_child_success(output: &Output) {
+    // @verifies selvedge.model.chatgpt
     assert!(output.status.success(), "child test failed: {output:?}");
 }
 
