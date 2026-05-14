@@ -1,5 +1,5 @@
-//! @behavior req The xtask requirement tool validates source-comment requirements and AGENTS index freshness.
-//! @behavior req.api The public API exposes requirement automation commands to the xtask binary.
+//! @behavior tool The xtask requirement tool validates source-comment requirements and AGENTS index freshness.
+//! @behavior tool.api The public API exposes requirement automation commands to the xtask binary.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -10,7 +10,7 @@ use std::process::Command;
 const BEGIN_MARKER: &str = "<!-- BEGIN AGENTS_MD_REQUIREMENT_INDEX -->";
 const END_MARKER: &str = "<!-- END AGENTS_MD_REQUIREMENT_INDEX -->";
 
-/// @constraint req.api.mode The check mode enum limits validation to the full checkout, the staged Git snapshot, or a base ref diff.
+/// @constraint tool.api.mode The check mode enum limits validation to the full checkout, the staged Git snapshot, or a base ref diff.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RequirementCheckMode {
     All,
@@ -18,44 +18,44 @@ pub enum RequirementCheckMode {
     Base { git_ref: String },
 }
 
-/// @constraint req.api.status The check status enum reports either a fresh requirement index or a stale AGENTS block.
+/// @constraint tool.api.status The check status enum reports either a fresh requirement index or a stale AGENTS block.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RequirementCheckStatus {
     Fresh,
     StaleAgentsIndex,
 }
 
-/// @behavior req.api.report The scan report returns discovered declarations, verification links, and diagnostics together.
+/// @behavior tool.api.report The scan report returns discovered declarations, verification links, and diagnostics together.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RequirementScanReport {
-    /// @behavior req.api.report.declarations The declarations field carries behavior, constraint, and intent records discovered from source comments.
+    /// @behavior tool.api.report.declarations The declarations field carries behavior, constraint, and intent records discovered from source comments.
     pub declarations: Vec<RequirementRecord>,
-    /// @behavior req.api.report.verifications The verifications field carries test expectation records discovered from source comments.
+    /// @behavior tool.api.report.verifications The verifications field carries test expectation records discovered from source comments.
     pub verifications: Vec<RequirementRecord>,
-    /// @behavior req.api.report.diagnostics The diagnostics field carries every validation problem discovered during scanning.
+    /// @behavior tool.api.report.diagnostics The diagnostics field carries every validation problem discovered during scanning.
     pub diagnostics: Vec<Diagnostic>,
 }
 
-/// @behavior req.api.record The requirement record stores the source location, tag, ID, optional declaration sentence, and binding target.
+/// @behavior tool.api.record The requirement record stores the source location, tag, ID, optional declaration sentence, and binding target.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RequirementRecord {
-    /// @behavior req.api.record.path The path field stores the repository-relative Rust source path for the requirement comment.
+    /// @behavior tool.api.record.path The path field stores the repository-relative Rust source path for the requirement comment.
     pub path: String,
-    /// @behavior req.api.record.line The line field stores the one-based source line where the requirement comment begins.
+    /// @behavior tool.api.record.line The line field stores the one-based source line where the requirement comment begins.
     pub line: usize,
-    /// @behavior req.api.record.tag The tag field stores the parsed semantic kind of the requirement comment.
+    /// @behavior tool.api.record.tag The tag field stores the parsed semantic kind of the requirement comment.
     pub tag: RequirementTag,
-    /// @behavior req.api.record.id The id field stores the dotted requirement tree position for the record.
+    /// @behavior tool.api.record.id The id field stores the dotted requirement tree position for the record.
     pub id: String,
-    /// @behavior req.api.record.sentence The sentence field stores the declaration sentence or an empty string for direct verification references.
+    /// @behavior tool.api.record.sentence The sentence field stores the declaration sentence or an empty string for direct verification references.
     pub sentence: String,
-    /// @behavior req.api.record.binding The binding field stores the Rust item or statement attached to the requirement comment.
+    /// @behavior tool.api.record.binding The binding field stores the Rust item or statement attached to the requirement comment.
     pub binding: String,
-    /// @behavior req.api.record.test_context The test-context field records whether the requirement comment is inside an inline test scope.
+    /// @behavior tool.api.record.test_context The test-context field records whether the requirement comment is inside an inline test scope.
     pub in_test_context: bool,
 }
 
-/// @constraint req.api.tag The tag enum contains exactly the four requirement comment tags accepted by the protocol.
+/// @constraint tool.api.tag The tag enum contains exactly the four requirement comment tags accepted by the protocol.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RequirementTag {
     Behavior,
@@ -65,7 +65,7 @@ pub enum RequirementTag {
 }
 
 impl RequirementTag {
-    /// @behavior req.api.tag.string The tag renderer returns the exact source token for each accepted requirement tag.
+    /// @behavior tool.api.tag.string The tag renderer returns the exact source token for each accepted requirement tag.
     pub fn as_str(self) -> &'static str {
         match self {
             RequirementTag::Behavior => "@behavior",
@@ -83,26 +83,26 @@ impl RequirementTag {
     }
 }
 
-/// @behavior req.api.diagnostic The diagnostic struct renders compiler-style file, line, rule, and message fields.
+/// @behavior tool.api.diagnostic The diagnostic struct renders compiler-style file, line, rule, and message fields.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Diagnostic {
-    /// @behavior req.api.diagnostic.path The diagnostic path field stores the repository-relative source path for a validation problem.
+    /// @behavior tool.api.diagnostic.path The diagnostic path field stores the repository-relative source path for a validation problem.
     pub path: String,
-    /// @behavior req.api.diagnostic.line The diagnostic line field stores the one-based source line for a validation problem.
+    /// @behavior tool.api.diagnostic.line The diagnostic line field stores the one-based source line for a validation problem.
     pub line: usize,
-    /// @behavior req.api.diagnostic.rule The diagnostic rule field stores the stable rule identifier for a validation problem.
+    /// @behavior tool.api.diagnostic.rule The diagnostic rule field stores the stable rule identifier for a validation problem.
     pub rule: &'static str,
-    /// @behavior req.api.diagnostic.message The diagnostic message field stores the human-readable validation problem.
+    /// @behavior tool.api.diagnostic.message The diagnostic message field stores the human-readable validation problem.
     pub message: String,
 }
 
-/// @behavior req.scan The scan command reads tracked Rust files and reports requirement comments with validation diagnostics.
+/// @behavior tool.scan The scan command reads tracked Rust files and reports requirement comments with validation diagnostics.
 pub fn scan_requirements(root: &Path) -> Result<RequirementScanReport, String> {
     let snapshot = Snapshot::from_worktree(root)?;
     Ok(scan_snapshot(&snapshot))
 }
 
-/// @behavior req.format The fmt-agents command rewrites only the generated requirement index block in AGENTS.md.
+/// @behavior tool.format The fmt-agents command rewrites only the generated requirement index block in AGENTS.md.
 pub fn format_agents_requirement_index(root: &Path) -> Result<(), String> {
     let snapshot = Snapshot::from_worktree(root)?;
     let report = scan_snapshot(&snapshot);
@@ -111,18 +111,18 @@ pub fn format_agents_requirement_index(root: &Path) -> Result<(), String> {
     }
 
     let agents_path = root.join("AGENTS.md");
-    // @behavior req.format.read The fmt-agents command reports filesystem read failures for AGENTS.md.
+    // @behavior tool.format.read The fmt-agents command reports filesystem read failures for AGENTS.md.
     let existing = fs::read_to_string(&agents_path)
         .map_err(|error| format!("failed to read {}: {error}", agents_path.display()))?;
     let line_ending = detect_line_ending(&existing);
     let block = render_requirement_index_block(&report.declarations, line_ending);
     let updated = upsert_requirement_index_block(&existing, &block, line_ending)?;
-    // @behavior req.format.write The fmt-agents command reports filesystem write failures for AGENTS.md.
+    // @behavior tool.format.write The fmt-agents command reports filesystem write failures for AGENTS.md.
     fs::write(&agents_path, updated)
         .map_err(|error| format!("failed to write {}: {error}", agents_path.display()))
 }
 
-/// @behavior req.check The check command validates comments, registry links, anchors, and AGENTS index freshness.
+/// @behavior tool.check The check command validates comments, registry links, anchors, and AGENTS index freshness.
 pub fn check_requirements(
     root: &Path,
     mode: RequirementCheckMode,
@@ -143,12 +143,12 @@ pub fn check_requirements(
 
     match &mode {
         RequirementCheckMode::All => {
-            // @behavior req.check.all_anchors The all check classifies every Rust source line in the current checkout with the same anchor rules used for changed hunks.
+            // @behavior tool.check.all_anchors The all check classifies every Rust source line in the current checkout with the same anchor rules used for changed hunks.
             let all_anchor_diagnostics = classify_full_snapshot(&snapshot.files, &current_records);
             report.diagnostics.extend(all_anchor_diagnostics);
         }
         RequirementCheckMode::Staged => {
-            // @behavior req.check.head_snapshot The staged check uses an empty old snapshot when HEAD is unavailable.
+            // @behavior tool.check.head_snapshot The staged check uses an empty old snapshot when HEAD is unavailable.
             let old_snapshot = match Snapshot::from_git_ref(root, "HEAD") {
                 Ok(snapshot) => snapshot,
                 Err(_) => Snapshot { files: Vec::new() },
@@ -193,7 +193,7 @@ pub fn check_requirements(
         }
     }
 
-    // @behavior req.check.diagnostics The check command renders accumulated diagnostics as a failing result.
+    // @behavior tool.check.diagnostics The check command renders accumulated diagnostics as a failing result.
     if !report.diagnostics.is_empty() {
         return Err(render_diagnostics(&report.diagnostics));
     }
@@ -244,7 +244,7 @@ fn scan_snapshot(snapshot: &Snapshot) -> RequirementScanReport {
                             declarations.push(record);
                         }
                     }
-                    // @constraint req.scan.binding Requirement comments must bind to a nearby Rust item or statement.
+                    // @constraint tool.scan.binding Requirement comments must bind to a nearby Rust item or statement.
                     None => diagnostics.push(Diagnostic {
                         path: file.path.clone(),
                         line: raw.line,
@@ -253,7 +253,7 @@ fn scan_snapshot(snapshot: &Snapshot) -> RequirementScanReport {
                             .to_string(),
                     }),
                 },
-                // @behavior req.scan.comment_parse_error The scanner stores requirement comment parser failures as invalid requirement comment diagnostics.
+                // @behavior tool.scan.comment_parse_error The scanner stores requirement comment parser failures as invalid requirement comment diagnostics.
                 Err(message) => diagnostics.push(Diagnostic {
                     path: file.path.clone(),
                     line: raw.line,
@@ -276,7 +276,7 @@ fn validate_rust_parses(file: &SnapshotFile) -> Vec<Diagnostic> {
     let mut parser = tree_sitter::Parser::new();
     let language = tree_sitter_rust::LANGUAGE.into();
     if parser.set_language(&language).is_err() {
-        // @behavior req.scan.parser_unavailable The scanner reports a diagnostic when the Rust parser language cannot be installed.
+        // @behavior tool.scan.parser_unavailable The scanner reports a diagnostic when the Rust parser language cannot be installed.
         return vec![Diagnostic {
             path: file.path.clone(),
             line: 1,
@@ -285,7 +285,7 @@ fn validate_rust_parses(file: &SnapshotFile) -> Vec<Diagnostic> {
         }];
     }
     let Some(tree) = parser.parse(&file.content, None) else {
-        // @behavior req.scan.parse_failed The scanner reports a diagnostic when tree-sitter cannot produce a Rust syntax tree.
+        // @behavior tool.scan.parse_failed The scanner reports a diagnostic when tree-sitter cannot produce a Rust syntax tree.
         return vec![Diagnostic {
             path: file.path.clone(),
             line: 1,
@@ -293,7 +293,7 @@ fn validate_rust_parses(file: &SnapshotFile) -> Vec<Diagnostic> {
             message: "tree-sitter could not parse this Rust file".to_string(),
         }];
     };
-    // @behavior req.scan.parse_error The scanner reports a diagnostic when tree-sitter finds Rust syntax errors.
+    // @behavior tool.scan.parse_error The scanner reports a diagnostic when tree-sitter finds Rust syntax errors.
     if tree.root_node().has_error() {
         vec![Diagnostic {
             path: file.path.clone(),
@@ -306,7 +306,7 @@ fn validate_rust_parses(file: &SnapshotFile) -> Vec<Diagnostic> {
     }
 }
 
-/// @behavior req.api.parse The requirement parser converts one normalized comment body into its tag, ID, and optional declaration sentence.
+/// @behavior tool.api.parse The requirement parser converts one normalized comment body into its tag, ID, and optional declaration sentence.
 fn parse_requirement_comment(content: &str) -> Result<ParsedRequirement, String> {
     let mut parts = content.splitn(3, char::is_whitespace);
     let tag = match parts.next().unwrap_or_default() {
@@ -314,22 +314,22 @@ fn parse_requirement_comment(content: &str) -> Result<ParsedRequirement, String>
         "@constraint" => RequirementTag::Constraint,
         "@intent" => RequirementTag::Intent,
         "@verifies" => RequirementTag::Verifies,
-        // @constraint req.api.parse.tag The parser rejects comments whose first token is outside the allowed requirement tag set.
+        // @constraint tool.api.parse.tag The parser rejects comments whose first token is outside the allowed requirement tag set.
         _ => return Err("requirement comment must start with an allowed tag".to_string()),
     };
     let Some(id) = parts.next().filter(|id| !id.is_empty()) else {
-        // @constraint req.api.parse.id_presence The parser rejects comments that omit the dotted requirement ID.
+        // @constraint tool.api.parse.id_presence The parser rejects comments that omit the dotted requirement ID.
         return Err("requirement comment must include a dotted ID".to_string());
     };
     if !valid_requirement_id(id) {
-        // @constraint req.api.parse.id_grammar The parser rejects IDs that violate the dotted lowercase grammar.
+        // @constraint tool.api.parse.id_grammar The parser rejects IDs that violate the dotted lowercase grammar.
         return Err(format!(
             "requirement ID `{id}` violates the dotted ID grammar"
         ));
     }
     let sentence = parts.next().map(str::trim).unwrap_or_default();
     if tag == RequirementTag::Verifies {
-        // @constraint req.api.parse.verifies_body The parser accepts @verifies comments only when they contain a direct requirement ID reference.
+        // @constraint tool.api.parse.verifies_body The parser accepts @verifies comments only when they contain a direct requirement ID reference.
         if !sentence.is_empty() {
             return Err("@verifies comments must contain only a referenced ID".to_string());
         }
@@ -340,11 +340,11 @@ fn parse_requirement_comment(content: &str) -> Result<ParsedRequirement, String>
         });
     }
     if sentence.is_empty() {
-        // @constraint req.api.parse.sentence_presence The parser rejects declaration comments that omit the one-sentence requirement body.
+        // @constraint tool.api.parse.sentence_presence The parser rejects declaration comments that omit the one-sentence requirement body.
         return Err("declaration requirement comments must include one sentence".to_string());
     }
     if !has_one_sentence(sentence) {
-        // @constraint req.api.parse.sentence_count The parser rejects declaration comments whose requirement body contains more or less than one sentence.
+        // @constraint tool.api.parse.sentence_count The parser rejects declaration comments whose requirement body contains more or less than one sentence.
         return Err(
             "declaration requirement comments must contain exactly one sentence".to_string(),
         );
@@ -395,7 +395,7 @@ fn sentence_boundary_count(sentence: &str) -> usize {
     count
 }
 
-/// @constraint req.api.diagnostic.macro The sentence counter ignores bang punctuation for known Rust macro names.
+/// @constraint tool.api.diagnostic.macro The sentence counter ignores bang punctuation for known Rust macro names.
 fn is_known_macro_bang(sentence: &str, bang_index: usize) -> bool {
     let name_start = sentence[..bang_index]
         .char_indices()
@@ -423,7 +423,7 @@ fn is_known_macro_bang(sentence: &str, bang_index: usize) -> bool {
     )
 }
 
-/// @behavior req.check.registry The registry validator checks ID uniqueness, ancestor declarations, and verification link targets.
+/// @behavior tool.check.registry The registry validator checks ID uniqueness, ancestor declarations, and verification link targets.
 fn validate_registry(
     declarations: &[RequirementRecord],
     verifications: &[RequirementRecord],
@@ -438,7 +438,7 @@ fn validate_registry(
     }
     for id in duplicate_ids {
         if let Some(record) = declared.get(id) {
-            // @constraint req.check.registry.duplicate The registry rejects duplicate declaration IDs.
+            // @constraint tool.check.registry.duplicate The registry rejects duplicate declaration IDs.
             diagnostics.push(Diagnostic {
                 path: record.path.clone(),
                 line: record.line,
@@ -451,7 +451,7 @@ fn validate_registry(
     for declaration in declarations {
         for ancestor in ancestor_ids(&declaration.id) {
             if !declared.contains_key(ancestor.as_str()) {
-                // @constraint req.check.registry.ancestor_declaration Every dotted declaration ID requires declarations for all ancestor IDs.
+                // @constraint tool.check.registry.ancestor_declaration Every dotted declaration ID requires declarations for all ancestor IDs.
                 diagnostics.push(Diagnostic {
                     path: declaration.path.clone(),
                     line: declaration.line,
@@ -467,7 +467,7 @@ fn validate_registry(
 
     for verification in verifications {
         if !is_test_path(&verification.path) && !verification.in_test_context {
-            // @constraint req.check.registry.verification_context Verification comments are accepted only from test contexts.
+            // @constraint tool.check.registry.verification_context Verification comments are accepted only from test contexts.
             diagnostics.push(Diagnostic {
                 path: verification.path.clone(),
                 line: verification.line,
@@ -476,13 +476,13 @@ fn validate_registry(
             });
         }
         match declared.get(verification.id.as_str()) {
-            // @constraint req.check.registry.target_declaration Verification targets must resolve to behavior or constraint declarations.
+            // @constraint tool.check.registry.target_declaration Verification targets must resolve to behavior or constraint declarations.
             Some(record)
                 if matches!(
                     record.tag,
                     RequirementTag::Behavior | RequirementTag::Constraint
                 ) => {}
-            // @constraint req.check.registry.target_kind Verification comments can target only behavior or constraint declarations.
+            // @constraint tool.check.registry.target_kind Verification comments can target only behavior or constraint declarations.
             Some(_) => diagnostics.push(Diagnostic {
                 path: verification.path.clone(),
                 line: verification.line,
@@ -493,7 +493,7 @@ fn validate_registry(
                 ),
             }),
             None => {
-                // @constraint req.check.registry.target_presence Verification comments must reference a declared requirement ID.
+                // @constraint tool.check.registry.target_presence Verification comments must reference a declared requirement ID.
                 diagnostics.push(Diagnostic {
                     path: verification.path.clone(),
                     line: verification.line,
@@ -510,13 +510,13 @@ fn validate_registry(
     diagnostics
 }
 
-/// @behavior req.check.registry.ancestor The registry validator derives every dotted ancestor required by a declaration ID.
+/// @behavior tool.check.registry.ancestor The registry validator derives every dotted ancestor required by a declaration ID.
 fn ancestor_ids(id: &str) -> Vec<String> {
     let parts = id.split('.').collect::<Vec<_>>();
     (1..parts.len()).map(|end| parts[..end].join(".")).collect()
 }
 
-/// @constraint req.check.registry.test_path Verification comments are accepted only from Cargo test and example paths outside inline test modules.
+/// @constraint tool.check.registry.test_path Verification comments are accepted only from Cargo test and example paths outside inline test modules.
 fn is_test_path(path: &str) -> bool {
     path.contains("/tests/")
         || path.starts_with("tests/")
@@ -528,7 +528,7 @@ fn is_test_path(path: &str) -> bool {
 }
 
 fn render_requirement_index_block(declarations: &[RequirementRecord], line_ending: &str) -> String {
-    // @behavior req.format.render The requirement index renderer lists declaration IDs and immediate child IDs in deterministic order.
+    // @behavior tool.format.render The requirement index renderer lists declaration IDs and immediate child IDs in deterministic order.
     let mut ids = declarations
         .iter()
         .filter(|record| record.tag.is_declaration())
@@ -570,7 +570,7 @@ fn render_requirement_index_block(declarations: &[RequirementRecord], line_endin
     lines.push(END_MARKER.to_string());
     lines.join(line_ending)
 }
-/// @behavior req.format.index_block The index block updater preserves AGENTS content around the generated requirement block.
+/// @behavior tool.format.index_block The index block updater preserves AGENTS content around the generated requirement block.
 fn upsert_requirement_index_block(
     existing: &str,
     block: &str,
@@ -579,15 +579,15 @@ fn upsert_requirement_index_block(
     let begin_matches = existing.matches(BEGIN_MARKER).count();
     let end_matches = existing.matches(END_MARKER).count();
     if begin_matches > 1 || end_matches > 1 {
-        // @constraint req.format.index_block.marker_count The index updater rejects duplicate generated-block markers in AGENTS.md.
+        // @constraint tool.format.index_block.marker_count The index updater rejects duplicate generated-block markers in AGENTS.md.
         return Err("AGENTS.md contains duplicate requirement index markers".to_string());
     }
     if begin_matches != end_matches {
-        // @constraint req.format.index_block.marker_balance The index updater rejects unbalanced generated-block markers in AGENTS.md.
+        // @constraint tool.format.index_block.marker_balance The index updater rejects unbalanced generated-block markers in AGENTS.md.
         return Err("AGENTS.md requirement index markers are unbalanced".to_string());
     }
     if begin_matches == 0 {
-        // @behavior req.format.index_block.insert The index block updater appends a generated requirement block when AGENTS.md has no existing markers.
+        // @behavior tool.format.index_block.insert The index block updater appends a generated requirement block when AGENTS.md has no existing markers.
         let mut updated = existing.trim_end().to_string();
         if !updated.is_empty() {
             updated.push_str(line_ending);
@@ -600,22 +600,22 @@ fn upsert_requirement_index_block(
 
     let start = existing
         .find(BEGIN_MARKER)
-        // @constraint req.format.index_block.marker_lookup_begin The index updater treats begin-marker lookup failure as unreachable after marker counts pass.
+        // @constraint tool.format.index_block.marker_lookup_begin The index updater treats begin-marker lookup failure as unreachable after marker counts pass.
         .expect("marker count already checked");
     let end = existing
         .find(END_MARKER)
-        // @constraint req.format.index_block.marker_lookup_end The index updater treats end-marker lookup failure as unreachable after marker counts pass.
+        // @constraint tool.format.index_block.marker_lookup_end The index updater treats end-marker lookup failure as unreachable after marker counts pass.
         .expect("marker count already checked")
         + END_MARKER.len();
     let mut updated = String::new();
     updated.push_str(&existing[..start]);
     updated.push_str(block);
     updated.push_str(&existing[end..]);
-    // @behavior req.format.index_block.replace The index block updater replaces the existing generated requirement block while preserving surrounding AGENTS.md content.
+    // @behavior tool.format.index_block.replace The index block updater replaces the existing generated requirement block while preserving surrounding AGENTS.md content.
     Ok(updated)
 }
 
-/// @behavior req.detector.full The full classifier validates every Rust source line in a snapshot against nearby requirement anchors.
+/// @behavior tool.detector.full The full classifier validates every Rust source line in a snapshot against nearby requirement anchors.
 fn classify_full_snapshot(
     files: &[SnapshotFile],
     records: &[RequirementRecord],
@@ -637,7 +637,7 @@ fn classify_full_snapshot(
     diagnostics
 }
 
-/// @behavior req.detector.diff The diff classifier walks Git unified diff lines and validates changed Rust hunks against nearby anchors.
+/// @behavior tool.detector.diff The diff classifier walks Git unified diff lines and validates changed Rust hunks against nearby anchors.
 fn classify_git_diff(
     root: &Path,
     args: &[&str],
@@ -647,7 +647,7 @@ fn classify_git_diff(
     old_files: &[SnapshotFile],
     old_records: &[RequirementRecord],
 ) -> Result<Vec<Diagnostic>, String> {
-    // @behavior req.detector.diff_command The diff classifier maps Git command execution failure into a tool diagnostic.
+    // @behavior tool.detector.diff_command The diff classifier maps Git command execution failure into a tool diagnostic.
     let output = match isolated_git_command().current_dir(root).args(args).output() {
         Ok(output) => output,
         Err(error) => return Err(format!("failed to run {command_name}: {error}")),
@@ -721,7 +721,7 @@ fn classify_git_diff(
     Ok(diagnostics)
 }
 
-/// @behavior req.detector.line The line classifier checks one Rust source line against detector rules and nearby requirement anchors.
+/// @behavior tool.detector.line The line classifier checks one Rust source line against detector rules and nearby requirement anchors.
 fn classify_rust_line(
     diagnostics: &mut Vec<Diagnostic>,
     path: &str,
@@ -756,12 +756,12 @@ fn classify_rust_line(
         let in_test_context = changed_file.is_some_and(|file| is_inline_test_context(file, line))
             || is_test_path(path);
         if in_test_context && rule != "missing-test-expectation-anchor" {
-            // @constraint req.detector.test_context Test context lines bypass production anchor rules while preserving test expectation checks.
+            // @constraint tool.detector.test_context Test context lines bypass production anchor rules while preserving test expectation checks.
             return;
         }
         let (rule, required) = if !in_test_context && rule == "missing-test-expectation-anchor" {
             if is_assertion_line(changed) {
-                // @constraint req.detector.failure.assertion Production assertion changes require behavior or constraint anchors.
+                // @constraint tool.detector.failure.assertion Production assertion changes require behavior or constraint anchors.
                 (
                     "missing-failure-policy-anchor",
                     vec![RequirementTag::Behavior, RequirementTag::Constraint],
@@ -786,7 +786,7 @@ fn classify_rust_line(
                 )
         });
         if !has_anchor {
-            // @behavior req.detector.diagnostic The detector emits a compiler-style diagnostic when a classified line lacks a nearby required anchor.
+            // @behavior tool.detector.diagnostic The detector emits a compiler-style diagnostic when a classified line lacks a nearby required anchor.
             diagnostics.push(Diagnostic {
                 path: path.to_string(),
                 line,
@@ -804,7 +804,7 @@ fn classify_rust_line(
     }
 }
 
-/// @intent req.detector The diff detector table maps Rust syntax signals to required requirement tags.
+/// @intent tool.detector The diff detector table maps Rust syntax signals to required requirement tags.
 fn classify_added_line(line: &str) -> Option<(&'static str, Vec<RequirementTag>)> {
     if is_assertion_line(line) || line.contains("mock") || line.contains("fixture") {
         return Some((
@@ -812,14 +812,14 @@ fn classify_added_line(line: &str) -> Option<(&'static str, Vec<RequirementTag>)
             vec![RequirementTag::Verifies],
         ));
     }
-    // @behavior req.detector.contract The visible contract detector classifies unrestricted and restricted Rust APIs as contract changes.
+    // @behavior tool.detector.contract The visible contract detector classifies unrestricted and restricted Rust APIs as contract changes.
     if is_visible_contract_line(line) {
         return Some((
             "missing-contract-anchor",
             vec![RequirementTag::Behavior, RequirementTag::Constraint],
         ));
     }
-    // @intent req.detector.structure.trait_object The structure detector treats trait declarations and trait object mentions as abstraction-boundary changes.
+    // @intent tool.detector.structure.trait_object The structure detector treats trait declarations and trait object mentions as abstraction-boundary changes.
     if line.starts_with("pub trait ")
         || line.starts_with("trait ")
         || is_visible_trait_line(line)
@@ -829,7 +829,7 @@ fn classify_added_line(line: &str) -> Option<(&'static str, Vec<RequirementTag>)
     {
         return Some(("missing-structure-intent", vec![RequirementTag::Intent]));
     }
-    // @behavior req.detector.failure The detector classifies timeout, panic, unwrap, expect, and Err patterns as failure-policy changes.
+    // @behavior tool.detector.failure The detector classifies timeout, panic, unwrap, expect, and Err patterns as failure-policy changes.
     if line.contains("tokio::time::timeout")
         || line.contains("map_err")
         || line.contains("panic!")
@@ -842,7 +842,7 @@ fn classify_added_line(line: &str) -> Option<(&'static str, Vec<RequirementTag>)
             vec![RequirementTag::Behavior, RequirementTag::Constraint],
         ));
     }
-    // @behavior req.detector.side_effect The detector classifies filesystem, channel send, and tracing patterns as side-effect changes.
+    // @behavior tool.detector.side_effect The detector classifies filesystem, channel send, and tracing patterns as side-effect changes.
     if line.contains("std::fs::")
         || line.contains("tokio::fs::")
         || line.contains("File::create")
@@ -858,7 +858,7 @@ fn classify_added_line(line: &str) -> Option<(&'static str, Vec<RequirementTag>)
     None
 }
 
-/// @behavior req.detector.anchor The anchor matcher accepts a requirement record when its binding is close enough to the changed code unit.
+/// @behavior tool.detector.anchor The anchor matcher accepts a requirement record when its binding is close enough to the changed code unit.
 fn anchor_matches_changed_line(
     record: &RequirementRecord,
     line: usize,
@@ -909,17 +909,17 @@ fn is_contract_attribute_line(line: &str) -> bool {
             && (line.contains("Serialize") || line.contains("Deserialize")))
 }
 
-/// @behavior req.detector.assertion The assertion detector classifies production assertions as failure-policy changes and test assertions as verification changes.
+/// @behavior tool.detector.assertion The assertion detector classifies production assertions as failure-policy changes and test assertions as verification changes.
 fn is_assertion_line(line: &str) -> bool {
     line.contains("assert!") || line.contains("assert_eq!") || line.contains("assert_ne!")
 }
 
-/// @behavior req.detector.assertion.unwrap The assertion detector treats panicking unwrap calls as failure-policy changes while accepting fallback helpers.
+/// @behavior tool.detector.assertion.unwrap The assertion detector treats panicking unwrap calls as failure-policy changes while accepting fallback helpers.
 fn is_panicking_unwrap_line(line: &str) -> bool {
     line.contains(".unwrap()") || line.contains(".unwrap_err()")
 }
 
-/// @behavior req.detector.structure The structure detector classifies visible trait declarations as structure-intent changes.
+/// @behavior tool.detector.structure The structure detector classifies visible trait declarations as structure-intent changes.
 fn is_visible_trait_line(line: &str) -> bool {
     visible_line_remainder(line).is_some_and(|rest| {
         let rest = rest.strip_prefix("unsafe ").unwrap_or(rest);
@@ -941,7 +941,7 @@ fn is_visible_contract_line(line: &str) -> bool {
             || is_visible_field_remainder(rest)
     })
 }
-/// @behavior req.detector.field The visible field detector classifies public Rust struct fields as contract changes.
+/// @behavior tool.detector.field The visible field detector classifies public Rust struct fields as contract changes.
 fn is_visible_field_remainder(rest: &str) -> bool {
     if let Some((name, _)) = rest.split_once(':') {
         return is_rust_field_name(name.trim());
@@ -955,7 +955,7 @@ fn is_rust_field_name(name: &str) -> bool {
         && characters.all(|character| character == '_' || character.is_ascii_alphanumeric())
 }
 
-/// @behavior req.detector.field.tuple The tuple field detector recognizes public tuple fields by comma-terminated type syntax.
+/// @behavior tool.detector.field.tuple The tuple field detector recognizes public tuple fields by comma-terminated type syntax.
 fn is_visible_tuple_field_remainder(rest: &str) -> bool {
     let rest = rest.trim();
     if !rest.ends_with(',') || rest.contains(':') || rest.contains('=') {
@@ -1010,7 +1010,7 @@ fn is_visible_function_remainder(rest: &str) -> bool {
     rest.starts_with("fn ")
 }
 
-/// @behavior req.detector.signature The staged signature detector classifies edited lines inside visible Rust function signatures as contract changes.
+/// @behavior tool.detector.signature The staged signature detector classifies edited lines inside visible Rust function signatures as contract changes.
 fn is_visible_signature_continuation(file: &SnapshotFile, line: usize, added: &str) -> bool {
     let added = added.trim();
     if !(added.contains(':')
@@ -1078,7 +1078,7 @@ enum PublicContainerKind {
     Trait,
 }
 
-/// @behavior req.detector.contract.container The public container detector classifies enum variants and trait required items as contract changes.
+/// @behavior tool.detector.contract.container The public container detector classifies enum variants and trait required items as contract changes.
 fn enclosing_public_container_contract_line(
     file: &SnapshotFile,
     line: usize,
@@ -1123,7 +1123,7 @@ fn enclosing_public_container_contract_line(
         })
 }
 
-/// @constraint req.detector.contract.container.header The container header detector normalizes public unsafe trait headers before classifying member changes.
+/// @constraint tool.detector.contract.container.header The container header detector normalizes public unsafe trait headers before classifying member changes.
 fn public_container_header_kind(line: &str) -> Option<PublicContainerKind> {
     visible_line_remainder(line).and_then(|rest| {
         if rest.starts_with("enum ") {
@@ -1169,7 +1169,7 @@ fn parse_hunk_starts(hunk: &str) -> (usize, usize) {
     (parse_hunk_start(hunk, '-'), parse_hunk_start(hunk, '+'))
 }
 
-/// @behavior req.detector.hunk_parse The hunk parser returns zero when a diff hunk omits a parseable line start.
+/// @behavior tool.detector.hunk_parse The hunk parser returns zero when a diff hunk omits a parseable line start.
 fn parse_hunk_start(hunk: &str, prefix: char) -> usize {
     hunk.split_whitespace()
         .find_map(|part| part.strip_prefix(prefix))
@@ -1179,7 +1179,7 @@ fn parse_hunk_start(hunk: &str, prefix: char) -> usize {
 }
 
 fn extract_requirement_comments(file: &SnapshotFile) -> Vec<RawRequirementComment> {
-    // @behavior req.scan.extract The scanner extracts requirement comments from Rust line comments and block comments while skipping string literals.
+    // @behavior tool.scan.extract The scanner extracts requirement comments from Rust line comments and block comments while skipping string literals.
     let mut comments = Vec::new();
     let lines = file.content.lines().collect::<Vec<_>>();
     let string_literal_lines = string_literal_lines(file);
@@ -1242,7 +1242,7 @@ fn extract_requirement_comments(file: &SnapshotFile) -> Vec<RawRequirementCommen
 }
 
 fn string_literal_lines(file: &SnapshotFile) -> BTreeSet<usize> {
-    // @constraint req.scan.string_literals The scanner ignores requirement-shaped text inside Rust string literals.
+    // @constraint tool.scan.string_literals The scanner ignores requirement-shaped text inside Rust string literals.
     let mut parser = tree_sitter::Parser::new();
     let language = tree_sitter_rust::LANGUAGE.into();
     if parser.set_language(&language).is_err() {
@@ -1287,7 +1287,7 @@ fn normalize_line_comment(trimmed: &str) -> Option<&str> {
 
 fn bind_comment(file: &SnapshotFile, raw: &RawRequirementComment) -> Option<String> {
     if raw.inner_doc {
-        // @behavior req.api.record.binding.inner_doc Inner doc requirement comments bind to the file module.
+        // @behavior tool.api.record.binding.inner_doc Inner doc requirement comments bind to the file module.
         return Some("file module".to_string());
     }
 
@@ -1306,11 +1306,11 @@ fn bind_comment(file: &SnapshotFile, raw: &RawRequirementComment) -> Option<Stri
         if is_rust_binding_target(trimmed) {
             return Some(format!("line {} `{}`", offset + 1, trimmed));
         }
-        // @constraint req.api.record.binding.target Requirement comments bind only when the next non-comment token is a Rust binding target.
+        // @constraint tool.api.record.binding.target Requirement comments bind only when the next non-comment token is a Rust binding target.
         return None;
     }
     if raw.line <= 3 && raw.normalized.starts_with("@behavior") {
-        // @behavior req.api.record.binding.file_header Leading file behavior comments bind to the file module.
+        // @behavior tool.api.record.binding.file_header Leading file behavior comments bind to the file module.
         Some("file module".to_string())
     } else {
         None
@@ -1318,7 +1318,7 @@ fn bind_comment(file: &SnapshotFile, raw: &RawRequirementComment) -> Option<Stri
 }
 
 fn is_inline_test_context(file: &SnapshotFile, line: usize) -> bool {
-    // @constraint req.check.registry.inline_test_context Inline #[cfg(test)] modules and direct test functions are accepted verification contexts.
+    // @constraint tool.check.registry.inline_test_context Inline #[cfg(test)] modules and direct test functions are accepted verification contexts.
     if binds_to_direct_test_function(file, line) {
         return true;
     }
@@ -1505,7 +1505,7 @@ struct Snapshot {
 }
 
 impl Snapshot {
-    /// @behavior req.check.snapshot The snapshot reader loads tracked Rust inputs from the worktree, index, or Git ref for validation.
+    /// @behavior tool.check.snapshot The snapshot reader loads tracked Rust inputs from the worktree, index, or Git ref for validation.
     fn from_worktree(root: &Path) -> Result<Self, String> {
         let paths = git_ls_files(root)?;
         let mut files = Vec::new();
@@ -1516,9 +1516,9 @@ impl Snapshot {
                     path: path_to_string(&path),
                     content,
                 }),
-                // @behavior req.check.snapshot.worktree_invalid The worktree snapshot reader skips tracked files whose bytes are not valid UTF-8 text.
+                // @behavior tool.check.snapshot.worktree_invalid The worktree snapshot reader skips tracked files whose bytes are not valid UTF-8 text.
                 Err(error) if error.kind() == io::ErrorKind::InvalidData => continue,
-                // @behavior req.check.snapshot.worktree_read The worktree snapshot reader reports filesystem read failures for tracked paths.
+                // @behavior tool.check.snapshot.worktree_read The worktree snapshot reader reports filesystem read failures for tracked paths.
                 Err(error) => {
                     return Err(format!("failed to read {}: {error}", full_path.display()));
                 }
@@ -1528,7 +1528,7 @@ impl Snapshot {
     }
 
     fn from_index(root: &Path) -> Result<Self, String> {
-        // @behavior req.check.snapshot.index The staged snapshot reader loads tracked staged paths from the Git index.
+        // @behavior tool.check.snapshot.index The staged snapshot reader loads tracked staged paths from the Git index.
         let paths = git_ls_files_cached(root)?;
         let mut files = Vec::new();
         for path in paths {
@@ -1538,13 +1538,13 @@ impl Snapshot {
                 .arg("show")
                 .arg(format!(":{path_string}"))
                 .output()
-                // @behavior req.check.snapshot.staged_read The staged snapshot reader reports Git object read failures for staged paths.
+                // @behavior tool.check.snapshot.staged_read The staged snapshot reader reports Git object read failures for staged paths.
                 .map_err(|error| format!("failed to read staged {path_string}: {error}"))?;
-            // @behavior req.check.snapshot.staged_missing The staged snapshot reader skips paths whose staged object cannot be shown.
+            // @behavior tool.check.snapshot.staged_missing The staged snapshot reader skips paths whose staged object cannot be shown.
             if !output.status.success() {
                 continue;
             }
-            // @behavior req.check.snapshot.staged_invalid The staged snapshot reader skips staged paths whose bytes are not valid UTF-8 text.
+            // @behavior tool.check.snapshot.staged_invalid The staged snapshot reader skips staged paths whose bytes are not valid UTF-8 text.
             let Ok(content) = String::from_utf8(output.stdout) else {
                 continue;
             };
@@ -1557,7 +1557,7 @@ impl Snapshot {
     }
 
     fn from_git_ref(root: &Path, git_ref: &str) -> Result<Self, String> {
-        // @behavior req.check.snapshot.git_ref The ref snapshot reader loads tracked Rust paths from the requested Git ref.
+        // @behavior tool.check.snapshot.git_ref The ref snapshot reader loads tracked Rust paths from the requested Git ref.
         let paths = git_ref_files(root, git_ref)?;
         let mut files = Vec::new();
         for path in paths {
@@ -1569,18 +1569,18 @@ impl Snapshot {
                 .output()
             {
                 Ok(output) => output,
-                // @behavior req.check.git_ref_read The ref snapshot reader reports object read failures for the requested Git ref.
+                // @behavior tool.check.git_ref_read The ref snapshot reader reports object read failures for the requested Git ref.
                 Err(error) => {
                     return Err(format!(
                         "failed to read {path_string} from {git_ref}: {error}"
                     ));
                 }
             };
-            // @behavior req.check.snapshot.git_ref_missing The ref snapshot reader skips paths whose object is absent at the requested Git ref.
+            // @behavior tool.check.snapshot.git_ref_missing The ref snapshot reader skips paths whose object is absent at the requested Git ref.
             if !output.status.success() {
                 continue;
             }
-            // @behavior req.check.snapshot.git_ref_invalid The ref snapshot reader skips ref paths whose bytes are not valid UTF-8 text.
+            // @behavior tool.check.snapshot.git_ref_invalid The ref snapshot reader skips ref paths whose bytes are not valid UTF-8 text.
             let Ok(content) = String::from_utf8(output.stdout) else {
                 continue;
             };
@@ -1600,12 +1600,12 @@ struct SnapshotFile {
 }
 
 fn git_ls_files(root: &Path) -> Result<Vec<PathBuf>, String> {
-    // @behavior req.check.git_path_list.worktree Worktree checks discover tracked paths with `git ls-files -z`.
+    // @behavior tool.check.git_path_list.worktree Worktree checks discover tracked paths with `git ls-files -z`.
     git_path_list(root, &["ls-files", "-z"])
 }
 
 fn git_ls_files_cached(root: &Path) -> Result<Vec<PathBuf>, String> {
-    // @behavior req.check.git_path_list.cached Staged checks discover staged tracked paths with `git ls-files -z --cached`.
+    // @behavior tool.check.git_path_list.cached Staged checks discover staged tracked paths with `git ls-files -z --cached`.
     git_path_list(root, &["ls-files", "-z", "--cached"])
 }
 
@@ -1616,10 +1616,10 @@ fn git_ref_files(root: &Path, git_ref: &str) -> Result<Vec<PathBuf>, String> {
         .output()
     {
         Ok(output) => output,
-        // @behavior req.check.git_ref_list The ref file lister reports Git tree listing failures for the requested Git ref.
+        // @behavior tool.check.git_ref_list The ref file lister reports Git tree listing failures for the requested Git ref.
         Err(error) => return Err(format!("failed to run git ls-tree for {git_ref}: {error}")),
     };
-    // @behavior req.check.git_ref_status The ref file lister reports unsuccessful Git tree listing status for the requested Git ref.
+    // @behavior tool.check.git_ref_status The ref file lister reports unsuccessful Git tree listing status for the requested Git ref.
     if !output.status.success() {
         return Err(format!(
             "git ls-tree {git_ref} failed: {}",
@@ -1636,7 +1636,7 @@ fn git_ref_files(root: &Path, git_ref: &str) -> Result<Vec<PathBuf>, String> {
     Ok(paths)
 }
 
-/// @behavior req.check.merge_base The base checker resolves the Git merge base before reading old snapshot files.
+/// @behavior tool.check.merge_base The base checker resolves the Git merge base before reading old snapshot files.
 fn git_merge_base(root: &Path, git_ref: &str) -> Result<String, String> {
     let output = match isolated_git_command()
         .current_dir(root)
@@ -1650,7 +1650,7 @@ fn git_merge_base(root: &Path, git_ref: &str) -> Result<String, String> {
             ));
         }
     };
-    // @constraint req.check.merge_base.status The merge-base resolver reports unsuccessful Git merge-base status for the requested base ref.
+    // @constraint tool.check.merge_base.status The merge-base resolver reports unsuccessful Git merge-base status for the requested base ref.
     if !output.status.success() {
         return Err(format!(
             "git merge-base {git_ref} HEAD failed: {}",
@@ -1665,9 +1665,9 @@ fn git_path_list(root: &Path, args: &[&str]) -> Result<Vec<PathBuf>, String> {
         .current_dir(root)
         .args(args)
         .output()
-        // @behavior req.check.git_path_list The Git path lister reports command execution failures for tracked path discovery.
+        // @behavior tool.check.git_path_list The Git path lister reports command execution failures for tracked path discovery.
         .map_err(|error| format!("failed to run git {}: {error}", args.join(" ")))?;
-    // @behavior req.check.git_path_list_status The Git path lister reports unsuccessful Git status for tracked path discovery.
+    // @behavior tool.check.git_path_list_status The Git path lister reports unsuccessful Git status for tracked path discovery.
     if !output.status.success() {
         return Err(format!(
             "git {} failed: {}",
@@ -1706,31 +1706,31 @@ mod tests {
         format_agents_requirement_index, is_visible_contract_line, is_visible_trait_line,
         parse_requirement_comment, scan_requirements,
     };
-    // @verifies req.check
+    // @verifies tool.check
     use std::fs;
     use std::path::Path;
     use std::process::Command;
     use tempfile::TempDir;
 
     #[test]
-    // @verifies req.cli
-    // @verifies req.scan
-    // @verifies req.api.tag
-    // @verifies req.api.record
+    // @verifies tool.cli
+    // @verifies tool.scan
+    // @verifies tool.api.tag
+    // @verifies tool.api.record
     fn parser_accepts_one_sentence_requirement_comments() {
         let parsed = parse_requirement_comment(
-            "@behavior req.scan The scanner records each local requirement comment.",
+            "@behavior tool.scan The scanner records each local requirement comment.",
         )
         .expect("comment should parse");
 
-        assert_eq!(parsed.id, "req.scan");
+        assert_eq!(parsed.id, "tool.scan");
     }
 
     #[test]
-    // @verifies req.api.diagnostic
+    // @verifies tool.api.diagnostic
     fn parser_rejects_multi_sentence_requirement_comments() {
         let error = parse_requirement_comment(
-            "@behavior req.scan The scanner records each local requirement comment. It records diagnostics.",
+            "@behavior tool.scan The scanner records each local requirement comment. It records diagnostics.",
         )
         .expect_err("multi-sentence comment should fail");
 
@@ -1738,24 +1738,24 @@ mod tests {
     }
 
     #[test]
-    // @verifies req.format
+    // @verifies tool.format
     fn parser_accepts_one_sentence_requirement_comments_with_dotted_tokens() {
         let parsed =
-            parse_requirement_comment("@behavior req.format The command updates AGENTS.md.")
+            parse_requirement_comment("@behavior tool.format The command updates AGENTS.md.")
                 .expect("dotted token should stay inside one sentence");
 
         assert_eq!(parsed.sentence, "The command updates AGENTS.md.");
     }
 
     #[test]
-    // @verifies req.api.diagnostic.macro
+    // @verifies tool.api.diagnostic.macro
     fn parser_accepts_one_sentence_requirement_comments_with_macro_names() {
         let parsed = parse_requirement_comment(
-            "@behavior req.scan The test observes assert! calls and panic! paths.",
+            "@behavior tool.scan The test observes assert! calls and panic! paths.",
         )
         .expect("macro bang punctuation should stay inside one sentence");
 
-        // @verifies req.api.diagnostic.macro
+        // @verifies tool.api.diagnostic.macro
         assert_eq!(
             parsed.sentence,
             "The test observes assert! calls and panic! paths."
@@ -1763,184 +1763,184 @@ mod tests {
     }
 
     #[test]
-    // @verifies req.api.parse.verifies_body
+    // @verifies tool.api.parse.verifies_body
     fn parser_accepts_verifies_comments_with_only_referenced_id() {
-        let parsed = parse_requirement_comment("@verifies req.scan")
+        let parsed = parse_requirement_comment("@verifies tool.scan")
             .expect("direct verification reference should parse");
 
-        assert_eq!(parsed.id, "req.scan");
+        assert_eq!(parsed.id, "tool.scan");
         assert_eq!(parsed.sentence, "");
     }
 
     #[test]
-    // @verifies req.api.parse.verifies_body
+    // @verifies tool.api.parse.verifies_body
     fn parser_rejects_verifies_comments_with_body_text() {
-        let error = parse_requirement_comment("@verifies req.scan The test verifies scan.")
+        let error = parse_requirement_comment("@verifies tool.scan The test verifies scan.")
             .expect_err("verification references must not carry body text");
 
         assert!(error.contains("only a referenced ID"));
     }
 
     #[test]
-    // @verifies req.format
-    // @verifies req.format.index_block
-    // @verifies req.api.report
+    // @verifies tool.format
+    // @verifies tool.format.index_block
+    // @verifies tool.api.report
     fn fmt_agents_generates_requirement_index_from_source_comments() {
         let repo = TestRepo::new();
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "AGENTS.md",
             "# AGENTS.md\n\n<!-- BEGIN AGENTS_MD_REQUIREMENT_INDEX -->\n<!-- END AGENTS_MD_REQUIREMENT_INDEX -->\n",
         );
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "src/lib.rs",
-            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n",
+            "//! @behavior tool The module owns requirement automation.\n// @behavior tool.scan The function scans comments.\npub fn scan() {}\n",
         );
-        // @verifies req.format
-        // @verifies req.check
+        // @verifies tool.format
+        // @verifies tool.check
         repo.write(
             "tests/scan_contract.rs",
-            "// @verifies req.scan\n#[test]\nfn scan_comments_are_indexed() {\n    assert!(true);\n}\n",
+            "// @verifies tool.scan\n#[test]\nfn scan_comments_are_indexed() {\n    assert!(true);\n}\n",
         );
         repo.git_add(&["AGENTS.md", "src/lib.rs", "tests/scan_contract.rs"]);
 
         format_agents_requirement_index(repo.path()).expect("format should succeed");
 
         let agents = repo.read("AGENTS.md");
-        // @verifies req.format.index_block
-        assert!(agents.contains("|req|req.{scan}"));
-        assert!(agents.contains("|req.scan|req.scan.{}"));
+        // @verifies tool.format.index_block
+        assert!(agents.contains("|tool|tool.{scan}"));
+        assert!(agents.contains("|tool.scan|tool.scan.{}"));
     }
 
     #[test]
-    // @verifies req.scan
+    // @verifies tool.scan
     fn scan_accepts_starred_block_requirement_comments() {
         let repo = TestRepo::new();
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "AGENTS.md",
             "# AGENTS.md\n\n<!-- BEGIN AGENTS_MD_REQUIREMENT_INDEX -->\n<!-- END AGENTS_MD_REQUIREMENT_INDEX -->\n",
         );
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "src/lib.rs",
-            "//! @behavior req The module owns requirement automation.\n/**\n * @behavior req.block The block requirement is indexed from a starred comment.\n */\npub fn block() {}\n",
+            "//! @behavior tool The module owns requirement automation.\n/**\n * @behavior tool.block The block requirement is indexed from a starred comment.\n */\npub fn block() {}\n",
         );
-        // @verifies req.scan
-        // @verifies req.check
+        // @verifies tool.scan
+        // @verifies tool.check
         repo.write(
             "tests/scan_contract.rs",
-            "// @verifies req.block\n#[test]\nfn block_comment_is_indexed() {\n    assert!(true);\n}\n",
+            "// @verifies tool.block\n#[test]\nfn block_comment_is_indexed() {\n    assert!(true);\n}\n",
         );
         repo.git_add(&["AGENTS.md", "src/lib.rs", "tests/scan_contract.rs"]);
 
         let report = scan_requirements(repo.path()).expect("scan should run");
 
-        // @verifies req.scan
+        // @verifies tool.scan
         assert!(
             report
                 .declarations
                 .iter()
-                .any(|record| record.id == "req.block")
+                .any(|record| record.id == "tool.block")
         );
     }
 
     #[test]
-    // @verifies req.scan
+    // @verifies tool.scan
     fn scan_ignores_requirement_comments_inside_string_literals() {
         let repo = TestRepo::new();
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "AGENTS.md",
             "# AGENTS.md\n\n<!-- BEGIN AGENTS_MD_REQUIREMENT_INDEX -->\n<!-- END AGENTS_MD_REQUIREMENT_INDEX -->\n",
         );
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "src/lib.rs",
-            "//! @behavior req The module owns requirement automation.\npub fn fixture() -> &'static str {\n    r#\"\n// @behavior req.fake The fake requirement stays inside a raw string.\n\"#\n}\n",
+            "//! @behavior tool The module owns requirement automation.\npub fn fixture() -> &'static str {\n    r#\"\n// @behavior tool.fake The fake requirement stays inside a raw string.\n\"#\n}\n",
         );
         repo.git_add(&["AGENTS.md", "src/lib.rs"]);
 
         let report = scan_requirements(repo.path()).expect("scan should run");
 
-        // @verifies req.scan
+        // @verifies tool.scan
         assert!(
             report
                 .declarations
                 .iter()
-                .all(|record| record.id != "req.fake")
+                .all(|record| record.id != "tool.fake")
         );
     }
 
     #[test]
-    // @verifies req.check
-    // @verifies req.api.status
+    // @verifies tool.check
+    // @verifies tool.api.status
     fn check_reports_stale_requirement_index() {
         let repo = TestRepo::new();
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "AGENTS.md",
             "# AGENTS.md\n\n<!-- BEGIN AGENTS_MD_REQUIREMENT_INDEX -->\n<!-- END AGENTS_MD_REQUIREMENT_INDEX -->\n",
         );
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "src/lib.rs",
-            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n",
+            "//! @behavior tool The module owns requirement automation.\n// @behavior tool.scan The function scans comments.\npub fn scan() {}\n",
         );
-        // @verifies req.check
-        // @verifies req.check
+        // @verifies tool.check
+        // @verifies tool.check
         repo.write(
             "tests/scan_contract.rs",
-            "// @verifies req.scan\n#[test]\nfn scan_comments_are_indexed() {\n    assert!(true);\n}\n",
+            "// @verifies tool.scan\n#[test]\nfn scan_comments_are_indexed() {\n    assert!(true);\n}\n",
         );
         repo.git_add(&["AGENTS.md", "src/lib.rs", "tests/scan_contract.rs"]);
 
         let status =
             check_requirements(repo.path(), RequirementCheckMode::All).expect("check should run");
 
-        // @verifies req.api.status
+        // @verifies tool.api.status
         assert_eq!(status, RequirementCheckStatus::StaleAgentsIndex);
     }
 
     #[test]
-    // @verifies req.check.all_anchors
-    // @verifies req.detector.full
+    // @verifies tool.check.all_anchors
+    // @verifies tool.detector.full
     fn all_check_rejects_unanchored_contracts_in_existing_code() {
         let repo = TestRepo::new();
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "AGENTS.md",
             "# AGENTS.md\n\n<!-- BEGIN AGENTS_MD_REQUIREMENT_INDEX -->\n<!-- END AGENTS_MD_REQUIREMENT_INDEX -->\n",
         );
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "src/lib.rs",
-            "//! @behavior req The module owns requirement automation.\npub fn unanchored_contract() {}\n",
+            "//! @behavior tool The module owns requirement automation.\npub fn unanchored_contract() {}\n",
         );
         repo.git_add(&["AGENTS.md", "src/lib.rs"]);
 
         let error = check_requirements(repo.path(), RequirementCheckMode::All)
             .expect_err("full checkout should require a nearby contract anchor");
 
-        // @verifies req.check.all_anchors
+        // @verifies tool.check.all_anchors
         assert!(error.contains("missing-contract-anchor"));
         assert!(error.contains("Rust line requires"));
     }
 
     #[test]
-    // @verifies req.check.all_anchors
+    // @verifies tool.check.all_anchors
     fn all_check_accepts_anchored_contracts_in_existing_code() {
         let repo = TestRepo::new();
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "AGENTS.md",
             "# AGENTS.md\n\n<!-- BEGIN AGENTS_MD_REQUIREMENT_INDEX -->\n<!-- END AGENTS_MD_REQUIREMENT_INDEX -->\n",
         );
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "src/lib.rs",
-            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The scan function exposes a checked contract.\npub fn scan() {}\n",
+            "//! @behavior tool The module owns requirement automation.\n// @behavior tool.scan The scan function exposes a checked contract.\npub fn scan() {}\n",
         );
         repo.git_add(&["AGENTS.md", "src/lib.rs"]);
         format_agents_requirement_index(repo.path()).expect("format should succeed");
@@ -1949,52 +1949,52 @@ mod tests {
         let status =
             check_requirements(repo.path(), RequirementCheckMode::All).expect("check should run");
 
-        // @verifies req.check.all_anchors
+        // @verifies tool.check.all_anchors
         assert_eq!(status, RequirementCheckStatus::Fresh);
     }
 
     #[test]
-    // @verifies req.check.registry
+    // @verifies tool.check.registry
     fn scan_accepts_declaration_only_leaf_requirements() {
         let repo = TestRepo::new();
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "AGENTS.md",
             "# AGENTS.md\n\n<!-- BEGIN AGENTS_MD_REQUIREMENT_INDEX -->\n<!-- END AGENTS_MD_REQUIREMENT_INDEX -->\n",
         );
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "src/lib.rs",
-            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n",
+            "//! @behavior tool The module owns requirement automation.\n// @behavior tool.scan The function scans comments.\npub fn scan() {}\n",
         );
         repo.git_add(&["AGENTS.md", "src/lib.rs"]);
 
         let report = scan_requirements(repo.path()).expect("scan should run");
 
-        // @verifies req.check.registry
+        // @verifies tool.check.registry
         assert!(report.diagnostics.is_empty());
     }
 
     #[test]
-    // @verifies req.check
+    // @verifies tool.check
     fn scan_accepts_verification_comments_inside_inline_test_modules() {
         let repo = TestRepo::new();
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "AGENTS.md",
             "# AGENTS.md\n\n<!-- BEGIN AGENTS_MD_REQUIREMENT_INDEX -->\n<!-- END AGENTS_MD_REQUIREMENT_INDEX -->\n",
         );
-        // @verifies req.check
-        // @verifies req.check
+        // @verifies tool.check
+        // @verifies tool.check
         repo.write(
             "src/lib.rs",
-            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n\n#[cfg(test)]\nmod tests {\n    #[test]\n    // @verifies req.scan\n    fn inline_test_verifies_requirement() {\n        assert!(true);\n    }\n}\n",
+            "//! @behavior tool The module owns requirement automation.\n// @behavior tool.scan The function scans comments.\npub fn scan() {}\n\n#[cfg(test)]\nmod tests {\n    #[test]\n    // @verifies tool.scan\n    fn inline_test_verifies_requirement() {\n        assert!(true);\n    }\n}\n",
         );
         repo.git_add(&["AGENTS.md", "src/lib.rs"]);
 
         let report = scan_requirements(repo.path()).expect("scan should run");
 
-        // @verifies req.check
+        // @verifies tool.check
         assert!(
             report
                 .diagnostics
@@ -2004,25 +2004,25 @@ mod tests {
     }
 
     #[test]
-    // @verifies req.check
+    // @verifies tool.check
     fn scan_accepts_verification_comments_inside_direct_test_functions() {
         let repo = TestRepo::new();
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "AGENTS.md",
             "# AGENTS.md\n\n<!-- BEGIN AGENTS_MD_REQUIREMENT_INDEX -->\n<!-- END AGENTS_MD_REQUIREMENT_INDEX -->\n",
         );
-        // @verifies req.check
-        // @verifies req.check
+        // @verifies tool.check
+        // @verifies tool.check
         repo.write(
             "src/lib.rs",
-            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n\n#[test]\n// @verifies req.scan\nfn direct_test_verifies_requirement() {\n    assert!(true);\n}\n",
+            "//! @behavior tool The module owns requirement automation.\n// @behavior tool.scan The function scans comments.\npub fn scan() {}\n\n#[test]\n// @verifies tool.scan\nfn direct_test_verifies_requirement() {\n    assert!(true);\n}\n",
         );
         repo.git_add(&["AGENTS.md", "src/lib.rs"]);
 
         let report = scan_requirements(repo.path()).expect("scan should run");
 
-        // @verifies req.check
+        // @verifies tool.check
         assert!(
             report
                 .diagnostics
@@ -2032,25 +2032,25 @@ mod tests {
     }
 
     #[test]
-    // @verifies req.check
+    // @verifies tool.check
     fn scan_accepts_verification_comments_after_stacked_test_attributes() {
         let repo = TestRepo::new();
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "AGENTS.md",
             "# AGENTS.md\n\n<!-- BEGIN AGENTS_MD_REQUIREMENT_INDEX -->\n<!-- END AGENTS_MD_REQUIREMENT_INDEX -->\n",
         );
-        // @verifies req.check
-        // @verifies req.check
+        // @verifies tool.check
+        // @verifies tool.check
         repo.write(
             "src/lib.rs",
-            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n\n#[test]\n#[ignore]\n// @verifies req.scan\nfn ignored_direct_test_verifies_requirement() {\n    assert!(true);\n}\n",
+            "//! @behavior tool The module owns requirement automation.\n// @behavior tool.scan The function scans comments.\npub fn scan() {}\n\n#[test]\n#[ignore]\n// @verifies tool.scan\nfn ignored_direct_test_verifies_requirement() {\n    assert!(true);\n}\n",
         );
         repo.git_add(&["AGENTS.md", "src/lib.rs"]);
 
         let report = scan_requirements(repo.path()).expect("scan should run");
 
-        // @verifies req.check
+        // @verifies tool.check
         assert!(
             report
                 .diagnostics
@@ -2060,25 +2060,25 @@ mod tests {
     }
 
     #[test]
-    // @verifies req.check
+    // @verifies tool.check
     fn scan_accepts_verification_comments_inside_async_direct_test_functions() {
         let repo = TestRepo::new();
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "AGENTS.md",
             "# AGENTS.md\n\n<!-- BEGIN AGENTS_MD_REQUIREMENT_INDEX -->\n<!-- END AGENTS_MD_REQUIREMENT_INDEX -->\n",
         );
-        // @verifies req.check
-        // @verifies req.check
+        // @verifies tool.check
+        // @verifies tool.check
         repo.write(
             "src/lib.rs",
-            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n\n#[tokio::test(flavor = \"current_thread\")]\n// @verifies req.scan\nasync fn async_direct_test_verifies_requirement() {\n    assert!(true);\n}\n",
+            "//! @behavior tool The module owns requirement automation.\n// @behavior tool.scan The function scans comments.\npub fn scan() {}\n\n#[tokio::test(flavor = \"current_thread\")]\n// @verifies tool.scan\nasync fn async_direct_test_verifies_requirement() {\n    assert!(true);\n}\n",
         );
         repo.git_add(&["AGENTS.md", "src/lib.rs"]);
 
         let report = scan_requirements(repo.path()).expect("scan should run");
 
-        // @verifies req.check
+        // @verifies tool.check
         assert!(
             report
                 .diagnostics
@@ -2088,25 +2088,25 @@ mod tests {
     }
 
     #[test]
-    // @verifies req.check
+    // @verifies tool.check
     fn scan_accepts_verification_comments_inside_next_line_brace_tests() {
         let repo = TestRepo::new();
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "AGENTS.md",
             "# AGENTS.md\n\n<!-- BEGIN AGENTS_MD_REQUIREMENT_INDEX -->\n<!-- END AGENTS_MD_REQUIREMENT_INDEX -->\n",
         );
-        // @verifies req.check
-        // @verifies req.check
+        // @verifies tool.check
+        // @verifies tool.check
         repo.write(
             "src/lib.rs",
-            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n\n#[test]\nfn direct_test_verifies_requirement()\n{\n    // @verifies req.scan\n    assert!(true);\n}\n",
+            "//! @behavior tool The module owns requirement automation.\n// @behavior tool.scan The function scans comments.\npub fn scan() {}\n\n#[test]\nfn direct_test_verifies_requirement()\n{\n    // @verifies tool.scan\n    assert!(true);\n}\n",
         );
         repo.git_add(&["AGENTS.md", "src/lib.rs"]);
 
         let report = scan_requirements(repo.path()).expect("scan should run");
 
-        // @verifies req.check
+        // @verifies tool.check
         assert!(
             report
                 .diagnostics
@@ -2116,25 +2116,25 @@ mod tests {
     }
 
     #[test]
-    // @verifies req.check
+    // @verifies tool.check
     fn scan_accepts_verification_comments_inside_next_line_brace_test_modules() {
         let repo = TestRepo::new();
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "AGENTS.md",
             "# AGENTS.md\n\n<!-- BEGIN AGENTS_MD_REQUIREMENT_INDEX -->\n<!-- END AGENTS_MD_REQUIREMENT_INDEX -->\n",
         );
-        // @verifies req.check
-        // @verifies req.check
+        // @verifies tool.check
+        // @verifies tool.check
         repo.write(
             "src/lib.rs",
-            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n\n#[cfg(test)]\nmod tests\n{\n    #[test]\n    fn module_test_verifies_requirement() {\n        // @verifies req.scan\n        assert!(true);\n    }\n}\n",
+            "//! @behavior tool The module owns requirement automation.\n// @behavior tool.scan The function scans comments.\npub fn scan() {}\n\n#[cfg(test)]\nmod tests\n{\n    #[test]\n    fn module_test_verifies_requirement() {\n        // @verifies tool.scan\n        assert!(true);\n    }\n}\n",
         );
         repo.git_add(&["AGENTS.md", "src/lib.rs"]);
 
         let report = scan_requirements(repo.path()).expect("scan should run");
 
-        // @verifies req.check
+        // @verifies tool.check
         assert!(
             report
                 .diagnostics
@@ -2144,24 +2144,24 @@ mod tests {
     }
 
     #[test]
-    // @verifies req.check
+    // @verifies tool.check
     fn scan_rejects_verification_comments_in_xtask_production_code() {
         let repo = TestRepo::new();
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "AGENTS.md",
             "# AGENTS.md\n\n<!-- BEGIN AGENTS_MD_REQUIREMENT_INDEX -->\n<!-- END AGENTS_MD_REQUIREMENT_INDEX -->\n",
         );
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "xtask/src/lib.rs",
-            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n// @verifies req.scan\npub fn production_verifier() {}\n",
+            "//! @behavior tool The module owns requirement automation.\n// @behavior tool.scan The function scans comments.\npub fn scan() {}\n// @verifies tool.scan\npub fn production_verifier() {}\n",
         );
         repo.git_add(&["AGENTS.md", "xtask/src/lib.rs"]);
 
         let report = scan_requirements(repo.path()).expect("scan should run");
 
-        // @verifies req.check
+        // @verifies tool.check
         assert!(
             report
                 .diagnostics
@@ -2171,39 +2171,39 @@ mod tests {
     }
 
     #[test]
-    // @verifies req.check
+    // @verifies tool.check
     fn staged_check_rejects_far_file_level_anchor_for_contract_changes() {
         let repo = TestRepo::new();
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "AGENTS.md",
             "# AGENTS.md\n\n<!-- BEGIN AGENTS_MD_REQUIREMENT_INDEX -->\n<!-- END AGENTS_MD_REQUIREMENT_INDEX -->\n",
         );
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "src/lib.rs",
-            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n",
+            "//! @behavior tool The module owns requirement automation.\n// @behavior tool.scan The function scans comments.\npub fn scan() {}\n",
         );
-        // @verifies req.check
-        // @verifies req.check
+        // @verifies tool.check
+        // @verifies tool.check
         repo.write(
             "tests/scan_contract.rs",
-            "// @verifies req.scan\n#[test]\nfn scan_comments_are_indexed() {\n    assert!(true);\n}\n",
+            "// @verifies tool.scan\n#[test]\nfn scan_comments_are_indexed() {\n    assert!(true);\n}\n",
         );
         repo.git_add(&["AGENTS.md", "src/lib.rs", "tests/scan_contract.rs"]);
         format_agents_requirement_index(repo.path()).expect("format should succeed");
         repo.git_add(&["AGENTS.md"]);
-        // @verifies req.check
+        // @verifies tool.check
         repo.git_commit("initial requirement comments");
 
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "src/lib.rs",
-            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\npub fn added_contract() {}\n",
+            "//! @behavior tool The module owns requirement automation.\n// @behavior tool.scan The function scans comments.\npub fn scan() {}\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\npub fn added_contract() {}\n",
         );
         repo.git_add(&["src/lib.rs"]);
 
-        // @verifies req.check
+        // @verifies tool.check
         let error = check_requirements(repo.path(), RequirementCheckMode::Staged)
             .expect_err("far anchor should fail staged check");
 
@@ -2211,39 +2211,39 @@ mod tests {
     }
 
     #[test]
-    // @verifies req.detector.contract
+    // @verifies tool.detector.contract
     fn staged_check_rejects_unanchored_restricted_visibility_contract_changes() {
         let repo = TestRepo::new();
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "AGENTS.md",
             "# AGENTS.md\n\n<!-- BEGIN AGENTS_MD_REQUIREMENT_INDEX -->\n<!-- END AGENTS_MD_REQUIREMENT_INDEX -->\n",
         );
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "src/lib.rs",
-            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n",
+            "//! @behavior tool The module owns requirement automation.\n// @behavior tool.scan The function scans comments.\npub fn scan() {}\n",
         );
-        // @verifies req.detector.contract
-        // @verifies req.check
+        // @verifies tool.detector.contract
+        // @verifies tool.check
         repo.write(
             "tests/scan_contract.rs",
-            "// @verifies req.scan\n#[test]\nfn scan_comments_are_indexed() {\n    assert!(true);\n}\n",
+            "// @verifies tool.scan\n#[test]\nfn scan_comments_are_indexed() {\n    assert!(true);\n}\n",
         );
         repo.git_add(&["AGENTS.md", "src/lib.rs", "tests/scan_contract.rs"]);
         format_agents_requirement_index(repo.path()).expect("format should succeed");
         repo.git_add(&["AGENTS.md"]);
-        // @verifies req.check
+        // @verifies tool.check
         repo.git_commit("initial requirement comments");
 
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "src/lib.rs",
-            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\npub(crate) fn added_contract() {}\n",
+            "//! @behavior tool The module owns requirement automation.\n// @behavior tool.scan The function scans comments.\npub fn scan() {}\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\npub(crate) fn added_contract() {}\n",
         );
         repo.git_add(&["src/lib.rs"]);
 
-        // @verifies req.detector.contract
+        // @verifies tool.detector.contract
         let error = check_requirements(repo.path(), RequirementCheckMode::Staged)
             .expect_err("restricted visibility contract should fail staged check");
 
@@ -2251,39 +2251,39 @@ mod tests {
     }
 
     #[test]
-    // @verifies req.detector.contract
+    // @verifies tool.detector.contract
     fn staged_check_rejects_unanchored_public_union_changes() {
         let repo = TestRepo::new();
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "AGENTS.md",
             "# AGENTS.md\n\n<!-- BEGIN AGENTS_MD_REQUIREMENT_INDEX -->\n<!-- END AGENTS_MD_REQUIREMENT_INDEX -->\n",
         );
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "src/lib.rs",
-            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n",
+            "//! @behavior tool The module owns requirement automation.\n// @behavior tool.scan The function scans comments.\npub fn scan() {}\n",
         );
-        // @verifies req.detector.contract
-        // @verifies req.check
+        // @verifies tool.detector.contract
+        // @verifies tool.check
         repo.write(
             "tests/scan_contract.rs",
-            "// @verifies req.scan\n#[test]\nfn scan_comments_are_indexed() {\n    assert!(true);\n}\n",
+            "// @verifies tool.scan\n#[test]\nfn scan_comments_are_indexed() {\n    assert!(true);\n}\n",
         );
         repo.git_add(&["AGENTS.md", "src/lib.rs", "tests/scan_contract.rs"]);
         format_agents_requirement_index(repo.path()).expect("format should succeed");
         repo.git_add(&["AGENTS.md"]);
-        // @verifies req.check
+        // @verifies tool.check
         repo.git_commit("initial requirement comments");
 
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "src/lib.rs",
-            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\npub union AddedContract {\n    bits: u64,\n}\n",
+            "//! @behavior tool The module owns requirement automation.\n// @behavior tool.scan The function scans comments.\npub fn scan() {}\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\npub union AddedContract {\n    bits: u64,\n}\n",
         );
         repo.git_add(&["src/lib.rs"]);
 
-        // @verifies req.detector.contract
+        // @verifies tool.detector.contract
         let error = check_requirements(repo.path(), RequirementCheckMode::Staged)
             .expect_err("public union should fail staged check");
 
@@ -2291,40 +2291,40 @@ mod tests {
     }
 
     #[test]
-    // @verifies req.detector.assertion
+    // @verifies tool.detector.assertion
     fn staged_check_rejects_unanchored_production_assertions_as_failure_policy() {
         let repo = TestRepo::new();
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "AGENTS.md",
             "# AGENTS.md\n\n<!-- BEGIN AGENTS_MD_REQUIREMENT_INDEX -->\n<!-- END AGENTS_MD_REQUIREMENT_INDEX -->\n",
         );
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "src/lib.rs",
-            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n",
+            "//! @behavior tool The module owns requirement automation.\n// @behavior tool.scan The function scans comments.\npub fn scan() {}\n",
         );
-        // @verifies req.detector.assertion
-        // @verifies req.check
+        // @verifies tool.detector.assertion
+        // @verifies tool.check
         repo.write(
             "tests/scan_contract.rs",
-            "// @verifies req.scan\n#[test]\nfn scan_comments_are_indexed() {\n    assert!(true);\n}\n",
+            "// @verifies tool.scan\n#[test]\nfn scan_comments_are_indexed() {\n    assert!(true);\n}\n",
         );
         repo.git_add(&["AGENTS.md", "src/lib.rs", "tests/scan_contract.rs"]);
         format_agents_requirement_index(repo.path()).expect("format should succeed");
         repo.git_add(&["AGENTS.md"]);
-        // @verifies req.check
+        // @verifies tool.check
         repo.git_commit("initial requirement comments");
 
-        // @verifies req.detector.assertion
-        // @verifies req.check
+        // @verifies tool.detector.assertion
+        // @verifies tool.check
         repo.write(
             "src/lib.rs",
-            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\nfn added_assertion() { assert!(true); }\n",
+            "//! @behavior tool The module owns requirement automation.\n// @behavior tool.scan The function scans comments.\npub fn scan() {}\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\nfn added_assertion() { assert!(true); }\n",
         );
         repo.git_add(&["src/lib.rs"]);
 
-        // @verifies req.detector.assertion
+        // @verifies tool.detector.assertion
         let error = check_requirements(repo.path(), RequirementCheckMode::Staged)
             .expect_err("production assertion should fail staged check");
 
@@ -2332,39 +2332,39 @@ mod tests {
     }
 
     #[test]
-    // @verifies req.detector.assertion
+    // @verifies tool.detector.assertion
     fn staged_check_accepts_matches_macro_as_boolean_expression() {
         let repo = TestRepo::new();
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "AGENTS.md",
             "# AGENTS.md\n\n<!-- BEGIN AGENTS_MD_REQUIREMENT_INDEX -->\n<!-- END AGENTS_MD_REQUIREMENT_INDEX -->\n",
         );
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "src/lib.rs",
-            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n",
+            "//! @behavior tool The module owns requirement automation.\n// @behavior tool.scan The function scans comments.\npub fn scan() {}\n",
         );
-        // @verifies req.detector.assertion
-        // @verifies req.check
+        // @verifies tool.detector.assertion
+        // @verifies tool.check
         repo.write(
             "tests/scan_contract.rs",
-            "// @verifies req.scan\n#[test]\nfn scan_comments_are_indexed() {\n    assert!(true);\n}\n",
+            "// @verifies tool.scan\n#[test]\nfn scan_comments_are_indexed() {\n    assert!(true);\n}\n",
         );
         repo.git_add(&["AGENTS.md", "src/lib.rs", "tests/scan_contract.rs"]);
         format_agents_requirement_index(repo.path()).expect("format should succeed");
         repo.git_add(&["AGENTS.md"]);
-        // @verifies req.check
+        // @verifies tool.check
         repo.git_commit("initial requirement comments");
 
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "src/lib.rs",
-            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n\nfn matches_macro(value: Option<i32>) -> bool {\n    matches!(value, Some(_))\n}\n",
+            "//! @behavior tool The module owns requirement automation.\n// @behavior tool.scan The function scans comments.\npub fn scan() {}\n\nfn matches_macro(value: Option<i32>) -> bool {\n    matches!(value, Some(_))\n}\n",
         );
         repo.git_add(&["src/lib.rs"]);
 
-        // @verifies req.detector.assertion
+        // @verifies tool.detector.assertion
         let status = check_requirements(repo.path(), RequirementCheckMode::Staged)
             .expect("matches macro should pass staged check");
 
@@ -2372,39 +2372,39 @@ mod tests {
     }
 
     #[test]
-    // @verifies req.detector.assertion.unwrap
+    // @verifies tool.detector.assertion.unwrap
     fn staged_check_accepts_unwrap_or_fallbacks() {
         let repo = TestRepo::new();
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "AGENTS.md",
             "# AGENTS.md\n\n<!-- BEGIN AGENTS_MD_REQUIREMENT_INDEX -->\n<!-- END AGENTS_MD_REQUIREMENT_INDEX -->\n",
         );
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "src/lib.rs",
-            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n",
+            "//! @behavior tool The module owns requirement automation.\n// @behavior tool.scan The function scans comments.\npub fn scan() {}\n",
         );
-        // @verifies req.detector.assertion.unwrap
-        // @verifies req.check
+        // @verifies tool.detector.assertion.unwrap
+        // @verifies tool.check
         repo.write(
             "tests/scan_contract.rs",
-            "// @verifies req.scan\n#[test]\nfn scan_comments_are_indexed() {\n    assert!(true);\n}\n",
+            "// @verifies tool.scan\n#[test]\nfn scan_comments_are_indexed() {\n    assert!(true);\n}\n",
         );
         repo.git_add(&["AGENTS.md", "src/lib.rs", "tests/scan_contract.rs"]);
         format_agents_requirement_index(repo.path()).expect("format should succeed");
         repo.git_add(&["AGENTS.md"]);
-        // @verifies req.check
+        // @verifies tool.check
         repo.git_commit("initial requirement comments");
 
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "src/lib.rs",
-            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n\nfn fallback() -> i32 {\n    Some(1).unwrap_or_default()\n}\n",
+            "//! @behavior tool The module owns requirement automation.\n// @behavior tool.scan The function scans comments.\npub fn scan() {}\n\nfn fallback() -> i32 {\n    Some(1).unwrap_or_default()\n}\n",
         );
         repo.git_add(&["src/lib.rs"]);
 
-        // @verifies req.detector.assertion.unwrap
+        // @verifies tool.detector.assertion.unwrap
         let status = check_requirements(repo.path(), RequirementCheckMode::Staged)
             .expect("unwrap_or fallback should pass staged check");
 
@@ -2412,39 +2412,39 @@ mod tests {
     }
 
     #[test]
-    // @verifies req.detector.structure
+    // @verifies tool.detector.structure
     fn staged_check_rejects_unanchored_restricted_visibility_trait_changes() {
         let repo = TestRepo::new();
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "AGENTS.md",
             "# AGENTS.md\n\n<!-- BEGIN AGENTS_MD_REQUIREMENT_INDEX -->\n<!-- END AGENTS_MD_REQUIREMENT_INDEX -->\n",
         );
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "src/lib.rs",
-            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n",
+            "//! @behavior tool The module owns requirement automation.\n// @behavior tool.scan The function scans comments.\npub fn scan() {}\n",
         );
-        // @verifies req.detector.structure
-        // @verifies req.check
+        // @verifies tool.detector.structure
+        // @verifies tool.check
         repo.write(
             "tests/scan_contract.rs",
-            "// @verifies req.scan\n#[test]\nfn scan_comments_are_indexed() {\n    assert!(true);\n}\n",
+            "// @verifies tool.scan\n#[test]\nfn scan_comments_are_indexed() {\n    assert!(true);\n}\n",
         );
         repo.git_add(&["AGENTS.md", "src/lib.rs", "tests/scan_contract.rs"]);
         format_agents_requirement_index(repo.path()).expect("format should succeed");
         repo.git_add(&["AGENTS.md"]);
-        // @verifies req.check
+        // @verifies tool.check
         repo.git_commit("initial requirement comments");
 
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "src/lib.rs",
-            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\npub(crate) trait AddedContract {}\n",
+            "//! @behavior tool The module owns requirement automation.\n// @behavior tool.scan The function scans comments.\npub fn scan() {}\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\npub(crate) trait AddedContract {}\n",
         );
         repo.git_add(&["src/lib.rs"]);
 
-        // @verifies req.detector.structure
+        // @verifies tool.detector.structure
         let error = check_requirements(repo.path(), RequirementCheckMode::Staged)
             .expect_err("restricted trait should fail staged check");
 
@@ -2452,39 +2452,39 @@ mod tests {
     }
 
     #[test]
-    // @verifies req.detector.structure
+    // @verifies tool.detector.structure
     fn staged_check_rejects_unanchored_unsafe_public_trait_changes() {
         let repo = TestRepo::new();
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "AGENTS.md",
             "# AGENTS.md\n\n<!-- BEGIN AGENTS_MD_REQUIREMENT_INDEX -->\n<!-- END AGENTS_MD_REQUIREMENT_INDEX -->\n",
         );
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "src/lib.rs",
-            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n",
+            "//! @behavior tool The module owns requirement automation.\n// @behavior tool.scan The function scans comments.\npub fn scan() {}\n",
         );
-        // @verifies req.detector.structure
-        // @verifies req.check
+        // @verifies tool.detector.structure
+        // @verifies tool.check
         repo.write(
             "tests/scan_contract.rs",
-            "// @verifies req.scan\n#[test]\nfn scan_comments_are_indexed() {\n    assert!(true);\n}\n",
+            "// @verifies tool.scan\n#[test]\nfn scan_comments_are_indexed() {\n    assert!(true);\n}\n",
         );
         repo.git_add(&["AGENTS.md", "src/lib.rs", "tests/scan_contract.rs"]);
         format_agents_requirement_index(repo.path()).expect("format should succeed");
         repo.git_add(&["AGENTS.md"]);
-        // @verifies req.check
+        // @verifies tool.check
         repo.git_commit("initial requirement comments");
 
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "src/lib.rs",
-            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\npub unsafe trait AddedContract {}\n",
+            "//! @behavior tool The module owns requirement automation.\n// @behavior tool.scan The function scans comments.\npub fn scan() {}\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\npub unsafe trait AddedContract {}\n",
         );
         repo.git_add(&["src/lib.rs"]);
 
-        // @verifies req.detector.structure
+        // @verifies tool.detector.structure
         let error = check_requirements(repo.path(), RequirementCheckMode::Staged)
             .expect_err("unsafe public trait should fail staged check");
 
@@ -2492,39 +2492,39 @@ mod tests {
     }
 
     #[test]
-    // @verifies req.detector.signature
+    // @verifies tool.detector.signature
     fn staged_check_rejects_unanchored_multiline_public_signature_edits() {
         let repo = TestRepo::new();
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "AGENTS.md",
             "# AGENTS.md\n\n<!-- BEGIN AGENTS_MD_REQUIREMENT_INDEX -->\n<!-- END AGENTS_MD_REQUIREMENT_INDEX -->\n",
         );
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "src/lib.rs",
-            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n\npub struct OldType;\npub struct NewType;\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\npub fn visible(\n    value: OldType,\n) {}\n",
+            "//! @behavior tool The module owns requirement automation.\n// @behavior tool.scan The function scans comments.\npub fn scan() {}\n\npub struct OldType;\npub struct NewType;\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\npub fn visible(\n    value: OldType,\n) {}\n",
         );
-        // @verifies req.detector.signature
-        // @verifies req.check
+        // @verifies tool.detector.signature
+        // @verifies tool.check
         repo.write(
             "tests/scan_contract.rs",
-            "// @verifies req.scan\n#[test]\nfn scan_comments_are_indexed() {\n    assert!(true);\n}\n",
+            "// @verifies tool.scan\n#[test]\nfn scan_comments_are_indexed() {\n    assert!(true);\n}\n",
         );
         repo.git_add(&["AGENTS.md", "src/lib.rs", "tests/scan_contract.rs"]);
         format_agents_requirement_index(repo.path()).expect("format should succeed");
         repo.git_add(&["AGENTS.md"]);
-        // @verifies req.check
+        // @verifies tool.check
         repo.git_commit("initial requirement comments");
 
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "src/lib.rs",
-            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n\npub struct OldType;\npub struct NewType;\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\npub fn visible(\n    value: NewType,\n) {}\n",
+            "//! @behavior tool The module owns requirement automation.\n// @behavior tool.scan The function scans comments.\npub fn scan() {}\n\npub struct OldType;\npub struct NewType;\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\npub fn visible(\n    value: NewType,\n) {}\n",
         );
         repo.git_add(&["src/lib.rs"]);
 
-        // @verifies req.detector.signature
+        // @verifies tool.detector.signature
         let error = check_requirements(repo.path(), RequirementCheckMode::Staged)
             .expect_err("multiline public signature edit should fail staged check");
 
@@ -2532,39 +2532,39 @@ mod tests {
     }
 
     #[test]
-    // @verifies req.detector.signature
+    // @verifies tool.detector.signature
     fn staged_check_rejects_unanchored_multiline_public_bound_edits() {
         let repo = TestRepo::new();
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "AGENTS.md",
             "# AGENTS.md\n\n<!-- BEGIN AGENTS_MD_REQUIREMENT_INDEX -->\n<!-- END AGENTS_MD_REQUIREMENT_INDEX -->\n",
         );
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "src/lib.rs",
-            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n\npub trait Thing {}\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\npub fn visible() -> impl Thing\n{\n    loop {}\n}\n",
+            "//! @behavior tool The module owns requirement automation.\n// @behavior tool.scan The function scans comments.\npub fn scan() {}\n\npub trait Thing {}\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\npub fn visible() -> impl Thing\n{\n    loop {}\n}\n",
         );
-        // @verifies req.detector.signature
-        // @verifies req.check
+        // @verifies tool.detector.signature
+        // @verifies tool.check
         repo.write(
             "tests/scan_contract.rs",
-            "// @verifies req.scan\n#[test]\nfn scan_comments_are_indexed() {\n    assert!(true);\n}\n",
+            "// @verifies tool.scan\n#[test]\nfn scan_comments_are_indexed() {\n    assert!(true);\n}\n",
         );
         repo.git_add(&["AGENTS.md", "src/lib.rs", "tests/scan_contract.rs"]);
         format_agents_requirement_index(repo.path()).expect("format should succeed");
         repo.git_add(&["AGENTS.md"]);
-        // @verifies req.check
+        // @verifies tool.check
         repo.git_commit("initial requirement comments");
 
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "src/lib.rs",
-            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n\npub trait Thing {}\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\npub fn visible() -> impl Thing\n    + Send\n{\n    loop {}\n}\n",
+            "//! @behavior tool The module owns requirement automation.\n// @behavior tool.scan The function scans comments.\npub fn scan() {}\n\npub trait Thing {}\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\npub fn visible() -> impl Thing\n    + Send\n{\n    loop {}\n}\n",
         );
         repo.git_add(&["src/lib.rs"]);
 
-        // @verifies req.detector.signature
+        // @verifies tool.detector.signature
         let error = check_requirements(repo.path(), RequirementCheckMode::Staged)
             .expect_err("multiline public bound edit should fail staged check");
 
@@ -2572,39 +2572,39 @@ mod tests {
     }
 
     #[test]
-    // @verifies req.detector.signature
+    // @verifies tool.detector.signature
     fn staged_check_rejects_unanchored_multiline_public_generic_bound_edits() {
         let repo = TestRepo::new();
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "AGENTS.md",
             "# AGENTS.md\n\n<!-- BEGIN AGENTS_MD_REQUIREMENT_INDEX -->\n<!-- END AGENTS_MD_REQUIREMENT_INDEX -->\n",
         );
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "src/lib.rs",
-            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\npub fn visible<\n    T,\n>(value: T) {\n    drop(value);\n}\n",
+            "//! @behavior tool The module owns requirement automation.\n// @behavior tool.scan The function scans comments.\npub fn scan() {}\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\npub fn visible<\n    T,\n>(value: T) {\n    drop(value);\n}\n",
         );
-        // @verifies req.detector.signature
-        // @verifies req.check
+        // @verifies tool.detector.signature
+        // @verifies tool.check
         repo.write(
             "tests/scan_contract.rs",
-            "// @verifies req.scan\n#[test]\nfn scan_comments_are_indexed() {\n    assert!(true);\n}\n",
+            "// @verifies tool.scan\n#[test]\nfn scan_comments_are_indexed() {\n    assert!(true);\n}\n",
         );
         repo.git_add(&["AGENTS.md", "src/lib.rs", "tests/scan_contract.rs"]);
         format_agents_requirement_index(repo.path()).expect("format should succeed");
         repo.git_add(&["AGENTS.md"]);
-        // @verifies req.check
+        // @verifies tool.check
         repo.git_commit("initial requirement comments");
 
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "src/lib.rs",
-            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\npub fn visible<\n    T: Copy,\n>(value: T) {\n    drop(value);\n}\n",
+            "//! @behavior tool The module owns requirement automation.\n// @behavior tool.scan The function scans comments.\npub fn scan() {}\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\npub fn visible<\n    T: Copy,\n>(value: T) {\n    drop(value);\n}\n",
         );
         repo.git_add(&["src/lib.rs"]);
 
-        // @verifies req.detector.signature
+        // @verifies tool.detector.signature
         let error = check_requirements(repo.path(), RequirementCheckMode::Staged)
             .expect_err("generic bound edit should fail staged check");
 
@@ -2612,39 +2612,39 @@ mod tests {
     }
 
     #[test]
-    // @verifies req.detector.signature
+    // @verifies tool.detector.signature
     fn staged_check_accepts_public_function_body_type_annotations() {
         let repo = TestRepo::new();
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "AGENTS.md",
             "# AGENTS.md\n\n<!-- BEGIN AGENTS_MD_REQUIREMENT_INDEX -->\n<!-- END AGENTS_MD_REQUIREMENT_INDEX -->\n",
         );
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "src/lib.rs",
-            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\npub fn visible() {\n}\n",
+            "//! @behavior tool The module owns requirement automation.\n// @behavior tool.scan The function scans comments.\npub fn scan() {}\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\npub fn visible() {\n}\n",
         );
-        // @verifies req.detector.signature
-        // @verifies req.check
+        // @verifies tool.detector.signature
+        // @verifies tool.check
         repo.write(
             "tests/scan_contract.rs",
-            "// @verifies req.scan\n#[test]\nfn scan_comments_are_indexed() {\n    assert!(true);\n}\n",
+            "// @verifies tool.scan\n#[test]\nfn scan_comments_are_indexed() {\n    assert!(true);\n}\n",
         );
         repo.git_add(&["AGENTS.md", "src/lib.rs", "tests/scan_contract.rs"]);
         format_agents_requirement_index(repo.path()).expect("format should succeed");
         repo.git_add(&["AGENTS.md"]);
-        // @verifies req.check
+        // @verifies tool.check
         repo.git_commit("initial requirement comments");
 
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "src/lib.rs",
-            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\npub fn visible() {\n    let value: Option<String> = None;\n    drop(value);\n}\n",
+            "//! @behavior tool The module owns requirement automation.\n// @behavior tool.scan The function scans comments.\npub fn scan() {}\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\npub fn visible() {\n    let value: Option<String> = None;\n    drop(value);\n}\n",
         );
         repo.git_add(&["src/lib.rs"]);
 
-        // @verifies req.detector.signature
+        // @verifies tool.detector.signature
         let status = check_requirements(repo.path(), RequirementCheckMode::Staged)
             .expect("public function body type annotation should pass staged check");
 
@@ -2652,39 +2652,39 @@ mod tests {
     }
 
     #[test]
-    // @verifies req.check
+    // @verifies tool.check
     fn staged_check_rejects_unanchored_deleted_contract_lines() {
         let repo = TestRepo::new();
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "AGENTS.md",
             "# AGENTS.md\n\n<!-- BEGIN AGENTS_MD_REQUIREMENT_INDEX -->\n<!-- END AGENTS_MD_REQUIREMENT_INDEX -->\n",
         );
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "src/lib.rs",
-            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\npub fn removed_contract() {}\n",
+            "//! @behavior tool The module owns requirement automation.\n// @behavior tool.scan The function scans comments.\npub fn scan() {}\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\npub fn removed_contract() {}\n",
         );
-        // @verifies req.check
-        // @verifies req.check
+        // @verifies tool.check
+        // @verifies tool.check
         repo.write(
             "tests/scan_contract.rs",
-            "// @verifies req.scan\n#[test]\nfn scan_comments_are_indexed() {\n    assert!(true);\n}\n",
+            "// @verifies tool.scan\n#[test]\nfn scan_comments_are_indexed() {\n    assert!(true);\n}\n",
         );
         repo.git_add(&["AGENTS.md", "src/lib.rs", "tests/scan_contract.rs"]);
         format_agents_requirement_index(repo.path()).expect("format should succeed");
         repo.git_add(&["AGENTS.md"]);
-        // @verifies req.check
+        // @verifies tool.check
         repo.git_commit("initial requirement comments");
 
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "src/lib.rs",
-            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n",
+            "//! @behavior tool The module owns requirement automation.\n// @behavior tool.scan The function scans comments.\npub fn scan() {}\n",
         );
         repo.git_add(&["src/lib.rs"]);
 
-        // @verifies req.check
+        // @verifies tool.check
         let error = check_requirements(repo.path(), RequirementCheckMode::Staged)
             .expect_err("deleted public contract should fail staged check");
 
@@ -2692,39 +2692,39 @@ mod tests {
     }
 
     #[test]
-    // @verifies req.check
+    // @verifies tool.check
     fn staged_check_rejects_previous_item_anchor_for_new_contracts() {
         let repo = TestRepo::new();
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "AGENTS.md",
             "# AGENTS.md\n\n<!-- BEGIN AGENTS_MD_REQUIREMENT_INDEX -->\n<!-- END AGENTS_MD_REQUIREMENT_INDEX -->\n",
         );
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "src/lib.rs",
-            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n",
+            "//! @behavior tool The module owns requirement automation.\n// @behavior tool.scan The function scans comments.\npub fn scan() {}\n",
         );
-        // @verifies req.check
-        // @verifies req.check
+        // @verifies tool.check
+        // @verifies tool.check
         repo.write(
             "tests/scan_contract.rs",
-            "// @verifies req.scan\n#[test]\nfn scan_comments_are_indexed() {\n    assert!(true);\n}\n",
+            "// @verifies tool.scan\n#[test]\nfn scan_comments_are_indexed() {\n    assert!(true);\n}\n",
         );
         repo.git_add(&["AGENTS.md", "src/lib.rs", "tests/scan_contract.rs"]);
         format_agents_requirement_index(repo.path()).expect("format should succeed");
         repo.git_add(&["AGENTS.md"]);
-        // @verifies req.check
+        // @verifies tool.check
         repo.git_commit("initial requirement comments");
 
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "src/lib.rs",
-            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\npub fn added_contract() {}\n",
+            "//! @behavior tool The module owns requirement automation.\n// @behavior tool.scan The function scans comments.\npub fn scan() {}\npub fn added_contract() {}\n",
         );
         repo.git_add(&["src/lib.rs"]);
 
-        // @verifies req.check
+        // @verifies tool.check
         let error = check_requirements(repo.path(), RequirementCheckMode::Staged)
             .expect_err("new public contract should fail staged check");
 
@@ -2732,39 +2732,39 @@ mod tests {
     }
 
     #[test]
-    // @verifies req.detector.contract
+    // @verifies tool.detector.contract
     fn staged_check_rejects_unanchored_public_contract_attribute_changes() {
         let repo = TestRepo::new();
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "AGENTS.md",
             "# AGENTS.md\n\n<!-- BEGIN AGENTS_MD_REQUIREMENT_INDEX -->\n<!-- END AGENTS_MD_REQUIREMENT_INDEX -->\n",
         );
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "src/lib.rs",
-            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\npub fn visible() {}\n",
+            "//! @behavior tool The module owns requirement automation.\n// @behavior tool.scan The function scans comments.\npub fn scan() {}\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\npub fn visible() {}\n",
         );
-        // @verifies req.detector.contract
-        // @verifies req.check
+        // @verifies tool.detector.contract
+        // @verifies tool.check
         repo.write(
             "tests/scan_contract.rs",
-            "// @verifies req.scan\n#[test]\nfn scan_comments_are_indexed() {\n    assert!(true);\n}\n",
+            "// @verifies tool.scan\n#[test]\nfn scan_comments_are_indexed() {\n    assert!(true);\n}\n",
         );
         repo.git_add(&["AGENTS.md", "src/lib.rs", "tests/scan_contract.rs"]);
         format_agents_requirement_index(repo.path()).expect("format should succeed");
         repo.git_add(&["AGENTS.md"]);
-        // @verifies req.check
+        // @verifies tool.check
         repo.git_commit("initial requirement comments");
 
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "src/lib.rs",
-            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n#[must_use]\npub fn visible() {}\n",
+            "//! @behavior tool The module owns requirement automation.\n// @behavior tool.scan The function scans comments.\npub fn scan() {}\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n#[must_use]\npub fn visible() {}\n",
         );
         repo.git_add(&["src/lib.rs"]);
 
-        // @verifies req.detector.contract
+        // @verifies tool.detector.contract
         let error = check_requirements(repo.path(), RequirementCheckMode::Staged)
             .expect_err("public contract attribute should fail staged check");
 
@@ -2772,39 +2772,39 @@ mod tests {
     }
 
     #[test]
-    // @verifies req.detector.contract
+    // @verifies tool.detector.contract
     fn staged_check_accepts_anchored_serde_derive_contract_attributes() {
         let repo = TestRepo::new();
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "AGENTS.md",
             "# AGENTS.md\n\n<!-- BEGIN AGENTS_MD_REQUIREMENT_INDEX -->\n<!-- END AGENTS_MD_REQUIREMENT_INDEX -->\n",
         );
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "src/lib.rs",
-            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n\n// @behavior req.visible The visible type is serialized by callers.\npub struct Visible;\n",
+            "//! @behavior tool The module owns requirement automation.\n// @behavior tool.scan The function scans comments.\npub fn scan() {}\n\n// @behavior tool.visible The visible type is serialized by callers.\npub struct Visible;\n",
         );
-        // @verifies req.detector.contract
-        // @verifies req.check
+        // @verifies tool.detector.contract
+        // @verifies tool.check
         repo.write(
             "tests/scan_contract.rs",
-            "// @verifies req.scan\n#[test]\nfn scan_comments_are_indexed() {\n    assert!(true);\n}\n\n// @verifies req.visible\n#[test]\nfn visible_type_is_covered() {\n    assert!(true);\n}\n",
+            "// @verifies tool.scan\n#[test]\nfn scan_comments_are_indexed() {\n    assert!(true);\n}\n\n// @verifies tool.visible\n#[test]\nfn visible_type_is_covered() {\n    assert!(true);\n}\n",
         );
         repo.git_add(&["AGENTS.md", "src/lib.rs", "tests/scan_contract.rs"]);
         format_agents_requirement_index(repo.path()).expect("format should succeed");
         repo.git_add(&["AGENTS.md"]);
-        // @verifies req.check
+        // @verifies tool.check
         repo.git_commit("initial requirement comments");
 
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "src/lib.rs",
-            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n\n// @behavior req.visible The visible type is serialized by callers.\n#[derive(Serialize)]\npub struct Visible;\n",
+            "//! @behavior tool The module owns requirement automation.\n// @behavior tool.scan The function scans comments.\npub fn scan() {}\n\n// @behavior tool.visible The visible type is serialized by callers.\n#[derive(Serialize)]\npub struct Visible;\n",
         );
         repo.git_add(&["src/lib.rs"]);
 
-        // @verifies req.detector.contract
+        // @verifies tool.detector.contract
         let status = check_requirements(repo.path(), RequirementCheckMode::Staged)
             .expect("anchored serde derive should pass staged check");
 
@@ -2812,39 +2812,39 @@ mod tests {
     }
 
     #[test]
-    // @verifies req.detector.field.tuple
+    // @verifies tool.detector.field.tuple
     fn staged_check_rejects_unanchored_public_tuple_field_changes() {
         let repo = TestRepo::new();
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "AGENTS.md",
             "# AGENTS.md\n\n<!-- BEGIN AGENTS_MD_REQUIREMENT_INDEX -->\n<!-- END AGENTS_MD_REQUIREMENT_INDEX -->\n",
         );
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "src/lib.rs",
-            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\npub struct Visible(\n    String,\n);\n",
+            "//! @behavior tool The module owns requirement automation.\n// @behavior tool.scan The function scans comments.\npub fn scan() {}\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\npub struct Visible(\n    String,\n);\n",
         );
-        // @verifies req.detector.field.tuple
-        // @verifies req.check
+        // @verifies tool.detector.field.tuple
+        // @verifies tool.check
         repo.write(
             "tests/scan_contract.rs",
-            "// @verifies req.scan\n#[test]\nfn scan_comments_are_indexed() {\n    assert!(true);\n}\n",
+            "// @verifies tool.scan\n#[test]\nfn scan_comments_are_indexed() {\n    assert!(true);\n}\n",
         );
         repo.git_add(&["AGENTS.md", "src/lib.rs", "tests/scan_contract.rs"]);
         format_agents_requirement_index(repo.path()).expect("format should succeed");
         repo.git_add(&["AGENTS.md"]);
-        // @verifies req.check
+        // @verifies tool.check
         repo.git_commit("initial requirement comments");
 
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "src/lib.rs",
-            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\npub struct Visible(\n    pub String,\n);\n",
+            "//! @behavior tool The module owns requirement automation.\n// @behavior tool.scan The function scans comments.\npub fn scan() {}\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\npub struct Visible(\n    pub String,\n);\n",
         );
         repo.git_add(&["src/lib.rs"]);
 
-        // @verifies req.detector.field.tuple
+        // @verifies tool.detector.field.tuple
         let error = check_requirements(repo.path(), RequirementCheckMode::Staged)
             .expect_err("public tuple field should fail staged check");
 
@@ -2852,39 +2852,39 @@ mod tests {
     }
 
     #[test]
-    // @verifies req.detector.contract.container
+    // @verifies tool.detector.contract.container
     fn staged_check_accepts_enclosing_anchor_for_public_enum_variants() {
         let repo = TestRepo::new();
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "AGENTS.md",
             "# AGENTS.md\n\n<!-- BEGIN AGENTS_MD_REQUIREMENT_INDEX -->\n<!-- END AGENTS_MD_REQUIREMENT_INDEX -->\n",
         );
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "src/lib.rs",
-            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n\n// @behavior req.visible The visible enum describes caller-facing modes.\npub enum Visible {\n    Existing,\n}\n",
+            "//! @behavior tool The module owns requirement automation.\n// @behavior tool.scan The function scans comments.\npub fn scan() {}\n\n// @behavior tool.visible The visible enum describes caller-facing modes.\npub enum Visible {\n    Existing,\n}\n",
         );
-        // @verifies req.detector.contract.container
-        // @verifies req.check
+        // @verifies tool.detector.contract.container
+        // @verifies tool.check
         repo.write(
             "tests/scan_contract.rs",
-            "// @verifies req.scan\n#[test]\nfn scan_comments_are_indexed() {\n    assert!(true);\n}\n\n// @verifies req.visible\n#[test]\nfn visible_enum_is_covered() {\n    assert!(true);\n}\n",
+            "// @verifies tool.scan\n#[test]\nfn scan_comments_are_indexed() {\n    assert!(true);\n}\n\n// @verifies tool.visible\n#[test]\nfn visible_enum_is_covered() {\n    assert!(true);\n}\n",
         );
         repo.git_add(&["AGENTS.md", "src/lib.rs", "tests/scan_contract.rs"]);
         format_agents_requirement_index(repo.path()).expect("format should succeed");
         repo.git_add(&["AGENTS.md"]);
-        // @verifies req.check
+        // @verifies tool.check
         repo.git_commit("initial requirement comments");
 
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "src/lib.rs",
-            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n\n// @behavior req.visible The visible enum describes caller-facing modes.\npub enum Visible {\n    Existing,\n    Added,\n}\n",
+            "//! @behavior tool The module owns requirement automation.\n// @behavior tool.scan The function scans comments.\npub fn scan() {}\n\n// @behavior tool.visible The visible enum describes caller-facing modes.\npub enum Visible {\n    Existing,\n    Added,\n}\n",
         );
         repo.git_add(&["src/lib.rs"]);
 
-        // @verifies req.detector.contract.container
+        // @verifies tool.detector.contract.container
         let status = check_requirements(repo.path(), RequirementCheckMode::Staged)
             .expect("anchored enum variant should pass staged check");
 
@@ -2892,39 +2892,39 @@ mod tests {
     }
 
     #[test]
-    // @verifies req.detector.contract.container
+    // @verifies tool.detector.contract.container
     fn staged_check_rejects_unanchored_public_enum_variant_changes() {
         let repo = TestRepo::new();
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "AGENTS.md",
             "# AGENTS.md\n\n<!-- BEGIN AGENTS_MD_REQUIREMENT_INDEX -->\n<!-- END AGENTS_MD_REQUIREMENT_INDEX -->\n",
         );
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "src/lib.rs",
-            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\npub enum Visible {\n    Existing,\n}\n",
+            "//! @behavior tool The module owns requirement automation.\n// @behavior tool.scan The function scans comments.\npub fn scan() {}\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\npub enum Visible {\n    Existing,\n}\n",
         );
-        // @verifies req.detector.contract.container
-        // @verifies req.check
+        // @verifies tool.detector.contract.container
+        // @verifies tool.check
         repo.write(
             "tests/scan_contract.rs",
-            "// @verifies req.scan\n#[test]\nfn scan_comments_are_indexed() {\n    assert!(true);\n}\n",
+            "// @verifies tool.scan\n#[test]\nfn scan_comments_are_indexed() {\n    assert!(true);\n}\n",
         );
         repo.git_add(&["AGENTS.md", "src/lib.rs", "tests/scan_contract.rs"]);
         format_agents_requirement_index(repo.path()).expect("format should succeed");
         repo.git_add(&["AGENTS.md"]);
-        // @verifies req.check
+        // @verifies tool.check
         repo.git_commit("initial requirement comments");
 
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "src/lib.rs",
-            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\npub enum Visible {\n    Existing,\n    Added,\n}\n",
+            "//! @behavior tool The module owns requirement automation.\n// @behavior tool.scan The function scans comments.\npub fn scan() {}\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\npub enum Visible {\n    Existing,\n    Added,\n}\n",
         );
         repo.git_add(&["src/lib.rs"]);
 
-        // @verifies req.detector.contract.container
+        // @verifies tool.detector.contract.container
         let error = check_requirements(repo.path(), RequirementCheckMode::Staged)
             .expect_err("public enum variant should fail staged check");
 
@@ -2932,39 +2932,39 @@ mod tests {
     }
 
     #[test]
-    // @verifies req.detector.contract.container
+    // @verifies tool.detector.contract.container
     fn staged_check_rejects_unanchored_public_trait_required_items() {
         let repo = TestRepo::new();
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "AGENTS.md",
             "# AGENTS.md\n\n<!-- BEGIN AGENTS_MD_REQUIREMENT_INDEX -->\n<!-- END AGENTS_MD_REQUIREMENT_INDEX -->\n",
         );
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "src/lib.rs",
-            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\npub trait Visible {\n    fn existing(&self);\n}\n",
+            "//! @behavior tool The module owns requirement automation.\n// @behavior tool.scan The function scans comments.\npub fn scan() {}\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\npub trait Visible {\n    fn existing(&self);\n}\n",
         );
-        // @verifies req.detector.contract.container
-        // @verifies req.check
+        // @verifies tool.detector.contract.container
+        // @verifies tool.check
         repo.write(
             "tests/scan_contract.rs",
-            "// @verifies req.scan\n#[test]\nfn scan_comments_are_indexed() {\n    assert!(true);\n}\n",
+            "// @verifies tool.scan\n#[test]\nfn scan_comments_are_indexed() {\n    assert!(true);\n}\n",
         );
         repo.git_add(&["AGENTS.md", "src/lib.rs", "tests/scan_contract.rs"]);
         format_agents_requirement_index(repo.path()).expect("format should succeed");
         repo.git_add(&["AGENTS.md"]);
-        // @verifies req.check
+        // @verifies tool.check
         repo.git_commit("initial requirement comments");
 
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "src/lib.rs",
-            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\npub trait Visible {\n    fn existing(&self);\n    fn added(&self);\n}\n",
+            "//! @behavior tool The module owns requirement automation.\n// @behavior tool.scan The function scans comments.\npub fn scan() {}\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\npub trait Visible {\n    fn existing(&self);\n    fn added(&self);\n}\n",
         );
         repo.git_add(&["src/lib.rs"]);
 
-        // @verifies req.detector.contract.container
+        // @verifies tool.detector.contract.container
         let error = check_requirements(repo.path(), RequirementCheckMode::Staged)
             .expect_err("public trait item should fail staged check");
 
@@ -2972,39 +2972,39 @@ mod tests {
     }
 
     #[test]
-    // @verifies req.detector.contract.container.header
+    // @verifies tool.detector.contract.container.header
     fn staged_check_rejects_unanchored_unsafe_public_trait_required_items() {
         let repo = TestRepo::new();
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "AGENTS.md",
             "# AGENTS.md\n\n<!-- BEGIN AGENTS_MD_REQUIREMENT_INDEX -->\n<!-- END AGENTS_MD_REQUIREMENT_INDEX -->\n",
         );
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "src/lib.rs",
-            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\npub unsafe trait Visible {\n    fn existing(&self);\n}\n",
+            "//! @behavior tool The module owns requirement automation.\n// @behavior tool.scan The function scans comments.\npub fn scan() {}\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\npub unsafe trait Visible {\n    fn existing(&self);\n}\n",
         );
-        // @verifies req.detector.contract.container.header
-        // @verifies req.check
+        // @verifies tool.detector.contract.container.header
+        // @verifies tool.check
         repo.write(
             "tests/scan_contract.rs",
-            "// @verifies req.scan\n#[test]\nfn scan_comments_are_indexed() {\n    assert!(true);\n}\n",
+            "// @verifies tool.scan\n#[test]\nfn scan_comments_are_indexed() {\n    assert!(true);\n}\n",
         );
         repo.git_add(&["AGENTS.md", "src/lib.rs", "tests/scan_contract.rs"]);
         format_agents_requirement_index(repo.path()).expect("format should succeed");
         repo.git_add(&["AGENTS.md"]);
-        // @verifies req.check
+        // @verifies tool.check
         repo.git_commit("initial requirement comments");
 
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "src/lib.rs",
-            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\npub unsafe trait Visible {\n    fn existing(&self);\n    fn added(&self);\n}\n",
+            "//! @behavior tool The module owns requirement automation.\n// @behavior tool.scan The function scans comments.\npub fn scan() {}\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\npub unsafe trait Visible {\n    fn existing(&self);\n    fn added(&self);\n}\n",
         );
         repo.git_add(&["src/lib.rs"]);
 
-        // @verifies req.detector.contract.container.header
+        // @verifies tool.detector.contract.container.header
         let error = check_requirements(repo.path(), RequirementCheckMode::Staged)
             .expect_err("unsafe public trait item should fail staged check");
 
@@ -3012,39 +3012,39 @@ mod tests {
     }
 
     #[test]
-    // @verifies req.detector.contract.container
+    // @verifies tool.detector.contract.container
     fn staged_check_rejects_unanchored_multiline_public_enum_variant_changes() {
         let repo = TestRepo::new();
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "AGENTS.md",
             "# AGENTS.md\n\n<!-- BEGIN AGENTS_MD_REQUIREMENT_INDEX -->\n<!-- END AGENTS_MD_REQUIREMENT_INDEX -->\n",
         );
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "src/lib.rs",
-            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\npub enum Visible<T>\nwhere\n    T: Clone,\n{\n    Existing(T),\n}\n",
+            "//! @behavior tool The module owns requirement automation.\n// @behavior tool.scan The function scans comments.\npub fn scan() {}\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\npub enum Visible<T>\nwhere\n    T: Clone,\n{\n    Existing(T),\n}\n",
         );
-        // @verifies req.detector.contract.container
-        // @verifies req.check
+        // @verifies tool.detector.contract.container
+        // @verifies tool.check
         repo.write(
             "tests/scan_contract.rs",
-            "// @verifies req.scan\n#[test]\nfn scan_comments_are_indexed() {\n    assert!(true);\n}\n",
+            "// @verifies tool.scan\n#[test]\nfn scan_comments_are_indexed() {\n    assert!(true);\n}\n",
         );
         repo.git_add(&["AGENTS.md", "src/lib.rs", "tests/scan_contract.rs"]);
         format_agents_requirement_index(repo.path()).expect("format should succeed");
         repo.git_add(&["AGENTS.md"]);
-        // @verifies req.check
+        // @verifies tool.check
         repo.git_commit("initial requirement comments");
 
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "src/lib.rs",
-            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\npub enum Visible<T>\nwhere\n    T: Clone,\n{\n    Existing(T),\n    Added(T),\n}\n",
+            "//! @behavior tool The module owns requirement automation.\n// @behavior tool.scan The function scans comments.\npub fn scan() {}\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\npub enum Visible<T>\nwhere\n    T: Clone,\n{\n    Existing(T),\n    Added(T),\n}\n",
         );
         repo.git_add(&["src/lib.rs"]);
 
-        // @verifies req.detector.contract.container
+        // @verifies tool.detector.contract.container
         let error = check_requirements(repo.path(), RequirementCheckMode::Staged)
             .expect_err("multiline public enum variant should fail staged check");
 
@@ -3052,89 +3052,89 @@ mod tests {
     }
 
     #[test]
-    // @verifies req.detector.contract.container
+    // @verifies tool.detector.contract.container
     fn staged_check_rejects_unanchored_multiline_public_trait_required_items() {
         let repo = TestRepo::new();
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "AGENTS.md",
             "# AGENTS.md\n\n<!-- BEGIN AGENTS_MD_REQUIREMENT_INDEX -->\n<!-- END AGENTS_MD_REQUIREMENT_INDEX -->\n",
         );
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "src/lib.rs",
-            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\npub trait Visible<T>\nwhere\n    T: Clone,\n{\n    fn existing(&self);\n}\n",
+            "//! @behavior tool The module owns requirement automation.\n// @behavior tool.scan The function scans comments.\npub fn scan() {}\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\npub trait Visible<T>\nwhere\n    T: Clone,\n{\n    fn existing(&self);\n}\n",
         );
-        // @verifies req.detector.contract.container
-        // @verifies req.check
+        // @verifies tool.detector.contract.container
+        // @verifies tool.check
         repo.write(
             "tests/scan_contract.rs",
-            "// @verifies req.scan\n#[test]\nfn scan_comments_are_indexed() {\n    assert!(true);\n}\n",
+            "// @verifies tool.scan\n#[test]\nfn scan_comments_are_indexed() {\n    assert!(true);\n}\n",
         );
         repo.git_add(&["AGENTS.md", "src/lib.rs", "tests/scan_contract.rs"]);
         format_agents_requirement_index(repo.path()).expect("format should succeed");
         repo.git_add(&["AGENTS.md"]);
-        // @verifies req.check
+        // @verifies tool.check
         repo.git_commit("initial requirement comments");
 
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "src/lib.rs",
-            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\npub trait Visible<T>\nwhere\n    T: Clone,\n{\n    fn existing(&self);\n    fn added(&self);\n}\n",
+            "//! @behavior tool The module owns requirement automation.\n// @behavior tool.scan The function scans comments.\npub fn scan() {}\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\npub trait Visible<T>\nwhere\n    T: Clone,\n{\n    fn existing(&self);\n    fn added(&self);\n}\n",
         );
         repo.git_add(&["src/lib.rs"]);
 
-        // @verifies req.detector.contract.container
+        // @verifies tool.detector.contract.container
         let error = check_requirements(repo.path(), RequirementCheckMode::Staged)
             .expect_err("multiline public trait item should fail staged check");
 
-        // @verifies req.check
+        // @verifies tool.check
         assert!(error.contains("missing-contract-anchor"));
     }
 
     #[test]
-    // @verifies req.cli.base_error
-    // @verifies req.api.mode
-    // @verifies req.check
-    // @verifies req.check.head_snapshot
-    // @verifies req.check.git_ref_read
-    // @verifies req.check.git_ref_list
-    // @verifies req.check.git_ref_status
+    // @verifies tool.cli.base_error
+    // @verifies tool.api.mode
+    // @verifies tool.check
+    // @verifies tool.check.head_snapshot
+    // @verifies tool.check.git_ref_read
+    // @verifies tool.check.git_ref_list
+    // @verifies tool.check.git_ref_status
     fn base_check_rejects_unanchored_contract_additions() {
-        // @verifies req.detector.hunk_parse
-        // @verifies req.detector.diff_command
+        // @verifies tool.detector.hunk_parse
+        // @verifies tool.detector.diff_command
         let repo = TestRepo::new();
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "AGENTS.md",
             "# AGENTS.md\n\n<!-- BEGIN AGENTS_MD_REQUIREMENT_INDEX -->\n<!-- END AGENTS_MD_REQUIREMENT_INDEX -->\n",
         );
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "src/lib.rs",
-            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n",
+            "//! @behavior tool The module owns requirement automation.\n// @behavior tool.scan The function scans comments.\npub fn scan() {}\n",
         );
-        // @verifies req.check
-        // @verifies req.check
+        // @verifies tool.check
+        // @verifies tool.check
         repo.write(
             "tests/scan_contract.rs",
-            "// @verifies req.scan\n#[test]\nfn scan_comments_are_indexed() {\n    assert!(true);\n}\n",
+            "// @verifies tool.scan\n#[test]\nfn scan_comments_are_indexed() {\n    assert!(true);\n}\n",
         );
         repo.git_add(&["AGENTS.md", "src/lib.rs", "tests/scan_contract.rs"]);
         format_agents_requirement_index(repo.path()).expect("format should succeed");
         repo.git_add(&["AGENTS.md"]);
-        // @verifies req.check
+        // @verifies tool.check
         repo.git_commit("initial requirement comments");
 
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "src/lib.rs",
-            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\npub fn added_contract() {}\n",
+            "//! @behavior tool The module owns requirement automation.\n// @behavior tool.scan The function scans comments.\npub fn scan() {}\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\npub fn added_contract() {}\n",
         );
         repo.git_add(&["src/lib.rs"]);
         repo.git_commit("add unanchored contract");
 
-        // @verifies req.check
+        // @verifies tool.check
         let error = check_requirements(
             repo.path(),
             RequirementCheckMode::Base {
@@ -3147,44 +3147,44 @@ mod tests {
     }
 
     #[test]
-    // @verifies req.check.merge_base
+    // @verifies tool.check.merge_base
     fn base_check_uses_merge_base_snapshot_for_deleted_contracts() {
         let repo = TestRepo::new();
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "AGENTS.md",
             "# AGENTS.md\n\n<!-- BEGIN AGENTS_MD_REQUIREMENT_INDEX -->\n<!-- END AGENTS_MD_REQUIREMENT_INDEX -->\n",
         );
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "src/lib.rs",
-            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n\n// @behavior req.visible The visible function is part of the public API.\npub fn visible() {}\n",
+            "//! @behavior tool The module owns requirement automation.\n// @behavior tool.scan The function scans comments.\npub fn scan() {}\n\n// @behavior tool.visible The visible function is part of the public API.\npub fn visible() {}\n",
         );
-        // @verifies req.check.merge_base
-        // @verifies req.check
+        // @verifies tool.check.merge_base
+        // @verifies tool.check
         repo.write(
             "tests/scan_contract.rs",
-            "// @verifies req.scan\n#[test]\nfn scan_comments_are_indexed() {\n    assert!(true);\n}\n\n// @verifies req.visible\n#[test]\nfn visible_is_covered() {\n    assert!(true);\n}\n",
+            "// @verifies tool.scan\n#[test]\nfn scan_comments_are_indexed() {\n    assert!(true);\n}\n\n// @verifies tool.visible\n#[test]\nfn visible_is_covered() {\n    assert!(true);\n}\n",
         );
         repo.git_add(&["AGENTS.md", "src/lib.rs", "tests/scan_contract.rs"]);
         format_agents_requirement_index(repo.path()).expect("format should succeed");
         repo.git_add(&["AGENTS.md"]);
-        // @verifies req.check
+        // @verifies tool.check
         repo.git_commit("initial requirement comments");
         run_git(repo.path(), &["branch", "base"]);
         run_git(repo.path(), &["checkout", "-b", "topic"]);
 
         run_git(repo.path(), &["checkout", "base"]);
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "src/lib.rs",
-            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n",
+            "//! @behavior tool The module owns requirement automation.\n// @behavior tool.scan The function scans comments.\npub fn scan() {}\n",
         );
-        // @verifies req.check.merge_base.status
-        // @verifies req.check
+        // @verifies tool.check.merge_base.status
+        // @verifies tool.check
         repo.write(
             "tests/scan_contract.rs",
-            "// @verifies req.scan\n#[test]\nfn scan_comments_are_indexed() {\n    assert!(true);\n}\n",
+            "// @verifies tool.scan\n#[test]\nfn scan_comments_are_indexed() {\n    assert!(true);\n}\n",
         );
         repo.git_add(&["src/lib.rs", "tests/scan_contract.rs"]);
         format_agents_requirement_index(repo.path()).expect("format should succeed");
@@ -3192,23 +3192,23 @@ mod tests {
         repo.git_commit("advance base branch");
 
         run_git(repo.path(), &["checkout", "topic"]);
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "src/lib.rs",
-            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n",
+            "//! @behavior tool The module owns requirement automation.\n// @behavior tool.scan The function scans comments.\npub fn scan() {}\n",
         );
-        // @verifies req.check.merge_base.status
-        // @verifies req.check
+        // @verifies tool.check.merge_base.status
+        // @verifies tool.check
         repo.write(
             "tests/scan_contract.rs",
-            "// @verifies req.scan\n#[test]\nfn scan_comments_are_indexed() {\n    assert!(true);\n}\n",
+            "// @verifies tool.scan\n#[test]\nfn scan_comments_are_indexed() {\n    assert!(true);\n}\n",
         );
         repo.git_add(&["src/lib.rs", "tests/scan_contract.rs"]);
         format_agents_requirement_index(repo.path()).expect("format should succeed");
         repo.git_add(&["AGENTS.md"]);
         repo.git_commit("delete visible contract");
 
-        // @verifies req.check.merge_base
+        // @verifies tool.check.merge_base
         let status = check_requirements(
             repo.path(),
             RequirementCheckMode::Base {
@@ -3221,40 +3221,40 @@ mod tests {
     }
 
     #[test]
-    // @verifies req.check
+    // @verifies tool.check
     fn staged_check_accepts_nearby_verification_for_test_path_assertions() {
         let repo = TestRepo::new();
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "AGENTS.md",
             "# AGENTS.md\n\n<!-- BEGIN AGENTS_MD_REQUIREMENT_INDEX -->\n<!-- END AGENTS_MD_REQUIREMENT_INDEX -->\n",
         );
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "src/lib.rs",
-            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n",
+            "//! @behavior tool The module owns requirement automation.\n// @behavior tool.scan The function scans comments.\npub fn scan() {}\n",
         );
-        // @verifies req.check
-        // @verifies req.check
+        // @verifies tool.check
+        // @verifies tool.check
         repo.write(
             "tests/scan_contract.rs",
-            "// @verifies req.scan\n#[test]\nfn scan_comments_are_indexed() {\n    assert!(true);\n}\n",
+            "// @verifies tool.scan\n#[test]\nfn scan_comments_are_indexed() {\n    assert!(true);\n}\n",
         );
         repo.git_add(&["AGENTS.md", "src/lib.rs", "tests/scan_contract.rs"]);
         format_agents_requirement_index(repo.path()).expect("format should succeed");
         repo.git_add(&["AGENTS.md"]);
-        // @verifies req.check
+        // @verifies tool.check
         repo.git_commit("initial requirement comments");
 
-        // @verifies req.check
-        // @verifies req.check
+        // @verifies tool.check
+        // @verifies tool.check
         repo.write(
             "tests/scan_contract.rs",
-            "// @verifies req.scan\n#[test]\nfn scan_comments_are_indexed() {\n    assert!(true);\n}\n\n#[test]\n// @verifies req.scan\nfn added_test_path_assertion() {\n    assert_eq!(1, 1);\n}\n",
+            "// @verifies tool.scan\n#[test]\nfn scan_comments_are_indexed() {\n    assert!(true);\n}\n\n#[test]\n// @verifies tool.scan\nfn added_test_path_assertion() {\n    assert_eq!(1, 1);\n}\n",
         );
         repo.git_add(&["tests/scan_contract.rs"]);
 
-        // @verifies req.check
+        // @verifies tool.check
         let status = check_requirements(repo.path(), RequirementCheckMode::Staged)
             .expect("test-path assertion should pass staged check");
 
@@ -3262,7 +3262,7 @@ mod tests {
     }
 
     #[test]
-    // @verifies req.detector.contract
+    // @verifies tool.detector.contract
     fn visible_contract_detector_accepts_qualified_public_functions() {
         assert!(is_visible_contract_line("pub unsafe fn refresh() {}"));
         assert!(is_visible_contract_line("pub extern \"C\" fn refresh() {}"));
@@ -3272,10 +3272,10 @@ mod tests {
         assert!(is_visible_contract_line("pub(crate) use foo::Bar;"));
         assert!(is_visible_contract_line("pub union Bits { value: u64 }"));
         assert!(is_visible_trait_line("pub unsafe trait Refresh {}"));
-        // @verifies req.detector.field
+        // @verifies tool.detector.field
         assert!(is_visible_contract_line("pub id: Id,"));
         assert!(is_visible_contract_line("pub(crate) id: Id,"));
-        // @verifies req.detector.field.tuple
+        // @verifies tool.detector.field.tuple
         assert!(is_visible_contract_line("pub String,"));
         assert!(is_visible_contract_line("pub(crate) crate::types::Id,"));
         assert!(is_visible_contract_line("pub u64,"));
@@ -3285,30 +3285,30 @@ mod tests {
     }
 
     #[test]
-    // @verifies req.check
+    // @verifies tool.check
     fn scan_accepts_verification_comments_inside_external_tests_modules() {
         let repo = TestRepo::new();
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "AGENTS.md",
             "# AGENTS.md\n\n<!-- BEGIN AGENTS_MD_REQUIREMENT_INDEX -->\n<!-- END AGENTS_MD_REQUIREMENT_INDEX -->\n",
         );
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "src/lib.rs",
-            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n",
+            "//! @behavior tool The module owns requirement automation.\n// @behavior tool.scan The function scans comments.\npub fn scan() {}\n",
         );
-        // @verifies req.check
-        // @verifies req.check
+        // @verifies tool.check
+        // @verifies tool.check
         repo.write(
             "src/tests.rs",
-            "// @verifies req.scan\n#[test]\nfn external_tests_module_verifies_requirement() {\n    assert!(true);\n}\n",
+            "// @verifies tool.scan\n#[test]\nfn external_tests_module_verifies_requirement() {\n    assert!(true);\n}\n",
         );
         repo.git_add(&["AGENTS.md", "src/lib.rs", "src/tests.rs"]);
 
         let report = scan_requirements(repo.path()).expect("scan should run");
 
-        // @verifies req.check
+        // @verifies tool.check
         assert!(
             report
                 .diagnostics
@@ -3318,30 +3318,30 @@ mod tests {
     }
 
     #[test]
-    // @verifies req.check
+    // @verifies tool.check
     fn scan_accepts_verification_comments_inside_root_examples() {
         let repo = TestRepo::new();
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "AGENTS.md",
             "# AGENTS.md\n\n<!-- BEGIN AGENTS_MD_REQUIREMENT_INDEX -->\n<!-- END AGENTS_MD_REQUIREMENT_INDEX -->\n",
         );
-        // @verifies req.check
+        // @verifies tool.check
         repo.write(
             "src/lib.rs",
-            "//! @behavior req The module owns requirement automation.\n// @behavior req.scan The function scans comments.\npub fn scan() {}\n",
+            "//! @behavior tool The module owns requirement automation.\n// @behavior tool.scan The function scans comments.\npub fn scan() {}\n",
         );
-        // @verifies req.check
-        // @verifies req.check
+        // @verifies tool.check
+        // @verifies tool.check
         repo.write(
             "examples/scan_contract.rs",
-            "// @verifies req.scan\nfn main() {\n    assert!(true);\n}\n",
+            "// @verifies tool.scan\nfn main() {\n    assert!(true);\n}\n",
         );
         repo.git_add(&["AGENTS.md", "src/lib.rs", "examples/scan_contract.rs"]);
 
         let report = scan_requirements(repo.path()).expect("scan should run");
 
-        // @verifies req.check
+        // @verifies tool.check
         assert!(
             report
                 .diagnostics
@@ -3390,7 +3390,7 @@ mod tests {
                 command.arg(path);
             }
             let output = command.output().expect("git add should run");
-            // @verifies req.check
+            // @verifies tool.check
             assert!(
                 output.status.success(),
                 "git add failed: {}",
@@ -3404,7 +3404,7 @@ mod tests {
                 .args(["-c", "commit.gpgsign=false", "commit", "-m", message])
                 .output()
                 .expect("git commit should run");
-            // @verifies req.check
+            // @verifies tool.check
             assert!(
                 output.status.success(),
                 "git commit failed: {}",
@@ -3419,7 +3419,7 @@ mod tests {
             .args(args)
             .output()
             .expect("git command should run");
-        // @verifies req.check
+        // @verifies tool.check
         assert!(
             output.status.success(),
             "git {:?} failed: {}",
