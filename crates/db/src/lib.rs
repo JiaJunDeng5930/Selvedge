@@ -490,12 +490,10 @@ pub fn register_tool(db: &DbPool, tool: ToolSpec) -> Result<(), DbError> {
                 bool_to_i64(parameter.required)
             ],
         )
-// @constraint selvedge.state.error.anchor493 Database persistence operations surface this storage branch as caller-visible database data or errors.
-// @constraint selvedge.state.error.p2l494 Database persistence operations surface this storage branch as caller-visible database data or errors.
+// @constraint selvedge.state.error.register_tool_insert_tool_parameters Database failures during insert tool_parameters in register tool are returned as caller-visible database errors.
         .map_err(map_error)?;
     }
-    // @constraint selvedge.state.error.anchor495 Database persistence operations surface this storage branch as caller-visible database data or errors.
-    // @constraint selvedge.state.error.p2l497 Database persistence operations surface this storage branch as caller-visible database data or errors.
+    // @constraint selvedge.state.error.register_tool_commit Database failures during transaction commit in register tool are returned as caller-visible database errors.
     tx.commit().map_err(map_error)
 }
 
@@ -526,20 +524,17 @@ pub fn create_root_task(db: &DbPool, input: CreateRootTaskInput) -> Result<TaskR
                 input.now.0
             ],
         )
-// @constraint selvedge.state.error.anchor525 Database persistence operations surface this storage branch as caller-visible database data or errors.
-// @constraint selvedge.state.error.p2l528 Database persistence operations surface this storage branch as caller-visible database data or errors.
+// @constraint selvedge.state.error.create_root_task_insert_tasks Database failures during insert tasks in create root task are returned as caller-visible database errors.
         .map_err(map_error)?;
         for tool_name in input.enabled_tools {
             tx.execute(
                 "INSERT INTO task_tools (task_id, tool_name) VALUES (?1, ?2)",
                 params![task_id.0, tool_name.0],
             )
-            // @constraint selvedge.state.error.anchor531 Database persistence operations surface this storage branch as caller-visible database data or errors.
-            // @constraint selvedge.state.error.p2l535 Database persistence operations surface this storage branch as caller-visible database data or errors.
+            // @constraint selvedge.state.error.create_root_task_insert_task_tools Database failures during insert task_tools in create root task are returned as caller-visible database errors.
             .map_err(map_error)?;
         }
-        // @constraint selvedge.state.error.anchor533 Database persistence operations surface this storage branch as caller-visible database data or errors.
-        // @constraint selvedge.state.error.p2l538 Database persistence operations surface this storage branch as caller-visible database data or errors.
+        // @constraint selvedge.state.error.create_root_task_commit Database failures during transaction commit in create root task are returned as caller-visible database errors.
         tx.commit().map_err(map_error)?;
     }
     read_task(db, &task_id)
@@ -567,27 +562,23 @@ pub fn create_child_task(db: &DbPool, input: CreateChildTaskInput) -> Result<Tas
                 input.now.0
             ],
         )
-// @constraint selvedge.state.error.anchor560 Database persistence operations surface this storage branch as caller-visible database data or errors.
-// @constraint selvedge.state.error.p2l566 Database persistence operations surface this storage branch as caller-visible database data or errors.
+// @constraint selvedge.state.error.create_child_task_insert_tasks Database failures during insert tasks in create child task are returned as caller-visible database errors.
         .map_err(map_error)?;
         tx.execute(
             "INSERT INTO task_tools (task_id, tool_name)
              SELECT ?1, tool_name FROM task_tools WHERE task_id = ?2",
             params![input.child_task_id.0, input.parent_task_id.0],
         )
-        // @constraint selvedge.state.error.anchor566 Database persistence operations surface this storage branch as caller-visible database data or errors.
-        // @constraint selvedge.state.error.p2l573 Database persistence operations surface this storage branch as caller-visible database data or errors.
+        // @constraint selvedge.state.error.create_child_task_insert_task_tools Database failures during insert task_tools in create child task are returned as caller-visible database errors.
         .map_err(map_error)?;
         tx.execute(
             "INSERT INTO task_parent_edges (parent_task_id, child_task_id, created_at)
              VALUES (?1, ?2, ?3)",
             params![input.parent_task_id.0, input.child_task_id.0, input.now.0],
         )
-        // @constraint selvedge.state.error.anchor572 Database persistence operations surface this storage branch as caller-visible database data or errors.
-        // @constraint selvedge.state.error.p2l580 Database persistence operations surface this storage branch as caller-visible database data or errors.
+        // @constraint selvedge.state.error.create_child_task_insert_task_tools_step2 Database failures during insert task_tools in create child task are returned as caller-visible database errors.
         .map_err(map_error)?;
-        // @constraint selvedge.state.error.anchor573 Database persistence operations surface this storage branch as caller-visible database data or errors.
-        // @constraint selvedge.state.error.p2l582 Database persistence operations surface this storage branch as caller-visible database data or errors.
+        // @constraint selvedge.state.error.create_child_task_commit Database failures during transaction commit in create child task are returned as caller-visible database errors.
         tx.commit().map_err(map_error)?;
     }
     read_task(db, &child_task_id)
@@ -645,8 +636,7 @@ pub fn append_model_reply_with_tool_calls_and_move_cursor(
         ));
     }
     let mut connection = db.connection()?;
-    // @constraint selvedge.state.error.anchor630 Database persistence operations surface this storage branch as caller-visible database data or errors.
-    // @constraint selvedge.state.error.p2l640 Database persistence operations surface this storage branch as caller-visible database data or errors.
+    // @constraint selvedge.state.error.append_model_reply_with_tool_calls_and_move_cursor_transaction Database failures during transaction creation in append model reply with tool calls and move cursor are returned as caller-visible database errors.
     let tx = connection.transaction().map_err(map_error)?;
     ensure_active_task_in_tx(&tx, task_id)?;
     if let Some(message_text) = assistant_message_text {
@@ -670,8 +660,7 @@ pub fn append_model_reply_with_tool_calls_and_move_cursor(
         )?;
         function_call_node_ids.push(node_id);
     }
-    // @constraint selvedge.state.error.anchor653 Database persistence operations surface this storage branch as caller-visible database data or errors.
-    // @constraint selvedge.state.error.p2l664 Database persistence operations surface this storage branch as caller-visible database data or errors.
+    // @constraint selvedge.state.error.append_model_reply_with_tool_calls_and_move_cursor_commit Database failures during transaction commit in append model reply with tool calls and move cursor are returned as caller-visible database errors.
     tx.commit().map_err(map_error)?;
     Ok(function_call_node_ids)
 }
@@ -698,8 +687,7 @@ pub fn append_assistant_message_and_drain_queue(
     if let Some(node_id) = append_all_queued_user_inputs_in_tx(&tx, task_id, created_at)? {
         last_node_id = node_id;
     }
-    // @constraint selvedge.state.error.anchor679 Database persistence operations surface this storage branch as caller-visible database data or errors.
-    // @constraint selvedge.state.error.p2l691 Database persistence operations surface this storage branch as caller-visible database data or errors.
+    // @constraint selvedge.state.error.append_assistant_message_and_drain_queue_commit Database failures during transaction commit in append assistant message and drain queue are returned as caller-visible database errors.
     tx.commit().map_err(map_error)?;
     Ok(last_node_id)
 }
@@ -725,8 +713,7 @@ pub fn append_function_output_and_drain_queue(
     if let Some(node_id) = append_all_queued_user_inputs_in_tx(&tx, task_id, created_at)? {
         last_node_id = node_id;
     }
-    // @constraint selvedge.state.error.anchor704 Database persistence operations surface this storage branch as caller-visible database data or errors.
-    // @constraint selvedge.state.error.p2l717 Database persistence operations surface this storage branch as caller-visible database data or errors.
+    // @constraint selvedge.state.error.append_function_output_and_drain_queue_commit Database failures during transaction commit in append function output and drain queue are returned as caller-visible database errors.
     tx.commit().map_err(map_error)?;
     Ok(last_node_id)
 }
@@ -741,8 +728,7 @@ pub fn drain_queued_user_inputs_and_move_cursor(
     let tx = connection.transaction().map_err(map_error)?;
     ensure_active_task_in_tx(&tx, task_id)?;
     let last_node_id = append_all_queued_user_inputs_in_tx(&tx, task_id, created_at)?;
-    // @constraint selvedge.state.error.anchor718 Database persistence operations surface this storage branch as caller-visible database data or errors.
-    // @constraint selvedge.state.error.p2l732 Database persistence operations surface this storage branch as caller-visible database data or errors.
+    // @constraint selvedge.state.error.drain_queued_user_inputs_and_move_cursor_commit Database failures during transaction commit in drain queued user inputs and move cursor are returned as caller-visible database errors.
     tx.commit().map_err(map_error)?;
     Ok(last_node_id)
 }
@@ -798,8 +784,7 @@ pub fn read_open_function_calls_for_task(
                 }) {
                     open_calls.remove(index);
                 } else {
-                    // @constraint selvedge.state.error.anchor773 Database persistence operations surface this storage branch as caller-visible database data or errors.
-                    // @constraint selvedge.state.error.p2l788 Database persistence operations surface this storage branch as caller-visible database data or errors.
+                    // @constraint selvedge.state.error.read_open_function_calls_for_task_invalid_value Database failures during invalid stored value handling in read open function calls for task are returned as caller-visible database errors.
                     return Err(DbError::Constraint(
                         "function output must reference a prior open function call".to_owned(),
                     ));
@@ -818,8 +803,7 @@ fn append_history_node_and_move_cursor(
     mut node: NewHistoryNode,
 ) -> Result<HistoryNodeId, DbError> {
     let mut connection = db.connection()?;
-    // @constraint selvedge.state.error.anchor790 Database persistence operations surface this storage branch as caller-visible database data or errors.
-    // @constraint selvedge.state.error.p2l807 Database persistence operations surface this storage branch as caller-visible database data or errors.
+    // @constraint selvedge.state.error.append_history_node_and_move_cursor_transaction Database failures during transaction creation in append history node and move cursor are returned as caller-visible database errors.
     let tx = connection.transaction().map_err(map_error)?;
     ensure_active_task_in_tx(&tx, task_id)?;
     let current_cursor_node_id = current_cursor_node_id_in_tx(&tx, task_id)?;
@@ -843,16 +827,13 @@ fn append_history_node_and_move_cursor(
              WHERE task_id = ?3 AND task_status = 'active'",
             params![node_id.0, updated_at.0, task_id.0],
         )
-        // @constraint selvedge.state.error.anchor813 Database persistence operations surface this storage branch as caller-visible database data or errors.
-        // @constraint selvedge.state.error.p2l831 Database persistence operations surface this storage branch as caller-visible database data or errors.
+        // @constraint selvedge.state.error.append_history_node_and_move_cursor_update_tasks Database failures during update tasks in append history node and move cursor are returned as caller-visible database errors.
         .map_err(map_error)?;
     if changed == 0 {
-        // @constraint selvedge.state.error.anchor815 Database persistence operations surface this storage branch as caller-visible database data or errors.
-        // @constraint selvedge.state.error.p2l834 Database persistence operations surface this storage branch as caller-visible database data or errors.
+        // @constraint selvedge.state.error.append_history_node_and_move_cursor_update_tasks_step2 Database failures during update tasks in append history node and move cursor are returned as caller-visible database errors.
         return Err(DbError::TaskNotActive);
     }
-    // @constraint selvedge.state.error.anchor817 Database persistence operations surface this storage branch as caller-visible database data or errors.
-    // @constraint selvedge.state.error.p2l837 Database persistence operations surface this storage branch as caller-visible database data or errors.
+    // @constraint selvedge.state.error.append_history_node_and_move_cursor_commit Database failures during transaction commit in append history node and move cursor are returned as caller-visible database errors.
     tx.commit().map_err(map_error)?;
     Ok(node_id)
 }
@@ -867,8 +848,7 @@ fn current_cursor_node_id_in_tx(
         params![task_id.0],
         |row| row.get(0),
     )
-    // @constraint selvedge.state.error.anchor830 Database persistence operations surface this storage branch as caller-visible database data or errors.
-    // @constraint selvedge.state.error.p2l852 Database persistence operations surface this storage branch as caller-visible database data or errors.
+    // @constraint selvedge.state.error.current_cursor_node_id_in_tx_read_tasks Database failures during read tasks in current cursor node id in tx are returned as caller-visible database errors.
     .map_err(map_error)
 }
 
@@ -906,17 +886,14 @@ fn append_all_queued_user_inputs_in_tx(
                  WHERE task_id = ?1
                  ORDER BY seq_no ASC",
             )
-            // @constraint selvedge.state.error.anchor865 Database persistence operations surface this storage branch as caller-visible database data or errors.
-            // @constraint selvedge.state.error.p2l890 Database persistence operations surface this storage branch as caller-visible database data or errors.
+            // @constraint selvedge.state.error.append_all_queued_user_inputs_in_tx_read_queued_user_inputs Database failures during read queued_user_inputs in append all queued user inputs in tx are returned as caller-visible database errors.
             .map_err(map_error)?;
         statement
             .query_map(params![task_id.0], map_queued_user_input_row)
-            // @constraint selvedge.state.error.anchor868 Database persistence operations surface this storage branch as caller-visible database data or errors.
-            // @constraint selvedge.state.error.p2l894 Database persistence operations surface this storage branch as caller-visible database data or errors.
+            // @constraint selvedge.state.error.append_all_queued_user_inputs_in_tx_read_queued_user_inputs_step2 Database failures during read queued_user_inputs in append all queued user inputs in tx are returned as caller-visible database errors.
             .map_err(map_error)?
             .collect::<Result<Vec<_>, _>>()
-            // @constraint selvedge.state.error.anchor870 Database persistence operations surface this storage branch as caller-visible database data or errors.
-            // @constraint selvedge.state.error.p2l897 Database persistence operations surface this storage branch as caller-visible database data or errors.
+            // @constraint selvedge.state.error.append_all_queued_user_inputs_in_tx_read_queued_user_inputs_step3 Database failures during read queued_user_inputs in append all queued user inputs in tx are returned as caller-visible database errors.
             .map_err(map_error)?
     };
 
@@ -935,8 +912,7 @@ fn append_all_queued_user_inputs_in_tx(
             "DELETE FROM queued_user_inputs WHERE task_id = ?1 AND seq_no = ?2",
             params![queued.task_id.0, u64_to_i64(queued.seq_no)?],
         )
-        // @constraint selvedge.state.error.anchor888 Database persistence operations surface this storage branch as caller-visible database data or errors.
-        // @constraint selvedge.state.error.p2l916 Database persistence operations surface this storage branch as caller-visible database data or errors.
+        // @constraint selvedge.state.error.append_all_queued_user_inputs_in_tx_delete_queued_user_inputs Database failures during delete queued_user_inputs in append all queued user inputs in tx are returned as caller-visible database errors.
         .map_err(map_error)?;
         last_node_id = Some(node_id);
     }
@@ -948,8 +924,7 @@ fn update_task_cursor_in_tx(
     task_id: &TaskId,
     node_id: HistoryNodeId,
     updated_at: UnixTs,
-    // @constraint selvedge.state.error.anchor899 Database persistence operations surface this storage branch as caller-visible database data or errors.
-    // @constraint selvedge.state.error.p2l928 Database persistence operations surface this storage branch as caller-visible database data or errors.
+    // @constraint selvedge.state.error.update_task_cursor_in_tx_database_error Database failures during database error mapping in update task cursor in tx are returned as caller-visible database errors.
 ) -> Result<(), DbError> {
     let changed = tx
         .execute(
@@ -958,12 +933,10 @@ fn update_task_cursor_in_tx(
              WHERE task_id = ?3 AND task_status = 'active'",
             params![node_id.0, updated_at.0, task_id.0],
         )
-        // @constraint selvedge.state.error.anchor907 Database persistence operations surface this storage branch as caller-visible database data or errors.
-        // @constraint selvedge.state.error.p2l937 Database persistence operations surface this storage branch as caller-visible database data or errors.
+        // @constraint selvedge.state.error.update_task_cursor_in_tx_update_task Database failures during update task in update task cursor in tx are returned as caller-visible database errors.
         .map_err(map_error)?;
     if changed == 0 {
-        // @constraint selvedge.state.error.anchor909 Database persistence operations surface this storage branch as caller-visible database data or errors.
-        // @constraint selvedge.state.error.p2l940 Database persistence operations surface this storage branch as caller-visible database data or errors.
+        // @constraint selvedge.state.error.update_task_cursor_in_tx_update_task_step2 Database failures during update task in update task cursor in tx are returned as caller-visible database errors.
         Err(DbError::TaskNotActive)
     } else {
         Ok(())
@@ -986,19 +959,16 @@ pub fn queue_user_input(
             params![task_id.0],
             |row| row.get(0),
         )
-        // @constraint selvedge.state.error.anchor931 Database persistence operations surface this storage branch as caller-visible database data or errors.
-        // @constraint selvedge.state.error.p2l963 Database persistence operations surface this storage branch as caller-visible database data or errors.
+        // @constraint selvedge.state.error.queue_user_input_read_queued_user_inputs Database failures during read queued_user_inputs in queue user input are returned as caller-visible database errors.
         .map_err(map_error)?;
     tx.execute(
         "INSERT INTO queued_user_inputs (task_id, seq_no, message_text, queued_at)
          VALUES (?1, ?2, ?3, ?4)",
         params![task_id.0, next_seq_no, message_text, queued_at.0],
     )
-    // @constraint selvedge.state.error.anchor937 Database persistence operations surface this storage branch as caller-visible database data or errors.
-    // @constraint selvedge.state.error.p2l970 Database persistence operations surface this storage branch as caller-visible database data or errors.
+    // @constraint selvedge.state.error.queue_user_input_insert_queued_user_inputs Database failures during insert queued_user_inputs in queue user input are returned as caller-visible database errors.
     .map_err(map_error)?;
-    // @constraint selvedge.state.error.anchor938 Database persistence operations surface this storage branch as caller-visible database data or errors.
-    // @constraint selvedge.state.error.p2l972 Database persistence operations surface this storage branch as caller-visible database data or errors.
+    // @constraint selvedge.state.error.queue_user_input_commit Database failures during transaction commit in queue user input are returned as caller-visible database errors.
     tx.commit().map_err(map_error)?;
     Ok(QueuedUserInputRow {
         task_id: task_id.clone(),
@@ -1027,20 +997,17 @@ pub fn consume_next_queued_user_input(
             map_queued_user_input_row,
         )
         .optional()
-        // @constraint selvedge.state.error.anchor966 Database persistence operations surface this storage branch as caller-visible database data or errors.
-        // @constraint selvedge.state.error.p2l1001 Database persistence operations surface this storage branch as caller-visible database data or errors.
+        // @constraint selvedge.state.error.consume_next_queued_user_input_read_queued_user_inputs Database failures during read queued_user_inputs in consume next queued user input are returned as caller-visible database errors.
         .map_err(map_error)?;
     if let Some(queued) = &queued {
         tx.execute(
             "DELETE FROM queued_user_inputs WHERE task_id = ?1 AND seq_no = ?2",
             params![queued.task_id.0, u64_to_i64(queued.seq_no)?],
         )
-        // @constraint selvedge.state.error.anchor972 Database persistence operations surface this storage branch as caller-visible database data or errors.
-        // @constraint selvedge.state.error.p2l1008 Database persistence operations surface this storage branch as caller-visible database data or errors.
+        // @constraint selvedge.state.error.consume_next_queued_user_input_delete_queued_user_inputs Database failures during delete queued_user_inputs in consume next queued user input are returned as caller-visible database errors.
         .map_err(map_error)?;
     }
-    // @constraint selvedge.state.error.anchor974 Database persistence operations surface this storage branch as caller-visible database data or errors.
-    // @constraint selvedge.state.error.p2l1011 Database persistence operations surface this storage branch as caller-visible database data or errors.
+    // @constraint selvedge.state.error.consume_next_queued_user_input_commit Database failures during transaction commit in consume next queued user input are returned as caller-visible database errors.
     tx.commit().map_err(map_error)?;
     Ok(queued)
 }
@@ -1065,12 +1032,10 @@ pub fn append_next_queued_user_input_and_move_cursor(
             map_queued_user_input_row,
         )
         .optional()
-        // @constraint selvedge.state.error.anchor998 Database persistence operations surface this storage branch as caller-visible database data or errors.
-        // @constraint selvedge.state.error.p2l1036 Database persistence operations surface this storage branch as caller-visible database data or errors.
+        // @constraint selvedge.state.error.append_next_queued_user_input_and_move_cursor_read_queued_user_inputs Database failures during read queued_user_inputs in append next queued user input and move cursor are returned as caller-visible database errors.
         .map_err(map_error)?;
     let Some(queued) = queued else {
-        // @constraint selvedge.state.error.anchor1000 Database persistence operations surface this storage branch as caller-visible database data or errors.
-        // @constraint selvedge.state.error.p2l1039 Database persistence operations surface this storage branch as caller-visible database data or errors.
+        // @constraint selvedge.state.error.append_next_queued_user_input_and_move_cursor_commit Database failures during transaction commit in append next queued user input and move cursor are returned as caller-visible database errors.
         tx.commit().map_err(map_error)?;
         return Ok(None);
     };
@@ -1080,8 +1045,7 @@ pub fn append_next_queued_user_input_and_move_cursor(
             params![task_id.0],
             |row| row.get(0),
         )
-        // @constraint selvedge.state.error.anchor1009 Database persistence operations surface this storage branch as caller-visible database data or errors.
-        // @constraint selvedge.state.error.p2l1049 Database persistence operations surface this storage branch as caller-visible database data or errors.
+        // @constraint selvedge.state.error.append_next_queued_user_input_and_move_cursor_read_tasks Database failures during read tasks in append next queued user input and move cursor are returned as caller-visible database errors.
         .map_err(map_error)?;
     let node_id = insert_history_node(
         &tx,
@@ -1101,12 +1065,10 @@ pub fn append_next_queued_user_input_and_move_cursor(
          WHERE task_id = ?3 AND task_status = 'active' AND cursor_node_id = ?4",
             params![node_id.0, created_at.0, task_id.0, current_cursor_node_id],
         )
-        // @constraint selvedge.state.error.anchor1028 Database persistence operations surface this storage branch as caller-visible database data or errors.
-        // @constraint selvedge.state.error.p2l1069 Database persistence operations surface this storage branch as caller-visible database data or errors.
+        // @constraint selvedge.state.error.append_next_queued_user_input_and_move_cursor_update_tasks Database failures during update tasks in append next queued user input and move cursor are returned as caller-visible database errors.
         .map_err(map_error)?;
     if changed == 0 {
-        // @constraint selvedge.state.error.anchor1030 Database persistence operations surface this storage branch as caller-visible database data or errors.
-        // @constraint selvedge.state.error.p2l1072 Database persistence operations surface this storage branch as caller-visible database data or errors.
+        // @constraint selvedge.state.error.append_next_queued_user_input_and_move_cursor_update_tasks_step2 Database failures during update tasks in append next queued user input and move cursor are returned as caller-visible database errors.
         return Err(DbError::Constraint(
             "queued input append cursor changed before update".to_owned(),
         ));
@@ -1115,11 +1077,9 @@ pub fn append_next_queued_user_input_and_move_cursor(
         "DELETE FROM queued_user_inputs WHERE task_id = ?1 AND seq_no = ?2",
         params![queued.task_id.0, u64_to_i64(queued.seq_no)?],
     )
-    // @constraint selvedge.state.error.anchor1038 Database persistence operations surface this storage branch as caller-visible database data or errors.
-    // @constraint selvedge.state.error.p2l1081 Database persistence operations surface this storage branch as caller-visible database data or errors.
+    // @constraint selvedge.state.error.append_next_queued_user_input_and_move_cursor_update_tasks_step3 Database failures during update tasks in append next queued user input and move cursor are returned as caller-visible database errors.
     .map_err(map_error)?;
-    // @constraint selvedge.state.error.anchor1039 Database persistence operations surface this storage branch as caller-visible database data or errors.
-    // @constraint selvedge.state.error.p2l1083 Database persistence operations surface this storage branch as caller-visible database data or errors.
+    // @constraint selvedge.state.error.append_next_queued_user_input_and_move_cursor_commit_step2 Database failures during transaction commit in append next queued user input and move cursor are returned as caller-visible database errors.
     tx.commit().map_err(map_error)?;
     Ok(Some(node_id))
 }
@@ -1141,16 +1101,13 @@ pub fn archive_task(db: &DbPool, task_id: &TaskId, now: UnixTs) -> Result<(), Db
              WHERE task_id = ?2 AND task_status = 'active'",
             params![now.0, task_id.0],
         )
-        // @constraint selvedge.state.error.anchor1060 Database persistence operations surface this storage branch as caller-visible database data or errors.
-        // @constraint selvedge.state.error.p2l1105 Database persistence operations surface this storage branch as caller-visible database data or errors.
+        // @constraint selvedge.state.error.archive_task_update_tasks Database failures during update tasks in archive task are returned as caller-visible database errors.
         .map_err(map_error)?;
     if changed == 0 {
-        // @constraint selvedge.state.error.anchor1062 Database persistence operations surface this storage branch as caller-visible database data or errors.
-        // @constraint selvedge.state.error.p2l1108 Database persistence operations surface this storage branch as caller-visible database data or errors.
+        // @constraint selvedge.state.error.archive_task_update_tasks_step2 Database failures during update tasks in archive task are returned as caller-visible database errors.
         Err(DbError::TaskNotActive)
     } else {
-        // @constraint selvedge.state.error.anchor1064 Database persistence operations surface this storage branch as caller-visible database data or errors.
-        // @constraint selvedge.state.error.p2l1111 Database persistence operations surface this storage branch as caller-visible database data or errors.
+        // @constraint selvedge.state.error.archive_task_commit Database failures during transaction commit in archive task are returned as caller-visible database errors.
         tx.commit().map_err(map_error)?;
         Ok(())
     }
@@ -1166,17 +1123,14 @@ pub fn list_active_tasks(db: &DbPool) -> Result<Vec<TaskRow>, DbError> {
              WHERE task_status = 'active'
              ORDER BY updated_at DESC, task_id ASC",
         )
-// @constraint selvedge.state.error.anchor1079 Database persistence operations surface this storage branch as caller-visible database data or errors.
-// @constraint selvedge.state.error.p2l1127 Database persistence operations surface this storage branch as caller-visible database data or errors.
+// @constraint selvedge.state.error.list_active_tasks_read_tasks Database failures during read tasks in list active tasks are returned as caller-visible database errors.
         .map_err(map_error)?;
     let rows = statement
         .query_map([], map_task_row)
-        // @constraint selvedge.state.error.anchor1082 Database persistence operations surface this storage branch as caller-visible database data or errors.
-        // @constraint selvedge.state.error.p2l1131 Database persistence operations surface this storage branch as caller-visible database data or errors.
+        // @constraint selvedge.state.error.list_active_tasks_read_tasks_step2 Database failures during read tasks in list active tasks are returned as caller-visible database errors.
         .map_err(map_error)?
         .collect::<Result<Vec<_>, _>>()
-        // @constraint selvedge.state.error.anchor1084 Database persistence operations surface this storage branch as caller-visible database data or errors.
-        // @constraint selvedge.state.error.p2l1134 Database persistence operations surface this storage branch as caller-visible database data or errors.
+        // @constraint selvedge.state.error.list_active_tasks_read_tasks_step3 Database failures during read tasks in list active tasks are returned as caller-visible database errors.
         .map_err(map_error)?;
     Ok(rows)
 }
@@ -1199,12 +1153,10 @@ pub fn read_task_parent_edges(db: &DbPool) -> Result<Vec<TaskParentEdgeRow>, DbE
                 created_at: UnixTs(row.get(2)?),
             })
         })
-        // @constraint selvedge.state.error.anchor1106 Database persistence operations surface this storage branch as caller-visible database data or errors.
-        // @constraint selvedge.state.error.p2l1157 Database persistence operations surface this storage branch as caller-visible database data or errors.
+        // @constraint selvedge.state.error.read_task_parent_edges_read_task_parent_edges Database failures during read task_parent_edges in read task parent edges are returned as caller-visible database errors.
         .map_err(map_error)?
         .collect::<Result<Vec<_>, _>>()
-        // @constraint selvedge.state.error.anchor1108 Database persistence operations surface this storage branch as caller-visible database data or errors.
-        // @constraint selvedge.state.error.p2l1160 Database persistence operations surface this storage branch as caller-visible database data or errors.
+        // @constraint selvedge.state.error.read_task_parent_edges_read_rows Database failures during row read in read task parent edges are returned as caller-visible database errors.
         .map_err(map_error)
 }
 
@@ -1220,19 +1172,16 @@ pub fn read_tool_manifest_for_task(db: &DbPool, task_id: &TaskId) -> Result<Tool
              WHERE tt.task_id = ?1
              ORDER BY t.tool_name ASC",
         )
-        // @constraint selvedge.state.error.anchor1123 Database persistence operations surface this storage branch as caller-visible database data or errors.
-        // @constraint selvedge.state.error.p2l1176 Database persistence operations surface this storage branch as caller-visible database data or errors.
+        // @constraint selvedge.state.error.read_tool_manifest_for_task_read_tools Database failures during read tools in read tool manifest for task are returned as caller-visible database errors.
         .map_err(map_error)?;
     let tools = statement
         .query_map(params![task_id.0], |row| {
             Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
         })
-        // @constraint selvedge.state.error.anchor1128 Database persistence operations surface this storage branch as caller-visible database data or errors.
-        // @constraint selvedge.state.error.p2l1182 Database persistence operations surface this storage branch as caller-visible database data or errors.
+        // @constraint selvedge.state.error.read_tool_manifest_for_task_read_tools_step2 Database failures during read tools in read tool manifest for task are returned as caller-visible database errors.
         .map_err(map_error)?
         .collect::<Result<Vec<_>, _>>()
-        // @constraint selvedge.state.error.anchor1130 Database persistence operations surface this storage branch as caller-visible database data or errors.
-        // @constraint selvedge.state.error.p2l1185 Database persistence operations surface this storage branch as caller-visible database data or errors.
+        // @constraint selvedge.state.error.read_tool_manifest_for_task_read_rows Database failures during row read in read tool manifest for task are returned as caller-visible database errors.
         .map_err(map_error)?;
 
     let mut manifest_tools = Vec::with_capacity(tools.len());
@@ -1244,16 +1193,14 @@ pub fn read_tool_manifest_for_task(db: &DbPool, task_id: &TaskId) -> Result<Tool
                  WHERE tool_name = ?1
                  ORDER BY parameter_name ASC",
             )
-            // @constraint selvedge.state.error.anchor1141 Database persistence operations surface this storage branch as caller-visible database data or errors.
-            // @constraint selvedge.state.error.p2l1197 Database persistence operations surface this storage branch as caller-visible database data or errors.
+            // @constraint selvedge.state.error.read_tool_manifest_for_task_read_tool_parameters Database failures during read tool_parameters in read tool manifest for task are returned as caller-visible database errors.
             .map_err(map_error)?;
         let parameters = parameter_statement
             .query_map(params![name], |row| {
                 Ok(selvedge_domain_model::ToolParameter {
                     name: row.get(0)?,
                     parameter_type: tool_parameter_type_from_db(&row.get::<_, String>(1)?)
-                        // @constraint selvedge.state.error.anchor1147 Database persistence operations surface this storage branch as caller-visible database data or errors.
-                        // @constraint selvedge.state.error.p2l1204 Database persistence operations surface this storage branch as caller-visible database data or errors.
+                        // @constraint selvedge.state.error.read_tool_manifest_for_task_read_tool_parameters_step2 Database failures during read tool_parameters in read tool manifest for task are returned as caller-visible database errors.
                         .map_err(|error| {
                             rusqlite::Error::ToSqlConversionFailure(Box::new(error))
                         })?,
@@ -1261,12 +1208,10 @@ pub fn read_tool_manifest_for_task(db: &DbPool, task_id: &TaskId) -> Result<Tool
                     required: row.get::<_, i64>(3)? == 1,
                 })
             })
-            // @constraint selvedge.state.error.anchor1154 Database persistence operations surface this storage branch as caller-visible database data or errors.
-            // @constraint selvedge.state.error.p2l1212 Database persistence operations surface this storage branch as caller-visible database data or errors.
+            // @constraint selvedge.state.error.read_tool_manifest_for_task_read_rows_step2 Database failures during row read in read tool manifest for task are returned as caller-visible database errors.
             .map_err(map_error)?
             .collect::<Result<Vec<_>, _>>()
-            // @constraint selvedge.state.error.anchor1156 Database persistence operations surface this storage branch as caller-visible database data or errors.
-            // @constraint selvedge.state.error.p2l1215 Database persistence operations surface this storage branch as caller-visible database data or errors.
+            // @constraint selvedge.state.error.read_tool_manifest_for_task_database_error Database failures during database error mapping in read tool manifest for task are returned as caller-visible database errors.
             .map_err(map_error)?;
         manifest_tools.push(ToolSpec {
             name,
@@ -1330,8 +1275,7 @@ impl DbPool {
     fn connection(&self) -> Result<MutexGuard<'_, Connection>, DbError> {
         self.connection
             .lock()
-            // @constraint selvedge.state.error.anchor1219 Database persistence operations surface this storage branch as caller-visible database data or errors.
-            // @constraint selvedge.state.error.p2l1279 Database persistence operations surface this storage branch as caller-visible database data or errors.
+            // @constraint selvedge.state.error.connection_database_error Database failures during database error mapping in connection are returned as caller-visible database errors.
             .map_err(|error| DbError::Storage(format!("database mutex is poisoned: {error}")))
     }
 }
@@ -1343,8 +1287,7 @@ fn database_is_empty(connection: &Connection) -> Result<bool, DbError> {
             [],
             |row| row.get(0),
         )
-        // @constraint selvedge.state.error.anchor1230 Database persistence operations surface this storage branch as caller-visible database data or errors.
-        // @constraint selvedge.state.error.p2l1291 Database persistence operations surface this storage branch as caller-visible database data or errors.
+        // @constraint selvedge.state.error.database_is_empty_read_sqlite_master Database failures during read sqlite_master in database is empty are returned as caller-visible database errors.
         .map_err(map_error)?;
     Ok(count == 0)
 }
@@ -1360,8 +1303,7 @@ fn read_task(db: &DbPool, task_id: &TaskId) -> Result<TaskRow, DbError> {
             map_task_row,
         )
         .optional()
-// @constraint selvedge.state.error.anchor1245 Database persistence operations surface this storage branch as caller-visible database data or errors.
-// @constraint selvedge.state.error.p2l1307 Database persistence operations surface this storage branch as caller-visible database data or errors.
+// @constraint selvedge.state.error.read_task_read_tasks Database failures during read tasks in read task are returned as caller-visible database errors.
         .map_err(map_error)?
         .ok_or(DbError::NotFound)
 }
@@ -1375,8 +1317,7 @@ fn read_task_in_tx(tx: &rusqlite::Transaction<'_>, task_id: &TaskId) -> Result<T
         map_task_row,
     )
     .optional()
-// @constraint selvedge.state.error.anchor1258 Database persistence operations surface this storage branch as caller-visible database data or errors.
-// @constraint selvedge.state.error.p2l1321 Database persistence operations surface this storage branch as caller-visible database data or errors.
+// @constraint selvedge.state.error.read_task_in_tx_read_tasks Database failures during read tasks in read task in tx are returned as caller-visible database errors.
     .map_err(map_error)?
     .ok_or(DbError::NotFound)
 }
@@ -1385,8 +1326,7 @@ fn ensure_current_path_contains_open_function_call(
     tx: &rusqlite::Transaction<'_>,
     current_cursor_node_id: i64,
     output: &NewFunctionOutputNodeContent,
-    // @constraint selvedge.state.error.anchor1266 Database persistence operations surface this storage branch as caller-visible database data or errors.
-    // @constraint selvedge.state.error.p2l1330 Database persistence operations surface this storage branch as caller-visible database data or errors.
+    // @constraint selvedge.state.error.ensure_current_path_contains_open_function_call_database_error Database failures during database error mapping in ensure current path contains open function call are returned as caller-visible database errors.
 ) -> Result<(), DbError> {
     // Provider APIs pair tool results with prior tool calls by call id. A
     // model turn may contain several tool calls, so the matching call can be
@@ -1420,13 +1360,11 @@ fn ensure_current_path_contains_open_function_call(
             ],
             |row| row.get(0),
         )
-        // @constraint selvedge.state.error.anchor1299 Database persistence operations surface this storage branch as caller-visible database data or errors.
-        // @constraint selvedge.state.error.p2l1364 Database persistence operations surface this storage branch as caller-visible database data or errors.
+        // @constraint selvedge.state.error.ensure_current_path_contains_open_function_call_database_error_step2 Database failures during database error mapping in ensure current path contains open function call are returned as caller-visible database errors.
         .map_err(map_error)?;
 
     if !exists {
-        // @constraint selvedge.state.error.anchor1302 Database persistence operations surface this storage branch as caller-visible database data or errors.
-        // @constraint selvedge.state.error.p2l1368 Database persistence operations surface this storage branch as caller-visible database data or errors.
+        // @constraint selvedge.state.error.ensure_current_path_contains_open_function_call_invalid_value Database failures during invalid stored value handling in ensure current path contains open function call are returned as caller-visible database errors.
         return Err(DbError::Constraint(
             "function output must reference an open function call id and tool".to_owned(),
         ));
@@ -1450,13 +1388,11 @@ fn ensure_current_path_contains_open_function_call(
             ],
             |row| row.get(0),
         )
-// @constraint selvedge.state.error.anchor1325 Database persistence operations surface this storage branch as caller-visible database data or errors.
-// @constraint selvedge.state.error.p2l1392 Database persistence operations surface this storage branch as caller-visible database data or errors.
+// @constraint selvedge.state.error.ensure_current_path_contains_open_function_call_database_error_step3 Database failures during database error mapping in ensure current path contains open function call are returned as caller-visible database errors.
         .map_err(map_error)?;
 
     if output_exists {
-        // @constraint selvedge.state.error.anchor1328 Database persistence operations surface this storage branch as caller-visible database data or errors.
-        // @constraint selvedge.state.error.p2l1396 Database persistence operations surface this storage branch as caller-visible database data or errors.
+        // @constraint selvedge.state.error.ensure_current_path_contains_open_function_call_invalid_value_step2 Database failures during invalid stored value handling in ensure current path contains open function call are returned as caller-visible database errors.
         Err(DbError::Constraint(
             "function output already exists for function call id and tool".to_owned(),
         ))
@@ -1537,8 +1473,7 @@ fn read_history_node_in_connection(
             map_history_node_row,
         )
         .optional()
-        // @constraint selvedge.state.error.anchor1406 Database persistence operations surface this storage branch as caller-visible database data or errors.
-        // @constraint selvedge.state.error.p2l1477 Database persistence operations surface this storage branch as caller-visible database data or errors.
+        // @constraint selvedge.state.error.read_history_node_in_connection_read_history_nodes Database failures during read history_nodes in read history node in connection are returned as caller-visible database errors.
         .map_err(map_error)?
         .ok_or(DbError::NotFound)
 }
@@ -1552,17 +1487,14 @@ fn list_queued_inputs(db: &DbPool, task_id: &TaskId) -> Result<Vec<QueuedUserInp
              WHERE task_id = ?1
              ORDER BY seq_no ASC",
         )
-        // @constraint selvedge.state.error.anchor1419 Database persistence operations surface this storage branch as caller-visible database data or errors.
-        // @constraint selvedge.state.error.p2l1491 Database persistence operations surface this storage branch as caller-visible database data or errors.
+        // @constraint selvedge.state.error.list_queued_inputs_read_queued_user_inputs Database failures during read queued_user_inputs in list queued inputs are returned as caller-visible database errors.
         .map_err(map_error)?;
     statement
         .query_map(params![task_id.0], map_queued_user_input_row)
-        // @constraint selvedge.state.error.anchor1422 Database persistence operations surface this storage branch as caller-visible database data or errors.
-        // @constraint selvedge.state.error.p2l1495 Database persistence operations surface this storage branch as caller-visible database data or errors.
+        // @constraint selvedge.state.error.list_queued_inputs_read_queued_user_inputs_step2 Database failures during read queued_user_inputs in list queued inputs are returned as caller-visible database errors.
         .map_err(map_error)?
         .collect::<Result<Vec<_>, _>>()
-        // @constraint selvedge.state.error.anchor1424 Database persistence operations surface this storage branch as caller-visible database data or errors.
-        // @constraint selvedge.state.error.p2l1498 Database persistence operations surface this storage branch as caller-visible database data or errors.
+        // @constraint selvedge.state.error.list_queued_inputs_read_queued_user_inputs_step3 Database failures during read queued_user_inputs in list queued inputs are returned as caller-visible database errors.
         .map_err(map_error)
 }
 
@@ -1581,8 +1513,7 @@ fn insert_history_node(
             node.created_at.0
         ],
     )
-    // @constraint selvedge.state.error.anchor1441 Database persistence operations surface this storage branch as caller-visible database data or errors.
-    // @constraint selvedge.state.error.p2l1517 Database persistence operations surface this storage branch as caller-visible database data or errors.
+    // @constraint selvedge.state.error.insert_history_node_insert_history_nodes Database failures during insert history_nodes in insert history node are returned as caller-visible database errors.
     .map_err(map_error)?;
     let node_id = HistoryNodeId(tx.last_insert_rowid());
     match node.content {
@@ -1605,8 +1536,7 @@ fn insert_message_node(
     content: NewMessageNodeContent,
 ) -> Result<(), DbError> {
     let Some(message_role) = message_role_to_db(&content.message_role) else {
-        // @constraint selvedge.state.error.anchor1462 Database persistence operations surface this storage branch as caller-visible database data or errors.
-        // @constraint selvedge.state.error.p2l1540 Database persistence operations surface this storage branch as caller-visible database data or errors.
+        // @constraint selvedge.state.error.insert_message_node_invalid_value Database failures during invalid stored value handling in insert message node are returned as caller-visible database errors.
         return Err(DbError::Constraint(
             "message role cannot be persisted as a history message".to_owned(),
         ));
@@ -1616,8 +1546,7 @@ fn insert_message_node(
          VALUES (?1, ?2, ?3)",
         params![node_id.0, message_role, content.message_text],
     )
-    // @constraint selvedge.state.error.anchor1471 Database persistence operations surface this storage branch as caller-visible database data or errors.
-    // @constraint selvedge.state.error.p2l1550 Database persistence operations surface this storage branch as caller-visible database data or errors.
+    // @constraint selvedge.state.error.insert_message_node_insert_history_message_nodes Database failures during insert history_message_nodes in insert message node are returned as caller-visible database errors.
     .map_err(map_error)?;
     Ok(())
 }
@@ -1633,8 +1562,7 @@ fn insert_reasoning_node(
          VALUES (?1, ?2)",
         params![node_id.0, content.reasoning_text],
     )
-    // @constraint selvedge.state.error.anchor1485 Database persistence operations surface this storage branch as caller-visible database data or errors.
-    // @constraint selvedge.state.error.p2l1566 Database persistence operations surface this storage branch as caller-visible database data or errors.
+    // @constraint selvedge.state.error.insert_reasoning_node_insert_history_reasoning_nodes Database failures during insert history_reasoning_nodes in insert reasoning node are returned as caller-visible database errors.
     .map_err(map_error)?;
     Ok(())
 }
@@ -1658,23 +1586,19 @@ fn insert_function_call_node(
                  WHERE tool_name = ?1 AND is_required = 1
                  ORDER BY parameter_name ASC",
             )
-            // @constraint selvedge.state.error.anchor1507 Database persistence operations surface this storage branch as caller-visible database data or errors.
-            // @constraint selvedge.state.error.p2l1590 Database persistence operations surface this storage branch as caller-visible database data or errors.
+            // @constraint selvedge.state.error.insert_function_call_node_read_tool_parameters Database failures during read tool_parameters in insert function call node are returned as caller-visible database errors.
             .map_err(map_error)?;
         statement
             .query_map(params![content.tool_name.0], |row| row.get::<_, String>(0))
-            // @constraint selvedge.state.error.anchor1510 Database persistence operations surface this storage branch as caller-visible database data or errors.
-            // @constraint selvedge.state.error.p2l1594 Database persistence operations surface this storage branch as caller-visible database data or errors.
+            // @constraint selvedge.state.error.insert_function_call_node_read_tool_parameters_step2 Database failures during read tool_parameters in insert function call node are returned as caller-visible database errors.
             .map_err(map_error)?
             .collect::<Result<Vec<_>, _>>()
-            // @constraint selvedge.state.error.anchor1512 Database persistence operations surface this storage branch as caller-visible database data or errors.
-            // @constraint selvedge.state.error.p2l1597 Database persistence operations surface this storage branch as caller-visible database data or errors.
+            // @constraint selvedge.state.error.insert_function_call_node_read_tool_parameters_step3 Database failures during read tool_parameters in insert function call node are returned as caller-visible database errors.
             .map_err(map_error)?
     };
     for parameter_name in required_parameters {
         if !argument_names.contains(parameter_name.as_str()) {
-            // @constraint selvedge.state.error.anchor1516 Database persistence operations surface this storage branch as caller-visible database data or errors.
-            // @constraint selvedge.state.error.p2l1602 Database persistence operations surface this storage branch as caller-visible database data or errors.
+            // @constraint selvedge.state.error.insert_function_call_node_read_rows Database failures during row read in insert function call node are returned as caller-visible database errors.
             return Err(DbError::Constraint(format!(
                 "required tool argument is missing: {}.{}",
                 content.tool_name.0, parameter_name
@@ -1687,8 +1611,7 @@ fn insert_function_call_node(
          VALUES (?1, ?2, ?3)",
         params![node_id.0, content.function_call_id.0, content.tool_name.0],
     )
-    // @constraint selvedge.state.error.anchor1528 Database persistence operations surface this storage branch as caller-visible database data or errors.
-    // @constraint selvedge.state.error.p2l1615 Database persistence operations surface this storage branch as caller-visible database data or errors.
+    // @constraint selvedge.state.error.insert_function_call_node_insert_history_function_call_nodes Database failures during insert history_function_call_nodes in insert function call node are returned as caller-visible database errors.
     .map_err(map_error)?;
     for argument in content.arguments {
         let (value_type, string_value, integer_value, number_value, boolean_value) =
@@ -1708,8 +1631,7 @@ fn insert_function_call_node(
                 boolean_value
             ],
         )
-// @constraint selvedge.state.error.anchor1547 Database persistence operations surface this storage branch as caller-visible database data or errors.
-// @constraint selvedge.state.error.p2l1635 Database persistence operations surface this storage branch as caller-visible database data or errors.
+// @constraint selvedge.state.error.insert_function_call_node_database_error Database failures during database error mapping in insert function call node are returned as caller-visible database errors.
         .map_err(map_error)?;
     }
     Ok(())
@@ -1734,8 +1656,7 @@ fn insert_function_output_node(
             bool_to_i64(content.is_error)
         ],
     )
-    // @constraint selvedge.state.error.anchor1570 Database persistence operations surface this storage branch as caller-visible database data or errors.
-    // @constraint selvedge.state.error.p2l1660 Database persistence operations surface this storage branch as caller-visible database data or errors.
+    // @constraint selvedge.state.error.insert_function_output_node_insert_history_function_output_nodes Database failures during insert history_function_output_nodes in insert function output node are returned as caller-visible database errors.
     .map_err(map_error)?;
     Ok(())
 }
@@ -1748,16 +1669,13 @@ fn ensure_active_task(connection: &Connection, task_id: &TaskId) -> Result<(), D
             |row| row.get(0),
         )
         .optional()
-        // @constraint selvedge.state.error.anchor1582 Database persistence operations surface this storage branch as caller-visible database data or errors.
-        // @constraint selvedge.state.error.p2l1673 Database persistence operations surface this storage branch as caller-visible database data or errors.
+        // @constraint selvedge.state.error.ensure_active_task_read_tasks Database failures during read tasks in ensure active task are returned as caller-visible database errors.
         .map_err(map_error)?;
     match status.as_deref() {
         Some("active") => Ok(()),
-        // @constraint selvedge.state.error.anchor1585 Database persistence operations surface this storage branch as caller-visible database data or errors.
-        // @constraint selvedge.state.error.p2l1677 Database persistence operations surface this storage branch as caller-visible database data or errors.
+        // @constraint selvedge.state.error.ensure_active_task_read_tasks_step2 Database failures during read tasks in ensure active task are returned as caller-visible database errors.
         Some(_) => Err(DbError::TaskNotActive),
-        // @constraint selvedge.state.error.anchor1586 Database persistence operations surface this storage branch as caller-visible database data or errors.
-        // @constraint selvedge.state.error.p2l1679 Database persistence operations surface this storage branch as caller-visible database data or errors.
+        // @constraint selvedge.state.error.ensure_active_task_read_tasks_step3 Database failures during read tasks in ensure active task are returned as caller-visible database errors.
         None => Err(DbError::NotFound),
     }
 }
@@ -1774,16 +1692,13 @@ fn ensure_active_task_in_tx(
             |row| row.get(0),
         )
         .optional()
-        // @constraint selvedge.state.error.anchor1601 Database persistence operations surface this storage branch as caller-visible database data or errors.
-        // @constraint selvedge.state.error.p2l1696 Database persistence operations surface this storage branch as caller-visible database data or errors.
+        // @constraint selvedge.state.error.ensure_active_task_in_tx_read_tasks Database failures during read tasks in ensure active task in tx are returned as caller-visible database errors.
         .map_err(map_error)?;
     match status.as_deref() {
         Some("active") => Ok(()),
-        // @constraint selvedge.state.error.anchor1604 Database persistence operations surface this storage branch as caller-visible database data or errors.
-        // @constraint selvedge.state.error.p2l1700 Database persistence operations surface this storage branch as caller-visible database data or errors.
+        // @constraint selvedge.state.error.ensure_active_task_in_tx_read_tasks_step2 Database failures during read tasks in ensure active task in tx are returned as caller-visible database errors.
         Some(_) => Err(DbError::TaskNotActive),
-        // @constraint selvedge.state.error.anchor1605 Database persistence operations surface this storage branch as caller-visible database data or errors.
-        // @constraint selvedge.state.error.p2l1702 Database persistence operations surface this storage branch as caller-visible database data or errors.
+        // @constraint selvedge.state.error.ensure_active_task_in_tx_read_tasks_step3 Database failures during read tasks in ensure active task in tx are returned as caller-visible database errors.
         None => Err(DbError::NotFound),
     }
 }
@@ -1801,15 +1716,13 @@ fn read_message_node(
                 Ok(HistoryMessageNodeRow {
                     node_id: HistoryNodeId(row.get(0)?),
                     message_role: message_role_from_db(&row.get::<_, String>(1)?)
-// @constraint selvedge.state.error.anchor1621 Database persistence operations surface this storage branch as caller-visible database data or errors.
-// @constraint selvedge.state.error.p2l1720 Database persistence operations surface this storage branch as caller-visible database data or errors.
+// @constraint selvedge.state.error.read_message_node_read_history_message_nodes Database failures during read history_message_nodes in read message node are returned as caller-visible database errors.
                         .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?,
                     message_text: row.get(2)?,
                 })
             },
         )
-// @constraint selvedge.state.error.anchor1626 Database persistence operations surface this storage branch as caller-visible database data or errors.
-// @constraint selvedge.state.error.p2l1726 Database persistence operations surface this storage branch as caller-visible database data or errors.
+// @constraint selvedge.state.error.read_message_node_read_history_message_nodes_step2 Database failures during read history_message_nodes in read message node are returned as caller-visible database errors.
         .map_err(map_error)
 }
 
@@ -1829,8 +1742,7 @@ fn read_reasoning_node(
                 })
             },
         )
-        // @constraint selvedge.state.error.anchor1644 Database persistence operations surface this storage branch as caller-visible database data or errors.
-        // @constraint selvedge.state.error.p2l1746 Database persistence operations surface this storage branch as caller-visible database data or errors.
+        // @constraint selvedge.state.error.read_reasoning_node_read_history_reasoning_nodes Database failures during read history_reasoning_nodes in read reasoning node are returned as caller-visible database errors.
         .map_err(map_error)
 }
 
@@ -1851,8 +1763,7 @@ fn read_function_call_node(
                 })
             },
         )
-// @constraint selvedge.state.error.anchor1663 Database persistence operations surface this storage branch as caller-visible database data or errors.
-// @constraint selvedge.state.error.p2l1767 Database persistence operations surface this storage branch as caller-visible database data or errors.
+// @constraint selvedge.state.error.read_function_call_node_read_history_function_call_nodes Database failures during read history_function_call_nodes in read function call node are returned as caller-visible database errors.
         .map_err(map_error)
 }
 
@@ -1868,8 +1779,7 @@ fn read_function_call_arguments(
              WHERE function_call_node_id = ?1
              ORDER BY argument_name ASC",
         )
-// @constraint selvedge.state.error.anchor1677 Database persistence operations surface this storage branch as caller-visible database data or errors.
-// @constraint selvedge.state.error.p2l1783 Database persistence operations surface this storage branch as caller-visible database data or errors.
+// @constraint selvedge.state.error.read_function_call_arguments_read_history_function_call_arguments Database failures during read history_function_call_arguments in read function call arguments are returned as caller-visible database errors.
         .map_err(map_error)?;
     statement
         .query_map(params![node_id.0], |row| {
@@ -1883,17 +1793,14 @@ fn read_function_call_arguments(
                     row.get(4)?,
                     row.get(5)?,
                 )
-                // @constraint selvedge.state.error.anchor1690 Database persistence operations surface this storage branch as caller-visible database data or errors.
-                // @constraint selvedge.state.error.p2l1797 Database persistence operations surface this storage branch as caller-visible database data or errors.
+                // @constraint selvedge.state.error.read_function_call_arguments_read_rows Database failures during row read in read function call arguments are returned as caller-visible database errors.
                 .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?,
             })
         })
-        // @constraint selvedge.state.error.anchor1693 Database persistence operations surface this storage branch as caller-visible database data or errors.
-        // @constraint selvedge.state.error.p2l1801 Database persistence operations surface this storage branch as caller-visible database data or errors.
+        // @constraint selvedge.state.error.read_function_call_arguments_database_error Database failures during database error mapping in read function call arguments are returned as caller-visible database errors.
         .map_err(map_error)?
         .collect::<Result<Vec<_>, _>>()
-        // @constraint selvedge.state.error.anchor1695 Database persistence operations surface this storage branch as caller-visible database data or errors.
-        // @constraint selvedge.state.error.p2l1804 Database persistence operations surface this storage branch as caller-visible database data or errors.
+        // @constraint selvedge.state.error.read_function_call_arguments_database_error_step2 Database failures during database error mapping in read function call arguments are returned as caller-visible database errors.
         .map_err(map_error)
 }
 
@@ -1919,8 +1826,7 @@ fn read_function_output_node(
                 })
             },
         )
-// @constraint selvedge.state.error.anchor1719 Database persistence operations surface this storage branch as caller-visible database data or errors.
-// @constraint selvedge.state.error.p2l1830 Database persistence operations surface this storage branch as caller-visible database data or errors.
+// @constraint selvedge.state.error.read_function_output_node_database_error Database failures during database error mapping in read function output node are returned as caller-visible database errors.
         .map_err(map_error)
 }
 
@@ -1928,18 +1834,15 @@ fn map_task_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<TaskRow> {
     Ok(TaskRow {
         task_id: TaskId(row.get(0)?),
         task_status: task_status_from_db(&row.get::<_, String>(1)?)
-            // @constraint selvedge.state.error.anchor1726 Database persistence operations surface this storage branch as caller-visible database data or errors.
-            // @constraint selvedge.state.error.p2l1838 Database persistence operations surface this storage branch as caller-visible database data or errors.
+            // @constraint selvedge.state.error.map_task_row_database_error Database failures during database error mapping in map task row are returned as caller-visible database errors.
             .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?,
         cursor_node_id: HistoryNodeId(row.get(2)?),
         model_profile_key: ModelProfileKey(row.get(3)?),
         reasoning_effort: reasoning_effort_from_db(&row.get::<_, String>(4)?)
-            // @constraint selvedge.state.error.anchor1730 Database persistence operations surface this storage branch as caller-visible database data or errors.
-            // @constraint selvedge.state.error.p2l1843 Database persistence operations surface this storage branch as caller-visible database data or errors.
+            // @constraint selvedge.state.error.map_task_row_database_error_step2 Database failures during database error mapping in map task row are returned as caller-visible database errors.
             .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?,
         state_version: i64_to_u64(row.get(5)?)
-            // @constraint selvedge.state.error.anchor1732 Database persistence operations surface this storage branch as caller-visible database data or errors.
-            // @constraint selvedge.state.error.p2l1846 Database persistence operations surface this storage branch as caller-visible database data or errors.
+            // @constraint selvedge.state.error.map_task_row_database_error_step3 Database failures during database error mapping in map task row are returned as caller-visible database errors.
             .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?,
         created_at: UnixTs(row.get(6)?),
         updated_at: UnixTs(row.get(7)?),
@@ -1952,8 +1855,7 @@ fn map_history_node_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<HistoryNode
         node_id: HistoryNodeId(row.get(0)?),
         parent_node_id: parent_node_id.map(HistoryNodeId),
         content_kind: content_kind_from_db(&row.get::<_, String>(2)?)
-            // @constraint selvedge.state.error.anchor1744 Database persistence operations surface this storage branch as caller-visible database data or errors.
-            // @constraint selvedge.state.error.p2l1859 Database persistence operations surface this storage branch as caller-visible database data or errors.
+            // @constraint selvedge.state.error.map_history_node_row_database_error Database failures during database error mapping in map history node row are returned as caller-visible database errors.
             .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?,
         created_at: UnixTs(row.get(3)?),
     })
@@ -1963,8 +1865,7 @@ fn map_queued_user_input_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Queued
     Ok(QueuedUserInputRow {
         task_id: TaskId(row.get(0)?),
         seq_no: i64_to_u64(row.get(1)?)
-            // @constraint selvedge.state.error.anchor1753 Database persistence operations surface this storage branch as caller-visible database data or errors.
-            // @constraint selvedge.state.error.p2l1869 Database persistence operations surface this storage branch as caller-visible database data or errors.
+            // @constraint selvedge.state.error.map_queued_user_input_row_database_error Database failures during database error mapping in map queued user input row are returned as caller-visible database errors.
             .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?,
         message_text: row.get(2)?,
         queued_at: UnixTs(row.get(3)?),
@@ -1986,8 +1887,7 @@ fn content_kind_from_db(value: &str) -> Result<HistoryContentKindRow, DbError> {
         "reasoning" => Ok(HistoryContentKindRow::Reasoning),
         "function_call" => Ok(HistoryContentKindRow::FunctionCall),
         "function_output" => Ok(HistoryContentKindRow::FunctionOutput),
-        // @constraint selvedge.state.error.anchor1774 Database persistence operations surface this storage branch as caller-visible database data or errors.
-        // @constraint selvedge.state.error.p2l1891 Database persistence operations surface this storage branch as caller-visible database data or errors.
+        // @constraint selvedge.state.error.content_kind_from_db_invalid_value Database failures during invalid stored value handling in content kind from db are returned as caller-visible database errors.
         other => Err(DbError::Storage(format!(
             "unknown history content kind: {other}"
         ))),
@@ -1998,8 +1898,7 @@ fn task_status_from_db(value: &str) -> Result<TaskStatusRow, DbError> {
     match value {
         "active" => Ok(TaskStatusRow::Active),
         "archived" => Ok(TaskStatusRow::Archived),
-        // @constraint selvedge.state.error.anchor1784 Database persistence operations surface this storage branch as caller-visible database data or errors.
-        // @constraint selvedge.state.error.p2l1902 Database persistence operations surface this storage branch as caller-visible database data or errors.
+        // @constraint selvedge.state.error.task_status_from_db_read_db Database failures during read db in task status from db are returned as caller-visible database errors.
         other => Err(DbError::Storage(format!("unknown task status: {other}"))),
     }
 }
@@ -2020,8 +1919,7 @@ fn message_role_from_db(value: &str) -> Result<MessageRole, DbError> {
         "developer" => Ok(MessageRole::Developer),
         "user" => Ok(MessageRole::User),
         "assistant" => Ok(MessageRole::Assistant),
-        // @constraint selvedge.state.error.anchor1804 Database persistence operations surface this storage branch as caller-visible database data or errors.
-        // @constraint selvedge.state.error.p2l1923 Database persistence operations surface this storage branch as caller-visible database data or errors.
+        // @constraint selvedge.state.error.message_role_from_db_invalid_value Database failures during invalid stored value handling in message role from db are returned as caller-visible database errors.
         other => Err(DbError::Storage(format!("unknown message role: {other}"))),
     }
 }
@@ -2041,8 +1939,7 @@ fn reasoning_effort_from_db(value: &str) -> Result<ReasoningEffort, DbError> {
         "low" => Ok(ReasoningEffort::Low),
         "medium" => Ok(ReasoningEffort::Medium),
         "high" => Ok(ReasoningEffort::High),
-        // @constraint selvedge.state.error.anchor1823 Database persistence operations surface this storage branch as caller-visible database data or errors.
-        // @constraint selvedge.state.error.p2l1943 Database persistence operations surface this storage branch as caller-visible database data or errors.
+        // @constraint selvedge.state.error.reasoning_effort_from_db_invalid_value Database failures during invalid stored value handling in reasoning effort from db are returned as caller-visible database errors.
         other => Err(DbError::Storage(format!(
             "unknown reasoning effort: {other}"
         ))),
@@ -2064,8 +1961,7 @@ fn tool_parameter_type_from_db(value: &str) -> Result<ToolParameterType, DbError
         "integer" => Ok(ToolParameterType::Integer),
         "number" => Ok(ToolParameterType::Number),
         "boolean" => Ok(ToolParameterType::Boolean),
-        // @constraint selvedge.state.error.anchor1844 Database persistence operations surface this storage branch as caller-visible database data or errors.
-        // @constraint selvedge.state.error.p2l1965 Database persistence operations surface this storage branch as caller-visible database data or errors.
+        // @constraint selvedge.state.error.tool_parameter_type_from_db_invalid_value Database failures during invalid stored value handling in tool parameter type from db are returned as caller-visible database errors.
         other => Err(DbError::Storage(format!(
             "unknown tool parameter type: {other}"
         ))),
@@ -2112,8 +2008,7 @@ fn tool_argument_value_from_db(
         "boolean" => boolean_value
             .map(|value| ToolArgumentValue::Boolean(value == 1))
             .ok_or_else(|| DbError::Storage("boolean argument value is missing".to_owned())),
-        // @constraint selvedge.state.error.anchor1889 Database persistence operations surface this storage branch as caller-visible database data or errors.
-        // @constraint selvedge.state.error.p2l2012 Database persistence operations surface this storage branch as caller-visible database data or errors.
+        // @constraint selvedge.state.error.tool_argument_value_from_db_invalid_value Database failures during invalid stored value handling in tool argument value from db are returned as caller-visible database errors.
         other => Err(DbError::Storage(format!(
             "unknown argument value type: {other}"
         ))),
@@ -2125,19 +2020,16 @@ fn bool_to_i64(value: bool) -> i64 {
 }
 
 fn i64_to_u64(value: i64) -> Result<u64, DbError> {
-    // @constraint selvedge.state.error.anchor1900 Database persistence operations surface this storage branch as caller-visible database data or errors.
-    // @constraint selvedge.state.error.p2l2024 Database persistence operations surface this storage branch as caller-visible database data or errors.
+    // @constraint selvedge.state.error.i64_to_u64_read_db Database failures during read db in i64 to u64 are returned as caller-visible database errors.
     u64::try_from(value).map_err(|_| DbError::Storage(format!("negative integer: {value}")))
 }
 
 fn u64_to_i64(value: u64) -> Result<i64, DbError> {
-    // @constraint selvedge.state.error.anchor1904 Database persistence operations surface this storage branch as caller-visible database data or errors.
-    // @constraint selvedge.state.error.p2l2029 Database persistence operations surface this storage branch as caller-visible database data or errors.
+    // @constraint selvedge.state.error.u64_to_i64_integer_conversion Database failures during integer conversion in u64 to i64 are returned as caller-visible database errors.
     i64::try_from(value).map_err(|_| DbError::Storage(format!("integer is too large: {value}")))
 }
 
-// @constraint selvedge.state.error.anchor1907 Database persistence operations surface this storage branch as caller-visible database data or errors.
-// @constraint selvedge.state.error.p2l2033 Database persistence operations surface this storage branch as caller-visible database data or errors.
+// @constraint selvedge.state.error.u64_to_i64_database_error Database failures during database error mapping in u64 to i64 are returned as caller-visible database errors.
 fn map_error(error: rusqlite::Error) -> DbError {
     match error {
         rusqlite::Error::QueryReturnedNoRows => DbError::NotFound,
