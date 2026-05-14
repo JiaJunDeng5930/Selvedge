@@ -7,7 +7,7 @@
 //! @behavior selvedge.cli.server_args_builder CLI server argument builders expose startup argument outcomes.
 //! @behavior selvedge.cli.default_server_args_builder The default server argument builder exposes the repository default server startup arguments.
 //! @behavior selvedge.cli.server_runner CLI server runners expose local server exit outcomes.
-//! @behavior selvedge.worktree The worktree helper creates focused Git worktrees under managed .worktrees storage and reports setup failures through process output.
+//! @behavior tool.worktree The worktree helper creates focused Git worktrees under managed .worktrees storage and reports setup failures through process output.
 
 use std::collections::HashMap;
 use std::future::Future;
@@ -264,19 +264,14 @@ pub async fn run_cli(args: CliRunArgs) -> CliExitStatus {
 }
 
 // @behavior selvedge.cli.deps run_cli_with_deps parses arguments, resolves config, and executes the requested command through injected dependencies.
-pub async fn run_cli_with_deps<S, R, C, B>(
+pub async fn run_cli_with_deps(
     args: Vec<String>,
-    systemd_backend: S,
-    server_runner: R,
-    local_client_connector: C,
-    server_start_args_builder: B,
-) -> CliExitStatus
-where
-    S: SystemdBackend,
-    R: CliServerRunner,
-    C: CliLocalClientConnector,
-    B: CliServerStartArgsBuilder,
-{
+    systemd_backend: impl SystemdBackend,
+    server_runner: impl CliServerRunner,
+    local_client_connector: impl CliLocalClientConnector,
+    server_start_args_builder: impl CliServerStartArgsBuilder,
+) -> CliExitStatus {
+    // @behavior selvedge.cli.deps.argument_parse Injected CLI execution parses supplied arguments before calling injected dependencies.
     let command = match parse_cli_args(&args) {
         Ok(command) => command,
         // @behavior selvedge.cli.deps.invalid_args Invalid injected CLI arguments return InvalidArgs before dependency calls.
@@ -360,8 +355,8 @@ fn cli_resolved_config_from_app_config(
     })
 }
 
+// @behavior selvedge.cli.process.exit_code CLI exit status maps Success to 0, Interrupted to 130, and all other statuses to 1.
 pub fn exit_code(status: &CliExitStatus) -> i32 {
-    // @behavior selvedge.cli.process.exit_code CLI exit status maps Success to 0, Interrupted to 130, and all other statuses to 1.
     match status {
         CliExitStatus::Success => 0,
         CliExitStatus::Interrupted => 130,
