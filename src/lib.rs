@@ -264,12 +264,12 @@ pub async fn run_cli(args: CliRunArgs) -> CliExitStatus {
 }
 
 // @behavior selvedge.cli.deps run_cli_with_deps parses arguments, resolves config, and executes the requested command through injected dependencies.
-pub async fn run_cli_with_deps(
-    args: Vec<String>,
-    systemd_backend: impl SystemdBackend,
-    server_runner: impl CliServerRunner,
-    local_client_connector: impl CliLocalClientConnector,
-    server_start_args_builder: impl CliServerStartArgsBuilder,
+#[rustfmt::skip]
+pub async fn run_cli_with_deps<
+    S: SystemdBackend, R: CliServerRunner, C: CliLocalClientConnector, B: CliServerStartArgsBuilder,
+>(
+    args: Vec<String>, systemd_backend: S, server_runner: R,
+    local_client_connector: C, server_start_args_builder: B,
 ) -> CliExitStatus {
     // @behavior selvedge.cli.deps.argument_parse Injected CLI execution parses supplied arguments before calling injected dependencies.
     let command = match parse_cli_args(&args) {
