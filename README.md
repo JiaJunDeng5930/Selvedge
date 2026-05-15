@@ -1,5 +1,10 @@
 # Selvedge
 
+<!-- selvedge-package-readme
+package: selvedge
+freshness_commit: 93d6358655f7d9e99af1d58ba0921f97fdb1afb2
+-->
+
 Selvedge is a Rust repository scaffold with a clean local development flow, pre-commit hooks, and GitHub Actions CI.
 
 ## What is included
@@ -45,6 +50,39 @@ Use `just agents-index` after adding, removing, or renaming tracked files so the
 The underlying repository commands are `cargo xtask agents-index update` and `cargo xtask agents-index check`.
 
 Use `cargo xtask req fmt-agents` after changing requirement comments so the generated requirement index in `AGENTS.md` stays current. Use `cargo xtask req check --all` to validate every tracked Rust source line in the checkout against nearby requirement anchors, `cargo xtask req check --staged` for staged hunk validation, and `cargo xtask req check --base <git-ref>` for merge-base hunk validation.
+
+## Package State Machine
+
+The diagram records the root package observable states and transition paths. Each edge label names the concrete condition checked at this package boundary.
+
+```mermaid
+flowchart TD
+  Start([selvedge binary starts])
+  Runtime[Create current-thread Tokio runtime]
+  RunCli[Run selvedge::run_cli with process argv]
+  InitConfig[Initialize config and logging through CLI flow]
+  Command{parsed command}
+  RunServer[Run local server]
+  Submit[Submit command to local server]
+  Success[Exit code 0]
+  Interrupted[Exit code 130]
+  Failure[Exit code 1]
+
+  Start -->|main is invoked by the operating system| Runtime
+  Runtime -->|Tokio runtime builds successfully| RunCli
+  Runtime -->|Tokio runtime construction panics| Failure
+  RunCli -->|argv parses and dependencies initialize| InitConfig
+  RunCli -->|argv is empty, malformed, or contains an unsupported command shape| Failure
+  InitConfig -->|config and logging initialize successfully| Command
+  InitConfig -->|config read, validation, or logging initialization fails| Failure
+  Command -->|parsed command is RunServer| RunServer
+  Command -->|parsed command is SubmitCommand| Submit
+  RunServer -->|server startup and run complete successfully| Success
+  RunServer -->|server startup, runtime, or dependency fails| Failure
+  RunServer -->|interruption is reported by CLI execution| Interrupted
+  Submit -->|local client connects, readiness succeeds, and command is accepted| Success
+  Submit -->|local client connection, readiness, command rejection, or server wait fails| Failure
+```
 
 ## Parallel development with worktrees
 
