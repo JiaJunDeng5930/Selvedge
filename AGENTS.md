@@ -2865,9 +2865,12 @@ This file is for coding agents working in this repository.
 |tool.readme.package_name|tool.readme.package_name.{empty,missing}
 |tool.readme.package_name.empty|tool.readme.package_name.empty.{}
 |tool.readme.package_name.missing|tool.readme.package_name.missing.{}
-|tool.readme.packages|tool.readme.packages.{git_failure,git_spawn_failure}
+|tool.readme.packages|tool.readme.packages.{git_failure,git_spawn_failure,glob_members,members,workspace_parse_failure}
 |tool.readme.packages.git_failure|tool.readme.packages.git_failure.{}
 |tool.readme.packages.git_spawn_failure|tool.readme.packages.git_spawn_failure.{}
+|tool.readme.packages.glob_members|tool.readme.packages.glob_members.{}
+|tool.readme.packages.members|tool.readme.packages.members.{}
+|tool.readme.packages.workspace_parse_failure|tool.readme.packages.workspace_parse_failure.{}
 |tool.readme.read_file|tool.readme.read_file.{}
 |tool.readme.stale_package|tool.readme.stale_package.{changed_files,freshness_commit,package,package_path,readme_path}
 |tool.readme.stale_package.changed_files|tool.readme.stale_package.changed_files.{}
