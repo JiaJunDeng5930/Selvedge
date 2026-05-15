@@ -39,6 +39,9 @@ jobs:
       - name: Check requirement comments
         run: cargo xtask req check --all
 
+      - name: Check package README Mermaid diagrams
+        run: cargo xtask readme check-mermaid
+
       - name: Check package README freshness
         run: cargo xtask readme check-freshness
 
