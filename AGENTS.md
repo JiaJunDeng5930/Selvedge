@@ -2862,9 +2862,8 @@ This file is for coding agents working in this repository.
 |tool.readme.metadata.missing|tool.readme.metadata.missing.{}
 |tool.readme.metadata.package_mismatch|tool.readme.metadata.package_mismatch.{}
 |tool.readme.module|tool.readme.module.{}
-|tool.readme.package_name|tool.readme.package_name.{empty,missing}
+|tool.readme.package_name|tool.readme.package_name.{empty}
 |tool.readme.package_name.empty|tool.readme.package_name.empty.{}
-|tool.readme.package_name.missing|tool.readme.package_name.missing.{}
 |tool.readme.packages|tool.readme.packages.{git_failure,git_spawn_failure,glob_members,members,workspace_parse_failure}
 |tool.readme.packages.git_failure|tool.readme.packages.git_failure.{}
 |tool.readme.packages.git_spawn_failure|tool.readme.packages.git_spawn_failure.{}
