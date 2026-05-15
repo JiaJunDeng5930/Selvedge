@@ -2826,6 +2826,7 @@ name = "xtask"
 version = "0.0.0"
 dependencies = [
  "mermaid-rs-renderer",
+ "serde_json",
  "tempfile",
  "toml",
  "tree-sitter",
