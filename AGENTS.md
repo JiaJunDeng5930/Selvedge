@@ -2718,8 +2718,9 @@ This file is for coding agents working in this repository.
 |tool.api.status|tool.api.status.{}
 |tool.api.tag|tool.api.tag.{string}
 |tool.api.tag.string|tool.api.tag.string.{}
-|tool.check|tool.check.{all_anchors,diagnostics,git_path_list,git_path_list_status,git_ref_list,git_ref_read,git_ref_status,head_snapshot,merge_base,registry,snapshot}
+|tool.check|tool.check.{all_anchors,base_head_snapshot,diagnostics,git_path_list,git_path_list_status,git_ref_list,git_ref_read,git_ref_status,head_snapshot,merge_base,registry,snapshot}
 |tool.check.all_anchors|tool.check.all_anchors.{}
+|tool.check.base_head_snapshot|tool.check.base_head_snapshot.{}
 |tool.check.diagnostics|tool.check.diagnostics.{}
 |tool.check.git_path_list|tool.check.git_path_list.{cached,worktree}
 |tool.check.git_path_list.cached|tool.check.git_path_list.cached.{}

@@ -130,7 +130,7 @@ pub fn check_requirements(
     let snapshot = match mode {
         RequirementCheckMode::All => Snapshot::from_worktree(root)?,
         RequirementCheckMode::Staged => Snapshot::from_index(root)?,
-        RequirementCheckMode::Base { .. } => Snapshot::from_worktree(root)?,
+        RequirementCheckMode::Base { .. } => Snapshot::from_git_ref(root, "HEAD")?,
     };
     let mut report = scan_snapshot(&snapshot);
 
@@ -172,6 +172,7 @@ pub fn check_requirements(
         }
         RequirementCheckMode::Base { git_ref } => {
             let merge_base = git_merge_base(root, git_ref)?;
+            // @behavior tool.check.base_head_snapshot The base check validates the HEAD snapshot as the new side of the merge-base diff.
             let old_snapshot = Snapshot::from_git_ref(root, &merge_base)?;
             let old_report = scan_snapshot(&old_snapshot);
             let old_records = old_report
@@ -3217,6 +3218,65 @@ mod tests {
         )
         .expect("base check should use merge-base records");
 
+        assert_eq!(status, RequirementCheckStatus::Fresh);
+    }
+
+    #[test]
+    // @verifies tool.check.base_head_snapshot
+    fn base_check_uses_head_snapshot_when_worktree_is_dirty() {
+        let repo = TestRepo::new();
+        // @verifies tool.check
+        repo.write(
+            "AGENTS.md",
+            "# AGENTS.md\n\n<!-- BEGIN AGENTS_MD_REQUIREMENT_INDEX -->\n<!-- END AGENTS_MD_REQUIREMENT_INDEX -->\n",
+        );
+        // @verifies tool.check
+        repo.write(
+            "src/lib.rs",
+            "//! @behavior tool The module owns requirement automation.\n// @behavior tool.scan The function scans comments.\npub fn scan() {}\n",
+        );
+        // @verifies tool.check
+        repo.write(
+            "tests/scan_contract.rs",
+            "// @verifies tool.scan\n#[test]\nfn scan_comments_are_indexed() {\n    assert!(true);\n}\n",
+        );
+        repo.git_add(&["AGENTS.md", "src/lib.rs", "tests/scan_contract.rs"]);
+        format_agents_requirement_index(repo.path()).expect("format should succeed");
+        repo.git_add(&["AGENTS.md"]);
+        // @verifies tool.check
+        repo.git_commit("initial requirement comments");
+
+        // @verifies tool.check
+        repo.write(
+            "src/lib.rs",
+            "//! @behavior tool The module owns requirement automation.\n// @behavior tool.scan The function scans comments.\npub fn scan() {}\n\n// @behavior tool.visible The visible function is part of the public API.\npub fn visible() {}\n",
+        );
+        // @verifies tool.check
+        repo.write(
+            "tests/scan_contract.rs",
+            "// @verifies tool.scan\n#[test]\nfn scan_comments_are_indexed() {\n    assert!(true);\n}\n\n// @verifies tool.visible\n#[test]\nfn visible_is_covered() {\n    assert!(true);\n}\n",
+        );
+        repo.git_add(&["src/lib.rs", "tests/scan_contract.rs"]);
+        format_agents_requirement_index(repo.path()).expect("format should succeed");
+        repo.git_add(&["AGENTS.md"]);
+        repo.git_commit("add visible contract");
+
+        // @verifies tool.check.base_head_snapshot
+        // @verifies tool.check
+        repo.write(
+            "src/lib.rs",
+            "//! @behavior tool The module owns requirement automation.\n// @behavior tool.scan The function scans comments.\npub fn scan() {}\n\n// @behavior tool.visible The visible function is part of the public API.\npub fn visible() {}\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\npub fn dirty_worktree_only() {}\n",
+        );
+
+        let status = check_requirements(
+            repo.path(),
+            RequirementCheckMode::Base {
+                git_ref: "HEAD~1".to_string(),
+            },
+        )
+        .expect("base check should validate committed HEAD content");
+
+        // @verifies tool.check.base_head_snapshot
         assert_eq!(status, RequirementCheckStatus::Fresh);
     }
 
