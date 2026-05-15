@@ -238,7 +238,7 @@ fn git_path_tracked(root: &Path, relative_path: &Path) -> Result<bool, String> {
     ))
 }
 
-/// @behavior tool.readme.changed_files.root_scope The root package freshness diff checks root package manifest and Cargo target input paths.
+/// @behavior tool.readme.changed_files.root_scope The root package freshness diff checks the root package manifest, default Cargo target paths, and metadata target input paths.
 fn package_diff_pathspecs_from_metadata(
     root: &Path,
     package_path: &Path,
@@ -248,7 +248,14 @@ fn package_diff_pathspecs_from_metadata(
         return Ok(vec![path_to_string(package_path)]);
     }
 
-    let mut pathspecs = BTreeSet::from(["Cargo.toml".to_owned()]);
+    let mut pathspecs = BTreeSet::from([
+        "Cargo.toml".to_owned(),
+        "benches".to_owned(),
+        "build.rs".to_owned(),
+        "examples".to_owned(),
+        "src".to_owned(),
+        "tests".to_owned(),
+    ]);
     let targets = package_metadata
         .get("targets")
         .and_then(serde_json::Value::as_array)
@@ -660,6 +667,36 @@ mod tests {
         );
     }
 
+    #[test]
+    fn root_package_freshness_tracks_deleted_default_targets() {
+        let repo = TestRepo::new();
+        repo.write(
+            "Cargo.toml",
+            "[package]\nname = \"root-demo\"\nedition = \"2024\"\n\n[workspace]\nmembers = []\n",
+        );
+        repo.write("src/lib.rs", "pub fn root_demo() {}\n");
+        repo.write("build.rs", "fn main() {}\n");
+        repo.git_add(&["Cargo.toml", "src/lib.rs", "build.rs"]);
+        repo.git_commit("create root package with build script");
+        let commit = repo.head();
+        repo.write("README.md", &readme("root-demo", &commit, "A --> B"));
+        repo.git_add(&["README.md"]);
+        repo.git_commit("document root package");
+        // @verifies tool.readme.changed_files.root_scope
+        repo.git_rm(&["build.rs"]);
+        repo.git_commit("remove root build script");
+
+        let status =
+            check_package_readmes_freshness(repo.path()).expect("freshness check should run");
+
+        // @verifies tool.readme.changed_files.root_scope
+        let ReadmeFreshnessStatus::Stale { packages } = status else {
+            panic!("expected stale root package");
+        };
+        assert_eq!(packages[0].package, "root-demo");
+        assert_eq!(packages[0].changed_files, vec!["build.rs"]);
+    }
+
     fn readme(package: &str, commit: &str, diagram_body: &str) -> String {
         format!(
             "# {package}\n\n<!-- selvedge-package-readme\npackage: {package}\nfreshness_commit: {commit}\n-->\n\n```mermaid\nflowchart TD\n  {diagram_body}\n```\n"
@@ -716,6 +753,12 @@ mod tests {
                 self.path(),
                 &["-c", "commit.gpgsign=false", "commit", "-m", message],
             );
+        }
+
+        fn git_rm(&self, paths: &[&str]) {
+            let mut args = vec!["rm"];
+            args.extend_from_slice(paths);
+            run_git(self.path(), &args);
         }
 
         fn head(&self) -> String {
