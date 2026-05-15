@@ -216,7 +216,7 @@ This file is for coding agents working in this repository.
 |selvedge.auth.resolved.expiration_field|selvedge.auth.resolved.expiration_field.{}
 |selvedge.auth.resolved.plan_field|selvedge.auth.resolved.plan_field.{}
 |selvedge.auth.resolved.user_field|selvedge.auth.resolved.user_field.{}
-|selvedge.cli|selvedge.cli.{args,command,command_id,config,config_error,default_server_args_builder,deps,error,invalid_args,local_client,local_connector,logging_error,name,parse,parse_client_id_duplicate,parse_client_id_empty,parse_client_id_missing,process,ready_probe,run,server,server_args,server_args_builder,server_runner,startup_message,status,submit,systemd_backend}
+|selvedge.cli|selvedge.cli.{args,command,command_id,config,config_error,default_server_args_builder,deps,error,invalid_args,local_client,local_connector,logging_error,login_chatgpt,name,parse,parse_client_id_duplicate,parse_client_id_empty,parse_client_id_missing,process,ready_probe,run,server,server_args,server_args_builder,server_runner,startup_message,status,submit,systemd_backend}
 |selvedge.cli.args|selvedge.cli.args.{argv}
 |selvedge.cli.args.argv|selvedge.cli.args.argv.{}
 |selvedge.cli.command|selvedge.cli.command.{}
@@ -238,9 +238,10 @@ This file is for coding agents working in this repository.
 |selvedge.cli.default_server_args_builder.abstraction|selvedge.cli.default_server_args_builder.abstraction.{}
 |selvedge.cli.default_server_args_builder.contract|selvedge.cli.default_server_args_builder.contract.{}
 |selvedge.cli.default_server_args_builder.new|selvedge.cli.default_server_args_builder.new.{}
-|selvedge.cli.deps|selvedge.cli.deps.{argument_parse,invalid_args}
+|selvedge.cli.deps|selvedge.cli.deps.{argument_parse,invalid_args,login}
 |selvedge.cli.deps.argument_parse|selvedge.cli.deps.argument_parse.{}
 |selvedge.cli.deps.invalid_args|selvedge.cli.deps.invalid_args.{}
+|selvedge.cli.deps.login|selvedge.cli.deps.login.{}
 |selvedge.cli.error|selvedge.cli.error.{}
 |selvedge.cli.invalid_args|selvedge.cli.invalid_args.{}
 |selvedge.cli.local_client|selvedge.cli.local_client.{abstraction,contract,default,default_ready,default_submit,error,ready,submit}
@@ -261,6 +262,14 @@ This file is for coding agents working in this repository.
 |selvedge.cli.local_connector.default_connect|selvedge.cli.local_connector.default_connect.{}
 |selvedge.cli.local_connector.default_struct|selvedge.cli.local_connector.default_struct.{}
 |selvedge.cli.logging_error|selvedge.cli.logging_error.{}
+|selvedge.cli.login_chatgpt|selvedge.cli.login_chatgpt.{abstraction,complete,parse,poll,runner,start}
+|selvedge.cli.login_chatgpt.abstraction|selvedge.cli.login_chatgpt.abstraction.{}
+|selvedge.cli.login_chatgpt.complete|selvedge.cli.login_chatgpt.complete.{}
+|selvedge.cli.login_chatgpt.parse|selvedge.cli.login_chatgpt.parse.{}
+|selvedge.cli.login_chatgpt.poll|selvedge.cli.login_chatgpt.poll.{}
+|selvedge.cli.login_chatgpt.runner|selvedge.cli.login_chatgpt.runner.{run}
+|selvedge.cli.login_chatgpt.runner.run|selvedge.cli.login_chatgpt.runner.run.{}
+|selvedge.cli.login_chatgpt.start|selvedge.cli.login_chatgpt.start.{}
 |selvedge.cli.name|selvedge.cli.name.{}
 |selvedge.cli.parse|selvedge.cli.parse.{command_name,extra_positional,flag,payload}
 |selvedge.cli.parse.command_name|selvedge.cli.parse.command_name.{}
