@@ -11,6 +11,7 @@ tokio = { version = "1.42.0", features = ["time"] }
 
 [dev-dependencies]
 serde_json = "1.0.135"
+selvedge-test-support = { path = "../test-support", features = ["local-transport"] }
 tokio = { version = "1.42.0", features = ["macros", "rt", "sync"] }
 
 [lints.rust]

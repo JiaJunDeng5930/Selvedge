@@ -13,8 +13,8 @@ use chatgpt_auth::{ChatgptAuthError, resolve_after_unauthorized, resolve_for_req
 use http::{HeaderMap, HeaderValue};
 use serde_json::json;
 use support::{
-    assert_child_success, child_mode, init_auth_test, run_child, spawn_child, spawn_http_server,
-    write_auth_file,
+    assert_child_success, auth_file_json, build_jwt, child_mode, init_auth_test, run_child,
+    spawn_child, spawn_http_server, write_auth_file,
 };
 
 // @verifies selvedge.auth.resolve.existing
@@ -1876,28 +1876,4 @@ issuer = "{}"
     assert_eq!(resolved.access_token, "new-access-token");
     // @verifies selvedge.auth
     assert!(persisted.contains("\"refresh_token\":\"new-refresh-token\""));
-}
-
-// @intent selvedge.auth.tests.auth_file_json The resolve integration tests build local auth files that match the persisted ChatGPT device-code schema.
-fn auth_file_json(id_token: &str, access_token: &str, refresh_token: &str) -> String {
-    json!({
-        "schema_version": 1,
-        "provider": "chatgpt",
-        "login_method": "device_code",
-        "tokens": {
-            "id_token": id_token,
-            "access_token": access_token,
-            "refresh_token": refresh_token
-        }
-    })
-    .to_string()
-}
-
-// @intent selvedge.auth.tests.jwt The resolve integration tests build unsigned JWT-shaped tokens for claim and expiration scenarios.
-fn build_jwt(payload: serde_json::Value) -> String {
-    let engine = base64::engine::general_purpose::URL_SAFE_NO_PAD;
-    let header = engine.encode(r#"{"alg":"none","typ":"JWT"}"#);
-    let payload = engine.encode(payload.to_string());
-
-    format!("{header}.{payload}.signature")
 }

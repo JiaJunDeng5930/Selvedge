@@ -1,8 +1,4 @@
-use std::{
-    collections::BTreeMap,
-    process::{Command, Output},
-    time::Duration,
-};
+use std::{collections::BTreeMap, time::Duration};
 
 use axum::{
     Json, Router,
@@ -11,7 +7,6 @@ use axum::{
     http::{HeaderValue, StatusCode},
     routing::post,
 };
-use base64::Engine;
 use selvedge_api::{
     ApiCallTerminalStatus, ApiExecutorConfig, execute_model_call, spawn_model_call_tokio_task,
 };
@@ -24,8 +19,13 @@ use selvedge_domain_model::{
     ModelProviderProfile, ResponsePreference, StructuredPayload, ToolManifest, ToolParameter,
     ToolParameterType, ToolSpec,
 };
-use tempfile::TempDir;
-use tokio::{net::TcpListener, sync::mpsc, task::JoinHandle};
+use selvedge_test_support::{
+    chatgpt_auth::{auth_file_json, build_unsigned_jwt as build_jwt, write_auth_file},
+    config::init_test_home as init_api_test,
+    http::spawn_http_server,
+    process::{assert_child_success, child_mode, run_child},
+};
+use tokio::sync::mpsc;
 
 #[tokio::test(flavor = "multi_thread")]
 async fn chatgpt_provider_name_routes_to_chatgpt_api_and_sends_success() {
@@ -681,102 +681,4 @@ fn valid_dispatch_request() -> ModelCallDispatchRequest {
         tool_manifest: None,
         response_preference: ResponsePreference::PlainTextOrToolCalls,
     }
-}
-
-fn child_mode(flag: &str) -> bool {
-    std::env::var_os(flag).is_some()
-}
-
-fn run_child(test_name: &str, flag: &str) -> Output {
-    let current_executable = std::env::current_exe().expect("current test executable");
-
-    Command::new(current_executable)
-        .arg("--exact")
-        .arg(test_name)
-        .env(flag, "1")
-        .output()
-        .expect("run child test")
-}
-
-fn assert_child_success(output: &Output) {
-    // @verifies selvedge.model.chatgpt
-    assert!(output.status.success(), "child test failed: {output:?}");
-}
-
-fn init_api_test(config_body: &str) -> TempDir {
-    let tempdir = TempDir::new().expect("tempdir");
-    let config_home = tempdir.path().join(".selvedge");
-    let config_path = config_home.join("config.toml");
-
-    std::fs::create_dir_all(&config_home).expect("create config home");
-    std::fs::write(&config_path, config_body).expect("write config");
-
-    selvedge_config::init_with_home(&config_home).expect("init config");
-    selvedge_logging::init().expect("init logging");
-
-    tempdir
-}
-
-fn write_auth_file(tempdir: &TempDir, auth_file_body: &str) -> std::path::PathBuf {
-    let auth_file_path = tempdir.path().join(".selvedge/auth/chatgpt-auth.json");
-    std::fs::create_dir_all(
-        auth_file_path
-            .parent()
-            .expect("auth file path must have parent"),
-    )
-    .expect("create auth dir");
-    std::fs::write(&auth_file_path, auth_file_body).expect("write auth file");
-
-    auth_file_path
-}
-
-struct TestServer {
-    addr: std::net::SocketAddr,
-    handle: JoinHandle<()>,
-}
-
-impl TestServer {
-    fn url(&self, path: &str) -> String {
-        format!("http://{}{}", self.addr, path)
-    }
-}
-
-impl Drop for TestServer {
-    fn drop(&mut self) {
-        self.handle.abort();
-    }
-}
-
-async fn spawn_http_server(router: Router) -> TestServer {
-    let listener = TcpListener::bind("127.0.0.1:0")
-        .await
-        .expect("bind test server");
-    let addr = listener.local_addr().expect("local addr");
-    let handle = tokio::spawn(async move {
-        axum::serve(listener, router).await.expect("serve test app");
-    });
-
-    TestServer { addr, handle }
-}
-
-fn auth_file_json(id_token: &str, access_token: &str, refresh_token: &str) -> String {
-    serde_json::json!({
-        "schema_version": 1,
-        "provider": "chatgpt",
-        "login_method": "device_code",
-        "tokens": {
-            "id_token": id_token,
-            "access_token": access_token,
-            "refresh_token": refresh_token
-        }
-    })
-    .to_string()
-}
-
-fn build_jwt(payload: serde_json::Value) -> String {
-    let engine = base64::engine::general_purpose::URL_SAFE_NO_PAD;
-    let header = engine.encode(r#"{"alg":"none","typ":"JWT"}"#);
-    let payload = engine.encode(payload.to_string());
-
-    format!("{header}.{payload}.signature")
 }

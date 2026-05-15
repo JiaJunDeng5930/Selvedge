@@ -9,24 +9,21 @@ use selvedge_command_model::{
 use selvedge_core::{SpawnTaskRuntimeArgs, TaskRuntimeConfig, spawn_task_runtime};
 use selvedge_db::{
     CreateRootTaskInput, FunctionCallId, NewFunctionCallNodeContent, NewFunctionOutputNodeContent,
-    NewHistoryNode, NewHistoryNodeContent, NewMessageNodeContent, OpenDbOptions, ReasoningEffort,
-    TaskId, ToolArgumentValue, ToolCallArgument, ToolName, ToolParameterName, UnixTs,
+    NewHistoryNode, NewHistoryNodeContent, NewMessageNodeContent, ReasoningEffort, TaskId,
+    ToolArgumentValue, ToolCallArgument, ToolName, ToolParameterName, UnixTs,
     append_assistant_message_and_drain_queue, append_function_output_and_drain_queue,
     append_model_reply_with_tool_calls_and_move_cursor, append_user_message_and_move_cursor,
-    create_history_node, create_root_task, load_active_task, open_db, queue_user_input,
-    register_tool,
+    create_history_node, create_root_task, load_active_task, queue_user_input, register_tool,
 };
 use selvedge_domain_model::{
     MessageContent, ModelFinishReason, ModelReply, StructuredPayload, ToolCallProposal,
     ToolParameter, ToolParameterType, ToolSpec,
 };
+use selvedge_test_support::db::{default_model_profiles, open_memory_db};
 
 #[tokio::test]
 async fn task_runtime_starts_and_requests_model_call_from_system_cursor() {
-    let db = open_db(OpenDbOptions {
-        sqlite_path: ":memory:".to_owned(),
-    })
-    .expect("open db");
+    let db = open_memory_db();
     create_root_task(
         &db,
         CreateRootTaskInput {
@@ -87,10 +84,7 @@ async fn task_runtime_starts_and_requests_model_call_from_system_cursor() {
 
 #[tokio::test]
 async fn task_runtime_start_requests_model_from_user_cursor_without_draining_queue() {
-    let db = open_db(OpenDbOptions {
-        sqlite_path: ":memory:".to_owned(),
-    })
-    .expect("open db");
+    let db = open_memory_db();
     create_root_task(
         &db,
         CreateRootTaskInput {
@@ -177,10 +171,7 @@ async fn task_runtime_start_requests_model_from_user_cursor_without_draining_que
 
 #[tokio::test]
 async fn task_runtime_start_promotes_queue_before_awaiting_user_input() {
-    let db = open_db(OpenDbOptions {
-        sqlite_path: ":memory:".to_owned(),
-    })
-    .expect("open db");
+    let db = open_memory_db();
     create_root_task(
         &db,
         CreateRootTaskInput {
@@ -254,10 +245,7 @@ async fn task_runtime_start_promotes_queue_before_awaiting_user_input() {
 
 #[tokio::test]
 async fn task_runtime_start_dispatches_tool_from_function_call_cursor() {
-    let db = open_db(OpenDbOptions {
-        sqlite_path: ":memory:".to_owned(),
-    })
-    .expect("open db");
+    let db = open_memory_db();
     register_tool(
         &db,
         ToolSpec {
@@ -334,10 +322,7 @@ async fn task_runtime_start_dispatches_tool_from_function_call_cursor() {
 
 #[tokio::test]
 async fn task_runtime_start_reconstructs_open_batched_tool_calls_from_history() {
-    let db = open_db(OpenDbOptions {
-        sqlite_path: ":memory:".to_owned(),
-    })
-    .expect("open db");
+    let db = open_memory_db();
     register_tool(
         &db,
         ToolSpec {
@@ -617,10 +602,7 @@ async fn task_runtime_preserves_batched_tool_call_order_in_next_model_request() 
 
 #[tokio::test]
 async fn task_runtime_ignores_tool_result_with_mismatched_call_identity() {
-    let db = open_db(OpenDbOptions {
-        sqlite_path: ":memory:".to_owned(),
-    })
-    .expect("open db");
+    let db = open_memory_db();
     register_tool(
         &db,
         ToolSpec {
@@ -834,10 +816,7 @@ async fn task_runtime_uses_tool_parameter_type_for_integer_arguments() {
 
 #[tokio::test]
 async fn task_runtime_rejects_tool_calls_outside_enabled_manifest() {
-    let db = open_db(OpenDbOptions {
-        sqlite_path: ":memory:".to_owned(),
-    })
-    .expect("open db");
+    let db = open_memory_db();
     register_tool(
         &db,
         ToolSpec {
@@ -1130,10 +1109,7 @@ async fn task_runtime_promotes_queued_input_after_model_failure() {
 
 #[tokio::test]
 async fn task_runtime_rejects_empty_idle_user_input_before_append() {
-    let db = open_db(OpenDbOptions {
-        sqlite_path: ":memory:".to_owned(),
-    })
-    .expect("open db");
+    let db = open_memory_db();
     create_root_task(
         &db,
         CreateRootTaskInput {
@@ -1241,10 +1217,7 @@ async fn task_runtime_preserves_model_wait_state_for_stray_tool_result() {
 
 #[tokio::test]
 async fn task_runtime_uses_fresh_model_run_ids_after_respawn() {
-    let db = open_db(OpenDbOptions {
-        sqlite_path: ":memory:".to_owned(),
-    })
-    .expect("open db");
+    let db = open_memory_db();
     create_root_task(
         &db,
         CreateRootTaskInput {
@@ -1319,10 +1292,7 @@ async fn task_runtime_rejects_unconvertible_required_arguments() {
 
 #[tokio::test]
 async fn task_runtime_preserves_queued_input_when_append_fails() {
-    let db = open_db(OpenDbOptions {
-        sqlite_path: ":memory:".to_owned(),
-    })
-    .expect("open db");
+    let db = open_memory_db();
     create_root_task(
         &db,
         CreateRootTaskInput {
@@ -1462,10 +1432,7 @@ async fn task_runtime_rejects_out_of_range_integer_arguments() {
 
 #[tokio::test]
 async fn task_runtime_recovers_open_tool_call_before_model_dispatch() {
-    let db = open_db(OpenDbOptions {
-        sqlite_path: ":memory:".to_owned(),
-    })
-    .expect("open db");
+    let db = open_memory_db();
     register_tool(
         &db,
         ToolSpec {
@@ -1551,10 +1518,7 @@ async fn task_runtime_recovers_open_tool_call_before_model_dispatch() {
 
 #[tokio::test]
 async fn task_runtime_allows_messages_between_tool_call_and_matching_output() {
-    let db = open_db(OpenDbOptions {
-        sqlite_path: ":memory:".to_owned(),
-    })
-    .expect("open db");
+    let db = open_memory_db();
     register_tool(
         &db,
         ToolSpec {
@@ -1668,10 +1632,7 @@ async fn spawn_runtime_with_task(
     tokio::sync::mpsc::UnboundedReceiver<RouterIngressMessage>,
     RouterIngressSender,
 ) {
-    let db = open_db(OpenDbOptions {
-        sqlite_path: ":memory:".to_owned(),
-    })
-    .expect("open db");
+    let db = open_memory_db();
     let enabled_tools = tools
         .iter()
         .map(|tool| selvedge_db::ToolName(tool.name.clone()))
@@ -1836,13 +1797,5 @@ async fn spawn_runtime_and_start_one_model_call(db: selvedge_db::DbPool) -> Mode
 
 fn model_profiles()
 -> HashMap<selvedge_db::ModelProfileKey, selvedge_domain_model::ModelProviderProfile> {
-    HashMap::from([(
-        selvedge_db::ModelProfileKey("default".to_owned()),
-        selvedge_domain_model::ModelProviderProfile {
-            provider_name: "provider".to_owned(),
-            model_name: "model".to_owned(),
-            temperature: None,
-            max_output_tokens: None,
-        },
-    )])
+    default_model_profiles()
 }

@@ -13,6 +13,7 @@ tokio-stream = { version = "0.1.17", features = ["io-util"] }
 
 [dev-dependencies]
 futures-util = "0.3.31"
+selvedge-test-support = { path = "../test-support", features = ["local-transport"] }
 tokio = { version = "1.42.0", features = ["io-util", "macros", "net", "rt", "sync", "time"] }
 
 [lints.rust]

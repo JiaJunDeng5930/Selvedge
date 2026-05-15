@@ -1,12 +1,9 @@
-use std::{
-    net::SocketAddr,
-    process::{Command, Output},
-    sync::{Arc, OnceLock},
-};
+use std::sync::{Arc, OnceLock};
 
-use axum::Router;
 use bytes::Bytes;
 use rcgen::generate_simple_self_signed;
+pub use selvedge_test_support::http::spawn_http_server;
+pub use selvedge_test_support::process::{assert_child_success, child_mode, run_child};
 use tempfile::TempDir;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -21,34 +18,8 @@ use tokio_rustls::{
     },
 };
 
-pub fn child_mode(flag: &str) -> bool {
-    std::env::var_os(flag).is_some()
-}
-
-pub fn run_child(test_name: &str, flag: &str) -> Output {
-    let current_executable = std::env::current_exe().expect("current test executable");
-
-    Command::new(current_executable)
-        .arg("--exact")
-        .arg(test_name)
-        .env(flag, "1")
-        .output()
-        .expect("run child test")
-}
-
-pub fn assert_child_success(output: &Output) {
-    // @verifies selvedge.client
-    assert!(output.status.success(), "child test failed: {output:?}");
-}
-
 pub async fn init_client_test() -> TempDir {
-    let tempdir = TempDir::new().expect("tempdir");
-    let config_home = tempdir.path().join(".selvedge");
-    let config_path = config_home.join("config.toml");
-
-    std::fs::create_dir_all(&config_home).expect("create config home");
-    std::fs::write(
-        &config_path,
+    selvedge_test_support::config::init_test_home(
         r#"
 [server]
 host = "127.0.0.1"
@@ -59,43 +30,6 @@ request_timeout_ms = 5000
 level = "debug"
 "#,
     )
-    .expect("write config");
-
-    selvedge_config::init_with_home(&config_home).expect("init config");
-    selvedge_logging::init().expect("init logging");
-
-    tempdir
-}
-
-pub struct TestServer {
-    pub addr: SocketAddr,
-    pub handle: JoinHandle<()>,
-}
-
-impl TestServer {
-    pub fn url(&self, path: &str) -> String {
-        format!("http://{}{}", self.addr, path)
-    }
-}
-
-impl Drop for TestServer {
-    fn drop(&mut self) {
-        self.handle.abort();
-    }
-}
-
-pub async fn spawn_http_server(router: Router) -> TestServer {
-    let listener = TcpListener::bind("127.0.0.1:0")
-        .await
-        .expect("bind test server");
-    let addr = listener.local_addr().expect("local addr");
-    let handle = tokio::spawn(async move {
-        axum::serve(listener, router)
-            .await
-            .expect("serve http test app");
-    });
-
-    TestServer { addr, handle }
 }
 
 pub struct HttpsServer {

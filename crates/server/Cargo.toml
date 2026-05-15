@@ -23,6 +23,7 @@ tokio = { version = "1.42.0", features = ["fs", "macros", "rt", "sync"] }
 [dev-dependencies]
 futures-util = "0.3.31"
 serde_json = "1.0.145"
+selvedge-test-support = { path = "../test-support", features = ["http"] }
 tempfile = "3.14.0"
 tokio = { version = "1.42.0", features = ["macros", "rt", "sync", "time"] }
 

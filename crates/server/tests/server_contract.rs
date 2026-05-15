@@ -24,6 +24,7 @@ use selvedge_server::{
     LocalBindingConfig, LocalCommandMapper, LocalhostBindTarget, ServerRequestError,
     ServerRuntimeState, ServerStartArgs, ServerStartupError, WebBindingConfig, spawn_server,
 };
+use selvedge_test_support::http::released_loopback_port;
 use tempfile::TempDir;
 use tokio::sync::Mutex as AsyncMutex;
 use tokio::task::JoinHandle;
@@ -645,10 +646,7 @@ fn test_args(home: std::path::PathBuf, mapper: Arc<dyn LocalCommandMapper>) -> S
 }
 
 fn unused_tcp_v4_port() -> u16 {
-    let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).expect("bind unused port");
-    let port = listener.local_addr().expect("unused addr").port();
-    drop(listener);
-    port
+    released_loopback_port()
 }
 
 fn valid_command(command_id: &str) -> CommandRequest {

@@ -24,8 +24,8 @@ package = "chatgpt-auth"
 [dev-dependencies]
 async-stream = "0.3.6"
 axum = "0.8.6"
-base64 = "0.22.1"
 selvedge-logging = { path = "../logging" }
+selvedge-test-support = { path = "../test-support", features = ["chatgpt-auth", "config", "http"] }
 tempfile = "3.23.0"
 tokio = { version = "1.48.0", features = ["macros", "net", "rt-multi-thread", "sync", "time"] }
 

@@ -9,15 +9,18 @@ use selvedge_core::{
     TaskRuntimeSpawnDeps, TaskRuntimeSpawner,
 };
 use selvedge_db::{
-    CreateRootTaskInput, DbPool, MessageRole, ModelProfileKey, NewHistoryNode,
-    NewHistoryNodeContent, NewMessageNodeContent, OpenDbOptions, ReasoningEffort, TaskId, ToolName,
-    ToolSpec, UnixTs, archive_task, create_history_node, create_root_task, load_active_task,
-    open_db, read_task_parent_edges, read_tool_manifest_for_task, register_tool,
+    CreateRootTaskInput, DbPool, MessageRole, ModelProfileKey, ReasoningEffort, TaskId, ToolName,
+    ToolSpec, UnixTs, archive_task, create_root_task, load_active_task, read_task_parent_edges,
+    read_tool_manifest_for_task, register_tool,
 };
 use selvedge_domain_model::ModelProviderProfile;
 use selvedge_task_runtime_factory::{
     CreateChildTaskAndRuntimeCommand, EnsureMissingTaskRuntimesCommand, EnsureTaskRuntimeCommand,
     FactoryCommand, FactoryEffectArgs, FactoryRuntimeInventory, run_factory_effect,
+};
+use selvedge_test_support::db::{
+    create_message_node as create_test_message_node, create_root_task_with_user_message,
+    default_model_profiles, open_memory_db,
 };
 
 // @verifies selvedge.task.runtime.factory.run
@@ -321,19 +324,7 @@ async fn create_child_task_keeps_durable_child_when_runtime_spawn_fails() {
 }
 
 fn create_root(db: &DbPool, task_id: &str) {
-    let cursor_node_id = create_message_node(db, None, MessageRole::User, "hello");
-    create_root_task(
-        db,
-        CreateRootTaskInput {
-            task_id: TaskId(task_id.to_owned()),
-            cursor_node_id,
-            model_profile_key: ModelProfileKey("default".to_owned()),
-            reasoning_effort: ReasoningEffort::Medium,
-            enabled_tools: Vec::new(),
-            now: UnixTs(1),
-        },
-    )
-    .expect("create root task");
+    create_root_task_with_user_message(db, task_id, "hello", UnixTs(1));
 }
 
 fn create_message_node(
@@ -342,37 +333,11 @@ fn create_message_node(
     message_role: MessageRole,
     message_text: &str,
 ) -> selvedge_db::HistoryNodeId {
-    create_history_node(
-        db,
-        NewHistoryNode {
-            parent_node_id,
-            content: NewHistoryNodeContent::Message(NewMessageNodeContent {
-                message_role,
-                message_text: message_text.to_owned(),
-            }),
-            created_at: UnixTs(1),
-        },
-    )
-    .expect("create message node")
+    create_test_message_node(db, parent_node_id, message_role, message_text, UnixTs(1))
 }
 
 fn model_profiles() -> HashMap<ModelProfileKey, ModelProviderProfile> {
-    HashMap::from([(
-        ModelProfileKey("default".to_owned()),
-        ModelProviderProfile {
-            provider_name: "provider".to_owned(),
-            model_name: "model".to_owned(),
-            temperature: None,
-            max_output_tokens: None,
-        },
-    )])
-}
-
-fn open_memory_db() -> DbPool {
-    open_db(OpenDbOptions {
-        sqlite_path: ":memory:".to_owned(),
-    })
-    .expect("open db")
+    default_model_profiles()
 }
 
 async fn run_ensure_task_runtime(db: DbPool, task_id: &str) -> FactoryOutput {

@@ -1,0 +1,48 @@
+[package]
+name = "selvedge-test-support"
+edition = "2024"
+publish = false
+description = "Shared test fixtures for Selvedge workspace crates"
+
+[features]
+default = []
+config = ["dep:selvedge-config", "dep:selvedge-logging", "dep:tempfile"]
+http = ["dep:axum", "dep:tokio"]
+chatgpt-auth = ["dep:base64", "dep:serde_json", "dep:tempfile"]
+local-transport = [
+    "dep:futures-core",
+    "dep:futures-util",
+    "dep:selvedge-local-client",
+    "dep:selvedge-local-protocol",
+    "dep:serde_json",
+    "dep:tokio",
+]
+db-fixtures = [
+    "dep:selvedge-command-model",
+    "dep:selvedge-db",
+    "dep:selvedge-domain-model",
+]
+
+[dependencies]
+axum = { version = "0.8.6", optional = true }
+base64 = { version = "0.22.1", optional = true }
+futures-core = { version = "0.3.31", optional = true }
+futures-util = { version = "0.3.31", optional = true }
+selvedge-command-model = { path = "../command-model", optional = true }
+selvedge-config = { path = "../config", optional = true }
+selvedge-db = { path = "../db", optional = true }
+selvedge-domain-model = { path = "../domain-model", optional = true }
+selvedge-local-client = { path = "../local-client", optional = true }
+selvedge-local-protocol = { path = "../local-protocol", optional = true }
+selvedge-logging = { path = "../logging", optional = true }
+serde_json = { version = "1.0.145", optional = true }
+tempfile = { version = "3.23.0", optional = true }
+tokio = { version = "1.48.0", features = ["net", "rt", "sync"], optional = true }
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+dbg_macro = "deny"
+todo = "deny"
+unwrap_used = "deny"
