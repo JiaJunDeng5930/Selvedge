@@ -39,6 +39,9 @@ jobs:
       - name: Check requirement comments
         run: cargo xtask req check --all
 
+      - name: Check package README freshness
+        run: cargo xtask readme check-freshness
+
       - name: Check requirement anchors
         run: |
           if git show origin/${{ github.base_ref }}:AGENTS.md | grep -q "BEGIN AGENTS_MD_REQUIREMENT_INDEX"; then

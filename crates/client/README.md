@@ -1,5 +1,10 @@
 # client
 
+<!-- selvedge-package-readme
+package: selvedge-client
+freshness_commit: 1c81a33f8a447fd4578da3e44db1393e6dff110e
+-->
+
 ## This crate is for
 
 This crate is the project HTTP client entrypoint.
@@ -72,3 +77,42 @@ assert!(response.status.is_success());
 - `stream(...)` returns a raw `ByteStream` only for `2xx`
 - non-`2xx` responses are returned as `HttpError::Status`
 - response bodies stay raw; this crate does not auto-decompress or parse them
+
+## Package State Machine
+
+The diagram records the package-level observable states and transition paths. Each edge label names the concrete condition checked at this package boundary.
+
+```mermaid
+flowchart TD
+  Start([execute or stream])
+  ReadConfig[Read network config]
+  Prepare[Build request client, URL, headers, and body]
+  Send[Send HTTP request]
+  Redirect{redirect decision}
+  Buffer[Buffer response body]
+  OpenBody[Return streaming body]
+  Success[Return HttpResponse or HttpStreamResponse]
+  ConfigError[Return Config error]
+  BuildError[Return Build error]
+  TransportError[Return Transport error]
+  StatusError[Return Status error with raw body]
+  TimeoutError[Return Timeout]
+
+  Start -->|caller invokes execute or stream| ReadConfig
+  ReadConfig -->|selvedge_config read succeeds| Prepare
+  ReadConfig -->|selvedge_config read fails| ConfigError
+  Prepare -->|method, URL, TLS, timeout, compression, and body are prepared| Send
+  Prepare -->|URL, client, certificate, compression, or request build fails| BuildError
+  Send -->|response head arrives before configured timeout| Redirect
+  Send -->|transport fails while sending request or reading response head| TransportError
+  Send -->|configured request timeout expires| TimeoutError
+  Redirect -->|GET response has supported redirect status and hop count remains| Prepare
+  Redirect -->|redirect hop limit is exceeded or location is invalid| BuildError
+  Redirect -->|status is 2xx and caller invoked execute| Buffer
+  Redirect -->|status is 2xx and caller invoked stream| OpenBody
+  Redirect -->|status is non-2xx| Buffer
+  Buffer -->|execute body read succeeds for 2xx| Success
+  Buffer -->|non-2xx body read succeeds| StatusError
+  Buffer -->|body read fails| TransportError
+  OpenBody -->|stream response created| Success
+```

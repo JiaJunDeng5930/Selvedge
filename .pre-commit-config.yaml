@@ -26,9 +26,21 @@ repos:
         language: system
         pass_filenames: false
         stages: [pre-commit, manual]
+      - id: package-readme-mermaid
+        name: package README Mermaid --check
+        entry: cargo xtask readme check-mermaid
+        language: system
+        pass_filenames: false
+        stages: [pre-commit, manual]
       - id: cargo-test
         name: cargo test --check
         entry: cargo test --workspace --all-targets --all-features
         language: unsupported
+        pass_filenames: false
+        stages: [pre-push, manual]
+      - id: package-readme-freshness
+        name: package README freshness --check
+        entry: cargo xtask readme check-freshness
+        language: system
         pass_filenames: false
         stages: [pre-push, manual]

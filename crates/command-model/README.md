@@ -1,5 +1,10 @@
 # command-model
 
+<!-- selvedge-package-readme
+package: selvedge-command-model
+freshness_commit: 1c81a33f8a447fd4578da3e44db1393e6dff110e
+-->
+
 This crate defines the Selvedge command model API slice used to dispatch model calls, return completed API outputs to the router, and describe router-mediated client event ingress.
 
 Use it to define model-call request correlation, dispatch request, output envelope, call error, router ingress message types, router commands, factory output messages, event ingress messages, client subscriptions, client snapshots, raw events, and client outbound frames.
@@ -18,3 +23,38 @@ This crate is not for network access, database access, filesystem access, provid
 `DetachReason::ClientRequested` represents an explicit detach command. `DetachReason::ClientDisconnected` represents the server observing the attach stream close.
 
 Factory output envelopes are returned by synchronous factory calls. Runtime inventory is supplied to the factory by the router from router-owned live and pending task runtime state.
+
+## Package State Machine
+
+The diagram records the package-level observable states and transition paths. Each edge label names the concrete condition checked at this package boundary.
+
+```mermaid
+flowchart TD
+  Start([caller constructs command-model value])
+  ValidateDispatch[Validate ModelCallDispatchRequest]
+  ValidateApiOutput[Validate ApiOutputEnvelope]
+  ValidateRouterCommand[Validate RouterCommandEnvelope]
+  ControlReady[TaskRuntimeControl active]
+  Frozen[TaskRuntimeControl frozen]
+  Stopping[TaskRuntimeControl stopping]
+  StopFinished[Stop result published]
+  Valid[Return accepted value]
+  Invalid[Return validation error]
+
+  Start -->|caller validates dispatch request| ValidateDispatch
+  Start -->|caller validates API output envelope| ValidateApiOutput
+  Start -->|caller validates router command envelope| ValidateRouterCommand
+  Start -->|caller creates TaskRuntimeControl| ControlReady
+  ValidateDispatch -->|correlation, task, provider, profile, and input fields satisfy contract| Valid
+  ValidateDispatch -->|required dispatch field is empty or inconsistent| Invalid
+  ValidateApiOutput -->|output envelope correlation and payload are consistent| Valid
+  ValidateApiOutput -->|output envelope correlation or payload is inconsistent| Invalid
+  ValidateRouterCommand -->|command name, payload, and admission fields satisfy command contract| Valid
+  ValidateRouterCommand -->|command has unsupported name, malformed payload, or invalid admission fields| Invalid
+  ControlReady -->|freeze is called| Frozen
+  Frozen -->|unfreeze is called while stop bit is clear| ControlReady
+  ControlReady -->|stop is called| Stopping
+  Frozen -->|stop is called| Stopping
+  Stopping -->|finish_stop stores result and notifies waiters| StopFinished
+  StopFinished -->|later stop call observes stored result| StopFinished
+```

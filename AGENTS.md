@@ -14,7 +14,17 @@ This file is for coding agents working in this repository.
 - `pre-commit` checks `cargo clippy --workspace --all-targets --all-features -- -D warnings`
 - `pre-commit` checks that the project index in this file is up to date
 - `pre-commit` checks requirement comments with `cargo xtask req check --staged`
+- `pre-commit` checks package README Mermaid diagrams with `cargo xtask readme check-mermaid`
 - `pre-push` checks `cargo test --workspace --all-targets --all-features`
+- `pre-push` checks package README freshness metadata with `cargo xtask readme check-freshness`
+
+## Package README State Machines
+
+- Each workspace package README contains a Mermaid package-level state machine.
+- Read the package state machine before changing package behavior or boundary errors.
+- Package README metadata includes `freshness_commit`, the commit whose package implementation the README state machine has been checked against.
+- `cargo xtask readme check-freshness` compares `freshness_commit..HEAD` for each package directory, excludes that package README, and reports packages with implementation changes that may require README review.
+- When reported package changes leave the README state machine accurate, update only `freshness_commit` to a commit after those package changes.
 
 ## Branch Protection
 
@@ -2683,7 +2693,7 @@ This file is for coding agents working in this repository.
 |selvedge.task.tool_status_phase|selvedge.task.tool_status_phase.{}
 |selvedge.task.validation_error|selvedge.task.validation_error.{}
 |selvedge.task.validation_message|selvedge.task.validation_message.{}
-|tool|tool.{api,check,cli,detector,format,project_index,scan,worktree}
+|tool|tool.{api,check,cli,detector,format,project_index,readme,scan,worktree}
 |tool.api|tool.api.{diagnostic,mode,module,parse,record,report,status,tag}
 |tool.api.diagnostic|tool.api.diagnostic.{line,macro,message,path,rule}
 |tool.api.diagnostic.line|tool.api.diagnostic.line.{}
@@ -2752,7 +2762,7 @@ This file is for coding agents working in this repository.
 |tool.check.snapshot.staged_read|tool.check.snapshot.staged_read.{}
 |tool.check.snapshot.worktree_invalid|tool.check.snapshot.worktree_invalid.{}
 |tool.check.snapshot.worktree_read|tool.check.snapshot.worktree_read.{}
-|tool.cli|tool.cli.{all_error,all_stale,base_error,base_ref,base_stale,format_error,project_index,scan_error,scan_output,scan_status,staged_error,staged_stale,usage_error,workspace_root}
+|tool.cli|tool.cli.{all_error,all_stale,base_error,base_ref,base_stale,format_error,project_index,readme_freshness_error,readme_freshness_stale,readme_mermaid_error,scan_error,scan_output,scan_status,staged_error,staged_stale,usage_error,workspace_root}
 |tool.cli.all_error|tool.cli.all_error.{}
 |tool.cli.all_stale|tool.cli.all_stale.{}
 |tool.cli.base_error|tool.cli.base_error.{}
@@ -2766,6 +2776,9 @@ This file is for coding agents working in this repository.
 |tool.cli.project_index.update_error|tool.cli.project_index.update_error.{}
 |tool.cli.project_index.update_success|tool.cli.project_index.update_success.{}
 |tool.cli.project_index.warning_output|tool.cli.project_index.warning_output.{}
+|tool.cli.readme_freshness_error|tool.cli.readme_freshness_error.{}
+|tool.cli.readme_freshness_stale|tool.cli.readme_freshness_stale.{}
+|tool.cli.readme_mermaid_error|tool.cli.readme_mermaid_error.{}
 |tool.cli.scan_error|tool.cli.scan_error.{}
 |tool.cli.scan_output|tool.cli.scan_output.{}
 |tool.cli.scan_status|tool.cli.scan_status.{}
@@ -2831,6 +2844,36 @@ This file is for coding agents working in this repository.
 |tool.project_index.warning.missing_dir|tool.project_index.warning.missing_dir.{}
 |tool.project_index.warning.path|tool.project_index.warning.path.{}
 |tool.project_index.warning.read_error|tool.project_index.warning.read_error.{}
+|tool.readme|tool.readme.{changed_files,commit,freshness,mermaid,metadata,module,package_name,packages,read_file,stale_package,status}
+|tool.readme.changed_files|tool.readme.changed_files.{git_failure,spawn_failure}
+|tool.readme.changed_files.git_failure|tool.readme.changed_files.git_failure.{}
+|tool.readme.changed_files.spawn_failure|tool.readme.changed_files.spawn_failure.{}
+|tool.readme.commit|tool.readme.commit.{spawn_failure,unknown}
+|tool.readme.commit.spawn_failure|tool.readme.commit.spawn_failure.{}
+|tool.readme.commit.unknown|tool.readme.commit.unknown.{}
+|tool.readme.freshness|tool.readme.freshness.{}
+|tool.readme.mermaid|tool.readme.mermaid.{diagnostics,invalid}
+|tool.readme.mermaid.diagnostics|tool.readme.mermaid.diagnostics.{}
+|tool.readme.mermaid.invalid|tool.readme.mermaid.invalid.{}
+|tool.readme.metadata|tool.readme.metadata.{invalid_commit,missing,package_mismatch}
+|tool.readme.metadata.invalid_commit|tool.readme.metadata.invalid_commit.{}
+|tool.readme.metadata.missing|tool.readme.metadata.missing.{}
+|tool.readme.metadata.package_mismatch|tool.readme.metadata.package_mismatch.{}
+|tool.readme.module|tool.readme.module.{}
+|tool.readme.package_name|tool.readme.package_name.{empty,missing}
+|tool.readme.package_name.empty|tool.readme.package_name.empty.{}
+|tool.readme.package_name.missing|tool.readme.package_name.missing.{}
+|tool.readme.packages|tool.readme.packages.{git_failure,git_spawn_failure}
+|tool.readme.packages.git_failure|tool.readme.packages.git_failure.{}
+|tool.readme.packages.git_spawn_failure|tool.readme.packages.git_spawn_failure.{}
+|tool.readme.read_file|tool.readme.read_file.{}
+|tool.readme.stale_package|tool.readme.stale_package.{changed_files,freshness_commit,package,package_path,readme_path}
+|tool.readme.stale_package.changed_files|tool.readme.stale_package.changed_files.{}
+|tool.readme.stale_package.freshness_commit|tool.readme.stale_package.freshness_commit.{}
+|tool.readme.stale_package.package|tool.readme.stale_package.package.{}
+|tool.readme.stale_package.package_path|tool.readme.stale_package.package_path.{}
+|tool.readme.stale_package.readme_path|tool.readme.stale_package.readme_path.{}
+|tool.readme.status|tool.readme.status.{}
 |tool.scan|tool.scan.{binding,comment_parse_error,extract,parse_error,parse_failed,parser_unavailable,string_literals}
 |tool.scan.binding|tool.scan.binding.{}
 |tool.scan.comment_parse_error|tool.scan.comment_parse_error.{}
@@ -2937,6 +2980,6 @@ This file is for coding agents working in this repository.
 |src:{lib.rs,main.rs}
 |tests:{config_integration.rs,stdout_stderr_integration.rs,worktree_tool_integration.rs}
 |xtask:{src/,Cargo.toml,README.md}
-|xtask/src:{agents_index.rs,lib.rs,main.rs,requirements.rs}
+|xtask/src:{agents_index.rs,lib.rs,main.rs,readme_gate.rs,requirements.rs}
 ```
 <!-- END AGENTS_MD_PROJECT_INDEX -->

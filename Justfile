@@ -24,6 +24,12 @@ req-fmt:
 req-check:
     cargo xtask req check --all
 
+readme-mermaid-check:
+    cargo xtask readme check-mermaid
+
+readme-freshness-check:
+    cargo xtask readme check-freshness
+
 run:
     cargo run
 
@@ -42,6 +48,8 @@ test:
 check: fmt-check lint test
     @just agents-index-check
     @just req-check
+    @just readme-mermaid-check
+    @just readme-freshness-check
 
 hooks:
     pre-commit run --all-files

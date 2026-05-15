@@ -4,6 +4,7 @@ edition = "2024"
 publish = false
 
 [dependencies]
+mermaid-rs-renderer = { version = "0.2.2", default-features = false }
 tree-sitter = "0.25.10"
 tree-sitter-rust = "0.24.2"
 
