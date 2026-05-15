@@ -15,6 +15,7 @@ tokio = { version = "1.42.0", features = ["rt", "sync"] }
 
 [dev-dependencies]
 selvedge-domain-model = { path = "../domain-model" }
+selvedge-test-support = { path = "../test-support", features = ["db-fixtures"] }
 tokio = { version = "1.42.0", features = ["macros", "rt", "sync", "time"] }
 
 [lints.rust]

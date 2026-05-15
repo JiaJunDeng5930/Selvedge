@@ -12,7 +12,6 @@ use axum::{
     http::{HeaderMap, HeaderValue, StatusCode},
     routing::post,
 };
-use base64::Engine;
 use chatgpt_api::{
     ChatgptApiEndpointError, ChatgptApiError, ChatgptModelCapabilities, ChatgptReasoningOptions,
     ChatgptRequestContext, ChatgptResponseEvent, ChatgptResponsesRequest, ChatgptTextOptions,
@@ -21,7 +20,8 @@ use chatgpt_api::{
 use futures::StreamExt;
 use serde_json::json;
 use support::{
-    assert_child_success, child_mode, init_api_test, run_child, spawn_http_server, write_auth_file,
+    assert_child_success, auth_file_json, build_jwt, child_mode, init_api_test, run_child,
+    spawn_http_server, write_auth_file,
 };
 use tokio::time::{Duration, sleep};
 
@@ -1177,26 +1177,4 @@ stream_completion_timeout_ms = 100
             selvedge_client::HttpError::Timeout
         ))
     ));
-}
-
-fn auth_file_json(id_token: &str, access_token: &str, refresh_token: &str) -> String {
-    json!({
-        "schema_version": 1,
-        "provider": "chatgpt",
-        "login_method": "device_code",
-        "tokens": {
-            "id_token": id_token,
-            "access_token": access_token,
-            "refresh_token": refresh_token
-        }
-    })
-    .to_string()
-}
-
-fn build_jwt(payload: serde_json::Value) -> String {
-    let engine = base64::engine::general_purpose::URL_SAFE_NO_PAD;
-    let header = engine.encode(r#"{"alg":"none","typ":"JWT"}"#);
-    let payload = engine.encode(payload.to_string());
-
-    format!("{header}.{payload}.signature")
 }

@@ -10,6 +10,7 @@ use selvedge_local_protocol::{
     LocalClientSubscription, LocalDetailLevel, LocalHttpProblem, LocalHttpProblemCode,
     LocalTaskScope, ReadyRequest, ReadyResponse, ReadyState, current_protocol_version,
 };
+use selvedge_test_support::http::released_loopback_port;
 use selvedge_web::{
     AttachRejectedOrBridgeError, WebAttachFuture, WebBridge, WebBridgeError, WebBridgeFuture,
     WebExitStatus, WebFrameStream, WebLocalhostBind, WebLocalhostHost, WebRuntimeState,
@@ -631,13 +632,9 @@ impl WebBridge for RecordingBridge {
 }
 
 fn unused_loopback_bind() -> WebLocalhostBind {
-    let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).expect("bind unused port");
-    let port = listener.local_addr().expect("local addr").port();
-    drop(listener);
-
     WebLocalhostBind {
         host: WebLocalhostHost::Ipv4Loopback,
-        port,
+        port: released_loopback_port(),
     }
 }
 

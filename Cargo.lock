@@ -239,7 +239,6 @@ version = "0.0.0"
 dependencies = [
  "async-stream",
  "axum",
- "base64",
  "bytes",
  "chatgpt-auth",
  "futures",
@@ -250,6 +249,7 @@ dependencies = [
  "selvedge-config",
  "selvedge-config-model",
  "selvedge-logging",
+ "selvedge-test-support",
  "serde",
  "serde_json",
  "tempfile",
@@ -269,6 +269,7 @@ dependencies = [
  "selvedge-client",
  "selvedge-config",
  "selvedge-logging",
+ "selvedge-test-support",
  "serde",
  "serde_json",
  "tempfile",
@@ -287,6 +288,7 @@ dependencies = [
  "selvedge-client",
  "selvedge-config",
  "selvedge-logging",
+ "selvedge-test-support",
  "serde",
  "serde_json",
  "tempfile",
@@ -1528,7 +1530,6 @@ version = "0.0.0"
 dependencies = [
  "async-stream",
  "axum",
- "base64",
  "bytes",
  "chatgpt-api",
  "futures",
@@ -1538,6 +1539,7 @@ dependencies = [
  "selvedge-config",
  "selvedge-domain-model",
  "selvedge-logging",
+ "selvedge-test-support",
  "serde_json",
  "tempfile",
  "tokio",
@@ -1558,6 +1560,7 @@ dependencies = [
  "rustls-pemfile",
  "selvedge-config",
  "selvedge-logging",
+ "selvedge-test-support",
  "serde_json",
  "tempfile",
  "thiserror",
@@ -1613,6 +1616,7 @@ dependencies = [
  "selvedge-command-model",
  "selvedge-db",
  "selvedge-domain-model",
+ "selvedge-test-support",
  "tokio",
  "uuid",
 ]
@@ -1649,6 +1653,7 @@ dependencies = [
  "futures-core",
  "futures-util",
  "selvedge-local-protocol",
+ "selvedge-test-support",
  "serde",
  "serde_json",
  "tokio",
@@ -1683,6 +1688,7 @@ dependencies = [
  "selvedge-domain-model",
  "selvedge-events",
  "selvedge-task-runtime-factory",
+ "selvedge-test-support",
  "tokio",
 ]
 
@@ -1704,6 +1710,7 @@ dependencies = [
  "selvedge-local-protocol",
  "selvedge-logging",
  "selvedge-router",
+ "selvedge-test-support",
  "selvedge-web",
  "serde_json",
  "tempfile",
@@ -1725,8 +1732,29 @@ dependencies = [
  "selvedge-core",
  "selvedge-db",
  "selvedge-domain-model",
+ "selvedge-test-support",
  "tokio",
  "uuid",
+]
+
+[[package]]
+name = "selvedge-test-support"
+version = "0.0.0"
+dependencies = [
+ "axum",
+ "base64",
+ "futures-core",
+ "futures-util",
+ "selvedge-command-model",
+ "selvedge-config",
+ "selvedge-db",
+ "selvedge-domain-model",
+ "selvedge-local-client",
+ "selvedge-local-protocol",
+ "selvedge-logging",
+ "serde_json",
+ "tempfile",
+ "tokio",
 ]
 
 [[package]]
@@ -1736,6 +1764,7 @@ dependencies = [
  "futures-util",
  "selvedge-local-client",
  "selvedge-local-protocol",
+ "selvedge-test-support",
  "serde_json",
  "tokio",
 ]
@@ -1747,6 +1776,7 @@ dependencies = [
  "futures-core",
  "futures-util",
  "selvedge-local-protocol",
+ "selvedge-test-support",
  "serde",
  "serde_json",
  "tokio",

@@ -16,14 +16,13 @@ use selvedge_core::{
     SpawnTaskRuntimeArgs, SpawnTaskRuntimeError, SpawnedTaskRuntime, TaskRuntimeConfig,
     TaskRuntimeSpawnDeps, TaskRuntimeSpawner,
 };
-use selvedge_db::{
-    CreateRootTaskInput, DbPool, MessageRole, ModelProfileKey, NewHistoryNode,
-    NewHistoryNodeContent, NewMessageNodeContent, OpenDbOptions, ReasoningEffort, TaskId, UnixTs,
-    create_history_node, create_root_task, open_db,
-};
+use selvedge_db::{DbPool, ModelProfileKey, TaskId, UnixTs};
 use selvedge_domain_model::{FunctionCallId, HistoryNodeId, ModelProviderProfile, ToolName};
 use selvedge_router::{
     RouterExitStatus, RouterStartArgs, ToolExecutionSpawnError, ToolExecutionSpawner, spawn_router,
+};
+use selvedge_test_support::db::{
+    create_root_task_with_user_message, default_model_profiles, open_memory_db,
 };
 
 // @verifies selvedge.model.router.spawn
@@ -1086,50 +1085,12 @@ async fn router_exits_when_ingress_sender_is_dropped_with_live_runtime() {
     assert_eq!(status, RouterExitStatus::RouterMailboxClosed);
 }
 
-fn open_memory_db() -> DbPool {
-    open_db(OpenDbOptions {
-        sqlite_path: ":memory:".to_owned(),
-    })
-    .expect("open db")
-}
-
 fn create_root(db: &DbPool, task_id: &str) {
-    let cursor_node_id = create_history_node(
-        db,
-        NewHistoryNode {
-            parent_node_id: None,
-            content: NewHistoryNodeContent::Message(NewMessageNodeContent {
-                message_role: MessageRole::User,
-                message_text: "hello".to_owned(),
-            }),
-            created_at: UnixTs(1),
-        },
-    )
-    .expect("create message node");
-    create_root_task(
-        db,
-        CreateRootTaskInput {
-            task_id: TaskId(task_id.to_owned()),
-            cursor_node_id,
-            model_profile_key: ModelProfileKey("default".to_owned()),
-            reasoning_effort: ReasoningEffort::Medium,
-            enabled_tools: Vec::new(),
-            now: UnixTs(1),
-        },
-    )
-    .expect("create root task");
+    create_root_task_with_user_message(db, task_id, "hello", UnixTs(1));
 }
 
 fn model_profiles() -> HashMap<ModelProfileKey, ModelProviderProfile> {
-    HashMap::from([(
-        ModelProfileKey("default".to_owned()),
-        ModelProviderProfile {
-            provider_name: "provider".to_owned(),
-            model_name: "model".to_owned(),
-            temperature: None,
-            max_output_tokens: None,
-        },
-    )])
+    default_model_profiles()
 }
 
 fn correlation(task_id: &str) -> ApiCallCorrelation {
