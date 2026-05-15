@@ -39,7 +39,7 @@ fn public_api_exposes_chatgpt_auth_types_and_functions() {
                 .single()
                 .expect("access token expiration"),
         ),
-        account_id: "account-id".to_owned(),
+        account_id: Some("account-id".to_owned()),
         user_id: Some("user-id".to_owned()),
         email: Some("user@example.com".to_owned()),
         plan_type: Some("plus".to_owned()),
@@ -50,7 +50,7 @@ fn public_api_exposes_chatgpt_auth_types_and_functions() {
     // @verifies selvedge.auth
     assert_eq!(claims.account_id.as_deref(), Some("account-id"));
     // @verifies selvedge.auth
-    assert_eq!(resolved.account_id, "account-id");
+    assert_eq!(resolved.account_id.as_deref(), Some("account-id"));
     // @verifies selvedge.auth
     assert!(matches!(
         JwtParseError::InvalidFormat,

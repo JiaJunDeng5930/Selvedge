@@ -62,7 +62,7 @@ issuer = "http://127.0.0.1:1"
     // @verifies selvedge.auth
     assert_eq!(resolved.access_token_expires_at, None);
     // @verifies selvedge.auth
-    assert_eq!(resolved.account_id, "workspace-123");
+    assert_eq!(resolved.account_id.as_deref(), Some("workspace-123"));
     // @verifies selvedge.auth
     assert_eq!(resolved.user_id.as_deref(), Some("user-456"));
     // @verifies selvedge.auth
@@ -253,7 +253,7 @@ issuer = "{}"
     // @verifies selvedge.auth
     assert_eq!(resolved.access_token, "new-access-token");
     // @verifies selvedge.auth
-    assert_eq!(resolved.account_id, "workspace-123");
+    assert_eq!(resolved.account_id.as_deref(), Some("workspace-123"));
     // @verifies selvedge.auth
     assert!(persisted.contains("\"access_token\":\"new-access-token\""));
     // @verifies selvedge.auth
@@ -694,13 +694,7 @@ issuer = "{}"
     ));
     let auth_file_path = write_auth_file(
         &tempdir,
-        &auth_file_json(
-            &build_jwt(json!({
-                "sub": "subject"
-            })),
-            "opaque-access-token",
-            "refresh-token",
-        ),
+        &auth_file_json("malformed-id-token", "opaque-access-token", "refresh-token"),
     );
     let original = std::fs::read_to_string(&auth_file_path).expect("read original auth file");
 
@@ -759,13 +753,7 @@ issuer = "{}"
     ));
     let auth_file_path = write_auth_file(
         &tempdir,
-        &auth_file_json(
-            &build_jwt(json!({
-                "sub": "subject"
-            })),
-            "opaque-access-token",
-            "refresh-token",
-        ),
+        &auth_file_json("malformed-id-token", "opaque-access-token", "refresh-token"),
     );
     let original = std::fs::read_to_string(&auth_file_path).expect("read original auth file");
 
@@ -902,13 +890,7 @@ issuer = "{}"
     ));
     write_auth_file(
         &tempdir,
-        &auth_file_json(
-            &build_jwt(json!({
-                "sub": "subject"
-            })),
-            "opaque-access-token",
-            "refresh-token",
-        ),
+        &auth_file_json("malformed-id-token", "opaque-access-token", "refresh-token"),
     );
 
     let error = resolve_for_request()
@@ -966,13 +948,7 @@ issuer = "{}"
     ));
     write_auth_file(
         &tempdir,
-        &auth_file_json(
-            &build_jwt(json!({
-                "sub": "subject"
-            })),
-            "opaque-access-token",
-            "refresh-token",
-        ),
+        &auth_file_json("malformed-id-token", "opaque-access-token", "refresh-token"),
     );
 
     let error = resolve_for_request()
@@ -1027,13 +1003,7 @@ issuer = "{}"
     ));
     write_auth_file(
         &tempdir,
-        &auth_file_json(
-            &build_jwt(json!({
-                "sub": "subject"
-            })),
-            "opaque-access-token",
-            "refresh-token",
-        ),
+        &auth_file_json("malformed-id-token", "opaque-access-token", "refresh-token"),
     );
 
     let error = resolve_for_request()
@@ -1090,13 +1060,7 @@ issuer = "{}"
     ));
     write_auth_file(
         &tempdir,
-        &auth_file_json(
-            &build_jwt(json!({
-                "sub": "subject"
-            })),
-            "opaque-access-token",
-            "refresh-token",
-        ),
+        &auth_file_json("malformed-id-token", "opaque-access-token", "refresh-token"),
     );
 
     let error = resolve_for_request()
@@ -1671,13 +1635,7 @@ issuer = "{}"
     ));
     let auth_file_path = write_auth_file(
         &tempdir,
-        &auth_file_json(
-            &build_jwt(json!({
-                "sub": "subject"
-            })),
-            "opaque-access-token",
-            "refresh-token",
-        ),
+        &auth_file_json("malformed-id-token", "opaque-access-token", "refresh-token"),
     );
 
     let (nonforced, forced) = tokio::join!(resolve_for_request(), resolve_after_unauthorized());
@@ -1689,9 +1647,9 @@ issuer = "{}"
     // @verifies selvedge.auth
     assert_eq!(refresh_hits.load(Ordering::SeqCst), 2);
     // @verifies selvedge.auth
-    assert_eq!(nonforced.account_id, "workspace-123");
+    assert_eq!(nonforced.account_id.as_deref(), Some("workspace-123"));
     // @verifies selvedge.auth
-    assert_eq!(forced.account_id, "workspace-123");
+    assert_eq!(forced.account_id.as_deref(), Some("workspace-123"));
     // @verifies selvedge.auth
     assert_eq!(forced.access_token, "replacement-access-token");
     // @verifies selvedge.auth

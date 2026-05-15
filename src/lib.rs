@@ -1335,7 +1335,7 @@ mod tests {
                     run_calls: 0,
                     result: Ok(ChatgptLoginResult {
                         auth_file_path: std::path::PathBuf::from("/tmp/chatgpt-auth.json"),
-                        account_id: "account-1".to_owned(),
+                        account_id: Some("account-1".to_owned()),
                         user_id: None,
                         email: None,
                         plan_type: None,

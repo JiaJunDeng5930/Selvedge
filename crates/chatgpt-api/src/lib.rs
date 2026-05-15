@@ -1028,9 +1028,11 @@ fn build_http_request(
 ) -> Result<selvedge_client::HttpRequest, RequestValidationError> {
     request.validate()?;
     validate_non_blank("auth.access_token", &auth.access_token)?;
-    validate_non_blank("auth.account_id", &auth.account_id)?;
     validate_header_value("auth.access_token", &auth.access_token)?;
-    validate_header_value("auth.account_id", &auth.account_id)?;
+    if let Some(account_id) = &auth.account_id {
+        validate_non_blank("auth.account_id", account_id)?;
+        validate_header_value("auth.account_id", account_id)?;
+    }
 
     let mut headers = HeaderMap::new();
     insert_header(
@@ -1038,7 +1040,9 @@ fn build_http_request(
         "authorization",
         &format!("Bearer {}", auth.access_token),
     )?;
-    insert_header(&mut headers, "chatgpt-account-id", &auth.account_id)?;
+    if let Some(account_id) = &auth.account_id {
+        insert_header(&mut headers, "chatgpt-account-id", account_id)?;
+    }
     insert_header(&mut headers, "session_id", &request.context.conversation_id)?;
     insert_header(
         &mut headers,
@@ -2023,7 +2027,7 @@ mod tests {
         ResolvedChatgptAuth {
             access_token: "access-token".to_owned(),
             access_token_expires_at: None,
-            account_id: "account-123".to_owned(),
+            account_id: Some("account-123".to_owned()),
             user_id: Some("user-123".to_owned()),
             email: Some("user@example.com".to_owned()),
             plan_type: Some("plus".to_owned()),
@@ -2148,6 +2152,28 @@ mod tests {
         assert_eq!(
             body.pointer("/text/format/name"),
             Some(&serde_json::json!("codex_output_schema"))
+        );
+    }
+
+    #[test]
+    fn build_http_request_omits_chatgpt_account_header_when_account_id_is_missing() {
+        let request = base_request();
+        let mut auth = base_auth();
+        auth.account_id = None;
+        let api_config = base_api_config();
+
+        // @verifies selvedge.model.chatgpt.api.http_request
+        let http_request = build_http_request(&request, &auth, &api_config).expect("http request");
+
+        // @verifies selvedge.model.chatgpt.api.http_request
+        assert!(!http_request.headers.contains_key("chatgpt-account-id"));
+        // @verifies selvedge.model.chatgpt.api.http_request
+        assert_eq!(
+            http_request
+                .headers
+                .get("authorization")
+                .and_then(|value: &HeaderValue| value.to_str().ok()),
+            Some("Bearer access-token")
         );
     }
 

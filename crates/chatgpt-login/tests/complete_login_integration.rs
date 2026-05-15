@@ -27,10 +27,14 @@ async fn complete_device_code_login_persists_auth_file_and_returns_claims() {
     }
 
     let id_token = build_test_jwt(json!({
-        "https://api.openai.com/auth.chatgpt_account_id": "workspace-123",
-        "https://api.openai.com/auth.chatgpt_user_id": "user-456",
-        "https://api.openai.com/auth.chatgpt_plan_type": "plus",
-        "email": "user@example.com"
+        "https://api.openai.com/auth": {
+            "chatgpt_account_id": "workspace-123",
+            "chatgpt_user_id": "user-456",
+            "chatgpt_plan_type": "plus"
+        },
+        "https://api.openai.com/profile": {
+            "email": "user@example.com"
+        }
     }));
     let server = spawn_http_server(Router::new().route(
         "/oauth/token",
@@ -80,7 +84,7 @@ issuer = "{}"
     // @verifies selvedge.login
     assert_eq!(result.auth_file_path, persisted_path);
     // @verifies selvedge.login
-    assert_eq!(result.account_id, "workspace-123");
+    assert_eq!(result.account_id.as_deref(), Some("workspace-123"));
     // @verifies selvedge.login
     assert_eq!(result.user_id.as_deref(), Some("user-456"));
     // @verifies selvedge.login
@@ -412,13 +416,13 @@ expected_workspace_id = "workspace-expected"
 
 // @verifies selvedge.login.id_token.parse
 #[tokio::test(flavor = "multi_thread")]
-async fn complete_device_code_login_rejects_missing_account_id_claim() {
-    const FLAG: &str = "CHATGPT_LOGIN_COMPLETE_INVALID_TOKEN_CHILD";
+async fn complete_device_code_login_accepts_missing_account_id_claim() {
+    const FLAG: &str = "CHATGPT_LOGIN_COMPLETE_MISSING_ACCOUNT_CHILD";
 
     if !child_mode(FLAG) {
         // @verifies selvedge.login
         assert_child_success(&run_child(
-            "complete_device_code_login_rejects_missing_account_id_claim",
+            "complete_device_code_login_accepts_missing_account_id_claim",
             FLAG,
         ));
         return;
@@ -466,37 +470,35 @@ issuer = "{}"
         code_verifier: "code-verifier".to_owned(),
     };
 
-    let error = complete_device_code_login(&challenge, authorization)
+    let result = complete_device_code_login(&challenge, authorization)
         .await
-        .expect_err("missing account_id must fail");
+        .expect("missing account_id can complete");
+    let persisted_path = tempdir.path().join(".selvedge/auth/chatgpt-auth.json");
 
     // @verifies selvedge.login
-    assert!(matches!(error, ChatgptLoginError::InvalidTokenSet { .. }));
+    assert_eq!(result.account_id, None);
     // @verifies selvedge.login
-    assert!(
-        !tempdir
-            .path()
-            .join(".selvedge/auth/chatgpt-auth.json")
-            .exists()
-    );
+    assert!(persisted_path.exists());
 }
 
 // @verifies selvedge.login.id_token.parse
 #[tokio::test(flavor = "multi_thread")]
-async fn complete_device_code_login_rejects_blank_account_id_claim() {
+async fn complete_device_code_login_accepts_blank_account_id_claim_as_missing() {
     const FLAG: &str = "CHATGPT_LOGIN_COMPLETE_BLANK_ACCOUNT_ID_CHILD";
 
     if !child_mode(FLAG) {
         // @verifies selvedge.login
         assert_child_success(&run_child(
-            "complete_device_code_login_rejects_blank_account_id_claim",
+            "complete_device_code_login_accepts_blank_account_id_claim_as_missing",
             FLAG,
         ));
         return;
     }
 
     let id_token = build_test_jwt(json!({
-        "https://api.openai.com/auth.chatgpt_account_id": "",
+        "https://api.openai.com/auth": {
+            "chatgpt_account_id": ""
+        },
         "email": "user@example.com",
         "sub": "fallback-user-id"
     }));
@@ -538,19 +540,15 @@ issuer = "{}"
         code_verifier: "code-verifier".to_owned(),
     };
 
-    let error = complete_device_code_login(&challenge, authorization)
+    let result = complete_device_code_login(&challenge, authorization)
         .await
-        .expect_err("blank account_id must fail");
+        .expect("blank account_id can complete as missing");
+    let persisted_path = tempdir.path().join(".selvedge/auth/chatgpt-auth.json");
 
     // @verifies selvedge.login
-    assert!(matches!(error, ChatgptLoginError::InvalidTokenSet { .. }));
+    assert_eq!(result.account_id, None);
     // @verifies selvedge.login
-    assert!(
-        !tempdir
-            .path()
-            .join(".selvedge/auth/chatgpt-auth.json")
-            .exists()
-    );
+    assert!(persisted_path.exists());
 }
 
 // @verifies selvedge.login.id_token.json
@@ -703,7 +701,7 @@ issuer = "{}"
             .expect("read persisted auth file");
 
     // @verifies selvedge.login
-    assert_eq!(result.account_id, "workspace-new");
+    assert_eq!(result.account_id.as_deref(), Some("workspace-new"));
     // @verifies selvedge.login
     assert_eq!(result.user_id.as_deref(), Some("user-new"));
     // @verifies selvedge.login

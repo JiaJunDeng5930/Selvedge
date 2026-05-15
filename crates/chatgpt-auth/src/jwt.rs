@@ -18,19 +18,38 @@ pub(crate) fn parse(token: &str) -> Result<ChatgptJwtClaims, JwtParseError> {
 
     let _header_object = decode_json_object_segment(header)?;
     let payload_object = decode_json_object_segment(payload)?;
+    let auth_object = payload_object
+        .get("https://api.openai.com/auth")
+        .and_then(Value::as_object);
+    let profile_object = payload_object
+        .get("https://api.openai.com/profile")
+        .and_then(Value::as_object);
 
     Ok(ChatgptJwtClaims {
         subject: read_optional_string(payload_object.get("sub")),
-        account_id: read_optional_string(
-            payload_object.get("https://api.openai.com/auth.chatgpt_account_id"),
+        account_id: read_optional_string_from_object(auth_object, "chatgpt_account_id").or_else(
+            || {
+                read_optional_string(
+                    payload_object.get("https://api.openai.com/auth.chatgpt_account_id"),
+                )
+            },
         ),
-        user_id: read_optional_string(
-            payload_object.get("https://api.openai.com/auth.chatgpt_user_id"),
-        )
-        .or_else(|| read_optional_string(payload_object.get("sub"))),
-        email: read_optional_string(payload_object.get("email")),
-        plan_type: read_optional_string(
-            payload_object.get("https://api.openai.com/auth.chatgpt_plan_type"),
+        user_id: read_optional_string_from_object(auth_object, "chatgpt_user_id")
+            .or_else(|| {
+                read_optional_string(
+                    payload_object.get("https://api.openai.com/auth.chatgpt_user_id"),
+                )
+            })
+            .or_else(|| read_optional_string_from_object(auth_object, "user_id"))
+            .or_else(|| read_optional_string(payload_object.get("sub"))),
+        email: read_optional_string(payload_object.get("email"))
+            .or_else(|| read_optional_string_from_object(profile_object, "email")),
+        plan_type: read_optional_string_from_object(auth_object, "chatgpt_plan_type").or_else(
+            || {
+                read_optional_string(
+                    payload_object.get("https://api.openai.com/auth.chatgpt_plan_type"),
+                )
+            },
         ),
         expires_at: read_expiration(payload_object.get("exp"))?,
     })
@@ -83,6 +102,13 @@ fn read_optional_string(value: Option<&Value>) -> Option<String> {
         .and_then(Value::as_str)
         .filter(|text| !text.is_empty())
         .map(ToOwned::to_owned)
+}
+
+fn read_optional_string_from_object(
+    object: Option<&serde_json::Map<String, Value>>,
+    field: &str,
+) -> Option<String> {
+    read_optional_string(object.and_then(|object| object.get(field)))
 }
 
 // @constraint selvedge.auth.jwt.expiration JWT expiration claims must be valid Unix timestamps before request auth exposes an expiration time.

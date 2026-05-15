@@ -4,11 +4,11 @@ use serde::Deserialize;
 use crate::ChatgptLoginError;
 
 // @behavior selvedge.login.id_token Completed ChatGPT login reads account metadata from the provider id token before persisting auth state.
-// @behavior selvedge.login.id_token.claims Completed login exposes ChatGPT account ID, user ID, email, and plan claims parsed from the id token.
+// @behavior selvedge.login.id_token.claims Completed login exposes available ChatGPT account ID, user ID, email, and plan claims parsed from the id token.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ParsedIdToken {
-    // @behavior selvedge.login.id_token.account_id Completed login returns and validates the ChatGPT account ID parsed from the id token.
-    pub account_id: String,
+    // @behavior selvedge.login.id_token.account_id Completed login returns the ChatGPT account ID when the id token carries it.
+    pub account_id: Option<String>,
     // @behavior selvedge.login.id_token.user_id Completed login returns the ChatGPT user ID parsed from the id token when present.
     pub user_id: Option<String>,
     // @behavior selvedge.login.id_token.email Completed login returns the email parsed from the id token when present.
@@ -17,7 +17,7 @@ pub(crate) struct ParsedIdToken {
     pub plan_type: Option<String>,
 }
 
-// @behavior selvedge.login.id_token.parse Completed login parses the id token payload and rejects token sets without a nonempty ChatGPT account ID.
+// @behavior selvedge.login.id_token.parse Completed login parses the id token payload and accepts optional ChatGPT account metadata.
 pub(crate) fn parse(id_token: &str) -> Result<ParsedIdToken, ChatgptLoginError> {
     let mut segments = id_token.split('.');
     let header = read_required_segment(segments.next(), "header")?;
@@ -37,25 +37,19 @@ pub(crate) fn parse(id_token: &str) -> Result<ParsedIdToken, ChatgptLoginError> 
         serde_json::from_slice(&payload).map_err(|error| ChatgptLoginError::InvalidTokenSet {
             reason: format!("id_token payload is not valid json: {error}"),
         })?;
-    let account_id = match claims.account_id {
-        Some(account_id) if !account_id.is_empty() => account_id,
-        _ => {
-            // @constraint selvedge.login.id_token.account_required Completed login requires a nonempty ChatGPT account ID before credentials are persisted.
-            return Err(ChatgptLoginError::InvalidTokenSet {
-                reason: "id_token missing account_id".to_owned(),
-            });
-        }
-    };
-    let user_id = match claims.chatgpt_user_id {
-        Some(user_id) if !user_id.is_empty() => Some(user_id),
-        _ => claims.sub.filter(|sub| !sub.is_empty()),
-    };
+    let auth = claims.auth.unwrap_or_default();
+    let account_id = non_empty(auth.chatgpt_account_id).or_else(|| non_empty(claims.account_id));
+    let user_id = non_empty(auth.chatgpt_user_id)
+        .or_else(|| non_empty(claims.chatgpt_user_id))
+        .or_else(|| non_empty(auth.user_id))
+        .or_else(|| non_empty(claims.sub));
 
     Ok(ParsedIdToken {
         account_id,
         user_id,
-        email: claims.email.filter(|email| !email.is_empty()),
-        plan_type: claims.plan_type.filter(|plan_type| !plan_type.is_empty()),
+        email: non_empty(claims.email)
+            .or_else(|| claims.profile.and_then(|profile| non_empty(profile.email))),
+        plan_type: non_empty(auth.chatgpt_plan_type).or_else(|| non_empty(claims.plan_type)),
     })
 }
 
@@ -97,12 +91,38 @@ fn decode_json_segment(segment: &str, name: &str) -> Result<Vec<u8>, ChatgptLogi
 // @intent selvedge.login.id_token.claim_adapter The id token claim adapter maps provider claim names into the login result fields.
 #[derive(Debug, Deserialize)]
 struct IdTokenClaims {
+    #[serde(rename = "https://api.openai.com/auth", default)]
+    auth: Option<AuthClaims>,
     #[serde(rename = "https://api.openai.com/auth.chatgpt_account_id")]
     account_id: Option<String>,
     #[serde(rename = "https://api.openai.com/auth.chatgpt_user_id")]
     chatgpt_user_id: Option<String>,
     #[serde(rename = "https://api.openai.com/auth.chatgpt_plan_type")]
     plan_type: Option<String>,
+    #[serde(rename = "https://api.openai.com/profile", default)]
+    profile: Option<ProfileClaims>,
     sub: Option<String>,
     email: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct AuthClaims {
+    #[serde(default)]
+    chatgpt_account_id: Option<String>,
+    #[serde(default)]
+    chatgpt_user_id: Option<String>,
+    #[serde(default)]
+    user_id: Option<String>,
+    #[serde(default)]
+    chatgpt_plan_type: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ProfileClaims {
+    #[serde(default)]
+    email: Option<String>,
+}
+
+fn non_empty(value: Option<String>) -> Option<String> {
+    value.filter(|value| !value.is_empty())
 }
