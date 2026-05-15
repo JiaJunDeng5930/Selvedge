@@ -2864,7 +2864,10 @@ This file is for coding agents working in this repository.
 |tool.readme.module|tool.readme.module.{}
 |tool.readme.package_name|tool.readme.package_name.{empty}
 |tool.readme.package_name.empty|tool.readme.package_name.empty.{}
-|tool.readme.packages|tool.readme.packages.{git_failure,git_spawn_failure,glob_members,members,workspace_parse_failure}
+|tool.readme.packages|tool.readme.packages.{exclude_parse_failure,excludes,git_failure,git_spawn_failure,glob_members,members,workspace_parse_failure}
+|tool.readme.packages.exclude_parse_failure|tool.readme.packages.exclude_parse_failure.{}
+|tool.readme.packages.excludes|tool.readme.packages.excludes.{manifests}
+|tool.readme.packages.excludes.manifests|tool.readme.packages.excludes.manifests.{}
 |tool.readme.packages.git_failure|tool.readme.packages.git_failure.{}
 |tool.readme.packages.git_spawn_failure|tool.readme.packages.git_spawn_failure.{}
 |tool.readme.packages.glob_members|tool.readme.packages.glob_members.{}
