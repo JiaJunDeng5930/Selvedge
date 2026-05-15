@@ -34,6 +34,7 @@ publish = false
 description = "Rust project foundation for Selvedge"
 
 [dependencies]
+chatgpt-login = { path = "crates/chatgpt-login" }
 selvedge-api = { path = "crates/api" }
 selvedge-client-sync = { path = "crates/client-sync" }
 selvedge-command-model = { path = "crates/command-model" }

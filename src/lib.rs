@@ -15,6 +15,10 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
+use chatgpt_login::{
+    ChatgptLoginError, ChatgptLoginResult, DeviceCodePollOutcome, complete_device_code_login,
+    poll_device_code_login, start_device_code_login,
+};
 use selvedge_api::ApiExecutorConfig;
 use selvedge_client_sync::{
     ClientSnapshotBuildFuture, ClientSnapshotBuildRequest, ClientSnapshotBuilder,
@@ -64,10 +68,11 @@ pub struct CliRunArgs {
     pub argv: Vec<String>,
 }
 
-// @behavior selvedge.cli.command CLI arguments resolve to either running the server or submitting a named local command.
+// @behavior selvedge.cli.command CLI arguments resolve to running the server, logging into ChatGPT, or submitting a named local command.
 #[derive(Clone, Debug, PartialEq)]
 pub enum CliCommand {
     RunServer,
+    LoginChatgpt,
     SubmitCommand {
         command_name: String,
         payload: serde_json::Value,
@@ -82,6 +87,7 @@ pub enum CliExitStatus {
     InvalidArgs(String),
     ConfigFailed(String),
     LoggingFailed(String),
+    ChatgptLoginFailed(String),
     ServerDependencyFailed(String),
     ServerStartFailed(String),
     ServerReadyTimeout,
@@ -228,6 +234,15 @@ pub trait CliServerRunner: Send + Sync + 'static {
     ) -> impl Future<Output = selvedge_server::ServerExitStatus> + Send;
 }
 
+// @behavior selvedge.cli.login_chatgpt.runner CLI ChatGPT login runners expose the product login flow result to CLI execution.
+// @intent selvedge.cli.login_chatgpt.abstraction CliChatgptLoginRunner keeps OAuth provider interaction behind a CLI boundary while preserving the real login result.
+pub trait CliChatgptLoginRunner: Send + Sync + 'static {
+    /// @behavior selvedge.cli.login_chatgpt.runner.run ChatGPT login runners return the completed login metadata or a caller-visible login error.
+    fn run_login(
+        &self,
+    ) -> impl Future<Output = Result<ChatgptLoginResult, ChatgptLoginError>> + Send;
+}
+
 // @behavior selvedge.cli.run run_cli initializes config and logging before running the parsed CLI command.
 pub async fn run_cli(args: CliRunArgs) -> CliExitStatus {
     let parsed_command = parse_cli_args(&args.argv);
@@ -253,12 +268,13 @@ pub async fn run_cli(args: CliRunArgs) -> CliExitStatus {
         Err(error) => return CliExitStatus::ServerStartFailed(format!("{error:?}")),
     };
 
-    run_cli_with_deps(
+    run_cli_with_login_deps(
         args.argv,
         systemd_backend,
         DefaultCliServerRunner,
         DefaultCliLocalClientConnector,
         DefaultCliServerStartArgsBuilder::new(),
+        DefaultCliChatgptLoginRunner,
     )
     .await
 }
@@ -270,6 +286,25 @@ pub async fn run_cli_with_deps<
 >(
     args: Vec<String>, systemd_backend: S, server_runner: R,
     local_client_connector: C, server_start_args_builder: B,
+) -> CliExitStatus {
+    run_cli_with_login_deps(
+        args,
+        systemd_backend,
+        server_runner,
+        local_client_connector,
+        server_start_args_builder,
+        DefaultCliChatgptLoginRunner,
+    )
+    .await
+}
+
+// @behavior selvedge.cli.deps.login Injected CLI execution runs ChatGPT login commands through the injected login runner.
+#[rustfmt::skip]
+pub async fn run_cli_with_login_deps<
+    S: SystemdBackend, R: CliServerRunner, C: CliLocalClientConnector, B: CliServerStartArgsBuilder, L: CliChatgptLoginRunner,
+>(
+    args: Vec<String>, systemd_backend: S, server_runner: R,
+    local_client_connector: C, server_start_args_builder: B, chatgpt_login_runner: L,
 ) -> CliExitStatus {
     // @behavior selvedge.cli.deps.argument_parse Injected CLI execution parses supplied arguments before calling injected dependencies.
     let command = match parse_cli_args(&args) {
@@ -289,6 +324,9 @@ pub async fn run_cli_with_deps<
         CliCommand::RunServer => {
             run_server_subcommand(server_runner, server_start_args_builder, &resolved_config).await
         }
+        CliCommand::LoginChatgpt => {
+            run_chatgpt_login_command(chatgpt_login_runner).await
+        }
         CliCommand::SubmitCommand {
             command_name,
             payload,
@@ -304,6 +342,17 @@ pub async fn run_cli_with_deps<
             )
             .await
         }
+    }
+}
+
+async fn run_chatgpt_login_command<L>(chatgpt_login_runner: L) -> CliExitStatus
+where
+    L: CliChatgptLoginRunner,
+{
+    // @behavior selvedge.cli.login_chatgpt The login-chatgpt command runs the ChatGPT OAuth login flow and returns success after credentials are persisted.
+    match chatgpt_login_runner.run_login().await {
+        Ok(_) => CliExitStatus::Success,
+        Err(error) => CliExitStatus::ChatgptLoginFailed(format!("{error:?}")),
     }
 }
 
@@ -370,6 +419,10 @@ fn parse_cli_args(args: &[String]) -> Result<CliCommand, String> {
     if tokens == ["server"] {
         return Ok(CliCommand::RunServer);
     }
+    if tokens == ["login-chatgpt"] {
+        // @behavior selvedge.cli.login_chatgpt.parse CLI parsing accepts login-chatgpt as the product ChatGPT OAuth login command.
+        return Ok(CliCommand::LoginChatgpt);
+    }
 
     let mut client_id = None;
     let mut command_name = None;
@@ -412,7 +465,11 @@ fn parse_cli_args(args: &[String]) -> Result<CliCommand, String> {
 
     let client_id = client_id.ok_or_else(|| "missing --client-id".to_owned())?;
     let command_name = command_name.ok_or_else(|| "expected command name".to_owned())?;
-    if command_name.trim().is_empty() || command_name == "server" || command_name.starts_with('-') {
+    if command_name.trim().is_empty()
+        || command_name == "server"
+        || command_name == "login-chatgpt"
+        || command_name.starts_with('-')
+    {
         // @constraint selvedge.cli.parse.command_name Submitted command names must be non-empty user command names.
         return Err("invalid command name".to_owned());
     }
@@ -681,6 +738,36 @@ impl CliServerRunner for DefaultCliServerRunner {
     }
 }
 
+struct DefaultCliChatgptLoginRunner;
+
+impl CliChatgptLoginRunner for DefaultCliChatgptLoginRunner {
+    async fn run_login(&self) -> Result<ChatgptLoginResult, ChatgptLoginError> {
+        // @behavior selvedge.cli.login_chatgpt.start The product login command prints the provider verification URL and user code returned by ChatGPT device-code start.
+        let challenge = start_device_code_login().await?;
+        println!("Open this URL to authenticate ChatGPT:");
+        println!("{}", challenge.verification_url);
+        println!("User code: {}", challenge.user_code);
+
+        loop {
+            // @behavior selvedge.cli.login_chatgpt.poll The product login command polls at the provider-directed interval until authorization succeeds or the challenge expires.
+            let outcome = poll_device_code_login(&challenge).await?;
+            match outcome {
+                DeviceCodePollOutcome::Pending { next_poll_after } => {
+                    tokio::time::sleep(next_poll_after).await;
+                }
+                DeviceCodePollOutcome::Authorized(authorization) => {
+                    // @behavior selvedge.cli.login_chatgpt.complete The product login command completes authorized device-code grants and prints the persisted auth file path.
+                    let result = complete_device_code_login(&challenge, authorization).await?;
+                    println!("ChatGPT login complete.");
+                    println!("Auth file: {}", result.auth_file_path.display());
+                    return Ok(result);
+                }
+                DeviceCodePollOutcome::Expired => return Err(ChatgptLoginError::ChallengeExpired),
+            }
+        }
+    }
+}
+
 struct UnavailableToolExecutor;
 
 impl ToolExecutionSpawner for UnavailableToolExecutor {
@@ -927,6 +1014,15 @@ mod tests {
         );
     }
 
+    #[test]
+    fn parser_accepts_login_chatgpt_command() {
+        let command = parse_cli_args(&["selvedge".to_owned(), "login-chatgpt".to_owned()])
+            .expect("login command should parse");
+
+        // @verifies selvedge.cli.login_chatgpt
+        assert_eq!(command, CliCommand::LoginChatgpt);
+    }
+
     #[tokio::test]
     async fn server_subcommand_uses_builder_and_runner_without_systemd_or_local_client() {
         let connector = FakeConnector::new(Vec::new());
@@ -968,6 +1064,53 @@ mod tests {
         // @verifies selvedge.cli.server
         assert!(matches!(status, CliExitStatus::ServerDependencyFailed(_)));
         assert_eq!(runner_state.lock().expect("runner").run_calls, 0);
+    }
+
+    #[tokio::test]
+    async fn login_chatgpt_command_runs_login_flow_without_service_dependencies() {
+        let connector = FakeConnector::new(Vec::new());
+        let connector_state = connector.state.clone();
+        let systemd = FakeSystemdBackend::new(Vec::new(), Vec::new());
+        let server_runner = FakeServerRunner::stopped();
+        let server_runner_state = server_runner.state.clone();
+        let login_runner = FakeChatgptLoginRunner::success();
+        let login_runner_state = login_runner.state.clone();
+
+        let status = run_cli_with_login_deps(
+            vec!["selvedge".to_owned(), "login-chatgpt".to_owned()],
+            systemd.clone(),
+            server_runner,
+            connector,
+            DefaultCliServerStartArgsBuilder::new(),
+            login_runner,
+        )
+        .await;
+
+        // @verifies selvedge.cli.login_chatgpt
+        assert_eq!(status, CliExitStatus::Success);
+        assert_eq!(login_runner_state.lock().expect("login").run_calls, 1);
+        assert_eq!(connector_state.lock().expect("connector").connect_calls, 0);
+        assert_eq!(systemd.start_calls(), 0);
+        assert_eq!(server_runner_state.lock().expect("runner").run_calls, 0);
+    }
+
+    #[tokio::test]
+    async fn login_chatgpt_command_reports_login_failure() {
+        let status = run_cli_with_login_deps(
+            vec!["selvedge".to_owned(), "login-chatgpt".to_owned()],
+            FakeSystemdBackend::new(Vec::new(), Vec::new()),
+            FakeServerRunner::stopped(),
+            FakeConnector::new(Vec::new()),
+            DefaultCliServerStartArgsBuilder::new(),
+            FakeChatgptLoginRunner::challenge_expired(),
+        )
+        .await;
+
+        // @verifies selvedge.cli.login_chatgpt
+        assert_eq!(
+            status,
+            CliExitStatus::ChatgptLoginFailed("ChallengeExpired".to_owned())
+        );
     }
 
     #[derive(Clone)]
@@ -1133,6 +1276,56 @@ mod tests {
             let mut state = self.state.lock().expect("runner");
             state.run_calls += 1;
             state.status.clone()
+        }
+    }
+
+    #[derive(Clone)]
+    struct FakeChatgptLoginRunner {
+        state: Arc<Mutex<FakeChatgptLoginRunnerState>>,
+    }
+
+    struct FakeChatgptLoginRunnerState {
+        run_calls: usize,
+        result: Result<ChatgptLoginResult, ChatgptLoginError>,
+    }
+
+    impl FakeChatgptLoginRunner {
+        fn success() -> Self {
+            Self {
+                state: Arc::new(Mutex::new(FakeChatgptLoginRunnerState {
+                    run_calls: 0,
+                    result: Ok(ChatgptLoginResult {
+                        auth_file_path: std::path::PathBuf::from("/tmp/chatgpt-auth.json"),
+                        account_id: "account-1".to_owned(),
+                        user_id: None,
+                        email: None,
+                        plan_type: None,
+                    }),
+                })),
+            }
+        }
+
+        fn challenge_expired() -> Self {
+            Self {
+                state: Arc::new(Mutex::new(FakeChatgptLoginRunnerState {
+                    run_calls: 0,
+                    result: Err(ChatgptLoginError::ChallengeExpired),
+                })),
+            }
+        }
+    }
+
+    impl CliChatgptLoginRunner for FakeChatgptLoginRunner {
+        async fn run_login(&self) -> Result<ChatgptLoginResult, ChatgptLoginError> {
+            let mut state = self.state.lock().expect("login");
+            state.run_calls += 1;
+            match &state.result {
+                Ok(result) => Ok(result.clone()),
+                Err(ChatgptLoginError::ChallengeExpired) => {
+                    Err(ChatgptLoginError::ChallengeExpired)
+                }
+                Err(other) => panic!("unexpected fake login error: {other:?}"),
+            }
         }
     }
 
