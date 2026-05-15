@@ -171,7 +171,45 @@ fn workspace_manifest_paths(
         }
     }
 
+    // @behavior tool.readme.packages.excludes Package discovery removes workspace exclude entries from README gate package manifests.
+    for manifest_path in workspace_excluded_manifest_paths(root, root_manifest)? {
+        manifests.remove(&manifest_path);
+    }
+
     Ok(manifests.into_iter().collect())
+}
+
+/// @behavior tool.readme.packages.excludes.manifests Package discovery expands workspace exclude entries into manifest paths before filtering README gate packages.
+fn workspace_excluded_manifest_paths(
+    root: &Path,
+    root_manifest: &toml::Value,
+) -> Result<BTreeSet<PathBuf>, String> {
+    let mut manifests = BTreeSet::new();
+    let Some(excludes) = root_manifest
+        .get("workspace")
+        .and_then(|workspace| workspace.get("exclude"))
+        .and_then(toml::Value::as_array)
+    else {
+        return Ok(manifests);
+    };
+
+    for exclude in excludes {
+        let exclude = exclude
+            .as_str()
+            // @behavior tool.readme.packages.exclude_parse_failure Package discovery reports non-string workspace exclude entries before README checks run.
+            .ok_or_else(|| "workspace.exclude entries must be strings".to_owned())?;
+        if exclude == "." {
+            manifests.insert(PathBuf::from("Cargo.toml"));
+        } else if exclude.contains('*') {
+            for manifest_path in git_member_manifests(root, exclude)? {
+                manifests.insert(manifest_path);
+            }
+        } else {
+            manifests.insert(PathBuf::from(exclude).join("Cargo.toml"));
+        }
+    }
+
+    Ok(manifests)
 }
 
 /// @behavior tool.readme.packages.glob_members Workspace member globs expand through tracked Cargo.toml files.
@@ -539,6 +577,41 @@ mod tests {
 
         // @verifies tool.readme.mermaid
         check_package_readme_mermaid(repo.path()).expect("diagram should compile");
+    }
+
+    #[test]
+    fn workspace_excludes_are_skipped_by_readme_gates() {
+        let repo = TestRepo::new();
+        repo.write(
+            "Cargo.toml",
+            "[workspace]\nmembers = [\"crates/*\"]\nexclude = [\"crates/template\"]\n",
+        );
+        repo.write(
+            "crates/demo/Cargo.toml",
+            "[package]\nname = \"demo\"\nedition = \"2024\"\n",
+        );
+        repo.write("crates/demo/src/lib.rs", "pub fn demo() {}\n");
+        repo.write(
+            "crates/template/Cargo.toml",
+            "[package]\nname = \"template\"\nedition = \"2024\"\n",
+        );
+        repo.git_add(&[
+            "Cargo.toml",
+            "crates/demo/Cargo.toml",
+            "crates/demo/src/lib.rs",
+            "crates/template/Cargo.toml",
+        ]);
+        repo.git_commit("create workspace packages");
+        let commit = repo.head();
+        repo.write("crates/demo/README.md", &readme("demo", &commit, "A --> B"));
+        repo.git_add(&["crates/demo/README.md"]);
+        repo.git_commit("document package");
+
+        // @verifies tool.readme.packages.excludes
+        check_package_readme_mermaid(repo.path()).expect("excluded packages should be skipped");
+        let status =
+            check_package_readmes_freshness(repo.path()).expect("freshness check should run");
+        assert_eq!(status, ReadmeFreshnessStatus::Fresh);
     }
 
     fn readme(package: &str, commit: &str, diagram_body: &str) -> String {
