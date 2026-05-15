@@ -1,5 +1,6 @@
 //! @behavior tool.readme The README gate validates package README freshness metadata and Mermaid diagrams.
 
+use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -117,16 +118,68 @@ struct MermaidDiagram {
 
 /// @behavior tool.readme.packages Package discovery reads tracked workspace package manifests from Git.
 fn workspace_packages(root: &Path) -> Result<Vec<WorkspacePackage>, String> {
+    let root_manifest = PathBuf::from("Cargo.toml");
+    let root_manifest_content = read_file(root, &root_manifest)?;
+    let root_manifest_value = root_manifest_content
+        .parse::<toml::Value>()
+        // @behavior tool.readme.packages.workspace_parse_failure Package discovery reports root Cargo.toml parse errors before README checks run.
+        .map_err(|error| format!("failed to parse Cargo.toml workspace metadata: {error}"))?;
+    let manifest_paths = workspace_manifest_paths(root, &root_manifest_value)?;
+    let mut packages = Vec::new();
+    for manifest_path in manifest_paths {
+        let manifest_content = read_file(root, &manifest_path)?;
+        let name = parse_package_name(&manifest_path, &manifest_content)?;
+        let path = manifest_path
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+            .map_or_else(|| PathBuf::from("."), Path::to_path_buf);
+        packages.push(WorkspacePackage { name, path });
+    }
+    packages.sort_by(|left, right| left.path.cmp(&right.path));
+    Ok(packages)
+}
+
+/// @behavior tool.readme.packages.members Package discovery derives checked package manifests from the root package and the workspace members list.
+fn workspace_manifest_paths(
+    root: &Path,
+    root_manifest: &toml::Value,
+) -> Result<Vec<PathBuf>, String> {
+    let mut manifests = BTreeSet::new();
+
+    if root_manifest.get("package").is_some() {
+        manifests.insert(PathBuf::from("Cargo.toml"));
+    }
+
+    let Some(members) = root_manifest
+        .get("workspace")
+        .and_then(|workspace| workspace.get("members"))
+        .and_then(toml::Value::as_array)
+    else {
+        return Ok(manifests.into_iter().collect());
+    };
+
+    for member in members {
+        let member = member
+            .as_str()
+            .ok_or_else(|| "workspace.members entries must be strings".to_owned())?;
+        if member.contains('*') {
+            for manifest_path in git_member_manifests(root, member)? {
+                manifests.insert(manifest_path);
+            }
+        } else {
+            manifests.insert(PathBuf::from(member).join("Cargo.toml"));
+        }
+    }
+
+    Ok(manifests.into_iter().collect())
+}
+
+/// @behavior tool.readme.packages.glob_members Workspace member globs expand through tracked Cargo.toml files.
+fn git_member_manifests(root: &Path, member: &str) -> Result<Vec<PathBuf>, String> {
+    let pattern = format!("{member}/Cargo.toml");
     let output = isolated_git_command()
         .current_dir(root)
-        .args([
-            "ls-files",
-            "-z",
-            "--",
-            "Cargo.toml",
-            "crates/*/Cargo.toml",
-            "xtask/Cargo.toml",
-        ])
+        .args(["ls-files", "-z", "--", &pattern])
         .output()
         // @behavior tool.readme.packages.git_spawn_failure Package discovery reports process errors when Git cannot be started.
         .map_err(|error| format!("failed to run git ls-files for package manifests: {error}"))?;
@@ -138,22 +191,12 @@ fn workspace_packages(root: &Path) -> Result<Vec<WorkspacePackage>, String> {
         ));
     }
 
-    let mut packages = Vec::new();
-    for entry in output.stdout.split(|byte| *byte == b'\0') {
-        if entry.is_empty() {
-            continue;
-        }
-        let manifest_path = PathBuf::from(String::from_utf8_lossy(entry).into_owned());
-        let manifest_content = read_file(root, &manifest_path)?;
-        let name = parse_package_name(&manifest_path, &manifest_content)?;
-        let path = manifest_path
-            .parent()
-            .filter(|parent| !parent.as_os_str().is_empty())
-            .map_or_else(|| PathBuf::from("."), Path::to_path_buf);
-        packages.push(WorkspacePackage { name, path });
-    }
-    packages.sort_by(|left, right| left.path.cmp(&right.path));
-    Ok(packages)
+    Ok(output
+        .stdout
+        .split(|byte| *byte == b'\0')
+        .filter(|entry| !entry.is_empty())
+        .map(|entry| PathBuf::from(String::from_utf8_lossy(entry).into_owned()))
+        .collect())
 }
 
 /// @behavior tool.readme.package_name Package discovery reads each Cargo package name from the manifest `[package]` table.
@@ -500,7 +543,12 @@ mod tests {
                 &["config", "user.email", "test@example.com"],
             );
             fs::write(tempdir.path().join("README.md"), "# repo\n").expect("root readme");
-            run_git(tempdir.path(), &["add", "README.md"]);
+            fs::write(
+                tempdir.path().join("Cargo.toml"),
+                "[workspace]\nmembers = [\"crates/demo\"]\n",
+            )
+            .expect("root manifest");
+            run_git(tempdir.path(), &["add", "Cargo.toml", "README.md"]);
             run_git(tempdir.path(), &["commit", "-m", "initial"]);
             Self { tempdir }
         }

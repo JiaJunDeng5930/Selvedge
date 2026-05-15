@@ -67,10 +67,11 @@ flowchart TD
   Success[Exit code 0]
   Interrupted[Exit code 130]
   Failure[Exit code 1]
+  PanicExit[Process exits through Rust panic path]
 
   Start -->|main is invoked by the operating system| Runtime
   Runtime -->|Tokio runtime builds successfully| RunCli
-  Runtime -->|Tokio runtime construction panics| Failure
+  Runtime -->|Tokio runtime construction panics before CLI status mapping runs| PanicExit
   RunCli -->|argv parses and dependencies initialize| InitConfig
   RunCli -->|argv is empty, malformed, or contains an unsupported command shape| Failure
   InitConfig -->|config and logging initialize successfully| Command

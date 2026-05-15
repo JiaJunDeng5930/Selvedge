@@ -2827,6 +2827,7 @@ version = "0.0.0"
 dependencies = [
  "mermaid-rs-renderer",
  "tempfile",
+ "toml",
  "tree-sitter",
  "tree-sitter-rust",
 ]
