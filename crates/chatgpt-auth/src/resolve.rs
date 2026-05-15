@@ -74,7 +74,7 @@ async fn resolve(force_refresh: bool) -> Result<ResolvedChatgptAuth, ChatgptAuth
     Ok(resolved)
 }
 
-// @behavior selvedge.auth.resolve.refresh_decision Auth resolution refreshes when the access token is expired or the id token cannot supply an account ID.
+// @behavior selvedge.auth.resolve.refresh_decision Auth resolution refreshes when the access token is expired or the id token cannot be parsed.
 fn should_refresh(auth_file: &ChatgptAuthFile, access_token_expired: bool) -> bool {
     if access_token_expired {
         return true;
@@ -83,13 +83,9 @@ fn should_refresh(auth_file: &ChatgptAuthFile, access_token_expired: bool) -> bo
     id_token_requires_refresh(auth_file)
 }
 
-// @constraint selvedge.auth.resolve.id_token_account A local id token without a ChatGPT account ID requires refresh before credentials are returned.
+// @constraint selvedge.auth.resolve.id_token_account A local id token that cannot be parsed requires refresh before credentials are returned.
 fn id_token_requires_refresh(auth_file: &ChatgptAuthFile) -> bool {
-    let Ok(id_token_claims) = parse_chatgpt_jwt_claims(&auth_file.tokens.id_token) else {
-        return true;
-    };
-
-    id_token_claims.account_id.is_none()
+    parse_chatgpt_jwt_claims(&auth_file.tokens.id_token).is_err()
 }
 
 // @constraint selvedge.auth.resolve.access_expiration JWT access tokens at or before their expiration time require refresh before provider use.
@@ -139,31 +135,26 @@ fn build_resolved_auth_from_refresh(
     build_resolved_auth(auth_file, expected_workspace_id, id_token_claims)
 }
 
-// @behavior selvedge.auth.resolve.workspace Resolved ChatGPT auth requires an account ID and rejects accounts outside the configured expected workspace.
+// @behavior selvedge.auth.resolve.workspace Resolved ChatGPT auth rejects missing or different account IDs when expected workspace is configured.
 fn build_resolved_auth(
     auth_file: &ChatgptAuthFile,
     expected_workspace_id: Option<&str>,
     id_token_claims: ChatgptJwtClaims,
 ) -> Result<ResolvedChatgptAuth, ChatgptAuthError> {
-    let account_id = id_token_claims
-        .account_id
-        .clone()
-        .ok_or(ChatgptAuthError::MissingAccountId)?;
-
     if let Some(expected_workspace_id) = expected_workspace_id
-        && account_id != expected_workspace_id
+        && id_token_claims.account_id.as_deref() != Some(expected_workspace_id)
     {
         // @behavior selvedge.auth.resolve.workspace_mismatch Workspace mismatches are returned as caller-visible auth errors with expected and actual account IDs.
         return Err(ChatgptAuthError::WorkspaceMismatch {
             expected: expected_workspace_id.to_owned(),
-            actual: Some(account_id),
+            actual: id_token_claims.account_id,
         });
     }
 
     Ok(ResolvedChatgptAuth {
         access_token: auth_file.tokens.access_token.clone(),
         access_token_expires_at: access_token_expiration(&auth_file.tokens.access_token),
-        account_id,
+        account_id: id_token_claims.account_id,
         user_id: id_token_claims.user_id,
         email: id_token_claims.email,
         plan_type: id_token_claims.plan_type,

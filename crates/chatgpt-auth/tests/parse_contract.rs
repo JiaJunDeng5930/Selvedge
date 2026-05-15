@@ -87,11 +87,15 @@ fn parse_chatgpt_jwt_claims_extracts_expected_fields() {
         r#"{"alg":"none"}"#,
         r#"{
             "sub":"subject",
-            "email":"user@example.com",
             "exp":1700000000,
-            "https://api.openai.com/auth.chatgpt_account_id":"account-id",
-            "https://api.openai.com/auth.chatgpt_user_id":"user-id",
-            "https://api.openai.com/auth.chatgpt_plan_type":"plus"
+            "https://api.openai.com/auth": {
+                "chatgpt_account_id":"account-id",
+                "chatgpt_user_id":"user-id",
+                "chatgpt_plan_type":"plus"
+            },
+            "https://api.openai.com/profile": {
+                "email":"user@example.com"
+            }
         }"#,
     );
 
@@ -125,7 +129,9 @@ fn parse_chatgpt_jwt_claims_uses_sub_for_user_id_when_chatgpt_user_id_is_missing
         r#"{"alg":"none"}"#,
         r#"{
             "sub":"subject",
-            "https://api.openai.com/auth.chatgpt_account_id":"account-id"
+            "https://api.openai.com/auth": {
+                "chatgpt_account_id":"account-id"
+            }
         }"#,
     );
 
@@ -166,7 +172,7 @@ fn parse_chatgpt_jwt_claims_rejects_invalid_expiration() {
 fn parse_chatgpt_jwt_claims_rejects_invalid_header_json() {
     let invalid_header = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode("not-json");
     let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(
-        r#"{"sub":"subject","https://api.openai.com/auth.chatgpt_account_id":"account-id"}"#,
+        r#"{"sub":"subject","https://api.openai.com/auth":{"chatgpt_account_id":"account-id"}}"#,
     );
     let token = format!("{invalid_header}.{payload}.signature");
 

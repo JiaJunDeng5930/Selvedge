@@ -27,7 +27,7 @@ pub struct ChatgptAuthFile {
 /// @behavior selvedge.auth.file.tokens The stored ChatGPT token set exposes id, access, and refresh tokens to request resolution and refresh flows.
 #[derive(Clone, Debug)]
 pub struct ChatgptStoredTokens {
-    /// @behavior selvedge.auth.file.tokens.id_field The stored id token supplies account claims for auth resolution and refresh validation.
+    /// @behavior selvedge.auth.file.tokens.id_field The stored id token supplies available account claims for auth resolution and refresh validation.
     pub id_token: String,
     /// @behavior selvedge.auth.file.tokens.access_field The stored access token is returned to provider requests after auth resolution succeeds.
     pub access_token: String,
@@ -35,12 +35,12 @@ pub struct ChatgptStoredTokens {
     pub refresh_token: String,
 }
 
-/// @behavior selvedge.auth.jwt.claims ChatGPT JWT parsing returns the account, user, email, plan, subject, and expiration claims visible to callers.
+/// @behavior selvedge.auth.jwt.claims ChatGPT JWT parsing returns available account, user, email, plan, subject, and expiration claims visible to callers.
 #[derive(Clone, Debug)]
 pub struct ChatgptJwtClaims {
     /// @behavior selvedge.auth.jwt.claims.subject_field Parsed JWT claims expose the subject claim as fallback user metadata.
     pub subject: Option<String>,
-    /// @behavior selvedge.auth.jwt.claims.account_field Parsed JWT claims expose the ChatGPT account ID used for workspace validation.
+    /// @behavior selvedge.auth.jwt.claims.account_field Parsed JWT claims expose the ChatGPT account ID when the provider supplies it.
     pub account_id: Option<String>,
     /// @behavior selvedge.auth.jwt.claims.user_field Parsed JWT claims expose the ChatGPT user ID when the provider supplies it.
     pub user_id: Option<String>,
@@ -52,15 +52,15 @@ pub struct ChatgptJwtClaims {
     pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
-/// @behavior selvedge.auth.resolved A resolved ChatGPT authentication result returns the access token and account metadata used by provider requests.
+/// @behavior selvedge.auth.resolved A resolved ChatGPT authentication result returns the access token and available account metadata used by provider requests.
 #[derive(Clone, Debug)]
 pub struct ResolvedChatgptAuth {
     /// @behavior selvedge.auth.resolved.access_field Resolved ChatGPT auth returns the access token used by provider requests.
     pub access_token: String,
     /// @behavior selvedge.auth.resolved.expiration_field Resolved ChatGPT auth returns the access token expiration when the token carries one.
     pub access_token_expires_at: Option<chrono::DateTime<chrono::Utc>>,
-    /// @behavior selvedge.auth.resolved.account_field Resolved ChatGPT auth returns the account ID used for workspace-scoped provider requests.
-    pub account_id: String,
+    /// @behavior selvedge.auth.resolved.account_field Resolved ChatGPT auth returns the account ID when the provider supplies it.
+    pub account_id: Option<String>,
     /// @behavior selvedge.auth.resolved.user_field Resolved ChatGPT auth returns user metadata when the id token carries it.
     pub user_id: Option<String>,
     /// @behavior selvedge.auth.resolved.email_field Resolved ChatGPT auth returns email metadata when the id token carries it.

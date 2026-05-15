@@ -44,13 +44,13 @@ pub struct DeviceCodeAuthorization {
     pub code_verifier: String,
 }
 
-/// @behavior selvedge.login.result Completing device-code login returns the persisted auth file path and account metadata parsed from the id token.
+/// @behavior selvedge.login.result Completing device-code login returns the persisted auth file path and available account metadata parsed from the id token.
 #[derive(Clone, Debug)]
 pub struct ChatgptLoginResult {
     /// @behavior selvedge.login.result.auth_file_path Completed device-code login returns the path of the persisted ChatGPT auth file.
     pub auth_file_path: PathBuf,
-    /// @behavior selvedge.login.result.account_id Completed device-code login returns the ChatGPT account ID parsed from the id token.
-    pub account_id: String,
+    /// @behavior selvedge.login.result.account_id Completed device-code login returns the ChatGPT account ID when the id token carries it.
+    pub account_id: Option<String>,
     /// @behavior selvedge.login.result.user_id Completed device-code login returns the ChatGPT user ID when the id token carries it.
     pub user_id: Option<String>,
     /// @behavior selvedge.login.result.email Completed device-code login returns the ChatGPT email when the id token carries it.
@@ -117,7 +117,7 @@ pub async fn poll_device_code_login(
     device_code::poll(&config, challenge).await
 }
 
-/// @behavior selvedge.login.complete Completing device-code login exchanges the authorization grant, validates account claims, persists auth state, and returns login metadata.
+/// @behavior selvedge.login.complete Completing device-code login exchanges the authorization grant, validates configured workspace claims, persists auth state, and returns login metadata.
 pub async fn complete_device_code_login(
     challenge: &DeviceCodeChallenge,
     authorization: DeviceCodeAuthorization,
@@ -133,12 +133,12 @@ pub async fn complete_device_code_login(
     let claims = id_token::parse(&token_set.id_token)?;
 
     if let Some(expected_workspace_id) = &config.expected_workspace_id
-        && claims.account_id != *expected_workspace_id
+        && claims.account_id.as_deref() != Some(expected_workspace_id)
     {
-        // @behavior selvedge.login.complete.workspace_mismatch Completing login returns a workspace mismatch before persisting credentials for another account.
+        // @behavior selvedge.login.complete.workspace_mismatch Completing login returns a workspace mismatch before persisting credentials outside the configured workspace.
         return Err(ChatgptLoginError::WorkspaceMismatch {
             expected: expected_workspace_id.clone(),
-            actual: Some(claims.account_id.clone()),
+            actual: claims.account_id.clone(),
         });
     }
 

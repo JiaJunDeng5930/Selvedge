@@ -30,7 +30,7 @@ fn public_api_exposes_chatgpt_device_code_types_and_functions() {
     };
     let result = ChatgptLoginResult {
         auth_file_path: PathBuf::from("/tmp/chatgpt-auth.json"),
-        account_id: "account-id".to_owned(),
+        account_id: Some("account-id".to_owned()),
         user_id: Some("user-id".to_owned()),
         email: Some("user@example.com".to_owned()),
         plan_type: Some("plus".to_owned()),
@@ -44,7 +44,7 @@ fn public_api_exposes_chatgpt_device_code_types_and_functions() {
     // @verifies selvedge.login
     assert_eq!(authorization.code_verifier, "code-verifier");
     // @verifies selvedge.login
-    assert_eq!(result.account_id, "account-id");
+    assert_eq!(result.account_id.as_deref(), Some("account-id"));
     // @verifies selvedge.login
     assert!(matches!(
         DeviceCodePollOutcome::Authorized(authorization.clone()),
