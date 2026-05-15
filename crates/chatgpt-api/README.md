@@ -1,5 +1,10 @@
 # chatgpt-api
 
+<!-- selvedge-package-readme
+package: chatgpt-api
+freshness_commit: 1c81a33f8a447fd4578da3e44db1393e6dff110e
+-->
+
 ## This crate is for
 
 This crate implements ChatGPT `/responses` streaming calls for Selvedge.
@@ -63,3 +68,43 @@ Failure precedence is simple:
 Whichever timeout fires first ends the stream first. Callers should therefore
 treat the client-layer timeout and the API-layer completion timeout as distinct
 failure modes rather than aliases.
+
+## Package State Machine
+
+The diagram records the package-level observable states and transition paths. Each edge label names the concrete condition checked at this package boundary.
+
+```mermaid
+flowchart TD
+  Start([stream request])
+  Validate[Validate ChatgptResponsesRequest]
+  ResolveAuth[Resolve auth for request]
+  OpenStream[Open responses HTTP stream]
+  RetryAfterUnauthorized[Refresh auth after unauthorized]
+  Decode[Decode SSE events]
+  YieldEvent[Yield typed ChatgptResponseEvent]
+  Complete[Stream completed]
+  ValidationError[Return RequestValidation error]
+  AuthError[Return auth lower-layer error]
+  EndpointError[Return endpoint error]
+  TransportError[Return transport lower-layer error]
+  TimeoutError[Return stream completion timeout]
+  DecodeError[Return event decode error]
+
+  Start -->|caller provides request| Validate
+  Validate -->|model and input fields satisfy request rules| ResolveAuth
+  Validate -->|required field is empty or inconsistent| ValidationError
+  ResolveAuth -->|auth resolution returns credentials| OpenStream
+  ResolveAuth -->|auth resolution returns ChatgptAuthError| AuthError
+  OpenStream -->|HTTP status is 2xx and body is streamable| Decode
+  OpenStream -->|HTTP status is unauthorized and retry has not been used| RetryAfterUnauthorized
+  OpenStream -->|HTTP status is non-2xx other than first unauthorized retry path| EndpointError
+  OpenStream -->|selvedge-client returns transport status, build, config, or timeout error| TransportError
+  RetryAfterUnauthorized -->|forced auth refresh succeeds| OpenStream
+  RetryAfterUnauthorized -->|forced auth refresh fails| AuthError
+  Decode -->|valid SSE event maps to response event| YieldEvent
+  Decode -->|provider sends terminal completion event| Complete
+  Decode -->|overall stream lifetime exceeds configured stream_completion_timeout_ms| TimeoutError
+  Decode -->|body chunk read fails| TransportError
+  Decode -->|SSE or JSON event payload cannot be decoded| DecodeError
+  YieldEvent -->|caller polls again before terminal event| Decode
+```

@@ -1,5 +1,10 @@
 # core
 
+<!-- selvedge-package-readme
+package: selvedge-core
+freshness_commit: 1c81a33f8a447fd4578da3e44db1393e6dff110e
+-->
+
 This crate runs one task runtime actor per active task.
 
 Use it to spawn a task-local runtime that loads SQLite state through `selvedge-db`, queues input while busy, requests model calls through the router, requests tool execution through the router, and exits on archive or database errors.
@@ -13,3 +18,52 @@ The actor checks `TaskRuntimeControl` before receiving each business mailbox com
 Runtime output to the router uses the unbounded router ingress sender. Event handlers can enqueue router output synchronously and return to the control check without waiting for router mailbox capacity.
 
 `TaskRuntimeSpawnDeps` wraps the runtime config and a `TaskRuntimeSpawner` implementation. Use `TaskRuntimeSpawnDeps::new` for the default Tokio-backed spawner and `with_spawner` for boundary tests.
+
+## Package State Machine
+
+The diagram records the package-level observable states and transition paths. Each edge label names the concrete condition checked at this package boundary.
+
+```mermaid
+flowchart TD
+  Start([spawn_task_runtime])
+  LoadSnapshot[Read active task snapshot]
+  ClassifyTail{cursor tail}
+  AwaitInput[Await user input]
+  RequestModel[Send model call request to router]
+  AwaitModel[Await matching API output]
+  RequestTool[Send tool execution request to router]
+  AwaitTool[Await matching tool output]
+  QueueInput[Queue or append user input]
+  Archive[Archive task]
+  Stop[Exit after stop control]
+  Exit[Publish TaskRuntimeExitNotice]
+  DbError[Exit on database error]
+  RouterClosed[Exit on router ingress closure]
+
+  Start -->|task runtime actor starts| LoadSnapshot
+  LoadSnapshot -->|active task snapshot read succeeds| ClassifyTail
+  LoadSnapshot -->|database read fails or task is inactive| DbError
+  ClassifyTail -->|tail is user, system, or function output| RequestModel
+  ClassifyTail -->|tail is function call| RequestTool
+  ClassifyTail -->|tail is assistant or developer and queued input is empty| AwaitInput
+  ClassifyTail -->|tail is assistant or developer and queued input exists| QueueInput
+  RequestModel -->|router ingress send succeeds| AwaitModel
+  RequestModel -->|router ingress send fails| RouterClosed
+  AwaitModel -->|matching completed API output arrives| ClassifyTail
+  AwaitModel -->|matching failed API output arrives| AwaitInput
+  AwaitModel -->|user input arrives while model is in flight| QueueInput
+  RequestTool -->|router ingress send succeeds| AwaitTool
+  RequestTool -->|router ingress send fails| RouterClosed
+  AwaitTool -->|matching tool result arrives| ClassifyTail
+  AwaitTool -->|user input arrives while tool is in flight| QueueInput
+  AwaitInput -->|user input command arrives| QueueInput
+  QueueInput -->|database transition succeeds| ClassifyTail
+  QueueInput -->|database transition fails| DbError
+  AwaitInput -->|archive command arrives| Archive
+  Archive -->|database archive succeeds| Exit
+  Archive -->|database archive fails| DbError
+  AwaitInput -->|stop control observed before business command starts| Stop
+  AwaitModel -->|stop control observed at command boundary| Stop
+  AwaitTool -->|stop control observed at command boundary| Stop
+  Stop -->|actor writes stop result| Exit
+```

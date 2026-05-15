@@ -6,6 +6,9 @@ use std::path::PathBuf;
 use std::process;
 
 use xtask::agents_index::{CheckStatus, DirectoryWarning, check_agents_md, update_agents_md};
+use xtask::readme_gate::{
+    ReadmeFreshnessStatus, check_package_readme_mermaid, check_package_readmes_freshness,
+};
 use xtask::requirements::{
     RequirementCheckMode, RequirementCheckStatus, check_requirements,
     format_agents_requirement_index, scan_requirements,
@@ -64,6 +67,40 @@ fn main() {
                 1
             }
         },
+        [command, action] if command == "readme" && action == "check-freshness" => {
+            match check_package_readmes_freshness(&root) {
+                Ok(ReadmeFreshnessStatus::Fresh) => 0,
+                Ok(ReadmeFreshnessStatus::Stale { packages }) => {
+                    // @behavior tool.cli.readme_freshness_stale The README freshness command prints every stale package and exits with failure.
+                    for package in packages {
+                        eprintln!(
+                            "{}: stale README freshness metadata at {}",
+                            package.package, package.readme_path
+                        );
+                        eprintln!("  freshness_commit: {}", package.freshness_commit);
+                        for changed_file in package.changed_files {
+                            eprintln!("  changed: {changed_file}");
+                        }
+                    }
+                    1
+                }
+                // @behavior tool.cli.readme_freshness_error The README freshness command prints checker errors and exits with failure.
+                Err(error) => {
+                    eprintln!("{error}");
+                    1
+                }
+            }
+        }
+        [command, action] if command == "readme" && action == "check-mermaid" => {
+            match check_package_readme_mermaid(&root) {
+                Ok(()) => 0,
+                // @behavior tool.cli.readme_mermaid_error The README Mermaid command prints renderer diagnostics and exits with failure.
+                Err(error) => {
+                    eprintln!("{error}");
+                    1
+                }
+            }
+        }
         [command, action] if command == "req" && action == "fmt-agents" => {
             match format_agents_requirement_index(&root) {
                 Ok(()) => 0,
@@ -132,7 +169,7 @@ fn main() {
         _ => {
             // @behavior tool.cli.usage_error Unsupported xtask arguments print usage and exit with code 2.
             eprintln!(
-                "usage: cargo xtask agents-index <update|check>\n       cargo xtask req <scan|fmt-agents>\n       cargo xtask req check <--staged|--all|--base <git-ref>>"
+                "usage: cargo xtask agents-index <update|check>\n       cargo xtask readme <check-freshness|check-mermaid>\n       cargo xtask req <scan|fmt-agents>\n       cargo xtask req check <--staged|--all|--base <git-ref>>"
             );
             2
         }

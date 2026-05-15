@@ -1,5 +1,10 @@
 # config
 
+<!-- selvedge-package-readme
+package: selvedge-config
+freshness_commit: 1c81a33f8a447fd4578da3e44db1393e6dff110e
+-->
+
 ## This crate is for
 
 This crate is the project-specific runtime config entrypoint.
@@ -175,3 +180,40 @@ Failure semantics:
 - failed persisted writes leave runtime state and file state unchanged
 
 Runnable examples live in `crates/config/examples/`.
+
+## Package State Machine
+
+The diagram records the package-level observable states and transition paths. Each edge label names the concrete condition checked at this package boundary.
+
+```mermaid
+flowchart TD
+  Uninitialized([Uninitialized])
+  SelectHome[Select Selvedge Home]
+  LoadFile[Read config.toml and environment and CLI overrides]
+  Validate[Materialize and validate AppConfig]
+  Ready[Runtime config ready]
+  Read[Return selected home or effective config view]
+  RuntimePatch[Apply runtime patch]
+  PersistPatch[Apply runtime patch and persist file]
+  Failure[Return ConfigError with state unchanged]
+
+  Uninitialized -->|init is called with no explicit home| SelectHome
+  Uninitialized -->|init_with_home receives path| SelectHome
+  Uninitialized -->|init_with_cli receives path and overrides| SelectHome
+  SelectHome -->|explicit or env-selected home exists and is directory| LoadFile
+  SelectHome -->|default search misses and default home can be created| LoadFile
+  SelectHome -->|explicit or env-selected home is missing or invalid| Failure
+  LoadFile -->|config sources parse and merge| Validate
+  LoadFile -->|file read, TOML parse, env, or override decode fails| Failure
+  Validate -->|config-model validation succeeds| Ready
+  Validate -->|config-model validation fails| Failure
+  Ready -->|read or selvedge_home is called| Read
+  Read -->|callback returns successfully| Ready
+  Ready -->|update_runtime path and value validate| RuntimePatch
+  RuntimePatch -->|new effective config validates| Ready
+  RuntimePatch -->|path, value, or validation fails| Failure
+  Ready -->|update_runtime_and_persist path and value validate| PersistPatch
+  PersistPatch -->|durable file read, merge, validation, write, and rename succeed| Ready
+  PersistPatch -->|durable read, merge, validation, write, or rename fails| Failure
+  Failure -->|caller starts a new operation against existing ready service| Ready
+```

@@ -1,5 +1,10 @@
 # logging
 
+<!-- selvedge-package-readme
+package: selvedge-logging
+freshness_commit: 1c81a33f8a447fd4578da3e44db1393e6dff110e
+-->
+
 ## This crate is for
 
 This crate is the project logging entrypoint.
@@ -64,3 +69,36 @@ so updates to `logging.level` or `logging.module_levels` apply to subsequent log
 calls without a separate reload step.
 
 Callers must initialize `selvedge_config` before calling `selvedge_logging::init()`.
+
+## Package State Machine
+
+The diagram records the package-level observable states and transition paths. Each edge label names the concrete condition checked at this package boundary.
+
+```mermaid
+flowchart TD
+  Start([logging API call])
+  InitConfig[Read current logging config]
+  Initialize[Initialize stderr logging runtime]
+  Ready[Logging initialized]
+  Emit[Evaluate log event]
+  Filter{level enabled}
+  Write[Write formatted log to stderr]
+  Suppress[Return success without write]
+  ConfigError[Return config error]
+  InitError[Return initialization error]
+  WriteError[Return write error]
+
+  Start -->|init is called| InitConfig
+  InitConfig -->|selvedge_config read succeeds| Initialize
+  InitConfig -->|selvedge_config read fails| ConfigError
+  Initialize -->|runtime installs once or observes existing install| Ready
+  Initialize -->|runtime setup fails| InitError
+  Start -->|selvedge_log macro is invoked| Emit
+  Emit -->|config read succeeds| Filter
+  Emit -->|config read fails| ConfigError
+  Filter -->|event level passes global and module filters| Write
+  Filter -->|event level is below global or module filter| Suppress
+  Write -->|stderr write succeeds| Ready
+  Write -->|stderr write fails| WriteError
+  Suppress -->|caller receives Ok| Ready
+```

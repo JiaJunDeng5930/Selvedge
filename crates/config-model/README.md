@@ -1,5 +1,10 @@
 # config-model
 
+<!-- selvedge-package-readme
+package: selvedge-config-model
+freshness_commit: 1c81a33f8a447fd4578da3e44db1393e6dff110e
+-->
+
 ## This crate is for
 
 This crate defines the final application config model.
@@ -122,3 +127,33 @@ assert_eq!(
 
 Callers that need module-path matching should perform that matching outside the
 model layer.
+
+## Package State Machine
+
+The diagram records the package-level observable states and transition paths. Each edge label names the concrete condition checked at this package boundary.
+
+```mermaid
+flowchart TD
+  Start([raw TOML table or AppConfig value])
+  Decode[Decode optional input sections]
+  Defaults[Apply per-section defaults]
+  Validate[Validate composed AppConfig]
+  Ready[Return AppConfig]
+  DecodeError[Return AppConfigError]
+  ValidationError[Return ValidationError]
+  PatchInput[Decode runtime patch input]
+  PatchValidate[Validate patched section]
+  PatchReady[Return patched config fragment]
+
+  Start -->|AppConfig::try_from receives TOML table| Decode
+  Decode -->|all provided fields decode to known types| Defaults
+  Decode -->|a field has wrong type or unknown structured shape| DecodeError
+  Defaults -->|all missing fields receive defaults| Validate
+  Validate -->|server, network, logging, feature, llm, ChatGPT auth, and ChatGPT API invariants hold| Ready
+  Validate -->|port, timeout, URL, log filter, percentage, issuer, client id, or provider setting violates invariant| ValidationError
+  Start -->|caller decodes update value for a config path| PatchInput
+  PatchInput -->|path and value decode for target field| PatchValidate
+  PatchInput -->|path is unknown or value type is invalid| DecodeError
+  PatchValidate -->|updated section invariant holds| PatchReady
+  PatchValidate -->|updated section invariant fails| ValidationError
+```

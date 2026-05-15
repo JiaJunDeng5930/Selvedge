@@ -1,5 +1,10 @@
 # router
 
+<!-- selvedge-package-readme
+package: selvedge-router
+freshness_commit: 1c81a33f8a447fd4578da3e44db1393e6dff110e
+-->
+
 This crate owns the Selvedge router actor.
 
 Use it to spawn the process-local mailbox that routes client commands, task runtime output, API output, tool output, factory-created task runtimes, and events ingress. The router owns the live task runtime registry, pending runtime effects, and deferred task-local commands.
@@ -24,3 +29,52 @@ Stop is a synchronous barrier in the router actor. `StopTaskRuntime` calls `Task
 Runtime ownership flows as missing, pending create, live, stopping, then released. During stopping, the router actor is inside the stop call. After `TaskRuntimeStopResult` returns, the router removes the registry entry only if it is still the same control block.
 
 TODO: Define client data synchronization outside this crate. The router forwards client session controls and runtime diagnostics; it does not produce client-visible task, history, parent-edge, snapshot, or subscription-filtered data views.
+
+## Package State Machine
+
+The diagram records the package-level observable states and transition paths. Each edge label names the concrete condition checked at this package boundary.
+
+```mermaid
+flowchart TD
+  Start([spawn router])
+  Loop[Router mailbox loop]
+  Command[Handle RouterCommand]
+  CoreOutput[Handle CoreOutputEnvelope]
+  ApiOutput[Handle ApiOutputEnvelope]
+  ToolOutput[Handle ToolExecutionResult]
+  FactoryOutput[Handle FactoryOutputEnvelope]
+  RuntimeLive[Runtime registered live]
+  RuntimePending[Runtime creation pending]
+  RuntimeStopping[Runtime stop barrier in progress]
+  Events[Forward event control]
+  ErrorNotice[Publish diagnostic notice]
+  Shutdown[Exit when ingress closes]
+
+  Start -->|router handle is created| Loop
+  Loop -->|RouterCommand arrives| Command
+  Loop -->|CoreOutputEnvelope arrives| CoreOutput
+  Loop -->|ApiOutputEnvelope arrives| ApiOutput
+  Loop -->|ToolExecutionResult arrives| ToolOutput
+  Loop -->|FactoryOutputEnvelope arrives| FactoryOutput
+  Command -->|AttachClient reservation send succeeds| Events
+  Command -->|Start, create, scan, or child-task command needs runtime and registry lacks live entry| RuntimePending
+  Command -->|task command targets live runtime| RuntimeLive
+  Command -->|StopTaskRuntime targets live runtime| RuntimeStopping
+  Command -->|validation, missing runtime, events, database, or factory dispatch fails| ErrorNotice
+  RuntimePending -->|factory effect is started for task| Loop
+  FactoryOutput -->|runtime created for pending task| RuntimeLive
+  FactoryOutput -->|factory skipped or failed task| ErrorNotice
+  RuntimeLive -->|runtime send succeeds| Loop
+  RuntimeLive -->|runtime send fails| ErrorNotice
+  RuntimeStopping -->|TaskRuntimeControl stop result resolves| Loop
+  CoreOutput -->|task id matches envelope and action is model call, tool call, or event publish| Events
+  CoreOutput -->|task id mismatch or downstream send fails| ErrorNotice
+  ApiOutput -->|correlation matches waiting runtime| RuntimeLive
+  ApiOutput -->|correlation is unknown or runtime send fails| ErrorNotice
+  ToolOutput -->|run id matches waiting runtime| RuntimeLive
+  ToolOutput -->|run id is unknown or runtime send fails| ErrorNotice
+  Events -->|event ingress send succeeds| Loop
+  Events -->|event ingress send fails| ErrorNotice
+  ErrorNotice -->|diagnostic handling completes| Loop
+  Loop -->|all router ingress senders are dropped| Shutdown
+```

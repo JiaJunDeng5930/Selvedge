@@ -1,5 +1,10 @@
 # chatgpt-login
 
+<!-- selvedge-package-readme
+package: chatgpt-login
+freshness_commit: 1c81a33f8a447fd4578da3e44db1393e6dff110e
+-->
+
 ## This crate is for
 
 This crate implements the ChatGPT device-code login flow.
@@ -63,4 +68,50 @@ This crate reads:
 issuer = "https://auth.openai.com"
 client_id = "app_EMoamEEZ73f0CkXaXp7hrann"
 expected_workspace_id = "optional string"
+```
+
+## Package State Machine
+
+The diagram records the package-level observable states and transition paths. Each edge label names the concrete condition checked at this package boundary.
+
+```mermaid
+flowchart TD
+  Start([login public API call])
+  ReadConfig[Read ChatGPT auth config]
+  StartChallenge[Request device-code challenge]
+  Poll[Perform one device-code poll]
+  Exchange[Exchange authorization grant for tokens]
+  ValidateClaims[Parse id_token claims and workspace]
+  Persist[Write auth file atomically]
+  Challenge[Return DeviceCodeChallenge]
+  Pending[Return Pending poll outcome]
+  Authorized[Return Authorized poll outcome]
+  Expired[Return Expired poll outcome]
+  Success[Return ChatgptLoginResult]
+  ConfigError[Return config error]
+  TransportError[Return transport error]
+  ProviderError[Return provider or malformed response error]
+  WorkspaceError[Return workspace mismatch]
+  FileError[Return auth file write error]
+
+  Start -->|caller invokes start_device_code_login| ReadConfig
+  Start -->|caller invokes poll_device_code_login| ReadConfig
+  Start -->|caller invokes complete_device_code_login| ReadConfig
+  ReadConfig -->|config read succeeds for start call| StartChallenge
+  ReadConfig -->|config read succeeds for poll call| Poll
+  ReadConfig -->|config read succeeds for complete call| Exchange
+  ReadConfig -->|config read fails| ConfigError
+  StartChallenge -->|provider returns device_code, user_code, verification_uri, and interval data| Challenge
+  StartChallenge -->|HTTP transport fails or provider response is non-2xx or malformed| TransportError
+  Poll -->|provider says authorization is pending| Pending
+  Poll -->|provider returns authorization grant| Authorized
+  Poll -->|provider says challenge expired| Expired
+  Poll -->|HTTP transport fails, provider response is non-2xx, or payload is malformed| ProviderError
+  Exchange -->|provider returns id, access, and refresh tokens| ValidateClaims
+  Exchange -->|provider response is non-2xx, malformed, or missing a required token| ProviderError
+  ValidateClaims -->|id token parses and workspace matches configured expectation| Persist
+  ValidateClaims -->|id token is malformed| ProviderError
+  ValidateClaims -->|workspace claim conflicts with expected_workspace_id| WorkspaceError
+  Persist -->|auth file write succeeds| Success
+  Persist -->|directory create, encode, temp write, or rename fails| FileError
 ```
