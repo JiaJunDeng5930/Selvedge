@@ -201,33 +201,25 @@ fn git_member_manifests(root: &Path, member: &str) -> Result<Vec<PathBuf>, Strin
 
 /// @behavior tool.readme.package_name Package discovery reads each Cargo package name from the manifest `[package]` table.
 fn parse_package_name(manifest_path: &Path, content: &str) -> Result<String, String> {
-    let mut in_package = false;
-    for line in content.lines() {
-        let trimmed = line.trim();
-        if trimmed.starts_with('[') {
-            in_package = trimmed == "[package]";
-            continue;
-        }
-        if in_package && trimmed.starts_with("name") {
-            let (_, value) = trimmed.split_once('=').ok_or_else(|| {
-                format!("{} has an invalid package name", manifest_path.display())
-            })?;
-            let name = value.trim().trim_matches('"');
-            if name.is_empty() {
-                // @behavior tool.readme.package_name.empty Package discovery reports an empty Cargo package name as an invalid manifest.
-                return Err(format!(
-                    "{} has an empty package name",
-                    manifest_path.display()
-                ));
-            }
-            return Ok(name.to_owned());
-        }
+    let manifest = content.parse::<toml::Value>().map_err(|error| {
+        format!(
+            "failed to parse {} package metadata: {error}",
+            manifest_path.display()
+        )
+    })?;
+    let name = manifest
+        .get("package")
+        .and_then(|package| package.get("name"))
+        .and_then(toml::Value::as_str)
+        .ok_or_else(|| format!("{} is missing [package].name", manifest_path.display()))?;
+    if name.is_empty() {
+        // @behavior tool.readme.package_name.empty Package discovery reports an empty Cargo package name as an invalid manifest.
+        return Err(format!(
+            "{} has an empty package name",
+            manifest_path.display()
+        ));
     }
-    // @behavior tool.readme.package_name.missing Package discovery reports a manifest that lacks `[package].name`.
-    Err(format!(
-        "{} is missing [package].name",
-        manifest_path.display()
-    ))
+    Ok(name.to_owned())
 }
 
 /// @behavior tool.readme.metadata README metadata parsing reads the package name and freshness commit from the selvedge metadata block.
@@ -449,11 +441,37 @@ fn isolated_git_command() -> Command {
 mod tests {
     use super::{
         ReadmeFreshnessStatus, check_package_readme_mermaid, check_package_readmes_freshness,
+        parse_package_name,
     };
     use std::fs;
     use std::path::Path;
     use std::process::Command;
     use tempfile::TempDir;
+
+    #[test]
+    fn package_name_parser_accepts_toml_string_forms() {
+        let manifest_path = Path::new("crates/demo/Cargo.toml");
+
+        // @verifies tool.readme.package_name
+        assert_eq!(
+            parse_package_name(
+                manifest_path,
+                "[package]\nname = 'single-quoted-demo'\nedition = \"2024\"\n"
+            )
+            .expect("single-quoted package names should parse"),
+            "single-quoted-demo"
+        );
+
+        // @verifies tool.readme.package_name
+        assert_eq!(
+            parse_package_name(
+                manifest_path,
+                "[package]\nname = \"commented-demo\" # package name\nedition = \"2024\"\n"
+            )
+            .expect("commented package names should parse"),
+            "commented-demo"
+        );
+    }
 
     #[test]
     fn freshness_ignores_readme_changes_after_metadata_commit() {
