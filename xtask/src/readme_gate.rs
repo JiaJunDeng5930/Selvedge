@@ -549,7 +549,10 @@ mod tests {
             )
             .expect("root manifest");
             run_git(tempdir.path(), &["add", "Cargo.toml", "README.md"]);
-            run_git(tempdir.path(), &["commit", "-m", "initial"]);
+            run_git(
+                tempdir.path(),
+                &["-c", "commit.gpgsign=false", "commit", "-m", "initial"],
+            );
             Self { tempdir }
         }
 
@@ -584,11 +587,19 @@ mod tests {
     }
 
     fn run_git(path: &Path, args: &[&str]) -> String {
-        let output = Command::new("git")
+        let mut command = Command::new("git");
+        command
             .current_dir(path)
-            .args(args)
-            .output()
-            .expect("git command should run");
+            .env("PRE_COMMIT_ALLOW_NO_CONFIG", "1")
+            .args(args);
+
+        for (key, _) in std::env::vars_os() {
+            if key.to_string_lossy().starts_with("GIT_") {
+                command.env_remove(&key);
+            }
+        }
+
+        let output = command.output().expect("git command should run");
         // @verifies tool.readme.freshness
         assert!(
             output.status.success(),
