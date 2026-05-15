@@ -41,7 +41,7 @@ pub fn check_package_readmes_freshness(root: &Path) -> Result<ReadmeFreshnessSta
         let metadata = parse_metadata(&package, &readme_content)?;
         ensure_commit_exists(root, &metadata.freshness_commit)?;
         let changed_files =
-            changed_package_files_since(root, &metadata.freshness_commit, &package.path)?;
+            changed_package_files_since(root, &metadata.freshness_commit, &package)?;
         if !changed_files.is_empty() {
             stale_packages.push(StalePackage {
                 package: package.name,
@@ -103,6 +103,7 @@ pub fn check_package_readme_mermaid(root: &Path) -> Result<(), String> {
 struct WorkspacePackage {
     name: String,
     path: PathBuf,
+    diff_pathspecs: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -116,148 +117,161 @@ struct MermaidDiagram {
     source: String,
 }
 
-/// @behavior tool.readme.packages Package discovery reads tracked workspace package manifests from Git.
+/// @behavior tool.readme.packages Package discovery reads tracked Cargo workspace package manifests from Cargo metadata.
 fn workspace_packages(root: &Path) -> Result<Vec<WorkspacePackage>, String> {
-    let root_manifest = PathBuf::from("Cargo.toml");
-    let root_manifest_content = read_file(root, &root_manifest)?;
-    let root_manifest_value = root_manifest_content
-        .parse::<toml::Value>()
-        // @behavior tool.readme.packages.workspace_parse_failure Package discovery reports root Cargo.toml parse errors before README checks run.
-        .map_err(|error| format!("failed to parse Cargo.toml workspace metadata: {error}"))?;
-    let manifest_paths = workspace_manifest_paths(root, &root_manifest_value)?;
+    let metadata = cargo_workspace_metadata(root)?;
+    let workspace_members = metadata
+        .get("workspace_members")
+        .and_then(serde_json::Value::as_array)
+        // @behavior tool.readme.packages.workspace_members Package discovery reports cargo metadata output missing the workspace member list before README checks run.
+        .ok_or_else(|| "cargo metadata output is missing workspace_members".to_owned())?
+        .iter()
+        .map(|member| {
+            member.as_str().map(str::to_owned).ok_or_else(|| {
+                "cargo metadata workspace_members entries must be strings".to_owned()
+            })
+        })
+        .collect::<Result<BTreeSet<_>, _>>()?;
+    let metadata_packages = metadata
+        .get("packages")
+        .and_then(serde_json::Value::as_array)
+        // @behavior tool.readme.packages.metadata_packages Package discovery reports cargo metadata output missing the package list before README checks run.
+        .ok_or_else(|| "cargo metadata output is missing packages".to_owned())?;
     let mut packages = Vec::new();
-    for manifest_path in manifest_paths {
-        let manifest_content = read_file(root, &manifest_path)?;
-        let name = parse_package_name(&manifest_path, &manifest_content)?;
+    for package_metadata in metadata_packages {
+        let id = metadata_string(package_metadata, "id", "package id")?;
+        if !workspace_members.contains(&id) {
+            continue;
+        }
+        let manifest_path = metadata_path_to_relative(
+            root,
+            &metadata_string(package_metadata, "manifest_path", "manifest path")?,
+        )?;
+        if !git_path_tracked(root, &manifest_path)? {
+            continue;
+        }
+        let name = metadata_string(package_metadata, "name", "package name")?;
         let path = manifest_path
             .parent()
             .filter(|parent| !parent.as_os_str().is_empty())
             .map_or_else(|| PathBuf::from("."), Path::to_path_buf);
-        packages.push(WorkspacePackage { name, path });
+        let diff_pathspecs = package_diff_pathspecs_from_metadata(root, &path, package_metadata)?;
+        packages.push(WorkspacePackage {
+            name,
+            path,
+            diff_pathspecs,
+        });
     }
     packages.sort_by(|left, right| left.path.cmp(&right.path));
     Ok(packages)
 }
 
-/// @behavior tool.readme.packages.members Package discovery derives checked package manifests from the root package and the workspace members list.
-fn workspace_manifest_paths(
-    root: &Path,
-    root_manifest: &toml::Value,
-) -> Result<Vec<PathBuf>, String> {
-    let mut manifests = BTreeSet::new();
-
-    if root_manifest.get("package").is_some() {
-        manifests.insert(PathBuf::from("Cargo.toml"));
-    }
-
-    let Some(members) = root_manifest
-        .get("workspace")
-        .and_then(|workspace| workspace.get("members"))
-        .and_then(toml::Value::as_array)
-    else {
-        return Ok(manifests.into_iter().collect());
-    };
-
-    for member in members {
-        let member = member
-            .as_str()
-            .ok_or_else(|| "workspace.members entries must be strings".to_owned())?;
-        if member.contains('*') {
-            for manifest_path in git_member_manifests(root, member)? {
-                manifests.insert(manifest_path);
-            }
-        } else {
-            manifests.insert(PathBuf::from(member).join("Cargo.toml"));
-        }
-    }
-
-    // @behavior tool.readme.packages.excludes Package discovery removes workspace exclude entries from README gate package manifests.
-    for manifest_path in workspace_excluded_manifest_paths(root, root_manifest)? {
-        manifests.remove(&manifest_path);
-    }
-
-    Ok(manifests.into_iter().collect())
-}
-
-/// @behavior tool.readme.packages.excludes.manifests Package discovery expands workspace exclude entries into manifest paths before filtering README gate packages.
-fn workspace_excluded_manifest_paths(
-    root: &Path,
-    root_manifest: &toml::Value,
-) -> Result<BTreeSet<PathBuf>, String> {
-    let mut manifests = BTreeSet::new();
-    let Some(excludes) = root_manifest
-        .get("workspace")
-        .and_then(|workspace| workspace.get("exclude"))
-        .and_then(toml::Value::as_array)
-    else {
-        return Ok(manifests);
-    };
-
-    for exclude in excludes {
-        let exclude = exclude
-            .as_str()
-            // @behavior tool.readme.packages.exclude_parse_failure Package discovery reports non-string workspace exclude entries before README checks run.
-            .ok_or_else(|| "workspace.exclude entries must be strings".to_owned())?;
-        if exclude == "." {
-            manifests.insert(PathBuf::from("Cargo.toml"));
-        } else if exclude.contains('*') {
-            for manifest_path in git_member_manifests(root, exclude)? {
-                manifests.insert(manifest_path);
-            }
-        } else {
-            manifests.insert(PathBuf::from(exclude).join("Cargo.toml"));
-        }
-    }
-
-    Ok(manifests)
-}
-
-/// @behavior tool.readme.packages.glob_members Workspace member globs expand through tracked Cargo.toml files.
-fn git_member_manifests(root: &Path, member: &str) -> Result<Vec<PathBuf>, String> {
-    let pattern = format!("{member}/Cargo.toml");
-    let output = isolated_git_command()
+/// @behavior tool.readme.packages.excludes Package discovery follows Cargo workspace exclude entries when selecting README gate packages.
+/// @behavior tool.readme.packages.metadata Package discovery runs cargo metadata without dependency resolution to match Cargo workspace membership semantics.
+fn cargo_workspace_metadata(root: &Path) -> Result<serde_json::Value, String> {
+    let output = Command::new("cargo")
         .current_dir(root)
-        .args(["ls-files", "-z", "--", &pattern])
+        .args(["metadata", "--format-version", "1", "--no-deps"])
         .output()
-        // @behavior tool.readme.packages.git_spawn_failure Package discovery reports process errors when Git cannot be started.
-        .map_err(|error| format!("failed to run git ls-files for package manifests: {error}"))?;
+        // @behavior tool.readme.packages.metadata_spawn_failure Package discovery reports process errors when cargo metadata cannot be started.
+        .map_err(|error| format!("failed to run cargo metadata: {error}"))?;
     if !output.status.success() {
-        // @behavior tool.readme.packages.git_failure Package discovery reports Git stderr when manifest discovery fails.
+        // @behavior tool.readme.packages.metadata_failure Package discovery reports cargo metadata stderr when workspace discovery fails.
         return Err(format!(
-            "git ls-files failed: {}",
+            "cargo metadata failed: {}",
             String::from_utf8_lossy(&output.stderr).trim()
         ));
     }
 
-    Ok(output
-        .stdout
-        .split(|byte| *byte == b'\0')
-        .filter(|entry| !entry.is_empty())
-        .map(|entry| PathBuf::from(String::from_utf8_lossy(entry).into_owned()))
-        .collect())
+    serde_json::from_slice(&output.stdout)
+        // @behavior tool.readme.packages.metadata_json Package discovery reports invalid cargo metadata JSON before README checks run.
+        .map_err(|error| format!("failed to parse cargo metadata JSON: {error}"))
 }
 
-/// @behavior tool.readme.package_name Package discovery reads each Cargo package name from the manifest `[package]` table.
-fn parse_package_name(manifest_path: &Path, content: &str) -> Result<String, String> {
-    let manifest = content.parse::<toml::Value>().map_err(|error| {
-        format!(
-            "failed to parse {} package metadata: {error}",
-            manifest_path.display()
-        )
-    })?;
-    let name = manifest
-        .get("package")
-        .and_then(|package| package.get("name"))
-        .and_then(toml::Value::as_str)
-        .ok_or_else(|| format!("{} is missing [package].name", manifest_path.display()))?;
-    if name.is_empty() {
-        // @behavior tool.readme.package_name.empty Package discovery reports an empty Cargo package name as an invalid manifest.
-        return Err(format!(
-            "{} has an empty package name",
-            manifest_path.display()
-        ));
+fn metadata_string(
+    object: &serde_json::Value,
+    field: &str,
+    description: &str,
+) -> Result<String, String> {
+    object
+        .get(field)
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_owned)
+        .ok_or_else(|| format!("cargo metadata package is missing {description}"))
+}
+
+/// @behavior tool.readme.packages.metadata_path Package discovery reports cargo metadata paths that cannot be resolved relative to the workspace root.
+fn metadata_path_to_relative(root: &Path, metadata_path: &str) -> Result<PathBuf, String> {
+    let root = fs::canonicalize(root)
+        .map_err(|error| format!("failed to canonicalize {}: {error}", root.display()))?;
+    let path = fs::canonicalize(metadata_path)
+        .map_err(|error| format!("failed to canonicalize {metadata_path}: {error}"))?;
+    path.strip_prefix(&root)
+        .map(Path::to_path_buf)
+        .map_err(|_| {
+            format!(
+                "{metadata_path} is outside the workspace root {}",
+                root.display()
+            )
+        })
+}
+
+fn git_path_tracked(root: &Path, relative_path: &Path) -> Result<bool, String> {
+    let path = path_to_string(relative_path);
+    let output = isolated_git_command()
+        .current_dir(root)
+        .args(["ls-files", "--error-unmatch", "--", &path])
+        .output()
+        // @behavior tool.readme.packages.git_spawn_failure Package discovery reports process errors when Git cannot be started.
+        .map_err(|error| format!("failed to run git ls-files for package manifests: {error}"))?;
+    if output.status.success() {
+        return Ok(true);
     }
-    Ok(name.to_owned())
+    if output.status.code() == Some(1) {
+        return Ok(false);
+    }
+    // @behavior tool.readme.packages.git_failure Package discovery reports Git stderr when tracked manifest discovery fails.
+    Err(format!(
+        "git ls-files failed for {}: {}",
+        path,
+        String::from_utf8_lossy(&output.stderr).trim()
+    ))
+}
+
+/// @behavior tool.readme.changed_files.root_scope The root package freshness diff checks root package manifest and Cargo target input paths.
+fn package_diff_pathspecs_from_metadata(
+    root: &Path,
+    package_path: &Path,
+    package_metadata: &serde_json::Value,
+) -> Result<Vec<String>, String> {
+    if package_path != Path::new(".") {
+        return Ok(vec![path_to_string(package_path)]);
+    }
+
+    let mut pathspecs = BTreeSet::from(["Cargo.toml".to_owned()]);
+    let targets = package_metadata
+        .get("targets")
+        .and_then(serde_json::Value::as_array)
+        .ok_or_else(|| "cargo metadata package is missing target list".to_owned())?;
+    for target in targets {
+        let src_path =
+            metadata_path_to_relative(root, &metadata_string(target, "src_path", "target path")?)?;
+        pathspecs.insert(root_target_pathspec(&src_path));
+    }
+    Ok(pathspecs.into_iter().collect())
+}
+
+fn root_target_pathspec(src_path: &Path) -> String {
+    match src_path.iter().next().map(|part| part.to_string_lossy()) {
+        Some(first) if matches!(first.as_ref(), "src" | "tests" | "examples" | "benches") => {
+            first.into_owned()
+        }
+        Some(_) => src_path
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+            .map_or_else(|| path_to_string(src_path), path_to_string),
+        None => path_to_string(src_path),
+    }
 }
 
 /// @behavior tool.readme.metadata README metadata parsing reads the package name and freshness commit from the selvedge metadata block.
@@ -352,15 +366,15 @@ fn ensure_commit_exists(root: &Path, commit: &str) -> Result<(), String> {
 fn changed_package_files_since(
     root: &Path,
     commit: &str,
-    package_path: &Path,
+    package: &WorkspacePackage,
 ) -> Result<Vec<String>, String> {
     let range = format!("{commit}..HEAD");
-    let pathspecs = package_diff_pathspecs(package_path);
+    let pathspecs = &package.diff_pathspecs;
     let mut command = isolated_git_command();
     command
         .current_dir(root)
         .args(["diff", "--name-only", "-z", &range, "--"]);
-    for pathspec in &pathspecs {
+    for pathspec in pathspecs {
         command.arg(pathspec);
     }
     let output = command
@@ -381,7 +395,7 @@ fn changed_package_files_since(
         ));
     }
 
-    let readme_path = package_readme_path(package_path);
+    let readme_path = package_readme_path(&package.path);
     let mut changed_files = output
         .stdout
         .split(|byte| *byte == b'\0')
@@ -391,19 +405,6 @@ fn changed_package_files_since(
         .collect::<Vec<_>>();
     changed_files.sort();
     Ok(changed_files)
-}
-
-/// @behavior tool.readme.changed_files.root_scope The root package freshness diff checks root package metadata, source, and tests.
-fn package_diff_pathspecs(package_path: &Path) -> Vec<String> {
-    if package_path == Path::new(".") {
-        vec![
-            "Cargo.toml".to_owned(),
-            "src".to_owned(),
-            "tests".to_owned(),
-        ]
-    } else {
-        vec![path_to_string(package_path)]
-    }
 }
 
 /// @behavior tool.readme.changed_files.readme_exclusion README freshness diff excludes the README path for root and nested packages.
@@ -479,37 +480,11 @@ fn isolated_git_command() -> Command {
 mod tests {
     use super::{
         ReadmeFreshnessStatus, check_package_readme_mermaid, check_package_readmes_freshness,
-        parse_package_name,
     };
     use std::fs;
     use std::path::Path;
     use std::process::Command;
     use tempfile::TempDir;
-
-    #[test]
-    fn package_name_parser_accepts_toml_string_forms() {
-        let manifest_path = Path::new("crates/demo/Cargo.toml");
-
-        // @verifies tool.readme.package_name
-        assert_eq!(
-            parse_package_name(
-                manifest_path,
-                "[package]\nname = 'single-quoted-demo'\nedition = \"2024\"\n"
-            )
-            .expect("single-quoted package names should parse"),
-            "single-quoted-demo"
-        );
-
-        // @verifies tool.readme.package_name
-        assert_eq!(
-            parse_package_name(
-                manifest_path,
-                "[package]\nname = \"commented-demo\" # package name\nedition = \"2024\"\n"
-            )
-            .expect("commented package names should parse"),
-            "commented-demo"
-        );
-    }
 
     #[test]
     fn freshness_ignores_readme_changes_after_metadata_commit() {
@@ -569,11 +544,16 @@ mod tests {
             "crates/demo/Cargo.toml",
             "[package]\nname = \"demo\"\nedition = \"2024\"\n",
         );
+        repo.write("crates/demo/src/lib.rs", "pub fn demo() {}\n");
         repo.write(
             "crates/demo/README.md",
             &readme("demo", &repo.head(), "A --> B"),
         );
-        repo.git_add(&["crates/demo/Cargo.toml", "crates/demo/README.md"]);
+        repo.git_add(&[
+            "crates/demo/Cargo.toml",
+            "crates/demo/src/lib.rs",
+            "crates/demo/README.md",
+        ]);
 
         // @verifies tool.readme.mermaid
         check_package_readme_mermaid(repo.path()).expect("diagram should compile");
@@ -612,6 +592,72 @@ mod tests {
         let status =
             check_package_readmes_freshness(repo.path()).expect("freshness check should run");
         assert_eq!(status, ReadmeFreshnessStatus::Fresh);
+    }
+
+    #[test]
+    fn workspace_member_globs_skip_nested_manifests() {
+        let repo = TestRepo::new();
+        repo.write("Cargo.toml", "[workspace]\nmembers = [\"crates/*\"]\n");
+        repo.write(
+            "crates/demo/Cargo.toml",
+            "[package]\nname = \"demo\"\nedition = \"2024\"\n",
+        );
+        repo.write("crates/demo/src/lib.rs", "pub fn demo() {}\n");
+        // @verifies tool.readme.packages.metadata
+        repo.write(
+            "crates/demo/fixtures/nested/Cargo.toml",
+            "[package]\nname = \"nested\"\nedition = \"2024\"\n",
+        );
+        // @verifies tool.readme.packages.metadata
+        repo.git_add(&[
+            "Cargo.toml",
+            "crates/demo/Cargo.toml",
+            "crates/demo/src/lib.rs",
+            "crates/demo/fixtures/nested/Cargo.toml",
+        ]);
+        // @verifies tool.readme.packages.metadata
+        repo.git_commit("create nested fixture manifest");
+        let commit = repo.head();
+        repo.write("crates/demo/README.md", &readme("demo", &commit, "A --> B"));
+        repo.git_add(&["crates/demo/README.md"]);
+        repo.git_commit("document package");
+
+        // @verifies tool.readme.packages.metadata
+        check_package_readme_mermaid(repo.path())
+            .expect("nested manifests outside Cargo workspace membership should be skipped");
+    }
+
+    #[test]
+    fn root_package_freshness_tracks_metadata_targets() {
+        let repo = TestRepo::new();
+        repo.write(
+            "Cargo.toml",
+            "[package]\nname = \"root-demo\"\nedition = \"2024\"\n\n[workspace]\nmembers = []\n",
+        );
+        repo.write("src/lib.rs", "pub fn root_demo() {}\n");
+        repo.git_add(&["Cargo.toml", "src/lib.rs"]);
+        repo.git_commit("create root package");
+        let commit = repo.head();
+        repo.write("README.md", &readme("root-demo", &commit, "A --> B"));
+        repo.git_add(&["README.md"]);
+        repo.git_commit("document root package");
+        repo.write("build.rs", "fn main() {}\n");
+        repo.write("examples/demo.rs", "fn main() {}\n");
+        repo.git_add(&["build.rs", "examples/demo.rs"]);
+        repo.git_commit("add root package targets");
+
+        let status =
+            check_package_readmes_freshness(repo.path()).expect("freshness check should run");
+
+        // @verifies tool.readme.changed_files.root_scope
+        let ReadmeFreshnessStatus::Stale { packages } = status else {
+            panic!("expected stale root package");
+        };
+        assert_eq!(packages[0].package, "root-demo");
+        assert_eq!(
+            packages[0].changed_files,
+            vec!["build.rs", "examples/demo.rs"]
+        );
     }
 
     fn readme(package: &str, commit: &str, diagram_body: &str) -> String {
