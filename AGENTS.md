@@ -2850,7 +2850,10 @@ This file is for coding agents working in this repository.
 |tool.readme.changed_files.readme_exclusion|tool.readme.changed_files.readme_exclusion.{}
 |tool.readme.changed_files.root_scope|tool.readme.changed_files.root_scope.{}
 |tool.readme.changed_files.spawn_failure|tool.readme.changed_files.spawn_failure.{}
-|tool.readme.commit|tool.readme.commit.{spawn_failure,unknown}
+|tool.readme.commit|tool.readme.commit.{ancestor,ancestor_git_failure,ancestor_spawn_failure,spawn_failure,unknown}
+|tool.readme.commit.ancestor|tool.readme.commit.ancestor.{}
+|tool.readme.commit.ancestor_git_failure|tool.readme.commit.ancestor_git_failure.{}
+|tool.readme.commit.ancestor_spawn_failure|tool.readme.commit.ancestor_spawn_failure.{}
 |tool.readme.commit.spawn_failure|tool.readme.commit.spawn_failure.{}
 |tool.readme.commit.unknown|tool.readme.commit.unknown.{}
 |tool.readme.freshness|tool.readme.freshness.{}
