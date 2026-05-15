@@ -352,7 +352,16 @@ where
     // @behavior selvedge.cli.login_chatgpt The login-chatgpt command runs the ChatGPT OAuth login flow and returns success after credentials are persisted.
     match chatgpt_login_runner.run_login().await {
         Ok(_) => CliExitStatus::Success,
-        Err(error) => CliExitStatus::ChatgptLoginFailed(format!("{error:?}")),
+        Err(error) => {
+            let error = format!("{error:?}");
+            // @behavior selvedge.cli.login_chatgpt.error_log The login-chatgpt command logs failed OAuth login attempts with the caller-visible error.
+            let _ = selvedge_logging::selvedge_log!(
+                selvedge_logging::LogLevel::Error,
+                "ChatGPT login failed";
+                error = error
+            );
+            CliExitStatus::ChatgptLoginFailed(error)
+        }
     }
 }
 
@@ -410,6 +419,19 @@ pub fn exit_code(status: &CliExitStatus) -> i32 {
         CliExitStatus::Success => 0,
         CliExitStatus::Interrupted => 130,
         _ => 1,
+    }
+}
+
+// @behavior selvedge.cli.process.stderr ChatGPT login failures are written to stderr before the CLI exits.
+pub fn write_cli_exit_status<W>(status: &CliExitStatus, mut writer: W) -> std::io::Result<()>
+where
+    W: std::io::Write,
+{
+    match status {
+        CliExitStatus::ChatgptLoginFailed(error) => {
+            writeln!(writer, "ChatGPT login failed: {error}")
+        }
+        _ => Ok(()),
     }
 }
 
@@ -966,6 +988,23 @@ mod tests {
     fn ready_deadline_overflow_is_handled() {
         // @verifies selvedge.cli.submit.deadline
         assert_eq!(ready_deadline_from_now(Duration::MAX), None);
+    }
+
+    #[test]
+    fn chatgpt_login_failure_status_writes_stderr() {
+        let mut stderr = Vec::new();
+
+        write_cli_exit_status(
+            &CliExitStatus::ChatgptLoginFailed("InvalidTokenSet".to_owned()),
+            &mut stderr,
+        )
+        .expect("write stderr");
+
+        // @verifies selvedge.cli.process.stderr
+        assert_eq!(
+            String::from_utf8(stderr).expect("stderr utf8"),
+            "ChatGPT login failed: InvalidTokenSet\n"
+        );
     }
 
     #[tokio::test]

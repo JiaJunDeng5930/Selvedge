@@ -262,9 +262,10 @@ This file is for coding agents working in this repository.
 |selvedge.cli.local_connector.default_connect|selvedge.cli.local_connector.default_connect.{}
 |selvedge.cli.local_connector.default_struct|selvedge.cli.local_connector.default_struct.{}
 |selvedge.cli.logging_error|selvedge.cli.logging_error.{}
-|selvedge.cli.login_chatgpt|selvedge.cli.login_chatgpt.{abstraction,complete,parse,poll,runner,start}
+|selvedge.cli.login_chatgpt|selvedge.cli.login_chatgpt.{abstraction,complete,error_log,parse,poll,runner,start}
 |selvedge.cli.login_chatgpt.abstraction|selvedge.cli.login_chatgpt.abstraction.{}
 |selvedge.cli.login_chatgpt.complete|selvedge.cli.login_chatgpt.complete.{}
+|selvedge.cli.login_chatgpt.error_log|selvedge.cli.login_chatgpt.error_log.{}
 |selvedge.cli.login_chatgpt.parse|selvedge.cli.login_chatgpt.parse.{}
 |selvedge.cli.login_chatgpt.poll|selvedge.cli.login_chatgpt.poll.{}
 |selvedge.cli.login_chatgpt.runner|selvedge.cli.login_chatgpt.runner.{run}
@@ -279,9 +280,10 @@ This file is for coding agents working in this repository.
 |selvedge.cli.parse_client_id_duplicate|selvedge.cli.parse_client_id_duplicate.{}
 |selvedge.cli.parse_client_id_empty|selvedge.cli.parse_client_id_empty.{}
 |selvedge.cli.parse_client_id_missing|selvedge.cli.parse_client_id_missing.{}
-|selvedge.cli.process|selvedge.cli.process.{exit_code,main}
+|selvedge.cli.process|selvedge.cli.process.{exit_code,main,stderr}
 |selvedge.cli.process.exit_code|selvedge.cli.process.exit_code.{}
 |selvedge.cli.process.main|selvedge.cli.process.main.{}
+|selvedge.cli.process.stderr|selvedge.cli.process.stderr.{}
 |selvedge.cli.ready_probe|selvedge.cli.ready_probe.{connect,ready}
 |selvedge.cli.ready_probe.connect|selvedge.cli.ready_probe.connect.{}
 |selvedge.cli.ready_probe.ready|selvedge.cli.ready_probe.ready.{}
