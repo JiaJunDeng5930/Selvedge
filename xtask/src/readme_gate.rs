@@ -352,7 +352,7 @@ fn is_full_hex_commit(value: &str) -> bool {
     value.len() == 40 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
-/// @behavior tool.readme.commit Commit validation accepts README freshness commits that resolve to repository commits.
+/// @behavior tool.readme.commit Commit validation accepts README freshness commits that resolve to repository commits on the current HEAD history.
 fn ensure_commit_exists(root: &Path, commit: &str) -> Result<(), String> {
     let object = format!("{commit}^{{commit}}");
     let output = isolated_git_command()
@@ -361,11 +361,34 @@ fn ensure_commit_exists(root: &Path, commit: &str) -> Result<(), String> {
         .output()
         // @behavior tool.readme.commit.spawn_failure Commit validation reports process errors when Git cannot be started.
         .map_err(|error| format!("failed to run git cat-file: {error}"))?;
+    if !output.status.success() {
+        // @behavior tool.readme.commit.unknown Commit validation reports README freshness commits that are absent from the repository.
+        return Err(format!("freshness commit `{commit}` is not a known commit"));
+    }
+
+    ensure_commit_is_ancestor(root, commit)
+}
+
+/// @behavior tool.readme.commit.ancestor Commit validation reports README freshness commits that are outside the current HEAD history.
+fn ensure_commit_is_ancestor(root: &Path, commit: &str) -> Result<(), String> {
+    let output = isolated_git_command()
+        .current_dir(root)
+        .args(["merge-base", "--is-ancestor", commit, "HEAD"])
+        .output()
+        // @behavior tool.readme.commit.ancestor_spawn_failure Commit validation reports process errors when Git ancestry validation cannot be started.
+        .map_err(|error| format!("failed to run git merge-base: {error}"))?;
     if output.status.success() {
         Ok(())
+    } else if output.status.code() == Some(1) {
+        Err(format!(
+            "freshness commit `{commit}` is not an ancestor of HEAD"
+        ))
     } else {
-        // @behavior tool.readme.commit.unknown Commit validation reports README freshness commits that are absent from the repository.
-        Err(format!("freshness commit `{commit}` is not a known commit"))
+        // @behavior tool.readme.commit.ancestor_git_failure Commit validation reports Git stderr when ancestry validation fails.
+        Err(format!(
+            "git merge-base failed for freshness commit `{commit}`: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ))
     }
 }
 
@@ -697,6 +720,31 @@ mod tests {
         assert_eq!(packages[0].changed_files, vec!["build.rs"]);
     }
 
+    #[test]
+    fn freshness_rejects_non_ancestor_metadata_commit() {
+        let repo = TestRepo::new();
+        repo.write(
+            "crates/demo/Cargo.toml",
+            "[package]\nname = \"demo\"\nedition = \"2024\"\n",
+        );
+        repo.write("crates/demo/src/lib.rs", "pub fn demo() {}\n");
+        repo.git_add(&["crates/demo/Cargo.toml", "crates/demo/src/lib.rs"]);
+        repo.git_commit("create package");
+        let non_ancestor_commit = repo.commit_tree("unrelated package tree");
+        repo.write(
+            "crates/demo/README.md",
+            &readme("demo", &non_ancestor_commit, "A --> B"),
+        );
+        repo.git_add(&["crates/demo/README.md"]);
+        repo.git_commit("document package");
+
+        let error = check_package_readmes_freshness(repo.path())
+            .expect_err("non-ancestor freshness commit should fail");
+
+        // @verifies tool.readme.commit.ancestor
+        assert!(error.contains("is not an ancestor of HEAD"));
+    }
+
     fn readme(package: &str, commit: &str, diagram_body: &str) -> String {
         format!(
             "# {package}\n\n<!-- selvedge-package-readme\npackage: {package}\nfreshness_commit: {commit}\n-->\n\n```mermaid\nflowchart TD\n  {diagram_body}\n```\n"
@@ -759,6 +807,10 @@ mod tests {
             let mut args = vec!["rm"];
             args.extend_from_slice(paths);
             run_git(self.path(), &args);
+        }
+
+        fn commit_tree(&self, message: &str) -> String {
+            run_git(self.path(), &["commit-tree", "HEAD^{tree}", "-m", message])
         }
 
         fn head(&self) -> String {
