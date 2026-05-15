@@ -123,6 +123,7 @@ fn workspace_packages(root: &Path) -> Result<Vec<WorkspacePackage>, String> {
             "ls-files",
             "-z",
             "--",
+            "Cargo.toml",
             "crates/*/Cargo.toml",
             "xtask/Cargo.toml",
         ])
@@ -147,8 +148,8 @@ fn workspace_packages(root: &Path) -> Result<Vec<WorkspacePackage>, String> {
         let name = parse_package_name(&manifest_path, &manifest_content)?;
         let path = manifest_path
             .parent()
-            .ok_or_else(|| format!("{} has no parent directory", manifest_path.display()))?
-            .to_path_buf();
+            .filter(|parent| !parent.as_os_str().is_empty())
+            .map_or_else(|| PathBuf::from("."), Path::to_path_buf);
         packages.push(WorkspacePackage { name, path });
     }
     packages.sort_by(|left, right| left.path.cmp(&right.path));
@@ -281,31 +282,64 @@ fn changed_package_files_since(
     package_path: &Path,
 ) -> Result<Vec<String>, String> {
     let range = format!("{commit}..HEAD");
-    let pathspec = path_to_string(package_path);
-    let output = isolated_git_command()
+    let pathspecs = package_diff_pathspecs(package_path);
+    let mut command = isolated_git_command();
+    command
         .current_dir(root)
-        .args(["diff", "--name-only", "-z", &range, "--", &pathspec])
+        .args(["diff", "--name-only", "-z", &range, "--"]);
+    for pathspec in &pathspecs {
+        command.arg(pathspec);
+    }
+    let output = command
         .output()
         // @behavior tool.readme.changed_files.spawn_failure Freshness diff reports process errors when Git cannot be started.
-        .map_err(|error| format!("failed to run git diff for {pathspec}: {error}"))?;
+        .map_err(|error| {
+            format!(
+                "failed to run git diff for {}: {error}",
+                pathspecs.join(", ")
+            )
+        })?;
     if !output.status.success() {
         // @behavior tool.readme.changed_files.git_failure Freshness diff reports Git stderr when package diff collection fails.
         return Err(format!(
-            "git diff failed for {pathspec}: {}",
+            "git diff failed for {}: {}",
+            pathspecs.join(", "),
             String::from_utf8_lossy(&output.stderr).trim()
         ));
     }
 
-    let readme_path = package_path.join("README.md");
+    let readme_path = package_readme_path(package_path);
     let mut changed_files = output
         .stdout
         .split(|byte| *byte == b'\0')
         .filter(|entry| !entry.is_empty())
         .map(|entry| String::from_utf8_lossy(entry).into_owned())
-        .filter(|path| Path::new(path) != readme_path)
+        .filter(|path| path != &readme_path)
         .collect::<Vec<_>>();
     changed_files.sort();
     Ok(changed_files)
+}
+
+/// @behavior tool.readme.changed_files.root_scope The root package freshness diff checks root package metadata, source, and tests.
+fn package_diff_pathspecs(package_path: &Path) -> Vec<String> {
+    if package_path == Path::new(".") {
+        vec![
+            "Cargo.toml".to_owned(),
+            "src".to_owned(),
+            "tests".to_owned(),
+        ]
+    } else {
+        vec![path_to_string(package_path)]
+    }
+}
+
+/// @behavior tool.readme.changed_files.readme_exclusion README freshness diff excludes the README path for root and nested packages.
+fn package_readme_path(package_path: &Path) -> String {
+    if package_path == Path::new(".") {
+        "README.md".to_owned()
+    } else {
+        path_to_string(&package_path.join("README.md"))
+    }
 }
 
 fn extract_mermaid_diagrams(content: &str) -> Vec<MermaidDiagram> {

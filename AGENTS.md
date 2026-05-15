@@ -2845,8 +2845,10 @@ This file is for coding agents working in this repository.
 |tool.project_index.warning.path|tool.project_index.warning.path.{}
 |tool.project_index.warning.read_error|tool.project_index.warning.read_error.{}
 |tool.readme|tool.readme.{changed_files,commit,freshness,mermaid,metadata,module,package_name,packages,read_file,stale_package,status}
-|tool.readme.changed_files|tool.readme.changed_files.{git_failure,spawn_failure}
+|tool.readme.changed_files|tool.readme.changed_files.{git_failure,readme_exclusion,root_scope,spawn_failure}
 |tool.readme.changed_files.git_failure|tool.readme.changed_files.git_failure.{}
+|tool.readme.changed_files.readme_exclusion|tool.readme.changed_files.readme_exclusion.{}
+|tool.readme.changed_files.root_scope|tool.readme.changed_files.root_scope.{}
 |tool.readme.changed_files.spawn_failure|tool.readme.changed_files.spawn_failure.{}
 |tool.readme.commit|tool.readme.commit.{spawn_failure,unknown}
 |tool.readme.commit.spawn_failure|tool.readme.commit.spawn_failure.{}
