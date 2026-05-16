@@ -635,7 +635,7 @@ impl ServerControl {
         let (progress_tx, progress_rx) = mpsc::unbounded_channel();
         let command_name = "login-chatgpt".to_owned();
         let operation = executor.execute(LocalOperationCommand::LoginChatgpt, progress_tx);
-        tokio::spawn(run_local_operation_task(LocalOperationTask {
+        let task = tokio::spawn(run_local_operation_task(LocalOperationTask {
             operation,
             progress_rx,
             events_tx,
@@ -645,6 +645,7 @@ impl ServerControl {
             command_name,
             _login_permit: login_permit,
         }));
+        self.inner.track_local_operation_task(task);
 
         CommandOutcome::Accepted
     }
@@ -676,6 +677,7 @@ impl ServerControl {
         if let Some(web_control) = web_control {
             web_control.stop().await;
         }
+        self.inner.abort_local_operation_tasks();
         let _ = self.inner.events_tx.lock().await.take();
         self.inner.stop_notify.notify_waiters();
     }
@@ -702,10 +704,33 @@ struct ServerInner {
     command_mapper: LocalCommandMapperRef,
     local_operation_executor: LocalOperationExecutorRef,
     login_gate: Arc<Semaphore>,
+    local_operation_tasks: StdMutex<Vec<JoinHandle<()>>>,
     web_control: StdMutex<Option<selvedge_web::WebControl>>,
 }
 
 impl ServerInner {
+    // @behavior selvedge.startup.server.local_operation.task.track Accepted local operation tasks are tracked so shutdown can cancel them.
+    fn track_local_operation_task(&self, task: JoinHandle<()>) {
+        let mut tasks = self
+            .local_operation_tasks
+            .lock()
+            .expect("server local operation task lock");
+        tasks.retain(|task| !task.is_finished());
+        tasks.push(task);
+    }
+
+    // @behavior selvedge.startup.server.local_operation.task.abort Shutdown aborts tracked local operation tasks before closing events ingress.
+    fn abort_local_operation_tasks(&self) {
+        for task in self
+            .local_operation_tasks
+            .lock()
+            .expect("server local operation task lock")
+            .drain(..)
+        {
+            task.abort();
+        }
+    }
+
     // @behavior selvedge.startup.server.local_protocol.attach.active_reservation Server attach admission records one active command per client and reports the previous active command.
     fn reserve_active_attach(
         &self,
@@ -1066,6 +1091,7 @@ fn start_server_after_lock(
         command_mapper: args.command_mapper,
         local_operation_executor: args.local_operation_executor,
         login_gate: Arc::new(Semaphore::new(1)),
+        local_operation_tasks: StdMutex::new(Vec::new()),
         web_control: StdMutex::new(None),
     });
     // @behavior selvedge.startup.server.web.start_result Server startup either records optional web control or returns a web startup error after lock cleanup.
@@ -1211,6 +1237,7 @@ async fn begin_supervised_shutdown(
     if let Some(web_control) = web_control {
         web_control.stop().await;
     }
+    inner.abort_local_operation_tasks();
     let _ = inner.events_tx.lock().await.take();
     inner.stop_notify.notify_waiters();
 }
@@ -2349,6 +2376,37 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn shutdown_aborts_pending_login_operation() {
+        let (router_tx, _router_rx) = mpsc::unbounded_channel();
+        let (client_sync_tx, _client_sync_rx) = mpsc::channel(1);
+        let (events_tx, _events_rx) = mpsc::channel(8);
+        let control = test_control_with_frame_channel_factory_mapper_and_executor(
+            router_tx,
+            client_sync_tx,
+            events_tx,
+            Arc::new(TokioAttachFrameChannelFactory),
+            Arc::new(UnusedMapper),
+            Arc::new(PendingLocalOperationExecutor),
+        );
+        activate_attach(&control, "client-1", "attach-1");
+
+        let response = control.submit_command(login_command("command-1")).await;
+        control.stop().await;
+
+        // @verifies selvedge.startup.server.local_operation.task.abort
+        assert_eq!(response.outcome, CommandOutcome::Accepted);
+        // @verifies selvedge.startup.server.local_operation.task.abort
+        assert!(
+            control
+                .inner
+                .local_operation_tasks
+                .lock()
+                .expect("local operation tasks")
+                .is_empty()
+        );
+    }
+
     // @verifies selvedge.startup.server
     #[tokio::test]
     async fn server_web_bridge_forwards_commands_to_server_control() {
@@ -3218,6 +3276,7 @@ mod tests {
                 command_mapper,
                 local_operation_executor,
                 login_gate: Arc::new(Semaphore::new(1)),
+                local_operation_tasks: StdMutex::new(Vec::new()),
                 web_control: StdMutex::new(None),
             }),
         }
