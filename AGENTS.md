@@ -1549,10 +1549,11 @@ This file is for coding agents working in this repository.
 |selvedge.login.result.email|selvedge.login.result.email.{}
 |selvedge.login.result.plan_type|selvedge.login.result.plan_type.{}
 |selvedge.login.result.user_id|selvedge.login.result.user_id.{}
-|selvedge.login.run|selvedge.login.run.{authorized,cancelled,expired,provider_expired}
+|selvedge.login.run|selvedge.login.run.{authorized,cancelled,expired,initial_interval,provider_expired}
 |selvedge.login.run.authorized|selvedge.login.run.authorized.{}
 |selvedge.login.run.cancelled|selvedge.login.run.cancelled.{}
 |selvedge.login.run.expired|selvedge.login.run.expired.{}
+|selvedge.login.run.initial_interval|selvedge.login.run.initial_interval.{}
 |selvedge.login.run.provider_expired|selvedge.login.run.provider_expired.{}
 |selvedge.login.start|selvedge.login.start.{error_status,interval,interval_positive,interval_string,interval_value,request,required_fields,response,transport,user_code}
 |selvedge.login.start.error_status|selvedge.login.start.error_status.{}
@@ -2140,11 +2141,13 @@ This file is for coding agents working in this repository.
 |selvedge.startup.server.local_operation.progress_sender.abstraction|selvedge.startup.server.local_operation.progress_sender.abstraction.{}
 |selvedge.startup.server.local_operation.success|selvedge.startup.server.local_operation.success.{message}
 |selvedge.startup.server.local_operation.success.message|selvedge.startup.server.local_operation.success.message.{}
-|selvedge.startup.server.local_operation.task|selvedge.startup.server.local_operation.task.{delivery_closed,failure,run,terminal}
+|selvedge.startup.server.local_operation.task|selvedge.startup.server.local_operation.task.{abort,delivery_closed,failure,run,terminal,track}
+|selvedge.startup.server.local_operation.task.abort|selvedge.startup.server.local_operation.task.abort.{}
 |selvedge.startup.server.local_operation.task.delivery_closed|selvedge.startup.server.local_operation.task.delivery_closed.{}
 |selvedge.startup.server.local_operation.task.failure|selvedge.startup.server.local_operation.task.failure.{}
 |selvedge.startup.server.local_operation.task.run|selvedge.startup.server.local_operation.task.run.{}
 |selvedge.startup.server.local_operation.task.terminal|selvedge.startup.server.local_operation.task.terminal.{}
+|selvedge.startup.server.local_operation.task.track|selvedge.startup.server.local_operation.task.track.{}
 |selvedge.startup.server.local_protocol|selvedge.startup.server.local_protocol.{attach,command,control,error,event}
 |selvedge.startup.server.local_protocol.attach|selvedge.startup.server.local_protocol.attach.{active_reject,active_reservation,admission_closed,channel_factory,channel_failed,clear_active,duplicate,frame_stream,frame_stream_type,registry_full,registry_lock,reject,request,reservation_rollback,response,restore_active,router_command,stream_closed,subscription_mapping}
 |selvedge.startup.server.local_protocol.attach.active_reject|selvedge.startup.server.local_protocol.attach.active_reject.{}

@@ -163,6 +163,9 @@ where
         // @behavior selvedge.login.run.cancelled ChatGPT login returns cancelled when progress delivery fails.
         .map_err(|_| ChatgptLoginError::Cancelled)?;
 
+    // @behavior selvedge.login.run.initial_interval ChatGPT login waits for the provider-supplied poll interval before the first device-code poll.
+    tokio::time::sleep(challenge.poll_interval).await;
+
     loop {
         if chrono::Utc::now() >= challenge.expires_at {
             // @behavior selvedge.login.run.expired Local expiry detection returns ChallengeExpired before another provider poll.
