@@ -17,7 +17,7 @@ use selvedge_local_protocol::{
     AttachAccepted, AttachRejected, AttachRequest, CommandOutcome, CommandRequest, CommandResponse,
     LocalClientCommandId, LocalClientFrame, LocalClientId, LocalClientNoticeFrame,
     LocalClientSnapshot, LocalClientSubscription, LocalDetailLevel, LocalNotice, LocalNoticeLevel,
-    LocalTaskScope, ReadyResponse, ReadyState, current_protocol_version,
+    LocalSnapshotMode, LocalTaskScope, ReadyResponse, ReadyState, current_protocol_version,
 };
 use tokio::sync::oneshot;
 
@@ -376,6 +376,7 @@ pub fn valid_attach_for(client_id: &str, command_id: &str) -> AttachRequest {
         subscription: LocalClientSubscription {
             task_scope: LocalTaskScope::AllTasks,
             detail_level: LocalDetailLevel::Summary,
+            snapshot_mode: LocalSnapshotMode::CurrentState,
             include_model_call_status: false,
             include_tool_execution_status: false,
             include_debug_notices: false,
@@ -390,6 +391,7 @@ pub fn notice_frame(seq: u64) -> LocalClientFrame {
         client_command_id: LocalClientCommandId::new(format!("notice-{seq}")).expect("command id"),
         notice: LocalNotice {
             level: LocalNoticeLevel::Info,
+            kind: selvedge_local_protocol::LocalNoticeKind::Text,
             message_text: format!("notice {seq}"),
         },
     })

@@ -141,7 +141,7 @@ This file is for coding agents working in this repository.
 |selvedge.auth.file.tokens.refresh_field|selvedge.auth.file.tokens.refresh_field.{}
 |selvedge.auth.file.tokens.required|selvedge.auth.file.tokens.required.{}
 |selvedge.auth.file.tokens_field|selvedge.auth.file.tokens_field.{}
-|selvedge.auth.jwt|selvedge.auth.jwt.{claims,errors,expiration,header,json,optional_string,parse,segments}
+|selvedge.auth.jwt|selvedge.auth.jwt.{claims,errors,expiration,header,json,optional_object_string,optional_string,parse,segments}
 |selvedge.auth.jwt.claims|selvedge.auth.jwt.claims.{account_field,email_field,expiration_field,plan_field,subject_field,user_field}
 |selvedge.auth.jwt.claims.account_field|selvedge.auth.jwt.claims.account_field.{}
 |selvedge.auth.jwt.claims.email_field|selvedge.auth.jwt.claims.email_field.{}
@@ -153,6 +153,7 @@ This file is for coding agents working in this repository.
 |selvedge.auth.jwt.expiration|selvedge.auth.jwt.expiration.{}
 |selvedge.auth.jwt.header|selvedge.auth.jwt.header.{}
 |selvedge.auth.jwt.json|selvedge.auth.jwt.json.{}
+|selvedge.auth.jwt.optional_object_string|selvedge.auth.jwt.optional_object_string.{}
 |selvedge.auth.jwt.optional_string|selvedge.auth.jwt.optional_string.{}
 |selvedge.auth.jwt.parse|selvedge.auth.jwt.parse.{claims}
 |selvedge.auth.jwt.parse.claims|selvedge.auth.jwt.parse.claims.{}
@@ -311,9 +312,10 @@ This file is for coding agents working in this repository.
 |selvedge.cli.server_starter.start|selvedge.cli.server_starter.start.{}
 |selvedge.cli.startup_message|selvedge.cli.startup_message.{}
 |selvedge.cli.status|selvedge.cli.status.{}
-|selvedge.cli.submit|selvedge.cli.submit.{attach_cleanup,attach_error,deadline,deadline_overflow,empty_snapshot,ready_existing,ready_timeout,retry_sleep,service_unready,service_wait_error,submit_error,terminal_frame}
+|selvedge.cli.submit|selvedge.cli.submit.{attach_cleanup,attach_error,command_id_error,deadline,deadline_overflow,empty_snapshot,ready_existing,ready_timeout,retry_sleep,service_unready,service_wait_error,submit_error,terminal_frame}
 |selvedge.cli.submit.attach_cleanup|selvedge.cli.submit.attach_cleanup.{}
 |selvedge.cli.submit.attach_error|selvedge.cli.submit.attach_error.{}
+|selvedge.cli.submit.command_id_error|selvedge.cli.submit.command_id_error.{}
 |selvedge.cli.submit.deadline|selvedge.cli.submit.deadline.{}
 |selvedge.cli.submit.deadline_overflow|selvedge.cli.submit.deadline_overflow.{}
 |selvedge.cli.submit.empty_snapshot|selvedge.cli.submit.empty_snapshot.{closed,first_frame,non_empty,stream_error}

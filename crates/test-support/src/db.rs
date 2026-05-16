@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use selvedge_command_model::{ClientSnapshot, DetailLevel, TaskScope};
+use selvedge_command_model::{ClientSnapshot, DetailLevel, SnapshotMode, TaskScope};
 use selvedge_db::{
     CreateRootTaskInput, DbPool, HistoryNodeId, MessageRole, ModelProfileKey, NewHistoryNode,
     NewHistoryNodeContent, NewMessageNodeContent, OpenDbOptions, ReasoningEffort, TaskId, TaskRow,
@@ -102,6 +102,7 @@ pub fn summary_all_tasks_subscription() -> selvedge_command_model::ClientSubscri
     selvedge_command_model::ClientSubscription {
         task_scope: TaskScope::AllTasks,
         detail_level: DetailLevel::Summary,
+        snapshot_mode: SnapshotMode::CurrentState,
         include_model_call_status: false,
         include_tool_execution_status: false,
         include_debug_notices: false,

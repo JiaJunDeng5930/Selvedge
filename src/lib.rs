@@ -528,6 +528,7 @@ where
     };
     let submit_command_id = match LocalClientCommandId::new(next_command_id()) {
         Ok(client_command_id) => client_command_id,
+        // @behavior selvedge.cli.submit.command_id_error Invalid generated submit command IDs return InvalidArgs before local submission.
         Err(error) => return CliExitStatus::InvalidArgs(format!("{error:?}")),
     };
     let request = CommandRequest {
