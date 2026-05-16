@@ -104,6 +104,7 @@ fn read_optional_string(value: Option<&Value>) -> Option<String> {
         .map(ToOwned::to_owned)
 }
 
+// @constraint selvedge.auth.jwt.optional_object_string Empty JWT string claims nested in object claims are omitted from caller-visible auth metadata.
 fn read_optional_string_from_object(
     object: Option<&serde_json::Map<String, Value>>,
     field: &str,
