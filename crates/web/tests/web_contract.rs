@@ -693,6 +693,7 @@ fn valid_attach_request() -> AttachRequest {
         subscription: LocalClientSubscription {
             task_scope: LocalTaskScope::AllTasks,
             detail_level: LocalDetailLevel::Summary,
+            snapshot_mode: selvedge_local_protocol::LocalSnapshotMode::CurrentState,
             include_model_call_status: false,
             include_tool_execution_status: false,
             include_debug_notices: false,

@@ -4,6 +4,8 @@
 //! @behavior selvedge.cli.process The selvedge CLI exits with status 0 for success, 130 for interruption, and 1 for other user-visible failures.
 //! @behavior selvedge.cli.local_client CLI local clients expose readiness and command submission outcomes.
 //! @behavior selvedge.cli.local_connector CLI local connectors expose connection outcomes for local command submission.
+//! @behavior selvedge.cli.server_starter CLI server starters launch the local server for user command submission when no ready server is available.
+//! @behavior selvedge.cli.login_chatgpt The login-chatgpt CLI command submits a server-side ChatGPT login command and prints only the user-facing login prompts and terminal result.
 //! @behavior selvedge.cli.server_args_builder CLI server argument builders expose startup argument outcomes.
 //! @behavior selvedge.cli.default_server_args_builder The default server argument builder exposes the repository default server startup arguments.
 //! @behavior selvedge.cli.server_runner CLI server runners expose local server exit outcomes.
@@ -11,14 +13,16 @@
 
 use std::collections::HashMap;
 use std::future::Future;
+use std::process::Stdio;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use chatgpt_login::{
-    ChatgptLoginError, ChatgptLoginResult, DeviceCodePollOutcome, complete_device_code_login,
-    poll_device_code_login, start_device_code_login,
+    ChatgptLoginProgress, ChatgptLoginProgressError, ChatgptLoginProgressFuture,
+    ChatgptLoginProgressSink, run_chatgpt_login,
 };
+use futures_util::StreamExt;
 use selvedge_api::ApiExecutorConfig;
 use selvedge_client_sync::{
     ClientSnapshotBuildFuture, ClientSnapshotBuildRequest, ClientSnapshotBuilder,
@@ -28,20 +32,20 @@ use selvedge_command_model::{
 };
 use selvedge_core::{TaskRuntimeConfig, TaskRuntimeSpawnDeps};
 use selvedge_domain_model::UnixTs;
-use selvedge_local_client::{LocalClientConfig, LocalClientError, LocalEndpoint};
+use selvedge_local_client::{LocalClientConfig, LocalClientError, LocalEndpoint, LocalFrameStream};
 use selvedge_local_protocol::{
-    CommandOutcome, CommandRequest, CommandResponse, LocalClientCommandId, LocalClientId,
+    AttachAccepted, AttachRequest, CommandOutcome, CommandRequest, CommandResponse,
+    LocalClientCommandId, LocalClientFrame, LocalClientId, LocalNoticeKind, LocalSnapshotMode,
     ReadyRequest, ReadyResponse, ReadyState, current_protocol_version,
 };
 use selvedge_router::{ToolExecutionSpawnError, ToolExecutionSpawner};
 use selvedge_server::{
-    LocalBindingConfig, LocalCommandMapper, LocalhostBindTarget, ServerRequestError,
+    LocalBindingConfig, LocalCommandMapper, LocalOperationCommand, LocalOperationExecutor,
+    LocalOperationFailure, LocalOperationFuture, LocalOperationProgress,
+    LocalOperationProgressSender, LocalOperationSuccess, LocalhostBindTarget, ServerRequestError,
     ServerStartArgs, ServerStartupError,
 };
-use selvedge_systemd::{
-    ServiceStatus, SystemctlBackend, SystemctlBackendConfig, SystemdBackend, SystemdClient,
-    SystemdConfig, SystemdScope,
-};
+use selvedge_systemd::SystemdConfig;
 use tokio::task::JoinHandle;
 
 const DEFAULT_LOCAL_PORT: u16 = 8080;
@@ -68,15 +72,14 @@ pub struct CliRunArgs {
     pub argv: Vec<String>,
 }
 
-// @behavior selvedge.cli.command CLI arguments resolve to running the server, logging into ChatGPT, or submitting a named local command.
+// @behavior selvedge.cli.command CLI arguments resolve to running the server or submitting a named local command.
 #[derive(Clone, Debug, PartialEq)]
 pub enum CliCommand {
     RunServer,
-    LoginChatgpt,
     SubmitCommand {
         command_name: String,
         payload: serde_json::Value,
-        client_id: String,
+        client_id: Option<String>,
     },
 }
 
@@ -87,12 +90,12 @@ pub enum CliExitStatus {
     InvalidArgs(String),
     ConfigFailed(String),
     LoggingFailed(String),
-    ChatgptLoginFailed(String),
     ServerDependencyFailed(String),
     ServerStartFailed(String),
     ServerReadyTimeout,
     ServerNotReady,
     CommandRejected(String),
+    CommandFailed(String),
     LocalClientFailed(String),
     ServerRunFailed(String),
     Interrupted,
@@ -153,6 +156,15 @@ pub trait CliLocalClient {
         &mut self,
         request: CommandRequest,
     ) -> impl Future<Output = Result<CommandResponse, CliError>> + Send;
+
+    /// @behavior selvedge.cli.local_client.attach CliLocalClient attach calls return accepted metadata and a local frame stream or CLI client error.
+    fn attach(
+        &mut self,
+        request: AttachRequest,
+    ) -> impl Future<Output = Result<(AttachAccepted, LocalFrameStream), CliError>> + Send;
+
+    /// @behavior selvedge.cli.local_client.close CliLocalClient close calls release local client resources before process exit.
+    fn close(&mut self) -> impl Future<Output = Result<(), CliError>> + Send;
 }
 
 // @behavior selvedge.cli.local_connector.contract Local client connectors expose connection success or CLI client failure to command submission.
@@ -214,6 +226,7 @@ impl CliServerStartArgsBuilder for DefaultCliServerStartArgsBuilder {
             // mapping and snapshot hydration package contracts.
             snapshot_builder: Arc::new(EmptySnapshotBuilder),
             command_mapper: Arc::new(UnsupportedCommandMapper),
+            local_operation_executor: Arc::new(DefaultLocalOperationExecutor),
             local_binding: LocalBindingConfig {
                 bind_target: local_bind_target.clone(),
             },
@@ -234,13 +247,14 @@ pub trait CliServerRunner: Send + Sync + 'static {
     ) -> impl Future<Output = selvedge_server::ServerExitStatus> + Send;
 }
 
-// @behavior selvedge.cli.login_chatgpt.runner CLI ChatGPT login runners expose the product login flow result to CLI execution.
-// @intent selvedge.cli.login_chatgpt.abstraction CliChatgptLoginRunner keeps OAuth provider interaction behind a CLI boundary while preserving the real login result.
-pub trait CliChatgptLoginRunner: Send + Sync + 'static {
-    /// @behavior selvedge.cli.login_chatgpt.runner.run ChatGPT login runners return the completed login metadata or a caller-visible login error.
-    fn run_login(
+// @behavior selvedge.cli.server_starter.contract CLI server starters launch the local server process for user command submission.
+// @intent selvedge.cli.server_starter.abstraction CliServerStarter abstracts the CLI boundary that requests a local server process before client attachment.
+pub trait CliServerStarter: Send + Sync + 'static {
+    /// @behavior selvedge.cli.server_starter.start CLI server starters return success after requesting a local server start.
+    fn start_server(
         &self,
-    ) -> impl Future<Output = Result<ChatgptLoginResult, ChatgptLoginError>> + Send;
+        resolved_config: &CliResolvedConfig,
+    ) -> impl Future<Output = Result<(), CliError>> + Send;
 }
 
 // @behavior selvedge.cli.run run_cli initializes config and logging before running the parsed CLI command.
@@ -259,22 +273,12 @@ pub async fn run_cli(args: CliRunArgs) -> CliExitStatus {
         return CliExitStatus::InvalidArgs(error);
     }
 
-    // @behavior selvedge.cli.systemd_backend Systemd backend construction failure returns ServerStartFailed.
-    let systemd_backend = match SystemctlBackend::new(SystemctlBackendConfig {
-        systemctl_path: "systemctl".into(),
-        scope: SystemdScope::System,
-    }) {
-        Ok(backend) => backend,
-        Err(error) => return CliExitStatus::ServerStartFailed(format!("{error:?}")),
-    };
-
-    run_cli_with_login_deps(
+    run_cli_with_deps(
         args.argv,
-        systemd_backend,
+        DefaultCliServerStarter,
         DefaultCliServerRunner,
         DefaultCliLocalClientConnector,
         DefaultCliServerStartArgsBuilder::new(),
-        DefaultCliChatgptLoginRunner,
     )
     .await
 }
@@ -282,29 +286,10 @@ pub async fn run_cli(args: CliRunArgs) -> CliExitStatus {
 // @behavior selvedge.cli.deps run_cli_with_deps parses arguments, resolves config, and executes the requested command through injected dependencies.
 #[rustfmt::skip]
 pub async fn run_cli_with_deps<
-    S: SystemdBackend, R: CliServerRunner, C: CliLocalClientConnector, B: CliServerStartArgsBuilder,
+    S: CliServerStarter, R: CliServerRunner, C: CliLocalClientConnector, B: CliServerStartArgsBuilder,
 >(
-    args: Vec<String>, systemd_backend: S, server_runner: R,
+    args: Vec<String>, server_starter: S, server_runner: R,
     local_client_connector: C, server_start_args_builder: B,
-) -> CliExitStatus {
-    run_cli_with_login_deps(
-        args,
-        systemd_backend,
-        server_runner,
-        local_client_connector,
-        server_start_args_builder,
-        DefaultCliChatgptLoginRunner,
-    )
-    .await
-}
-
-// @behavior selvedge.cli.deps.login Injected CLI execution runs ChatGPT login commands through the injected login runner.
-#[rustfmt::skip]
-pub async fn run_cli_with_login_deps<
-    S: SystemdBackend, R: CliServerRunner, C: CliLocalClientConnector, B: CliServerStartArgsBuilder, L: CliChatgptLoginRunner,
->(
-    args: Vec<String>, systemd_backend: S, server_runner: R,
-    local_client_connector: C, server_start_args_builder: B, chatgpt_login_runner: L,
 ) -> CliExitStatus {
     // @behavior selvedge.cli.deps.argument_parse Injected CLI execution parses supplied arguments before calling injected dependencies.
     let command = match parse_cli_args(&args) {
@@ -324,16 +309,13 @@ pub async fn run_cli_with_login_deps<
         CliCommand::RunServer => {
             run_server_subcommand(server_runner, server_start_args_builder, &resolved_config).await
         }
-        CliCommand::LoginChatgpt => {
-            run_chatgpt_login_command(chatgpt_login_runner).await
-        }
         CliCommand::SubmitCommand {
             command_name,
             payload,
             client_id,
         } => {
             run_submit_command(
-                systemd_backend,
+                server_starter,
                 local_client_connector,
                 resolved_config,
                 command_name,
@@ -341,26 +323,6 @@ pub async fn run_cli_with_login_deps<
                 client_id,
             )
             .await
-        }
-    }
-}
-
-async fn run_chatgpt_login_command<L>(chatgpt_login_runner: L) -> CliExitStatus
-where
-    L: CliChatgptLoginRunner,
-{
-    // @behavior selvedge.cli.login_chatgpt The login-chatgpt command runs the ChatGPT OAuth login flow and returns success after credentials are persisted.
-    match chatgpt_login_runner.run_login().await {
-        Ok(_) => CliExitStatus::Success,
-        Err(error) => {
-            let error = format!("{error:?}");
-            // @behavior selvedge.cli.login_chatgpt.error_log The login-chatgpt command logs failed OAuth login attempts with the caller-visible error.
-            let _ = selvedge_logging::selvedge_log!(
-                selvedge_logging::LogLevel::Error,
-                "ChatGPT login failed";
-                error = error
-            );
-            CliExitStatus::ChatgptLoginFailed(error)
         }
     }
 }
@@ -422,14 +384,14 @@ pub fn exit_code(status: &CliExitStatus) -> i32 {
     }
 }
 
-// @behavior selvedge.cli.process.stderr ChatGPT login failures are written to stderr before the CLI exits.
+// @behavior selvedge.cli.process.stderr Rejected commands are written to stderr before the CLI exits.
 pub fn write_cli_exit_status<W>(status: &CliExitStatus, mut writer: W) -> std::io::Result<()>
 where
     W: std::io::Write,
 {
     match status {
-        CliExitStatus::ChatgptLoginFailed(error) => {
-            writeln!(writer, "ChatGPT login failed: {error}")
+        CliExitStatus::CommandRejected(error) => {
+            writeln!(writer, "Command rejected: {error}")
         }
         _ => Ok(()),
     }
@@ -443,7 +405,11 @@ fn parse_cli_args(args: &[String]) -> Result<CliCommand, String> {
     }
     if tokens == ["login-chatgpt"] {
         // @behavior selvedge.cli.login_chatgpt.parse CLI parsing accepts login-chatgpt as the product ChatGPT OAuth login command.
-        return Ok(CliCommand::LoginChatgpt);
+        return Ok(CliCommand::SubmitCommand {
+            command_name: "login-chatgpt".to_owned(),
+            payload: serde_json::json!({}),
+            client_id: None,
+        });
     }
 
     let mut client_id = None;
@@ -506,7 +472,7 @@ fn parse_cli_args(args: &[String]) -> Result<CliCommand, String> {
     Ok(CliCommand::SubmitCommand {
         command_name,
         payload,
-        client_id,
+        client_id: Some(client_id),
     })
 }
 
@@ -538,88 +504,126 @@ where
 }
 
 async fn run_submit_command<S, C>(
-    systemd_backend: S,
+    server_starter: S,
     local_client_connector: C,
     resolved_config: CliResolvedConfig,
     command_name: String,
     payload: serde_json::Value,
-    client_id: String,
+    client_id: Option<String>,
 ) -> CliExitStatus
 where
-    S: SystemdBackend,
+    S: CliServerStarter,
     C: CliLocalClientConnector,
 {
-    // @behavior selvedge.cli.submit Command submission probes an existing local server, starts systemd when needed, waits for readiness, and submits to a ready local client.
-    let client_id = match LocalClientId::new(client_id) {
+    // @behavior selvedge.cli.submit Command submission probes an existing local server, starts it when needed, attaches with an empty snapshot, submits to a ready local client, and waits for terminal command output.
+    let client_id = match LocalClientId::new(
+        client_id.unwrap_or_else(|| format!("cli-{}", std::process::id())),
+    ) {
         Ok(client_id) => client_id,
         Err(error) => return CliExitStatus::InvalidArgs(format!("{error:?}")),
     };
-    let client_command_id = match LocalClientCommandId::new(next_command_id()) {
+    let attach_command_id = match LocalClientCommandId::new(next_command_id()) {
+        Ok(client_command_id) => client_command_id,
+        Err(error) => return CliExitStatus::InvalidArgs(format!("{error:?}")),
+    };
+    let submit_command_id = match LocalClientCommandId::new(next_command_id()) {
         Ok(client_command_id) => client_command_id,
         Err(error) => return CliExitStatus::InvalidArgs(format!("{error:?}")),
     };
     let request = CommandRequest {
         protocol_version: current_protocol_version(),
-        client_id,
-        client_command_id,
-        command_name,
+        client_id: client_id.clone(),
+        client_command_id: submit_command_id.clone(),
+        command_name: command_name.clone(),
         payload,
     };
 
-    match connect_and_ready(&local_client_connector, &resolved_config).await {
-        // @behavior selvedge.cli.submit.ready_existing A ready local server receives the command without starting systemd.
-        ReadyProbe::Ready(mut client) => return submit_ready_command(&mut client, request).await,
+    let mut client = match connect_and_ready(&local_client_connector, &resolved_config).await {
+        // @behavior selvedge.cli.submit.ready_existing A ready local server receives the command without starting a new server.
+        ReadyProbe::Ready(client) => client,
         ReadyProbe::Failed(error) => return CliExitStatus::LocalClientFailed(format!("{error:?}")),
-        ReadyProbe::Unavailable | ReadyProbe::NotReady => {}
-    }
-
-    let systemd = match SystemdClient::new(resolved_config.systemd_config.clone(), systemd_backend)
-    {
-        Ok(systemd) => systemd,
-        // @behavior selvedge.cli.submit.systemd_create_failure Systemd client construction failure returns ServerStartFailed.
-        Err(error) => return CliExitStatus::ServerStartFailed(format!("{error:?}")),
+        ReadyProbe::Unavailable | ReadyProbe::NotReady => {
+            if let Err(error) = server_starter.start_server(&resolved_config).await {
+                return CliExitStatus::ServerStartFailed(format!("{error:?}"));
+            }
+            match poll_ready_client(&local_client_connector, &resolved_config).await {
+                Ok(client) => client,
+                Err(status) => return status,
+            }
+        }
     };
 
-    if let Err(error) = systemd.start_service().await {
-        return CliExitStatus::ServerStartFailed(format!("{error:?}"));
-    }
-    match systemd.wait_service_active().await {
-        Ok(ServiceStatus::Active) => {}
-        // @behavior selvedge.cli.submit.service_failed A failed systemd service state returns ServerStartFailed with the service message.
-        Ok(ServiceStatus::Failed { message }) => return CliExitStatus::ServerStartFailed(message),
-        // @behavior selvedge.cli.submit.service_unready A non-active systemd service state returns ServerStartFailed with status text.
-        Ok(status) => return CliExitStatus::ServerStartFailed(format!("{status:?}")),
-        // @behavior selvedge.cli.submit.service_wait_error A systemd wait error returns ServerStartFailed with error text.
-        Err(error) => return CliExitStatus::ServerStartFailed(format!("{error:?}")),
+    let attach_request = AttachRequest {
+        protocol_version: current_protocol_version(),
+        client_id: client_id.clone(),
+        client_command_id: attach_command_id.clone(),
+        subscription: cli_subscription(),
+    };
+    let (_, mut stream) = match client.attach(attach_request).await {
+        Ok(attached) => attached,
+        // @behavior selvedge.cli.submit.attach_error Attach failures return LocalClientFailed before command submission.
+        Err(error) => {
+            return CliExitStatus::LocalClientFailed(format!("{error:?}"));
+        }
+    };
+
+    if let Err(status) = wait_for_empty_snapshot(&mut stream, &attach_command_id).await {
+        // @behavior selvedge.cli.submit.attach_cleanup Attach hydration failures close the local client before returning the failure status.
+        let _ = client.close().await;
+        return status;
     }
 
+    let status = match client.submit_command(request).await {
+        Ok(CommandResponse {
+            outcome: CommandOutcome::Accepted,
+            client_command_id,
+            ..
+        }) => wait_for_terminal_frame(&mut stream, &client_command_id, &command_name).await,
+        Ok(CommandResponse {
+            outcome: CommandOutcome::Rejected(reason),
+            ..
+        }) => CliExitStatus::CommandRejected(format!("{reason:?}")),
+        // @behavior selvedge.cli.submit.submit_error Command submission errors return LocalClientFailed after the attach stream is established.
+        Err(error) => CliExitStatus::LocalClientFailed(format!("{error:?}")),
+    };
+
+    let _ = client.close().await;
+    status
+}
+
+async fn poll_ready_client<C>(
+    connector: &C,
+    resolved_config: &CliResolvedConfig,
+) -> Result<C::Client, CliExitStatus>
+where
+    C: CliLocalClientConnector,
+{
     let Some(deadline) = ready_deadline_from_now(resolved_config.ready_timeout) else {
         // @constraint selvedge.cli.submit.deadline_overflow Readiness deadline overflow returns ServerReadyTimeout.
-        return CliExitStatus::ServerReadyTimeout;
+        return Err(CliExitStatus::ServerReadyTimeout);
     };
     loop {
         if tokio::time::Instant::now() >= deadline {
-            // @behavior selvedge.cli.submit.ready_timeout Readiness polling returns ServerReadyTimeout when the deadline is reached.
-            return CliExitStatus::ServerReadyTimeout;
+            // @behavior selvedge.cli.submit.ready_timeout Readiness polling returns ServerReadyTimeout after the configured deadline.
+            return Err(CliExitStatus::ServerReadyTimeout);
         }
-        match connect_and_ready(&local_client_connector, &resolved_config).await {
-            ReadyProbe::Ready(mut client) => {
-                return submit_ready_command(&mut client, request).await;
-            }
+        match connect_and_ready(connector, resolved_config).await {
+            ReadyProbe::Ready(client) => return Ok(client),
             ReadyProbe::Failed(error) => {
-                return CliExitStatus::LocalClientFailed(format!("{error:?}"));
+                // @behavior selvedge.cli.submit.service_wait_error Readiness polling returns LocalClientFailed when a connected local client reports an error.
+                return Err(CliExitStatus::LocalClientFailed(format!("{error:?}")));
             }
             ReadyProbe::Unavailable | ReadyProbe::NotReady => {
                 let now = tokio::time::Instant::now();
                 let Some(sleep_for) =
                     ready_retry_sleep_duration(now, deadline, resolved_config.ready_poll_interval)
                 else {
-                    return CliExitStatus::ServerReadyTimeout;
+                    // @behavior selvedge.cli.submit.service_unready Readiness polling returns ServerReadyTimeout when the service remains unavailable through the final retry window.
+                    return Err(CliExitStatus::ServerReadyTimeout);
                 };
-                if sleep_for.is_zero() {
-                    continue;
+                if !sleep_for.is_zero() {
+                    tokio::time::sleep(sleep_for).await;
                 }
-                tokio::time::sleep(sleep_for).await;
             }
         }
     }
@@ -682,23 +686,106 @@ where
     }
 }
 
-async fn submit_ready_command<C>(client: &mut C, request: CommandRequest) -> CliExitStatus
-where
-    C: CliLocalClient,
-{
-    // @behavior selvedge.cli.submit.outcome Accepted command responses return Success, rejected responses return CommandRejected, and client errors return LocalClientFailed.
-    match client.submit_command(request).await {
-        Ok(CommandResponse {
-            outcome: CommandOutcome::Accepted,
-            ..
-        }) => CliExitStatus::Success,
-        Ok(CommandResponse {
-            outcome: CommandOutcome::Rejected(reason),
-            ..
-        }) => CliExitStatus::CommandRejected(format!("{reason:?}")),
-        // @behavior selvedge.cli.submit.error Local client submission errors return LocalClientFailed with error text.
-        Err(error) => CliExitStatus::LocalClientFailed(format!("{error:?}")),
+fn cli_subscription() -> selvedge_local_protocol::LocalClientSubscription {
+    selvedge_local_protocol::LocalClientSubscription {
+        task_scope: selvedge_local_protocol::LocalTaskScope::AllTasks,
+        detail_level: selvedge_local_protocol::LocalDetailLevel::Verbose,
+        snapshot_mode: LocalSnapshotMode::Empty,
+        include_model_call_status: true,
+        include_tool_execution_status: true,
+        include_debug_notices: true,
     }
+}
+
+// @behavior selvedge.cli.submit.empty_snapshot CLI command submission accepts only an empty attach snapshot before submitting the command.
+async fn wait_for_empty_snapshot(
+    stream: &mut LocalFrameStream,
+    attach_command_id: &LocalClientCommandId,
+) -> Result<(), CliExitStatus> {
+    match stream.next().await {
+        Some(Ok(LocalClientFrame::Snapshot(frame)))
+            if &frame.client_command_id == attach_command_id
+                && snapshot_is_empty(&frame.snapshot) =>
+        {
+            Ok(())
+        }
+        Some(Ok(LocalClientFrame::Snapshot(_))) => {
+            // @constraint selvedge.cli.submit.empty_snapshot.non_empty A non-empty CLI attach snapshot returns LocalClientFailed before command submission.
+            Err(CliExitStatus::LocalClientFailed(
+                "attach delivered non-empty snapshot".to_owned(),
+            ))
+        }
+        Some(Ok(_)) => {
+            // @constraint selvedge.cli.submit.empty_snapshot.first_frame A non-snapshot first attach frame returns LocalClientFailed before command submission.
+            Err(CliExitStatus::LocalClientFailed(
+                "attach delivered frame before snapshot".to_owned(),
+            ))
+        }
+        Some(Err(error)) => {
+            // @behavior selvedge.cli.submit.empty_snapshot.stream_error Attach stream errors before the empty snapshot return LocalClientFailed.
+            Err(CliExitStatus::LocalClientFailed(format!("{error:?}")))
+        }
+        None => {
+            // @behavior selvedge.cli.submit.empty_snapshot.closed Attach stream closure before the empty snapshot returns LocalClientFailed.
+            Err(CliExitStatus::LocalClientFailed(
+                "attach stream closed before snapshot".to_owned(),
+            ))
+        }
+    }
+}
+
+fn snapshot_is_empty(snapshot: &selvedge_local_protocol::LocalClientSnapshot) -> bool {
+    snapshot.tasks.is_empty()
+        && snapshot.task_parent_edges.is_empty()
+        && snapshot.history_nodes.is_empty()
+        && snapshot.task_versions.is_empty()
+}
+
+// @behavior selvedge.cli.submit.terminal_frame CLI command submission waits on the attach stream for typed command output and one terminal command result.
+async fn wait_for_terminal_frame(
+    stream: &mut LocalFrameStream,
+    submit_command_id: &LocalClientCommandId,
+    command_name: &str,
+) -> CliExitStatus {
+    while let Some(frame) = stream.next().await {
+        match frame {
+            Ok(LocalClientFrame::Notice(frame)) => match frame.notice.kind {
+                LocalNoticeKind::LoginUserCode {
+                    client_command_id,
+                    verification_url,
+                    user_code,
+                } if &client_command_id == submit_command_id => {
+                    println!("Open this URL to authenticate ChatGPT:");
+                    println!("{verification_url}");
+                    println!("User code: {user_code}");
+                }
+                LocalNoticeKind::CommandCompleted {
+                    client_command_id,
+                    command_name: completed_command,
+                } if &client_command_id == submit_command_id
+                    && completed_command == command_name =>
+                {
+                    println!("{}", frame.notice.message_text);
+                    return CliExitStatus::Success;
+                }
+                LocalNoticeKind::CommandFailed {
+                    client_command_id,
+                    command_name: failed_command,
+                } if &client_command_id == submit_command_id && failed_command == command_name => {
+                    println!("{}", frame.notice.message_text);
+                    return CliExitStatus::CommandFailed(frame.notice.message_text);
+                }
+                LocalNoticeKind::Diagnostic { .. } => {}
+                _ => {}
+            },
+            Ok(_) => {}
+            // @behavior selvedge.cli.submit.terminal_frame.stream_error Attach stream errors while waiting for command completion return LocalClientFailed.
+            Err(error) => return CliExitStatus::LocalClientFailed(format!("{error:?}")),
+        }
+    }
+
+    // @behavior selvedge.cli.submit.terminal_frame.closed Attach stream closure before a terminal command result returns LocalClientFailed.
+    CliExitStatus::LocalClientFailed("attach stream closed before command terminal".to_owned())
 }
 
 // @behavior selvedge.cli.command_id CLI command ids include the process id and a monotonically increasing counter.
@@ -745,6 +832,22 @@ impl CliLocalClient for DefaultCliLocalClient {
             .await
             .map_err(map_local_client_error)
     }
+
+    // @behavior selvedge.cli.local_client.default_attach The default local client forwards attach requests to the HTTP local transport.
+    async fn attach(
+        &mut self,
+        request: AttachRequest,
+    ) -> Result<(AttachAccepted, LocalFrameStream), CliError> {
+        self.0
+            .attach(request)
+            .await
+            .map_err(|error| CliError::LocalClientFailed(format!("{error:?}")))
+    }
+
+    async fn close(&mut self) -> Result<(), CliError> {
+        // @behavior selvedge.cli.local_client.default_close The default local client forwards close requests to the HTTP local transport.
+        self.0.close().await.map_err(map_local_client_error)
+    }
 }
 
 // @behavior selvedge.cli.local_client.error Local client errors are converted into CLI LocalClientFailed errors with debug text.
@@ -760,33 +863,96 @@ impl CliServerRunner for DefaultCliServerRunner {
     }
 }
 
-struct DefaultCliChatgptLoginRunner;
+struct DefaultCliServerStarter;
 
-impl CliChatgptLoginRunner for DefaultCliChatgptLoginRunner {
-    async fn run_login(&self) -> Result<ChatgptLoginResult, ChatgptLoginError> {
-        // @behavior selvedge.cli.login_chatgpt.start The product login command prints the provider verification URL and user code returned by ChatGPT device-code start.
-        let challenge = start_device_code_login().await?;
-        println!("Open this URL to authenticate ChatGPT:");
-        println!("{}", challenge.verification_url);
-        println!("User code: {}", challenge.user_code);
-
-        loop {
-            // @behavior selvedge.cli.login_chatgpt.poll The product login command polls at the provider-directed interval until authorization succeeds or the challenge expires.
-            let outcome = poll_device_code_login(&challenge).await?;
-            match outcome {
-                DeviceCodePollOutcome::Pending { next_poll_after } => {
-                    tokio::time::sleep(next_poll_after).await;
-                }
-                DeviceCodePollOutcome::Authorized(authorization) => {
-                    // @behavior selvedge.cli.login_chatgpt.complete The product login command completes authorized device-code grants and prints the persisted auth file path.
-                    let result = complete_device_code_login(&challenge, authorization).await?;
-                    println!("ChatGPT login complete.");
-                    println!("Auth file: {}", result.auth_file_path.display());
-                    return Ok(result);
-                }
-                DeviceCodePollOutcome::Expired => return Err(ChatgptLoginError::ChallengeExpired),
+impl CliServerStarter for DefaultCliServerStarter {
+    async fn start_server(&self, _resolved_config: &CliResolvedConfig) -> Result<(), CliError> {
+        let current_exe = match std::env::current_exe() {
+            Ok(current_exe) => current_exe,
+            // @behavior selvedge.cli.server_starter.default.path_error Default server starter path resolution errors return ServerDependencyFailed.
+            Err(error) => {
+                return Err(CliError::ServerDependencyFailed(error.to_string()));
             }
-        }
+        };
+        // @behavior selvedge.cli.server_starter.default The default CLI server starter launches the current executable with the server subcommand and detached standard streams.
+        std::process::Command::new(current_exe)
+            .arg("server")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .map(|_| ())
+            .map_err(|error| {
+                // @behavior selvedge.cli.server_starter.default.error Default server starter spawn errors return ServerDependencyFailed.
+                CliError::ServerDependencyFailed(error.to_string())
+            })
+    }
+}
+
+struct DefaultLocalOperationExecutor;
+
+impl LocalOperationExecutor for DefaultLocalOperationExecutor {
+    // @behavior selvedge.cli.login_chatgpt.executor The default local operation executor runs ChatGPT login and maps completion into terminal operation messages.
+    fn execute(
+        &self,
+        command: LocalOperationCommand,
+        progress_tx: LocalOperationProgressSender,
+    ) -> LocalOperationFuture {
+        Box::pin(async move {
+            match command {
+                LocalOperationCommand::LoginChatgpt => {
+                    let sink = ServerLoginProgressSink { progress_tx };
+                    match run_chatgpt_login(sink).await {
+                        Ok(result) => Ok(LocalOperationSuccess {
+                            message_text: format!(
+                                "ChatGPT login complete.\nAuth file: {}",
+                                result.auth_file_path.display()
+                            ),
+                        }),
+                        // @behavior selvedge.cli.login_chatgpt.executor.failure ChatGPT login executor failures produce terminal failure text for the attached CLI.
+                        Err(error) => Err(LocalOperationFailure {
+                            message_text: format!("ChatGPT login failed: {error:?}"),
+                        }),
+                    }
+                }
+            }
+        })
+    }
+}
+
+struct ServerLoginProgressSink {
+    progress_tx: LocalOperationProgressSender,
+}
+
+impl ChatgptLoginProgressSink for ServerLoginProgressSink {
+    fn emit(&self, progress: ChatgptLoginProgress) -> ChatgptLoginProgressFuture {
+        let progress_tx = self.progress_tx.clone();
+        Box::pin(async move {
+            // @behavior selvedge.cli.login_chatgpt.progress Server login progress is forwarded into local operation progress for client notice delivery.
+            match progress {
+                ChatgptLoginProgress::UserCode {
+                    verification_url,
+                    user_code,
+                } => match progress_tx.send(LocalOperationProgress::LoginUserCode {
+                    verification_url,
+                    user_code,
+                }) {
+                    Ok(()) => Ok(()),
+                    // @behavior selvedge.cli.login_chatgpt.progress.closed Login user-code progress reports cancellation when local operation progress delivery is closed.
+                    Err(_) => Err(ChatgptLoginProgressError),
+                },
+                ChatgptLoginProgress::Waiting => Ok(()),
+                ChatgptLoginProgress::Diagnostic { message_text } => {
+                    match progress_tx.send(LocalOperationProgress::Diagnostic { message_text }) {
+                        Ok(()) => Ok(()),
+                        Err(_) => {
+                            // @behavior selvedge.cli.login_chatgpt.progress.diagnostic_closed Login diagnostic progress reports cancellation when local operation progress delivery is closed.
+                            Err(ChatgptLoginProgressError)
+                        }
+                    }
+                }
+            }
+        })
     }
 }
 
@@ -848,10 +1014,11 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     use selvedge_local_protocol::{
-        CommandRejectReason, LocalClientSubscription, LocalDetailLevel, LocalTaskScope,
+        CommandRejectReason, LocalClientNoticeFrame, LocalClientSnapshot, LocalClientSnapshotFrame,
+        LocalClientSubscription, LocalDetailLevel, LocalNotice, LocalNoticeKind, LocalNoticeLevel,
+        LocalTaskScope,
     };
     use selvedge_server::ServerExitStatus;
-    use selvedge_systemd::{StartServiceOutcome, SystemdError};
 
     use super::*;
 
@@ -859,11 +1026,11 @@ mod tests {
     async fn command_uses_ready_client_without_systemd_start() {
         let connector = FakeConnector::new(vec![Ok(FakeClientPlan::ready_accepted())]);
         let connector_state = connector.state.clone();
-        let systemd = FakeSystemdBackend::new(Vec::new(), Vec::new());
+        let starter = FakeServerStarter::new();
 
         let status = run_cli_with_deps(
             command_argv(),
-            systemd.clone(),
+            starter.clone(),
             FakeServerRunner::stopped(),
             connector,
             DefaultCliServerStartArgsBuilder::new(),
@@ -873,24 +1040,21 @@ mod tests {
         // @verifies selvedge.cli.submit.ready_existing
         assert_eq!(status, CliExitStatus::Success);
         assert_eq!(connector_state.lock().expect("connector").connect_calls, 1);
-        assert_eq!(systemd.start_calls(), 0);
+        assert_eq!(starter.start_calls(), 0);
     }
 
     #[tokio::test]
-    async fn command_auto_starts_systemd_then_reconnects_and_submits() {
+    async fn command_auto_starts_server_then_reconnects_and_submits() {
         let connector = FakeConnector::new(vec![
             Ok(FakeClientPlan::not_ready()),
             Ok(FakeClientPlan::ready_accepted()),
         ]);
         let connector_state = connector.state.clone();
-        let systemd = FakeSystemdBackend::new(
-            vec![Ok(ServiceStatus::Inactive), Ok(ServiceStatus::Active)],
-            vec![Ok(StartServiceOutcome::StartRequested)],
-        );
+        let starter = FakeServerStarter::new();
 
         let status = run_cli_with_deps(
             command_argv(),
-            systemd.clone(),
+            starter.clone(),
             FakeServerRunner::stopped(),
             connector,
             DefaultCliServerStartArgsBuilder::new(),
@@ -900,7 +1064,7 @@ mod tests {
         // @verifies selvedge.cli.submit
         assert_eq!(status, CliExitStatus::Success);
         assert_eq!(connector_state.lock().expect("connector").connect_calls, 2);
-        assert_eq!(systemd.start_calls(), 1);
+        assert_eq!(starter.start_calls(), 1);
     }
 
     #[tokio::test]
@@ -912,12 +1076,13 @@ mod tests {
                 client_command_id: LocalClientCommandId::new("response-1").expect("command id"),
                 outcome: CommandOutcome::Accepted,
             }),
+            attach_frames: Vec::new(),
         })]);
-        let systemd = FakeSystemdBackend::new(Vec::new(), Vec::new());
+        let starter = FakeServerStarter::new();
 
         let status = run_cli_with_deps(
             command_argv(),
-            systemd.clone(),
+            starter.clone(),
             FakeServerRunner::stopped(),
             connector,
             DefaultCliServerStartArgsBuilder::new(),
@@ -930,7 +1095,7 @@ mod tests {
             CliExitStatus::LocalClientFailed("LocalClientFailed(\"protocol mismatch\")".to_owned())
         );
         // @verifies selvedge.cli.submit.ready_existing
-        assert_eq!(systemd.start_calls(), 0);
+        assert_eq!(starter.start_calls(), 0);
     }
 
     #[tokio::test]
@@ -942,18 +1107,19 @@ mod tests {
                 client_command_id: LocalClientCommandId::new("response-1").expect("command id"),
                 outcome: CommandOutcome::Rejected(CommandRejectReason::UnsupportedCommand),
             }),
+            attach_frames: vec![Ok(empty_snapshot_frame("cli-attach"))],
         })]);
 
         let status = run_cli_with_deps(
             command_argv(),
-            FakeSystemdBackend::new(Vec::new(), Vec::new()),
+            FakeServerStarter::new(),
             FakeServerRunner::stopped(),
             connector,
             DefaultCliServerStartArgsBuilder::new(),
         )
         .await;
 
-        // @verifies selvedge.cli.submit.outcome
+        // @verifies selvedge.cli.submit
         assert_eq!(
             status,
             CliExitStatus::CommandRejected("UnsupportedCommand".to_owned())
@@ -991,11 +1157,11 @@ mod tests {
     }
 
     #[test]
-    fn chatgpt_login_failure_status_writes_stderr() {
+    fn command_rejection_status_writes_stderr() {
         let mut stderr = Vec::new();
 
         write_cli_exit_status(
-            &CliExitStatus::ChatgptLoginFailed("InvalidTokenSet".to_owned()),
+            &CliExitStatus::CommandRejected("UnsupportedCommand".to_owned()),
             &mut stderr,
         )
         .expect("write stderr");
@@ -1003,7 +1169,7 @@ mod tests {
         // @verifies selvedge.cli.process.stderr
         assert_eq!(
             String::from_utf8(stderr).expect("stderr utf8"),
-            "ChatGPT login failed: InvalidTokenSet\n"
+            "Command rejected: UnsupportedCommand\n"
         );
     }
 
@@ -1011,13 +1177,13 @@ mod tests {
     async fn usage_error_has_no_side_effects() {
         let connector = FakeConnector::new(Vec::new());
         let connector_state = connector.state.clone();
-        let systemd = FakeSystemdBackend::new(Vec::new(), Vec::new());
+        let starter = FakeServerStarter::new();
         let runner = FakeServerRunner::stopped();
         let runner_state = runner.state.clone();
 
         let status = run_cli_with_deps(
             vec!["selvedge".to_owned(), "--unknown".to_owned()],
-            systemd.clone(),
+            starter.clone(),
             runner,
             connector,
             DefaultCliServerStartArgsBuilder::new(),
@@ -1027,7 +1193,7 @@ mod tests {
         // @verifies selvedge.cli.parse
         assert!(matches!(status, CliExitStatus::InvalidArgs(_)));
         assert_eq!(connector_state.lock().expect("connector").connect_calls, 0);
-        assert_eq!(systemd.start_calls(), 0);
+        assert_eq!(starter.start_calls(), 0);
         assert_eq!(runner_state.lock().expect("runner").run_calls, 0);
     }
 
@@ -1048,7 +1214,7 @@ mod tests {
             CliCommand::SubmitCommand {
                 command_name: "set-number".to_owned(),
                 payload: serde_json::json!(-1),
-                client_id: "client-1".to_owned(),
+                client_id: Some("client-1".to_owned()),
             }
         );
     }
@@ -1059,20 +1225,27 @@ mod tests {
             .expect("login command should parse");
 
         // @verifies selvedge.cli.login_chatgpt
-        assert_eq!(command, CliCommand::LoginChatgpt);
+        assert_eq!(
+            command,
+            CliCommand::SubmitCommand {
+                command_name: "login-chatgpt".to_owned(),
+                payload: serde_json::json!({}),
+                client_id: None,
+            }
+        );
     }
 
     #[tokio::test]
     async fn server_subcommand_uses_builder_and_runner_without_systemd_or_local_client() {
         let connector = FakeConnector::new(Vec::new());
         let connector_state = connector.state.clone();
-        let systemd = FakeSystemdBackend::new(Vec::new(), Vec::new());
+        let starter = FakeServerStarter::new();
         let runner = FakeServerRunner::stopped();
         let runner_state = runner.state.clone();
 
         let status = run_cli_with_deps(
             vec!["selvedge".to_owned(), "server".to_owned()],
-            systemd.clone(),
+            starter.clone(),
             runner,
             connector,
             DefaultCliServerStartArgsBuilder::new(),
@@ -1082,7 +1255,7 @@ mod tests {
         // @verifies selvedge.cli.server
         assert_eq!(status, CliExitStatus::Success);
         assert_eq!(connector_state.lock().expect("connector").connect_calls, 0);
-        assert_eq!(systemd.start_calls(), 0);
+        assert_eq!(starter.start_calls(), 0);
         assert_eq!(runner_state.lock().expect("runner").run_calls, 1);
     }
 
@@ -1093,7 +1266,7 @@ mod tests {
 
         let status = run_cli_with_deps(
             vec!["selvedge".to_owned(), "server".to_owned()],
-            FakeSystemdBackend::new(Vec::new(), Vec::new()),
+            FakeServerStarter::new(),
             runner,
             FakeConnector::new(Vec::new()),
             FailingBuilder,
@@ -1106,49 +1279,44 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn login_chatgpt_command_runs_login_flow_without_service_dependencies() {
-        let connector = FakeConnector::new(Vec::new());
+    async fn login_chatgpt_command_uses_unified_client_path() {
+        let connector = FakeConnector::new(vec![Ok(FakeClientPlan::login_complete())]);
         let connector_state = connector.state.clone();
-        let systemd = FakeSystemdBackend::new(Vec::new(), Vec::new());
+        let starter = FakeServerStarter::new();
         let server_runner = FakeServerRunner::stopped();
         let server_runner_state = server_runner.state.clone();
-        let login_runner = FakeChatgptLoginRunner::success();
-        let login_runner_state = login_runner.state.clone();
 
-        let status = run_cli_with_login_deps(
+        let status = run_cli_with_deps(
             vec!["selvedge".to_owned(), "login-chatgpt".to_owned()],
-            systemd.clone(),
+            starter.clone(),
             server_runner,
             connector,
             DefaultCliServerStartArgsBuilder::new(),
-            login_runner,
         )
         .await;
 
         // @verifies selvedge.cli.login_chatgpt
         assert_eq!(status, CliExitStatus::Success);
-        assert_eq!(login_runner_state.lock().expect("login").run_calls, 1);
-        assert_eq!(connector_state.lock().expect("connector").connect_calls, 0);
-        assert_eq!(systemd.start_calls(), 0);
+        assert_eq!(connector_state.lock().expect("connector").connect_calls, 1);
+        assert_eq!(starter.start_calls(), 0);
         assert_eq!(server_runner_state.lock().expect("runner").run_calls, 0);
     }
 
     #[tokio::test]
-    async fn login_chatgpt_command_reports_login_failure() {
-        let status = run_cli_with_login_deps(
+    async fn login_chatgpt_command_reports_terminal_failure() {
+        let status = run_cli_with_deps(
             vec!["selvedge".to_owned(), "login-chatgpt".to_owned()],
-            FakeSystemdBackend::new(Vec::new(), Vec::new()),
+            FakeServerStarter::new(),
             FakeServerRunner::stopped(),
-            FakeConnector::new(Vec::new()),
+            FakeConnector::new(vec![Ok(FakeClientPlan::login_failed())]),
             DefaultCliServerStartArgsBuilder::new(),
-            FakeChatgptLoginRunner::challenge_expired(),
         )
         .await;
 
         // @verifies selvedge.cli.login_chatgpt
         assert_eq!(
             status,
-            CliExitStatus::ChatgptLoginFailed("ChallengeExpired".to_owned())
+            CliExitStatus::CommandFailed("ChatGPT login failed: ChallengeExpired".to_owned())
         );
     }
 
@@ -1194,6 +1362,7 @@ mod tests {
     struct FakeClientPlan {
         ready: Result<ReadyResponse, CliError>,
         submit: Result<CommandResponse, CliError>,
+        attach_frames: Vec<Result<LocalClientFrame, LocalClientError>>,
     }
 
     impl FakeClientPlan {
@@ -1205,6 +1374,10 @@ mod tests {
                     client_command_id: LocalClientCommandId::new("response-1").expect("command id"),
                     outcome: CommandOutcome::Accepted,
                 }),
+                attach_frames: vec![
+                    Ok(empty_snapshot_frame("cli-attach")),
+                    Ok(command_completed_notice("response-1", "send-user-input")),
+                ],
             }
         }
 
@@ -1214,6 +1387,38 @@ mod tests {
                 submit: Err(CliError::LocalClientFailed(
                     "submit should not run".to_owned(),
                 )),
+                attach_frames: Vec::new(),
+            }
+        }
+
+        fn login_complete() -> Self {
+            Self {
+                ready: Ok(ready_response(ReadyState::Ready)),
+                submit: Ok(CommandResponse {
+                    protocol_version: current_protocol_version(),
+                    client_command_id: LocalClientCommandId::new("response-1").expect("command id"),
+                    outcome: CommandOutcome::Accepted,
+                }),
+                attach_frames: vec![
+                    Ok(empty_snapshot_frame("cli-attach")),
+                    Ok(login_user_code_notice("response-1")),
+                    Ok(command_completed_notice("response-1", "login-chatgpt")),
+                ],
+            }
+        }
+
+        fn login_failed() -> Self {
+            Self {
+                ready: Ok(ready_response(ReadyState::Ready)),
+                submit: Ok(CommandResponse {
+                    protocol_version: current_protocol_version(),
+                    client_command_id: LocalClientCommandId::new("response-1").expect("command id"),
+                    outcome: CommandOutcome::Accepted,
+                }),
+                attach_frames: vec![
+                    Ok(empty_snapshot_frame("cli-attach")),
+                    Ok(command_failed_notice("response-1", "login-chatgpt")),
+                ],
             }
         }
     }
@@ -1229,63 +1434,66 @@ mod tests {
         ) -> Result<CommandResponse, CliError> {
             self.plan.submit.clone()
         }
+
+        async fn attach(
+            &mut self,
+            request: AttachRequest,
+        ) -> Result<(AttachAccepted, LocalFrameStream), CliError> {
+            let attach_command_id = request.client_command_id.clone();
+            let accepted = AttachAccepted {
+                protocol_version: current_protocol_version(),
+                client_id: request.client_id,
+                client_command_id: request.client_command_id,
+            };
+            let frames = std::mem::take(&mut self.plan.attach_frames)
+                .into_iter()
+                .map(|frame| {
+                    frame.map(|frame| match frame {
+                        LocalClientFrame::Snapshot(mut frame) => {
+                            frame.client_command_id = attach_command_id.clone();
+                            LocalClientFrame::Snapshot(frame)
+                        }
+                        LocalClientFrame::Notice(mut frame) => {
+                            frame.client_command_id = attach_command_id.clone();
+                            LocalClientFrame::Notice(frame)
+                        }
+                        other => other,
+                    })
+                })
+                .collect::<Vec<_>>();
+            Ok((accepted, Box::pin(futures_util::stream::iter(frames))))
+        }
+
+        async fn close(&mut self) -> Result<(), CliError> {
+            Ok(())
+        }
     }
 
     #[derive(Clone)]
-    struct FakeSystemdBackend {
-        state: Arc<Mutex<FakeSystemdState>>,
+    struct FakeServerStarter {
+        state: Arc<Mutex<FakeServerStarterState>>,
     }
 
-    struct FakeSystemdState {
-        query_results: VecDeque<Result<ServiceStatus, SystemdError>>,
-        start_results: VecDeque<Result<StartServiceOutcome, SystemdError>>,
+    struct FakeServerStarterState {
         start_calls: usize,
     }
 
-    impl FakeSystemdBackend {
-        fn new(
-            query_results: Vec<Result<ServiceStatus, SystemdError>>,
-            start_results: Vec<Result<StartServiceOutcome, SystemdError>>,
-        ) -> Self {
+    impl FakeServerStarter {
+        fn new() -> Self {
             Self {
-                state: Arc::new(Mutex::new(FakeSystemdState {
-                    query_results: query_results.into(),
-                    start_results: start_results.into(),
-                    start_calls: 0,
-                })),
+                state: Arc::new(Mutex::new(FakeServerStarterState { start_calls: 0 })),
             }
         }
 
         fn start_calls(&self) -> usize {
-            self.state.lock().expect("systemd").start_calls
+            self.state.lock().expect("starter").start_calls
         }
     }
 
-    impl SystemdBackend for FakeSystemdBackend {
-        async fn query_status(
-            &self,
-            _unit_name: &str,
-            _operation_timeout: Duration,
-        ) -> Result<ServiceStatus, SystemdError> {
-            self.state
-                .lock()
-                .expect("systemd")
-                .query_results
-                .pop_front()
-                .unwrap_or(Ok(ServiceStatus::Active))
-        }
-
-        async fn start_unit(
-            &self,
-            _unit_name: &str,
-            _operation_timeout: Duration,
-        ) -> Result<StartServiceOutcome, SystemdError> {
-            let mut state = self.state.lock().expect("systemd");
-            state.start_calls += 1;
-            state
-                .start_results
-                .pop_front()
-                .unwrap_or(Ok(StartServiceOutcome::StartRequested))
+    impl CliServerStarter for FakeServerStarter {
+        async fn start_server(&self, _resolved_config: &CliResolvedConfig) -> Result<(), CliError> {
+            self.state.lock().expect("starter").start_calls += 1;
+            Ok(())
         }
     }
 
@@ -1318,62 +1526,73 @@ mod tests {
         }
     }
 
-    #[derive(Clone)]
-    struct FakeChatgptLoginRunner {
-        state: Arc<Mutex<FakeChatgptLoginRunnerState>>,
-    }
-
-    struct FakeChatgptLoginRunnerState {
-        run_calls: usize,
-        result: Result<ChatgptLoginResult, ChatgptLoginError>,
-    }
-
-    impl FakeChatgptLoginRunner {
-        fn success() -> Self {
-            Self {
-                state: Arc::new(Mutex::new(FakeChatgptLoginRunnerState {
-                    run_calls: 0,
-                    result: Ok(ChatgptLoginResult {
-                        auth_file_path: std::path::PathBuf::from("/tmp/chatgpt-auth.json"),
-                        account_id: Some("account-1".to_owned()),
-                        user_id: None,
-                        email: None,
-                        plan_type: None,
-                    }),
-                })),
-            }
-        }
-
-        fn challenge_expired() -> Self {
-            Self {
-                state: Arc::new(Mutex::new(FakeChatgptLoginRunnerState {
-                    run_calls: 0,
-                    result: Err(ChatgptLoginError::ChallengeExpired),
-                })),
-            }
-        }
-    }
-
-    impl CliChatgptLoginRunner for FakeChatgptLoginRunner {
-        async fn run_login(&self) -> Result<ChatgptLoginResult, ChatgptLoginError> {
-            let mut state = self.state.lock().expect("login");
-            state.run_calls += 1;
-            match &state.result {
-                Ok(result) => Ok(result.clone()),
-                Err(ChatgptLoginError::ChallengeExpired) => {
-                    Err(ChatgptLoginError::ChallengeExpired)
-                }
-                Err(other) => panic!("unexpected fake login error: {other:?}"),
-            }
-        }
-    }
-
     struct FailingBuilder;
 
     impl CliServerStartArgsBuilder for FailingBuilder {
         fn build(&self, _resolved_config: &CliResolvedConfig) -> Result<ServerStartArgs, CliError> {
             Err(CliError::ServerDependencyFailed("missing dep".to_owned()))
         }
+    }
+
+    fn empty_snapshot_frame(command_id: &str) -> LocalClientFrame {
+        LocalClientFrame::Snapshot(LocalClientSnapshotFrame {
+            delivery_seq: 1,
+            client_command_id: LocalClientCommandId::new(command_id).expect("command id"),
+            snapshot: LocalClientSnapshot {
+                generated_at: 0,
+                tasks: Vec::new(),
+                task_parent_edges: Vec::new(),
+                history_nodes: Vec::new(),
+                task_versions: Vec::new(),
+            },
+        })
+    }
+
+    fn login_user_code_notice(command_id: &str) -> LocalClientFrame {
+        LocalClientFrame::Notice(LocalClientNoticeFrame {
+            delivery_seq: 2,
+            client_command_id: LocalClientCommandId::new("cli-attach").expect("attach id"),
+            notice: LocalNotice {
+                level: LocalNoticeLevel::Info,
+                kind: LocalNoticeKind::LoginUserCode {
+                    client_command_id: LocalClientCommandId::new(command_id).expect("command id"),
+                    verification_url: "https://auth.openai.com/codex/device".to_owned(),
+                    user_code: "ABCD-EFGH".to_owned(),
+                },
+                message_text: "login user code".to_owned(),
+            },
+        })
+    }
+
+    fn command_completed_notice(command_id: &str, command_name: &str) -> LocalClientFrame {
+        LocalClientFrame::Notice(LocalClientNoticeFrame {
+            delivery_seq: 3,
+            client_command_id: LocalClientCommandId::new("cli-attach").expect("attach id"),
+            notice: LocalNotice {
+                level: LocalNoticeLevel::Info,
+                kind: LocalNoticeKind::CommandCompleted {
+                    client_command_id: LocalClientCommandId::new(command_id).expect("command id"),
+                    command_name: command_name.to_owned(),
+                },
+                message_text: "ChatGPT login complete.\nAuth file: /tmp/chatgpt-auth.json"
+                    .to_owned(),
+            },
+        })
+    }
+
+    fn command_failed_notice(command_id: &str, command_name: &str) -> LocalClientFrame {
+        LocalClientFrame::Notice(LocalClientNoticeFrame {
+            delivery_seq: 3,
+            client_command_id: LocalClientCommandId::new("cli-attach").expect("attach id"),
+            notice: LocalNotice {
+                level: LocalNoticeLevel::Error,
+                kind: LocalNoticeKind::CommandFailed {
+                    client_command_id: LocalClientCommandId::new(command_id).expect("command id"),
+                    command_name: command_name.to_owned(),
+                },
+                message_text: "ChatGPT login failed: ChallengeExpired".to_owned(),
+            },
+        })
     }
 
     fn command_argv() -> Vec<String> {
@@ -1398,6 +1617,7 @@ mod tests {
         LocalClientSubscription {
             task_scope: LocalTaskScope::AllTasks,
             detail_level: LocalDetailLevel::Summary,
+            snapshot_mode: selvedge_local_protocol::LocalSnapshotMode::CurrentState,
             include_model_call_status: false,
             include_tool_execution_status: false,
             include_debug_notices: false,

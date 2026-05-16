@@ -112,6 +112,7 @@ fn event_ingress_and_client_frames_expose_router_events_contract() {
             subscription: ClientSubscription {
                 task_scope: TaskScope::AllTasks,
                 detail_level: DetailLevel::Verbose,
+                snapshot_mode: selvedge_command_model::SnapshotMode::CurrentState,
                 include_model_call_status: true,
                 include_tool_execution_status: true,
                 include_debug_notices: true,
@@ -284,6 +285,7 @@ fn router_command_validation_enforces_envelope_and_task_payload_contract() {
     let subscription = ClientSubscription {
         task_scope: TaskScope::AllTasks,
         detail_level: DetailLevel::Verbose,
+        snapshot_mode: selvedge_command_model::SnapshotMode::CurrentState,
         include_model_call_status: true,
         include_tool_execution_status: true,
         include_debug_notices: true,

@@ -13,10 +13,10 @@ use std::collections::BTreeSet;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 
-/// @constraint selvedge.client.protocol.version.constant Local protocol messages produced by this crate advertise protocol version 2.
-pub const LOCAL_PROTOCOL_VERSION: u32 = 2;
+/// @constraint selvedge.client.protocol.version.constant Local protocol messages produced by this crate advertise protocol version 3.
+pub const LOCAL_PROTOCOL_VERSION: u32 = 3;
 
-/// @constraint selvedge.client.protocol.version The local protocol version advertised by this crate is version 2.
+/// @constraint selvedge.client.protocol.version The local protocol version advertised by this crate is version 3.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProtocolVersion(pub u32);
 
@@ -84,12 +84,14 @@ pub enum CommandOutcome {
     Rejected(CommandRejectReason),
 }
 
-/// @behavior selvedge.client.protocol.command.reject_reason A command rejection reports protocol mismatch, malformed request, readiness, unsupported command, closed router mailbox, or internal failure.
+/// @behavior selvedge.client.protocol.command.reject_reason A command rejection reports protocol mismatch, malformed request, readiness, attach absence, login contention, unsupported command, closed router mailbox, or internal failure.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CommandRejectReason {
     ProtocolVersionMismatch,
     MalformedRequest,
     ServerNotReady,
+    ClientNotAttached,
+    LoginAlreadyRunning,
     UnsupportedCommand,
     RouterMailboxClosed,
     InternalFailure,
@@ -151,6 +153,8 @@ pub struct LocalClientSubscription {
     pub task_scope: LocalTaskScope,
     /// @behavior selvedge.client.protocol.subscription.detail_field Local subscriptions expose the requested detail level.
     pub detail_level: LocalDetailLevel,
+    /// @behavior selvedge.client.protocol.subscription.snapshot_mode_field Local subscriptions expose whether hydration should deliver current state or an empty snapshot.
+    pub snapshot_mode: LocalSnapshotMode,
     /// @behavior selvedge.client.protocol.subscription.include_model_call_status Local subscriptions expose whether model call status events are included.
     pub include_model_call_status: bool,
     /// @behavior selvedge.client.protocol.subscription.include_tool_execution_status Local subscriptions expose whether tool execution status events are included.
@@ -171,6 +175,13 @@ pub enum LocalTaskScope {
 pub enum LocalDetailLevel {
     Summary,
     Verbose,
+}
+
+/// @behavior selvedge.client.protocol.subscription.snapshot_mode A local subscription can request the current state snapshot or an empty snapshot.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum LocalSnapshotMode {
+    CurrentState,
+    Empty,
 }
 
 /// @behavior selvedge.client.protocol.frame A local client frame is a snapshot, event, or notice in the attach stream.
@@ -378,8 +389,32 @@ pub struct LocalDebugNoticeEvent {
 pub struct LocalNotice {
     /// @behavior selvedge.client.protocol.notice.level_field Local notices expose the notice severity level.
     pub level: LocalNoticeLevel,
+    /// @behavior selvedge.client.protocol.notice.kind_field Local notices expose the typed notice purpose.
+    pub kind: LocalNoticeKind,
     /// @behavior selvedge.client.protocol.notice.message Local notices expose message text.
     pub message_text: String,
+}
+
+/// @behavior selvedge.client.protocol.notice.kind A local notice reports plain text, login user-code prompts, command completion, command failure, or diagnostics.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum LocalNoticeKind {
+    Text,
+    LoginUserCode {
+        client_command_id: LocalClientCommandId,
+        verification_url: String,
+        user_code: String,
+    },
+    CommandCompleted {
+        client_command_id: LocalClientCommandId,
+        command_name: String,
+    },
+    CommandFailed {
+        client_command_id: LocalClientCommandId,
+        command_name: String,
+    },
+    Diagnostic {
+        client_command_id: Option<LocalClientCommandId>,
+    },
 }
 
 /// @behavior selvedge.client.protocol.notice.level A local notice reports info, warning, or error severity.
@@ -462,6 +497,8 @@ pub enum LocalProtocolValidationError {
     EmptyToolName,
     EmptyToolArgumentName,
     EmptyNoticeText,
+    EmptyVerificationUrl,
+    EmptyUserCode,
 }
 
 /// @behavior selvedge.client.protocol.http_problem A local HTTP problem carries protocol version, problem code, and caller-visible message text.
@@ -917,6 +954,43 @@ fn validate_notice(notice: &LocalNotice) -> Result<(), LocalProtocolValidationEr
     if notice.message_text.trim().is_empty() {
         // @constraint selvedge.client.protocol.notice.validation.empty Local protocol validation reports empty-notice-text for blank notice text.
         return Err(LocalProtocolValidationError::EmptyNoticeText);
+    }
+    match &notice.kind {
+        LocalNoticeKind::Text => {}
+        LocalNoticeKind::LoginUserCode {
+            client_command_id,
+            verification_url,
+            user_code,
+        } => {
+            validate_client_command_id(client_command_id)?;
+            if verification_url.trim().is_empty() {
+                // @constraint selvedge.client.protocol.notice.validation.url Local protocol validation reports empty-verification-url for blank login verification URLs.
+                return Err(LocalProtocolValidationError::EmptyVerificationUrl);
+            }
+            if user_code.trim().is_empty() {
+                // @constraint selvedge.client.protocol.notice.validation.user_code Local protocol validation reports empty-user-code for blank login user codes.
+                return Err(LocalProtocolValidationError::EmptyUserCode);
+            }
+        }
+        LocalNoticeKind::CommandCompleted {
+            client_command_id,
+            command_name,
+        }
+        | LocalNoticeKind::CommandFailed {
+            client_command_id,
+            command_name,
+        } => {
+            validate_client_command_id(client_command_id)?;
+            if command_name.trim().is_empty() {
+                // @constraint selvedge.client.protocol.notice.validation.command_name Local protocol validation reports empty-command-name for blank terminal notice command names.
+                return Err(LocalProtocolValidationError::EmptyCommandName);
+            }
+        }
+        LocalNoticeKind::Diagnostic { client_command_id } => {
+            if let Some(client_command_id) = client_command_id {
+                validate_client_command_id(client_command_id)?;
+            }
+        }
     }
 
     Ok(())

@@ -1507,6 +1507,7 @@ name = "selvedge"
 version = "0.0.0"
 dependencies = [
  "chatgpt-login",
+ "futures-util",
  "selvedge-api",
  "selvedge-client-sync",
  "selvedge-command-model",

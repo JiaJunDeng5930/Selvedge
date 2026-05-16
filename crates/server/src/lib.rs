@@ -21,10 +21,12 @@
 //! @behavior selvedge.startup.server.web.attach_forward Web attach forwarding returns server attach acceptance or rejection through the web bridge.
 //! @behavior selvedge.startup.server.web.frame_stream Web frame streaming forwards local protocol frames and maps server stream errors into web bridge errors.
 //! @behavior selvedge.startup.server.web.bind_target Web bind target validation rejects invalid localhost ports before durable startup side effects.
+//! @behavior selvedge.startup.server.local_operation Server local operations execute server-owned commands outside the router mailbox and deliver user-visible notices to attached clients.
 
 use std::collections::HashMap;
 use std::fmt;
 use std::fs::{File, OpenOptions};
+use std::future::Future;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
@@ -41,11 +43,11 @@ use selvedge_client_sync::{
 };
 use selvedge_command_model::{
     BeginClientHydration, ClientCommandId, ClientEvent, ClientFrame, ClientFrameSender, ClientId,
-    ClientNotice, ClientNoticeLevel, ClientSnapshot, ClientSubscription, DeliverySeq, DetachClient,
-    DetachReason, DetailLevel, EventControlMessage, EventIngress, EventIngressSender,
-    HistoryNodeProjection, HistoryNodeProjectionBody, ModelCallStatusPhase,
+    ClientNotice, ClientNoticeKind, ClientNoticeLevel, ClientSnapshot, ClientSubscription,
+    DeliverySeq, DetachClient, DetachReason, DetailLevel, EventControlMessage, EventIngress,
+    EventIngressSender, HistoryNodeProjection, HistoryNodeProjectionBody, ModelCallStatusPhase,
     RouterAttachAdmissionResult, RouterCommand, RouterCommandEnvelope, RouterIngressMessage,
-    RouterIngressSender, SnapshotTaskVersion, TaskParentProjection, TaskProjection,
+    RouterIngressSender, SnapshotMode, SnapshotTaskVersion, TaskParentProjection, TaskProjection,
     TaskProjectionStatus, TaskScope, ToolExecutionStatusPhase,
 };
 use selvedge_core::TaskRuntimeSpawnDeps;
@@ -60,12 +62,13 @@ use selvedge_local_protocol::{
     LocalClientEventFrame, LocalClientFrame, LocalClientSnapshot, LocalClientSnapshotFrame,
     LocalDebugNoticeEvent, LocalDetailLevel, LocalHistoryAppendedEvent, LocalHistoryNodeProjection,
     LocalHistoryNodeProjectionBody, LocalMessageRole, LocalModelCallStatusEvent,
-    LocalModelCallStatusPhase, LocalNotice, LocalNoticeLevel, LocalReasoningEffort,
-    LocalSnapshotTaskVersion, LocalTaskChangedEvent, LocalTaskParentProjection,
-    LocalTaskProjection, LocalTaskProjectionStatus, LocalTaskScope, LocalToolArgumentValue,
-    LocalToolCallArgument, LocalToolExecutionStatusEvent, LocalToolExecutionStatusPhase,
-    ReadyRequest, ReadyResponse, ReadyState, current_protocol_version, validate_attach_request,
-    validate_command_request, validate_ready_request,
+    LocalModelCallStatusPhase, LocalNotice, LocalNoticeKind, LocalNoticeLevel,
+    LocalReasoningEffort, LocalSnapshotMode, LocalSnapshotTaskVersion, LocalTaskChangedEvent,
+    LocalTaskParentProjection, LocalTaskProjection, LocalTaskProjectionStatus, LocalTaskScope,
+    LocalToolArgumentValue, LocalToolCallArgument, LocalToolExecutionStatusEvent,
+    LocalToolExecutionStatusPhase, ReadyRequest, ReadyResponse, ReadyState,
+    current_protocol_version, validate_attach_request, validate_command_request,
+    validate_ready_request,
 };
 use selvedge_router::{
     RouterExitStatus, RouterHandle, RouterStartArgs, SpawnRouterError, ToolExecutionSpawner,
@@ -74,7 +77,7 @@ use selvedge_web::{
     ReservedWebStartArgs, WebBindReservation, WebBridge, WebHandle, WebLocalhostBind,
     WebLocalhostHost, WebStartError, reserve_web_bind, spawn_reserved_web_surface,
 };
-use tokio::sync::{Mutex, Notify, RwLock, mpsc};
+use tokio::sync::{Mutex, Notify, OwnedSemaphorePermit, RwLock, Semaphore, mpsc};
 use tokio::task::{JoinError, JoinHandle};
 
 const SQLITE_FILE_NAME: &str = "selvedge.sqlite";
@@ -89,6 +92,15 @@ type ActiveAttachRegistry = Arc<StdMutex<HashMap<ClientId, ClientCommandId>>>;
 type AttachFrameChannelFactoryRef = Arc<dyn AttachFrameChannelFactory>;
 // @intent selvedge.startup.server.local_protocol.command.mapper_ref LocalCommandMapperRef stores the local protocol to router command mapping boundary.
 type LocalCommandMapperRef = Arc<dyn LocalCommandMapper>;
+// @intent selvedge.startup.server.local_operation.executor_ref LocalOperationExecutorRef stores the server-owned local operation execution boundary.
+type LocalOperationExecutorRef = Arc<dyn LocalOperationExecutor>;
+// @behavior selvedge.startup.server.local_operation.future Local operation futures resolve to terminal success or terminal failure for server-owned commands.
+// @intent selvedge.startup.server.local_operation.future.abstraction LocalOperationFuture abstracts completion of a server-owned local operation.
+pub type LocalOperationFuture =
+    Pin<Box<dyn Future<Output = Result<LocalOperationSuccess, LocalOperationFailure>> + Send>>;
+// @behavior selvedge.startup.server.local_operation.progress_sender Local operation progress senders accept user-code prompts and diagnostics from running operations.
+// @intent selvedge.startup.server.local_operation.progress_sender.abstraction LocalOperationProgressSender carries server-owned operation progress into notice delivery.
+pub type LocalOperationProgressSender = mpsc::UnboundedSender<LocalOperationProgress>;
 
 // @intent selvedge.startup.server.lifecycle.coordinator The server abstraction owns process-local lifecycle coordination across config, storage, router, events, and web boundaries.
 trait AttachFrameChannelFactory: Send + Sync {
@@ -124,6 +136,8 @@ pub struct ServerStartArgs {
     pub snapshot_builder: Arc<dyn ClientSnapshotBuilder>,
     // @behavior selvedge.startup.server.startup.args.command_mapper Startup uses the supplied command mapper to convert local protocol commands into router envelopes.
     pub command_mapper: Arc<dyn LocalCommandMapper>,
+    // @behavior selvedge.startup.server.startup.args.local_operation_executor Startup uses the supplied local operation executor for server-owned local commands.
+    pub local_operation_executor: Arc<dyn LocalOperationExecutor>,
     // @behavior selvedge.startup.server.startup.args.local_binding Startup validates and stores the local bind target for local control surfaces.
     pub local_binding: LocalBindingConfig,
     // @behavior selvedge.startup.server.startup.args.web_binding Startup reserves and starts a web surface when a web binding is supplied.
@@ -240,6 +254,49 @@ pub trait LocalCommandMapper: Send + Sync {
         &self,
         request: CommandRequest,
     ) -> Result<RouterCommandEnvelope, ServerRequestError>;
+}
+
+// @behavior selvedge.startup.server.local_operation.executor Local operation executors run server-owned commands and report progress through the supplied sender.
+// @intent selvedge.startup.server.local_operation.executor_trait LocalOperationExecutor isolates server-owned command execution from router command execution.
+pub trait LocalOperationExecutor: Send + Sync {
+    /// @behavior selvedge.startup.server.local_operation.executor.execute Executor calls return a local operation success or local operation failure while sending progress through the supplied sender.
+    fn execute(
+        &self,
+        command: LocalOperationCommand,
+        progress_tx: LocalOperationProgressSender,
+    ) -> LocalOperationFuture;
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+// @behavior selvedge.startup.server.local_operation.command Local operation commands identify server-owned commands accepted through the local protocol.
+pub enum LocalOperationCommand {
+    LoginChatgpt,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+// @behavior selvedge.startup.server.local_operation.progress Local operation progress reports user-code prompts or diagnostic text.
+pub enum LocalOperationProgress {
+    LoginUserCode {
+        verification_url: String,
+        user_code: String,
+    },
+    Diagnostic {
+        message_text: String,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+// @behavior selvedge.startup.server.local_operation.success Local operation success carries the terminal success message for the attached client.
+pub struct LocalOperationSuccess {
+    // @behavior selvedge.startup.server.local_operation.success.message The local operation success message is delivered as terminal client notice text.
+    pub message_text: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+// @behavior selvedge.startup.server.local_operation.failure Local operation failure carries the terminal failure message for the attached client.
+pub struct LocalOperationFailure {
+    // @behavior selvedge.startup.server.local_operation.failure.message The local operation failure message is delivered as terminal client notice text.
+    pub message_text: String,
 }
 
 // @behavior selvedge.startup.server.startup.run run_server returns the spawned server final status or a startup-failed status.
@@ -503,6 +560,17 @@ impl ServerControl {
             return CommandOutcome::Rejected(CommandRejectReason::MalformedRequest);
         }
 
+        if request.command_name == "login-chatgpt" {
+            if !request
+                .payload
+                .as_object()
+                .is_some_and(|object| object.is_empty())
+            {
+                return CommandOutcome::Rejected(CommandRejectReason::MalformedRequest);
+            }
+            return self.submit_login_chatgpt(request).await;
+        }
+
         let command = match self.inner.command_mapper.map_command(request) {
             Ok(command) => command,
             // @behavior selvedge.startup.server.local_protocol.command.unsupported Unsupported mapped commands are rejected with UnsupportedCommand.
@@ -540,6 +608,43 @@ impl ServerControl {
             self.begin_shutdown_locked().await;
             return CommandOutcome::Rejected(CommandRejectReason::RouterMailboxClosed);
         }
+
+        CommandOutcome::Accepted
+    }
+
+    // @behavior selvedge.startup.server.local_operation.login Login command submission requires an active attach stream, enforces single-flight execution, and starts server-owned ChatGPT login outside router command delivery.
+    async fn submit_login_chatgpt(&self, request: CommandRequest) -> CommandOutcome {
+        let client_id = ClientId(request.client_id.0);
+        let submit_command_id = ClientCommandId(request.client_command_id.0);
+        let Some(attach_command_id) = self.inner.active_attach_for_client(&client_id) else {
+            // @behavior selvedge.startup.server.local_operation.login.attach_required Login command submission is rejected when the requesting client has no active attach stream.
+            return CommandOutcome::Rejected(CommandRejectReason::ClientNotAttached);
+        };
+        let login_permit = match self.inner.login_gate.clone().try_acquire_owned() {
+            Ok(permit) => permit,
+            Err(_) => {
+                // @behavior selvedge.startup.server.local_operation.login.single_flight Login command submission is rejected while another server-owned login operation is running.
+                return CommandOutcome::Rejected(CommandRejectReason::LoginAlreadyRunning);
+            }
+        };
+        let Some(events_tx) = self.inner.events_tx.lock().await.as_ref().cloned() else {
+            // @behavior selvedge.startup.server.local_operation.login.events_required Login command submission is rejected with internal failure when notice delivery is unavailable.
+            return CommandOutcome::Rejected(CommandRejectReason::InternalFailure);
+        };
+        let executor = Arc::clone(&self.inner.local_operation_executor);
+        let (progress_tx, progress_rx) = mpsc::unbounded_channel();
+        let command_name = "login-chatgpt".to_owned();
+        let operation = executor.execute(LocalOperationCommand::LoginChatgpt, progress_tx);
+        tokio::spawn(run_local_operation_task(LocalOperationTask {
+            operation,
+            progress_rx,
+            events_tx,
+            client_id,
+            attach_command_id,
+            submit_command_id,
+            command_name,
+            _login_permit: login_permit,
+        }));
 
         CommandOutcome::Accepted
     }
@@ -595,6 +700,8 @@ struct ServerInner {
     active_attaches: ActiveAttachRegistry,
     frame_channel_factory: AttachFrameChannelFactoryRef,
     command_mapper: LocalCommandMapperRef,
+    local_operation_executor: LocalOperationExecutorRef,
+    login_gate: Arc<Semaphore>,
     web_control: StdMutex<Option<selvedge_web::WebControl>>,
 }
 
@@ -622,6 +729,150 @@ impl ServerInner {
         }
 
         Ok(active.insert(client_id.clone(), client_command_id.clone()))
+    }
+
+    // @behavior selvedge.startup.server.local_operation.login.attach_lookup Active attach lookup returns the attach command id currently registered for the submitting client.
+    fn active_attach_for_client(&self, client_id: &ClientId) -> Option<ClientCommandId> {
+        self.active_attaches
+            .lock()
+            .expect("server active attach registry lock")
+            .get(client_id)
+            .cloned()
+    }
+}
+
+// @intent selvedge.startup.server.local_operation.task LocalOperationTask carries one accepted local operation and its notice delivery identity.
+struct LocalOperationTask {
+    operation: LocalOperationFuture,
+    progress_rx: mpsc::UnboundedReceiver<LocalOperationProgress>,
+    events_tx: EventIngressSender,
+    client_id: ClientId,
+    attach_command_id: ClientCommandId,
+    submit_command_id: ClientCommandId,
+    command_name: String,
+    _login_permit: OwnedSemaphorePermit,
+}
+
+// @behavior selvedge.startup.server.local_operation.task.run Local operation tasks relay progress notices and one terminal success or failure notice to the active attached client.
+async fn run_local_operation_task(task: LocalOperationTask) {
+    let LocalOperationTask {
+        operation,
+        mut progress_rx,
+        events_tx,
+        client_id,
+        attach_command_id,
+        submit_command_id,
+        command_name,
+        _login_permit,
+    } = task;
+    let operation_client_id = client_id.clone();
+    let operation_attach_command_id = attach_command_id.clone();
+    let operation_submit_command_id = submit_command_id.clone();
+    let operation_command_name = command_name.clone();
+    let operation_events_tx = events_tx.clone();
+
+    tokio::pin!(operation);
+    let mut progress_open = true;
+    loop {
+        tokio::select! {
+            progress = progress_rx.recv(), if progress_open => {
+                match progress {
+                    Some(progress) => {
+                        let notice = local_operation_progress_notice(progress, submit_command_id.clone());
+                        if send_local_operation_notice(&events_tx, &client_id, &attach_command_id, notice).await.is_err() {
+                            // @behavior selvedge.startup.server.local_operation.task.delivery_closed Local operation tasks stop when the events mailbox cannot accept a progress notice.
+                            return;
+                        }
+                    }
+                    None => {
+                        progress_open = false;
+                    }
+                }
+            }
+            result = &mut operation => {
+                let notice = match result {
+                    Ok(success) => ClientNotice {
+                        level: ClientNoticeLevel::Info,
+                        kind: ClientNoticeKind::CommandCompleted {
+                            client_command_id: operation_submit_command_id,
+                            command_name: operation_command_name,
+                        },
+                        message_text: success.message_text,
+                    },
+                    // @behavior selvedge.startup.server.local_operation.task.failure Terminal local operation failure is delivered as a command-failed notice for the submitted command.
+                    Err(failure) => ClientNotice {
+                        level: ClientNoticeLevel::Error,
+                        kind: ClientNoticeKind::CommandFailed {
+                            client_command_id: operation_submit_command_id,
+                            command_name: operation_command_name,
+                        },
+                        message_text: failure.message_text,
+                    },
+                };
+                // @behavior selvedge.startup.server.local_operation.task.terminal Local operation tasks attempt one terminal notice after operation completion.
+                let _ = send_local_operation_notice(
+                    &operation_events_tx,
+                    &operation_client_id,
+                    &operation_attach_command_id,
+                    notice,
+                ).await;
+                return;
+            }
+        }
+    }
+}
+
+// @behavior selvedge.startup.server.local_operation.progress.notice Local operation progress is mapped into typed client notices for the original submitted command.
+fn local_operation_progress_notice(
+    progress: LocalOperationProgress,
+    submit_command_id: ClientCommandId,
+) -> ClientNotice {
+    match progress {
+        LocalOperationProgress::LoginUserCode {
+            verification_url,
+            user_code,
+        } => ClientNotice {
+            level: ClientNoticeLevel::Info,
+            kind: ClientNoticeKind::LoginUserCode {
+                client_command_id: submit_command_id,
+                verification_url: verification_url.clone(),
+                user_code: user_code.clone(),
+            },
+            message_text: format!(
+                "Open this URL to authenticate ChatGPT:\n{verification_url}\nUser code: {user_code}"
+            ),
+        },
+        LocalOperationProgress::Diagnostic { message_text } => ClientNotice {
+            level: ClientNoticeLevel::Info,
+            kind: ClientNoticeKind::Diagnostic {
+                client_command_id: Some(submit_command_id),
+            },
+            message_text,
+        },
+    }
+}
+
+// @behavior selvedge.startup.server.local_operation.notice Local operation notices carry server-owned operation progress and terminal results to attached clients.
+// @behavior selvedge.startup.server.local_operation.notice.delivery Local operation notices are delivered through the events control mailbox to the active attach command stream.
+async fn send_local_operation_notice(
+    events_tx: &EventIngressSender,
+    client_id: &ClientId,
+    attach_command_id: &ClientCommandId,
+    notice: ClientNotice,
+) -> Result<(), ()> {
+    match events_tx
+        .send(EventIngress::Control(EventControlMessage::DeliverNotice(
+            selvedge_command_model::DeliverNotice {
+                client_id: client_id.clone(),
+                client_command_id: attach_command_id.clone(),
+                notice,
+            },
+        )))
+        .await
+    {
+        Ok(()) => Ok(()),
+        // @behavior selvedge.startup.server.local_operation.notice.delivery_closed Notice delivery reports failure when the events control mailbox is closed.
+        Err(_) => Err(()),
     }
 }
 
@@ -813,6 +1064,8 @@ fn start_server_after_lock(
         active_attaches: Arc::new(StdMutex::new(HashMap::new())),
         frame_channel_factory: Arc::new(TokioAttachFrameChannelFactory),
         command_mapper: args.command_mapper,
+        local_operation_executor: args.local_operation_executor,
+        login_gate: Arc::new(Semaphore::new(1)),
         web_control: StdMutex::new(None),
     });
     // @behavior selvedge.startup.server.web.start_result Server startup either records optional web control or returns a web startup error after lock cleanup.
@@ -1388,6 +1641,10 @@ fn local_subscription_to_command(
             LocalDetailLevel::Summary => DetailLevel::Summary,
             LocalDetailLevel::Verbose => DetailLevel::Verbose,
         },
+        snapshot_mode: match subscription.snapshot_mode {
+            LocalSnapshotMode::CurrentState => SnapshotMode::CurrentState,
+            LocalSnapshotMode::Empty => SnapshotMode::Empty,
+        },
         include_model_call_status: subscription.include_model_call_status,
         include_tool_execution_status: subscription.include_tool_execution_status,
         include_debug_notices: subscription.include_debug_notices,
@@ -1562,7 +1819,40 @@ fn client_notice_to_local(notice: ClientNotice) -> LocalNotice {
             ClientNoticeLevel::Warning => LocalNoticeLevel::Warning,
             ClientNoticeLevel::Error => LocalNoticeLevel::Error,
         },
+        kind: client_notice_kind_to_local(notice.kind),
         message_text: notice.message_text,
+    }
+}
+
+fn client_notice_kind_to_local(kind: ClientNoticeKind) -> LocalNoticeKind {
+    match kind {
+        ClientNoticeKind::Text => LocalNoticeKind::Text,
+        ClientNoticeKind::LoginUserCode {
+            client_command_id,
+            verification_url,
+            user_code,
+        } => LocalNoticeKind::LoginUserCode {
+            client_command_id: LocalClientCommandId(client_command_id.0),
+            verification_url,
+            user_code,
+        },
+        ClientNoticeKind::CommandCompleted {
+            client_command_id,
+            command_name,
+        } => LocalNoticeKind::CommandCompleted {
+            client_command_id: LocalClientCommandId(client_command_id.0),
+            command_name,
+        },
+        ClientNoticeKind::CommandFailed {
+            client_command_id,
+            command_name,
+        } => LocalNoticeKind::CommandFailed {
+            client_command_id: LocalClientCommandId(client_command_id.0),
+            command_name,
+        },
+        ClientNoticeKind::Diagnostic { client_command_id } => LocalNoticeKind::Diagnostic {
+            client_command_id: client_command_id.map(|id| LocalClientCommandId(id.0)),
+        },
     }
 }
 
@@ -1904,6 +2194,34 @@ mod tests {
         }
     }
 
+    struct NoopLocalOperationExecutor;
+
+    impl LocalOperationExecutor for NoopLocalOperationExecutor {
+        fn execute(
+            &self,
+            _command: LocalOperationCommand,
+            _progress_tx: LocalOperationProgressSender,
+        ) -> LocalOperationFuture {
+            Box::pin(async {
+                Ok(LocalOperationSuccess {
+                    message_text: "noop".to_owned(),
+                })
+            })
+        }
+    }
+
+    struct PendingLocalOperationExecutor;
+
+    impl LocalOperationExecutor for PendingLocalOperationExecutor {
+        fn execute(
+            &self,
+            _command: LocalOperationCommand,
+            _progress_tx: LocalOperationProgressSender,
+        ) -> LocalOperationFuture {
+            Box::pin(std::future::pending())
+        }
+    }
+
     struct FailOnceAttachFrameChannelFactory {
         failed: AtomicBool,
     }
@@ -1953,6 +2271,82 @@ mod tests {
         assert_eq!(rejected.reason, AttachRejectReason::RouterMailboxClosed);
         // @verifies selvedge.startup.server.lifecycle
         assert_eq!(control.state().await, ServerRuntimeState::Closing);
+    }
+
+    #[tokio::test]
+    async fn login_command_requires_active_attach() {
+        let (router_tx, _router_rx) = mpsc::unbounded_channel();
+        let (client_sync_tx, _client_sync_rx) = mpsc::channel(1);
+        let (events_tx, _events_rx) = mpsc::channel(8);
+        let control = test_control(router_tx, client_sync_tx, events_tx);
+
+        let response = control.submit_command(login_command("command-1")).await;
+
+        // @verifies selvedge.startup.server.local_operation.login.attach_required
+        assert_eq!(
+            response.outcome,
+            CommandOutcome::Rejected(CommandRejectReason::ClientNotAttached)
+        );
+    }
+
+    #[tokio::test]
+    async fn login_command_runs_as_local_operation_without_router_command() {
+        let (router_tx, mut router_rx) = mpsc::unbounded_channel();
+        let (client_sync_tx, _client_sync_rx) = mpsc::channel(1);
+        let (events_tx, mut events_rx) = mpsc::channel(8);
+        let control = test_control(router_tx, client_sync_tx, events_tx);
+        activate_attach(&control, "client-1", "attach-1");
+
+        let response = control.submit_command(login_command("command-1")).await;
+
+        // @verifies selvedge.startup.server.local_operation
+        assert_eq!(response.outcome, CommandOutcome::Accepted);
+        // @verifies selvedge.startup.server.local_operation
+        assert!(router_rx.try_recv().is_err());
+        let notice = timeout(Duration::from_millis(100), events_rx.recv())
+            .await
+            .expect("terminal notice timeout")
+            .expect("terminal notice");
+        let EventIngress::Control(EventControlMessage::DeliverNotice(notice)) = notice else {
+            panic!("expected terminal notice");
+        };
+        // @verifies selvedge.startup.server.local_operation.task.terminal
+        assert_eq!(
+            notice.client_command_id,
+            ClientCommandId("attach-1".to_owned())
+        );
+        // @verifies selvedge.startup.server.local_operation.task.terminal
+        assert!(matches!(
+            notice.notice.kind,
+            ClientNoticeKind::CommandCompleted { .. }
+        ));
+    }
+
+    #[tokio::test]
+    async fn concurrent_login_command_is_rejected() {
+        let (router_tx, _router_rx) = mpsc::unbounded_channel();
+        let (client_sync_tx, _client_sync_rx) = mpsc::channel(1);
+        let (events_tx, _events_rx) = mpsc::channel(8);
+        let control = test_control_with_frame_channel_factory_mapper_and_executor(
+            router_tx,
+            client_sync_tx,
+            events_tx,
+            Arc::new(TokioAttachFrameChannelFactory),
+            Arc::new(UnusedMapper),
+            Arc::new(PendingLocalOperationExecutor),
+        );
+        activate_attach(&control, "client-1", "attach-1");
+
+        let first = control.submit_command(login_command("command-1")).await;
+        let second = control.submit_command(login_command("command-2")).await;
+
+        // @verifies selvedge.startup.server.local_operation.login.single_flight
+        assert_eq!(first.outcome, CommandOutcome::Accepted);
+        // @verifies selvedge.startup.server.local_operation.login.single_flight
+        assert_eq!(
+            second.outcome,
+            CommandOutcome::Rejected(CommandRejectReason::LoginAlreadyRunning)
+        );
     }
 
     // @verifies selvedge.startup.server
@@ -2790,6 +3184,24 @@ mod tests {
         frame_channel_factory: Arc<dyn AttachFrameChannelFactory>,
         command_mapper: Arc<dyn LocalCommandMapper>,
     ) -> ServerControl {
+        test_control_with_frame_channel_factory_mapper_and_executor(
+            router_tx,
+            client_sync_tx,
+            events_tx,
+            frame_channel_factory,
+            command_mapper,
+            Arc::new(NoopLocalOperationExecutor),
+        )
+    }
+
+    fn test_control_with_frame_channel_factory_mapper_and_executor(
+        router_tx: RouterIngressSender,
+        client_sync_tx: selvedge_client_sync::ClientSyncSender,
+        events_tx: EventIngressSender,
+        frame_channel_factory: Arc<dyn AttachFrameChannelFactory>,
+        command_mapper: Arc<dyn LocalCommandMapper>,
+        local_operation_executor: Arc<dyn LocalOperationExecutor>,
+    ) -> ServerControl {
         ServerControl {
             inner: Arc::new(ServerInner {
                 state: RwLock::new(ServerRuntimeState::Ready),
@@ -2804,6 +3216,8 @@ mod tests {
                 active_attaches: Arc::new(StdMutex::new(HashMap::new())),
                 frame_channel_factory,
                 command_mapper,
+                local_operation_executor,
+                login_gate: Arc::new(Semaphore::new(1)),
                 web_control: StdMutex::new(None),
             }),
         }
@@ -2837,6 +3251,30 @@ mod tests {
         }
     }
 
+    fn login_command(client_command_id: &str) -> CommandRequest {
+        CommandRequest {
+            protocol_version: current_protocol_version(),
+            client_id: selvedge_local_protocol::LocalClientId::new("client-1")
+                .expect("valid client id"),
+            client_command_id: LocalClientCommandId::new(client_command_id)
+                .expect("valid command id"),
+            command_name: "login-chatgpt".to_owned(),
+            payload: serde_json::json!({}),
+        }
+    }
+
+    fn activate_attach(control: &ServerControl, client_id: &str, client_command_id: &str) {
+        control
+            .inner
+            .active_attaches
+            .lock()
+            .expect("active attaches")
+            .insert(
+                ClientId(client_id.to_owned()),
+                ClientCommandId(client_command_id.to_owned()),
+            );
+    }
+
     fn test_attach_request() -> AttachRequest {
         test_attach_request_for("client-1", "attach-1")
     }
@@ -2851,6 +3289,7 @@ mod tests {
             subscription: selvedge_local_protocol::LocalClientSubscription {
                 task_scope: LocalTaskScope::AllTasks,
                 detail_level: LocalDetailLevel::Summary,
+                snapshot_mode: selvedge_local_protocol::LocalSnapshotMode::CurrentState,
                 include_model_call_status: false,
                 include_tool_execution_status: false,
                 include_debug_notices: false,

@@ -8,7 +8,14 @@ mod device_code;
 mod id_token;
 mod token_exchange;
 
-use std::{path::PathBuf, time::Duration};
+use std::future::Future;
+use std::path::PathBuf;
+use std::pin::Pin;
+use std::time::Duration;
+
+use tokio::sync::Semaphore;
+
+static LOGIN_GATE: Semaphore = Semaphore::const_new(1);
 
 /// @behavior selvedge.login.challenge Starting device-code login returns the verification URL, user code, device auth ID, poll interval, issue time, and expiry time visible to callers.
 #[derive(Clone, Debug)]
@@ -59,7 +66,7 @@ pub struct ChatgptLoginResult {
     pub plan_type: Option<String>,
 }
 
-/// @behavior selvedge.login.errors Device-code login reports config, transport, provider rejection, invalid token, workspace, expiry, and persistence failures to callers.
+/// @behavior selvedge.login.errors Device-code login reports config, transport, provider rejection, invalid token, workspace, expiry, persistence, concurrency, and cancellation failures to callers.
 #[derive(Debug)]
 pub enum ChatgptLoginError {
     Config(selvedge_config::ConfigError),
@@ -95,6 +102,91 @@ pub enum ChatgptLoginError {
         path: PathBuf,
         reason: String,
     },
+    LoginAlreadyRunning,
+    Cancelled,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+// @behavior selvedge.login.progress ChatGPT login progress reports the user code prompt, waiting polls, or diagnostic text to callers.
+pub enum ChatgptLoginProgress {
+    UserCode {
+        verification_url: String,
+        user_code: String,
+    },
+    Waiting,
+    Diagnostic {
+        message_text: String,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+// @behavior selvedge.login.progress.error Progress sinks report cancellation with a typed progress error.
+pub struct ChatgptLoginProgressError;
+
+// @behavior selvedge.login.progress.future ChatGPT login progress futures resolve after accepting progress or reporting cancellation.
+// @intent selvedge.login.progress.future.abstraction ChatgptLoginProgressFuture abstracts asynchronous progress delivery for login callers.
+pub type ChatgptLoginProgressFuture =
+    Pin<Box<dyn Future<Output = Result<(), ChatgptLoginProgressError>> + Send>>;
+
+// @behavior selvedge.login.progress.sink Progress sinks receive user-code prompts, wait markers, and diagnostics during the login operation.
+// @intent selvedge.login.progress.sink.abstraction ChatgptLoginProgressSink lets callers route login progress to CLI, server, or tests without changing provider logic.
+pub trait ChatgptLoginProgressSink: Send + Sync {
+    /// @behavior selvedge.login.progress.sink.emit Progress sinks return success after accepting progress or a typed progress error on cancellation.
+    fn emit(&self, progress: ChatgptLoginProgress) -> ChatgptLoginProgressFuture;
+}
+
+#[derive(Clone, Debug)]
+// @behavior selvedge.login.progress.sink.noop The noop progress sink accepts every progress event without side effects.
+pub struct NoopChatgptLoginProgressSink;
+
+impl ChatgptLoginProgressSink for NoopChatgptLoginProgressSink {
+    fn emit(&self, _progress: ChatgptLoginProgress) -> ChatgptLoginProgressFuture {
+        Box::pin(async { Ok(()) })
+    }
+}
+
+/// @behavior selvedge.login.run The ChatGPT login operation runs the whole device-code login flow and reports user-visible progress through the supplied sink.
+pub async fn run_chatgpt_login<S>(progress_sink: S) -> Result<ChatgptLoginResult, ChatgptLoginError>
+where
+    S: ChatgptLoginProgressSink,
+{
+    let _permit = LOGIN_GATE
+        .try_acquire()
+        .map_err(|_| ChatgptLoginError::LoginAlreadyRunning)?;
+    let challenge = start_device_code_login().await?;
+    progress_sink
+        .emit(ChatgptLoginProgress::UserCode {
+            verification_url: challenge.verification_url.clone(),
+            user_code: challenge.user_code.clone(),
+        })
+        .await
+        // @behavior selvedge.login.run.cancelled ChatGPT login returns cancelled when progress delivery fails.
+        .map_err(|_| ChatgptLoginError::Cancelled)?;
+
+    loop {
+        if chrono::Utc::now() >= challenge.expires_at {
+            // @behavior selvedge.login.run.expired Local expiry detection returns ChallengeExpired before another provider poll.
+            return Err(ChatgptLoginError::ChallengeExpired);
+        }
+        let outcome = poll_device_code_login(&challenge).await?;
+        match outcome {
+            DeviceCodePollOutcome::Pending { next_poll_after } => {
+                progress_sink
+                    .emit(ChatgptLoginProgress::Waiting)
+                    .await
+                    .map_err(|_| ChatgptLoginError::Cancelled)?;
+                tokio::time::sleep(next_poll_after).await;
+            }
+            DeviceCodePollOutcome::Authorized(authorization) => {
+                // @behavior selvedge.login.run.authorized Authorized provider polls complete the device-code grant and persist credentials.
+                return complete_device_code_login(&challenge, authorization).await;
+            }
+            DeviceCodePollOutcome::Expired => {
+                // @behavior selvedge.login.run.provider_expired Provider expiry outcomes return ChallengeExpired to the caller.
+                return Err(ChatgptLoginError::ChallengeExpired);
+            }
+        }
+    }
 }
 
 /// @behavior selvedge.login.start Starting device-code login reads current auth config and requests a provider challenge.

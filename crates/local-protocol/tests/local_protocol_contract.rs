@@ -20,10 +20,10 @@ use serde_json::json;
 #[test]
 fn request_validation_enforces_protocol_version_and_required_client_fields() {
     // @verifies selvedge.client.protocol
-    assert_eq!(current_protocol_version(), ProtocolVersion(2));
+    assert_eq!(current_protocol_version(), ProtocolVersion(3));
 
     let ready = ReadyRequest {
-        protocol_version: ProtocolVersion(3),
+        protocol_version: ProtocolVersion(4),
     };
     // @verifies selvedge.client.protocol
     assert_eq!(
@@ -61,6 +61,7 @@ fn attach_validation_enforces_valid_subscription_filters() {
     let valid_subscription = LocalClientSubscription {
         task_scope: LocalTaskScope::TaskIds(vec!["task-1".to_owned(), "task-2".to_owned()]),
         detail_level: LocalDetailLevel::Verbose,
+        snapshot_mode: selvedge_local_protocol::LocalSnapshotMode::CurrentState,
         include_model_call_status: true,
         include_tool_execution_status: true,
         include_debug_notices: false,
@@ -221,6 +222,7 @@ fn frame_validation_enforces_delivery_sequence_snapshot_and_notice_contracts() {
         client_command_id: LocalClientCommandId::new("attach-1").expect("valid command id"),
         notice: LocalNotice {
             level: LocalNoticeLevel::Warning,
+            kind: selvedge_local_protocol::LocalNoticeKind::Text,
             message_text: " ".to_owned(),
         },
     });
@@ -380,6 +382,7 @@ fn attach_stream_item_validation_checks_internal_payload_only() {
             client_command_id: LocalClientCommandId::new("attach-1").expect("command id"),
             notice: LocalNotice {
                 level: LocalNoticeLevel::Error,
+                kind: selvedge_local_protocol::LocalNoticeKind::Text,
                 message_text: "bad".to_owned(),
             },
         }));
@@ -415,6 +418,7 @@ fn attach_stream_validator_enforces_accepted_first_and_terminal_error_order() {
                 client_command_id: LocalClientCommandId::new("attach-1").expect("command id"),
                 notice: LocalNotice {
                     level: LocalNoticeLevel::Info,
+                    kind: selvedge_local_protocol::LocalNoticeKind::Text,
                     message_text: "hello".to_owned(),
                 },
             },
@@ -449,6 +453,7 @@ fn attach_stream_validator_enforces_accepted_first_and_terminal_error_order() {
                 client_command_id: LocalClientCommandId::new("attach-1").expect("command id"),
                 notice: LocalNotice {
                     level: LocalNoticeLevel::Info,
+                    kind: selvedge_local_protocol::LocalNoticeKind::Text,
                     message_text: "hello".to_owned(),
                 },
             },
@@ -474,6 +479,7 @@ fn attach_stream_validator_enforces_accepted_first_and_terminal_error_order() {
                 client_command_id: LocalClientCommandId::new("attach-1").expect("command id"),
                 notice: LocalNotice {
                     level: LocalNoticeLevel::Info,
+                    kind: selvedge_local_protocol::LocalNoticeKind::Text,
                     message_text: "late".to_owned(),
                 },
             },

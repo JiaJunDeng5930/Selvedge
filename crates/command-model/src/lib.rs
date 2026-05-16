@@ -412,6 +412,8 @@ pub struct ClientSubscription {
     pub task_scope: TaskScope,
     /// @behavior selvedge.client.subscription.detail_field Client subscriptions expose the requested detail level.
     pub detail_level: DetailLevel,
+    /// @behavior selvedge.client.subscription.snapshot_mode_field Client subscriptions expose whether hydration should deliver current state or an empty snapshot.
+    pub snapshot_mode: SnapshotMode,
     /// @behavior selvedge.client.subscription.include_model_call_status Client subscriptions expose whether model call status events are included.
     pub include_model_call_status: bool,
     /// @behavior selvedge.client.subscription.include_tool_execution_status Client subscriptions expose whether tool execution status events are included.
@@ -432,6 +434,13 @@ pub enum TaskScope {
 pub enum DetailLevel {
     Summary,
     Verbose,
+}
+
+/// @behavior selvedge.client.subscription.snapshot_mode A client subscription can request the current state snapshot or an empty snapshot.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SnapshotMode {
+    CurrentState,
+    Empty,
 }
 
 /// @behavior selvedge.client.events.raw Raw task events expose task changes, appended history, model call status, tool execution status, and debug notices.
@@ -702,8 +711,32 @@ pub struct DebugNoticeEvent {
 pub struct ClientNotice {
     /// @behavior selvedge.client.notice.level_field Client notices expose the notice severity level.
     pub level: ClientNoticeLevel,
+    /// @behavior selvedge.client.notice.kind_field Client notices expose the typed notice purpose.
+    pub kind: ClientNoticeKind,
     /// @behavior selvedge.client.notice.message Client notices expose message text.
     pub message_text: String,
+}
+
+/// @behavior selvedge.client.notice.kind A client notice reports plain text, login user-code prompts, command completion, command failure, or diagnostics.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ClientNoticeKind {
+    Text,
+    LoginUserCode {
+        client_command_id: ClientCommandId,
+        verification_url: String,
+        user_code: String,
+    },
+    CommandCompleted {
+        client_command_id: ClientCommandId,
+        command_name: String,
+    },
+    CommandFailed {
+        client_command_id: ClientCommandId,
+        command_name: String,
+    },
+    Diagnostic {
+        client_command_id: Option<ClientCommandId>,
+    },
 }
 
 /// @behavior selvedge.client.notice.level A client notice reports info, warning, or error severity.

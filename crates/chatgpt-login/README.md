@@ -27,7 +27,15 @@ This crate is not for:
 
 ## Public API
 
-Callers use three async functions:
+Callers that want the whole product login flow use:
+
+- `run_chatgpt_login(progress_sink)`
+
+The operation starts the challenge, emits the user-code prompt through the
+progress sink, polls until authorization or expiry, exchanges tokens, validates
+claims, and persists the auth file before returning.
+
+Lower-level tests and specialized callers may use three async functions:
 
 - `start_device_code_login()`
 - `poll_device_code_login(...)`
@@ -45,6 +53,8 @@ and executes every HTTP request through `selvedge_client`.
 - `complete_device_code_login(...)` exchanges the authorization grant, parses
   claims from `id_token`, checks `expected_workspace_id` when configured, and
   writes `<selvedge_home>/auth/chatgpt-auth.json` atomically before returning
+- `run_chatgpt_login(...)` serializes concurrent login operations in the current
+  process and returns `LoginAlreadyRunning` when another login is active
 
 ## Challenge lifetime contract
 
