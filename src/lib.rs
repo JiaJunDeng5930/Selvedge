@@ -574,12 +574,19 @@ where
         return status;
     }
 
+    // @behavior selvedge.cli.submit.outcome Accepted router-backed commands return Success, accepted login-chatgpt waits for a terminal notice, rejected responses return CommandRejected, and client errors return LocalClientFailed.
     let status = match client.submit_command(request).await {
         Ok(CommandResponse {
             outcome: CommandOutcome::Accepted,
             client_command_id,
             ..
-        }) => wait_for_terminal_frame(&mut stream, &client_command_id, &command_name).await,
+        }) => {
+            if command_name == "login-chatgpt" {
+                wait_for_terminal_frame(&mut stream, &client_command_id, &command_name).await
+            } else {
+                CliExitStatus::Success
+            }
+        }
         Ok(CommandResponse {
             outcome: CommandOutcome::Rejected(reason),
             ..
