@@ -312,7 +312,7 @@ This file is for coding agents working in this repository.
 |selvedge.cli.server_starter.start|selvedge.cli.server_starter.start.{}
 |selvedge.cli.startup_message|selvedge.cli.startup_message.{}
 |selvedge.cli.status|selvedge.cli.status.{}
-|selvedge.cli.submit|selvedge.cli.submit.{attach_cleanup,attach_error,command_id_error,deadline,deadline_overflow,empty_snapshot,ready_existing,ready_timeout,retry_sleep,service_unready,service_wait_error,submit_error,terminal_frame}
+|selvedge.cli.submit|selvedge.cli.submit.{attach_cleanup,attach_error,command_id_error,deadline,deadline_overflow,empty_snapshot,outcome,ready_existing,ready_timeout,retry_sleep,service_unready,service_wait_error,submit_error,terminal_frame}
 |selvedge.cli.submit.attach_cleanup|selvedge.cli.submit.attach_cleanup.{}
 |selvedge.cli.submit.attach_error|selvedge.cli.submit.attach_error.{}
 |selvedge.cli.submit.command_id_error|selvedge.cli.submit.command_id_error.{}
@@ -323,6 +323,7 @@ This file is for coding agents working in this repository.
 |selvedge.cli.submit.empty_snapshot.first_frame|selvedge.cli.submit.empty_snapshot.first_frame.{}
 |selvedge.cli.submit.empty_snapshot.non_empty|selvedge.cli.submit.empty_snapshot.non_empty.{}
 |selvedge.cli.submit.empty_snapshot.stream_error|selvedge.cli.submit.empty_snapshot.stream_error.{}
+|selvedge.cli.submit.outcome|selvedge.cli.submit.outcome.{}
 |selvedge.cli.submit.ready_existing|selvedge.cli.submit.ready_existing.{}
 |selvedge.cli.submit.ready_timeout|selvedge.cli.submit.ready_timeout.{}
 |selvedge.cli.submit.retry_sleep|selvedge.cli.submit.retry_sleep.{}
