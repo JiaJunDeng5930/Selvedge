@@ -51,6 +51,7 @@ async fn attach_client_command_is_forwarded_to_events() {
     let subscription = ClientSubscription {
         task_scope: TaskScope::AllTasks,
         detail_level: DetailLevel::Verbose,
+        snapshot_mode: selvedge_command_model::SnapshotMode::CurrentState,
         include_model_call_status: true,
         include_tool_execution_status: true,
         include_debug_notices: true,
@@ -1218,6 +1219,7 @@ fn verbose_subscription() -> ClientSubscription {
     ClientSubscription {
         task_scope: TaskScope::AllTasks,
         detail_level: DetailLevel::Verbose,
+        snapshot_mode: selvedge_command_model::SnapshotMode::CurrentState,
         include_model_call_status: true,
         include_tool_execution_status: true,
         include_debug_notices: true,

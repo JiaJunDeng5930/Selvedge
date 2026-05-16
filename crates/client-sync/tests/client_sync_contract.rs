@@ -451,6 +451,7 @@ fn subscription() -> ClientSubscription {
     ClientSubscription {
         task_scope: TaskScope::TaskIds(BTreeSet::new()),
         detail_level: DetailLevel::Summary,
+        snapshot_mode: selvedge_command_model::SnapshotMode::CurrentState,
         include_model_call_status: false,
         include_tool_execution_status: false,
         include_debug_notices: false,

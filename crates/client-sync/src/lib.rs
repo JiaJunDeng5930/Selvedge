@@ -7,10 +7,12 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use selvedge_command_model::{
-    BeginClientHydration, ClientCommandId, ClientId, ClientNotice, ClientNoticeLevel,
-    ClientSnapshot, ClientSubscription, DeliverNotice, DeliverSnapshot, DetachClient, DetachReason,
-    EventControlMessage, EventIngress, EventIngressSender,
+    BeginClientHydration, ClientCommandId, ClientId, ClientNotice, ClientNoticeKind,
+    ClientNoticeLevel, ClientSnapshot, ClientSubscription, DeliverNotice, DeliverSnapshot,
+    DetachClient, DetachReason, EventControlMessage, EventIngress, EventIngressSender,
+    SnapshotMode,
 };
+use selvedge_domain_model::UnixTs;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
@@ -244,10 +246,23 @@ fn spawn_snapshot_build(
 ) {
     // @behavior selvedge.client.sync.builder_task.start Snapshot building starts as a Tokio task that returns its result to client sync.
     tokio::spawn(async move {
-        let result = snapshot_builder.build_snapshot(request.clone()).await;
+        let result = match request.subscription.snapshot_mode {
+            SnapshotMode::Empty => Ok(empty_snapshot()),
+            SnapshotMode::CurrentState => snapshot_builder.build_snapshot(request.clone()).await,
+        };
         // @behavior selvedge.client.sync.builder_result Snapshot builders return their result to client sync with the original client and command identity.
         let _ = result_tx.send(HydrationBuildResult { request, result });
     });
+}
+
+fn empty_snapshot() -> ClientSnapshot {
+    ClientSnapshot {
+        generated_at: UnixTs(0),
+        tasks: Vec::new(),
+        task_parent_edges: Vec::new(),
+        history_nodes: Vec::new(),
+        task_versions: Vec::new(),
+    }
 }
 
 // @intent selvedge.client.sync.delivery Result delivery maps snapshot builder outcomes into event control messages.
@@ -278,6 +293,7 @@ async fn deliver_build_result(
                 client_command_id: build_result.request.client_command_id.clone(),
                 notice: ClientNotice {
                     level: ClientNoticeLevel::Error,
+                    kind: ClientNoticeKind::Text,
                     message_text: format!("client snapshot build failed: {error:?}"),
                 },
             };

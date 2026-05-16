@@ -19,6 +19,11 @@ This crate exposes the in-process control surface, validates localhost bind targ
 
 ## Package State Machine
 
+Server-owned local commands execute through the injected `LocalOperationExecutor`.
+`login-chatgpt` is admitted only for an attached client, runs outside the router
+mailbox, and delivers typed notice frames for user-code prompts and terminal
+results.
+
 The diagram records the package-level observable states and transition paths. Each edge label names the concrete condition checked at this package boundary.
 
 ```mermaid

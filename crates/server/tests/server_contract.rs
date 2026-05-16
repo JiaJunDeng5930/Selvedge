@@ -21,8 +21,10 @@ use selvedge_local_protocol::{
 };
 use selvedge_router::{ToolExecutionSpawnError, ToolExecutionSpawner};
 use selvedge_server::{
-    LocalBindingConfig, LocalCommandMapper, LocalhostBindTarget, ServerRequestError,
-    ServerRuntimeState, ServerStartArgs, ServerStartupError, WebBindingConfig, spawn_server,
+    LocalBindingConfig, LocalCommandMapper, LocalOperationCommand, LocalOperationExecutor,
+    LocalOperationFuture, LocalOperationProgressSender, LocalOperationSuccess, LocalhostBindTarget,
+    ServerRequestError, ServerRuntimeState, ServerStartArgs, ServerStartupError, WebBindingConfig,
+    spawn_server,
 };
 use selvedge_test_support::http::released_loopback_port;
 use tempfile::TempDir;
@@ -56,7 +58,7 @@ async fn spawn_server_initializes_ready_control_and_creates_durable_paths() {
     let mismatched_ready = handle
         .control
         .ready(ReadyRequest {
-            protocol_version: ProtocolVersion(3),
+            protocol_version: ProtocolVersion(4),
         })
         .await;
     // @verifies selvedge.startup.server.lifecycle
@@ -248,7 +250,7 @@ async fn command_submit_validates_protocol_and_maps_to_router_mailbox() {
     let invalid = handle
         .control
         .submit_command(CommandRequest {
-            protocol_version: ProtocolVersion(3),
+            protocol_version: ProtocolVersion(4),
             ..valid_command("bad-version")
         })
         .await;
@@ -377,6 +379,7 @@ async fn attach_client_accepts_and_streams_initial_snapshot() {
             subscription: LocalClientSubscription {
                 task_scope: LocalTaskScope::TaskIds(vec![" ".to_owned()]),
                 detail_level: LocalDetailLevel::Summary,
+                snapshot_mode: selvedge_local_protocol::LocalSnapshotMode::CurrentState,
                 include_model_call_status: false,
                 include_tool_execution_status: false,
                 include_debug_notices: false,
@@ -394,7 +397,7 @@ async fn attach_client_accepts_and_streams_initial_snapshot() {
     let version_mismatch = match handle
         .control
         .attach_client(AttachRequest {
-            protocol_version: ProtocolVersion(3),
+            protocol_version: ProtocolVersion(4),
             ..valid_attach("attach-3")
         })
         .await
@@ -624,6 +627,22 @@ impl ToolExecutionSpawner for NoopToolExecutor {
     }
 }
 
+struct NoopLocalOperationExecutor;
+
+impl LocalOperationExecutor for NoopLocalOperationExecutor {
+    fn execute(
+        &self,
+        _command: LocalOperationCommand,
+        _progress_tx: LocalOperationProgressSender,
+    ) -> LocalOperationFuture {
+        Box::pin(async {
+            Ok(LocalOperationSuccess {
+                message_text: "noop".to_owned(),
+            })
+        })
+    }
+}
+
 fn test_args(home: std::path::PathBuf, mapper: Arc<dyn LocalCommandMapper>) -> ServerStartArgs {
     ServerStartArgs {
         explicit_home: Some(home),
@@ -638,6 +657,7 @@ fn test_args(home: std::path::PathBuf, mapper: Arc<dyn LocalCommandMapper>) -> S
         }),
         snapshot_builder: Arc::new(EmptySnapshotBuilder),
         command_mapper: mapper,
+        local_operation_executor: Arc::new(NoopLocalOperationExecutor),
         local_binding: LocalBindingConfig {
             bind_target: LocalhostBindTarget::Ipv4 { port: 0 },
         },
@@ -671,6 +691,7 @@ fn valid_attach_for(client_id: &str, command_id: &str) -> AttachRequest {
         subscription: LocalClientSubscription {
             task_scope: LocalTaskScope::AllTasks,
             detail_level: LocalDetailLevel::Summary,
+            snapshot_mode: selvedge_local_protocol::LocalSnapshotMode::CurrentState,
             include_model_call_status: false,
             include_tool_execution_status: false,
             include_debug_notices: false,

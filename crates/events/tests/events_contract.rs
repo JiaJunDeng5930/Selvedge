@@ -892,6 +892,7 @@ async fn notice_during_hydration_uses_current_delivery_sequence() {
                 client_command_id: ClientCommandId("attach-1".to_owned()),
                 notice: ClientNotice {
                     level: ClientNoticeLevel::Warning,
+                    kind: selvedge_command_model::ClientNoticeKind::Text,
                     message_text: "heads up".to_owned(),
                 },
             },
@@ -1038,6 +1039,7 @@ async fn stale_hydration_snapshot_is_ignored_after_replacement_begin() {
                 client_command_id: ClientCommandId("attach-1".to_owned()),
                 notice: ClientNotice {
                     level: ClientNoticeLevel::Warning,
+                    kind: selvedge_command_model::ClientNoticeKind::Text,
                     message_text: "stale".to_owned(),
                 },
             },
@@ -1256,6 +1258,7 @@ fn verbose_all_tasks() -> ClientSubscription {
     ClientSubscription {
         task_scope: TaskScope::AllTasks,
         detail_level: DetailLevel::Verbose,
+        snapshot_mode: selvedge_command_model::SnapshotMode::CurrentState,
         include_model_call_status: true,
         include_tool_execution_status: true,
         include_debug_notices: true,
@@ -1266,6 +1269,7 @@ fn summary_task_subscription(task_id: &str) -> ClientSubscription {
     ClientSubscription {
         task_scope: TaskScope::TaskIds(BTreeSet::from([TaskId(task_id.to_owned())])),
         detail_level: DetailLevel::Summary,
+        snapshot_mode: selvedge_command_model::SnapshotMode::CurrentState,
         include_model_call_status: true,
         include_tool_execution_status: true,
         include_debug_notices: true,
