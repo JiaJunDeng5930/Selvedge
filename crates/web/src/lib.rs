@@ -412,7 +412,7 @@ impl Stream for WebBrowserFrameStream {
     }
 }
 
-// @behavior selvedge.client.web.r2.rejected_command_response Rejected web command responses preserve the request command ID and current protocol version.
+// @behavior selvedge.client.web.r2.rejected_command_response Rejected web command responses preserve the request command ID and rejection reason.
 fn rejected_command_response(
     client_command_id: selvedge_local_protocol::LocalClientCommandId,
     reason: CommandRejectReason,
