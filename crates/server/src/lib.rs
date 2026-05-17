@@ -3,7 +3,7 @@
 //! @behavior selvedge.startup.server.lifecycle Server processing preserves startup, readiness, command, attach, shutdown, and local protocol conversion behavior.
 //! @behavior selvedge.startup.server.startup Server startup prepares configuration, lock, database, events, client-sync, router, and optional web services before returning control.
 //! @behavior selvedge.startup.server.startup.config Startup config handling initializes or reuses the selected Selvedge home.
-//! @behavior selvedge.startup.server.ready Ready handling reports protocol version and readiness state for local callers.
+//! @behavior selvedge.startup.server.ready Ready handling reports readiness state for local callers.
 //! @behavior selvedge.startup.server.lock Server lock handling enforces one active server per Selvedge home and removes the lock file on cleanup.
 //! @behavior selvedge.startup.server.local_protocol Local protocol handling exposes ready, command, attach, event conversion, and request error behavior to local clients.
 //! @behavior selvedge.startup.server.local_protocol.attach Attach handling admits local clients, starts hydration, streams frames, and cleans up detach state.

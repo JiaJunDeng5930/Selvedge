@@ -2,7 +2,7 @@
 
 <!-- selvedge-package-readme
 package: selvedge-local-protocol
-freshness_commit: f2a0e6aa7f63b0fb8b575fefc5026e0535a7e64f
+freshness_commit: f86607e521e640e17d56a038e67d8dffa64fbdda
 -->
 
 This crate defines the localhost protocol data model shared by the Selvedge server, root CLI, local client, TUI, and web client.
@@ -11,7 +11,7 @@ Use it for serializable ready probes, command submission envelopes, attach reque
 
 This crate does not access the network, database, filesystem, runtime, or mailbox. Transport limits, authentication, concrete command support, payload schemas, and task existence checks are enforced by the crates that own those boundaries.
 
-Command rejection and attach rejection use separate reason enums. Command rejection must cover protocol mismatch, malformed request, server readiness, missing client attachment, login contention, unsupported command, router mailbox closure, and internal failure. Attach rejection must cover protocol mismatch, malformed request, server not ready, duplicate active attach, client registry capacity exhaustion, router mailbox closure, client-sync unavailability, attach channel creation failure, and internal failure.
+Command rejection and attach rejection use separate reason enums. Command rejection must cover malformed request, server readiness, missing client attachment, login contention, unsupported command, router mailbox closure, and internal failure. Attach rejection must cover malformed request, server not ready, duplicate active attach, client registry capacity exhaustion, router mailbox closure, client-sync unavailability, attach channel creation failure, and internal failure.
 
 ## Package State Machine
 
@@ -24,7 +24,7 @@ flowchart TD
   Command[Decode command submission envelope]
   Attach[Decode attach request or response]
   Frame[Decode client frame stream item]
-  Validate[Validate protocol version, fields, ids, and enum reason]
+  Validate[Validate fields, ids, and enum reason]
   Accepted[Value accepted by server or client boundary]
   Rejected[Return protocol validation or rejection reason]
   Encode[Encode response or frame]
@@ -33,12 +33,12 @@ flowchart TD
   Start -->|command endpoint payload is received| Command
   Start -->|attach endpoint payload is received| Attach
   Start -->|attach stream frame is received| Frame
-  ReadyProbe -->|JSON shape and protocol version match| Validate
+  ReadyProbe -->|JSON shape matches ready request or response| Validate
   Command -->|JSON shape has command id, name, payload, and client id where required| Validate
-  Attach -->|JSON shape has client id, command id, subscriptions, and protocol version| Validate
+  Attach -->|JSON shape has client id, command id, and subscriptions| Validate
   Frame -->|JSON shape matches snapshot, event, notice, or detach frame| Validate
   Validate -->|all required fields and enum values are accepted| Accepted
-  Validate -->|version mismatch, malformed request, readiness, missing attachment, login contention, duplicate attach, capacity, router, client-sync, channel, unsupported command, or internal condition is reported| Rejected
+  Validate -->|malformed request, readiness, missing attachment, login contention, duplicate attach, capacity, router, client-sync, channel, unsupported command, or internal condition is reported| Rejected
   Accepted -->|caller serializes boundary value| Encode
   Rejected -->|caller serializes rejection response| Encode
 ```

@@ -2,7 +2,7 @@
 
 <!-- selvedge-package-readme
 package: selvedge-local-client
-freshness_commit: f2a0e6aa7f63b0fb8b575fefc5026e0535a7e64f
+freshness_commit: f86607e521e640e17d56a038e67d8dffa64fbdda
 -->
 
 This crate owns the process-local client handle for talking to an existing Selvedge localhost server.
