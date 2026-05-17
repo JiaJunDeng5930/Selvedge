@@ -560,6 +560,7 @@ where
         client_command_id: attach_command_id.clone(),
         subscription: cli_subscription(),
     };
+    // @behavior selvedge.cli.submit.attach_gate CLI command submission establishes an empty attach session before every local command so attach admission and hydration failures are reported before command submission.
     let (_, mut stream) = match client.attach(attach_request).await {
         Ok(attached) => attached,
         // @behavior selvedge.cli.submit.attach_error Attach failures return LocalClientFailed before command submission.
