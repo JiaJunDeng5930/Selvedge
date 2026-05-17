@@ -2,7 +2,7 @@
 
 <!-- selvedge-package-readme
 package: selvedge-web
-freshness_commit: f86607e521e640e17d56a038e67d8dffa64fbdda
+freshness_commit: b85505e5f2406595d6bfc94d8163febfe0ca027a
 -->
 
 This crate defines the localhost HTTP ingress boundary used by `selvedge-server`.
