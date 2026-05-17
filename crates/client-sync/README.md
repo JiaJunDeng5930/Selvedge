@@ -2,7 +2,7 @@
 
 <!-- selvedge-package-readme
 package: selvedge-client-sync
-freshness_commit: 1c81a33f8a447fd4578da3e44db1393e6dff110e
+freshness_commit: f2a0e6aa7f63b0fb8b575fefc5026e0535a7e64f
 -->
 
 This crate defines the client hydration synchronization boundary used by the server and router attach path.
@@ -13,7 +13,7 @@ Use it to pass hydration starts, cancellation, shutdown signals, snapshot builde
 
 `spawn_client_sync` starts one ingress loop. That loop owns the current hydration map keyed by `ClientId`; builder tasks only return snapshot results to the loop. This keeps replacement, cancellation, shutdown, and stale-result dropping in one ordering point.
 
-`ClientSyncIngress::StartHydration` sends `BeginClientHydration` to the events mailbox first. Snapshot building starts after that send succeeds. A closed events mailbox is a fatal client-sync exit, and the builder is left untouched for that request.
+`ClientSyncIngress::StartHydration` sends `BeginClientHydration` to the events mailbox first. Current-state snapshot building starts after that send succeeds. Empty snapshot mode delivers an empty snapshot without calling the builder. A closed events mailbox is a fatal client-sync exit, and the builder is left untouched for that request.
 
 Only the current `(ClientId, ClientCommandId)` may deliver its builder result. A new command for the same client replaces the old command. A duplicate start for the current command is ignored. `CancelHydration` removes the matching current command. `Shutdown` stops the loop and drops late builder results.
 
@@ -28,7 +28,7 @@ flowchart TD
   Start([spawn_client_sync])
   Loop[Ingress loop running]
   ReserveHydration[Send BeginClientHydration]
-  Build[Run snapshot builder]
+  Build[Build requested snapshot]
   DeliverSnapshot[Send DeliverSnapshot]
   DeliverFailure[Send DeliverNotice then DetachClient]
   IgnoreDuplicate[Keep current hydration unchanged]

@@ -2,7 +2,7 @@
 
 <!-- selvedge-package-readme
 package: selvedge-local-protocol
-freshness_commit: 1c81a33f8a447fd4578da3e44db1393e6dff110e
+freshness_commit: f2a0e6aa7f63b0fb8b575fefc5026e0535a7e64f
 -->
 
 This crate defines the localhost protocol data model shared by the Selvedge server, root CLI, local client, TUI, and web client.
@@ -11,7 +11,7 @@ Use it for serializable ready probes, command submission envelopes, attach reque
 
 This crate does not access the network, database, filesystem, runtime, or mailbox. Transport limits, authentication, concrete command support, payload schemas, and task existence checks are enforced by the crates that own those boundaries.
 
-Command rejection and attach rejection use separate reason enums. Attach rejection must cover protocol mismatch, malformed request, server not ready, duplicate active attach, client registry capacity exhaustion, router mailbox closure, client-sync unavailability, attach channel creation failure, and internal failure.
+Command rejection and attach rejection use separate reason enums. Command rejection must cover protocol mismatch, malformed request, server readiness, missing client attachment, login contention, unsupported command, router mailbox closure, and internal failure. Attach rejection must cover protocol mismatch, malformed request, server not ready, duplicate active attach, client registry capacity exhaustion, router mailbox closure, client-sync unavailability, attach channel creation failure, and internal failure.
 
 ## Package State Machine
 
@@ -38,7 +38,7 @@ flowchart TD
   Attach -->|JSON shape has client id, command id, subscriptions, and protocol version| Validate
   Frame -->|JSON shape matches snapshot, event, notice, or detach frame| Validate
   Validate -->|all required fields and enum values are accepted| Accepted
-  Validate -->|version mismatch, malformed request, duplicate attach, unavailable server, capacity, router, client-sync, channel, or internal condition is reported| Rejected
+  Validate -->|version mismatch, malformed request, readiness, missing attachment, login contention, duplicate attach, capacity, router, client-sync, channel, unsupported command, or internal condition is reported| Rejected
   Accepted -->|caller serializes boundary value| Encode
   Rejected -->|caller serializes rejection response| Encode
 ```
