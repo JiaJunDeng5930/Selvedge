@@ -529,16 +529,13 @@ fn is_test_path(path: &str) -> bool {
 }
 
 fn render_requirement_index_block(declarations: &[RequirementRecord], line_ending: &str) -> String {
-    // @behavior tool.format.render The requirement index renderer lists declaration IDs and immediate child IDs in deterministic order.
-    let mut ids = declarations
+    // @behavior tool.format.render The requirement index renderer lists declaration IDs with immediate child IDs and omits leaf IDs from separate rows.
+    let ids = declarations
         .iter()
         .filter(|record| record.tag.is_declaration())
         .map(|record| record.id.clone())
         .collect::<BTreeSet<_>>();
     let mut children: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
-    for id in &ids {
-        children.entry(id.clone()).or_default();
-    }
     for id in &ids {
         if let Some((parent, segment)) = id.rsplit_once('.')
             && ids.contains(parent)
@@ -558,16 +555,10 @@ fn render_requirement_index_block(declarations: &[RequirementRecord], line_endin
         "|comment_body:single_sentence".to_string(),
         "|tags:{@behavior,@constraint,@intent,@verifies}".to_string(),
     ];
-    for id in ids.iter() {
-        let row_children = children.remove(id).unwrap_or_default();
-        if row_children.is_empty() {
-            lines.push(format!("|{id}|{id}.{{}}"));
-        } else {
-            let joined = row_children.into_iter().collect::<Vec<_>>().join(",");
-            lines.push(format!("|{id}|{id}.{{{joined}}}"));
-        }
+    for (id, row_children) in children {
+        let joined = row_children.into_iter().collect::<Vec<_>>().join(",");
+        lines.push(format!("|{id}|{id}.{{{joined}}}"));
     }
-    ids.clear();
     lines.push(END_MARKER.to_string());
     lines.join(line_ending)
 }
@@ -1811,7 +1802,7 @@ mod tests {
         let agents = repo.read("AGENTS.md");
         // @verifies tool.format.index_block
         assert!(agents.contains("|tool|tool.{scan}"));
-        assert!(agents.contains("|tool.scan|tool.scan.{}"));
+        assert!(!agents.contains("|tool.scan|tool.scan.{}"));
     }
 
     #[test]
