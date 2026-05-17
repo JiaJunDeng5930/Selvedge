@@ -16,8 +16,7 @@ use selvedge_domain_model::{ModelProfileKey, UnixTs};
 use selvedge_local_protocol::{
     AttachRejectReason, AttachRequest, CommandOutcome, CommandRejectReason, CommandRequest,
     LocalClientCommandId, LocalClientFrame, LocalClientId, LocalClientSubscription,
-    LocalDetailLevel, LocalTaskScope, ProtocolVersion, ReadyRequest, ReadyState,
-    current_protocol_version,
+    LocalDetailLevel, LocalTaskScope, ReadyRequest, ReadyState,
 };
 use selvedge_router::{ToolExecutionSpawnError, ToolExecutionSpawner};
 use selvedge_server::{
@@ -46,28 +45,9 @@ async fn spawn_server_initializes_ready_control_and_creates_durable_paths() {
 
     assert_eq!(handle.control.state().await, ServerRuntimeState::Ready);
     assert_eq!(
-        handle
-            .control
-            .ready(ReadyRequest {
-                protocol_version: current_protocol_version()
-            })
-            .await
-            .state,
+        handle.control.ready(ReadyRequest {}).await.state,
         ReadyState::Ready
     );
-    let mismatched_ready = handle
-        .control
-        .ready(ReadyRequest {
-            protocol_version: ProtocolVersion(4),
-        })
-        .await;
-    // @verifies selvedge.startup.server.lifecycle
-    assert_eq!(
-        mismatched_ready.protocol_version,
-        current_protocol_version()
-    );
-    // @verifies selvedge.startup.server.lifecycle
-    assert_eq!(mismatched_ready.state, ReadyState::NotReady);
     // @verifies selvedge.startup.server.lifecycle
     assert!(home.join("selvedge.sqlite").exists());
     // @verifies selvedge.startup.server.lifecycle
@@ -241,24 +221,11 @@ async fn occupied_web_bind_target_is_rejected_before_runtime_tasks_start() {
 
 // @verifies selvedge.startup.server
 #[tokio::test]
-async fn command_submit_validates_protocol_and_maps_to_router_mailbox() {
+async fn command_submit_maps_to_router_mailbox() {
     let _guard = SERVER_TEST_LOCK.lock().await;
     let home = SERVER_TEST_HOME.path();
     let mapper = Arc::new(RecordingMapper::new());
     let handle = spawn_server(test_args(home.to_path_buf(), mapper.clone())).expect("spawn server");
-
-    let invalid = handle
-        .control
-        .submit_command(CommandRequest {
-            protocol_version: ProtocolVersion(4),
-            ..valid_command("bad-version")
-        })
-        .await;
-    // @verifies selvedge.startup.server.lifecycle
-    assert_eq!(
-        invalid.outcome,
-        CommandOutcome::Rejected(CommandRejectReason::ProtocolVersionMismatch)
-    );
 
     let accepted = handle
         .control
@@ -373,7 +340,6 @@ async fn attach_client_accepts_and_streams_initial_snapshot() {
     let rejected = match handle
         .control
         .attach_client(AttachRequest {
-            protocol_version: current_protocol_version(),
             client_id: LocalClientId::new("client-1").expect("valid client id"),
             client_command_id: LocalClientCommandId::new("attach-2").expect("valid command id"),
             subscription: LocalClientSubscription {
@@ -393,23 +359,6 @@ async fn attach_client_accepts_and_streams_initial_snapshot() {
 
     // @verifies selvedge.startup.server.lifecycle
     assert_eq!(rejected.reason, AttachRejectReason::MalformedRequest);
-
-    let version_mismatch = match handle
-        .control
-        .attach_client(AttachRequest {
-            protocol_version: ProtocolVersion(4),
-            ..valid_attach("attach-3")
-        })
-        .await
-    {
-        Ok(_) => panic!("version-mismatched attach request should be rejected"),
-        Err(rejected) => rejected,
-    };
-    // @verifies selvedge.startup.server.lifecycle
-    assert_eq!(
-        version_mismatch.reason,
-        AttachRejectReason::ProtocolVersionMismatch
-    );
 
     handle.control.stop().await;
     handle.join_handle.await.expect("join server");
@@ -671,7 +620,6 @@ fn unused_tcp_v4_port() -> u16 {
 
 fn valid_command(command_id: &str) -> CommandRequest {
     CommandRequest {
-        protocol_version: current_protocol_version(),
         client_id: LocalClientId::new("client-1").expect("valid client id"),
         client_command_id: LocalClientCommandId::new(command_id).expect("valid command id"),
         command_name: "send-user-input".to_owned(),
@@ -685,7 +633,6 @@ fn valid_attach(command_id: &str) -> AttachRequest {
 
 fn valid_attach_for(client_id: &str, command_id: &str) -> AttachRequest {
     AttachRequest {
-        protocol_version: current_protocol_version(),
         client_id: LocalClientId::new(client_id).expect("valid client id"),
         client_command_id: LocalClientCommandId::new(command_id).expect("valid command id"),
         subscription: LocalClientSubscription {

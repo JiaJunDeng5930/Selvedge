@@ -10,26 +10,18 @@ use selvedge_local_protocol::{
     LocalProtocolValidationError, LocalReasoningEffort, LocalSnapshotTaskVersion, LocalStreamError,
     LocalStreamErrorReason, LocalTaskParentProjection, LocalTaskProjection,
     LocalTaskProjectionStatus, LocalTaskScope, LocalToolArgumentValue, LocalToolCallArgument,
-    LocalToolExecutionStatusEvent, LocalToolExecutionStatusPhase, ProtocolVersion, ReadyRequest,
-    ReadyResponse, ReadyState, current_protocol_version, http_problem, validate_attach_request,
-    validate_attach_stream_item, validate_client_frame, validate_command_request,
-    validate_ready_request, validate_snapshot, validate_subscription,
+    LocalToolExecutionStatusEvent, LocalToolExecutionStatusPhase, ReadyRequest, ReadyResponse,
+    ReadyState, http_problem, validate_attach_request, validate_attach_stream_item,
+    validate_client_frame, validate_command_request, validate_ready_request, validate_snapshot,
+    validate_subscription,
 };
 use serde_json::json;
 
 #[test]
-fn request_validation_enforces_protocol_version_and_required_client_fields() {
+fn request_validation_enforces_required_client_fields() {
+    let ready = ReadyRequest {};
     // @verifies selvedge.client.protocol
-    assert_eq!(current_protocol_version(), ProtocolVersion(3));
-
-    let ready = ReadyRequest {
-        protocol_version: ProtocolVersion(4),
-    };
-    // @verifies selvedge.client.protocol
-    assert_eq!(
-        validate_ready_request(&ready),
-        Err(LocalProtocolValidationError::ProtocolVersionMismatch)
-    );
+    validate_ready_request(&ready).expect("ready request is valid");
 
     // @verifies selvedge.client.protocol
     assert_eq!(
@@ -43,7 +35,6 @@ fn request_validation_enforces_protocol_version_and_required_client_fields() {
     );
 
     let request = CommandRequest {
-        protocol_version: current_protocol_version(),
         client_id: LocalClientId::new("client-1").expect("valid client id"),
         client_command_id: LocalClientCommandId::new("command-1").expect("valid command id"),
         command_name: " ".to_owned(),
@@ -89,7 +80,6 @@ fn attach_validation_enforces_valid_subscription_filters() {
     );
 
     let attach = AttachRequest {
-        protocol_version: current_protocol_version(),
         client_id: LocalClientId::new("client-1").expect("valid client id"),
         client_command_id: LocalClientCommandId::new("attach-1").expect("valid command id"),
         subscription: valid_subscription,
@@ -252,7 +242,6 @@ fn frame_validation_enforces_delivery_sequence_snapshot_and_notice_contracts() {
 #[test]
 fn protocol_messages_round_trip_through_json() {
     let ready = ReadyResponse {
-        protocol_version: current_protocol_version(),
         state: ReadyState::Ready,
     };
     let ready_json = serde_json::to_string(&ready).expect("serialize ready response");
@@ -263,7 +252,6 @@ fn protocol_messages_round_trip_through_json() {
     );
 
     let command = CommandResponse {
-        protocol_version: current_protocol_version(),
         client_command_id: LocalClientCommandId::new("command-1").expect("valid command id"),
         outcome: CommandOutcome::Rejected(CommandRejectReason::ServerNotReady),
     };
@@ -276,7 +264,6 @@ fn protocol_messages_round_trip_through_json() {
     );
 
     let accepted = AttachAccepted {
-        protocol_version: current_protocol_version(),
         client_id: LocalClientId::new("client-1").expect("valid client id"),
         client_command_id: LocalClientCommandId::new("attach-1").expect("valid command id"),
     };
@@ -288,9 +275,8 @@ fn protocol_messages_round_trip_through_json() {
     );
 
     let rejected = AttachRejected {
-        protocol_version: current_protocol_version(),
         client_command_id: LocalClientCommandId::new("attach-2").expect("valid command id"),
-        reason: AttachRejectReason::ProtocolVersionMismatch,
+        reason: AttachRejectReason::MalformedRequest,
     };
     let rejected_json = serde_json::to_string(&rejected).expect("serialize attach rejected");
     // @verifies selvedge.client.protocol
@@ -355,11 +341,9 @@ fn protocol_messages_round_trip_through_json() {
 }
 
 #[test]
-fn http_problem_uses_current_protocol_version_and_payload_text() {
+fn http_problem_uses_payload_text() {
     let problem = http_problem(LocalHttpProblemCode::MalformedJson, "invalid json");
 
-    // @verifies selvedge.client.protocol
-    assert_eq!(problem.protocol_version, current_protocol_version());
     // @verifies selvedge.client.protocol
     assert_eq!(problem.code, LocalHttpProblemCode::MalformedJson);
     // @verifies selvedge.client.protocol
@@ -393,7 +377,6 @@ fn attach_stream_item_validation_checks_internal_payload_only() {
     );
 
     let stream_error = LocalAttachStreamItem::StreamError(LocalStreamError {
-        protocol_version: current_protocol_version(),
         client_command_id: LocalClientCommandId::new("attach-1").expect("command id"),
         reason: LocalStreamErrorReason::StreamClosed,
         message_text: "closed".to_owned(),
@@ -462,7 +445,6 @@ fn attach_stream_validator_enforces_accepted_first_and_terminal_error_order() {
 
     validator
         .validate_next(&LocalAttachStreamItem::StreamError(LocalStreamError {
-            protocol_version: current_protocol_version(),
             client_command_id: LocalClientCommandId::new("attach-1").expect("command id"),
             reason: LocalStreamErrorReason::ServerShuttingDown,
             message_text: "shutdown".to_owned(),
@@ -495,7 +477,6 @@ fn attach_stream_validator_rejects_stream_error_as_first_item() {
     // @verifies selvedge.client.protocol
     assert_eq!(
         validator.validate_next(&LocalAttachStreamItem::StreamError(LocalStreamError {
-            protocol_version: current_protocol_version(),
             client_command_id: LocalClientCommandId::new("attach-1").expect("command id"),
             reason: LocalStreamErrorReason::InternalFailure,
             message_text: "boom".to_owned(),
@@ -524,7 +505,6 @@ fn valid_snapshot() -> LocalClientSnapshot {
 
 fn valid_attach_accepted() -> AttachAccepted {
     AttachAccepted {
-        protocol_version: current_protocol_version(),
         client_id: LocalClientId::new("client-1").expect("valid client id"),
         client_command_id: LocalClientCommandId::new("attach-1").expect("valid command id"),
     }

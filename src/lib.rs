@@ -36,7 +36,7 @@ use selvedge_local_client::{LocalClientConfig, LocalClientError, LocalEndpoint, 
 use selvedge_local_protocol::{
     AttachAccepted, AttachRequest, CommandOutcome, CommandRequest, CommandResponse,
     LocalClientCommandId, LocalClientFrame, LocalClientId, LocalNoticeKind, LocalSnapshotMode,
-    ReadyRequest, ReadyResponse, ReadyState, current_protocol_version,
+    ReadyRequest, ReadyResponse, ReadyState,
 };
 use selvedge_router::{ToolExecutionSpawnError, ToolExecutionSpawner};
 use selvedge_server::{
@@ -532,7 +532,6 @@ where
         Err(error) => return CliExitStatus::InvalidArgs(format!("{error:?}")),
     };
     let request = CommandRequest {
-        protocol_version: current_protocol_version(),
         client_id: client_id.clone(),
         client_command_id: submit_command_id.clone(),
         command_name: command_name.clone(),
@@ -555,7 +554,6 @@ where
     };
 
     let attach_request = AttachRequest {
-        protocol_version: current_protocol_version(),
         client_id: client_id.clone(),
         client_command_id: attach_command_id.clone(),
         subscription: cli_subscription(),
@@ -681,7 +679,6 @@ where
     };
     match client
         .ready(ReadyRequest {
-            protocol_version: current_protocol_version(),
         })
         .await
     {
@@ -1081,7 +1078,6 @@ mod tests {
         let connector = FakeConnector::new(vec![Ok(FakeClientPlan {
             ready: Err(CliError::LocalClientFailed("protocol mismatch".to_owned())),
             submit: Ok(CommandResponse {
-                protocol_version: current_protocol_version(),
                 client_command_id: LocalClientCommandId::new("response-1").expect("command id"),
                 outcome: CommandOutcome::Accepted,
             }),
@@ -1112,7 +1108,6 @@ mod tests {
         let connector = FakeConnector::new(vec![Ok(FakeClientPlan {
             ready: Ok(ready_response(ReadyState::Ready)),
             submit: Ok(CommandResponse {
-                protocol_version: current_protocol_version(),
                 client_command_id: LocalClientCommandId::new("response-1").expect("command id"),
                 outcome: CommandOutcome::Rejected(CommandRejectReason::UnsupportedCommand),
             }),
@@ -1379,7 +1374,6 @@ mod tests {
             Self {
                 ready: Ok(ready_response(ReadyState::Ready)),
                 submit: Ok(CommandResponse {
-                    protocol_version: current_protocol_version(),
                     client_command_id: LocalClientCommandId::new("response-1").expect("command id"),
                     outcome: CommandOutcome::Accepted,
                 }),
@@ -1404,7 +1398,6 @@ mod tests {
             Self {
                 ready: Ok(ready_response(ReadyState::Ready)),
                 submit: Ok(CommandResponse {
-                    protocol_version: current_protocol_version(),
                     client_command_id: LocalClientCommandId::new("response-1").expect("command id"),
                     outcome: CommandOutcome::Accepted,
                 }),
@@ -1420,7 +1413,6 @@ mod tests {
             Self {
                 ready: Ok(ready_response(ReadyState::Ready)),
                 submit: Ok(CommandResponse {
-                    protocol_version: current_protocol_version(),
                     client_command_id: LocalClientCommandId::new("response-1").expect("command id"),
                     outcome: CommandOutcome::Accepted,
                 }),
@@ -1450,7 +1442,6 @@ mod tests {
         ) -> Result<(AttachAccepted, LocalFrameStream), CliError> {
             let attach_command_id = request.client_command_id.clone();
             let accepted = AttachAccepted {
-                protocol_version: current_protocol_version(),
                 client_id: request.client_id,
                 client_command_id: request.client_command_id,
             };
@@ -1615,10 +1606,7 @@ mod tests {
     }
 
     fn ready_response(state: ReadyState) -> ReadyResponse {
-        ReadyResponse {
-            protocol_version: current_protocol_version(),
-            state,
-        }
+        ReadyResponse { state }
     }
 
     #[allow(dead_code)]

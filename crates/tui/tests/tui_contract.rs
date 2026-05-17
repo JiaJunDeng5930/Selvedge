@@ -6,7 +6,6 @@ use selvedge_local_protocol::{
     AttachRejectReason, AttachRejected, CommandOutcome, CommandRejectReason, CommandRequest,
     CommandResponse, LocalClientCommandId, LocalClientFrame, LocalClientSnapshotFrame,
     LocalClientSubscription, LocalDetailLevel, LocalTaskScope, ReadyResponse, ReadyState,
-    current_protocol_version,
 };
 use selvedge_test_support::local_transport::{
     AttachAction, CommandAction, FakeLocalTransport as FakeTransport, FakeTransportState,
@@ -39,7 +38,6 @@ async fn not_ready_returns_server_not_ready() {
         .expect("fake state")
         .ready_responses
         .push_back(ReadyAction::Response(Ok(ReadyResponse {
-            protocol_version: current_protocol_version(),
             state: ReadyState::NotReady,
         })));
     install_connect_plan(Ok(state.clone()));
@@ -62,7 +60,6 @@ async fn attach_rejection_returns_attach_rejected() {
         .expect("fake state")
         .attach_responses
         .push_back(AttachAction::Rejected(AttachRejected {
-            protocol_version: current_protocol_version(),
             client_command_id: LocalClientCommandId::new("attach-1").expect("command id"),
             reason: AttachRejectReason::ServerNotReady,
         }));
@@ -98,7 +95,6 @@ async fn waits_for_snapshot_then_submits_initial_command_and_reports_rejection()
         state_guard
             .command_responses
             .push_back(CommandAction::Response(Ok(CommandResponse {
-                protocol_version: current_protocol_version(),
                 client_command_id: LocalClientCommandId::new("command-1").expect("command id"),
                 outcome: CommandOutcome::Rejected(CommandRejectReason::UnsupportedCommand),
             })));
@@ -141,7 +137,6 @@ async fn accepted_initial_command_exits_successfully() {
         state_guard
             .command_responses
             .push_back(CommandAction::Response(Ok(CommandResponse {
-                protocol_version: current_protocol_version(),
                 client_command_id: LocalClientCommandId::new("command-1").expect("command id"),
                 outcome: CommandOutcome::Accepted,
             })));

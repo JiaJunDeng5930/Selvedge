@@ -9,7 +9,7 @@ use selvedge_local_client::{
 };
 use selvedge_local_protocol::{
     AttachRequest, CommandOutcome, CommandRequest, LocalClientCommandId, LocalClientFrame,
-    LocalClientId, LocalClientSubscription, ReadyRequest, ReadyState, current_protocol_version,
+    LocalClientId, LocalClientSubscription, ReadyRequest, ReadyState,
 };
 
 #[derive(Clone, Debug, PartialEq)]
@@ -108,11 +108,7 @@ where
         Err(error) => return TuiExitStatus::LocalClientFailed(error),
     };
 
-    let ready = client
-        .ready(ReadyRequest {
-            protocol_version: current_protocol_version(),
-        })
-        .await;
+    let ready = client.ready(ReadyRequest {}).await;
     let ready = match ready {
         Ok(ready) => ready,
         // @behavior selvedge.client.tui.r2.ready_failure TUI startup closes the local client and returns LocalClientFailed when the readiness request fails.
@@ -126,7 +122,6 @@ where
 
     let attach = client
         .attach(AttachRequest {
-            protocol_version: current_protocol_version(),
             client_id,
             client_command_id: attach_command_id,
             subscription: args.subscription,

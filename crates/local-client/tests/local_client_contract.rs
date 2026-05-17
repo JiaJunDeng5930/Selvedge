@@ -13,7 +13,6 @@ use selvedge_local_protocol::{
     AttachAccepted, AttachRejectReason, AttachRejected, AttachRequest, CommandOutcome,
     CommandRejectReason, CommandRequest, CommandResponse, LocalClientCommandId, LocalClientId,
     LocalClientSubscription, LocalTaskScope, ReadyRequest, ReadyResponse, ReadyState,
-    current_protocol_version,
 };
 use selvedge_test_support::local_transport::{
     AttachAction, CloseAction, CommandAction, DropNotifyingStream,
@@ -92,17 +91,11 @@ async fn ready_returns_server_state_and_restores_idle_state() {
         .expect("fake state")
         .ready_responses
         .push_back(ReadyAction::Response(Ok(ReadyResponse {
-            protocol_version: current_protocol_version(),
             state: ReadyState::NotReady,
         })));
     let client = connected_client(state.clone()).await;
 
-    let response = client
-        .ready(ReadyRequest {
-            protocol_version: current_protocol_version(),
-        })
-        .await
-        .expect("ready response");
+    let response = client.ready(ReadyRequest {}).await.expect("ready response");
 
     // @verifies selvedge.client.local
     assert_eq!(response.state, ReadyState::NotReady);
@@ -121,7 +114,6 @@ async fn command_submit_validates_request_before_transport_and_preserves_server_
         .expect("fake state")
         .command_responses
         .push_back(CommandAction::Response(Ok(CommandResponse {
-            protocol_version: current_protocol_version(),
             client_command_id: LocalClientCommandId::new("command-2").expect("command id"),
             outcome: CommandOutcome::Rejected(CommandRejectReason::ServerNotReady),
         })));
@@ -177,11 +169,7 @@ async fn transport_closed_error_moves_client_to_failed_state() {
     assert_eq!(client.state().await, LocalClientState::Failed);
     // @verifies selvedge.client.local
     assert_eq!(
-        client
-            .ready(ReadyRequest {
-                protocol_version: current_protocol_version(),
-            })
-            .await,
+        client.ready(ReadyRequest {}).await,
         Err(LocalClientError::TransportClosed)
     );
 }
@@ -208,11 +196,7 @@ async fn cancelling_pending_command_restores_ready_state() {
     assert_eq!(client.state().await, LocalClientState::CommandPending);
     // @verifies selvedge.client.local
     assert_eq!(
-        client
-            .ready(ReadyRequest {
-                protocol_version: current_protocol_version(),
-            })
-            .await,
+        client.ready(ReadyRequest {}).await,
         Err(LocalClientError::Busy)
     );
 
@@ -263,11 +247,7 @@ async fn request_timeout_sets_failed_state_and_recent_error() {
         .push_back(ReadyAction::Hang);
     let client = connected_client_with_timeout(state, Duration::from_millis(5)).await;
 
-    let error = client
-        .ready(ReadyRequest {
-            protocol_version: current_protocol_version(),
-        })
-        .await;
+    let error = client.ready(ReadyRequest {}).await;
 
     // @verifies selvedge.client.local
     assert_eq!(error, Err(LocalClientError::Timeout));
@@ -293,7 +273,6 @@ async fn attach_allows_one_active_stream_and_reports_stream_closed_after_ordered
         .attach_responses
         .push_back(AttachAction::Response(Ok((
             AttachAccepted {
-                protocol_version: current_protocol_version(),
                 client_id: LocalClientId::new("client-1").expect("client id"),
                 client_command_id: LocalClientCommandId::new("attach-1").expect("command id"),
             },
@@ -340,7 +319,6 @@ async fn attach_closure_during_pending_command_restores_ready_after_command_canc
         let mut state = state.lock().expect("fake state");
         state.attach_responses.push_back(AttachAction::Response(Ok((
             AttachAccepted {
-                protocol_version: current_protocol_version(),
                 client_id: LocalClientId::new("client-1").expect("client id"),
                 client_command_id: LocalClientCommandId::new("attach-1").expect("command id"),
             },
@@ -349,7 +327,6 @@ async fn attach_closure_during_pending_command_restores_ready_after_command_canc
         state.command_responses.push_back(CommandAction::Hang);
         state.attach_responses.push_back(AttachAction::Response(Ok((
             AttachAccepted {
-                protocol_version: current_protocol_version(),
                 client_id: LocalClientId::new("client-1").expect("client id"),
                 client_command_id: LocalClientCommandId::new("attach-2").expect("command id"),
             },
@@ -394,7 +371,6 @@ async fn attach_closure_during_pending_command_restores_ready_after_command_succ
         let mut state = state.lock().expect("fake state");
         state.attach_responses.push_back(AttachAction::Response(Ok((
             AttachAccepted {
-                protocol_version: current_protocol_version(),
                 client_id: LocalClientId::new("client-1").expect("client id"),
                 client_command_id: LocalClientCommandId::new("attach-1").expect("command id"),
             },
@@ -405,14 +381,12 @@ async fn attach_closure_during_pending_command_restores_ready_after_command_succ
             .push_back(CommandAction::WaitForRelease {
                 release_rx,
                 response: Ok(CommandResponse {
-                    protocol_version: current_protocol_version(),
                     client_command_id: LocalClientCommandId::new("command-1").expect("command id"),
                     outcome: CommandOutcome::Accepted,
                 }),
             });
         state.attach_responses.push_back(AttachAction::Response(Ok((
             AttachAccepted {
-                protocol_version: current_protocol_version(),
                 client_id: LocalClientId::new("client-1").expect("client id"),
                 client_command_id: LocalClientCommandId::new("attach-2").expect("command id"),
             },
@@ -454,7 +428,6 @@ async fn dropping_exhausted_old_stream_does_not_clear_newer_attach_stream() {
         let mut state = state.lock().expect("fake state");
         state.attach_responses.push_back(AttachAction::Response(Ok((
             AttachAccepted {
-                protocol_version: current_protocol_version(),
                 client_id: LocalClientId::new("client-1").expect("client id"),
                 client_command_id: LocalClientCommandId::new("attach-1").expect("command id"),
             },
@@ -462,7 +435,6 @@ async fn dropping_exhausted_old_stream_does_not_clear_newer_attach_stream() {
         ))));
         state.attach_responses.push_back(AttachAction::Response(Ok((
             AttachAccepted {
-                protocol_version: current_protocol_version(),
                 client_id: LocalClientId::new("client-1").expect("client id"),
                 client_command_id: LocalClientCommandId::new("attach-2").expect("command id"),
             },
@@ -470,7 +442,6 @@ async fn dropping_exhausted_old_stream_does_not_clear_newer_attach_stream() {
         ))));
         state.attach_responses.push_back(AttachAction::Response(Ok((
             AttachAccepted {
-                protocol_version: current_protocol_version(),
                 client_id: LocalClientId::new("client-1").expect("client id"),
                 client_command_id: LocalClientCommandId::new("attach-3").expect("command id"),
             },
@@ -517,7 +488,6 @@ async fn attach_stream_error_clears_attached_state_before_returning_error() {
         let mut state = state.lock().expect("fake state");
         state.attach_responses.push_back(AttachAction::Response(Ok((
             AttachAccepted {
-                protocol_version: current_protocol_version(),
                 client_id: LocalClientId::new("client-1").expect("client id"),
                 client_command_id: LocalClientCommandId::new("attach-1").expect("command id"),
             },
@@ -525,7 +495,6 @@ async fn attach_stream_error_clears_attached_state_before_returning_error() {
         ))));
         state.attach_responses.push_back(AttachAction::Response(Ok((
             AttachAccepted {
-                protocol_version: current_protocol_version(),
                 client_id: LocalClientId::new("client-1").expect("client id"),
                 client_command_id: LocalClientCommandId::new("attach-2").expect("command id"),
             },
@@ -563,7 +532,6 @@ async fn request_failure_drops_active_attach_inner_stream() {
         let mut state = state.lock().expect("fake state");
         state.attach_responses.push_back(AttachAction::Response(Ok((
             AttachAccepted {
-                protocol_version: current_protocol_version(),
                 client_id: LocalClientId::new("client-1").expect("client id"),
                 client_command_id: LocalClientCommandId::new("attach-1").expect("command id"),
             },
@@ -634,7 +602,6 @@ async fn cancelling_close_after_stream_drop_restores_ready_state() {
         state.close_action = CloseAction::Hang;
         state.attach_responses.push_back(AttachAction::Response(Ok((
             AttachAccepted {
-                protocol_version: current_protocol_version(),
                 client_id: LocalClientId::new("client-1").expect("client id"),
                 client_command_id: LocalClientCommandId::new("attach-1").expect("command id"),
             },
@@ -642,7 +609,6 @@ async fn cancelling_close_after_stream_drop_restores_ready_state() {
         ))));
         state.attach_responses.push_back(AttachAction::Response(Ok((
             AttachAccepted {
-                protocol_version: current_protocol_version(),
                 client_id: LocalClientId::new("client-1").expect("client id"),
                 client_command_id: LocalClientCommandId::new("attach-2").expect("command id"),
             },
@@ -684,7 +650,6 @@ async fn cancelling_close_with_live_stream_restores_attached_state() {
         state.close_action = CloseAction::Hang;
         state.attach_responses.push_back(AttachAction::Response(Ok((
             AttachAccepted {
-                protocol_version: current_protocol_version(),
                 client_id: LocalClientId::new("client-1").expect("client id"),
                 client_command_id: LocalClientCommandId::new("attach-1").expect("command id"),
             },
@@ -692,7 +657,6 @@ async fn cancelling_close_with_live_stream_restores_attached_state() {
         ))));
         state.attach_responses.push_back(AttachAction::Response(Ok((
             AttachAccepted {
-                protocol_version: current_protocol_version(),
                 client_id: LocalClientId::new("client-1").expect("client id"),
                 client_command_id: LocalClientCommandId::new("attach-2").expect("command id"),
             },
@@ -735,7 +699,6 @@ async fn attach_stream_error_terminates_old_stream() {
         let mut state = state.lock().expect("fake state");
         state.attach_responses.push_back(AttachAction::Response(Ok((
             AttachAccepted {
-                protocol_version: current_protocol_version(),
                 client_id: LocalClientId::new("client-1").expect("client id"),
                 client_command_id: LocalClientCommandId::new("attach-1").expect("command id"),
             },
@@ -746,7 +709,6 @@ async fn attach_stream_error_terminates_old_stream() {
         ))));
         state.attach_responses.push_back(AttachAction::Response(Ok((
             AttachAccepted {
-                protocol_version: current_protocol_version(),
                 client_id: LocalClientId::new("client-1").expect("client id"),
                 client_command_id: LocalClientCommandId::new("attach-2").expect("command id"),
             },
@@ -784,7 +746,6 @@ async fn attach_stream_error_fuses_even_when_inner_stream_stays_pending() {
         .attach_responses
         .push_back(AttachAction::Response(Ok((
             AttachAccepted {
-                protocol_version: current_protocol_version(),
                 client_id: LocalClientId::new("client-1").expect("client id"),
                 client_command_id: LocalClientCommandId::new("attach-1").expect("command id"),
             },
@@ -822,11 +783,7 @@ async fn cancelled_close_from_failed_state_preserves_recent_error() {
     let client = connected_client_with_timeout(state, Duration::from_millis(5)).await;
     // @verifies selvedge.client.local
     assert_eq!(
-        client
-            .ready(ReadyRequest {
-                protocol_version: current_protocol_version(),
-            })
-            .await,
+        client.ready(ReadyRequest {}).await,
         Err(LocalClientError::Timeout)
     );
     let mut close = Box::pin(client.close());
@@ -889,7 +846,6 @@ async fn attach_rejection_restores_idle_state() {
         .attach_responses
         .push_back(AttachAction::Response(Err(
             AttachRejectedOrClientError::Rejected(AttachRejected {
-                protocol_version: current_protocol_version(),
                 client_command_id: LocalClientCommandId::new("attach-1").expect("command id"),
                 reason: AttachRejectReason::ServerNotReady,
             }),
@@ -927,11 +883,7 @@ async fn close_closes_transport_and_later_methods_return_closed() {
     assert_eq!(state.lock().expect("fake state").close_calls, 1);
     // @verifies selvedge.client.local
     assert_eq!(
-        client
-            .ready(ReadyRequest {
-                protocol_version: current_protocol_version(),
-            })
-            .await,
+        client.ready(ReadyRequest {}).await,
         Err(LocalClientError::Closed)
     );
 }
@@ -946,7 +898,6 @@ async fn close_fuses_existing_attach_stream() {
         .attach_responses
         .push_back(AttachAction::Response(Ok((
             AttachAccepted {
-                protocol_version: current_protocol_version(),
                 client_id: LocalClientId::new("client-1").expect("client id"),
                 client_command_id: LocalClientCommandId::new("attach-1").expect("command id"),
             },
@@ -977,7 +928,6 @@ async fn close_drops_active_attach_inner_stream() {
         .attach_responses
         .push_back(AttachAction::Response(Ok((
             AttachAccepted {
-                protocol_version: current_protocol_version(),
                 client_id: LocalClientId::new("client-1").expect("client id"),
                 client_command_id: LocalClientCommandId::new("attach-1").expect("command id"),
             },
@@ -1015,7 +965,6 @@ async fn close_wakes_pending_attach_reader() {
         .attach_responses
         .push_back(AttachAction::Response(Ok((
             AttachAccepted {
-                protocol_version: current_protocol_version(),
                 client_id: LocalClientId::new("client-1").expect("client id"),
                 client_command_id: LocalClientCommandId::new("attach-1").expect("command id"),
             },
@@ -1065,9 +1014,7 @@ async fn cancelling_pending_close_restores_previous_state() {
     // @verifies selvedge.client.local
     assert_eq!(
         client
-            .ready(ReadyRequest {
-                protocol_version: current_protocol_version(),
-            })
+            .ready(ReadyRequest {})
             .await
             .expect("ready after close cancellation")
             .state,
@@ -1079,7 +1026,6 @@ async fn cancelling_pending_close_restores_previous_state() {
 async fn http_transport_posts_ready_to_local_protocol_route() {
     let _guard = TEST_LOCK.lock().await;
     let body = serde_json::to_vec(&ReadyResponse {
-        protocol_version: current_protocol_version(),
         state: ReadyState::Ready,
     })
     .expect("ready response json");
@@ -1090,9 +1036,7 @@ async fn http_transport_posts_ready_to_local_protocol_route() {
         .expect("connect http client");
 
     let response = client
-        .ready(ReadyRequest {
-            protocol_version: current_protocol_version(),
-        })
+        .ready(ReadyRequest {})
         .await
         .expect("ready over http");
 
@@ -1110,9 +1054,7 @@ async fn http_transport_posts_ready_to_local_protocol_route() {
     // @verifies selvedge.client.local
     assert_eq!(
         serde_json::from_slice::<ReadyRequest>(&ready.body).expect("ready request body"),
-        ReadyRequest {
-            protocol_version: current_protocol_version()
-        }
+        ReadyRequest {}
     );
 }
 
@@ -1120,7 +1062,6 @@ async fn http_transport_posts_ready_to_local_protocol_route() {
 async fn http_transport_posts_command_to_local_protocol_route() {
     let _guard = TEST_LOCK.lock().await;
     let body = serde_json::to_vec(&CommandResponse {
-        protocol_version: current_protocol_version(),
         client_command_id: LocalClientCommandId::new("command-1").expect("command id"),
         outcome: CommandOutcome::Accepted,
     })
@@ -1158,7 +1099,6 @@ async fn http_transport_posts_command_to_local_protocol_route() {
 async fn http_transport_rejects_mismatched_command_response_id() {
     let _guard = TEST_LOCK.lock().await;
     let body = serde_json::to_vec(&CommandResponse {
-        protocol_version: current_protocol_version(),
         client_command_id: LocalClientCommandId::new("other-command").expect("command id"),
         outcome: CommandOutcome::Accepted,
     })
@@ -1192,7 +1132,6 @@ async fn http_transport_rejects_mismatched_command_response_id() {
 async fn http_transport_reads_attach_accepted_ndjson_stream() {
     let _guard = TEST_LOCK.lock().await;
     let accepted = AttachAccepted {
-        protocol_version: current_protocol_version(),
         client_id: LocalClientId::new("client-1").expect("client id"),
         client_command_id: LocalClientCommandId::new("attach-1").expect("command id"),
     };
@@ -1246,7 +1185,6 @@ async fn http_transport_reads_attach_accepted_ndjson_stream() {
 async fn http_transport_rejects_mismatched_attach_accepted_identity() {
     let _guard = TEST_LOCK.lock().await;
     let accepted = AttachAccepted {
-        protocol_version: current_protocol_version(),
         client_id: LocalClientId::new("other-client").expect("client id"),
         client_command_id: LocalClientCommandId::new("attach-1").expect("command id"),
     };
@@ -1288,7 +1226,6 @@ async fn http_transport_rejects_mismatched_attach_accepted_identity() {
 async fn http_transport_preserves_attach_rejection_response() {
     let _guard = TEST_LOCK.lock().await;
     let rejected = AttachRejected {
-        protocol_version: current_protocol_version(),
         client_command_id: LocalClientCommandId::new("attach-1").expect("command id"),
         reason: AttachRejectReason::ServerNotReady,
     };
@@ -1320,7 +1257,6 @@ async fn http_transport_preserves_attach_rejection_response() {
 async fn http_transport_rejects_mismatched_attach_rejection_identity() {
     let _guard = TEST_LOCK.lock().await;
     let rejected = AttachRejected {
-        protocol_version: current_protocol_version(),
         client_command_id: LocalClientCommandId::new("other-attach").expect("command id"),
         reason: AttachRejectReason::ServerNotReady,
     };

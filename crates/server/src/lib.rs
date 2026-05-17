@@ -67,8 +67,7 @@ use selvedge_local_protocol::{
     LocalTaskParentProjection, LocalTaskProjection, LocalTaskProjectionStatus, LocalTaskScope,
     LocalToolArgumentValue, LocalToolCallArgument, LocalToolExecutionStatusEvent,
     LocalToolExecutionStatusPhase, ReadyRequest, ReadyResponse, ReadyState,
-    current_protocol_version, validate_attach_request, validate_command_request,
-    validate_ready_request,
+    validate_attach_request, validate_command_request, validate_ready_request,
 };
 use selvedge_router::{
     RouterExitStatus, RouterHandle, RouterStartArgs, SpawnRouterError, ToolExecutionSpawner,
@@ -350,7 +349,7 @@ impl ServerControl {
         self.inner.state.read().await.clone()
     }
 
-    // @behavior selvedge.startup.server.ready.response Ready requests return the current protocol version and Ready only when validation succeeds and the server is ready.
+    // @behavior selvedge.startup.server.ready.response Ready requests return Ready only when validation succeeds and the server is ready.
     pub async fn ready(&self, request: ReadyRequest) -> ReadyResponse {
         let state = if validate_ready_request(&request).is_ok()
             && *self.inner.state.read().await == ServerRuntimeState::Ready
@@ -360,20 +359,15 @@ impl ServerControl {
             ReadyState::NotReady
         };
 
-        ReadyResponse {
-            protocol_version: current_protocol_version(),
-            state,
-        }
+        ReadyResponse { state }
     }
 
-    // @behavior selvedge.startup.server.local_protocol.command.response Command submission returns the current protocol version, original client command id, and accepted or rejected outcome.
+    // @behavior selvedge.startup.server.local_protocol.command.response Command submission returns the original client command id and accepted or rejected outcome.
     pub async fn submit_command(&self, request: CommandRequest) -> CommandResponse {
-        let protocol_version = current_protocol_version();
         let client_command_id = request.client_command_id.clone();
         let outcome = self.submit_command_outcome(request).await;
 
         CommandResponse {
-            protocol_version,
             client_command_id,
             outcome,
         }
@@ -386,13 +380,11 @@ impl ServerControl {
         // @behavior selvedge.startup.server.local_protocol.attach.request Attach handling preserves the request command id when constructing attach responses.
     ) -> Result<(AttachAccepted, ServerFrameStream), AttachRejected> {
         let _request_guard = self.inner.request_gate.lock().await;
-        let protocol_version = current_protocol_version();
         let client_command_id = request.client_command_id.clone();
 
         let reject = |reason| {
-            // @behavior selvedge.startup.server.local_protocol.attach.reject Attach rejections include protocol version, client command id, and a typed reject reason.
+            // @behavior selvedge.startup.server.local_protocol.attach.reject Attach rejections include client command id and a typed reject reason.
             Err(AttachRejected {
-                protocol_version,
                 client_command_id: client_command_id.clone(),
                 reason,
             })
@@ -403,9 +395,6 @@ impl ServerControl {
         }
 
         if validate_attach_request(&request).is_err() {
-            if request.protocol_version != current_protocol_version() {
-                return reject(AttachRejectReason::ProtocolVersionMismatch);
-            }
             return reject(AttachRejectReason::MalformedRequest);
         }
 
@@ -531,7 +520,6 @@ impl ServerControl {
 
         Ok((
             AttachAccepted {
-                protocol_version,
                 client_id: request.client_id,
                 client_command_id: request.client_command_id,
             },
@@ -565,9 +553,6 @@ impl ServerControl {
 
         // @intent selvedge.startup.server.local_protocol.command.validation The command validation branch separates protocol rejection reasons before router command mapping.
         if validate_command_request(&request).is_err() {
-            if request.protocol_version != current_protocol_version() {
-                return CommandOutcome::Rejected(CommandRejectReason::ProtocolVersionMismatch);
-            }
             return CommandOutcome::Rejected(CommandRejectReason::MalformedRequest);
         }
 
@@ -3446,7 +3431,6 @@ mod tests {
 
     fn test_command_request() -> CommandRequest {
         CommandRequest {
-            protocol_version: current_protocol_version(),
             client_id: selvedge_local_protocol::LocalClientId::new("client-1")
                 .expect("valid client id"),
             client_command_id: LocalClientCommandId::new("command-1").expect("valid command id"),
@@ -3457,7 +3441,6 @@ mod tests {
 
     fn login_command(client_command_id: &str) -> CommandRequest {
         CommandRequest {
-            protocol_version: current_protocol_version(),
             client_id: selvedge_local_protocol::LocalClientId::new("client-1")
                 .expect("valid client id"),
             client_command_id: LocalClientCommandId::new(client_command_id)
@@ -3485,7 +3468,6 @@ mod tests {
 
     fn test_attach_request_for(client_id: &str, client_command_id: &str) -> AttachRequest {
         AttachRequest {
-            protocol_version: current_protocol_version(),
             client_id: selvedge_local_protocol::LocalClientId::new(client_id)
                 .expect("valid client id"),
             client_command_id: LocalClientCommandId::new(client_command_id)
