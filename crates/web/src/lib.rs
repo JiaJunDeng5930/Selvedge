@@ -16,8 +16,8 @@ use selvedge_local_protocol::{
     AttachAccepted, AttachRejectReason, AttachRejected, AttachRequest, CommandOutcome,
     CommandRejectReason, CommandRequest, CommandResponse, LocalAttachStreamItem,
     LocalClientCommandId, LocalClientFrame, LocalHttpProblemCode, LocalStreamError,
-    LocalStreamErrorReason, ReadyRequest, ReadyResponse, ReadyState, current_protocol_version,
-    http_problem, validate_attach_request, validate_command_request, validate_ready_request,
+    LocalStreamErrorReason, ReadyRequest, ReadyResponse, ReadyState, http_problem,
+    validate_attach_request, validate_command_request, validate_ready_request,
 };
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -284,11 +284,7 @@ impl WebControl {
         self.ensure_listening()?;
         let client_command_id = request.client_command_id.clone();
         if validate_command_request(&request).is_err() {
-            let reason = if request.protocol_version != current_protocol_version() {
-                CommandRejectReason::ProtocolVersionMismatch
-            } else {
-                CommandRejectReason::MalformedRequest
-            };
+            let reason = CommandRejectReason::MalformedRequest;
             return Ok(rejected_command_response(client_command_id, reason));
         }
 
@@ -318,17 +314,11 @@ impl WebControl {
         self.ensure_listening()
             // @behavior selvedge.client.web.r2.control.attach.closing Web control returns a bridge error when attach is requested after the surface begins closing.
             .map_err(AttachRejectedOrBridgeError::Bridge)?;
-        let protocol_version = current_protocol_version();
         let client_command_id = request.client_command_id.clone();
         if validate_attach_request(&request).is_err() {
-            let reason = if request.protocol_version != current_protocol_version() {
-                AttachRejectReason::ProtocolVersionMismatch
-            } else {
-                AttachRejectReason::MalformedRequest
-            };
+            let reason = AttachRejectReason::MalformedRequest;
             // @behavior selvedge.client.web.r2.control.attach.invalid_request Web control returns an attach rejection when local protocol attach validation fails.
             return Err(AttachRejectedOrBridgeError::Rejected(AttachRejected {
-                protocol_version,
                 client_command_id,
                 reason,
             }));
@@ -340,7 +330,6 @@ impl WebControl {
             Err(AttachRejectedOrBridgeError::Bridge(WebBridgeError::ServerNotReady)) => {
                 // @behavior selvedge.client.web.r2.control.attach.server_not_ready_response Web control returns ServerNotReady as the attach rejection reason.
                 Err(AttachRejectedOrBridgeError::Rejected(AttachRejected {
-                    protocol_version,
                     client_command_id,
                     reason: AttachRejectReason::ServerNotReady,
                 }))
@@ -349,7 +338,6 @@ impl WebControl {
             Err(AttachRejectedOrBridgeError::Bridge(WebBridgeError::ProtocolValidationFailed)) => {
                 // @behavior selvedge.client.web.r2.control.attach.validation_failed_response Web control returns MalformedRequest as the attach rejection reason.
                 Err(AttachRejectedOrBridgeError::Rejected(AttachRejected {
-                    protocol_version,
                     client_command_id,
                     reason: AttachRejectReason::MalformedRequest,
                 }))
@@ -430,7 +418,6 @@ fn rejected_command_response(
     reason: CommandRejectReason,
 ) -> CommandResponse {
     CommandResponse {
-        protocol_version: current_protocol_version(),
         client_command_id,
         outcome: CommandOutcome::Rejected(reason),
     }
@@ -438,7 +425,6 @@ fn rejected_command_response(
 
 fn not_ready_response() -> ReadyResponse {
     ReadyResponse {
-        protocol_version: current_protocol_version(),
         state: ReadyState::NotReady,
     }
 }
@@ -618,7 +604,6 @@ async fn next_web_frame(
         Ok(frame) => LocalAttachStreamItem::Frame(frame),
         // @behavior selvedge.client.web.r2.next_frame.stream_error Web attach streaming converts bridge stream errors into LocalStreamError items with the same command ID.
         Err(error) => LocalAttachStreamItem::StreamError(LocalStreamError {
-            protocol_version: current_protocol_version(),
             client_command_id: client_command_id.clone(),
             reason: LocalStreamErrorReason::InternalFailure,
             message_text: format!("{error:?}"),
@@ -861,7 +846,6 @@ mod tests {
         fn ready(&self, _request: ReadyRequest) -> WebBridgeFuture<ReadyResponse> {
             Box::pin(async {
                 Ok(ReadyResponse {
-                    protocol_version: current_protocol_version(),
                     state: ReadyState::Ready,
                 })
             })
@@ -870,7 +854,6 @@ mod tests {
         fn submit_command(&self, request: CommandRequest) -> WebBridgeFuture<CommandResponse> {
             Box::pin(async move {
                 Ok(CommandResponse {
-                    protocol_version: current_protocol_version(),
                     client_command_id: request.client_command_id,
                     outcome: CommandOutcome::Accepted,
                 })

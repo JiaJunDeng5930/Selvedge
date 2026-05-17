@@ -11,8 +11,8 @@ use futures_core::Stream;
 use selvedge_local_protocol::{
     AttachAccepted, AttachRejected, AttachRequest, CommandRequest, CommandResponse,
     LocalAttachStreamItem, LocalAttachStreamValidator, LocalClientFrame, LocalHttpProblem,
-    ReadyRequest, ReadyResponse, current_protocol_version, validate_attach_request,
-    validate_attach_stream_item, validate_command_request, validate_ready_request,
+    ReadyRequest, ReadyResponse, validate_attach_request, validate_attach_stream_item,
+    validate_command_request, validate_ready_request,
 };
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -205,7 +205,6 @@ impl LocalTransport for HttpLocalTransport {
         // @behavior selvedge.client.local.http.ready HTTP ready sends a JSON POST to the ready endpoint and returns a validated ready response.
         let response = post_json(&self.endpoint, READY_PATH, &request, JSON_CONTENT_TYPE).await?;
         let ready: ReadyResponse = parse_json_body(response).await?;
-        validate_response_protocol_version(ready.protocol_version)?;
         Ok(ready)
     }
 
@@ -218,7 +217,6 @@ impl LocalTransport for HttpLocalTransport {
         let expected_command_id = request.client_command_id.clone();
         let response = post_json(&self.endpoint, COMMAND_PATH, &request, JSON_CONTENT_TYPE).await?;
         let command: CommandResponse = parse_json_body(response).await?;
-        validate_response_protocol_version(command.protocol_version)?;
         // @constraint selvedge.client.local.http.command.identity HTTP command responses must carry the requested client command ID.
         if command.client_command_id != expected_command_id {
             return Err(LocalClientError::ProtocolValidationFailed(
@@ -908,7 +906,7 @@ async fn parse_attach_rejected_response(
     mut response: HttpResponse,
     expected_command_id: selvedge_local_protocol::LocalClientCommandId,
 ) -> Result<(AttachAccepted, LocalFrameStream), AttachRejectedOrClientError> {
-    // @behavior selvedge.client.local.http.attach_reject Attach rejection parsing returns a typed server rejection when protocol version and command identity match.
+    // @behavior selvedge.client.local.http.attach_reject Attach rejection parsing returns a typed server rejection when command identity matches.
     require_content_type(&response, JSON_CONTENT_TYPE)
         .map_err(AttachRejectedOrClientError::Client)?;
     let mut body = Vec::new();
@@ -920,8 +918,6 @@ async fn parse_attach_rejected_response(
 
     match serde_json::from_slice::<AttachRejected>(&body) {
         Ok(rejected) => {
-            validate_response_protocol_version(rejected.protocol_version)
-                .map_err(AttachRejectedOrClientError::Client)?;
             // @constraint selvedge.client.local.http.attach_reject.identity Attach rejection responses must carry the requested client command ID.
             if rejected.client_command_id != expected_command_id {
                 // @constraint selvedge.client.local.http.attach_reject.identity_error Identity mismatches in attach rejection responses return ProtocolValidationFailed.
@@ -975,7 +971,6 @@ async fn parse_attach_accepted_stream(
             "attach stream must start with accepted item".to_owned(),
         ));
     };
-    validate_response_protocol_version(accepted.protocol_version)?;
     // @constraint selvedge.client.local.http.attach_accept.identity Attach accepted responses must carry the requested client and command identity.
     if accepted.client_id != expected_client_id || accepted.client_command_id != expected_command_id
     {
@@ -1056,20 +1051,6 @@ fn parse_problem(body: &[u8]) -> Option<LocalClientError> {
     serde_json::from_slice::<LocalHttpProblem>(body)
         .ok()
         .map(|problem| LocalClientError::TransportFailed(problem.message_text))
-}
-
-fn validate_response_protocol_version(
-    protocol_version: selvedge_local_protocol::ProtocolVersion,
-) -> Result<(), LocalClientError> {
-    // @constraint selvedge.client.local.protocol_version Local HTTP responses must use the current local protocol version.
-    if protocol_version == current_protocol_version() {
-        Ok(())
-    } else {
-        // @constraint selvedge.client.local.protocol_version.mismatch Protocol version mismatches return ProtocolValidationFailed.
-        Err(LocalClientError::ProtocolValidationFailed(
-            "protocol version mismatch".to_owned(),
-        ))
-    }
 }
 
 fn socket_target(endpoint: &LocalEndpoint) -> String {

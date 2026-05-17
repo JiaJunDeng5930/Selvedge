@@ -8,7 +8,7 @@ use selvedge_local_protocol::{
     CommandResponse, LocalClientCommandId, LocalClientEvent, LocalClientEventFrame,
     LocalClientFrame, LocalClientId, LocalClientSnapshot, LocalClientSnapshotFrame,
     LocalClientSubscription, LocalDetailLevel, LocalHttpProblem, LocalHttpProblemCode,
-    LocalTaskScope, ReadyRequest, ReadyResponse, ReadyState, current_protocol_version,
+    LocalTaskScope, ReadyRequest, ReadyResponse, ReadyState,
 };
 use selvedge_test_support::http::released_loopback_port;
 use selvedge_web::{
@@ -78,9 +78,7 @@ async fn spawn_web_surface_reports_bind_failure() {
 #[test]
 fn web_bridge_trait_exposes_ready_command_and_attach_futures() {
     let bridge = StaticBridge;
-    let ready: WebBridgeFuture<ReadyResponse> = bridge.ready(ReadyRequest {
-        protocol_version: current_protocol_version(),
-    });
+    let ready: WebBridgeFuture<ReadyResponse> = bridge.ready(ReadyRequest {});
     let command: WebBridgeFuture<CommandResponse> = bridge.submit_command(valid_command_request());
     let attach: WebAttachFuture = bridge.attach(valid_attach_request());
 
@@ -92,7 +90,6 @@ fn web_bridge_trait_exposes_ready_command_and_attach_futures() {
 async fn ready_request_returns_bridge_response() {
     let bridge = Arc::new(RecordingBridge::default());
     bridge.push_ready_response(Ok(ReadyResponse {
-        protocol_version: current_protocol_version(),
         state: ReadyState::Ready,
     }));
     let handle = spawn_web_surface(WebStartArgs {
@@ -103,9 +100,7 @@ async fn ready_request_returns_bridge_response() {
 
     let response = handle
         .control
-        .ready(ReadyRequest {
-            protocol_version: current_protocol_version(),
-        })
+        .ready(ReadyRequest {})
         .await
         .expect("ready response");
 
@@ -123,7 +118,7 @@ async fn ready_request_returns_bridge_response() {
 
 // @verifies selvedge.client.web.spawn
 #[tokio::test]
-async fn ready_request_maps_server_not_ready_and_invalid_protocol_without_bridge_error() {
+async fn ready_request_maps_server_not_ready_without_bridge_error() {
     let bridge = Arc::new(RecordingBridge::default());
     bridge.push_ready_response(Err(WebBridgeError::ServerNotReady));
     let handle = spawn_web_surface(WebStartArgs {
@@ -134,23 +129,9 @@ async fn ready_request_maps_server_not_ready_and_invalid_protocol_without_bridge
 
     let response = handle
         .control
-        .ready(ReadyRequest {
-            protocol_version: current_protocol_version(),
-        })
+        .ready(ReadyRequest {})
         .await
         .expect("not ready response");
-    // @verifies selvedge.client.web.r2
-    assert_eq!(response.state, ReadyState::NotReady);
-    // @verifies selvedge.client.web.r2
-    assert_eq!(bridge.ready_call_count(), 1);
-
-    let response = handle
-        .control
-        .ready(ReadyRequest {
-            protocol_version: selvedge_local_protocol::ProtocolVersion(999),
-        })
-        .await
-        .expect("invalid protocol maps to not ready");
     // @verifies selvedge.client.web.r2
     assert_eq!(response.state, ReadyState::NotReady);
     // @verifies selvedge.client.web.r2
@@ -177,9 +158,7 @@ async fn ready_request_preserves_bridge_failure() {
 
     let error = handle
         .control
-        .ready(ReadyRequest {
-            protocol_version: current_protocol_version(),
-        })
+        .ready(ReadyRequest {})
         .await
         .expect_err("bridge failure should return error");
 
@@ -232,7 +211,6 @@ async fn invalid_command_request_returns_rejection_without_bridge_call() {
 async fn command_request_returns_bridge_response() {
     let bridge = Arc::new(RecordingBridge::default());
     bridge.push_command_response(Ok(CommandResponse {
-        protocol_version: current_protocol_version(),
         client_command_id: LocalClientCommandId::new("command-1").expect("command id"),
         outcome: CommandOutcome::Rejected(CommandRejectReason::UnsupportedCommand),
     }));
@@ -269,7 +247,6 @@ async fn attach_request_forwards_bridge_frames_in_order() {
     let bridge = Arc::new(RecordingBridge::default());
     bridge.push_attach_response(Ok((
         AttachAccepted {
-            protocol_version: current_protocol_version(),
             client_id: LocalClientId::new("client-1").expect("client id"),
             client_command_id: LocalClientCommandId::new("attach-1").expect("command id"),
         },
@@ -330,7 +307,6 @@ async fn stop_closes_active_attach_stream() {
     let bridge = Arc::new(RecordingBridge::default());
     bridge.push_attach_response(Ok((
         AttachAccepted {
-            protocol_version: current_protocol_version(),
             client_id: LocalClientId::new("client-1").expect("client id"),
             client_command_id: LocalClientCommandId::new("attach-1").expect("command id"),
         },
@@ -499,7 +475,6 @@ impl WebBridge for StaticBridge {
     fn ready(&self, _request: ReadyRequest) -> WebBridgeFuture<ReadyResponse> {
         Box::pin(async {
             Ok(ReadyResponse {
-                protocol_version: current_protocol_version(),
                 state: ReadyState::Ready,
             })
         })
@@ -508,7 +483,6 @@ impl WebBridge for StaticBridge {
     fn submit_command(&self, request: CommandRequest) -> WebBridgeFuture<CommandResponse> {
         Box::pin(async move {
             Ok(CommandResponse {
-                protocol_version: current_protocol_version(),
                 client_command_id: request.client_command_id,
                 outcome: CommandOutcome::Accepted,
             })
@@ -582,7 +556,6 @@ impl WebBridge for RecordingBridge {
             match response {
                 Some(response) => response,
                 None => Ok(ReadyResponse {
-                    protocol_version: current_protocol_version(),
                     state: ReadyState::Ready,
                 }),
             }
@@ -600,7 +573,6 @@ impl WebBridge for RecordingBridge {
             match response {
                 Some(response) => response,
                 None => Ok(CommandResponse {
-                    protocol_version: current_protocol_version(),
                     client_command_id: request.client_command_id,
                     outcome: CommandOutcome::Accepted,
                 }),
@@ -620,7 +592,6 @@ impl WebBridge for RecordingBridge {
                 Some(response) => response,
                 None => Ok((
                     AttachAccepted {
-                        protocol_version: current_protocol_version(),
                         client_id: request.client_id,
                         client_command_id: request.client_command_id,
                     },
@@ -667,7 +638,6 @@ fn extract_problem(response: &str) -> LocalHttpProblem {
 
 fn valid_command_request() -> CommandRequest {
     CommandRequest {
-        protocol_version: current_protocol_version(),
         client_id: LocalClientId::new("client-1").expect("valid client id"),
         client_command_id: LocalClientCommandId::new("command-1").expect("valid command id"),
         command_name: "send-user-input".to_owned(),
@@ -687,7 +657,6 @@ fn empty_snapshot() -> LocalClientSnapshot {
 
 fn valid_attach_request() -> AttachRequest {
     AttachRequest {
-        protocol_version: current_protocol_version(),
         client_id: LocalClientId::new("client-1").expect("valid client id"),
         client_command_id: LocalClientCommandId::new("attach-1").expect("valid command id"),
         subscription: LocalClientSubscription {

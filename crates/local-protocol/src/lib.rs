@@ -1,6 +1,6 @@
 #![doc = include_str!("../README.md")]
 //! @behavior selvedge.client.protocol The local protocol serializes ready probes, command submissions, attach requests, attach responses, stream frames, snapshots, events, and validation problems for localhost clients.
-//! @behavior selvedge.client.protocol.ready Ready protocol messages let localhost clients observe server readiness for a protocol version.
+//! @behavior selvedge.client.protocol.ready Ready protocol messages let localhost clients observe server readiness.
 //! @behavior selvedge.client.protocol.command Command protocol messages let localhost clients submit command names with JSON payloads and receive accepted or rejected outcomes.
 //! @behavior selvedge.client.protocol.attach Attach protocol messages let localhost clients request a subscribed task stream and receive accepted or rejected attach results.
 //! @behavior selvedge.client.protocol.attach_stream The attach stream protocol delivers one accepted response followed by frames and a terminal stream error when needed.
@@ -13,13 +13,6 @@ use std::collections::BTreeSet;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 
-/// @constraint selvedge.client.protocol.version.constant Local protocol messages produced by this crate advertise protocol version 3.
-pub const LOCAL_PROTOCOL_VERSION: u32 = 3;
-
-/// @constraint selvedge.client.protocol.version The local protocol version advertised by this crate is version 3.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ProtocolVersion(pub u32);
-
 /// @behavior selvedge.client.protocol.client_id Local protocol requests carry a non-empty client identifier.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct LocalClientId(pub String);
@@ -28,18 +21,13 @@ pub struct LocalClientId(pub String);
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct LocalClientCommandId(pub String);
 
-/// @behavior selvedge.client.protocol.ready.request A ready request carries the protocol version the client wants to use.
+/// @behavior selvedge.client.protocol.ready.request A ready request asks for the current server readiness state.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ReadyRequest {
-    /// @behavior selvedge.client.protocol.ready.request.version Ready requests expose the client protocol version.
-    pub protocol_version: ProtocolVersion,
-}
+pub struct ReadyRequest {}
 
-/// @behavior selvedge.client.protocol.ready.response A ready response carries the server protocol version and current ready state.
+/// @behavior selvedge.client.protocol.ready.response A ready response carries the current ready state.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ReadyResponse {
-    /// @behavior selvedge.client.protocol.ready.response.version Ready responses expose the server protocol version.
-    pub protocol_version: ProtocolVersion,
     /// @behavior selvedge.client.protocol.ready.response.state Ready responses expose the server ready state.
     pub state: ReadyState,
 }
@@ -51,11 +39,9 @@ pub enum ReadyState {
     NotReady,
 }
 
-/// @behavior selvedge.client.protocol.command.request A command request carries protocol version, client correlation, command name, and JSON payload.
+/// @behavior selvedge.client.protocol.command.request A command request carries client correlation, command name, and JSON payload.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct CommandRequest {
-    /// @behavior selvedge.client.protocol.command.request.version Command requests expose the client protocol version.
-    pub protocol_version: ProtocolVersion,
     /// @behavior selvedge.client.protocol.command.request.client_id Command requests expose the client identifier.
     pub client_id: LocalClientId,
     /// @behavior selvedge.client.protocol.command.request.command_id Command requests expose the client command identifier.
@@ -66,11 +52,9 @@ pub struct CommandRequest {
     pub payload: JsonValue,
 }
 
-/// @behavior selvedge.client.protocol.command.response A command response carries protocol version, client command identifier, and command outcome.
+/// @behavior selvedge.client.protocol.command.response A command response carries client command identifier and command outcome.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CommandResponse {
-    /// @behavior selvedge.client.protocol.command.response.version Command responses expose the server protocol version.
-    pub protocol_version: ProtocolVersion,
     /// @behavior selvedge.client.protocol.command.response.command_id Command responses expose the client command identifier being answered.
     pub client_command_id: LocalClientCommandId,
     /// @behavior selvedge.client.protocol.command.response.outcome Command responses expose the command outcome.
@@ -84,10 +68,9 @@ pub enum CommandOutcome {
     Rejected(CommandRejectReason),
 }
 
-/// @behavior selvedge.client.protocol.command.reject_reason A command rejection reports protocol mismatch, malformed request, readiness, attach absence, login contention, unsupported command, closed router mailbox, or internal failure.
+/// @behavior selvedge.client.protocol.command.reject_reason A command rejection reports malformed request, readiness, attach absence, login contention, unsupported command, closed router mailbox, or internal failure.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CommandRejectReason {
-    ProtocolVersionMismatch,
     MalformedRequest,
     ServerNotReady,
     ClientNotAttached,
@@ -97,10 +80,9 @@ pub enum CommandRejectReason {
     InternalFailure,
 }
 
-/// @behavior selvedge.client.protocol.attach.reject_reason Attach rejection reports protocol mismatch, malformed request, readiness, duplicate attach, registry capacity, closed router mailbox, unavailable client sync, channel creation failure, or internal failure.
+/// @behavior selvedge.client.protocol.attach.reject_reason Attach rejection reports malformed request, readiness, duplicate attach, registry capacity, closed router mailbox, unavailable client sync, channel creation failure, or internal failure.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AttachRejectReason {
-    ProtocolVersionMismatch,
     MalformedRequest,
     ServerNotReady,
     DuplicateAttach,
@@ -111,11 +93,9 @@ pub enum AttachRejectReason {
     InternalFailure,
 }
 
-/// @behavior selvedge.client.protocol.attach.request An attach request carries protocol version, client correlation, and requested subscription.
+/// @behavior selvedge.client.protocol.attach.request An attach request carries client correlation and requested subscription.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AttachRequest {
-    /// @behavior selvedge.client.protocol.attach.request.version Attach requests expose the client protocol version.
-    pub protocol_version: ProtocolVersion,
     /// @behavior selvedge.client.protocol.attach.request.client_id Attach requests expose the client identifier.
     pub client_id: LocalClientId,
     /// @behavior selvedge.client.protocol.attach.request.command_id Attach requests expose the attach command identifier.
@@ -124,22 +104,18 @@ pub struct AttachRequest {
     pub subscription: LocalClientSubscription,
 }
 
-/// @behavior selvedge.client.protocol.attach.accepted An accepted attach response carries protocol version, client identifier, and attach command identifier.
+/// @behavior selvedge.client.protocol.attach.accepted An accepted attach response carries client identifier and attach command identifier.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AttachAccepted {
-    /// @behavior selvedge.client.protocol.attach.accepted.version Accepted attach responses expose the server protocol version.
-    pub protocol_version: ProtocolVersion,
     /// @behavior selvedge.client.protocol.attach.accepted.client_id Accepted attach responses expose the accepted client identifier.
     pub client_id: LocalClientId,
     /// @behavior selvedge.client.protocol.attach.accepted.command_id Accepted attach responses expose the accepted attach command identifier.
     pub client_command_id: LocalClientCommandId,
 }
 
-/// @behavior selvedge.client.protocol.attach.rejected A rejected attach response carries protocol version, attach command identifier, and attach rejection reason.
+/// @behavior selvedge.client.protocol.attach.rejected A rejected attach response carries attach command identifier and attach rejection reason.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AttachRejected {
-    /// @behavior selvedge.client.protocol.attach.rejected.version Rejected attach responses expose the server protocol version.
-    pub protocol_version: ProtocolVersion,
     /// @behavior selvedge.client.protocol.attach.rejected.command_id Rejected attach responses expose the rejected attach command identifier.
     pub client_command_id: LocalClientCommandId,
     /// @behavior selvedge.client.protocol.attach.rejected.reason Rejected attach responses expose the attach rejection reason.
@@ -480,10 +456,9 @@ pub enum LocalToolArgumentValue {
     Boolean(bool),
 }
 
-/// @behavior selvedge.client.protocol.validation_error Local protocol validation reports protocol, identity, command, task, delivery, snapshot, history, tool, and notice validation failures.
+/// @behavior selvedge.client.protocol.validation_error Local protocol validation reports identity, command, task, delivery, snapshot, history, tool, and notice validation failures.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum LocalProtocolValidationError {
-    ProtocolVersionMismatch,
     EmptyClientId,
     EmptyClientCommandId,
     EmptyCommandName,
@@ -501,11 +476,9 @@ pub enum LocalProtocolValidationError {
     EmptyUserCode,
 }
 
-/// @behavior selvedge.client.protocol.http_problem A local HTTP problem carries protocol version, problem code, and caller-visible message text.
+/// @behavior selvedge.client.protocol.http_problem A local HTTP problem carries problem code and caller-visible message text.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LocalHttpProblem {
-    /// @behavior selvedge.client.protocol.http_problem.version Local HTTP problems expose the protocol version.
-    pub protocol_version: ProtocolVersion,
     /// @behavior selvedge.client.protocol.http_problem.code_field Local HTTP problems expose the problem code.
     pub code: LocalHttpProblemCode,
     /// @behavior selvedge.client.protocol.http_problem.message Local HTTP problems expose caller-visible message text.
@@ -532,11 +505,9 @@ pub enum LocalAttachStreamItem {
     StreamError(LocalStreamError),
 }
 
-/// @behavior selvedge.client.protocol.attach_stream.error A local stream error carries protocol version, attach command identifier, reason, and message text.
+/// @behavior selvedge.client.protocol.attach_stream.error A local stream error carries attach command identifier, reason, and message text.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LocalStreamError {
-    /// @behavior selvedge.client.protocol.attach_stream.error.version Local stream errors expose the protocol version.
-    pub protocol_version: ProtocolVersion,
     /// @behavior selvedge.client.protocol.attach_stream.error.command_id Local stream errors expose the attach command identifier.
     pub client_command_id: LocalClientCommandId,
     /// @behavior selvedge.client.protocol.attach_stream.error.reason Local stream errors expose the stream error reason.
@@ -603,23 +574,17 @@ impl LocalClientCommandId {
     }
 }
 
-/// @behavior selvedge.client.protocol.version.current The current protocol version function returns the protocol version advertised by this crate.
-pub fn current_protocol_version() -> ProtocolVersion {
-    ProtocolVersion(LOCAL_PROTOCOL_VERSION)
-}
-
-/// @behavior selvedge.client.protocol.ready.validation Ready request validation accepts current protocol version and rejects mismatched protocol version.
+/// @behavior selvedge.client.protocol.ready.validation Ready request validation accepts ready requests.
 pub fn validate_ready_request(request: &ReadyRequest) -> Result<(), LocalProtocolValidationError> {
-    validate_protocol_version(request.protocol_version)?;
+    let _ = request;
 
     Ok(())
 }
 
-/// @behavior selvedge.client.protocol.command.validation Command request validation accepts current protocol version, non-empty client correlation, and non-empty command name.
+/// @behavior selvedge.client.protocol.command.validation Command request validation accepts non-empty client correlation and non-empty command name.
 pub fn validate_command_request(
     request: &CommandRequest,
 ) -> Result<(), LocalProtocolValidationError> {
-    validate_protocol_version(request.protocol_version)?;
     validate_client_id(&request.client_id)?;
     validate_client_command_id(&request.client_command_id)?;
     if request.command_name.trim().is_empty() {
@@ -630,11 +595,10 @@ pub fn validate_command_request(
     Ok(())
 }
 
-/// @behavior selvedge.client.protocol.attach.validation Attach request validation accepts current protocol version, non-empty client correlation, and valid subscription filters.
+/// @behavior selvedge.client.protocol.attach.validation Attach request validation accepts non-empty client correlation and valid subscription filters.
 pub fn validate_attach_request(
     request: &AttachRequest,
 ) -> Result<(), LocalProtocolValidationError> {
-    validate_protocol_version(request.protocol_version)?;
     validate_client_id(&request.client_id)?;
     validate_client_command_id(&request.client_command_id)?;
     validate_subscription(&request.subscription)?;
@@ -721,13 +685,11 @@ pub fn validate_attach_stream_item(
 ) -> Result<(), LocalProtocolValidationError> {
     match item {
         LocalAttachStreamItem::Accepted(accepted) => {
-            validate_protocol_version(accepted.protocol_version)?;
             validate_client_id(&accepted.client_id)?;
             validate_client_command_id(&accepted.client_command_id)
         }
         LocalAttachStreamItem::Frame(frame) => validate_client_frame(frame),
         LocalAttachStreamItem::StreamError(error) => {
-            validate_protocol_version(error.protocol_version)?;
             validate_client_command_id(&error.client_command_id)?;
             if error.message_text.trim().is_empty() {
                 // @constraint selvedge.client.protocol.attach_stream.item_validation.error_text Stream error items reject empty message text.
@@ -738,13 +700,12 @@ pub fn validate_attach_stream_item(
     }
 }
 
-/// @behavior selvedge.client.protocol.http_problem.build Building a local HTTP problem uses the current protocol version and preserves the supplied code and message text.
+/// @behavior selvedge.client.protocol.http_problem.build Building a local HTTP problem preserves the supplied code and message text.
 pub fn http_problem(
     code: LocalHttpProblemCode,
     message_text: impl Into<String>,
 ) -> LocalHttpProblem {
     LocalHttpProblem {
-        protocol_version: current_protocol_version(),
         code,
         message_text: message_text.into(),
     }
@@ -813,18 +774,6 @@ impl Default for LocalAttachStreamValidator {
     fn default() -> Self {
         Self::new()
     }
-}
-
-/// @constraint selvedge.client.protocol.version.validation Protocol version validation rejects versions different from the current protocol version.
-fn validate_protocol_version(
-    protocol_version: ProtocolVersion,
-) -> Result<(), LocalProtocolValidationError> {
-    if protocol_version != current_protocol_version() {
-        // @constraint selvedge.client.protocol.version.validation.mismatch Protocol version validation reports protocol-version-mismatch for every non-current version.
-        return Err(LocalProtocolValidationError::ProtocolVersionMismatch);
-    }
-
-    Ok(())
 }
 
 /// @constraint selvedge.client.protocol.client_id.payload_validation Request validation rejects empty local client identifiers.

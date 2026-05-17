@@ -17,7 +17,7 @@ use selvedge_local_protocol::{
     AttachAccepted, AttachRejected, AttachRequest, CommandOutcome, CommandRequest, CommandResponse,
     LocalClientCommandId, LocalClientFrame, LocalClientId, LocalClientNoticeFrame,
     LocalClientSnapshot, LocalClientSubscription, LocalDetailLevel, LocalNotice, LocalNoticeLevel,
-    LocalSnapshotMode, LocalTaskScope, ReadyResponse, ReadyState, current_protocol_version,
+    LocalSnapshotMode, LocalTaskScope, ReadyResponse, ReadyState,
 };
 use tokio::sync::oneshot;
 
@@ -182,7 +182,6 @@ impl LocalTransport for FakeLocalTransport {
                 .ready_responses
                 .pop_front()
                 .unwrap_or(ReadyAction::Response(Ok(ReadyResponse {
-                    protocol_version: current_protocol_version(),
                     state: ReadyState::Ready,
                 })))
         };
@@ -203,7 +202,6 @@ impl LocalTransport for FakeLocalTransport {
             state.command_calls += 1;
             state.command_responses.pop_front().unwrap_or_else(|| {
                 CommandAction::Response(Ok(CommandResponse {
-                    protocol_version: current_protocol_version(),
                     client_command_id: request.client_command_id,
                     outcome: CommandOutcome::Accepted,
                 }))
@@ -238,7 +236,6 @@ impl LocalTransport for FakeLocalTransport {
             Some(AttachAction::Response(response)) => response,
             Some(AttachAction::Accepted(frames)) => Ok((
                 AttachAccepted {
-                    protocol_version: current_protocol_version(),
                     client_id: request.client_id,
                     client_command_id: request.client_command_id,
                 },
@@ -250,7 +247,6 @@ impl LocalTransport for FakeLocalTransport {
             }
             Some(AttachAction::Pending) => Ok((
                 AttachAccepted {
-                    protocol_version: current_protocol_version(),
                     client_id: request.client_id,
                     client_command_id: request.client_command_id,
                 },
@@ -259,7 +255,6 @@ impl LocalTransport for FakeLocalTransport {
             Some(AttachAction::Hang) => future::pending().await,
             None => Ok((
                 AttachAccepted {
-                    protocol_version: current_protocol_version(),
                     client_id: request.client_id,
                     client_command_id: request.client_command_id,
                 },
@@ -301,7 +296,6 @@ pub fn ready_state() -> FakeTransportStateHandle {
         .expect("fake state")
         .ready_responses
         .push_back(ReadyAction::Response(Ok(ReadyResponse {
-            protocol_version: current_protocol_version(),
             state: ReadyState::Ready,
         })));
     state
@@ -343,7 +337,6 @@ pub async fn connected_client_with_timeout(
 // @behavior selvedge.testsupport.local_transport.valid_command Tests can create a valid local command request with a send-user-input payload.
 pub fn valid_command(command_id: &str) -> CommandRequest {
     CommandRequest {
-        protocol_version: current_protocol_version(),
         client_id: LocalClientId::new("client-1").expect("client id"),
         client_command_id: LocalClientCommandId::new(command_id).expect("command id"),
         command_name: "send-user-input".to_owned(),
@@ -354,7 +347,6 @@ pub fn valid_command(command_id: &str) -> CommandRequest {
 // @behavior selvedge.testsupport.local_transport.noop_command Tests can create a valid local command request with a no-op payload.
 pub fn noop_command(command_id: &str) -> CommandRequest {
     CommandRequest {
-        protocol_version: current_protocol_version(),
         client_id: LocalClientId::new("client-1").expect("client id"),
         client_command_id: LocalClientCommandId::new(command_id).expect("command id"),
         command_name: "noop".to_owned(),
@@ -370,7 +362,6 @@ pub fn valid_attach(command_id: &str) -> AttachRequest {
 // @behavior selvedge.testsupport.local_transport.valid_attach_for Tests can create a valid local attach request for caller-selected client and command IDs.
 pub fn valid_attach_for(client_id: &str, command_id: &str) -> AttachRequest {
     AttachRequest {
-        protocol_version: current_protocol_version(),
         client_id: LocalClientId::new(client_id).expect("client id"),
         client_command_id: LocalClientCommandId::new(command_id).expect("command id"),
         subscription: LocalClientSubscription {
