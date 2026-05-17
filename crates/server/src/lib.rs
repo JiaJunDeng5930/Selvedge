@@ -77,7 +77,7 @@ use selvedge_web::{
     ReservedWebStartArgs, WebBindReservation, WebBridge, WebHandle, WebLocalhostBind,
     WebLocalhostHost, WebStartError, reserve_web_bind, spawn_reserved_web_surface,
 };
-use tokio::sync::{Mutex, Notify, OwnedSemaphorePermit, RwLock, Semaphore, mpsc};
+use tokio::sync::{Mutex, Notify, OwnedSemaphorePermit, RwLock, Semaphore, mpsc, oneshot};
 use tokio::task::{JoinError, JoinHandle};
 
 const SQLITE_FILE_NAME: &str = "selvedge.sqlite";
@@ -88,6 +88,9 @@ const DEFAULT_HYDRATION_BUFFER_CAPACITY: usize = 256;
 const DEFAULT_CLIENT_SYNC_INGRESS_CAPACITY: usize = 64;
 
 type ActiveAttachRegistry = Arc<StdMutex<HashMap<ClientId, ClientCommandId>>>;
+// @intent selvedge.startup.server.local_operation.cancellation_registry LocalOperationCancellationRegistry maps active attach streams to server-owned local operation cancellation senders.
+type LocalOperationCancellationRegistry =
+    Arc<StdMutex<HashMap<(ClientId, ClientCommandId), oneshot::Sender<()>>>>;
 // @intent selvedge.startup.server.local_protocol.attach.channel_factory AttachFrameChannelFactoryRef stores the server-owned client frame channel factory boundary for attach admission.
 type AttachFrameChannelFactoryRef = Arc<dyn AttachFrameChannelFactory>;
 // @intent selvedge.startup.server.local_protocol.command.mapper_ref LocalCommandMapperRef stores the local protocol to router command mapping boundary.
@@ -511,6 +514,11 @@ impl ServerControl {
                 client_id.clone(),
                 previous_command_id.clone(),
             );
+            cancel_local_operation_for_attach(
+                &self.inner.local_operation_cancellations,
+                &client_id,
+                &previous_command_id,
+            );
             send_detach_client(
                 &events_tx,
                 client_id.clone(),
@@ -534,6 +542,9 @@ impl ServerControl {
                 events_tx: events_tx.downgrade(),
                 client_sync_tx: client_sync_tx.downgrade(),
                 active_attaches: Arc::clone(&self.inner.active_attaches),
+                local_operation_cancellations: Arc::clone(
+                    &self.inner.local_operation_cancellations,
+                ),
                 closed_reported: false,
             }),
         ))
@@ -633,17 +644,25 @@ impl ServerControl {
         };
         let executor = Arc::clone(&self.inner.local_operation_executor);
         let (progress_tx, progress_rx) = mpsc::unbounded_channel();
+        let (attach_closed_tx, attach_closed_rx) = oneshot::channel();
+        self.inner.register_local_operation_cancellation(
+            client_id.clone(),
+            attach_command_id.clone(),
+            attach_closed_tx,
+        );
         let command_name = "login-chatgpt".to_owned();
         let operation = executor.execute(LocalOperationCommand::LoginChatgpt, progress_tx);
         let task = tokio::spawn(run_local_operation_task(LocalOperationTask {
             operation,
             progress_rx,
+            attach_closed_rx,
             events_tx,
             client_id,
             attach_command_id,
             submit_command_id,
             command_name,
             _login_permit: login_permit,
+            local_operation_cancellations: Arc::clone(&self.inner.local_operation_cancellations),
         }));
         self.inner.track_local_operation_task(task);
 
@@ -704,11 +723,31 @@ struct ServerInner {
     command_mapper: LocalCommandMapperRef,
     local_operation_executor: LocalOperationExecutorRef,
     login_gate: Arc<Semaphore>,
+    local_operation_cancellations: LocalOperationCancellationRegistry,
     local_operation_tasks: StdMutex<Vec<JoinHandle<()>>>,
     web_control: StdMutex<Option<selvedge_web::WebControl>>,
 }
 
 impl ServerInner {
+    // @behavior selvedge.startup.server.local_operation.task.cancel_track Accepted local operation tasks register cancellation by active attach identity.
+    fn register_local_operation_cancellation(
+        &self,
+        client_id: ClientId,
+        attach_command_id: ClientCommandId,
+        cancel_tx: oneshot::Sender<()>,
+    ) {
+        if let Some(previous) = self
+            .local_operation_cancellations
+            .lock()
+            // @behavior selvedge.startup.server.local_operation.task.cancel_track.lock Cancellation registration acquires the cancellation registry lock before replacing a sender.
+            .expect("server local operation cancellation lock")
+            .insert((client_id, attach_command_id), cancel_tx)
+        {
+            // @behavior selvedge.startup.server.local_operation.task.cancel_track.replace Cancellation registration cancels any replaced sender for the same attach identity.
+            let _ = previous.send(());
+        }
+    }
+
     // @behavior selvedge.startup.server.local_operation.task.track Accepted local operation tasks are tracked so shutdown can cancel them.
     fn track_local_operation_task(&self, task: JoinHandle<()>) {
         let mut tasks = self
@@ -770,12 +809,14 @@ impl ServerInner {
 struct LocalOperationTask {
     operation: LocalOperationFuture,
     progress_rx: mpsc::UnboundedReceiver<LocalOperationProgress>,
+    attach_closed_rx: oneshot::Receiver<()>,
     events_tx: EventIngressSender,
     client_id: ClientId,
     attach_command_id: ClientCommandId,
     submit_command_id: ClientCommandId,
     command_name: String,
     _login_permit: OwnedSemaphorePermit,
+    local_operation_cancellations: LocalOperationCancellationRegistry,
 }
 
 // @behavior selvedge.startup.server.local_operation.task.run Local operation tasks relay progress notices and one terminal success or failure notice to the active attached client.
@@ -783,12 +824,14 @@ async fn run_local_operation_task(task: LocalOperationTask) {
     let LocalOperationTask {
         operation,
         mut progress_rx,
+        mut attach_closed_rx,
         events_tx,
         client_id,
         attach_command_id,
         submit_command_id,
         command_name,
         _login_permit,
+        local_operation_cancellations,
     } = task;
     let operation_client_id = client_id.clone();
     let operation_attach_command_id = attach_command_id.clone();
@@ -800,12 +843,26 @@ async fn run_local_operation_task(task: LocalOperationTask) {
     let mut progress_open = true;
     loop {
         tokio::select! {
+            _ = &mut attach_closed_rx => {
+                // @behavior selvedge.startup.server.local_operation.task.attach_closed Local operation tasks stop when the attached client stream is closed.
+                clear_local_operation_cancellation(
+                    &local_operation_cancellations,
+                    &operation_client_id,
+                    &operation_attach_command_id,
+                );
+                return;
+            }
             progress = progress_rx.recv(), if progress_open => {
                 match progress {
                     Some(progress) => {
                         let notice = local_operation_progress_notice(progress, submit_command_id.clone());
                         if send_local_operation_notice(&events_tx, &client_id, &attach_command_id, notice).await.is_err() {
                             // @behavior selvedge.startup.server.local_operation.task.delivery_closed Local operation tasks stop when the events mailbox cannot accept a progress notice.
+                            clear_local_operation_cancellation(
+                                &local_operation_cancellations,
+                                &operation_client_id,
+                                &operation_attach_command_id,
+                            );
                             return;
                         }
                     }
@@ -841,6 +898,11 @@ async fn run_local_operation_task(task: LocalOperationTask) {
                     &operation_attach_command_id,
                     notice,
                 ).await;
+                clear_local_operation_cancellation(
+                    &local_operation_cancellations,
+                    &operation_client_id,
+                    &operation_attach_command_id,
+                );
                 return;
             }
         }
@@ -1091,6 +1153,7 @@ fn start_server_after_lock(
         command_mapper: args.command_mapper,
         local_operation_executor: args.local_operation_executor,
         login_gate: Arc::new(Semaphore::new(1)),
+        local_operation_cancellations: Arc::new(StdMutex::new(HashMap::new())),
         local_operation_tasks: StdMutex::new(Vec::new()),
         web_control: StdMutex::new(None),
     });
@@ -1376,6 +1439,7 @@ struct ServerAttachFrameStream {
     events_tx: mpsc::WeakSender<EventIngress>,
     client_sync_tx: mpsc::WeakSender<ClientSyncIngress>,
     active_attaches: ActiveAttachRegistry,
+    local_operation_cancellations: LocalOperationCancellationRegistry,
     closed_reported: bool,
 }
 
@@ -1399,6 +1463,11 @@ impl futures_core::Stream for ServerAttachFrameStream {
                         client_command_id.clone(),
                     );
                 }
+                cancel_local_operation_for_attach(
+                    &this.local_operation_cancellations,
+                    &client_id,
+                    &client_command_id,
+                );
                 if let Some(events_tx) = this.events_tx.upgrade() {
                     send_detach_client_and_clear_active(
                         &events_tx,
@@ -1435,6 +1504,12 @@ impl Drop for ServerAttachFrameStream {
                 client_command_id.clone(),
             );
         }
+
+        cancel_local_operation_for_attach(
+            &self.local_operation_cancellations,
+            &client_id,
+            &client_command_id,
+        );
 
         let Some(events_tx) = self.events_tx.upgrade() else {
             clear_active_attach(&self.active_attaches, &client_id, &client_command_id);
@@ -1629,6 +1704,35 @@ fn clear_active_attach(
     if active.get(client_id) == Some(client_command_id) {
         active.remove(client_id);
     }
+}
+
+// @behavior selvedge.startup.server.local_operation.task.cancel_attach Attach cleanup cancels a running local operation bound to the same client and attach command.
+fn cancel_local_operation_for_attach(
+    local_operation_cancellations: &LocalOperationCancellationRegistry,
+    client_id: &ClientId,
+    attach_command_id: &ClientCommandId,
+) {
+    if let Some(cancel_tx) = local_operation_cancellations
+        .lock()
+        // @behavior selvedge.startup.server.local_operation.task.cancel_lock Local operation cancellation acquires the cancellation registry before removing a matching sender.
+        .expect("server local operation cancellation lock")
+        .remove(&(client_id.clone(), attach_command_id.clone()))
+    {
+        let _ = cancel_tx.send(());
+    }
+}
+
+// @behavior selvedge.startup.server.local_operation.task.cancel_clear Local operation task completion removes its cancellation sender when it still exists.
+fn clear_local_operation_cancellation(
+    local_operation_cancellations: &LocalOperationCancellationRegistry,
+    client_id: &ClientId,
+    attach_command_id: &ClientCommandId,
+) {
+    local_operation_cancellations
+        .lock()
+        // @behavior selvedge.startup.server.local_operation.task.cancel_clear_lock Local operation cancellation cleanup acquires the cancellation registry before removing a matching sender.
+        .expect("server local operation cancellation lock")
+        .remove(&(client_id.clone(), attach_command_id.clone()));
 }
 
 // @behavior selvedge.startup.server.local_protocol.attach.restore_active Server attach cleanup restores the previous active command or clears the client when no previous command exists.
@@ -2374,6 +2478,46 @@ mod tests {
             second.outcome,
             CommandOutcome::Rejected(CommandRejectReason::LoginAlreadyRunning)
         );
+    }
+
+    #[tokio::test]
+    async fn dropped_login_attach_releases_single_flight_gate() {
+        let router_tx = accepting_router_sender();
+        let (client_sync_tx, _client_sync_rx) = mpsc::channel(4);
+        let (events_tx, _events_rx) = mpsc::channel(8);
+        let control = test_control_with_frame_channel_factory_mapper_and_executor(
+            router_tx,
+            client_sync_tx,
+            events_tx,
+            Arc::new(TokioAttachFrameChannelFactory),
+            Arc::new(UnusedMapper),
+            Arc::new(PendingLocalOperationExecutor),
+        );
+
+        let (_accepted, stream) = control
+            .attach_client(test_attach_request())
+            .await
+            .expect("first attach accepted");
+        let first = control.submit_command(login_command("command-1")).await;
+        drop(stream);
+        let (_accepted, _stream) = control
+            .attach_client(test_attach_request_for("client-1", "attach-2"))
+            .await
+            .expect("second attach accepted");
+
+        let mut second = control.submit_command(login_command("command-2")).await;
+        for _ in 0..20 {
+            if second.outcome == CommandOutcome::Accepted {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+            second = control.submit_command(login_command("command-2")).await;
+        }
+
+        // @verifies selvedge.startup.server.local_operation.task.cancel_attach
+        assert_eq!(first.outcome, CommandOutcome::Accepted);
+        // @verifies selvedge.startup.server.local_operation.task.cancel_attach
+        assert_eq!(second.outcome, CommandOutcome::Accepted);
     }
 
     #[tokio::test]
@@ -3276,6 +3420,7 @@ mod tests {
                 command_mapper,
                 local_operation_executor,
                 login_gate: Arc::new(Semaphore::new(1)),
+                local_operation_cancellations: Arc::new(StdMutex::new(HashMap::new())),
                 local_operation_tasks: StdMutex::new(Vec::new()),
                 web_control: StdMutex::new(None),
             }),
