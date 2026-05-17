@@ -141,7 +141,7 @@ This file is for coding agents working in this repository.
 |selvedge.cli.server_runner|selvedge.cli.server_runner.{abstraction,contract,run}
 |selvedge.cli.server_starter|selvedge.cli.server_starter.{abstraction,contract,default,start}
 |selvedge.cli.server_starter.default|selvedge.cli.server_starter.default.{error,path_error}
-|selvedge.cli.submit|selvedge.cli.submit.{attach_cleanup,attach_error,command_id_error,deadline,deadline_overflow,empty_snapshot,outcome,ready_existing,ready_timeout,retry_sleep,service_unready,service_wait_error,submit_error,terminal_frame}
+|selvedge.cli.submit|selvedge.cli.submit.{attach_cleanup,attach_error,attach_gate,command_id_error,deadline,deadline_overflow,empty_snapshot,outcome,ready_existing,ready_timeout,retry_sleep,service_unready,service_wait_error,submit_error,terminal_frame}
 |selvedge.cli.submit.empty_snapshot|selvedge.cli.submit.empty_snapshot.{closed,first_frame,non_empty,stream_error}
 |selvedge.cli.submit.terminal_frame|selvedge.cli.submit.terminal_frame.{closed,stream_error}
 |selvedge.client|selvedge.client.{blocking,body,command_id,compression,config,delivery_seq,detach_reason,error,event,events,execute,frame,history_projection,id,local,log,method,notice,protocol,redaction,redirect,request,response,snapshot,status,stream,subscription,sync,task_projection,timeout,tls,transport,tui,web}
