@@ -164,7 +164,7 @@ where
         .map_err(|_| ChatgptLoginError::Cancelled)?;
 
     // @behavior selvedge.login.run.initial_interval ChatGPT login waits for the provider-supplied poll interval before the first device-code poll.
-    tokio::time::sleep(challenge.poll_interval).await;
+    sleep_until_next_poll(&challenge, challenge.poll_interval).await?;
 
     loop {
         if chrono::Utc::now() >= challenge.expires_at {
@@ -178,7 +178,7 @@ where
                     .emit(ChatgptLoginProgress::Waiting)
                     .await
                     .map_err(|_| ChatgptLoginError::Cancelled)?;
-                tokio::time::sleep(next_poll_after).await;
+                sleep_until_next_poll(&challenge, next_poll_after).await?;
             }
             DeviceCodePollOutcome::Authorized(authorization) => {
                 // @behavior selvedge.login.run.authorized Authorized provider polls complete the device-code grant and persist credentials.
@@ -190,6 +190,35 @@ where
             }
         }
     }
+}
+
+// @behavior selvedge.login.run.poll_sleep ChatGPT login caps provider poll sleeps at the remaining device-code challenge lifetime.
+async fn sleep_until_next_poll(
+    challenge: &DeviceCodeChallenge,
+    requested: Duration,
+) -> Result<(), ChatgptLoginError> {
+    let Some(duration) =
+        bounded_poll_sleep_duration(chrono::Utc::now(), challenge.expires_at, requested)
+    else {
+        return Err(ChatgptLoginError::ChallengeExpired);
+    };
+    tokio::time::sleep(duration).await;
+    if chrono::Utc::now() >= challenge.expires_at {
+        // @behavior selvedge.login.run.poll_sleep.expired ChatGPT login returns ChallengeExpired when a bounded poll sleep reaches the challenge expiry.
+        return Err(ChatgptLoginError::ChallengeExpired);
+    }
+
+    Ok(())
+}
+
+// @constraint selvedge.login.run.poll_sleep.bound Poll sleep duration is bounded by the remaining local challenge lifetime.
+fn bounded_poll_sleep_duration(
+    now: chrono::DateTime<chrono::Utc>,
+    expires_at: chrono::DateTime<chrono::Utc>,
+    requested: Duration,
+) -> Option<Duration> {
+    let remaining = expires_at.signed_duration_since(now).to_std().ok()?;
+    Some(requested.min(remaining))
 }
 
 /// @behavior selvedge.login.start Starting device-code login reads current auth config and requests a provider challenge.
@@ -241,4 +270,40 @@ pub async fn complete_device_code_login(
     auth_file::persist(&auth_file_path, &token_set).await?;
 
     Ok(auth_file::build_result(auth_file_path, claims))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    // @verifies selvedge.login.run.poll_sleep.bound
+    fn bounded_poll_sleep_caps_requested_interval_at_expiry() {
+        let now = chrono::Utc::now();
+        let duration = bounded_poll_sleep_duration(
+            now,
+            now + chrono::Duration::milliseconds(50),
+            Duration::from_secs(5),
+        )
+        .expect("duration before expiry");
+
+        // @verifies selvedge.login.run.poll_sleep.bound
+        assert!(duration <= Duration::from_millis(50));
+    }
+
+    #[test]
+    // @verifies selvedge.login.run.poll_sleep.bound
+    fn bounded_poll_sleep_returns_none_after_expiry() {
+        let now = chrono::Utc::now();
+
+        // @verifies selvedge.login.run.poll_sleep.bound
+        assert_eq!(
+            bounded_poll_sleep_duration(
+                now,
+                now - chrono::Duration::milliseconds(1),
+                Duration::from_secs(5),
+            ),
+            None
+        );
+    }
 }
