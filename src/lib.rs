@@ -554,25 +554,32 @@ where
         }
     };
 
-    let attach_request = AttachRequest {
-        client_id: client_id.clone(),
-        client_command_id: attach_command_id.clone(),
-        subscription: cli_subscription(),
-    };
-    // @behavior selvedge.cli.submit.attach_gate CLI command submission establishes an empty attach session before every local command so attach admission and hydration failures are reported before command submission.
-    let (_, mut stream) = match client.attach(attach_request).await {
-        Ok(attached) => attached,
-        // @behavior selvedge.cli.submit.attach_error Attach failures return LocalClientFailed before command submission.
-        Err(error) => {
-            return CliExitStatus::LocalClientFailed(format!("{error:?}"));
-        }
-    };
+    let waits_for_terminal_notice = command_waits_for_terminal_notice(&command_name);
+    // @behavior selvedge.cli.submit.router_no_attach Router-backed command submission sends the command without replacing an active attached client for the supplied client id.
+    let mut stream = if waits_for_terminal_notice {
+        let attach_request = AttachRequest {
+            client_id: client_id.clone(),
+            client_command_id: attach_command_id.clone(),
+            subscription: cli_subscription(),
+        };
+        // @behavior selvedge.cli.submit.attach_gate CLI command submission establishes an empty attach session before server-owned commands that return terminal notices.
+        let (_, mut stream) = match client.attach(attach_request).await {
+            Ok(attached) => attached,
+            // @behavior selvedge.cli.submit.attach_error Attach failures return LocalClientFailed before command submission.
+            Err(error) => {
+                return CliExitStatus::LocalClientFailed(format!("{error:?}"));
+            }
+        };
 
-    if let Err(status) = wait_for_empty_snapshot(&mut stream, &attach_command_id).await {
-        // @behavior selvedge.cli.submit.attach_cleanup Attach hydration failures close the local client before returning the failure status.
-        let _ = client.close().await;
-        return status;
-    }
+        if let Err(status) = wait_for_empty_snapshot(&mut stream, &attach_command_id).await {
+            // @behavior selvedge.cli.submit.attach_cleanup Attach hydration failures close the local client before returning the failure status.
+            let _ = client.close().await;
+            return status;
+        }
+        Some(stream)
+    } else {
+        None
+    };
 
     // @behavior selvedge.cli.submit.outcome Accepted router-backed commands return Success, accepted server-owned operations wait for a terminal notice, rejected responses return CommandRejected, and client errors return LocalClientFailed.
     let status = match client.submit_command(request).await {
@@ -581,8 +588,14 @@ where
             client_command_id,
             ..
         }) => {
-            if command_name == "list-models" || command_name == "login-chatgpt" {
-                wait_for_terminal_frame(&mut stream, &client_command_id, &command_name).await
+            if waits_for_terminal_notice {
+                let Some(stream) = stream.as_mut() else {
+                    // @behavior selvedge.cli.submit.terminal_frame.missing_stream Missing attach streams for terminal-notice commands return LocalClientFailed.
+                    return CliExitStatus::LocalClientFailed(
+                        "terminal notice stream missing".to_owned(),
+                    );
+                };
+                wait_for_terminal_frame(stream, &client_command_id, &command_name).await
             } else {
                 CliExitStatus::Success
             }
@@ -597,6 +610,10 @@ where
 
     let _ = client.close().await;
     status
+}
+
+fn command_waits_for_terminal_notice(command_name: &str) -> bool {
+    command_name == "list-models" || command_name == "login-chatgpt"
 }
 
 async fn poll_ready_client<C>(
@@ -1403,6 +1420,27 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn router_backed_command_submits_without_attaching_requested_client() {
+        let status = run_cli_with_deps(
+            vec![
+                "selvedge".to_owned(),
+                "--client-id".to_owned(),
+                "client-1".to_owned(),
+                "send-user-input".to_owned(),
+                r#"{"message":"hello"}"#.to_owned(),
+            ],
+            FakeServerStarter::new(),
+            FakeServerRunner::stopped(),
+            FakeConnector::new(vec![Ok(FakeClientPlan::router_command_without_attach())]),
+            DefaultCliServerStartArgsBuilder::new(),
+        )
+        .await;
+
+        // @verifies selvedge.cli.submit.router_no_attach
+        assert_eq!(status, CliExitStatus::Success);
+    }
+
     #[derive(Clone)]
     struct FakeConnector {
         state: Arc<Mutex<FakeConnectorState>>,
@@ -1516,6 +1554,17 @@ mod tests {
                         "login failed",
                     )),
                 ],
+            }
+        }
+
+        fn router_command_without_attach() -> Self {
+            Self {
+                ready: Ok(ready_response(ReadyState::Ready)),
+                submit: Ok(CommandResponse {
+                    client_command_id: LocalClientCommandId::new("response-1").expect("command id"),
+                    outcome: CommandOutcome::Accepted,
+                }),
+                attach_frames: Vec::new(),
             }
         }
     }

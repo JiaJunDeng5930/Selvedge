@@ -146,9 +146,9 @@ This file is for coding agents working in this repository.
 |selvedge.cli.server_runner|selvedge.cli.server_runner.{abstraction,contract,run}
 |selvedge.cli.server_starter|selvedge.cli.server_starter.{abstraction,contract,default,start}
 |selvedge.cli.server_starter.default|selvedge.cli.server_starter.default.{error,path_error}
-|selvedge.cli.submit|selvedge.cli.submit.{attach_cleanup,attach_error,attach_gate,command_id_error,deadline,deadline_overflow,empty_snapshot,outcome,ready_existing,ready_timeout,retry_sleep,service_unready,service_wait_error,submit_error,terminal_frame}
+|selvedge.cli.submit|selvedge.cli.submit.{attach_cleanup,attach_error,attach_gate,command_id_error,deadline,deadline_overflow,empty_snapshot,outcome,ready_existing,ready_timeout,retry_sleep,router_no_attach,service_unready,service_wait_error,submit_error,terminal_frame}
 |selvedge.cli.submit.empty_snapshot|selvedge.cli.submit.empty_snapshot.{closed,first_frame,non_empty,stream_error}
-|selvedge.cli.submit.terminal_frame|selvedge.cli.submit.terminal_frame.{closed,stream_error}
+|selvedge.cli.submit.terminal_frame|selvedge.cli.submit.terminal_frame.{closed,missing_stream,stream_error}
 |selvedge.client|selvedge.client.{blocking,body,command_id,compression,config,delivery_seq,detach_reason,error,event,events,execute,frame,history_projection,id,local,log,method,notice,protocol,redaction,redirect,request,response,snapshot,status,stream,subscription,sync,task_projection,timeout,tls,transport,tui,web}
 |selvedge.client.command_id|selvedge.client.command_id.{validation}
 |selvedge.client.config|selvedge.client.config.{ca_bundle_path,connect_timeout,log,override,read,request_timeout,resolve,stream_idle_timeout,timeout,user_agent}
@@ -430,7 +430,8 @@ This file is for coding agents working in this repository.
 |selvedge.login.progress.future|selvedge.login.progress.future.{abstraction}
 |selvedge.login.progress.sink|selvedge.login.progress.sink.{abstraction,emit,noop}
 |selvedge.login.result|selvedge.login.result.{account_id,auth_file_path,email,plan_type,user_id}
-|selvedge.login.run|selvedge.login.run.{authorized,cancelled,expired,initial_interval,provider_expired}
+|selvedge.login.run|selvedge.login.run.{authorized,cancelled,expired,initial_interval,poll_sleep,provider_expired}
+|selvedge.login.run.poll_sleep|selvedge.login.run.poll_sleep.{bound,expired}
 |selvedge.login.start|selvedge.login.start.{error_status,interval,interval_positive,interval_string,interval_value,request,required_fields,response,transport,user_code}
 |selvedge.login.tests|selvedge.login.tests.{jwt,jwt_header}
 |selvedge.login.token_exchange|selvedge.login.token_exchange.{access_token,error_status,id_token,refresh_token,request,required_tokens,response,tokens,transport}
