@@ -2,7 +2,7 @@
 
 <!-- selvedge-package-readme
 package: chatgpt-login
-freshness_commit: 2fa9c520489d3b42635b257a333e7fdee7a8a0ed
+freshness_commit: 01ae54dfc261e14a2ba9108df4d5b2ed4bbfaa5b
 -->
 
 ## This crate is for
