@@ -1,6 +1,8 @@
 use selvedge_config_model::{LlmConfig, LlmProviderConfig};
 use selvedge_model_credentials::{CredentialKind, ModelCredentialRecord, write_credential_to_home};
-use selvedge_model_providers::{ModelSource, ProviderDescriptor, ProviderRegistry};
+use selvedge_model_providers::{
+    ModelSource, ProviderDescriptor, ProviderRegistry, default_registry,
+};
 use std::collections::BTreeMap;
 
 #[tokio::test]
@@ -82,6 +84,19 @@ async fn configured_provider_requires_matching_credential_and_config_models() {
     assert_eq!(listings[0].provider_id, "anthropic");
     // @verifies selvedge.model.providers.list.configured.models
     assert_eq!(listings[0].models, vec!["claude-sonnet-4"]);
+}
+
+#[test]
+// @verifies selvedge.model.providers.default_registry.executable
+fn default_registry_exposes_only_executable_providers() {
+    let registry = default_registry();
+
+    // @verifies selvedge.model.providers.default_registry.executable
+    assert!(registry.descriptor("chatgpt").is_some());
+    // @verifies selvedge.model.providers.default_registry.executable
+    assert!(registry.descriptor("anthropic").is_none());
+    // @verifies selvedge.model.providers.default_registry.executable
+    assert!(registry.descriptor("openai").is_none());
 }
 
 fn empty_llm_config() -> LlmConfig {

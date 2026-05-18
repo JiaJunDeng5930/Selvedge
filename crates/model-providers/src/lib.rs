@@ -249,25 +249,14 @@ impl Default for ProviderRegistry {
     }
 }
 
-/// @behavior selvedge.model.providers.default_registry The default provider registry contains ChatGPT login, Anthropic API-key, and OpenAI API-key provider descriptors.
+/// @behavior selvedge.model.providers.default_registry The default provider registry contains provider descriptors for adapters that are executable in the current build.
+/// @behavior selvedge.model.providers.default_registry.executable The default provider registry exposes ChatGPT as the executable built-in model provider in this build.
 pub fn default_registry() -> ProviderRegistry {
-    ProviderRegistry::new(vec![
-        ProviderDescriptor {
-            provider_id: "chatgpt".to_owned(),
-            credential_kind: CredentialKind::Login,
-            model_source: ModelSource::BuiltIn(vec!["gpt-5".to_owned(), "gpt-5-codex".to_owned()]),
-        },
-        ProviderDescriptor {
-            provider_id: "anthropic".to_owned(),
-            credential_kind: CredentialKind::ApiKey,
-            model_source: ModelSource::Configured,
-        },
-        ProviderDescriptor {
-            provider_id: "openai".to_owned(),
-            credential_kind: CredentialKind::ApiKey,
-            model_source: ModelSource::Discoverable,
-        },
-    ])
+    ProviderRegistry::new(vec![ProviderDescriptor {
+        provider_id: "chatgpt".to_owned(),
+        credential_kind: CredentialKind::Login,
+        model_source: ModelSource::BuiltIn(vec!["gpt-5".to_owned(), "gpt-5-codex".to_owned()]),
+    }])
     .unwrap_or_else(|_| ProviderRegistry {
         descriptors: BTreeMap::new(),
     })

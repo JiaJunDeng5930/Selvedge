@@ -108,6 +108,7 @@ This file is for coding agents working in this repository.
 |selvedge.auth.file|selvedge.auth.file.{credential_kind_field,load,parse,parse_errors,path,persist,provider_field,refresh_hint,required_string,schema_field,schema_version,tokens,tokens_field}
 |selvedge.auth.file.load|selvedge.auth.file.load.{malformed}
 |selvedge.auth.file.parse|selvedge.auth.file.parse.{credential_kind,provider,schema,unsupported_schema}
+|selvedge.auth.file.path|selvedge.auth.file.path.{provider_boundary}
 |selvedge.auth.file.persist|selvedge.auth.file.persist.{directory,encode,parent,replace,temp,write}
 |selvedge.auth.file.required_string|selvedge.auth.file.required_string.{empty}
 |selvedge.auth.file.schema_version|selvedge.auth.file.schema_version.{range}
@@ -494,6 +495,7 @@ This file is for coding agents working in this repository.
 |selvedge.model.domain.validation.tools|selvedge.model.domain.validation.tools.{duplicate_parameter_name,duplicate_tool_name,empty_parameter_name,empty_tool_name}
 |selvedge.model.limit|selvedge.model.limit.{counter,encode,encoded,reply,write}
 |selvedge.model.providers|selvedge.model.providers.{credential_error,default_registry,descriptor,dispatch_model,error,list,listing,model_source,provider_config,provider_id,registry}
+|selvedge.model.providers.default_registry|selvedge.model.providers.default_registry.{executable}
 |selvedge.model.providers.descriptor|selvedge.model.providers.descriptor.{credential_kind,model_source,provider_id}
 |selvedge.model.providers.dispatch_model|selvedge.model.providers.dispatch_model.{built_in,configured,credential_error,discoverable,kind_mismatch,missing_credential,nonblank,unknown}
 |selvedge.model.providers.dispatch_model.built_in|selvedge.model.providers.dispatch_model.built_in.{invalid_model}

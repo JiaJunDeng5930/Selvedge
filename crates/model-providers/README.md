@@ -11,6 +11,8 @@ Use it to resolve provider descriptors, check whether a provider is configured, 
 
 Provider adapters own provider-specific request execution and discovery. This crate keeps provider id, credential kind, model source, and completion rules in one place.
 
+The default registry exposes descriptors for executable adapters in this build; custom registries can model additional providers in tests and future adapters.
+
 ## Package State Machine
 
 ```mermaid

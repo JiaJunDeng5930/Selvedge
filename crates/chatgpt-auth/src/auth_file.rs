@@ -129,6 +129,7 @@ fn read_required_string(
 }
 
 // @behavior selvedge.auth.file.path ChatGPT auth state is read from and written to the provider credential record at `<selvedge_home>/auth/model-providers/chatgpt.json`.
+// @constraint selvedge.auth.file.path.provider_boundary ChatGPT auth resolution uses the provider credential record path as the sole storage boundary.
 pub(crate) fn auth_file_path(selvedge_home: &Path) -> PathBuf {
     selvedge_home.join("auth/model-providers/chatgpt.json")
 }
