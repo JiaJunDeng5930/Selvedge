@@ -2,7 +2,7 @@
 
 <!-- selvedge-package-readme
 package: selvedge-command-model
-freshness_commit: f2a0e6aa7f63b0fb8b575fefc5026e0535a7e64f
+freshness_commit: d8515322d257e6d4c7941584a4d5a3f95e1ee3ec
 -->
 
 This crate defines the Selvedge command model API slice used to dispatch model calls, return completed API outputs to the router, and describe router-mediated client event ingress.

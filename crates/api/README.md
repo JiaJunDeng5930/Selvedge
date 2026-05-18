@@ -2,7 +2,7 @@
 
 <!-- selvedge-package-readme
 package: selvedge-api
-freshness_commit: 7c1fe047973108e8933a0c3341b6f7bfba66eb96
+freshness_commit: 9aa62b772bb14b1cc3559469fa9f1ecdb868eae1
 -->
 
 This crate executes one Selvedge model call and returns the completed result to the router mailbox.

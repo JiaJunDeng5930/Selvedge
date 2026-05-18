@@ -2,7 +2,7 @@
 
 <!-- selvedge-package-readme
 package: selvedge-server
-freshness_commit: 7c1fe047973108e8933a0c3341b6f7bfba66eb96
+freshness_commit: c7aad94949d6bcfacc182410f24760d1967f7b27
 -->
 
 This crate owns the process-local Selvedge server lifecycle.
