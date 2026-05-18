@@ -516,6 +516,12 @@ impl ServerControl {
                 &client_id,
                 &previous_command_id,
             );
+            // @behavior selvedge.startup.server.local_operation.task.hydrated_clear.replacement Attach replacement clears the previous attach hydration marker before the replacement attach can accept local operations.
+            clear_local_operation_hydrated_attach(
+                &self.inner.local_operation_hydrated_attaches,
+                &client_id,
+                &previous_command_id,
+            );
             send_detach_client_and_clear_closing(
                 &events_tx,
                 client_id.clone(),
@@ -2843,6 +2849,31 @@ mod tests {
                 .lock()
                 .expect("local operation cancellations")
                 .is_empty()
+        );
+    }
+
+    #[tokio::test]
+    async fn replacement_attach_clears_previous_hydration_before_command_id_reuse() {
+        let router_tx = accepting_router_sender();
+        let (client_sync_tx, _client_sync_rx) = mpsc::channel(4);
+        let (events_tx, _events_rx) = mpsc::channel(4);
+        let control = test_control(router_tx, client_sync_tx, events_tx);
+        activate_attach(&control, "client-1", "attach-1");
+
+        let (_accepted, _stream) = control
+            .attach_client(test_attach_request_for("client-1", "attach-2"))
+            .await
+            .expect("replacement attach accepted");
+        let (_accepted, _stream) = control
+            .attach_client(test_attach_request_for("client-1", "attach-1"))
+            .await
+            .expect("command id reuse attach accepted");
+        let response = control.submit_command(login_command("command-1")).await;
+
+        // @verifies selvedge.startup.server.local_operation.task.hydrated_clear.replacement
+        assert_eq!(
+            response.outcome,
+            CommandOutcome::Rejected(CommandRejectReason::ClientNotAttached)
         );
     }
 
