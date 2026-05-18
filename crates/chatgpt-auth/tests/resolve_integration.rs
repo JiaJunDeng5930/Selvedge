@@ -107,6 +107,58 @@ expected_workspace_id = 123
     ));
 }
 
+// @verifies selvedge.auth.file.path.provider_boundary
+#[tokio::test(flavor = "multi_thread")]
+async fn resolve_for_request_uses_provider_credential_path_as_storage_boundary() {
+    const FLAG: &str = "CHATGPT_AUTH_PROVIDER_PATH_BOUNDARY_CHILD";
+
+    if !child_mode(FLAG) {
+        assert_child_success(&run_child(
+            "resolve_for_request_uses_provider_credential_path_as_storage_boundary",
+            FLAG,
+        ));
+        return;
+    }
+
+    let tempdir = init_auth_test(
+        r#"
+[logging]
+level = "debug"
+
+[llm.providers.chatgpt.settings]
+issuer = "http://127.0.0.1:1"
+"#,
+    );
+    let old_auth_path = tempdir.path().join(".selvedge/auth/chatgpt-auth.json");
+    std::fs::create_dir_all(old_auth_path.parent().expect("old auth parent"))
+        .expect("create old auth dir");
+    std::fs::write(
+        &old_auth_path,
+        serde_json::json!({
+            "schema_version": 1,
+            "login_method": "chatgpt",
+            "tokens": {
+                "id_token": "id",
+                "access_token": "access",
+                "refresh_token": "refresh"
+            }
+        })
+        .to_string(),
+    )
+    .expect("write old auth file");
+
+    let error = resolve_for_request()
+        .await
+        .expect_err("provider credential path is required");
+
+    // @verifies selvedge.auth.file.path.provider_boundary
+    assert!(matches!(
+        error,
+        ChatgptAuthError::AuthFileMissing { path }
+            if path == tempdir.path().join(".selvedge/auth/model-providers/chatgpt.json")
+    ));
+}
+
 // @verifies selvedge.auth.resolve.access_expiration
 #[tokio::test(flavor = "multi_thread")]
 async fn resolve_for_request_allows_dotted_opaque_access_token_without_refresh() {
