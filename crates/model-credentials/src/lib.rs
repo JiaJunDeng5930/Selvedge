@@ -63,6 +63,11 @@ struct PathLockGuard {
     pub(crate) lock_file: Option<std::fs::File>,
 }
 
+/// @constraint selvedge.model.credentials.lock.public_guard Public credential lock guards hold the shared credential path lock until drop.
+pub struct CredentialLockGuard {
+    _guard: PathLockGuard,
+}
+
 impl Drop for PathLockGuard {
     // @behavior selvedge.model.credentials.lock.release Dropping a credential lock guard releases the file lock before the process guard is dropped.
     fn drop(&mut self) {
@@ -156,6 +161,17 @@ pub async fn write_credential_to_home(
     persist_record(&path, &payload)?;
 
     Ok(path)
+}
+
+/// @behavior selvedge.model.credentials.lock.from_home Credential locking from an explicit home acquires the same provider path lock used by credential reads and writes.
+pub async fn lock_credential_from_home(
+    selvedge_home: &Path,
+    provider_id: &str,
+) -> Result<CredentialLockGuard, ModelCredentialError> {
+    let path = credential_path(selvedge_home, provider_id)?;
+    let guard = lock_path(&path).await?;
+
+    Ok(CredentialLockGuard { _guard: guard })
 }
 
 /// @behavior selvedge.model.credentials.list.from_home Credential listing from an explicit home returns sorted records from JSON files in the canonical credential directory.

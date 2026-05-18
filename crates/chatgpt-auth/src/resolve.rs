@@ -22,7 +22,7 @@ async fn resolve(force_refresh: bool) -> Result<ResolvedChatgptAuth, ChatgptAuth
     let refresh_hint = force_refresh
         .then(|| auth_file::load_refresh_hint(&auth_file_path))
         .flatten();
-    let _guard = lock::lock_path(&auth_file_path).await?;
+    let _guard = lock::lock_chatgpt_credential(&selvedge_home).await?;
     let auth_file = auth_file::load(&auth_file_path)?;
     let access_token_expired = access_token_is_expired(&auth_file.tokens.access_token);
     let id_token_requires_refresh = id_token_requires_refresh(&auth_file);
