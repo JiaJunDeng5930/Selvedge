@@ -2,7 +2,7 @@
 
 <!-- selvedge-package-readme
 package: chatgpt-auth
-freshness_commit: 8c899250325d1525286f0631fcd12155c1a03ab5
+freshness_commit: dd00f09a3e7a07a6d96617e202b202598f4404ba
 -->
 
 This crate resolves ChatGPT auth state for request execution.
