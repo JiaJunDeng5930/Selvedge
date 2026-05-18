@@ -182,6 +182,43 @@ base_url = "{}"
     ));
 }
 
+// @verifies selvedge.model.chatgpt.api.config.base_url.responses_suffix
+#[tokio::test(flavor = "multi_thread")]
+async fn stream_rejects_chatgpt_base_url_that_includes_responses_path() {
+    const FLAG: &str = "CHATGPT_API_BASE_URL_RESPONSES_SUFFIX_CHILD";
+
+    if !child_mode(FLAG) {
+        assert_child_success(&run_child(
+            "stream_rejects_chatgpt_base_url_that_includes_responses_path",
+            FLAG,
+        ));
+        return;
+    }
+
+    let _tempdir = init_api_test(
+        r#"
+[logging]
+level = "debug"
+
+[llm.providers.chatgpt]
+base_url = "http://127.0.0.1:1/responses"
+"#,
+    );
+
+    let error = match stream(base_request()).await {
+        Ok(_) => panic!("base URL ending in responses must fail config validation"),
+        Err(error) => error,
+    };
+
+    // @verifies selvedge.model.chatgpt.api.config.base_url.responses_suffix
+    assert!(matches!(
+        error,
+        ChatgptApiError::LowerLayer(chatgpt_api::ChatgptApiLowerLayerError::Config(
+            selvedge_config::ConfigError::ValidationFailed(reason)
+        )) if reason.contains("llm.providers.chatgpt.base_url must not end with /responses")
+    ));
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn stream_reauthenticates_once_after_unauthorized() {
     const FLAG: &str = "CHATGPT_API_STREAM_REAUTH_CHILD";

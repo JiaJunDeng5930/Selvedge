@@ -16,25 +16,30 @@ pub(crate) struct ChatgptAuthConfig {
 
 // @behavior selvedge.auth.config.read Each auth resolution call reads current ChatGPT provider settings and trims trailing issuer slashes before network use.
 pub(crate) fn read_chatgpt_auth_config() -> Result<ChatgptAuthConfig, ChatgptAuthError> {
-    let config = selvedge_config::read(|config| {
-        let settings = config
+    let settings = selvedge_config::read(|config| {
+        config
             .llm
             .providers
             .get("chatgpt")
             .map(|provider| provider.settings.clone())
-            .unwrap_or_default();
-        ChatgptAuthConfig {
-            issuer: setting_string(&settings, "issuer")
-                .unwrap_or_else(|| DEFAULT_ISSUER.to_owned())
-                .trim_end_matches('/')
-                .to_owned(),
-            client_id: setting_string(&settings, "client_id")
-                .unwrap_or_else(|| DEFAULT_CLIENT_ID.to_owned()),
-            expected_workspace_id: setting_string(&settings, "expected_workspace_id"),
-        }
+            .unwrap_or_default()
     })
     // @behavior selvedge.auth.config.error Config read failures are returned as caller-visible ChatGPT auth config errors.
     .map_err(ChatgptAuthError::Config)?;
+    let config = ChatgptAuthConfig {
+        issuer: setting_string(&settings, "issuer")
+            .map_err(validation_config_error)?
+            .unwrap_or_else(|| DEFAULT_ISSUER.to_owned())
+            .trim_end_matches('/')
+            .to_owned(),
+        client_id: setting_string(&settings, "client_id")
+            .map_err(validation_config_error)?
+            .unwrap_or_else(|| DEFAULT_CLIENT_ID.to_owned()),
+        // @constraint selvedge.auth.config.valid.settings_type.read ChatGPT auth config reading returns validation failures for non-string known provider settings.
+        expected_workspace_id: setting_string(&settings, "expected_workspace_id")
+            .map_err(validation_config_error)?,
+    };
+    // @constraint selvedge.auth.config.valid.read ChatGPT auth config reading returns validation failures for invalid provider settings.
     validate_auth_config(&config).map_err(|reason| {
         ChatgptAuthError::Config(selvedge_config::ConfigError::ValidationFailed(reason))
     })?;
@@ -47,14 +52,23 @@ pub(crate) fn read_selvedge_home() -> Result<std::path::PathBuf, ChatgptAuthErro
     selvedge_config::selvedge_home().map_err(ChatgptAuthError::Config)
 }
 
+// @constraint selvedge.auth.config.valid.settings_type ChatGPT auth provider settings with known string keys must be TOML strings.
 fn setting_string(
     settings: &std::collections::BTreeMap<String, toml::Value>,
     key: &str,
-) -> Option<String> {
-    settings
-        .get(key)
-        .and_then(toml::Value::as_str)
+) -> Result<Option<String>, String> {
+    let Some(value) = settings.get(key) else {
+        return Ok(None);
+    };
+    value
+        .as_str()
         .map(str::to_owned)
+        .map(Some)
+        .ok_or_else(|| format!("llm.providers.chatgpt.settings.{key} must be a string"))
+}
+
+fn validation_config_error(reason: String) -> ChatgptAuthError {
+    ChatgptAuthError::Config(selvedge_config::ConfigError::ValidationFailed(reason))
 }
 
 // @constraint selvedge.auth.config.valid ChatGPT auth config accepts clean issuer URLs, nonblank client IDs, and nonblank workspace pins.

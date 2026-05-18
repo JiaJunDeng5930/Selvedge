@@ -128,7 +128,7 @@ fn read_required_string(
     Ok(text.to_owned())
 }
 
-// @behavior selvedge.auth.file.path ChatGPT auth state is read from and written to `<selvedge_home>/auth/model-providers/chatgpt.json`.
+// @behavior selvedge.auth.file.path ChatGPT auth state is read from and written to the provider credential record at `<selvedge_home>/auth/model-providers/chatgpt.json`.
 pub(crate) fn auth_file_path(selvedge_home: &Path) -> PathBuf {
     selvedge_home.join("auth/model-providers/chatgpt.json")
 }

@@ -71,6 +71,42 @@ issuer = "http://127.0.0.1:1"
     assert_eq!(resolved.plan_type.as_deref(), Some("plus"));
 }
 
+// @verifies selvedge.auth.config.valid.settings_type
+#[tokio::test(flavor = "multi_thread")]
+async fn resolve_for_request_rejects_non_string_provider_settings() {
+    const FLAG: &str = "CHATGPT_AUTH_NON_STRING_SETTINGS_CHILD";
+
+    if !child_mode(FLAG) {
+        assert_child_success(&run_child(
+            "resolve_for_request_rejects_non_string_provider_settings",
+            FLAG,
+        ));
+        return;
+    }
+
+    let _tempdir = init_auth_test(
+        r#"
+[logging]
+level = "debug"
+
+[llm.providers.chatgpt.settings]
+issuer = "http://127.0.0.1:1"
+expected_workspace_id = 123
+"#,
+    );
+
+    let error = resolve_for_request()
+        .await
+        .expect_err("non-string settings must fail config validation");
+
+    // @verifies selvedge.auth.config.valid.settings_type
+    assert!(matches!(
+        error,
+        ChatgptAuthError::Config(selvedge_config::ConfigError::ValidationFailed(reason))
+            if reason.contains("llm.providers.chatgpt.settings.expected_workspace_id must be a string")
+    ));
+}
+
 // @verifies selvedge.auth.resolve.access_expiration
 #[tokio::test(flavor = "multi_thread")]
 async fn resolve_for_request_allows_dotted_opaque_access_token_without_refresh() {
