@@ -2,7 +2,7 @@
 
 <!-- selvedge-package-readme
 package: selvedge-model-credentials
-freshness_commit: 636fd61c9fc62b053c401426481a47ea5f0c066b
+freshness_commit: 8c899250325d1525286f0631fcd12155c1a03ab5
 -->
 
 This crate owns persisted model-provider credentials under the selected Selvedge Home.
