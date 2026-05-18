@@ -45,6 +45,13 @@ pub async fn stream(
         // @behavior selvedge.model.chatgpt.api.stream.config Stream startup reads the current ChatGPT API config and returns config errors before opening HTTP streams.
         .map_err(ChatgptApiLowerLayerError::Config)
         .map_err(ChatgptApiError::LowerLayer)?;
+    validate_chatgpt_api_config(&api_config)
+        .map_err(|reason| {
+            ChatgptApiLowerLayerError::Config(selvedge_config::ConfigError::ValidationFailed(
+                reason,
+            ))
+        })
+        .map_err(ChatgptApiError::LowerLayer)?;
     let response = open_response_stream(&request, &api_config).await?;
     // @behavior selvedge.model.chatgpt.api.turn_state The effective turn state returned to callers prefers the upstream response header and otherwise preserves the request turn state.
     let effective_turn_state = response
@@ -134,6 +141,18 @@ fn chatgpt_api_config_from_app_config(
             .and_then(|provider| provider.stream_completion_timeout_ms)
             .unwrap_or(DEFAULT_CHATGPT_STREAM_COMPLETION_TIMEOUT_MS),
     }
+}
+
+// @constraint selvedge.model.chatgpt.api.config.base_url.responses_suffix ChatGPT API base URL validation rejects values whose path already ends with `/responses`.
+fn validate_chatgpt_api_config(config: &ChatgptApiConfig) -> Result<(), String> {
+    let base_url = url::Url::parse(&config.base_url)
+        .map_err(|_| "llm.providers.chatgpt.base_url must be an absolute URL".to_owned())?;
+    let path = base_url.path().trim_end_matches('/');
+    if path == "/responses" || path.ends_with("/responses") {
+        return Err("llm.providers.chatgpt.base_url must not end with /responses".to_owned());
+    }
+
+    Ok(())
 }
 
 fn ensure_event_stream_content_type(headers: &HeaderMap) -> Result<(), ChatgptApiError> {

@@ -69,6 +69,42 @@ issuer = "{}"
     );
 }
 
+// @verifies selvedge.login.config.valid.settings_type
+#[tokio::test(flavor = "multi_thread")]
+async fn start_device_code_login_rejects_non_string_provider_settings() {
+    const FLAG: &str = "CHATGPT_LOGIN_NON_STRING_SETTINGS_CHILD";
+
+    if !child_mode(FLAG) {
+        assert_child_success(&run_child(
+            "start_device_code_login_rejects_non_string_provider_settings",
+            FLAG,
+        ));
+        return;
+    }
+
+    let _tempdir = init_login_test(
+        r#"
+[logging]
+level = "debug"
+
+[llm.providers.chatgpt.settings]
+issuer = "http://127.0.0.1:1"
+expected_workspace_id = 123
+"#,
+    );
+
+    let error = start_device_code_login()
+        .await
+        .expect_err("non-string settings must fail config validation");
+
+    // @verifies selvedge.login.config.valid.settings_type
+    assert!(matches!(
+        error,
+        ChatgptLoginError::Config(selvedge_config::ConfigError::ValidationFailed(reason))
+            if reason.contains("llm.providers.chatgpt.settings.expected_workspace_id must be a string")
+    ));
+}
+
 // @verifies selvedge.login.poll_outcome
 #[tokio::test(flavor = "multi_thread")]
 async fn poll_device_code_login_returns_pending_for_forbidden_response() {

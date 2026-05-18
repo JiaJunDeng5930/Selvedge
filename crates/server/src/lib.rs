@@ -23,6 +23,7 @@
 //! @behavior selvedge.startup.server.web.bind_target Web bind target validation rejects invalid localhost ports before durable startup side effects.
 //! @behavior selvedge.startup.server.local_operation Server local operations execute server-owned commands outside the router mailbox and deliver user-visible notices to attached clients.
 //! @behavior selvedge.startup.server.local_operation.login ChatGPT provider login remains a server-owned local operation that can run outside router command delivery.
+//! @behavior selvedge.startup.server.local_operation.list List-models remains a server-owned local operation that can run outside router command delivery.
 
 use std::collections::HashMap;
 use std::fmt;
@@ -629,12 +630,17 @@ impl ServerControl {
             // @behavior selvedge.startup.server.local_operation.login.attach_required Login command submission is rejected when the requesting client has no active attach stream.
             return CommandOutcome::Rejected(CommandRejectReason::ClientNotAttached);
         };
-        let login_permit = match self.inner.login_gate.clone().try_acquire_owned() {
-            Ok(permit) => permit,
-            Err(_) => {
-                // @behavior selvedge.startup.server.local_operation.login.single_flight Login command submission is rejected while another server-owned login operation is running.
-                return CommandOutcome::Rejected(CommandRejectReason::LoginAlreadyRunning);
+        // @behavior selvedge.startup.server.local_operation.list.concurrent_login List-models submission can start while a server-owned login operation is running.
+        let login_permit = if matches!(&operation_command, LocalOperationCommand::LoginChatgpt) {
+            match self.inner.login_gate.clone().try_acquire_owned() {
+                Ok(permit) => Some(permit),
+                Err(_) => {
+                    // @behavior selvedge.startup.server.local_operation.login.single_flight Login command submission is rejected while another server-owned login operation is running.
+                    return CommandOutcome::Rejected(CommandRejectReason::LoginAlreadyRunning);
+                }
             }
+        } else {
+            None
         };
         let Some(events_tx) = self.inner.events_tx.lock().await.as_ref().cloned() else {
             // @behavior selvedge.startup.server.local_operation.login.events_required Login command submission is rejected with internal failure when notice delivery is unavailable.
@@ -813,7 +819,7 @@ struct LocalOperationTask {
     attach_command_id: ClientCommandId,
     submit_command_id: ClientCommandId,
     command_name: String,
-    _login_permit: OwnedSemaphorePermit,
+    _login_permit: Option<OwnedSemaphorePermit>,
     local_operation_cancellations: LocalOperationCancellationRegistry,
 }
 
@@ -2479,6 +2485,37 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn list_models_command_is_accepted_while_login_is_running() {
+        let (router_tx, _router_rx) = mpsc::unbounded_channel();
+        let (client_sync_tx, _client_sync_rx) = mpsc::channel(1);
+        let (events_tx, _events_rx) = mpsc::channel(8);
+        let control = test_control_with_frame_channel_factory_mapper_and_executor(
+            router_tx,
+            client_sync_tx,
+            events_tx,
+            Arc::new(TokioAttachFrameChannelFactory),
+            Arc::new(UnusedMapper),
+            Arc::new(PendingLocalOperationExecutor),
+        );
+        activate_attach(&control, "client-1", "attach-1");
+        activate_attach(&control, "client-2", "attach-2");
+
+        let login = control.submit_command(login_command("command-1")).await;
+        let list_models = control
+            .submit_command(local_operation_command(
+                "client-2",
+                "command-2",
+                "list-models",
+            ))
+            .await;
+
+        // @verifies selvedge.startup.server.local_operation.login.single_flight
+        assert_eq!(login.outcome, CommandOutcome::Accepted);
+        // @verifies selvedge.startup.server.local_operation.list.concurrent_login
+        assert_eq!(list_models.outcome, CommandOutcome::Accepted);
+    }
+
+    #[tokio::test]
     async fn dropped_login_attach_releases_single_flight_gate() {
         let router_tx = accepting_router_sender();
         let (client_sync_tx, _client_sync_rx) = mpsc::channel(4);
@@ -3453,12 +3490,20 @@ mod tests {
     }
 
     fn login_command(client_command_id: &str) -> CommandRequest {
+        local_operation_command("client-1", client_command_id, "login-chatgpt")
+    }
+
+    fn local_operation_command(
+        client_id: &str,
+        client_command_id: &str,
+        command_name: &str,
+    ) -> CommandRequest {
         CommandRequest {
-            client_id: selvedge_local_protocol::LocalClientId::new("client-1")
+            client_id: selvedge_local_protocol::LocalClientId::new(client_id)
                 .expect("valid client id"),
             client_command_id: LocalClientCommandId::new(client_command_id)
                 .expect("valid command id"),
-            command_name: "login-chatgpt".to_owned(),
+            command_name: command_name.to_owned(),
             payload: serde_json::json!({}),
         }
     }

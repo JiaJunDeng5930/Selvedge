@@ -103,7 +103,8 @@ This file is for coding agents working in this repository.
 |selvedge|selvedge.{auth,cli,client,config,core,login,model,operations,session,startup,state,task,testsupport}
 |selvedge.auth|selvedge.auth.{config,errors,file,jwt,lock,refresh,resolve,resolved}
 |selvedge.auth.config|selvedge.auth.config.{client_id,error,expected_workspace,home,issuer,read,valid}
-|selvedge.auth.config.valid|selvedge.auth.config.valid.{base,client_id,http,issuer,userinfo,workspace}
+|selvedge.auth.config.valid|selvedge.auth.config.valid.{base,client_id,http,issuer,read,settings_type,userinfo,workspace}
+|selvedge.auth.config.valid.settings_type|selvedge.auth.config.valid.settings_type.{read}
 |selvedge.auth.file|selvedge.auth.file.{credential_kind_field,load,parse,parse_errors,path,persist,provider_field,refresh_hint,required_string,schema_field,schema_version,tokens,tokens_field}
 |selvedge.auth.file.load|selvedge.auth.file.load.{malformed}
 |selvedge.auth.file.parse|selvedge.auth.file.parse.{credential_kind,provider,schema,unsupported_schema}
@@ -420,7 +421,8 @@ This file is for coding agents working in this repository.
 |selvedge.login.challenge|selvedge.login.challenge.{device_auth_id,expires_at,issued_at,poll_interval,user_code,verification_url}
 |selvedge.login.complete|selvedge.login.complete.{expired,workspace_mismatch}
 |selvedge.login.config|selvedge.login.config.{client_id,error,expected_workspace,home,issuer,read,valid}
-|selvedge.login.config.valid|selvedge.login.config.valid.{base,client_id,http,issuer,userinfo,workspace}
+|selvedge.login.config.valid|selvedge.login.config.valid.{base,client_id,http,issuer,read,settings_type,userinfo,workspace}
+|selvedge.login.config.valid.settings_type|selvedge.login.config.valid.settings_type.{read}
 |selvedge.login.id_token|selvedge.login.id_token.{account_id,claim_adapter,claims,email,extra_segments,json,object,parse,plan_type,segments,user_id}
 |selvedge.login.poll|selvedge.login.poll.{authorized,pending,rejected,request,required_fields,response,transport}
 |selvedge.login.progress|selvedge.login.progress.{error,future,sink}
@@ -436,6 +438,7 @@ This file is for coding agents working in this repository.
 |selvedge.model.chatgpt.api|selvedge.model.chatgpt.api.{capabilities,config,content,context,decode,drive,error,event,http_request,item,json_object,open,raw_event,reasoning,request,response_stream,retry,send_item,service_tier,snapshot,sse,stream,text,tool_descriptor,tool_output,turn_state,usage}
 |selvedge.model.chatgpt.api.capabilities|selvedge.model.chatgpt.api.capabilities.{default_reasoning_effort,reasoning_summaries,text_verbosity}
 |selvedge.model.chatgpt.api.config|selvedge.model.chatgpt.api.config.{base_url,resolve,stream_timeout}
+|selvedge.model.chatgpt.api.config.base_url|selvedge.model.chatgpt.api.config.base_url.{responses_suffix}
 |selvedge.model.chatgpt.api.content|selvedge.model.chatgpt.api.content.{object}
 |selvedge.model.chatgpt.api.context|selvedge.model.chatgpt.api.context.{beta_features,conversation_id,installation_id,parent_thread_id,subagent,turn_metadata,turn_state,window_generation}
 |selvedge.model.chatgpt.api.decode|selvedge.model.chatgpt.api.decode.{nested_u64_parent,optional_string,optional_u64_numeric,optional_u64_type,required_array,required_array_type,required_string,required_u64}
@@ -567,10 +570,11 @@ This file is for coding agents working in this repository.
 |selvedge.startup.server.event_delivery.detach_restore|selvedge.startup.server.event_delivery.detach_restore.{full,immediate,retry}
 |selvedge.startup.server.lifecycle|selvedge.startup.server.lifecycle.{coordinator,inner_effects,state}
 |selvedge.startup.server.lifecycle.state|selvedge.startup.server.lifecycle.state.{query}
-|selvedge.startup.server.local_operation|selvedge.startup.server.local_operation.{cancellation_registry,command,dispatch,executor,executor_ref,executor_trait,failure,future,login,notice,progress,progress_sender,success,task}
+|selvedge.startup.server.local_operation|selvedge.startup.server.local_operation.{cancellation_registry,command,dispatch,executor,executor_ref,executor_trait,failure,future,list,login,notice,progress,progress_sender,success,task}
 |selvedge.startup.server.local_operation.executor|selvedge.startup.server.local_operation.executor.{execute}
 |selvedge.startup.server.local_operation.failure|selvedge.startup.server.local_operation.failure.{message}
 |selvedge.startup.server.local_operation.future|selvedge.startup.server.local_operation.future.{abstraction}
+|selvedge.startup.server.local_operation.list|selvedge.startup.server.local_operation.list.{concurrent_login}
 |selvedge.startup.server.local_operation.login|selvedge.startup.server.local_operation.login.{attach_lookup,attach_required,events_required,single_flight}
 |selvedge.startup.server.local_operation.notice|selvedge.startup.server.local_operation.notice.{delivery,delivery_closed}
 |selvedge.startup.server.local_operation.progress|selvedge.startup.server.local_operation.progress.{notice}
