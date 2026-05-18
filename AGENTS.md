@@ -594,7 +594,7 @@ This file is for coding agents working in this repository.
 |selvedge.startup.server.local_operation.task.cancel_attach.clear_closing|selvedge.startup.server.local_operation.task.cancel_attach.clear_closing.{lock}
 |selvedge.startup.server.local_operation.task.cancel_track|selvedge.startup.server.local_operation.task.cancel_track.{active_lock,attach_race,closing,closing_lock,command,hydrated_lock,inactive,lock,unhydrated}
 |selvedge.startup.server.local_operation.task.hydrated|selvedge.startup.server.local_operation.task.hydrated.{lock,snapshot_match}
-|selvedge.startup.server.local_operation.task.hydrated_clear|selvedge.startup.server.local_operation.task.hydrated_clear.{lock}
+|selvedge.startup.server.local_operation.task.hydrated_clear|selvedge.startup.server.local_operation.task.hydrated_clear.{lock,replacement}
 |selvedge.startup.server.local_protocol|selvedge.startup.server.local_protocol.{attach,command,control,error,event}
 |selvedge.startup.server.local_protocol.attach|selvedge.startup.server.local_protocol.attach.{active_reject,active_reservation,admission_closed,channel_factory,channel_failed,clear_active,duplicate,frame_stream,frame_stream_type,registry_full,registry_lock,reject,request,reservation_rollback,response,restore_active,router_command,stream_closed,subscription_mapping}
 |selvedge.startup.server.local_protocol.attach.channel_factory|selvedge.startup.server.local_protocol.attach.channel_factory.{create}
