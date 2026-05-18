@@ -36,7 +36,7 @@ async fn resolve_for_request_returns_current_auth_without_refresh() {
 [logging]
 level = "debug"
 
-[llm.providers.chatgpt.auth]
+[llm.providers.chatgpt.settings]
 issuer = "http://127.0.0.1:1"
 "#,
     );
@@ -90,7 +90,7 @@ async fn resolve_for_request_allows_dotted_opaque_access_token_without_refresh()
 [logging]
 level = "debug"
 
-[llm.providers.chatgpt.auth]
+[llm.providers.chatgpt.settings]
 issuer = "http://127.0.0.1:1"
 "#,
     );
@@ -155,7 +155,7 @@ async fn resolve_after_unauthorized_accepts_structured_opaque_access_token_from_
 [logging]
 level = "debug"
 
-[llm.providers.chatgpt.auth]
+[llm.providers.chatgpt.settings]
 issuer = "{}"
 "#,
         server.url("")
@@ -226,7 +226,7 @@ async fn resolve_for_request_refreshes_expired_access_token_and_persists_result(
 [logging]
 level = "debug"
 
-[llm.providers.chatgpt.auth]
+[llm.providers.chatgpt.settings]
 issuer = "{}"
 "#,
         server.url("")
@@ -304,7 +304,7 @@ async fn resolve_for_request_refreshes_malformed_jwt_access_token() {
 [logging]
 level = "debug"
 
-[llm.providers.chatgpt.auth]
+[llm.providers.chatgpt.settings]
 issuer = "{}"
 "#,
         server.url("")
@@ -379,7 +379,7 @@ async fn resolve_for_request_refreshes_truncated_jwt_access_token() {
 [logging]
 level = "debug"
 
-[llm.providers.chatgpt.auth]
+[llm.providers.chatgpt.settings]
 issuer = "{}"
 "#,
         server.url("")
@@ -446,7 +446,7 @@ async fn resolve_after_unauthorized_always_refreshes() {
 [logging]
 level = "debug"
 
-[llm.providers.chatgpt.auth]
+[llm.providers.chatgpt.settings]
 issuer = "{}"
 "#,
         server.url("")
@@ -527,7 +527,7 @@ async fn resolve_for_request_sends_refresh_request_as_form_data() {
 [logging]
 level = "debug"
 
-[llm.providers.chatgpt.auth]
+[llm.providers.chatgpt.settings]
 issuer = "{}"
 "#,
         server.url("")
@@ -570,11 +570,13 @@ async fn resolve_for_request_returns_auth_file_read_failed_when_path_is_director
 [logging]
 level = "debug"
 
-[llm.providers.chatgpt.auth]
+[llm.providers.chatgpt.settings]
 issuer = "http://127.0.0.1:1"
 "#,
     );
-    let auth_file_path = tempdir.path().join(".selvedge/auth/chatgpt-auth.json");
+    let auth_file_path = tempdir
+        .path()
+        .join(".selvedge/auth/model-providers/chatgpt.json");
     std::fs::create_dir_all(&auth_file_path).expect("create directory at auth file path");
 
     let error = resolve_for_request()
@@ -607,11 +609,13 @@ async fn resolve_for_request_returns_auth_file_missing_when_file_is_absent() {
 [logging]
 level = "debug"
 
-[llm.providers.chatgpt.auth]
+[llm.providers.chatgpt.settings]
 issuer = "http://127.0.0.1:1"
 "#,
     );
-    let expected_path = tempdir.path().join(".selvedge/auth/chatgpt-auth.json");
+    let expected_path = tempdir
+        .path()
+        .join(".selvedge/auth/model-providers/chatgpt.json");
 
     let error = resolve_for_request()
         .await
@@ -643,13 +647,13 @@ async fn resolve_for_request_recreates_missing_selvedge_home_before_locking() {
 [logging]
 level = "debug"
 
-[llm.providers.chatgpt.auth]
+[llm.providers.chatgpt.settings]
 issuer = "http://127.0.0.1:1"
 "#,
     );
     let selvedge_home = tempdir.path().join(".selvedge");
     std::fs::remove_dir_all(&selvedge_home).expect("remove selvedge home");
-    let expected_path = selvedge_home.join("auth/chatgpt-auth.json");
+    let expected_path = selvedge_home.join("auth/model-providers/chatgpt.json");
 
     let error = resolve_for_request()
         .await
@@ -687,7 +691,7 @@ async fn resolve_for_request_maps_illegal_success_response_to_refresh_failed() {
 [logging]
 level = "debug"
 
-[llm.providers.chatgpt.auth]
+[llm.providers.chatgpt.settings]
 issuer = "{}"
 "#,
         server.url("")
@@ -746,7 +750,7 @@ async fn resolve_for_request_rejects_refresh_without_new_id_token_when_old_one_i
 [logging]
 level = "debug"
 
-[llm.providers.chatgpt.auth]
+[llm.providers.chatgpt.settings]
 issuer = "{}"
 "#,
         server.url("")
@@ -811,7 +815,7 @@ async fn resolve_for_request_rejects_refresh_with_already_expired_access_token()
 [logging]
 level = "debug"
 
-[llm.providers.chatgpt.auth]
+[llm.providers.chatgpt.settings]
 issuer = "{}"
 "#,
         server.url("")
@@ -883,7 +887,7 @@ async fn resolve_for_request_maps_unauthorized_refresh_to_reauthentication_requi
 [logging]
 level = "debug"
 
-[llm.providers.chatgpt.auth]
+[llm.providers.chatgpt.settings]
 issuer = "{}"
 "#,
         server.url("")
@@ -941,7 +945,7 @@ async fn resolve_for_request_maps_invalid_grant_refresh_to_reauthentication_requ
 [logging]
 level = "debug"
 
-[llm.providers.chatgpt.auth]
+[llm.providers.chatgpt.settings]
 issuer = "{}"
 "#,
         server.url("")
@@ -996,7 +1000,7 @@ async fn resolve_for_request_maps_http_200_error_payload_to_reauthentication_req
 [logging]
 level = "debug"
 
-[llm.providers.chatgpt.auth]
+[llm.providers.chatgpt.settings]
 issuer = "{}"
 "#,
         server.url("")
@@ -1053,7 +1057,7 @@ async fn resolve_for_request_maps_plain_unauthorized_refresh_to_refresh_failed()
 [logging]
 level = "debug"
 
-[llm.providers.chatgpt.auth]
+[llm.providers.chatgpt.settings]
 issuer = "{}"
 "#,
         server.url("")
@@ -1097,7 +1101,7 @@ async fn resolve_for_request_rejects_workspace_mismatch() {
 [logging]
 level = "debug"
 
-[llm.providers.chatgpt.auth]
+[llm.providers.chatgpt.settings]
 issuer = "http://127.0.0.1:1"
 expected_workspace_id = "workspace-expected"
 "#,
@@ -1165,7 +1169,7 @@ async fn resolve_after_unauthorized_does_not_persist_workspace_mismatch_from_ref
 [logging]
 level = "debug"
 
-[llm.providers.chatgpt.auth]
+[llm.providers.chatgpt.settings]
 issuer = "{}"
 expected_workspace_id = "workspace-expected"
 "#,
@@ -1234,7 +1238,7 @@ async fn resolve_after_unauthorized_rejects_refresh_response_without_access_toke
 [logging]
 level = "debug"
 
-[llm.providers.chatgpt.auth]
+[llm.providers.chatgpt.settings]
 issuer = "{}"
 "#,
         server.url("")
@@ -1305,7 +1309,7 @@ async fn resolve_after_unauthorized_rejects_refresh_response_with_unchanged_acce
 [logging]
 level = "debug"
 
-[llm.providers.chatgpt.auth]
+[llm.providers.chatgpt.settings]
 issuer = "{}"
 "#,
         server.url("")
@@ -1362,7 +1366,7 @@ async fn resolve_for_request_returns_error_when_lock_file_cannot_be_created() {
 [logging]
 level = "debug"
 
-[llm.providers.chatgpt.auth]
+[llm.providers.chatgpt.settings]
 issuer = "http://127.0.0.1:1"
 "#,
     );
@@ -1377,25 +1381,23 @@ issuer = "http://127.0.0.1:1"
             "refresh-token",
         ),
     );
-    let selvedge_home = tempdir.path().join(".selvedge");
-    let lock_file_path = selvedge_home.join(".chatgpt-auth.lock");
-    let mut readonly_permissions = fs::metadata(&selvedge_home)
-        .expect("selvedge home metadata")
+    let auth_dir = tempdir.path().join(".selvedge/auth");
+    let lock_file_path = auth_dir.join(".chatgpt-auth.lock");
+    let mut readonly_permissions = fs::metadata(&auth_dir)
+        .expect("auth dir metadata")
         .permissions();
     readonly_permissions.set_mode(0o500);
-    fs::set_permissions(&selvedge_home, readonly_permissions)
-        .expect("make selvedge home read-only");
+    fs::set_permissions(&auth_dir, readonly_permissions).expect("make auth dir read-only");
 
     let error = resolve_for_request()
         .await
         .expect_err("lock creation failure must return an error");
 
-    let mut restored_permissions = fs::metadata(&selvedge_home)
-        .expect("selvedge home metadata")
+    let mut restored_permissions = fs::metadata(&auth_dir)
+        .expect("auth dir metadata")
         .permissions();
     restored_permissions.set_mode(0o700);
-    fs::set_permissions(&selvedge_home, restored_permissions)
-        .expect("restore selvedge home permissions");
+    fs::set_permissions(&auth_dir, restored_permissions).expect("restore auth dir permissions");
 
     // @verifies selvedge.auth
     assert!(!lock_file_path.exists());
@@ -1444,7 +1446,7 @@ async fn resolve_for_request_preserves_original_file_when_persist_fails() {
 [logging]
 level = "debug"
 
-[llm.providers.chatgpt.auth]
+[llm.providers.chatgpt.settings]
 issuer = "{}"
 "#,
         server.url("")
@@ -1536,7 +1538,7 @@ async fn concurrent_calls_refresh_once_for_same_auth_file() {
 [logging]
 level = "debug"
 
-[llm.providers.chatgpt.auth]
+[llm.providers.chatgpt.settings]
 issuer = "{}"
 "#,
         server.url("")
@@ -1628,7 +1630,7 @@ async fn forced_refresh_reuses_file_repaired_by_waiting_nonforced_refresh() {
 [logging]
 level = "debug"
 
-[llm.providers.chatgpt.auth]
+[llm.providers.chatgpt.settings]
 issuer = "{}"
 "#,
         server.url("")
@@ -1704,7 +1706,7 @@ async fn concurrent_forced_refresh_calls_reuse_first_persisted_result() {
 [logging]
 level = "debug"
 
-[llm.providers.chatgpt.auth]
+[llm.providers.chatgpt.settings]
 issuer = "{}"
 "#,
         server.url("")
@@ -1795,7 +1797,7 @@ async fn refresh_is_serialized_across_processes() {
 [logging]
 level = "debug"
 
-[llm.providers.chatgpt.auth]
+[llm.providers.chatgpt.settings]
 issuer = "{}"
 "#,
         server.url("")

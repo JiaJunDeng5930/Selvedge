@@ -148,9 +148,9 @@ flowchart TD
   Start -->|AppConfig::try_from receives TOML table| Decode
   Decode -->|all provided fields decode to known types| Defaults
   Decode -->|a field has wrong type or unknown structured shape| DecodeError
-  Defaults -->|all missing fields receive defaults| Validate
-  Validate -->|server, network, logging, feature, llm, ChatGPT auth, and ChatGPT API invariants hold| Ready
-  Validate -->|port, timeout, URL, log filter, percentage, issuer, client id, or provider setting violates invariant| ValidationError
+  Defaults -->|all missing fields receive defaults and the LLM provider map defaults to empty| Validate
+  Validate -->|server, network, logging, feature, provider id, provider base URL, provider timeout, and explicit model invariants hold| Ready
+  Validate -->|port, timeout, URL, log filter, percentage, provider id, explicit model, or provider setting violates invariant| ValidationError
   Start -->|caller decodes update value for a config path| PatchInput
   PatchInput -->|path and value decode for target field| PatchValidate
   PatchInput -->|path is unknown or value type is invalid| DecodeError

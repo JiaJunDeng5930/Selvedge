@@ -11,11 +11,13 @@ fn parse_auth_file_reads_valid_contract() {
         br#"{
             "schema_version": 1,
             "provider": "chatgpt",
-            "login_method": "device_code",
-            "tokens": {
-                "id_token": "id-token",
-                "access_token": "access-token",
-                "refresh_token": "refresh-token"
+            "credential_kind": "login",
+            "payload": {
+                "tokens": {
+                    "id_token": "id-token",
+                    "access_token": "access-token",
+                    "refresh_token": "refresh-token"
+                }
             }
         }"#,
     )
@@ -26,7 +28,7 @@ fn parse_auth_file_reads_valid_contract() {
     // @verifies selvedge.auth
     assert_eq!(parsed.provider, "chatgpt");
     // @verifies selvedge.auth
-    assert_eq!(parsed.login_method, "device_code");
+    assert_eq!(parsed.credential_kind, "login");
     // @verifies selvedge.auth
     assert_eq!(parsed.tokens.id_token, "id-token");
 }
@@ -38,10 +40,12 @@ fn parse_auth_file_rejects_missing_required_token_field() {
         br#"{
             "schema_version": 1,
             "provider": "chatgpt",
-            "login_method": "device_code",
-            "tokens": {
-                "id_token": "id-token",
-                "access_token": "access-token"
+            "credential_kind": "login",
+            "payload": {
+                "tokens": {
+                    "id_token": "id-token",
+                    "access_token": "access-token"
+                }
             }
         }"#,
     )
@@ -63,11 +67,13 @@ fn parse_auth_file_rejects_unsupported_schema_version() {
         br#"{
             "schema_version": 2,
             "provider": "chatgpt",
-            "login_method": "device_code",
-            "tokens": {
-                "id_token": "id-token",
-                "access_token": "access-token",
-                "refresh_token": "refresh-token"
+            "credential_kind": "login",
+            "payload": {
+                "tokens": {
+                    "id_token": "id-token",
+                    "access_token": "access-token",
+                    "refresh_token": "refresh-token"
+                }
             }
         }"#,
     )

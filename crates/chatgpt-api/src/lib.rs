@@ -14,10 +14,22 @@ use http::{HeaderMap, HeaderValue, StatusCode};
 use serde_json::Value;
 use tokio::{sync::mpsc, task::JoinHandle};
 
+const DEFAULT_CHATGPT_BASE_URL: &str = "https://chatgpt.com/backend-api/codex";
+const DEFAULT_CHATGPT_STREAM_COMPLETION_TIMEOUT_MS: u64 = 1_800_000;
+
 // @behavior selvedge.model.chatgpt.event.verify_surface ChatGPT API callers observe request validation, HTTP stream opening, typed response events, endpoint errors, and public data shapes.
 // @behavior selvedge.model.chatgpt.api ChatGPT API callers observe request validation, authenticated `/responses` streaming, typed response events, endpoint errors, and public data shapes.
 // @intent selvedge.model.chatgpt.api.json_object Public JSON object aliases expose raw ChatGPT payload objects without tying callers to serde_json map spelling.
 pub type JsonObject = serde_json::Map<String, Value>;
+
+// @behavior selvedge.model.chatgpt.api.config ChatGPT API config reads provider-map base URL and timeout overrides while keeping adapter defaults local to the ChatGPT adapter.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ChatgptApiConfig {
+    // @behavior selvedge.model.chatgpt.api.config.base_url ChatGPT API config exposes the upstream `/responses` base URL used by the adapter.
+    pub base_url: String,
+    // @behavior selvedge.model.chatgpt.api.config.stream_timeout ChatGPT API config exposes the stream completion timeout used after the upstream stream opens.
+    pub stream_completion_timeout_ms: u64,
+}
 
 // @behavior selvedge.model.chatgpt.api.stream Starting a ChatGPT response stream validates the request, reads current API config, opens the upstream stream, and returns a typed event stream.
 pub async fn stream(
@@ -29,7 +41,7 @@ pub async fn stream(
         .map_err(ChatgptApiLowerLayerError::InvalidInput)
         .map_err(ChatgptApiError::LowerLayer)?;
 
-    let api_config = selvedge_config::read(|config| config.llm.providers.chatgpt.api.clone())
+    let api_config = selvedge_config::read(chatgpt_api_config_from_app_config)
         // @behavior selvedge.model.chatgpt.api.stream.config Stream startup reads the current ChatGPT API config and returns config errors before opening HTTP streams.
         .map_err(ChatgptApiLowerLayerError::Config)
         .map_err(ChatgptApiError::LowerLayer)?;
@@ -61,7 +73,7 @@ pub async fn stream(
 // @behavior selvedge.model.chatgpt.api.open ChatGPT stream opening resolves auth, builds `/responses`, retries bounded pre-stream failures, and returns an event-stream response.
 async fn open_response_stream(
     request: &ChatgptResponsesRequest,
-    api_config: &selvedge_config_model::ChatgptApiConfig,
+    api_config: &ChatgptApiConfig,
 ) -> Result<selvedge_client::HttpStreamResponse, ChatgptApiError> {
     let mut auth = chatgpt_auth::resolve_for_request()
         .await
@@ -106,6 +118,21 @@ async fn open_response_stream(
                 ));
             }
         }
+    }
+}
+
+// @behavior selvedge.model.chatgpt.api.config.resolve ChatGPT API config resolution reads ChatGPT provider-map overrides and fills adapter-owned defaults.
+fn chatgpt_api_config_from_app_config(
+    config: &selvedge_config_model::AppConfig,
+) -> ChatgptApiConfig {
+    let provider = config.llm.providers.get("chatgpt");
+    ChatgptApiConfig {
+        base_url: provider
+            .and_then(|provider| provider.base_url.clone())
+            .unwrap_or_else(|| DEFAULT_CHATGPT_BASE_URL.to_owned()),
+        stream_completion_timeout_ms: provider
+            .and_then(|provider| provider.stream_completion_timeout_ms)
+            .unwrap_or(DEFAULT_CHATGPT_STREAM_COMPLETION_TIMEOUT_MS),
     }
 }
 
@@ -1024,7 +1051,7 @@ fn required_array<'a>(
 fn build_http_request(
     request: &ChatgptResponsesRequest,
     auth: &chatgpt_auth::ResolvedChatgptAuth,
-    api_config: &selvedge_config_model::ChatgptApiConfig,
+    api_config: &ChatgptApiConfig,
 ) -> Result<selvedge_client::HttpRequest, RequestValidationError> {
     request.validate()?;
     validate_non_blank("auth.access_token", &auth.access_token)?;
@@ -1964,13 +1991,8 @@ pub struct ChatgptOtherEndpointError {
 mod tests {
     use std::time::Duration;
 
-    use chatgpt_auth::ResolvedChatgptAuth;
-    use http::{HeaderMap, HeaderValue, StatusCode};
-    use selvedge_client::{HttpMethod, HttpRequestBody, RequestCompression};
-    use selvedge_config_model::ChatgptApiConfig;
-
     use super::{
-        ChatgptApiEndpointError, ChatgptApiError, ChatgptModelCapabilities,
+        ChatgptApiConfig, ChatgptApiEndpointError, ChatgptApiError, ChatgptModelCapabilities,
         ChatgptOtherEndpointError, ChatgptReasoningOptions, ChatgptRequestContext,
         ChatgptResponseEvent, ChatgptResponsesRequest, ChatgptServiceTier, ChatgptTextOptions,
         ContentItem, JsonObject, MessageItem, ReasoningItem, ResponseItem, TextVerbosity,
@@ -1978,6 +2000,9 @@ mod tests {
         failed_endpoint_event, is_retryable_client_error, map_stream_event,
         response_item_from_object, retry_delay_for_attempt, take_next_sse_frame,
     };
+    use chatgpt_auth::ResolvedChatgptAuth;
+    use http::{HeaderMap, HeaderValue, StatusCode};
+    use selvedge_client::{HttpMethod, HttpRequestBody, RequestCompression};
 
     fn base_request() -> ChatgptResponsesRequest {
         ChatgptResponsesRequest {

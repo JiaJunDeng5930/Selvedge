@@ -119,10 +119,10 @@ async fn stream_yields_events_and_updates_effective_turn_state() {
 [logging]
 level = "debug"
 
-[llm.providers.chatgpt.auth]
+[llm.providers.chatgpt.settings]
 issuer = "http://127.0.0.1:1"
 
-[llm.providers.chatgpt.api]
+[llm.providers.chatgpt]
 base_url = "{}"
 "#,
         api_server.url("")
@@ -261,10 +261,10 @@ async fn stream_reauthenticates_once_after_unauthorized() {
 [logging]
 level = "debug"
 
-[llm.providers.chatgpt.auth]
+[llm.providers.chatgpt.settings]
 issuer = "{}"
 
-[llm.providers.chatgpt.api]
+[llm.providers.chatgpt]
 base_url = "{}"
 "#,
         auth_server.url(""),
@@ -326,10 +326,10 @@ async fn stream_rejects_non_sse_response_heads() {
 [logging]
 level = "debug"
 
-[llm.providers.chatgpt.auth]
+[llm.providers.chatgpt.settings]
 issuer = "http://127.0.0.1:1"
 
-[llm.providers.chatgpt.api]
+[llm.providers.chatgpt]
 base_url = "{}"
 "#,
         api_server.url("")
@@ -394,10 +394,10 @@ async fn stream_reports_malformed_events() {
 [logging]
 level = "debug"
 
-[llm.providers.chatgpt.auth]
+[llm.providers.chatgpt.settings]
 issuer = "http://127.0.0.1:1"
 
-[llm.providers.chatgpt.api]
+[llm.providers.chatgpt]
 base_url = "{}"
 "#,
         api_server.url("")
@@ -468,10 +468,10 @@ async fn stream_maps_top_level_error_events_to_endpoint_errors() {
 [logging]
 level = "debug"
 
-[llm.providers.chatgpt.auth]
+[llm.providers.chatgpt.settings]
 issuer = "http://127.0.0.1:1"
 
-[llm.providers.chatgpt.api]
+[llm.providers.chatgpt]
 base_url = "{}"
 "#,
         api_server.url("")
@@ -542,10 +542,10 @@ async fn stream_reports_premature_close_for_unknown_final_event_at_eof() {
 [logging]
 level = "debug"
 
-[llm.providers.chatgpt.auth]
+[llm.providers.chatgpt.settings]
 issuer = "http://127.0.0.1:1"
 
-[llm.providers.chatgpt.api]
+[llm.providers.chatgpt]
 base_url = "{}"
 "#,
         api_server.url("")
@@ -622,10 +622,10 @@ async fn stream_reports_premature_close_for_delimited_unknown_final_event() {
 [logging]
 level = "debug"
 
-[llm.providers.chatgpt.auth]
+[llm.providers.chatgpt.settings]
 issuer = "http://127.0.0.1:1"
 
-[llm.providers.chatgpt.api]
+[llm.providers.chatgpt]
 base_url = "{}"
 "#,
         api_server.url("")
@@ -703,10 +703,10 @@ async fn stream_reports_completion_timeout() {
 [logging]
 level = "debug"
 
-[llm.providers.chatgpt.auth]
+[llm.providers.chatgpt.settings]
 issuer = "http://127.0.0.1:1"
 
-[llm.providers.chatgpt.api]
+[llm.providers.chatgpt]
 base_url = "{}"
 stream_completion_timeout_ms = 10
 "#,
@@ -788,10 +788,10 @@ async fn stream_reports_premature_close_for_done_event_at_eof_without_trailing_b
 [logging]
 level = "debug"
 
-[llm.providers.chatgpt.auth]
+[llm.providers.chatgpt.settings]
 issuer = "http://127.0.0.1:1"
 
-[llm.providers.chatgpt.api]
+[llm.providers.chatgpt]
 base_url = "{}"
 "#,
         api_server.url("")
@@ -875,10 +875,10 @@ async fn stream_reports_premature_close_after_comment_only_final_frame_at_eof() 
 [logging]
 level = "debug"
 
-[llm.providers.chatgpt.auth]
+[llm.providers.chatgpt.settings]
 issuer = "http://127.0.0.1:1"
 
-[llm.providers.chatgpt.api]
+[llm.providers.chatgpt]
 base_url = "{}"
 "#,
         api_server.url("")
@@ -959,10 +959,10 @@ async fn stream_reports_premature_close_after_non_terminal_final_frame_at_eof() 
 [logging]
 level = "debug"
 
-[llm.providers.chatgpt.auth]
+[llm.providers.chatgpt.settings]
 issuer = "http://127.0.0.1:1"
 
-[llm.providers.chatgpt.api]
+[llm.providers.chatgpt]
 base_url = "{}"
 "#,
         api_server.url("")
@@ -1049,10 +1049,10 @@ async fn stream_reports_timeout_after_channel_backpressure() {
 [logging]
 level = "debug"
 
-[llm.providers.chatgpt.auth]
+[llm.providers.chatgpt.settings]
 issuer = "http://127.0.0.1:1"
 
-[llm.providers.chatgpt.api]
+[llm.providers.chatgpt]
 base_url = "{}"
 stream_completion_timeout_ms = 10
 "#,
@@ -1143,10 +1143,10 @@ level = "debug"
 [network]
 request_timeout_ms = 5
 
-[llm.providers.chatgpt.auth]
+[llm.providers.chatgpt.settings]
 issuer = "http://127.0.0.1:1"
 
-[llm.providers.chatgpt.api]
+[llm.providers.chatgpt]
 base_url = "{}"
 stream_completion_timeout_ms = 100
 "#,

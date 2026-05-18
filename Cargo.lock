@@ -274,6 +274,8 @@ dependencies = [
  "serde_json",
  "tempfile",
  "tokio",
+ "toml",
+ "url",
 ]
 
 [[package]]
@@ -293,6 +295,8 @@ dependencies = [
  "serde_json",
  "tempfile",
  "tokio",
+ "toml",
+ "url",
 ]
 
 [[package]]
@@ -1518,6 +1522,7 @@ dependencies = [
  "selvedge-local-client",
  "selvedge-local-protocol",
  "selvedge-logging",
+ "selvedge-model-providers",
  "selvedge-router",
  "selvedge-server",
  "selvedge-systemd",
@@ -1541,6 +1546,7 @@ dependencies = [
  "selvedge-config",
  "selvedge-domain-model",
  "selvedge-logging",
+ "selvedge-model-providers",
  "selvedge-test-support",
  "serde_json",
  "tempfile",
@@ -1677,6 +1683,31 @@ dependencies = [
  "selvedge-config",
  "selvedge-config-model",
  "tempfile",
+]
+
+[[package]]
+name = "selvedge-model-credentials"
+version = "0.0.0"
+dependencies = [
+ "fs2",
+ "selvedge-config",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+ "tokio",
+]
+
+[[package]]
+name = "selvedge-model-providers"
+version = "0.0.0"
+dependencies = [
+ "selvedge-config-model",
+ "selvedge-model-credentials",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+ "tokio",
 ]
 
 [[package]]

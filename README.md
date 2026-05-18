@@ -64,6 +64,7 @@ flowchart TD
   Command{parsed command}
   RunServer[Run local server]
   Submit[Submit command to local server]
+  WaitTerminal[Wait for terminal notice]
   Success[Exit code 0]
   Interrupted[Exit code 130]
   Failure[Exit code 1]
@@ -81,8 +82,11 @@ flowchart TD
   RunServer -->|server startup and run complete successfully| Success
   RunServer -->|server startup, runtime, or dependency fails| Failure
   RunServer -->|interruption is reported by CLI execution| Interrupted
-  Submit -->|local client connects, readiness succeeds, and command is accepted| Success
+  Submit -->|local client connects, readiness succeeds, and router-backed command is accepted| Success
+  Submit -->|server-owned command such as list-models is accepted| WaitTerminal
   Submit -->|local client connection, readiness, command rejection, or server wait fails| Failure
+  WaitTerminal -->|matching CommandCompleted notice arrives| Success
+  WaitTerminal -->|matching CommandFailed notice, stream close, or protocol error arrives| Failure
 ```
 
 ## Parallel development with worktrees

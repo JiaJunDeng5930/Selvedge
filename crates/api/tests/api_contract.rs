@@ -80,10 +80,10 @@ async fn chatgpt_provider_name_routes_to_chatgpt_api_and_sends_success() {
 
     let tempdir = init_api_test(&format!(
         r#"
-[llm.providers.chatgpt.auth]
+[llm.providers.chatgpt.settings]
 issuer = "http://127.0.0.1:1"
 
-[llm.providers.chatgpt.api]
+[llm.providers.chatgpt]
 base_url = "{}"
 "#,
         api_server.url("")
@@ -209,10 +209,10 @@ async fn chatgpt_dispatch_preserves_tool_history_items_and_text_preference() {
 
     let tempdir = init_api_test(&format!(
         r#"
-[llm.providers.chatgpt.auth]
+[llm.providers.chatgpt.settings]
 issuer = "http://127.0.0.1:1"
 
-[llm.providers.chatgpt.api]
+[llm.providers.chatgpt]
 base_url = "{}"
 "#,
         api_server.url("")
@@ -382,10 +382,10 @@ async fn chatgpt_max_output_tokens_incomplete_returns_length_reply() {
 
     let tempdir = init_api_test(&format!(
         r#"
-[llm.providers.chatgpt.auth]
+[llm.providers.chatgpt.settings]
 issuer = "http://127.0.0.1:1"
 
-[llm.providers.chatgpt.api]
+[llm.providers.chatgpt]
 base_url = "{}"
 "#,
         api_server.url("")
@@ -464,10 +464,10 @@ async fn chatgpt_imprecise_integer_tool_argument_sends_provider_response_failure
 
     let tempdir = init_api_test(&format!(
         r#"
-[llm.providers.chatgpt.auth]
+[llm.providers.chatgpt.settings]
 issuer = "http://127.0.0.1:1"
 
-[llm.providers.chatgpt.api]
+[llm.providers.chatgpt]
 base_url = "{}"
 "#,
         api_server.url("")
@@ -523,7 +523,7 @@ async fn unsupported_provider_name_sends_provider_request_failure_without_extern
     )
     .await;
 
-    // @verifies selvedge.model.dispatch.unsupported
+    // @verifies selvedge.model.dispatch.unknown_provider
     assert_eq!(status, ApiCallTerminalStatus::OutputSent);
     let message = router_rx.recv().await.expect("router message");
 

@@ -39,7 +39,7 @@ async fn start_device_code_login_returns_challenge_from_provider_response() {
 [logging]
 level = "debug"
 
-[llm.providers.chatgpt.auth]
+[llm.providers.chatgpt.settings]
 issuer = "{}"
 "#,
         server.url("")
@@ -94,7 +94,7 @@ async fn poll_device_code_login_returns_pending_for_forbidden_response() {
 [logging]
 level = "debug"
 
-[llm.providers.chatgpt.auth]
+[llm.providers.chatgpt.settings]
 issuer = "{}"
 "#,
         server.url("")
@@ -152,7 +152,7 @@ async fn poll_device_code_login_returns_authorization_from_success_response() {
 [logging]
 level = "debug"
 
-[llm.providers.chatgpt.auth]
+[llm.providers.chatgpt.settings]
 issuer = "{}"
 "#,
         server.url("")
@@ -205,7 +205,7 @@ async fn start_device_code_login_returns_unsupported_for_not_found() {
 [logging]
 level = "debug"
 
-[llm.providers.chatgpt.auth]
+[llm.providers.chatgpt.settings]
 issuer = "{}"
 "#,
         server.url("")
@@ -249,7 +249,7 @@ async fn start_device_code_login_rejects_invalid_success_body() {
 [logging]
 level = "debug"
 
-[llm.providers.chatgpt.auth]
+[llm.providers.chatgpt.settings]
 issuer = "{}"
 "#,
         server.url("")
@@ -297,7 +297,7 @@ async fn start_device_code_login_accepts_numeric_interval_values() {
 [logging]
 level = "debug"
 
-[llm.providers.chatgpt.auth]
+[llm.providers.chatgpt.settings]
 issuer = "{}"
 "#,
         server.url("")
@@ -342,7 +342,7 @@ async fn start_device_code_login_normalizes_trailing_slash_in_issuer() {
 [logging]
 level = "debug"
 
-[llm.providers.chatgpt.auth]
+[llm.providers.chatgpt.settings]
 issuer = "{}/"
 "#,
         server.url("")
@@ -390,7 +390,7 @@ async fn start_device_code_login_rejects_zero_second_interval() {
 [logging]
 level = "debug"
 
-[llm.providers.chatgpt.auth]
+[llm.providers.chatgpt.settings]
 issuer = "{}"
 "#,
         server.url("")
@@ -470,7 +470,7 @@ async fn poll_device_code_login_returns_pending_for_not_found_response() {
 [logging]
 level = "debug"
 
-[llm.providers.chatgpt.auth]
+[llm.providers.chatgpt.settings]
 issuer = "{}"
 "#,
         server.url("")

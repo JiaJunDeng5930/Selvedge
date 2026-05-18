@@ -14,9 +14,10 @@ It exposes:
 - `parse_auth_file(...)`
 - `parse_chatgpt_jwt_claims(...)`
 
-The crate reads ChatGPT auth config fresh for every call through
+The crate reads ChatGPT provider settings fresh for every call through
 `selvedge_config`, uses `selvedge_client` for refresh HTTP requests, and reads
-or atomically updates `<selvedge_home>/auth/chatgpt-auth.json`.
+or atomically updates the `chatgpt` login credential record at
+`<selvedge_home>/auth/model-providers/chatgpt.json`.
 
 ## Package State Machine
 
@@ -25,16 +26,16 @@ The diagram records the package-level observable states and transition paths. Ea
 ```mermaid
 flowchart TD
   Start([resolve_for_request or resolve_after_unauthorized])
-  LoadConfig[Read ChatGPT auth config]
-  LoadHint[Read pre-lock auth snapshot for forced refresh]
-  Lock[Acquire auth file path lock]
-  LoadFile[Load auth file]
+  LoadConfig[Read ChatGPT provider settings]
+  LoadHint[Read pre-lock credential snapshot for forced refresh]
+  Lock[Acquire credential path lock]
+  LoadFile[Load credential record]
   ParseClaims[Parse id and access token claims]
   Decide{refresh condition}
   ReturnLocal[Return local credentials]
   Refresh[POST refresh request]
   Merge[Validate and merge refresh response tokens]
-  Persist[Atomically persist auth file]
+  Persist[Atomically persist credential record]
   ReturnRefreshed[Return refreshed credentials]
   ConfigError[Return config error]
   FileError[Return auth file parse or IO error]
@@ -49,7 +50,7 @@ flowchart TD
   LoadHint -->|call is resolve_for_request| Lock
   Lock -->|exclusive path lock acquired| LoadFile
   Lock -->|lock directory, open, or exclusive lock fails| LockError
-  LoadFile -->|auth JSON exists and required fields parse| ParseClaims
+  LoadFile -->|credential JSON exists and required fields parse| ParseClaims
   LoadFile -->|file missing, malformed JSON, unsupported schema, or required token field invalid| FileError
   ParseClaims -->|workspace claim conflicts with expected_workspace_id| WorkspaceError
   ParseClaims -->|claims parse and workspace is accepted| Decide

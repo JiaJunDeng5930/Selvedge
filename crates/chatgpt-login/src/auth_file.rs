@@ -11,9 +11,9 @@ use serde_json::json;
 use crate::{ChatgptLoginError, id_token::ParsedIdToken, token_exchange::TokenSet};
 
 // @behavior selvedge.login.auth_file Completed ChatGPT login persists provider tokens into the local ChatGPT auth file.
-// @behavior selvedge.login.auth_file.path Completed ChatGPT login writes auth state to `<selvedge_home>/auth/chatgpt-auth.json`.
+// @behavior selvedge.login.auth_file.path Completed ChatGPT login writes auth state to `<selvedge_home>/auth/model-providers/chatgpt.json`.
 pub(crate) fn auth_file_path(selvedge_home: &Path) -> PathBuf {
-    selvedge_home.join("auth/chatgpt-auth.json")
+    selvedge_home.join("auth/model-providers/chatgpt.json")
 }
 
 // @behavior selvedge.login.auth_file.persist Completed ChatGPT login persists the token set on a blocking task before returning success.
@@ -53,11 +53,13 @@ fn persist_blocking(target_path: &Path, token_set: &TokenSet) -> Result<(), Chat
     let payload = serde_json::to_vec(&json!({
         "schema_version": 1,
         "provider": "chatgpt",
-        "login_method": "device_code",
-        "tokens": {
-            "id_token": token_set.id_token,
-            "access_token": token_set.access_token,
-            "refresh_token": token_set.refresh_token,
+        "credential_kind": "login",
+        "payload": {
+            "tokens": {
+                "id_token": token_set.id_token,
+                "access_token": token_set.access_token,
+                "refresh_token": token_set.refresh_token,
+            }
         }
     }))
     // @behavior selvedge.login.auth_file.encode Persisting completed login reports serialization failures as persist failures with the target path.

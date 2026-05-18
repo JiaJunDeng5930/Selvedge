@@ -16,6 +16,8 @@ members = [
     "crates/logging",
     "crates/local-client",
     "crates/local-protocol",
+    "crates/model-credentials",
+    "crates/model-providers",
     "crates/router",
     "crates/server",
     "crates/systemd",
@@ -46,6 +48,7 @@ selvedge-domain-model = { path = "crates/domain-model" }
 selvedge-local-client = { path = "crates/local-client" }
 selvedge-local-protocol = { path = "crates/local-protocol" }
 selvedge-logging = { path = "crates/logging" }
+selvedge-model-providers = { path = "crates/model-providers" }
 selvedge-router = { path = "crates/router" }
 selvedge-server = { path = "crates/server" }
 selvedge-systemd = { path = "crates/systemd" }

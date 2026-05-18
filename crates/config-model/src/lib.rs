@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use toml::{Table, Value};
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 // @behavior selvedge.config.model.app The materialized application config exposes server, network, logging, feature, and LLM provider settings as typed fields.
 pub struct AppConfig {
     // @behavior selvedge.config.model.app.server AppConfig exposes materialized server settings to callers.
@@ -50,7 +50,7 @@ impl TryFrom<Table> for AppConfig {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 // @behavior selvedge.config.model.server The server config exposes the host, port, and request timeout used by callers.
 pub struct ServerConfig {
     // @behavior selvedge.config.model.server.host Server config exposes the configured bind host string.
@@ -82,7 +82,7 @@ impl ServerConfig {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 // @behavior selvedge.config.model.network The network config exposes optional transport settings without substituting transport fallback values.
 pub struct NetworkConfig {
     // @behavior selvedge.config.model.network.connect_timeout Network config exposes the optional connection timeout in milliseconds.
@@ -201,155 +201,180 @@ impl FeatureConfig {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 // @behavior selvedge.config.model.llm The LLM config exposes provider-specific settings to callers.
 pub struct LlmConfig {
-    // @behavior selvedge.config.model.llm.providers_field LLM config exposes provider settings.
-    pub providers: LlmProvidersConfig,
+    // @behavior selvedge.config.model.llm.providers_field LLM config exposes provider settings keyed by provider id.
+    pub providers: BTreeMap<String, LlmProviderConfig>,
 }
 
 impl LlmConfig {
     // @behavior selvedge.config.model.llm.valid LLM config validation returns provider validation errors as typed validation results.
     pub fn validate(&self) -> Result<(), ValidationError> {
-        self.providers.validate()
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-// @behavior selvedge.config.model.llm.providers The LLM providers config exposes ChatGPT provider settings.
-pub struct LlmProvidersConfig {
-    // @behavior selvedge.config.model.llm.providers.chatgpt LLM provider config exposes ChatGPT settings.
-    pub chatgpt: ChatgptConfig,
-}
-
-impl LlmProvidersConfig {
-    // @behavior selvedge.config.model.llm.providers.valid LLM provider validation returns ChatGPT provider validation errors as typed validation results.
-    pub fn validate(&self) -> Result<(), ValidationError> {
-        self.chatgpt.validate()
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-// @behavior selvedge.config.model.chatgpt The ChatGPT provider config exposes authentication and backend API settings.
-pub struct ChatgptConfig {
-    // @behavior selvedge.config.model.chatgpt.auth_field ChatGPT config exposes authentication settings.
-    pub auth: ChatgptAuthConfig,
-    // @behavior selvedge.config.model.chatgpt.api_field ChatGPT config exposes backend API settings.
-    pub api: ChatgptApiConfig,
-}
-
-impl ChatgptConfig {
-    // @behavior selvedge.config.model.chatgpt.valid ChatGPT config validation returns authentication or API validation errors as typed validation results.
-    pub fn validate(&self) -> Result<(), ValidationError> {
-        self.auth.validate().and_then(|_| self.api.validate())
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-// @behavior selvedge.config.model.chatgpt.auth ChatGPT auth config exposes issuer, client ID, and optional expected workspace ID.
-pub struct ChatgptAuthConfig {
-    // @behavior selvedge.config.model.chatgpt.auth.issuer ChatGPT auth config exposes the issuer base URL.
-    pub issuer: String,
-    // @behavior selvedge.config.model.chatgpt.auth.client_id ChatGPT auth config exposes the OAuth client ID.
-    pub client_id: String,
-    // @behavior selvedge.config.model.chatgpt.auth.expected_workspace_id ChatGPT auth config exposes the optional expected workspace ID.
-    pub expected_workspace_id: Option<String>,
-}
-
-impl ChatgptAuthConfig {
-    const DEFAULT_ISSUER: &'static str = "https://auth.openai.com";
-    const DEFAULT_CLIENT_ID: &'static str = "app_EMoamEEZ73f0CkXaXp7hrann";
-
-    // @constraint selvedge.config.model.chatgpt.auth.valid ChatGPT auth validation accepts only clean http or https issuer base URLs, nonblank client IDs, and nonblank workspace IDs when present.
-    pub fn validate(&self) -> Result<(), ValidationError> {
-        // @constraint selvedge.config.model.chatgpt.auth.valid.parse ChatGPT auth validation returns InvalidChatgptIssuer for unparsable issuer URLs.
-        let issuer =
-            url::Url::parse(&self.issuer).map_err(|_| ValidationError::InvalidChatgptIssuer)?;
-        ensure_explicit_authority(&self.issuer, &issuer, ValidationError::InvalidChatgptIssuer)?;
-
-        validate_base_url_scheme_and_authority(
-            &issuer,
-            ValidationError::InvalidChatgptIssuer,
-            ValidationError::ChatgptIssuerMustNotContainUserinfo,
-            ValidationError::ChatgptIssuerMustUseHttps,
-        )?;
-
-        // @constraint selvedge.config.model.chatgpt.auth.valid.base ChatGPT auth validation returns ChatgptIssuerMustBeBaseUrl for issuer paths, queries, or fragments.
-        let clean_path = issuer.path().is_empty() || issuer.path() == "/";
-        if !clean_path || issuer.query().is_some() || issuer.fragment().is_some() {
-            return Err(ValidationError::ChatgptIssuerMustBeBaseUrl);
+        for (provider_id, provider) in &self.providers {
+            validate_provider_id(provider_id)?;
+            provider.validate_for_provider(provider_id)?;
         }
-
-        // @constraint selvedge.config.model.chatgpt.auth.valid.client_id ChatGPT auth validation returns BlankChatgptClientId for blank client IDs.
-        if self.client_id.trim().is_empty() {
-            return Err(ValidationError::BlankChatgptClientId);
-        }
-
-        // @constraint selvedge.config.model.chatgpt.auth.valid.workspace ChatGPT auth validation returns BlankExpectedWorkspaceId for blank expected workspace IDs.
-        if self
-            .expected_workspace_id
-            .as_deref()
-            .is_some_and(|value| value.trim().is_empty())
-        {
-            return Err(ValidationError::BlankExpectedWorkspaceId);
-        }
-
         Ok(())
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-// @behavior selvedge.config.model.chatgpt.api ChatGPT API config exposes the backend base URL and stream completion timeout.
-pub struct ChatgptApiConfig {
-    // @behavior selvedge.config.model.chatgpt.api.base_url ChatGPT API config exposes the backend base URL.
-    pub base_url: String,
-    // @behavior selvedge.config.model.chatgpt.api.stream_timeout ChatGPT API config exposes the stream completion timeout in milliseconds.
-    pub stream_completion_timeout_ms: u64,
+#[derive(Debug, Clone, PartialEq, Serialize)]
+// @behavior selvedge.config.model.llm.provider LLM provider config exposes non-sensitive settings and manual model names for a provider id.
+pub struct LlmProviderConfig {
+    // @behavior selvedge.config.model.llm.provider.base_url Provider config may expose a non-sensitive provider base URL override.
+    pub base_url: Option<String>,
+    // @behavior selvedge.config.model.llm.provider.timeout Provider config may expose a nonzero provider stream completion timeout override.
+    pub stream_completion_timeout_ms: Option<u64>,
+    // @behavior selvedge.config.model.llm.provider.models Provider config exposes manually configured model names for providers whose models cannot be discovered or built in.
+    pub models: Vec<String>,
+    // @behavior selvedge.config.model.llm.provider.settings Provider config exposes non-sensitive provider-specific settings without storing credentials.
+    pub settings: BTreeMap<String, toml::Value>,
 }
 
-impl ChatgptApiConfig {
-    const DEFAULT_BASE_URL: &'static str = "https://chatgpt.com/backend-api/codex";
-    const DEFAULT_STREAM_COMPLETION_TIMEOUT_MS: u64 = 1_800_000;
-
-    // @constraint selvedge.config.model.chatgpt.api.valid ChatGPT API validation accepts only clean http or https base URLs without a responses suffix and nonzero stream completion timeout.
+impl LlmProviderConfig {
+    // @constraint selvedge.config.model.llm.provider.valid Standalone provider validation applies generic provider config limits before the provider id is known.
     pub fn validate(&self) -> Result<(), ValidationError> {
-        // @constraint selvedge.config.model.chatgpt.api.valid.parse ChatGPT API validation returns InvalidChatgptApiBaseUrl for unparsable base URLs.
-        let base_url = url::Url::parse(&self.base_url)
-            .map_err(|_| ValidationError::InvalidChatgptApiBaseUrl)?;
-        ensure_explicit_authority(
-            &self.base_url,
-            &base_url,
-            ValidationError::InvalidChatgptApiBaseUrl,
-        )?;
-
-        validate_base_url_scheme_and_authority(
-            &base_url,
-            ValidationError::InvalidChatgptApiBaseUrl,
-            ValidationError::ChatgptApiBaseUrlMustNotContainUserinfo,
-            ValidationError::ChatgptApiBaseUrlMustUseHttps,
-        )?;
-
-        // @constraint selvedge.config.model.chatgpt.api.valid.query_fragment ChatGPT API validation returns ChatgptApiBaseUrlMustBeBaseUrl for query or fragment values.
-        if base_url.query().is_some() || base_url.fragment().is_some() {
-            return Err(ValidationError::ChatgptApiBaseUrlMustBeBaseUrl);
-        }
-
-        // @constraint selvedge.config.model.chatgpt.api.valid.responses_path ChatGPT API validation returns ChatgptApiBaseUrlMustBeBaseUrl for base URLs ending in responses.
-        if base_url
-            .path()
-            .trim_end_matches('/')
-            .ends_with("/responses")
-        {
-            return Err(ValidationError::ChatgptApiBaseUrlMustBeBaseUrl);
-        }
-
-        // @constraint selvedge.config.model.chatgpt.api.valid.timeout ChatGPT API validation returns InvalidChatgptApiStreamCompletionTimeout for timeout zero.
-        if self.stream_completion_timeout_ms == 0 {
-            return Err(ValidationError::InvalidChatgptApiStreamCompletionTimeout);
-        }
-
-        Ok(())
+        self.validate_for_provider("<provider>")
     }
+
+    // @constraint selvedge.config.model.llm.provider.valid_for_provider Provider validation applies base URL, timeout, model list, and settings limits to a concrete provider id.
+    fn validate_for_provider(&self, provider_id: &str) -> Result<(), ValidationError> {
+        if let Some(base_url) = &self.base_url {
+            validate_provider_base_url(provider_id, base_url)?;
+        }
+
+        if self.stream_completion_timeout_ms == Some(0) {
+            // @constraint selvedge.config.model.llm.provider.timeout.nonzero Provider stream completion timeout validation rejects zero values.
+            return Err(ValidationError::InvalidProviderStreamCompletionTimeout {
+                provider_id: provider_id.to_owned(),
+            });
+        }
+
+        let mut seen_models = std::collections::BTreeSet::new();
+        for model in &self.models {
+            if model.trim().is_empty() {
+                // @constraint selvedge.config.model.llm.provider.models.nonblank Provider model list validation rejects blank names.
+                return Err(ValidationError::BlankProviderModel {
+                    provider_id: provider_id.to_owned(),
+                });
+            }
+            if !seen_models.insert(model) {
+                // @constraint selvedge.config.model.llm.provider.models.unique Provider model list validation rejects duplicate names.
+                return Err(ValidationError::DuplicateProviderModel {
+                    provider_id: provider_id.to_owned(),
+                    model: model.clone(),
+                });
+            }
+        }
+
+        validate_settings_table(provider_id, &self.settings)
+    }
+}
+
+// @constraint selvedge.config.model.llm.provider_id Provider ids are validated for nonblank path-safe spelling before provider-map entries are accepted.
+fn validate_provider_id(provider_id: &str) -> Result<(), ValidationError> {
+    if provider_id.trim().is_empty() {
+        // @constraint selvedge.config.model.llm.provider_id.nonblank Provider ids must contain visible characters.
+        return Err(ValidationError::InvalidProviderId {
+            provider_id: provider_id.to_owned(),
+        });
+    }
+
+    for byte in provider_id.bytes() {
+        let allowed = byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b'_');
+        if !allowed {
+            // @constraint selvedge.config.model.llm.provider_id.path_safe Provider ids must use ASCII alphanumeric characters, dots, hyphens, or underscores.
+            return Err(ValidationError::InvalidProviderId {
+                provider_id: provider_id.to_owned(),
+            });
+        }
+    }
+
+    Ok(())
+}
+
+// @constraint selvedge.config.model.llm.provider.base_url.valid Provider base URL validation accepts clean http or https URLs with explicit authorities.
+fn validate_provider_base_url(provider_id: &str, raw_url: &str) -> Result<(), ValidationError> {
+    let base_url =
+        url::Url::parse(raw_url).map_err(|_| ValidationError::InvalidProviderBaseUrl {
+            provider_id: provider_id.to_owned(),
+        })?;
+    ensure_explicit_authority(
+        raw_url,
+        &base_url,
+        ValidationError::InvalidProviderBaseUrl {
+            provider_id: provider_id.to_owned(),
+        },
+    )?;
+
+    validate_base_url_scheme_and_authority(
+        &base_url,
+        ValidationError::InvalidProviderBaseUrl {
+            provider_id: provider_id.to_owned(),
+        },
+        ValidationError::ProviderBaseUrlMustNotContainUserinfo {
+            provider_id: provider_id.to_owned(),
+        },
+        ValidationError::ProviderBaseUrlMustUseHttps {
+            provider_id: provider_id.to_owned(),
+        },
+    )?;
+
+    if base_url.query().is_some() || base_url.fragment().is_some() {
+        // @constraint selvedge.config.model.llm.provider.base_url.base_shape Provider base URL validation rejects query strings and fragments.
+        return Err(ValidationError::ProviderBaseUrlMustBeBaseUrl {
+            provider_id: provider_id.to_owned(),
+        });
+    }
+
+    Ok(())
+}
+
+// @constraint selvedge.config.model.llm.provider.settings.valid Provider settings validation applies key and value limits recursively.
+fn validate_settings_table(
+    provider_id: &str,
+    settings: &BTreeMap<String, toml::Value>,
+) -> Result<(), ValidationError> {
+    for (key, value) in settings {
+        validate_setting_key(provider_id, key)?;
+        validate_setting_value(provider_id, value)?;
+    }
+    Ok(())
+}
+
+fn validate_setting_key(provider_id: &str, key: &str) -> Result<(), ValidationError> {
+    if key.trim().is_empty() {
+        // @constraint selvedge.config.model.llm.provider.settings.key Provider settings validation rejects blank setting keys.
+        return Err(ValidationError::InvalidProviderSetting {
+            provider_id: provider_id.to_owned(),
+            setting: key.to_owned(),
+        });
+    }
+    Ok(())
+}
+
+// @constraint selvedge.config.model.llm.provider.settings.value Provider settings validation accepts TOML scalar, array, and table values with valid nested keys.
+fn validate_setting_value(provider_id: &str, value: &toml::Value) -> Result<(), ValidationError> {
+    match value {
+        toml::Value::Table(table) => {
+            for (key, value) in table {
+                validate_setting_key(provider_id, key)?;
+                validate_setting_value(provider_id, value)?;
+            }
+        }
+        toml::Value::Array(values) => {
+            for value in values {
+                validate_setting_value(provider_id, value)?;
+            }
+        }
+        toml::Value::String(_)
+        | toml::Value::Integer(_)
+        | toml::Value::Float(_)
+        | toml::Value::Boolean(_)
+        | toml::Value::Datetime(_) => {}
+    }
+    Ok(())
 }
 
 // @constraint selvedge.config.model.url.scheme Configured ChatGPT URLs use http or https, omit userinfo, and use https for non-loopback hosts.
@@ -444,28 +469,29 @@ pub enum ValidationError {
     InvalidRolloutPercentage(u8),
     #[error("feature.rollout_percentage must be greater than zero when feature.enabled is true")]
     EnabledFeatureRequiresRollout,
-    #[error("llm.providers.chatgpt.auth.issuer must be an absolute http or https URL")]
-    InvalidChatgptIssuer,
-    #[error("llm.providers.chatgpt.auth.issuer must use https unless it targets a loopback host")]
-    ChatgptIssuerMustUseHttps,
-    #[error("llm.providers.chatgpt.auth.issuer must not contain userinfo")]
-    ChatgptIssuerMustNotContainUserinfo,
-    #[error("llm.providers.chatgpt.auth.issuer must be a clean base URL")]
-    ChatgptIssuerMustBeBaseUrl,
-    #[error("llm.providers.chatgpt.auth.client_id must not be blank")]
-    BlankChatgptClientId,
-    #[error("llm.providers.chatgpt.auth.expected_workspace_id must not be blank")]
-    BlankExpectedWorkspaceId,
-    #[error("llm.providers.chatgpt.api.base_url must be an absolute http or https URL")]
-    InvalidChatgptApiBaseUrl,
-    #[error("llm.providers.chatgpt.api.base_url must use https unless it targets a loopback host")]
-    ChatgptApiBaseUrlMustUseHttps,
-    #[error("llm.providers.chatgpt.api.base_url must not contain userinfo")]
-    ChatgptApiBaseUrlMustNotContainUserinfo,
-    #[error("llm.providers.chatgpt.api.base_url must be a clean base URL")]
-    ChatgptApiBaseUrlMustBeBaseUrl,
-    #[error("llm.providers.chatgpt.api.stream_completion_timeout_ms must be greater than zero")]
-    InvalidChatgptApiStreamCompletionTimeout,
+    #[error("llm.providers contains invalid provider id {provider_id:?}")]
+    InvalidProviderId { provider_id: String },
+    #[error("llm.providers.{provider_id}.base_url must be an absolute http or https URL")]
+    InvalidProviderBaseUrl { provider_id: String },
+    #[error(
+        "llm.providers.{provider_id}.base_url must use https unless it targets a loopback host"
+    )]
+    ProviderBaseUrlMustUseHttps { provider_id: String },
+    #[error("llm.providers.{provider_id}.base_url must not contain userinfo")]
+    ProviderBaseUrlMustNotContainUserinfo { provider_id: String },
+    #[error("llm.providers.{provider_id}.base_url must be a clean base URL")]
+    ProviderBaseUrlMustBeBaseUrl { provider_id: String },
+    #[error("llm.providers.{provider_id}.stream_completion_timeout_ms must be greater than zero")]
+    InvalidProviderStreamCompletionTimeout { provider_id: String },
+    #[error("llm.providers.{provider_id}.models must not contain blank model names")]
+    BlankProviderModel { provider_id: String },
+    #[error("llm.providers.{provider_id}.models contains duplicate model {model:?}")]
+    DuplicateProviderModel { provider_id: String, model: String },
+    #[error("llm.providers.{provider_id}.settings contains invalid setting key {setting:?}")]
+    InvalidProviderSetting {
+        provider_id: String,
+        setting: String,
+    },
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -585,94 +611,40 @@ impl FeatureConfigInput {
 #[serde(default, deny_unknown_fields)]
 // @intent selvedge.config.model.llm.input The LLM input layer accepts omitted provider sections before applying provider defaults.
 struct LlmConfigInput {
-    providers: LlmProvidersConfigInput,
+    providers: BTreeMap<String, LlmProviderConfigInput>,
 }
 
 impl LlmConfigInput {
-    // @behavior selvedge.config.model.llm.defaults Missing LLM input sections materialize through provider defaults.
+    // @behavior selvedge.config.model.llm.defaults Missing LLM input sections materialize to an empty provider map.
     fn materialize(self) -> LlmConfig {
         LlmConfig {
-            providers: self.providers.materialize(),
+            providers: self
+                .providers
+                .into_iter()
+                .map(|(provider_id, provider)| (provider_id, provider.materialize()))
+                .collect(),
         }
     }
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
-// @intent selvedge.config.model.llm.providers.input The LLM providers input layer accepts omitted ChatGPT provider settings before applying provider defaults.
-struct LlmProvidersConfigInput {
-    chatgpt: ChatgptConfigInput,
-}
-
-impl LlmProvidersConfigInput {
-    // @behavior selvedge.config.model.llm.providers.defaults Missing provider input sections materialize through ChatGPT defaults.
-    fn materialize(self) -> LlmProvidersConfig {
-        LlmProvidersConfig {
-            chatgpt: self.chatgpt.materialize(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Default, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-// @intent selvedge.config.model.chatgpt.input The ChatGPT input layer accepts omitted auth and API sections before applying ChatGPT defaults.
-struct ChatgptConfigInput {
-    auth: ChatgptAuthConfigInput,
-    api: ChatgptApiConfigInput,
-}
-
-impl ChatgptConfigInput {
-    // @behavior selvedge.config.model.chatgpt.defaults Missing ChatGPT input sections materialize through auth and API defaults.
-    fn materialize(self) -> ChatgptConfig {
-        ChatgptConfig {
-            auth: self.auth.materialize(),
-            api: self.api.materialize(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Default, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-// @intent selvedge.config.model.chatgpt.auth.input The ChatGPT auth input layer accepts omitted auth fields before applying auth defaults.
-struct ChatgptAuthConfigInput {
-    issuer: Option<String>,
-    client_id: Option<String>,
-    expected_workspace_id: Option<String>,
-}
-
-impl ChatgptAuthConfigInput {
-    // @behavior selvedge.config.model.chatgpt.auth.defaults Missing ChatGPT auth input fields materialize to the default issuer, default client ID, and no expected workspace ID.
-    fn materialize(self) -> ChatgptAuthConfig {
-        ChatgptAuthConfig {
-            issuer: self
-                .issuer
-                .unwrap_or_else(|| ChatgptAuthConfig::DEFAULT_ISSUER.to_owned()),
-            client_id: self
-                .client_id
-                .unwrap_or_else(|| ChatgptAuthConfig::DEFAULT_CLIENT_ID.to_owned()),
-            expected_workspace_id: self.expected_workspace_id,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Default, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-// @intent selvedge.config.model.chatgpt.api.input The ChatGPT API input layer accepts omitted API fields before applying API defaults.
-struct ChatgptApiConfigInput {
+// @intent selvedge.config.model.llm.provider.input The LLM provider input layer accepts partial non-sensitive provider settings before materializing a provider config.
+struct LlmProviderConfigInput {
     base_url: Option<String>,
     stream_completion_timeout_ms: Option<u64>,
+    models: Vec<String>,
+    settings: BTreeMap<String, toml::Value>,
 }
 
-impl ChatgptApiConfigInput {
-    // @behavior selvedge.config.model.chatgpt.api.defaults Missing ChatGPT API input fields materialize to the default backend base URL and 1800000 millisecond stream completion timeout.
-    fn materialize(self) -> ChatgptApiConfig {
-        ChatgptApiConfig {
-            base_url: self
-                .base_url
-                .unwrap_or_else(|| ChatgptApiConfig::DEFAULT_BASE_URL.to_owned()),
-            stream_completion_timeout_ms: self
-                .stream_completion_timeout_ms
-                .unwrap_or(ChatgptApiConfig::DEFAULT_STREAM_COMPLETION_TIMEOUT_MS),
+impl LlmProviderConfigInput {
+    // @behavior selvedge.config.model.llm.provider.defaults Missing provider input fields materialize to absent overrides, an empty manual model list, and empty settings.
+    fn materialize(self) -> LlmProviderConfig {
+        LlmProviderConfig {
+            base_url: self.base_url,
+            stream_completion_timeout_ms: self.stream_completion_timeout_ms,
+            models: self.models,
+            settings: self.settings,
         }
     }
 }
