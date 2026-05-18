@@ -3,7 +3,10 @@
 //! @behavior selvedge.model.dispatch.unknown_provider Unknown provider ids produce task-visible provider-request failures through registry dispatch validation.
 
 use std::collections::BTreeMap;
+use std::future::Future;
 use std::io::Write;
+use std::pin::Pin;
+use std::sync::Arc;
 use std::time::Duration;
 
 use chatgpt_api::{
@@ -24,6 +27,61 @@ use selvedge_domain_model::{
     ToolParameterType, validate_model_reply,
 };
 use selvedge_model_providers::{ProviderRegistryError, default_registry};
+
+// @intent selvedge.model.dispatch.adapter.future Provider adapter futures abstract asynchronous provider execution behind the dispatch registry.
+type ProviderAdapterFuture<'a> =
+    Pin<Box<dyn Future<Output = Result<ModelReply, ModelCallError>> + Send + 'a>>;
+
+// @intent selvedge.model.dispatch.adapter Provider adapters hide provider-specific request execution behind a registry lookup boundary.
+trait ProviderAdapter: Send + Sync {
+    // @behavior selvedge.model.dispatch.adapter.execute Provider adapters execute validated model dispatch requests and return unified model replies.
+    fn execute<'a>(
+        &'a self,
+        request: &'a ModelCallDispatchRequest,
+        config: &'a ApiExecutorConfig,
+    ) -> ProviderAdapterFuture<'a>;
+}
+
+// @intent selvedge.model.dispatch.adapter.registry.abstraction Provider adapter registries decouple provider id dispatch from provider-specific request execution.
+// @constraint selvedge.model.dispatch.adapter.registry The provider adapter registry maps provider ids to executable provider adapters.
+struct ProviderAdapterRegistry {
+    adapters: BTreeMap<&'static str, Arc<dyn ProviderAdapter>>,
+}
+
+impl ProviderAdapterRegistry {
+    // @intent selvedge.model.dispatch.adapter.registry.constructor Provider adapter registry construction provides an explicit adapter injection boundary for dispatch tests and defaults.
+    // @constraint selvedge.model.dispatch.adapter.registry.new Provider adapter registry construction stores executable adapters by provider id.
+    fn new(adapters: Vec<(&'static str, Arc<dyn ProviderAdapter>)>) -> Self {
+        Self {
+            adapters: adapters.into_iter().collect(),
+        }
+    }
+
+    // @intent selvedge.model.dispatch.adapter.registry.lookup_boundary Provider adapter lookup keeps provider id dispatch outside provider-specific request code.
+    // @behavior selvedge.model.dispatch.adapter.registry.lookup Provider adapter lookup returns the executable adapter registered for a provider id.
+    fn adapter(&self, provider_id: &str) -> Option<Arc<dyn ProviderAdapter>> {
+        self.adapters.get(provider_id).cloned()
+    }
+}
+
+// @intent selvedge.model.dispatch.adapter.chatgpt ChatGPT provider adapter binds the ChatGPT request implementation to the executable provider adapter boundary.
+struct ChatgptProviderAdapter;
+
+impl ProviderAdapter for ChatgptProviderAdapter {
+    // @behavior selvedge.model.dispatch.adapter.chatgpt.execute ChatGPT adapter execution delegates to the ChatGPT provider implementation.
+    fn execute<'a>(
+        &'a self,
+        request: &'a ModelCallDispatchRequest,
+        config: &'a ApiExecutorConfig,
+    ) -> ProviderAdapterFuture<'a> {
+        Box::pin(async move { call_chatgpt(request, config).await })
+    }
+}
+
+// @behavior selvedge.model.dispatch.adapter.default_registry The default provider adapter registry exposes executable adapters available in the current build.
+fn default_provider_adapter_registry() -> ProviderAdapterRegistry {
+    ProviderAdapterRegistry::new(vec![("chatgpt", Arc::new(ChatgptProviderAdapter))])
+}
 
 /// @behavior selvedge.model.config Model execution uses caller-supplied timeout and response-size policy for each task request.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -75,21 +133,19 @@ async fn run_model_call(
         return failure_envelope(request, map_provider_registry_error(error));
     }
 
-    let reply_result = match request.provider.provider_name.as_str() {
-        "chatgpt" => {
-            // @behavior selvedge.model.dispatch.timeout Provider calls that exceed the configured duration produce task-visible timeout failures.
-            tokio::time::timeout(config.request_timeout, call_chatgpt(&request, &config)).await
-        }
-        _ => {
-            return failure_envelope(
-                request,
-                model_call_error(
-                    ModelCallErrorKind::ProviderRequest,
-                    "provider is not supported",
-                ),
-            );
-        }
+    let adapter_registry = default_provider_adapter_registry();
+    let Some(adapter) = adapter_registry.adapter(&request.provider.provider_name) else {
+        return failure_envelope(
+            request,
+            model_call_error(
+                ModelCallErrorKind::ProviderRequest,
+                "provider adapter is not available",
+            ),
+        );
     };
+    // @behavior selvedge.model.dispatch.timeout Provider calls that exceed the configured duration produce task-visible timeout failures.
+    let reply_result =
+        tokio::time::timeout(config.request_timeout, adapter.execute(&request, &config)).await;
 
     // @behavior selvedge.model.dispatch.outcome Provider success, provider failure, and timeout each complete the task model run once.
     let reply = match reply_result {
@@ -882,8 +938,28 @@ impl std::io::Write for BoundedByteCounter {
 #[cfg(test)]
 mod tests {
     use std::io::Write;
+    use std::sync::Arc;
 
-    use super::BoundedByteCounter;
+    use super::{BoundedByteCounter, ProviderAdapterRegistry};
+
+    struct TestProviderAdapter;
+
+    impl super::ProviderAdapter for TestProviderAdapter {
+        fn execute<'a>(
+            &'a self,
+            _request: &'a selvedge_command_model::ModelCallDispatchRequest,
+            _config: &'a super::ApiExecutorConfig,
+        ) -> super::ProviderAdapterFuture<'a> {
+            Box::pin(async {
+                Ok(selvedge_domain_model::ModelReply {
+                    content: Some("ok".to_owned()),
+                    tool_calls: Vec::new(),
+                    usage: None,
+                    finish_reason: selvedge_domain_model::ModelFinishReason::Stop,
+                })
+            })
+        }
+    }
 
     #[test]
     fn bounded_byte_counter_errors_when_limit_is_exceeded() {
@@ -896,5 +972,16 @@ mod tests {
         assert!(counter.limit_exceeded());
         // @verifies selvedge.model.limit.write
         assert_eq!(error.kind(), std::io::ErrorKind::Other);
+    }
+
+    #[test]
+    fn provider_adapter_registry_resolves_registered_provider_id() {
+        let registry =
+            ProviderAdapterRegistry::new(vec![("test-provider", Arc::new(TestProviderAdapter))]);
+
+        // @verifies selvedge.model.dispatch.adapter.registry.lookup
+        assert!(registry.adapter("test-provider").is_some());
+        // @verifies selvedge.model.dispatch.adapter.registry.lookup
+        assert!(registry.adapter("missing-provider").is_none());
     }
 }
