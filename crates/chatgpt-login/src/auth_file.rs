@@ -1,11 +1,10 @@
 use std::{
     fs,
-    fs::OpenOptions,
     io::Write,
     path::{Path, PathBuf},
 };
 
-use fs2::FileExt;
+use selvedge_model_credentials::{CredentialLockGuard, ModelCredentialError};
 use serde_json::json;
 
 use crate::{ChatgptLoginError, id_token::ParsedIdToken, token_exchange::TokenSet};
@@ -21,6 +20,7 @@ pub(crate) async fn persist(
     target_path: &Path,
     token_set: &TokenSet,
 ) -> Result<(), ChatgptLoginError> {
+    let _lock_guard = acquire_auth_lock(target_path).await?;
     let target_path = target_path.to_path_buf();
     let token_set = token_set.clone();
     let persist_path = target_path.clone();
@@ -34,9 +34,8 @@ pub(crate) async fn persist(
         })?
 }
 
-// @behavior selvedge.login.auth_file.atomic Completed ChatGPT login writes the ChatGPT auth file atomically under the shared auth-file lock.
+// @behavior selvedge.login.auth_file.atomic Completed ChatGPT login writes the ChatGPT auth file atomically under the shared provider credential lock.
 fn persist_blocking(target_path: &Path, token_set: &TokenSet) -> Result<(), ChatgptLoginError> {
-    let _lock_file = acquire_auth_lock(target_path)?;
     let parent = target_path
         .parent()
         // @behavior selvedge.login.auth_file.parent Persisting completed login reports auth file paths without parent directories as persist failures.
@@ -95,49 +94,43 @@ fn persist_blocking(target_path: &Path, token_set: &TokenSet) -> Result<(), Chat
     Ok(())
 }
 
-// @behavior selvedge.login.auth_file.lock Completed ChatGPT login takes an exclusive auth-file lock before replacing stored credentials.
-fn acquire_auth_lock(target_path: &Path) -> Result<std::fs::File, ChatgptLoginError> {
-    let lock_path = lock_file_path(target_path);
-    let lock_parent = lock_path
-        .parent()
-        // @behavior selvedge.login.auth_file.lock_parent Auth file lock acquisition reports lock paths without parent directories as persist failures.
-        .ok_or_else(|| ChatgptLoginError::PersistFailed {
-            path: target_path.to_path_buf(),
-            reason: "lock file path must have a parent directory".to_owned(),
-        })?;
-    // @behavior selvedge.login.auth_file.lock_directory Auth file lock acquisition creates the lock directory or reports a persist failure.
-    fs::create_dir_all(lock_parent).map_err(|error| ChatgptLoginError::PersistFailed {
-        path: target_path.to_path_buf(),
-        reason: error.to_string(),
-    })?;
-    let lock_file = OpenOptions::new()
-        .create(true)
-        .truncate(false)
-        .read(true)
-        .write(true)
-        .open(&lock_path)
-        // @behavior selvedge.login.auth_file.lock_open Auth file lock acquisition reports lock file open failures as persist failures.
-        .map_err(|error| ChatgptLoginError::PersistFailed {
-            path: target_path.to_path_buf(),
-            reason: error.to_string(),
-        })?;
-
-    lock_file
-        .lock_exclusive()
-        // @behavior selvedge.login.auth_file.lock_exclusive Auth file lock acquisition reports exclusive lock failures as persist failures.
-        .map_err(|error| ChatgptLoginError::PersistFailed {
-            path: target_path.to_path_buf(),
-            reason: error.to_string(),
-        })?;
-
-    Ok(lock_file)
+// @behavior selvedge.login.auth_file.lock Completed ChatGPT login takes the shared ChatGPT provider credential lock before replacing stored credentials.
+async fn acquire_auth_lock(target_path: &Path) -> Result<CredentialLockGuard, ChatgptLoginError> {
+    let selvedge_home = selvedge_home_from_auth_file_path(target_path)?;
+    selvedge_model_credentials::lock_credential_from_home(&selvedge_home, "chatgpt")
+        .await
+        .map_err(|error| map_lock_error(error, target_path))
 }
 
-// @constraint selvedge.login.auth_file.lock_path Completed ChatGPT login uses `<selvedge_home>/.chatgpt-auth.lock` for normal auth file locations.
-fn lock_file_path(target_path: &Path) -> PathBuf {
-    match target_path.parent().and_then(Path::parent) {
-        Some(selvedge_home) => selvedge_home.join(".chatgpt-auth.lock"),
-        None => target_path.with_extension("lock"),
+// @constraint selvedge.login.auth_file.lock_path Completed ChatGPT login derives the Selvedge home from the provider credential path before locking.
+fn selvedge_home_from_auth_file_path(target_path: &Path) -> Result<PathBuf, ChatgptLoginError> {
+    target_path
+        .parent()
+        .and_then(Path::parent)
+        .and_then(Path::parent)
+        .map(Path::to_path_buf)
+        .ok_or_else(|| ChatgptLoginError::PersistFailed {
+            path: target_path.to_path_buf(),
+            reason: "auth file path must be under a Selvedge home".to_owned(),
+        })
+}
+
+// @behavior selvedge.login.auth_file.lock_error Completed ChatGPT login maps provider credential lock failures into auth file persist failures.
+fn map_lock_error(error: ModelCredentialError, target_path: &Path) -> ChatgptLoginError {
+    let reason = match error {
+        ModelCredentialError::Config(reason)
+        | ModelCredentialError::LockFailed { reason, .. }
+        | ModelCredentialError::ReadFailed { reason, .. }
+        | ModelCredentialError::WriteFailed { reason, .. }
+        | ModelCredentialError::InvalidRecord { reason } => reason,
+        ModelCredentialError::InvalidProviderId { provider_id } => {
+            format!("invalid credential provider id {provider_id:?}")
+        }
+    };
+
+    ChatgptLoginError::PersistFailed {
+        path: target_path.to_path_buf(),
+        reason,
     }
 }
 
