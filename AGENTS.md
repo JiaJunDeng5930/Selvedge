@@ -493,6 +493,7 @@ This file is for coding agents working in this repository.
 |selvedge.model.dispatch.adapter|selvedge.model.dispatch.adapter.{chatgpt,default_registry,execute,future,registry}
 |selvedge.model.dispatch.adapter.chatgpt|selvedge.model.dispatch.adapter.chatgpt.{execute}
 |selvedge.model.dispatch.adapter.registry|selvedge.model.dispatch.adapter.registry.{abstraction,constructor,lookup,lookup_boundary,new}
+|selvedge.model.dispatch.provider|selvedge.model.dispatch.provider.{adapter_unavailable}
 |selvedge.model.dispatch.provider_config|selvedge.model.dispatch.provider_config.{config_error,home_error}
 |selvedge.model.domain|selvedge.model.domain.{conversation,conversation_item,conversation_items,conversation_message,conversation_message_content,conversation_message_role,conversation_message_source,conversation_path,conversation_path_messages,finish_reason,function_call_id_type,history_node_id_type,ids,message_content,message_role,model_profile_key_type,model_reply,model_reply_content,model_reply_finish_reason,model_reply_tool_calls,model_reply_usage,provider_profile,provider_profile_max_output_tokens,provider_profile_model_name,provider_profile_provider_name,provider_profile_temperature,reasoning_effort,response_preference,structured_payload,task_id_type,token_usage,token_usage_input,token_usage_output,tool_argument_value,tool_call_argument,tool_call_argument_name,tool_call_argument_value,tool_call_proposal,tool_call_proposal_arguments,tool_call_proposal_call_id,tool_call_proposal_tool_name,tool_manifest,tool_manifest_tools,tool_name_type,tool_parameter,tool_parameter_description,tool_parameter_name_field,tool_parameter_name_type,tool_parameter_required,tool_parameter_type,tool_parameter_type_field,tool_spec,tool_spec_description,tool_spec_name,tool_spec_parameters,unix_ts_type,validation,validation_error}
 |selvedge.model.domain.validation|selvedge.model.domain.validation.{conversation,provider,reply,tools}
@@ -578,7 +579,7 @@ This file is for coding agents working in this repository.
 |selvedge.startup.server.event_delivery.detach_restore|selvedge.startup.server.event_delivery.detach_restore.{full,immediate,retry}
 |selvedge.startup.server.lifecycle|selvedge.startup.server.lifecycle.{coordinator,inner_effects,state}
 |selvedge.startup.server.lifecycle.state|selvedge.startup.server.lifecycle.state.{query}
-|selvedge.startup.server.local_operation|selvedge.startup.server.local_operation.{cancellation_registry,closing_attach_registry,command,dispatch,executor,executor_ref,executor_trait,failure,future,list,login,notice,progress,progress_sender,success,task}
+|selvedge.startup.server.local_operation|selvedge.startup.server.local_operation.{cancellation_registry,closing_attach_registry,command,dispatch,executor,executor_ref,executor_trait,failure,future,hydrated_attach_registry,list,login,notice,progress,progress_sender,success,task}
 |selvedge.startup.server.local_operation.executor|selvedge.startup.server.local_operation.executor.{execute}
 |selvedge.startup.server.local_operation.failure|selvedge.startup.server.local_operation.failure.{message}
 |selvedge.startup.server.local_operation.future|selvedge.startup.server.local_operation.future.{abstraction}
@@ -588,10 +589,12 @@ This file is for coding agents working in this repository.
 |selvedge.startup.server.local_operation.progress|selvedge.startup.server.local_operation.progress.{notice}
 |selvedge.startup.server.local_operation.progress_sender|selvedge.startup.server.local_operation.progress_sender.{abstraction}
 |selvedge.startup.server.local_operation.success|selvedge.startup.server.local_operation.success.{message}
-|selvedge.startup.server.local_operation.task|selvedge.startup.server.local_operation.task.{abort,attach_closed,cancel_attach,cancel_clear,cancel_clear_lock,cancel_lock,cancel_track,delivery_attach_closed,delivery_closed,failure,run,terminal,terminal_attach_closed,track}
+|selvedge.startup.server.local_operation.task|selvedge.startup.server.local_operation.task.{abort,attach_closed,cancel_attach,cancel_clear,cancel_clear_lock,cancel_lock,cancel_track,delivery_attach_closed,delivery_closed,failure,hydrated,hydrated_clear,run,terminal,terminal_attach_closed,track}
 |selvedge.startup.server.local_operation.task.cancel_attach|selvedge.startup.server.local_operation.task.cancel_attach.{clear_closing,closing,signal}
 |selvedge.startup.server.local_operation.task.cancel_attach.clear_closing|selvedge.startup.server.local_operation.task.cancel_attach.clear_closing.{lock}
-|selvedge.startup.server.local_operation.task.cancel_track|selvedge.startup.server.local_operation.task.cancel_track.{active_lock,attach_race,closing,closing_lock,command,inactive,lock}
+|selvedge.startup.server.local_operation.task.cancel_track|selvedge.startup.server.local_operation.task.cancel_track.{active_lock,attach_race,closing,closing_lock,command,hydrated_lock,inactive,lock,unhydrated}
+|selvedge.startup.server.local_operation.task.hydrated|selvedge.startup.server.local_operation.task.hydrated.{lock,snapshot_match}
+|selvedge.startup.server.local_operation.task.hydrated_clear|selvedge.startup.server.local_operation.task.hydrated_clear.{lock}
 |selvedge.startup.server.local_protocol|selvedge.startup.server.local_protocol.{attach,command,control,error,event}
 |selvedge.startup.server.local_protocol.attach|selvedge.startup.server.local_protocol.attach.{active_reject,active_reservation,admission_closed,channel_factory,channel_failed,clear_active,duplicate,frame_stream,frame_stream_type,registry_full,registry_lock,reject,request,reservation_rollback,response,restore_active,router_command,stream_closed,subscription_mapping}
 |selvedge.startup.server.local_protocol.attach.channel_factory|selvedge.startup.server.local_protocol.attach.channel_factory.{create}

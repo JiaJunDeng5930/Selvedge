@@ -89,6 +89,8 @@ const DEFAULT_HYDRATION_BUFFER_CAPACITY: usize = 256;
 const DEFAULT_CLIENT_SYNC_INGRESS_CAPACITY: usize = 64;
 
 type ActiveAttachRegistry = Arc<StdMutex<HashMap<ClientId, ClientCommandId>>>;
+// @intent selvedge.startup.server.local_operation.hydrated_attach_registry LocalOperationHydratedAttachRegistry records attach identities whose initial snapshot has reached the client stream.
+type LocalOperationHydratedAttachRegistry = Arc<StdMutex<HashSet<(ClientId, ClientCommandId)>>>;
 // @intent selvedge.startup.server.local_operation.cancellation_registry LocalOperationCancellationRegistry maps active attach and submit command identities to server-owned local operation cancellation senders.
 type LocalOperationCancellationRegistry =
     Arc<StdMutex<HashMap<(ClientId, ClientCommandId, ClientCommandId), oneshot::Sender<()>>>>;
@@ -537,6 +539,9 @@ impl ServerControl {
                 events_tx: events_tx.downgrade(),
                 client_sync_tx: client_sync_tx.downgrade(),
                 active_attaches: Arc::clone(&self.inner.active_attaches),
+                local_operation_hydrated_attaches: Arc::clone(
+                    &self.inner.local_operation_hydrated_attaches,
+                ),
                 local_operation_closing_attaches: Arc::clone(
                     &self.inner.local_operation_closing_attaches,
                 ),
@@ -734,6 +739,7 @@ struct ServerInner {
     events_tx: Mutex<Option<EventIngressSender>>,
     client_sync_tx: Mutex<selvedge_client_sync::ClientSyncSender>,
     active_attaches: ActiveAttachRegistry,
+    local_operation_hydrated_attaches: LocalOperationHydratedAttachRegistry,
     frame_channel_factory: AttachFrameChannelFactoryRef,
     command_mapper: LocalCommandMapperRef,
     local_operation_executor: LocalOperationExecutorRef,
@@ -760,6 +766,15 @@ impl ServerInner {
             .expect("server active attach registry lock");
         if active_attaches.get(&client_id) != Some(&attach_command_id) {
             // @behavior selvedge.startup.server.local_operation.task.cancel_track.inactive Cancellation registration rejects local operations whose attach identity is no longer active.
+            return false;
+        }
+        let hydrated_attaches = self
+            .local_operation_hydrated_attaches
+            .lock()
+            // @behavior selvedge.startup.server.local_operation.task.cancel_track.hydrated_lock Cancellation registration acquires the hydrated attach registry before storing a sender.
+            .expect("server local operation hydrated attach lock");
+        if !hydrated_attaches.contains(&(client_id.clone(), attach_command_id.clone())) {
+            // @behavior selvedge.startup.server.local_operation.task.cancel_track.unhydrated Cancellation registration rejects local operations whose attach stream has not delivered its initial snapshot.
             return false;
         }
         let closing_attaches = self
@@ -1213,6 +1228,7 @@ fn start_server_after_lock(
         events_tx: Mutex::new(Some(events.ingress_tx.clone())),
         client_sync_tx: Mutex::new(client_sync.ingress_tx.clone()),
         active_attaches: Arc::new(StdMutex::new(HashMap::new())),
+        local_operation_hydrated_attaches: Arc::new(StdMutex::new(HashSet::new())),
         frame_channel_factory: Arc::new(TokioAttachFrameChannelFactory),
         command_mapper: args.command_mapper,
         local_operation_executor: args.local_operation_executor,
@@ -1504,6 +1520,7 @@ struct ServerAttachFrameStream {
     events_tx: mpsc::WeakSender<EventIngress>,
     client_sync_tx: mpsc::WeakSender<ClientSyncIngress>,
     active_attaches: ActiveAttachRegistry,
+    local_operation_hydrated_attaches: LocalOperationHydratedAttachRegistry,
     local_operation_closing_attaches: LocalOperationClosingAttachRegistry,
     local_operation_cancellations: LocalOperationCancellationRegistry,
     closed_reported: bool,
@@ -1518,7 +1535,21 @@ impl futures_core::Stream for ServerAttachFrameStream {
             return Poll::Ready(None);
         }
         match this.inner.poll_recv(context) {
-            Poll::Ready(Some(frame)) => Poll::Ready(Some(Ok(client_frame_to_local(frame)))),
+            Poll::Ready(Some(frame)) => {
+                // @behavior selvedge.startup.server.local_operation.task.hydrated.snapshot_match Attach streams mark hydration ready only for snapshot frames carrying the attach command identity.
+                if matches!(
+                    &frame,
+                    ClientFrame::Snapshot(snapshot)
+                        if snapshot.client_command_id == this.client_command_id
+                ) {
+                    mark_local_operation_hydrated_attach(
+                        &this.local_operation_hydrated_attaches,
+                        &this.client_id,
+                        &this.client_command_id,
+                    );
+                }
+                Poll::Ready(Some(Ok(client_frame_to_local(frame))))
+            }
             Poll::Ready(None) => {
                 let client_id = this.client_id.clone();
                 let client_command_id = this.client_command_id.clone();
@@ -1542,10 +1573,16 @@ impl futures_core::Stream for ServerAttachFrameStream {
                         client_command_id,
                         DetachReason::ClientDisconnected,
                         Arc::clone(&this.active_attaches),
+                        Arc::clone(&this.local_operation_hydrated_attaches),
                         Arc::clone(&this.local_operation_closing_attaches),
                     );
                 } else {
                     clear_active_attach(&this.active_attaches, &client_id, &client_command_id);
+                    clear_local_operation_hydrated_attach(
+                        &this.local_operation_hydrated_attaches,
+                        &client_id,
+                        &client_command_id,
+                    );
                     clear_local_operation_closing_attach(
                         &this.local_operation_closing_attaches,
                         &client_id,
@@ -1587,6 +1624,11 @@ impl Drop for ServerAttachFrameStream {
 
         let Some(events_tx) = self.events_tx.upgrade() else {
             clear_active_attach(&self.active_attaches, &client_id, &client_command_id);
+            clear_local_operation_hydrated_attach(
+                &self.local_operation_hydrated_attaches,
+                &client_id,
+                &client_command_id,
+            );
             clear_local_operation_closing_attach(
                 &self.local_operation_closing_attaches,
                 &client_id,
@@ -1600,6 +1642,7 @@ impl Drop for ServerAttachFrameStream {
             client_command_id,
             DetachReason::ClientDisconnected,
             Arc::clone(&self.active_attaches),
+            Arc::clone(&self.local_operation_hydrated_attaches),
             Arc::clone(&self.local_operation_closing_attaches),
         );
     }
@@ -1759,6 +1802,7 @@ fn send_detach_client_and_clear_active(
     client_command_id: ClientCommandId,
     reason: DetachReason,
     active_attaches: ActiveAttachRegistry,
+    local_operation_hydrated_attaches: LocalOperationHydratedAttachRegistry,
     local_operation_closing_attaches: LocalOperationClosingAttachRegistry,
 ) {
     let retry_events_tx = events_tx.clone();
@@ -1772,6 +1816,11 @@ fn send_detach_client_and_clear_active(
         // @behavior selvedge.startup.server.event_delivery.detach_clear.immediate Immediate detach completion or closed events clears the current active attach state.
         Ok(()) | Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
             clear_active_attach(&active_attaches, &client_id, &client_command_id);
+            clear_local_operation_hydrated_attach(
+                &local_operation_hydrated_attaches,
+                &client_id,
+                &client_command_id,
+            );
             clear_local_operation_closing_attach(
                 &local_operation_closing_attaches,
                 &client_id,
@@ -1786,6 +1835,11 @@ fn send_detach_client_and_clear_active(
                     // @behavior selvedge.startup.server.event_delivery.detach_clear.retry Queued detach clearing sends detach and then clears the current active attach state.
                     let _ = retry_events_tx.send(detach).await;
                     clear_active_attach(&active_attaches, &client_id, &client_command_id);
+                    clear_local_operation_hydrated_attach(
+                        &local_operation_hydrated_attaches,
+                        &client_id,
+                        &client_command_id,
+                    );
                     clear_local_operation_closing_attach(
                         &local_operation_closing_attaches,
                         &client_id,
@@ -1795,6 +1849,11 @@ fn send_detach_client_and_clear_active(
             } else {
                 let _ = retry_events_tx.blocking_send(detach);
                 clear_active_attach(&active_attaches, &client_id, &client_command_id);
+                clear_local_operation_hydrated_attach(
+                    &local_operation_hydrated_attaches,
+                    &client_id,
+                    &client_command_id,
+                );
                 clear_local_operation_closing_attach(
                     &local_operation_closing_attaches,
                     &client_id,
@@ -1818,6 +1877,32 @@ fn clear_active_attach(
     if active.get(client_id) == Some(client_command_id) {
         active.remove(client_id);
     }
+}
+
+// @behavior selvedge.startup.server.local_operation.task.hydrated Attach snapshot delivery marks a local operation attach identity ready for server-owned command notices.
+fn mark_local_operation_hydrated_attach(
+    local_operation_hydrated_attaches: &LocalOperationHydratedAttachRegistry,
+    client_id: &ClientId,
+    attach_command_id: &ClientCommandId,
+) {
+    local_operation_hydrated_attaches
+        .lock()
+        // @behavior selvedge.startup.server.local_operation.task.hydrated.lock Hydrated attach marking acquires the hydrated attach registry before storing the attach identity.
+        .expect("server local operation hydrated attach lock")
+        .insert((client_id.clone(), attach_command_id.clone()));
+}
+
+// @behavior selvedge.startup.server.local_operation.task.hydrated_clear Attach cleanup clears local operation hydration readiness for the closing attach identity.
+fn clear_local_operation_hydrated_attach(
+    local_operation_hydrated_attaches: &LocalOperationHydratedAttachRegistry,
+    client_id: &ClientId,
+    attach_command_id: &ClientCommandId,
+) {
+    local_operation_hydrated_attaches
+        .lock()
+        // @behavior selvedge.startup.server.local_operation.task.hydrated_clear.lock Hydrated attach cleanup acquires the hydrated attach registry before removing a matching attach identity.
+        .expect("server local operation hydrated attach lock")
+        .remove(&(client_id.clone(), attach_command_id.clone()));
 }
 
 // @behavior selvedge.startup.server.local_operation.task.cancel_attach Attach cleanup cancels running local operations bound to the same client and attach command.
@@ -2442,6 +2527,8 @@ fn map_web_start_error(error: WebStartError) -> ServerStartupError {
 mod tests {
     use super::*;
     use futures_util::StreamExt;
+    use selvedge_command_model::ClientSnapshotFrame;
+    use selvedge_domain_model::UnixTs;
     use std::time::Duration;
     use tokio::sync::oneshot;
     use tokio::time::timeout;
@@ -2728,6 +2815,38 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn local_operation_submission_requires_hydrated_attach() {
+        let (router_tx, _router_rx) = mpsc::unbounded_channel();
+        let (client_sync_tx, _client_sync_rx) = mpsc::channel(1);
+        let (events_tx, _events_rx) = mpsc::channel(8);
+        let control = test_control(router_tx, client_sync_tx, events_tx);
+        activate_unhydrated_attach(&control, "client-1", "attach-1");
+
+        let response = control
+            .submit_command(local_operation_command(
+                "client-1",
+                "command-1",
+                "list-models",
+            ))
+            .await;
+
+        // @verifies selvedge.startup.server.local_operation.task.cancel_track.unhydrated
+        assert_eq!(
+            response.outcome,
+            CommandOutcome::Rejected(CommandRejectReason::ClientNotAttached)
+        );
+        // @verifies selvedge.startup.server.local_operation.task.cancel_track.unhydrated
+        assert!(
+            control
+                .inner
+                .local_operation_cancellations
+                .lock()
+                .expect("local operation cancellations")
+                .is_empty()
+        );
+    }
+
+    #[tokio::test]
     async fn local_operation_cancellation_registration_rejects_closing_attach() {
         let control = test_control(
             accepting_router_sender(),
@@ -2784,12 +2903,22 @@ mod tests {
             .attach_client(test_attach_request())
             .await
             .expect("first attach accepted");
+        mark_local_operation_hydrated_attach(
+            &control.inner.local_operation_hydrated_attaches,
+            &ClientId("client-1".to_owned()),
+            &ClientCommandId("attach-1".to_owned()),
+        );
         let first = control.submit_command(login_command("command-1")).await;
         drop(stream);
         let (_accepted, _stream) = control
             .attach_client(test_attach_request_for("client-1", "attach-2"))
             .await
             .expect("second attach accepted");
+        mark_local_operation_hydrated_attach(
+            &control.inner.local_operation_hydrated_attaches,
+            &ClientId("client-1".to_owned()),
+            &ClientCommandId("attach-2".to_owned()),
+        );
 
         let mut second = control.submit_command(login_command("command-2")).await;
         for _ in 0..20 {
@@ -3505,6 +3634,55 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    async fn attach_snapshot_marks_local_operation_hydration_ready() {
+        let (frame_tx, frame_rx) = mpsc::channel(1);
+        let (events_tx, _events_rx) = mpsc::channel(1);
+        let (client_sync_tx, _client_sync_rx) = mpsc::channel(1);
+        let active_attaches = Arc::new(StdMutex::new(HashMap::new()));
+        let local_operation_hydrated_attaches = Arc::new(StdMutex::new(HashSet::new()));
+        let local_operation_closing_attaches = Arc::new(StdMutex::new(HashSet::new()));
+        let local_operation_cancellations = Arc::new(StdMutex::new(HashMap::new()));
+        let client_id = ClientId("client-1".to_owned());
+        let attach_command_id = ClientCommandId("attach-1".to_owned());
+        let mut stream = ServerAttachFrameStream {
+            inner: frame_rx,
+            client_id: client_id.clone(),
+            client_command_id: attach_command_id.clone(),
+            events_tx: events_tx.downgrade(),
+            client_sync_tx: client_sync_tx.downgrade(),
+            active_attaches,
+            local_operation_hydrated_attaches: Arc::clone(&local_operation_hydrated_attaches),
+            local_operation_closing_attaches,
+            local_operation_cancellations,
+            closed_reported: false,
+        };
+
+        frame_tx
+            .send(ClientFrame::Snapshot(ClientSnapshotFrame {
+                delivery_seq: DeliverySeq(1),
+                client_command_id: attach_command_id.clone(),
+                snapshot: empty_client_snapshot(),
+            }))
+            .await
+            .expect("snapshot sends");
+        let frame = stream
+            .next()
+            .await
+            .expect("snapshot frame")
+            .expect("frame ok");
+
+        // @verifies selvedge.startup.server.local_operation.task.hydrated
+        assert!(matches!(frame, LocalClientFrame::Snapshot(_)));
+        // @verifies selvedge.startup.server.local_operation.task.hydrated
+        assert!(
+            local_operation_hydrated_attaches
+                .lock()
+                .expect("hydrated attaches")
+                .contains(&(client_id, attach_command_id))
+        );
+    }
+
     // @verifies selvedge.startup.server
     #[tokio::test]
     async fn full_events_mailbox_delays_active_attach_release_until_detach_is_queued() {
@@ -3663,6 +3841,7 @@ mod tests {
             )))
             .expect("fill events mailbox");
         let active_attaches = Arc::new(StdMutex::new(HashMap::new()));
+        let local_operation_hydrated_attaches = Arc::new(StdMutex::new(HashSet::new()));
         let local_operation_closing_attaches = Arc::new(StdMutex::new(HashSet::new()));
         let client_id = ClientId("client-1".to_owned());
         let attach_command_id = ClientCommandId("attach-1".to_owned());
@@ -3670,6 +3849,10 @@ mod tests {
             .lock()
             .expect("active attach registry")
             .insert(client_id.clone(), attach_command_id.clone());
+        local_operation_hydrated_attaches
+            .lock()
+            .expect("hydrated attaches")
+            .insert((client_id.clone(), attach_command_id.clone()));
         local_operation_closing_attaches
             .lock()
             .expect("closing attaches")
@@ -3681,6 +3864,7 @@ mod tests {
             attach_command_id.clone(),
             DetachReason::ClientDisconnected,
             Arc::clone(&active_attaches),
+            Arc::clone(&local_operation_hydrated_attaches),
             Arc::clone(&local_operation_closing_attaches),
         );
         // @verifies selvedge.startup.server.event_delivery.detach_clear.closing_marker.full
@@ -3849,6 +4033,7 @@ mod tests {
                 events_tx: Mutex::new(Some(events_tx)),
                 client_sync_tx: Mutex::new(client_sync_tx),
                 active_attaches: Arc::new(StdMutex::new(HashMap::new())),
+                local_operation_hydrated_attaches: Arc::new(StdMutex::new(HashSet::new())),
                 frame_channel_factory,
                 command_mapper,
                 local_operation_executor,
@@ -3908,6 +4093,19 @@ mod tests {
     }
 
     fn activate_attach(control: &ServerControl, client_id: &str, client_command_id: &str) {
+        activate_unhydrated_attach(control, client_id, client_command_id);
+        mark_local_operation_hydrated_attach(
+            &control.inner.local_operation_hydrated_attaches,
+            &ClientId(client_id.to_owned()),
+            &ClientCommandId(client_command_id.to_owned()),
+        );
+    }
+
+    fn activate_unhydrated_attach(
+        control: &ServerControl,
+        client_id: &str,
+        client_command_id: &str,
+    ) {
         control
             .inner
             .active_attaches
@@ -3917,6 +4115,16 @@ mod tests {
                 ClientId(client_id.to_owned()),
                 ClientCommandId(client_command_id.to_owned()),
             );
+    }
+
+    fn empty_client_snapshot() -> ClientSnapshot {
+        ClientSnapshot {
+            generated_at: UnixTs(0),
+            tasks: Vec::new(),
+            task_parent_edges: Vec::new(),
+            history_nodes: Vec::new(),
+            task_versions: Vec::new(),
+        }
     }
 
     fn test_attach_request() -> AttachRequest {

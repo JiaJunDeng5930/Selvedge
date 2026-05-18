@@ -128,24 +128,12 @@ async fn run_model_call(
         return failure_envelope(request, error);
     }
 
-    // @behavior selvedge.model.dispatch.provider The provider named by the task request is resolved through the provider registry before execution.
-    if let Err(error) = validate_provider_dispatch_target(&request).await {
-        return failure_envelope(request, map_provider_registry_error(error));
-    }
-
-    let adapter_registry = default_provider_adapter_registry();
-    let Some(adapter) = adapter_registry.adapter(&request.provider.provider_name) else {
-        return failure_envelope(
-            request,
-            model_call_error(
-                ModelCallErrorKind::ProviderRequest,
-                "provider adapter is not available",
-            ),
-        );
-    };
-    // @behavior selvedge.model.dispatch.timeout Provider calls that exceed the configured duration produce task-visible timeout failures.
-    let reply_result =
-        tokio::time::timeout(config.request_timeout, adapter.execute(&request, &config)).await;
+    // @behavior selvedge.model.dispatch.timeout Provider validation and provider calls that exceed the configured duration produce task-visible timeout failures.
+    let reply_result = tokio::time::timeout(
+        config.request_timeout,
+        execute_validated_provider_call(&request, &config),
+    )
+    .await;
 
     // @behavior selvedge.model.dispatch.outcome Provider success, provider failure, and timeout each complete the task model run once.
     let reply = match reply_result {
@@ -181,6 +169,26 @@ async fn run_model_call(
     // @behavior selvedge.model.dispatch.success Accepted provider replies return to the task that requested them.
     let correlation = request.correlation;
     ApiOutputEnvelope::Success { correlation, reply }
+}
+
+// @behavior selvedge.model.dispatch.provider The provider named by the task request is resolved through provider and adapter registries before execution.
+async fn execute_validated_provider_call(
+    request: &ModelCallDispatchRequest,
+    config: &ApiExecutorConfig,
+) -> Result<ModelReply, ModelCallError> {
+    validate_provider_dispatch_target(request)
+        .await
+        .map_err(map_provider_registry_error)?;
+    let adapter_registry = default_provider_adapter_registry();
+    // @behavior selvedge.model.dispatch.provider.adapter_unavailable Requests whose provider id has no executable adapter return a task-visible provider request failure.
+    let Some(adapter) = adapter_registry.adapter(&request.provider.provider_name) else {
+        return Err(model_call_error(
+            ModelCallErrorKind::ProviderRequest,
+            "provider adapter is not available",
+        ));
+    };
+
+    adapter.execute(request, config).await
 }
 
 // @behavior selvedge.model.dispatch.provider_config Provider dispatch validation reads the current LLM provider map and Selvedge home before registry validation.

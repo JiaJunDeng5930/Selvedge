@@ -1548,6 +1548,7 @@ dependencies = [
  "selvedge-config",
  "selvedge-domain-model",
  "selvedge-logging",
+ "selvedge-model-credentials",
  "selvedge-model-providers",
  "selvedge-test-support",
  "serde_json",
