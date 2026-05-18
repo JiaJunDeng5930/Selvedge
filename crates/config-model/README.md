@@ -2,7 +2,7 @@
 
 <!-- selvedge-package-readme
 package: selvedge-config-model
-freshness_commit: 1c81a33f8a447fd4578da3e44db1393e6dff110e
+freshness_commit: 636fd61c9fc62b053c401426481a47ea5f0c066b
 -->
 
 ## This crate is for
