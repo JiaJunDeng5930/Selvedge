@@ -534,6 +534,64 @@ async fn unsupported_provider_name_sends_provider_request_failure_without_extern
     );
 }
 
+#[tokio::test(flavor = "multi_thread")]
+async fn provider_credential_validation_obeys_request_timeout() {
+    const FLAG: &str = "SELVEDGE_API_PROVIDER_VALIDATION_TIMEOUT_CHILD";
+
+    if !child_mode(FLAG) {
+        assert_child_success(&run_child(
+            "provider_credential_validation_obeys_request_timeout",
+            FLAG,
+        ));
+        return;
+    }
+
+    let tempdir = init_api_test(
+        r#"
+[llm.providers.chatgpt.settings]
+issuer = "http://127.0.0.1:1"
+"#,
+    );
+    write_auth_file(
+        &tempdir,
+        &auth_file_json(
+            &build_jwt(serde_json::json!({
+                "sub": "subject",
+                "https://api.openai.com/auth.chatgpt_account_id": "workspace-123"
+            })),
+            "opaque-access-token",
+            "refresh-token",
+        ),
+    );
+    let _credential_lock = selvedge_model_credentials::lock_credential_from_home(
+        &tempdir.path().join(".selvedge"),
+        "chatgpt",
+    )
+    .await
+    .expect("lock provider credential");
+    let request = valid_dispatch_request();
+    let (router_tx, mut router_rx) = mpsc::unbounded_channel();
+
+    let status = execute_model_call(
+        request.clone(),
+        router_tx.downgrade(),
+        ApiExecutorConfig {
+            request_timeout: Duration::from_millis(20),
+            max_response_bytes: None,
+        },
+    )
+    .await;
+
+    // @verifies selvedge.model.dispatch.timeout
+    assert_eq!(status, ApiCallTerminalStatus::OutputSent);
+    let message = router_rx.recv().await.expect("router message");
+    assert_failure(
+        message,
+        request.correlation,
+        ModelCallErrorKind::ProviderTimeout,
+    );
+}
+
 #[tokio::test]
 async fn invalid_dispatch_request_sends_validation_failure_before_provider_dispatch() {
     let mut request = valid_dispatch_request();
