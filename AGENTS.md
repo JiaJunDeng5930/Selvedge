@@ -566,10 +566,11 @@ This file is for coding agents working in this repository.
 |selvedge.startup.server.client_sync|selvedge.startup.server.client_sync.{cancel_hydration,start_hydration}
 |selvedge.startup.server.client_sync.cancel_hydration|selvedge.startup.server.client_sync.cancel_hydration.{closed,full,retry}
 |selvedge.startup.server.client_sync.start_hydration|selvedge.startup.server.client_sync.start_hydration.{closed,full}
-|selvedge.startup.server.event_delivery|selvedge.startup.server.event_delivery.{detach,detach_await,detach_clear,detach_restore}
-|selvedge.startup.server.event_delivery.detach|selvedge.startup.server.event_delivery.detach.{closed,full,retry}
+|selvedge.startup.server.event_delivery|selvedge.startup.server.event_delivery.{detach_await,detach_clear,detach_clear_closing,detach_restore}
 |selvedge.startup.server.event_delivery.detach_await|selvedge.startup.server.event_delivery.detach_await.{send}
-|selvedge.startup.server.event_delivery.detach_clear|selvedge.startup.server.event_delivery.detach_clear.{full,immediate,retry}
+|selvedge.startup.server.event_delivery.detach_clear|selvedge.startup.server.event_delivery.detach_clear.{closing_marker,full,immediate,retry}
+|selvedge.startup.server.event_delivery.detach_clear.closing_marker|selvedge.startup.server.event_delivery.detach_clear.closing_marker.{full}
+|selvedge.startup.server.event_delivery.detach_clear_closing|selvedge.startup.server.event_delivery.detach_clear_closing.{full,immediate,retry}
 |selvedge.startup.server.event_delivery.detach_restore|selvedge.startup.server.event_delivery.detach_restore.{full,immediate,retry}
 |selvedge.startup.server.lifecycle|selvedge.startup.server.lifecycle.{coordinator,inner_effects,state}
 |selvedge.startup.server.lifecycle.state|selvedge.startup.server.lifecycle.state.{query}
@@ -583,8 +584,9 @@ This file is for coding agents working in this repository.
 |selvedge.startup.server.local_operation.progress|selvedge.startup.server.local_operation.progress.{notice}
 |selvedge.startup.server.local_operation.progress_sender|selvedge.startup.server.local_operation.progress_sender.{abstraction}
 |selvedge.startup.server.local_operation.success|selvedge.startup.server.local_operation.success.{message}
-|selvedge.startup.server.local_operation.task|selvedge.startup.server.local_operation.task.{abort,attach_closed,cancel_attach,cancel_clear,cancel_clear_lock,cancel_lock,cancel_track,delivery_closed,failure,run,terminal,track}
-|selvedge.startup.server.local_operation.task.cancel_attach|selvedge.startup.server.local_operation.task.cancel_attach.{closing,signal}
+|selvedge.startup.server.local_operation.task|selvedge.startup.server.local_operation.task.{abort,attach_closed,cancel_attach,cancel_clear,cancel_clear_lock,cancel_lock,cancel_track,delivery_attach_closed,delivery_closed,failure,run,terminal,terminal_attach_closed,track}
+|selvedge.startup.server.local_operation.task.cancel_attach|selvedge.startup.server.local_operation.task.cancel_attach.{clear_closing,closing,signal}
+|selvedge.startup.server.local_operation.task.cancel_attach.clear_closing|selvedge.startup.server.local_operation.task.cancel_attach.clear_closing.{lock}
 |selvedge.startup.server.local_operation.task.cancel_track|selvedge.startup.server.local_operation.task.cancel_track.{active_lock,attach_race,closing,closing_lock,command,inactive,lock}
 |selvedge.startup.server.local_protocol|selvedge.startup.server.local_protocol.{attach,command,control,error,event}
 |selvedge.startup.server.local_protocol.attach|selvedge.startup.server.local_protocol.attach.{active_reject,active_reservation,admission_closed,channel_factory,channel_failed,clear_active,duplicate,frame_stream,frame_stream_type,registry_full,registry_lock,reject,request,reservation_rollback,response,restore_active,router_command,stream_closed,subscription_mapping}

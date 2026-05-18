@@ -514,11 +514,12 @@ impl ServerControl {
                 &client_id,
                 &previous_command_id,
             );
-            send_detach_client(
+            send_detach_client_and_clear_closing(
                 &events_tx,
                 client_id.clone(),
                 previous_command_id,
                 DetachReason::ReplacedByNewHydration,
+                Arc::clone(&self.inner.local_operation_closing_attaches),
             );
         }
 
@@ -892,7 +893,20 @@ async fn run_local_operation_task(task: LocalOperationTask) {
                 match progress {
                     Some(progress) => {
                         let notice = local_operation_progress_notice(progress, submit_command_id.clone());
-                        if send_local_operation_notice(&events_tx, &client_id, &attach_command_id, notice).await.is_err() {
+                        let send_result = tokio::select! {
+                            result = send_local_operation_notice(&events_tx, &client_id, &attach_command_id, notice) => result,
+                            _ = &mut attach_closed_rx => {
+                                // @behavior selvedge.startup.server.local_operation.task.delivery_attach_closed Local operation tasks stop while waiting to deliver a progress notice when the attached client stream closes.
+                                clear_local_operation_cancellation(
+                                    &local_operation_cancellations,
+                                    &operation_client_id,
+                                    &operation_attach_command_id,
+                                    &operation_submit_command_id,
+                                );
+                                return;
+                            }
+                        };
+                        if send_result.is_err() {
                             // @behavior selvedge.startup.server.local_operation.task.delivery_closed Local operation tasks stop when the events mailbox cannot accept a progress notice.
                             clear_local_operation_cancellation(
                                 &local_operation_cancellations,
@@ -929,12 +943,24 @@ async fn run_local_operation_task(task: LocalOperationTask) {
                     },
                 };
                 // @behavior selvedge.startup.server.local_operation.task.terminal Local operation tasks attempt one terminal notice after operation completion.
-                let _ = send_local_operation_notice(
-                    &operation_events_tx,
-                    &operation_client_id,
-                    &operation_attach_command_id,
-                    notice,
-                ).await;
+                let _terminal_notice_delivery = tokio::select! {
+                    result = send_local_operation_notice(
+                        &operation_events_tx,
+                        &operation_client_id,
+                        &operation_attach_command_id,
+                        notice,
+                    ) => result,
+                    _ = &mut attach_closed_rx => {
+                        // @behavior selvedge.startup.server.local_operation.task.terminal_attach_closed Local operation tasks stop while waiting to deliver a terminal notice when the attached client stream closes.
+                        clear_local_operation_cancellation(
+                            &local_operation_cancellations,
+                            &operation_client_id,
+                            &operation_attach_command_id,
+                            &operation_submit_command_id,
+                        );
+                        return;
+                    }
+                };
                 clear_local_operation_cancellation(
                     &local_operation_cancellations,
                     &operation_client_id,
@@ -1516,9 +1542,15 @@ impl futures_core::Stream for ServerAttachFrameStream {
                         client_command_id,
                         DetachReason::ClientDisconnected,
                         Arc::clone(&this.active_attaches),
+                        Arc::clone(&this.local_operation_closing_attaches),
                     );
                 } else {
                     clear_active_attach(&this.active_attaches, &client_id, &client_command_id);
+                    clear_local_operation_closing_attach(
+                        &this.local_operation_closing_attaches,
+                        &client_id,
+                        &client_command_id,
+                    );
                 }
                 this.closed_reported = true;
                 // @behavior selvedge.startup.server.local_protocol.attach.stream_closed Closed attach frame channels emit AttachChannelFailed before ending the stream.
@@ -1555,6 +1587,11 @@ impl Drop for ServerAttachFrameStream {
 
         let Some(events_tx) = self.events_tx.upgrade() else {
             clear_active_attach(&self.active_attaches, &client_id, &client_command_id);
+            clear_local_operation_closing_attach(
+                &self.local_operation_closing_attaches,
+                &client_id,
+                &client_command_id,
+            );
             return;
         };
         send_detach_client_and_clear_active(
@@ -1563,6 +1600,7 @@ impl Drop for ServerAttachFrameStream {
             client_command_id,
             DetachReason::ClientDisconnected,
             Arc::clone(&self.active_attaches),
+            Arc::clone(&self.local_operation_closing_attaches),
         );
     }
 }
@@ -1597,35 +1635,51 @@ fn send_cancel_hydration(
     }
 }
 
-// @behavior selvedge.startup.server.event_delivery.detach Server attach cleanup sends an events detach control message for the affected client command.
-fn send_detach_client(
+// @behavior selvedge.startup.server.event_delivery.detach_clear_closing Server attach replacement cleanup sends detach and clears the closing attach marker after detach delivery completes.
+fn send_detach_client_and_clear_closing(
     events_tx: &EventIngressSender,
     client_id: ClientId,
     client_command_id: ClientCommandId,
     reason: DetachReason,
+    local_operation_closing_attaches: LocalOperationClosingAttachRegistry,
 ) {
     let retry_events_tx = events_tx.clone();
     let detach = EventIngress::Control(EventControlMessage::DetachClient(DetachClient {
-        client_id,
-        client_command_id,
+        client_id: client_id.clone(),
+        client_command_id: client_command_id.clone(),
         reason,
     }));
 
     match events_tx.try_send(detach) {
-        Ok(()) => {}
-        // @behavior selvedge.startup.server.event_delivery.detach.full Full events detach mailbox queues detach on the runtime or blocks until delivery.
+        // @behavior selvedge.startup.server.event_delivery.detach_clear_closing.immediate Immediate detach completion or closed events clears the local operation closing attach marker.
+        Ok(()) | Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
+            clear_local_operation_closing_attach(
+                &local_operation_closing_attaches,
+                &client_id,
+                &client_command_id,
+            );
+        }
+        // @behavior selvedge.startup.server.event_delivery.detach_clear_closing.full Full events detach mailbox delays closing marker cleanup until detach is queued.
         Err(tokio::sync::mpsc::error::TrySendError::Full(detach)) => {
             if let Ok(handle) = tokio::runtime::Handle::try_current() {
                 handle.spawn(async move {
-                    // @behavior selvedge.startup.server.event_delivery.detach.retry Queued events detach attempts asynchronous delivery.
+                    // @behavior selvedge.startup.server.event_delivery.detach_clear_closing.retry Queued detach closing cleanup sends detach and then clears the local operation closing attach marker.
                     let _ = retry_events_tx.send(detach).await;
+                    clear_local_operation_closing_attach(
+                        &local_operation_closing_attaches,
+                        &client_id,
+                        &client_command_id,
+                    );
                 });
             } else {
                 let _ = retry_events_tx.blocking_send(detach);
+                clear_local_operation_closing_attach(
+                    &local_operation_closing_attaches,
+                    &client_id,
+                    &client_command_id,
+                );
             }
         }
-        // @behavior selvedge.startup.server.event_delivery.detach.closed Closed events detach mailboxes drop detach because events are unavailable.
-        Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {}
     }
 }
 
@@ -1698,12 +1752,14 @@ fn send_detach_client_and_restore_active(
 }
 
 // @behavior selvedge.startup.server.event_delivery.detach_clear Server attach cleanup sends detach and clears the active attach when the current attach is closed.
+// @behavior selvedge.startup.server.event_delivery.detach_clear.closing_marker Server attach cleanup clears the local operation closing attach marker after detach delivery completes.
 fn send_detach_client_and_clear_active(
     events_tx: &EventIngressSender,
     client_id: ClientId,
     client_command_id: ClientCommandId,
     reason: DetachReason,
     active_attaches: ActiveAttachRegistry,
+    local_operation_closing_attaches: LocalOperationClosingAttachRegistry,
 ) {
     let retry_events_tx = events_tx.clone();
     let detach = EventIngress::Control(EventControlMessage::DetachClient(DetachClient {
@@ -1716,18 +1772,34 @@ fn send_detach_client_and_clear_active(
         // @behavior selvedge.startup.server.event_delivery.detach_clear.immediate Immediate detach completion or closed events clears the current active attach state.
         Ok(()) | Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
             clear_active_attach(&active_attaches, &client_id, &client_command_id);
+            clear_local_operation_closing_attach(
+                &local_operation_closing_attaches,
+                &client_id,
+                &client_command_id,
+            );
         }
         // @behavior selvedge.startup.server.event_delivery.detach_clear.full Full events detach mailbox delays active attach clearing until detach is queued.
+        // @behavior selvedge.startup.server.event_delivery.detach_clear.closing_marker.full Full events detach mailbox delays local operation closing marker cleanup until detach is queued.
         Err(tokio::sync::mpsc::error::TrySendError::Full(detach)) => {
             if let Ok(handle) = tokio::runtime::Handle::try_current() {
                 handle.spawn(async move {
                     // @behavior selvedge.startup.server.event_delivery.detach_clear.retry Queued detach clearing sends detach and then clears the current active attach state.
                     let _ = retry_events_tx.send(detach).await;
                     clear_active_attach(&active_attaches, &client_id, &client_command_id);
+                    clear_local_operation_closing_attach(
+                        &local_operation_closing_attaches,
+                        &client_id,
+                        &client_command_id,
+                    );
                 });
             } else {
                 let _ = retry_events_tx.blocking_send(detach);
                 clear_active_attach(&active_attaches, &client_id, &client_command_id);
+                clear_local_operation_closing_attach(
+                    &local_operation_closing_attaches,
+                    &client_id,
+                    &client_command_id,
+                );
             }
         }
     }
@@ -1777,6 +1849,19 @@ fn cancel_local_operation_for_attach(
             let _ = cancel_tx.send(());
         }
     }
+}
+
+// @behavior selvedge.startup.server.local_operation.task.cancel_attach.clear_closing Attach cleanup clears a closing attach marker after detach delivery has completed.
+fn clear_local_operation_closing_attach(
+    local_operation_closing_attaches: &LocalOperationClosingAttachRegistry,
+    client_id: &ClientId,
+    attach_command_id: &ClientCommandId,
+) {
+    local_operation_closing_attaches
+        .lock()
+        // @behavior selvedge.startup.server.local_operation.task.cancel_attach.clear_closing.lock Closing attach cleanup acquires the closing attach registry before removing a matching attach identity.
+        .expect("server local operation closing attach lock")
+        .remove(&(client_id.clone(), attach_command_id.clone()));
 }
 
 // @behavior selvedge.startup.server.local_operation.task.cancel_clear Local operation task completion removes its cancellation sender for the submit command when it still exists.
@@ -3497,6 +3582,153 @@ mod tests {
             .attach_client(test_attach_request())
             .await
             .expect("attach accepted after detach queued");
+    }
+
+    #[tokio::test]
+    async fn local_operation_terminal_notice_send_stops_when_attach_closes() {
+        let (events_tx, _events_rx) = mpsc::channel(1);
+        events_tx
+            .try_send(EventIngress::Control(EventControlMessage::DetachClient(
+                DetachClient {
+                    client_id: ClientId("occupied-client".to_owned()),
+                    client_command_id: ClientCommandId("occupied-attach".to_owned()),
+                    reason: DetachReason::ClientRequested,
+                },
+            )))
+            .expect("fill events mailbox");
+        let (progress_tx, progress_rx) = mpsc::unbounded_channel();
+        drop(progress_tx);
+        let (attach_closed_tx, attach_closed_rx) = oneshot::channel();
+        let local_operation_cancellations = Arc::new(StdMutex::new(HashMap::new()));
+        let client_id = ClientId("client-1".to_owned());
+        let attach_command_id = ClientCommandId("attach-1".to_owned());
+        let submit_command_id = ClientCommandId("command-1".to_owned());
+        let (cancel_tx, _cancel_rx) = oneshot::channel();
+        local_operation_cancellations
+            .lock()
+            .expect("local operation cancellations")
+            .insert(
+                (
+                    client_id.clone(),
+                    attach_command_id.clone(),
+                    submit_command_id.clone(),
+                ),
+                cancel_tx,
+            );
+
+        let handle = tokio::spawn(run_local_operation_task(LocalOperationTask {
+            operation: Box::pin(async {
+                Ok(LocalOperationSuccess {
+                    message_text: "done".to_owned(),
+                })
+            }),
+            progress_rx,
+            attach_closed_rx,
+            events_tx,
+            client_id,
+            attach_command_id,
+            submit_command_id,
+            command_name: "login-chatgpt".to_owned(),
+            _login_permit: None,
+            local_operation_cancellations: Arc::clone(&local_operation_cancellations),
+        }));
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        attach_closed_tx
+            .send(())
+            .expect("attach close signal sends");
+
+        timeout(Duration::from_millis(100), handle)
+            .await
+            .expect("local operation task exits")
+            .expect("local operation task joins");
+        // @verifies selvedge.startup.server.local_operation.task.terminal_attach_closed
+        assert!(
+            local_operation_cancellations
+                .lock()
+                .expect("local operation cancellations")
+                .is_empty()
+        );
+    }
+
+    #[tokio::test]
+    async fn full_events_mailbox_delays_closing_attach_marker_clear_until_detach_is_queued() {
+        let (events_tx, mut events_rx) = mpsc::channel(1);
+        events_tx
+            .try_send(EventIngress::Control(EventControlMessage::DetachClient(
+                DetachClient {
+                    client_id: ClientId("occupied-client".to_owned()),
+                    client_command_id: ClientCommandId("occupied-attach".to_owned()),
+                    reason: DetachReason::ClientRequested,
+                },
+            )))
+            .expect("fill events mailbox");
+        let active_attaches = Arc::new(StdMutex::new(HashMap::new()));
+        let local_operation_closing_attaches = Arc::new(StdMutex::new(HashSet::new()));
+        let client_id = ClientId("client-1".to_owned());
+        let attach_command_id = ClientCommandId("attach-1".to_owned());
+        active_attaches
+            .lock()
+            .expect("active attach registry")
+            .insert(client_id.clone(), attach_command_id.clone());
+        local_operation_closing_attaches
+            .lock()
+            .expect("closing attaches")
+            .insert((client_id.clone(), attach_command_id.clone()));
+
+        send_detach_client_and_clear_active(
+            &events_tx,
+            client_id.clone(),
+            attach_command_id.clone(),
+            DetachReason::ClientDisconnected,
+            Arc::clone(&active_attaches),
+            Arc::clone(&local_operation_closing_attaches),
+        );
+        // @verifies selvedge.startup.server.event_delivery.detach_clear.closing_marker.full
+        assert!(
+            local_operation_closing_attaches
+                .lock()
+                .expect("closing attaches")
+                .contains(&(client_id.clone(), attach_command_id.clone()))
+        );
+
+        let _ = events_rx.recv().await.expect("drain occupied events slot");
+        let detach = timeout(Duration::from_millis(100), events_rx.recv())
+            .await
+            .expect("client detach arrives")
+            .expect("client detach");
+        // @verifies selvedge.startup.server.event_delivery.detach_clear
+        assert!(matches!(
+            detach,
+            EventIngress::Control(EventControlMessage::DetachClient(_))
+        ));
+        timeout(Duration::from_millis(100), async {
+            loop {
+                if local_operation_closing_attaches
+                    .lock()
+                    .expect("closing attaches")
+                    .is_empty()
+                {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("closing attach marker clears after detach is queued");
+        // @verifies selvedge.startup.server.event_delivery.detach_clear.closing_marker
+        assert!(
+            local_operation_closing_attaches
+                .lock()
+                .expect("closing attaches")
+                .is_empty()
+        );
+        // @verifies selvedge.startup.server.event_delivery.detach_clear
+        assert!(
+            active_attaches
+                .lock()
+                .expect("active attach registry")
+                .is_empty()
+        );
     }
 
     fn accepting_router_sender() -> RouterIngressSender {
