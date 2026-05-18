@@ -5,7 +5,8 @@
 //! @behavior selvedge.cli.local_client CLI local clients expose readiness and command submission outcomes.
 //! @behavior selvedge.cli.local_connector CLI local connectors expose connection outcomes for local command submission.
 //! @behavior selvedge.cli.server_starter CLI server starters launch the local server for user command submission when no ready server is available.
-//! @behavior selvedge.cli.login_chatgpt The login-chatgpt CLI command submits a server-side ChatGPT login command and prints only the user-facing login prompts and terminal result.
+//! @behavior selvedge.cli.list_models The list-models CLI command submits a server-side provider listing command and prints configured provider models.
+//! @behavior selvedge.cli.provider_login_chatgpt The default server local-operation executor can run ChatGPT provider login when the server dispatches that operation.
 //! @behavior selvedge.cli.server_args_builder CLI server argument builders expose startup argument outcomes.
 //! @behavior selvedge.cli.default_server_args_builder The default server argument builder exposes the repository default server startup arguments.
 //! @behavior selvedge.cli.server_runner CLI server runners expose local server exit outcomes.
@@ -403,10 +404,10 @@ fn parse_cli_args(args: &[String]) -> Result<CliCommand, String> {
     if tokens == ["server"] {
         return Ok(CliCommand::RunServer);
     }
-    if tokens == ["login-chatgpt"] {
-        // @behavior selvedge.cli.login_chatgpt.parse CLI parsing accepts login-chatgpt as the product ChatGPT OAuth login command.
+    if tokens == ["list-models"] {
+        // @behavior selvedge.cli.list_models.parse CLI parsing accepts list-models as the provider/model listing command.
         return Ok(CliCommand::SubmitCommand {
-            command_name: "login-chatgpt".to_owned(),
+            command_name: "list-models".to_owned(),
             payload: serde_json::json!({}),
             client_id: None,
         });
@@ -455,7 +456,7 @@ fn parse_cli_args(args: &[String]) -> Result<CliCommand, String> {
     let command_name = command_name.ok_or_else(|| "expected command name".to_owned())?;
     if command_name.trim().is_empty()
         || command_name == "server"
-        || command_name == "login-chatgpt"
+        || command_name == "list-models"
         || command_name.starts_with('-')
     {
         // @constraint selvedge.cli.parse.command_name Submitted command names must be non-empty user command names.
@@ -573,14 +574,14 @@ where
         return status;
     }
 
-    // @behavior selvedge.cli.submit.outcome Accepted router-backed commands return Success, accepted login-chatgpt waits for a terminal notice, rejected responses return CommandRejected, and client errors return LocalClientFailed.
+    // @behavior selvedge.cli.submit.outcome Accepted router-backed commands return Success, accepted list-models waits for a terminal notice, rejected responses return CommandRejected, and client errors return LocalClientFailed.
     let status = match client.submit_command(request).await {
         Ok(CommandResponse {
             outcome: CommandOutcome::Accepted,
             client_command_id,
             ..
         }) => {
-            if command_name == "login-chatgpt" {
+            if command_name == "list-models" {
                 wait_for_terminal_frame(&mut stream, &client_command_id, &command_name).await
             } else {
                 CliExitStatus::Success
@@ -898,7 +899,7 @@ impl CliServerStarter for DefaultCliServerStarter {
 struct DefaultLocalOperationExecutor;
 
 impl LocalOperationExecutor for DefaultLocalOperationExecutor {
-    // @behavior selvedge.cli.login_chatgpt.executor The default local operation executor runs ChatGPT login and maps completion into terminal operation messages.
+    // @behavior selvedge.cli.provider_login_chatgpt.executor The default local operation executor runs ChatGPT login and maps completion into terminal operation messages.
     fn execute(
         &self,
         command: LocalOperationCommand,
@@ -915,15 +916,69 @@ impl LocalOperationExecutor for DefaultLocalOperationExecutor {
                                 result.auth_file_path.display()
                             ),
                         }),
-                        // @behavior selvedge.cli.login_chatgpt.executor.failure ChatGPT login executor failures produce terminal failure text for the attached CLI.
+                        // @behavior selvedge.cli.provider_login_chatgpt.executor.failure ChatGPT login executor failures produce terminal failure text for the attached CLI.
                         Err(error) => Err(LocalOperationFailure {
                             message_text: format!("ChatGPT login failed: {error:?}"),
                         }),
                     }
                 }
+                LocalOperationCommand::ListModels => list_models_operation().await,
             }
         })
     }
+}
+
+// @behavior selvedge.cli.list_models.executor The list-models local operation reads configured providers and returns terminal model-list text.
+async fn list_models_operation() -> Result<LocalOperationSuccess, LocalOperationFailure> {
+    let llm_config = match selvedge_config::read(|config| config.llm.clone()) {
+        Ok(llm_config) => llm_config,
+        // @behavior selvedge.cli.list_models.executor.config_error The list-models operation reports config-read failures as terminal operation failure text.
+        Err(error) => {
+            return Err(LocalOperationFailure {
+                message_text: format!("failed to read model provider config: {error}"),
+            });
+        }
+    };
+    let selvedge_home = match selvedge_config::selvedge_home() {
+        Ok(selvedge_home) => selvedge_home,
+        // @behavior selvedge.cli.list_models.executor.home_error The list-models operation reports Selvedge home resolution failures as terminal operation failure text.
+        Err(error) => {
+            return Err(LocalOperationFailure {
+                message_text: format!("failed to read selvedge home: {error}"),
+            });
+        }
+    };
+    let listings = match selvedge_model_providers::default_registry()
+        .list_configured_models_from_home(&selvedge_home, &llm_config)
+        .await
+    {
+        Ok(listings) => listings,
+        // @behavior selvedge.cli.list_models.executor.list_error The list-models operation reports registry listing failures as terminal operation failure text.
+        Err(error) => {
+            return Err(LocalOperationFailure {
+                message_text: format!("failed to list configured models: {error}"),
+            });
+        }
+    };
+    // @behavior selvedge.cli.list_models.executor.output The list-models operation formats empty provider lists and provider rows as terminal text.
+    let message_text = if listings.is_empty() {
+        "No configured model providers.".to_owned()
+    } else {
+        listings
+            .into_iter()
+            .map(|listing| {
+                let models = if listing.models.is_empty() {
+                    "(no models discovered)".to_owned()
+                } else {
+                    listing.models.join(", ")
+                };
+                format!("{}: {}", listing.provider_id, models)
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+
+    Ok(LocalOperationSuccess { message_text })
 }
 
 struct ServerLoginProgressSink {
@@ -934,7 +989,7 @@ impl ChatgptLoginProgressSink for ServerLoginProgressSink {
     fn emit(&self, progress: ChatgptLoginProgress) -> ChatgptLoginProgressFuture {
         let progress_tx = self.progress_tx.clone();
         Box::pin(async move {
-            // @behavior selvedge.cli.login_chatgpt.progress Server login progress is forwarded into local operation progress for client notice delivery.
+            // @behavior selvedge.cli.provider_login_chatgpt.progress Server login progress is forwarded into local operation progress for client notice delivery.
             match progress {
                 ChatgptLoginProgress::UserCode {
                     verification_url,
@@ -944,7 +999,7 @@ impl ChatgptLoginProgressSink for ServerLoginProgressSink {
                     user_code,
                 }) {
                     Ok(()) => Ok(()),
-                    // @behavior selvedge.cli.login_chatgpt.progress.closed Login user-code progress reports cancellation when local operation progress delivery is closed.
+                    // @behavior selvedge.cli.provider_login_chatgpt.progress.closed Login user-code progress reports cancellation when local operation progress delivery is closed.
                     Err(_) => Err(ChatgptLoginProgressError),
                 },
                 ChatgptLoginProgress::Waiting => Ok(()),
@@ -952,7 +1007,7 @@ impl ChatgptLoginProgressSink for ServerLoginProgressSink {
                     match progress_tx.send(LocalOperationProgress::Diagnostic { message_text }) {
                         Ok(()) => Ok(()),
                         Err(_) => {
-                            // @behavior selvedge.cli.login_chatgpt.progress.diagnostic_closed Login diagnostic progress reports cancellation when local operation progress delivery is closed.
+                            // @behavior selvedge.cli.provider_login_chatgpt.progress.diagnostic_closed Login diagnostic progress reports cancellation when local operation progress delivery is closed.
                             Err(ChatgptLoginProgressError)
                         }
                     }
@@ -1224,15 +1279,15 @@ mod tests {
     }
 
     #[test]
-    fn parser_accepts_login_chatgpt_command() {
-        let command = parse_cli_args(&["selvedge".to_owned(), "login-chatgpt".to_owned()])
-            .expect("login command should parse");
+    fn parser_accepts_list_models_command() {
+        let command = parse_cli_args(&["selvedge".to_owned(), "list-models".to_owned()])
+            .expect("list models command should parse");
 
-        // @verifies selvedge.cli.login_chatgpt
+        // @verifies selvedge.cli.list_models
         assert_eq!(
             command,
             CliCommand::SubmitCommand {
-                command_name: "login-chatgpt".to_owned(),
+                command_name: "list-models".to_owned(),
                 payload: serde_json::json!({}),
                 client_id: None,
             }
@@ -1283,15 +1338,15 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn login_chatgpt_command_uses_unified_client_path() {
-        let connector = FakeConnector::new(vec![Ok(FakeClientPlan::login_complete())]);
+    async fn list_models_command_uses_unified_client_path() {
+        let connector = FakeConnector::new(vec![Ok(FakeClientPlan::list_models_complete())]);
         let connector_state = connector.state.clone();
         let starter = FakeServerStarter::new();
         let server_runner = FakeServerRunner::stopped();
         let server_runner_state = server_runner.state.clone();
 
         let status = run_cli_with_deps(
-            vec!["selvedge".to_owned(), "login-chatgpt".to_owned()],
+            vec!["selvedge".to_owned(), "list-models".to_owned()],
             starter.clone(),
             server_runner,
             connector,
@@ -1299,7 +1354,7 @@ mod tests {
         )
         .await;
 
-        // @verifies selvedge.cli.login_chatgpt
+        // @verifies selvedge.cli.list_models
         assert_eq!(status, CliExitStatus::Success);
         assert_eq!(connector_state.lock().expect("connector").connect_calls, 1);
         assert_eq!(starter.start_calls(), 0);
@@ -1307,20 +1362,20 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn login_chatgpt_command_reports_terminal_failure() {
+    async fn list_models_command_reports_terminal_failure() {
         let status = run_cli_with_deps(
-            vec!["selvedge".to_owned(), "login-chatgpt".to_owned()],
+            vec!["selvedge".to_owned(), "list-models".to_owned()],
             FakeServerStarter::new(),
             FakeServerRunner::stopped(),
-            FakeConnector::new(vec![Ok(FakeClientPlan::login_failed())]),
+            FakeConnector::new(vec![Ok(FakeClientPlan::list_models_failed())]),
             DefaultCliServerStartArgsBuilder::new(),
         )
         .await;
 
-        // @verifies selvedge.cli.login_chatgpt
+        // @verifies selvedge.cli.list_models
         assert_eq!(
             status,
-            CliExitStatus::CommandFailed("ChatGPT login failed: ChallengeExpired".to_owned())
+            CliExitStatus::CommandFailed("model listing failed".to_owned())
         );
     }
 
@@ -1394,7 +1449,7 @@ mod tests {
             }
         }
 
-        fn login_complete() -> Self {
+        fn list_models_complete() -> Self {
             Self {
                 ready: Ok(ready_response(ReadyState::Ready)),
                 submit: Ok(CommandResponse {
@@ -1403,13 +1458,12 @@ mod tests {
                 }),
                 attach_frames: vec![
                     Ok(empty_snapshot_frame("cli-attach")),
-                    Ok(login_user_code_notice("response-1")),
-                    Ok(command_completed_notice("response-1", "login-chatgpt")),
+                    Ok(command_completed_notice("response-1", "list-models")),
                 ],
             }
         }
 
-        fn login_failed() -> Self {
+        fn list_models_failed() -> Self {
             Self {
                 ready: Ok(ready_response(ReadyState::Ready)),
                 submit: Ok(CommandResponse {
@@ -1418,7 +1472,7 @@ mod tests {
                 }),
                 attach_frames: vec![
                     Ok(empty_snapshot_frame("cli-attach")),
-                    Ok(command_failed_notice("response-1", "login-chatgpt")),
+                    Ok(command_failed_notice("response-1", "list-models")),
                 ],
             }
         }
@@ -1548,22 +1602,6 @@ mod tests {
         })
     }
 
-    fn login_user_code_notice(command_id: &str) -> LocalClientFrame {
-        LocalClientFrame::Notice(LocalClientNoticeFrame {
-            delivery_seq: 2,
-            client_command_id: LocalClientCommandId::new("cli-attach").expect("attach id"),
-            notice: LocalNotice {
-                level: LocalNoticeLevel::Info,
-                kind: LocalNoticeKind::LoginUserCode {
-                    client_command_id: LocalClientCommandId::new(command_id).expect("command id"),
-                    verification_url: "https://auth.openai.com/codex/device".to_owned(),
-                    user_code: "ABCD-EFGH".to_owned(),
-                },
-                message_text: "login user code".to_owned(),
-            },
-        })
-    }
-
     fn command_completed_notice(command_id: &str, command_name: &str) -> LocalClientFrame {
         LocalClientFrame::Notice(LocalClientNoticeFrame {
             delivery_seq: 3,
@@ -1574,8 +1612,7 @@ mod tests {
                     client_command_id: LocalClientCommandId::new(command_id).expect("command id"),
                     command_name: command_name.to_owned(),
                 },
-                message_text: "ChatGPT login complete.\nAuth file: /tmp/chatgpt-auth.json"
-                    .to_owned(),
+                message_text: "chatgpt: gpt-5, gpt-5-codex".to_owned(),
             },
         })
     }
@@ -1590,7 +1627,7 @@ mod tests {
                     client_command_id: LocalClientCommandId::new(command_id).expect("command id"),
                     command_name: command_name.to_owned(),
                 },
-                message_text: "ChatGPT login failed: ChallengeExpired".to_owned(),
+                message_text: "model listing failed".to_owned(),
             },
         })
     }

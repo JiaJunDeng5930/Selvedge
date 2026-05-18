@@ -63,7 +63,7 @@ async fn resolve(force_refresh: bool) -> Result<ResolvedChatgptAuth, ChatgptAuth
     let refreshed_file = ChatgptAuthFile {
         schema_version: 1,
         provider: "chatgpt".to_owned(),
-        login_method: "device_code".to_owned(),
+        credential_kind: "login".to_owned(),
         tokens: refreshed_tokens,
     };
     let resolved =

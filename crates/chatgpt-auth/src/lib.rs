@@ -18,8 +18,8 @@ pub struct ChatgptAuthFile {
     pub schema_version: u32,
     /// @constraint selvedge.auth.file.provider_field Persisted ChatGPT auth files expose the ChatGPT provider marker to callers after parsing.
     pub provider: String,
-    /// @constraint selvedge.auth.file.login_method_field Persisted ChatGPT auth files expose the device-code login method marker to callers after parsing.
-    pub login_method: String,
+    /// @constraint selvedge.auth.file.credential_kind_field Persisted ChatGPT credential records expose the login credential kind to callers after parsing.
+    pub credential_kind: String,
     /// @behavior selvedge.auth.file.tokens_field Persisted ChatGPT auth files expose stored id, access, and refresh tokens to auth resolution.
     pub tokens: ChatgptStoredTokens,
 }

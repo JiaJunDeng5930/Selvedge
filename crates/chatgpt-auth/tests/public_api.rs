@@ -13,7 +13,7 @@ fn public_api_exposes_chatgpt_auth_types_and_functions() {
     let auth_file = ChatgptAuthFile {
         schema_version: 1,
         provider: "chatgpt".to_owned(),
-        login_method: "device_code".to_owned(),
+        credential_kind: "login".to_owned(),
         tokens: ChatgptStoredTokens {
             id_token: "id-token".to_owned(),
             access_token: "access-token".to_owned(),

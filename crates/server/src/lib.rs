@@ -22,6 +22,7 @@
 //! @behavior selvedge.startup.server.web.frame_stream Web frame streaming forwards local protocol frames and maps server stream errors into web bridge errors.
 //! @behavior selvedge.startup.server.web.bind_target Web bind target validation rejects invalid localhost ports before durable startup side effects.
 //! @behavior selvedge.startup.server.local_operation Server local operations execute server-owned commands outside the router mailbox and deliver user-visible notices to attached clients.
+//! @behavior selvedge.startup.server.local_operation.login ChatGPT provider login remains a server-owned local operation that can run outside router command delivery.
 
 use std::collections::HashMap;
 use std::fmt;
@@ -273,6 +274,7 @@ pub trait LocalOperationExecutor: Send + Sync {
 // @behavior selvedge.startup.server.local_operation.command Local operation commands identify server-owned commands accepted through the local protocol.
 pub enum LocalOperationCommand {
     LoginChatgpt,
+    ListModels,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -556,7 +558,7 @@ impl ServerControl {
             return CommandOutcome::Rejected(CommandRejectReason::MalformedRequest);
         }
 
-        if request.command_name == "login-chatgpt" {
+        if request.command_name == "login-chatgpt" || request.command_name == "list-models" {
             if !request
                 .payload
                 .as_object()
@@ -564,7 +566,14 @@ impl ServerControl {
             {
                 return CommandOutcome::Rejected(CommandRejectReason::MalformedRequest);
             }
-            return self.submit_login_chatgpt(request).await;
+            let operation_command = if request.command_name == "login-chatgpt" {
+                LocalOperationCommand::LoginChatgpt
+            } else {
+                LocalOperationCommand::ListModels
+            };
+            return self
+                .submit_local_operation(request, operation_command)
+                .await;
         }
 
         let command = match self.inner.command_mapper.map_command(request) {
@@ -608,8 +617,12 @@ impl ServerControl {
         CommandOutcome::Accepted
     }
 
-    // @behavior selvedge.startup.server.local_operation.login Login command submission requires an active attach stream, enforces single-flight execution, and starts server-owned ChatGPT login outside router command delivery.
-    async fn submit_login_chatgpt(&self, request: CommandRequest) -> CommandOutcome {
+    // @behavior selvedge.startup.server.local_operation.dispatch Server-owned operation submission requires an active attach stream and starts execution outside router command delivery.
+    async fn submit_local_operation(
+        &self,
+        request: CommandRequest,
+        operation_command: LocalOperationCommand,
+    ) -> CommandOutcome {
         let client_id = ClientId(request.client_id.0);
         let submit_command_id = ClientCommandId(request.client_command_id.0);
         let Some(attach_command_id) = self.inner.active_attach_for_client(&client_id) else {
@@ -635,8 +648,8 @@ impl ServerControl {
             attach_command_id.clone(),
             attach_closed_tx,
         );
-        let command_name = "login-chatgpt".to_owned();
-        let operation = executor.execute(LocalOperationCommand::LoginChatgpt, progress_tx);
+        let command_name = request.command_name;
+        let operation = executor.execute(operation_command, progress_tx);
         let task = tokio::spawn(run_local_operation_task(LocalOperationTask {
             operation,
             progress_rx,

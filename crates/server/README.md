@@ -20,9 +20,8 @@ This crate exposes the in-process control surface, validates localhost bind targ
 ## Package State Machine
 
 Server-owned local commands execute through the injected `LocalOperationExecutor`.
-`login-chatgpt` is admitted only for an attached client, runs outside the router
-mailbox, and delivers typed notice frames for user-code prompts and terminal
-results.
+`list-models` and provider login operations are admitted only for an attached
+client, run outside the router mailbox, and deliver terminal notice frames.
 
 The diagram records the package-level observable states and transition paths. Each edge label names the concrete condition checked at this package boundary.
 
@@ -36,6 +35,8 @@ flowchart TD
   Ready[ServerControl ready]
   Probe[Handle ready probe]
   Submit[Handle local command]
+  LocalOperation[Run server-owned local operation]
+  RouterCommand[Send router command]
   Attach[Handle attach request]
   Hydrate[Start client hydration]
   Stop[Stop server]
@@ -55,8 +56,12 @@ flowchart TD
   Ready -->|ready probe arrives| Probe
   Probe -->|server is ready| Ready
   Ready -->|command request arrives| Submit
-  Submit -->|router accepts command send| Ready
+  Submit -->|command name is server-owned and attach admission is satisfied| LocalOperation
+  Submit -->|router accepts command send| RouterCommand
   Submit -->|command validation or router send fails| RequestFailure
+  LocalOperation -->|operation task starts and terminal notice will be delivered| Ready
+  LocalOperation -->|operation admission or task startup fails| RequestFailure
+  RouterCommand -->|router mailbox accepts command| Ready
   Ready -->|attach request arrives| Attach
   Attach -->|router reserves event session| Hydrate
   Attach -->|router admission rejects or channel creation fails| RequestFailure

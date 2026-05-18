@@ -1,5 +1,6 @@
 #![doc = include_str!("../README.md")]
 //! @behavior selvedge.model Task model requests produce a task-visible model reply or a command-reportable model error.
+//! @behavior selvedge.model.dispatch.unknown_provider Unknown provider ids produce task-visible provider-request failures through registry dispatch validation.
 
 use std::collections::BTreeMap;
 use std::io::Write;
@@ -22,6 +23,7 @@ use selvedge_domain_model::{
     ResponsePreference, StructuredPayload, TokenUsage, ToolCallProposal, ToolManifest,
     ToolParameterType, validate_model_reply,
 };
+use selvedge_model_providers::{ProviderRegistryError, default_registry};
 
 /// @behavior selvedge.model.config Model execution uses caller-supplied timeout and response-size policy for each task request.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -68,14 +70,17 @@ async fn run_model_call(
         return failure_envelope(request, error);
     }
 
-    // @behavior selvedge.model.dispatch.provider The provider named by the task request receives the external model call.
+    // @behavior selvedge.model.dispatch.provider The provider named by the task request is resolved through the provider registry before execution.
+    if let Err(error) = validate_provider_dispatch_target(&request).await {
+        return failure_envelope(request, map_provider_registry_error(error));
+    }
+
     let reply_result = match request.provider.provider_name.as_str() {
         "chatgpt" => {
-            // @behavior selvedge.model.dispatch.timeout ChatGPT calls that exceed the configured duration produce task-visible timeout failures.
+            // @behavior selvedge.model.dispatch.timeout Provider calls that exceed the configured duration produce task-visible timeout failures.
             tokio::time::timeout(config.request_timeout, call_chatgpt(&request, &config)).await
         }
         _ => {
-            // @behavior selvedge.model.dispatch.unsupported Unknown provider names produce task-visible provider-request failures.
             return failure_envelope(
                 request,
                 model_call_error(
@@ -120,6 +125,62 @@ async fn run_model_call(
     // @behavior selvedge.model.dispatch.success Accepted provider replies return to the task that requested them.
     let correlation = request.correlation;
     ApiOutputEnvelope::Success { correlation, reply }
+}
+
+// @behavior selvedge.model.dispatch.provider_config Provider dispatch validation reads the current LLM provider map and Selvedge home before registry validation.
+async fn validate_provider_dispatch_target(
+    request: &ModelCallDispatchRequest,
+) -> Result<(), ProviderRegistryError> {
+    let llm_config = selvedge_config::read(|config| config.llm.clone())
+        // @behavior selvedge.model.dispatch.provider_config.config_error Provider dispatch validation returns provider-request failures when model provider config cannot be read.
+        .map_err(|error| ProviderRegistryError::Credential(error.to_string()))?;
+    let selvedge_home = selvedge_config::selvedge_home()
+        // @behavior selvedge.model.dispatch.provider_config.home_error Provider dispatch validation returns provider-request failures when Selvedge home cannot be resolved.
+        .map_err(|error| ProviderRegistryError::Credential(error.to_string()))?;
+    default_registry()
+        .validate_dispatch_target_from_home(
+            &selvedge_home,
+            &llm_config,
+            &request.provider.provider_name,
+            &request.provider.model_name,
+        )
+        .await
+}
+
+fn map_provider_registry_error(error: ProviderRegistryError) -> ModelCallError {
+    match error {
+        ProviderRegistryError::UnknownProvider { .. } => model_call_error(
+            ModelCallErrorKind::ProviderRequest,
+            "provider is not supported",
+        ),
+        ProviderRegistryError::IncompleteProvider { provider_id } => model_call_error(
+            ModelCallErrorKind::ProviderRequest,
+            format!("provider {provider_id} is not configured"),
+        ),
+        ProviderRegistryError::ValidationError {
+            provider_id,
+            model_name,
+        } => model_call_error(
+            ModelCallErrorKind::ProviderRequest,
+            format!("model {model_name} is not available for provider {provider_id}"),
+        ),
+        ProviderRegistryError::Credential(error) => model_call_error(
+            ModelCallErrorKind::ProviderRequest,
+            format!("provider credential lookup failed: {error}"),
+        ),
+        ProviderRegistryError::DiscoveryError {
+            provider_id,
+            reason,
+        } => model_call_error(
+            ModelCallErrorKind::ProviderRequest,
+            format!("provider {provider_id} discovery failed: {reason}"),
+        ),
+        ProviderRegistryError::InvalidProviderDescriptor { provider_id }
+        | ProviderRegistryError::DuplicateProviderDescriptor { provider_id } => model_call_error(
+            ModelCallErrorKind::ProviderRequest,
+            format!("provider registry descriptor {provider_id} is invalid"),
+        ),
+    }
 }
 
 /// @behavior selvedge.model.chatgpt ChatGPT task requests expose ChatGPT text, tool requests, usage, and finish state as Selvedge model output.

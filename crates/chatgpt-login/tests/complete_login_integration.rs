@@ -56,7 +56,7 @@ async fn complete_device_code_login_persists_auth_file_and_returns_claims() {
 [logging]
 level = "debug"
 
-[llm.providers.chatgpt.auth]
+[llm.providers.chatgpt.settings]
 issuer = "{}"
 "#,
         server.url("")
@@ -78,7 +78,9 @@ issuer = "{}"
     let result = complete_device_code_login(&challenge, authorization)
         .await
         .expect("complete device code login");
-    let persisted_path = tempdir.path().join(".selvedge/auth/chatgpt-auth.json");
+    let persisted_path = tempdir
+        .path()
+        .join(".selvedge/auth/model-providers/chatgpt.json");
     let persisted = std::fs::read_to_string(&persisted_path).expect("read persisted auth file");
 
     // @verifies selvedge.login
@@ -96,7 +98,7 @@ issuer = "{}"
     // @verifies selvedge.login
     assert!(persisted.contains("\"provider\":\"chatgpt\""));
     // @verifies selvedge.login
-    assert!(persisted.contains("\"login_method\":\"device_code\""));
+    assert!(persisted.contains("\"credential_kind\":\"login\""));
     // @verifies selvedge.login
     assert!(persisted.contains("\"id_token\":\""));
     // @verifies selvedge.login
@@ -143,13 +145,16 @@ async fn complete_device_code_login_waits_for_auth_file_lock_before_persisting()
 [logging]
 level = "debug"
 
-[llm.providers.chatgpt.auth]
+[llm.providers.chatgpt.settings]
 issuer = "{}"
 "#,
         server.url("")
     ));
-    let persisted_path = tempdir.path().join(".selvedge/auth/chatgpt-auth.json");
-    let lock_path = tempdir.path().join(".selvedge/.chatgpt-auth.lock");
+    let persisted_path = tempdir
+        .path()
+        .join(".selvedge/auth/model-providers/chatgpt.json");
+    let lock_path = tempdir.path().join(".selvedge/auth/.chatgpt-auth.lock");
+    std::fs::create_dir_all(lock_path.parent().expect("lock parent")).expect("create lock parent");
     let lock_file = OpenOptions::new()
         .create(true)
         .truncate(false)
@@ -231,7 +236,7 @@ async fn complete_device_code_login_recreates_missing_selvedge_home_before_persi
 [logging]
 level = "debug"
 
-[llm.providers.chatgpt.auth]
+[llm.providers.chatgpt.settings]
 issuer = "{}"
 "#,
         server.url("")
@@ -255,7 +260,9 @@ issuer = "{}"
     let result = complete_device_code_login(&challenge, authorization)
         .await
         .expect("complete device code login");
-    let persisted_path = tempdir.path().join(".selvedge/auth/chatgpt-auth.json");
+    let persisted_path = tempdir
+        .path()
+        .join(".selvedge/auth/model-providers/chatgpt.json");
     let persisted = std::fs::read_to_string(&persisted_path).expect("read persisted auth file");
 
     // @verifies selvedge.login
@@ -324,7 +331,7 @@ level = "debug"
     assert!(
         !tempdir
             .path()
-            .join(".selvedge/auth/chatgpt-auth.json")
+            .join(".selvedge/auth/model-providers/chatgpt.json")
             .exists()
     );
 }
@@ -367,13 +374,15 @@ async fn complete_device_code_login_rejects_workspace_mismatch_without_overwriti
 [logging]
 level = "debug"
 
-[llm.providers.chatgpt.auth]
+[llm.providers.chatgpt.settings]
 issuer = "{}"
 expected_workspace_id = "workspace-expected"
 "#,
         server.url("")
     ));
-    let persisted_path = tempdir.path().join(".selvedge/auth/chatgpt-auth.json");
+    let persisted_path = tempdir
+        .path()
+        .join(".selvedge/auth/model-providers/chatgpt.json");
     std::fs::create_dir_all(
         persisted_path
             .parent()
@@ -452,7 +461,7 @@ async fn complete_device_code_login_accepts_missing_account_id_claim() {
 [logging]
 level = "debug"
 
-[llm.providers.chatgpt.auth]
+[llm.providers.chatgpt.settings]
 issuer = "{}"
 "#,
         server.url("")
@@ -473,7 +482,9 @@ issuer = "{}"
     let result = complete_device_code_login(&challenge, authorization)
         .await
         .expect("missing account_id can complete");
-    let persisted_path = tempdir.path().join(".selvedge/auth/chatgpt-auth.json");
+    let persisted_path = tempdir
+        .path()
+        .join(".selvedge/auth/model-providers/chatgpt.json");
 
     // @verifies selvedge.login
     assert_eq!(result.account_id, None);
@@ -522,7 +533,7 @@ async fn complete_device_code_login_accepts_blank_account_id_claim_as_missing() 
 [logging]
 level = "debug"
 
-[llm.providers.chatgpt.auth]
+[llm.providers.chatgpt.settings]
 issuer = "{}"
 "#,
         server.url("")
@@ -543,7 +554,9 @@ issuer = "{}"
     let result = complete_device_code_login(&challenge, authorization)
         .await
         .expect("blank account_id can complete as missing");
-    let persisted_path = tempdir.path().join(".selvedge/auth/chatgpt-auth.json");
+    let persisted_path = tempdir
+        .path()
+        .join(".selvedge/auth/model-providers/chatgpt.json");
 
     // @verifies selvedge.login
     assert_eq!(result.account_id, None);
@@ -592,7 +605,7 @@ async fn complete_device_code_login_rejects_invalid_id_token_header() {
 [logging]
 level = "debug"
 
-[llm.providers.chatgpt.auth]
+[llm.providers.chatgpt.settings]
 issuer = "{}"
 "#,
         server.url("")
@@ -620,7 +633,7 @@ issuer = "{}"
     assert!(
         !tempdir
             .path()
-            .join(".selvedge/auth/chatgpt-auth.json")
+            .join(".selvedge/auth/model-providers/chatgpt.json")
             .exists()
     );
 }
@@ -672,12 +685,12 @@ async fn complete_device_code_login_reads_current_issuer_from_runtime_config() {
 [logging]
 level = "debug"
 
-[llm.providers.chatgpt.auth]
+[llm.providers.chatgpt.settings]
 issuer = "{}"
 "#,
         old_server.url("")
     ));
-    selvedge_config::update_runtime("llm.providers.chatgpt.auth.issuer", new_server.url(""))
+    selvedge_config::update_runtime("llm.providers.chatgpt.settings.issuer", new_server.url(""))
         .expect("update issuer");
 
     let challenge = DeviceCodeChallenge {
@@ -696,9 +709,12 @@ issuer = "{}"
     let result = complete_device_code_login(&challenge, authorization)
         .await
         .expect("complete with updated issuer");
-    let persisted =
-        std::fs::read_to_string(tempdir.path().join(".selvedge/auth/chatgpt-auth.json"))
-            .expect("read persisted auth file");
+    let persisted = std::fs::read_to_string(
+        tempdir
+            .path()
+            .join(".selvedge/auth/model-providers/chatgpt.json"),
+    )
+    .expect("read persisted auth file");
 
     // @verifies selvedge.login
     assert_eq!(result.account_id.as_deref(), Some("workspace-new"));

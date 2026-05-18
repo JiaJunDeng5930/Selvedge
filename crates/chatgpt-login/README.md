@@ -14,7 +14,7 @@ Use it to:
 - start a device-code login challenge
 - poll the provider for authorization state
 - exchange the authorization grant for tokens
-- persist the ChatGPT auth file after a successful login
+- persist the ChatGPT provider credential after a successful login
 
 ## This crate is not for
 
@@ -52,7 +52,7 @@ and executes every HTTP request through `selvedge_client`.
   internally
 - `complete_device_code_login(...)` exchanges the authorization grant, parses
   claims from `id_token`, checks `expected_workspace_id` when configured, and
-  writes `<selvedge_home>/auth/chatgpt-auth.json` atomically before returning
+  writes the `chatgpt` login credential record atomically before returning
 - `run_chatgpt_login(...)` serializes concurrent login operations in the current
   process and returns `LoginAlreadyRunning` when another login is active
 
@@ -74,7 +74,7 @@ that value through the public API.
 This crate reads:
 
 ```toml
-[llm.providers.chatgpt.auth]
+[llm.providers.chatgpt.settings]
 issuer = "https://auth.openai.com"
 client_id = "app_EMoamEEZ73f0CkXaXp7hrann"
 expected_workspace_id = "optional string"
@@ -92,7 +92,7 @@ flowchart TD
   Poll[Perform one device-code poll]
   Exchange[Exchange authorization grant for tokens]
   ValidateClaims[Parse id_token claims and workspace]
-  Persist[Write auth file atomically]
+  Persist[Write credential record atomically]
   Challenge[Return DeviceCodeChallenge]
   Pending[Return Pending poll outcome]
   Authorized[Return Authorized poll outcome]
@@ -122,6 +122,6 @@ flowchart TD
   ValidateClaims -->|id token parses and workspace matches configured expectation| Persist
   ValidateClaims -->|id token is malformed| ProviderError
   ValidateClaims -->|workspace claim conflicts with expected_workspace_id| WorkspaceError
-  Persist -->|auth file write succeeds| Success
+  Persist -->|credential record write succeeds| Success
   Persist -->|directory create, encode, temp write, or rename fails| FileError
 ```

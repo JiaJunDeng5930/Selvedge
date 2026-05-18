@@ -38,7 +38,7 @@ Callers are responsible for preserving the full `input` history and the
 This crate reads:
 
 ```toml
-[llm.providers.chatgpt.api]
+[llm.providers.chatgpt]
 base_url = "https://chatgpt.com/backend-api/codex"
 stream_completion_timeout_ms = 1800000
 ```
@@ -52,7 +52,7 @@ This crate enforces two independent timeout layers:
 
 - `network.stream_idle_timeout_ms` belongs to `selvedge-client` and limits how
   long one body-chunk wait may stay idle.
-- `llm.providers.chatgpt.api.stream_completion_timeout_ms` belongs to this crate
+- `llm.providers.chatgpt.stream_completion_timeout_ms` belongs to this crate
   and limits the total lifetime of one `/responses` stream.
 
 These settings are intentionally separate and are not merged into one budget.

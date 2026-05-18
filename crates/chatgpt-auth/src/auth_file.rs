@@ -24,8 +24,8 @@ pub(crate) fn parse(bytes: &[u8]) -> Result<ChatgptAuthFile, ChatgptAuthParseErr
 
     let schema_version = read_schema_version(object.get("schema_version"))?;
     let provider = read_required_string(object.get("provider"), "provider")?;
-    let login_method = read_required_string(object.get("login_method"), "login_method")?;
-    let tokens = read_tokens(object.get("tokens"))?;
+    let credential_kind = read_required_string(object.get("credential_kind"), "credential_kind")?;
+    let tokens = read_tokens(object.get("payload"))?;
 
     if schema_version != 1 {
         // @behavior selvedge.auth.file.parse.unsupported_schema Auth file parsing reports unsupported schema versions as structured parse errors.
@@ -42,18 +42,18 @@ pub(crate) fn parse(bytes: &[u8]) -> Result<ChatgptAuthFile, ChatgptAuthParseErr
         });
     }
 
-    if login_method != "device_code" {
-        // @behavior selvedge.auth.file.parse.login_method Auth file parsing reports login methods outside the device-code contract as structured parse errors.
+    if credential_kind != "login" {
+        // @behavior selvedge.auth.file.parse.credential_kind Auth file parsing reports credential kinds outside the login contract as structured parse errors.
         return Err(ChatgptAuthParseError::InvalidField {
-            field: "login_method",
-            reason: "must equal \"device_code\"".to_owned(),
+            field: "credential_kind",
+            reason: "must equal \"login\"".to_owned(),
         });
     }
 
     Ok(ChatgptAuthFile {
         schema_version,
         provider,
-        login_method,
+        credential_kind,
         tokens,
     })
 }
@@ -79,11 +79,21 @@ fn read_schema_version(value: Option<&Value>) -> Result<u32, ChatgptAuthParseErr
 
 // @behavior selvedge.auth.file.tokens.required Auth file parsing requires id_token, access_token, and refresh_token values before credentials can be resolved.
 fn read_tokens(value: Option<&Value>) -> Result<ChatgptStoredTokens, ChatgptAuthParseError> {
-    let object = value
+    let envelope = value
         .ok_or(ChatgptAuthParseError::MissingField { field: "tokens" })?
         .as_object()
         .ok_or_else(|| ChatgptAuthParseError::InvalidField {
             field: "tokens",
+            reason: "must be an object".to_owned(),
+        })?;
+    let object = envelope
+        .get("tokens")
+        .ok_or(ChatgptAuthParseError::MissingField {
+            field: "payload.tokens",
+        })?
+        .as_object()
+        .ok_or_else(|| ChatgptAuthParseError::InvalidField {
+            field: "payload.tokens",
             reason: "must be an object".to_owned(),
         })?;
 
@@ -118,9 +128,9 @@ fn read_required_string(
     Ok(text.to_owned())
 }
 
-// @behavior selvedge.auth.file.path ChatGPT auth state is read from and written to `<selvedge_home>/auth/chatgpt-auth.json`.
+// @behavior selvedge.auth.file.path ChatGPT auth state is read from and written to `<selvedge_home>/auth/model-providers/chatgpt.json`.
 pub(crate) fn auth_file_path(selvedge_home: &Path) -> PathBuf {
-    selvedge_home.join("auth/chatgpt-auth.json")
+    selvedge_home.join("auth/model-providers/chatgpt.json")
 }
 
 // @behavior selvedge.auth.file.load Auth file loading maps absent, unreadable, and malformed local auth files into caller-visible auth resolution errors.
@@ -167,11 +177,13 @@ pub(crate) fn persist(path: &Path, tokens: &ChatgptStoredTokens) -> Result<(), C
     let payload = serde_json::to_vec(&json!({
         "schema_version": 1,
         "provider": "chatgpt",
-        "login_method": "device_code",
-        "tokens": {
-            "id_token": tokens.id_token,
-            "access_token": tokens.access_token,
-            "refresh_token": tokens.refresh_token,
+        "credential_kind": "login",
+        "payload": {
+            "tokens": {
+                "id_token": tokens.id_token,
+                "access_token": tokens.access_token,
+                "refresh_token": tokens.refresh_token,
+            }
         }
     }))
     // @behavior selvedge.auth.file.persist.encode Persisting ChatGPT auth reports serialization failures as persist failures with the target path.
