@@ -581,7 +581,8 @@ This file is for coding agents working in this repository.
 |selvedge.startup.server.local_operation.progress_sender|selvedge.startup.server.local_operation.progress_sender.{abstraction}
 |selvedge.startup.server.local_operation.success|selvedge.startup.server.local_operation.success.{message}
 |selvedge.startup.server.local_operation.task|selvedge.startup.server.local_operation.task.{abort,attach_closed,cancel_attach,cancel_clear,cancel_clear_lock,cancel_lock,cancel_track,delivery_closed,failure,run,terminal,track}
-|selvedge.startup.server.local_operation.task.cancel_track|selvedge.startup.server.local_operation.task.cancel_track.{lock,replace}
+|selvedge.startup.server.local_operation.task.cancel_attach|selvedge.startup.server.local_operation.task.cancel_attach.{signal}
+|selvedge.startup.server.local_operation.task.cancel_track|selvedge.startup.server.local_operation.task.cancel_track.{command,lock}
 |selvedge.startup.server.local_protocol|selvedge.startup.server.local_protocol.{attach,command,control,error,event}
 |selvedge.startup.server.local_protocol.attach|selvedge.startup.server.local_protocol.attach.{active_reject,active_reservation,admission_closed,channel_factory,channel_failed,clear_active,duplicate,frame_stream,frame_stream_type,registry_full,registry_lock,reject,request,reservation_rollback,response,restore_active,router_command,stream_closed,subscription_mapping}
 |selvedge.startup.server.local_protocol.attach.channel_factory|selvedge.startup.server.local_protocol.attach.channel_factory.{create}

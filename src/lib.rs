@@ -574,14 +574,14 @@ where
         return status;
     }
 
-    // @behavior selvedge.cli.submit.outcome Accepted router-backed commands return Success, accepted list-models waits for a terminal notice, rejected responses return CommandRejected, and client errors return LocalClientFailed.
+    // @behavior selvedge.cli.submit.outcome Accepted router-backed commands return Success, accepted server-owned operations wait for a terminal notice, rejected responses return CommandRejected, and client errors return LocalClientFailed.
     let status = match client.submit_command(request).await {
         Ok(CommandResponse {
             outcome: CommandOutcome::Accepted,
             client_command_id,
             ..
         }) => {
-            if command_name == "list-models" {
+            if command_name == "list-models" || command_name == "login-chatgpt" {
                 wait_for_terminal_frame(&mut stream, &client_command_id, &command_name).await
             } else {
                 CliExitStatus::Success
@@ -1379,6 +1379,30 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn login_chatgpt_command_reports_terminal_failure() {
+        let status = run_cli_with_deps(
+            vec![
+                "selvedge".to_owned(),
+                "--client-id".to_owned(),
+                "client-1".to_owned(),
+                "login-chatgpt".to_owned(),
+                "{}".to_owned(),
+            ],
+            FakeServerStarter::new(),
+            FakeServerRunner::stopped(),
+            FakeConnector::new(vec![Ok(FakeClientPlan::login_chatgpt_failed())]),
+            DefaultCliServerStartArgsBuilder::new(),
+        )
+        .await;
+
+        // @verifies selvedge.cli.submit.outcome
+        assert_eq!(
+            status,
+            CliExitStatus::CommandFailed("login failed".to_owned())
+        );
+    }
+
     #[derive(Clone)]
     struct FakeConnector {
         state: Arc<Mutex<FakeConnectorState>>,
@@ -1473,6 +1497,24 @@ mod tests {
                 attach_frames: vec![
                     Ok(empty_snapshot_frame("cli-attach")),
                     Ok(command_failed_notice("response-1", "list-models")),
+                ],
+            }
+        }
+
+        fn login_chatgpt_failed() -> Self {
+            Self {
+                ready: Ok(ready_response(ReadyState::Ready)),
+                submit: Ok(CommandResponse {
+                    client_command_id: LocalClientCommandId::new("response-1").expect("command id"),
+                    outcome: CommandOutcome::Accepted,
+                }),
+                attach_frames: vec![
+                    Ok(empty_snapshot_frame("cli-attach")),
+                    Ok(command_failed_notice_with_message(
+                        "response-1",
+                        "login-chatgpt",
+                        "login failed",
+                    )),
                 ],
             }
         }
@@ -1618,6 +1660,14 @@ mod tests {
     }
 
     fn command_failed_notice(command_id: &str, command_name: &str) -> LocalClientFrame {
+        command_failed_notice_with_message(command_id, command_name, "model listing failed")
+    }
+
+    fn command_failed_notice_with_message(
+        command_id: &str,
+        command_name: &str,
+        message_text: &str,
+    ) -> LocalClientFrame {
         LocalClientFrame::Notice(LocalClientNoticeFrame {
             delivery_seq: 3,
             client_command_id: LocalClientCommandId::new("cli-attach").expect("attach id"),
@@ -1627,7 +1677,7 @@ mod tests {
                     client_command_id: LocalClientCommandId::new(command_id).expect("command id"),
                     command_name: command_name.to_owned(),
                 },
-                message_text: "model listing failed".to_owned(),
+                message_text: message_text.to_owned(),
             },
         })
     }
