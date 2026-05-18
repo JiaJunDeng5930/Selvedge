@@ -418,6 +418,7 @@ This file is for coding agents working in this repository.
 |selvedge.core.user_input|selvedge.core.user_input.{busy,db_error,nonempty,persisted,ready}
 |selvedge.login|selvedge.login.{auth_file,authorization,challenge,complete,config,errors,id_token,poll,poll_outcome,progress,provider_body,result,run,start,tests,token_exchange}
 |selvedge.login.auth_file|selvedge.login.auth_file.{atomic,directory,encode,lock,lock_error,lock_path,parent,path,persist,persist_join,replace,result,temp,write}
+|selvedge.login.auth_file.lock|selvedge.login.auth_file.lock.{lifetime}
 |selvedge.login.authorization|selvedge.login.authorization.{code,verifier}
 |selvedge.login.challenge|selvedge.login.challenge.{device_auth_id,expires_at,issued_at,poll_interval,user_code,verification_url}
 |selvedge.login.complete|selvedge.login.complete.{expired,workspace_mismatch}

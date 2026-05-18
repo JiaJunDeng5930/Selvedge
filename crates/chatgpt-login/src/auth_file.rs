@@ -20,12 +20,13 @@ pub(crate) async fn persist(
     target_path: &Path,
     token_set: &TokenSet,
 ) -> Result<(), ChatgptLoginError> {
-    let _lock_guard = acquire_auth_lock(target_path).await?;
+    let lock_guard = acquire_auth_lock(target_path).await?;
     let target_path = target_path.to_path_buf();
     let token_set = token_set.clone();
     let persist_path = target_path.clone();
 
-    tokio::task::spawn_blocking(move || persist_blocking(&persist_path, &token_set))
+    // @constraint selvedge.login.auth_file.lock.lifetime Completed ChatGPT login keeps the provider credential lock inside the blocking write task until file replacement completes.
+    tokio::task::spawn_blocking(move || persist_blocking(&persist_path, &token_set, lock_guard))
         .await
         // @behavior selvedge.login.auth_file.persist_join Persist task join failures are returned as caller-visible auth file persist failures.
         .map_err(|error| ChatgptLoginError::PersistFailed {
@@ -35,7 +36,11 @@ pub(crate) async fn persist(
 }
 
 // @behavior selvedge.login.auth_file.atomic Completed ChatGPT login writes the ChatGPT auth file atomically under the shared provider credential lock.
-fn persist_blocking(target_path: &Path, token_set: &TokenSet) -> Result<(), ChatgptLoginError> {
+fn persist_blocking(
+    target_path: &Path,
+    token_set: &TokenSet,
+    _lock_guard: CredentialLockGuard,
+) -> Result<(), ChatgptLoginError> {
     let parent = target_path
         .parent()
         // @behavior selvedge.login.auth_file.parent Persisting completed login reports auth file paths without parent directories as persist failures.
