@@ -1,115 +1,88 @@
-use std::{
-    collections::HashMap,
-    fs::OpenOptions,
-    path::{Path, PathBuf},
-    sync::{Arc, LazyLock, Mutex},
-};
+use std::path::Path;
 
-use fs2::FileExt;
+use selvedge_model_credentials::{CredentialLockGuard, ModelCredentialError};
 
-use crate::ChatgptAuthError;
+use crate::{ChatgptAuthError, auth_file};
 
-static PATH_LOCKS: LazyLock<Mutex<HashMap<PathBuf, Arc<tokio::sync::Mutex<()>>>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
-
-// @behavior selvedge.auth.lock Auth file resolution serializes refresh and persistence for the same auth path across async tasks and processes.
-pub(crate) async fn lock_path(path: &Path) -> Result<PathLockGuard, ChatgptAuthError> {
-    let process_lock = {
-        let mut locks = PATH_LOCKS
-            .lock()
-            // @constraint selvedge.auth.lock.table The in-process auth path lock table must remain available while resolving ChatGPT credentials.
-            .expect("path lock table must not be poisoned");
-        locks
-            .entry(path.to_path_buf())
-            .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
-            .clone()
-    };
-    let process_guard = process_lock.lock_owned().await;
-    let lock_file_path = lock_file_path(path);
-    let auth_file_path = path.to_path_buf();
-    let lock_file = tokio::task::spawn_blocking(move || acquire_file_lock(&lock_file_path))
+// @behavior selvedge.auth.lock Auth file resolution serializes refresh and persistence through the shared ChatGPT provider credential lock.
+pub(crate) async fn lock_chatgpt_credential(
+    selvedge_home: &Path,
+) -> Result<PathLockGuard, ChatgptAuthError> {
+    let auth_file_path = auth_file::auth_file_path(selvedge_home);
+    let guard = selvedge_model_credentials::lock_credential_from_home(selvedge_home, "chatgpt")
         .await
-        // @behavior selvedge.auth.lock.join A failed blocking lock task is returned as an auth file read failure for the target auth path.
-        .map_err(|error| ChatgptAuthError::AuthFileReadFailed {
-            path: auth_file_path.clone(),
-            reason: format!("failed to join auth lock task: {error}"),
-        })?
-        // @behavior selvedge.auth.lock.path_error File-lock acquisition failures are reported against the target auth file path.
-        .map_err(|error| match error {
-            ChatgptAuthError::AuthFileReadFailed { reason, .. } => {
-                ChatgptAuthError::AuthFileReadFailed {
-                    path: auth_file_path.clone(),
-                    reason,
-                }
-            }
-            other => other,
-        })?;
+        .map_err(|error| map_lock_error(error, auth_file_path))?;
 
-    Ok(PathLockGuard {
-        process_guard,
-        lock_file: Some(lock_file),
-    })
+    Ok(PathLockGuard { _guard: guard })
 }
 
-// @constraint selvedge.auth.lock.guard The path lock guard holds both the in-process mutex and filesystem lock until the credential operation completes.
+// @constraint selvedge.auth.lock.guard The ChatGPT auth lock guard holds the shared provider credential lock until the credential operation completes.
 pub(crate) struct PathLockGuard {
-    process_guard: tokio::sync::OwnedMutexGuard<()>,
-    lock_file: Option<std::fs::File>,
+    _guard: CredentialLockGuard,
 }
 
-// @behavior selvedge.auth.lock.release Auth file locks are released when the credential operation guard is dropped.
-impl Drop for PathLockGuard {
-    fn drop(&mut self) {
-        let Some(lock_file) = self.lock_file.take() else {
-            return;
-        };
-
-        let _ = lock_file.unlock();
-        let _ = &self.process_guard;
+// @behavior selvedge.auth.lock.error ChatGPT auth lock acquisition maps provider credential lock failures into auth file read failures.
+fn map_lock_error(
+    error: ModelCredentialError,
+    auth_file_path: std::path::PathBuf,
+) -> ChatgptAuthError {
+    match error {
+        ModelCredentialError::InvalidProviderId { provider_id } => {
+            ChatgptAuthError::AuthFileReadFailed {
+                path: auth_file_path,
+                reason: format!("invalid credential provider id {provider_id:?}"),
+            }
+        }
+        ModelCredentialError::LockFailed { reason, .. } => ChatgptAuthError::AuthFileReadFailed {
+            path: auth_file_path,
+            reason,
+        },
+        ModelCredentialError::ReadFailed { path, reason }
+        | ModelCredentialError::WriteFailed { path, reason } => {
+            ChatgptAuthError::AuthFileReadFailed { path, reason }
+        }
+        ModelCredentialError::Config(reason) | ModelCredentialError::InvalidRecord { reason } => {
+            ChatgptAuthError::AuthFileReadFailed {
+                path: auth_file_path,
+                reason,
+            }
+        }
     }
 }
 
-// @behavior selvedge.auth.lock.file Auth resolution creates and exclusively locks the ChatGPT auth lock file before reading or writing credentials.
-fn acquire_file_lock(lock_file_path: &Path) -> Result<std::fs::File, ChatgptAuthError> {
-    let lock_parent = lock_file_path
-        .parent()
-        // @behavior selvedge.auth.lock.parent Auth lock acquisition reports lock paths without parent directories as auth file read failures.
-        .ok_or_else(|| ChatgptAuthError::AuthFileReadFailed {
-            path: lock_file_path.to_path_buf(),
-            reason: "lock file path must have a parent directory".to_owned(),
-        })?;
-    // @behavior selvedge.auth.lock.directory Auth lock acquisition creates the lock directory or reports an auth file read failure.
-    std::fs::create_dir_all(lock_parent).map_err(|error| ChatgptAuthError::AuthFileReadFailed {
-        path: lock_file_path.to_path_buf(),
-        reason: error.to_string(),
-    })?;
-    let lock_file = OpenOptions::new()
-        .create(true)
-        .truncate(false)
-        .read(true)
-        .write(true)
-        .open(lock_file_path)
-        // @behavior selvedge.auth.lock.open Auth lock acquisition reports lock file open failures as auth file read failures.
-        .map_err(|error| ChatgptAuthError::AuthFileReadFailed {
-            path: lock_file_path.to_path_buf(),
-            reason: error.to_string(),
-        })?;
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokio::{sync::oneshot, time::Duration};
 
-    lock_file
-        .lock_exclusive()
-        // @behavior selvedge.auth.lock.exclusive Auth lock acquisition reports exclusive lock failures as auth file read failures.
-        .map_err(|error| ChatgptAuthError::AuthFileReadFailed {
-            path: lock_file_path.to_path_buf(),
-            reason: error.to_string(),
-        })?;
+    #[tokio::test]
+    async fn chatgpt_auth_lock_waits_for_model_credential_lock() {
+        let temp = tempfile::tempdir().expect("temp home");
+        let first = selvedge_model_credentials::lock_credential_from_home(temp.path(), "chatgpt")
+            .await
+            .expect("first credential lock");
+        let home = temp.path().to_path_buf();
+        let (started_tx, started_rx) = oneshot::channel();
+        let (acquired_tx, mut acquired_rx) = oneshot::channel();
 
-    Ok(lock_file)
-}
+        let task = tokio::spawn(async move {
+            started_tx.send(()).expect("started signal sends");
+            let _second = lock_chatgpt_credential(&home).await.expect("chatgpt lock");
+            acquired_tx.send(()).expect("acquired signal sends");
+        });
+        started_rx.await.expect("started signal arrives");
 
-// @constraint selvedge.auth.lock.path The shared ChatGPT auth lock path lives at `<selvedge_home>/.chatgpt-auth.lock` for normal auth file locations.
-fn lock_file_path(auth_file_path: &Path) -> PathBuf {
-    match auth_file_path.parent().and_then(Path::parent) {
-        Some(selvedge_home) => selvedge_home.join(".chatgpt-auth.lock"),
-        None => auth_file_path.with_extension("lock"),
+        // @verifies selvedge.auth.lock
+        assert!(
+            tokio::time::timeout(Duration::from_millis(20), &mut acquired_rx)
+                .await
+                .is_err()
+        );
+        drop(first);
+        tokio::time::timeout(Duration::from_millis(100), &mut acquired_rx)
+            .await
+            .expect("acquired signal arrives")
+            .expect("acquired signal succeeds");
+        task.await.expect("lock task joins");
     }
 }

@@ -270,6 +270,7 @@ dependencies = [
  "selvedge-client",
  "selvedge-config",
  "selvedge-logging",
+ "selvedge-model-credentials",
  "selvedge-test-support",
  "serde",
  "serde_json",

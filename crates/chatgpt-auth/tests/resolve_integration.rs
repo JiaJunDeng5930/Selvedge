@@ -716,7 +716,7 @@ issuer = "http://127.0.0.1:1"
     ));
 }
 
-// @verifies selvedge.auth.lock.file
+// @verifies selvedge.auth.lock
 #[tokio::test(flavor = "multi_thread")]
 async fn resolve_for_request_recreates_missing_selvedge_home_before_locking() {
     const FLAG: &str = "CHATGPT_AUTH_RECREATE_HOME_CHILD";
@@ -1435,7 +1435,7 @@ issuer = "{}"
 }
 
 #[cfg(unix)]
-// @verifies selvedge.auth.lock.file
+// @verifies selvedge.auth.lock
 #[tokio::test(flavor = "multi_thread")]
 async fn resolve_for_request_returns_error_when_lock_file_cannot_be_created() {
     const FLAG: &str = "CHATGPT_AUTH_LOCK_PERMISSION_CHILD";
@@ -1469,23 +1469,25 @@ issuer = "http://127.0.0.1:1"
             "refresh-token",
         ),
     );
-    let auth_dir = tempdir.path().join(".selvedge/auth");
-    let lock_file_path = auth_dir.join(".chatgpt-auth.lock");
-    let mut readonly_permissions = fs::metadata(&auth_dir)
-        .expect("auth dir metadata")
+    let credential_dir = tempdir.path().join(".selvedge/auth/model-providers");
+    let lock_file_path = credential_dir.join("chatgpt.lock");
+    let mut readonly_permissions = fs::metadata(&credential_dir)
+        .expect("credential dir metadata")
         .permissions();
     readonly_permissions.set_mode(0o500);
-    fs::set_permissions(&auth_dir, readonly_permissions).expect("make auth dir read-only");
+    fs::set_permissions(&credential_dir, readonly_permissions)
+        .expect("make credential dir read-only");
 
     let error = resolve_for_request()
         .await
         .expect_err("lock creation failure must return an error");
 
-    let mut restored_permissions = fs::metadata(&auth_dir)
-        .expect("auth dir metadata")
+    let mut restored_permissions = fs::metadata(&credential_dir)
+        .expect("credential dir metadata")
         .permissions();
     restored_permissions.set_mode(0o700);
-    fs::set_permissions(&auth_dir, restored_permissions).expect("restore auth dir permissions");
+    fs::set_permissions(&credential_dir, restored_permissions)
+        .expect("restore credential dir permissions");
 
     // @verifies selvedge.auth
     assert!(!lock_file_path.exists());
@@ -1556,6 +1558,7 @@ issuer = "{}"
     let auth_dir = auth_file_path
         .parent()
         .expect("auth file path must have parent");
+    std::fs::File::create(auth_dir.join("chatgpt.lock")).expect("precreate lock file");
     let original_permissions = fs::metadata(auth_dir)
         .expect("auth dir metadata")
         .permissions();

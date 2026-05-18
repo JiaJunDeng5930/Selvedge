@@ -116,7 +116,7 @@ This file is for coding agents working in this repository.
 |selvedge.auth.jwt|selvedge.auth.jwt.{claims,errors,expiration,header,json,optional_object_string,optional_string,parse,segments}
 |selvedge.auth.jwt.claims|selvedge.auth.jwt.claims.{account_field,email_field,expiration_field,plan_field,subject_field,user_field}
 |selvedge.auth.jwt.parse|selvedge.auth.jwt.parse.{claims}
-|selvedge.auth.lock|selvedge.auth.lock.{directory,exclusive,file,guard,join,open,parent,path,path_error,release,table}
+|selvedge.auth.lock|selvedge.auth.lock.{error,guard}
 |selvedge.auth.refresh|selvedge.auth.refresh.{access_token,access_usable,diagnostics,diagnostics_fields,diagnostics_struct,diagnostics_value,error_status,id_token,invalid_success,merge,merge_optional,reauthentication_codes,request,response,success_json,success_shape,transport}
 |selvedge.auth.refresh.access_token|selvedge.auth.refresh.access_token.{changed,empty,required,usable}
 |selvedge.auth.refresh.id_token|selvedge.auth.refresh.id_token.{empty,required}
@@ -478,7 +478,7 @@ This file is for coding agents working in this repository.
 |selvedge.model.credentials|selvedge.model.credentials.{decode,directory,error,exists,kind,list,lock,path,persist,provider_id,read,record,write}
 |selvedge.model.credentials.list|selvedge.model.credentials.list.{from_home}
 |selvedge.model.credentials.list.from_home|selvedge.model.credentials.list.from_home.{absent,entry_error,read_dir_error,skip_extension,skip_stem}
-|selvedge.model.credentials.lock|selvedge.model.credentials.lock.{file,guard,path,release,table}
+|selvedge.model.credentials.lock|selvedge.model.credentials.lock.{file,from_home,guard,path,public_guard,release,table}
 |selvedge.model.credentials.lock.file|selvedge.model.credentials.lock.file.{directory,exclusive,open,parent_error}
 |selvedge.model.credentials.lock.guard|selvedge.model.credentials.lock.guard.{file,process}
 |selvedge.model.credentials.persist|selvedge.model.credentials.persist.{directory,parent_error,replace,temp,write}
