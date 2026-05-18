@@ -1,13 +1,10 @@
 mod support;
 
-use std::fs::OpenOptions;
-
 use axum::{Json, Router, routing::post};
 use base64::Engine;
 use chatgpt_login::{
     ChatgptLoginError, DeviceCodeAuthorization, DeviceCodeChallenge, complete_device_code_login,
 };
-use fs2::FileExt;
 use serde_json::json;
 use support::{assert_child_success, child_mode, init_login_test, run_child, spawn_http_server};
 use tokio::time::sleep;
@@ -153,16 +150,12 @@ issuer = "{}"
     let persisted_path = tempdir
         .path()
         .join(".selvedge/auth/model-providers/chatgpt.json");
-    let lock_path = tempdir.path().join(".selvedge/auth/.chatgpt-auth.lock");
-    std::fs::create_dir_all(lock_path.parent().expect("lock parent")).expect("create lock parent");
-    let lock_file = OpenOptions::new()
-        .create(true)
-        .truncate(false)
-        .read(true)
-        .write(true)
-        .open(&lock_path)
-        .expect("open lock file");
-    lock_file.lock_exclusive().expect("lock auth file");
+    let credential_lock = selvedge_model_credentials::lock_credential_from_home(
+        &tempdir.path().join(".selvedge"),
+        "chatgpt",
+    )
+    .await
+    .expect("lock provider credential");
 
     let challenge = DeviceCodeChallenge {
         verification_url: format!("{}/codex/device", server.url("")),
@@ -187,7 +180,7 @@ issuer = "{}"
     // @verifies selvedge.login
     assert!(!persisted_path.exists());
 
-    lock_file.unlock().expect("unlock auth file");
+    drop(credential_lock);
 
     let result = login_task.await.expect("join login task");
     let persisted = std::fs::read_to_string(&persisted_path).expect("read persisted auth file");
