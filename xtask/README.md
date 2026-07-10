@@ -2,7 +2,7 @@
 
 <!-- selvedge-package-readme
 package: xtask
-freshness_fingerprint: d9f8a4e81a59a83cf04970ce4e3847858420d9b3
+freshness_fingerprint: 056e25277c6b2bc7431754d7d3859715c21eafa3
 -->
 
 `xtask` contains repository-local automation that should stay out of production crates.

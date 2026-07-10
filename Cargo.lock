@@ -2853,6 +2853,7 @@ name = "xtask"
 version = "0.0.0"
 dependencies = [
  "mermaid-rs-renderer",
+ "serde",
  "serde_json",
  "tempfile",
 ]
