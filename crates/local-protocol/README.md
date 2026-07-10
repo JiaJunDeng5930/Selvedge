@@ -2,7 +2,7 @@
 
 <!-- selvedge-package-readme
 package: selvedge-local-protocol
-freshness_commit: 66b56326f2d95b843b90534bfa5f80bb3ede1326
+freshness_commit: 592f95539c225023a2f2d66f8096a3f85ac304ee
 -->
 
 This crate defines the localhost protocol data model shared by the Selvedge server, root CLI, local client, TUI, and web client.
