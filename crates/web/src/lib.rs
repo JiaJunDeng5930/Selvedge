@@ -2,7 +2,7 @@
 
 use std::future::Future;
 use std::io;
-use std::net::{Ipv4Addr, Ipv6Addr, TcpListener as StdTcpListener};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, TcpListener as StdTcpListener};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
@@ -358,6 +358,8 @@ fn not_ready_response() -> ReadyResponse {
 struct HttpRequest {
     method: String,
     path: String,
+    host: Option<String>,
+    origin_allowed: bool,
     content_type: Option<String>,
     body: Vec<u8>,
 }
@@ -380,6 +382,15 @@ async fn handle_http_connection(mut control: WebControl, mut stream: TcpStream) 
             .await;
         }
     };
+    if !request.host.as_deref().is_some_and(is_loopback_authority) || !request.origin_allowed {
+        return write_problem_response(
+            &mut stream,
+            403,
+            LocalHttpProblemCode::RouteNotFound,
+            "request target not allowed",
+        )
+        .await;
+    }
     match request.path.as_str() {
         "/selvedge/local/v1/ready" => handle_ready_route(&control, &mut stream, request).await,
         "/selvedge/local/v1/command" => handle_command_route(&control, &mut stream, request).await,
@@ -571,6 +582,10 @@ async fn read_http_request_inner(
     let mut request_parts = request_line.split_whitespace();
     let method = request_parts.next().unwrap_or_default().to_owned();
     let path = request_parts.next().unwrap_or_default().to_owned();
+    let mut host = None;
+    let mut duplicate_host = false;
+    let mut origin = None;
+    let mut duplicate_origin = false;
     let mut content_type = None;
     let mut content_length = 0_usize;
     for line in lines {
@@ -578,7 +593,11 @@ async fn read_http_request_inner(
             continue;
         }
         if let Some((name, value)) = line.split_once(':') {
-            if name.eq_ignore_ascii_case("content-type") {
+            if name.eq_ignore_ascii_case("host") {
+                duplicate_host |= host.replace(value.trim().to_owned()).is_some();
+            } else if name.eq_ignore_ascii_case("origin") {
+                duplicate_origin |= origin.replace(value.trim().to_owned()).is_some();
+            } else if name.eq_ignore_ascii_case("content-type") {
                 content_type = Some(value.trim().to_ascii_lowercase());
             } else if name.eq_ignore_ascii_case("content-length") {
                 content_length = value.trim().parse().unwrap_or_default();
@@ -593,9 +612,49 @@ async fn read_http_request_inner(
     Ok(Ok(HttpRequest {
         method,
         path,
+        host: if duplicate_host { None } else { host },
+        origin_allowed: !duplicate_origin && origin.as_deref().is_none_or(is_loopback_origin),
         content_type,
         body,
     }))
+}
+
+fn is_loopback_origin(origin: &str) -> bool {
+    let Some(authority) = origin
+        .strip_prefix("http://")
+        .or_else(|| origin.strip_prefix("https://"))
+    else {
+        return false;
+    };
+
+    !authority.contains(['/', '?', '#']) && is_loopback_authority(authority)
+}
+
+fn is_loopback_authority(authority: &str) -> bool {
+    let host = if let Some(bracketed) = authority.strip_prefix('[') {
+        let Some((host, suffix)) = bracketed.split_once(']') else {
+            return false;
+        };
+        if !suffix.is_empty()
+            && suffix
+                .strip_prefix(':')
+                .and_then(|port| port.parse::<u16>().ok())
+                .is_none()
+        {
+            return false;
+        }
+        host
+    } else if let Some((host, port)) = authority.split_once(':') {
+        if authority.matches(':').count() != 1 || port.parse::<u16>().is_err() {
+            return false;
+        }
+        host
+    } else {
+        authority
+    };
+
+    host.parse::<IpAddr>()
+        .is_ok_and(|address| address.is_loopback())
 }
 
 fn parse_json_request<T: DeserializeOwned>(
@@ -700,6 +759,7 @@ fn status_text(status_code: u16) -> &'static str {
     match status_code {
         200 => "OK",
         400 => "Bad Request",
+        403 => "Forbidden",
         404 => "Not Found",
         405 => "Method Not Allowed",
         409 => "Conflict",

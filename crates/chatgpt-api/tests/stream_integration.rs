@@ -20,8 +20,8 @@ use chatgpt_api::{
 use futures::StreamExt;
 use serde_json::json;
 use support::{
-    assert_child_success, auth_file_json, build_jwt, child_mode, init_api_test, run_child,
-    spawn_http_server, write_auth_file,
+    assert_child_success, auth_file_json, build_jwt, child_mode, init_api_test,
+    init_authenticated_api_test, run_child, spawn_http_server, write_auth_file,
 };
 use tokio::time::{Duration, sleep};
 
@@ -443,6 +443,109 @@ base_url = "{}"
     assert!(matches!(
         error,
         ChatgptApiError::Endpoint(ChatgptApiEndpointError::MalformedEvent { .. })
+    ));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn stream_rejects_sse_frame_over_fixed_limit() {
+    const FLAG: &str = "CHATGPT_API_SSE_FRAME_LIMIT_CHILD";
+
+    if !child_mode(FLAG) {
+        assert_child_success(&run_child(
+            "stream_rejects_sse_frame_over_fixed_limit",
+            FLAG,
+        ));
+        return;
+    }
+
+    let frame = format!("data: {}", "x".repeat(1024 * 1024 + 1));
+    let api_server = spawn_http_server(Router::new().route(
+        "/responses",
+        post(move || {
+            let frame = frame.clone();
+            async move {
+                (
+                    StatusCode::OK,
+                    [(
+                        http::header::CONTENT_TYPE,
+                        HeaderValue::from_static("text/event-stream"),
+                    )],
+                    frame,
+                )
+            }
+        }),
+    ))
+    .await;
+    let _tempdir = init_authenticated_api_test(&api_server.url(""));
+
+    let mut response_stream = stream(base_request()).await.expect("open stream");
+    let error = response_stream
+        .next()
+        .await
+        .expect("limit error item")
+        .expect_err("oversized SSE frame must fail");
+
+    assert!(matches!(
+        error,
+        ChatgptApiError::Endpoint(ChatgptApiEndpointError::ResponseTooLarge {
+            limit_bytes: 1_048_576
+        })
+    ));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn stream_rejects_cumulative_response_over_fixed_limit() {
+    const FLAG: &str = "CHATGPT_API_RESPONSE_LIMIT_CHILD";
+
+    if !child_mode(FLAG) {
+        assert_child_success(&run_child(
+            "stream_rejects_cumulative_response_over_fixed_limit",
+            FLAG,
+        ));
+        return;
+    }
+
+    let delta = "x".repeat(512 * 1024);
+    let body = (0..9)
+        .map(|content_index| {
+            format!(
+                "data: {{\"type\":\"response.output_text.delta\",\"item_id\":\"item-1\",\"output_index\":0,\"content_index\":{content_index},\"delta\":\"{delta}\"}}\n\n"
+            )
+        })
+        .collect::<String>();
+    let api_server = spawn_http_server(Router::new().route(
+        "/responses",
+        post(move || {
+            let body = body.clone();
+            async move {
+                (
+                    StatusCode::OK,
+                    [(
+                        http::header::CONTENT_TYPE,
+                        HeaderValue::from_static("text/event-stream"),
+                    )],
+                    body,
+                )
+            }
+        }),
+    ))
+    .await;
+    let _tempdir = init_authenticated_api_test(&api_server.url(""));
+
+    let mut response_stream = stream(base_request()).await.expect("open stream");
+    let error = loop {
+        match response_stream.next().await {
+            Some(Ok(_)) => {}
+            Some(Err(error)) => break error,
+            None => panic!("oversized response must emit a typed failure"),
+        }
+    };
+
+    assert!(matches!(
+        error,
+        ChatgptApiError::Endpoint(ChatgptApiEndpointError::ResponseTooLarge {
+            limit_bytes: 4_194_304
+        })
     ));
 }
 

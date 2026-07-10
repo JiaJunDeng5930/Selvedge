@@ -363,6 +363,54 @@ async fn root_page_route_is_not_exposed() {
 }
 
 #[tokio::test]
+async fn http_route_rejects_non_loopback_host() {
+    let bind = unused_loopback_bind();
+    let port = bind.port;
+    let handle = spawn_web_surface(WebStartArgs {
+        bind,
+        bridge: Arc::new(StaticBridge),
+    })
+    .expect("valid web start args");
+
+    let response = send_raw_http_request(
+        port,
+        "POST /selvedge/local/v1/ready HTTP/1.1\r\nHost: attacker.example\r\nContent-Type: application/json\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}",
+    )
+    .await;
+
+    assert!(response.starts_with("HTTP/1.1 403"));
+    handle.control.stop().await;
+    assert_eq!(
+        handle.join_handle.await.expect("join web task"),
+        WebExitStatus::Stopped
+    );
+}
+
+#[tokio::test]
+async fn http_route_rejects_non_loopback_origin() {
+    let bind = unused_loopback_bind();
+    let port = bind.port;
+    let handle = spawn_web_surface(WebStartArgs {
+        bind,
+        bridge: Arc::new(StaticBridge),
+    })
+    .expect("valid web start args");
+
+    let response = send_raw_http_request(
+        port,
+        "POST /selvedge/local/v1/ready HTTP/1.1\r\nHost: 127.0.0.1\r\nOrigin: https://attacker.example\r\nContent-Type: application/json\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}",
+    )
+    .await;
+
+    assert!(response.starts_with("HTTP/1.1 403"));
+    handle.control.stop().await;
+    assert_eq!(
+        handle.join_handle.await.expect("join web task"),
+        WebExitStatus::Stopped
+    );
+}
+
+#[tokio::test]
 async fn http_route_returns_body_too_large_for_oversized_headers() {
     let bind = unused_loopback_bind();
     let port = bind.port;
