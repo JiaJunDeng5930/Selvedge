@@ -106,9 +106,6 @@ pub fn spawn_client_sync(
 
         loop {
             tokio::select! {
-                biased;
-                // NOTE: Queued controls are applied before builder results. This preserves
-                // replacement, cancellation, and shutdown decisions that reached client-sync first.
                 message = ingress_rx.recv() => {
                     match message {
                         Some(ClientSyncIngress::StartHydration(begin)) => {
