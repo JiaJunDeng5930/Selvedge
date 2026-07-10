@@ -10,7 +10,7 @@ mod single_hop;
 
 use std::{error::Error as StdError, fmt, pin::Pin, time::Duration};
 
-use futures::Stream;
+use futures_core::Stream;
 use http::{HeaderMap, StatusCode};
 use reqwest::Method;
 use tokio::task;
@@ -288,7 +288,7 @@ mod tests {
     use std::time::Duration;
 
     use bytes::Bytes;
-    use futures::{StreamExt, stream};
+    use futures_util::{StreamExt, stream};
     use http::{HeaderMap, HeaderValue};
     use tokio::time::sleep;
     use url::Url;

@@ -15,7 +15,7 @@ use chatgpt_api::{
     ContentItem, FunctionCallItem, FunctionCallOutputItem, MessageItem, ResponseItem,
     ToolDescriptor, ToolOutput, stream,
 };
-use futures::{FutureExt, StreamExt};
+use futures_util::{FutureExt, StreamExt};
 use selvedge_command_model::{
     ApiOutputEnvelope, ModelCallDispatchRequest, ModelCallError, ModelCallErrorKind,
     RouterIngressApiMessage, RouterIngressWeakSender, validate_dispatch_request,

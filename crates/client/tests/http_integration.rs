@@ -18,7 +18,7 @@ use axum::{
     routing::{get, post},
 };
 use bytes::Bytes;
-use futures::StreamExt;
+use futures_util::StreamExt;
 use selvedge_client::{
     HttpError, HttpMethod, HttpRequest, HttpRequestBody, RequestCompression, execute, stream,
 };

@@ -1,7 +1,8 @@
 use std::{error::Error as StdError, future::Future, path::Path, time::Duration};
 
 use bytes::{Bytes, BytesMut};
-use futures::{Stream, StreamExt};
+use futures_core::Stream;
+use futures_util::StreamExt;
 use http::{
     HeaderMap, HeaderName,
     header::{ACCEPT, ACCEPT_ENCODING, ACCEPT_LANGUAGE, CACHE_CONTROL, PRAGMA, USER_AGENT},
