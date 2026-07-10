@@ -8,8 +8,6 @@ use selvedge_db::{
 };
 use selvedge_domain_model::ModelProviderProfile;
 
-// @behavior selvedge.testsupport.db Database test support creates shared in-memory database, task, profile, and snapshot fixtures.
-// @behavior selvedge.testsupport.db.memory Downstream tests can open an in-memory Selvedge database with the current schema.
 pub fn open_memory_db() -> DbPool {
     open_db(OpenDbOptions {
         sqlite_path: ":memory:".to_owned(),
@@ -17,7 +15,6 @@ pub fn open_memory_db() -> DbPool {
     .expect("open db")
 }
 
-// @behavior selvedge.testsupport.db.message_node Downstream tests can create one message history node with caller-selected parent, role, text, and timestamp.
 pub fn create_message_node(
     db: &DbPool,
     parent_node_id: Option<HistoryNodeId>,
@@ -36,11 +33,9 @@ pub fn create_message_node(
             created_at,
         },
     )
-    // @behavior selvedge.testsupport.db.message_node.fail Fast fixture setup fails the calling test when the history node cannot be created.
     .expect("create history node")
 }
 
-// @behavior selvedge.testsupport.db.root_task Downstream tests can create a root task with caller-selected task identity and cursor node.
 pub fn create_root_task_fixture(
     db: &DbPool,
     task_id: &str,
@@ -58,11 +53,9 @@ pub fn create_root_task_fixture(
             now,
         },
     )
-    // @behavior selvedge.testsupport.db.root_task.fail Fast fixture setup fails the calling test when the root task cannot be created.
     .expect("create root task")
 }
 
-// @behavior selvedge.testsupport.db.root_user_task Downstream tests can create a root task whose cursor is a user message node.
 pub fn create_root_task_with_user_message(
     db: &DbPool,
     task_id: &str,
@@ -73,7 +66,6 @@ pub fn create_root_task_with_user_message(
     create_root_task_fixture(db, task_id, cursor_node_id, now)
 }
 
-// @behavior selvedge.testsupport.db.model_profiles Downstream tests can use a default model profile map keyed by the database default profile key.
 pub fn default_model_profiles() -> HashMap<ModelProfileKey, ModelProviderProfile> {
     HashMap::from([(
         ModelProfileKey("default".to_owned()),
@@ -86,7 +78,6 @@ pub fn default_model_profiles() -> HashMap<ModelProfileKey, ModelProviderProfile
     )])
 }
 
-// @behavior selvedge.testsupport.db.empty_snapshot Downstream tests can create an empty client snapshot with a stable timestamp.
 pub fn empty_client_snapshot() -> ClientSnapshot {
     ClientSnapshot {
         generated_at: UnixTs(1),
@@ -97,7 +88,6 @@ pub fn empty_client_snapshot() -> ClientSnapshot {
     }
 }
 
-// @behavior selvedge.testsupport.db.summary_subscription Downstream tests can create a summary subscription covering all tasks.
 pub fn summary_all_tasks_subscription() -> selvedge_command_model::ClientSubscription {
     selvedge_command_model::ClientSubscription {
         task_scope: TaskScope::AllTasks,

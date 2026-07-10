@@ -7,7 +7,6 @@ use chatgpt_auth::{
 };
 use chrono::{TimeZone, Utc};
 
-// @verifies selvedge.auth.errors
 #[test]
 fn public_api_exposes_chatgpt_auth_types_and_functions() {
     let auth_file = ChatgptAuthFile {
@@ -45,18 +44,13 @@ fn public_api_exposes_chatgpt_auth_types_and_functions() {
         plan_type: Some("plus".to_owned()),
     };
 
-    // @verifies selvedge.auth
     assert_eq!(auth_file.tokens.refresh_token, "refresh-token");
-    // @verifies selvedge.auth
     assert_eq!(claims.account_id.as_deref(), Some("account-id"));
-    // @verifies selvedge.auth
     assert_eq!(resolved.account_id.as_deref(), Some("account-id"));
-    // @verifies selvedge.auth
     assert!(matches!(
         JwtParseError::InvalidFormat,
         JwtParseError::InvalidFormat
     ));
-    // @verifies selvedge.auth
     assert!(matches!(
         ChatgptAuthParseError::MissingField { field: "tokens" },
         ChatgptAuthParseError::MissingField { .. }
@@ -65,7 +59,6 @@ fn public_api_exposes_chatgpt_auth_types_and_functions() {
         path: PathBuf::from("/tmp/chatgpt-auth.json"),
         reason: "permission denied".to_owned(),
     };
-    // @verifies selvedge.auth
     assert!(matches!(error, ChatgptAuthError::AuthFileReadFailed { .. }));
     let _ = Duration::from_secs(1);
     let _ = resolve_for_request;

@@ -4,7 +4,6 @@ use selvedge_model_credentials::{CredentialLockGuard, ModelCredentialError};
 
 use crate::{ChatgptAuthError, auth_file};
 
-// @behavior selvedge.auth.lock Auth file resolution serializes refresh and persistence through the shared ChatGPT provider credential lock.
 pub(crate) async fn lock_chatgpt_credential(
     selvedge_home: &Path,
 ) -> Result<PathLockGuard, ChatgptAuthError> {
@@ -16,12 +15,10 @@ pub(crate) async fn lock_chatgpt_credential(
     Ok(PathLockGuard { _guard: guard })
 }
 
-// @constraint selvedge.auth.lock.guard The ChatGPT auth lock guard holds the shared provider credential lock until the credential operation completes.
 pub(crate) struct PathLockGuard {
     _guard: CredentialLockGuard,
 }
 
-// @behavior selvedge.auth.lock.error ChatGPT auth lock acquisition maps provider credential lock failures into auth file read failures.
 fn map_lock_error(
     error: ModelCredentialError,
     auth_file_path: std::path::PathBuf,
@@ -72,7 +69,6 @@ mod tests {
         });
         started_rx.await.expect("started signal arrives");
 
-        // @verifies selvedge.auth.lock
         assert!(
             tokio::time::timeout(Duration::from_millis(20), &mut acquired_rx)
                 .await

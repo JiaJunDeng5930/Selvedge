@@ -36,19 +36,8 @@ jobs:
       - name: Check AGENTS index freshness
         run: cargo xtask agents-index check
 
-      - name: Check requirement comments
-        run: cargo xtask req check --all
-
       - name: Check package README Mermaid diagrams
         run: cargo xtask readme check-mermaid
 
       - name: Check package README freshness
         run: cargo xtask readme check-freshness
-
-      - name: Check requirement anchors
-        run: |
-          if git show origin/${{ github.base_ref }}:AGENTS.md | grep -q "BEGIN AGENTS_MD_REQUIREMENT_INDEX"; then
-            cargo xtask req check --base origin/${{ github.base_ref }}
-          else
-            echo "requirement anchor base check starts after the requirement system exists on the base branch"
-          fi

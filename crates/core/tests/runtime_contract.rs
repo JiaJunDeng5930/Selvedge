@@ -66,7 +66,6 @@ async fn task_runtime_starts_and_requests_model_call_from_system_cursor() {
         .await
         .expect("send start");
     let ready = router_rx.recv().await.expect("ready");
-    // @verifies selvedge.core
     assert!(matches!(
         ready,
         RouterIngressMessage::Core(envelope)
@@ -74,7 +73,6 @@ async fn task_runtime_starts_and_requests_model_call_from_system_cursor() {
     ));
 
     let request = router_rx.recv().await.expect("model request");
-    // @verifies selvedge.core
     assert!(matches!(
         request,
         RouterIngressMessage::Core(envelope)
@@ -157,9 +155,7 @@ async fn task_runtime_start_requests_model_from_user_cursor_without_draining_que
                 MessageContent::Text(text) => Some(text.as_str()),
                 _ => None,
             });
-    // @verifies selvedge.core
     assert_eq!(last_text, Some("current"));
-    // @verifies selvedge.core
     assert_eq!(
         load_active_task(&db, &TaskId("task-1".to_owned()))
             .expect("load task")
@@ -232,9 +228,7 @@ async fn task_runtime_start_promotes_queue_before_awaiting_user_input() {
                 _ => None,
             });
 
-    // @verifies selvedge.core
     assert_eq!(last_text, Some("queued"));
-    // @verifies selvedge.core
     assert!(
         load_active_task(&db, &TaskId("task-1".to_owned()))
             .expect("load task")
@@ -314,9 +308,7 @@ async fn task_runtime_start_dispatches_tool_from_function_call_cursor() {
             .await
             .expect("tool request");
 
-    // @verifies selvedge.core
     assert_eq!(request.function_call_id.0, "call-1");
-    // @verifies selvedge.core
     assert_eq!(request.tool_name.0, "search");
 }
 
@@ -395,7 +387,6 @@ async fn task_runtime_start_reconstructs_open_batched_tool_calls_from_history() 
     let _ready = router_rx.recv().await.expect("ready");
     let first_tool_request = recv_tool_request(&mut router_rx).await;
 
-    // @verifies selvedge.core
     assert_eq!(first_tool_request.function_call_id.0, "call-1");
 }
 
@@ -405,9 +396,7 @@ async fn task_runtime_resolves_model_profile_key_into_provider_and_model() {
 
     let request = start_and_recv_model_request(&runtime, &mut router_rx).await;
 
-    // @verifies selvedge.core
     assert_eq!(request.provider.provider_name, "provider");
-    // @verifies selvedge.core
     assert_eq!(request.provider.model_name, "model");
 }
 
@@ -449,7 +438,6 @@ async fn task_runtime_dispatches_all_tool_calls_before_next_model_call() {
         .expect("send model reply");
 
     let first_tool_request = recv_tool_request(&mut router_rx).await;
-    // @verifies selvedge.core
     assert_eq!(first_tool_request.function_call_id.0, "call-1");
 
     runtime
@@ -467,7 +455,6 @@ async fn task_runtime_dispatches_all_tool_calls_before_next_model_call() {
         .expect("send first tool result");
 
     let second_tool_request = recv_tool_request(&mut router_rx).await;
-    // @verifies selvedge.core
     assert_eq!(second_tool_request.function_call_id.0, "call-2");
 }
 
@@ -481,7 +468,6 @@ async fn task_runtime_stop_returns_after_archive_exit() {
         .await
         .expect("send archive");
     let message = router_rx.recv().await.expect("runtime exit");
-    // @verifies selvedge.core
     assert!(matches!(
         message,
         RouterIngressMessage::RuntimeExit(notice)
@@ -588,7 +574,6 @@ async fn task_runtime_preserves_batched_tool_call_order_in_next_model_request() 
     )
     .await
     .expect("promoted queued model request");
-    // @verifies selvedge.core
     assert_eq!(
         tool_transcript_events(&request),
         vec![
@@ -695,7 +680,6 @@ async fn task_runtime_ignores_tool_result_with_mismatched_call_identity() {
         .await
         .expect("send mismatched tool result");
 
-    // @verifies selvedge.core
     assert!(
         tokio::time::timeout(Duration::from_millis(50), router_rx.recv())
             .await
@@ -717,7 +701,6 @@ async fn task_runtime_ignores_tool_result_with_mismatched_call_identity() {
         .expect("send correct tool result");
 
     let second_tool_request = recv_tool_request(&mut router_rx).await;
-    // @verifies selvedge.core
     assert_eq!(second_tool_request.function_call_id.0, "call-2");
 }
 
@@ -807,7 +790,6 @@ async fn task_runtime_uses_tool_parameter_type_for_integer_arguments() {
         .expect("send model reply");
 
     let tool_request = recv_tool_request(&mut router_rx).await;
-    // @verifies selvedge.core
     assert_eq!(
         tool_request.arguments[0].value,
         ToolArgumentValue::Integer(1)
@@ -993,7 +975,6 @@ async fn task_runtime_ignores_unrelated_validation_failure_while_waiting() {
         .await
         .expect("send unrelated failure");
 
-    // @verifies selvedge.core
     assert!(
         tokio::time::timeout(std::time::Duration::from_millis(25), router_rx.recv())
             .await
@@ -1017,7 +998,6 @@ async fn task_runtime_ignores_unrelated_validation_failure_while_waiting() {
         .expect("send current reply");
 
     let next_model_request = router_rx.recv().await.expect("queued model request");
-    // @verifies selvedge.core
     assert!(matches!(
         next_model_request,
         RouterIngressMessage::Core(envelope)
@@ -1048,7 +1028,6 @@ async fn task_runtime_reports_current_model_call_failure() {
         .await
         .expect("error event timeout")
         .expect("error event");
-    // @verifies selvedge.core
     assert!(matches!(
         &event,
         RouterIngressMessage::Core(envelope)
@@ -1087,7 +1066,6 @@ async fn task_runtime_promotes_queued_input_after_model_failure() {
         .expect("send model failure");
 
     let event = router_rx.recv().await.expect("error event");
-    // @verifies selvedge.core
     assert!(matches!(
         event,
         RouterIngressMessage::Core(envelope)
@@ -1103,7 +1081,6 @@ async fn task_runtime_promotes_queued_input_after_model_failure() {
                 MessageContent::Text(text) => Some(text.as_str()),
                 _ => None,
             });
-    // @verifies selvedge.core
     assert_eq!(last_text, Some("queued"));
 }
 
@@ -1173,7 +1150,6 @@ async fn task_runtime_ignores_replayed_start_after_model_request() {
         .await
         .expect("send replayed start");
 
-    // @verifies selvedge.core
     assert!(
         tokio::time::timeout(std::time::Duration::from_millis(25), router_rx.recv())
             .await
@@ -1207,7 +1183,6 @@ async fn task_runtime_preserves_model_wait_state_for_stray_tool_result() {
         .await
         .expect("queue input");
 
-    // @verifies selvedge.core
     assert!(
         tokio::time::timeout(std::time::Duration::from_millis(25), router_rx.recv())
             .await
@@ -1245,7 +1220,6 @@ async fn task_runtime_uses_fresh_model_run_ids_after_respawn() {
     let first_model_run_id = spawn_runtime_and_start_one_model_call(db.clone()).await;
     let second_model_run_id = spawn_runtime_and_start_one_model_call(db).await;
 
-    // @verifies selvedge.core
     assert_ne!(first_model_run_id, second_model_run_id);
 }
 
@@ -1344,7 +1318,6 @@ async fn task_runtime_preserves_queued_input_when_append_fails() {
     let _exit = router_rx.recv().await.expect("db error exit");
 
     let loaded = load_active_task(&db, &TaskId("task-1".to_owned())).expect("load task");
-    // @verifies selvedge.core
     assert_eq!(loaded.queued_inputs.len(), 1);
 }
 
@@ -1512,7 +1485,6 @@ async fn task_runtime_recovers_open_tool_call_before_model_dispatch() {
     let _ready = router_rx.recv().await.expect("ready");
     let request = recv_tool_request(&mut router_rx).await;
 
-    // @verifies selvedge.core
     assert_eq!(request.function_call_id.0, "call-1");
 }
 
@@ -1618,7 +1590,6 @@ async fn task_runtime_allows_messages_between_tool_call_and_matching_output() {
         .expect("send input");
 
     let request = recv_model_request(&mut router_rx).await;
-    // @verifies selvedge.core
     assert_eq!(
         tool_transcript_events(&request),
         vec!["call:call-1", "output:call-1"]
@@ -1697,7 +1668,6 @@ async fn start_and_recv_model_request(
         .await
         .expect("send start");
     let ready = router_rx.recv().await.expect("ready");
-    // @verifies selvedge.core
     assert!(matches!(
         ready,
         RouterIngressMessage::Core(envelope)
@@ -1768,7 +1738,6 @@ async fn assert_internal_exit(
     let message = router_rx.recv().await.expect("runtime exit");
     match message {
         RouterIngressMessage::RuntimeExit(notice) => {
-            // @verifies selvedge.core
             assert!(matches!(
                 notice.reason,
                 TaskRuntimeExitReason::InternalError(_)

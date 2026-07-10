@@ -23,7 +23,6 @@ use selvedge_test_support::db::{
     default_model_profiles, open_memory_db,
 };
 
-// @verifies selvedge.task.runtime.factory.run
 #[tokio::test]
 async fn ensure_task_runtime_creates_runtime_for_existing_active_task() {
     let db = open_memory_db();
@@ -43,24 +42,19 @@ async fn ensure_task_runtime_creates_runtime_for_existing_active_task() {
         }),
         runtime_inventory: empty_inventory(),
     });
-    // @verifies selvedge.task.runtime.factory.run
     assert_eq!(envelope.effect_id, FactoryEffectId("factory-1".to_owned()));
     let FactoryOutput::RuntimeCreated(created) = envelope.output else {
         panic!("unexpected factory output");
     };
-    // @verifies selvedge.task.runtime.factory.run
     assert_eq!(created.task_id, TaskId("task-1".to_owned()));
-    // @verifies selvedge.task.runtime.factory.run
     assert_eq!(
         created.created_runtime_kind,
         CreatedRuntimeKind::ExistingTaskRuntime
     );
 
-    // @verifies selvedge.task.runtime.factory.run
     assert!(router_rx.try_recv().is_err());
 }
 
-// @verifies selvedge.task.runtime.factory.run
 #[tokio::test]
 async fn ensure_task_runtime_reports_live_and_pending_inventory() {
     let db = open_memory_db();
@@ -75,7 +69,6 @@ async fn ensure_task_runtime_reports_live_and_pending_inventory() {
     let FactoryOutput::Failed(failure) = live else {
         panic!("unexpected factory output");
     };
-    // @verifies selvedge.task.runtime.factory.run
     assert_eq!(failure.kind, FactoryFailureKind::RuntimeAlreadyLive);
 
     let db = open_memory_db();
@@ -90,11 +83,9 @@ async fn ensure_task_runtime_reports_live_and_pending_inventory() {
     let FactoryOutput::Failed(failure) = pending else {
         panic!("unexpected factory output");
     };
-    // @verifies selvedge.task.runtime.factory.run
     assert_eq!(failure.kind, FactoryFailureKind::RuntimeCreationPending);
 }
 
-// @verifies selvedge.task.runtime.factory.run
 #[tokio::test]
 async fn ensure_task_runtime_reports_missing_and_archived_tasks() {
     let missing = run_ensure_task_runtime(open_memory_db(), "missing").await;
@@ -112,13 +103,10 @@ async fn ensure_task_runtime_reports_missing_and_archived_tasks() {
     let FactoryOutput::Failed(failure) = archived else {
         panic!("unexpected factory output");
     };
-    // @verifies selvedge.task.runtime.factory.run
     assert_eq!(failure.task_id, Some(TaskId("archived".to_owned())));
-    // @verifies selvedge.task.runtime.factory.run
     assert_eq!(failure.kind, FactoryFailureKind::TaskArchived);
 }
 
-// @verifies selvedge.task.runtime.factory.run
 #[tokio::test]
 async fn ensure_missing_task_runtimes_skips_live_and_pending_inventory() {
     let db = open_memory_db();
@@ -142,7 +130,6 @@ async fn ensure_missing_task_runtimes_skips_live_and_pending_inventory() {
             pending_task_runtime_effects: vec![TaskId("pending".to_owned())],
         },
     });
-    // @verifies selvedge.task.runtime.factory.run
     assert_eq!(
         envelope.effect_id,
         FactoryEffectId("factory-scan".to_owned())
@@ -151,32 +138,24 @@ async fn ensure_missing_task_runtimes_skips_live_and_pending_inventory() {
         panic!("unexpected factory output");
     };
 
-    // @verifies selvedge.task.runtime.factory.run
     assert_eq!(scan.created.len(), 1);
-    // @verifies selvedge.task.runtime.factory.run
     assert_eq!(scan.created[0].task_id, TaskId("missing".to_owned()));
-    // @verifies selvedge.task.runtime.factory.run
     assert_eq!(
         scan.created[0].created_runtime_kind,
         CreatedRuntimeKind::ExistingTaskRuntime
     );
-    // @verifies selvedge.task.runtime.factory.run
     assert_eq!(scan.failed, Vec::new());
-    // @verifies selvedge.task.runtime.factory.run
     assert_eq!(scan.skipped.len(), 2);
-    // @verifies selvedge.task.runtime.factory.run
     assert!(scan.skipped.iter().any(|skipped| {
         skipped.task_id == TaskId("live".to_owned())
             && skipped.reason == FactorySkipReason::RuntimeAlreadyLive
     }));
-    // @verifies selvedge.task.runtime.factory.run
     assert!(scan.skipped.iter().any(|skipped| {
         skipped.task_id == TaskId("pending".to_owned())
             && skipped.reason == FactorySkipReason::RuntimeCreationPending
     }));
 }
 
-// @verifies selvedge.task.runtime.factory.run
 #[tokio::test]
 async fn create_child_task_and_runtime_persists_child_and_copies_parent_settings() {
     let db = open_memory_db();
@@ -219,7 +198,6 @@ async fn create_child_task_and_runtime_persists_child_and_copies_parent_settings
         }),
         runtime_inventory: empty_inventory(),
     });
-    // @verifies selvedge.task.runtime.factory.run
     assert_eq!(
         envelope.effect_id,
         FactoryEffectId("factory-child".to_owned())
@@ -227,35 +205,28 @@ async fn create_child_task_and_runtime_persists_child_and_copies_parent_settings
     let FactoryOutput::RuntimeCreated(created) = envelope.output else {
         panic!("unexpected factory output");
     };
-    // @verifies selvedge.task.runtime.factory.run
     assert_eq!(
         created.created_runtime_kind,
         CreatedRuntimeKind::ChildTaskRuntime
     );
 
     let child = load_active_task(&db, &created.task_id).expect("load child task");
-    // @verifies selvedge.task.runtime.factory.run
     assert_eq!(child.task.cursor_node_id, child_cursor_node_id);
-    // @verifies selvedge.task.runtime.factory.run
     assert_eq!(
         child.task.model_profile_key,
         ModelProfileKey("default".to_owned())
     );
-    // @verifies selvedge.task.runtime.factory.run
     assert_eq!(child.task.reasoning_effort, ReasoningEffort::High);
 
     let manifest = read_tool_manifest_for_task(&db, &created.task_id).expect("child manifest");
-    // @verifies selvedge.task.runtime.factory.run
     assert_eq!(manifest.tools[0].name, "search");
 
     let edges = read_task_parent_edges(&db).expect("read task edges");
-    // @verifies selvedge.task.runtime.factory.run
     assert!(edges.iter().any(|edge| {
         edge.parent_task_id == TaskId("parent".to_owned()) && edge.child_task_id == created.task_id
     }));
 }
 
-// @verifies selvedge.task.runtime.factory.run
 #[tokio::test]
 async fn create_child_task_and_runtime_reports_parent_and_cursor_failures() {
     let missing_parent =
@@ -272,7 +243,6 @@ async fn create_child_task_and_runtime_reports_parent_and_cursor_failures() {
     let FactoryOutput::Failed(failure) = archived_parent else {
         panic!("unexpected factory output");
     };
-    // @verifies selvedge.task.runtime.factory.run
     assert_eq!(failure.kind, FactoryFailureKind::ParentTaskArchived);
 
     let db = open_memory_db();
@@ -281,11 +251,9 @@ async fn create_child_task_and_runtime_reports_parent_and_cursor_failures() {
     let FactoryOutput::Failed(failure) = missing_cursor else {
         panic!("unexpected factory output");
     };
-    // @verifies selvedge.task.runtime.factory.run
     assert_eq!(failure.kind, FactoryFailureKind::CursorNodeMissing);
 }
 
-// @verifies selvedge.task.runtime.factory.run
 #[tokio::test]
 async fn create_child_task_keeps_durable_child_when_runtime_spawn_fails() {
     let db = open_memory_db();
@@ -315,11 +283,9 @@ async fn create_child_task_keeps_durable_child_when_runtime_spawn_fails() {
     let FactoryOutput::Failed(failure) = output else {
         panic!("unexpected factory output");
     };
-    // @verifies selvedge.task.runtime.factory.run
     assert_eq!(failure.kind, FactoryFailureKind::CoreSpawnFailed);
     let child_task_id = failure.task_id.expect("child task id");
     let child = load_active_task(&db, &child_task_id).expect("child remains durable");
-    // @verifies selvedge.task.runtime.factory.run
     assert_eq!(child.task.cursor_node_id, child_cursor_node_id);
 }
 

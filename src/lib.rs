@@ -1,17 +1,3 @@
-//! @behavior selvedge Selvedge lets a local user keep AI-assisted tasks running on this machine and control them through localhost clients.
-//! @behavior selvedge.startup A local user can ask the CLI to start or contact the Selvedge service and receive a typed result for that attempt.
-//! @behavior selvedge.cli The Selvedge CLI parses process arguments, starts or contacts the local service, submits commands, and maps outcomes to process exit codes.
-//! @behavior selvedge.cli.process The selvedge CLI exits with status 0 for success, 130 for interruption, and 1 for other user-visible failures.
-//! @behavior selvedge.cli.local_client CLI local clients expose readiness and command submission outcomes.
-//! @behavior selvedge.cli.local_connector CLI local connectors expose connection outcomes for local command submission.
-//! @behavior selvedge.cli.server_starter CLI server starters launch the local server for user command submission when no ready server is available.
-//! @behavior selvedge.cli.list_models The list-models CLI command submits a server-side provider listing command and prints configured provider models.
-//! @behavior selvedge.cli.provider_login_chatgpt The default server local-operation executor can run ChatGPT provider login when the server dispatches that operation.
-//! @behavior selvedge.cli.server_args_builder CLI server argument builders expose startup argument outcomes.
-//! @behavior selvedge.cli.default_server_args_builder The default server argument builder exposes the repository default server startup arguments.
-//! @behavior selvedge.cli.server_runner CLI server runners expose local server exit outcomes.
-//! @behavior tool.worktree The worktree helper creates focused Git worktrees under managed .worktrees storage and reports setup failures through process output.
-
 use std::collections::HashMap;
 use std::future::Future;
 use std::process::Stdio;
@@ -56,24 +42,19 @@ const DEFAULT_SYSTEMD_UNIT: &str = "selvedge-server.service";
 
 static COMMAND_ID_COUNTER: AtomicU64 = AtomicU64::new(1);
 
-// @behavior selvedge.cli.name The CLI reports the Cargo package name as its application name.
 pub fn app_name() -> &'static str {
     env!("CARGO_PKG_NAME")
 }
 
-// @behavior selvedge.cli.startup_message The startup message reports that the application is ready.
 pub fn startup_message() -> String {
     format!("{} is ready.", app_name())
 }
 
-// @behavior selvedge.cli.args CliRunArgs carries the full process argument vector used by CLI execution.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CliRunArgs {
-    /// @behavior selvedge.cli.args.argv CliRunArgs carries the process argv vector.
     pub argv: Vec<String>,
 }
 
-// @behavior selvedge.cli.command CLI arguments resolve to running the server or submitting a named local command.
 #[derive(Clone, Debug, PartialEq)]
 pub enum CliCommand {
     RunServer,
@@ -84,7 +65,6 @@ pub enum CliCommand {
     },
 }
 
-// @behavior selvedge.cli.status CLI execution returns typed exit statuses for success, argument errors, config errors, logging errors, startup failures, command outcomes, local client failures, server failures, and interruption.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CliExitStatus {
     Success,
@@ -102,27 +82,20 @@ pub enum CliExitStatus {
     Interrupted,
 }
 
-// @behavior selvedge.cli.error CLI dependency failures are reported as local client or server dependency errors.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CliError {
     LocalClientFailed(String),
     ServerDependencyFailed(String),
 }
 
-// @behavior selvedge.cli.config CLI resolved config contains local client, systemd, readiness timeout, and retry interval settings.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CliResolvedConfig {
-    /// @behavior selvedge.cli.config.local_client Resolved CLI config carries the local client endpoint and request timeout.
     pub local_client_config: LocalClientConfig,
-    /// @behavior selvedge.cli.config.systemd Resolved CLI config carries the systemd unit and polling timeouts.
     pub systemd_config: SystemdConfig,
-    /// @behavior selvedge.cli.config.ready_timeout Resolved CLI config carries the total readiness wait timeout.
     pub ready_timeout: Duration,
-    /// @behavior selvedge.cli.config.ready_poll_interval Resolved CLI config carries the readiness retry interval.
     pub ready_poll_interval: Duration,
 }
 
-// @behavior selvedge.cli.config.default Default CLI config targets the local IPv4 endpoint, default timeout, and default systemd unit.
 impl Default for CliResolvedConfig {
     fn default() -> Self {
         Self {
@@ -143,57 +116,41 @@ impl Default for CliResolvedConfig {
     }
 }
 
-// @behavior selvedge.cli.local_client.contract Local client abstractions expose readiness and command submission results to CLI execution.
-// @intent selvedge.cli.local_client.abstraction CliLocalClient abstracts local ready and command submission calls while preserving protocol request and response types.
 pub trait CliLocalClient {
-    /// @behavior selvedge.cli.local_client.ready CliLocalClient ready calls return the local server readiness response or CLI client error.
     fn ready(
         &mut self,
         request: ReadyRequest,
     ) -> impl Future<Output = Result<ReadyResponse, CliError>> + Send;
 
-    /// @behavior selvedge.cli.local_client.submit CliLocalClient submit calls return the local command response or CLI client error.
     fn submit_command(
         &mut self,
         request: CommandRequest,
     ) -> impl Future<Output = Result<CommandResponse, CliError>> + Send;
 
-    /// @behavior selvedge.cli.local_client.attach CliLocalClient attach calls return accepted metadata and a local frame stream or CLI client error.
     fn attach(
         &mut self,
         request: AttachRequest,
     ) -> impl Future<Output = Result<(AttachAccepted, LocalFrameStream), CliError>> + Send;
 
-    /// @behavior selvedge.cli.local_client.close CliLocalClient close calls release local client resources before process exit.
     fn close(&mut self) -> impl Future<Output = Result<(), CliError>> + Send;
 }
 
-// @behavior selvedge.cli.local_connector.contract Local client connectors expose connection success or CLI client failure to command submission.
-// @intent selvedge.cli.local_connector.abstraction CliLocalClientConnector abstracts local client connection using the resolved local client config.
 pub trait CliLocalClientConnector {
-    /// @behavior selvedge.cli.local_connector.client CliLocalClientConnector chooses the concrete client type used for local calls.
     type Client: CliLocalClient;
 
-    /// @behavior selvedge.cli.local_connector.connect CliLocalClientConnector connects with the resolved local client config or returns a CLI client error.
     fn connect(
         &self,
         config: LocalClientConfig,
     ) -> impl Future<Output = Result<Self::Client, CliError>> + Send;
 }
 
-// @behavior selvedge.cli.server_args_builder.contract Server argument builders expose startup arguments or dependency errors to CLI server execution.
-// @intent selvedge.cli.server_args_builder.abstraction CliServerStartArgsBuilder maps resolved CLI config into server startup arguments.
 pub trait CliServerStartArgsBuilder {
-    /// @behavior selvedge.cli.server_args_builder.build Server argument builders return server startup arguments or CLI dependency errors.
     fn build(&self, resolved_config: &CliResolvedConfig) -> Result<ServerStartArgs, CliError>;
 }
 
-// @behavior selvedge.cli.default_server_args_builder.contract The default server argument builder returns the repository default server startup configuration.
-// @intent selvedge.cli.default_server_args_builder.abstraction DefaultCliServerStartArgsBuilder builds the repository default server startup configuration for CLI execution.
 pub struct DefaultCliServerStartArgsBuilder;
 
 impl DefaultCliServerStartArgsBuilder {
-    // @behavior selvedge.cli.default_server_args_builder.new The default server argument builder constructor returns a builder with default startup behavior.
     pub fn new() -> Self {
         Self
     }
@@ -207,7 +164,6 @@ impl Default for DefaultCliServerStartArgsBuilder {
 
 impl CliServerStartArgsBuilder for DefaultCliServerStartArgsBuilder {
     fn build(&self, resolved_config: &CliResolvedConfig) -> Result<ServerStartArgs, CliError> {
-        // @behavior selvedge.cli.server_args Server startup arguments bind local and web endpoints to the resolved loopback endpoint.
         let local_bind_target = match resolved_config.local_client_config.endpoint {
             LocalEndpoint::TcpIpv4 { port } => LocalhostBindTarget::Ipv4 { port },
             LocalEndpoint::TcpIpv6 { port } => LocalhostBindTarget::Ipv6 { port },
@@ -238,39 +194,29 @@ impl CliServerStartArgsBuilder for DefaultCliServerStartArgsBuilder {
     }
 }
 
-/// @behavior selvedge.cli.server_runner.contract Server runners expose server exit status to CLI server execution.
-/// @intent selvedge.cli.server_runner.abstraction CliServerRunner abstracts running the local server while preserving server exit statuses.
 pub trait CliServerRunner: Send + Sync + 'static {
-    /// @behavior selvedge.cli.server_runner.run Server runners return the server exit status for supplied startup arguments.
     fn run_server(
         &self,
         args: ServerStartArgs,
     ) -> impl Future<Output = selvedge_server::ServerExitStatus> + Send;
 }
 
-// @behavior selvedge.cli.server_starter.contract CLI server starters launch the local server process for user command submission.
-// @intent selvedge.cli.server_starter.abstraction CliServerStarter abstracts the CLI boundary that requests a local server process before client attachment.
 pub trait CliServerStarter: Send + Sync + 'static {
-    /// @behavior selvedge.cli.server_starter.start CLI server starters return success after requesting a local server start.
     fn start_server(
         &self,
         resolved_config: &CliResolvedConfig,
     ) -> impl Future<Output = Result<(), CliError>> + Send;
 }
 
-// @behavior selvedge.cli.run run_cli initializes config and logging before running the parsed CLI command.
 pub async fn run_cli(args: CliRunArgs) -> CliExitStatus {
     let parsed_command = parse_cli_args(&args.argv);
     if let Err(error) = selvedge_config::init() {
-        // @behavior selvedge.cli.config_error Config initialization failure returns ConfigFailed.
         return CliExitStatus::ConfigFailed(error.to_string());
     }
     if let Err(error) = selvedge_logging::init() {
-        // @behavior selvedge.cli.logging_error Logging initialization failure returns LoggingFailed.
         return CliExitStatus::LoggingFailed(error.to_string());
     }
     if let Err(error) = parsed_command {
-        // @behavior selvedge.cli.invalid_args Invalid process arguments return InvalidArgs after startup initialization completes.
         return CliExitStatus::InvalidArgs(error);
     }
 
@@ -284,7 +230,6 @@ pub async fn run_cli(args: CliRunArgs) -> CliExitStatus {
     .await
 }
 
-// @behavior selvedge.cli.deps run_cli_with_deps parses arguments, resolves config, and executes the requested command through injected dependencies.
 #[rustfmt::skip]
 pub async fn run_cli_with_deps<
     S: CliServerStarter, R: CliServerRunner, C: CliLocalClientConnector, B: CliServerStartArgsBuilder,
@@ -292,17 +237,13 @@ pub async fn run_cli_with_deps<
     args: Vec<String>, server_starter: S, server_runner: R,
     local_client_connector: C, server_start_args_builder: B,
 ) -> CliExitStatus {
-    // @behavior selvedge.cli.deps.argument_parse Injected CLI execution parses supplied arguments before calling injected dependencies.
     let command = match parse_cli_args(&args) {
         Ok(command) => command,
-        // @behavior selvedge.cli.deps.invalid_args Invalid injected CLI arguments return InvalidArgs before dependency calls.
         Err(error) => return CliExitStatus::InvalidArgs(error),
     };
     let resolved_config = match resolve_cli_config() {
         Ok(config) => config,
-        // @behavior selvedge.cli.config.uninitialized Uninitialized config resolution uses the default CLI config.
         Err(CliConfigResolution::NotInitialized) => CliResolvedConfig::default(),
-        // @behavior selvedge.cli.config.failed Config resolution failures return ConfigFailed.
         Err(CliConfigResolution::Failed(error)) => return CliExitStatus::ConfigFailed(error),
     };
 
@@ -334,7 +275,6 @@ enum CliConfigResolution {
 }
 
 fn resolve_cli_config() -> Result<CliResolvedConfig, CliConfigResolution> {
-    // @behavior selvedge.cli.config.read CLI config resolution reads the current application config and maps config errors to CLI config resolution outcomes.
     selvedge_config::read(cli_resolved_config_from_app_config).map_err(|error| match error {
         selvedge_config::ConfigError::NotInitialized => CliConfigResolution::NotInitialized,
         error => CliConfigResolution::Failed(error.to_string()),
@@ -344,7 +284,6 @@ fn resolve_cli_config() -> Result<CliResolvedConfig, CliConfigResolution> {
 fn cli_resolved_config_from_app_config(
     config: &selvedge_config_model::AppConfig,
 ) -> Result<CliResolvedConfig, CliConfigResolution> {
-    // @constraint selvedge.cli.config.loopback CLI server.host accepts only loopback hosts for local client and server operations.
     let endpoint = match config.server.host.as_str() {
         "127.0.0.1" | "localhost" => LocalEndpoint::TcpIpv4 {
             port: config.server.port,
@@ -360,7 +299,6 @@ fn cli_resolved_config_from_app_config(
     };
     let request_timeout = Duration::from_millis(config.server.request_timeout_ms);
 
-    // @behavior selvedge.cli.config.defaults CLI config resolution derives local client, systemd, and readiness timeouts from the loaded app config.
     Ok(CliResolvedConfig {
         local_client_config: LocalClientConfig {
             endpoint,
@@ -376,7 +314,6 @@ fn cli_resolved_config_from_app_config(
     })
 }
 
-// @behavior selvedge.cli.process.exit_code CLI exit status maps Success to 0, Interrupted to 130, and all other statuses to 1.
 pub fn exit_code(status: &CliExitStatus) -> i32 {
     match status {
         CliExitStatus::Success => 0,
@@ -385,7 +322,6 @@ pub fn exit_code(status: &CliExitStatus) -> i32 {
     }
 }
 
-// @behavior selvedge.cli.process.stderr Rejected commands are written to stderr before the CLI exits.
 pub fn write_cli_exit_status<W>(status: &CliExitStatus, mut writer: W) -> std::io::Result<()>
 where
     W: std::io::Write,
@@ -398,14 +334,12 @@ where
     }
 }
 
-// @behavior selvedge.cli.parse The server subcommand runs the local server and other command names require --client-id plus a JSON payload.
 fn parse_cli_args(args: &[String]) -> Result<CliCommand, String> {
     let tokens = args.iter().skip(1).map(String::as_str).collect::<Vec<_>>();
     if tokens == ["server"] {
         return Ok(CliCommand::RunServer);
     }
     if tokens == ["list-models"] {
-        // @behavior selvedge.cli.list_models.parse CLI parsing accepts list-models as the provider/model listing command.
         return Ok(CliCommand::SubmitCommand {
             command_name: "list-models".to_owned(),
             payload: serde_json::json!({}),
@@ -420,7 +354,6 @@ fn parse_cli_args(args: &[String]) -> Result<CliCommand, String> {
     while index < tokens.len() {
         if command_name.is_some() {
             if json_payload.is_some() {
-                // @constraint selvedge.cli.parse.extra_positional Extra positional arguments after the JSON payload return an argument error.
                 return Err("unexpected extra positional argument".to_owned());
             }
             json_payload = Some(tokens[index].to_owned());
@@ -431,21 +364,17 @@ fn parse_cli_args(args: &[String]) -> Result<CliCommand, String> {
         match tokens[index] {
             "--client-id" => {
                 if client_id.is_some() {
-                    // @constraint selvedge.cli.parse_client_id_duplicate Duplicate --client-id flags return an argument error.
                     return Err("duplicate --client-id".to_owned());
                 }
                 index += 1;
                 let Some(value) = tokens.get(index) else {
-                    // @constraint selvedge.cli.parse_client_id_missing Missing --client-id values return an argument error.
                     return Err("missing --client-id value".to_owned());
                 };
                 if value.trim().is_empty() {
-                    // @constraint selvedge.cli.parse_client_id_empty Empty --client-id values return an argument error.
                     return Err("empty --client-id".to_owned());
                 }
                 client_id = Some((*value).to_owned());
             }
-            // @constraint selvedge.cli.parse.flag Unknown flags return an argument error.
             token if token.starts_with('-') => return Err(format!("unknown flag {token}")),
             token => command_name = Some(token.to_owned()),
         }
@@ -459,7 +388,6 @@ fn parse_cli_args(args: &[String]) -> Result<CliCommand, String> {
         || command_name == "list-models"
         || command_name.starts_with('-')
     {
-        // @constraint selvedge.cli.parse.command_name Submitted command names must be non-empty user command names.
         return Err("invalid command name".to_owned());
     }
     let json_payload = json_payload.ok_or_else(|| "expected json payload".to_owned())?;
@@ -469,7 +397,6 @@ fn parse_cli_args(args: &[String]) -> Result<CliCommand, String> {
     let payload = serde_json::from_str(&json_payload)
         .map_err(|error| format!("invalid json payload: {error}"))?;
 
-    // @behavior selvedge.cli.parse.payload Command submission parses the positional payload as JSON before local submission.
     Ok(CliCommand::SubmitCommand {
         command_name,
         payload,
@@ -486,7 +413,6 @@ where
     R: CliServerRunner,
     B: CliServerStartArgsBuilder,
 {
-    // @behavior selvedge.cli.server The server subcommand builds server startup arguments and returns success only when the server stops normally.
     let args = match server_start_args_builder.build(resolved_config) {
         Ok(args) => args,
         Err(error) => return CliExitStatus::ServerDependencyFailed(format!("{error:?}")),
@@ -516,7 +442,6 @@ where
     S: CliServerStarter,
     C: CliLocalClientConnector,
 {
-    // @behavior selvedge.cli.submit Command submission probes an existing local server, starts it when needed, attaches with an empty snapshot, submits to a ready local client, and waits for terminal command output.
     let client_id = match LocalClientId::new(
         client_id.unwrap_or_else(|| format!("cli-{}", std::process::id())),
     ) {
@@ -529,7 +454,6 @@ where
     };
     let submit_command_id = match LocalClientCommandId::new(next_command_id()) {
         Ok(client_command_id) => client_command_id,
-        // @behavior selvedge.cli.submit.command_id_error Invalid generated submit command IDs return InvalidArgs before local submission.
         Err(error) => return CliExitStatus::InvalidArgs(format!("{error:?}")),
     };
     let request = CommandRequest {
@@ -540,7 +464,6 @@ where
     };
 
     let mut client = match connect_and_ready(&local_client_connector, &resolved_config).await {
-        // @behavior selvedge.cli.submit.ready_existing A ready local server receives the command without starting a new server.
         ReadyProbe::Ready(client) => client,
         ReadyProbe::Failed(error) => return CliExitStatus::LocalClientFailed(format!("{error:?}")),
         ReadyProbe::Unavailable | ReadyProbe::NotReady => {
@@ -555,24 +478,20 @@ where
     };
 
     let waits_for_terminal_notice = command_waits_for_terminal_notice(&command_name);
-    // @behavior selvedge.cli.submit.router_no_attach Router-backed command submission sends the command without replacing an active attached client for the supplied client id.
     let mut stream = if waits_for_terminal_notice {
         let attach_request = AttachRequest {
             client_id: client_id.clone(),
             client_command_id: attach_command_id.clone(),
             subscription: cli_subscription(),
         };
-        // @behavior selvedge.cli.submit.attach_gate CLI command submission establishes an empty attach session before server-owned commands that return terminal notices.
         let (_, mut stream) = match client.attach(attach_request).await {
             Ok(attached) => attached,
-            // @behavior selvedge.cli.submit.attach_error Attach failures return LocalClientFailed before command submission.
             Err(error) => {
                 return CliExitStatus::LocalClientFailed(format!("{error:?}"));
             }
         };
 
         if let Err(status) = wait_for_empty_snapshot(&mut stream, &attach_command_id).await {
-            // @behavior selvedge.cli.submit.attach_cleanup Attach hydration failures close the local client before returning the failure status.
             let _ = client.close().await;
             return status;
         }
@@ -581,7 +500,6 @@ where
         None
     };
 
-    // @behavior selvedge.cli.submit.outcome Accepted router-backed commands return Success, accepted server-owned operations wait for a terminal notice, rejected responses return CommandRejected, and client errors return LocalClientFailed.
     let status = match client.submit_command(request).await {
         Ok(CommandResponse {
             outcome: CommandOutcome::Accepted,
@@ -590,7 +508,6 @@ where
         }) => {
             if waits_for_terminal_notice {
                 let Some(stream) = stream.as_mut() else {
-                    // @behavior selvedge.cli.submit.terminal_frame.missing_stream Missing attach streams for terminal-notice commands return LocalClientFailed.
                     return CliExitStatus::LocalClientFailed(
                         "terminal notice stream missing".to_owned(),
                     );
@@ -604,7 +521,6 @@ where
             outcome: CommandOutcome::Rejected(reason),
             ..
         }) => CliExitStatus::CommandRejected(format!("{reason:?}")),
-        // @behavior selvedge.cli.submit.submit_error Command submission errors return LocalClientFailed after the attach stream is established.
         Err(error) => CliExitStatus::LocalClientFailed(format!("{error:?}")),
     };
 
@@ -624,18 +540,15 @@ where
     C: CliLocalClientConnector,
 {
     let Some(deadline) = ready_deadline_from_now(resolved_config.ready_timeout) else {
-        // @constraint selvedge.cli.submit.deadline_overflow Readiness deadline overflow returns ServerReadyTimeout.
         return Err(CliExitStatus::ServerReadyTimeout);
     };
     loop {
         if tokio::time::Instant::now() >= deadline {
-            // @behavior selvedge.cli.submit.ready_timeout Readiness polling returns ServerReadyTimeout after the configured deadline.
             return Err(CliExitStatus::ServerReadyTimeout);
         }
         match connect_and_ready(connector, resolved_config).await {
             ReadyProbe::Ready(client) => return Ok(client),
             ReadyProbe::Failed(error) => {
-                // @behavior selvedge.cli.submit.service_wait_error Readiness polling returns LocalClientFailed when a connected local client reports an error.
                 return Err(CliExitStatus::LocalClientFailed(format!("{error:?}")));
             }
             ReadyProbe::Unavailable | ReadyProbe::NotReady => {
@@ -643,7 +556,6 @@ where
                 let Some(sleep_for) =
                     ready_retry_sleep_duration(now, deadline, resolved_config.ready_poll_interval)
                 else {
-                    // @behavior selvedge.cli.submit.service_unready Readiness polling returns ServerReadyTimeout when the service remains unavailable through the final retry window.
                     return Err(CliExitStatus::ServerReadyTimeout);
                 };
                 if !sleep_for.is_zero() {
@@ -654,7 +566,6 @@ where
     }
 }
 
-// @constraint selvedge.cli.submit.retry_sleep Readiness retry sleep is capped to the remaining deadline duration.
 fn ready_retry_sleep_duration(
     now: tokio::time::Instant,
     deadline: tokio::time::Instant,
@@ -668,11 +579,9 @@ fn ready_retry_sleep_duration(
 }
 
 fn ready_deadline_from_now(timeout: Duration) -> Option<tokio::time::Instant> {
-    // @constraint selvedge.cli.submit.deadline Readiness timeout must fit in Tokio Instant arithmetic to produce a polling deadline.
     tokio::time::Instant::now().checked_add(timeout)
 }
 
-// @behavior selvedge.cli.ready_probe Ready probing classifies a local client as ready, not ready, unavailable, or failed.
 enum ReadyProbe<C> {
     Ready(C),
     NotReady,
@@ -687,7 +596,6 @@ async fn connect_and_ready<C>(
 where
     C: CliLocalClientConnector,
 {
-    // @behavior selvedge.cli.ready_probe.connect Connection failure during readiness probing is treated as unavailable for auto-start decisions.
     let mut client = match connector
         .connect(resolved_config.local_client_config.clone())
         .await
@@ -695,15 +603,10 @@ where
         Ok(client) => client,
         Err(_) => return ReadyProbe::Unavailable,
     };
-    match client
-        .ready(ReadyRequest {
-        })
-        .await
-    {
+    match client.ready(ReadyRequest {}).await {
         Ok(ReadyResponse {
             state: ReadyState::Ready,
             ..
-        // @behavior selvedge.cli.ready_probe.ready Ready protocol state makes the local client eligible for command submission.
         }) => ReadyProbe::Ready(client),
         Ok(_) => ReadyProbe::NotReady,
         Err(error) => ReadyProbe::Failed(error),
@@ -721,7 +624,6 @@ fn cli_subscription() -> selvedge_local_protocol::LocalClientSubscription {
     }
 }
 
-// @behavior selvedge.cli.submit.empty_snapshot CLI command submission accepts only an empty attach snapshot before submitting the command.
 async fn wait_for_empty_snapshot(
     stream: &mut LocalFrameStream,
     attach_command_id: &LocalClientCommandId,
@@ -733,28 +635,16 @@ async fn wait_for_empty_snapshot(
         {
             Ok(())
         }
-        Some(Ok(LocalClientFrame::Snapshot(_))) => {
-            // @constraint selvedge.cli.submit.empty_snapshot.non_empty A non-empty CLI attach snapshot returns LocalClientFailed before command submission.
-            Err(CliExitStatus::LocalClientFailed(
-                "attach delivered non-empty snapshot".to_owned(),
-            ))
-        }
-        Some(Ok(_)) => {
-            // @constraint selvedge.cli.submit.empty_snapshot.first_frame A non-snapshot first attach frame returns LocalClientFailed before command submission.
-            Err(CliExitStatus::LocalClientFailed(
-                "attach delivered frame before snapshot".to_owned(),
-            ))
-        }
-        Some(Err(error)) => {
-            // @behavior selvedge.cli.submit.empty_snapshot.stream_error Attach stream errors before the empty snapshot return LocalClientFailed.
-            Err(CliExitStatus::LocalClientFailed(format!("{error:?}")))
-        }
-        None => {
-            // @behavior selvedge.cli.submit.empty_snapshot.closed Attach stream closure before the empty snapshot returns LocalClientFailed.
-            Err(CliExitStatus::LocalClientFailed(
-                "attach stream closed before snapshot".to_owned(),
-            ))
-        }
+        Some(Ok(LocalClientFrame::Snapshot(_))) => Err(CliExitStatus::LocalClientFailed(
+            "attach delivered non-empty snapshot".to_owned(),
+        )),
+        Some(Ok(_)) => Err(CliExitStatus::LocalClientFailed(
+            "attach delivered frame before snapshot".to_owned(),
+        )),
+        Some(Err(error)) => Err(CliExitStatus::LocalClientFailed(format!("{error:?}"))),
+        None => Err(CliExitStatus::LocalClientFailed(
+            "attach stream closed before snapshot".to_owned(),
+        )),
     }
 }
 
@@ -765,7 +655,6 @@ fn snapshot_is_empty(snapshot: &selvedge_local_protocol::LocalClientSnapshot) ->
         && snapshot.task_versions.is_empty()
 }
 
-// @behavior selvedge.cli.submit.terminal_frame CLI command submission waits on the attach stream for typed command output and one terminal command result.
 async fn wait_for_terminal_frame(
     stream: &mut LocalFrameStream,
     submit_command_id: &LocalClientCommandId,
@@ -803,35 +692,27 @@ async fn wait_for_terminal_frame(
                 _ => {}
             },
             Ok(_) => {}
-            // @behavior selvedge.cli.submit.terminal_frame.stream_error Attach stream errors while waiting for command completion return LocalClientFailed.
             Err(error) => return CliExitStatus::LocalClientFailed(format!("{error:?}")),
         }
     }
 
-    // @behavior selvedge.cli.submit.terminal_frame.closed Attach stream closure before a terminal command result returns LocalClientFailed.
     CliExitStatus::LocalClientFailed("attach stream closed before command terminal".to_owned())
 }
 
-// @behavior selvedge.cli.command_id CLI command ids include the process id and a monotonically increasing counter.
 fn next_command_id() -> String {
-    // @behavior selvedge.cli.command_id.counter Each generated CLI command id advances the process-local counter.
     let counter = COMMAND_ID_COUNTER.fetch_add(1, Ordering::Relaxed);
     format!("cli-{}-{counter}", std::process::id())
 }
 
-// @behavior selvedge.cli.local_connector.default_struct The default local client connector uses HTTP local transport for CLI command submission.
 pub struct DefaultCliLocalClientConnector;
 
-// @behavior selvedge.cli.local_client.default Default local clients call the HTTP local transport and map transport errors to CLI client errors.
 pub struct DefaultCliLocalClient(
     selvedge_local_client::LocalClient<selvedge_local_client::HttpLocalTransport>,
 );
 
 impl CliLocalClientConnector for DefaultCliLocalClientConnector {
-    // @behavior selvedge.cli.local_connector.default_client The default connector returns the default HTTP local client type.
     type Client = DefaultCliLocalClient;
 
-    // @behavior selvedge.cli.local_connector.default_connect The default connector connects through the HTTP local transport with the resolved config.
     async fn connect(&self, config: LocalClientConfig) -> Result<Self::Client, CliError> {
         selvedge_local_client::connect_http(config)
             .await
@@ -841,12 +722,10 @@ impl CliLocalClientConnector for DefaultCliLocalClientConnector {
 }
 
 impl CliLocalClient for DefaultCliLocalClient {
-    // @behavior selvedge.cli.local_client.default_ready Default local client ready calls forward requests to the HTTP local transport.
     async fn ready(&mut self, request: ReadyRequest) -> Result<ReadyResponse, CliError> {
         self.0.ready(request).await.map_err(map_local_client_error)
     }
 
-    // @behavior selvedge.cli.local_client.default_submit The default local client forwards command requests to the HTTP local transport.
     async fn submit_command(
         &mut self,
         request: CommandRequest,
@@ -857,7 +736,6 @@ impl CliLocalClient for DefaultCliLocalClient {
             .map_err(map_local_client_error)
     }
 
-    // @behavior selvedge.cli.local_client.default_attach The default local client forwards attach requests to the HTTP local transport.
     async fn attach(
         &mut self,
         request: AttachRequest,
@@ -869,12 +747,10 @@ impl CliLocalClient for DefaultCliLocalClient {
     }
 
     async fn close(&mut self) -> Result<(), CliError> {
-        // @behavior selvedge.cli.local_client.default_close The default local client forwards close requests to the HTTP local transport.
         self.0.close().await.map_err(map_local_client_error)
     }
 }
 
-// @behavior selvedge.cli.local_client.error Local client errors are converted into CLI LocalClientFailed errors with debug text.
 fn map_local_client_error(error: LocalClientError) -> CliError {
     CliError::LocalClientFailed(format!("{error:?}"))
 }
@@ -893,12 +769,10 @@ impl CliServerStarter for DefaultCliServerStarter {
     async fn start_server(&self, _resolved_config: &CliResolvedConfig) -> Result<(), CliError> {
         let current_exe = match std::env::current_exe() {
             Ok(current_exe) => current_exe,
-            // @behavior selvedge.cli.server_starter.default.path_error Default server starter path resolution errors return ServerDependencyFailed.
             Err(error) => {
                 return Err(CliError::ServerDependencyFailed(error.to_string()));
             }
         };
-        // @behavior selvedge.cli.server_starter.default The default CLI server starter launches the current executable with the server subcommand and detached standard streams.
         std::process::Command::new(current_exe)
             .arg("server")
             .stdin(Stdio::null())
@@ -906,17 +780,13 @@ impl CliServerStarter for DefaultCliServerStarter {
             .stderr(Stdio::null())
             .spawn()
             .map(|_| ())
-            .map_err(|error| {
-                // @behavior selvedge.cli.server_starter.default.error Default server starter spawn errors return ServerDependencyFailed.
-                CliError::ServerDependencyFailed(error.to_string())
-            })
+            .map_err(|error| CliError::ServerDependencyFailed(error.to_string()))
     }
 }
 
 struct DefaultLocalOperationExecutor;
 
 impl LocalOperationExecutor for DefaultLocalOperationExecutor {
-    // @behavior selvedge.cli.provider_login_chatgpt.executor The default local operation executor runs ChatGPT login and maps completion into terminal operation messages.
     fn execute(
         &self,
         command: LocalOperationCommand,
@@ -933,7 +803,6 @@ impl LocalOperationExecutor for DefaultLocalOperationExecutor {
                                 result.auth_file_path.display()
                             ),
                         }),
-                        // @behavior selvedge.cli.provider_login_chatgpt.executor.failure ChatGPT login executor failures produce terminal failure text for the attached CLI.
                         Err(error) => Err(LocalOperationFailure {
                             message_text: format!("ChatGPT login failed: {error:?}"),
                         }),
@@ -945,11 +814,9 @@ impl LocalOperationExecutor for DefaultLocalOperationExecutor {
     }
 }
 
-// @behavior selvedge.cli.list_models.executor The list-models local operation reads configured providers and returns terminal model-list text.
 async fn list_models_operation() -> Result<LocalOperationSuccess, LocalOperationFailure> {
     let llm_config = match selvedge_config::read(|config| config.llm.clone()) {
         Ok(llm_config) => llm_config,
-        // @behavior selvedge.cli.list_models.executor.config_error The list-models operation reports config-read failures as terminal operation failure text.
         Err(error) => {
             return Err(LocalOperationFailure {
                 message_text: format!("failed to read model provider config: {error}"),
@@ -958,7 +825,6 @@ async fn list_models_operation() -> Result<LocalOperationSuccess, LocalOperation
     };
     let selvedge_home = match selvedge_config::selvedge_home() {
         Ok(selvedge_home) => selvedge_home,
-        // @behavior selvedge.cli.list_models.executor.home_error The list-models operation reports Selvedge home resolution failures as terminal operation failure text.
         Err(error) => {
             return Err(LocalOperationFailure {
                 message_text: format!("failed to read selvedge home: {error}"),
@@ -970,14 +836,12 @@ async fn list_models_operation() -> Result<LocalOperationSuccess, LocalOperation
         .await
     {
         Ok(listings) => listings,
-        // @behavior selvedge.cli.list_models.executor.list_error The list-models operation reports registry listing failures as terminal operation failure text.
         Err(error) => {
             return Err(LocalOperationFailure {
                 message_text: format!("failed to list configured models: {error}"),
             });
         }
     };
-    // @behavior selvedge.cli.list_models.executor.output The list-models operation formats empty provider lists and provider rows as terminal text.
     let message_text = if listings.is_empty() {
         "No configured model providers.".to_owned()
     } else {
@@ -1006,7 +870,6 @@ impl ChatgptLoginProgressSink for ServerLoginProgressSink {
     fn emit(&self, progress: ChatgptLoginProgress) -> ChatgptLoginProgressFuture {
         let progress_tx = self.progress_tx.clone();
         Box::pin(async move {
-            // @behavior selvedge.cli.provider_login_chatgpt.progress Server login progress is forwarded into local operation progress for client notice delivery.
             match progress {
                 ChatgptLoginProgress::UserCode {
                     verification_url,
@@ -1016,17 +879,13 @@ impl ChatgptLoginProgressSink for ServerLoginProgressSink {
                     user_code,
                 }) {
                     Ok(()) => Ok(()),
-                    // @behavior selvedge.cli.provider_login_chatgpt.progress.closed Login user-code progress reports cancellation when local operation progress delivery is closed.
                     Err(_) => Err(ChatgptLoginProgressError),
                 },
                 ChatgptLoginProgress::Waiting => Ok(()),
                 ChatgptLoginProgress::Diagnostic { message_text } => {
                     match progress_tx.send(LocalOperationProgress::Diagnostic { message_text }) {
                         Ok(()) => Ok(()),
-                        Err(_) => {
-                            // @behavior selvedge.cli.provider_login_chatgpt.progress.diagnostic_closed Login diagnostic progress reports cancellation when local operation progress delivery is closed.
-                            Err(ChatgptLoginProgressError)
-                        }
+                        Err(_) => Err(ChatgptLoginProgressError),
                     }
                 }
             }
@@ -1037,7 +896,6 @@ impl ChatgptLoginProgressSink for ServerLoginProgressSink {
 struct UnavailableToolExecutor;
 
 impl ToolExecutionSpawner for UnavailableToolExecutor {
-    // @behavior selvedge.cli.server_args.tool_unavailable The default CLI server arguments report tool execution as unavailable.
     fn spawn_tool_execution(
         &self,
         _request: ToolExecutionRequest,
@@ -1052,7 +910,6 @@ impl ToolExecutionSpawner for UnavailableToolExecutor {
 struct EmptySnapshotBuilder;
 
 impl ClientSnapshotBuilder for EmptySnapshotBuilder {
-    // @behavior selvedge.cli.server_args.empty_snapshot The default CLI server arguments expose an empty initial client snapshot.
     fn build_snapshot(&self, _request: ClientSnapshotBuildRequest) -> ClientSnapshotBuildFuture {
         Box::pin(async {
             Ok(ClientSnapshot {
@@ -1071,7 +928,6 @@ impl ClientSnapshotBuilder for EmptySnapshotBuilder {
 struct UnsupportedCommandMapper;
 
 impl LocalCommandMapper for UnsupportedCommandMapper {
-    // @behavior selvedge.cli.server_args.unsupported_command The default CLI server arguments reject all mapped local commands as unsupported.
     fn map_command(
         &self,
         _request: CommandRequest,
@@ -1115,7 +971,6 @@ mod tests {
         )
         .await;
 
-        // @verifies selvedge.cli.submit.ready_existing
         assert_eq!(status, CliExitStatus::Success);
         assert_eq!(connector_state.lock().expect("connector").connect_calls, 1);
         assert_eq!(starter.start_calls(), 0);
@@ -1139,7 +994,6 @@ mod tests {
         )
         .await;
 
-        // @verifies selvedge.cli.submit
         assert_eq!(status, CliExitStatus::Success);
         assert_eq!(connector_state.lock().expect("connector").connect_calls, 2);
         assert_eq!(starter.start_calls(), 1);
@@ -1166,12 +1020,10 @@ mod tests {
         )
         .await;
 
-        // @verifies selvedge.cli.ready_probe
         assert_eq!(
             status,
             CliExitStatus::LocalClientFailed("LocalClientFailed(\"protocol mismatch\")".to_owned())
         );
-        // @verifies selvedge.cli.submit.ready_existing
         assert_eq!(starter.start_calls(), 0);
     }
 
@@ -1195,7 +1047,6 @@ mod tests {
         )
         .await;
 
-        // @verifies selvedge.cli.submit
         assert_eq!(
             status,
             CliExitStatus::CommandRejected("UnsupportedCommand".to_owned())
@@ -1207,7 +1058,6 @@ mod tests {
         let now = tokio::time::Instant::now();
         let deadline = now + Duration::from_millis(10);
 
-        // @verifies selvedge.cli.submit.retry_sleep
         assert_eq!(
             ready_retry_sleep_duration(now, deadline, Duration::from_millis(100)),
             Some(Duration::from_millis(10))
@@ -1228,7 +1078,6 @@ mod tests {
 
     #[test]
     fn ready_deadline_overflow_is_handled() {
-        // @verifies selvedge.cli.submit.deadline
         assert_eq!(ready_deadline_from_now(Duration::MAX), None);
     }
 
@@ -1242,7 +1091,6 @@ mod tests {
         )
         .expect("write stderr");
 
-        // @verifies selvedge.cli.process.stderr
         assert_eq!(
             String::from_utf8(stderr).expect("stderr utf8"),
             "Command rejected: UnsupportedCommand\n"
@@ -1266,7 +1114,6 @@ mod tests {
         )
         .await;
 
-        // @verifies selvedge.cli.parse
         assert!(matches!(status, CliExitStatus::InvalidArgs(_)));
         assert_eq!(connector_state.lock().expect("connector").connect_calls, 0);
         assert_eq!(starter.start_calls(), 0);
@@ -1284,7 +1131,6 @@ mod tests {
         ])
         .expect("negative JSON number should parse as payload");
 
-        // @verifies selvedge.cli.parse.payload
         assert_eq!(
             command,
             CliCommand::SubmitCommand {
@@ -1300,7 +1146,6 @@ mod tests {
         let command = parse_cli_args(&["selvedge".to_owned(), "list-models".to_owned()])
             .expect("list models command should parse");
 
-        // @verifies selvedge.cli.list_models
         assert_eq!(
             command,
             CliCommand::SubmitCommand {
@@ -1328,7 +1173,6 @@ mod tests {
         )
         .await;
 
-        // @verifies selvedge.cli.server
         assert_eq!(status, CliExitStatus::Success);
         assert_eq!(connector_state.lock().expect("connector").connect_calls, 0);
         assert_eq!(starter.start_calls(), 0);
@@ -1349,7 +1193,6 @@ mod tests {
         )
         .await;
 
-        // @verifies selvedge.cli.server
         assert!(matches!(status, CliExitStatus::ServerDependencyFailed(_)));
         assert_eq!(runner_state.lock().expect("runner").run_calls, 0);
     }
@@ -1371,7 +1214,6 @@ mod tests {
         )
         .await;
 
-        // @verifies selvedge.cli.list_models
         assert_eq!(status, CliExitStatus::Success);
         assert_eq!(connector_state.lock().expect("connector").connect_calls, 1);
         assert_eq!(starter.start_calls(), 0);
@@ -1389,7 +1231,6 @@ mod tests {
         )
         .await;
 
-        // @verifies selvedge.cli.list_models
         assert_eq!(
             status,
             CliExitStatus::CommandFailed("model listing failed".to_owned())
@@ -1413,7 +1254,6 @@ mod tests {
         )
         .await;
 
-        // @verifies selvedge.cli.submit.outcome
         assert_eq!(
             status,
             CliExitStatus::CommandFailed("login failed".to_owned())
@@ -1437,7 +1277,6 @@ mod tests {
         )
         .await;
 
-        // @verifies selvedge.cli.submit.router_no_attach
         assert_eq!(status, CliExitStatus::Success);
     }
 

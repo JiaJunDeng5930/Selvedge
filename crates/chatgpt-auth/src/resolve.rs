@@ -3,18 +3,14 @@ use crate::{
     jwt, lock, parse_chatgpt_jwt_claims, refresh,
 };
 
-// @behavior selvedge.auth.resolve ChatGPT auth resolution returns request credentials from local auth state or a provider refresh.
-// @behavior selvedge.auth.resolve.request.entry Normal request auth resolution returns usable local credentials or refreshes credentials that need renewal.
 pub(crate) async fn resolve_for_request() -> Result<ResolvedChatgptAuth, ChatgptAuthError> {
     resolve(false).await
 }
 
-// @behavior selvedge.auth.resolve.unauthorized.entry Unauthorized request auth resolution forces access-token replacement before returning credentials.
 pub(crate) async fn resolve_after_unauthorized() -> Result<ResolvedChatgptAuth, ChatgptAuthError> {
     resolve(true).await
 }
 
-// @behavior selvedge.auth.resolve.flow ChatGPT auth resolution reads current config and local auth state, serializes credential updates, validates workspace claims, and persists refreshed tokens.
 async fn resolve(force_refresh: bool) -> Result<ResolvedChatgptAuth, ChatgptAuthError> {
     let config = config::read_chatgpt_auth_config()?;
     let selvedge_home = config::read_selvedge_home()?;
@@ -74,7 +70,6 @@ async fn resolve(force_refresh: bool) -> Result<ResolvedChatgptAuth, ChatgptAuth
     Ok(resolved)
 }
 
-// @behavior selvedge.auth.resolve.refresh_decision Auth resolution refreshes when the access token is expired or the id token cannot be parsed.
 fn should_refresh(auth_file: &ChatgptAuthFile, access_token_expired: bool) -> bool {
     if access_token_expired {
         return true;
@@ -83,12 +78,10 @@ fn should_refresh(auth_file: &ChatgptAuthFile, access_token_expired: bool) -> bo
     id_token_requires_refresh(auth_file)
 }
 
-// @constraint selvedge.auth.resolve.id_token_account A local id token that cannot be parsed requires refresh before credentials are returned.
 fn id_token_requires_refresh(auth_file: &ChatgptAuthFile) -> bool {
     parse_chatgpt_jwt_claims(&auth_file.tokens.id_token).is_err()
 }
 
-// @constraint selvedge.auth.resolve.access_expiration JWT access tokens at or before their expiration time require refresh before provider use.
 fn access_token_is_expired(access_token: &str) -> bool {
     let claims = match parse_chatgpt_jwt_claims(access_token) {
         Ok(claims) => claims,
@@ -102,7 +95,6 @@ fn access_token_is_expired(access_token: &str) -> bool {
     expires_at <= chrono::Utc::now()
 }
 
-// @behavior selvedge.auth.resolve.existing Existing auth files with valid id token claims produce caller-visible access token and account metadata.
 fn build_resolved_auth_from_existing(
     auth_file: &ChatgptAuthFile,
     auth_file_path: &std::path::Path,
@@ -119,7 +111,6 @@ fn build_resolved_auth_from_existing(
     build_resolved_auth(auth_file, expected_workspace_id, id_token_claims)
 }
 
-// @behavior selvedge.auth.resolve.refreshed Refreshed auth tokens with valid id token claims produce caller-visible access token and account metadata before persistence.
 fn build_resolved_auth_from_refresh(
     auth_file: &ChatgptAuthFile,
     expected_workspace_id: Option<&str>,
@@ -135,7 +126,6 @@ fn build_resolved_auth_from_refresh(
     build_resolved_auth(auth_file, expected_workspace_id, id_token_claims)
 }
 
-// @behavior selvedge.auth.resolve.workspace Resolved ChatGPT auth rejects missing or different account IDs when expected workspace is configured.
 fn build_resolved_auth(
     auth_file: &ChatgptAuthFile,
     expected_workspace_id: Option<&str>,
@@ -144,7 +134,6 @@ fn build_resolved_auth(
     if let Some(expected_workspace_id) = expected_workspace_id
         && id_token_claims.account_id.as_deref() != Some(expected_workspace_id)
     {
-        // @behavior selvedge.auth.resolve.workspace_mismatch Workspace mismatches are returned as caller-visible auth errors with expected and actual account IDs.
         return Err(ChatgptAuthError::WorkspaceMismatch {
             expected: expected_workspace_id.to_owned(),
             actual: id_token_claims.account_id,
@@ -161,14 +150,12 @@ fn build_resolved_auth(
     })
 }
 
-// @behavior selvedge.auth.resolve.access_expires_at Caller-visible resolved auth includes an access-token expiration only when the access token exposes a valid JWT expiration.
 fn access_token_expiration(access_token: &str) -> Option<chrono::DateTime<chrono::Utc>> {
     parse_chatgpt_jwt_claims(access_token)
         .ok()
         .and_then(|claims| claims.expires_at)
 }
 
-// @constraint selvedge.auth.resolve.concurrent_reuse Waiting callers reuse repaired auth files only after persisted token values differ from the pre-lock snapshot.
 fn token_sets_differ(previous: &ChatgptAuthFile, current: &ChatgptAuthFile) -> bool {
     previous.tokens.id_token != current.tokens.id_token
         || previous.tokens.access_token != current.tokens.access_token

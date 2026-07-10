@@ -13,7 +13,6 @@ fn conversation_path_requires_at_least_one_message_and_preserves_order() {
         messages: Vec::new(),
     };
 
-    // @verifies selvedge.model.domain.conversation_path
     assert_eq!(
         validate_conversation_path(&empty),
         Err(ApiDomainValidationError::EmptyConversationPath)
@@ -37,12 +36,10 @@ fn conversation_path_requires_at_least_one_message_and_preserves_order() {
     validate_conversation_path(&path).expect("valid conversation path");
 
     match &path.messages[0].content {
-        // @verifies selvedge.model.domain.conversation_path_messages
         MessageContent::Text(value) => assert_eq!(value, "system"),
         _ => panic!("unexpected content"),
     }
     match &path.messages[1].content {
-        // @verifies selvedge.model.domain.conversation_path_messages
         MessageContent::Text(value) => assert_eq!(value, "user"),
         _ => panic!("unexpected content"),
     }
@@ -58,7 +55,6 @@ fn tool_manifest_rejects_empty_or_duplicate_tool_names() {
         }],
     };
 
-    // @verifies selvedge.model.domain.tool_manifest
     assert_eq!(
         validate_tool_manifest(&empty_name),
         Err(ApiDomainValidationError::EmptyToolName)
@@ -79,7 +75,6 @@ fn tool_manifest_rejects_empty_or_duplicate_tool_names() {
         ],
     };
 
-    // @verifies selvedge.model.domain.tool_manifest
     assert_eq!(
         validate_tool_manifest(&duplicate_name),
         Err(ApiDomainValidationError::DuplicateToolName)
@@ -101,7 +96,6 @@ fn tool_manifest_rejects_empty_or_duplicate_parameter_names_per_tool() {
         }],
     };
 
-    // @verifies selvedge.model.domain.tool_parameter
     assert_eq!(
         validate_tool_manifest(&empty_parameter),
         Err(ApiDomainValidationError::EmptyToolParameterName)
@@ -128,7 +122,6 @@ fn tool_manifest_rejects_empty_or_duplicate_parameter_names_per_tool() {
         }],
     };
 
-    // @verifies selvedge.model.domain.tool_parameter
     assert_eq!(
         validate_tool_manifest(&duplicate_parameter),
         Err(ApiDomainValidationError::DuplicateToolParameterName)
@@ -144,7 +137,6 @@ fn provider_profile_requires_provider_and_model_names() {
         max_output_tokens: None,
     };
 
-    // @verifies selvedge.model.domain.provider_profile
     assert_eq!(
         validate_model_provider_profile(&empty_provider),
         Err(ApiDomainValidationError::EmptyProviderName)
@@ -157,7 +149,6 @@ fn provider_profile_requires_provider_and_model_names() {
         max_output_tokens: Some(128),
     };
 
-    // @verifies selvedge.model.domain.provider_profile
     assert_eq!(
         validate_model_provider_profile(&empty_model),
         Err(ApiDomainValidationError::EmptyModelName)
@@ -173,7 +164,6 @@ fn model_reply_requires_text_or_valid_tool_calls() {
         finish_reason: ModelFinishReason::Stop,
     };
 
-    // @verifies selvedge.model.domain.model_reply
     assert_eq!(
         validate_model_reply(&empty_reply),
         Err(ApiDomainValidationError::EmptyModelReply)
@@ -190,7 +180,6 @@ fn model_reply_requires_text_or_valid_tool_calls() {
         finish_reason: ModelFinishReason::ToolCalls,
     };
 
-    // @verifies selvedge.model.domain.tool_call_proposal
     assert_eq!(
         validate_model_reply(&missing_call_id),
         Err(ApiDomainValidationError::EmptyToolCallId)
@@ -207,7 +196,6 @@ fn model_reply_requires_text_or_valid_tool_calls() {
         finish_reason: ModelFinishReason::ToolCalls,
     };
 
-    // @verifies selvedge.model.domain.tool_call_proposal
     assert_eq!(
         validate_model_reply(&missing_tool_name),
         Err(ApiDomainValidationError::EmptyToolCallName)

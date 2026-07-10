@@ -9,13 +9,11 @@ use serde_json::json;
 use support::{assert_child_success, child_mode, init_login_test, run_child, spawn_http_server};
 use tokio::time::sleep;
 
-// @verifies selvedge.login.complete
 #[tokio::test(flavor = "multi_thread")]
 async fn complete_device_code_login_persists_auth_file_and_returns_claims() {
     const FLAG: &str = "CHATGPT_LOGIN_COMPLETE_SUCCESS_CHILD";
 
     if !child_mode(FLAG) {
-        // @verifies selvedge.login
         assert_child_success(&run_child(
             "complete_device_code_login_persists_auth_file_and_returns_claims",
             FLAG,
@@ -80,37 +78,24 @@ issuer = "{}"
         .join(".selvedge/auth/model-providers/chatgpt.json");
     let persisted = std::fs::read_to_string(&persisted_path).expect("read persisted auth file");
 
-    // @verifies selvedge.login
     assert_eq!(result.auth_file_path, persisted_path);
-    // @verifies selvedge.login
     assert_eq!(result.account_id.as_deref(), Some("workspace-123"));
-    // @verifies selvedge.login
     assert_eq!(result.user_id.as_deref(), Some("user-456"));
-    // @verifies selvedge.login
     assert_eq!(result.email.as_deref(), Some("user@example.com"));
-    // @verifies selvedge.login
     assert_eq!(result.plan_type.as_deref(), Some("plus"));
-    // @verifies selvedge.login
     assert!(persisted.contains("\"schema_version\":1"));
-    // @verifies selvedge.login
     assert!(persisted.contains("\"provider\":\"chatgpt\""));
-    // @verifies selvedge.login
     assert!(persisted.contains("\"credential_kind\":\"login\""));
-    // @verifies selvedge.login
     assert!(persisted.contains("\"id_token\":\""));
-    // @verifies selvedge.login
     assert!(persisted.contains("\"access_token\":\"access-token\""));
-    // @verifies selvedge.login
     assert!(persisted.contains("\"refresh_token\":\"refresh-token\""));
 }
 
-// @verifies selvedge.login.auth_file.lock
 #[tokio::test(flavor = "multi_thread")]
 async fn complete_device_code_login_waits_for_auth_file_lock_before_persisting() {
     const FLAG: &str = "CHATGPT_LOGIN_COMPLETE_LOCK_WAIT_CHILD";
 
     if !child_mode(FLAG) {
-        // @verifies selvedge.login
         assert_child_success(&run_child(
             "complete_device_code_login_waits_for_auth_file_lock_before_persisting",
             FLAG,
@@ -177,7 +162,6 @@ issuer = "{}"
     });
 
     sleep(std::time::Duration::from_millis(50)).await;
-    // @verifies selvedge.login
     assert!(!persisted_path.exists());
 
     drop(credential_lock);
@@ -185,19 +169,15 @@ issuer = "{}"
     let result = login_task.await.expect("join login task");
     let persisted = std::fs::read_to_string(&persisted_path).expect("read persisted auth file");
 
-    // @verifies selvedge.login
     assert_eq!(result.auth_file_path, persisted_path);
-    // @verifies selvedge.login
     assert!(persisted.contains("\"access_token\":\"access-token\""));
 }
 
-// @verifies selvedge.login.auth_file.persist
 #[tokio::test(flavor = "multi_thread")]
 async fn complete_device_code_login_recreates_missing_selvedge_home_before_persisting() {
     const FLAG: &str = "CHATGPT_LOGIN_COMPLETE_RECREATE_HOME_CHILD";
 
     if !child_mode(FLAG) {
-        // @verifies selvedge.login
         assert_child_success(&run_child(
             "complete_device_code_login_recreates_missing_selvedge_home_before_persisting",
             FLAG,
@@ -258,13 +238,10 @@ issuer = "{}"
         .join(".selvedge/auth/model-providers/chatgpt.json");
     let persisted = std::fs::read_to_string(&persisted_path).expect("read persisted auth file");
 
-    // @verifies selvedge.login
     assert_eq!(result.auth_file_path, persisted_path);
-    // @verifies selvedge.login
     assert!(persisted.contains("\"refresh_token\":\"refresh-token\""));
 }
 
-// @intent selvedge.login.tests.jwt The complete-login tests build unsigned JWT-shaped id tokens for successful and failing claim scenarios.
 fn build_test_jwt(payload: serde_json::Value) -> String {
     let engine = base64::engine::general_purpose::URL_SAFE_NO_PAD;
     let header = engine.encode(r#"{"alg":"none","typ":"JWT"}"#);
@@ -273,7 +250,6 @@ fn build_test_jwt(payload: serde_json::Value) -> String {
     format!("{header}.{payload}.signature")
 }
 
-// @intent selvedge.login.tests.jwt_header The complete-login tests build id tokens with custom headers for invalid-header scenarios.
 fn build_test_jwt_with_header(header: &str, payload: serde_json::Value) -> String {
     let engine = base64::engine::general_purpose::URL_SAFE_NO_PAD;
     let payload = engine.encode(payload.to_string());
@@ -281,13 +257,11 @@ fn build_test_jwt_with_header(header: &str, payload: serde_json::Value) -> Strin
     format!("{header}.{payload}.signature")
 }
 
-// @verifies selvedge.login.complete
 #[tokio::test(flavor = "multi_thread")]
 async fn complete_device_code_login_rejects_expired_challenge() {
     const FLAG: &str = "CHATGPT_LOGIN_COMPLETE_EXPIRED_CHILD";
 
     if !child_mode(FLAG) {
-        // @verifies selvedge.login
         assert_child_success(&run_child(
             "complete_device_code_login_rejects_expired_challenge",
             FLAG,
@@ -318,9 +292,7 @@ level = "debug"
         .await
         .expect_err("expired challenge must fail");
 
-    // @verifies selvedge.login
     assert!(matches!(error, ChatgptLoginError::ChallengeExpired));
-    // @verifies selvedge.login
     assert!(
         !tempdir
             .path()
@@ -329,13 +301,11 @@ level = "debug"
     );
 }
 
-// @verifies selvedge.login.complete
 #[tokio::test(flavor = "multi_thread")]
 async fn complete_device_code_login_rejects_workspace_mismatch_without_overwriting_file() {
     const FLAG: &str = "CHATGPT_LOGIN_COMPLETE_WORKSPACE_MISMATCH_CHILD";
 
     if !child_mode(FLAG) {
-        // @verifies selvedge.login
         assert_child_success(&run_child(
             "complete_device_code_login_rejects_workspace_mismatch_without_overwriting_file",
             FLAG,
@@ -401,7 +371,6 @@ expected_workspace_id = "workspace-expected"
         .await
         .expect_err("workspace mismatch must fail");
 
-    // @verifies selvedge.login
     assert!(matches!(
         error,
         ChatgptLoginError::WorkspaceMismatch {
@@ -409,20 +378,17 @@ expected_workspace_id = "workspace-expected"
             actual
         } if expected == "workspace-expected" && actual.as_deref() == Some("workspace-actual")
     ));
-    // @verifies selvedge.login
     assert_eq!(
         std::fs::read_to_string(&persisted_path).expect("read original auth file"),
         "original-auth-file"
     );
 }
 
-// @verifies selvedge.login.id_token.parse
 #[tokio::test(flavor = "multi_thread")]
 async fn complete_device_code_login_accepts_missing_account_id_claim() {
     const FLAG: &str = "CHATGPT_LOGIN_COMPLETE_MISSING_ACCOUNT_CHILD";
 
     if !child_mode(FLAG) {
-        // @verifies selvedge.login
         assert_child_success(&run_child(
             "complete_device_code_login_accepts_missing_account_id_claim",
             FLAG,
@@ -479,19 +445,15 @@ issuer = "{}"
         .path()
         .join(".selvedge/auth/model-providers/chatgpt.json");
 
-    // @verifies selvedge.login
     assert_eq!(result.account_id, None);
-    // @verifies selvedge.login
     assert!(persisted_path.exists());
 }
 
-// @verifies selvedge.login.id_token.parse
 #[tokio::test(flavor = "multi_thread")]
 async fn complete_device_code_login_accepts_blank_account_id_claim_as_missing() {
     const FLAG: &str = "CHATGPT_LOGIN_COMPLETE_BLANK_ACCOUNT_ID_CHILD";
 
     if !child_mode(FLAG) {
-        // @verifies selvedge.login
         assert_child_success(&run_child(
             "complete_device_code_login_accepts_blank_account_id_claim_as_missing",
             FLAG,
@@ -551,19 +513,15 @@ issuer = "{}"
         .path()
         .join(".selvedge/auth/model-providers/chatgpt.json");
 
-    // @verifies selvedge.login
     assert_eq!(result.account_id, None);
-    // @verifies selvedge.login
     assert!(persisted_path.exists());
 }
 
-// @verifies selvedge.login.id_token.json
 #[tokio::test(flavor = "multi_thread")]
 async fn complete_device_code_login_rejects_invalid_id_token_header() {
     const FLAG: &str = "CHATGPT_LOGIN_COMPLETE_INVALID_HEADER_CHILD";
 
     if !child_mode(FLAG) {
-        // @verifies selvedge.login
         assert_child_success(&run_child(
             "complete_device_code_login_rejects_invalid_id_token_header",
             FLAG,
@@ -620,9 +578,7 @@ issuer = "{}"
         .await
         .expect_err("invalid header must fail");
 
-    // @verifies selvedge.login
     assert!(matches!(error, ChatgptLoginError::InvalidTokenSet { .. }));
-    // @verifies selvedge.login
     assert!(
         !tempdir
             .path()
@@ -631,13 +587,11 @@ issuer = "{}"
     );
 }
 
-// @verifies selvedge.login.config.read
 #[tokio::test(flavor = "multi_thread")]
 async fn complete_device_code_login_reads_current_issuer_from_runtime_config() {
     const FLAG: &str = "CHATGPT_LOGIN_COMPLETE_REFRESH_CONFIG_CHILD";
 
     if !child_mode(FLAG) {
-        // @verifies selvedge.login
         assert_child_success(&run_child(
             "complete_device_code_login_reads_current_issuer_from_runtime_config",
             FLAG,
@@ -709,10 +663,7 @@ issuer = "{}"
     )
     .expect("read persisted auth file");
 
-    // @verifies selvedge.login
     assert_eq!(result.account_id.as_deref(), Some("workspace-new"));
-    // @verifies selvedge.login
     assert_eq!(result.user_id.as_deref(), Some("user-new"));
-    // @verifies selvedge.login
     assert!(persisted.contains("\"access_token\":\"access-new\""));
 }

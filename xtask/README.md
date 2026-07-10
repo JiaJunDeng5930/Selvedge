@@ -7,17 +7,12 @@ freshness_commit: 6d9463334cafa2237bdc0afccea368e4de30b3c6
 
 `xtask` contains repository-local automation that should stay out of production crates.
 
-## Requirement Commands
+## Commands
 
-- `cargo xtask req scan` prints parsed requirement comments, their bindings, and diagnostics.
-- `cargo xtask req fmt-agents` regenerates only the AGENTS.md requirement index block from source comments.
-- `cargo xtask req check --staged` validates the staged Git snapshot for pre-commit.
-- `cargo xtask req check --all` validates the full tracked checkout for CI.
-- `cargo xtask req check --base <git-ref>` validates changed Rust hunks against a base ref for CI.
+- `cargo xtask agents-index update` regenerates the AGENTS.md project index.
+- `cargo xtask agents-index check` checks that the AGENTS.md project index is current.
 - `cargo xtask readme check-mermaid` renders every package README Mermaid fence.
 - `cargo xtask readme check-freshness` checks package README freshness metadata against package-directory changes since the recorded commit, excluding the README file itself.
-
-The requirement registry is in memory for one command invocation. AGENTS.md is the only generated tracked artifact.
 
 ## Package State Machine
 
@@ -28,7 +23,6 @@ flowchart TD
   Start([cargo xtask command])
   Parse[Parse command arguments]
   AgentsIndex[Run agents-index update or check]
-  Req[Run requirement scan, fmt-agents, or check]
   Readme[Run README Mermaid or freshness check]
   Success[Exit code 0]
   Usage[Exit code 2 with usage]
@@ -36,13 +30,10 @@ flowchart TD
 
   Start -->|process starts| Parse
   Parse -->|args match agents-index update or check| AgentsIndex
-  Parse -->|args match req scan, fmt-agents, or check mode| Req
   Parse -->|args match readme check-mermaid or check-freshness| Readme
   Parse -->|args match no known command shape| Usage
   AgentsIndex -->|index update succeeds or check is fresh| Success
   AgentsIndex -->|filesystem, git, warning collection, or stale check fails| Failure
-  Req -->|requirement scan has no diagnostics, fmt succeeds, or check is fresh| Success
-  Req -->|diagnostics exist, AGENTS index is stale, git fails, or filesystem fails| Failure
   Readme -->|all package Mermaid diagrams render or all README freshness metadata covers package changes| Success
   Readme -->|metadata is missing, a commit is invalid, a package changed after metadata commit, or Mermaid rendering fails| Failure
 ```
