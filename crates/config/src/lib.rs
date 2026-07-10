@@ -6,7 +6,7 @@ use std::{
     fs,
     io::Write,
     path::{Path, PathBuf},
-    sync::{LazyLock, OnceLock, RwLock},
+    sync::{LazyLock, RwLock},
 };
 
 use selvedge_config_model::{AppConfig, AppConfigError};
@@ -123,7 +123,7 @@ pub fn selvedge_home() -> Result<PathBuf, ConfigError> {
         .map_err(|_| ConfigError::LoadFailed("config service lock poisoned".to_owned()))?;
     let service = global.as_ref().ok_or(ConfigError::NotInitialized)?;
 
-    Ok(service.selvedge_home().to_path_buf())
+    Ok(service.selvedge_home.clone())
 }
 
 fn apply_update<V>(path: &str, value: V, persist: bool) -> Result<(), ConfigError>
@@ -142,47 +142,30 @@ where
 
 #[derive(Debug)]
 struct ConfigService {
-    base_config: OnceLock<AppConfig>,
-    selvedge_home: OnceLock<PathBuf>,
-    runtime_patch: RwLock<Table>,
+    base_config: AppConfig,
+    selvedge_home: PathBuf,
+    runtime_patch: Table,
 }
 
 impl ConfigService {
     fn new(base_config: AppConfig, selvedge_home: PathBuf) -> Self {
-        let service = Self {
-            base_config: OnceLock::new(),
-            selvedge_home: OnceLock::new(),
-            runtime_patch: RwLock::new(Table::new()),
-        };
-
-        let base_config_set = service.base_config.set(base_config);
-        base_config_set.expect("base config must be initialized exactly once");
-        let selvedge_home_set = service.selvedge_home.set(selvedge_home);
-        selvedge_home_set.expect("selvedge home must be initialized exactly once");
-
-        service
+        Self {
+            base_config,
+            selvedge_home,
+            runtime_patch: Table::new(),
+        }
     }
 
     fn materialize_config(&self) -> Result<AppConfig, ConfigError> {
-        let mut merged_table = serialize_app_config(self.base_config())?;
-        let runtime_patch = self
-            .runtime_patch
-            .read()
-            .map_err(|_| ConfigError::LoadFailed("runtime patch lock poisoned".to_owned()))?;
+        let mut merged_table = serialize_app_config(&self.base_config)?;
 
-        merge_tables(&mut merged_table, &runtime_patch);
+        merge_tables(&mut merged_table, &self.runtime_patch);
 
         AppConfig::try_from(merged_table).map_err(map_model_error)
     }
 
     fn apply_update(&mut self, path: &str, value: Value, persist: bool) -> Result<(), ConfigError> {
-        let mut candidate_patch = {
-            let runtime_patch = self
-                .runtime_patch
-                .get_mut()
-                .map_err(|_| ConfigError::LoadFailed("runtime patch lock poisoned".to_owned()))?;
-            runtime_patch.clone()
-        };
+        let mut candidate_patch = self.runtime_patch.clone();
 
         apply_override(&mut candidate_patch, path, value.clone())?;
         self.materialize_candidate(&candidate_patch)?;
@@ -191,17 +174,13 @@ impl ConfigService {
             self.persist_update(path, value)?;
         }
 
-        let runtime_patch = self
-            .runtime_patch
-            .get_mut()
-            .map_err(|_| ConfigError::LoadFailed("runtime patch lock poisoned".to_owned()))?;
-        *runtime_patch = candidate_patch;
+        self.runtime_patch = candidate_patch;
 
         Ok(())
     }
 
     fn materialize_candidate(&self, runtime_patch: &Table) -> Result<AppConfig, ConfigError> {
-        let mut merged_table = serialize_app_config(self.base_config())?;
+        let mut merged_table = serialize_app_config(&self.base_config)?;
 
         merge_tables(&mut merged_table, runtime_patch);
 
@@ -209,22 +188,12 @@ impl ConfigService {
     }
 
     fn persist_update(&self, path: &str, value: Value) -> Result<(), ConfigError> {
-        let config_path = config_path_for_home(self.selvedge_home());
+        let config_path = config_path_for_home(&self.selvedge_home);
         let mut durable_table = load_file_table_if_exists(&config_path)?;
 
         apply_override(&mut durable_table, path, value)?;
         AppConfig::try_from(durable_table.clone()).map_err(map_model_error)?;
         write_config_file(&config_path, &durable_table)
-    }
-
-    fn base_config(&self) -> &AppConfig {
-        let base_config = self.base_config.get();
-        base_config.expect("base config must be initialized before use")
-    }
-
-    fn selvedge_home(&self) -> &Path {
-        let selvedge_home = self.selvedge_home.get();
-        selvedge_home.expect("selvedge home must be initialized before use")
     }
 }
 
