@@ -2,12 +2,15 @@
 
 <!-- selvedge-package-readme
 package: selvedge-logging
-freshness_fingerprint: 74aa97234ab2f470594556ebc51dc7782dbf6842
+freshness_fingerprint: 8630ae4094ab736698cec4efea7162cf1ba534ec
 -->
 
 ## This crate is for
 
 This crate is the project logging entrypoint.
+
+`LogLevel` re-exports the configured `LogFilter`, so call sites and runtime
+filtering use the same ordered level type.
 
 Use it to:
 

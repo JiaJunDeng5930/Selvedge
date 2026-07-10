@@ -7,7 +7,7 @@ use std::{
 };
 
 use selvedge_config::read;
-use selvedge_config_model::LogFilter;
+pub use selvedge_config_model::LogFilter as LogLevel;
 
 static RUNTIME: LazyLock<RwLock<RuntimeState>> =
     LazyLock::new(|| RwLock::new(RuntimeState::Uninitialized));
@@ -93,15 +93,6 @@ impl From<selvedge_config::ConfigError> for EmitError {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum LogLevel {
-    Trace,
-    Debug,
-    Info,
-    Warn,
-    Error,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct LogEvent {
     level: LogLevel,
@@ -122,22 +113,6 @@ impl LogEvent {
     }
 }
 
-impl LogLevel {
-    fn meets_filter(self, minimum_level: LogFilter) -> bool {
-        self.rank() >= filter_rank(minimum_level)
-    }
-
-    fn rank(self) -> u8 {
-        match self {
-            Self::Trace => 0,
-            Self::Debug => 1,
-            Self::Info => 2,
-            Self::Warn => 3,
-            Self::Error => 4,
-        }
-    }
-}
-
 fn should_emit(level: LogLevel, module_path: &str) -> Result<bool, EmitError> {
     read(|config| {
         let minimum_level = effective_filter_for_module(
@@ -146,16 +121,16 @@ fn should_emit(level: LogLevel, module_path: &str) -> Result<bool, EmitError> {
             module_path,
         );
 
-        level.meets_filter(minimum_level)
+        level >= minimum_level
     })
     .map_err(EmitError::from)
 }
 
 fn effective_filter_for_module(
-    default_level: LogFilter,
-    module_levels: &std::collections::BTreeMap<String, LogFilter>,
+    default_level: LogLevel,
+    module_levels: &std::collections::BTreeMap<String, LogLevel>,
     module_path: &str,
-) -> LogFilter {
+) -> LogLevel {
     module_levels
         .iter()
         .filter(|(prefix, _)| matches_module_override(module_path, prefix))
@@ -289,7 +264,7 @@ fn current_sink() -> Result<Arc<dyn EventSink>, EmitError> {
 fn render_event(event: &LogEvent) -> String {
     let mut rendered = format!(
         "level={} module={} file={} line={} message={}",
-        render_level(event.level),
+        event.level,
         render_value(&event.module_path),
         render_value(&event.file),
         event.line,
@@ -320,35 +295,8 @@ fn is_reserved_field_name(field_name: &str) -> bool {
     matches!(field_name, "level" | "module" | "file" | "line" | "message")
 }
 
-fn render_level(level: LogLevel) -> &'static str {
-    match level {
-        LogLevel::Trace => "trace",
-        LogLevel::Debug => "debug",
-        LogLevel::Info => "info",
-        LogLevel::Warn => "warn",
-        LogLevel::Error => "error",
-    }
-}
-
-fn filter_rank(level: LogFilter) -> u8 {
-    match level {
-        LogFilter::Trace => 0,
-        LogFilter::Debug => 1,
-        LogFilter::Info => 2,
-        LogFilter::Warn => 3,
-        LogFilter::Error => 4,
-    }
-}
-
 fn render_value(value: &str) -> String {
-    let escaped = value
-        .replace('\\', "\\\\")
-        .replace('"', "\\\"")
-        .replace('\n', "\\n")
-        .replace('\r', "\\r")
-        .replace('\t', "\\t");
-
-    format!("\"{escaped}\"")
+    format!("{value:?}")
 }
 
 #[cfg(test)]
