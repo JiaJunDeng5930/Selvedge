@@ -12,8 +12,9 @@ use selvedge_test_support::local_transport::{
     ReadyAction, empty_local_snapshot as empty_snapshot, install_connect_plan,
     noop_command as valid_command, ready_state,
 };
-use selvedge_tui::{TuiExitStatus, TuiInputAction, TuiStartArgs, run_tui};
 use tokio::sync::Mutex as AsyncMutex;
+
+use super::{TuiExitStatus, TuiInputAction, TuiStartArgs, run_tui_with_transport};
 
 static TEST_LOCK: LazyLock<AsyncMutex<()>> = LazyLock::new(|| AsyncMutex::new(()));
 
@@ -22,7 +23,7 @@ async fn connect_failure_returns_server_unavailable() {
     let _guard = TEST_LOCK.lock().await;
     install_connect_plan(Err(LocalClientError::ConnectFailed("refused".to_owned())));
 
-    let status = run_tui::<FakeTransport, _>(valid_args(None), NoopMapper).await;
+    let status = run_tui_with_transport::<FakeTransport, _>(valid_args(None), NoopMapper).await;
 
     assert_eq!(status, TuiExitStatus::ServerUnavailable);
 }
@@ -40,7 +41,7 @@ async fn not_ready_returns_server_not_ready() {
         })));
     install_connect_plan(Ok(state.clone()));
 
-    let status = run_tui::<FakeTransport, _>(valid_args(None), NoopMapper).await;
+    let status = run_tui_with_transport::<FakeTransport, _>(valid_args(None), NoopMapper).await;
 
     assert_eq!(status, TuiExitStatus::ServerNotReady);
     assert_eq!(state.lock().expect("fake state").close_calls, 1);
@@ -60,7 +61,7 @@ async fn attach_rejection_returns_attach_rejected() {
         }));
     install_connect_plan(Ok(state.clone()));
 
-    let status = run_tui::<FakeTransport, _>(valid_args(None), NoopMapper).await;
+    let status = run_tui_with_transport::<FakeTransport, _>(valid_args(None), NoopMapper).await;
 
     assert_eq!(
         status,
@@ -93,8 +94,11 @@ async fn waits_for_snapshot_then_submits_initial_command_and_reports_rejection()
     }
     install_connect_plan(Ok(state.clone()));
 
-    let status =
-        run_tui::<FakeTransport, _>(valid_args(Some(valid_command("command-1"))), NoopMapper).await;
+    let status = run_tui_with_transport::<FakeTransport, _>(
+        valid_args(Some(valid_command("command-1"))),
+        NoopMapper,
+    )
+    .await;
 
     assert_eq!(
         status,
@@ -130,8 +134,11 @@ async fn accepted_initial_command_exits_successfully() {
     }
     install_connect_plan(Ok(state.clone()));
 
-    let status =
-        run_tui::<FakeTransport, _>(valid_args(Some(valid_command("command-1"))), NoopMapper).await;
+    let status = run_tui_with_transport::<FakeTransport, _>(
+        valid_args(Some(valid_command("command-1"))),
+        NoopMapper,
+    )
+    .await;
 
     assert_eq!(status, TuiExitStatus::Exited);
     let state = state.lock().expect("fake state");
@@ -150,7 +157,7 @@ async fn stream_closed_before_snapshot_returns_disconnected() {
         .push_back(AttachAction::Accepted(Vec::new()));
     install_connect_plan(Ok(state.clone()));
 
-    let status = run_tui::<FakeTransport, _>(valid_args(None), NoopMapper).await;
+    let status = run_tui_with_transport::<FakeTransport, _>(valid_args(None), NoopMapper).await;
 
     assert_eq!(status, TuiExitStatus::Disconnected);
     assert_eq!(state.lock().expect("fake state").close_calls, 1);
@@ -169,7 +176,7 @@ async fn snapshot_wait_timeout_returns_snapshot_timeout() {
 
     let mut args = valid_args(None);
     args.client_config.request_timeout = Duration::from_millis(5);
-    let status = run_tui::<FakeTransport, _>(args, NoopMapper).await;
+    let status = run_tui_with_transport::<FakeTransport, _>(args, NoopMapper).await;
 
     assert_eq!(status, TuiExitStatus::SnapshotTimeout);
     assert_eq!(state.lock().expect("fake state").close_calls, 1);
@@ -177,7 +184,7 @@ async fn snapshot_wait_timeout_returns_snapshot_timeout() {
 
 struct NoopMapper;
 
-impl selvedge_tui::TuiCommandMapper for NoopMapper {
+impl super::TuiCommandMapper for NoopMapper {
     fn map_input(&self, _input_text: &str) -> Result<TuiInputAction, String> {
         Ok(TuiInputAction::Noop)
     }

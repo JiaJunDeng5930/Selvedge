@@ -155,9 +155,8 @@ This file is for coding agents working in this repository.
 |crates/task-runtime-factory/tests:{factory_contract.rs}
 |crates/test-support:{src/,Cargo.toml,README.md}
 |crates/test-support/src:{chatgpt_auth.rs,config.rs,db.rs,http.rs,lib.rs,local_transport.rs,process.rs}
-|crates/tui:{src/,tests/,Cargo.toml,README.md}
-|crates/tui/src:{lib.rs}
-|crates/tui/tests:{tui_contract.rs}
+|crates/tui:{src/,Cargo.toml,README.md}
+|crates/tui/src:{lib.rs,tests.rs}
 |crates/web:{src/,tests/,Cargo.toml,README.md}
 |crates/web/src:{lib.rs}
 |crates/web/tests:{web_contract.rs}

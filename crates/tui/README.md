@@ -2,14 +2,16 @@
 
 <!-- selvedge-package-readme
 package: selvedge-tui
-freshness_fingerprint: 359665a211274e95161efdd0101235e9a710599d
+freshness_fingerprint: 744f0e9817aa51b5f25d0257a078d19d098bb453
 -->
 
 This crate owns the TUI startup boundary for attaching to an existing Selvedge local server.
 
 Use it to connect through `selvedge-local-client`, probe readiness, open an attach stream, wait for the first snapshot, submit an optional initial command, and return a typed exit status.
 
-The current entry point is generic over `LocalTransport` because the repository has not yet implemented the real localhost transport below `selvedge-local-client`.
+`run_tui` connects through the concrete HTTP localhost transport exposed by
+`selvedge-local-client`. Transport injection stays private to state-machine
+tests.
 
 ## Package State Machine
 
