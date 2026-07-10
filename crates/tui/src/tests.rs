@@ -29,6 +29,30 @@ async fn connect_failure_returns_server_unavailable() {
 }
 
 #[tokio::test]
+async fn invalid_identifiers_skip_transport_connection() {
+    let _guard = TEST_LOCK.lock().await;
+    let mut invalid_client = valid_args(None);
+    invalid_client.client_id.clear();
+    let mut invalid_attach = valid_args(None);
+    invalid_attach.attach_command_id.clear();
+
+    for args in [invalid_client, invalid_attach] {
+        let state = FakeTransportState::new_handle();
+        install_connect_plan(Ok(state.clone()));
+        let status = run_tui_with_transport::<FakeTransport, _>(args, NoopMapper).await;
+
+        assert!(matches!(status, TuiExitStatus::InvalidArgs(_)));
+        assert!(
+            state
+                .lock()
+                .expect("fake state")
+                .connected_configs
+                .is_empty()
+        );
+    }
+}
+
+#[tokio::test]
 async fn not_ready_returns_server_not_ready() {
     let _guard = TEST_LOCK.lock().await;
     let state = FakeTransportState::new_handle();
