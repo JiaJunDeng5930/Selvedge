@@ -4,6 +4,8 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
+use serde::Deserialize;
+
 const METADATA_BEGIN: &str = "<!-- selvedge-package-readme";
 const METADATA_END: &str = "-->";
 
@@ -126,44 +128,44 @@ struct MermaidDiagram {
     source: String,
 }
 
+#[derive(Deserialize)]
+struct CargoMetadata {
+    workspace_members: BTreeSet<String>,
+    packages: Vec<CargoPackage>,
+}
+
+#[derive(Deserialize)]
+struct CargoPackage {
+    id: String,
+    name: String,
+    manifest_path: PathBuf,
+    targets: Vec<CargoTarget>,
+}
+
+#[derive(Deserialize)]
+struct CargoTarget {
+    src_path: PathBuf,
+}
+
 fn workspace_packages(root: &Path) -> Result<Vec<WorkspacePackage>, String> {
     let metadata = cargo_workspace_metadata(root)?;
-    let workspace_members = metadata
-        .get("workspace_members")
-        .and_then(serde_json::Value::as_array)
-        .ok_or_else(|| "cargo metadata output is missing workspace_members".to_owned())?
-        .iter()
-        .map(|member| {
-            member.as_str().map(str::to_owned).ok_or_else(|| {
-                "cargo metadata workspace_members entries must be strings".to_owned()
-            })
-        })
-        .collect::<Result<BTreeSet<_>, _>>()?;
-    let metadata_packages = metadata
-        .get("packages")
-        .and_then(serde_json::Value::as_array)
-        .ok_or_else(|| "cargo metadata output is missing packages".to_owned())?;
     let mut packages = Vec::new();
-    for package_metadata in metadata_packages {
-        let id = metadata_string(package_metadata, "id", "package id")?;
-        if !workspace_members.contains(&id) {
+    for package_metadata in metadata.packages {
+        if !metadata.workspace_members.contains(&package_metadata.id) {
             continue;
         }
-        let manifest_path = metadata_path_to_relative(
-            root,
-            &metadata_string(package_metadata, "manifest_path", "manifest path")?,
-        )?;
+        let manifest_path = metadata_path_to_relative(root, &package_metadata.manifest_path)?;
         if !git_path_tracked(root, &manifest_path)? {
             continue;
         }
-        let name = metadata_string(package_metadata, "name", "package name")?;
         let path = manifest_path
             .parent()
             .filter(|parent| !parent.as_os_str().is_empty())
             .map_or_else(|| PathBuf::from("."), Path::to_path_buf);
-        let diff_pathspecs = package_diff_pathspecs_from_metadata(root, &path, package_metadata)?;
+        let diff_pathspecs =
+            package_diff_pathspecs_from_metadata(root, &path, &package_metadata.targets)?;
         packages.push(WorkspacePackage {
-            name,
+            name: package_metadata.name,
             path,
             diff_pathspecs,
         });
@@ -172,7 +174,7 @@ fn workspace_packages(root: &Path) -> Result<Vec<WorkspacePackage>, String> {
     Ok(packages)
 }
 
-fn cargo_workspace_metadata(root: &Path) -> Result<serde_json::Value, String> {
+fn cargo_workspace_metadata(root: &Path) -> Result<CargoMetadata, String> {
     let output = Command::new("cargo")
         .current_dir(root)
         .args(["metadata", "--format-version", "1", "--no-deps"])
@@ -189,28 +191,21 @@ fn cargo_workspace_metadata(root: &Path) -> Result<serde_json::Value, String> {
         .map_err(|error| format!("failed to parse cargo metadata JSON: {error}"))
 }
 
-fn metadata_string(
-    object: &serde_json::Value,
-    field: &str,
-    description: &str,
-) -> Result<String, String> {
-    object
-        .get(field)
-        .and_then(serde_json::Value::as_str)
-        .map(str::to_owned)
-        .ok_or_else(|| format!("cargo metadata package is missing {description}"))
-}
-
-fn metadata_path_to_relative(root: &Path, metadata_path: &str) -> Result<PathBuf, String> {
+fn metadata_path_to_relative(root: &Path, metadata_path: &Path) -> Result<PathBuf, String> {
     let root = fs::canonicalize(root)
         .map_err(|error| format!("failed to canonicalize {}: {error}", root.display()))?;
-    let path = fs::canonicalize(metadata_path)
-        .map_err(|error| format!("failed to canonicalize {metadata_path}: {error}"))?;
+    let path = fs::canonicalize(metadata_path).map_err(|error| {
+        format!(
+            "failed to canonicalize {}: {error}",
+            metadata_path.display()
+        )
+    })?;
     path.strip_prefix(&root)
         .map(Path::to_path_buf)
         .map_err(|_| {
             format!(
-                "{metadata_path} is outside the workspace root {}",
+                "{} is outside the workspace root {}",
+                metadata_path.display(),
                 root.display()
             )
         })
@@ -239,7 +234,7 @@ fn git_path_tracked(root: &Path, relative_path: &Path) -> Result<bool, String> {
 fn package_diff_pathspecs_from_metadata(
     root: &Path,
     package_path: &Path,
-    package_metadata: &serde_json::Value,
+    targets: &[CargoTarget],
 ) -> Result<Vec<String>, String> {
     if package_path != Path::new(".") {
         return Ok(vec![path_to_string(package_path)]);
@@ -253,13 +248,8 @@ fn package_diff_pathspecs_from_metadata(
         "src".to_owned(),
         "tests".to_owned(),
     ]);
-    let targets = package_metadata
-        .get("targets")
-        .and_then(serde_json::Value::as_array)
-        .ok_or_else(|| "cargo metadata package is missing target list".to_owned())?;
     for target in targets {
-        let src_path =
-            metadata_path_to_relative(root, &metadata_string(target, "src_path", "target path")?)?;
+        let src_path = metadata_path_to_relative(root, &target.src_path)?;
         pathspecs.insert(root_target_pathspec(&src_path));
     }
     Ok(pathspecs.into_iter().collect())
