@@ -2,7 +2,7 @@
 
 <!-- selvedge-package-readme
 package: chatgpt-login
-freshness_fingerprint: 6a7122bb45a944f7ec1d586c3d963fbe281479a4
+freshness_fingerprint: 5a385c7314aa94a829dffa1255ae355a51ffe142
 -->
 
 ## This crate is for
@@ -41,8 +41,9 @@ Lower-level tests and specialized callers may use three async functions:
 - `poll_device_code_login(...)`
 - `complete_device_code_login(...)`
 
-The crate reads ChatGPT auth config fresh for every call through `selvedge_config`
-and executes every HTTP request through `selvedge_client`.
+The crate reads ChatGPT auth config and reuses claims and credential-file
+primitives through `chatgpt-auth`. It executes every HTTP request through
+`selvedge_client`.
 
 ## Runtime behavior
 

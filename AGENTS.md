@@ -95,7 +95,7 @@ This file is for coding agents working in this repository.
 |crates/chatgpt-auth/tests:{support/,parse_contract.rs,public_api.rs,resolve_integration.rs}
 |crates/chatgpt-auth/tests/support:{mod.rs}
 |crates/chatgpt-login:{src/,tests/,Cargo.toml,README.md}
-|crates/chatgpt-login/src:{auth_file.rs,config.rs,device_code.rs,id_token.rs,lib.rs,token_exchange.rs}
+|crates/chatgpt-login/src:{auth_file.rs,device_code.rs,lib.rs,token_exchange.rs}
 |crates/chatgpt-login/tests:{support/,complete_login_integration.rs,device_code_start_integration.rs,public_api.rs}
 |crates/chatgpt-login/tests/support:{mod.rs}
 |crates/client:{src/,tests/,Cargo.toml,README.md}

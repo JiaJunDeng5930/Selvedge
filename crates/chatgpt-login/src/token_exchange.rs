@@ -1,19 +1,14 @@
 use http::HeaderMap;
 use serde::Deserialize;
 
-use crate::{ChatgptLoginError, config::ChatgptAuthConfig};
+use chatgpt_auth::{ChatgptAuthConfig, ChatgptStoredTokens};
 
-#[derive(Clone, Debug)]
-pub(crate) struct TokenSet {
-    pub id_token: String,
-    pub access_token: String,
-    pub refresh_token: String,
-}
+use crate::ChatgptLoginError;
 
 pub(crate) async fn exchange(
     config: &ChatgptAuthConfig,
     authorization: &crate::DeviceCodeAuthorization,
-) -> Result<TokenSet, ChatgptLoginError> {
+) -> Result<ChatgptStoredTokens, ChatgptLoginError> {
     let response = selvedge_client::execute(selvedge_client::HttpRequest {
         method: selvedge_client::HttpMethod::Post,
         url: format!("{}/oauth/token", config.issuer),
@@ -43,7 +38,7 @@ pub(crate) async fn exchange(
             }
         })?;
 
-    Ok(TokenSet {
+    Ok(ChatgptStoredTokens {
         id_token: read_required_token(payload.id_token, "id_token")?,
         access_token: read_required_token(payload.access_token, "access_token")?,
         refresh_token: read_required_token(payload.refresh_token, "refresh_token")?,

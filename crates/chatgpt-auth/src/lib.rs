@@ -8,7 +8,9 @@ mod lock;
 mod refresh;
 mod resolve;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+
+pub use config::ChatgptAuthConfig;
 
 #[derive(Clone, Debug)]
 pub struct ChatgptAuthFile {
@@ -23,6 +25,12 @@ pub struct ChatgptStoredTokens {
     pub id_token: String,
     pub access_token: String,
     pub refresh_token: String,
+}
+
+#[derive(Debug)]
+pub struct ChatgptAuthFileWriteError {
+    pub path: PathBuf,
+    pub reason: String,
 }
 
 #[derive(Clone, Debug)]
@@ -110,4 +118,19 @@ pub fn parse_auth_file(bytes: &[u8]) -> Result<ChatgptAuthFile, ChatgptAuthParse
 
 pub fn parse_chatgpt_jwt_claims(token: &str) -> Result<ChatgptJwtClaims, JwtParseError> {
     jwt::parse(token)
+}
+
+pub fn read_chatgpt_auth_config() -> Result<ChatgptAuthConfig, selvedge_config::ConfigError> {
+    config::read_chatgpt_auth_config()
+}
+
+pub fn chatgpt_auth_file_path(selvedge_home: &Path) -> PathBuf {
+    auth_file::auth_file_path(selvedge_home)
+}
+
+pub fn persist_chatgpt_auth_file(
+    path: &Path,
+    tokens: &ChatgptStoredTokens,
+) -> Result<(), ChatgptAuthFileWriteError> {
+    auth_file::persist(path, tokens)
 }

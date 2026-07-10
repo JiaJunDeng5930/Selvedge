@@ -12,8 +12,8 @@ pub(crate) async fn resolve_after_unauthorized() -> Result<ResolvedChatgptAuth, 
 }
 
 async fn resolve(force_refresh: bool) -> Result<ResolvedChatgptAuth, ChatgptAuthError> {
-    let config = config::read_chatgpt_auth_config()?;
-    let selvedge_home = config::read_selvedge_home()?;
+    let config = config::read_chatgpt_auth_config().map_err(ChatgptAuthError::Config)?;
+    let selvedge_home = selvedge_config::selvedge_home().map_err(ChatgptAuthError::Config)?;
     let auth_file_path = auth_file::auth_file_path(&selvedge_home);
     let refresh_hint = force_refresh
         .then(|| auth_file::load_refresh_hint(&auth_file_path))
@@ -65,7 +65,12 @@ async fn resolve(force_refresh: bool) -> Result<ResolvedChatgptAuth, ChatgptAuth
     let resolved =
         build_resolved_auth_from_refresh(&refreshed_file, config.expected_workspace_id.as_deref())?;
 
-    auth_file::persist(&auth_file_path, &refreshed_file.tokens)?;
+    auth_file::persist(&auth_file_path, &refreshed_file.tokens).map_err(|error| {
+        ChatgptAuthError::PersistFailed {
+            path: error.path,
+            reason: error.reason,
+        }
+    })?;
 
     Ok(resolved)
 }

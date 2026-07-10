@@ -265,7 +265,6 @@ dependencies = [
  "axum",
  "base64",
  "chrono",
- "fs2",
  "http",
  "selvedge-client",
  "selvedge-config",
@@ -286,6 +285,7 @@ version = "0.0.0"
 dependencies = [
  "axum",
  "base64",
+ "chatgpt-auth",
  "chrono",
  "http",
  "selvedge-client",
@@ -297,8 +297,6 @@ dependencies = [
  "serde_json",
  "tempfile",
  "tokio",
- "toml",
- "url",
 ]
 
 [[package]]

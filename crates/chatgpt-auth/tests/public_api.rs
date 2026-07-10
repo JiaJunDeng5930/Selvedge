@@ -1,9 +1,11 @@
 use std::{path::PathBuf, time::Duration};
 
 use chatgpt_auth::{
-    ChatgptAuthError, ChatgptAuthFile, ChatgptAuthParseError, ChatgptJwtClaims,
-    ChatgptStoredTokens, JwtParseError, ResolvedChatgptAuth, parse_auth_file,
-    parse_chatgpt_jwt_claims, resolve_after_unauthorized, resolve_for_request,
+    ChatgptAuthConfig, ChatgptAuthError, ChatgptAuthFile, ChatgptAuthFileWriteError,
+    ChatgptAuthParseError, ChatgptJwtClaims, ChatgptStoredTokens, JwtParseError,
+    ResolvedChatgptAuth, chatgpt_auth_file_path, parse_auth_file, parse_chatgpt_jwt_claims,
+    persist_chatgpt_auth_file, read_chatgpt_auth_config, resolve_after_unauthorized,
+    resolve_for_request,
 };
 use chrono::{TimeZone, Utc};
 
@@ -65,4 +67,9 @@ fn public_api_exposes_chatgpt_auth_types_and_functions() {
     let _ = resolve_after_unauthorized;
     let _ = parse_auth_file;
     let _ = parse_chatgpt_jwt_claims;
+    let _ = read_chatgpt_auth_config;
+    let _ = chatgpt_auth_file_path;
+    let _ = persist_chatgpt_auth_file;
+    let _ = std::mem::size_of::<ChatgptAuthConfig>();
+    let _ = std::mem::size_of::<ChatgptAuthFileWriteError>();
 }
