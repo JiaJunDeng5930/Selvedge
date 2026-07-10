@@ -17,7 +17,6 @@ use tokio::sync::Mutex as AsyncMutex;
 
 static TEST_LOCK: LazyLock<AsyncMutex<()>> = LazyLock::new(|| AsyncMutex::new(()));
 
-// @verifies selvedge.client.tui.run
 #[tokio::test]
 async fn connect_failure_returns_server_unavailable() {
     let _guard = TEST_LOCK.lock().await;
@@ -28,7 +27,6 @@ async fn connect_failure_returns_server_unavailable() {
     assert_eq!(status, TuiExitStatus::ServerUnavailable);
 }
 
-// @verifies selvedge.client.tui.run
 #[tokio::test]
 async fn not_ready_returns_server_not_ready() {
     let _guard = TEST_LOCK.lock().await;
@@ -44,13 +42,10 @@ async fn not_ready_returns_server_not_ready() {
 
     let status = run_tui::<FakeTransport, _>(valid_args(None), NoopMapper).await;
 
-    // @verifies selvedge.client.tui.r2
     assert_eq!(status, TuiExitStatus::ServerNotReady);
-    // @verifies selvedge.client.tui.r2
     assert_eq!(state.lock().expect("fake state").close_calls, 1);
 }
 
-// @verifies selvedge.client.tui.run
 #[tokio::test]
 async fn attach_rejection_returns_attach_rejected() {
     let _guard = TEST_LOCK.lock().await;
@@ -67,16 +62,13 @@ async fn attach_rejection_returns_attach_rejected() {
 
     let status = run_tui::<FakeTransport, _>(valid_args(None), NoopMapper).await;
 
-    // @verifies selvedge.client.tui.r2
     assert_eq!(
         status,
         TuiExitStatus::AttachRejected("ServerNotReady".to_owned())
     );
-    // @verifies selvedge.client.tui.r2
     assert_eq!(state.lock().expect("fake state").close_calls, 1);
 }
 
-// @verifies selvedge.client.tui.run
 #[tokio::test]
 async fn waits_for_snapshot_then_submits_initial_command_and_reports_rejection() {
     let _guard = TEST_LOCK.lock().await;
@@ -104,21 +96,16 @@ async fn waits_for_snapshot_then_submits_initial_command_and_reports_rejection()
     let status =
         run_tui::<FakeTransport, _>(valid_args(Some(valid_command("command-1"))), NoopMapper).await;
 
-    // @verifies selvedge.client.tui.r2
     assert_eq!(
         status,
         TuiExitStatus::CommandRejected("UnsupportedCommand".to_owned())
     );
     let state = state.lock().expect("fake state");
-    // @verifies selvedge.client.tui.r2
     assert_eq!(state.attach_calls, 1);
-    // @verifies selvedge.client.tui.r2
     assert_eq!(state.command_calls, 1);
-    // @verifies selvedge.client.tui.r2
     assert_eq!(state.close_calls, 1);
 }
 
-// @verifies selvedge.client.tui.run
 #[tokio::test]
 async fn accepted_initial_command_exits_successfully() {
     let _guard = TEST_LOCK.lock().await;
@@ -146,16 +133,12 @@ async fn accepted_initial_command_exits_successfully() {
     let status =
         run_tui::<FakeTransport, _>(valid_args(Some(valid_command("command-1"))), NoopMapper).await;
 
-    // @verifies selvedge.client.tui.r2
     assert_eq!(status, TuiExitStatus::Exited);
     let state = state.lock().expect("fake state");
-    // @verifies selvedge.client.tui.r2
     assert_eq!(state.command_calls, 1);
-    // @verifies selvedge.client.tui.r2
     assert_eq!(state.close_calls, 1);
 }
 
-// @verifies selvedge.client.tui.run
 #[tokio::test]
 async fn stream_closed_before_snapshot_returns_disconnected() {
     let _guard = TEST_LOCK.lock().await;
@@ -169,13 +152,10 @@ async fn stream_closed_before_snapshot_returns_disconnected() {
 
     let status = run_tui::<FakeTransport, _>(valid_args(None), NoopMapper).await;
 
-    // @verifies selvedge.client.tui.r2
     assert_eq!(status, TuiExitStatus::Disconnected);
-    // @verifies selvedge.client.tui.r2
     assert_eq!(state.lock().expect("fake state").close_calls, 1);
 }
 
-// @verifies selvedge.client.tui.run
 #[tokio::test]
 async fn snapshot_wait_timeout_returns_snapshot_timeout() {
     let _guard = TEST_LOCK.lock().await;
@@ -191,9 +171,7 @@ async fn snapshot_wait_timeout_returns_snapshot_timeout() {
     args.client_config.request_timeout = Duration::from_millis(5);
     let status = run_tui::<FakeTransport, _>(args, NoopMapper).await;
 
-    // @verifies selvedge.client.tui.r2
     assert_eq!(status, TuiExitStatus::SnapshotTimeout);
-    // @verifies selvedge.client.tui.r2
     assert_eq!(state.lock().expect("fake state").close_calls, 1);
 }
 

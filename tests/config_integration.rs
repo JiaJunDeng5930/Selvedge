@@ -47,8 +47,6 @@ level = "info"
     })
     .expect("read updated config");
 
-    // @verifies selvedge.config
     assert_eq!(before, 9000);
-    // @verifies selvedge.config
     assert_eq!(after, (9000, 10_000, true, 100));
 }

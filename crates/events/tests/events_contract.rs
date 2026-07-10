@@ -12,7 +12,6 @@ use selvedge_domain_model::{HistoryNodeId, ModelProfileKey, ReasoningEffort, Tas
 use selvedge_events::{EventsStartArgs, SpawnEventsError, spawn_events_task};
 use tokio::sync::mpsc;
 
-// @verifies selvedge.session
 #[tokio::test]
 async fn spawn_events_task_validates_capacities_and_stops_after_mailbox_close() {
     assert_eq!(
@@ -25,7 +24,6 @@ async fn spawn_events_task_validates_capacities_and_stops_after_mailbox_close() 
         SpawnEventsError::InvalidIngressCapacity
     );
 
-    // @verifies selvedge.session.events_r2
     assert_eq!(
         spawn_events_task(EventsStartArgs {
             ingress_capacity: 1,
@@ -36,7 +34,6 @@ async fn spawn_events_task_validates_capacities_and_stops_after_mailbox_close() 
         SpawnEventsError::InvalidClientRegistryCapacity
     );
 
-    // @verifies selvedge.session.events_r2
     assert_eq!(
         spawn_events_task(EventsStartArgs {
             ingress_capacity: 1,
@@ -58,7 +55,6 @@ async fn spawn_events_task_validates_capacities_and_stops_after_mailbox_close() 
     handle.join_handle.await.expect("events task exits cleanly");
 }
 
-// @verifies selvedge.session
 #[tokio::test]
 async fn hydrating_client_receives_snapshot_before_uncovered_buffered_events() {
     let handle = spawn_events_task(EventsStartArgs {
@@ -117,14 +113,11 @@ async fn hydrating_client_receives_snapshot_before_uncovered_buffered_events() {
     let snapshot = recv_frame(&mut outbound_rx).await;
     match snapshot {
         ClientFrame::Snapshot(frame) => {
-            // @verifies selvedge.session.events_r2
             assert_eq!(frame.delivery_seq.0, 1);
-            // @verifies selvedge.session.events_r2
             assert_eq!(
                 frame.client_command_id,
                 ClientCommandId("attach-1".to_owned())
             );
-            // @verifies selvedge.session.events_r2
             assert_eq!(frame.snapshot.task_versions[0].state_version, 2);
         }
         _ => panic!("expected snapshot frame"),
@@ -133,13 +126,10 @@ async fn hydrating_client_receives_snapshot_before_uncovered_buffered_events() {
     let event = recv_frame(&mut outbound_rx).await;
     match event {
         ClientFrame::Event(frame) => {
-            // @verifies selvedge.session.events_r2
             assert_eq!(frame.delivery_seq.0, 2);
             match frame.event {
                 ClientEvent::HistoryAppended(history) => {
-                    // @verifies selvedge.session.events_r2
                     assert_eq!(history.task_id, TaskId("task-1".to_owned()));
-                    // @verifies selvedge.session.events_r2
                     assert_eq!(history.task_state_version, 3);
                 }
                 _ => panic!("expected history event"),
@@ -148,7 +138,6 @@ async fn hydrating_client_receives_snapshot_before_uncovered_buffered_events() {
         _ => panic!("expected event frame"),
     }
 
-    // @verifies selvedge.session.events_r2
     assert!(
         tokio::time::timeout(Duration::from_millis(50), outbound_rx.recv())
             .await
@@ -159,7 +148,6 @@ async fn hydrating_client_receives_snapshot_before_uncovered_buffered_events() {
     handle.join_handle.await.expect("events task exits cleanly");
 }
 
-// @verifies selvedge.session
 #[tokio::test]
 async fn live_client_receives_only_events_allowed_by_subscription() {
     let handle = spawn_events_task(EventsStartArgs {
@@ -177,7 +165,6 @@ async fn live_client_receives_only_events_allowed_by_subscription() {
     )
     .await;
     deliver_empty_snapshot(&handle.ingress_tx).await;
-    // @verifies selvedge.session.events_r2
     assert!(matches!(
         recv_frame(&mut outbound_rx).await,
         ClientFrame::Snapshot(_)
@@ -218,9 +205,7 @@ async fn live_client_receives_only_events_allowed_by_subscription() {
     let task_changed = recv_frame(&mut outbound_rx).await;
     match task_changed {
         ClientFrame::Event(frame) => {
-            // @verifies selvedge.session.events_r2
             assert_eq!(frame.delivery_seq.0, 2);
-            // @verifies selvedge.session.events_r2
             assert!(matches!(frame.event, ClientEvent::TaskChanged(_)));
         }
         _ => panic!("expected task changed event"),
@@ -238,15 +223,12 @@ async fn live_client_receives_only_events_allowed_by_subscription() {
     let debug = recv_frame(&mut outbound_rx).await;
     match debug {
         ClientFrame::Event(frame) => {
-            // @verifies selvedge.session.events_r2
             assert_eq!(frame.delivery_seq.0, 3);
-            // @verifies selvedge.session.events_r2
             assert!(matches!(frame.event, ClientEvent::DebugNotice(_)));
         }
         _ => panic!("expected debug event"),
     }
 
-    // @verifies selvedge.session.events_r2
     assert!(
         tokio::time::timeout(Duration::from_millis(50), outbound_rx.recv())
             .await
@@ -257,7 +239,6 @@ async fn live_client_receives_only_events_allowed_by_subscription() {
     handle.join_handle.await.expect("events task exits cleanly");
 }
 
-// @verifies selvedge.session
 #[tokio::test]
 async fn hydrating_subscription_update_rescreens_buffer_before_snapshot_flush() {
     let handle = spawn_events_task(EventsStartArgs {
@@ -294,12 +275,10 @@ async fn hydrating_subscription_update_rescreens_buffer_before_snapshot_flush() 
         .expect("send subscription update");
 
     deliver_empty_snapshot(&handle.ingress_tx).await;
-    // @verifies selvedge.session.events_r2
     assert!(matches!(
         recv_frame(&mut outbound_rx).await,
         ClientFrame::Snapshot(_)
     ));
-    // @verifies selvedge.session.events_r2
     assert!(
         tokio::time::timeout(Duration::from_millis(50), outbound_rx.recv())
             .await
@@ -310,7 +289,6 @@ async fn hydrating_subscription_update_rescreens_buffer_before_snapshot_flush() 
     handle.join_handle.await.expect("events task exits cleanly");
 }
 
-// @verifies selvedge.session
 #[tokio::test]
 async fn hydrating_buffer_overflow_removes_client_session() {
     let handle = spawn_events_task(EventsStartArgs {
@@ -338,14 +316,12 @@ async fn hydrating_buffer_overflow_removes_client_session() {
     let closed = tokio::time::timeout(Duration::from_secs(1), outbound_rx.recv())
         .await
         .expect("client channel closes after overflow");
-    // @verifies selvedge.session.events_r2
     assert!(closed.is_none());
 
     drop(handle.ingress_tx);
     handle.join_handle.await.expect("events task exits cleanly");
 }
 
-// @verifies selvedge.session
 #[tokio::test]
 async fn registry_capacity_rejects_new_clients_after_limit() {
     let handle = spawn_events_task(EventsStartArgs {
@@ -375,11 +351,9 @@ async fn registry_capacity_rejects_new_clients_after_limit() {
     let rejected = tokio::time::timeout(Duration::from_secs(1), second_rx.recv())
         .await
         .expect("rejected client channel closes");
-    // @verifies selvedge.session.events_r2
     assert!(rejected.is_none());
 
     deliver_named_empty_snapshot(&handle.ingress_tx, ClientId("client-1".to_owned())).await;
-    // @verifies selvedge.session.events_r2
     assert!(matches!(
         recv_frame(&mut first_rx).await,
         ClientFrame::Snapshot(_)
@@ -389,7 +363,6 @@ async fn registry_capacity_rejects_new_clients_after_limit() {
     handle.join_handle.await.expect("events task exits cleanly");
 }
 
-// @verifies selvedge.session
 #[tokio::test]
 async fn reservation_capacity_rejects_new_clients_after_limit() {
     let handle = spawn_events_task(EventsStartArgs {
@@ -408,7 +381,6 @@ async fn reservation_capacity_rejects_new_clients_after_limit() {
         .await,
         EventClientReservationResult::Reserved
     );
-    // @verifies selvedge.session.events_r2
     assert_eq!(
         reserve_client_session(
             &handle.ingress_tx,
@@ -423,7 +395,6 @@ async fn reservation_capacity_rejects_new_clients_after_limit() {
     handle.join_handle.await.expect("events task exits cleanly");
 }
 
-// @verifies selvedge.session
 #[tokio::test]
 async fn replacement_reservation_shares_existing_client_capacity_slot() {
     let handle = spawn_events_task(EventsStartArgs {
@@ -442,7 +413,6 @@ async fn replacement_reservation_shares_existing_client_capacity_slot() {
         verbose_all_tasks(),
     )
     .await;
-    // @verifies selvedge.session.events_r2
     assert_eq!(
         reserve_client_session(
             &handle.ingress_tx,
@@ -452,7 +422,6 @@ async fn replacement_reservation_shares_existing_client_capacity_slot() {
         .await,
         EventClientReservationResult::Reserved
     );
-    // @verifies selvedge.session.events_r2
     assert_eq!(
         reserve_client_session(
             &handle.ingress_tx,
@@ -462,7 +431,6 @@ async fn replacement_reservation_shares_existing_client_capacity_slot() {
         .await,
         EventClientReservationResult::Reserved
     );
-    // @verifies selvedge.session.events_r2
     assert_eq!(
         reserve_client_session(
             &handle.ingress_tx,
@@ -477,7 +445,6 @@ async fn replacement_reservation_shares_existing_client_capacity_slot() {
     handle.join_handle.await.expect("events task exits cleanly");
 }
 
-// @verifies selvedge.session
 #[tokio::test]
 async fn dropped_reservation_waiter_does_not_consume_capacity() {
     let handle = spawn_events_task(EventsStartArgs {
@@ -500,7 +467,6 @@ async fn dropped_reservation_waiter_does_not_consume_capacity() {
         ))
         .await
         .expect("send abandoned reservation");
-    // @verifies selvedge.session.events_r2
     assert_eq!(
         reserve_client_session(
             &handle.ingress_tx,
@@ -515,7 +481,6 @@ async fn dropped_reservation_waiter_does_not_consume_capacity() {
     handle.join_handle.await.expect("events task exits cleanly");
 }
 
-// @verifies selvedge.session
 #[tokio::test]
 async fn failed_pending_replacement_restores_previous_reservation() {
     let handle = spawn_events_task(EventsStartArgs {
@@ -526,7 +491,6 @@ async fn failed_pending_replacement_restores_previous_reservation() {
     .expect("valid events task");
     let (outbound, mut rx) = mpsc::channel(8);
 
-    // @verifies selvedge.session.events_r2
     assert_eq!(
         reserve_client_session(
             &handle.ingress_tx,
@@ -536,7 +500,6 @@ async fn failed_pending_replacement_restores_previous_reservation() {
         .await,
         EventClientReservationResult::Reserved
     );
-    // @verifies selvedge.session.events_r2
     assert_eq!(
         reserve_client_session(
             &handle.ingress_tx,
@@ -567,7 +530,6 @@ async fn failed_pending_replacement_restores_previous_reservation() {
     .await;
     deliver_named_empty_snapshot(&handle.ingress_tx, ClientId("client-1".to_owned())).await;
 
-    // @verifies selvedge.session.events_r2
     assert!(matches!(
         recv_frame(&mut rx).await,
         ClientFrame::Snapshot(_)
@@ -577,7 +539,6 @@ async fn failed_pending_replacement_restores_previous_reservation() {
     handle.join_handle.await.expect("events task exits cleanly");
 }
 
-// @verifies selvedge.session
 #[tokio::test]
 async fn hidden_begin_hydrates_after_failed_pending_replacement() {
     let handle = spawn_events_task(EventsStartArgs {
@@ -588,7 +549,6 @@ async fn hidden_begin_hydrates_after_failed_pending_replacement() {
     .expect("valid events task");
     let (outbound, mut rx) = mpsc::channel(8);
 
-    // @verifies selvedge.session.events_r2
     assert_eq!(
         reserve_client_session(
             &handle.ingress_tx,
@@ -598,7 +558,6 @@ async fn hidden_begin_hydrates_after_failed_pending_replacement() {
         .await,
         EventClientReservationResult::Reserved
     );
-    // @verifies selvedge.session.events_r2
     assert_eq!(
         reserve_client_session(
             &handle.ingress_tx,
@@ -629,7 +588,6 @@ async fn hidden_begin_hydrates_after_failed_pending_replacement() {
         .expect("send failed replacement cleanup");
     deliver_named_empty_snapshot(&handle.ingress_tx, ClientId("client-1".to_owned())).await;
 
-    // @verifies selvedge.session.events_r2
     assert!(matches!(
         recv_frame(&mut rx).await,
         ClientFrame::Snapshot(_)
@@ -639,7 +597,6 @@ async fn hidden_begin_hydrates_after_failed_pending_replacement() {
     handle.join_handle.await.expect("events task exits cleanly");
 }
 
-// @verifies selvedge.session
 #[tokio::test]
 async fn hidden_reservation_duplicate_is_rejected() {
     let handle = spawn_events_task(EventsStartArgs {
@@ -658,7 +615,6 @@ async fn hidden_reservation_duplicate_is_rejected() {
         .await,
         EventClientReservationResult::Reserved
     );
-    // @verifies selvedge.session.events_r2
     assert_eq!(
         reserve_client_session(
             &handle.ingress_tx,
@@ -668,7 +624,6 @@ async fn hidden_reservation_duplicate_is_rejected() {
         .await,
         EventClientReservationResult::Reserved
     );
-    // @verifies selvedge.session.events_r2
     assert_eq!(
         reserve_client_session(
             &handle.ingress_tx,
@@ -683,7 +638,6 @@ async fn hidden_reservation_duplicate_is_rejected() {
     handle.join_handle.await.expect("events task exits cleanly");
 }
 
-// @verifies selvedge.session
 #[tokio::test]
 async fn hidden_reservation_detach_prevents_later_restore() {
     let handle = spawn_events_task(EventsStartArgs {
@@ -694,7 +648,6 @@ async fn hidden_reservation_detach_prevents_later_restore() {
     .expect("valid events task");
     let (outbound, mut rx) = mpsc::channel(8);
 
-    // @verifies selvedge.session.events_r2
     assert_eq!(
         reserve_client_session(
             &handle.ingress_tx,
@@ -704,7 +657,6 @@ async fn hidden_reservation_detach_prevents_later_restore() {
         .await,
         EventClientReservationResult::Reserved
     );
-    // @verifies selvedge.session.events_r2
     assert_eq!(
         reserve_client_session(
             &handle.ingress_tx,
@@ -748,7 +700,6 @@ async fn hidden_reservation_detach_prevents_later_restore() {
     if let Ok(Some(_)) = tokio::time::timeout(Duration::from_millis(50), rx.recv()).await {
         panic!("detached hidden reservation should not receive frames");
     }
-    // @verifies selvedge.session.events_r2
     assert_eq!(
         reserve_client_session(
             &handle.ingress_tx,
@@ -763,7 +714,6 @@ async fn hidden_reservation_detach_prevents_later_restore() {
     handle.join_handle.await.expect("events task exits cleanly");
 }
 
-// @verifies selvedge.session
 #[tokio::test]
 async fn reserved_client_session_is_consumed_by_matching_begin() {
     let handle = spawn_events_task(EventsStartArgs {
@@ -775,7 +725,6 @@ async fn reserved_client_session_is_consumed_by_matching_begin() {
     let (reserved_outbound, mut reserved_rx) = mpsc::channel(8);
     let (blocked_outbound, mut blocked_rx) = mpsc::channel(8);
 
-    // @verifies selvedge.session.events_r2
     assert_eq!(
         reserve_client_session(
             &handle.ingress_tx,
@@ -801,12 +750,10 @@ async fn reserved_client_session_is_consumed_by_matching_begin() {
     .await;
 
     deliver_named_empty_snapshot(&handle.ingress_tx, ClientId("client-1".to_owned())).await;
-    // @verifies selvedge.session.events_r2
     assert!(matches!(
         recv_frame(&mut reserved_rx).await,
         ClientFrame::Snapshot(_)
     ));
-    // @verifies selvedge.session.events_r2
     assert!(
         tokio::time::timeout(Duration::from_secs(1), blocked_rx.recv())
             .await
@@ -818,7 +765,6 @@ async fn reserved_client_session_is_consumed_by_matching_begin() {
     handle.join_handle.await.expect("events task exits cleanly");
 }
 
-// @verifies selvedge.session
 #[tokio::test]
 async fn begin_without_matching_reservation_does_not_create_session() {
     let handle = spawn_events_task(EventsStartArgs {
@@ -829,7 +775,6 @@ async fn begin_without_matching_reservation_does_not_create_session() {
     .expect("valid events task");
     let (outbound, mut rx) = mpsc::channel(8);
 
-    // @verifies selvedge.session.events_r2
     assert_eq!(
         reserve_client_session(
             &handle.ingress_tx,
@@ -860,7 +805,6 @@ async fn begin_without_matching_reservation_does_not_create_session() {
     .await;
     deliver_named_empty_snapshot(&handle.ingress_tx, ClientId("client-1".to_owned())).await;
 
-    // @verifies selvedge.session.events_r2
     assert!(
         tokio::time::timeout(Duration::from_secs(1), rx.recv())
             .await
@@ -872,7 +816,6 @@ async fn begin_without_matching_reservation_does_not_create_session() {
     handle.join_handle.await.expect("events task exits cleanly");
 }
 
-// @verifies selvedge.session
 #[tokio::test]
 async fn notice_during_hydration_uses_current_delivery_sequence() {
     let handle = spawn_events_task(EventsStartArgs {
@@ -904,14 +847,11 @@ async fn notice_during_hydration_uses_current_delivery_sequence() {
     let notice = recv_frame(&mut outbound_rx).await;
     match notice {
         ClientFrame::Notice(frame) => {
-            // @verifies selvedge.session.events_r2
             assert_eq!(frame.delivery_seq.0, 1);
-            // @verifies selvedge.session.events_r2
             assert_eq!(
                 frame.client_command_id,
                 ClientCommandId("attach-1".to_owned())
             );
-            // @verifies selvedge.session.events_r2
             assert_eq!(frame.notice.level, ClientNoticeLevel::Warning);
         }
         _ => panic!("expected notice frame"),
@@ -920,9 +860,7 @@ async fn notice_during_hydration_uses_current_delivery_sequence() {
     let snapshot = recv_frame(&mut outbound_rx).await;
     match snapshot {
         ClientFrame::Snapshot(frame) => {
-            // @verifies selvedge.session.events_r2
             assert_eq!(frame.delivery_seq.0, 2);
-            // @verifies selvedge.session.events_r2
             assert_eq!(
                 frame.client_command_id,
                 ClientCommandId("attach-1".to_owned())
@@ -935,7 +873,6 @@ async fn notice_during_hydration_uses_current_delivery_sequence() {
     handle.join_handle.await.expect("events task exits cleanly");
 }
 
-// @verifies selvedge.session
 #[tokio::test]
 async fn full_client_channel_is_removed_without_blocking_other_clients() {
     let handle = spawn_events_task(EventsStartArgs {
@@ -964,7 +901,6 @@ async fn full_client_channel_is_removed_without_blocking_other_clients() {
     deliver_named_empty_snapshot(&handle.ingress_tx, ClientId("slow".to_owned())).await;
     deliver_named_empty_snapshot(&handle.ingress_tx, ClientId("fast".to_owned())).await;
 
-    // @verifies selvedge.session.events_r2
     assert!(matches!(
         recv_frame(&mut fast_rx).await,
         ClientFrame::Snapshot(_)
@@ -983,28 +919,23 @@ async fn full_client_channel_is_removed_without_blocking_other_clients() {
     let fast_event = recv_frame(&mut fast_rx).await;
     match fast_event {
         ClientFrame::Event(frame) => {
-            // @verifies selvedge.session.events_r2
             assert_eq!(frame.delivery_seq.0, 2);
-            // @verifies selvedge.session.events_r2
             assert!(matches!(frame.event, ClientEvent::TaskChanged(_)));
         }
         _ => panic!("expected fast client event"),
     }
 
     let slow_snapshot = recv_frame(&mut slow_rx).await;
-    // @verifies selvedge.session.events_r2
     assert!(matches!(slow_snapshot, ClientFrame::Snapshot(_)));
     let slow_closed = tokio::time::timeout(Duration::from_secs(1), slow_rx.recv())
         .await
         .expect("slow channel closes after full delivery attempt");
-    // @verifies selvedge.session.events_r2
     assert!(slow_closed.is_none());
 
     drop(handle.ingress_tx);
     handle.join_handle.await.expect("events task exits cleanly");
 }
 
-// @verifies selvedge.session
 #[tokio::test]
 async fn stale_hydration_snapshot_is_ignored_after_replacement_begin() {
     let handle = spawn_events_task(EventsStartArgs {
@@ -1046,7 +977,6 @@ async fn stale_hydration_snapshot_is_ignored_after_replacement_begin() {
         )))
         .await
         .expect("send stale notice");
-    // @verifies selvedge.session.events_r2
     assert!(
         tokio::time::timeout(Duration::from_millis(50), second_rx.recv())
             .await
@@ -1075,13 +1005,11 @@ async fn stale_hydration_snapshot_is_ignored_after_replacement_begin() {
         .await
         .expect("send raw event");
 
-    // @verifies selvedge.session.events_r2
     assert!(
         tokio::time::timeout(Duration::from_millis(50), second_rx.recv())
             .await
             .is_err()
     );
-    // @verifies selvedge.session.events_r2
     assert!(
         tokio::time::timeout(Duration::from_secs(1), first_rx.recv())
             .await
@@ -1104,9 +1032,7 @@ async fn stale_hydration_snapshot_is_ignored_after_replacement_begin() {
     let snapshot = recv_frame(&mut second_rx).await;
     match snapshot {
         ClientFrame::Snapshot(frame) => {
-            // @verifies selvedge.session.events_r2
             assert_eq!(frame.delivery_seq.0, 1);
-            // @verifies selvedge.session.events_r2
             assert_eq!(
                 frame.client_command_id,
                 ClientCommandId("attach-2".to_owned())
@@ -1118,9 +1044,7 @@ async fn stale_hydration_snapshot_is_ignored_after_replacement_begin() {
     let event = recv_frame(&mut second_rx).await;
     match event {
         ClientFrame::Event(frame) => {
-            // @verifies selvedge.session.events_r2
             assert_eq!(frame.delivery_seq.0, 2);
-            // @verifies selvedge.session.events_r2
             assert!(matches!(frame.event, ClientEvent::TaskChanged(_)));
         }
         _ => panic!("expected buffered event"),
@@ -1137,7 +1061,6 @@ async fn stale_hydration_snapshot_is_ignored_after_replacement_begin() {
         )))
         .await
         .expect("send late stale snapshot");
-    // @verifies selvedge.session.events_r2
     assert!(
         tokio::time::timeout(Duration::from_millis(50), second_rx.recv())
             .await
@@ -1148,7 +1071,6 @@ async fn stale_hydration_snapshot_is_ignored_after_replacement_begin() {
     handle.join_handle.await.expect("events task exits cleanly");
 }
 
-// @verifies selvedge.session
 #[tokio::test]
 async fn stale_session_controls_do_not_mutate_replacement_client() {
     let handle = spawn_events_task(EventsStartArgs {
@@ -1198,7 +1120,6 @@ async fn stale_session_controls_do_not_mutate_replacement_client() {
         .await
         .expect("send stale detach");
 
-    // @verifies selvedge.session.events_r2
     assert!(
         tokio::time::timeout(Duration::from_secs(1), first_rx.recv())
             .await
@@ -1217,7 +1138,6 @@ async fn stale_session_controls_do_not_mutate_replacement_client() {
         )))
         .await
         .expect("send active snapshot");
-    // @verifies selvedge.session.events_r2
     assert!(matches!(
         recv_frame(&mut second_rx).await,
         ClientFrame::Snapshot(_)
@@ -1234,7 +1154,6 @@ async fn stale_session_controls_do_not_mutate_replacement_client() {
         .expect("send raw event");
     let event = recv_frame(&mut second_rx).await;
     match event {
-        // @verifies selvedge.session.events_r2
         ClientFrame::Event(frame) => assert!(matches!(frame.event, ClientEvent::TaskChanged(_))),
         _ => panic!("expected task event"),
     }

@@ -139,9 +139,7 @@ base_url = "{}"
         ),
     );
 
-    // @verifies selvedge.model.chatgpt.event.verify_surface
     let mut response_stream = stream(base_request()).await.expect("open stream");
-    // @verifies selvedge.model.chatgpt.event.verify_surface
     assert_eq!(
         response_stream.effective_turn_state(),
         Some("turn-state-next")
@@ -149,32 +147,26 @@ base_url = "{}"
 
     let mut events = Vec::new();
     while let Some(item) = response_stream.next().await {
-        // @verifies selvedge.model.chatgpt.event.verify_surface
         events.push(item.expect("event should be ok"));
     }
 
-    // @verifies selvedge.model.chatgpt.event.verify_surface
     assert!(matches!(
         events.first(),
         Some(ChatgptResponseEvent::Created(_))
     ));
-    // @verifies selvedge.model.chatgpt.event.verify_surface
     assert!(matches!(
         events.first(),
         Some(ChatgptResponseEvent::Created(snapshot))
             if snapshot.usage.as_ref().is_some_and(|usage| usage.cached_input_tokens == Some(2))
     ));
-    // @verifies selvedge.model.chatgpt.event.verify_surface
     assert!(matches!(
         events.get(1),
         Some(ChatgptResponseEvent::OutputTextDelta { delta, .. }) if delta == "你好"
     ));
-    // @verifies selvedge.model.chatgpt.event.verify_surface
     assert!(matches!(
         events.get(2),
         Some(ChatgptResponseEvent::OutputTextDone { text, .. }) if text == "hello"
     ));
-    // @verifies selvedge.model.chatgpt.event.verify_surface
     assert!(matches!(
         events.last(),
         Some(ChatgptResponseEvent::Completed(snapshot))
@@ -182,7 +174,6 @@ base_url = "{}"
     ));
 }
 
-// @verifies selvedge.model.chatgpt.api.config.base_url.responses_suffix
 #[tokio::test(flavor = "multi_thread")]
 async fn stream_rejects_chatgpt_base_url_that_includes_responses_path() {
     const FLAG: &str = "CHATGPT_API_BASE_URL_RESPONSES_SUFFIX_CHILD";
@@ -210,7 +201,6 @@ base_url = "http://127.0.0.1:1/responses"
         Err(error) => error,
     };
 
-    // @verifies selvedge.model.chatgpt.api.config.base_url.responses_suffix
     assert!(matches!(
         error,
         ChatgptApiError::LowerLayer(chatgpt_api::ChatgptApiLowerLayerError::Config(
@@ -319,21 +309,15 @@ base_url = "{}"
         ),
     );
 
-    // @verifies selvedge.model.chatgpt.event.verify_surface
     let mut response_stream = stream(base_request()).await.expect("open stream");
     let event = response_stream
         .next()
         .await
-        // @verifies selvedge.model.chatgpt.event.verify_surface
         .expect("completed item")
-        // @verifies selvedge.model.chatgpt.event.verify_surface
         .expect("completed event");
 
-    // @verifies selvedge.model.chatgpt.event.verify_surface
     assert!(matches!(event, ChatgptResponseEvent::Completed(_)));
-    // @verifies selvedge.model.chatgpt.event.verify_surface
     assert_eq!(api_hits.load(Ordering::SeqCst), 2);
-    // @verifies selvedge.model.chatgpt.event.verify_surface
     assert_eq!(refresh_hits.load(Ordering::SeqCst), 1);
 }
 
@@ -385,11 +369,9 @@ base_url = "{}"
 
     let error = match stream(base_request()).await {
         Ok(_) => panic!("bad head must fail"),
-        // @verifies selvedge.model.chatgpt.event.verify_surface
         Err(error) => error,
     };
 
-    // @verifies selvedge.model.chatgpt.event.verify_surface
     assert!(matches!(
         error,
         ChatgptApiError::Endpoint(ChatgptApiEndpointError::MalformedResponseHead { .. })
@@ -451,16 +433,13 @@ base_url = "{}"
         ),
     );
 
-    // @verifies selvedge.model.chatgpt.event.verify_surface
     let mut response_stream = stream(base_request()).await.expect("open stream");
     let error = response_stream
         .next()
         .await
-        // @verifies selvedge.model.chatgpt.event.verify_surface
         .expect("error item")
         .expect_err("malformed event must fail");
 
-    // @verifies selvedge.model.chatgpt.event.verify_surface
     assert!(matches!(
         error,
         ChatgptApiError::Endpoint(ChatgptApiEndpointError::MalformedEvent { .. })
@@ -525,16 +504,13 @@ base_url = "{}"
         ),
     );
 
-    // @verifies selvedge.model.chatgpt.event.verify_surface
     let mut response_stream = stream(base_request()).await.expect("open stream");
     let error = response_stream
         .next()
         .await
-        // @verifies selvedge.model.chatgpt.event.verify_surface
         .expect("error item")
         .expect_err("top-level error must fail");
 
-    // @verifies selvedge.model.chatgpt.event.verify_surface
     assert!(matches!(
         error,
         ChatgptApiError::Endpoint(ChatgptApiEndpointError::Other(_))
@@ -599,22 +575,17 @@ base_url = "{}"
         ),
     );
 
-    // @verifies selvedge.model.chatgpt.event.verify_surface
     let mut response_stream = stream(base_request()).await.expect("open stream");
-    // @verifies selvedge.model.chatgpt.event.verify_surface
     let event = response_stream.next().await.expect("other event");
 
-    // @verifies selvedge.model.chatgpt.event.verify_surface
     assert!(matches!(event, Ok(ChatgptResponseEvent::Other(_))));
 
     let error = response_stream
         .next()
         .await
-        // @verifies selvedge.model.chatgpt.event.verify_surface
         .expect("premature close item")
         .expect_err("unknown trailing event must still fail at eof");
 
-    // @verifies selvedge.model.chatgpt.event.verify_surface
     assert!(matches!(
         error,
         ChatgptApiError::Endpoint(ChatgptApiEndpointError::PrematureClose)
@@ -679,22 +650,17 @@ base_url = "{}"
         ),
     );
 
-    // @verifies selvedge.model.chatgpt.event.verify_surface
     let mut response_stream = stream(base_request()).await.expect("open stream");
-    // @verifies selvedge.model.chatgpt.event.verify_surface
     let event = response_stream.next().await.expect("other event");
 
-    // @verifies selvedge.model.chatgpt.event.verify_surface
     assert!(matches!(event, Ok(ChatgptResponseEvent::Other(_))));
 
     let error = response_stream
         .next()
         .await
-        // @verifies selvedge.model.chatgpt.event.verify_surface
         .expect("premature close item")
         .expect_err("unknown trailing event must still fail after delimiter");
 
-    // @verifies selvedge.model.chatgpt.event.verify_surface
     assert!(matches!(
         error,
         ChatgptApiError::Endpoint(ChatgptApiEndpointError::PrematureClose)
@@ -761,24 +727,19 @@ stream_completion_timeout_ms = 10
         ),
     );
 
-    // @verifies selvedge.model.chatgpt.event.verify_surface
     let mut response_stream = stream(base_request()).await.expect("open stream");
     let _created = response_stream
         .next()
         .await
-        // @verifies selvedge.model.chatgpt.event.verify_surface
         .expect("created item")
-        // @verifies selvedge.model.chatgpt.event.verify_surface
         .expect("created event");
 
     let error = response_stream
         .next()
         .await
-        // @verifies selvedge.model.chatgpt.event.verify_surface
         .expect("timeout item")
         .expect_err("completion timeout must fail");
 
-    // @verifies selvedge.model.chatgpt.event.verify_surface
     assert!(matches!(
         error,
         ChatgptApiError::LowerLayer(
@@ -845,26 +806,20 @@ base_url = "{}"
         ),
     );
 
-    // @verifies selvedge.model.chatgpt.event.verify_surface
     let mut response_stream = stream(base_request()).await.expect("open stream");
     let event = response_stream
         .next()
         .await
-        // @verifies selvedge.model.chatgpt.event.verify_surface
         .expect("other item")
-        // @verifies selvedge.model.chatgpt.event.verify_surface
         .expect("other event");
 
     let error = response_stream
         .next()
         .await
-        // @verifies selvedge.model.chatgpt.event.verify_surface
         .expect("premature close item")
         .expect_err("done without completed must fail");
 
-    // @verifies selvedge.model.chatgpt.event.verify_surface
     assert!(matches!(event, ChatgptResponseEvent::Other(_)));
-    // @verifies selvedge.model.chatgpt.event.verify_surface
     assert!(matches!(
         error,
         ChatgptApiError::Endpoint(ChatgptApiEndpointError::PrematureClose)
@@ -932,26 +887,20 @@ base_url = "{}"
         ),
     );
 
-    // @verifies selvedge.model.chatgpt.event.verify_surface
     let mut response_stream = stream(base_request()).await.expect("open stream");
     let event = response_stream
         .next()
         .await
-        // @verifies selvedge.model.chatgpt.event.verify_surface
         .expect("created item")
-        // @verifies selvedge.model.chatgpt.event.verify_surface
         .expect("created event");
-    // @verifies selvedge.model.chatgpt.event.verify_surface
     assert!(matches!(event, ChatgptResponseEvent::Created(_)));
 
     let error = response_stream
         .next()
         .await
-        // @verifies selvedge.model.chatgpt.event.verify_surface
         .expect("premature close item")
         .expect_err("comment-only eof must fail");
 
-    // @verifies selvedge.model.chatgpt.event.verify_surface
     assert!(matches!(
         error,
         ChatgptApiError::Endpoint(ChatgptApiEndpointError::PrematureClose)
@@ -1016,28 +965,22 @@ base_url = "{}"
         ),
     );
 
-    // @verifies selvedge.model.chatgpt.event.verify_surface
     let mut response_stream = stream(base_request()).await.expect("open stream");
     let event = response_stream
         .next()
         .await
-        // @verifies selvedge.model.chatgpt.event.verify_surface
         .expect("delta item")
-        // @verifies selvedge.model.chatgpt.event.verify_surface
         .expect("delta event");
     let error = response_stream
         .next()
         .await
-        // @verifies selvedge.model.chatgpt.event.verify_surface
         .expect("premature close item")
         .expect_err("non-terminal EOF must fail");
 
-    // @verifies selvedge.model.chatgpt.event.verify_surface
     assert!(matches!(
         event,
         ChatgptResponseEvent::OutputTextDelta { .. }
     ));
-    // @verifies selvedge.model.chatgpt.event.verify_surface
     assert!(matches!(
         error,
         ChatgptApiError::Endpoint(ChatgptApiEndpointError::PrematureClose)
@@ -1107,7 +1050,6 @@ stream_completion_timeout_ms = 10
         ),
     );
 
-    // @verifies selvedge.model.chatgpt.event.verify_surface
     let mut response_stream = stream(base_request()).await.expect("open stream");
     sleep(Duration::from_millis(30)).await;
 
@@ -1118,7 +1060,6 @@ stream_completion_timeout_ms = 10
             Ok(ChatgptResponseEvent::OutputTextDelta { .. }) => {
                 received += 1;
             }
-            // @verifies selvedge.model.chatgpt.event.verify_surface
             Err(ChatgptApiError::LowerLayer(
                 chatgpt_api::ChatgptApiLowerLayerError::StreamCompletionTimeout { .. },
             )) => {
@@ -1129,9 +1070,7 @@ stream_completion_timeout_ms = 10
         }
     }
 
-    // @verifies selvedge.model.chatgpt.event.verify_surface
     assert!(received > 0);
-    // @verifies selvedge.model.chatgpt.event.verify_surface
     assert!(timeout_seen);
 }
 
@@ -1203,11 +1142,9 @@ stream_completion_timeout_ms = 100
 
     let error = match stream(base_request()).await {
         Ok(_) => panic!("short global request timeout must still apply before open"),
-        // @verifies selvedge.model.chatgpt.event.verify_surface
         Err(error) => error,
     };
 
-    // @verifies selvedge.model.chatgpt.event.verify_surface
     assert!(matches!(
         error,
         ChatgptApiError::LowerLayer(chatgpt_api::ChatgptApiLowerLayerError::Client(

@@ -1,13 +1,4 @@
 #![doc = include_str!("../README.md")]
-//! @behavior selvedge.model.router.spawn The router accepts process-local ingress and routes client commands, runtime output, API output, tool output, factory output, and event publication until stopped.
-//! @behavior selvedge.model.router.r2 Router processing preserves command routing, event publication, runtime ownership, and typed termination behavior.
-//! @behavior selvedge.model.router.r2.run Router execution stops runtimes before returning stopped, mailbox-closed, or fatal exit status.
-//! @behavior selvedge.model.router.r2.command Router command handling validates incoming commands before routing them to task, event, factory, or runtime effects.
-//! @behavior selvedge.model.router.r2.tool_execution Router tool execution delegates tool requests to the configured executor and routes results back through ingress.
-//! @behavior selvedge.model.router.r2.attach Router attach handling reserves event client sessions and reports admission outcomes to callers.
-//! @behavior selvedge.model.router.r2.factory Router factory handling starts runtime factory effects and applies their output to router-owned state.
-//! @behavior selvedge.model.router.r2.runtime Router runtime handling registers, commands, stops, and removes task runtimes by task identity.
-//! @behavior selvedge.model.router.r2.events Router event handling publishes domain and debug events through the event ingress boundary.
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
@@ -32,24 +23,15 @@ use selvedge_task_runtime_factory::{
 };
 use tokio::task::JoinHandle;
 
-// @behavior selvedge.model.router.r2.start_args Router start arguments provide database, event ingress, API, tool, and runtime dependencies for the spawned router.
 pub struct RouterStartArgs {
-    // @behavior selvedge.model.router.r2.start_args.db The spawned router uses the supplied database pool when factory effects create or discover task runtimes.
     pub db: DbPool,
-    // @behavior selvedge.model.router.r2.start_args.events_tx The spawned router publishes client controls, debug events, and domain events through the supplied events ingress.
     pub events_tx: EventIngressSender,
-    // @behavior selvedge.model.router.r2.start_args.api_config The spawned router delegates model calls with the supplied API execution config.
     pub api_config: ApiExecutorConfig,
-    // @behavior selvedge.model.router.r2.start_args.tool_executor The spawned router delegates tool requests to the supplied tool executor.
     pub tool_executor: Arc<dyn ToolExecutionSpawner>,
-    // @behavior selvedge.model.router.r2.start_args.core_spawn_deps The spawned router passes the supplied core runtime dependencies into task runtime factory effects.
     pub core_spawn_deps: TaskRuntimeSpawnDeps,
 }
 
-// @behavior selvedge.model.router.r2.tool_execution_spawner Tool execution spawners receive router tool requests and return a task handle or typed spawn error.
-// @intent selvedge.model.router.r2.tool_execution_spawner.extension The tool execution spawner abstraction lets router callers provide the process-local executor that produces tool output.
 pub trait ToolExecutionSpawner: Send + Sync {
-    /// @behavior selvedge.model.router.r2.spawn_tool_execution Router tool requests are delegated to the configured executor with router ingress for the resulting tool output.
     fn spawn_tool_execution(
         &self,
         request: ToolExecutionRequest,
@@ -58,37 +40,29 @@ pub trait ToolExecutionSpawner: Send + Sync {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-// @behavior selvedge.model.router.r2.tool_spawn_error Tool execution spawn failures are reported as typed errors for Tokio spawn failure or executor unavailability.
 pub enum ToolExecutionSpawnError {
     TokioSpawnFailed,
     ToolExecutorUnavailable,
 }
 
-// @behavior selvedge.model.router.r2.handle Router spawn returns an ingress sender and a join handle for observing router termination.
 pub struct RouterHandle {
-    // @behavior selvedge.model.router.r2.handle.ingress_tx Router callers submit commands and producer output through the handle ingress sender.
     pub ingress_tx: RouterIngressSender,
-    // @behavior selvedge.model.router.r2.handle.join_handle Router callers observe the final router exit status through the handle join task.
     pub join_handle: JoinHandle<RouterExitStatus>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-// @behavior selvedge.model.router.r2.exit_status Router termination reports whether the router stopped by request, mailbox closure, or fatal error.
 pub enum RouterExitStatus {
     Stopped,
     EventsMailboxClosed,
     RouterMailboxClosed,
-    // @behavior selvedge.model.router.r2.exit_status.fatal_error Fatal router termination carries the diagnostic message visible to the join handle caller.
     FatalError(String),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-// @behavior selvedge.model.router.r2.spawn_error Router spawn reports Tokio task creation failure as a typed spawn error.
 pub enum SpawnRouterError {
     TokioSpawnFailed,
 }
 
-// @behavior selvedge.model.router.r2.spawn_router Spawning a router starts the actor with unbounded process-local ingress and returns the ingress handle to callers.
 pub fn spawn_router(args: RouterStartArgs) -> Result<RouterHandle, SpawnRouterError> {
     let (ingress_tx, ingress_rx) = tokio::sync::mpsc::unbounded_channel();
     let actor = RouterActor {
@@ -113,7 +87,6 @@ pub fn spawn_router(args: RouterStartArgs) -> Result<RouterHandle, SpawnRouterEr
     })
 }
 
-// @intent selvedge.model.router.r2.actor_effects RouterActor stores delegated effect boundaries for database, events, API, tools, core runtimes, and factory state.
 struct RouterActor {
     db: DbPool,
     events_tx: EventIngressSender,
@@ -158,7 +131,6 @@ impl RouterActor {
                 }
             };
 
-            // @behavior selvedge.model.router.r2.run.error_exit The router stops live task runtimes before returning a failing exit status from message handling.
             if let Err(status) = result {
                 self.stop_runtimes().await;
                 return status;
@@ -172,7 +144,6 @@ impl RouterActor {
     async fn handle_command(
         &mut self,
         envelope: RouterCommandEnvelope,
-        // @behavior selvedge.model.router.r2.command.validation Invalid router commands publish a debug event and complete command handling through the events path.
     ) -> Result<(), RouterExitStatus> {
         if validate_router_command(&envelope).is_err() {
             return self
@@ -273,7 +244,6 @@ impl RouterActor {
                     .spawn_tool_execution(request, self.router_tx.clone())
                 {
                     Ok(_join_handle) => Ok(()),
-                    // @behavior selvedge.model.router.r2.tool_execution.spawn_failure Tool executor spawn failure is converted into an error tool result routed back to the task runtime.
                     Err(_) => {
                         self.handle_tool_output(tool_spawn_failed_result(fallback_request))
                             .await
@@ -301,14 +271,12 @@ impl RouterActor {
         client_id: selvedge_command_model::ClientId,
         client_command_id: selvedge_command_model::ClientCommandId,
         admission_tx: selvedge_command_model::RouterAttachAdmissionSender,
-        // @behavior selvedge.model.router.r2.attach.admission Attach commands reserve the client session through events and answer the admission sender with the reservation result.
     ) -> Result<(), RouterExitStatus> {
         let (result_tx, result_rx) = tokio::sync::oneshot::channel();
         let cleanup_client_id = client_id.clone();
         let cleanup_client_command_id = client_command_id.clone();
         if self
             .events_tx
-            // @behavior selvedge.model.router.r2.attach.reserve_event Attach admission sends a reserve-client control message to the events ingress.
             .send(EventIngress::Control(
                 EventControlMessage::ReserveClientSession(ReserveClientSession {
                     client_id,
@@ -319,9 +287,7 @@ impl RouterActor {
             .await
             .is_err()
         {
-            // @behavior selvedge.model.router.r2.attach.events_closed_response Attach admission reports EventsMailboxClosed to the caller when reservation cannot reach events.
             let _ = admission_tx.send(RouterAttachAdmissionResult::EventsMailboxClosed);
-            // @behavior selvedge.model.router.r2.attach.events_closed_exit Attach admission terminates router processing with EventsMailboxClosed when reservation cannot reach events.
             return Err(RouterExitStatus::EventsMailboxClosed);
         }
 
@@ -335,11 +301,9 @@ impl RouterActor {
             Ok(EventClientReservationResult::ClientRegistryFull) => {
                 (RouterAttachAdmissionResult::ClientRegistryFull, false)
             }
-            // @behavior selvedge.model.router.r2.attach.result_channel_closed A closed reservation result channel reports EventsMailboxClosed to the attach caller.
             Err(_) => (RouterAttachAdmissionResult::EventsMailboxClosed, false),
         };
 
-        // @behavior selvedge.model.router.r2.attach.abandoned_reserved_client A reserved client whose admission response receiver is gone is detached through events as ClientDisconnected.
         if admission_tx.send(result).is_err() && reserved {
             self.send_event(EventIngress::Control(EventControlMessage::DetachClient(
                 selvedge_command_model::DetachClient {
@@ -356,7 +320,6 @@ impl RouterActor {
     async fn handle_api_output(
         &mut self,
         envelope: ApiOutputEnvelope,
-        // @behavior selvedge.model.router.r2.api_output API output is routed to the live task runtime for its task or discarded with a debug event when stale.
     ) -> Result<(), RouterExitStatus> {
         let task_id = match &envelope {
             ApiOutputEnvelope::Success { correlation, .. }
@@ -384,7 +347,6 @@ impl RouterActor {
     async fn handle_tool_output(
         &mut self,
         result: ToolExecutionResult,
-        // @behavior selvedge.model.router.r2.tool_output Tool output is routed to the live task runtime for its task or discarded with a debug event when stale.
     ) -> Result<(), RouterExitStatus> {
         let task_id = result.task_id.clone();
         if let Some(sender) = self
@@ -408,7 +370,6 @@ impl RouterActor {
     async fn handle_runtime_exit(
         &mut self,
         notice: TaskRuntimeExitNotice,
-        // @behavior selvedge.model.router.r2.runtime_exit Runtime exit notices remove the matching live runtime entry and publish a debug event for current or stale exits.
     ) -> Result<(), RouterExitStatus> {
         let removed = self
             .task_runtime_registry
@@ -430,7 +391,6 @@ impl RouterActor {
         task_id: TaskId,
         command: TaskRuntimeCommand,
         create_when_missing: bool,
-        // @behavior selvedge.model.router.r2.task_command Routing a task-local command sends it to a live runtime, defers it behind pending creation, or emits a debug miss.
     ) -> Result<(), RouterExitStatus> {
         if let Some(sender) = self
             .task_runtime_registry
@@ -468,9 +428,7 @@ impl RouterActor {
         sender: TaskRuntimeSender,
         command: TaskRuntimeCommand,
         create_when_closed: bool,
-        // @behavior selvedge.model.router.r2.task_command.delivery Task runtime command delivery removes a closed runtime and either recreates it with the command deferred or emits a debug failure.
     ) -> Result<(), RouterExitStatus> {
-        // @behavior selvedge.model.router.r2.task_command.send Successful task runtime command sends leave registry ownership unchanged.
         let Err(error) = sender.send(command).await else {
             return Ok(());
         };
@@ -506,7 +464,6 @@ impl RouterActor {
     async fn start_ensure_task_runtime_effect(
         &mut self,
         task_id: TaskId,
-        // @behavior selvedge.model.router.r2.factory.ensure_task Starting an ensure-task-runtime effect records the pending task and invokes the runtime factory.
     ) -> Result<(), RouterExitStatus> {
         let effect_id = self.next_effect_id();
         self.pending_effects.insert(
@@ -536,7 +493,6 @@ impl RouterActor {
         &mut self,
         parent_task_id: TaskId,
         child_cursor_node_id: selvedge_domain_model::HistoryNodeId,
-        // @behavior selvedge.model.router.r2.factory.create_child Create-child commands invoke the runtime factory with the parent task and cursor node.
     ) -> Result<(), RouterExitStatus> {
         let effect_id = self.next_effect_id();
         self.pending_effects
@@ -552,7 +508,6 @@ impl RouterActor {
     async fn run_factory_effect(
         &mut self,
         command: FactoryCommand,
-        // @behavior selvedge.model.router.r2.factory.run Factory effects receive live and pending runtime inventory plus router ingress for created runtime output.
     ) -> Result<(), RouterExitStatus> {
         let current_task_effect = match &command {
             FactoryCommand::EnsureTaskRuntime(command) => Some(&command.task_id),
@@ -581,7 +536,6 @@ impl RouterActor {
     async fn apply_factory_output(
         &mut self,
         envelope: FactoryOutputEnvelope,
-        // @behavior selvedge.model.router.r2.factory.output Factory output is accepted only for pending effects and otherwise publishes a stale-output debug event.
     ) -> Result<(), RouterExitStatus> {
         let Some(pending) = self.pending_effects.remove(&envelope.effect_id) else {
             return self
@@ -631,7 +585,6 @@ impl RouterActor {
         task_id: TaskId,
         sender: TaskRuntimeSender,
         control: TaskRuntimeControl,
-        // @behavior selvedge.model.router.r2.runtime.register Registering a runtime makes it the live command target and drains deferred commands for that task.
     ) -> Result<(), RouterExitStatus> {
         self.task_runtime_registry.insert(
             task_id.clone(),
@@ -646,7 +599,6 @@ impl RouterActor {
             .any(|command| matches!(command, TaskRuntimeCommand::Archive))
         {
             while let Some(command) = deferred.pop_front() {
-                // @behavior selvedge.model.router.r2.runtime.register.archive Deferred archive commands are delivered without sending runtime start first.
                 if sender.send(command).await.is_err() {
                     self.task_runtime_registry.remove(&task_id);
                     return self
@@ -657,7 +609,6 @@ impl RouterActor {
             return Ok(());
         }
 
-        // @behavior selvedge.model.router.r2.runtime.register.start Newly registered runtimes receive Start before non-archive deferred commands.
         if sender.send(TaskRuntimeCommand::Start).await.is_err() {
             self.task_runtime_registry.remove(&task_id);
             return self
@@ -666,7 +617,6 @@ impl RouterActor {
         }
 
         while let Some(command) = deferred.pop_front() {
-            // @behavior selvedge.model.router.r2.runtime.register.deferred Deferred task commands are delivered after runtime start and failures remove the runtime with a debug event.
             if sender.send(command).await.is_err() {
                 self.task_runtime_registry.remove(&task_id);
                 return self
@@ -727,7 +677,6 @@ impl RouterActor {
     async fn publish_domain_event(
         &mut self,
         request: DomainEventPublishRequest,
-        // @behavior selvedge.model.router.r2.events.domain Supported domain events are published to events as raw debug output and persisted-message events are ignored.
     ) -> Result<(), RouterExitStatus> {
         let raw = match request.event {
             DomainEvent::TaskRuntimeReady => RawEvent::Debug(DebugRawEvent {
@@ -752,7 +701,6 @@ impl RouterActor {
         &mut self,
         task_id: Option<TaskId>,
         message: impl Into<String>,
-        // @behavior selvedge.model.router.r2.events.debug Debug publication sends a raw debug event with the optional task id and message text.
     ) -> Result<(), RouterExitStatus> {
         self.send_event(EventIngress::Raw(RawEvent::Debug(DebugRawEvent {
             task_id,
@@ -764,7 +712,6 @@ impl RouterActor {
     async fn publish_factory_task_failure(
         &mut self,
         failure: FactoryTaskFailure,
-        // @behavior selvedge.model.router.r2.factory.task_failure Factory task failures are published as task-scoped debug events.
     ) -> Result<(), RouterExitStatus> {
         self.publish_debug(Some(failure.task_id), failure.message)
             .await
@@ -772,10 +719,8 @@ impl RouterActor {
 
     async fn send_event(&mut self, event: EventIngress) -> Result<(), RouterExitStatus> {
         self.events_tx
-            // @behavior selvedge.model.router.r2.events.send Router event publication sends control or raw event ingress to the configured events mailbox.
             .send(event)
             .await
-            // @behavior selvedge.model.router.r2.events.send_closed A closed events mailbox converts event publication into EventsMailboxClosed router status.
             .map_err(|_| RouterExitStatus::EventsMailboxClosed)
     }
 

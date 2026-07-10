@@ -1,6 +1,4 @@
 #![doc = include_str!("../README.md")]
-//! @behavior selvedge.model Task model requests produce a task-visible model reply or a command-reportable model error.
-//! @behavior selvedge.model.dispatch.unknown_provider Unknown provider ids produce task-visible provider-request failures through registry dispatch validation.
 
 use std::collections::BTreeMap;
 use std::future::Future;
@@ -28,13 +26,10 @@ use selvedge_domain_model::{
 };
 use selvedge_model_providers::{ProviderRegistryError, default_registry};
 
-// @intent selvedge.model.dispatch.adapter.future Provider adapter futures abstract asynchronous provider execution behind the dispatch registry.
 type ProviderAdapterFuture<'a> =
     Pin<Box<dyn Future<Output = Result<ModelReply, ModelCallError>> + Send + 'a>>;
 
-// @intent selvedge.model.dispatch.adapter Provider adapters hide provider-specific request execution behind a registry lookup boundary.
 trait ProviderAdapter: Send + Sync {
-    // @behavior selvedge.model.dispatch.adapter.execute Provider adapters execute validated model dispatch requests and return unified model replies.
     fn execute<'a>(
         &'a self,
         request: &'a ModelCallDispatchRequest,
@@ -42,33 +37,25 @@ trait ProviderAdapter: Send + Sync {
     ) -> ProviderAdapterFuture<'a>;
 }
 
-// @intent selvedge.model.dispatch.adapter.registry.abstraction Provider adapter registries decouple provider id dispatch from provider-specific request execution.
-// @constraint selvedge.model.dispatch.adapter.registry The provider adapter registry maps provider ids to executable provider adapters.
 struct ProviderAdapterRegistry {
     adapters: BTreeMap<&'static str, Arc<dyn ProviderAdapter>>,
 }
 
 impl ProviderAdapterRegistry {
-    // @intent selvedge.model.dispatch.adapter.registry.constructor Provider adapter registry construction provides an explicit adapter injection boundary for dispatch tests and defaults.
-    // @constraint selvedge.model.dispatch.adapter.registry.new Provider adapter registry construction stores executable adapters by provider id.
     fn new(adapters: Vec<(&'static str, Arc<dyn ProviderAdapter>)>) -> Self {
         Self {
             adapters: adapters.into_iter().collect(),
         }
     }
 
-    // @intent selvedge.model.dispatch.adapter.registry.lookup_boundary Provider adapter lookup keeps provider id dispatch outside provider-specific request code.
-    // @behavior selvedge.model.dispatch.adapter.registry.lookup Provider adapter lookup returns the executable adapter registered for a provider id.
     fn adapter(&self, provider_id: &str) -> Option<Arc<dyn ProviderAdapter>> {
         self.adapters.get(provider_id).cloned()
     }
 }
 
-// @intent selvedge.model.dispatch.adapter.chatgpt ChatGPT provider adapter binds the ChatGPT request implementation to the executable provider adapter boundary.
 struct ChatgptProviderAdapter;
 
 impl ProviderAdapter for ChatgptProviderAdapter {
-    // @behavior selvedge.model.dispatch.adapter.chatgpt.execute ChatGPT adapter execution delegates to the ChatGPT provider implementation.
     fn execute<'a>(
         &'a self,
         request: &'a ModelCallDispatchRequest,
@@ -78,28 +65,22 @@ impl ProviderAdapter for ChatgptProviderAdapter {
     }
 }
 
-// @behavior selvedge.model.dispatch.adapter.default_registry The default provider adapter registry exposes executable adapters available in the current build.
 fn default_provider_adapter_registry() -> ProviderAdapterRegistry {
     ProviderAdapterRegistry::new(vec![("chatgpt", Arc::new(ChatgptProviderAdapter))])
 }
 
-/// @behavior selvedge.model.config Model execution uses caller-supplied timeout and response-size policy for each task request.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ApiExecutorConfig {
-    /// @behavior selvedge.model.config.timeout Long-running provider calls surface to the task as timeout failures.
     pub request_timeout: Duration,
-    /// @behavior selvedge.model.config.bytes Oversized provider results surface to the task as response-size failures.
     pub max_response_bytes: Option<usize>,
 }
 
-/// @behavior selvedge.model.terminal Model-call completion exposes result-delivery status to the caller.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ApiCallTerminalStatus {
     OutputSent,
     RouterClosed,
 }
 
-/// @behavior selvedge.model.dispatch A task model request sends one final model-call result to the waiting task and reports delivery status to the caller.
 pub async fn execute_model_call(
     request: ModelCallDispatchRequest,
     router_tx: RouterIngressWeakSender,
@@ -109,7 +90,6 @@ pub async fn execute_model_call(
     send_output(router_tx, envelope).await
 }
 
-/// @behavior selvedge.model.dispatch.spawn A spawned task model request returns whether the result reached the task or the waiting task flow closed.
 pub fn spawn_model_call_tokio_task(
     request: ModelCallDispatchRequest,
     router_tx: RouterIngressWeakSender,
@@ -118,24 +98,20 @@ pub fn spawn_model_call_tokio_task(
     tokio::spawn(execute_model_call(request, router_tx, config))
 }
 
-/// @behavior selvedge.model.dispatch.run Dispatched model requests finish as one task-visible reply or failure.
 async fn run_model_call(
     request: ModelCallDispatchRequest,
     config: ApiExecutorConfig,
 ) -> ApiOutputEnvelope {
-    // @behavior selvedge.model.dispatch.input Invalid task model input produces a validation failure before any external provider receives a request.
     if let Err(error) = validate_dispatch_request(&request) {
         return failure_envelope(request, error);
     }
 
-    // @behavior selvedge.model.dispatch.timeout Provider validation and provider calls that exceed the configured duration produce task-visible timeout failures.
     let reply_result = tokio::time::timeout(
         config.request_timeout,
         execute_validated_provider_call(&request, &config),
     )
     .await;
 
-    // @behavior selvedge.model.dispatch.outcome Provider success, provider failure, and timeout each complete the task model run once.
     let reply = match reply_result {
         Ok(Ok(reply)) => reply,
         Ok(Err(error)) => return failure_envelope(request, error),
@@ -150,12 +126,10 @@ async fn run_model_call(
         }
     };
 
-    // @behavior selvedge.model.dispatch.bytes Provider replies that exceed the configured response-size limit produce task-visible provider-response failures.
     if let Err(error) = enforce_response_limit(&reply, config.max_response_bytes) {
         return failure_envelope(request, error);
     }
 
-    // @behavior selvedge.model.dispatch.reply Provider replies that violate the command model produce task-visible provider-response failures.
     if let Err(error) = validate_model_reply(&reply) {
         return failure_envelope(
             request,
@@ -166,12 +140,10 @@ async fn run_model_call(
         );
     }
 
-    // @behavior selvedge.model.dispatch.success Accepted provider replies return to the task that requested them.
     let correlation = request.correlation;
     ApiOutputEnvelope::Success { correlation, reply }
 }
 
-// @behavior selvedge.model.dispatch.provider The provider named by the task request is resolved through provider and adapter registries before execution.
 async fn execute_validated_provider_call(
     request: &ModelCallDispatchRequest,
     config: &ApiExecutorConfig,
@@ -180,7 +152,6 @@ async fn execute_validated_provider_call(
         .await
         .map_err(map_provider_registry_error)?;
     let adapter_registry = default_provider_adapter_registry();
-    // @behavior selvedge.model.dispatch.provider.adapter_unavailable Requests whose provider id has no executable adapter return a task-visible provider request failure.
     let Some(adapter) = adapter_registry.adapter(&request.provider.provider_name) else {
         return Err(model_call_error(
             ModelCallErrorKind::ProviderRequest,
@@ -191,15 +162,12 @@ async fn execute_validated_provider_call(
     adapter.execute(request, config).await
 }
 
-// @behavior selvedge.model.dispatch.provider_config Provider dispatch validation reads the current LLM provider map and Selvedge home before registry validation.
 async fn validate_provider_dispatch_target(
     request: &ModelCallDispatchRequest,
 ) -> Result<(), ProviderRegistryError> {
     let llm_config = selvedge_config::read(|config| config.llm.clone())
-        // @behavior selvedge.model.dispatch.provider_config.config_error Provider dispatch validation returns provider-request failures when model provider config cannot be read.
         .map_err(|error| ProviderRegistryError::Credential(error.to_string()))?;
     let selvedge_home = selvedge_config::selvedge_home()
-        // @behavior selvedge.model.dispatch.provider_config.home_error Provider dispatch validation returns provider-request failures when Selvedge home cannot be resolved.
         .map_err(|error| ProviderRegistryError::Credential(error.to_string()))?;
     default_registry()
         .validate_dispatch_target_from_home(
@@ -247,14 +215,11 @@ fn map_provider_registry_error(error: ProviderRegistryError) -> ModelCallError {
     }
 }
 
-/// @behavior selvedge.model.chatgpt ChatGPT task requests expose ChatGPT text, tool requests, usage, and finish state as Selvedge model output.
 async fn call_chatgpt(
     request: &ModelCallDispatchRequest,
     config: &ApiExecutorConfig,
 ) -> Result<ModelReply, ModelCallError> {
-    // @behavior selvedge.model.chatgpt.request ChatGPT receives the task conversation, selected model, and enabled tools for the model run.
     let chatgpt_request = chatgpt_request_from_dispatch(request)?;
-    // @behavior selvedge.model.chatgpt.stream ChatGPT stream failures become task-visible model-call failures.
     let mut response_stream = stream(chatgpt_request).await.map_err(map_chatgpt_error)?;
     let mut byte_counter = config.max_response_bytes.map(BoundedByteCounter::new);
     let mut text_parts = BTreeMap::new();
@@ -264,7 +229,6 @@ async fn call_chatgpt(
     let mut finish_reason = ModelFinishReason::Stop;
 
     while let Some(item) = response_stream.next().await {
-        // @behavior selvedge.model.chatgpt.event ChatGPT completion, failure, and max-output truncation end the task's wait for provider stream events.
         let event = match item {
             Ok(event) => event,
             Err(ChatgptApiError::Endpoint(ChatgptApiEndpointError::Incomplete(error)))
@@ -276,7 +240,6 @@ async fn call_chatgpt(
             Err(error) => return Err(map_chatgpt_error(error)),
         };
 
-        // @behavior selvedge.model.chatgpt.aggregate ChatGPT streaming preserves ordered text, tool requests, usage, and finish reason for the task.
         match event {
             ChatgptResponseEvent::OutputTextDelta {
                 output_index,
@@ -339,7 +302,6 @@ async fn call_chatgpt(
         }
     }
 
-    // @behavior selvedge.model.chatgpt.preference Plain-text task requests receive provider-response failures when ChatGPT asks to call tools.
     if request.response_preference == ResponsePreference::PlainTextOnly && !tool_calls.is_empty() {
         return Err(model_call_error(
             ModelCallErrorKind::ProviderResponse,
@@ -353,12 +315,10 @@ async fn call_chatgpt(
         text_parts.into_values().collect::<String>()
     };
 
-    // @behavior selvedge.model.chatgpt.finish ChatGPT tool requests make the task-visible model reply finish as tool-calls.
     if !tool_calls.is_empty() && finish_reason == ModelFinishReason::Stop {
         finish_reason = ModelFinishReason::ToolCalls;
     }
 
-    // @behavior selvedge.model.chatgpt.reply Successful ChatGPT task requests produce one Selvedge model reply.
     Ok(ModelReply {
         content: (!content.trim().is_empty()).then_some(content),
         tool_calls,
@@ -367,11 +327,9 @@ async fn call_chatgpt(
     })
 }
 
-/// @behavior selvedge.model.chatgpt.request_build ChatGPT provider requests reflect the task's provider profile and conversation.
 fn chatgpt_request_from_dispatch(
     request: &ModelCallDispatchRequest,
 ) -> Result<ChatgptResponsesRequest, ModelCallError> {
-    // @behavior selvedge.model.chatgpt.build ChatGPT receives the task-selected model, conversation history, enabled tools, and dispatch defaults.
     // NOTE: ChatGPT dispatch ignores max_output_tokens because chatgpt-api exposes no request field for this control; max-token incompletes are reported as Length replies.
     Ok(ChatgptResponsesRequest {
         model: request.provider.model_name.clone(),
@@ -410,18 +368,15 @@ fn chatgpt_request_from_dispatch(
     })
 }
 
-/// @behavior selvedge.model.chatgpt.item ChatGPT receives task conversation messages in their task order.
 fn chatgpt_item_from_message(
     message: &ConversationMessage,
 ) -> Result<ResponseItem, ModelCallError> {
-    // @behavior selvedge.model.chatgpt.history ChatGPT receives prior tool activity stored in the task conversation.
     if let MessageContent::Structured(payload) = &message.content
         && let Some(item) = chatgpt_tool_history_item(&message.role, payload)?
     {
         return Ok(item);
     }
 
-    // @behavior selvedge.model.chatgpt.message ChatGPT receives ordinary task messages as completed conversation history.
     Ok(ResponseItem::Message(MessageItem {
         id: message
             .source_node_id
@@ -443,12 +398,10 @@ fn chatgpt_role(role: &MessageRole) -> &'static str {
     }
 }
 
-/// @behavior selvedge.model.chatgpt.content_item ChatGPT receives task message text with the role meaning of the original message.
 fn chatgpt_content_item_from_message(
     message: &ConversationMessage,
 ) -> Result<ContentItem, ModelCallError> {
     let text = message_content_text(&message.content)?;
-    // @behavior selvedge.model.chatgpt.content Assistant history remains assistant output, and non-assistant history remains input to ChatGPT.
     if message.role == MessageRole::Assistant {
         return Ok(ContentItem::OutputText {
             text,
@@ -459,7 +412,6 @@ fn chatgpt_content_item_from_message(
 }
 
 fn message_content_text(content: &MessageContent) -> Result<String, ModelCallError> {
-    // @behavior selvedge.model.chatgpt.content_text Task message content keeps its text meaning when sent to ChatGPT.
     match content {
         MessageContent::Text(text) | MessageContent::ToolResultSummary(text) => Ok(text.clone()),
         MessageContent::Structured(payload) => serde_json::to_string(payload).map_err(|error| {
@@ -471,12 +423,10 @@ fn message_content_text(content: &MessageContent) -> Result<String, ModelCallErr
     }
 }
 
-/// @behavior selvedge.model.chatgpt.tool_history_item ChatGPT receives prior tool activity only from task messages that carry the required tool fields.
 fn chatgpt_tool_history_item(
     role: &MessageRole,
     payload: &StructuredPayload,
 ) -> Result<Option<ResponseItem>, ModelCallError> {
-    // @behavior selvedge.model.chatgpt.tool_history Replayed task tool history keeps assistant tool calls paired with tool outputs by call id.
     let StructuredPayload::Object(object) = payload else {
         return Ok(None);
     };
@@ -522,7 +472,6 @@ fn chatgpt_tool_history_item(
     }
 }
 
-/// @behavior selvedge.model.chatgpt.payload_field ChatGPT replay uses a stored task tool-history field only when that field is present as text.
 fn payload_string_field<'a>(
     object: &'a BTreeMap<String, StructuredPayload>,
     field: &str,
@@ -541,7 +490,6 @@ fn missing_tool_history_field(field: &str) -> ModelCallError {
 }
 
 fn tool_history_arguments_json(payload: &StructuredPayload) -> Result<String, ModelCallError> {
-    // @behavior selvedge.model.chatgpt.tool_args Replayed task tool arguments reach ChatGPT as named function-call arguments.
     let StructuredPayload::Array(arguments) = payload else {
         return Err(model_call_error(
             ModelCallErrorKind::ProviderRequest,
@@ -549,7 +497,6 @@ fn tool_history_arguments_json(payload: &StructuredPayload) -> Result<String, Mo
         ));
     };
     let mut object = serde_json::Map::new();
-    // @behavior selvedge.model.chatgpt.tool_args.item Tool-history arguments without structured metadata produce provider-request failures for the task.
     for argument in arguments {
         let StructuredPayload::Object(argument) = argument else {
             return Err(model_call_error(
@@ -557,7 +504,6 @@ fn tool_history_arguments_json(payload: &StructuredPayload) -> Result<String, Mo
                 "tool history argument must be an object",
             ));
         };
-        // @behavior selvedge.model.chatgpt.tool_args.name Tool-history arguments without a name or value produce provider-request failures for the task.
         let name = payload_string_field(argument, "name")
             .ok_or_else(|| missing_tool_history_field("argument name"))?;
         let value = argument
@@ -565,7 +511,6 @@ fn tool_history_arguments_json(payload: &StructuredPayload) -> Result<String, Mo
             .ok_or_else(|| missing_tool_history_field("argument value"))?;
         object.insert(name.to_owned(), json_value_from_structured_payload(value));
     }
-    // @behavior selvedge.model.chatgpt.tool_args.encode ChatGPT receives replayed tool arguments with the same names and values the tool saw earlier.
     serde_json::to_string(&object).map_err(|error| {
         model_call_error(
             ModelCallErrorKind::ProviderRequest,
@@ -574,12 +519,10 @@ fn tool_history_arguments_json(payload: &StructuredPayload) -> Result<String, Mo
     })
 }
 
-/// @behavior selvedge.model.chatgpt.tools_map Tools enabled for a task appear to ChatGPT as available tool choices.
 fn chatgpt_tools(
     tool_manifest: Option<&ToolManifest>,
     response_preference: &ResponsePreference,
 ) -> Vec<ToolDescriptor> {
-    // @behavior selvedge.model.chatgpt.tools Plain-text task requests and requests without tool manifests expose no callable tools to ChatGPT.
     if *response_preference == ResponsePreference::PlainTextOnly {
         return Vec::new();
     }
@@ -591,7 +534,6 @@ fn chatgpt_tools(
         .tools
         .iter()
         .map(|tool| {
-            // @behavior selvedge.model.chatgpt.tool_schema ChatGPT receives each task tool's name, description, parameter types, and required-field rules.
             let mut properties = serde_json::Map::new();
             let mut required = Vec::new();
             for parameter in &tool.parameters {
@@ -639,13 +581,11 @@ fn chatgpt_parameter_type(parameter_type: &ToolParameterType) -> &'static str {
     }
 }
 
-/// @behavior selvedge.model.chatgpt.fallback Completed ChatGPT message text remains visible to the task when streamed text deltas are absent.
 fn append_message_content(
     content: &mut String,
     message: &MessageItem,
     counter: &mut Option<BoundedByteCounter>,
 ) -> Result<(), ModelCallError> {
-    // @behavior selvedge.model.chatgpt.fallback_text Fallback ChatGPT message text reaches the task in message item order.
     for item in &message.content {
         match item {
             ContentItem::OutputText { text, .. } | ContentItem::InputText { text } => {
@@ -659,11 +599,9 @@ fn append_message_content(
     Ok(())
 }
 
-/// @behavior selvedge.model.chatgpt.tool_call_map ChatGPT tool requests appear to the task as tool-call proposals.
 fn tool_call_from_chatgpt(
     function_call: FunctionCallItem,
 ) -> Result<ToolCallProposal, ModelCallError> {
-    // @behavior selvedge.model.chatgpt.tool_call Task-visible ChatGPT tool requests carry the call id, tool name, and arguments.
     Ok(ToolCallProposal {
         call_id: function_call.call_id,
         tool_name: function_call.name,
@@ -672,7 +610,6 @@ fn tool_call_from_chatgpt(
 }
 
 fn structured_payload_from_json_string(raw: &str) -> Result<StructuredPayload, ModelCallError> {
-    // @behavior selvedge.model.chatgpt.argument_json ChatGPT tool-call arguments outside JSON object form produce provider-response failures for the task.
     let value = serde_json::from_str::<serde_json::Value>(raw).map_err(|error| {
         model_call_error(
             ModelCallErrorKind::ProviderResponse,
@@ -688,11 +625,9 @@ fn structured_payload_from_json_string(raw: &str) -> Result<StructuredPayload, M
     structured_payload_from_json_value(value)
 }
 
-/// @behavior selvedge.model.chatgpt.json_convert ChatGPT tool-call arguments keep their JSON structure when exposed to the task.
 fn structured_payload_from_json_value(
     value: serde_json::Value,
 ) -> Result<StructuredPayload, ModelCallError> {
-    // @behavior selvedge.model.chatgpt.json_value Nested ChatGPT tool-call arguments remain nested in task-visible structured data.
     match value {
         serde_json::Value::Object(object) => Ok(StructuredPayload::Object(
             object
@@ -718,7 +653,6 @@ fn structured_payload_from_json_value(
 fn f64_from_json_number(value: &serde_json::Number) -> Result<f64, ModelCallError> {
     const MAX_EXACT_INTEGER: u64 = 9_007_199_254_740_992;
 
-    // @behavior selvedge.model.chatgpt.number ChatGPT integer arguments that cannot be represented exactly produce provider-response failures for the task.
     if let Some(unsigned) = value.as_u64() {
         if unsigned > MAX_EXACT_INTEGER {
             return Err(imprecise_chatgpt_number_error());
@@ -740,7 +674,6 @@ fn imprecise_chatgpt_number_error() -> ModelCallError {
 }
 
 fn json_value_from_structured_payload(payload: &StructuredPayload) -> serde_json::Value {
-    // @behavior selvedge.model.chatgpt.payload_json Replayed task tool arguments keep their stored structure when sent back to ChatGPT.
     match payload {
         StructuredPayload::Object(object) => serde_json::Value::Object(
             object
@@ -766,7 +699,6 @@ fn is_chatgpt_output_length_incomplete(error: &ChatgptIncompleteEndpointError) -
 }
 
 fn map_chatgpt_error(error: ChatgptApiError) -> ModelCallError {
-    // @behavior selvedge.model.chatgpt.error ChatGPT failures surface to the task as provider request, timeout, network, or response failure categories.
     match error {
         ChatgptApiError::LowerLayer(ChatgptApiLowerLayerError::InvalidInput(error)) => {
             model_call_error(
@@ -813,12 +745,10 @@ fn map_chatgpt_error(error: ChatgptApiError) -> ModelCallError {
     }
 }
 
-/// @behavior selvedge.model.chatgpt.stream_count ChatGPT streamed output contributes to the task response-size limit when that limit is active.
 fn count_stream_bytes(
     counter: &mut Option<BoundedByteCounter>,
     bytes: &[u8],
 ) -> Result<(), ModelCallError> {
-    // @behavior selvedge.model.chatgpt.stream_bytes ChatGPT streamed text and tool arguments that cross the response-size limit produce provider-response failures for the task.
     let Some(counter) = counter else {
         return Ok(());
     };
@@ -830,23 +760,19 @@ fn count_stream_bytes(
     })
 }
 
-/// @behavior selvedge.model.router.output Ready model results reach the task flow waiting for that result.
 async fn send_output(
     router_tx: RouterIngressWeakSender,
     envelope: ApiOutputEnvelope,
 ) -> ApiCallTerminalStatus {
-    // @behavior selvedge.model.router Closed waiting task flows make delivery failure visible to the caller.
     let Some(router_tx) = router_tx.upgrade() else {
         return ApiCallTerminalStatus::RouterClosed;
     };
-    // @behavior selvedge.model.router.send Accepted and rejected task results expose their delivery outcome to the caller.
     match router_tx.send(RouterIngressApiMessage::ApiOutput(envelope)) {
         Ok(()) => ApiCallTerminalStatus::OutputSent,
         Err(_) => ApiCallTerminalStatus::RouterClosed,
     }
 }
 
-/// @behavior selvedge.model.failure Model execution failures return one reportable model-call error to the requesting task.
 fn failure_envelope(request: ModelCallDispatchRequest, error: ModelCallError) -> ApiOutputEnvelope {
     ApiOutputEnvelope::Failure {
         correlation: request.correlation,
@@ -861,12 +787,10 @@ fn model_call_error(kind: ModelCallErrorKind, message: impl Into<String>) -> Mod
     }
 }
 
-/// @behavior selvedge.model.limit.reply Complete model replies that exceed the response-size limit produce size failures before delivery to the task.
 fn enforce_response_limit(
     reply: &ModelReply,
     max_response_bytes: Option<usize>,
 ) -> Result<(), ModelCallError> {
-    // @behavior selvedge.model.limit Disabled response-size limiting allows the task to receive complete provider replies of any encoded size.
     let Some(max_response_bytes) = max_response_bytes else {
         return Ok(());
     };
@@ -881,14 +805,12 @@ fn enforce_response_limit(
     Ok(())
 }
 
-/// @behavior selvedge.model.limit.encoded Active response-size limiting measures the complete model reply against the configured byte ceiling.
 fn encoded_model_reply_exceeds_limit(
     reply: &ModelReply,
     max_response_bytes: usize,
 ) -> Result<bool, ModelCallError> {
     let mut counter = BoundedByteCounter::new(max_response_bytes);
 
-    // @behavior selvedge.model.limit.encode Reply encoding that crosses the size limit produces a size failure, while other encoding failures remain provider-response failures.
     match serde_json::to_writer(&mut counter, reply) {
         Ok(()) => Ok(false),
         Err(_) if counter.limit_exceeded() => Ok(true),
@@ -906,7 +828,6 @@ struct BoundedByteCounter {
 }
 
 impl BoundedByteCounter {
-    // @behavior selvedge.model.limit.counter Response-size accounting starts with zero counted bytes and no limit-exceeded state.
     fn new(max_bytes: usize) -> Self {
         Self {
             max_bytes,
@@ -921,7 +842,6 @@ impl BoundedByteCounter {
 }
 
 impl std::io::Write for BoundedByteCounter {
-    // @behavior selvedge.model.limit.write Response-size accounting fails when counting the task reply would overflow or cross the byte limit.
     fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
         let Some(next_bytes_written) = self.bytes_written.checked_add(buffer.len()) else {
             self.limit_exceeded = true;
@@ -976,9 +896,7 @@ mod tests {
         counter.write_all(b"1234").expect("within limit");
         let error = counter.write_all(b"5").expect_err("over limit");
 
-        // @verifies selvedge.model.limit.write
         assert!(counter.limit_exceeded());
-        // @verifies selvedge.model.limit.write
         assert_eq!(error.kind(), std::io::ErrorKind::Other);
     }
 
@@ -987,9 +905,7 @@ mod tests {
         let registry =
             ProviderAdapterRegistry::new(vec![("test-provider", Arc::new(TestProviderAdapter))]);
 
-        // @verifies selvedge.model.dispatch.adapter.registry.lookup
         assert!(registry.adapter("test-provider").is_some());
-        // @verifies selvedge.model.dispatch.adapter.registry.lookup
         assert!(registry.adapter("missing-provider").is_none());
     }
 }

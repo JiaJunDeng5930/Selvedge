@@ -1,14 +1,5 @@
 #![doc = include_str!("../README.md")]
 
-//! @behavior selvedge.core A task runtime loads persisted task state, accepts task commands, updates SQLite task history, requests model or tool work through the router, and reports terminal exits.
-//! @behavior selvedge.core.start Runtime startup loads active task state and begins work from the persisted task cursor.
-//! @behavior selvedge.core.queue Runtime queue handling persists user input received while model or tool work is in flight.
-//! @behavior selvedge.core.user_input Runtime user input handling appends ready input or queues busy input.
-//! @behavior selvedge.core.model_reply Runtime model reply handling persists assistant replies, tool calls, or error notices according to the matching model result.
-//! @behavior selvedge.core.tool_result Runtime tool result handling appends function output for the matching pending tool call.
-//! @constraint selvedge.core.conversation Runtime model dispatch uses a valid persisted conversation path.
-//! @behavior selvedge.core.tool_calls Runtime tool-call handling validates, persists, and dispatches model-requested tool calls.
-
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -36,27 +27,19 @@ use selvedge_domain_model::{
 };
 use uuid::Uuid;
 
-// @behavior selvedge.core.config Runtime configuration supplies mailbox capacity and model provider profiles for spawned task runtimes.
 #[derive(Clone, Debug, PartialEq)]
 pub struct TaskRuntimeConfig {
-    /// @behavior selvedge.core.config.mailbox_capacity TaskRuntimeConfig carries the requested task mailbox capacity.
     pub mailbox_capacity: usize,
-    /// @behavior selvedge.core.config.model_profiles TaskRuntimeConfig carries model provider profiles keyed by model profile key.
     pub model_profiles: HashMap<ModelProfileKey, ModelProviderProfile>,
 }
 
-// @behavior selvedge.core.spawn_deps.overview Task runtime spawn dependencies carry config and spawner choices visible to the caller.
-// @intent selvedge.core.spawn_deps TaskRuntimeSpawnDeps lets callers choose the default Tokio runtime spawner or an injected spawner with the same caller-visible spawn contract.
 #[derive(Clone)]
 pub struct TaskRuntimeSpawnDeps {
-    /// @behavior selvedge.core.spawn_deps.config Spawn dependencies carry the runtime config used for spawned tasks.
     pub config: TaskRuntimeConfig,
-    /// @behavior selvedge.core.spawn_deps.spawner Spawn dependencies carry the spawner used to create task runtimes.
     pub spawner: Arc<dyn TaskRuntimeSpawner>,
 }
 
 impl TaskRuntimeSpawnDeps {
-    // @behavior selvedge.core.spawn_deps.default_spawner new returns spawn dependencies that use the default Tokio task runtime spawner.
     pub fn new(config: TaskRuntimeConfig) -> Self {
         Self {
             config,
@@ -64,28 +47,22 @@ impl TaskRuntimeSpawnDeps {
         }
     }
 
-    // @behavior selvedge.core.spawn_deps.injected_spawner with_spawner returns spawn dependencies that use the caller-supplied runtime spawner.
     pub fn with_spawner(config: TaskRuntimeConfig, spawner: Arc<dyn TaskRuntimeSpawner>) -> Self {
         Self { config, spawner }
     }
 }
 
-// @intent selvedge.core.spawner TaskRuntimeSpawner abstracts task runtime spawning while preserving the same SpawnedTaskRuntime result or SpawnTaskRuntimeError.
-// @behavior selvedge.core.spawner.contract Runtime spawners expose task runtime startup as a caller-visible result.
 pub trait TaskRuntimeSpawner: Send + Sync {
-    /// @behavior selvedge.core.spawner.spawn Runtime spawners return spawned task handles or a typed spawn error to the caller.
     fn spawn_task_runtime(
         &self,
         args: SpawnTaskRuntimeArgs,
     ) -> Result<SpawnedTaskRuntime, SpawnTaskRuntimeError>;
 }
 
-// @behavior selvedge.core.spawner.default_struct The default task runtime spawner exposes the standard Tokio-backed spawn behavior.
 #[derive(Clone, Debug)]
 pub struct DefaultTaskRuntimeSpawner;
 
 impl TaskRuntimeSpawner for DefaultTaskRuntimeSpawner {
-    /// @behavior selvedge.core.spawner.default The default runtime spawner starts a task runtime with the public spawn_task_runtime contract.
     fn spawn_task_runtime(
         &self,
         args: SpawnTaskRuntimeArgs,
@@ -94,42 +71,30 @@ impl TaskRuntimeSpawner for DefaultTaskRuntimeSpawner {
     }
 }
 
-// @behavior selvedge.core.spawn_args SpawnTaskRuntimeArgs identifies the task, database, router sender, and runtime config used to start a task runtime.
 #[derive(Clone)]
 pub struct SpawnTaskRuntimeArgs {
-    /// @behavior selvedge.core.spawn_args.task Spawn arguments identify the task runtime to start.
     pub task_id: TaskId,
-    /// @behavior selvedge.core.spawn_args.db Spawn arguments carry the database pool used by the runtime.
     pub db: DbPool,
-    /// @behavior selvedge.core.spawn_args.router Spawn arguments carry the router sender used for runtime output.
     pub router_tx: RouterIngressWeakSender,
-    /// @behavior selvedge.core.spawn_args.config Spawn arguments carry the config used by the runtime.
     pub config: TaskRuntimeConfig,
 }
 
-// @behavior selvedge.core.spawned A spawned task runtime returns the task id, command sender, and control handle to its caller.
 #[derive(Debug)]
 pub struct SpawnedTaskRuntime {
-    /// @behavior selvedge.core.spawned.task Spawned runtime handles identify the spawned task.
     pub task_id: TaskId,
-    /// @behavior selvedge.core.spawned.sender Spawned runtime handles expose the task command sender.
     pub task_runtime_tx: TaskRuntimeSender,
-    /// @behavior selvedge.core.spawned.control Spawned runtime handles expose the runtime control handle.
     pub task_runtime_control: TaskRuntimeControl,
 }
 
-// @behavior selvedge.core.spawn_error Spawn failures are reported as mailbox creation or Tokio spawn failures.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SpawnTaskRuntimeError {
     MailboxCreateFailed,
     TokioSpawnFailed,
 }
 
-// @behavior selvedge.core.spawn A successful spawn starts a task-local actor and returns handles for commands and stop control.
 pub fn spawn_task_runtime(
     args: SpawnTaskRuntimeArgs,
 ) -> Result<SpawnedTaskRuntime, SpawnTaskRuntimeError> {
-    // @constraint selvedge.core.mailbox_capacity Runtime mailbox capacity is at least one even when the supplied config is zero.
     let capacity = args.config.mailbox_capacity.max(1);
     let (task_runtime_tx, task_runtime_rx) = tokio::sync::mpsc::channel(capacity);
     let task_runtime_control = TaskRuntimeControl::new();
@@ -165,7 +130,6 @@ struct TaskRuntimeActor {
     wait_state: WaitState,
 }
 
-// @constraint selvedge.core.wait_state The runtime is externally waiting for user input, a model reply, or a tool result at any command boundary.
 #[derive(Clone, Debug, PartialEq)]
 enum WaitState {
     AwaitingUserInput,
@@ -197,12 +161,10 @@ struct PendingToolCall {
 impl TaskRuntimeActor {
     async fn run(mut self) {
         loop {
-            // @behavior selvedge.core.stop A stop request observed at a command boundary ends the runtime and completes the stop result.
             if self.task_runtime_control.is_stopping() {
                 break;
             }
             let command = if self.task_runtime_control.is_frozen() {
-                // @constraint selvedge.core.freeze A frozen runtime waits for control changes before accepting the next business command.
                 self.task_runtime_control.wait_for_control_change().await;
                 continue;
             } else {
@@ -221,7 +183,6 @@ impl TaskRuntimeActor {
                 break;
             }
             let should_stop = match command {
-                // @behavior selvedge.core.command Task runtime commands drive start, user input, model reply, tool result, and archive outcomes.
                 TaskRuntimeCommand::Start => self.handle_start().await,
                 TaskRuntimeCommand::UserInput { message_text } => {
                     self.handle_user_input(message_text).await
@@ -243,14 +204,12 @@ impl TaskRuntimeActor {
     }
 
     async fn handle_start(&mut self) -> bool {
-        // @constraint selvedge.core.start.once A repeated Start command after startup leaves runtime state unchanged.
         if self.started {
             return false;
         }
         match load_active_task(&self.db, &self.task_id) {
             Ok(loaded) => {
                 self.started = true;
-                // @behavior selvedge.core.ready Starting an active task emits RuntimeReady to the router before cursor-tail work begins.
                 if self
                     .send_core(CoreOutputMessage::RuntimeReady)
                     .await
@@ -260,7 +219,6 @@ impl TaskRuntimeActor {
                 }
                 self.start_from_cursor_tail(loaded).await
             }
-            // @behavior selvedge.core.db_error A database failure while starting a task emits a DbError exit notice and stops the runtime.
             Err(error) => {
                 self.send_exit(TaskRuntimeExitReason::DbError(error.to_string()))
                     .await;
@@ -270,7 +228,6 @@ impl TaskRuntimeActor {
     }
 
     async fn start_from_cursor_tail(&mut self, loaded: selvedge_db::LoadedActiveTask) -> bool {
-        // @behavior selvedge.core.resume_open_tools Startup resumes open function calls before considering the cursor tail.
         match read_open_function_calls_for_task(&self.db, &self.task_id) {
             Ok(open_calls) if !open_calls.is_empty() => {
                 return self.dispatch_open_tool_calls(open_calls).await;
@@ -279,7 +236,6 @@ impl TaskRuntimeActor {
             Err(error) => return self.stop_with_db_error(error).await,
         }
 
-        // @behavior selvedge.core.cursor_tail Startup classifies the persisted cursor tail to request a model call, request tool execution, or await user input.
         match loaded.cursor_node {
             HistoryNode::Message { message_role, .. } => match message_role {
                 MessageRole::System | MessageRole::User => self.request_model_call().await,
@@ -317,12 +273,10 @@ impl TaskRuntimeActor {
         }
     }
 
-    // @behavior selvedge.core.open_tool_order Open function calls are dispatched in the persisted order one tool execution at a time.
     async fn dispatch_open_tool_calls(
         &mut self,
         open_calls: Vec<selvedge_db::OpenFunctionCall>,
     ) -> bool {
-        // @behavior selvedge.core.open_tool_order.queue Open function calls are queued for dispatch in the persisted order.
         let mut pending_tool_calls = open_calls
             .into_iter()
             .map(|call| PendingToolCall {
@@ -339,7 +293,6 @@ impl TaskRuntimeActor {
     }
 
     async fn enter_awaiting_user_input_or_promote_queue(&mut self) -> bool {
-        // @behavior selvedge.core.queue.promote When queued user input exists, the runtime promotes it to history and requests the next model call.
         match drain_queued_user_inputs_and_move_cursor(&self.db, &self.task_id, now()) {
             Ok(Some(_)) => self.request_model_call().await,
             Ok(None) => {
@@ -351,7 +304,6 @@ impl TaskRuntimeActor {
     }
 
     async fn handle_user_input(&mut self, message_text: String) -> bool {
-        // @constraint selvedge.core.user_input.nonempty Empty user input stops the runtime with an internal error exit.
         if message_text.is_empty() {
             return self
                 .stop_with_internal_error("user input must not be empty")
@@ -360,12 +312,10 @@ impl TaskRuntimeActor {
 
         match self.wait_state {
             WaitState::AwaitingUserInput => {
-                // @behavior selvedge.core.user_input.ready User input received while awaiting input is appended to history and followed by a model call request.
                 self.commit_user_message_and_request_model(message_text)
                     .await
             }
             WaitState::WaitingModelReply { .. } | WaitState::WaitingToolResult { .. } => {
-                // @behavior selvedge.core.user_input.busy User input received while work is in flight is queued in the database.
                 match queue_user_input(&self.db, &self.task_id, message_text, now()) {
                     Ok(_) => false,
                     Err(error) => self.stop_with_db_error(error).await,
@@ -375,7 +325,6 @@ impl TaskRuntimeActor {
     }
 
     async fn handle_model_reply(&mut self, envelope: ApiOutputEnvelope) -> bool {
-        // @constraint selvedge.core.model_reply.expected Model replies are accepted only while waiting for the matching task and model run id.
         let expected_model_run_id = match &self.wait_state {
             WaitState::WaitingModelReply { model_run_id } => model_run_id.clone(),
             WaitState::AwaitingUserInput | WaitState::WaitingToolResult { .. } => return false,
@@ -386,7 +335,6 @@ impl TaskRuntimeActor {
                 if correlation.task_id != self.task_id
                     || correlation.model_run_id != expected_model_run_id
                 {
-                    // @constraint selvedge.core.model_reply.stale Stale model replies leave runtime state unchanged.
                     return false;
                 }
                 let validated_tool_calls = if reply.tool_calls.is_empty() {
@@ -398,7 +346,6 @@ impl TaskRuntimeActor {
                     };
                     match validate_tool_calls(reply.tool_calls, &tool_manifest) {
                         Ok(tool_calls) => tool_calls,
-                        // @constraint selvedge.core.model_reply.tool_validation Invalid model tool calls stop the runtime with an internal error.
                         Err(message) => return self.stop_with_internal_error(&message).await,
                     }
                 };
@@ -406,7 +353,6 @@ impl TaskRuntimeActor {
                 if validated_tool_calls.is_empty() {
                     let Some(content) = reply.content.filter(|content| !content.trim().is_empty())
                     else {
-                        // @constraint selvedge.core.model_reply.terminal A successful model reply without tool calls must contain non-empty assistant text.
                         return self
                             .stop_with_internal_error("model reply has no terminal history node")
                             .await;
@@ -415,18 +361,14 @@ impl TaskRuntimeActor {
                         Ok(loaded) => !loaded.queued_inputs.is_empty(),
                         Err(error) => return self.stop_with_db_error(error).await,
                     };
-                    // @behavior selvedge.core.model_reply.persist Assistant model replies are persisted before queued input promotion decisions.
                     match append_assistant_message_and_drain_queue(
                         &self.db,
                         &self.task_id,
                         content,
                         now(),
                     ) {
-                        // @behavior selvedge.core.model_reply.queued A successful assistant reply followed by queued input immediately requests another model call.
                         Ok(_) if had_queued_inputs => self.request_model_call().await,
-                        // @behavior selvedge.core.model_reply.idle A successful assistant reply without queued input leaves the runtime awaiting user input.
                         Ok(_) => self.enter_awaiting_user_input_or_promote_queue().await,
-                        // @behavior selvedge.core.model_reply.db_error A database failure while appending an assistant reply emits a DbError exit notice and stops the runtime.
                         Err(error) => self.stop_with_db_error(error).await,
                     }
                 } else {
@@ -434,7 +376,6 @@ impl TaskRuntimeActor {
                         reply.content.filter(|content| !content.trim().is_empty());
                     match self.append_tool_calls(assistant_message_text, validated_tool_calls) {
                         Ok(mut pending_tool_calls) => {
-                            // @behavior selvedge.core.model_reply.tool_calls A successful model reply with tool calls persists the calls and dispatches the first tool execution.
                             let tool_call = pending_tool_calls
                                 .pop_front()
                                 .expect("validated tool calls cannot be empty here");
@@ -448,7 +389,6 @@ impl TaskRuntimeActor {
                 if correlation.task_id != self.task_id
                     || correlation.model_run_id != expected_model_run_id
                 {
-                    // @constraint selvedge.core.model_reply.failure_stale Stale model failures leave runtime state unchanged.
                     return false;
                 }
                 self.wait_state = WaitState::AwaitingUserInput;
@@ -458,7 +398,6 @@ impl TaskRuntimeActor {
                     now(),
                 ) {
                     Ok(node_id) => node_id.is_some(),
-                    // @behavior selvedge.core.model_failure.db_error A database failure while handling model failure emits a DbError exit notice and stops the runtime.
                     Err(error) => return self.stop_with_db_error(error).await,
                 };
                 if self
@@ -476,10 +415,8 @@ impl TaskRuntimeActor {
                     .await
                     .is_err()
                 {
-                    // @behavior selvedge.core.router_closed A closed router sender stops the runtime after the failed send.
                     return true;
                 }
-                // @behavior selvedge.core.model_failure A matching model failure publishes an error notice and either promotes queued input or awaits user input.
                 if promoted_queued_input {
                     self.request_model_call().await
                 } else {
@@ -490,7 +427,6 @@ impl TaskRuntimeActor {
     }
 
     async fn handle_tool_result(&mut self, result: ToolExecutionResult) -> bool {
-        // @constraint selvedge.core.tool_result.expected Tool results are accepted only while waiting for the matching task, tool run, function call, and tool name.
         let pending_tool_calls =
             match std::mem::replace(&mut self.wait_state, WaitState::AwaitingUserInput) {
                 WaitState::WaitingToolResult {
@@ -507,7 +443,6 @@ impl TaskRuntimeActor {
                 }
                 wait_state @ WaitState::WaitingToolResult { .. } => {
                     self.wait_state = wait_state;
-                    // @constraint selvedge.core.tool_result.stale Stale tool results leave runtime state unchanged.
                     return false;
                 }
                 wait_state @ (WaitState::AwaitingUserInput
@@ -517,7 +452,6 @@ impl TaskRuntimeActor {
                 }
             };
 
-        // @behavior selvedge.core.tool_result.persist Matching tool results are persisted as function output before subsequent work is dispatched.
         let append_result = append_function_output_and_drain_queue(
             &self.db,
             &self.task_id,
@@ -532,17 +466,14 @@ impl TaskRuntimeActor {
         );
         match append_result {
             Ok(_) => {
-                // @behavior selvedge.core.tool_result.success A matching tool result is appended as function output and followed by the next pending tool or a model call.
                 self.dispatch_next_tool_or_request_model(pending_tool_calls)
                     .await
             }
-            // @behavior selvedge.core.tool_result.db_error A database failure while appending tool output emits a DbError exit notice and stops the runtime.
             Err(error) => self.stop_with_db_error(error).await,
         }
     }
 
     async fn handle_archive(&mut self) -> bool {
-        // @behavior selvedge.core.archive Archive commands persist task archival, emit an Archived exit notice, and stop the runtime.
         match archive_task(&self.db, &self.task_id, now()) {
             Ok(()) => {
                 self.send_exit(TaskRuntimeExitReason::Archived).await;
@@ -554,9 +485,7 @@ impl TaskRuntimeActor {
 
     async fn commit_user_message_and_request_model(&mut self, message_text: String) -> bool {
         match self.append_user_message(message_text) {
-            // @behavior selvedge.core.user_input.persisted Persisted user input is followed by a model call request.
             Ok(()) => self.request_model_call().await,
-            // @behavior selvedge.core.user_input.db_error A database failure while appending user input emits a DbError exit notice and stops the runtime.
             Err(error) => self.stop_with_db_error(error).await,
         }
     }
@@ -567,13 +496,11 @@ impl TaskRuntimeActor {
     }
 
     async fn request_model_call(&mut self) -> bool {
-        // @behavior selvedge.core.model_request A model call request sends the selected conversation, tool manifest, provider profile, and correlation ids to the router.
         let conversation = match read_conversation_for_task(&self.db, &self.task_id) {
             Ok(conversation) => conversation,
             Err(error) => return self.stop_with_db_error(error).await,
         };
         if let Err(message) = validate_conversation_tool_pairs(&conversation) {
-            // @constraint selvedge.core.conversation.tool_pairs Model call dispatch requires every tool output in the conversation path to match a prior open tool call.
             return self.stop_with_internal_error(&message).await;
         }
         let tool_manifest = match read_tool_manifest_for_task(&self.db, &self.task_id) {
@@ -590,7 +517,6 @@ impl TaskRuntimeActor {
             .get(&loaded.task.model_profile_key)
             .cloned()
         else {
-            // @constraint selvedge.core.model_profile Configured tasks require a matching model profile before model dispatch.
             return self
                 .stop_with_internal_error("model profile key is not configured")
                 .await;
@@ -612,13 +538,11 @@ impl TaskRuntimeActor {
             .is_err()
     }
 
-    // @behavior selvedge.core.tool_calls.persist A model reply tool-call batch is persisted before the first tool execution is requested.
     fn append_tool_calls(
         &mut self,
         assistant_message_text: Option<String>,
         tool_calls: VecDeque<ValidatedToolCall>,
     ) -> Result<VecDeque<PendingToolCall>, DbError> {
-        // @behavior selvedge.core.tool_calls.persist_batch A model reply tool-call batch is persisted before the first tool execution is requested.
         // A model turn can emit several tool calls at once. Persist every call
         // from that turn in one DB transaction before any tool output so the
         // provider path keeps the reply batch as durable history.
@@ -650,13 +574,11 @@ impl TaskRuntimeActor {
         Ok(pending_tool_calls)
     }
 
-    // @behavior selvedge.core.tool_dispatch Tool execution requests include task id, tool run id, function call identity, tool name, and arguments.
     async fn dispatch_tool_call(
         &mut self,
         tool_call: PendingToolCall,
         pending_tool_calls: VecDeque<PendingToolCall>,
     ) -> bool {
-        // @behavior selvedge.core.tool_dispatch.request Tool execution requests include task id, tool run id, function call identity, tool name, and arguments.
         let tool_run_id = ToolExecutionRunId(format!("{}-tool-{}", self.task_id.0, Uuid::new_v4()));
         let request = ToolExecutionRequest {
             task_id: self.task_id.clone(),
@@ -676,12 +598,10 @@ impl TaskRuntimeActor {
             .is_err()
     }
 
-    // @behavior selvedge.core.tool_result.next Pending tool calls are dispatched before the runtime requests the next model call.
     async fn dispatch_next_tool_or_request_model(
         &mut self,
         mut pending_tool_calls: VecDeque<PendingToolCall>,
     ) -> bool {
-        // @behavior selvedge.core.tool_result.next_choice Pending tool calls are dispatched before the runtime requests the next model call.
         if let Some(tool_call) = pending_tool_calls.pop_front() {
             self.dispatch_tool_call(tool_call, pending_tool_calls).await
         } else {
@@ -690,7 +610,6 @@ impl TaskRuntimeActor {
     }
 
     async fn send_core(&self, message: CoreOutputMessage) -> Result<(), ()> {
-        // @behavior selvedge.core.router_output Runtime output is sent to the router as a Core envelope tagged with the task id.
         let Some(router_tx) = self.router_tx.upgrade() else {
             return Err(());
         };
@@ -703,7 +622,6 @@ impl TaskRuntimeActor {
     }
 
     async fn send_exit(&self, reason: TaskRuntimeExitReason) {
-        // @behavior selvedge.core.exit Runtime exits are sent to the router with the task id, control handle, and exit reason.
         let Some(router_tx) = self.router_tx.upgrade() else {
             return;
         };
@@ -728,7 +646,6 @@ impl TaskRuntimeActor {
 }
 
 fn conversation_to_path(conversation: selvedge_db::Conversation) -> ConversationPath {
-    // @behavior selvedge.core.conversation.path Persisted conversation items are converted into the model conversation path sent to providers.
     let messages = conversation
         .items
         .into_iter()
@@ -737,7 +654,6 @@ fn conversation_to_path(conversation: selvedge_db::Conversation) -> Conversation
     ConversationPath { messages }
 }
 
-// @constraint selvedge.core.conversation.tool_pair_validation Model call dispatch requires every tool output in the conversation path to match a prior open tool call.
 fn validate_conversation_tool_pairs(
     conversation: &selvedge_db::Conversation,
 ) -> Result<(), String> {
@@ -754,7 +670,6 @@ fn validate_conversation_tool_pairs(
                     .insert(function_call_id.0.clone(), tool_name.0.clone())
                     .is_some()
                 {
-                    // @constraint selvedge.core.conversation.duplicate_call Duplicate open tool call ids in a model conversation path are rejected before model dispatch.
                     return Err("conversation contains duplicate open tool call id".to_owned());
                 }
             }
@@ -765,13 +680,11 @@ fn validate_conversation_tool_pairs(
             } => {
                 let Some(expected_tool_name) = pending_tool_calls.remove(&function_call_id.0)
                 else {
-                    // @constraint selvedge.core.conversation.missing_call Tool output without a prior matching call is rejected before model dispatch.
                     return Err(
                         "conversation contains tool output without matching call".to_owned()
                     );
                 };
                 if expected_tool_name != tool_name.0 {
-                    // @constraint selvedge.core.conversation.mismatched_tool Tool output with a mismatched tool name is rejected before model dispatch.
                     return Err("conversation contains tool output with mismatched tool".to_owned());
                 }
             }
@@ -787,7 +700,6 @@ fn validate_conversation_tool_pairs(
     if pending_tool_calls.is_empty() {
         Ok(())
     } else {
-        // @constraint selvedge.core.conversation.open_call Conversation paths with open tool calls are rejected before model dispatch.
         Err("conversation contains tool call without matching output".to_owned())
     }
 }
@@ -866,7 +778,6 @@ fn argument_to_structured_payload(argument: ToolCallArgument) -> StructuredPaylo
     ]))
 }
 
-// @constraint selvedge.core.tool_calls.validate Model reply tool calls must have unique ids, enabled tool names, declared arguments, and convertible values.
 fn validate_tool_calls(
     tool_calls: Vec<ToolCallProposal>,
     tool_manifest: &ToolManifest,
@@ -879,7 +790,6 @@ fn validate_tool_calls(
     let mut validated = VecDeque::new();
     for tool_call in tool_calls {
         if !seen_call_ids.insert(tool_call.call_id.clone()) {
-            // @constraint selvedge.core.tool_calls.unique Duplicate tool call ids in a model reply stop the runtime with an internal error.
             return Err("model reply contains duplicate tool call id".to_owned());
         }
         let tool_name = ToolName(tool_call.tool_name);
@@ -894,7 +804,6 @@ fn validate_tool_calls(
     Ok(validated)
 }
 
-// @constraint selvedge.core.tool_args Tool call arguments must match the enabled task tool manifest before tool execution is requested.
 fn tool_call_arguments_from_payload(
     payload: StructuredPayload,
     tool_name: &ToolName,
@@ -905,11 +814,9 @@ fn tool_call_arguments_from_payload(
         .iter()
         .find(|tool| tool.name == tool_name.0)
     else {
-        // @constraint selvedge.core.tool_args.enabled Tool calls for tools absent from the task manifest are rejected before tool execution.
         return Err(format!("tool is not enabled for task: {}", tool_name.0));
     };
     let StructuredPayload::Object(arguments) = payload else {
-        // @constraint selvedge.core.tool_args.object Tool call arguments must be structured object payloads.
         return Err(format!("tool arguments must be an object: {}", tool_name.0));
     };
     for parameter in tool_spec
@@ -918,7 +825,6 @@ fn tool_call_arguments_from_payload(
         .filter(|parameter| parameter.required)
     {
         if !arguments.contains_key(&parameter.name) {
-            // @constraint selvedge.core.tool_args.required Required tool parameters must be present in a model reply tool call.
             return Err(format!(
                 "required tool argument is missing: {}.{}",
                 tool_name.0, parameter.name
@@ -934,14 +840,12 @@ fn tool_call_arguments_from_payload(
             .find(|parameter| parameter.name == name)
             .map(|parameter| &parameter.parameter_type)
         else {
-            // @constraint selvedge.core.tool_args.declared Tool call arguments must be declared by the enabled tool specification.
             return Err(format!(
                 "tool argument is not declared: {}.{}",
                 tool_name.0, name
             ));
         };
         let Some(value) = tool_argument_value_from_payload(value, parameter_type) else {
-            // @constraint selvedge.core.tool_args.type Tool call argument values must convert to the parameter type declared by the enabled tool specification.
             return Err(format!(
                 "tool argument value cannot be converted: {}.{}",
                 tool_name.0, name
@@ -955,7 +859,6 @@ fn tool_call_arguments_from_payload(
     Ok(converted)
 }
 
-// @constraint selvedge.core.tool_args.value Tool argument structured payload values convert only when they match the enabled parameter type.
 fn tool_argument_value_from_payload(
     payload: StructuredPayload,
     parameter_type: &ToolParameterType,

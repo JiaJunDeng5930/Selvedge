@@ -1,6 +1,4 @@
 #![doc = include_str!("../README.md")]
-//! @behavior selvedge.session An attached client receives an initial snapshot before subscribed task changes continue as ordered frames.
-//! @behavior selvedge.session.events_r2 Events processing preserves router-mediated client frame admission, filtering, and delivery behavior.
 
 use std::collections::{BTreeMap, HashMap};
 
@@ -13,47 +11,35 @@ use selvedge_command_model::{
 use tokio::sync::mpsc::{self, error::TrySendError};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-// @behavior selvedge.session.events_r2.start_args Starting the events task requires positive mailbox, client registry, and hydration buffer capacities.
 pub struct EventsStartArgs {
-    // @behavior selvedge.session.events_r2.start_args.ingress_capacity The ingress capacity controls how many router-mediated event messages can wait in the events mailbox.
     pub ingress_capacity: usize,
-    // @behavior selvedge.session.events_r2.start_args.client_registry_capacity The client registry capacity controls how many distinct client identifiers can be admitted at once.
     pub client_registry_capacity: usize,
-    // @behavior selvedge.session.events_r2.start_args.hydration_buffer_capacity The hydration buffer capacity controls how many subscribed raw events can wait behind a client's initial snapshot.
     pub hydration_buffer_capacity: usize,
 }
 
 #[derive(Debug)]
-// @behavior selvedge.session.events_r2.handle A started events task returns the ingress sender and join handle needed to submit events and observe task shutdown.
 pub struct EventsHandle {
-    // @behavior selvedge.session.events_r2.handle.ingress_sender The events handle exposes the ingress sender used by router-mediated producers.
     pub ingress_tx: EventIngressSender,
-    // @behavior selvedge.session.events_r2.handle.join The events handle exposes the join handle that resolves when the ingress mailbox closes and queued events finish.
     pub join_handle: tokio::task::JoinHandle<()>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-// @behavior selvedge.session.events_r2.spawn_error Events task startup reports which required capacity was zero.
 pub enum SpawnEventsError {
     InvalidIngressCapacity,
     InvalidClientRegistryCapacity,
     InvalidHydrationBufferCapacity,
 }
 
-// @behavior selvedge.session.events_r2.spawn Starting the events task validates capacities, opens the ingress mailbox, and processes router-mediated events until the mailbox closes.
 pub fn spawn_events_task(args: EventsStartArgs) -> Result<EventsHandle, SpawnEventsError> {
     if args.ingress_capacity == 0 {
-        // @constraint selvedge.session.events_r2.spawn.invalid_ingress Starting the events task returns InvalidIngressCapacity when the ingress mailbox capacity is zero.
         return Err(SpawnEventsError::InvalidIngressCapacity);
     }
 
     if args.client_registry_capacity == 0 {
-        // @constraint selvedge.session.events_r2.spawn.invalid_registry Starting the events task returns InvalidClientRegistryCapacity when the client registry capacity is zero.
         return Err(SpawnEventsError::InvalidClientRegistryCapacity);
     }
 
     if args.hydration_buffer_capacity == 0 {
-        // @constraint selvedge.session.events_r2.spawn.invalid_hydration_buffer Starting the events task returns InvalidHydrationBufferCapacity when the hydration buffer capacity is zero.
         return Err(SpawnEventsError::InvalidHydrationBufferCapacity);
     }
 
@@ -112,7 +98,6 @@ impl EventsTask {
         }
     }
 
-    // @behavior selvedge.session.events_r2.reserve Client session reservation admits distinct attach commands, reports duplicate or full-registry outcomes, and records reserved attach commands.
     fn reserve_client_session(&mut self, reservation: ReserveClientSession) {
         let ReserveClientSession {
             client_id,
@@ -150,7 +135,6 @@ impl EventsTask {
             EventClientReservationResult::Reserved
         };
 
-        // @constraint selvedge.session.events_r2.reserve.responder_closed A reserved client session is released when the reservation responder closes before receiving the reserved result.
         if result_tx.send(result.clone()).is_err()
             && result == EventClientReservationResult::Reserved
             && self
@@ -332,14 +316,12 @@ impl EventsTask {
 
         if let Some(begin) = self.pending_begins.remove(&(
             client_id.clone(),
-            // @behavior selvedge.session.events_r2.reserve.restore Releasing the current reservation restores the next hidden begin-hydration request for the same client.
             restored_command_id.expect("restored command id"),
         )) {
             self.install_begin_hydration(begin);
         }
     }
 
-    // @behavior selvedge.session.events_r2.remove_hidden_reservation Events detach handling removes a hidden attach reservation without changing the active client session.
     fn remove_hidden_reservation(
         &mut self,
         client_id: &ClientId,
@@ -429,7 +411,6 @@ impl ClientSession {
     fn send_frame(&self, frame: ClientFrame) -> Result<(), ()> {
         match self.outbound.try_send(frame) {
             Ok(()) => Ok(()),
-            // @behavior selvedge.session.events_r2.delivery_failure A full or closed client outbound channel is reported as delivery failure to session handling.
             Err(TrySendError::Full(_)) | Err(TrySendError::Closed(_)) => Err(()),
         }
     }
@@ -440,7 +421,6 @@ enum ClientSessionState {
     Live,
 }
 
-// @behavior selvedge.session.events_r2.client_event_for_subscription Events fanout converts raw task events into subscribed client events according to task scope and detail settings.
 fn client_event_for_subscription(
     raw: &RawEvent,
     subscription: &ClientSubscription,

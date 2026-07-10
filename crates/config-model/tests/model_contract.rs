@@ -7,15 +7,10 @@ use toml::Table;
 fn empty_table_materializes_to_valid_defaults() {
     let config = AppConfig::try_from(Table::new()).expect("materialize config");
 
-    // @verifies selvedge.config.model
     assert!(config.validate().is_ok());
-    // @verifies selvedge.config.model
     assert_eq!(config.network.connect_timeout_ms, None);
-    // @verifies selvedge.config.model
     assert_eq!(config.network.request_timeout_ms, None);
-    // @verifies selvedge.config.model
     assert_eq!(config.network.stream_idle_timeout_ms, None);
-    // @verifies selvedge.config.model.llm.defaults
     assert!(config.llm.providers.is_empty());
 }
 
@@ -33,7 +28,6 @@ fn unknown_fields_are_rejected() {
 
     let error = AppConfig::try_from(parsed).expect_err("unknown field should fail");
 
-    // @verifies selvedge.config.model
     assert!(error.to_string().contains("unknown field"));
 }
 
@@ -42,7 +36,6 @@ fn invalid_scalar_value_is_rejected() {
     let mut config = AppConfig::try_from(Table::new()).expect("materialize config");
     config.server.port = 0;
 
-    // @verifies selvedge.config.model
     assert_eq!(config.validate(), Err(ValidationError::InvalidPort));
 }
 
@@ -52,7 +45,6 @@ fn cross_field_constraint_is_rejected() {
     config.feature.enabled = true;
     config.feature.rollout_percentage = 0;
 
-    // @verifies selvedge.config.model
     assert_eq!(
         config.validate(),
         Err(ValidationError::EnabledFeatureRequiresRollout)
@@ -64,7 +56,6 @@ fn zero_network_timeout_is_rejected() {
     let mut config = AppConfig::try_from(Table::new()).expect("materialize config");
     config.network.request_timeout_ms = Some(0);
 
-    // @verifies selvedge.config.model
     assert_eq!(
         config.validate(),
         Err(ValidationError::InvalidNetworkRequestTimeout)
@@ -76,7 +67,6 @@ fn invalid_user_agent_is_rejected() {
     let mut config = AppConfig::try_from(Table::new()).expect("materialize config");
     config.network.user_agent = Some("bad\r\nvalue".to_owned());
 
-    // @verifies selvedge.config.model
     assert_eq!(
         config.validate(),
         Err(ValidationError::InvalidUserAgent("bad\r\nvalue".to_owned()))
@@ -104,16 +94,12 @@ fn provider_map_accepts_non_sensitive_provider_settings() {
         .get("chatgpt")
         .expect("chatgpt provider config");
 
-    // @verifies selvedge.config.model.llm.provider
     assert_eq!(
         provider.base_url.as_deref(),
         Some("https://example.com/backend-api/codex")
     );
-    // @verifies selvedge.config.model.llm.provider
     assert_eq!(provider.stream_completion_timeout_ms, Some(15_000));
-    // @verifies selvedge.config.model.llm.provider.models
     assert_eq!(provider.models, vec!["gpt-5", "gpt-5-codex"]);
-    // @verifies selvedge.config.model.llm.provider.settings
     assert_eq!(
         provider
             .settings
@@ -137,7 +123,6 @@ fn provider_base_url_accepts_uppercase_schemes() {
         .get("chatgpt")
         .expect("chatgpt provider config");
 
-    // @verifies selvedge.config.model.url.scheme
     assert_eq!(
         provider.base_url.as_deref(),
         Some("HTTPS://chatgpt.com/backend-api/codex")
@@ -153,7 +138,6 @@ fn provider_base_url_rejects_non_absolute_base_url() {
 
     let error = AppConfig::try_from(table).expect_err("relative base url must fail");
 
-    // @verifies selvedge.config.model.llm.provider.base_url
     assert_eq!(
         error.to_string(),
         "llm.providers.chatgpt.base_url must be an absolute http or https URL"
@@ -169,7 +153,6 @@ fn provider_base_url_rejects_non_loopback_http_base_url() {
 
     let error = AppConfig::try_from(table).expect_err("non-loopback http base url must fail");
 
-    // @verifies selvedge.config.model.url.scheme
     assert_eq!(
         error.to_string(),
         "llm.providers.chatgpt.base_url must use https unless it targets a loopback host"
@@ -192,12 +175,10 @@ fn provider_base_url_rejects_base_url_without_authority() {
     let relative_authority_error = AppConfig::try_from(relative_authority_table)
         .expect_err("base url with relative authority must fail");
 
-    // @verifies selvedge.config.model.llm.provider.base_url
     assert_eq!(
         missing_authority_error.to_string(),
         "llm.providers.chatgpt.base_url must be an absolute http or https URL"
     );
-    // @verifies selvedge.config.model.llm.provider.base_url
     assert_eq!(
         relative_authority_error.to_string(),
         "llm.providers.chatgpt.base_url must be an absolute http or https URL"
@@ -219,12 +200,10 @@ fn provider_base_url_rejects_base_url_with_query_or_fragment() {
     let fragment_error =
         AppConfig::try_from(fragment_table).expect_err("base url with fragment must fail");
 
-    // @verifies selvedge.config.model.llm.provider.base_url
     assert_eq!(
         query_error.to_string(),
         "llm.providers.chatgpt.base_url must be a clean base URL"
     );
-    // @verifies selvedge.config.model.llm.provider.base_url
     assert_eq!(
         fragment_error.to_string(),
         "llm.providers.chatgpt.base_url must be a clean base URL"
@@ -240,7 +219,6 @@ fn provider_rejects_zero_timeout() {
 
     let error = AppConfig::try_from(table).expect_err("zero timeout must fail");
 
-    // @verifies selvedge.config.model.llm.provider.timeout
     assert_eq!(
         error.to_string(),
         "llm.providers.chatgpt.stream_completion_timeout_ms must be greater than zero"
@@ -256,7 +234,6 @@ fn provider_rejects_blank_model_name() {
 
     let error = AppConfig::try_from(table).expect_err("blank model must fail");
 
-    // @verifies selvedge.config.model.llm.provider.models
     assert_eq!(
         error.to_string(),
         "llm.providers.manual.models must not contain blank model names"
@@ -272,7 +249,6 @@ fn provider_rejects_duplicate_model_name() {
 
     let error = AppConfig::try_from(table).expect_err("duplicate model must fail");
 
-    // @verifies selvedge.config.model.llm.provider.models
     assert_eq!(
         error.to_string(),
         "llm.providers.manual.models contains duplicate model \"claude\""
@@ -288,7 +264,6 @@ fn provider_rejects_invalid_provider_id() {
 
     let error = AppConfig::try_from(table).expect_err("invalid provider id must fail");
 
-    // @verifies selvedge.config.model.llm.provider
     assert_eq!(
         error.to_string(),
         "llm.providers contains invalid provider id \"bad/id\""

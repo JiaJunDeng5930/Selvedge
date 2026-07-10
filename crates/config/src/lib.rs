@@ -1,5 +1,4 @@
 #![doc = include_str!("../README.md")]
-//! @behavior selvedge.config Runtime components read a single active application config assembled from Selvedge home, persisted config, runtime updates, and environment overrides.
 
 use std::{
     env,
@@ -27,26 +26,20 @@ const SEARCH_HOME_PATTERNS: [&str; 4] = [
     "~/.selvedge",
 ];
 
-// @behavior selvedge.config.service.global The process stores the active runtime config service in one shared lock-protected slot.
 static CONFIG_SERVICE: LazyLock<RwLock<Option<ConfigService>>> =
     LazyLock::new(|| RwLock::new(None));
 
-// @behavior selvedge.config.init Default initialization selects or creates a Selvedge home and loads the effective config with process environment overrides.
 pub fn init() -> Result<(), ConfigError> {
-    // @behavior selvedge.config.init.call Default initialization calls CLI initialization with empty CLI overrides.
     init_with_cli::<PathBuf, _, _, _>(None, std::iter::empty::<(String, String)>())
 }
 
-// @behavior selvedge.config.init.home Explicit-home initialization uses the supplied Selvedge home directory as the config file location.
 pub fn init_with_home<P>(home: P) -> Result<(), ConfigError>
 where
     P: Into<PathBuf>,
 {
-    // @behavior selvedge.config.init.home.call Explicit-home initialization calls CLI initialization with the supplied home and empty CLI overrides.
     init_with_cli(Some(home), std::iter::empty::<(String, String)>())
 }
 
-// @behavior selvedge.config.init.cli CLI initialization loads persisted config, environment overrides, and CLI overrides into the singleton config service.
 pub fn init_with_cli<P, I, K, V>(
     explicit_home: Option<P>,
     cli_overrides: I,
@@ -57,8 +50,6 @@ where
     K: Into<String>,
     V: Into<String>,
 {
-    // @behavior selvedge.config.init.cli.call CLI initialization begins by selecting a Selvedge home source.
-    // @behavior selvedge.config.init.cli.home_source CLI initialization chooses explicit home, environment home, legacy-env error, searched home, or default home creation.
     let resolved_home = if let Some(home) = explicit_home {
         Some(resolve_explicit_home(home.into())?)
     } else if let Some(home) = env::var_os(CONFIG_HOME_ENV) {
@@ -82,19 +73,15 @@ where
     merge_tables(&mut merged_table, &env_table);
     merge_tables(&mut merged_table, &cli_table);
 
-    // @behavior selvedge.config.init.cli.validation CLI initialization returns load or validation errors before publishing the singleton config service.
     let base_config = AppConfig::try_from(merged_table).map_err(map_model_error)?;
-    // @behavior selvedge.config.init.cli.lock CLI initialization returns LoadFailed when the singleton config service lock is poisoned.
     let mut global = CONFIG_SERVICE
         .write()
         .map_err(|_| ConfigError::LoadFailed("config service lock poisoned".to_owned()))?;
 
-    // @constraint selvedge.config.init.once Initialization succeeds only once per process and later attempts return AlreadyInitialized.
     if global.is_some() {
         return Err(ConfigError::AlreadyInitialized);
     }
 
-    // @behavior selvedge.config.init.cli.default_home CLI initialization creates a default Selvedge home before publishing a config service when search selects no existing home.
     let selvedge_home = if should_create_default_home {
         create_default_home()?
     } else {
@@ -107,39 +94,30 @@ where
     Ok(())
 }
 
-// @behavior selvedge.config.read Reading config gives callers the current effective config after runtime updates.
 pub fn read<R, F>(reader: F) -> Result<R, ConfigError>
 where
     F: FnOnce(&AppConfig) -> R,
 {
-    // @behavior selvedge.config.read.call Reading config materializes the current effective config before invoking the caller reader.
     let config = materialize_current_config()?;
 
     Ok(reader(&config))
 }
 
-// @behavior selvedge.config.update_runtime Runtime updates change the current effective config and leave config.toml unchanged.
 pub fn update_runtime<V>(path: &str, value: V) -> Result<(), ConfigError>
 where
     V: Serialize,
 {
-    // @behavior selvedge.config.update_runtime.call Runtime update calls the shared update path with persistence disabled.
     apply_update(path, value, false)
 }
 
-// @behavior selvedge.config.update Runtime config update APIs validate dotted paths and values before changing caller-visible config state.
-// @behavior selvedge.config.update.persisted Persisted runtime updates change the current effective config and write the same update to config.toml.
 pub fn update_runtime_and_persist<V>(path: &str, value: V) -> Result<(), ConfigError>
 where
     V: Serialize,
 {
-    // @behavior selvedge.config.update_persist Persisted runtime updates change the current effective config and write the same update to config.toml.
     apply_update(path, value, true)
 }
 
-// @behavior selvedge.config.home Reading Selvedge home returns the selected canonical home directory after initialization.
 pub fn selvedge_home() -> Result<PathBuf, ConfigError> {
-    // @behavior selvedge.config.home.call Reading Selvedge home reads the selected canonical home directory from the active service.
     let global = CONFIG_SERVICE
         .read()
         .map_err(|_| ConfigError::LoadFailed("config service lock poisoned".to_owned()))?;
@@ -152,11 +130,8 @@ fn apply_update<V>(path: &str, value: V, persist: bool) -> Result<(), ConfigErro
 where
     V: Serialize,
 {
-    // @constraint selvedge.config.update.atomic Updates validate a candidate config before changing runtime state or persisted file state.
-    // @behavior selvedge.config.update.value_error Runtime updates return InvalidUpdateValue when the supplied value cannot serialize to TOML.
     let value = Value::try_from(value)
         .map_err(|error| ConfigError::InvalidUpdateValue(error.to_string()))?;
-    // @behavior selvedge.config.update.lock_error Runtime updates return LoadFailed when the singleton config service lock is poisoned.
     let mut global = CONFIG_SERVICE
         .write()
         .map_err(|_| ConfigError::LoadFailed("config service lock poisoned".to_owned()))?;
@@ -166,8 +141,6 @@ where
 }
 
 #[derive(Debug)]
-// @intent selvedge.config.service ConfigService stores the selected home, durable base config, and runtime-only patch for the active process.
-// @behavior selvedge.config.service.state The active config service exposes a base config, selected Selvedge home, and runtime patch to runtime config operations.
 struct ConfigService {
     base_config: OnceLock<AppConfig>,
     selvedge_home: OnceLock<PathBuf>,
@@ -176,7 +149,6 @@ struct ConfigService {
 
 impl ConfigService {
     fn new(base_config: AppConfig, selvedge_home: PathBuf) -> Self {
-        // @behavior selvedge.config.service.new A new config service starts with the loaded base config, selected home, and an empty runtime patch.
         let service = Self {
             base_config: OnceLock::new(),
             selvedge_home: OnceLock::new(),
@@ -184,17 +156,14 @@ impl ConfigService {
         };
 
         let base_config_set = service.base_config.set(base_config);
-        // @behavior selvedge.config.service.new.base A new config service stores the base config exactly once for later reads.
         base_config_set.expect("base config must be initialized exactly once");
         let selvedge_home_set = service.selvedge_home.set(selvedge_home);
-        // @behavior selvedge.config.service.new.home A new config service stores the selected home exactly once for later persistence.
         selvedge_home_set.expect("selvedge home must be initialized exactly once");
 
         service
     }
 
     fn materialize_config(&self) -> Result<AppConfig, ConfigError> {
-        // @behavior selvedge.config.service.materialize Current config materialization overlays the runtime patch onto the loaded base config.
         let mut merged_table = serialize_app_config(self.base_config())?;
         let runtime_patch = self
             .runtime_patch
@@ -207,7 +176,6 @@ impl ConfigService {
     }
 
     fn apply_update(&mut self, path: &str, value: Value, persist: bool) -> Result<(), ConfigError> {
-        // @behavior selvedge.config.service.update Applying an update validates the patched current config and optionally persists the update before committing runtime state.
         let mut candidate_patch = {
             let runtime_patch = self
                 .runtime_patch
@@ -219,7 +187,6 @@ impl ConfigService {
         apply_override(&mut candidate_patch, path, value.clone())?;
         self.materialize_candidate(&candidate_patch)?;
 
-        // @behavior selvedge.config.service.update.persist_flag The persist flag selects whether an accepted update is also written to config.toml.
         if persist {
             self.persist_update(path, value)?;
         }
@@ -227,7 +194,6 @@ impl ConfigService {
         let runtime_patch = self
             .runtime_patch
             .get_mut()
-            // @behavior selvedge.config.service.update.lock_error Runtime config updates report a load failure when the runtime patch lock is poisoned.
             .map_err(|_| ConfigError::LoadFailed("runtime patch lock poisoned".to_owned()))?;
         *runtime_patch = candidate_patch;
 
@@ -235,7 +201,6 @@ impl ConfigService {
     }
 
     fn materialize_candidate(&self, runtime_patch: &Table) -> Result<AppConfig, ConfigError> {
-        // @behavior selvedge.config.service.candidate Candidate materialization validates a proposed runtime patch against the loaded base config.
         let mut merged_table = serialize_app_config(self.base_config())?;
 
         merge_tables(&mut merged_table, runtime_patch);
@@ -244,7 +209,6 @@ impl ConfigService {
     }
 
     fn persist_update(&self, path: &str, value: Value) -> Result<(), ConfigError> {
-        // @behavior selvedge.config.service.persist Persisting an update applies it to the current durable config.toml contents and writes the validated result.
         let config_path = config_path_for_home(self.selvedge_home());
         let mut durable_table = load_file_table_if_exists(&config_path)?;
 
@@ -255,19 +219,16 @@ impl ConfigService {
 
     fn base_config(&self) -> &AppConfig {
         let base_config = self.base_config.get();
-        // @behavior selvedge.config.service.read_base Reading the base config before initialization reports the initialization invariant as a process error.
         base_config.expect("base config must be initialized before use")
     }
 
     fn selvedge_home(&self) -> &Path {
         let selvedge_home = self.selvedge_home.get();
-        // @behavior selvedge.config.service.read_home Reading the Selvedge home before initialization reports the initialization invariant as a process error.
         selvedge_home.expect("selvedge home must be initialized before use")
     }
 }
 
 #[derive(Debug, Error, PartialEq, Eq)]
-// @behavior selvedge.config.error Runtime config errors expose initialization, home selection, load, validation, update, and persistence failures to callers.
 pub enum ConfigError {
     #[error("config service has already been initialized")]
     AlreadyInitialized,
@@ -296,12 +257,10 @@ pub enum ConfigError {
 }
 
 fn resolve_explicit_home(home: PathBuf) -> Result<PathBuf, ConfigError> {
-    // @behavior selvedge.config.home.explicit Explicit homes are resolved as existing directories or InvalidExplicitHome errors.
     resolve_home(home, ConfigHomeSource::Explicit)
 }
 
 fn materialize_current_config() -> Result<AppConfig, ConfigError> {
-    // @behavior selvedge.config.current Current config materialization requires initialization and returns NotInitialized before init.
     let global = CONFIG_SERVICE
         .read()
         .map_err(|_| ConfigError::LoadFailed("config service lock poisoned".to_owned()))?;
@@ -311,14 +270,11 @@ fn materialize_current_config() -> Result<AppConfig, ConfigError> {
 }
 
 fn resolve_env_home(home: PathBuf) -> Result<PathBuf, ConfigError> {
-    // @behavior selvedge.config.home.env Environment-selected homes are resolved as existing directories or InvalidEnvHome errors.
     resolve_home(home, ConfigHomeSource::Environment)
 }
 
 fn resolve_search_home() -> Result<Option<PathBuf>, ConfigError> {
-    // @behavior selvedge.config.home.search Home search returns the first existing valid search candidate or None when no candidate exists.
     for home in search_home_candidates() {
-        // @behavior selvedge.config.home.search.skip_absent Home search skips candidates that are absent from the filesystem.
         if !home.exists() {
             continue;
         }
@@ -330,7 +286,6 @@ fn resolve_search_home() -> Result<Option<PathBuf>, ConfigError> {
 }
 
 fn search_home_candidates() -> Vec<PathBuf> {
-    // @behavior selvedge.config.home.candidates Search candidates are produced from the local workspace, XDG config home, and HOME paths in fixed order.
     let mut homes = Vec::with_capacity(SEARCH_HOME_PATTERNS.len());
 
     for pattern in SEARCH_HOME_PATTERNS {
@@ -359,7 +314,6 @@ fn search_home_candidates() -> Vec<PathBuf> {
 }
 
 fn load_file_table(path: Option<&Path>) -> Result<Table, ConfigError> {
-    // @behavior selvedge.config.file.load Loading a config file returns an empty table for None and LoadFailed for unreadable or invalid TOML files.
     let Some(path) = path else {
         return Ok(Table::new());
     };
@@ -371,9 +325,7 @@ fn load_file_table(path: Option<&Path>) -> Result<Table, ConfigError> {
         .map_err(|error| ConfigError::LoadFailed(format!("{path:?}: {error}")))
 }
 
-// @behavior selvedge.config.file Runtime config file helpers load, locate, create, write, and parent-select config.toml inside Selvedge home.
 fn load_file_table_if_exists(path: &Path) -> Result<Table, ConfigError> {
-    // @behavior selvedge.config.file.optional Loading config.toml returns an empty table when the file is absent.
     if path.exists() {
         return load_file_table(Some(path));
     }
@@ -382,26 +334,22 @@ fn load_file_table_if_exists(path: &Path) -> Result<Table, ConfigError> {
 }
 
 fn config_path_for_home(home: &Path) -> PathBuf {
-    // @behavior selvedge.config.file.path The persisted config file path is always config.toml inside the selected Selvedge home.
     home.join(CONFIG_FILE_NAME)
 }
 
 fn create_home_with_empty_config(selvedge_home: &Path) -> Result<PathBuf, ConfigError> {
-    // @behavior selvedge.config.home.create Creating a Selvedge home creates the directory, creates an empty config.toml when absent, and returns the canonical home.
     let config_path = config_path_for_home(selvedge_home);
 
     fs::create_dir_all(selvedge_home).map_err(|error| {
         ConfigError::LoadFailed(format!("{}: {error}", selvedge_home.display()))
     })?;
 
-    // @behavior selvedge.config.home.create.file Creating a Selvedge home creates an empty config.toml when the file is absent.
     if !config_path.exists() {
         fs::write(&config_path, "").map_err(|error| {
             ConfigError::LoadFailed(format!("{}: {error}", config_path.display()))
         })?;
     }
 
-    // @behavior selvedge.config.home.create.canonicalize Creating a Selvedge home returns LoadFailed when canonicalization fails.
     fs::canonicalize(selvedge_home).map_err(|_| {
         ConfigError::LoadFailed(format!(
             "{}: failed to canonicalize",
@@ -411,23 +359,19 @@ fn create_home_with_empty_config(selvedge_home: &Path) -> Result<PathBuf, Config
 }
 
 fn create_default_home() -> Result<PathBuf, ConfigError> {
-    // @behavior selvedge.config.home.default_create Default home creation tries default candidates until one can hold an empty config.toml.
     let mut last_error = None;
 
     for selvedge_home in default_home_candidates() {
         match create_home_with_empty_config(&selvedge_home) {
             Ok(home) => return Ok(home),
-            // @behavior selvedge.config.home.default_create.failure Default home creation records the latest creation failure and tries the next candidate.
             Err(error) => last_error = Some(error),
         }
     }
 
-    // @behavior selvedge.config.home.default_create.exhausted Default home creation returns the latest creation error or InvalidSearchedHome after all candidates fail.
     Err(last_error.unwrap_or_else(|| ConfigError::InvalidSearchedHome(PathBuf::from(".selvedge"))))
 }
 
 fn select_default_home_candidate() -> PathBuf {
-    // @behavior selvedge.config.home.default_select Default home selection returns the first default candidate path before it is created.
     default_home_candidates()
         .into_iter()
         .next()
@@ -435,7 +379,6 @@ fn select_default_home_candidate() -> PathBuf {
 }
 
 fn default_home_candidates() -> Vec<PathBuf> {
-    // @behavior selvedge.config.home.default_candidates Default home candidates prefer existing local and user homes before fallback local home paths.
     let mut homes = Vec::new();
     let local_home = env::current_dir()
         .map(|current_dir| current_dir.join(".selvedge"))
@@ -470,7 +413,6 @@ fn default_home_candidates() -> Vec<PathBuf> {
 }
 
 fn resolve_home(home: PathBuf, source: ConfigHomeSource) -> Result<PathBuf, ConfigError> {
-    // @constraint selvedge.config.home.valid Selected homes must exist, be directories, and canonicalize successfully.
     if !home.exists() {
         return Err(source.invalid_home(home));
     }
@@ -489,7 +431,6 @@ enum ConfigHomeSource {
 
 impl ConfigHomeSource {
     fn invalid_home(&self, home: PathBuf) -> ConfigError {
-        // @behavior selvedge.config.home.error Home source errors preserve whether the invalid home came from explicit input, environment, or search.
         match self {
             Self::Explicit => ConfigError::InvalidExplicitHome(home),
             Self::Environment => ConfigError::InvalidEnvHome(home),
@@ -499,7 +440,6 @@ impl ConfigHomeSource {
 }
 
 fn load_env_table() -> Result<Table, ConfigError> {
-    // @behavior selvedge.config.env Runtime environment overrides are loaded from SELVEDGE_APP-prefixed process environment variables.
     load_env_table_from_entries(env::vars_os())
 }
 
@@ -507,12 +447,10 @@ fn load_env_table_from_entries<I>(entries: I) -> Result<Table, ConfigError>
 where
     I: IntoIterator<Item = (OsString, OsString)>,
 {
-    // @behavior selvedge.config.env.entries Environment override entries map double-underscore suffixes to dotted config paths and parse TOML-like values.
     let normalized_prefix = format!("{}_", CONFIG_ENV_PREFIX);
     let mut table = Table::new();
 
     for (key, raw_value) in entries {
-        // @constraint selvedge.config.env.entries.utf8 Environment override keys and values must be UTF-8 before they can affect the effective config.
         let Ok(key) = key.into_string() else {
             continue;
         };
@@ -520,13 +458,11 @@ where
             continue;
         };
 
-        // @behavior selvedge.config.env.entries.prefix Environment variables outside the SELVEDGE_APP prefix leave the effective config unchanged.
         if !key.starts_with(&normalized_prefix) {
             continue;
         }
 
         let suffix = &key[normalized_prefix.len()..];
-        // @constraint selvedge.config.env.entries.nonempty_suffix Environment override keys require a nonempty path suffix before they can affect the effective config.
         if suffix.is_empty() {
             continue;
         }
@@ -536,7 +472,6 @@ where
             .map(str::to_ascii_lowercase)
             .collect::<Vec<_>>()
             .join(".");
-        // @behavior selvedge.config.env.entries.parse_error Environment override loading reports LoadFailed when TOML-like value parsing fails.
         let value = parse_toml_like_value(&raw_value)
             .map_err(|error| ConfigError::LoadFailed(error.to_string()))?;
 
@@ -546,14 +481,12 @@ where
     Ok(table)
 }
 
-// @behavior selvedge.config.cli Runtime CLI overrides are converted from caller-provided path and value entries.
 fn load_cli_table<I, K, V>(entries: I) -> Result<Table, ConfigError>
 where
     I: IntoIterator<Item = (K, V)>,
     K: Into<String>,
     V: Into<String>,
 {
-    // @behavior selvedge.config.cli.entries CLI override entries map dotted config paths to TOML-like values.
     let mut table = Table::new();
 
     for (path, raw_value) in entries {
@@ -567,9 +500,7 @@ where
     Ok(table)
 }
 
-// @behavior selvedge.config.value Runtime config value parsing converts environment and CLI strings into TOML values exposed through config updates.
 fn parse_toml_like_value(raw: &str) -> Result<Value, toml::de::Error> {
-    // @behavior selvedge.config.value.parse TOML-like value parsing returns a TOML scalar or falls back to a string value.
     let wrapped = format!("value = {raw}");
 
     match toml::from_str::<Table>(&wrapped) {
@@ -581,10 +512,8 @@ fn parse_toml_like_value(raw: &str) -> Result<Value, toml::de::Error> {
 }
 
 fn apply_override(table: &mut Table, path: &str, value: Value) -> Result<(), ConfigError> {
-    // @behavior selvedge.config.override Applying an override writes a value at a nonempty dotted path and creates intermediate tables.
     let segments = path.split('.').collect::<Vec<_>>();
 
-    // @constraint selvedge.config.override.path Override paths must contain nonempty dotted segments.
     if segments.is_empty() || segments.iter().any(|segment| segment.is_empty()) {
         return Err(ConfigError::InvalidUpdatePath(path.to_owned()));
     }
@@ -598,7 +527,6 @@ fn apply_override(table: &mut Table, path: &str, value: Value) -> Result<(), Con
         current = match entry {
             Value::Table(next) => next,
             _ => {
-                // @behavior selvedge.config.override.replace_table Applying an override replaces a non-table intermediate value with a table for the requested path.
                 *entry = Value::Table(Table::new());
                 match entry {
                     Value::Table(next) => next,
@@ -614,7 +542,6 @@ fn apply_override(table: &mut Table, path: &str, value: Value) -> Result<(), Con
 }
 
 fn merge_tables(base: &mut Table, patch: &Table) {
-    // @behavior selvedge.config.merge Table merge recursively merges nested tables and replaces scalar or mismatched values.
     for (key, patch_value) in patch {
         match (base.get_mut(key), patch_value) {
             (Some(Value::Table(base_table)), Value::Table(patch_table)) => {
@@ -628,13 +555,11 @@ fn merge_tables(base: &mut Table, patch: &Table) {
 }
 
 fn serialize_app_config(config: &AppConfig) -> Result<Table, ConfigError> {
-    // @behavior selvedge.config.serialize AppConfig serialization returns a TOML table or LoadFailed when serialization cannot produce a table.
     let value =
         Value::try_from(config).map_err(|error| ConfigError::LoadFailed(error.to_string()))?;
 
     match value {
         Value::Table(table) => Ok(table),
-        // @constraint selvedge.config.serialize.table AppConfig serialization must produce a table for runtime config persistence.
         _ => Err(ConfigError::LoadFailed(
             "app config must serialize to a table".to_owned(),
         )),
@@ -642,24 +567,19 @@ fn serialize_app_config(config: &AppConfig) -> Result<Table, ConfigError> {
 }
 
 fn write_config_file(path: &Path, table: &Table) -> Result<(), ConfigError> {
-    // @behavior selvedge.config.file.write Writing config.toml pretty-serializes the table, syncs a temporary file, and atomically persists it to the target path.
     let rendered = toml::to_string_pretty(table)
         .map_err(|error| ConfigError::PersistFailed(error.to_string()))?;
     let parent = persistence_directory(path);
 
-    // @behavior selvedge.config.file.write.parent Writing config.toml creates the persistence parent directory or returns PersistFailed.
     fs::create_dir_all(parent).map_err(|error| ConfigError::PersistFailed(error.to_string()))?;
 
     let mut temp_file = NamedTempFile::new_in(parent)
         .map_err(|error| ConfigError::PersistFailed(error.to_string()))?;
 
     let write_result = temp_file.write_all(rendered.as_bytes());
-    // @behavior selvedge.config.file.write.bytes Writing config.toml writes the pretty TOML bytes to the temporary file or returns PersistFailed.
     write_result.map_err(|error| ConfigError::PersistFailed(error.to_string()))?;
     let sync_result = temp_file.as_file().sync_all();
-    // @behavior selvedge.config.file.write.sync Writing config.toml syncs the temporary file before persistence or returns PersistFailed.
     sync_result.map_err(|error| ConfigError::PersistFailed(error.to_string()))?;
-    // @behavior selvedge.config.file.write.persist Writing config.toml persists the temporary file to the target path or returns PersistFailed.
     temp_file.persist(path).map_err(|error| {
         ConfigError::PersistFailed(format!("{}: {}", path.display(), error.error))
     })?;
@@ -668,14 +588,12 @@ fn write_config_file(path: &Path, table: &Table) -> Result<(), ConfigError> {
 }
 
 fn persistence_directory(path: &Path) -> &Path {
-    // @behavior selvedge.config.file.parent Persistence uses the config file parent directory or the current directory for bare relative paths.
     path.parent()
         .filter(|parent| !parent.as_os_str().is_empty())
         .unwrap_or_else(|| Path::new("."))
 }
 
 fn map_model_error(error: AppConfigError) -> ConfigError {
-    // @behavior selvedge.config.model_error Config model deserialization errors map to LoadFailed and validation errors map to ValidationFailed.
     match error {
         AppConfigError::Deserialize(error) => ConfigError::LoadFailed(error.to_string()),
         AppConfigError::Validation(error) => ConfigError::ValidationFailed(error.to_string()),
@@ -684,7 +602,6 @@ fn map_model_error(error: AppConfigError) -> ConfigError {
 
 #[cfg(test)]
 fn reset_for_test() {
-    // @behavior selvedge.config.test_reset Test reset clears the singleton config service for isolated runtime config tests.
     let mut global = CONFIG_SERVICE
         .write()
         .expect("config service lock must not be poisoned");
@@ -725,9 +642,7 @@ mod tests {
             .and_then(Value::as_table)
             .expect("server table");
 
-        // @verifies selvedge.config.env.entries
         assert_eq!(server.get("port"), Some(&Value::Integer(7200)));
-        // @verifies selvedge.config.env.entries
         assert_eq!(
             server.get("host"),
             Some(&Value::String("api.internal".to_owned()))
@@ -756,9 +671,7 @@ mod tests {
             .and_then(Value::as_table)
             .expect("server table");
 
-        // @verifies selvedge.config.env.entries
         assert_eq!(server.get("port"), Some(&Value::Integer(7200)));
-        // @verifies selvedge.config.env.entries
         assert!(server.get("host").is_none());
     }
 
@@ -769,7 +682,6 @@ mod tests {
 
         let error = crate::read(|config| config.server.port).expect_err("must fail before init");
 
-        // @verifies selvedge.config.current
         assert_eq!(error, ConfigError::NotInitialized);
     }
 
@@ -786,7 +698,6 @@ mod tests {
 
         let port = crate::read(|config| config.server.port).expect("read default config");
 
-        // @verifies selvedge.config.file.optional
         assert_eq!(port, 8080);
     }
 
@@ -794,7 +705,6 @@ mod tests {
     fn bare_relative_config_path_uses_current_directory_for_persistence() {
         let parent = persistence_directory(Path::new("config.toml"));
 
-        // @verifies selvedge.config.file.parent
         assert_eq!(parent, Path::new("."));
     }
 
@@ -823,7 +733,6 @@ request_timeout_ms = 5000
         let error = crate::update_runtime("feature..enabled", true)
             .expect_err("malformed path should fail");
 
-        // @verifies selvedge.config.override.path
         assert_eq!(
             error,
             ConfigError::InvalidUpdatePath("feature..enabled".to_owned())
@@ -858,7 +767,6 @@ request_timeout_ms = 5000
             .try_write()
             .expect("global config lock should be released after materializing");
 
-        // @verifies selvedge.config.service.materialize
         assert_eq!(config.server.port, 8080);
         drop(write_guard);
     }
@@ -911,11 +819,8 @@ format = "text"
         let drifted_home = moved_dir.join(relative_home);
         let drifted_path = drifted_home.join("config.toml");
 
-        // @verifies selvedge.config.home.explicit
         assert!(persisted.contains("level = \"debug\""));
-        // @verifies selvedge.config.home.explicit
         assert_ne!(drifted_path, config_path);
-        // @verifies selvedge.config.home.explicit
         assert!(!drifted_path.exists());
     }
 
@@ -977,7 +882,6 @@ request_timeout_ms = 5000
 
         let persisted = std::fs::read_to_string(&config_path).expect("read persisted config");
 
-        // @verifies selvedge.config.home.search
         assert!(persisted.contains("level = \"debug\""));
     }
 
@@ -994,7 +898,6 @@ request_timeout_ms = 5000
             .expect("initialize cli-only config");
             let config_path = config_path_for_home(&selected_home);
 
-            // @verifies selvedge.config.home.default_create
             assert!(
                 config_path.exists(),
                 "config file should exist after cli-only init"
@@ -1024,7 +927,6 @@ request_timeout_ms = 5000
             .output()
             .expect("run cli-only child test");
 
-        // @verifies selvedge.config.home.default_create
         assert!(output.status.success(), "child test failed: {output:?}");
     }
 
@@ -1043,12 +945,10 @@ request_timeout_ms = 5000
 
             crate::update_runtime_and_persist("logging.level", "debug").expect("persist update");
 
-            // @verifies selvedge.config.update_persist
             assert!(
                 config_path.is_file(),
                 "persisted config missing at reported home"
             );
-            // @verifies selvedge.config.home
             assert_eq!(
                 crate::selvedge_home().expect("read selected home after persist"),
                 original_home
@@ -1078,7 +978,6 @@ request_timeout_ms = 5000
             .output()
             .expect("run cli-only persist child test");
 
-        // @verifies selvedge.config.update_persist
         assert!(output.status.success(), "child test failed: {output:?}");
     }
 
@@ -1102,7 +1001,6 @@ request_timeout_ms = 5000
             let expected_xdg_home = PathBuf::from(xdg_home).join("selvedge");
             let expected_home_home =
                 PathBuf::from(env::var_os("HOME").expect("home")).join(".selvedge");
-            // @verifies selvedge.config.home.default_create
             assert!(
                 selected_home == expected_xdg_home || selected_home == expected_home_home,
                 "selected home should be xdg fallback ({}) or home ({}) when elevated privileges bypass readonly bits; got {}",
@@ -1136,7 +1034,6 @@ request_timeout_ms = 5000
             .output()
             .expect("run writable fallback child test");
 
-        // @verifies selvedge.config.home.default_create
         assert!(output.status.success(), "child test failed: {output:?}");
     }
 
@@ -1170,12 +1067,10 @@ level = "info"
         let selected_home = crate::selvedge_home().expect("read selected home");
         let persisted = std::fs::read_to_string(&config_path).expect("read recreated config");
 
-        // @verifies selvedge.config.home
         assert_eq!(
             selected_home,
             std::fs::canonicalize(&config_home).expect("canonicalize config home")
         );
-        // @verifies selvedge.config.service.persist
         assert!(persisted.contains("level = \"debug\""));
     }
 
@@ -1202,9 +1097,7 @@ level = "info"
         let expected_home =
             std::fs::canonicalize(work_dir.join(".selvedge")).expect("canonicalize home");
 
-        // @verifies selvedge.config.home.create
         assert_eq!(bootstrapped_home, expected_home);
-        // @verifies selvedge.config.home.create
         assert!(!moved_dir.join(".selvedge").exists());
     }
 
@@ -1215,7 +1108,6 @@ level = "info"
 
         let error = crate::selvedge_home().expect_err("must fail before init");
 
-        // @verifies selvedge.config.home
         assert_eq!(error, ConfigError::NotInitialized);
     }
 
@@ -1243,7 +1135,6 @@ request_timeout_ms = 5000
 
         let selected_home = crate::selvedge_home().expect("read selected home");
 
-        // @verifies selvedge.config.home
         assert_eq!(
             selected_home,
             std::fs::canonicalize(&config_home).expect("canonicalize config home")

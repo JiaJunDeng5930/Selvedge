@@ -6,7 +6,6 @@ use selvedge_model_providers::{
 use std::collections::BTreeMap;
 
 #[tokio::test]
-// @verifies selvedge.model.providers.list.built_in.models
 async fn built_in_provider_is_configured_when_matching_credential_exists() {
     let tempdir = tempfile::TempDir::new().expect("tempdir");
     let registry = ProviderRegistry::new(vec![ProviderDescriptor {
@@ -32,16 +31,12 @@ async fn built_in_provider_is_configured_when_matching_credential_exists() {
         .await
         .expect("list models");
 
-    // @verifies selvedge.model.providers.list.built_in.models
     assert_eq!(listings.len(), 1);
-    // @verifies selvedge.model.providers.list.built_in.models
     assert_eq!(listings[0].provider_id, "chatgpt");
-    // @verifies selvedge.model.providers.list.built_in.models
     assert_eq!(listings[0].models, vec!["gpt-5", "gpt-5-codex"]);
 }
 
 #[tokio::test]
-// @verifies selvedge.model.providers.list.configured.models
 async fn configured_provider_requires_matching_credential_and_config_models() {
     let tempdir = tempfile::TempDir::new().expect("tempdir");
     let registry = ProviderRegistry::new(vec![ProviderDescriptor {
@@ -78,24 +73,17 @@ async fn configured_provider_requires_matching_credential_and_config_models() {
         .await
         .expect("list models");
 
-    // @verifies selvedge.model.providers.list.configured.models
     assert_eq!(listings.len(), 1);
-    // @verifies selvedge.model.providers.list.configured.models
     assert_eq!(listings[0].provider_id, "anthropic");
-    // @verifies selvedge.model.providers.list.configured.models
     assert_eq!(listings[0].models, vec!["claude-sonnet-4"]);
 }
 
 #[test]
-// @verifies selvedge.model.providers.default_registry.executable
 fn default_registry_exposes_only_executable_providers() {
     let registry = default_registry();
 
-    // @verifies selvedge.model.providers.default_registry.executable
     assert!(registry.descriptor("chatgpt").is_some());
-    // @verifies selvedge.model.providers.default_registry.executable
     assert!(registry.descriptor("anthropic").is_none());
-    // @verifies selvedge.model.providers.default_registry.executable
     assert!(registry.descriptor("openai").is_none());
 }
 

@@ -1,7 +1,4 @@
 #![doc = include_str!("../README.md")]
-//! @behavior selvedge.operations.logging Project logging emits filtered structured stderr lines and typed errors through a single runtime.
-//! @behavior selvedge.operations.logging.emit Project log emission writes filtered structured log lines with callsite metadata through the initialized logging runtime.
-//! @behavior selvedge.operations.logging.runtime Logging preserves filtered structured output, caller metadata, and typed error behavior.
 
 use std::{
     fmt::Display,
@@ -15,17 +12,13 @@ use selvedge_config_model::LogFilter;
 static RUNTIME: LazyLock<RwLock<RuntimeState>> =
     LazyLock::new(|| RwLock::new(RuntimeState::Uninitialized));
 
-// @behavior selvedge.operations.logging.runtime.init Logging initialization installs the stderr runtime after configuration is readable.
 pub fn init() -> Result<(), InitError> {
     validate_config_ready()?;
     let mut runtime = RUNTIME
-        // @behavior selvedge.operations.logging.runtime.init.lock Logging initialization reports a runtime lock error when the runtime write lock is poisoned.
         .write()
-        // @behavior selvedge.operations.logging.runtime.init.lock_poisoned Logging initialization maps a poisoned runtime write lock into InitError::RuntimeLockPoisoned.
         .map_err(|_| InitError::RuntimeLockPoisoned)?;
 
     if matches!(*runtime, RuntimeState::Initialized(_)) {
-        // @behavior selvedge.operations.logging.runtime.init.already_initialized Logging initialization returns AlreadyInitialized when a runtime is already installed.
         return Err(InitError::AlreadyInitialized);
     }
 
@@ -35,10 +28,8 @@ pub fn init() -> Result<(), InitError> {
 }
 
 #[derive(Debug)]
-// @behavior selvedge.operations.logging.runtime.init_error Logging initialization failures are reported as typed InitError values.
 pub enum InitError {
     AlreadyInitialized,
-    // @behavior selvedge.operations.logging.runtime.init_error.read_config Logging initialization preserves configuration read failures inside InitError::ReadConfig.
     ReadConfig(selvedge_config::ConfigError),
     RuntimeLockPoisoned,
 }
@@ -46,7 +37,6 @@ pub enum InitError {
 impl Display for InitError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            // @behavior selvedge.operations.logging.runtime.init_error.already_initialized_message AlreadyInitialized displays a stable human-readable initialization error message.
             Self::AlreadyInitialized => formatter.write_str("logging has already been initialized"),
             Self::ReadConfig(error) => {
                 write!(
@@ -54,7 +44,6 @@ impl Display for InitError {
                     "failed to read logging config during init: {error}"
                 )
             }
-            // @behavior selvedge.operations.logging.runtime.init_error.runtime_lock_message RuntimeLockPoisoned displays a stable human-readable runtime lock error message.
             Self::RuntimeLockPoisoned => formatter.write_str("logging runtime lock poisoned"),
         }
     }
@@ -69,16 +58,12 @@ impl From<selvedge_config::ConfigError> for InitError {
 }
 
 #[derive(Debug)]
-// @behavior selvedge.operations.logging.runtime.emit_error Log emission failures are reported as typed EmitError values.
 pub enum EmitError {
-    // @behavior selvedge.operations.logging.runtime.emit_error.read_config Log emission preserves configuration read failures inside EmitError::ReadConfig.
     ReadConfig(selvedge_config::ConfigError),
     NotInitialized,
-    // @behavior selvedge.operations.logging.runtime.emit_error.reserved_field Log emission rejects caller fields that reuse reserved structured log keys.
     ReservedFieldName(String),
     RuntimeLockPoisoned,
     OutputLockPoisoned,
-    // @behavior selvedge.operations.logging.runtime.emit_error.write Log emission preserves stderr write failures inside EmitError::Write.
     Write(io::Error),
 }
 
@@ -86,7 +71,6 @@ impl Display for EmitError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::ReadConfig(error) => write!(formatter, "failed to read logging config: {error}"),
-            // @behavior selvedge.operations.logging.runtime.emit_error.not_initialized_message NotInitialized displays a stable human-readable missing runtime error message.
             Self::NotInitialized => formatter.write_str("logging has not been initialized"),
             Self::ReservedFieldName(field_name) => {
                 write!(
@@ -94,9 +78,7 @@ impl Display for EmitError {
                     "reserved log field name is not allowed: {field_name}"
                 )
             }
-            // @behavior selvedge.operations.logging.runtime.emit_error.runtime_lock_message RuntimeLockPoisoned displays a stable human-readable runtime lock error message.
             Self::RuntimeLockPoisoned => formatter.write_str("logging runtime lock poisoned"),
-            // @behavior selvedge.operations.logging.runtime.emit_error.output_lock_message OutputLockPoisoned displays a stable human-readable output lock error message.
             Self::OutputLockPoisoned => formatter.write_str("logging output lock poisoned"),
             Self::Write(error) => write!(formatter, "failed to write log output: {error}"),
         }
@@ -112,7 +94,6 @@ impl From<selvedge_config::ConfigError> for EmitError {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-// @behavior selvedge.operations.logging.runtime.level Log levels define the ordered severity values used by filtering and rendered output.
 pub enum LogLevel {
     Trace,
     Debug,
@@ -157,7 +138,6 @@ impl LogLevel {
     }
 }
 
-// @behavior selvedge.operations.logging.runtime.filter Log filtering compares event severity against the current default or longest matching module override.
 fn should_emit(level: LogLevel, module_path: &str) -> Result<bool, EmitError> {
     read(|config| {
         let minimum_level = effective_filter_for_module(
@@ -168,7 +148,6 @@ fn should_emit(level: LogLevel, module_path: &str) -> Result<bool, EmitError> {
 
         level.meets_filter(minimum_level)
     })
-    // @behavior selvedge.operations.logging.runtime.filter.config_error Log filtering returns a typed emit error when the current configuration cannot be read.
     .map_err(EmitError::from)
 }
 
@@ -192,7 +171,6 @@ fn matches_module_override(module_path: &str, prefix: &str) -> bool {
             .is_some_and(|suffix| suffix.starts_with("::"))
 }
 
-// @behavior selvedge.operations.logging.emit.lazy Lazy log emission evaluates message and fields only after the active filters allow the event.
 pub fn emit_lazy<MessageFn, FieldsFn>(
     level: LogLevel,
     module_path: &'static str,
@@ -200,12 +178,9 @@ pub fn emit_lazy<MessageFn, FieldsFn>(
     line: u32,
     message_fn: MessageFn,
     fields_fn: FieldsFn,
-    // @behavior selvedge.operations.logging.emit.result Lazy log emission returns success, a typed filtering error, a validation error, or a sink write error to the caller.
 ) -> Result<(), EmitError>
 where
-    // @behavior selvedge.operations.logging.emit.message_factory The log message factory supplies the rendered message after filtering accepts the event.
     MessageFn: FnOnce() -> String,
-    // @behavior selvedge.operations.logging.emit.fields_factory The log fields factory supplies structured fields after filtering accepts the event.
     FieldsFn: FnOnce() -> Vec<(String, String)>,
 {
     let sink = current_sink()?;
@@ -226,7 +201,6 @@ where
         fields,
     };
 
-    // @behavior selvedge.operations.logging.emit.sink_write Accepted log events are sent to the installed sink with level, message, callsite, and validated fields.
     sink.write(event)
 }
 
@@ -265,11 +239,9 @@ macro_rules! selvedge_log {
 
 enum RuntimeState {
     Uninitialized,
-    // @intent selvedge.operations.logging.runtime.installed_sink The initialized runtime stores the single sink used by subsequent project log emission.
     Initialized(Arc<dyn EventSink>),
 }
 
-// @intent selvedge.operations.logging.runtime.sink_trait The event sink abstraction lets production stderr output and tests share the same log emission contract.
 trait EventSink: Send + Sync {
     fn write(&self, event: LogEvent) -> Result<(), EmitError>;
 }
@@ -288,35 +260,27 @@ impl Default for StderrSink {
 
 impl EventSink for StderrSink {
     fn write(&self, event: LogEvent) -> Result<(), EmitError> {
-        // @behavior selvedge.operations.logging.runtime.stderr_write Project log emission writes one rendered line to stderr or returns a write-related logging error.
         let mut writer = self
             .writer
             .lock()
-            // @behavior selvedge.operations.logging.runtime.stderr_write.output_lock Stderr log writing returns OutputLockPoisoned when the stderr mutex is poisoned.
             .map_err(|_| EmitError::OutputLockPoisoned)?;
         let rendered = render_event(&event);
 
-        // @behavior selvedge.operations.logging.runtime.stderr_write.write_error Stderr log writing maps write failures into EmitError::Write.
         writeln!(writer, "{rendered}").map_err(EmitError::Write)
     }
 }
 
-// @behavior selvedge.operations.logging.runtime.config_ready Logging initialization checks that the current configuration can be read before installing a sink.
 fn validate_config_ready() -> Result<(), InitError> {
     read(|config| {
         let _ = config.logging.level;
     })
-    // @behavior selvedge.operations.logging.runtime.config_ready.error Logging initialization maps unreadable configuration into InitError::ReadConfig.
     .map_err(InitError::from)
 }
 
-// @intent selvedge.operations.logging.runtime.current_sink The current sink lookup exposes the installed runtime sink to each log emission.
 fn current_sink() -> Result<Arc<dyn EventSink>, EmitError> {
-    // @behavior selvedge.operations.logging.runtime.current_sink.lock_error Current sink lookup returns RuntimeLockPoisoned when the runtime read lock is poisoned.
     let runtime = RUNTIME.read().map_err(|_| EmitError::RuntimeLockPoisoned)?;
 
     match &*runtime {
-        // @behavior selvedge.operations.logging.runtime.current_sink.missing Current sink lookup returns NotInitialized when no runtime has been installed.
         RuntimeState::Uninitialized => Err(EmitError::NotInitialized),
         RuntimeState::Initialized(sink) => Ok(sink.clone()),
     }
@@ -345,7 +309,6 @@ fn render_event(event: &LogEvent) -> String {
 fn validate_field_names(fields: &[(String, String)]) -> Result<(), EmitError> {
     for (field_name, _) in fields {
         if is_reserved_field_name(field_name) {
-            // @behavior selvedge.operations.logging.emit.reserved_field_error Reserved structured field names return EmitError::ReservedFieldName before any sink write occurs.
             return Err(EmitError::ReservedFieldName(field_name.clone()));
         }
     }
@@ -390,7 +353,6 @@ fn render_value(value: &str) -> String {
 
 #[cfg(test)]
 #[derive(Clone, Default)]
-// @intent selvedge.operations.logging.tests Test logging helpers expose captured events and runtime installation for logging contract tests.
 struct TestRecorder {
     events: Arc<Mutex<Vec<LogEvent>>>,
 }
@@ -398,13 +360,11 @@ struct TestRecorder {
 #[cfg(test)]
 impl TestRecorder {
     fn clear(&self) {
-        // @behavior selvedge.operations.logging.tests.recorder_clear Test log recorder clearing removes captured events before a test scenario emits new logs.
         let mut events = self.events.lock().expect("test recorder lock");
         events.clear();
     }
 
     fn take(&self) -> Vec<LogEvent> {
-        // @behavior selvedge.operations.logging.tests.recorder_take Test log recorder taking returns all captured events and leaves the recorder empty.
         let mut events = self.events.lock().expect("test recorder lock");
 
         std::mem::take(&mut *events)
@@ -414,7 +374,6 @@ impl TestRecorder {
 #[cfg(test)]
 impl EventSink for TestRecorder {
     fn write(&self, event: LogEvent) -> Result<(), EmitError> {
-        // @behavior selvedge.operations.logging.tests.recorder_write Test log recorder writing stores accepted log events for caller-visible assertions.
         let mut events = self.events.lock().expect("test recorder lock");
         events.push(event);
         Ok(())
@@ -430,9 +389,7 @@ fn init_for_test(recorder: TestRecorder) -> Result<(), InitError> {
 #[cfg(test)]
 fn install_test_runtime(recorder: TestRecorder) -> Result<(), InitError> {
     let mut runtime = RUNTIME
-        // @behavior selvedge.operations.logging.tests.install_runtime_lock Test runtime installation reports InitError::RuntimeLockPoisoned when the runtime write lock is poisoned.
         .write()
-        // @behavior selvedge.operations.logging.tests.install_runtime_error Test runtime installation maps a poisoned runtime write lock into InitError::RuntimeLockPoisoned.
         .map_err(|_| InitError::RuntimeLockPoisoned)?;
     *runtime = RuntimeState::Initialized(Arc::new(recorder));
     Ok(())
@@ -454,7 +411,6 @@ mod tests {
     static TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
     static CONFIG_INIT: OnceLock<()> = OnceLock::new();
 
-    // @verifies selvedge.operations.logging.emit
     #[test]
     fn macro_uses_callsite_module_without_manual_module_name() {
         let _guard = test_lock().lock().expect("test lock");
@@ -470,17 +426,12 @@ mod tests {
         let events = recorder.take();
         let event = events.first().expect("captured event");
 
-        // @verifies selvedge.operations.logging
         assert_eq!(event.level, LogLevel::Info);
-        // @verifies selvedge.operations.logging
         assert_eq!(event.message, "router started");
-        // @verifies selvedge.operations.logging
         assert!(event.module_path.contains("selvedge_logging"));
-        // @verifies selvedge.operations.logging
         assert!(event.fields.is_empty());
     }
 
-    // @verifies selvedge.operations.logging.emit
     #[test]
     fn macro_accepts_optional_fields_without_requiring_role() {
         let _guard = test_lock().lock().expect("test lock");
@@ -497,19 +448,13 @@ mod tests {
         let events = recorder.take();
         let event = events.first().expect("captured event");
 
-        // @verifies selvedge.operations.logging
         assert_eq!(event.level, LogLevel::Warn);
-        // @verifies selvedge.operations.logging
         assert_eq!(event.message, "target thread not found");
-        // @verifies selvedge.operations.logging
         assert_eq!(event.field("thread"), Some("worker-2"));
-        // @verifies selvedge.operations.logging
         assert_eq!(event.field("target"), Some("indexer"));
-        // @verifies selvedge.operations.logging
         assert!(event.field("role").is_none());
     }
 
-    // @verifies selvedge.operations.logging.emit
     #[test]
     fn changed_config_applies_to_next_log_call_without_reinit() {
         let _guard = test_lock().lock().expect("test lock");
@@ -522,7 +467,6 @@ mod tests {
 
         selvedge_log!(LogLevel::Debug, "debug should be filtered")
             .expect("debug event should evaluate cleanly");
-        // @verifies selvedge.operations.logging
         assert!(recorder.take().is_empty());
 
         selvedge_config::update_runtime("logging.level", "debug").expect("set debug");
@@ -530,11 +474,9 @@ mod tests {
 
         let events = recorder.take();
         let event = events.first().expect("captured event");
-        // @verifies selvedge.operations.logging
         assert_eq!(event.message, "debug should pass");
     }
 
-    // @verifies selvedge.operations.logging.emit
     #[test]
     fn module_override_requires_exact_path_or_descendant_boundary() {
         assert_eq!(
@@ -548,7 +490,6 @@ mod tests {
             ),
             LogFilter::Debug
         );
-        // @verifies selvedge.operations.logging
         assert_eq!(
             super::effective_filter_for_module(
                 LogFilter::Warn,
@@ -560,7 +501,6 @@ mod tests {
             ),
             LogFilter::Debug
         );
-        // @verifies selvedge.operations.logging
         assert_eq!(
             super::effective_filter_for_module(
                 LogFilter::Warn,
@@ -574,7 +514,6 @@ mod tests {
         );
     }
 
-    // @verifies selvedge.operations.logging.emit
     #[test]
     fn concurrent_logging_keeps_messages_distinct() {
         let _guard = test_lock().lock().expect("test lock");
@@ -600,15 +539,11 @@ mod tests {
 
         let events = recorder.take();
 
-        // @verifies selvedge.operations.logging
         assert_eq!(events.len(), 4);
-        // @verifies selvedge.operations.logging
         assert!(events.iter().all(|event| event.message == "worker event"));
-        // @verifies selvedge.operations.logging
         assert_eq!(unique_workers(&events), vec!["0", "1", "2", "3"]);
     }
 
-    // @verifies selvedge.operations.logging.emit
     #[test]
     fn log_macro_returns_error_when_config_is_missing() {
         let current_executable = std::env::current_exe().expect("current test executable");
@@ -619,11 +554,9 @@ mod tests {
             .output()
             .expect("run missing config child test");
 
-        // @verifies selvedge.operations.logging
         assert!(output.status.success(), "child test failed: {output:?}");
     }
 
-    // @verifies selvedge.operations.logging.emit
     #[test]
     fn log_macro_returns_error_when_runtime_is_missing() {
         let current_executable = std::env::current_exe().expect("current test executable");
@@ -634,11 +567,9 @@ mod tests {
             .output()
             .expect("run missing runtime child test");
 
-        // @verifies selvedge.operations.logging
         assert!(output.status.success(), "child test failed: {output:?}");
     }
 
-    // @verifies selvedge.operations.logging.emit
     #[test]
     fn init_returns_error_when_config_is_missing() {
         let current_executable = std::env::current_exe().expect("current test executable");
@@ -649,11 +580,9 @@ mod tests {
             .output()
             .expect("run missing config init child test");
 
-        // @verifies selvedge.operations.logging
         assert!(output.status.success(), "child test failed: {output:?}");
     }
 
-    // @verifies selvedge.operations.logging.emit
     #[test]
     fn filtered_log_does_not_evaluate_message_or_fields() {
         let _guard = test_lock().lock().expect("test lock");
@@ -675,15 +604,11 @@ mod tests {
         )
         .expect("filtered log should still return ok");
 
-        // @verifies selvedge.operations.logging
         assert_eq!(message_counter.load(std::sync::atomic::Ordering::SeqCst), 0);
-        // @verifies selvedge.operations.logging
         assert_eq!(field_counter.load(std::sync::atomic::Ordering::SeqCst), 0);
-        // @verifies selvedge.operations.logging
         assert!(recorder.take().is_empty());
     }
 
-    // @verifies selvedge.operations.logging.emit
     #[test]
     fn log_macro_rejects_reserved_field_names() {
         let _guard = test_lock().lock().expect("test lock");
@@ -697,16 +622,13 @@ mod tests {
         let error = selvedge_log!(LogLevel::Info, "router started"; message = "duplicate key")
             .expect_err("reserved field names should return an error");
 
-        // @verifies selvedge.operations.logging
         assert!(matches!(
             error,
             super::EmitError::ReservedFieldName(field_name) if field_name == "message"
         ));
-        // @verifies selvedge.operations.logging
         assert!(recorder.take().is_empty());
     }
 
-    // @verifies selvedge.operations.logging.emit
     #[test]
     fn render_event_escapes_special_characters() {
         let event = LogEvent {
@@ -720,9 +642,7 @@ mod tests {
 
         let rendered = super::render_event(&event);
 
-        // @verifies selvedge.operations.logging
         assert!(rendered.contains("message=\"hello \\\"quoted\\\"\\nnext\""));
-        // @verifies selvedge.operations.logging
         assert!(rendered.contains("detail=\"two words\\tand more\""));
     }
 
@@ -767,7 +687,6 @@ level = "info"
         TEST_LOCK.get_or_init(|| Mutex::new(()))
     }
 
-    // @verifies selvedge.operations.logging.emit
     #[test]
     fn missing_config_child_reports_error() {
         if std::env::var_os("SELVEDGE_LOGGING_MISSING_CONFIG_CHILD").is_none() {
@@ -778,14 +697,12 @@ level = "info"
         let error = super::selvedge_log!(LogLevel::Info, "missing config")
             .expect_err("missing config should return an error");
 
-        // @verifies selvedge.operations.logging
         assert!(matches!(
             error,
             super::EmitError::ReadConfig(selvedge_config::ConfigError::NotInitialized)
         ));
     }
 
-    // @verifies selvedge.operations.logging.emit
     #[test]
     fn missing_runtime_child_reports_error() {
         if std::env::var_os("SELVEDGE_LOGGING_MISSING_RUNTIME_CHILD").is_none() {
@@ -814,11 +731,9 @@ level = "info"
         let error = super::selvedge_log!(LogLevel::Info, "missing runtime")
             .expect_err("missing runtime should return an error");
 
-        // @verifies selvedge.operations.logging
         assert!(matches!(error, super::EmitError::NotInitialized));
     }
 
-    // @verifies selvedge.operations.logging.emit
     #[test]
     fn missing_config_init_child_reports_error() {
         if std::env::var_os("SELVEDGE_LOGGING_MISSING_CONFIG_INIT_CHILD").is_none() {

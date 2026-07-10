@@ -20,12 +20,6 @@ repos:
         language: system
         pass_filenames: false
         stages: [pre-commit, manual]
-      - id: requirement-comments
-        name: requirement comments --staged
-        entry: cargo xtask req check --staged
-        language: system
-        pass_filenames: false
-        stages: [pre-commit, manual]
       - id: package-readme-mermaid
         name: package README Mermaid --check
         entry: cargo xtask readme check-mermaid

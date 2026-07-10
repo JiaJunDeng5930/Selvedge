@@ -25,7 +25,6 @@ use selvedge_test_support::db::{
     create_root_task_with_user_message, default_model_profiles, open_memory_db,
 };
 
-// @verifies selvedge.model.router.spawn
 #[tokio::test]
 async fn attach_client_command_is_forwarded_to_events() {
     let db = open_memory_db();
@@ -76,9 +75,7 @@ async fn attach_client_command_is_forwarded_to_events() {
     else {
         panic!("unexpected events ingress");
     };
-    // @verifies selvedge.model.router.r2
     assert_eq!(reservation.client_id, ClientId("client-1".to_owned()));
-    // @verifies selvedge.model.router.r2
     assert_eq!(
         reservation.client_command_id,
         ClientCommandId("attach-1".to_owned())
@@ -87,7 +84,6 @@ async fn attach_client_command_is_forwarded_to_events() {
         .result_tx
         .send(EventClientReservationResult::Reserved)
         .expect("send reservation result");
-    // @verifies selvedge.model.router.r2
     assert_eq!(
         admission_rx.await.expect("admission result"),
         RouterAttachAdmissionResult::Accepted
@@ -97,14 +93,12 @@ async fn attach_client_command_is_forwarded_to_events() {
         .ingress_tx
         .send(RouterIngressMessage::StopRouter)
         .expect("stop router");
-    // @verifies selvedge.model.router.r2
     assert_eq!(
         handle.join_handle.await.expect("join router"),
         RouterExitStatus::Stopped
     );
 }
 
-// @verifies selvedge.model.router.spawn
 #[tokio::test]
 async fn cancelled_attach_admission_detaches_reserved_events_session() {
     let db = open_memory_db();
@@ -157,28 +151,23 @@ async fn cancelled_attach_admission_detaches_reserved_events_session() {
     else {
         panic!("unexpected events ingress");
     };
-    // @verifies selvedge.model.router.r2
     assert_eq!(detach.client_id, ClientId("client-1".to_owned()));
-    // @verifies selvedge.model.router.r2
     assert_eq!(
         detach.client_command_id,
         ClientCommandId("attach-1".to_owned())
     );
-    // @verifies selvedge.model.router.r2
     assert_eq!(detach.reason, DetachReason::ClientDisconnected);
 
     handle
         .ingress_tx
         .send(RouterIngressMessage::StopRouter)
         .expect("stop router");
-    // @verifies selvedge.model.router.r2
     assert_eq!(
         handle.join_handle.await.expect("join router"),
         RouterExitStatus::Stopped
     );
 }
 
-// @verifies selvedge.model.router.spawn
 #[tokio::test]
 async fn task_local_command_creates_runtime_and_flushes_deferred_user_input() {
     let db = open_memory_db();
@@ -218,13 +207,11 @@ async fn task_local_command_creates_runtime_and_flushes_deferred_user_input() {
 
     let mut runtime_rx = spawner.wait_receiver("task-1").await;
     let start = runtime_rx.recv().await.expect("start command");
-    // @verifies selvedge.model.router.r2
     assert!(matches!(start, TaskRuntimeCommand::Start));
     let input = runtime_rx.recv().await.expect("user input command");
     let TaskRuntimeCommand::UserInput { message_text } = input else {
         panic!("unexpected task runtime command");
     };
-    // @verifies selvedge.model.router.r2
     assert_eq!(message_text, "hello");
 
     handle
@@ -232,14 +219,12 @@ async fn task_local_command_creates_runtime_and_flushes_deferred_user_input() {
         .send(RouterIngressMessage::StopRouter)
         .expect("stop router");
     spawner.finish_stop("task-1").await;
-    // @verifies selvedge.model.router.r2
     assert_eq!(
         handle.join_handle.await.expect("join router"),
         RouterExitStatus::Stopped
     );
 }
 
-// @verifies selvedge.model.router.spawn
 #[tokio::test]
 async fn api_tool_and_stop_messages_are_routed_to_live_runtime() {
     let db = open_memory_db();
@@ -276,7 +261,6 @@ async fn api_tool_and_stop_messages_are_routed_to_live_runtime() {
         }))
         .expect("send ensure");
     let mut runtime_rx = spawner.wait_receiver("task-1").await;
-    // @verifies selvedge.model.router.r2
     assert!(matches!(
         runtime_rx.recv().await.expect("start command"),
         TaskRuntimeCommand::Start
@@ -294,7 +278,6 @@ async fn api_tool_and_stop_messages_are_routed_to_live_runtime() {
         .send(RouterIngressMessage::ApiOutput(api_output))
         .expect("send api output");
     let api_command = runtime_rx.recv().await.expect("api command");
-    // @verifies selvedge.model.router.r2
     assert!(matches!(api_command, TaskRuntimeCommand::ApiModelReply(_)));
 
     handle
@@ -302,7 +285,6 @@ async fn api_tool_and_stop_messages_are_routed_to_live_runtime() {
         .send(RouterIngressMessage::Tool(tool_result("task-1")))
         .expect("send tool output");
     let tool_command = runtime_rx.recv().await.expect("tool command");
-    // @verifies selvedge.model.router.r2
     assert!(matches!(tool_command, TaskRuntimeCommand::ToolResult(_)));
 
     handle
@@ -310,14 +292,12 @@ async fn api_tool_and_stop_messages_are_routed_to_live_runtime() {
         .send(RouterIngressMessage::StopRouter)
         .expect("stop router");
     spawner.finish_stop("task-1").await;
-    // @verifies selvedge.model.router.r2
     assert_eq!(
         handle.join_handle.await.expect("join router"),
         RouterExitStatus::Stopped
     );
 }
 
-// @verifies selvedge.model.router.spawn
 #[tokio::test]
 async fn stop_runtime_removes_sender_before_later_task_commands() {
     let db = open_memory_db();
@@ -355,7 +335,6 @@ async fn stop_runtime_removes_sender_before_later_task_commands() {
         .expect("send ensure");
     let mut stopped_runtime_rx = spawner.wait_receiver("task-1").await;
     let stopped_runtime_control = spawner.wait_control("task-1").await;
-    // @verifies selvedge.model.router.r2
     assert!(matches!(
         stopped_runtime_rx.recv().await.expect("start command"),
         TaskRuntimeCommand::Start
@@ -385,7 +364,6 @@ async fn stop_runtime_removes_sender_before_later_task_commands() {
         }))
         .expect("send user input");
     let mut replacement_runtime_rx = spawner.wait_receiver("task-1").await;
-    // @verifies selvedge.model.router.r2
     assert!(matches!(
         replacement_runtime_rx
             .recv()
@@ -400,7 +378,6 @@ async fn stop_runtime_removes_sender_before_later_task_commands() {
     else {
         panic!("unexpected task runtime command");
     };
-    // @verifies selvedge.model.router.r2
     assert_eq!(message_text, "after stop");
     if let Ok(Some(command)) =
         tokio::time::timeout(Duration::from_millis(50), stopped_runtime_rx.recv()).await
@@ -413,14 +390,12 @@ async fn stop_runtime_removes_sender_before_later_task_commands() {
         .send(RouterIngressMessage::StopRouter)
         .expect("stop router");
     spawner.finish_stop("task-1").await;
-    // @verifies selvedge.model.router.r2
     assert_eq!(
         handle.join_handle.await.expect("join router"),
         RouterExitStatus::Stopped
     );
 }
 
-// @verifies selvedge.model.router.spawn
 #[tokio::test]
 async fn stale_runtime_exit_preserves_replacement_runtime() {
     let db = open_memory_db();
@@ -458,7 +433,6 @@ async fn stale_runtime_exit_preserves_replacement_runtime() {
         .expect("send ensure");
     let mut stopped_runtime_rx = spawner.wait_receiver("task-1").await;
     let stopped_runtime_control = spawner.wait_control("task-1").await;
-    // @verifies selvedge.model.router.r2
     assert!(matches!(
         stopped_runtime_rx.recv().await.expect("start command"),
         TaskRuntimeCommand::Start
@@ -488,7 +462,6 @@ async fn stale_runtime_exit_preserves_replacement_runtime() {
         }))
         .expect("send user input");
     let mut replacement_runtime_rx = spawner.wait_receiver("task-1").await;
-    // @verifies selvedge.model.router.r2
     assert!(matches!(
         replacement_runtime_rx
             .recv()
@@ -496,7 +469,6 @@ async fn stale_runtime_exit_preserves_replacement_runtime() {
             .expect("replacement start"),
         TaskRuntimeCommand::Start
     ));
-    // @verifies selvedge.model.router.r2
     assert!(matches!(
         replacement_runtime_rx
             .recv()
@@ -526,7 +498,6 @@ async fn stale_runtime_exit_preserves_replacement_runtime() {
             },
         ))
         .expect("send api output");
-    // @verifies selvedge.model.router.r2
     assert!(matches!(
         replacement_runtime_rx.recv().await.expect("api reply"),
         TaskRuntimeCommand::ApiModelReply(_)
@@ -537,14 +508,12 @@ async fn stale_runtime_exit_preserves_replacement_runtime() {
         .send(RouterIngressMessage::StopRouter)
         .expect("stop router");
     spawner.finish_stop("task-1").await;
-    // @verifies selvedge.model.router.r2
     assert_eq!(
         handle.join_handle.await.expect("join router"),
         RouterExitStatus::Stopped
     );
 }
 
-// @verifies selvedge.model.router.spawn
 #[tokio::test]
 async fn current_runtime_exit_removes_registry_entry() {
     let db = open_memory_db();
@@ -582,7 +551,6 @@ async fn current_runtime_exit_removes_registry_entry() {
         .expect("send ensure");
     let mut first_runtime_rx = spawner.wait_receiver("task-1").await;
     let first_runtime_control = spawner.wait_control("task-1").await;
-    // @verifies selvedge.model.router.r2
     assert!(matches!(
         first_runtime_rx.recv().await.expect("start command"),
         TaskRuntimeCommand::Start
@@ -614,7 +582,6 @@ async fn current_runtime_exit_removes_registry_entry() {
         }))
         .expect("send replacement ensure");
     let mut replacement_runtime_rx = spawner.wait_receiver("task-1").await;
-    // @verifies selvedge.model.router.r2
     assert!(matches!(
         replacement_runtime_rx
             .recv()
@@ -628,14 +595,12 @@ async fn current_runtime_exit_removes_registry_entry() {
         .send(RouterIngressMessage::StopRouter)
         .expect("stop router");
     spawner.finish_stop("task-1").await;
-    // @verifies selvedge.model.router.r2
     assert_eq!(
         handle.join_handle.await.expect("join router"),
         RouterExitStatus::Stopped
     );
 }
 
-// @verifies selvedge.model.router.spawn
 #[tokio::test]
 async fn inactive_archive_is_delivered_before_runtime_start() {
     let db = open_memory_db();
@@ -672,7 +637,6 @@ async fn inactive_archive_is_delivered_before_runtime_start() {
         }))
         .expect("send archive");
     let mut runtime_rx = spawner.wait_receiver("task-1").await;
-    // @verifies selvedge.model.router.r2
     assert!(matches!(
         runtime_rx.recv().await.expect("archive command"),
         TaskRuntimeCommand::Archive
@@ -688,14 +652,12 @@ async fn inactive_archive_is_delivered_before_runtime_start() {
         .send(RouterIngressMessage::StopRouter)
         .expect("stop router");
     spawner.finish_stop("task-1").await;
-    // @verifies selvedge.model.router.r2
     assert_eq!(
         handle.join_handle.await.expect("join router"),
         RouterExitStatus::Stopped
     );
 }
 
-// @verifies selvedge.model.router.spawn
 #[tokio::test]
 async fn stale_outputs_and_runtime_ready_are_published_to_events() {
     let db = open_memory_db();
@@ -756,14 +718,12 @@ async fn stale_outputs_and_runtime_ready_are_published_to_events() {
         .ingress_tx
         .send(RouterIngressMessage::StopRouter)
         .expect("stop router");
-    // @verifies selvedge.model.router.r2
     assert_eq!(
         handle.join_handle.await.expect("join router"),
         RouterExitStatus::Stopped
     );
 }
 
-// @verifies selvedge.model.router.spawn
 #[tokio::test]
 async fn data_domain_events_are_not_published_to_events() {
     let db = open_memory_db();
@@ -795,7 +755,6 @@ async fn data_domain_events_are_not_published_to_events() {
             },
         ))
         .expect("send data event");
-    // @verifies selvedge.model.router.r2
     assert!(
         tokio::time::timeout(Duration::from_millis(50), events_rx.recv())
             .await
@@ -806,14 +765,12 @@ async fn data_domain_events_are_not_published_to_events() {
         .ingress_tx
         .send(RouterIngressMessage::StopRouter)
         .expect("stop router");
-    // @verifies selvedge.model.router.r2
     assert_eq!(
         handle.join_handle.await.expect("join router"),
         RouterExitStatus::Stopped
     );
 }
 
-// @verifies selvedge.model.router.spawn
 #[tokio::test]
 async fn core_tool_execution_request_uses_configured_tool_spawner() {
     let db = open_memory_db();
@@ -844,23 +801,19 @@ async fn core_tool_execution_request_uses_configured_tool_spawner() {
         .expect("send core tool request");
 
     let request = tool_spawner.wait_request().await;
-    // @verifies selvedge.model.router.r2
     assert_eq!(request.task_id, TaskId("task-1".to_owned()));
-    // @verifies selvedge.model.router.r2
     assert_eq!(request.tool_name, ToolName("tool".to_owned()));
 
     handle
         .ingress_tx
         .send(RouterIngressMessage::StopRouter)
         .expect("stop router");
-    // @verifies selvedge.model.router.r2
     assert_eq!(
         handle.join_handle.await.expect("join router"),
         RouterExitStatus::Stopped
     );
 }
 
-// @verifies selvedge.model.router.spawn
 #[tokio::test]
 async fn mismatched_core_tool_task_id_is_ignored() {
     let db = open_memory_db();
@@ -891,21 +844,18 @@ async fn mismatched_core_tool_task_id_is_ignored() {
         .expect("send core tool request");
 
     tokio::time::sleep(Duration::from_millis(20)).await;
-    // @verifies selvedge.model.router.r2
     assert_eq!(tool_spawner.request_count(), 0);
 
     handle
         .ingress_tx
         .send(RouterIngressMessage::StopRouter)
         .expect("stop router");
-    // @verifies selvedge.model.router.r2
     assert_eq!(
         handle.join_handle.await.expect("join router"),
         RouterExitStatus::Stopped
     );
 }
 
-// @verifies selvedge.model.router.spawn
 #[tokio::test]
 async fn core_tool_execution_spawn_failure_returns_error_tool_result() {
     let db = open_memory_db();
@@ -942,7 +892,6 @@ async fn core_tool_execution_spawn_failure_returns_error_tool_result() {
         }))
         .expect("send ensure");
     let mut runtime_rx = spawner.wait_receiver("task-1").await;
-    // @verifies selvedge.model.router.r2
     assert!(matches!(
         runtime_rx.recv().await.expect("start command"),
         TaskRuntimeCommand::Start
@@ -961,9 +910,7 @@ async fn core_tool_execution_spawn_failure_returns_error_tool_result() {
     else {
         panic!("unexpected task runtime command");
     };
-    // @verifies selvedge.model.router.r2
     assert!(result.is_error);
-    // @verifies selvedge.model.router.r2
     assert!(result.output_text.contains("tool execution spawn failed"));
 
     handle
@@ -971,14 +918,12 @@ async fn core_tool_execution_spawn_failure_returns_error_tool_result() {
         .send(RouterIngressMessage::StopRouter)
         .expect("stop router");
     spawner.finish_stop("task-1").await;
-    // @verifies selvedge.model.router.r2
     assert_eq!(
         handle.join_handle.await.expect("join router"),
         RouterExitStatus::Stopped
     );
 }
 
-// @verifies selvedge.model.router.spawn
 #[tokio::test]
 async fn spawn_router_uses_unbounded_ingress() {
     let db = open_memory_db();
@@ -1001,14 +946,12 @@ async fn spawn_router_uses_unbounded_ingress() {
         .ingress_tx
         .send(RouterIngressMessage::StopRouter)
         .expect("stop router");
-    // @verifies selvedge.model.router.r2
     assert_eq!(
         handle.join_handle.await.expect("join router"),
         RouterExitStatus::Stopped
     );
 }
 
-// @verifies selvedge.model.router.spawn
 #[tokio::test]
 async fn router_exits_when_ingress_sender_is_dropped() {
     let db = open_memory_db();
@@ -1034,11 +977,9 @@ async fn router_exits_when_ingress_sender_is_dropped() {
         .await
         .expect("router exit")
         .expect("join router");
-    // @verifies selvedge.model.router.r2
     assert_eq!(status, RouterExitStatus::RouterMailboxClosed);
 }
 
-// @verifies selvedge.model.router.spawn
 #[tokio::test]
 async fn router_exits_when_ingress_sender_is_dropped_with_live_runtime() {
     let db = open_memory_db();
@@ -1082,7 +1023,6 @@ async fn router_exits_when_ingress_sender_is_dropped_with_live_runtime() {
         .await
         .expect("router exit")
         .expect("join router");
-    // @verifies selvedge.model.router.r2
     assert_eq!(status, RouterExitStatus::RouterMailboxClosed);
 }
 
@@ -1129,16 +1069,13 @@ fn assert_debug_contains(event: EventIngress, task_id: Option<TaskId>, message: 
     let EventIngress::Raw(RawEvent::Debug(debug)) = event else {
         panic!("unexpected event ingress");
     };
-    // @verifies selvedge.model.router.r2
     assert_eq!(debug.task_id, task_id);
-    // @verifies selvedge.model.router.r2
     assert!(debug.message_text.contains(message));
 }
 
 async fn finish_stop(control: TaskRuntimeControl) {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(1);
     while !control.is_stopping() {
-        // @verifies selvedge.model.router.r2
         assert!(tokio::time::Instant::now() < deadline, "runtime stopping");
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
@@ -1190,7 +1127,6 @@ impl CapturingToolSpawner {
                     return request;
                 }
             }
-            // @verifies selvedge.model.router.r2
             assert!(
                 tokio::time::Instant::now() < deadline,
                 "tool execution request"
@@ -1246,7 +1182,6 @@ impl CapturingRuntimeSpawner {
                     return receiver;
                 }
             }
-            // @verifies selvedge.model.router.r2
             assert!(tokio::time::Instant::now() < deadline, "runtime receiver");
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
@@ -1262,7 +1197,6 @@ impl CapturingRuntimeSpawner {
                     return control;
                 }
             }
-            // @verifies selvedge.model.router.r2
             assert!(tokio::time::Instant::now() < deadline, "runtime control");
             tokio::time::sleep(Duration::from_millis(10)).await;
         }

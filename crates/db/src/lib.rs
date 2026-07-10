@@ -1,16 +1,10 @@
 #![doc = include_str!("../README.md")]
-//! @behavior selvedge.state Task history and runtime state needed to resume work remain durable in SQLite across process restarts.
-//! @behavior selvedge.state.task Durable task records expose active work, archived work, task relations, queued input, and cursor state.
-//! @behavior selvedge.state.history Durable history records expose the conversation graph used to replay model input and tool output.
-//! @behavior selvedge.state.transaction Durable database transactions make multi-row task state changes visible atomically.
-//! @behavior selvedge.state.conversation Durable conversations can be read back as ordered model conversation items.
 
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::{error::Error, fmt};
 
 use rusqlite::{Connection, OptionalExtension, params};
-// @behavior selvedge.state.domain_types Database callers exchange persisted task state through shared Selvedge domain identifiers and values.
 pub use selvedge_domain_model::{
     Conversation, ConversationItem, FunctionCallId, HistoryNodeId, MessageRole, ModelProfileKey,
     ReasoningEffort, TaskId, ToolArgumentValue, ToolCallArgument, ToolManifest, ToolName,
@@ -19,18 +13,14 @@ pub use selvedge_domain_model::{
 
 const SCHEMA_VERSION: &str = "router-mediated-redesign-v4";
 
-/// @behavior selvedge.state.connection The database pool gives callers one synchronized SQLite connection for durable task state operations.
 #[derive(Clone)]
 pub struct DbPool {
     connection: Arc<Mutex<Connection>>,
 }
 
-/// @behavior selvedge.state.connection.handle The database connection marker exposes the public connection concept for persistence callers.
 pub struct DbConnection;
-/// @behavior selvedge.state.transaction.handle The database transaction marker exposes the public transaction concept for atomic persistence callers.
 pub struct DbTransaction;
 
-/// @behavior selvedge.state.error Database operations return caller-visible errors for missing rows, inactive tasks, constraint failures, storage failures, and schema mismatches.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum DbError {
     NotFound,
@@ -62,14 +52,12 @@ impl fmt::Display for DbError {
 
 impl Error for DbError {}
 
-/// @behavior selvedge.state.task.status Persisted task rows expose whether a task can still receive runtime writes or has been archived.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TaskStatusRow {
     Active,
     Archived,
 }
 
-/// @behavior selvedge.state.history.kind Persisted history rows expose the content kind needed to reconstruct a conversation path.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum HistoryContentKindRow {
     Message,
@@ -78,192 +66,113 @@ pub enum HistoryContentKindRow {
     FunctionOutput,
 }
 
-/// @behavior selvedge.state.open Database opening accepts the SQLite path that stores durable Selvedge task state.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OpenDbOptions {
-    /// @constraint selvedge.state.open.path The SQLite path is the caller-visible location of persisted task state.
     pub sqlite_path: String,
 }
 
-/// @behavior selvedge.state.tool Persisted tool rows expose the tools available to tasks when model calls are built.
-/// @constraint selvedge.state.tool.fields Tool rows expose the durable tool name and description used in task manifests.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ToolRow {
-    /// @constraint selvedge.state.tool.fields.name Tool rows expose the durable tool name used in task manifests.
     pub tool_name: ToolName,
-    /// @constraint selvedge.state.tool.fields.description Tool rows expose the durable tool description used in task manifests.
     pub description_text: String,
 }
 
-/// @behavior selvedge.state.tool.parameter Persisted tool parameter rows expose the argument contract a model-visible tool requires.
-/// @constraint selvedge.state.tool.parameter.fields Tool parameter rows expose name, type, description, and requiredness for model-visible arguments.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ToolParameterRow {
-    /// @constraint selvedge.state.tool.parameter.fields.tool Tool parameter rows expose the owning durable tool name for model-visible arguments.
     pub tool_name: ToolName,
-    /// @constraint selvedge.state.tool.parameter.fields.name Tool parameter rows expose the model-visible argument name.
     pub parameter_name: ToolParameterName,
-    /// @constraint selvedge.state.tool.parameter.fields.type Tool parameter rows expose the model-visible argument type.
     pub parameter_type: ToolParameterType,
-    /// @constraint selvedge.state.tool.parameter.fields.description Tool parameter rows expose the model-visible argument description.
     pub description_text: String,
-    /// @constraint selvedge.state.tool.parameter.fields.required Tool parameter rows expose whether the model-visible argument is required.
     pub is_required: bool,
 }
 
-/// @behavior selvedge.state.task.row Persisted task rows expose the task cursor, model profile, reasoning effort, status, version, and timestamps.
-/// @constraint selvedge.state.task.row.fields Task rows expose identity, status, cursor, profile, reasoning effort, version, and timestamps.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TaskRow {
-    /// @constraint selvedge.state.task.row.fields.id Task rows expose the durable task identity.
     pub task_id: TaskId,
-    /// @constraint selvedge.state.task.row.fields.status Task rows expose the durable active or archived status.
     pub task_status: TaskStatusRow,
-    /// @constraint selvedge.state.task.row.fields.cursor Task rows expose the durable cursor node identity.
     pub cursor_node_id: HistoryNodeId,
-    /// @constraint selvedge.state.task.row.fields.profile Task rows expose the model profile selected for task execution.
     pub model_profile_key: ModelProfileKey,
-    /// @constraint selvedge.state.task.row.fields.reasoning Task rows expose the reasoning effort selected for task execution.
     pub reasoning_effort: ReasoningEffort,
-    /// @constraint selvedge.state.task.row.fields.version Task rows expose the durable state version observed by callers.
     pub state_version: u64,
-    /// @constraint selvedge.state.task.row.fields.created Task rows expose the task creation timestamp.
     pub created_at: UnixTs,
-    /// @constraint selvedge.state.task.row.fields.updated Task rows expose the most recent task update timestamp.
     pub updated_at: UnixTs,
 }
 
-/// @behavior selvedge.state.task.tool Persisted task-tool rows expose which tools are enabled for a task.
-/// @constraint selvedge.state.task.tool.fields Task-tool rows expose a task ID and enabled tool name pair.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TaskToolRow {
-    /// @constraint selvedge.state.task.tool.fields.task Task-tool rows expose the durable task identity for an enabled tool.
     pub task_id: TaskId,
-    /// @constraint selvedge.state.task.tool.fields.tool Task-tool rows expose the enabled durable tool name for a task.
     pub tool_name: ToolName,
 }
 
-/// @behavior selvedge.state.task.parent Persisted task parent edges expose parent-child task relationships for snapshots and runtime recovery.
-/// @constraint selvedge.state.task.parent.fields Task parent edge rows expose parent ID, child ID, and edge creation time.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TaskParentEdgeRow {
-    /// @constraint selvedge.state.task.parent.fields.parent Task parent edge rows expose the durable parent task identity.
     pub parent_task_id: TaskId,
-    /// @constraint selvedge.state.task.parent.fields.child Task parent edge rows expose the durable child task identity.
     pub child_task_id: TaskId,
-    /// @constraint selvedge.state.task.parent.fields.created Task parent edge rows expose the edge creation timestamp.
     pub created_at: UnixTs,
 }
 
-/// @behavior selvedge.state.task.queue Persisted queued user input rows expose pending user messages for an active task in sequence order.
-/// @constraint selvedge.state.task.queue.fields Queued input rows expose task ID, sequence number, message text, and queue timestamp.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct QueuedUserInputRow {
-    /// @constraint selvedge.state.task.queue.fields.task Queued input rows expose the durable task identity for a pending message.
     pub task_id: TaskId,
-    /// @constraint selvedge.state.task.queue.fields.sequence Queued input rows expose the durable sequence number for a pending message.
     pub seq_no: u64,
-    /// @constraint selvedge.state.task.queue.fields.message Queued input rows expose the pending user message text.
     pub message_text: String,
-    /// @constraint selvedge.state.task.queue.fields.queued Queued input rows expose the queue timestamp for a pending message.
     pub queued_at: UnixTs,
 }
 
-/// @behavior selvedge.state.history.row Persisted history node rows expose graph linkage, content kind, and creation time for a conversation path.
-/// @constraint selvedge.state.history.row.fields History node rows expose node ID, optional parent node, content kind, and creation time.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HistoryNodeRow {
-    /// @constraint selvedge.state.history.row.fields.node History node rows expose the durable history node identity.
     pub node_id: HistoryNodeId,
-    /// @constraint selvedge.state.history.row.fields.parent History node rows expose the optional durable parent node identity.
     pub parent_node_id: Option<HistoryNodeId>,
-    /// @constraint selvedge.state.history.row.fields.kind History node rows expose the durable content kind.
     pub content_kind: HistoryContentKindRow,
-    /// @constraint selvedge.state.history.row.fields.created History node rows expose the node creation timestamp.
     pub created_at: UnixTs,
 }
 
-/// @behavior selvedge.state.history.message Persisted message nodes expose the role and text that are replayed into model conversation input.
-/// @constraint selvedge.state.history.message.fields Message node rows expose node ID, role, and text for conversation replay.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HistoryMessageNodeRow {
-    /// @constraint selvedge.state.history.message.fields.node Message node rows expose the durable history node identity.
     pub node_id: HistoryNodeId,
-    /// @constraint selvedge.state.history.message.fields.role Message node rows expose the message role for conversation replay.
     pub message_role: MessageRole,
-    /// @constraint selvedge.state.history.message.fields.text Message node rows expose the message text for conversation replay.
     pub message_text: String,
 }
 
-/// @behavior selvedge.state.history.reasoning Persisted reasoning nodes expose hidden reasoning text retained in task history.
-/// @constraint selvedge.state.history.reasoning.fields Reasoning node rows expose node ID and reasoning text retained in history.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HistoryReasoningNodeRow {
-    /// @constraint selvedge.state.history.reasoning.fields.node Reasoning node rows expose the durable history node identity.
     pub node_id: HistoryNodeId,
-    /// @constraint selvedge.state.history.reasoning.fields.text Reasoning node rows expose reasoning text retained in history.
     pub reasoning_text: String,
 }
 
-/// @behavior selvedge.state.history.function_call Persisted function-call nodes expose model-requested tool calls and their target tool names.
-/// @constraint selvedge.state.history.function_call.fields Function-call node rows expose node ID, call ID, and tool name.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HistoryFunctionCallNodeRow {
-    /// @constraint selvedge.state.history.function_call.fields.node Function-call node rows expose the durable history node identity.
     pub node_id: HistoryNodeId,
-    /// @constraint selvedge.state.history.function_call.fields.call Function-call node rows expose the model-visible function call identity.
     pub function_call_id: FunctionCallId,
-    /// @constraint selvedge.state.history.function_call.fields.tool Function-call node rows expose the durable target tool name.
     pub tool_name: ToolName,
 }
 
-/// @behavior selvedge.state.history.function_argument Persisted function-call argument rows expose typed tool arguments for model-requested calls.
-/// @constraint selvedge.state.history.function_argument.fields Function-call argument rows expose call node, tool, argument name, and typed value.
 #[derive(Clone, Debug, PartialEq)]
 pub struct HistoryFunctionCallArgumentRow {
-    /// @constraint selvedge.state.history.function_argument.fields.node Function-call argument rows expose the durable call node identity.
     pub function_call_node_id: HistoryNodeId,
-    /// @constraint selvedge.state.history.function_argument.fields.tool Function-call argument rows expose the durable target tool name.
     pub tool_name: ToolName,
-    /// @constraint selvedge.state.history.function_argument.fields.name Function-call argument rows expose the durable argument name.
     pub argument_name: ToolParameterName,
-    /// @constraint selvedge.state.history.function_argument.fields.value Function-call argument rows expose the typed argument value.
     pub value: ToolArgumentValue,
 }
 
-/// @behavior selvedge.state.history.function_output Persisted function-output nodes expose tool results that are replayed into model conversation input.
-/// @constraint selvedge.state.history.function_output.fields Function-output node rows expose call identity, output text, and error status.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HistoryFunctionOutputNodeRow {
-    /// @constraint selvedge.state.history.function_output.fields.node Function-output node rows expose the durable output node identity.
     pub node_id: HistoryNodeId,
-    /// @constraint selvedge.state.history.function_output.fields.call_node Function-output node rows expose the durable function-call node identity.
     pub function_call_node_id: HistoryNodeId,
-    /// @constraint selvedge.state.history.function_output.fields.call Function-output node rows expose the model-visible function call identity.
     pub function_call_id: FunctionCallId,
-    /// @constraint selvedge.state.history.function_output.fields.tool Function-output node rows expose the durable target tool name.
     pub tool_name: ToolName,
-    /// @constraint selvedge.state.history.function_output.fields.text Function-output node rows expose the tool result text.
     pub output_text: String,
-    /// @constraint selvedge.state.history.function_output.fields.error Function-output node rows expose whether the tool result is an error.
     pub is_error: bool,
 }
 
-/// @behavior selvedge.state.history.open_call Open function-call records expose tool calls on the active path that still need tool output.
-/// @constraint selvedge.state.history.open_call.fields Open function-call records expose call node, call ID, tool name, and arguments.
 #[derive(Clone, Debug, PartialEq)]
 pub struct OpenFunctionCall {
-    /// @constraint selvedge.state.history.open_call.fields.node Open function-call records expose the durable call node identity.
     pub function_call_node_id: HistoryNodeId,
-    /// @constraint selvedge.state.history.open_call.fields.call Open function-call records expose the model-visible function call identity.
     pub function_call_id: FunctionCallId,
-    /// @constraint selvedge.state.history.open_call.fields.tool Open function-call records expose the durable target tool name.
     pub tool_name: ToolName,
-    /// @constraint selvedge.state.history.open_call.fields.arguments Open function-call records expose the typed arguments for the call.
     pub arguments: Vec<ToolCallArgument>,
 }
 
-/// @behavior selvedge.state.history.node Loaded history nodes expose concrete message, reasoning, function-call, or function-output content.
 #[derive(Clone, Debug, PartialEq)]
 pub enum HistoryNode {
     Message {
@@ -300,7 +209,6 @@ pub enum HistoryNode {
 }
 
 impl HistoryNode {
-    /// @behavior selvedge.state.history.node.id Loaded history nodes expose their durable node ID independent of content kind.
     pub fn node_id(&self) -> HistoryNodeId {
         match self {
             HistoryNode::Message { node_id, .. }
@@ -311,53 +219,32 @@ impl HistoryNode {
     }
 }
 
-/// @behavior selvedge.state.task.create_root Root task creation persists a caller-provided task ID, existing cursor node, model profile, enabled tools, and timestamp.
-/// @constraint selvedge.state.task.create_root.fields Root task creation input exposes identity, cursor, profile, tools, and creation time.
 #[derive(Clone, Debug, PartialEq)]
 pub struct CreateRootTaskInput {
-    /// @constraint selvedge.state.task.create_root.fields.id Root task creation input exposes the durable task identity.
     pub task_id: TaskId,
-    /// @constraint selvedge.state.task.create_root.fields.cursor Root task creation input exposes the existing cursor node that the task records.
     pub cursor_node_id: HistoryNodeId,
-    /// @constraint selvedge.state.task.create_root.fields.profile Root task creation input exposes the model profile recorded for the task.
     pub model_profile_key: ModelProfileKey,
-    /// @constraint selvedge.state.task.create_root.fields.reasoning Root task creation input exposes the reasoning effort recorded for the task.
     pub reasoning_effort: ReasoningEffort,
-    /// @constraint selvedge.state.task.create_root.fields.tools Root task creation input exposes the enabled tool names recorded for the task.
     pub enabled_tools: Vec<ToolName>,
-    /// @constraint selvedge.state.task.create_root.fields.created Root task creation input exposes the timestamp recorded as creation and update time.
     pub now: UnixTs,
 }
 
-/// @behavior selvedge.state.task.create_child Child task creation persists a child task with a task-layer parent edge and caller-provided cursor node.
-/// @constraint selvedge.state.task.create_child.fields Child task creation input exposes parent ID, child ID, cursor node, and creation time.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CreateChildTaskInput {
-    /// @constraint selvedge.state.task.create_child.fields.parent Child task creation input exposes the durable parent task identity.
     pub parent_task_id: TaskId,
-    /// @constraint selvedge.state.task.create_child.fields.child Child task creation input exposes the durable child task identity.
     pub child_task_id: TaskId,
-    /// @constraint selvedge.state.task.create_child.fields.cursor Child task creation input exposes the cursor node recorded for the child task.
     pub cursor_node_id: HistoryNodeId,
-    /// @constraint selvedge.state.task.create_child.fields.created Child task creation input exposes the timestamp recorded as child creation and update time.
     pub now: UnixTs,
 }
 
-/// @behavior selvedge.state.task.loaded Active task loading exposes the task row, current cursor node, enabled tool manifest, and queued inputs.
-/// @constraint selvedge.state.task.loaded.fields Loaded active tasks expose the task row, cursor node, tool manifest, and queued inputs.
 #[derive(Clone, Debug, PartialEq)]
 pub struct LoadedActiveTask {
-    /// @constraint selvedge.state.task.loaded.fields.task Loaded active tasks expose the durable task row.
     pub task: TaskRow,
-    /// @constraint selvedge.state.task.loaded.fields.cursor Loaded active tasks expose the concrete cursor history node.
     pub cursor_node: HistoryNode,
-    /// @constraint selvedge.state.task.loaded.fields.tools Loaded active tasks expose the enabled tool manifest.
     pub tool_manifest: ToolManifest,
-    /// @constraint selvedge.state.task.loaded.fields.queue Loaded active tasks expose pending queued user inputs.
     pub queued_inputs: Vec<QueuedUserInputRow>,
 }
 
-/// @behavior selvedge.state.history.new_content New history content exposes the concrete kind that will be persisted into the task history graph.
 #[derive(Clone, Debug, PartialEq)]
 pub enum NewHistoryNodeContent {
     Message(NewMessageNodeContent),
@@ -366,65 +253,40 @@ pub enum NewHistoryNodeContent {
     FunctionOutput(NewFunctionOutputNodeContent),
 }
 
-/// @behavior selvedge.state.history.new_node New history nodes expose the optional parent pointer, content, and creation timestamp to be persisted.
-/// @constraint selvedge.state.history.new_node.fields New history nodes expose parent linkage, content, and creation time.
 #[derive(Clone, Debug, PartialEq)]
 pub struct NewHistoryNode {
-    /// @constraint selvedge.state.history.new_node.fields.parent New history nodes expose the optional parent linkage to persist.
     pub parent_node_id: Option<HistoryNodeId>,
-    /// @constraint selvedge.state.history.new_node.fields.content New history nodes expose the content to persist.
     pub content: NewHistoryNodeContent,
-    /// @constraint selvedge.state.history.new_node.fields.created New history nodes expose the creation timestamp to persist.
     pub created_at: UnixTs,
 }
 
-/// @behavior selvedge.state.history.new_message New message content exposes the role and text that will be persisted for conversation replay.
-/// @constraint selvedge.state.history.new_message.fields New message content exposes role and text.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NewMessageNodeContent {
-    /// @constraint selvedge.state.history.new_message.fields.role New message content exposes the role to persist.
     pub message_role: MessageRole,
-    /// @constraint selvedge.state.history.new_message.fields.text New message content exposes the text to persist.
     pub message_text: String,
 }
 
-/// @behavior selvedge.state.history.new_reasoning New reasoning content exposes reasoning text that will be retained in task history.
-/// @constraint selvedge.state.history.new_reasoning.fields New reasoning content exposes reasoning text.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NewReasoningNodeContent {
-    /// @constraint selvedge.state.history.new_reasoning.fields.text New reasoning content exposes the reasoning text to persist.
     pub reasoning_text: String,
 }
 
-/// @behavior selvedge.state.history.new_function_call New function-call content exposes a model-requested tool call and arguments to persist.
-/// @constraint selvedge.state.history.new_function_call.fields New function-call content exposes call ID, tool name, and arguments.
 #[derive(Clone, Debug, PartialEq)]
 pub struct NewFunctionCallNodeContent {
-    /// @constraint selvedge.state.history.new_function_call.fields.call New function-call content exposes the model-visible function call identity to persist.
     pub function_call_id: FunctionCallId,
-    /// @constraint selvedge.state.history.new_function_call.fields.tool New function-call content exposes the target tool name to persist.
     pub tool_name: ToolName,
-    /// @constraint selvedge.state.history.new_function_call.fields.arguments New function-call content exposes the typed arguments to persist.
     pub arguments: Vec<ToolCallArgument>,
 }
 
-/// @behavior selvedge.state.history.new_function_output New function-output content exposes a tool result to persist against a prior function call.
-/// @constraint selvedge.state.history.new_function_output.fields New function-output content exposes the referenced call, tool, output text, and error status.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NewFunctionOutputNodeContent {
-    /// @constraint selvedge.state.history.new_function_output.fields.call_node New function-output content exposes the referenced call node to persist.
     pub function_call_node_id: HistoryNodeId,
-    /// @constraint selvedge.state.history.new_function_output.fields.call New function-output content exposes the model-visible function call identity to persist.
     pub function_call_id: FunctionCallId,
-    /// @constraint selvedge.state.history.new_function_output.fields.tool New function-output content exposes the target tool name to persist.
     pub tool_name: ToolName,
-    /// @constraint selvedge.state.history.new_function_output.fields.text New function-output content exposes the output text to persist.
     pub output_text: String,
-    /// @constraint selvedge.state.history.new_function_output.fields.error New function-output content exposes the tool error status to persist.
     pub is_error: bool,
 }
 
-/// @behavior selvedge.state.open.call Opening a database creates the schema when needed, verifies the schema version, and returns a usable pool.
 pub fn open_db(options: OpenDbOptions) -> Result<DbPool, DbError> {
     let connection = Connection::open(&options.sqlite_path).map_err(map_error)?;
     connection
@@ -434,7 +296,6 @@ pub fn open_db(options: OpenDbOptions) -> Result<DbPool, DbError> {
     if database_is_empty(&connection)? {
         connection
             .execute_batch(include_str!("schema.sql"))
-            // @constraint selvedge.state.open.call.schema_error Opening a database reports schema initialization failures as caller-visible database errors.
             .map_err(map_error)?;
     }
 
@@ -445,7 +306,6 @@ pub fn open_db(options: OpenDbOptions) -> Result<DbPool, DbError> {
     Ok(db)
 }
 
-/// @constraint selvedge.state.schema Database callers receive a schema mismatch error when stored schema metadata differs from the expected version.
 pub fn verify_schema(db: &DbPool) -> Result<(), DbError> {
     let connection = db.connection()?;
     let actual: Option<String> = connection
@@ -455,13 +315,11 @@ pub fn verify_schema(db: &DbPool) -> Result<(), DbError> {
             |row| row.get(0),
         )
         .optional()
-        // @constraint selvedge.state.schema.read_error Schema verification reports schema metadata read failures as caller-visible database errors.
         .map_err(map_error)?;
 
     if actual.as_deref() == Some(SCHEMA_VERSION) {
         Ok(())
     } else {
-        // @constraint selvedge.state.schema.mismatch Schema verification reports unexpected schema metadata as a caller-visible schema mismatch.
         Err(DbError::SchemaMismatch {
             expected: SCHEMA_VERSION.to_owned(),
             actual,
@@ -469,7 +327,6 @@ pub fn verify_schema(db: &DbPool) -> Result<(), DbError> {
     }
 }
 
-/// @behavior selvedge.state.tool.register Registering a tool persists its description and parameter contract for task tool manifests.
 pub fn register_tool(db: &DbPool, tool: ToolSpec) -> Result<(), DbError> {
     let mut connection = db.connection()?;
     let tx = connection.transaction().map_err(map_error)?;
@@ -490,14 +347,11 @@ pub fn register_tool(db: &DbPool, tool: ToolSpec) -> Result<(), DbError> {
                 bool_to_i64(parameter.required)
             ],
         )
-// @constraint selvedge.state.error.register_tool_insert_tool_parameters Database failures during insert tool_parameters in register tool are returned as caller-visible database errors.
         .map_err(map_error)?;
     }
-    // @constraint selvedge.state.error.register_tool_commit Database failures during transaction commit in register tool are returned as caller-visible database errors.
     tx.commit().map_err(map_error)
 }
 
-/// @behavior selvedge.state.history.create Creating a history node persists one graph node and leaves task rows unchanged.
 pub fn create_history_node(db: &DbPool, node: NewHistoryNode) -> Result<HistoryNodeId, DbError> {
     let mut connection = db.connection()?;
     let tx = connection.transaction().map_err(map_error)?;
@@ -506,7 +360,6 @@ pub fn create_history_node(db: &DbPool, node: NewHistoryNode) -> Result<HistoryN
     Ok(node_id)
 }
 
-/// @behavior selvedge.state.task.create_root.call Creating a root task persists an active task whose cursor points at an existing history node.
 pub fn create_root_task(db: &DbPool, input: CreateRootTaskInput) -> Result<TaskRow, DbError> {
     let task_id = input.task_id.clone();
     {
@@ -524,23 +377,19 @@ pub fn create_root_task(db: &DbPool, input: CreateRootTaskInput) -> Result<TaskR
                 input.now.0
             ],
         )
-// @constraint selvedge.state.error.create_root_task_insert_tasks Database failures during insert tasks in create root task are returned as caller-visible database errors.
         .map_err(map_error)?;
         for tool_name in input.enabled_tools {
             tx.execute(
                 "INSERT INTO task_tools (task_id, tool_name) VALUES (?1, ?2)",
                 params![task_id.0, tool_name.0],
             )
-            // @constraint selvedge.state.error.create_root_task_insert_task_tools Database failures during insert task_tools in create root task are returned as caller-visible database errors.
             .map_err(map_error)?;
         }
-        // @constraint selvedge.state.error.create_root_task_commit Database failures during transaction commit in create root task are returned as caller-visible database errors.
         tx.commit().map_err(map_error)?;
     }
     read_task(db, &task_id)
 }
 
-/// @behavior selvedge.state.task.create_child.call Creating a child task copies the parent task profile and tools while recording a task parent edge.
 pub fn create_child_task(db: &DbPool, input: CreateChildTaskInput) -> Result<TaskRow, DbError> {
     let child_task_id = input.child_task_id.clone();
     {
@@ -562,29 +411,24 @@ pub fn create_child_task(db: &DbPool, input: CreateChildTaskInput) -> Result<Tas
                 input.now.0
             ],
         )
-// @constraint selvedge.state.error.create_child_task_insert_tasks Database failures during insert tasks in create child task are returned as caller-visible database errors.
         .map_err(map_error)?;
         tx.execute(
             "INSERT INTO task_tools (task_id, tool_name)
              SELECT ?1, tool_name FROM task_tools WHERE task_id = ?2",
             params![input.child_task_id.0, input.parent_task_id.0],
         )
-        // @constraint selvedge.state.error.create_child_task_insert_task_tools Database failures during insert task_tools in create child task are returned as caller-visible database errors.
         .map_err(map_error)?;
         tx.execute(
             "INSERT INTO task_parent_edges (parent_task_id, child_task_id, created_at)
              VALUES (?1, ?2, ?3)",
             params![input.parent_task_id.0, input.child_task_id.0, input.now.0],
         )
-        // @constraint selvedge.state.error.create_child_task_insert_task_tools_step2 Database failures during insert task_tools in create child task are returned as caller-visible database errors.
         .map_err(map_error)?;
-        // @constraint selvedge.state.error.create_child_task_commit Database failures during transaction commit in create child task are returned as caller-visible database errors.
         tx.commit().map_err(map_error)?;
     }
     read_task(db, &child_task_id)
 }
 
-/// @behavior selvedge.state.task.load_active Loading an active task returns its cursor history node, enabled tools, and queued user inputs.
 pub fn load_active_task(db: &DbPool, task_id: &TaskId) -> Result<LoadedActiveTask, DbError> {
     let task = read_task(db, task_id)?;
     if task.task_status != TaskStatusRow::Active {
@@ -601,7 +445,6 @@ pub fn load_active_task(db: &DbPool, task_id: &TaskId) -> Result<LoadedActiveTas
     })
 }
 
-/// @behavior selvedge.state.history.append_user Appending a user message persists it under the current task cursor and moves the active task cursor.
 pub fn append_user_message_and_move_cursor(
     db: &DbPool,
     task_id: &TaskId,
@@ -622,7 +465,6 @@ pub fn append_user_message_and_move_cursor(
     )
 }
 
-/// @behavior selvedge.state.history.append_model_tool_calls Appending a model tool-call reply persists optional assistant text and one or more function calls on the active path.
 pub fn append_model_reply_with_tool_calls_and_move_cursor(
     db: &DbPool,
     task_id: &TaskId,
@@ -636,7 +478,6 @@ pub fn append_model_reply_with_tool_calls_and_move_cursor(
         ));
     }
     let mut connection = db.connection()?;
-    // @constraint selvedge.state.error.append_model_reply_with_tool_calls_and_move_cursor_transaction Database failures during transaction creation in append model reply with tool calls and move cursor are returned as caller-visible database errors.
     let tx = connection.transaction().map_err(map_error)?;
     ensure_active_task_in_tx(&tx, task_id)?;
     if let Some(message_text) = assistant_message_text {
@@ -660,12 +501,10 @@ pub fn append_model_reply_with_tool_calls_and_move_cursor(
         )?;
         function_call_node_ids.push(node_id);
     }
-    // @constraint selvedge.state.error.append_model_reply_with_tool_calls_and_move_cursor_commit Database failures during transaction commit in append model reply with tool calls and move cursor are returned as caller-visible database errors.
     tx.commit().map_err(map_error)?;
     Ok(function_call_node_ids)
 }
 
-/// @behavior selvedge.state.history.append_assistant Appending an assistant message persists it and then drains queued user inputs onto the same active path.
 pub fn append_assistant_message_and_drain_queue(
     db: &DbPool,
     task_id: &TaskId,
@@ -687,12 +526,10 @@ pub fn append_assistant_message_and_drain_queue(
     if let Some(node_id) = append_all_queued_user_inputs_in_tx(&tx, task_id, created_at)? {
         last_node_id = node_id;
     }
-    // @constraint selvedge.state.error.append_assistant_message_and_drain_queue_commit Database failures during transaction commit in append assistant message and drain queue are returned as caller-visible database errors.
     tx.commit().map_err(map_error)?;
     Ok(last_node_id)
 }
 
-/// @behavior selvedge.state.history.append_function_output Appending a function output persists a tool result for an open call and then drains queued user inputs.
 pub fn append_function_output_and_drain_queue(
     db: &DbPool,
     task_id: &TaskId,
@@ -713,12 +550,10 @@ pub fn append_function_output_and_drain_queue(
     if let Some(node_id) = append_all_queued_user_inputs_in_tx(&tx, task_id, created_at)? {
         last_node_id = node_id;
     }
-    // @constraint selvedge.state.error.append_function_output_and_drain_queue_commit Database failures during transaction commit in append function output and drain queue are returned as caller-visible database errors.
     tx.commit().map_err(map_error)?;
     Ok(last_node_id)
 }
 
-/// @behavior selvedge.state.task.queue.drain Draining queued user inputs appends them in sequence and returns the final appended history node.
 pub fn drain_queued_user_inputs_and_move_cursor(
     db: &DbPool,
     task_id: &TaskId,
@@ -728,12 +563,10 @@ pub fn drain_queued_user_inputs_and_move_cursor(
     let tx = connection.transaction().map_err(map_error)?;
     ensure_active_task_in_tx(&tx, task_id)?;
     let last_node_id = append_all_queued_user_inputs_in_tx(&tx, task_id, created_at)?;
-    // @constraint selvedge.state.error.drain_queued_user_inputs_and_move_cursor_commit Database failures during transaction commit in drain queued user inputs and move cursor are returned as caller-visible database errors.
     tx.commit().map_err(map_error)?;
     Ok(last_node_id)
 }
 
-/// @behavior selvedge.state.history.open_call.read Reading open function calls returns calls on the active path without matching function outputs.
 pub fn read_open_function_calls_for_task(
     db: &DbPool,
     task_id: &TaskId,
@@ -784,7 +617,6 @@ pub fn read_open_function_calls_for_task(
                 }) {
                     open_calls.remove(index);
                 } else {
-                    // @constraint selvedge.state.error.read_open_function_calls_for_task_invalid_value Database failures during invalid stored value handling in read open function calls for task are returned as caller-visible database errors.
                     return Err(DbError::Constraint(
                         "function output must reference a prior open function call".to_owned(),
                     ));
@@ -796,14 +628,12 @@ pub fn read_open_function_calls_for_task(
     Ok(open_calls)
 }
 
-// @constraint selvedge.state.error.append_history Transactional history appends surface cursor update and storage failures as caller-visible database errors.
 fn append_history_node_and_move_cursor(
     db: &DbPool,
     task_id: &TaskId,
     mut node: NewHistoryNode,
 ) -> Result<HistoryNodeId, DbError> {
     let mut connection = db.connection()?;
-    // @constraint selvedge.state.error.append_history_node_and_move_cursor_transaction Database failures during transaction creation in append history node and move cursor are returned as caller-visible database errors.
     let tx = connection.transaction().map_err(map_error)?;
     ensure_active_task_in_tx(&tx, task_id)?;
     let current_cursor_node_id = current_cursor_node_id_in_tx(&tx, task_id)?;
@@ -827,18 +657,14 @@ fn append_history_node_and_move_cursor(
              WHERE task_id = ?3 AND task_status = 'active'",
             params![node_id.0, updated_at.0, task_id.0],
         )
-        // @constraint selvedge.state.error.append_history_node_and_move_cursor_update_tasks Database failures during update tasks in append history node and move cursor are returned as caller-visible database errors.
         .map_err(map_error)?;
     if changed == 0 {
-        // @constraint selvedge.state.error.append_history_node_and_move_cursor_update_tasks_step2 Database failures during update tasks in append history node and move cursor are returned as caller-visible database errors.
         return Err(DbError::TaskNotActive);
     }
-    // @constraint selvedge.state.error.append_history_node_and_move_cursor_commit Database failures during transaction commit in append history node and move cursor are returned as caller-visible database errors.
     tx.commit().map_err(map_error)?;
     Ok(node_id)
 }
 
-// @constraint selvedge.state.error.current_cursor Active cursor reads surface missing active tasks and storage failures as caller-visible database errors.
 fn current_cursor_node_id_in_tx(
     tx: &rusqlite::Transaction<'_>,
     task_id: &TaskId,
@@ -848,11 +674,9 @@ fn current_cursor_node_id_in_tx(
         params![task_id.0],
         |row| row.get(0),
     )
-    // @constraint selvedge.state.error.current_cursor_node_id_in_tx_read_tasks Database failures during read tasks in current cursor node id in tx are returned as caller-visible database errors.
     .map_err(map_error)
 }
 
-// @constraint selvedge.state.error.append_cursor Transactional cursor appends surface history insert and cursor update failures as caller-visible database errors.
 fn append_node_to_current_cursor_in_tx(
     tx: &rusqlite::Transaction<'_>,
     task_id: &TaskId,
@@ -872,7 +696,6 @@ fn append_node_to_current_cursor_in_tx(
     Ok(node_id)
 }
 
-// @constraint selvedge.state.error.queue_drain Transactional queue draining surfaces queue read, history append, delete, and conversion failures as caller-visible database errors.
 fn append_all_queued_user_inputs_in_tx(
     tx: &rusqlite::Transaction<'_>,
     task_id: &TaskId,
@@ -886,14 +709,11 @@ fn append_all_queued_user_inputs_in_tx(
                  WHERE task_id = ?1
                  ORDER BY seq_no ASC",
             )
-            // @constraint selvedge.state.error.append_all_queued_user_inputs_in_tx_read_queued_user_inputs Database failures during read queued_user_inputs in append all queued user inputs in tx are returned as caller-visible database errors.
             .map_err(map_error)?;
         statement
             .query_map(params![task_id.0], map_queued_user_input_row)
-            // @constraint selvedge.state.error.append_all_queued_user_inputs_in_tx_read_queued_user_inputs_step2 Database failures during read queued_user_inputs in append all queued user inputs in tx are returned as caller-visible database errors.
             .map_err(map_error)?
             .collect::<Result<Vec<_>, _>>()
-            // @constraint selvedge.state.error.append_all_queued_user_inputs_in_tx_read_queued_user_inputs_step3 Database failures during read queued_user_inputs in append all queued user inputs in tx are returned as caller-visible database errors.
             .map_err(map_error)?
     };
 
@@ -912,7 +732,6 @@ fn append_all_queued_user_inputs_in_tx(
             "DELETE FROM queued_user_inputs WHERE task_id = ?1 AND seq_no = ?2",
             params![queued.task_id.0, u64_to_i64(queued.seq_no)?],
         )
-        // @constraint selvedge.state.error.append_all_queued_user_inputs_in_tx_delete_queued_user_inputs Database failures during delete queued_user_inputs in append all queued user inputs in tx are returned as caller-visible database errors.
         .map_err(map_error)?;
         last_node_id = Some(node_id);
     }
@@ -924,7 +743,6 @@ fn update_task_cursor_in_tx(
     task_id: &TaskId,
     node_id: HistoryNodeId,
     updated_at: UnixTs,
-    // @constraint selvedge.state.error.update_task_cursor_in_tx_database_error Database failures during database error mapping in update task cursor in tx are returned as caller-visible database errors.
 ) -> Result<(), DbError> {
     let changed = tx
         .execute(
@@ -933,17 +751,14 @@ fn update_task_cursor_in_tx(
              WHERE task_id = ?3 AND task_status = 'active'",
             params![node_id.0, updated_at.0, task_id.0],
         )
-        // @constraint selvedge.state.error.update_task_cursor_in_tx_update_task Database failures during update task in update task cursor in tx are returned as caller-visible database errors.
         .map_err(map_error)?;
     if changed == 0 {
-        // @constraint selvedge.state.error.update_task_cursor_in_tx_update_task_step2 Database failures during update task in update task cursor in tx are returned as caller-visible database errors.
         Err(DbError::TaskNotActive)
     } else {
         Ok(())
     }
 }
 
-/// @behavior selvedge.state.task.queue.add Queueing user input persists the next sequenced pending message for an active task.
 pub fn queue_user_input(
     db: &DbPool,
     task_id: &TaskId,
@@ -959,16 +774,13 @@ pub fn queue_user_input(
             params![task_id.0],
             |row| row.get(0),
         )
-        // @constraint selvedge.state.error.queue_user_input_read_queued_user_inputs Database failures during read queued_user_inputs in queue user input are returned as caller-visible database errors.
         .map_err(map_error)?;
     tx.execute(
         "INSERT INTO queued_user_inputs (task_id, seq_no, message_text, queued_at)
          VALUES (?1, ?2, ?3, ?4)",
         params![task_id.0, next_seq_no, message_text, queued_at.0],
     )
-    // @constraint selvedge.state.error.queue_user_input_insert_queued_user_inputs Database failures during insert queued_user_inputs in queue user input are returned as caller-visible database errors.
     .map_err(map_error)?;
-    // @constraint selvedge.state.error.queue_user_input_commit Database failures during transaction commit in queue user input are returned as caller-visible database errors.
     tx.commit().map_err(map_error)?;
     Ok(QueuedUserInputRow {
         task_id: task_id.clone(),
@@ -978,7 +790,6 @@ pub fn queue_user_input(
     })
 }
 
-/// @behavior selvedge.state.task.queue.consume Consuming queued user input returns and deletes the oldest pending message for an active task.
 pub fn consume_next_queued_user_input(
     db: &DbPool,
     task_id: &TaskId,
@@ -997,22 +808,18 @@ pub fn consume_next_queued_user_input(
             map_queued_user_input_row,
         )
         .optional()
-        // @constraint selvedge.state.error.consume_next_queued_user_input_read_queued_user_inputs Database failures during read queued_user_inputs in consume next queued user input are returned as caller-visible database errors.
         .map_err(map_error)?;
     if let Some(queued) = &queued {
         tx.execute(
             "DELETE FROM queued_user_inputs WHERE task_id = ?1 AND seq_no = ?2",
             params![queued.task_id.0, u64_to_i64(queued.seq_no)?],
         )
-        // @constraint selvedge.state.error.consume_next_queued_user_input_delete_queued_user_inputs Database failures during delete queued_user_inputs in consume next queued user input are returned as caller-visible database errors.
         .map_err(map_error)?;
     }
-    // @constraint selvedge.state.error.consume_next_queued_user_input_commit Database failures during transaction commit in consume next queued user input are returned as caller-visible database errors.
     tx.commit().map_err(map_error)?;
     Ok(queued)
 }
 
-/// @behavior selvedge.state.task.queue.append_next Appending the next queued user input persists the oldest pending message and moves the active task cursor.
 pub fn append_next_queued_user_input_and_move_cursor(
     db: &DbPool,
     task_id: &TaskId,
@@ -1032,10 +839,8 @@ pub fn append_next_queued_user_input_and_move_cursor(
             map_queued_user_input_row,
         )
         .optional()
-        // @constraint selvedge.state.error.append_next_queued_user_input_and_move_cursor_read_queued_user_inputs Database failures during read queued_user_inputs in append next queued user input and move cursor are returned as caller-visible database errors.
         .map_err(map_error)?;
     let Some(queued) = queued else {
-        // @constraint selvedge.state.error.append_next_queued_user_input_and_move_cursor_commit Database failures during transaction commit in append next queued user input and move cursor are returned as caller-visible database errors.
         tx.commit().map_err(map_error)?;
         return Ok(None);
     };
@@ -1045,7 +850,6 @@ pub fn append_next_queued_user_input_and_move_cursor(
             params![task_id.0],
             |row| row.get(0),
         )
-        // @constraint selvedge.state.error.append_next_queued_user_input_and_move_cursor_read_tasks Database failures during read tasks in append next queued user input and move cursor are returned as caller-visible database errors.
         .map_err(map_error)?;
     let node_id = insert_history_node(
         &tx,
@@ -1065,10 +869,8 @@ pub fn append_next_queued_user_input_and_move_cursor(
          WHERE task_id = ?3 AND task_status = 'active' AND cursor_node_id = ?4",
             params![node_id.0, created_at.0, task_id.0, current_cursor_node_id],
         )
-        // @constraint selvedge.state.error.append_next_queued_user_input_and_move_cursor_update_tasks Database failures during update tasks in append next queued user input and move cursor are returned as caller-visible database errors.
         .map_err(map_error)?;
     if changed == 0 {
-        // @constraint selvedge.state.error.append_next_queued_user_input_and_move_cursor_update_tasks_step2 Database failures during update tasks in append next queued user input and move cursor are returned as caller-visible database errors.
         return Err(DbError::Constraint(
             "queued input append cursor changed before update".to_owned(),
         ));
@@ -1077,14 +879,11 @@ pub fn append_next_queued_user_input_and_move_cursor(
         "DELETE FROM queued_user_inputs WHERE task_id = ?1 AND seq_no = ?2",
         params![queued.task_id.0, u64_to_i64(queued.seq_no)?],
     )
-    // @constraint selvedge.state.error.append_next_queued_user_input_and_move_cursor_update_tasks_step3 Database failures during update tasks in append next queued user input and move cursor are returned as caller-visible database errors.
     .map_err(map_error)?;
-    // @constraint selvedge.state.error.append_next_queued_user_input_and_move_cursor_commit_step2 Database failures during transaction commit in append next queued user input and move cursor are returned as caller-visible database errors.
     tx.commit().map_err(map_error)?;
     Ok(Some(node_id))
 }
 
-/// @behavior selvedge.state.task.archive Archiving a task clears queued input, marks the task archived, and advances its durable state version.
 pub fn archive_task(db: &DbPool, task_id: &TaskId, now: UnixTs) -> Result<(), DbError> {
     let mut connection = db.connection()?;
     let tx = connection.transaction().map_err(map_error)?;
@@ -1101,19 +900,15 @@ pub fn archive_task(db: &DbPool, task_id: &TaskId, now: UnixTs) -> Result<(), Db
              WHERE task_id = ?2 AND task_status = 'active'",
             params![now.0, task_id.0],
         )
-        // @constraint selvedge.state.error.archive_task_update_tasks Database failures during update tasks in archive task are returned as caller-visible database errors.
         .map_err(map_error)?;
     if changed == 0 {
-        // @constraint selvedge.state.error.archive_task_update_tasks_step2 Database failures during update tasks in archive task are returned as caller-visible database errors.
         Err(DbError::TaskNotActive)
     } else {
-        // @constraint selvedge.state.error.archive_task_commit Database failures during transaction commit in archive task are returned as caller-visible database errors.
         tx.commit().map_err(map_error)?;
         Ok(())
     }
 }
 
-/// @behavior selvedge.state.task.list_active Listing active tasks returns non-archived task rows ordered by most recent update.
 pub fn list_active_tasks(db: &DbPool) -> Result<Vec<TaskRow>, DbError> {
     let connection = db.connection()?;
     let mut statement = connection
@@ -1123,19 +918,15 @@ pub fn list_active_tasks(db: &DbPool) -> Result<Vec<TaskRow>, DbError> {
              WHERE task_status = 'active'
              ORDER BY updated_at DESC, task_id ASC",
         )
-// @constraint selvedge.state.error.list_active_tasks_read_tasks Database failures during read tasks in list active tasks are returned as caller-visible database errors.
         .map_err(map_error)?;
     let rows = statement
         .query_map([], map_task_row)
-        // @constraint selvedge.state.error.list_active_tasks_read_tasks_step2 Database failures during read tasks in list active tasks are returned as caller-visible database errors.
         .map_err(map_error)?
         .collect::<Result<Vec<_>, _>>()
-        // @constraint selvedge.state.error.list_active_tasks_read_tasks_step3 Database failures during read tasks in list active tasks are returned as caller-visible database errors.
         .map_err(map_error)?;
     Ok(rows)
 }
 
-/// @behavior selvedge.state.task.parent.read Reading task parent edges returns durable parent-child task links in deterministic order.
 pub fn read_task_parent_edges(db: &DbPool) -> Result<Vec<TaskParentEdgeRow>, DbError> {
     let connection = db.connection()?;
     let mut statement = connection
@@ -1153,14 +944,11 @@ pub fn read_task_parent_edges(db: &DbPool) -> Result<Vec<TaskParentEdgeRow>, DbE
                 created_at: UnixTs(row.get(2)?),
             })
         })
-        // @constraint selvedge.state.error.read_task_parent_edges_read_task_parent_edges Database failures during read task_parent_edges in read task parent edges are returned as caller-visible database errors.
         .map_err(map_error)?
         .collect::<Result<Vec<_>, _>>()
-        // @constraint selvedge.state.error.read_task_parent_edges_read_rows Database failures during row read in read task parent edges are returned as caller-visible database errors.
         .map_err(map_error)
 }
 
-/// @behavior selvedge.state.tool.manifest Reading a task tool manifest returns the enabled tools and parameters for an active task.
 pub fn read_tool_manifest_for_task(db: &DbPool, task_id: &TaskId) -> Result<ToolManifest, DbError> {
     let connection = db.connection()?;
     ensure_active_task(&connection, task_id)?;
@@ -1172,16 +960,13 @@ pub fn read_tool_manifest_for_task(db: &DbPool, task_id: &TaskId) -> Result<Tool
              WHERE tt.task_id = ?1
              ORDER BY t.tool_name ASC",
         )
-        // @constraint selvedge.state.error.read_tool_manifest_for_task_read_tools Database failures during read tools in read tool manifest for task are returned as caller-visible database errors.
         .map_err(map_error)?;
     let tools = statement
         .query_map(params![task_id.0], |row| {
             Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
         })
-        // @constraint selvedge.state.error.read_tool_manifest_for_task_read_tools_step2 Database failures during read tools in read tool manifest for task are returned as caller-visible database errors.
         .map_err(map_error)?
         .collect::<Result<Vec<_>, _>>()
-        // @constraint selvedge.state.error.read_tool_manifest_for_task_read_rows Database failures during row read in read tool manifest for task are returned as caller-visible database errors.
         .map_err(map_error)?;
 
     let mut manifest_tools = Vec::with_capacity(tools.len());
@@ -1193,14 +978,12 @@ pub fn read_tool_manifest_for_task(db: &DbPool, task_id: &TaskId) -> Result<Tool
                  WHERE tool_name = ?1
                  ORDER BY parameter_name ASC",
             )
-            // @constraint selvedge.state.error.read_tool_manifest_for_task_read_tool_parameters Database failures during read tool_parameters in read tool manifest for task are returned as caller-visible database errors.
             .map_err(map_error)?;
         let parameters = parameter_statement
             .query_map(params![name], |row| {
                 Ok(selvedge_domain_model::ToolParameter {
                     name: row.get(0)?,
                     parameter_type: tool_parameter_type_from_db(&row.get::<_, String>(1)?)
-                        // @constraint selvedge.state.error.read_tool_manifest_for_task_read_tool_parameters_step2 Database failures during read tool_parameters in read tool manifest for task are returned as caller-visible database errors.
                         .map_err(|error| {
                             rusqlite::Error::ToSqlConversionFailure(Box::new(error))
                         })?,
@@ -1208,10 +991,8 @@ pub fn read_tool_manifest_for_task(db: &DbPool, task_id: &TaskId) -> Result<Tool
                     required: row.get::<_, i64>(3)? == 1,
                 })
             })
-            // @constraint selvedge.state.error.read_tool_manifest_for_task_read_rows_step2 Database failures during row read in read tool manifest for task are returned as caller-visible database errors.
             .map_err(map_error)?
             .collect::<Result<Vec<_>, _>>()
-            // @constraint selvedge.state.error.read_tool_manifest_for_task_database_error Database failures during database error mapping in read tool manifest for task are returned as caller-visible database errors.
             .map_err(map_error)?;
         manifest_tools.push(ToolSpec {
             name,
@@ -1224,7 +1005,6 @@ pub fn read_tool_manifest_for_task(db: &DbPool, task_id: &TaskId) -> Result<Tool
     })
 }
 
-/// @behavior selvedge.state.conversation.read Reading a task conversation replays the active cursor path into model conversation items.
 pub fn read_conversation_for_task(db: &DbPool, task_id: &TaskId) -> Result<Conversation, DbError> {
     let task = load_active_task(db, task_id)?.task;
     let connection = db.connection()?;
@@ -1275,7 +1055,6 @@ impl DbPool {
     fn connection(&self) -> Result<MutexGuard<'_, Connection>, DbError> {
         self.connection
             .lock()
-            // @constraint selvedge.state.error.connection_database_error Database failures during database error mapping in connection are returned as caller-visible database errors.
             .map_err(|error| DbError::Storage(format!("database mutex is poisoned: {error}")))
     }
 }
@@ -1287,7 +1066,6 @@ fn database_is_empty(connection: &Connection) -> Result<bool, DbError> {
             [],
             |row| row.get(0),
         )
-        // @constraint selvedge.state.error.database_is_empty_read_sqlite_master Database failures during read sqlite_master in database is empty are returned as caller-visible database errors.
         .map_err(map_error)?;
     Ok(count == 0)
 }
@@ -1303,7 +1081,6 @@ fn read_task(db: &DbPool, task_id: &TaskId) -> Result<TaskRow, DbError> {
             map_task_row,
         )
         .optional()
-// @constraint selvedge.state.error.read_task_read_tasks Database failures during read tasks in read task are returned as caller-visible database errors.
         .map_err(map_error)?
         .ok_or(DbError::NotFound)
 }
@@ -1317,7 +1094,6 @@ fn read_task_in_tx(tx: &rusqlite::Transaction<'_>, task_id: &TaskId) -> Result<T
         map_task_row,
     )
     .optional()
-// @constraint selvedge.state.error.read_task_in_tx_read_tasks Database failures during read tasks in read task in tx are returned as caller-visible database errors.
     .map_err(map_error)?
     .ok_or(DbError::NotFound)
 }
@@ -1326,7 +1102,6 @@ fn ensure_current_path_contains_open_function_call(
     tx: &rusqlite::Transaction<'_>,
     current_cursor_node_id: i64,
     output: &NewFunctionOutputNodeContent,
-    // @constraint selvedge.state.error.ensure_current_path_contains_open_function_call_database_error Database failures during database error mapping in ensure current path contains open function call are returned as caller-visible database errors.
 ) -> Result<(), DbError> {
     // Provider APIs pair tool results with prior tool calls by call id. A
     // model turn may contain several tool calls, so the matching call can be
@@ -1360,11 +1135,9 @@ fn ensure_current_path_contains_open_function_call(
             ],
             |row| row.get(0),
         )
-        // @constraint selvedge.state.error.ensure_current_path_contains_open_function_call_database_error_step2 Database failures during database error mapping in ensure current path contains open function call are returned as caller-visible database errors.
         .map_err(map_error)?;
 
     if !exists {
-        // @constraint selvedge.state.error.ensure_current_path_contains_open_function_call_invalid_value Database failures during invalid stored value handling in ensure current path contains open function call are returned as caller-visible database errors.
         return Err(DbError::Constraint(
             "function output must reference an open function call id and tool".to_owned(),
         ));
@@ -1388,11 +1161,9 @@ fn ensure_current_path_contains_open_function_call(
             ],
             |row| row.get(0),
         )
-// @constraint selvedge.state.error.ensure_current_path_contains_open_function_call_database_error_step3 Database failures during database error mapping in ensure current path contains open function call are returned as caller-visible database errors.
         .map_err(map_error)?;
 
     if output_exists {
-        // @constraint selvedge.state.error.ensure_current_path_contains_open_function_call_invalid_value_step2 Database failures during invalid stored value handling in ensure current path contains open function call are returned as caller-visible database errors.
         Err(DbError::Constraint(
             "function output already exists for function call id and tool".to_owned(),
         ))
@@ -1406,7 +1177,6 @@ fn read_history_node(db: &DbPool, node_id: &HistoryNodeId) -> Result<HistoryNode
     read_history_node_concrete_in_connection(&connection, node_id)
 }
 
-// @constraint selvedge.state.error.history_concrete Concrete history node loading surfaces missing content rows and decode failures as caller-visible database errors.
 fn read_history_node_concrete_in_connection(
     connection: &Connection,
     node_id: &HistoryNodeId,
@@ -1459,7 +1229,6 @@ fn read_history_node_concrete_in_connection(
     }
 }
 
-// @constraint selvedge.state.error.history_base Base history node loading surfaces missing node rows and storage failures as caller-visible database errors.
 fn read_history_node_in_connection(
     connection: &Connection,
     node_id: &HistoryNodeId,
@@ -1473,7 +1242,6 @@ fn read_history_node_in_connection(
             map_history_node_row,
         )
         .optional()
-        // @constraint selvedge.state.error.read_history_node_in_connection_read_history_nodes Database failures during read history_nodes in read history node in connection are returned as caller-visible database errors.
         .map_err(map_error)?
         .ok_or(DbError::NotFound)
 }
@@ -1487,18 +1255,14 @@ fn list_queued_inputs(db: &DbPool, task_id: &TaskId) -> Result<Vec<QueuedUserInp
              WHERE task_id = ?1
              ORDER BY seq_no ASC",
         )
-        // @constraint selvedge.state.error.list_queued_inputs_read_queued_user_inputs Database failures during read queued_user_inputs in list queued inputs are returned as caller-visible database errors.
         .map_err(map_error)?;
     statement
         .query_map(params![task_id.0], map_queued_user_input_row)
-        // @constraint selvedge.state.error.list_queued_inputs_read_queued_user_inputs_step2 Database failures during read queued_user_inputs in list queued inputs are returned as caller-visible database errors.
         .map_err(map_error)?
         .collect::<Result<Vec<_>, _>>()
-        // @constraint selvedge.state.error.list_queued_inputs_read_queued_user_inputs_step3 Database failures during read queued_user_inputs in list queued inputs are returned as caller-visible database errors.
         .map_err(map_error)
 }
 
-// @constraint selvedge.state.error.history_insert History insertion surfaces graph row and content row failures as caller-visible database errors.
 fn insert_history_node(
     tx: &rusqlite::Transaction<'_>,
     node: NewHistoryNode,
@@ -1513,7 +1277,6 @@ fn insert_history_node(
             node.created_at.0
         ],
     )
-    // @constraint selvedge.state.error.insert_history_node_insert_history_nodes Database failures during insert history_nodes in insert history node are returned as caller-visible database errors.
     .map_err(map_error)?;
     let node_id = HistoryNodeId(tx.last_insert_rowid());
     match node.content {
@@ -1529,14 +1292,12 @@ fn insert_history_node(
     Ok(node_id)
 }
 
-// @constraint selvedge.state.error.message_insert Message insertion surfaces unsupported roles and storage failures as caller-visible database errors.
 fn insert_message_node(
     tx: &rusqlite::Transaction<'_>,
     node_id: HistoryNodeId,
     content: NewMessageNodeContent,
 ) -> Result<(), DbError> {
     let Some(message_role) = message_role_to_db(&content.message_role) else {
-        // @constraint selvedge.state.error.insert_message_node_invalid_value Database failures during invalid stored value handling in insert message node are returned as caller-visible database errors.
         return Err(DbError::Constraint(
             "message role cannot be persisted as a history message".to_owned(),
         ));
@@ -1546,12 +1307,10 @@ fn insert_message_node(
          VALUES (?1, ?2, ?3)",
         params![node_id.0, message_role, content.message_text],
     )
-    // @constraint selvedge.state.error.insert_message_node_insert_history_message_nodes Database failures during insert history_message_nodes in insert message node are returned as caller-visible database errors.
     .map_err(map_error)?;
     Ok(())
 }
 
-// @constraint selvedge.state.error.reasoning_insert Reasoning insertion surfaces durable reasoning row failures as caller-visible database errors.
 fn insert_reasoning_node(
     tx: &rusqlite::Transaction<'_>,
     node_id: HistoryNodeId,
@@ -1562,12 +1321,10 @@ fn insert_reasoning_node(
          VALUES (?1, ?2)",
         params![node_id.0, content.reasoning_text],
     )
-    // @constraint selvedge.state.error.insert_reasoning_node_insert_history_reasoning_nodes Database failures during insert history_reasoning_nodes in insert reasoning node are returned as caller-visible database errors.
     .map_err(map_error)?;
     Ok(())
 }
 
-// @constraint selvedge.state.error.call_insert Function-call insertion surfaces required argument and storage failures as caller-visible database errors.
 fn insert_function_call_node(
     tx: &rusqlite::Transaction<'_>,
     node_id: HistoryNodeId,
@@ -1586,19 +1343,15 @@ fn insert_function_call_node(
                  WHERE tool_name = ?1 AND is_required = 1
                  ORDER BY parameter_name ASC",
             )
-            // @constraint selvedge.state.error.insert_function_call_node_read_tool_parameters Database failures during read tool_parameters in insert function call node are returned as caller-visible database errors.
             .map_err(map_error)?;
         statement
             .query_map(params![content.tool_name.0], |row| row.get::<_, String>(0))
-            // @constraint selvedge.state.error.insert_function_call_node_read_tool_parameters_step2 Database failures during read tool_parameters in insert function call node are returned as caller-visible database errors.
             .map_err(map_error)?
             .collect::<Result<Vec<_>, _>>()
-            // @constraint selvedge.state.error.insert_function_call_node_read_tool_parameters_step3 Database failures during read tool_parameters in insert function call node are returned as caller-visible database errors.
             .map_err(map_error)?
     };
     for parameter_name in required_parameters {
         if !argument_names.contains(parameter_name.as_str()) {
-            // @constraint selvedge.state.error.insert_function_call_node_read_rows Database failures during row read in insert function call node are returned as caller-visible database errors.
             return Err(DbError::Constraint(format!(
                 "required tool argument is missing: {}.{}",
                 content.tool_name.0, parameter_name
@@ -1611,7 +1364,6 @@ fn insert_function_call_node(
          VALUES (?1, ?2, ?3)",
         params![node_id.0, content.function_call_id.0, content.tool_name.0],
     )
-    // @constraint selvedge.state.error.insert_function_call_node_insert_history_function_call_nodes Database failures during insert history_function_call_nodes in insert function call node are returned as caller-visible database errors.
     .map_err(map_error)?;
     for argument in content.arguments {
         let (value_type, string_value, integer_value, number_value, boolean_value) =
@@ -1631,13 +1383,11 @@ fn insert_function_call_node(
                 boolean_value
             ],
         )
-// @constraint selvedge.state.error.insert_function_call_node_database_error Database failures during database error mapping in insert function call node are returned as caller-visible database errors.
         .map_err(map_error)?;
     }
     Ok(())
 }
 
-// @constraint selvedge.state.error.output_insert Function-output insertion surfaces durable tool result row failures as caller-visible database errors.
 fn insert_function_output_node(
     tx: &rusqlite::Transaction<'_>,
     node_id: HistoryNodeId,
@@ -1656,7 +1406,6 @@ fn insert_function_output_node(
             bool_to_i64(content.is_error)
         ],
     )
-    // @constraint selvedge.state.error.insert_function_output_node_insert_history_function_output_nodes Database failures during insert history_function_output_nodes in insert function output node are returned as caller-visible database errors.
     .map_err(map_error)?;
     Ok(())
 }
@@ -1669,18 +1418,14 @@ fn ensure_active_task(connection: &Connection, task_id: &TaskId) -> Result<(), D
             |row| row.get(0),
         )
         .optional()
-        // @constraint selvedge.state.error.ensure_active_task_read_tasks Database failures during read tasks in ensure active task are returned as caller-visible database errors.
         .map_err(map_error)?;
     match status.as_deref() {
         Some("active") => Ok(()),
-        // @constraint selvedge.state.error.ensure_active_task_read_tasks_step2 Database failures during read tasks in ensure active task are returned as caller-visible database errors.
         Some(_) => Err(DbError::TaskNotActive),
-        // @constraint selvedge.state.error.ensure_active_task_read_tasks_step3 Database failures during read tasks in ensure active task are returned as caller-visible database errors.
         None => Err(DbError::NotFound),
     }
 }
 
-// @constraint selvedge.state.error.active_tx Transactional active task checks surface missing and archived tasks as caller-visible database errors.
 fn ensure_active_task_in_tx(
     tx: &rusqlite::Transaction<'_>,
     task_id: &TaskId,
@@ -1692,18 +1437,14 @@ fn ensure_active_task_in_tx(
             |row| row.get(0),
         )
         .optional()
-        // @constraint selvedge.state.error.ensure_active_task_in_tx_read_tasks Database failures during read tasks in ensure active task in tx are returned as caller-visible database errors.
         .map_err(map_error)?;
     match status.as_deref() {
         Some("active") => Ok(()),
-        // @constraint selvedge.state.error.ensure_active_task_in_tx_read_tasks_step2 Database failures during read tasks in ensure active task in tx are returned as caller-visible database errors.
         Some(_) => Err(DbError::TaskNotActive),
-        // @constraint selvedge.state.error.ensure_active_task_in_tx_read_tasks_step3 Database failures during read tasks in ensure active task in tx are returned as caller-visible database errors.
         None => Err(DbError::NotFound),
     }
 }
 
-// @constraint selvedge.state.error.message_read Message node reads surface missing rows and role decode failures as caller-visible database errors.
 fn read_message_node(
     connection: &Connection,
     node_id: &HistoryNodeId,
@@ -1716,17 +1457,14 @@ fn read_message_node(
                 Ok(HistoryMessageNodeRow {
                     node_id: HistoryNodeId(row.get(0)?),
                     message_role: message_role_from_db(&row.get::<_, String>(1)?)
-// @constraint selvedge.state.error.read_message_node_read_history_message_nodes Database failures during read history_message_nodes in read message node are returned as caller-visible database errors.
                         .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?,
                     message_text: row.get(2)?,
                 })
             },
         )
-// @constraint selvedge.state.error.read_message_node_read_history_message_nodes_step2 Database failures during read history_message_nodes in read message node are returned as caller-visible database errors.
         .map_err(map_error)
 }
 
-// @constraint selvedge.state.error.reasoning_read Reasoning node reads surface missing rows and storage failures as caller-visible database errors.
 fn read_reasoning_node(
     connection: &Connection,
     node_id: &HistoryNodeId,
@@ -1742,11 +1480,9 @@ fn read_reasoning_node(
                 })
             },
         )
-        // @constraint selvedge.state.error.read_reasoning_node_read_history_reasoning_nodes Database failures during read history_reasoning_nodes in read reasoning node are returned as caller-visible database errors.
         .map_err(map_error)
 }
 
-// @constraint selvedge.state.error.call_read Function-call node reads surface missing rows and storage failures as caller-visible database errors.
 fn read_function_call_node(
     connection: &Connection,
     node_id: &HistoryNodeId,
@@ -1763,11 +1499,9 @@ fn read_function_call_node(
                 })
             },
         )
-// @constraint selvedge.state.error.read_function_call_node_read_history_function_call_nodes Database failures during read history_function_call_nodes in read function call node are returned as caller-visible database errors.
         .map_err(map_error)
 }
 
-// @constraint selvedge.state.error.call_argument_read Function-call argument reads surface missing typed values and decode failures as caller-visible database errors.
 fn read_function_call_arguments(
     connection: &Connection,
     node_id: &HistoryNodeId,
@@ -1779,7 +1513,6 @@ fn read_function_call_arguments(
              WHERE function_call_node_id = ?1
              ORDER BY argument_name ASC",
         )
-// @constraint selvedge.state.error.read_function_call_arguments_read_history_function_call_arguments Database failures during read history_function_call_arguments in read function call arguments are returned as caller-visible database errors.
         .map_err(map_error)?;
     statement
         .query_map(params![node_id.0], |row| {
@@ -1793,18 +1526,14 @@ fn read_function_call_arguments(
                     row.get(4)?,
                     row.get(5)?,
                 )
-                // @constraint selvedge.state.error.read_function_call_arguments_read_rows Database failures during row read in read function call arguments are returned as caller-visible database errors.
                 .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?,
             })
         })
-        // @constraint selvedge.state.error.read_function_call_arguments_database_error Database failures during database error mapping in read function call arguments are returned as caller-visible database errors.
         .map_err(map_error)?
         .collect::<Result<Vec<_>, _>>()
-        // @constraint selvedge.state.error.read_function_call_arguments_database_error_step2 Database failures during database error mapping in read function call arguments are returned as caller-visible database errors.
         .map_err(map_error)
 }
 
-// @constraint selvedge.state.error.output_read Function-output node reads surface missing rows and storage failures as caller-visible database errors.
 fn read_function_output_node(
     connection: &Connection,
     node_id: &HistoryNodeId,
@@ -1826,7 +1555,6 @@ fn read_function_output_node(
                 })
             },
         )
-// @constraint selvedge.state.error.read_function_output_node_database_error Database failures during database error mapping in read function output node are returned as caller-visible database errors.
         .map_err(map_error)
 }
 
@@ -1834,15 +1562,12 @@ fn map_task_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<TaskRow> {
     Ok(TaskRow {
         task_id: TaskId(row.get(0)?),
         task_status: task_status_from_db(&row.get::<_, String>(1)?)
-            // @constraint selvedge.state.error.map_task_row_database_error Database failures during database error mapping in map task row are returned as caller-visible database errors.
             .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?,
         cursor_node_id: HistoryNodeId(row.get(2)?),
         model_profile_key: ModelProfileKey(row.get(3)?),
         reasoning_effort: reasoning_effort_from_db(&row.get::<_, String>(4)?)
-            // @constraint selvedge.state.error.map_task_row_database_error_step2 Database failures during database error mapping in map task row are returned as caller-visible database errors.
             .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?,
         state_version: i64_to_u64(row.get(5)?)
-            // @constraint selvedge.state.error.map_task_row_database_error_step3 Database failures during database error mapping in map task row are returned as caller-visible database errors.
             .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?,
         created_at: UnixTs(row.get(6)?),
         updated_at: UnixTs(row.get(7)?),
@@ -1855,7 +1580,6 @@ fn map_history_node_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<HistoryNode
         node_id: HistoryNodeId(row.get(0)?),
         parent_node_id: parent_node_id.map(HistoryNodeId),
         content_kind: content_kind_from_db(&row.get::<_, String>(2)?)
-            // @constraint selvedge.state.error.map_history_node_row_database_error Database failures during database error mapping in map history node row are returned as caller-visible database errors.
             .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?,
         created_at: UnixTs(row.get(3)?),
     })
@@ -1865,7 +1589,6 @@ fn map_queued_user_input_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Queued
     Ok(QueuedUserInputRow {
         task_id: TaskId(row.get(0)?),
         seq_no: i64_to_u64(row.get(1)?)
-            // @constraint selvedge.state.error.map_queued_user_input_row_database_error Database failures during database error mapping in map queued user input row are returned as caller-visible database errors.
             .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?,
         message_text: row.get(2)?,
         queued_at: UnixTs(row.get(3)?),
@@ -1887,7 +1610,6 @@ fn content_kind_from_db(value: &str) -> Result<HistoryContentKindRow, DbError> {
         "reasoning" => Ok(HistoryContentKindRow::Reasoning),
         "function_call" => Ok(HistoryContentKindRow::FunctionCall),
         "function_output" => Ok(HistoryContentKindRow::FunctionOutput),
-        // @constraint selvedge.state.error.content_kind_from_db_invalid_value Database failures during invalid stored value handling in content kind from db are returned as caller-visible database errors.
         other => Err(DbError::Storage(format!(
             "unknown history content kind: {other}"
         ))),
@@ -1898,7 +1620,6 @@ fn task_status_from_db(value: &str) -> Result<TaskStatusRow, DbError> {
     match value {
         "active" => Ok(TaskStatusRow::Active),
         "archived" => Ok(TaskStatusRow::Archived),
-        // @constraint selvedge.state.error.task_status_from_db_read_db Database failures during read db in task status from db are returned as caller-visible database errors.
         other => Err(DbError::Storage(format!("unknown task status: {other}"))),
     }
 }
@@ -1919,7 +1640,6 @@ fn message_role_from_db(value: &str) -> Result<MessageRole, DbError> {
         "developer" => Ok(MessageRole::Developer),
         "user" => Ok(MessageRole::User),
         "assistant" => Ok(MessageRole::Assistant),
-        // @constraint selvedge.state.error.message_role_from_db_invalid_value Database failures during invalid stored value handling in message role from db are returned as caller-visible database errors.
         other => Err(DbError::Storage(format!("unknown message role: {other}"))),
     }
 }
@@ -1939,7 +1659,6 @@ fn reasoning_effort_from_db(value: &str) -> Result<ReasoningEffort, DbError> {
         "low" => Ok(ReasoningEffort::Low),
         "medium" => Ok(ReasoningEffort::Medium),
         "high" => Ok(ReasoningEffort::High),
-        // @constraint selvedge.state.error.reasoning_effort_from_db_invalid_value Database failures during invalid stored value handling in reasoning effort from db are returned as caller-visible database errors.
         other => Err(DbError::Storage(format!(
             "unknown reasoning effort: {other}"
         ))),
@@ -1961,7 +1680,6 @@ fn tool_parameter_type_from_db(value: &str) -> Result<ToolParameterType, DbError
         "integer" => Ok(ToolParameterType::Integer),
         "number" => Ok(ToolParameterType::Number),
         "boolean" => Ok(ToolParameterType::Boolean),
-        // @constraint selvedge.state.error.tool_parameter_type_from_db_invalid_value Database failures during invalid stored value handling in tool parameter type from db are returned as caller-visible database errors.
         other => Err(DbError::Storage(format!(
             "unknown tool parameter type: {other}"
         ))),
@@ -1987,7 +1705,6 @@ fn tool_argument_value_to_db(value: ToolArgumentValue) -> DbArgumentValue {
     }
 }
 
-// @constraint selvedge.state.error.argument_value_decode Tool argument value decoding surfaces missing typed value columns as caller-visible storage errors.
 fn tool_argument_value_from_db(
     value_type: &str,
     string_value: Option<String>,
@@ -2008,7 +1725,6 @@ fn tool_argument_value_from_db(
         "boolean" => boolean_value
             .map(|value| ToolArgumentValue::Boolean(value == 1))
             .ok_or_else(|| DbError::Storage("boolean argument value is missing".to_owned())),
-        // @constraint selvedge.state.error.tool_argument_value_from_db_invalid_value Database failures during invalid stored value handling in tool argument value from db are returned as caller-visible database errors.
         other => Err(DbError::Storage(format!(
             "unknown argument value type: {other}"
         ))),
@@ -2020,16 +1736,13 @@ fn bool_to_i64(value: bool) -> i64 {
 }
 
 fn i64_to_u64(value: i64) -> Result<u64, DbError> {
-    // @constraint selvedge.state.error.i64_to_u64_read_db Database failures during read db in i64 to u64 are returned as caller-visible database errors.
     u64::try_from(value).map_err(|_| DbError::Storage(format!("negative integer: {value}")))
 }
 
 fn u64_to_i64(value: u64) -> Result<i64, DbError> {
-    // @constraint selvedge.state.error.u64_to_i64_integer_conversion Database failures during integer conversion in u64 to i64 are returned as caller-visible database errors.
     i64::try_from(value).map_err(|_| DbError::Storage(format!("integer is too large: {value}")))
 }
 
-// @constraint selvedge.state.error.u64_to_i64_database_error Database failures during database error mapping in u64 to i64 are returned as caller-visible database errors.
 fn map_error(error: rusqlite::Error) -> DbError {
     match error {
         rusqlite::Error::QueryReturnedNoRows => DbError::NotFound,

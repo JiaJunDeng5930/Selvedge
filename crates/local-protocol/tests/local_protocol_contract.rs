@@ -20,15 +20,12 @@ use serde_json::json;
 #[test]
 fn request_validation_enforces_required_client_fields() {
     let ready = ReadyRequest {};
-    // @verifies selvedge.client.protocol
     validate_ready_request(&ready).expect("ready request is valid");
 
-    // @verifies selvedge.client.protocol
     assert_eq!(
         LocalClientId::new(" "),
         Err(LocalProtocolValidationError::EmptyClientId)
     );
-    // @verifies selvedge.client.protocol
     assert_eq!(
         LocalClientCommandId::new(" "),
         Err(LocalProtocolValidationError::EmptyClientCommandId)
@@ -40,7 +37,6 @@ fn request_validation_enforces_required_client_fields() {
         command_name: " ".to_owned(),
         payload: json!({"message": "hello"}),
     };
-    // @verifies selvedge.client.protocol
     assert_eq!(
         validate_command_request(&request),
         Err(LocalProtocolValidationError::EmptyCommandName)
@@ -63,7 +59,6 @@ fn attach_validation_enforces_valid_subscription_filters() {
         task_scope: LocalTaskScope::TaskIds(vec!["task-1".to_owned(), " ".to_owned()]),
         ..valid_subscription.clone()
     };
-    // @verifies selvedge.client.protocol
     assert_eq!(
         validate_subscription(&empty_task),
         Err(LocalProtocolValidationError::EmptyTaskId)
@@ -73,7 +68,6 @@ fn attach_validation_enforces_valid_subscription_filters() {
         task_scope: LocalTaskScope::TaskIds(vec!["task-1".to_owned(), "task-1".to_owned()]),
         ..valid_subscription.clone()
     };
-    // @verifies selvedge.client.protocol
     assert_eq!(
         validate_subscription(&duplicate_task),
         Err(LocalProtocolValidationError::DuplicateTaskId)
@@ -104,7 +98,6 @@ fn frame_validation_enforces_delivery_sequence_snapshot_and_notice_contracts() {
         client_command_id: LocalClientCommandId::new("attach-1").expect("valid command id"),
         snapshot: snapshot.clone(),
     });
-    // @verifies selvedge.client.protocol
     assert_eq!(
         validate_client_frame(&zero_seq),
         Err(LocalProtocolValidationError::InvalidDeliverySeq)
@@ -123,7 +116,6 @@ fn frame_validation_enforces_delivery_sequence_snapshot_and_notice_contracts() {
         ],
         ..snapshot.clone()
     };
-    // @verifies selvedge.client.protocol
     assert_eq!(
         validate_snapshot(&duplicate_version),
         Err(LocalProtocolValidationError::DuplicateSnapshotTaskVersion)
@@ -136,7 +128,6 @@ fn frame_validation_enforces_delivery_sequence_snapshot_and_notice_contracts() {
         }],
         ..snapshot.clone()
     };
-    // @verifies selvedge.client.protocol
     assert_eq!(
         validate_snapshot(&invalid_task),
         Err(LocalProtocolValidationError::InvalidHistoryNodeId)
@@ -149,7 +140,6 @@ fn frame_validation_enforces_delivery_sequence_snapshot_and_notice_contracts() {
         }],
         ..snapshot.clone()
     };
-    // @verifies selvedge.client.protocol
     assert_eq!(
         validate_snapshot(&invalid_history_parent),
         Err(LocalProtocolValidationError::InvalidParentHistoryNodeId)
@@ -162,7 +152,6 @@ fn frame_validation_enforces_delivery_sequence_snapshot_and_notice_contracts() {
         }],
         ..snapshot.clone()
     };
-    // @verifies selvedge.client.protocol
     assert_eq!(
         validate_snapshot(&empty_parent_edge_task),
         Err(LocalProtocolValidationError::EmptyTaskId)
@@ -182,7 +171,6 @@ fn frame_validation_enforces_delivery_sequence_snapshot_and_notice_contracts() {
         }],
         ..snapshot.clone()
     };
-    // @verifies selvedge.client.protocol
     assert_eq!(
         validate_snapshot(&empty_tool_argument),
         Err(LocalProtocolValidationError::EmptyToolArgumentName)
@@ -201,7 +189,6 @@ fn frame_validation_enforces_delivery_sequence_snapshot_and_notice_contracts() {
         }],
         ..snapshot
     };
-    // @verifies selvedge.client.protocol
     assert_eq!(
         validate_snapshot(&invalid_function_output_ref),
         Err(LocalProtocolValidationError::InvalidHistoryNodeId)
@@ -216,7 +203,6 @@ fn frame_validation_enforces_delivery_sequence_snapshot_and_notice_contracts() {
             message_text: " ".to_owned(),
         },
     });
-    // @verifies selvedge.client.protocol
     assert_eq!(
         validate_client_frame(&empty_notice),
         Err(LocalProtocolValidationError::EmptyNoticeText)
@@ -232,7 +218,6 @@ fn frame_validation_enforces_delivery_sequence_snapshot_and_notice_contracts() {
             phase: LocalToolExecutionStatusPhase::Failed,
         }),
     });
-    // @verifies selvedge.client.protocol
     assert_eq!(
         validate_client_frame(&invalid_tool_status),
         Err(LocalProtocolValidationError::InvalidHistoryNodeId)
@@ -245,7 +230,6 @@ fn protocol_messages_round_trip_through_json() {
         state: ReadyState::Ready,
     };
     let ready_json = serde_json::to_string(&ready).expect("serialize ready response");
-    // @verifies selvedge.client.protocol
     assert_eq!(
         serde_json::from_str::<ReadyResponse>(&ready_json).expect("deserialize ready response"),
         ready
@@ -256,7 +240,6 @@ fn protocol_messages_round_trip_through_json() {
         outcome: CommandOutcome::Rejected(CommandRejectReason::ServerNotReady),
     };
     let command_json = serde_json::to_string(&command).expect("serialize command response");
-    // @verifies selvedge.client.protocol
     assert_eq!(
         serde_json::from_str::<CommandResponse>(&command_json)
             .expect("deserialize command response"),
@@ -268,7 +251,6 @@ fn protocol_messages_round_trip_through_json() {
         client_command_id: LocalClientCommandId::new("attach-1").expect("valid command id"),
     };
     let accepted_json = serde_json::to_string(&accepted).expect("serialize attach accepted");
-    // @verifies selvedge.client.protocol
     assert_eq!(
         serde_json::from_str::<AttachAccepted>(&accepted_json).expect("deserialize accepted"),
         accepted
@@ -279,7 +261,6 @@ fn protocol_messages_round_trip_through_json() {
         reason: AttachRejectReason::MalformedRequest,
     };
     let rejected_json = serde_json::to_string(&rejected).expect("serialize attach rejected");
-    // @verifies selvedge.client.protocol
     assert_eq!(
         serde_json::from_str::<AttachRejected>(&rejected_json).expect("deserialize rejected"),
         rejected
@@ -296,7 +277,6 @@ fn protocol_messages_round_trip_through_json() {
         }),
     });
     let event_json = serde_json::to_string(&event_frame).expect("serialize event frame");
-    // @verifies selvedge.client.protocol
     assert_eq!(
         serde_json::from_str::<LocalClientFrame>(&event_json).expect("deserialize event frame"),
         event_frame
@@ -307,7 +287,6 @@ fn protocol_messages_round_trip_through_json() {
         model_call_id: "model-call-1".to_owned(),
         phase: LocalModelCallStatusPhase::Requested,
     });
-    // @verifies selvedge.client.protocol
     assert!(matches!(
         model_event,
         LocalClientEvent::ModelCallStatus(LocalModelCallStatusEvent {
@@ -320,19 +299,16 @@ fn protocol_messages_round_trip_through_json() {
         task_id: Some("task-1".to_owned()),
         message_text: "debug".to_owned(),
     });
-    // @verifies selvedge.client.protocol
     assert!(matches!(debug_event, LocalClientEvent::DebugNotice(_)));
 
     let parent_edge = LocalTaskParentProjection {
         parent_task_id: "parent".to_owned(),
         child_task_id: "child".to_owned(),
     };
-    // @verifies selvedge.client.protocol
     assert_eq!(parent_edge.child_task_id, "child");
 
     let error_json = serde_json::to_string(&LocalProtocolValidationError::EmptyTaskId)
         .expect("serialize validation error");
-    // @verifies selvedge.client.protocol
     assert_eq!(
         serde_json::from_str::<LocalProtocolValidationError>(&error_json)
             .expect("deserialize validation error"),
@@ -344,9 +320,7 @@ fn protocol_messages_round_trip_through_json() {
 fn http_problem_uses_payload_text() {
     let problem = http_problem(LocalHttpProblemCode::MalformedJson, "invalid json");
 
-    // @verifies selvedge.client.protocol
     assert_eq!(problem.code, LocalHttpProblemCode::MalformedJson);
-    // @verifies selvedge.client.protocol
     assert_eq!(problem.message_text, "invalid json");
 }
 
@@ -370,7 +344,6 @@ fn attach_stream_item_validation_checks_internal_payload_only() {
                 message_text: "bad".to_owned(),
             },
         }));
-    // @verifies selvedge.client.protocol
     assert_eq!(
         validate_attach_stream_item(&invalid_frame),
         Err(LocalProtocolValidationError::InvalidDeliverySeq)
@@ -387,13 +360,11 @@ fn attach_stream_item_validation_checks_internal_payload_only() {
 #[test]
 fn attach_stream_validator_enforces_accepted_first_and_terminal_error_order() {
     let mut validator = LocalAttachStreamValidator::new();
-    // @verifies selvedge.client.protocol
     assert_eq!(
         validator.state(),
         LocalAttachStreamValidationState::WaitingAccepted
     );
 
-    // @verifies selvedge.client.protocol
     assert_eq!(
         validator.validate_next(&LocalAttachStreamItem::Frame(LocalClientFrame::Notice(
             LocalClientNoticeFrame {
@@ -408,7 +379,6 @@ fn attach_stream_validator_enforces_accepted_first_and_terminal_error_order() {
         ))),
         Err(LocalAttachStreamOrderError::FrameBeforeAccepted)
     );
-    // @verifies selvedge.client.protocol
     assert_eq!(
         validator.state(),
         LocalAttachStreamValidationState::WaitingAccepted
@@ -417,13 +387,11 @@ fn attach_stream_validator_enforces_accepted_first_and_terminal_error_order() {
     validator
         .validate_next(&LocalAttachStreamItem::Accepted(valid_attach_accepted()))
         .expect("accepted first");
-    // @verifies selvedge.client.protocol
     assert_eq!(
         validator.state(),
         LocalAttachStreamValidationState::Streaming
     );
 
-    // @verifies selvedge.client.protocol
     assert_eq!(
         validator.validate_next(&LocalAttachStreamItem::Accepted(valid_attach_accepted())),
         Err(LocalAttachStreamOrderError::DuplicateAccepted)
@@ -450,10 +418,8 @@ fn attach_stream_validator_enforces_accepted_first_and_terminal_error_order() {
             message_text: "shutdown".to_owned(),
         }))
         .expect("stream error ends stream");
-    // @verifies selvedge.client.protocol
     assert_eq!(validator.state(), LocalAttachStreamValidationState::Ended);
 
-    // @verifies selvedge.client.protocol
     assert_eq!(
         validator.validate_next(&LocalAttachStreamItem::Frame(LocalClientFrame::Notice(
             LocalClientNoticeFrame {
@@ -474,7 +440,6 @@ fn attach_stream_validator_enforces_accepted_first_and_terminal_error_order() {
 fn attach_stream_validator_rejects_stream_error_as_first_item() {
     let mut validator = LocalAttachStreamValidator::new();
 
-    // @verifies selvedge.client.protocol
     assert_eq!(
         validator.validate_next(&LocalAttachStreamItem::StreamError(LocalStreamError {
             client_command_id: LocalClientCommandId::new("attach-1").expect("command id"),
@@ -483,7 +448,6 @@ fn attach_stream_validator_rejects_stream_error_as_first_item() {
         })),
         Err(LocalAttachStreamOrderError::ExpectedAcceptedFirst)
     );
-    // @verifies selvedge.client.protocol
     assert_eq!(
         validator.state(),
         LocalAttachStreamValidationState::WaitingAccepted

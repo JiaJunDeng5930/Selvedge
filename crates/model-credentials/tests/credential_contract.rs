@@ -4,8 +4,6 @@ use selvedge_model_credentials::{
 };
 
 #[tokio::test]
-// @verifies selvedge.model.credentials.write.from_home
-// @verifies selvedge.model.credentials.read.from_home
 async fn write_then_read_persists_provider_credential_record() {
     let tempdir = tempfile::TempDir::new().expect("tempdir");
     let record = ModelCredentialRecord {
@@ -29,17 +27,14 @@ async fn write_then_read_persists_provider_credential_record() {
         .expect("read credential")
         .expect("credential present");
 
-    // @verifies selvedge.model.credentials.path
     assert_eq!(
         path,
         tempdir.path().join("auth/model-providers/chatgpt.json")
     );
-    // @verifies selvedge.model.credentials.read.from_home
     assert_eq!(loaded, record);
 }
 
 #[test]
-// @verifies selvedge.model.credentials.path
 fn credential_path_rejects_path_unsafe_provider_ids() {
     let tempdir = tempfile::TempDir::new().expect("tempdir");
     let error = credential_path(tempdir.path(), "../chatgpt").expect_err("invalid provider");

@@ -1,14 +1,6 @@
 #![doc = include_str!("../README.md")]
 #![allow(clippy::result_large_err)]
 
-//! @behavior selvedge.client HTTP callers can execute buffered requests or streaming requests and receive typed status, body, and error results.
-//! @behavior selvedge.client.execute Buffered HTTP execution returns complete responses or typed errors.
-//! @behavior selvedge.client.stream Streaming HTTP execution returns response metadata and a raw byte stream or typed errors.
-//! @behavior selvedge.client.response HTTP responses expose raw status, headers, and body data without automatic parsing.
-//! @behavior selvedge.client.transport HTTP transport sends prepared requests with explicit timeout, proxy, retry, redirect, and TLS behavior.
-//! @behavior selvedge.client.log HTTP calls emit structured logs for start, preparation, transport, status, stream completion, and configured runtime outcomes.
-//! @behavior selvedge.client.tls HTTPS calls can use a configured CA bundle as additional root certificates.
-
 mod config_resolution;
 mod redaction;
 mod redirect_runtime;
@@ -37,13 +29,10 @@ macro_rules! log_event {
     }};
 }
 
-// @behavior selvedge.client.log.macro HTTP lifecycle logging uses the repository structured logging macro and ignores logging backend errors.
 pub(crate) use log_event;
 
-// @behavior selvedge.client.stream.bytes ByteStream yields raw response body chunks or typed HTTP errors to the caller.
 pub type ByteStream = Pin<Box<dyn Stream<Item = Result<bytes::Bytes, HttpError>> + Send + 'static>>;
 
-// @constraint selvedge.client.method HTTP requests support GET, POST, PUT, PATCH, and DELETE methods.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum HttpMethod {
     Get,
@@ -53,14 +42,12 @@ pub enum HttpMethod {
     Delete,
 }
 
-// @constraint selvedge.client.compression HTTP requests support no compression or zstd request body compression.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum RequestCompression {
     None,
     Zstd,
 }
 
-// @behavior selvedge.client.body HTTP request bodies can be empty, JSON, form-url-encoded pairs, or raw bytes.
 #[derive(Clone, Debug)]
 pub enum HttpRequestBody {
     Empty,
@@ -69,45 +56,29 @@ pub enum HttpRequestBody {
     Bytes(bytes::Bytes),
 }
 
-// @behavior selvedge.client.request.public HttpRequest carries the caller-visible method, URL, headers, body, timeout override, and compression choice for one HTTP call.
 #[derive(Clone, Debug)]
 pub struct HttpRequest {
-    /// @behavior selvedge.client.request.method HttpRequest carries the HTTP method selected by the caller.
     pub method: HttpMethod,
-    /// @behavior selvedge.client.request.url_public HttpRequest carries the URL text selected by the caller.
     pub url: String,
-    /// @behavior selvedge.client.request.headers HttpRequest carries caller-supplied request headers.
     pub headers: HeaderMap,
-    /// @behavior selvedge.client.request.body_public HttpRequest carries the request body selected by the caller.
     pub body: HttpRequestBody,
-    /// @behavior selvedge.client.request.timeout_public HttpRequest carries an optional per-call request timeout override.
     pub timeout: Option<Duration>,
-    /// @behavior selvedge.client.request.compression_public HttpRequest carries the request compression mode selected by the caller.
     pub compression: RequestCompression,
 }
 
-// @behavior selvedge.client.response.public HttpResponse returns the successful HTTP status, headers, and raw buffered body to the caller.
 #[derive(Clone, Debug)]
 pub struct HttpResponse {
-    /// @behavior selvedge.client.response.status HttpResponse carries the successful HTTP status code.
     pub status: StatusCode,
-    /// @behavior selvedge.client.response.headers HttpResponse carries response headers returned by the server.
     pub headers: HeaderMap,
-    /// @behavior selvedge.client.response.body_public HttpResponse carries the raw buffered response body bytes.
     pub body: bytes::Bytes,
 }
 
-// @behavior selvedge.client.stream.public HttpStreamResponse returns successful HTTP status, headers, and a raw byte stream to the caller.
 pub struct HttpStreamResponse {
-    /// @behavior selvedge.client.stream.status HttpStreamResponse carries the successful HTTP status code.
     pub status: StatusCode,
-    /// @behavior selvedge.client.stream.headers HttpStreamResponse carries response headers returned by the server.
     pub headers: HeaderMap,
-    /// @behavior selvedge.client.stream.body_public HttpStreamResponse carries the raw response byte stream.
     pub body: ByteStream,
 }
 
-// @behavior selvedge.client.error HTTP failures are returned as typed configuration, build, timeout, connect, TLS, I/O, or status errors.
 #[derive(Debug)]
 pub enum HttpError {
     Config(selvedge_config::ConfigError),
@@ -119,20 +90,14 @@ pub enum HttpError {
     Status(HttpStatusError),
 }
 
-// @behavior selvedge.client.status.public HttpStatusError carries the sanitized URL, HTTP status, headers, and raw error body for non-success responses.
 #[derive(Debug)]
 pub struct HttpStatusError {
-    /// @behavior selvedge.client.status.url HttpStatusError carries the sanitized response URL.
     pub url: String,
-    /// @behavior selvedge.client.status.code HttpStatusError carries the non-success HTTP status code.
     pub status: StatusCode,
-    /// @behavior selvedge.client.status.headers HttpStatusError carries response headers returned by the server.
     pub headers: HeaderMap,
-    /// @behavior selvedge.client.status.body HttpStatusError carries the raw buffered non-success response body bytes.
     pub body: bytes::Bytes,
 }
 
-// @constraint selvedge.client.stream.debug HttpStreamResponse debug output exposes status and headers while representing the live response body as a stream placeholder.
 impl fmt::Debug for HttpStreamResponse {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
@@ -146,7 +111,6 @@ impl fmt::Debug for HttpStreamResponse {
 
 impl fmt::Display for HttpError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        // @behavior selvedge.client.error.display HttpError display text gives callers a stable human-readable failure message for each error category.
         match self {
             Self::Config(error) => write!(formatter, "config error: {error}"),
             Self::Build { reason } => write!(formatter, "request build failed: {reason}"),
@@ -160,7 +124,6 @@ impl fmt::Display for HttpError {
 }
 
 impl StdError for HttpError {
-    // @intent selvedge.client.error.source StdError integration lets callers inspect configuration and status failure sources through the standard error interface.
     fn source(&self) -> Option<&(dyn StdError + 'static)> {
         match self {
             Self::Config(error) => Some(error),
@@ -176,7 +139,6 @@ impl StdError for HttpError {
 
 impl fmt::Display for HttpStatusError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        // @behavior selvedge.client.status.display HttpStatusError display text reports the non-success status code and sanitized URL.
         write!(
             formatter,
             "received non-success status {} for {}",
@@ -193,7 +155,6 @@ impl From<selvedge_config::ConfigError> for HttpError {
     }
 }
 
-// @behavior selvedge.client.execute.log execute emits structured start and prepared logs with sanitized URL, method, and body length.
 pub async fn execute(request: HttpRequest) -> Result<HttpResponse, HttpError> {
     let sanitized_request_url = sanitize_url(&request.url);
     log_event!(
@@ -232,7 +193,6 @@ pub async fn execute(request: HttpRequest) -> Result<HttpResponse, HttpError> {
     result
 }
 
-// @behavior selvedge.client.stream.log stream emits structured start and prepared logs with sanitized URL, method, and body length.
 pub async fn stream(request: HttpRequest) -> Result<HttpStreamResponse, HttpError> {
     let sanitized_request_url = sanitize_url(&request.url);
     log_event!(
@@ -272,21 +232,18 @@ pub async fn stream(request: HttpRequest) -> Result<HttpStreamResponse, HttpErro
     result
 }
 
-// @behavior selvedge.client.error.build Build failures preserve caller-visible reason text in HttpError::Build.
 pub(crate) fn build_error(reason: impl Into<String>) -> HttpError {
     HttpError::Build {
         reason: reason.into(),
     }
 }
 
-// @constraint selvedge.client.log.timeout_absent Absent HTTP timeout settings are logged as zero milliseconds.
 pub(crate) fn duration_millis_or_zero(duration: Option<Duration>) -> u64 {
     duration
         .map(|timeout| timeout.as_millis() as u64)
         .unwrap_or(0)
 }
 
-// @behavior selvedge.client.blocking CPU-bound HTTP preparation work returns the same typed result after running on the blocking task pool.
 pub(crate) async fn run_blocking<T, F>(operation: F) -> Result<T, HttpError>
 where
     T: Send + 'static,
@@ -299,7 +256,6 @@ where
 
 impl HttpMethod {
     fn as_str(&self) -> &'static str {
-        // @constraint selvedge.client.method.string HTTP method log fields use uppercase wire method names.
         match self {
             Self::Get => "GET",
             Self::Post => "POST",
@@ -312,7 +268,6 @@ impl HttpMethod {
 
 impl From<HttpMethod> for Method {
     fn from(value: HttpMethod) -> Self {
-        // @constraint selvedge.client.method.reqwest Public HTTP methods map directly to reqwest methods with the same wire semantics.
         match value {
             HttpMethod::Get => Method::GET,
             HttpMethod::Post => Method::POST,
@@ -346,7 +301,6 @@ mod tests {
 
     #[test]
     fn absolute_http_url_is_required() {
-        // @verifies selvedge.client.request.url.absolute
         let error = parse_absolute_http_url("/relative").expect_err("relative url must fail");
 
         assert!(matches!(error, HttpError::Build { .. }));
@@ -365,7 +319,6 @@ mod tests {
             content_type_if_missing: None,
         };
 
-        // @verifies selvedge.client.request.compression.header
         let error = maybe_compress_body(body, RequestCompression::Zstd, &mut headers)
             .await
             .expect_err("content-encoding conflict must fail");
@@ -386,7 +339,6 @@ mod tests {
             content_type_if_missing: None,
         };
 
-        // @verifies selvedge.client.request.compression.integrity
         let error = maybe_compress_body(body, RequestCompression::Zstd, &mut headers)
             .await
             .expect_err("integrity headers must fail");
@@ -405,7 +357,6 @@ mod tests {
             compression: RequestCompression::None,
         };
 
-        // @verifies selvedge.client.request.body.json
         let prepared = prepare_request(
             request,
             &ResolvedCallConfig {
@@ -419,7 +370,6 @@ mod tests {
         .await
         .expect("prepare request");
 
-        // @verifies selvedge.client.request.body.json
         assert_eq!(
             prepared.request.headers().get(http::header::CONTENT_TYPE),
             Some(&HeaderValue::from_static("application/json"))
@@ -431,7 +381,6 @@ mod tests {
         let body = encode_body(HttpRequestBody::Bytes(Bytes::from_static(b"payload")))
             .expect("encode body");
         let mut headers = HeaderMap::new();
-        // @verifies selvedge.client.request.compression.zstd
         let compressed = maybe_compress_body(body, RequestCompression::Zstd, &mut headers)
             .await
             .expect("compress body");
@@ -445,7 +394,6 @@ mod tests {
 
     #[test]
     fn build_error_has_stable_shape() {
-        // @verifies selvedge.client.error.build
         let error = build_error("reason");
 
         assert!(matches!(error, HttpError::Build { reason } if reason == "reason"));
@@ -464,7 +412,6 @@ mod tests {
             }
         });
 
-        // @verifies selvedge.client.stream.idle
         let mut wrapped = wrap_stream(
             "http://example.test/stream".to_owned(),
             RequestBudget::new(None),
@@ -478,7 +425,6 @@ mod tests {
         sleep(Duration::from_millis(120)).await;
 
         let second = wrapped.next().await.expect("second item");
-        // @verifies selvedge.client.stream.idle
         assert_eq!(second.expect("second chunk"), Bytes::from_static(b"second"));
     }
 
@@ -491,7 +437,6 @@ mod tests {
             }
         });
 
-        // @verifies selvedge.client.timeout
         let mut wrapped = wrap_stream(
             "http://example.test/stream".to_owned(),
             RequestBudget::new(Some(Duration::from_millis(50))),
@@ -502,13 +447,11 @@ mod tests {
         sleep(Duration::from_millis(120)).await;
 
         let first = wrapped.next().await.expect("first item");
-        // @verifies selvedge.client.timeout
         assert_eq!(first.expect("first chunk"), Bytes::from_static(b"first"));
     }
 
     #[test]
     fn sanitize_url_removes_sensitive_parts() {
-        // @verifies selvedge.client.redaction.parts
         let sanitized =
             sanitize_url("https://user:pass@example.com:8443/path?token=secret#fragment");
 
@@ -517,7 +460,6 @@ mod tests {
 
     #[test]
     fn sanitize_url_hides_invalid_input() {
-        // @verifies selvedge.client.redaction.invalid
         let sanitized = sanitize_url("not a valid url\r\nsecret");
 
         assert_eq!(sanitized.as_str(), "<invalid-url>");
@@ -528,7 +470,6 @@ mod tests {
         let url =
             Url::parse("https://user:pass@example.com/path?token=secret").expect("parse known url");
         let raw = format!("connect error for {}", url.as_str());
-        // @verifies selvedge.client.redaction.error_text
         let sanitized = sanitize_error_text(&raw, &[url.as_str()]);
 
         assert!(sanitized.contains("https://example.com/path"));
@@ -542,7 +483,6 @@ mod tests {
             "tls failed for https://user:pass@example.com/path?token=secret ",
             "before redirecting to http://other.example.test/path?x=1"
         );
-        // @verifies selvedge.client.redaction.embedded
         let sanitized = sanitize_error_text(raw, &[]);
 
         assert!(sanitized.contains("https://example.com/path"));

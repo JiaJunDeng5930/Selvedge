@@ -39,12 +39,10 @@ async fn connect_validates_structured_localhost_endpoint_before_transport_connec
     })
     .await;
 
-    // @verifies selvedge.client.local
     assert!(matches!(
         invalid,
         Err(LocalClientError::ProtocolValidationFailed(_))
     ));
-    // @verifies selvedge.client.local
     assert!(connect_plan_is_some());
 
     let state = FakeTransportState::new_handle();
@@ -56,9 +54,7 @@ async fn connect_validates_structured_localhost_endpoint_before_transport_connec
     .await
     .expect("connect client");
 
-    // @verifies selvedge.client.local
     assert_eq!(client.state().await, LocalClientState::Ready);
-    // @verifies selvedge.client.local
     assert_eq!(
         state.lock().expect("fake state").connected_configs,
         vec![LocalClientConfig {
@@ -78,7 +74,6 @@ async fn connect_failure_returns_transport_connect_error() {
         Err(error) => error,
     };
 
-    // @verifies selvedge.client.local
     assert_eq!(error, LocalClientError::ConnectFailed("refused".to_owned()));
 }
 
@@ -97,11 +92,8 @@ async fn ready_returns_server_state_and_restores_idle_state() {
 
     let response = client.ready(ReadyRequest {}).await.expect("ready response");
 
-    // @verifies selvedge.client.local
     assert_eq!(response.state, ReadyState::NotReady);
-    // @verifies selvedge.client.local
     assert_eq!(client.state().await, LocalClientState::Ready);
-    // @verifies selvedge.client.local
     assert_eq!(state.lock().expect("fake state").ready_calls, 1);
 }
 
@@ -125,26 +117,21 @@ async fn command_submit_validates_request_before_transport_and_preserves_server_
             ..valid_command("command-1")
         })
         .await;
-    // @verifies selvedge.client.local
     assert!(matches!(
         invalid,
         Err(LocalClientError::ProtocolValidationFailed(_))
     ));
-    // @verifies selvedge.client.local
     assert_eq!(state.lock().expect("fake state").command_calls, 0);
 
     let response = client
         .submit_command(valid_command("command-2"))
         .await
         .expect("command response");
-    // @verifies selvedge.client.local
     assert_eq!(
         response.outcome,
         CommandOutcome::Rejected(CommandRejectReason::ServerNotReady)
     );
-    // @verifies selvedge.client.local
     assert_eq!(client.state().await, LocalClientState::Ready);
-    // @verifies selvedge.client.local
     assert_eq!(state.lock().expect("fake state").command_calls, 1);
 }
 
@@ -163,11 +150,8 @@ async fn transport_closed_error_moves_client_to_failed_state() {
 
     let error = client.submit_command(valid_command("command-1")).await;
 
-    // @verifies selvedge.client.local
     assert_eq!(error, Err(LocalClientError::TransportClosed));
-    // @verifies selvedge.client.local
     assert_eq!(client.state().await, LocalClientState::Failed);
-    // @verifies selvedge.client.local
     assert_eq!(
         client.ready(ReadyRequest {}).await,
         Err(LocalClientError::TransportClosed)
@@ -186,22 +170,18 @@ async fn cancelling_pending_command_restores_ready_state() {
     let client = connected_client(state).await;
 
     let mut command = Box::pin(client.submit_command(valid_command("command-1")));
-    // @verifies selvedge.client.local
     assert!(
         timeout(Duration::from_millis(5), command.as_mut())
             .await
             .is_err()
     );
-    // @verifies selvedge.client.local
     assert_eq!(client.state().await, LocalClientState::CommandPending);
-    // @verifies selvedge.client.local
     assert_eq!(
         client.ready(ReadyRequest {}).await,
         Err(LocalClientError::Busy)
     );
 
     drop(command);
-    // @verifies selvedge.client.local
     assert_eq!(client.state().await, LocalClientState::Ready);
 }
 
@@ -217,22 +197,18 @@ async fn cancelling_pending_attach_restores_ready_state() {
     let client = connected_client(state).await;
 
     let mut attach = Box::pin(client.attach(valid_attach("attach-1")));
-    // @verifies selvedge.client.local
     assert!(
         timeout(Duration::from_millis(5), attach.as_mut())
             .await
             .is_err()
     );
-    // @verifies selvedge.client.local
     assert_eq!(client.state().await, LocalClientState::AttachPending);
-    // @verifies selvedge.client.local
     assert!(matches!(
         client.submit_command(valid_command("command-1")).await,
         Err(LocalClientError::Busy)
     ));
 
     drop(attach);
-    // @verifies selvedge.client.local
     assert_eq!(client.state().await, LocalClientState::Ready);
 }
 
@@ -249,11 +225,8 @@ async fn request_timeout_sets_failed_state_and_recent_error() {
 
     let error = client.ready(ReadyRequest {}).await;
 
-    // @verifies selvedge.client.local
     assert_eq!(error, Err(LocalClientError::Timeout));
-    // @verifies selvedge.client.local
     assert_eq!(client.state().await, LocalClientState::Failed);
-    // @verifies selvedge.client.local
     assert_eq!(
         client
             .submit_command(valid_command("after-timeout"))
@@ -284,9 +257,7 @@ async fn attach_allows_one_active_stream_and_reports_stream_closed_after_ordered
         .attach(valid_attach("attach-1"))
         .await
         .expect("attach");
-    // @verifies selvedge.client.local
     assert_eq!(client.state().await, LocalClientState::Attached);
-    // @verifies selvedge.client.local
     assert!(matches!(
         client.attach(valid_attach("attach-2")).await,
         Err(AttachRejectedOrClientError::Client(
@@ -294,20 +265,14 @@ async fn attach_allows_one_active_stream_and_reports_stream_closed_after_ordered
         ))
     ));
 
-    // @verifies selvedge.client.local
     assert_eq!(next_seq(&mut frames).await, Ok(1));
-    // @verifies selvedge.client.local
     assert_eq!(next_seq(&mut frames).await, Ok(2));
-    // @verifies selvedge.client.local
     assert_eq!(
         frames.next().await,
         Some(Err(LocalClientError::StreamClosed))
     );
-    // @verifies selvedge.client.local
     assert_eq!(frames.next().await, None);
-    // @verifies selvedge.client.local
     assert_eq!(client.state().await, LocalClientState::Ready);
-    // @verifies selvedge.client.local
     assert_eq!(state.lock().expect("fake state").attach_calls, 1);
 }
 
@@ -340,25 +305,21 @@ async fn attach_closure_during_pending_command_restores_ready_after_command_canc
         .expect("attach");
 
     let mut command = Box::pin(client.submit_command(valid_command("command-1")));
-    // @verifies selvedge.client.local
     assert!(
         timeout(Duration::from_millis(5), command.as_mut())
             .await
             .is_err()
     );
-    // @verifies selvedge.client.local
     assert_eq!(client.state().await, LocalClientState::CommandPending);
 
     drop(frames);
     drop(command);
 
-    // @verifies selvedge.client.local
     assert_eq!(client.state().await, LocalClientState::Ready);
     let (_accepted, _frames) = client
         .attach(valid_attach("attach-2"))
         .await
         .expect("reattach");
-    // @verifies selvedge.client.local
     assert_eq!(state.lock().expect("fake state").attach_calls, 2);
 }
 
@@ -400,7 +361,6 @@ async fn attach_closure_during_pending_command_restores_ready_after_command_succ
         .expect("attach");
 
     let mut command = Box::pin(client.submit_command(valid_command("command-1")));
-    // @verifies selvedge.client.local
     assert!(
         timeout(Duration::from_millis(5), command.as_mut())
             .await
@@ -410,13 +370,11 @@ async fn attach_closure_during_pending_command_restores_ready_after_command_succ
     release_tx.send(()).expect("release command");
     command.await.expect("command response");
 
-    // @verifies selvedge.client.local
     assert_eq!(client.state().await, LocalClientState::Ready);
     let (_accepted, _frames) = client
         .attach(valid_attach("attach-2"))
         .await
         .expect("reattach");
-    // @verifies selvedge.client.local
     assert_eq!(state.lock().expect("fake state").attach_calls, 2);
 }
 
@@ -453,12 +411,10 @@ async fn dropping_exhausted_old_stream_does_not_clear_newer_attach_stream() {
         .attach(valid_attach("attach-1"))
         .await
         .expect("attach");
-    // @verifies selvedge.client.local
     assert_eq!(
         old_frames.next().await,
         Some(Err(LocalClientError::StreamClosed))
     );
-    // @verifies selvedge.client.local
     assert_eq!(client.state().await, LocalClientState::Ready);
 
     let (_accepted, _new_frames) = client
@@ -467,16 +423,13 @@ async fn dropping_exhausted_old_stream_does_not_clear_newer_attach_stream() {
         .expect("second attach");
     drop(old_frames);
 
-    // @verifies selvedge.client.local
     assert_eq!(client.state().await, LocalClientState::Attached);
-    // @verifies selvedge.client.local
     assert!(matches!(
         client.attach(valid_attach("attach-3")).await,
         Err(AttachRejectedOrClientError::Client(
             LocalClientError::AlreadyAttached
         ))
     ));
-    // @verifies selvedge.client.local
     assert_eq!(state.lock().expect("fake state").attach_calls, 2);
 }
 
@@ -507,19 +460,16 @@ async fn attach_stream_error_clears_attached_state_before_returning_error() {
         .await
         .expect("attach");
 
-    // @verifies selvedge.client.local
     assert_eq!(
         frames.next().await,
         Some(Err(LocalClientError::TransportClosed))
     );
-    // @verifies selvedge.client.local
     assert_eq!(client.state().await, LocalClientState::Ready);
 
     let (_accepted, _frames) = client
         .attach(valid_attach("attach-2"))
         .await
         .expect("reattach");
-    // @verifies selvedge.client.local
     assert_eq!(state.lock().expect("fake state").attach_calls, 2);
 }
 
@@ -551,17 +501,13 @@ async fn request_failure_drops_active_attach_inner_stream() {
         .await
         .expect("attach");
 
-    // @verifies selvedge.client.local
     assert_eq!(
         client.submit_command(valid_command("command-1")).await,
         Err(LocalClientError::TransportClosed)
     );
 
-    // @verifies selvedge.client.local
     assert_eq!(drops.load(Ordering::SeqCst), 1);
-    // @verifies selvedge.client.local
     assert_eq!(frames.next().await, None);
-    // @verifies selvedge.client.local
     assert_eq!(client.state().await, LocalClientState::Failed);
 }
 
@@ -576,20 +522,16 @@ async fn close_returns_busy_while_request_is_pending() {
         .push_back(CommandAction::Hang);
     let client = connected_client(state).await;
     let mut command = Box::pin(client.submit_command(valid_command("command-1")));
-    // @verifies selvedge.client.local
     assert!(
         timeout(Duration::from_millis(5), command.as_mut())
             .await
             .is_err()
     );
 
-    // @verifies selvedge.client.local
     assert_eq!(client.close().await, Err(LocalClientError::Busy));
-    // @verifies selvedge.client.local
     assert_eq!(client.state().await, LocalClientState::CommandPending);
 
     drop(command);
-    // @verifies selvedge.client.local
     assert_eq!(client.state().await, LocalClientState::Ready);
 }
 
@@ -621,7 +563,6 @@ async fn cancelling_close_after_stream_drop_restores_ready_state() {
         .await
         .expect("attach");
     let mut close = Box::pin(client.close());
-    // @verifies selvedge.client.local
     assert!(
         timeout(Duration::from_millis(5), close.as_mut())
             .await
@@ -631,13 +572,11 @@ async fn cancelling_close_after_stream_drop_restores_ready_state() {
     drop(frames);
     drop(close);
 
-    // @verifies selvedge.client.local
     assert_eq!(client.state().await, LocalClientState::Ready);
     let (_accepted, _frames) = client
         .attach(valid_attach("attach-2"))
         .await
         .expect("reattach after close cancellation");
-    // @verifies selvedge.client.local
     assert_eq!(state.lock().expect("fake state").attach_calls, 2);
 }
 
@@ -669,7 +608,6 @@ async fn cancelling_close_with_live_stream_restores_attached_state() {
         .await
         .expect("attach");
     let mut close = Box::pin(client.close());
-    // @verifies selvedge.client.local
     assert!(
         timeout(Duration::from_millis(5), close.as_mut())
             .await
@@ -678,16 +616,13 @@ async fn cancelling_close_with_live_stream_restores_attached_state() {
 
     drop(close);
 
-    // @verifies selvedge.client.local
     assert_eq!(client.state().await, LocalClientState::Attached);
-    // @verifies selvedge.client.local
     assert!(matches!(
         client.attach(valid_attach("attach-2")).await,
         Err(AttachRejectedOrClientError::Client(
             LocalClientError::AlreadyAttached
         ))
     ));
-    // @verifies selvedge.client.local
     assert_eq!(state.lock().expect("fake state").attach_calls, 1);
 }
 
@@ -720,7 +655,6 @@ async fn attach_stream_error_terminates_old_stream() {
         .attach(valid_attach("attach-1"))
         .await
         .expect("attach");
-    // @verifies selvedge.client.local
     assert_eq!(
         old_frames.next().await,
         Some(Err(LocalClientError::TransportClosed))
@@ -730,9 +664,7 @@ async fn attach_stream_error_terminates_old_stream() {
         .await
         .expect("reattach");
 
-    // @verifies selvedge.client.local
     assert_eq!(old_frames.next().await, None);
-    // @verifies selvedge.client.local
     assert_eq!(client.state().await, LocalClientState::Attached);
 }
 
@@ -759,12 +691,10 @@ async fn attach_stream_error_fuses_even_when_inner_stream_stays_pending() {
         .await
         .expect("attach");
 
-    // @verifies selvedge.client.local
     assert_eq!(
         frames.next().await,
         Some(Err(LocalClientError::TransportClosed))
     );
-    // @verifies selvedge.client.local
     assert_eq!(
         timeout(Duration::from_millis(5), frames.next()).await,
         Ok(None)
@@ -781,13 +711,11 @@ async fn cancelled_close_from_failed_state_preserves_recent_error() {
         state.ready_responses.push_back(ReadyAction::Hang);
     }
     let client = connected_client_with_timeout(state, Duration::from_millis(5)).await;
-    // @verifies selvedge.client.local
     assert_eq!(
         client.ready(ReadyRequest {}).await,
         Err(LocalClientError::Timeout)
     );
     let mut close = Box::pin(client.close());
-    // @verifies selvedge.client.local
     assert!(
         timeout(Duration::from_millis(5), close.as_mut())
             .await
@@ -796,9 +724,7 @@ async fn cancelled_close_from_failed_state_preserves_recent_error() {
 
     drop(close);
 
-    // @verifies selvedge.client.local
     assert_eq!(client.state().await, LocalClientState::Failed);
-    // @verifies selvedge.client.local
     assert_eq!(
         client
             .submit_command(valid_command("after-failed-close"))
@@ -823,16 +749,13 @@ async fn attach_validates_request_before_transport() {
         })
         .await;
 
-    // @verifies selvedge.client.local
     assert!(matches!(
         error,
         Err(AttachRejectedOrClientError::Client(
             LocalClientError::ProtocolValidationFailed(_)
         ))
     ));
-    // @verifies selvedge.client.local
     assert_eq!(state.lock().expect("fake state").attach_calls, 0);
-    // @verifies selvedge.client.local
     assert_eq!(client.state().await, LocalClientState::Ready);
 }
 
@@ -857,7 +780,6 @@ async fn attach_rejection_restores_idle_state() {
         Err(rejected) => rejected,
     };
 
-    // @verifies selvedge.client.local
     assert!(matches!(
         rejected,
         AttachRejectedOrClientError::Rejected(AttachRejected {
@@ -865,7 +787,6 @@ async fn attach_rejection_restores_idle_state() {
             ..
         })
     ));
-    // @verifies selvedge.client.local
     assert_eq!(client.state().await, LocalClientState::Ready);
 }
 
@@ -877,11 +798,8 @@ async fn close_closes_transport_and_later_methods_return_closed() {
 
     client.close().await.expect("close client");
 
-    // @verifies selvedge.client.local
     assert_eq!(client.state().await, LocalClientState::Closed);
-    // @verifies selvedge.client.local
     assert_eq!(state.lock().expect("fake state").close_calls, 1);
-    // @verifies selvedge.client.local
     assert_eq!(
         client.ready(ReadyRequest {}).await,
         Err(LocalClientError::Closed)
@@ -911,9 +829,7 @@ async fn close_fuses_existing_attach_stream() {
 
     client.close().await.expect("close client");
 
-    // @verifies selvedge.client.local
     assert_eq!(frames.next().await, None);
-    // @verifies selvedge.client.local
     assert_eq!(client.state().await, LocalClientState::Closed);
 }
 
@@ -941,16 +857,12 @@ async fn close_drops_active_attach_inner_stream() {
         .await
         .expect("attach");
 
-    // @verifies selvedge.client.local
     assert_eq!(drops.load(Ordering::SeqCst), 0);
 
     client.close().await.expect("close client");
 
-    // @verifies selvedge.client.local
     assert_eq!(drops.load(Ordering::SeqCst), 1);
-    // @verifies selvedge.client.local
     assert_eq!(frames.next().await, None);
-    // @verifies selvedge.client.local
     assert_eq!(client.state().await, LocalClientState::Closed);
 }
 
@@ -986,7 +898,6 @@ async fn close_wakes_pending_attach_reader() {
         .await
         .expect("reader wakes after close")
         .expect("reader task joins");
-    // @verifies selvedge.client.local
     assert_eq!(next, None);
 }
 
@@ -998,20 +909,16 @@ async fn cancelling_pending_close_restores_previous_state() {
     let client = connected_client(state).await;
 
     let mut close = Box::pin(client.close());
-    // @verifies selvedge.client.local
     assert!(
         timeout(Duration::from_millis(5), close.as_mut())
             .await
             .is_err()
     );
-    // @verifies selvedge.client.local
     assert_eq!(client.state().await, LocalClientState::Closing);
 
     drop(close);
 
-    // @verifies selvedge.client.local
     assert_eq!(client.state().await, LocalClientState::Ready);
-    // @verifies selvedge.client.local
     assert_eq!(
         client
             .ready(ReadyRequest {})
@@ -1040,18 +947,14 @@ async fn http_transport_posts_ready_to_local_protocol_route() {
         .await
         .expect("ready over http");
 
-    // @verifies selvedge.client.local
     assert_eq!(response.state, ReadyState::Ready);
     let captures = server.await.expect("join http contract server");
     let ready = captures
         .iter()
         .find(|capture| capture.path == "/selvedge/local/v1/ready")
         .expect("ready request captured");
-    // @verifies selvedge.client.local
     assert_eq!(ready.method, "POST");
-    // @verifies selvedge.client.local
     assert_eq!(ready.content_type.as_deref(), Some("application/json"));
-    // @verifies selvedge.client.local
     assert_eq!(
         serde_json::from_slice::<ReadyRequest>(&ready.body).expect("ready request body"),
         ReadyRequest {}
@@ -1077,18 +980,14 @@ async fn http_transport_posts_command_to_local_protocol_route() {
         .await
         .expect("command over http");
 
-    // @verifies selvedge.client.local
     assert_eq!(response.outcome, CommandOutcome::Accepted);
     let captures = server.await.expect("join http contract server");
     let command = captures
         .iter()
         .find(|capture| capture.path == "/selvedge/local/v1/command")
         .expect("command request captured");
-    // @verifies selvedge.client.local
     assert_eq!(command.method, "POST");
-    // @verifies selvedge.client.local
     assert_eq!(command.content_type.as_deref(), Some("application/json"));
-    // @verifies selvedge.client.local
     assert_eq!(
         serde_json::from_slice::<CommandRequest>(&command.body).expect("command request body"),
         valid_command("command-1")
@@ -1114,13 +1013,11 @@ async fn http_transport_rejects_mismatched_command_response_id() {
         .await
         .expect_err("mismatched response id should fail");
 
-    // @verifies selvedge.client.local
     assert!(matches!(
         error,
         LocalClientError::ProtocolValidationFailed(_)
     ));
     let captures = server.await.expect("join http contract server");
-    // @verifies selvedge.client.local
     assert!(
         captures
             .iter()
@@ -1159,22 +1056,16 @@ async fn http_transport_reads_attach_accepted_ndjson_stream() {
         .await
         .expect("attach over http");
 
-    // @verifies selvedge.client.local
     assert_eq!(actual_accepted, accepted);
-    // @verifies selvedge.client.local
     assert_eq!(next_seq(&mut frames).await, Ok(7));
     let captures = server.await.expect("join http contract server");
     let attach = captures
         .iter()
         .find(|capture| capture.path == "/selvedge/local/v1/attach")
         .expect("attach request captured");
-    // @verifies selvedge.client.local
     assert_eq!(attach.method, "POST");
-    // @verifies selvedge.client.local
     assert_eq!(attach.content_type.as_deref(), Some("application/json"));
-    // @verifies selvedge.client.local
     assert_eq!(attach.accept.as_deref(), Some("application/x-ndjson"));
-    // @verifies selvedge.client.local
     assert_eq!(
         serde_json::from_slice::<AttachRequest>(&attach.body).expect("attach request body"),
         valid_attach("attach-1")
@@ -1208,13 +1099,11 @@ async fn http_transport_rejects_mismatched_attach_accepted_identity() {
         Err(error) => error,
     };
 
-    // @verifies selvedge.client.local
     assert!(matches!(
         error,
         AttachRejectedOrClientError::Client(LocalClientError::ProtocolValidationFailed(_))
     ));
     let captures = server.await.expect("join http contract server");
-    // @verifies selvedge.client.local
     assert!(
         captures
             .iter()
@@ -1239,13 +1128,11 @@ async fn http_transport_preserves_attach_rejection_response() {
     let error = client.attach(valid_attach("attach-1")).await;
 
     match error {
-        // @verifies selvedge.client.local
         Err(AttachRejectedOrClientError::Rejected(actual)) => assert_eq!(actual, rejected),
         Ok(_) => panic!("attach should be rejected"),
         Err(other) => panic!("unexpected attach error: {other:?}"),
     }
     let captures = server.await.expect("join http contract server");
-    // @verifies selvedge.client.local
     assert!(
         captures
             .iter()
@@ -1272,13 +1159,11 @@ async fn http_transport_rejects_mismatched_attach_rejection_identity() {
         Err(error) => error,
     };
 
-    // @verifies selvedge.client.local
     assert!(matches!(
         error,
         AttachRejectedOrClientError::Client(LocalClientError::ProtocolValidationFailed(_))
     ));
     let captures = server.await.expect("join http contract server");
-    // @verifies selvedge.client.local
     assert!(
         captures
             .iter()
@@ -1291,7 +1176,6 @@ fn crate_has_no_systemd_dependency() {
     let manifest = fs::read_to_string(format!("{}/Cargo.toml", env!("CARGO_MANIFEST_DIR")))
         .expect("read manifest");
 
-    // @verifies selvedge.client.local
     assert!(!manifest.contains("systemd"));
 }
 

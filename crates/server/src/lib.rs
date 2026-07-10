@@ -1,29 +1,4 @@
 #![doc = include_str!("../README.md")]
-//! @behavior selvedge.startup.server The server starts singleton-owned local runtime services and exposes ready, command, attach, stop, and optional web control behavior.
-//! @behavior selvedge.startup.server.lifecycle Server processing preserves startup, readiness, command, attach, shutdown, and local protocol conversion behavior.
-//! @behavior selvedge.startup.server.startup Server startup prepares configuration, lock, database, events, client-sync, router, and optional web services before returning control.
-//! @behavior selvedge.startup.server.startup.config Startup config handling initializes or reuses the selected Selvedge home.
-//! @behavior selvedge.startup.server.ready Ready handling reports readiness state for local callers.
-//! @behavior selvedge.startup.server.lock Server lock handling enforces one active server per Selvedge home and removes the lock file on cleanup.
-//! @behavior selvedge.startup.server.local_protocol Local protocol handling exposes ready, command, attach, event conversion, and request error behavior to local clients.
-//! @behavior selvedge.startup.server.local_protocol.attach Attach handling admits local clients, starts hydration, streams frames, and cleans up detach state.
-//! @behavior selvedge.startup.server.local_protocol.command Command handling validates local requests, maps them to router envelopes, and reports accepted or rejected outcomes.
-//! @behavior selvedge.startup.server.local_protocol.event Event conversion maps command-model client frames into local protocol frames.
-//! @behavior selvedge.startup.server.client_sync Client-sync handling starts hydration, cancels hydration, and participates in shutdown for attached clients.
-//! @behavior selvedge.startup.server.client_sync.start_hydration Attach admission sends StartHydration to client-sync after router admission succeeds.
-//! @behavior selvedge.startup.server.event_delivery Event delivery cleanup sends detach notifications for local client attach lifecycles.
-//! @behavior selvedge.startup.server.shutdown Shutdown handling stops runtime workers, closes ingress, removes the lock file, and reports final server status.
-//! @behavior selvedge.startup.server.shutdown.events_status Events worker exits map into stopped or fatal server exit statuses.
-//! @behavior selvedge.startup.server.shutdown.client_sync_status Client-sync worker exits map into stopped or fatal server exit statuses.
-//! @behavior selvedge.startup.server.shutdown.web_status Web worker exits map into stopped or fatal server exit statuses.
-//! @behavior selvedge.startup.server.web Web handling reserves localhost binding, forwards ready, command, and attach requests, and maps bridge errors.
-//! @behavior selvedge.startup.server.web.reserve Web binding reservation validates and reserves the optional localhost web surface before runtime startup.
-//! @behavior selvedge.startup.server.web.attach_forward Web attach forwarding returns server attach acceptance or rejection through the web bridge.
-//! @behavior selvedge.startup.server.web.frame_stream Web frame streaming forwards local protocol frames and maps server stream errors into web bridge errors.
-//! @behavior selvedge.startup.server.web.bind_target Web bind target validation rejects invalid localhost ports before durable startup side effects.
-//! @behavior selvedge.startup.server.local_operation Server local operations execute server-owned commands outside the router mailbox and deliver user-visible notices to attached clients.
-//! @behavior selvedge.startup.server.local_operation.login ChatGPT provider login remains a server-owned local operation that can run outside router command delivery.
-//! @behavior selvedge.startup.server.local_operation.list List-models remains a server-owned local operation that can run outside router command delivery.
 
 use std::collections::{HashMap, HashSet};
 use std::fmt;
@@ -89,28 +64,17 @@ const DEFAULT_HYDRATION_BUFFER_CAPACITY: usize = 256;
 const DEFAULT_CLIENT_SYNC_INGRESS_CAPACITY: usize = 64;
 
 type ActiveAttachRegistry = Arc<StdMutex<HashMap<ClientId, ClientCommandId>>>;
-// @intent selvedge.startup.server.local_operation.hydrated_attach_registry LocalOperationHydratedAttachRegistry records attach identities whose initial snapshot has reached the client stream.
 type LocalOperationHydratedAttachRegistry = Arc<StdMutex<HashSet<(ClientId, ClientCommandId)>>>;
-// @intent selvedge.startup.server.local_operation.cancellation_registry LocalOperationCancellationRegistry maps active attach and submit command identities to server-owned local operation cancellation senders.
 type LocalOperationCancellationRegistry =
     Arc<StdMutex<HashMap<(ClientId, ClientCommandId, ClientCommandId), oneshot::Sender<()>>>>;
-// @intent selvedge.startup.server.local_operation.closing_attach_registry LocalOperationClosingAttachRegistry records attach identities whose streams have begun closing before detach delivery completes.
 type LocalOperationClosingAttachRegistry = Arc<StdMutex<HashSet<(ClientId, ClientCommandId)>>>;
-// @intent selvedge.startup.server.local_protocol.attach.channel_factory AttachFrameChannelFactoryRef stores the server-owned client frame channel factory boundary for attach admission.
 type AttachFrameChannelFactoryRef = Arc<dyn AttachFrameChannelFactory>;
-// @intent selvedge.startup.server.local_protocol.command.mapper_ref LocalCommandMapperRef stores the local protocol to router command mapping boundary.
 type LocalCommandMapperRef = Arc<dyn LocalCommandMapper>;
-// @intent selvedge.startup.server.local_operation.executor_ref LocalOperationExecutorRef stores the server-owned local operation execution boundary.
 type LocalOperationExecutorRef = Arc<dyn LocalOperationExecutor>;
-// @behavior selvedge.startup.server.local_operation.future Local operation futures resolve to terminal success or terminal failure for server-owned commands.
-// @intent selvedge.startup.server.local_operation.future.abstraction LocalOperationFuture abstracts completion of a server-owned local operation.
 pub type LocalOperationFuture =
     Pin<Box<dyn Future<Output = Result<LocalOperationSuccess, LocalOperationFailure>> + Send>>;
-// @behavior selvedge.startup.server.local_operation.progress_sender Local operation progress senders accept user-code prompts and diagnostics from running operations.
-// @intent selvedge.startup.server.local_operation.progress_sender.abstraction LocalOperationProgressSender carries server-owned operation progress into notice delivery.
 pub type LocalOperationProgressSender = mpsc::UnboundedSender<LocalOperationProgress>;
 
-// @intent selvedge.startup.server.lifecycle.coordinator The server abstraction owns process-local lifecycle coordination across config, storage, router, events, and web boundaries.
 trait AttachFrameChannelFactory: Send + Sync {
     fn create(
         &self,
@@ -124,84 +88,60 @@ impl AttachFrameChannelFactory for TokioAttachFrameChannelFactory {
     fn create(
         &self,
         capacity: usize,
-        // @behavior selvedge.startup.server.local_protocol.attach.channel_factory.create Attach channel creation returns a sender and receiver used for accepted local client frame streams.
     ) -> Result<(ClientFrameSender, mpsc::Receiver<ClientFrame>), AttachRejectReason> {
         Ok(mpsc::channel(capacity))
     }
 }
 
-// @behavior selvedge.startup.server.startup.args Server startup arguments select the home directory, API execution config, runtime spawners, command mapping, local binding, and optional web binding.
 pub struct ServerStartArgs {
-    // @behavior selvedge.startup.server.startup.args.home An explicit home path directs startup to initialize and lock that Selvedge home.
     pub explicit_home: Option<PathBuf>,
-    // @behavior selvedge.startup.server.startup.args.api_config Startup passes API executor configuration into router command handling.
     pub api_config: ApiExecutorConfig,
-    // @behavior selvedge.startup.server.startup.args.tool_executor Startup passes the tool execution spawner into router command handling.
     pub tool_executor: Arc<dyn ToolExecutionSpawner>,
-    // @behavior selvedge.startup.server.startup.args.core_spawn_deps Startup passes core runtime spawn dependencies into router command handling.
     pub core_spawn_deps: TaskRuntimeSpawnDeps,
-    // @behavior selvedge.startup.server.startup.args.snapshot_builder Startup passes the client snapshot builder into client hydration.
     pub snapshot_builder: Arc<dyn ClientSnapshotBuilder>,
-    // @behavior selvedge.startup.server.startup.args.command_mapper Startup uses the supplied command mapper to convert local protocol commands into router envelopes.
     pub command_mapper: Arc<dyn LocalCommandMapper>,
-    // @behavior selvedge.startup.server.startup.args.local_operation_executor Startup uses the supplied local operation executor for server-owned local commands.
     pub local_operation_executor: Arc<dyn LocalOperationExecutor>,
-    // @behavior selvedge.startup.server.startup.args.local_binding Startup validates and stores the local bind target for local control surfaces.
     pub local_binding: LocalBindingConfig,
-    // @behavior selvedge.startup.server.startup.args.web_binding Startup reserves and starts a web surface when a web binding is supplied.
     pub web_binding: Option<WebBindingConfig>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-// @behavior selvedge.startup.server.startup.local_binding Local binding configuration exposes the localhost target used by the process-local server control surface.
 pub struct LocalBindingConfig {
-    // @behavior selvedge.startup.server.startup.local_binding.target Local binding targets identify the localhost address family and port for local access.
     pub bind_target: LocalhostBindTarget,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-// @behavior selvedge.startup.server.web.binding Web binding configuration exposes the localhost target used by the optional web surface.
 pub struct WebBindingConfig {
-    // @behavior selvedge.startup.server.web.binding.target Web binding targets identify the localhost address family and port for HTTP access.
     pub bind_target: LocalhostBindTarget,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-// @behavior selvedge.startup.server.startup.bind_target Localhost bind targets represent IPv4 or IPv6 loopback ports accepted by server startup.
 pub enum LocalhostBindTarget {
     Ipv4 { port: u16 },
     Ipv6 { port: u16 },
 }
 
 #[derive(Debug)]
-// @behavior selvedge.startup.server.startup.handle A started server returns a control handle and join handle to the caller.
 pub struct ServerHandle {
-    // @behavior selvedge.startup.server.startup.handle.control The server control handle exposes ready, command, attach, and stop operations for the running server.
     pub control: ServerControl,
-    // @behavior selvedge.startup.server.startup.handle.join The server join handle resolves to the final externally visible server exit status.
     pub join_handle: JoinHandle<ServerExitStatus>,
 }
 
-// @intent selvedge.startup.server.local_protocol.attach.frame_stream_type Server frame streams expose attached local client frames as asynchronous protocol output.
-// @behavior selvedge.startup.server.local_protocol.attach.frame_stream Server frame streams yield local protocol frames or attach stream errors for an accepted client.
 pub type ServerFrameStream =
     Pin<Box<dyn Stream<Item = Result<LocalClientFrame, ServerRequestError>> + Send>>;
 
 #[derive(Clone)]
-// @behavior selvedge.startup.server.local_protocol.control Server control exposes ready, command, attach, state, and stop behavior over the running server instance.
 pub struct ServerControl {
     inner: Arc<ServerInner>,
 }
 
 impl fmt::Debug for ServerControl {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        // @behavior selvedge.startup.server.local_protocol.control.debug Debug formatting identifies server control values without exposing runtime internals.
         formatter.write_str("ServerControl")
     }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-// @behavior selvedge.startup.server.lifecycle.state Server runtime state reports starting, ready, closing, stopped, or failed status to callers.
 pub enum ServerRuntimeState {
     Starting,
     Ready,
@@ -211,63 +151,44 @@ pub enum ServerRuntimeState {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-// @behavior selvedge.startup.server.shutdown.exit_status Server exit status reports clean stop, startup failure, router stop, or fatal failure.
 pub enum ServerExitStatus {
     Stopped,
-    // @behavior selvedge.startup.server.shutdown.exit_status.startup_failed Startup failures are reported through the server exit status when run_server cannot spawn a server.
     StartupFailed(ServerStartupError),
     RouterStopped,
-    // @behavior selvedge.startup.server.shutdown.exit_status.fatal Fatal server exits expose the failure message to the caller.
     Fatal(String),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-// @behavior selvedge.startup.server.startup.error Startup errors report singleton, bind, config, logging, database, events, client-sync, router, or localhost binding failures.
 pub enum ServerStartupError {
     SingletonAlreadyRunning,
     InvalidBindTarget,
-    // @behavior selvedge.startup.server.startup.error.config Config initialization failures expose the config error message to the caller.
     ConfigInitFailed(String),
-    // @behavior selvedge.startup.server.startup.error.logging Logging initialization failures expose the logging error message to the caller.
     LoggingInitFailed(String),
-    // @behavior selvedge.startup.server.startup.error.db Database open failures expose the database error message to the caller.
     DbOpenFailed(String),
-    // @behavior selvedge.startup.server.startup.error.events Events startup failures expose the events error message to the caller.
     EventsStartFailed(String),
-    // @behavior selvedge.startup.server.startup.error.client_sync Client-sync startup failures expose the client-sync error message to the caller.
     ClientSyncStartFailed(String),
-    // @behavior selvedge.startup.server.startup.error.router Router startup failures expose the router error message to the caller.
     RouterStartFailed(String),
-    // @behavior selvedge.startup.server.startup.error.localhost_bind Localhost bind failures expose the bind error message to the caller.
     LocalhostBindFailed(String),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-// @behavior selvedge.startup.server.local_protocol.error Server request errors classify not-ready, validation, unsupported command, router mailbox, attach channel, and internal failures.
 pub enum ServerRequestError {
     NotReady,
     ProtocolValidationFailed,
     UnsupportedCommand,
     RouterMailboxClosed,
     AttachChannelFailed,
-    // @behavior selvedge.startup.server.local_protocol.error.internal Internal request failures expose an error message to the bridge layer.
     InternalFailure(String),
 }
 
-// @behavior selvedge.startup.server.local_protocol.command.mapper_trait Local command mappers return router envelopes or typed request errors for local command requests.
-// @intent selvedge.startup.server.local_protocol.command.mapper The command mapper abstraction owns the local protocol to router envelope boundary for submitted commands.
 pub trait LocalCommandMapper: Send + Sync {
-    /// @behavior selvedge.startup.server.local_protocol.command.map Local command mapping converts validated local protocol commands into router command envelopes or typed request errors.
     fn map_command(
         &self,
         request: CommandRequest,
     ) -> Result<RouterCommandEnvelope, ServerRequestError>;
 }
 
-// @behavior selvedge.startup.server.local_operation.executor Local operation executors run server-owned commands and report progress through the supplied sender.
-// @intent selvedge.startup.server.local_operation.executor_trait LocalOperationExecutor isolates server-owned command execution from router command execution.
 pub trait LocalOperationExecutor: Send + Sync {
-    /// @behavior selvedge.startup.server.local_operation.executor.execute Executor calls return a local operation success or local operation failure while sending progress through the supplied sender.
     fn execute(
         &self,
         command: LocalOperationCommand,
@@ -276,14 +197,12 @@ pub trait LocalOperationExecutor: Send + Sync {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-// @behavior selvedge.startup.server.local_operation.command Local operation commands identify server-owned commands accepted through the local protocol.
 pub enum LocalOperationCommand {
     LoginChatgpt,
     ListModels,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-// @behavior selvedge.startup.server.local_operation.progress Local operation progress reports user-code prompts or diagnostic text.
 pub enum LocalOperationProgress {
     LoginUserCode {
         verification_url: String,
@@ -295,32 +214,25 @@ pub enum LocalOperationProgress {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-// @behavior selvedge.startup.server.local_operation.success Local operation success carries the terminal success message for the attached client.
 pub struct LocalOperationSuccess {
-    // @behavior selvedge.startup.server.local_operation.success.message The local operation success message is delivered as terminal client notice text.
     pub message_text: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-// @behavior selvedge.startup.server.local_operation.failure Local operation failure carries the terminal failure message for the attached client.
 pub struct LocalOperationFailure {
-    // @behavior selvedge.startup.server.local_operation.failure.message The local operation failure message is delivered as terminal client notice text.
     pub message_text: String,
 }
 
-// @behavior selvedge.startup.server.startup.run run_server returns the spawned server final status or a startup-failed status.
 pub async fn run_server(args: ServerStartArgs) -> ServerExitStatus {
     match spawn_server(args) {
         Ok(handle) => handle
             .join_handle
             .await
             .unwrap_or_else(|error| ServerExitStatus::Fatal(error.to_string())),
-        // @behavior selvedge.startup.server.startup.run.spawn_error run_server reports spawn errors as StartupFailed exit status.
         Err(error) => ServerExitStatus::StartupFailed(error),
     }
 }
 
-// @behavior selvedge.startup.server.startup.spawn spawn_server validates bindings, initializes home config, acquires the singleton lock, reserves web binding, and returns a started server handle.
 pub fn spawn_server(args: ServerStartArgs) -> Result<ServerHandle, ServerStartupError> {
     validate_bind_target(&args.local_binding.bind_target)?;
     if let Some(web_binding) = &args.web_binding {
@@ -332,18 +244,14 @@ pub fn spawn_server(args: ServerStartArgs) -> Result<ServerHandle, ServerStartup
     let singleton_lock = acquire_singleton_lock(&home)?;
     let web_bind = match reserve_web_binding(args.web_binding.as_ref()) {
         Ok(web_bind) => web_bind,
-        // @behavior selvedge.startup.server.web.reserve.failure Web bind reservation failure removes the startup lock before returning the startup error.
         Err(error) => {
             cleanup_startup_lock(&home);
-            // @behavior selvedge.startup.server.web.reserve.error Web bind reservation errors are returned to the startup caller.
             return Err(error);
         }
     };
 
     let startup_result = start_server_after_lock(args, home, singleton_lock, web_bind);
-    // @behavior selvedge.startup.server.startup.failure_cleanup Startup failures after lock acquisition are returned without a running server handle.
     if let Err(error) = &startup_result {
-        // @behavior selvedge.startup.server.startup.failure_cleanup.error Startup failure paths return the original startup error.
         return Err(error.clone());
     }
 
@@ -351,12 +259,10 @@ pub fn spawn_server(args: ServerStartArgs) -> Result<ServerHandle, ServerStartup
 }
 
 impl ServerControl {
-    // @behavior selvedge.startup.server.lifecycle.state.query Server state queries return the current runtime state.
     pub async fn state(&self) -> ServerRuntimeState {
         self.inner.state.read().await.clone()
     }
 
-    // @behavior selvedge.startup.server.ready.response Ready requests return Ready only when validation succeeds and the server is ready.
     pub async fn ready(&self, request: ReadyRequest) -> ReadyResponse {
         let state = if validate_ready_request(&request).is_ok()
             && *self.inner.state.read().await == ServerRuntimeState::Ready
@@ -369,7 +275,6 @@ impl ServerControl {
         ReadyResponse { state }
     }
 
-    // @behavior selvedge.startup.server.local_protocol.command.response Command submission returns the original client command id and accepted or rejected outcome.
     pub async fn submit_command(&self, request: CommandRequest) -> CommandResponse {
         let client_command_id = request.client_command_id.clone();
         let outcome = self.submit_command_outcome(request).await;
@@ -380,17 +285,14 @@ impl ServerControl {
         }
     }
 
-    // @behavior selvedge.startup.server.local_protocol.attach.response Attach requests return accepted metadata and a frame stream or a typed rejection.
     pub async fn attach_client(
         &self,
         request: AttachRequest,
-        // @behavior selvedge.startup.server.local_protocol.attach.request Attach handling preserves the request command id when constructing attach responses.
     ) -> Result<(AttachAccepted, ServerFrameStream), AttachRejected> {
         let _request_guard = self.inner.request_gate.lock().await;
         let client_command_id = request.client_command_id.clone();
 
         let reject = |reason| {
-            // @behavior selvedge.startup.server.local_protocol.attach.reject Attach rejections include client command id and a typed reject reason.
             Err(AttachRejected {
                 client_command_id: client_command_id.clone(),
                 reason,
@@ -420,7 +322,6 @@ impl ServerControl {
             .reserve_active_attach(&client_id, &client_command_id)
         {
             Ok(previous_attach) => previous_attach,
-            // @behavior selvedge.startup.server.local_protocol.attach.active_reject Active attach reservation failures are returned as typed attach rejections.
             Err(reason) => return reject(reason),
         };
         let mut reservation = ActiveAttachReservation::new(
@@ -437,7 +338,6 @@ impl ServerControl {
             .create(DEFAULT_HYDRATION_BUFFER_CAPACITY)
         {
             Ok(channel) => channel,
-            // @behavior selvedge.startup.server.local_protocol.attach.channel_failed Attach channel creation failures reject the attach request before hydration starts.
             Err(reason) => return reject(reason),
         };
         let subscription = local_subscription_to_command(request.subscription);
@@ -445,7 +345,6 @@ impl ServerControl {
         if self
             .inner
             .router_tx
-            // @behavior selvedge.startup.server.local_protocol.attach.router_command Accepted attach setup sends an AttachClient router command with client identity, subscription, outbound channel, and admission reply.
             .send(RouterIngressMessage::Command(RouterCommandEnvelope {
                 client_id: Some(client_id.clone()),
                 client_command_id: Some(client_command_id.clone()),
@@ -474,7 +373,6 @@ impl ServerControl {
             Ok(RouterAttachAdmissionResult::ClientRegistryFull) => {
                 return reject(AttachRejectReason::ClientRegistryFull);
             }
-            // @behavior selvedge.startup.server.local_protocol.attach.admission_closed Closed events admission starts shutdown and rejects the attach as an internal failure.
             Ok(RouterAttachAdmissionResult::EventsMailboxClosed) | Err(_) => {
                 self.begin_shutdown_locked().await;
                 return reject(AttachRejectReason::InternalFailure);
@@ -491,12 +389,10 @@ impl ServerControl {
 
         match client_sync_tx.try_send(ClientSyncIngress::StartHydration(begin)) {
             Ok(()) => {}
-            // @behavior selvedge.startup.server.client_sync.start_hydration.full A full client-sync mailbox rejects attach as ClientSyncUnavailable after cleaning the events reservation.
             Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
                 reservation.cleanup_events_reservation_before_reject().await;
                 return reject(AttachRejectReason::ClientSyncUnavailable);
             }
-            // @behavior selvedge.startup.server.client_sync.start_hydration.closed A closed client-sync mailbox starts shutdown and rejects attach as ClientSyncUnavailable after cleaning the events reservation.
             Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
                 reservation.cleanup_events_reservation_before_reject().await;
                 self.begin_shutdown_locked().await;
@@ -516,7 +412,6 @@ impl ServerControl {
                 &client_id,
                 &previous_command_id,
             );
-            // @behavior selvedge.startup.server.local_operation.task.hydrated_clear.replacement Attach replacement clears the previous attach hydration marker before the replacement attach can accept local operations.
             clear_local_operation_hydrated_attach(
                 &self.inner.local_operation_hydrated_attaches,
                 &client_id,
@@ -559,12 +454,10 @@ impl ServerControl {
         ))
     }
 
-    // @behavior selvedge.startup.server.shutdown.stop Server stop requests begin server shutdown.
     pub async fn stop(&self) {
         self.begin_shutdown().await;
     }
 
-    // @intent selvedge.startup.server.local_protocol.command.pipeline The command submission path gates readiness, validates protocol shape, and then maps accepted commands into router outcomes.
     async fn submit_command_outcome(&self, request: CommandRequest) -> CommandOutcome {
         let _request_guard = self.inner.request_gate.lock().await;
 
@@ -572,7 +465,6 @@ impl ServerControl {
             return CommandOutcome::Rejected(CommandRejectReason::ServerNotReady);
         }
 
-        // @intent selvedge.startup.server.local_protocol.command.validation The command validation branch separates protocol rejection reasons before router command mapping.
         if validate_command_request(&request).is_err() {
             return CommandOutcome::Rejected(CommandRejectReason::MalformedRequest);
         }
@@ -597,24 +489,19 @@ impl ServerControl {
 
         let command = match self.inner.command_mapper.map_command(request) {
             Ok(command) => command,
-            // @behavior selvedge.startup.server.local_protocol.command.unsupported Unsupported mapped commands are rejected with UnsupportedCommand.
             Err(ServerRequestError::UnsupportedCommand) => {
                 return CommandOutcome::Rejected(CommandRejectReason::UnsupportedCommand);
             }
-            // @behavior selvedge.startup.server.local_protocol.command.router_closed Router mailbox closure starts shutdown and rejects command submission with RouterMailboxClosed.
             Err(ServerRequestError::RouterMailboxClosed) => {
                 self.begin_shutdown_locked().await;
                 return CommandOutcome::Rejected(CommandRejectReason::RouterMailboxClosed);
             }
-            // @behavior selvedge.startup.server.local_protocol.command.not_ready Mapper not-ready errors reject command submission with ServerNotReady.
             Err(ServerRequestError::NotReady) => {
                 return CommandOutcome::Rejected(CommandRejectReason::ServerNotReady);
             }
-            // @behavior selvedge.startup.server.local_protocol.command.malformed Mapper protocol validation errors reject command submission with MalformedRequest.
             Err(ServerRequestError::ProtocolValidationFailed) => {
                 return CommandOutcome::Rejected(CommandRejectReason::MalformedRequest);
             }
-            // @behavior selvedge.startup.server.local_protocol.command.internal Mapper attach-channel or internal failures reject command submission with InternalFailure.
             Err(
                 ServerRequestError::AttachChannelFailed | ServerRequestError::InternalFailure(_),
             ) => {
@@ -625,7 +512,6 @@ impl ServerControl {
         if self
             .inner
             .router_tx
-            // @behavior selvedge.startup.server.local_protocol.command.router_send Accepted command submission sends the router envelope to the router mailbox.
             .send(RouterIngressMessage::Command(command))
             .is_err()
         {
@@ -636,7 +522,6 @@ impl ServerControl {
         CommandOutcome::Accepted
     }
 
-    // @behavior selvedge.startup.server.local_operation.dispatch Server-owned operation submission requires an active attach stream and starts execution outside router command delivery.
     async fn submit_local_operation(
         &self,
         request: CommandRequest,
@@ -645,15 +530,12 @@ impl ServerControl {
         let client_id = ClientId(request.client_id.0);
         let submit_command_id = ClientCommandId(request.client_command_id.0);
         let Some(attach_command_id) = self.inner.active_attach_for_client(&client_id) else {
-            // @behavior selvedge.startup.server.local_operation.login.attach_required Login command submission is rejected when the requesting client has no active attach stream.
             return CommandOutcome::Rejected(CommandRejectReason::ClientNotAttached);
         };
-        // @behavior selvedge.startup.server.local_operation.list.concurrent_login List-models submission can start while a server-owned login operation is running.
         let login_permit = if matches!(&operation_command, LocalOperationCommand::LoginChatgpt) {
             match self.inner.login_gate.clone().try_acquire_owned() {
                 Ok(permit) => Some(permit),
                 Err(_) => {
-                    // @behavior selvedge.startup.server.local_operation.login.single_flight Login command submission is rejected while another server-owned login operation is running.
                     return CommandOutcome::Rejected(CommandRejectReason::LoginAlreadyRunning);
                 }
             }
@@ -661,13 +543,11 @@ impl ServerControl {
             None
         };
         let Some(events_tx) = self.inner.events_tx.lock().await.as_ref().cloned() else {
-            // @behavior selvedge.startup.server.local_operation.login.events_required Login command submission is rejected with internal failure when notice delivery is unavailable.
             return CommandOutcome::Rejected(CommandRejectReason::InternalFailure);
         };
         let executor = Arc::clone(&self.inner.local_operation_executor);
         let (progress_tx, progress_rx) = mpsc::unbounded_channel();
         let (attach_closed_tx, attach_closed_rx) = oneshot::channel();
-        // @behavior selvedge.startup.server.local_operation.task.cancel_track.attach_race Local operation submission is rejected when the attach stream closes before cancellation registration.
         if !self.inner.register_local_operation_cancellation(
             client_id.clone(),
             attach_command_id.clone(),
@@ -705,18 +585,14 @@ impl ServerControl {
             return;
         }
 
-        // @behavior selvedge.startup.server.shutdown.state_closing Shutdown changes the externally visible runtime state to Closing.
         *self.inner.state.write().await = ServerRuntimeState::Closing;
-        // @behavior selvedge.startup.server.shutdown.router_stop Shutdown sends StopRouter to the router mailbox.
         let _ = self.inner.router_tx.send(RouterIngressMessage::StopRouter);
         let client_sync_tx = self.inner.client_sync_tx.lock().await.clone();
-        // @behavior selvedge.startup.server.shutdown.client_sync_stop Shutdown sends Shutdown to client-sync.
         let _ = client_sync_tx.send(ClientSyncIngress::Shutdown).await;
         let web_control = self
             .inner
             .web_control
             .lock()
-            // @behavior selvedge.startup.server.shutdown.web_stop Shutdown reads stored web control and stops the optional web surface.
             .expect("server web control lock")
             .clone();
         if let Some(web_control) = web_control {
@@ -733,7 +609,6 @@ struct ServerContext {
     join_handle: JoinHandle<ServerExitStatus>,
 }
 
-// @intent selvedge.startup.server.lifecycle.inner_effects ServerInner stores delegated lifecycle boundaries for router, events, client sync, attach channels, command mapping, and web control.
 struct ServerInner {
     state: RwLock<ServerRuntimeState>,
     closing: AtomicBool,
@@ -757,7 +632,6 @@ struct ServerInner {
 }
 
 impl ServerInner {
-    // @behavior selvedge.startup.server.local_operation.task.cancel_track Accepted local operation tasks register cancellation by active attach and submit command identity while the attach is still active.
     fn register_local_operation_cancellation(
         &self,
         client_id: ClientId,
@@ -768,44 +642,35 @@ impl ServerInner {
         let active_attaches = self
             .active_attaches
             .lock()
-            // @behavior selvedge.startup.server.local_operation.task.cancel_track.active_lock Cancellation registration acquires the active attach registry before checking attach liveness.
             .expect("server active attach registry lock");
         if active_attaches.get(&client_id) != Some(&attach_command_id) {
-            // @behavior selvedge.startup.server.local_operation.task.cancel_track.inactive Cancellation registration rejects local operations whose attach identity is no longer active.
             return false;
         }
         let hydrated_attaches = self
             .local_operation_hydrated_attaches
             .lock()
-            // @behavior selvedge.startup.server.local_operation.task.cancel_track.hydrated_lock Cancellation registration acquires the hydrated attach registry before storing a sender.
             .expect("server local operation hydrated attach lock");
         if !hydrated_attaches.contains(&(client_id.clone(), attach_command_id.clone())) {
-            // @behavior selvedge.startup.server.local_operation.task.cancel_track.unhydrated Cancellation registration rejects local operations whose attach stream has not delivered its initial snapshot.
             return false;
         }
         let closing_attaches = self
             .local_operation_closing_attaches
             .lock()
-            // @behavior selvedge.startup.server.local_operation.task.cancel_track.closing_lock Cancellation registration acquires the closing attach registry before storing a sender.
             .expect("server local operation closing attach lock");
         if closing_attaches.contains(&(client_id.clone(), attach_command_id.clone())) {
-            // @behavior selvedge.startup.server.local_operation.task.cancel_track.closing Cancellation registration rejects local operations for attach streams that have begun closing.
             return false;
         }
         if let Some(previous) = self
             .local_operation_cancellations
             .lock()
-            // @behavior selvedge.startup.server.local_operation.task.cancel_track.lock Cancellation registration acquires the cancellation registry lock before storing a sender.
             .expect("server local operation cancellation lock")
             .insert((client_id, attach_command_id, submit_command_id), cancel_tx)
         {
-            // @behavior selvedge.startup.server.local_operation.task.cancel_track.command Cancellation registration scopes replacement to the same submit command identity.
             let _ = previous.send(());
         }
         true
     }
 
-    // @behavior selvedge.startup.server.local_operation.task.track Accepted local operation tasks are tracked so shutdown can cancel them.
     fn track_local_operation_task(&self, task: JoinHandle<()>) {
         let mut tasks = self
             .local_operation_tasks
@@ -815,7 +680,6 @@ impl ServerInner {
         tasks.push(task);
     }
 
-    // @behavior selvedge.startup.server.local_operation.task.abort Shutdown aborts tracked local operation tasks before closing events ingress.
     fn abort_local_operation_tasks(&self) {
         for task in self
             .local_operation_tasks
@@ -827,7 +691,6 @@ impl ServerInner {
         }
     }
 
-    // @behavior selvedge.startup.server.local_protocol.attach.active_reservation Server attach admission records one active command per client and reports the previous active command.
     fn reserve_active_attach(
         &self,
         client_id: &ClientId,
@@ -836,23 +699,19 @@ impl ServerInner {
         let mut active = self
             .active_attaches
             .lock()
-            // @behavior selvedge.startup.server.local_protocol.attach.registry_lock Active attach reservation acquires the registry lock before inspecting or updating client attach entries.
             .expect("server active attach registry lock");
 
         if active.get(client_id) == Some(client_command_id) {
-            // @behavior selvedge.startup.server.local_protocol.attach.duplicate The same client command id for an active client is rejected as DuplicateAttach.
             return Err(AttachRejectReason::DuplicateAttach);
         }
 
         if !active.contains_key(client_id) && active.len() >= DEFAULT_CLIENT_REGISTRY_CAPACITY {
-            // @behavior selvedge.startup.server.local_protocol.attach.registry_full A new client attach is rejected as ClientRegistryFull when the active attach registry is at capacity.
             return Err(AttachRejectReason::ClientRegistryFull);
         }
 
         Ok(active.insert(client_id.clone(), client_command_id.clone()))
     }
 
-    // @behavior selvedge.startup.server.local_operation.login.attach_lookup Active attach lookup returns the attach command id currently registered for the submitting client.
     fn active_attach_for_client(&self, client_id: &ClientId) -> Option<ClientCommandId> {
         self.active_attaches
             .lock()
@@ -862,7 +721,6 @@ impl ServerInner {
     }
 }
 
-// @intent selvedge.startup.server.local_operation.task LocalOperationTask carries one accepted local operation and its notice delivery identity.
 struct LocalOperationTask {
     operation: LocalOperationFuture,
     progress_rx: mpsc::UnboundedReceiver<LocalOperationProgress>,
@@ -876,7 +734,6 @@ struct LocalOperationTask {
     local_operation_cancellations: LocalOperationCancellationRegistry,
 }
 
-// @behavior selvedge.startup.server.local_operation.task.run Local operation tasks relay progress notices and one terminal success or failure notice to the active attached client.
 async fn run_local_operation_task(task: LocalOperationTask) {
     let LocalOperationTask {
         operation,
@@ -901,7 +758,6 @@ async fn run_local_operation_task(task: LocalOperationTask) {
     loop {
         tokio::select! {
             _ = &mut attach_closed_rx => {
-                // @behavior selvedge.startup.server.local_operation.task.attach_closed Local operation tasks stop when the attached client stream is closed.
                 clear_local_operation_cancellation(
                     &local_operation_cancellations,
                     &operation_client_id,
@@ -917,7 +773,6 @@ async fn run_local_operation_task(task: LocalOperationTask) {
                         let send_result = tokio::select! {
                             result = send_local_operation_notice(&events_tx, &client_id, &attach_command_id, notice) => result,
                             _ = &mut attach_closed_rx => {
-                                // @behavior selvedge.startup.server.local_operation.task.delivery_attach_closed Local operation tasks stop while waiting to deliver a progress notice when the attached client stream closes.
                                 clear_local_operation_cancellation(
                                     &local_operation_cancellations,
                                     &operation_client_id,
@@ -928,7 +783,6 @@ async fn run_local_operation_task(task: LocalOperationTask) {
                             }
                         };
                         if send_result.is_err() {
-                            // @behavior selvedge.startup.server.local_operation.task.delivery_closed Local operation tasks stop when the events mailbox cannot accept a progress notice.
                             clear_local_operation_cancellation(
                                 &local_operation_cancellations,
                                 &operation_client_id,
@@ -953,7 +807,6 @@ async fn run_local_operation_task(task: LocalOperationTask) {
                         },
                         message_text: success.message_text,
                     },
-                    // @behavior selvedge.startup.server.local_operation.task.failure Terminal local operation failure is delivered as a command-failed notice for the submitted command.
                     Err(failure) => ClientNotice {
                         level: ClientNoticeLevel::Error,
                         kind: ClientNoticeKind::CommandFailed {
@@ -963,7 +816,6 @@ async fn run_local_operation_task(task: LocalOperationTask) {
                         message_text: failure.message_text,
                     },
                 };
-                // @behavior selvedge.startup.server.local_operation.task.terminal Local operation tasks attempt one terminal notice after operation completion.
                 let _terminal_notice_delivery = tokio::select! {
                     result = send_local_operation_notice(
                         &operation_events_tx,
@@ -972,7 +824,6 @@ async fn run_local_operation_task(task: LocalOperationTask) {
                         notice,
                     ) => result,
                     _ = &mut attach_closed_rx => {
-                        // @behavior selvedge.startup.server.local_operation.task.terminal_attach_closed Local operation tasks stop while waiting to deliver a terminal notice when the attached client stream closes.
                         clear_local_operation_cancellation(
                             &local_operation_cancellations,
                             &operation_client_id,
@@ -994,7 +845,6 @@ async fn run_local_operation_task(task: LocalOperationTask) {
     }
 }
 
-// @behavior selvedge.startup.server.local_operation.progress.notice Local operation progress is mapped into typed client notices for the original submitted command.
 fn local_operation_progress_notice(
     progress: LocalOperationProgress,
     submit_command_id: ClientCommandId,
@@ -1024,8 +874,6 @@ fn local_operation_progress_notice(
     }
 }
 
-// @behavior selvedge.startup.server.local_operation.notice Local operation notices carry server-owned operation progress and terminal results to attached clients.
-// @behavior selvedge.startup.server.local_operation.notice.delivery Local operation notices are delivered through the events control mailbox to the active attach command stream.
 async fn send_local_operation_notice(
     events_tx: &EventIngressSender,
     client_id: &ClientId,
@@ -1043,7 +891,6 @@ async fn send_local_operation_notice(
         .await
     {
         Ok(()) => Ok(()),
-        // @behavior selvedge.startup.server.local_operation.notice.delivery_closed Notice delivery reports failure when the events control mailbox is closed.
         Err(_) => Err(()),
     }
 }
@@ -1060,7 +907,6 @@ struct ActiveAttachReservation {
 }
 
 impl ActiveAttachReservation {
-    // @behavior selvedge.startup.server.local_protocol.attach.reservation_rollback Server attach reservation rollback tracks the active attach entry and optional events sender needed for cleanup.
     fn new(
         active_attaches: ActiveAttachRegistry,
         client_id: ClientId,
@@ -1153,17 +999,14 @@ impl ServerContext {
     }
 }
 
-// @behavior selvedge.startup.server.start_after_lock Server startup after singleton lock initializes logging, storage, events, client sync, router, and optional web control.
 fn start_server_after_lock(
     args: ServerStartArgs,
     home: PathBuf,
     singleton_lock: File,
     web_bind: Option<WebBindReservation>,
 ) -> Result<ServerContext, ServerStartupError> {
-    // @behavior selvedge.startup.server.startup.logging Startup initializes logging after acquiring the singleton lock.
     if let Err(error) = init_logging() {
         cleanup_startup_lock(&home);
-        // @behavior selvedge.startup.server.startup.logging.failure Logging initialization failure removes the startup lock and returns the logging error.
         return Err(error);
     }
 
@@ -1171,10 +1014,8 @@ fn start_server_after_lock(
         sqlite_path: sqlite_path_for_home(&home).to_string_lossy().to_string(),
     }) {
         Ok(db) => db,
-        // @behavior selvedge.startup.server.startup.db_open Startup opens the SQLite database under the selected Selvedge home.
         Err(error) => {
             cleanup_startup_lock(&home);
-            // @behavior selvedge.startup.server.startup.db_open.failure Database open failure removes the startup lock and returns DbOpenFailed.
             return Err(ServerStartupError::DbOpenFailed(error.to_string()));
         }
     };
@@ -1185,10 +1026,8 @@ fn start_server_after_lock(
         hydration_buffer_capacity: DEFAULT_HYDRATION_BUFFER_CAPACITY,
     }) {
         Ok(events) => events,
-        // @behavior selvedge.startup.server.startup.events Startup starts the events task with configured ingress, registry, and hydration capacities.
         Err(error) => {
             cleanup_startup_lock(&home);
-            // @behavior selvedge.startup.server.startup.events.failure Events startup failure removes the startup lock and returns EventsStartFailed.
             return Err(map_events_start_error(error));
         }
     };
@@ -1199,10 +1038,8 @@ fn start_server_after_lock(
         ingress_capacity: DEFAULT_CLIENT_SYNC_INGRESS_CAPACITY,
     }) {
         Ok(client_sync) => client_sync,
-        // @behavior selvedge.startup.server.startup.client_sync Startup starts client-sync with events ingress, snapshot builder, and configured ingress capacity.
         Err(error) => {
             cleanup_startup_lock(&home);
-            // @behavior selvedge.startup.server.startup.client_sync.failure Client-sync startup failure removes the startup lock and returns ClientSyncStartFailed.
             return Err(map_client_sync_start_error(error));
         }
     };
@@ -1215,10 +1052,8 @@ fn start_server_after_lock(
         core_spawn_deps: args.core_spawn_deps,
     }) {
         Ok(router) => router,
-        // @behavior selvedge.startup.server.startup.router Startup starts the router with database, events ingress, API config, tool executor, and core spawn dependencies.
         Err(error) => {
             cleanup_startup_lock(&home);
-            // @behavior selvedge.startup.server.startup.router.failure Router startup failure removes the startup lock and returns RouterStartFailed.
             return Err(map_router_start_error(error));
         }
     };
@@ -1244,7 +1079,6 @@ fn start_server_after_lock(
         local_operation_tasks: StdMutex::new(Vec::new()),
         web_control: StdMutex::new(None),
     });
-    // @behavior selvedge.startup.server.web.start_result Server startup either records optional web control or returns a web startup error after lock cleanup.
     let web = match start_web(
         web_bind,
         ServerControl {
@@ -1252,14 +1086,11 @@ fn start_server_after_lock(
         },
     ) {
         Ok(web) => web,
-        // @behavior selvedge.startup.server.web.start.failure Web startup failure removes the startup lock and returns the web startup error.
         Err(error) => {
             cleanup_startup_lock(&home);
-            // @behavior selvedge.startup.server.web.start.error Web startup errors are returned to the startup caller.
             return Err(error);
         }
     };
-    // @behavior selvedge.startup.server.web.control_store Startup stores optional web control for later shutdown.
     *inner.web_control.lock().expect("server web control lock") =
         web.as_ref().map(|handle| handle.control.clone());
     let join_handle = spawn_server_join_task(inner.clone(), router, events, client_sync, web);
@@ -1268,11 +1099,9 @@ fn start_server_after_lock(
 }
 
 fn cleanup_startup_lock(home: &Path) {
-    // @behavior selvedge.startup.server.lock.cleanup Startup cleanup removes the server lock file for the selected home.
     let _ = std::fs::remove_file(lock_path_for_home(home));
 }
 
-// @behavior selvedge.startup.server.shutdown.join_task The server join task resolves to the first worker failure, router stop, fatal join error, or clean stopped status.
 fn spawn_server_join_task(
     inner: Arc<ServerInner>,
     router: RouterHandle,
@@ -1327,9 +1156,7 @@ fn spawn_server_join_task(
         )
         .await;
 
-        // @behavior selvedge.startup.server.lock.shutdown_cleanup Server shutdown removes the server lock file before reporting final state.
         let _ = std::fs::remove_file(&inner.lock_path);
-        // @behavior selvedge.startup.server.shutdown.final_state Server shutdown reports Stopped after clean stop and Failed after worker or fatal failure.
         *inner.state.write().await = match status {
             ServerExitStatus::Stopped => ServerRuntimeState::Stopped,
             ServerExitStatus::StartupFailed(_)
@@ -1367,7 +1194,6 @@ async fn wait_for_join<T>(join_handle: &mut Option<JoinHandle<T>>) -> Result<T, 
     }
 }
 
-// @behavior selvedge.startup.server.shutdown.supervised Server shutdown marks the runtime closing, stops router, stops client sync, stops web, closes events ingress, and wakes waiters.
 async fn begin_supervised_shutdown(
     inner: &ServerInner,
     router_tx: &RouterIngressSender,
@@ -1378,11 +1204,8 @@ async fn begin_supervised_shutdown(
         return;
     }
 
-    // @behavior selvedge.startup.server.shutdown.supervised.state Supervised shutdown changes the externally visible runtime state to Closing.
     *inner.state.write().await = ServerRuntimeState::Closing;
-    // @behavior selvedge.startup.server.shutdown.supervised.router Supervised shutdown sends StopRouter to the router mailbox.
     let _ = router_tx.send(RouterIngressMessage::StopRouter);
-    // @behavior selvedge.startup.server.shutdown.supervised.client_sync Supervised shutdown sends Shutdown to client-sync.
     let _ = client_sync_tx.send(ClientSyncIngress::Shutdown).await;
     if let Some(web_control) = web_control {
         web_control.stop().await;
@@ -1392,7 +1215,6 @@ async fn begin_supervised_shutdown(
     inner.stop_notify.notify_waiters();
 }
 
-// @behavior selvedge.startup.server.shutdown.collect_exit Server worker exit collection reports the externally visible server exit status after worker joins and detach cleanup.
 async fn collect_server_exit_status(
     first_worker_exit: Option<ServerWorkerExit>,
     first_worker_expected_shutdown: bool,
@@ -1442,7 +1264,6 @@ fn server_worker_exit_status(exit: ServerWorkerExit, expected_shutdown: bool) ->
     }
 }
 
-// @behavior selvedge.startup.server.shutdown.router_status Router join results map to server stopped, router stopped, or fatal server exit statuses.
 fn router_join_status(
     result: Result<RouterExitStatus, JoinError>,
     expected_shutdown: bool,
@@ -1456,7 +1277,6 @@ fn router_join_status(
             ServerExitStatus::Fatal("router events mailbox closed".to_owned())
         }
         Ok(RouterExitStatus::FatalError(message)) => ServerExitStatus::Fatal(message),
-        // @behavior selvedge.startup.server.shutdown.router_status.join_error Router join failures report Fatal server exit status with the join error message.
         Err(error) => ServerExitStatus::Fatal(format!("router task join failed: {error}")),
     }
 }
@@ -1465,7 +1285,6 @@ fn events_join_status(result: Result<(), JoinError>, expected_shutdown: bool) ->
     match result {
         Ok(()) if expected_shutdown => ServerExitStatus::Stopped,
         Ok(()) => ServerExitStatus::Fatal("events task exited unexpectedly".to_owned()),
-        // @behavior selvedge.startup.server.shutdown.events_status.join_error Events join failures report Fatal server exit status with the join error message.
         Err(error) => ServerExitStatus::Fatal(format!("events task join failed: {error}")),
     }
 }
@@ -1483,7 +1302,6 @@ fn client_sync_join_status(
             ServerExitStatus::Fatal("client-sync ingress closed".to_owned())
         }
         Ok(ClientSyncExitStatus::Fatal(message)) => ServerExitStatus::Fatal(message),
-        // @behavior selvedge.startup.server.shutdown.client_sync_status.join_error Client-sync join failures report Fatal server exit status with the join error message.
         Err(error) => ServerExitStatus::Fatal(format!("client-sync task join failed: {error}")),
     }
 }
@@ -1498,7 +1316,6 @@ fn web_join_status(
             ServerExitStatus::Fatal("web task exited unexpectedly".to_owned())
         }
         Ok(selvedge_web::WebExitStatus::Fatal(message)) => ServerExitStatus::Fatal(message),
-        // @behavior selvedge.startup.server.shutdown.web_status.join_error Web join failures report Fatal server exit status with the join error message.
         Err(error) => ServerExitStatus::Fatal(format!("web task join failed: {error}")),
     }
 }
@@ -1542,7 +1359,6 @@ impl futures_core::Stream for ServerAttachFrameStream {
         }
         match this.inner.poll_recv(context) {
             Poll::Ready(Some(frame)) => {
-                // @behavior selvedge.startup.server.local_operation.task.hydrated.snapshot_match Attach streams mark hydration ready only for snapshot frames carrying the attach command identity.
                 if matches!(
                     &frame,
                     ClientFrame::Snapshot(snapshot)
@@ -1596,7 +1412,6 @@ impl futures_core::Stream for ServerAttachFrameStream {
                     );
                 }
                 this.closed_reported = true;
-                // @behavior selvedge.startup.server.local_protocol.attach.stream_closed Closed attach frame channels emit AttachChannelFailed before ending the stream.
                 Poll::Ready(Some(Err(ServerRequestError::AttachChannelFailed)))
             }
             Poll::Pending => Poll::Pending,
@@ -1654,7 +1469,6 @@ impl Drop for ServerAttachFrameStream {
     }
 }
 
-// @behavior selvedge.startup.server.client_sync.cancel_hydration Server attach cleanup sends client-sync cancellation for the affected client command.
 fn send_cancel_hydration(
     client_sync_tx: &selvedge_client_sync::ClientSyncSender,
     client_id: ClientId,
@@ -1668,23 +1482,19 @@ fn send_cancel_hydration(
 
     match client_sync_tx.try_send(cancel) {
         Ok(()) => {}
-        // @behavior selvedge.startup.server.client_sync.cancel_hydration.full Full client-sync cancellation mailbox queues cancellation on the runtime or blocks until delivery.
         Err(tokio::sync::mpsc::error::TrySendError::Full(cancel)) => {
             if let Ok(handle) = tokio::runtime::Handle::try_current() {
                 handle.spawn(async move {
-                    // @behavior selvedge.startup.server.client_sync.cancel_hydration.retry Queued client-sync cancellation attempts asynchronous delivery.
                     let _ = retry_client_sync_tx.send(cancel).await;
                 });
             } else {
                 let _ = retry_client_sync_tx.blocking_send(cancel);
             }
         }
-        // @behavior selvedge.startup.server.client_sync.cancel_hydration.closed Closed client-sync cancellation mailboxes drop cancellation because the target is already unavailable.
         Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {}
     }
 }
 
-// @behavior selvedge.startup.server.event_delivery.detach_clear_closing Server attach replacement cleanup sends detach and clears the closing attach marker after detach delivery completes.
 fn send_detach_client_and_clear_closing(
     events_tx: &EventIngressSender,
     client_id: ClientId,
@@ -1700,7 +1510,6 @@ fn send_detach_client_and_clear_closing(
     }));
 
     match events_tx.try_send(detach) {
-        // @behavior selvedge.startup.server.event_delivery.detach_clear_closing.immediate Immediate detach completion or closed events clears the local operation closing attach marker.
         Ok(()) | Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
             clear_local_operation_closing_attach(
                 &local_operation_closing_attaches,
@@ -1708,11 +1517,9 @@ fn send_detach_client_and_clear_closing(
                 &client_command_id,
             );
         }
-        // @behavior selvedge.startup.server.event_delivery.detach_clear_closing.full Full events detach mailbox delays closing marker cleanup until detach is queued.
         Err(tokio::sync::mpsc::error::TrySendError::Full(detach)) => {
             if let Ok(handle) = tokio::runtime::Handle::try_current() {
                 handle.spawn(async move {
-                    // @behavior selvedge.startup.server.event_delivery.detach_clear_closing.retry Queued detach closing cleanup sends detach and then clears the local operation closing attach marker.
                     let _ = retry_events_tx.send(detach).await;
                     clear_local_operation_closing_attach(
                         &local_operation_closing_attaches,
@@ -1732,7 +1539,6 @@ fn send_detach_client_and_clear_closing(
     }
 }
 
-// @behavior selvedge.startup.server.event_delivery.detach_await Server attach cleanup can await events detach delivery before returning the local attach result.
 async fn send_detach_client_await(
     events_tx: &EventIngressSender,
     client_id: ClientId,
@@ -1744,11 +1550,9 @@ async fn send_detach_client_await(
         client_command_id,
         reason,
     }));
-    // @behavior selvedge.startup.server.event_delivery.detach_await.send Awaited detach cleanup waits for the events mailbox send attempt before returning.
     let _ = events_tx.send(detach).await;
 }
 
-// @behavior selvedge.startup.server.event_delivery.detach_restore Server attach cleanup sends detach and restores the previous active attach when replacement attach setup fails.
 fn send_detach_client_and_restore_active(
     events_tx: &EventIngressSender,
     client_id: ClientId,
@@ -1765,7 +1569,6 @@ fn send_detach_client_and_restore_active(
     }));
 
     match events_tx.try_send(detach) {
-        // @behavior selvedge.startup.server.event_delivery.detach_restore.immediate Immediate detach completion or closed events restore the previous active attach state.
         Ok(()) | Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
             restore_active_attach(
                 &active_attaches,
@@ -1774,11 +1577,9 @@ fn send_detach_client_and_restore_active(
                 previous_attach,
             );
         }
-        // @behavior selvedge.startup.server.event_delivery.detach_restore.full Full events detach mailbox delays active attach restoration until detach is queued.
         Err(tokio::sync::mpsc::error::TrySendError::Full(detach)) => {
             if let Ok(handle) = tokio::runtime::Handle::try_current() {
                 handle.spawn(async move {
-                    // @behavior selvedge.startup.server.event_delivery.detach_restore.retry Queued detach restoration sends detach and then restores the previous active attach state.
                     let _ = retry_events_tx.send(detach).await;
                     restore_active_attach(
                         &active_attaches,
@@ -1800,8 +1601,6 @@ fn send_detach_client_and_restore_active(
     }
 }
 
-// @behavior selvedge.startup.server.event_delivery.detach_clear Server attach cleanup sends detach and clears the active attach when the current attach is closed.
-// @behavior selvedge.startup.server.event_delivery.detach_clear.closing_marker Server attach cleanup clears the local operation closing attach marker after detach delivery completes.
 fn send_detach_client_and_clear_active(
     events_tx: &EventIngressSender,
     client_id: ClientId,
@@ -1819,7 +1618,6 @@ fn send_detach_client_and_clear_active(
     }));
 
     match events_tx.try_send(detach) {
-        // @behavior selvedge.startup.server.event_delivery.detach_clear.immediate Immediate detach completion or closed events clears the current active attach state.
         Ok(()) | Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
             clear_active_attach(&active_attaches, &client_id, &client_command_id);
             clear_local_operation_hydrated_attach(
@@ -1833,12 +1631,9 @@ fn send_detach_client_and_clear_active(
                 &client_command_id,
             );
         }
-        // @behavior selvedge.startup.server.event_delivery.detach_clear.full Full events detach mailbox delays active attach clearing until detach is queued.
-        // @behavior selvedge.startup.server.event_delivery.detach_clear.closing_marker.full Full events detach mailbox delays local operation closing marker cleanup until detach is queued.
         Err(tokio::sync::mpsc::error::TrySendError::Full(detach)) => {
             if let Ok(handle) = tokio::runtime::Handle::try_current() {
                 handle.spawn(async move {
-                    // @behavior selvedge.startup.server.event_delivery.detach_clear.retry Queued detach clearing sends detach and then clears the current active attach state.
                     let _ = retry_events_tx.send(detach).await;
                     clear_active_attach(&active_attaches, &client_id, &client_command_id);
                     clear_local_operation_hydrated_attach(
@@ -1870,7 +1665,6 @@ fn send_detach_client_and_clear_active(
     }
 }
 
-// @behavior selvedge.startup.server.local_protocol.attach.clear_active Server attach cleanup removes the active client command only when it still matches the closing attach stream.
 fn clear_active_attach(
     active_attaches: &ActiveAttachRegistry,
     client_id: &ClientId,
@@ -1878,14 +1672,12 @@ fn clear_active_attach(
 ) {
     let mut active = active_attaches
         .lock()
-        // @behavior selvedge.startup.server.local_protocol.attach.clear_active.lock Active attach clearing acquires the registry lock before removing a matching client command.
         .expect("server active attach registry lock");
     if active.get(client_id) == Some(client_command_id) {
         active.remove(client_id);
     }
 }
 
-// @behavior selvedge.startup.server.local_operation.task.hydrated Attach snapshot delivery marks a local operation attach identity ready for server-owned command notices.
 fn mark_local_operation_hydrated_attach(
     local_operation_hydrated_attaches: &LocalOperationHydratedAttachRegistry,
     client_id: &ClientId,
@@ -1893,12 +1685,10 @@ fn mark_local_operation_hydrated_attach(
 ) {
     local_operation_hydrated_attaches
         .lock()
-        // @behavior selvedge.startup.server.local_operation.task.hydrated.lock Hydrated attach marking acquires the hydrated attach registry before storing the attach identity.
         .expect("server local operation hydrated attach lock")
         .insert((client_id.clone(), attach_command_id.clone()));
 }
 
-// @behavior selvedge.startup.server.local_operation.task.hydrated_clear Attach cleanup clears local operation hydration readiness for the closing attach identity.
 fn clear_local_operation_hydrated_attach(
     local_operation_hydrated_attaches: &LocalOperationHydratedAttachRegistry,
     client_id: &ClientId,
@@ -1906,12 +1696,10 @@ fn clear_local_operation_hydrated_attach(
 ) {
     local_operation_hydrated_attaches
         .lock()
-        // @behavior selvedge.startup.server.local_operation.task.hydrated_clear.lock Hydrated attach cleanup acquires the hydrated attach registry before removing a matching attach identity.
         .expect("server local operation hydrated attach lock")
         .remove(&(client_id.clone(), attach_command_id.clone()));
 }
 
-// @behavior selvedge.startup.server.local_operation.task.cancel_attach Attach cleanup cancels running local operations bound to the same client and attach command.
 fn cancel_local_operation_for_attach(
     local_operation_closing_attaches: &LocalOperationClosingAttachRegistry,
     local_operation_cancellations: &LocalOperationCancellationRegistry,
@@ -1920,12 +1708,10 @@ fn cancel_local_operation_for_attach(
 ) {
     local_operation_closing_attaches
         .lock()
-        // @behavior selvedge.startup.server.local_operation.task.cancel_attach.closing Attach cleanup records closing attach identities before signaling local operations.
         .expect("server local operation closing attach lock")
         .insert((client_id.clone(), attach_command_id.clone()));
     let mut cancellations = local_operation_cancellations
         .lock()
-        // @behavior selvedge.startup.server.local_operation.task.cancel_lock Local operation cancellation acquires the cancellation registry before removing a matching sender.
         .expect("server local operation cancellation lock");
     let keys = cancellations
         .keys()
@@ -1936,13 +1722,11 @@ fn cancel_local_operation_for_attach(
         .collect::<Vec<_>>();
     for key in keys {
         if let Some(cancel_tx) = cancellations.remove(&key) {
-            // @behavior selvedge.startup.server.local_operation.task.cancel_attach.signal Attach cleanup signals each matching local operation cancellation sender.
             let _ = cancel_tx.send(());
         }
     }
 }
 
-// @behavior selvedge.startup.server.local_operation.task.cancel_attach.clear_closing Attach cleanup clears a closing attach marker after detach delivery has completed.
 fn clear_local_operation_closing_attach(
     local_operation_closing_attaches: &LocalOperationClosingAttachRegistry,
     client_id: &ClientId,
@@ -1950,12 +1734,10 @@ fn clear_local_operation_closing_attach(
 ) {
     local_operation_closing_attaches
         .lock()
-        // @behavior selvedge.startup.server.local_operation.task.cancel_attach.clear_closing.lock Closing attach cleanup acquires the closing attach registry before removing a matching attach identity.
         .expect("server local operation closing attach lock")
         .remove(&(client_id.clone(), attach_command_id.clone()));
 }
 
-// @behavior selvedge.startup.server.local_operation.task.cancel_clear Local operation task completion removes its cancellation sender for the submit command when it still exists.
 fn clear_local_operation_cancellation(
     local_operation_cancellations: &LocalOperationCancellationRegistry,
     client_id: &ClientId,
@@ -1964,7 +1746,6 @@ fn clear_local_operation_cancellation(
 ) {
     local_operation_cancellations
         .lock()
-        // @behavior selvedge.startup.server.local_operation.task.cancel_clear_lock Local operation cancellation cleanup acquires the cancellation registry before removing a matching sender.
         .expect("server local operation cancellation lock")
         .remove(&(
             client_id.clone(),
@@ -1973,7 +1754,6 @@ fn clear_local_operation_cancellation(
         ));
 }
 
-// @behavior selvedge.startup.server.local_protocol.attach.restore_active Server attach cleanup restores the previous active command or clears the client when no previous command exists.
 fn restore_active_attach(
     active_attaches: &ActiveAttachRegistry,
     client_id: &ClientId,
@@ -1982,7 +1762,6 @@ fn restore_active_attach(
 ) {
     let mut active = active_attaches
         .lock()
-        // @behavior selvedge.startup.server.local_protocol.attach.restore_active.lock Active attach restoration acquires the registry lock before restoring or clearing a matching client command.
         .expect("server active attach registry lock");
     if active.get(client_id) != Some(client_command_id) {
         return;
@@ -1995,7 +1774,6 @@ fn restore_active_attach(
     }
 }
 
-// @behavior selvedge.startup.server.local_protocol.attach.subscription_mapping Server attach conversion maps local subscription scope and detail settings into command-model subscription settings.
 fn local_subscription_to_command(
     subscription: selvedge_local_protocol::LocalClientSubscription,
 ) -> ClientSubscription {
@@ -2234,7 +2012,6 @@ fn model_call_status_phase_to_local(phase: ModelCallStatusPhase) -> LocalModelCa
     }
 }
 
-// @behavior selvedge.startup.server.local_protocol.event.tool_phase_mapping Server event conversion maps command-model tool execution phases into local protocol tool execution phases.
 fn tool_execution_status_phase_to_local(
     phase: ToolExecutionStatusPhase,
 ) -> LocalToolExecutionStatusPhase {
@@ -2281,7 +2058,6 @@ fn tool_argument_value_to_local(value: ToolArgumentValue) -> LocalToolArgumentVa
     }
 }
 
-// @behavior selvedge.startup.server.web.start Server startup converts a reserved web bind into an optional running web surface or startup error.
 fn start_web(
     web_bind: Option<WebBindReservation>,
     control: ServerControl,
@@ -2293,7 +2069,6 @@ fn start_web(
     let bridge = Arc::new(ServerWebBridge { control });
     spawn_reserved_web_surface(ReservedWebStartArgs { bind, bridge })
         .map(Some)
-        // @behavior selvedge.startup.server.web.start.error_mapping Web startup failures are mapped into server startup errors.
         .map_err(map_web_start_error)
 }
 
@@ -2307,7 +2082,6 @@ fn reserve_web_binding(
     let bind = local_bind_to_web_bind(web_binding.bind_target.clone())?;
     reserve_web_bind(bind)
         .map(Some)
-        // @behavior selvedge.startup.server.web.reserve.error_mapping Web bind reservation failures are mapped into server startup errors.
         .map_err(map_web_start_error)
 }
 
@@ -2321,7 +2095,6 @@ impl WebBridge for ServerWebBridge {
         Box::pin(async move { Ok(control.ready(request).await) })
     }
 
-    // @behavior selvedge.startup.server.web.command_forward Server web bridge command submission forwards HTTP command requests to server control command handling.
     fn submit_command(
         &self,
         request: CommandRequest,
@@ -2343,7 +2116,6 @@ impl WebBridge for ServerWebBridge {
                             as selvedge_web::WebFrameStream,
                     )
                 })
-                // @behavior selvedge.startup.server.web.attach_forward.reject Web bridge attach forwarding returns server attach rejections as web attach rejections.
                 .map_err(selvedge_web::AttachRejectedOrBridgeError::Rejected)
         })
     }
@@ -2361,7 +2133,6 @@ impl Stream for ServerWebFrameStream {
         this.inner
             .as_mut()
             .poll_next(context)
-            // @behavior selvedge.startup.server.web.frame_stream.error_mapping Web frame streams map server request errors into web bridge errors while preserving local frames.
             .map(|item| item.map(|frame| frame.map_err(server_request_error_to_web_bridge_error)))
     }
 }
@@ -2396,7 +2167,6 @@ fn validate_bind_target(bind_target: &LocalhostBindTarget) -> Result<(), ServerS
 fn validate_web_bind_target(bind_target: &LocalhostBindTarget) -> Result<(), ServerStartupError> {
     match bind_target {
         LocalhostBindTarget::Ipv4 { port } | LocalhostBindTarget::Ipv6 { port } if *port == 0 => {
-            // @behavior selvedge.startup.server.web.bind_target.zero_port Web startup rejects port zero bind targets as InvalidBindTarget before durable startup side effects.
             Err(ServerStartupError::InvalidBindTarget)
         }
         LocalhostBindTarget::Ipv4 { .. } | LocalhostBindTarget::Ipv6 { .. } => Ok(()),
@@ -2420,7 +2190,6 @@ fn local_bind_to_web_bind(
 
 fn resolve_home() -> Result<PathBuf, ServerStartupError> {
     selvedge_config::selvedge_home()
-        // @behavior selvedge.startup.server.startup.config.resolve_home Home resolution failures are returned as ConfigInitFailed startup errors.
         .map_err(|error| ServerStartupError::ConfigInitFailed(error.to_string()))
 }
 
@@ -2433,18 +2202,13 @@ fn init_config(explicit_home: Option<&PathBuf>) -> Result<(), ServerStartupError
 
     match result {
         Ok(()) => Ok(()),
-        // @behavior selvedge.startup.server.startup.config.already_initialized Already-initialized config is accepted when the selected home matches the requested home.
         Err(error) if error.to_string().contains("already") => {
             if let Some(home) = explicit_home {
                 let selected_home = selvedge_config::selvedge_home()
-                    // @behavior selvedge.startup.server.startup.config.selected_home Config mismatch checks read the already-selected Selvedge home.
                     .map_err(|error| ServerStartupError::ConfigInitFailed(error.to_string()))?;
-                // @behavior selvedge.startup.server.startup.config.requested_home Config mismatch checks canonicalize the requested explicit home.
                 let requested_home = std::fs::canonicalize(home)
-                    // @behavior selvedge.startup.server.startup.config.requested_home_error Explicit home canonicalization failures are returned as ConfigInitFailed startup errors.
                     .map_err(|error| ServerStartupError::ConfigInitFailed(error.to_string()))?;
                 if selected_home != requested_home {
-                    // @behavior selvedge.startup.server.startup.config.home_mismatch Already-initialized config for a different home returns ConfigInitFailed with both paths.
                     return Err(ServerStartupError::ConfigInitFailed(format!(
                         "config service is initialized for {}, requested {}",
                         selected_home.display(),
@@ -2455,7 +2219,6 @@ fn init_config(explicit_home: Option<&PathBuf>) -> Result<(), ServerStartupError
 
             Ok(())
         }
-        // @behavior selvedge.startup.server.startup.config.init_error Config initialization failures are returned as ConfigInitFailed startup errors.
         Err(error) => Err(ServerStartupError::ConfigInitFailed(error.to_string())),
     }
 }
@@ -2463,15 +2226,12 @@ fn init_config(explicit_home: Option<&PathBuf>) -> Result<(), ServerStartupError
 fn init_logging() -> Result<(), ServerStartupError> {
     match selvedge_logging::init() {
         Ok(()) => Ok(()),
-        // @behavior selvedge.startup.server.startup.logging.already_initialized Already-initialized logging is accepted during server startup.
         Err(error) if error.to_string().contains("already") => Ok(()),
-        // @behavior selvedge.startup.server.startup.logging.init_error Logging initialization failures are returned as LoggingInitFailed startup errors.
         Err(error) => Err(ServerStartupError::LoggingInitFailed(error.to_string())),
     }
 }
 
 fn acquire_singleton_lock(home: &Path) -> Result<File, ServerStartupError> {
-    // @behavior selvedge.startup.server.lock.home_directory Singleton lock acquisition creates the selected Selvedge home directory before opening the lock file.
     std::fs::create_dir_all(home).map_err(|error| {
         ServerStartupError::ConfigInitFailed(format!("failed to create home directory: {error}"))
     })?;
@@ -2479,22 +2239,17 @@ fn acquire_singleton_lock(home: &Path) -> Result<File, ServerStartupError> {
     match OpenOptions::new()
         .create(true)
         .truncate(false)
-        // @behavior selvedge.startup.server.lock.file_open Singleton lock acquisition opens the server lock file for read and write without truncating existing content.
         .write(true)
         .read(true)
         .open(lock_path_for_home(home))
     {
         Ok(file) => match file.try_lock_exclusive() {
             Ok(()) => Ok(file),
-            // @behavior selvedge.startup.server.lock.contention A contended server lock returns SingletonAlreadyRunning.
             Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
-                // @behavior selvedge.startup.server.lock.contention.error Lock contention is reported as SingletonAlreadyRunning.
                 Err(ServerStartupError::SingletonAlreadyRunning)
             }
-            // @behavior selvedge.startup.server.lock.error Lock acquisition errors other than contention return ConfigInitFailed.
             Err(error) => Err(ServerStartupError::ConfigInitFailed(error.to_string())),
         },
-        // @behavior selvedge.startup.server.lock.open_error Lock file open errors return ConfigInitFailed.
         Err(error) => Err(ServerStartupError::ConfigInitFailed(error.to_string())),
     }
 }
@@ -2618,7 +2373,6 @@ mod tests {
         }
     }
 
-    // @verifies selvedge.startup.server
     #[tokio::test]
     async fn attach_closed_router_shutdown_path_returns_rejection() {
         let (router_tx, router_rx) = mpsc::unbounded_channel();
@@ -2638,9 +2392,7 @@ mod tests {
             Err(rejected) => rejected,
         };
 
-        // @verifies selvedge.startup.server.lifecycle
         assert_eq!(rejected.reason, AttachRejectReason::RouterMailboxClosed);
-        // @verifies selvedge.startup.server.lifecycle
         assert_eq!(control.state().await, ServerRuntimeState::Closing);
     }
 
@@ -2653,7 +2405,6 @@ mod tests {
 
         let response = control.submit_command(login_command("command-1")).await;
 
-        // @verifies selvedge.startup.server.local_operation.login.attach_required
         assert_eq!(
             response.outcome,
             CommandOutcome::Rejected(CommandRejectReason::ClientNotAttached)
@@ -2670,9 +2421,7 @@ mod tests {
 
         let response = control.submit_command(login_command("command-1")).await;
 
-        // @verifies selvedge.startup.server.local_operation
         assert_eq!(response.outcome, CommandOutcome::Accepted);
-        // @verifies selvedge.startup.server.local_operation
         assert!(router_rx.try_recv().is_err());
         let notice = timeout(Duration::from_millis(100), events_rx.recv())
             .await
@@ -2681,12 +2430,10 @@ mod tests {
         let EventIngress::Control(EventControlMessage::DeliverNotice(notice)) = notice else {
             panic!("expected terminal notice");
         };
-        // @verifies selvedge.startup.server.local_operation.task.terminal
         assert_eq!(
             notice.client_command_id,
             ClientCommandId("attach-1".to_owned())
         );
-        // @verifies selvedge.startup.server.local_operation.task.terminal
         assert!(matches!(
             notice.notice.kind,
             ClientNoticeKind::CommandCompleted { .. }
@@ -2711,9 +2458,7 @@ mod tests {
         let first = control.submit_command(login_command("command-1")).await;
         let second = control.submit_command(login_command("command-2")).await;
 
-        // @verifies selvedge.startup.server.local_operation.login.single_flight
         assert_eq!(first.outcome, CommandOutcome::Accepted);
-        // @verifies selvedge.startup.server.local_operation.login.single_flight
         assert_eq!(
             second.outcome,
             CommandOutcome::Rejected(CommandRejectReason::LoginAlreadyRunning)
@@ -2745,9 +2490,7 @@ mod tests {
             ))
             .await;
 
-        // @verifies selvedge.startup.server.local_operation.login.single_flight
         assert_eq!(login.outcome, CommandOutcome::Accepted);
-        // @verifies selvedge.startup.server.local_operation.list.concurrent_login
         assert_eq!(list_models.outcome, CommandOutcome::Accepted);
     }
 
@@ -2775,11 +2518,8 @@ mod tests {
             ))
             .await;
 
-        // @verifies selvedge.startup.server.local_operation.task.cancel_track.command
         assert_eq!(login.outcome, CommandOutcome::Accepted);
-        // @verifies selvedge.startup.server.local_operation.task.cancel_track.command
         assert_eq!(list_models.outcome, CommandOutcome::Accepted);
-        // @verifies selvedge.startup.server.local_operation.task.cancel_track.command
         assert_eq!(
             control
                 .inner
@@ -2807,9 +2547,7 @@ mod tests {
             cancel_tx,
         );
 
-        // @verifies selvedge.startup.server.local_operation.task.cancel_track.inactive
         assert!(!registered);
-        // @verifies selvedge.startup.server.local_operation.task.cancel_track.inactive
         assert!(
             control
                 .inner
@@ -2836,12 +2574,10 @@ mod tests {
             ))
             .await;
 
-        // @verifies selvedge.startup.server.local_operation.task.cancel_track.unhydrated
         assert_eq!(
             response.outcome,
             CommandOutcome::Rejected(CommandRejectReason::ClientNotAttached)
         );
-        // @verifies selvedge.startup.server.local_operation.task.cancel_track.unhydrated
         assert!(
             control
                 .inner
@@ -2870,7 +2606,6 @@ mod tests {
             .expect("command id reuse attach accepted");
         let response = control.submit_command(login_command("command-1")).await;
 
-        // @verifies selvedge.startup.server.local_operation.task.hydrated_clear.replacement
         assert_eq!(
             response.outcome,
             CommandOutcome::Rejected(CommandRejectReason::ClientNotAttached)
@@ -2903,9 +2638,7 @@ mod tests {
             cancel_tx,
         );
 
-        // @verifies selvedge.startup.server.local_operation.task.cancel_track.closing
         assert!(!registered);
-        // @verifies selvedge.startup.server.local_operation.task.cancel_track.closing
         assert!(
             control
                 .inner
@@ -2960,9 +2693,7 @@ mod tests {
             second = control.submit_command(login_command("command-2")).await;
         }
 
-        // @verifies selvedge.startup.server.local_operation.task.cancel_attach
         assert_eq!(first.outcome, CommandOutcome::Accepted);
-        // @verifies selvedge.startup.server.local_operation.task.cancel_attach
         assert_eq!(second.outcome, CommandOutcome::Accepted);
     }
 
@@ -2984,9 +2715,7 @@ mod tests {
         let response = control.submit_command(login_command("command-1")).await;
         control.stop().await;
 
-        // @verifies selvedge.startup.server.local_operation.task.abort
         assert_eq!(response.outcome, CommandOutcome::Accepted);
-        // @verifies selvedge.startup.server.local_operation.task.abort
         assert!(
             control
                 .inner
@@ -2997,7 +2726,6 @@ mod tests {
         );
     }
 
-    // @verifies selvedge.startup.server
     #[tokio::test]
     async fn server_web_bridge_forwards_commands_to_server_control() {
         let router_tx = accepting_router_sender();
@@ -3016,11 +2744,9 @@ mod tests {
             .await
             .expect("web command forwards");
 
-        // @verifies selvedge.startup.server.lifecycle
         assert_eq!(response.outcome, CommandOutcome::Accepted);
     }
 
-    // @verifies selvedge.startup.server
     #[tokio::test]
     async fn server_web_bridge_forwards_attach_to_server_control() {
         let router_tx = accepting_router_sender();
@@ -3034,16 +2760,13 @@ mod tests {
             .await
             .expect("web attach forwards");
 
-        // @verifies selvedge.startup.server.lifecycle
         assert_eq!(
             accepted.client_command_id,
             test_attach_request().client_command_id
         );
         match client_sync_rx.recv().await.expect("start hydration") {
             ClientSyncIngress::StartHydration(begin) => {
-                // @verifies selvedge.startup.server.lifecycle
                 assert_eq!(begin.client_id, ClientId("client-1".to_owned()));
-                // @verifies selvedge.startup.server.lifecycle
                 assert_eq!(
                     begin.client_command_id,
                     ClientCommandId("attach-1".to_owned())
@@ -3055,7 +2778,6 @@ mod tests {
         }
     }
 
-    // @verifies selvedge.startup.server
     #[tokio::test]
     async fn server_join_task_reports_unexpected_router_failure() {
         let (router_tx, _router_rx) = mpsc::unbounded_channel();
@@ -3086,13 +2808,10 @@ mod tests {
             .expect("server join returns")
             .expect("server join succeeds");
 
-        // @verifies selvedge.startup.server.lifecycle
         assert_eq!(status, ServerExitStatus::Fatal("router failed".to_owned()));
-        // @verifies selvedge.startup.server.lifecycle
         assert_eq!(control.state().await, ServerRuntimeState::Failed);
     }
 
-    // @verifies selvedge.startup.server
     #[tokio::test]
     async fn server_join_task_preserves_router_failure_during_shutdown() {
         let (router_tx, _router_rx) = mpsc::unbounded_channel();
@@ -3127,16 +2846,13 @@ mod tests {
             .expect("server join returns")
             .expect("server join succeeds");
 
-        // @verifies selvedge.startup.server.lifecycle
         assert_eq!(
             status,
             ServerExitStatus::Fatal("router events mailbox closed".to_owned())
         );
-        // @verifies selvedge.startup.server.lifecycle
         assert_eq!(control.state().await, ServerRuntimeState::Failed);
     }
 
-    // @verifies selvedge.startup.server
     #[tokio::test]
     async fn attach_closed_client_sync_shutdown_path_returns_rejection() {
         let router_tx = accepting_router_sender();
@@ -3156,13 +2872,10 @@ mod tests {
             Err(rejected) => rejected,
         };
 
-        // @verifies selvedge.startup.server.lifecycle
         assert_eq!(rejected.reason, AttachRejectReason::ClientSyncUnavailable);
-        // @verifies selvedge.startup.server.lifecycle
         assert_eq!(control.state().await, ServerRuntimeState::Closing);
     }
 
-    // @verifies selvedge.startup.server
     #[tokio::test]
     async fn attach_closed_events_admission_starts_shutdown() {
         let router_tx = events_closed_router_sender();
@@ -3181,13 +2894,10 @@ mod tests {
             Err(rejected) => rejected,
         };
 
-        // @verifies selvedge.startup.server.lifecycle
         assert_eq!(rejected.reason, AttachRejectReason::InternalFailure);
-        // @verifies selvedge.startup.server.lifecycle
         assert_eq!(control.state().await, ServerRuntimeState::Closing);
     }
 
-    // @verifies selvedge.startup.server
     #[tokio::test]
     async fn duplicate_active_attach_rejects_without_second_start() {
         let router_tx = accepting_router_sender();
@@ -3209,16 +2919,13 @@ mod tests {
             Err(rejected) => rejected,
         };
 
-        // @verifies selvedge.startup.server.lifecycle
         assert_eq!(rejected.reason, AttachRejectReason::DuplicateAttach);
-        // @verifies selvedge.startup.server.lifecycle
         assert!(matches!(
             client_sync_rx.try_recv(),
             Err(tokio::sync::mpsc::error::TryRecvError::Empty)
         ));
     }
 
-    // @verifies selvedge.startup.server
     #[tokio::test]
     async fn new_client_attach_rejects_when_registry_capacity_is_reserved() {
         let router_tx = accepting_router_sender();
@@ -3254,16 +2961,13 @@ mod tests {
             Err(rejected) => rejected,
         };
 
-        // @verifies selvedge.startup.server.lifecycle
         assert_eq!(rejected.reason, AttachRejectReason::ClientRegistryFull);
-        // @verifies selvedge.startup.server.lifecycle
         assert!(matches!(
             client_sync_rx.try_recv(),
             Err(tokio::sync::mpsc::error::TryRecvError::Empty)
         ));
     }
 
-    // @verifies selvedge.startup.server
     #[tokio::test]
     async fn frame_channel_creation_failure_rejects_and_restores_attach_slot() {
         let router_tx = accepting_router_sender();
@@ -3281,9 +2985,7 @@ mod tests {
             Err(rejected) => rejected,
         };
 
-        // @verifies selvedge.startup.server.lifecycle
         assert_eq!(rejected.reason, AttachRejectReason::AttachChannelFailed);
-        // @verifies selvedge.startup.server.lifecycle
         assert!(matches!(
             client_sync_rx.try_recv(),
             Err(tokio::sync::mpsc::error::TryRecvError::Empty)
@@ -3299,7 +3001,6 @@ mod tests {
             .expect("retry start hydration");
     }
 
-    // @verifies selvedge.startup.server
     #[tokio::test]
     async fn stale_stream_drop_after_replacement_preserves_new_active_attach() {
         let router_tx = accepting_router_sender();
@@ -3343,11 +3044,9 @@ mod tests {
             Err(rejected) => rejected,
         };
 
-        // @verifies selvedge.startup.server.lifecycle
         assert_eq!(rejected.reason, AttachRejectReason::DuplicateAttach);
     }
 
-    // @verifies selvedge.startup.server
     #[tokio::test]
     async fn closed_frame_channel_clears_active_attach_before_stream_drop() {
         let router_tx = accepting_router_sender();
@@ -3370,7 +3069,6 @@ mod tests {
             .expect("stream terminal item arrives")
             .expect("stream terminal item")
             .expect_err("closed frame channel reports error");
-        // @verifies selvedge.startup.server.lifecycle
         assert_eq!(error, ServerRequestError::AttachChannelFailed);
         match timeout(Duration::from_millis(100), client_sync_rx.recv())
             .await
@@ -3378,9 +3076,7 @@ mod tests {
             .expect("channel close cancel")
         {
             ClientSyncIngress::CancelHydration(cancel) => {
-                // @verifies selvedge.startup.server.lifecycle
                 assert_eq!(cancel.client_id, ClientId("client-1".to_owned()));
-                // @verifies selvedge.startup.server.lifecycle
                 assert_eq!(
                     cancel.client_command_id,
                     ClientCommandId("attach-1".to_owned())
@@ -3394,14 +3090,11 @@ mod tests {
             .expect("channel close detach")
         {
             EventIngress::Control(EventControlMessage::DetachClient(detach)) => {
-                // @verifies selvedge.startup.server.lifecycle
                 assert_eq!(detach.client_id, ClientId("client-1".to_owned()));
-                // @verifies selvedge.startup.server.lifecycle
                 assert_eq!(
                     detach.client_command_id,
                     ClientCommandId("attach-1".to_owned())
                 );
-                // @verifies selvedge.startup.server.lifecycle
                 assert_eq!(detach.reason, DetachReason::ClientDisconnected);
             }
             _ => panic!("unexpected events ingress"),
@@ -3416,14 +3109,12 @@ mod tests {
             .expect("retry start hydration arrives")
             .expect("retry start hydration");
         drop(stream);
-        // @verifies selvedge.startup.server.lifecycle
         assert!(matches!(
             client_sync_rx.try_recv(),
             Err(tokio::sync::mpsc::error::TryRecvError::Empty)
         ));
     }
 
-    // @verifies selvedge.startup.server
     #[tokio::test]
     async fn backpressured_client_sync_rejects_and_restores_attach_slot() {
         let router_tx = accepting_router_sender();
@@ -3439,7 +3130,6 @@ mod tests {
             Ok(_) => panic!("backpressured client-sync should reject"),
             Err(rejected) => rejected,
         };
-        // @verifies selvedge.startup.server.lifecycle
         assert_eq!(rejected.reason, AttachRejectReason::ClientSyncUnavailable);
         match timeout(Duration::from_millis(100), events_rx.recv())
             .await
@@ -3447,14 +3137,11 @@ mod tests {
             .expect("reservation cleanup detach")
         {
             EventIngress::Control(EventControlMessage::DetachClient(detach)) => {
-                // @verifies selvedge.startup.server.lifecycle
                 assert_eq!(detach.client_id, ClientId("client-1".to_owned()));
-                // @verifies selvedge.startup.server.lifecycle
                 assert_eq!(
                     detach.client_command_id,
                     ClientCommandId("attach-1".to_owned())
                 );
-                // @verifies selvedge.startup.server.lifecycle
                 assert_eq!(detach.reason, DetachReason::ClientDisconnected);
             }
             _ => panic!("unexpected events ingress"),
@@ -3467,7 +3154,6 @@ mod tests {
             .expect("attach accepted after cancelled future");
     }
 
-    // @verifies selvedge.startup.server
     #[tokio::test]
     async fn rejected_attach_waits_for_full_events_cleanup_before_returning() {
         let router_tx = accepting_router_sender();
@@ -3492,7 +3178,6 @@ mod tests {
             let control = control.clone();
             async move { control.attach_client(test_attach_request()).await }
         });
-        // @verifies selvedge.startup.server.lifecycle
         assert!(
             timeout(Duration::from_millis(10), &mut attach_task)
                 .await
@@ -3506,14 +3191,11 @@ mod tests {
             .expect("reservation cleanup detach")
         {
             EventIngress::Control(EventControlMessage::DetachClient(detach)) => {
-                // @verifies selvedge.startup.server.lifecycle
                 assert_eq!(detach.client_id, ClientId("client-1".to_owned()));
-                // @verifies selvedge.startup.server.lifecycle
                 assert_eq!(
                     detach.client_command_id,
                     ClientCommandId("attach-1".to_owned())
                 );
-                // @verifies selvedge.startup.server.lifecycle
                 assert_eq!(detach.reason, DetachReason::ClientDisconnected);
             }
             _ => panic!("unexpected events ingress"),
@@ -3522,7 +3204,6 @@ mod tests {
             Ok(_) => panic!("backpressured client-sync should reject"),
             Err(rejected) => rejected,
         };
-        // @verifies selvedge.startup.server.lifecycle
         assert_eq!(rejected.reason, AttachRejectReason::ClientSyncUnavailable);
 
         let _ = client_sync_rx.recv().await.expect("drain filled mailbox");
@@ -3532,7 +3213,6 @@ mod tests {
             .expect("attach accepted after queued cleanup");
     }
 
-    // @verifies selvedge.startup.server
     #[tokio::test]
     async fn cancelled_attach_after_router_send_detaches_possible_reservation() {
         let (router_tx, mut router_rx) = mpsc::unbounded_channel();
@@ -3568,7 +3248,6 @@ mod tests {
         attach_task.abort();
         match attach_task.await {
             Ok(_) => panic!("attach task should abort"),
-            // @verifies selvedge.startup.server.lifecycle
             Err(error) => assert!(error.is_cancelled()),
         }
 
@@ -3578,26 +3257,21 @@ mod tests {
             .expect("cancelled attach detach")
         {
             EventIngress::Control(EventControlMessage::DetachClient(detach)) => {
-                // @verifies selvedge.startup.server.lifecycle
                 assert_eq!(detach.client_id, ClientId("client-1".to_owned()));
-                // @verifies selvedge.startup.server.lifecycle
                 assert_eq!(
                     detach.client_command_id,
                     ClientCommandId("attach-1".to_owned())
                 );
-                // @verifies selvedge.startup.server.lifecycle
                 assert_eq!(detach.reason, DetachReason::ClientDisconnected);
             }
             _ => panic!("unexpected events ingress"),
         }
-        // @verifies selvedge.startup.server.lifecycle
         assert!(matches!(
             client_sync_rx.try_recv(),
             Err(tokio::sync::mpsc::error::TryRecvError::Empty)
         ));
     }
 
-    // @verifies selvedge.startup.server
     #[tokio::test]
     async fn dropped_attach_stream_sends_cancel_and_client_disconnect_detach() {
         let router_tx = accepting_router_sender();
@@ -3615,9 +3289,7 @@ mod tests {
             .expect("start hydration")
         {
             ClientSyncIngress::StartHydration(begin) => {
-                // @verifies selvedge.startup.server.lifecycle
                 assert_eq!(begin.client_id, ClientId("client-1".to_owned()));
-                // @verifies selvedge.startup.server.lifecycle
                 assert_eq!(
                     begin.client_command_id,
                     ClientCommandId("attach-1".to_owned())
@@ -3634,9 +3306,7 @@ mod tests {
             .expect("cancel hydration")
         {
             ClientSyncIngress::CancelHydration(cancel) => {
-                // @verifies selvedge.startup.server.lifecycle
                 assert_eq!(cancel.client_id, ClientId("client-1".to_owned()));
-                // @verifies selvedge.startup.server.lifecycle
                 assert_eq!(
                     cancel.client_command_id,
                     ClientCommandId("attach-1".to_owned())
@@ -3651,14 +3321,11 @@ mod tests {
             .expect("detach")
         {
             EventIngress::Control(EventControlMessage::DetachClient(detach)) => {
-                // @verifies selvedge.startup.server.lifecycle
                 assert_eq!(detach.client_id, ClientId("client-1".to_owned()));
-                // @verifies selvedge.startup.server.lifecycle
                 assert_eq!(
                     detach.client_command_id,
                     ClientCommandId("attach-1".to_owned())
                 );
-                // @verifies selvedge.startup.server.lifecycle
                 assert_eq!(detach.reason, DetachReason::ClientDisconnected);
             }
             _ => panic!("unexpected events ingress"),
@@ -3703,9 +3370,7 @@ mod tests {
             .expect("snapshot frame")
             .expect("frame ok");
 
-        // @verifies selvedge.startup.server.local_operation.task.hydrated
         assert!(matches!(frame, LocalClientFrame::Snapshot(_)));
-        // @verifies selvedge.startup.server.local_operation.task.hydrated
         assert!(
             local_operation_hydrated_attaches
                 .lock()
@@ -3714,7 +3379,6 @@ mod tests {
         );
     }
 
-    // @verifies selvedge.startup.server
     #[tokio::test]
     async fn full_events_mailbox_delays_active_attach_release_until_detach_is_queued() {
         let router_tx = accepting_router_sender();
@@ -3746,7 +3410,6 @@ mod tests {
             Ok(_) => panic!("attach should remain active until detach is queued"),
             Err(rejected) => rejected,
         };
-        // @verifies selvedge.startup.server.lifecycle
         assert_eq!(rejected.reason, AttachRejectReason::DuplicateAttach);
 
         let _ = events_rx.recv().await.expect("drain occupied events slot");
@@ -3757,14 +3420,11 @@ mod tests {
             .expect("client detach")
         {
             EventIngress::Control(EventControlMessage::DetachClient(detach)) => {
-                // @verifies selvedge.startup.server.lifecycle
                 assert_eq!(detach.client_id, ClientId("client-1".to_owned()));
-                // @verifies selvedge.startup.server.lifecycle
                 assert_eq!(
                     detach.client_command_id,
                     ClientCommandId("attach-1".to_owned())
                 );
-                // @verifies selvedge.startup.server.lifecycle
                 assert_eq!(detach.reason, DetachReason::ClientDisconnected);
             }
             _ => panic!("unexpected events ingress"),
@@ -3850,7 +3510,6 @@ mod tests {
             .await
             .expect("local operation task exits")
             .expect("local operation task joins");
-        // @verifies selvedge.startup.server.local_operation.task.terminal_attach_closed
         assert!(
             local_operation_cancellations
                 .lock()
@@ -3898,7 +3557,6 @@ mod tests {
             Arc::clone(&local_operation_hydrated_attaches),
             Arc::clone(&local_operation_closing_attaches),
         );
-        // @verifies selvedge.startup.server.event_delivery.detach_clear.closing_marker.full
         assert!(
             local_operation_closing_attaches
                 .lock()
@@ -3911,7 +3569,6 @@ mod tests {
             .await
             .expect("client detach arrives")
             .expect("client detach");
-        // @verifies selvedge.startup.server.event_delivery.detach_clear
         assert!(matches!(
             detach,
             EventIngress::Control(EventControlMessage::DetachClient(_))
@@ -3930,14 +3587,12 @@ mod tests {
         })
         .await
         .expect("closing attach marker clears after detach is queued");
-        // @verifies selvedge.startup.server.event_delivery.detach_clear.closing_marker
         assert!(
             local_operation_closing_attaches
                 .lock()
                 .expect("closing attaches")
                 .is_empty()
         );
-        // @verifies selvedge.startup.server.event_delivery.detach_clear
         assert!(
             active_attaches
                 .lock()

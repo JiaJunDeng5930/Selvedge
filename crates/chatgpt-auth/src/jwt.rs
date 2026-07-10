@@ -4,8 +4,6 @@ use serde_json::Value;
 
 use crate::{ChatgptJwtClaims, JwtParseError};
 
-// @behavior selvedge.auth.jwt ChatGPT JWT parsing exposes account metadata and token timing information used by request authentication.
-// @behavior selvedge.auth.jwt.parse.claims JWT parsing extracts ChatGPT account metadata from a three-segment token without validating signatures.
 pub(crate) fn parse(token: &str) -> Result<ChatgptJwtClaims, JwtParseError> {
     let mut segments = token.split('.');
     let header = read_segment(segments.next())?;
@@ -55,7 +53,6 @@ pub(crate) fn parse(token: &str) -> Result<ChatgptJwtClaims, JwtParseError> {
     })
 }
 
-// @behavior selvedge.auth.jwt.header Auth resolution treats tokens with JWT-like headers as structured tokens when deciding whether malformed access tokens require refresh.
 pub(crate) fn header_indicates_jwt(token: &str) -> bool {
     let mut segments = token.split('.');
     let Ok(header) = read_segment(segments.next()) else {
@@ -76,7 +73,6 @@ pub(crate) fn header_indicates_jwt(token: &str) -> bool {
     header_object.contains_key("alg") && !header_object.contains_key("enc")
 }
 
-// @constraint selvedge.auth.jwt.segments JWT parsing requires exactly three nonempty token segments before exposing claims.
 fn read_segment(segment: Option<&str>) -> Result<&str, JwtParseError> {
     match segment {
         Some(segment) if !segment.is_empty() => Ok(segment),
@@ -84,7 +80,6 @@ fn read_segment(segment: Option<&str>) -> Result<&str, JwtParseError> {
     }
 }
 
-// @constraint selvedge.auth.jwt.json JWT header and payload segments must decode to JSON objects before claims are returned.
 fn decode_json_object_segment(
     segment: &str,
 ) -> Result<serde_json::Map<String, Value>, JwtParseError> {
@@ -96,7 +91,6 @@ fn decode_json_object_segment(
     value.as_object().cloned().ok_or(JwtParseError::InvalidJson)
 }
 
-// @constraint selvedge.auth.jwt.optional_string Empty JWT string claims are omitted from caller-visible auth metadata.
 fn read_optional_string(value: Option<&Value>) -> Option<String> {
     value
         .and_then(Value::as_str)
@@ -104,7 +98,6 @@ fn read_optional_string(value: Option<&Value>) -> Option<String> {
         .map(ToOwned::to_owned)
 }
 
-// @constraint selvedge.auth.jwt.optional_object_string Empty JWT string claims nested in object claims are omitted from caller-visible auth metadata.
 fn read_optional_string_from_object(
     object: Option<&serde_json::Map<String, Value>>,
     field: &str,
@@ -112,7 +105,6 @@ fn read_optional_string_from_object(
     read_optional_string(object.and_then(|object| object.get(field)))
 }
 
-// @constraint selvedge.auth.jwt.expiration JWT expiration claims must be valid Unix timestamps before request auth exposes an expiration time.
 fn read_expiration(
     value: Option<&Value>,
 ) -> Result<Option<chrono::DateTime<chrono::Utc>>, JwtParseError> {
