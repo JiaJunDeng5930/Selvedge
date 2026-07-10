@@ -228,6 +228,7 @@ impl SystemdBackend for SystemctlBackend {
             "show".to_owned(),
             "--property=LoadState".to_owned(),
             "--property=ActiveState".to_owned(),
+            "--".to_owned(),
             unit_name.to_owned(),
         ];
         let output = self
@@ -243,7 +244,12 @@ impl SystemdBackend for SystemctlBackend {
         unit_name: &str,
         operation_timeout: Duration,
     ) -> Result<StartServiceOutcome, SystemdError> {
-        let args = vec![self.scope_arg(), "start".to_owned(), unit_name.to_owned()];
+        let args = vec![
+            self.scope_arg(),
+            "start".to_owned(),
+            "--".to_owned(),
+            unit_name.to_owned(),
+        ];
         let output = self
             .runner
             .run_boxed(self.program()?, &args, operation_timeout)
@@ -335,7 +341,7 @@ fn validate_config(config: &SystemdConfig) -> Result<(), SystemdError> {
         return Err(SystemdError::InvalidUnitName);
     }
 
-    if config.unit_name.chars().any(char::is_whitespace) {
+    if config.unit_name.starts_with('-') || config.unit_name.chars().any(char::is_whitespace) {
         return Err(SystemdError::InvalidUnitName);
     }
 
