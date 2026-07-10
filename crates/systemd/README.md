@@ -2,7 +2,7 @@
 
 <!-- selvedge-package-readme
 package: selvedge-systemd
-freshness_fingerprint: e08cfe6fdfe7ca50f8de6a51f9de7f2ca8b27308
+freshness_fingerprint: 336cd55921e283de2a4691d91ddac1610709f4c0
 -->
 
 This crate owns the root-CLI systemd boundary for the Selvedge server unit.

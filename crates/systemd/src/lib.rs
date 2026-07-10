@@ -2,8 +2,6 @@
 
 use std::future::Future;
 use std::path::PathBuf;
-use std::pin::Pin;
-use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use tokio::io::AsyncReadExt;
@@ -86,9 +84,9 @@ pub trait SystemdBackend: Send + Sync + 'static {
     ) -> impl Future<Output = Result<StartServiceOutcome, SystemdError>> + Send;
 }
 
-pub struct SystemctlBackend {
+pub struct SystemctlBackend<R = StdSystemctlProcessRunner> {
     config: SystemctlBackendConfig,
-    runner: Arc<dyn ErasedSystemctlProcessRunner>,
+    runner: R,
 }
 
 pub struct SystemdClient<B: SystemdBackend> {
@@ -96,31 +94,7 @@ pub struct SystemdClient<B: SystemdBackend> {
     pub backend: B,
 }
 
-trait ErasedSystemctlProcessRunner: Send + Sync {
-    fn run_boxed<'a>(
-        &'a self,
-        program: &'a str,
-        args: &'a [String],
-        timeout: Duration,
-    ) -> Pin<Box<dyn Future<Output = Result<SystemctlProcessOutput, SystemdError>> + Send + 'a>>;
-}
-
-impl<R> ErasedSystemctlProcessRunner for R
-where
-    R: SystemctlProcessRunner + Send + Sync + 'static,
-{
-    fn run_boxed<'a>(
-        &'a self,
-        program: &'a str,
-        args: &'a [String],
-        timeout: Duration,
-    ) -> Pin<Box<dyn Future<Output = Result<SystemctlProcessOutput, SystemdError>> + Send + 'a>>
-    {
-        Box::pin(self.run(program, args, timeout))
-    }
-}
-
-struct StdSystemctlProcessRunner;
+pub struct StdSystemctlProcessRunner;
 
 async fn read_child_pipe<R>(mut pipe: R) -> Result<Vec<u8>, SystemdError>
 where
@@ -186,20 +160,19 @@ impl SystemctlBackend {
     pub fn new(config: SystemctlBackendConfig) -> Result<Self, SystemdError> {
         Self::new_with_runner(config, StdSystemctlProcessRunner)
     }
+}
 
-    pub fn new_with_runner<R>(
+impl<R> SystemctlBackend<R>
+where
+    R: SystemctlProcessRunner + Send + Sync + 'static,
+{
+    pub fn new_with_runner(
         config: SystemctlBackendConfig,
         runner: R,
-    ) -> Result<Self, SystemdError>
-    where
-        R: SystemctlProcessRunner + Send + Sync + 'static,
-    {
+    ) -> Result<SystemctlBackend<R>, SystemdError> {
         validate_systemctl_config(&config)?;
 
-        Ok(Self {
-            config,
-            runner: Arc::new(runner),
-        })
+        Ok(SystemctlBackend { config, runner })
     }
 
     fn program(&self) -> Result<&str, SystemdError> {
@@ -217,7 +190,10 @@ impl SystemctlBackend {
     }
 }
 
-impl SystemdBackend for SystemctlBackend {
+impl<R> SystemdBackend for SystemctlBackend<R>
+where
+    R: SystemctlProcessRunner + Send + Sync + 'static,
+{
     async fn query_status(
         &self,
         unit_name: &str,
@@ -233,7 +209,7 @@ impl SystemdBackend for SystemctlBackend {
         ];
         let output = self
             .runner
-            .run_boxed(self.program()?, &args, operation_timeout)
+            .run(self.program()?, &args, operation_timeout)
             .await?;
 
         parse_systemctl_show_output(output)
@@ -252,7 +228,7 @@ impl SystemdBackend for SystemctlBackend {
         ];
         let output = self
             .runner
-            .run_boxed(self.program()?, &args, operation_timeout)
+            .run(self.program()?, &args, operation_timeout)
             .await?;
 
         if output.exit_code == Some(0) {
