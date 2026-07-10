@@ -414,6 +414,96 @@ base_url = "{}"
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn mismatched_chatgpt_text_sequence_sends_terminal_provider_failure() {
+    const FLAG: &str = "SELVEDGE_API_CHATGPT_MISMATCHED_TEXT_CHILD";
+
+    if !child_mode(FLAG) {
+        assert_child_success(&run_child(
+            "mismatched_chatgpt_text_sequence_sends_terminal_provider_failure",
+            FLAG,
+        ));
+        return;
+    }
+
+    let api_server = spawn_http_server(Router::new().route(
+        "/responses",
+        post(|| async move {
+            let body = Body::from_stream(async_stream::stream! {
+                yield Ok::<_, std::convert::Infallible>(bytes::Bytes::from(
+                    "data: {\"type\":\"response.output_text.delta\",\"item_id\":\"item-1\",\"output_index\":0,\"content_index\":0,\"delta\":\"é\"}\n\n",
+                ));
+                yield Ok::<_, std::convert::Infallible>(bytes::Bytes::from(
+                    "data: {\"type\":\"response.output_text.done\",\"item_id\":\"item-1\",\"output_index\":0,\"content_index\":0,\"text\":\"aéb\"}\n\n",
+                ));
+                yield Ok::<_, std::convert::Infallible>(bytes::Bytes::from(
+                    "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp-1\",\"model\":\"gpt-5\"}}\n\n",
+                ));
+            });
+
+            (
+                StatusCode::OK,
+                [(
+                    http::header::CONTENT_TYPE,
+                    HeaderValue::from_static("text/event-stream"),
+                )],
+                body,
+            )
+        }),
+    ))
+    .await;
+
+    let tempdir = init_api_test(&format!(
+        r#"
+[llm.providers.chatgpt.settings]
+issuer = "http://127.0.0.1:1"
+
+[llm.providers.chatgpt]
+base_url = "{}"
+"#,
+        api_server.url("")
+    ));
+    write_auth_file(
+        &tempdir,
+        &auth_file_json(
+            &build_jwt(serde_json::json!({
+                "sub": "subject",
+                "https://api.openai.com/auth.chatgpt_account_id": "workspace-123"
+            })),
+            "opaque-access-token",
+            "refresh-token",
+        ),
+    );
+
+    let request = valid_dispatch_request();
+    let expected_correlation = request.correlation.clone();
+    let (router_tx, mut router_rx) = mpsc::unbounded_channel();
+    let handle = spawn_model_call_tokio_task(
+        request,
+        router_tx.downgrade(),
+        ApiExecutorConfig {
+            request_timeout: Duration::from_secs(5),
+            max_response_bytes: None,
+        },
+    );
+
+    assert_eq!(
+        tokio::time::timeout(Duration::from_secs(1), handle)
+            .await
+            .expect("model call timeout")
+            .expect("join model call"),
+        ApiCallTerminalStatus::OutputSent
+    );
+    match router_rx.recv().await.expect("router message") {
+        RouterIngressApiMessage::ApiOutput(ApiOutputEnvelope::Failure { correlation, error }) => {
+            assert_eq!(correlation, expected_correlation);
+            assert_eq!(error.kind, ModelCallErrorKind::ProviderResponse);
+            assert!(error.message.contains("did not match streamed delta"));
+        }
+        other => panic!("expected provider failure, got {other:?}"),
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn chatgpt_imprecise_integer_tool_argument_sends_provider_response_failure() {
     const FLAG: &str = "SELVEDGE_API_CHATGPT_IMPRECISE_INTEGER_CHILD";
 
