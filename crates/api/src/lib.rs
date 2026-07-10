@@ -3,6 +3,7 @@
 use std::collections::BTreeMap;
 use std::future::Future;
 use std::io::Write;
+use std::panic::AssertUnwindSafe;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
@@ -14,7 +15,7 @@ use chatgpt_api::{
     ContentItem, FunctionCallItem, FunctionCallOutputItem, MessageItem, ResponseItem,
     ToolDescriptor, ToolOutput, stream,
 };
-use futures::StreamExt;
+use futures::{FutureExt, StreamExt};
 use selvedge_command_model::{
     ApiOutputEnvelope, ModelCallDispatchRequest, ModelCallError, ModelCallErrorKind,
     RouterIngressApiMessage, RouterIngressWeakSender, validate_dispatch_request,
@@ -95,7 +96,32 @@ pub fn spawn_model_call_tokio_task(
     router_tx: RouterIngressWeakSender,
     config: ApiExecutorConfig,
 ) -> tokio::task::JoinHandle<ApiCallTerminalStatus> {
-    tokio::spawn(execute_model_call(request, router_tx, config))
+    let correlation = request.correlation.clone();
+    let execution = execute_model_call(request, router_tx.clone(), config);
+    tokio::spawn(supervise_model_call(correlation, router_tx, execution))
+}
+
+async fn supervise_model_call(
+    correlation: selvedge_command_model::ApiCallCorrelation,
+    router_tx: RouterIngressWeakSender,
+    execution: impl Future<Output = ApiCallTerminalStatus>,
+) -> ApiCallTerminalStatus {
+    match AssertUnwindSafe(execution).catch_unwind().await {
+        Ok(status) => status,
+        Err(_) => {
+            send_output(
+                router_tx,
+                ApiOutputEnvelope::Failure {
+                    correlation,
+                    error: model_call_error(
+                        ModelCallErrorKind::ProviderResponse,
+                        "model call task panicked",
+                    ),
+                },
+            )
+            .await
+        }
+    }
 }
 
 async fn run_model_call(
@@ -263,9 +289,13 @@ async fn call_chatgpt(
                     .get(&(output_index, content_index))
                     .map(String::as_str)
                     .unwrap_or_default();
-                if text.len() > existing.len() {
-                    count_stream_bytes(&mut byte_counter, &text.as_bytes()[existing.len()..])?;
-                }
+                let Some(suffix) = text.strip_prefix(existing) else {
+                    return Err(model_call_error(
+                        ModelCallErrorKind::ProviderResponse,
+                        "chatgpt output text done did not match streamed delta",
+                    ));
+                };
+                count_stream_bytes(&mut byte_counter, suffix.as_bytes())?;
                 text_parts.insert((output_index, content_index), text);
             }
             ChatgptResponseEvent::OutputItemDone {
@@ -868,7 +898,15 @@ mod tests {
     use std::io::Write;
     use std::sync::Arc;
 
-    use super::{BoundedByteCounter, ProviderAdapterRegistry};
+    use selvedge_command_model::{
+        ApiCallCorrelation, ApiEffectId, ApiOutputEnvelope, ModelCallErrorKind, ModelRunId,
+        RouterIngressApiMessage, TaskId,
+    };
+    use tokio::sync::mpsc;
+
+    use super::{
+        ApiCallTerminalStatus, BoundedByteCounter, ProviderAdapterRegistry, supervise_model_call,
+    };
 
     struct TestProviderAdapter;
 
@@ -907,5 +945,33 @@ mod tests {
 
         assert!(registry.adapter("test-provider").is_some());
         assert!(registry.adapter("missing-provider").is_none());
+    }
+
+    #[tokio::test]
+    async fn model_call_supervisor_sends_failure_when_execution_panics() {
+        let correlation = ApiCallCorrelation {
+            api_effect_id: ApiEffectId("api-1".to_owned()),
+            task_id: TaskId("task-1".to_owned()),
+            model_run_id: ModelRunId("run-1".to_owned()),
+        };
+        let (router_tx, mut router_rx) = mpsc::unbounded_channel();
+
+        let status = supervise_model_call(correlation.clone(), router_tx.downgrade(), async {
+            panic!("provider task panic")
+        })
+        .await;
+
+        assert_eq!(status, ApiCallTerminalStatus::OutputSent);
+        match router_rx.recv().await.expect("terminal output") {
+            RouterIngressApiMessage::ApiOutput(ApiOutputEnvelope::Failure {
+                correlation: actual,
+                error,
+            }) => {
+                assert_eq!(actual, correlation);
+                assert_eq!(error.kind, ModelCallErrorKind::ProviderResponse);
+                assert_eq!(error.message, "model call task panicked");
+            }
+            other => panic!("expected failure output, got {other:?}"),
+        }
     }
 }
