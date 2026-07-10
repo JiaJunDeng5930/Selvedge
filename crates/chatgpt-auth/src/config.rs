@@ -1,16 +1,14 @@
-use crate::ChatgptAuthError;
-
 const DEFAULT_ISSUER: &str = "https://auth.openai.com";
 const DEFAULT_CLIENT_ID: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct ChatgptAuthConfig {
+pub struct ChatgptAuthConfig {
     pub issuer: String,
     pub client_id: String,
     pub expected_workspace_id: Option<String>,
 }
 
-pub(crate) fn read_chatgpt_auth_config() -> Result<ChatgptAuthConfig, ChatgptAuthError> {
+pub fn read_chatgpt_auth_config() -> Result<ChatgptAuthConfig, selvedge_config::ConfigError> {
     let settings = selvedge_config::read(|config| {
         config
             .llm
@@ -18,8 +16,7 @@ pub(crate) fn read_chatgpt_auth_config() -> Result<ChatgptAuthConfig, ChatgptAut
             .get("chatgpt")
             .map(|provider| provider.settings.clone())
             .unwrap_or_default()
-    })
-    .map_err(ChatgptAuthError::Config)?;
+    })?;
     let config = ChatgptAuthConfig {
         issuer: setting_string(&settings, "issuer")
             .map_err(validation_config_error)?
@@ -32,15 +29,9 @@ pub(crate) fn read_chatgpt_auth_config() -> Result<ChatgptAuthConfig, ChatgptAut
         expected_workspace_id: setting_string(&settings, "expected_workspace_id")
             .map_err(validation_config_error)?,
     };
-    validate_auth_config(&config).map_err(|reason| {
-        ChatgptAuthError::Config(selvedge_config::ConfigError::ValidationFailed(reason))
-    })?;
+    validate_auth_config(&config).map_err(validation_config_error)?;
 
     Ok(config)
-}
-
-pub(crate) fn read_selvedge_home() -> Result<std::path::PathBuf, ChatgptAuthError> {
-    selvedge_config::selvedge_home().map_err(ChatgptAuthError::Config)
 }
 
 fn setting_string(
@@ -57,8 +48,8 @@ fn setting_string(
         .ok_or_else(|| format!("llm.providers.chatgpt.settings.{key} must be a string"))
 }
 
-fn validation_config_error(reason: String) -> ChatgptAuthError {
-    ChatgptAuthError::Config(selvedge_config::ConfigError::ValidationFailed(reason))
+fn validation_config_error(reason: String) -> selvedge_config::ConfigError {
+    selvedge_config::ConfigError::ValidationFailed(reason)
 }
 
 fn validate_auth_config(config: &ChatgptAuthConfig) -> Result<(), String> {

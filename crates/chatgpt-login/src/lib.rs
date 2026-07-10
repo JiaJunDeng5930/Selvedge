@@ -2,9 +2,7 @@
 #![allow(clippy::result_large_err)]
 
 mod auth_file;
-mod config;
 mod device_code;
-mod id_token;
 mod token_exchange;
 
 use std::future::Future;
@@ -12,6 +10,9 @@ use std::path::PathBuf;
 use std::pin::Pin;
 use std::time::Duration;
 
+use chatgpt_auth::{
+    ChatgptJwtClaims, chatgpt_auth_file_path, parse_chatgpt_jwt_claims, read_chatgpt_auth_config,
+};
 use tokio::sync::Semaphore;
 
 static LOGIN_GATE: Semaphore = Semaphore::const_new(1);
@@ -186,7 +187,7 @@ fn bounded_poll_sleep_duration(
 }
 
 pub async fn start_device_code_login() -> Result<DeviceCodeChallenge, ChatgptLoginError> {
-    let config = config::read_chatgpt_auth_config()?;
+    let config = read_chatgpt_auth_config().map_err(ChatgptLoginError::Config)?;
 
     device_code::start(&config).await
 }
@@ -198,7 +199,7 @@ pub async fn poll_device_code_login(
         return Ok(DeviceCodePollOutcome::Expired);
     }
 
-    let config = config::read_chatgpt_auth_config()?;
+    let config = read_chatgpt_auth_config().map_err(ChatgptLoginError::Config)?;
 
     device_code::poll(&config, challenge).await
 }
@@ -211,10 +212,14 @@ pub async fn complete_device_code_login(
         return Err(ChatgptLoginError::ChallengeExpired);
     }
 
-    let config = config::read_chatgpt_auth_config()?;
-    let selvedge_home = config::read_selvedge_home()?;
+    let config = read_chatgpt_auth_config().map_err(ChatgptLoginError::Config)?;
+    let selvedge_home = selvedge_config::selvedge_home().map_err(ChatgptLoginError::Config)?;
     let token_set = token_exchange::exchange(&config, &authorization).await?;
-    let claims = id_token::parse(&token_set.id_token)?;
+    let claims = parse_chatgpt_jwt_claims(&token_set.id_token).map_err(|error| {
+        ChatgptLoginError::InvalidTokenSet {
+            reason: format!("id_token claims are invalid: {error:?}"),
+        }
+    })?;
 
     if let Some(expected_workspace_id) = &config.expected_workspace_id
         && claims.account_id.as_deref() != Some(expected_workspace_id)
@@ -225,10 +230,20 @@ pub async fn complete_device_code_login(
         });
     }
 
-    let auth_file_path = auth_file::auth_file_path(&selvedge_home);
-    auth_file::persist(&auth_file_path, &token_set).await?;
+    let auth_file_path = chatgpt_auth_file_path(&selvedge_home);
+    auth_file::persist(&selvedge_home, &token_set).await?;
 
-    Ok(auth_file::build_result(auth_file_path, claims))
+    Ok(build_result(auth_file_path, claims))
+}
+
+fn build_result(auth_file_path: PathBuf, claims: ChatgptJwtClaims) -> ChatgptLoginResult {
+    ChatgptLoginResult {
+        auth_file_path,
+        account_id: claims.account_id,
+        user_id: claims.user_id,
+        email: claims.email,
+        plan_type: claims.plan_type,
+    }
 }
 
 #[cfg(test)]

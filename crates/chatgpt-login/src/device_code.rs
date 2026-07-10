@@ -5,7 +5,9 @@ use http::HeaderMap;
 use serde::Deserialize;
 use serde_json::json;
 
-use crate::{ChatgptLoginError, DeviceCodeChallenge, config::ChatgptAuthConfig};
+use chatgpt_auth::ChatgptAuthConfig;
+
+use crate::{ChatgptLoginError, DeviceCodeChallenge};
 
 pub(crate) async fn start(
     config: &ChatgptAuthConfig,

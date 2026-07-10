@@ -7,7 +7,8 @@ use std::{
 use serde_json::{Value, json};
 
 use crate::{
-    ChatgptAuthError, ChatgptAuthFile, ChatgptAuthParseError, ChatgptStoredTokens, parse_auth_file,
+    ChatgptAuthError, ChatgptAuthFile, ChatgptAuthFileWriteError, ChatgptAuthParseError,
+    ChatgptStoredTokens, parse_auth_file,
 };
 
 pub(crate) fn parse(bytes: &[u8]) -> Result<ChatgptAuthFile, ChatgptAuthParseError> {
@@ -146,14 +147,15 @@ pub(crate) fn load_refresh_hint(path: &Path) -> Option<ChatgptAuthFile> {
     parse_auth_file(&bytes).ok()
 }
 
-pub(crate) fn persist(path: &Path, tokens: &ChatgptStoredTokens) -> Result<(), ChatgptAuthError> {
-    let parent = path
-        .parent()
-        .ok_or_else(|| ChatgptAuthError::PersistFailed {
-            path: path.to_path_buf(),
-            reason: "auth file path must have a parent directory".to_owned(),
-        })?;
-    fs::create_dir_all(parent).map_err(|error| ChatgptAuthError::PersistFailed {
+pub(crate) fn persist(
+    path: &Path,
+    tokens: &ChatgptStoredTokens,
+) -> Result<(), ChatgptAuthFileWriteError> {
+    let parent = path.parent().ok_or_else(|| ChatgptAuthFileWriteError {
+        path: path.to_path_buf(),
+        reason: "auth file path must have a parent directory".to_owned(),
+    })?;
+    fs::create_dir_all(parent).map_err(|error| ChatgptAuthFileWriteError {
         path: path.to_path_buf(),
         reason: error.to_string(),
     })?;
@@ -170,29 +172,28 @@ pub(crate) fn persist(path: &Path, tokens: &ChatgptStoredTokens) -> Result<(), C
             }
         }
     }))
-    .map_err(|error| ChatgptAuthError::PersistFailed {
+    .map_err(|error| ChatgptAuthFileWriteError {
         path: path.to_path_buf(),
         reason: error.to_string(),
     })?;
 
-    let mut temp_file = tempfile::NamedTempFile::new_in(parent).map_err(|error| {
-        ChatgptAuthError::PersistFailed {
+    let mut temp_file =
+        tempfile::NamedTempFile::new_in(parent).map_err(|error| ChatgptAuthFileWriteError {
             path: path.to_path_buf(),
             reason: error.to_string(),
-        }
-    })?;
+        })?;
 
     temp_file
         .write_all(&payload)
         .and_then(|_| temp_file.as_file_mut().sync_all())
-        .map_err(|error| ChatgptAuthError::PersistFailed {
+        .map_err(|error| ChatgptAuthFileWriteError {
             path: path.to_path_buf(),
             reason: error.to_string(),
         })?;
 
     temp_file
         .persist(path)
-        .map_err(|error| ChatgptAuthError::PersistFailed {
+        .map_err(|error| ChatgptAuthFileWriteError {
             path: path.to_path_buf(),
             reason: error.error.to_string(),
         })?;
