@@ -15,17 +15,19 @@ use selvedge_local_protocol::{
 };
 use serde::Serialize;
 use serde::de::DeserializeOwned;
-use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
 use tokio::net::tcp::OwnedReadHalf;
 use tokio_stream::StreamExt;
-use tokio_stream::wrappers::LinesStream;
 
 const READY_PATH: &str = "/selvedge/local/v1/ready";
 const COMMAND_PATH: &str = "/selvedge/local/v1/command";
 const ATTACH_PATH: &str = "/selvedge/local/v1/attach";
 const JSON_CONTENT_TYPE: &str = "application/json";
 const NDJSON_CONTENT_TYPE: &str = "application/x-ndjson";
+const MAX_HTTP_RESPONSE_HEADER_BYTES: usize = 16 * 1024;
+const MAX_HTTP_RESPONSE_BODY_BYTES: usize = 4 * 1024 * 1024;
+const MAX_NDJSON_LINE_BYTES: usize = 4 * 1024 * 1024;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LocalClientConfig {
@@ -79,6 +81,7 @@ pub enum LocalClientError {
     StreamClosed,
     TransportClosed,
     TransportFailed(String),
+    ResponseTooLarge { limit_bytes: usize },
 }
 
 pub trait LocalTransport: Send + Sync + 'static {
@@ -635,9 +638,86 @@ struct HttpResponse {
 }
 
 struct HttpAttachFrameStream {
-    lines: LinesStream<BufReader<OwnedReadHalf>>,
+    lines: BoundedLines<BufReader<OwnedReadHalf>>,
     validator: LocalAttachStreamValidator,
     ended: bool,
+}
+
+struct BoundedLines<R> {
+    reader: R,
+    buffer: Vec<u8>,
+    ended: bool,
+}
+
+impl<R> BoundedLines<R> {
+    fn new(reader: R) -> Self {
+        Self {
+            reader,
+            buffer: Vec::new(),
+            ended: false,
+        }
+    }
+}
+
+impl<R: AsyncBufRead + Unpin> Stream for BoundedLines<R> {
+    type Item = Result<String, LocalClientError>;
+
+    fn poll_next(self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let this = self.get_mut();
+        if this.ended {
+            return Poll::Ready(None);
+        }
+
+        loop {
+            let (consume, has_newline) = {
+                let available = match Pin::new(&mut this.reader).poll_fill_buf(context) {
+                    Poll::Ready(Ok(available)) => available,
+                    Poll::Ready(Err(error)) => {
+                        this.ended = true;
+                        return Poll::Ready(Some(Err(LocalClientError::TransportFailed(
+                            error.to_string(),
+                        ))));
+                    }
+                    Poll::Pending => return Poll::Pending,
+                };
+                if available.is_empty() {
+                    this.ended = true;
+                    return if this.buffer.is_empty() {
+                        Poll::Ready(None)
+                    } else {
+                        Poll::Ready(Some(finish_bounded_line(&mut this.buffer)))
+                    };
+                }
+
+                let newline = available.iter().position(|byte| *byte == b'\n');
+                let content_len = newline.unwrap_or(available.len());
+                if content_len > MAX_NDJSON_LINE_BYTES.saturating_sub(this.buffer.len()) {
+                    this.ended = true;
+                    return Poll::Ready(Some(Err(LocalClientError::ResponseTooLarge {
+                        limit_bytes: MAX_NDJSON_LINE_BYTES,
+                    })));
+                }
+                this.buffer.extend_from_slice(&available[..content_len]);
+                (
+                    newline.map_or(available.len(), |index| index + 1),
+                    newline.is_some(),
+                )
+            };
+
+            Pin::new(&mut this.reader).consume(consume);
+            if has_newline {
+                return Poll::Ready(Some(finish_bounded_line(&mut this.buffer)));
+            }
+        }
+    }
+}
+
+fn finish_bounded_line(buffer: &mut Vec<u8>) -> Result<String, LocalClientError> {
+    if buffer.last() == Some(&b'\r') {
+        buffer.pop();
+    }
+    String::from_utf8(std::mem::take(buffer))
+        .map_err(|error| LocalClientError::ProtocolValidationFailed(error.to_string()))
 }
 
 impl Stream for HttpAttachFrameStream {
@@ -657,9 +737,7 @@ impl Stream for HttpAttachFrameStream {
             ))),
             Poll::Ready(Some(Err(error))) => {
                 this.ended = true;
-                Poll::Ready(Some(Err(LocalClientError::TransportFailed(
-                    error.to_string(),
-                ))))
+                Poll::Ready(Some(Err(error)))
             }
             Poll::Ready(None) => {
                 this.ended = true;
@@ -700,14 +778,15 @@ async fn post_json<T: Serialize>(
 async fn read_response_headers(stream: TcpStream) -> Result<HttpResponse, LocalClientError> {
     let (read_half, _write_half) = stream.into_split();
     let mut reader = BufReader::new(read_half);
+    let mut remaining_header_bytes = MAX_HTTP_RESPONSE_HEADER_BYTES;
     let mut status_line = String::new();
-    read_header_line(&mut reader, &mut status_line).await?;
+    read_header_line(&mut reader, &mut status_line, &mut remaining_header_bytes).await?;
     let status_code = parse_status_code(&status_line)?;
     let mut content_type = None;
 
     loop {
         let mut line = String::new();
-        read_header_line(&mut reader, &mut line).await?;
+        read_header_line(&mut reader, &mut line, &mut remaining_header_bytes).await?;
         let trimmed = line.trim_end_matches(['\r', '\n']);
         if trimmed.is_empty() {
             break;
@@ -730,15 +809,34 @@ async fn read_response_headers(stream: TcpStream) -> Result<HttpResponse, LocalC
 async fn read_header_line(
     reader: &mut BufReader<OwnedReadHalf>,
     line: &mut String,
+    remaining_bytes: &mut usize,
 ) -> Result<(), LocalClientError> {
-    let bytes = reader
-        .read_line(line)
-        .await
-        .map_err(|error| LocalClientError::TransportFailed(error.to_string()))?;
-    if bytes == 0 {
-        return Err(LocalClientError::TransportClosed);
+    let mut bytes = Vec::new();
+    loop {
+        let available = reader
+            .fill_buf()
+            .await
+            .map_err(|error| LocalClientError::TransportFailed(error.to_string()))?;
+        if available.is_empty() {
+            return Err(LocalClientError::TransportClosed);
+        }
+        let newline = available.iter().position(|byte| *byte == b'\n');
+        let take = newline.map_or(available.len(), |index| index + 1);
+        if take > *remaining_bytes {
+            return Err(LocalClientError::ResponseTooLarge {
+                limit_bytes: MAX_HTTP_RESPONSE_HEADER_BYTES,
+            });
+        }
+        bytes.extend_from_slice(&available[..take]);
+        reader.consume(take);
+        *remaining_bytes -= take;
+        if newline.is_some() {
+            break;
+        }
     }
 
+    *line = String::from_utf8(bytes)
+        .map_err(|error| LocalClientError::ProtocolValidationFailed(error.to_string()))?;
     Ok(())
 }
 
@@ -755,12 +853,7 @@ async fn parse_json_body<T: DeserializeOwned>(
     mut response: HttpResponse,
 ) -> Result<T, LocalClientError> {
     require_content_type(&response, JSON_CONTENT_TYPE)?;
-    let mut body = Vec::new();
-    response
-        .reader
-        .read_to_end(&mut body)
-        .await
-        .map_err(|error| LocalClientError::TransportFailed(error.to_string()))?;
+    let body = read_bounded_body(&mut response.reader).await?;
 
     if response.status_code != 200 {
         return Err(parse_problem(&body).unwrap_or_else(|| {
@@ -775,17 +868,32 @@ async fn parse_json_body<T: DeserializeOwned>(
         .map_err(|error| LocalClientError::ProtocolValidationFailed(error.to_string()))
 }
 
+async fn read_bounded_body(
+    reader: &mut BufReader<OwnedReadHalf>,
+) -> Result<Vec<u8>, LocalClientError> {
+    let mut body = Vec::new();
+    reader
+        .take((MAX_HTTP_RESPONSE_BODY_BYTES + 1) as u64)
+        .read_to_end(&mut body)
+        .await
+        .map_err(|error| LocalClientError::TransportFailed(error.to_string()))?;
+    if body.len() > MAX_HTTP_RESPONSE_BODY_BYTES {
+        return Err(LocalClientError::ResponseTooLarge {
+            limit_bytes: MAX_HTTP_RESPONSE_BODY_BYTES,
+        });
+    }
+    Ok(body)
+}
+
 async fn parse_attach_rejected_response(
     mut response: HttpResponse,
     expected_command_id: selvedge_local_protocol::LocalClientCommandId,
 ) -> Result<(AttachAccepted, LocalFrameStream), AttachRejectedOrClientError> {
     require_content_type(&response, JSON_CONTENT_TYPE)
         .map_err(AttachRejectedOrClientError::Client)?;
-    let mut body = Vec::new();
-    let body_read = response.reader.read_to_end(&mut body).await;
-    body_read.map_err(|error| {
-        AttachRejectedOrClientError::Client(LocalClientError::TransportFailed(error.to_string()))
-    })?;
+    let body = read_bounded_body(&mut response.reader)
+        .await
+        .map_err(AttachRejectedOrClientError::Client)?;
 
     match serde_json::from_slice::<AttachRejected>(&body) {
         Ok(rejected) => {
@@ -812,11 +920,11 @@ async fn parse_attach_accepted_stream(
     expected_command_id: selvedge_local_protocol::LocalClientCommandId,
 ) -> Result<(AttachAccepted, LocalFrameStream), LocalClientError> {
     require_content_type(&response, NDJSON_CONTENT_TYPE)?;
-    let mut lines = LinesStream::new(response.reader.lines());
+    let mut lines = BoundedLines::new(response.reader);
     let Some(first) = lines.next().await else {
         return Err(LocalClientError::TransportClosed);
     };
-    let first = first.map_err(|error| LocalClientError::TransportFailed(error.to_string()))?;
+    let first = first?;
     let item = parse_attach_stream_item(&first)?;
     validate_attach_stream_item(&item)
         .map_err(|error| LocalClientError::ProtocolValidationFailed(format!("{error:?}")))?;

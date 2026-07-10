@@ -63,6 +63,44 @@ async fn execute_returns_full_response_body() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn execute_rejects_response_body_over_fixed_limit() {
+    const FLAG: &str = "SELVEDGE_CLIENT_RESPONSE_LIMIT_CHILD";
+
+    if !child_mode(FLAG) {
+        assert_child_success(&run_child(
+            "execute_rejects_response_body_over_fixed_limit",
+            FLAG,
+        ));
+        return;
+    }
+
+    let _tempdir = init_client_test().await;
+    let server = spawn_http_server(Router::new().route(
+        "/large",
+        get(|| async { Bytes::from(vec![b'x'; 4 * 1024 * 1024 + 1]) }),
+    ))
+    .await;
+
+    let error = execute(HttpRequest {
+        method: HttpMethod::Get,
+        url: server.url("/large"),
+        headers: HeaderMap::new(),
+        body: HttpRequestBody::Empty,
+        timeout: None,
+        compression: RequestCompression::None,
+    })
+    .await
+    .expect_err("oversized response must fail");
+
+    assert!(matches!(
+        error,
+        HttpError::ResponseTooLarge {
+            limit_bytes: 4_194_304
+        }
+    ));
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn execute_returns_status_error_after_redirect_without_retrying() {
     const FLAG: &str = "SELVEDGE_CLIENT_REDIRECT_STATUS_CHILD";
 
@@ -113,6 +151,41 @@ async fn execute_returns_status_error_after_redirect_without_retrying() {
     }
 
     assert_eq!(hits.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn execute_rejects_oversized_status_body() {
+    const FLAG: &str = "SELVEDGE_CLIENT_STATUS_RESPONSE_LIMIT_CHILD";
+
+    if !child_mode(FLAG) {
+        assert_child_success(&run_child("execute_rejects_oversized_status_body", FLAG));
+        return;
+    }
+
+    let _tempdir = init_client_test().await;
+    let server = spawn_http_server(Router::new().route(
+        "/large-error",
+        get(|| async { (StatusCode::BAD_REQUEST, vec![b'x'; 4 * 1024 * 1024 + 1]) }),
+    ))
+    .await;
+
+    let error = execute(HttpRequest {
+        method: HttpMethod::Get,
+        url: server.url("/large-error"),
+        headers: HeaderMap::new(),
+        body: HttpRequestBody::Empty,
+        timeout: None,
+        compression: RequestCompression::None,
+    })
+    .await
+    .expect_err("oversized status response must fail");
+
+    assert!(matches!(
+        error,
+        HttpError::ResponseTooLarge {
+            limit_bytes: 4_194_304
+        }
+    ));
 }
 
 #[tokio::test(flavor = "multi_thread")]

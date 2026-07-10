@@ -87,6 +87,7 @@ pub enum HttpError {
     Connect { reason: String },
     Tls { reason: String },
     Io { reason: String },
+    ResponseTooLarge { limit_bytes: usize },
     Status(HttpStatusError),
 }
 
@@ -118,6 +119,9 @@ impl fmt::Display for HttpError {
             Self::Connect { reason } => write!(formatter, "connection failed: {reason}"),
             Self::Tls { reason } => write!(formatter, "tls failed: {reason}"),
             Self::Io { reason } => write!(formatter, "i/o failed: {reason}"),
+            Self::ResponseTooLarge { limit_bytes } => {
+                write!(formatter, "response exceeded {limit_bytes} byte limit")
+            }
             Self::Status(error) => write!(formatter, "{error}"),
         }
     }
@@ -132,7 +136,8 @@ impl StdError for HttpError {
             | Self::Timeout
             | Self::Connect { .. }
             | Self::Tls { .. }
-            | Self::Io { .. } => None,
+            | Self::Io { .. }
+            | Self::ResponseTooLarge { .. } => None,
         }
     }
 }

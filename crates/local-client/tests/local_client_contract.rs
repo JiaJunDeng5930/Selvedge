@@ -962,6 +962,57 @@ async fn http_transport_posts_ready_to_local_protocol_route() {
 }
 
 #[tokio::test]
+async fn http_transport_rejects_oversized_response_headers() {
+    let _guard = TEST_LOCK.lock().await;
+    let body = serde_json::to_vec(&ReadyResponse {
+        state: ReadyState::Ready,
+    })
+    .expect("ready response json");
+    let response = HttpContractResponse::json(200, body)
+        .with_header(format!("X-Large: {}\r\n", "x".repeat(16 * 1024)));
+    let (port, server) = spawn_http_contract_server(vec![None, Some(response)]).await;
+    let client = connect_http(http_config(port))
+        .await
+        .expect("connect http client");
+
+    let error = client
+        .ready(ReadyRequest {})
+        .await
+        .expect_err("oversized response headers must fail");
+
+    assert_eq!(
+        error,
+        LocalClientError::ResponseTooLarge {
+            limit_bytes: 16_384
+        }
+    );
+    server.await.expect("join http contract server");
+}
+
+#[tokio::test]
+async fn http_transport_rejects_oversized_json_body() {
+    let _guard = TEST_LOCK.lock().await;
+    let response = HttpContractResponse::json(200, vec![b'x'; 4 * 1024 * 1024 + 1]);
+    let (port, server) = spawn_http_contract_server(vec![None, Some(response)]).await;
+    let client = connect_http(http_config(port))
+        .await
+        .expect("connect http client");
+
+    let error = client
+        .ready(ReadyRequest {})
+        .await
+        .expect_err("oversized JSON response must fail");
+
+    assert_eq!(
+        error,
+        LocalClientError::ResponseTooLarge {
+            limit_bytes: 4_194_304
+        }
+    );
+    server.await.expect("join http contract server");
+}
+
+#[tokio::test]
 async fn http_transport_posts_command_to_local_protocol_route() {
     let _guard = TEST_LOCK.lock().await;
     let body = serde_json::to_vec(&CommandResponse {
@@ -1073,6 +1124,46 @@ async fn http_transport_reads_attach_accepted_ndjson_stream() {
 }
 
 #[tokio::test]
+async fn http_transport_rejects_oversized_ndjson_line() {
+    let _guard = TEST_LOCK.lock().await;
+    let accepted = AttachAccepted {
+        client_id: LocalClientId::new("client-1").expect("client id"),
+        client_command_id: LocalClientCommandId::new("attach-1").expect("command id"),
+    };
+    let mut ndjson = serde_json::to_vec(&selvedge_local_protocol::LocalAttachStreamItem::Accepted(
+        accepted,
+    ))
+    .expect("accepted item json");
+    ndjson.push(b'\n');
+    ndjson.extend(std::iter::repeat_n(b'x', 4 * 1024 * 1024 + 1));
+    ndjson.push(b'\n');
+    let (port, server) =
+        spawn_http_contract_server(vec![None, Some(HttpContractResponse::ndjson(200, ndjson))])
+            .await;
+    let client = connect_http(http_config(port))
+        .await
+        .expect("connect http client");
+
+    let (_accepted, mut frames) = client
+        .attach(valid_attach("attach-1"))
+        .await
+        .expect("attach accepted");
+    let error = frames
+        .next()
+        .await
+        .expect("limit item")
+        .expect_err("oversized NDJSON line must fail");
+
+    assert_eq!(
+        error,
+        LocalClientError::ResponseTooLarge {
+            limit_bytes: 4_194_304
+        }
+    );
+    server.await.expect("join http contract server");
+}
+
+#[tokio::test]
 async fn http_transport_rejects_mismatched_attach_accepted_identity() {
     let _guard = TEST_LOCK.lock().await;
     let accepted = AttachAccepted {
@@ -1141,6 +1232,29 @@ async fn http_transport_preserves_attach_rejection_response() {
 }
 
 #[tokio::test]
+async fn http_transport_rejects_oversized_attach_rejection_body() {
+    let _guard = TEST_LOCK.lock().await;
+    let response = HttpContractResponse::json(409, vec![b'x'; 4 * 1024 * 1024 + 1]);
+    let (port, server) = spawn_http_contract_server(vec![None, Some(response)]).await;
+    let client = connect_http(http_config(port))
+        .await
+        .expect("connect http client");
+
+    let error = match client.attach(valid_attach("attach-1")).await {
+        Ok(_) => panic!("oversized attach rejection must fail"),
+        Err(error) => error,
+    };
+
+    assert_eq!(
+        error,
+        AttachRejectedOrClientError::Client(LocalClientError::ResponseTooLarge {
+            limit_bytes: 4_194_304
+        })
+    );
+    server.await.expect("join http contract server");
+}
+
+#[tokio::test]
 async fn http_transport_rejects_mismatched_attach_rejection_identity() {
     let _guard = TEST_LOCK.lock().await;
     let rejected = AttachRejected {
@@ -1182,6 +1296,7 @@ fn crate_has_no_systemd_dependency() {
 struct HttpContractResponse {
     status_code: u16,
     content_type: &'static str,
+    extra_headers: String,
     body: Vec<u8>,
 }
 
@@ -1199,6 +1314,7 @@ impl HttpContractResponse {
         Self {
             status_code,
             content_type: "application/json",
+            extra_headers: String::new(),
             body,
         }
     }
@@ -1207,8 +1323,14 @@ impl HttpContractResponse {
         Self {
             status_code,
             content_type: "application/x-ndjson",
+            extra_headers: String::new(),
             body,
         }
+    }
+
+    fn with_header(mut self, header: String) -> Self {
+        self.extra_headers = header;
+        self
     }
 }
 
@@ -1309,9 +1431,10 @@ async fn write_contract_response(
         "Rejected"
     };
     let headers = format!(
-        "HTTP/1.1 {} {status_text}\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        "HTTP/1.1 {} {status_text}\r\nContent-Type: {}\r\n{}Content-Length: {}\r\nConnection: close\r\n\r\n",
         response.status_code,
         response.content_type,
+        response.extra_headers,
         response.body.len()
     );
     stream.write_all(headers.as_bytes()).await?;

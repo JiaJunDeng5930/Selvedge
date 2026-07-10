@@ -16,6 +16,8 @@ use tokio::{sync::mpsc, task::JoinHandle};
 
 const DEFAULT_CHATGPT_BASE_URL: &str = "https://chatgpt.com/backend-api/codex";
 const DEFAULT_CHATGPT_STREAM_COMPLETION_TIMEOUT_MS: u64 = 1_800_000;
+const MAX_SSE_FRAME_BYTES: usize = 1024 * 1024;
+const MAX_RESPONSE_STREAM_BYTES: usize = 4 * 1024 * 1024;
 
 pub type JsonObject = serde_json::Map<String, Value>;
 
@@ -174,7 +176,8 @@ fn is_retryable_client_error(error: &selvedge_client::HttpError) -> bool {
         ),
         selvedge_client::HttpError::Config(_)
         | selvedge_client::HttpError::Build { .. }
-        | selvedge_client::HttpError::Tls { .. } => false,
+        | selvedge_client::HttpError::Tls { .. }
+        | selvedge_client::HttpError::ResponseTooLarge { .. } => false,
     }
 }
 
@@ -207,6 +210,7 @@ async fn drive_response_stream(
 ) {
     let deadline = tokio::time::Instant::now() + timeout;
     let mut buffer = Vec::new();
+    let mut response_bytes = 0_usize;
 
     loop {
         let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
@@ -323,9 +327,44 @@ async fn drive_response_stream(
             }
         };
 
+        if chunk.len() > MAX_RESPONSE_STREAM_BYTES.saturating_sub(response_bytes) {
+            send_stream_item(
+                &sender,
+                &terminal_error,
+                Err(ChatgptApiError::Endpoint(
+                    ChatgptApiEndpointError::ResponseTooLarge {
+                        limit_bytes: MAX_RESPONSE_STREAM_BYTES,
+                    },
+                )),
+                deadline,
+                timeout,
+            )
+            .await;
+            return;
+        }
+        response_bytes += chunk.len();
+
         buffer.extend_from_slice(&chunk);
 
-        while let Some(frame) = take_next_sse_frame(&mut buffer) {
+        loop {
+            if pending_sse_frame_exceeds_limit(&buffer) {
+                send_stream_item(
+                    &sender,
+                    &terminal_error,
+                    Err(ChatgptApiError::Endpoint(
+                        ChatgptApiEndpointError::ResponseTooLarge {
+                            limit_bytes: MAX_SSE_FRAME_BYTES,
+                        },
+                    )),
+                    deadline,
+                    timeout,
+                )
+                .await;
+                return;
+            }
+            let Some(frame) = take_next_sse_frame(&mut buffer) else {
+                break;
+            };
             let frame = match std::str::from_utf8(&frame) {
                 Ok(text) => text.replace("\r\n", "\n").replace('\r', "\n"),
                 Err(_) => {
@@ -414,6 +453,12 @@ fn parse_final_sse_frame(buffer: &[u8]) -> Result<Option<String>, ChatgptApiErro
     })?;
 
     parse_sse_frame(&frame.replace("\r\n", "\n").replace('\r', "\n"))
+}
+
+fn pending_sse_frame_exceeds_limit(buffer: &[u8]) -> bool {
+    find_frame_delimiter(buffer)
+        .map(|(frame_end, _)| frame_end > MAX_SSE_FRAME_BYTES)
+        .unwrap_or(buffer.len() > MAX_SSE_FRAME_BYTES)
 }
 
 fn take_next_sse_frame(buffer: &mut Vec<u8>) -> Option<Vec<u8>> {
@@ -1778,6 +1823,8 @@ pub enum ChatgptApiEndpointError {
     MalformedEvent { reason: String, raw: Option<String> },
     #[error("response stream closed before completion")]
     PrematureClose,
+    #[error("response exceeded {limit_bytes} byte limit")]
+    ResponseTooLarge { limit_bytes: usize },
     #[error("unexpected endpoint event")]
     Other(ChatgptOtherEndpointError),
 }

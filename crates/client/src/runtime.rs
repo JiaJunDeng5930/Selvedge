@@ -13,6 +13,8 @@ use crate::{
     ByteStream, HttpError, HttpMethod, HttpStatusError, HttpStreamResponse, build_error,
     run_blocking,
 };
+
+const MAX_BUFFERED_RESPONSE_BYTES: usize = 4 * 1024 * 1024;
 use crate::{
     config_resolution::ResolvedCallConfig,
     redaction::{sanitize_error_text, sanitize_parsed_url},
@@ -155,7 +157,7 @@ pub(crate) async fn collect_status_error(
         request_budget.charge(elapsed);
 
         match next_chunk {
-            Some(Ok(chunk)) => body.extend_from_slice(&chunk),
+            Some(Ok(chunk)) => append_buffered_response(&mut body, &chunk)?,
             Some(Err(error)) => {
                 let mapped = map_transport_error(error, request_url);
                 crate::log_event!(
@@ -196,11 +198,21 @@ pub(crate) async fn collect_success_body(
         request_budget.charge(elapsed);
 
         match next_chunk {
-            Some(Ok(chunk)) => body.extend_from_slice(&chunk),
+            Some(Ok(chunk)) => append_buffered_response(&mut body, &chunk)?,
             Some(Err(error)) => return Err(map_transport_error(error, request_url)),
             None => return Ok(body.freeze()),
         }
     }
+}
+
+fn append_buffered_response(body: &mut BytesMut, chunk: &[u8]) -> Result<(), HttpError> {
+    if chunk.len() > MAX_BUFFERED_RESPONSE_BYTES.saturating_sub(body.len()) {
+        return Err(HttpError::ResponseTooLarge {
+            limit_bytes: MAX_BUFFERED_RESPONSE_BYTES,
+        });
+    }
+    body.extend_from_slice(chunk);
+    Ok(())
 }
 
 pub(crate) fn wrap_stream(
@@ -375,6 +387,7 @@ pub(crate) fn log_transport_error(mode: &str, request_url: &str, error: &HttpErr
         HttpError::Connect { .. } => "http request connect failure",
         HttpError::Tls { .. } => "http request tls failure",
         HttpError::Io { .. } => "http request i/o failure",
+        HttpError::ResponseTooLarge { .. } => "http response too large",
         HttpError::Build { .. } => "http request build failure",
         HttpError::Config { .. } => "http request config failure",
         HttpError::Status(_) => "http request status failure",
