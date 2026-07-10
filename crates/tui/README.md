@@ -2,7 +2,7 @@
 
 <!-- selvedge-package-readme
 package: selvedge-tui
-freshness_fingerprint: 744f0e9817aa51b5f25d0257a078d19d098bb453
+freshness_fingerprint: 5ab0f6ba660843676bfcbe7154c8712bd27ef9ed
 -->
 
 This crate owns the TUI startup boundary for attaching to an existing Selvedge local server.
@@ -11,7 +11,8 @@ Use it to connect through `selvedge-local-client`, probe readiness, open an atta
 
 `run_tui` connects through the concrete HTTP localhost transport exposed by
 `selvedge-local-client`. Transport injection stays private to state-machine
-tests.
+tests. Client and attach command identifiers are validated before the transport
+connects.
 
 ## Package State Machine
 

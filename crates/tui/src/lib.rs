@@ -62,8 +62,12 @@ pub async fn run_tui<M>(args: TuiStartArgs, mapper: M) -> TuiExitStatus
 where
     M: TuiCommandMapper,
 {
+    let identifiers = match validate_identifiers(&args) {
+        Ok(identifiers) => identifiers,
+        Err(status) => return status,
+    };
     let config = args.client_config.clone();
-    run_tui_with_client(args, mapper, connect_http(config).await).await
+    run_tui_with_client(args, mapper, identifiers, connect_http(config).await).await
 }
 
 #[cfg(test)]
@@ -72,13 +76,18 @@ where
     T: LocalTransport,
     M: TuiCommandMapper,
 {
+    let identifiers = match validate_identifiers(&args) {
+        Ok(identifiers) => identifiers,
+        Err(status) => return status,
+    };
     let config = args.client_config.clone();
-    run_tui_with_client(args, mapper, connect::<T>(config).await).await
+    run_tui_with_client(args, mapper, identifiers, connect::<T>(config).await).await
 }
 
 async fn run_tui_with_client<T, M>(
     args: TuiStartArgs,
     mapper: M,
+    identifiers: (LocalClientId, LocalClientCommandId),
     client: Result<LocalClient<T>, LocalClientError>,
 ) -> TuiExitStatus
 where
@@ -86,15 +95,7 @@ where
     M: TuiCommandMapper,
 {
     let _mapper = mapper;
-
-    let client_id = match LocalClientId::new(args.client_id) {
-        Ok(client_id) => client_id,
-        Err(error) => return TuiExitStatus::InvalidArgs(format!("{error:?}")),
-    };
-    let attach_command_id = match LocalClientCommandId::new(args.attach_command_id) {
-        Ok(client_command_id) => client_command_id,
-        Err(error) => return TuiExitStatus::InvalidArgs(format!("{error:?}")),
-    };
+    let (client_id, attach_command_id) = identifiers;
 
     let snapshot_timeout = args.client_config.request_timeout;
     let client = match client {
@@ -171,6 +172,16 @@ where
     drop(frames);
     let _ = client.close().await;
     TuiExitStatus::Exited
+}
+
+fn validate_identifiers(
+    args: &TuiStartArgs,
+) -> Result<(LocalClientId, LocalClientCommandId), TuiExitStatus> {
+    let client_id = LocalClientId::new(args.client_id.clone())
+        .map_err(|error| TuiExitStatus::InvalidArgs(format!("{error:?}")))?;
+    let attach_command_id = LocalClientCommandId::new(args.attach_command_id.clone())
+        .map_err(|error| TuiExitStatus::InvalidArgs(format!("{error:?}")))?;
+    Ok((client_id, attach_command_id))
 }
 
 #[cfg(test)]
