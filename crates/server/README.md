@@ -19,6 +19,10 @@ This crate exposes the in-process control surface, validates localhost bind targ
 
 `ServerControl::attach_client` creates an internal client frame channel, sends router attach admission, sends `StartHydration` to client-sync after admission succeeds, and returns a local-protocol frame stream. Frames from `selvedge-events` are converted from command-model client frames into local-protocol frames without reordering.
 
+Active, hydrated, closing, and cancellable-operation attach data shares one
+process-local state lock. Admission and cancellation decisions therefore observe
+one atomic attach state.
+
 ## Package State Machine
 
 Server-owned local commands execute through the injected `LocalOperationExecutor`.
