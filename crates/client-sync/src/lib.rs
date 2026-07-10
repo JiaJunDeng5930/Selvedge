@@ -13,7 +13,7 @@ use selvedge_command_model::{
 };
 use selvedge_domain_model::UnixTs;
 use tokio::sync::mpsc;
-use tokio::task::JoinHandle;
+use tokio::task::{AbortHandle, JoinHandle, JoinSet};
 
 #[derive(Clone)]
 pub struct ClientSyncStartArgs {
@@ -83,6 +83,11 @@ struct HydrationBuildResult {
     result: Result<ClientSnapshot, ClientSyncError>,
 }
 
+struct ActiveHydration {
+    client_command_id: ClientCommandId,
+    abort_handle: AbortHandle,
+}
+
 pub fn spawn_client_sync(
     args: ClientSyncStartArgs,
 ) -> Result<ClientSyncHandle, SpawnClientSyncError> {
@@ -91,13 +96,13 @@ pub fn spawn_client_sync(
     }
 
     let (ingress_tx, mut ingress_rx) = mpsc::channel(args.ingress_capacity);
-    let (result_tx, mut result_rx) = mpsc::unbounded_channel();
     let events_tx = args.events_tx;
     let snapshot_builder = args.snapshot_builder;
     let handle = tokio::runtime::Handle::try_current()
         .map_err(|_| SpawnClientSyncError::TokioSpawnFailed)?;
     let join_handle = handle.spawn(async move {
-        let mut current = HashMap::<ClientId, ClientCommandId>::new();
+        let mut current = HashMap::<ClientId, ActiveHydration>::new();
+        let mut builds = JoinSet::<HydrationBuildResult>::new();
 
         loop {
             tokio::select! {
@@ -110,14 +115,15 @@ pub fn spawn_client_sync(
                             let client_id = begin.client_id.clone();
                             let client_command_id = begin.client_command_id.clone();
 
-                            if current.get(&client_id) == Some(&client_command_id) {
+                            if current.get(&client_id).map(|hydration| &hydration.client_command_id)
+                                == Some(&client_command_id)
+                            {
                                 continue;
                             }
 
-                            current.insert(client_id.clone(), client_command_id.clone());
                             let request = ClientSnapshotBuildRequest {
-                                client_id,
-                                client_command_id,
+                                client_id: client_id.clone(),
+                                client_command_id: client_command_id.clone(),
                                 subscription: begin.subscription.clone(),
                             };
 
@@ -131,37 +137,65 @@ pub fn spawn_client_sync(
                             .await
                             .is_err()
                             {
+                                builds.shutdown().await;
                                 current.clear();
                                 return ClientSyncExitStatus::Fatal(
                                     "events mailbox closed while beginning client hydration".to_owned(),
                                 );
                             }
 
-                            spawn_snapshot_build(
+                            let abort_handle = spawn_snapshot_build(
+                                &mut builds,
                                 snapshot_builder.clone(),
-                                result_tx.clone(),
                                 request,
                             );
+                            if let Some(previous) = current.insert(
+                                client_id,
+                                ActiveHydration {
+                                    client_command_id,
+                                    abort_handle,
+                                },
+                            ) {
+                                previous.abort_handle.abort();
+                            }
                         }
                         Some(ClientSyncIngress::CancelHydration(cancel)) => {
-                            if current.get(&cancel.client_id) == Some(&cancel.client_command_id) {
-                                current.remove(&cancel.client_id);
+                            if current.get(&cancel.client_id).map(|hydration| &hydration.client_command_id)
+                                == Some(&cancel.client_command_id)
+                                && let Some(cancelled) = current.remove(&cancel.client_id)
+                            {
+                                cancelled.abort_handle.abort();
                             }
                         }
                         Some(ClientSyncIngress::Shutdown) => {
+                            builds.shutdown().await;
                             current.clear();
                             return ClientSyncExitStatus::Stopped;
                         }
                         None => {
+                            builds.shutdown().await;
                             current.clear();
                             return ClientSyncExitStatus::IngressClosed;
                         }
                     }
                 }
-                Some(build_result) = result_rx.recv() => {
+                joined = builds.join_next(), if !builds.is_empty() => {
+                    let build_result = match joined {
+                        Some(Ok(build_result)) => build_result,
+                        Some(Err(error)) if error.is_cancelled() => continue,
+                        Some(Err(error)) => {
+                            builds.shutdown().await;
+                            current.clear();
+                            return ClientSyncExitStatus::Fatal(format!(
+                                "client snapshot builder task failed: {error}"
+                            ));
+                        }
+                        None => continue,
+                    };
                     // NOTE: This loop owns the current hydration map. Builder results deliver only
                     // while their client command is still current after replacement or cancellation.
                     if current.get(&build_result.request.client_id)
+                        .map(|hydration| &hydration.client_command_id)
                         != Some(&build_result.request.client_command_id)
                     {
                         continue;
@@ -176,6 +210,7 @@ pub fn spawn_client_sync(
                     .err();
 
                     if let Some(stage) = stage {
+                        builds.shutdown().await;
                         current.clear();
                         return ClientSyncExitStatus::Fatal(format!(
                             "events mailbox closed while {stage}"
@@ -195,17 +230,17 @@ pub fn spawn_client_sync(
 }
 
 fn spawn_snapshot_build(
+    builds: &mut JoinSet<HydrationBuildResult>,
     snapshot_builder: Arc<dyn ClientSnapshotBuilder>,
-    result_tx: mpsc::UnboundedSender<HydrationBuildResult>,
     request: ClientSnapshotBuildRequest,
-) {
-    tokio::spawn(async move {
+) -> AbortHandle {
+    builds.spawn(async move {
         let result = match request.subscription.snapshot_mode {
             SnapshotMode::Empty => Ok(empty_snapshot()),
             SnapshotMode::CurrentState => snapshot_builder.build_snapshot(request.clone()).await,
         };
-        let _ = result_tx.send(HydrationBuildResult { request, result });
-    });
+        HydrationBuildResult { request, result }
+    })
 }
 
 fn empty_snapshot() -> ClientSnapshot {

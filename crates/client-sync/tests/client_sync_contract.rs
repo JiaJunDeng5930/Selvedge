@@ -231,10 +231,10 @@ async fn duplicate_same_command_does_not_start_second_builder() {
 }
 
 #[tokio::test]
-async fn new_command_replaces_old_late_builder_result() {
+async fn new_command_aborts_old_builder() {
     let _guard = TEST_LOCK.lock().await;
     let (events_tx, mut events_rx) = mpsc::channel(8);
-    let (old_tx, old_rx) = oneshot::channel();
+    let (mut old_tx, old_rx) = oneshot::channel();
     let (new_tx, new_rx) = oneshot::channel();
     let builder = Arc::new(RecordingBuilder::new(vec![
         BuildAction::Wait(old_rx),
@@ -265,8 +265,9 @@ async fn new_command_replaces_old_late_builder_result() {
         .expect("send new start");
     assert_begin(&recv_control(&mut events_rx).await, "client-1", "attach-2");
 
-    old_tx.send(Ok(empty_snapshot())).expect("release old");
-    tokio::time::sleep(Duration::from_millis(10)).await;
+    timeout(Duration::from_secs(1), old_tx.closed())
+        .await
+        .expect("old builder was not aborted");
     assert!(recv_control_timeout(&mut events_rx).await.is_none());
 
     new_tx.send(Ok(empty_snapshot())).expect("release new");
@@ -276,10 +277,10 @@ async fn new_command_replaces_old_late_builder_result() {
 }
 
 #[tokio::test]
-async fn cancel_drops_late_builder_result() {
+async fn cancel_aborts_builder() {
     let _guard = TEST_LOCK.lock().await;
     let (events_tx, mut events_rx) = mpsc::channel(8);
-    let (release_tx, release_rx) = oneshot::channel();
+    let (mut release_tx, release_rx) = oneshot::channel();
     let builder = Arc::new(RecordingBuilder::new(vec![BuildAction::Wait(release_rx)]));
     let handle = spawn_client_sync(ClientSyncStartArgs {
         events_tx,
@@ -305,20 +306,19 @@ async fn cancel_drops_late_builder_result() {
         .await
         .expect("send cancel");
 
-    release_tx
-        .send(Ok(empty_snapshot()))
-        .expect("release builder");
-    tokio::time::sleep(Duration::from_millis(10)).await;
+    timeout(Duration::from_secs(1), release_tx.closed())
+        .await
+        .expect("cancelled builder was not aborted");
     assert!(recv_control_timeout(&mut events_rx).await.is_none());
 
     shutdown(handle).await;
 }
 
 #[tokio::test]
-async fn shutdown_stops_task_and_discards_late_builder_result() {
+async fn shutdown_aborts_builder_before_task_stops() {
     let _guard = TEST_LOCK.lock().await;
     let (events_tx, mut events_rx) = mpsc::channel(8);
-    let (release_tx, release_rx) = oneshot::channel();
+    let (mut release_tx, release_rx) = oneshot::channel();
     let builder = Arc::new(RecordingBuilder::new(vec![BuildAction::Wait(release_rx)]));
     let handle = spawn_client_sync(ClientSyncStartArgs {
         events_tx,
@@ -345,10 +345,9 @@ async fn shutdown_stops_task_and_discards_late_builder_result() {
         ClientSyncExitStatus::Stopped
     );
 
-    release_tx
-        .send(Ok(empty_snapshot()))
-        .expect("release builder");
-    tokio::time::sleep(Duration::from_millis(10)).await;
+    timeout(Duration::from_secs(1), release_tx.closed())
+        .await
+        .expect("builder remained live after shutdown");
     assert!(recv_control_timeout(&mut events_rx).await.is_none());
 }
 
