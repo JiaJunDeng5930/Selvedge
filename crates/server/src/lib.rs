@@ -63,17 +63,125 @@ const DEFAULT_CLIENT_REGISTRY_CAPACITY: usize = 64;
 const DEFAULT_HYDRATION_BUFFER_CAPACITY: usize = 256;
 const DEFAULT_CLIENT_SYNC_INGRESS_CAPACITY: usize = 64;
 
-type ActiveAttachRegistry = Arc<StdMutex<HashMap<ClientId, ClientCommandId>>>;
-type LocalOperationHydratedAttachRegistry = Arc<StdMutex<HashSet<(ClientId, ClientCommandId)>>>;
-type LocalOperationCancellationRegistry =
-    Arc<StdMutex<HashMap<(ClientId, ClientCommandId, ClientCommandId), oneshot::Sender<()>>>>;
-type LocalOperationClosingAttachRegistry = Arc<StdMutex<HashSet<(ClientId, ClientCommandId)>>>;
+type AttachStateRef = Arc<StdMutex<AttachState>>;
 type AttachFrameChannelFactoryRef = Arc<dyn AttachFrameChannelFactory>;
 type LocalCommandMapperRef = Arc<dyn LocalCommandMapper>;
 type LocalOperationExecutorRef = Arc<dyn LocalOperationExecutor>;
 pub type LocalOperationFuture =
     Pin<Box<dyn Future<Output = Result<LocalOperationSuccess, LocalOperationFailure>> + Send>>;
 pub type LocalOperationProgressSender = mpsc::UnboundedSender<LocalOperationProgress>;
+
+#[derive(Default)]
+struct AttachState {
+    active: HashMap<ClientId, ClientCommandId>,
+    hydrated: HashSet<(ClientId, ClientCommandId)>,
+    closing: HashSet<(ClientId, ClientCommandId)>,
+    cancellations: HashMap<(ClientId, ClientCommandId, ClientCommandId), oneshot::Sender<()>>,
+}
+
+impl AttachState {
+    fn reserve(
+        &mut self,
+        client_id: &ClientId,
+        client_command_id: &ClientCommandId,
+    ) -> Result<Option<ClientCommandId>, AttachRejectReason> {
+        if self.active.get(client_id) == Some(client_command_id) {
+            return Err(AttachRejectReason::DuplicateAttach);
+        }
+        if !self.active.contains_key(client_id)
+            && self.active.len() >= DEFAULT_CLIENT_REGISTRY_CAPACITY
+        {
+            return Err(AttachRejectReason::ClientRegistryFull);
+        }
+        Ok(self
+            .active
+            .insert(client_id.clone(), client_command_id.clone()))
+    }
+
+    fn restore(
+        &mut self,
+        client_id: &ClientId,
+        client_command_id: &ClientCommandId,
+        previous_attach: Option<ClientCommandId>,
+    ) {
+        if self.active.get(client_id) != Some(client_command_id) {
+            return;
+        }
+        match previous_attach {
+            Some(previous_command_id) => {
+                self.active.insert(client_id.clone(), previous_command_id);
+            }
+            None => {
+                self.active.remove(client_id);
+            }
+        }
+    }
+
+    fn register_cancellation(
+        &mut self,
+        client_id: ClientId,
+        attach_command_id: ClientCommandId,
+        submit_command_id: ClientCommandId,
+        cancel_tx: oneshot::Sender<()>,
+    ) -> bool {
+        let attach_key = (client_id.clone(), attach_command_id.clone());
+        if self.active.get(&client_id) != Some(&attach_command_id)
+            || !self.hydrated.contains(&attach_key)
+            || self.closing.contains(&attach_key)
+        {
+            return false;
+        }
+        if let Some(previous) = self
+            .cancellations
+            .insert((client_id, attach_command_id, submit_command_id), cancel_tx)
+        {
+            let _ = previous.send(());
+        }
+        true
+    }
+
+    fn cancel_for_attach(&mut self, client_id: &ClientId, attach_command_id: &ClientCommandId) {
+        self.closing
+            .insert((client_id.clone(), attach_command_id.clone()));
+        let keys = self
+            .cancellations
+            .keys()
+            .filter(|(registered_client_id, registered_attach_command_id, _)| {
+                registered_client_id == client_id
+                    && registered_attach_command_id == attach_command_id
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        for key in keys {
+            if let Some(cancel_tx) = self.cancellations.remove(&key) {
+                let _ = cancel_tx.send(());
+            }
+        }
+    }
+
+    fn clear_attach(&mut self, client_id: &ClientId, attach_command_id: &ClientCommandId) {
+        if self.active.get(client_id) == Some(attach_command_id) {
+            self.active.remove(client_id);
+        }
+        self.hydrated
+            .remove(&(client_id.clone(), attach_command_id.clone()));
+        self.closing
+            .remove(&(client_id.clone(), attach_command_id.clone()));
+    }
+
+    fn clear_cancellation(
+        &mut self,
+        client_id: &ClientId,
+        attach_command_id: &ClientCommandId,
+        submit_command_id: &ClientCommandId,
+    ) {
+        self.cancellations.remove(&(
+            client_id.clone(),
+            attach_command_id.clone(),
+            submit_command_id.clone(),
+        ));
+    }
+}
 
 trait AttachFrameChannelFactory: Send + Sync {
     fn create(
@@ -325,7 +433,7 @@ impl ServerControl {
             Err(reason) => return reject(reason),
         };
         let mut reservation = ActiveAttachReservation::new(
-            Arc::clone(&self.inner.active_attaches),
+            Arc::clone(&self.inner.attach_state),
             client_id.clone(),
             client_command_id.clone(),
             previous_attach,
@@ -406,23 +514,24 @@ impl ServerControl {
                 client_id.clone(),
                 previous_command_id.clone(),
             );
-            cancel_local_operation_for_attach(
-                &self.inner.local_operation_closing_attaches,
-                &self.inner.local_operation_cancellations,
-                &client_id,
-                &previous_command_id,
-            );
-            clear_local_operation_hydrated_attach(
-                &self.inner.local_operation_hydrated_attaches,
-                &client_id,
-                &previous_command_id,
-            );
-            send_detach_client_and_clear_closing(
+            {
+                let mut attach_state = self
+                    .inner
+                    .attach_state
+                    .lock()
+                    .expect("server attach state lock");
+                attach_state.cancel_for_attach(&client_id, &previous_command_id);
+                attach_state
+                    .hydrated
+                    .remove(&(client_id.clone(), previous_command_id.clone()));
+            }
+            send_detach_client_and_cleanup(
                 &events_tx,
                 client_id.clone(),
                 previous_command_id,
                 DetachReason::ReplacedByNewHydration,
-                Arc::clone(&self.inner.local_operation_closing_attaches),
+                Arc::clone(&self.inner.attach_state),
+                DetachCleanup::ClearClosing,
             );
         }
 
@@ -439,16 +548,7 @@ impl ServerControl {
                 client_command_id,
                 events_tx: events_tx.downgrade(),
                 client_sync_tx: client_sync_tx.downgrade(),
-                active_attaches: Arc::clone(&self.inner.active_attaches),
-                local_operation_hydrated_attaches: Arc::clone(
-                    &self.inner.local_operation_hydrated_attaches,
-                ),
-                local_operation_closing_attaches: Arc::clone(
-                    &self.inner.local_operation_closing_attaches,
-                ),
-                local_operation_cancellations: Arc::clone(
-                    &self.inner.local_operation_cancellations,
-                ),
+                attach_state: Arc::clone(&self.inner.attach_state),
                 closed_reported: false,
             }),
         ))
@@ -568,7 +668,7 @@ impl ServerControl {
             submit_command_id,
             command_name,
             _login_permit: login_permit,
-            local_operation_cancellations: Arc::clone(&self.inner.local_operation_cancellations),
+            attach_state: Arc::clone(&self.inner.attach_state),
         }));
         self.inner.track_local_operation_task(task);
 
@@ -619,14 +719,11 @@ struct ServerInner {
     router_tx: RouterIngressSender,
     events_tx: Mutex<Option<EventIngressSender>>,
     client_sync_tx: Mutex<selvedge_client_sync::ClientSyncSender>,
-    active_attaches: ActiveAttachRegistry,
-    local_operation_hydrated_attaches: LocalOperationHydratedAttachRegistry,
+    attach_state: AttachStateRef,
     frame_channel_factory: AttachFrameChannelFactoryRef,
     command_mapper: LocalCommandMapperRef,
     local_operation_executor: LocalOperationExecutorRef,
     login_gate: Arc<Semaphore>,
-    local_operation_closing_attaches: LocalOperationClosingAttachRegistry,
-    local_operation_cancellations: LocalOperationCancellationRegistry,
     local_operation_tasks: StdMutex<Vec<JoinHandle<()>>>,
     web_control: StdMutex<Option<selvedge_web::WebControl>>,
 }
@@ -639,36 +736,10 @@ impl ServerInner {
         submit_command_id: ClientCommandId,
         cancel_tx: oneshot::Sender<()>,
     ) -> bool {
-        let active_attaches = self
-            .active_attaches
+        self.attach_state
             .lock()
-            .expect("server active attach registry lock");
-        if active_attaches.get(&client_id) != Some(&attach_command_id) {
-            return false;
-        }
-        let hydrated_attaches = self
-            .local_operation_hydrated_attaches
-            .lock()
-            .expect("server local operation hydrated attach lock");
-        if !hydrated_attaches.contains(&(client_id.clone(), attach_command_id.clone())) {
-            return false;
-        }
-        let closing_attaches = self
-            .local_operation_closing_attaches
-            .lock()
-            .expect("server local operation closing attach lock");
-        if closing_attaches.contains(&(client_id.clone(), attach_command_id.clone())) {
-            return false;
-        }
-        if let Some(previous) = self
-            .local_operation_cancellations
-            .lock()
-            .expect("server local operation cancellation lock")
-            .insert((client_id, attach_command_id, submit_command_id), cancel_tx)
-        {
-            let _ = previous.send(());
-        }
-        true
+            .expect("server attach state lock")
+            .register_cancellation(client_id, attach_command_id, submit_command_id, cancel_tx)
     }
 
     fn track_local_operation_task(&self, task: JoinHandle<()>) {
@@ -696,26 +767,17 @@ impl ServerInner {
         client_id: &ClientId,
         client_command_id: &ClientCommandId,
     ) -> Result<Option<ClientCommandId>, AttachRejectReason> {
-        let mut active = self
-            .active_attaches
+        self.attach_state
             .lock()
-            .expect("server active attach registry lock");
-
-        if active.get(client_id) == Some(client_command_id) {
-            return Err(AttachRejectReason::DuplicateAttach);
-        }
-
-        if !active.contains_key(client_id) && active.len() >= DEFAULT_CLIENT_REGISTRY_CAPACITY {
-            return Err(AttachRejectReason::ClientRegistryFull);
-        }
-
-        Ok(active.insert(client_id.clone(), client_command_id.clone()))
+            .expect("server attach state lock")
+            .reserve(client_id, client_command_id)
     }
 
     fn active_attach_for_client(&self, client_id: &ClientId) -> Option<ClientCommandId> {
-        self.active_attaches
+        self.attach_state
             .lock()
-            .expect("server active attach registry lock")
+            .expect("server attach state lock")
+            .active
             .get(client_id)
             .cloned()
     }
@@ -731,7 +793,27 @@ struct LocalOperationTask {
     submit_command_id: ClientCommandId,
     command_name: String,
     _login_permit: Option<OwnedSemaphorePermit>,
-    local_operation_cancellations: LocalOperationCancellationRegistry,
+    attach_state: AttachStateRef,
+}
+
+struct LocalOperationCancellationGuard {
+    attach_state: AttachStateRef,
+    client_id: ClientId,
+    attach_command_id: ClientCommandId,
+    submit_command_id: ClientCommandId,
+}
+
+impl Drop for LocalOperationCancellationGuard {
+    fn drop(&mut self) {
+        self.attach_state
+            .lock()
+            .expect("server attach state lock")
+            .clear_cancellation(
+                &self.client_id,
+                &self.attach_command_id,
+                &self.submit_command_id,
+            );
+    }
 }
 
 async fn run_local_operation_task(task: LocalOperationTask) {
@@ -745,25 +827,25 @@ async fn run_local_operation_task(task: LocalOperationTask) {
         submit_command_id,
         command_name,
         _login_permit,
-        local_operation_cancellations,
+        attach_state,
     } = task;
     let operation_client_id = client_id.clone();
     let operation_attach_command_id = attach_command_id.clone();
     let operation_submit_command_id = submit_command_id.clone();
     let operation_command_name = command_name.clone();
     let operation_events_tx = events_tx.clone();
+    let _cancellation = LocalOperationCancellationGuard {
+        attach_state,
+        client_id: operation_client_id.clone(),
+        attach_command_id: operation_attach_command_id.clone(),
+        submit_command_id: operation_submit_command_id.clone(),
+    };
 
     tokio::pin!(operation);
     let mut progress_open = true;
     loop {
         tokio::select! {
             _ = &mut attach_closed_rx => {
-                clear_local_operation_cancellation(
-                    &local_operation_cancellations,
-                    &operation_client_id,
-                    &operation_attach_command_id,
-                    &operation_submit_command_id,
-                );
                 return;
             }
             progress = progress_rx.recv(), if progress_open => {
@@ -773,22 +855,10 @@ async fn run_local_operation_task(task: LocalOperationTask) {
                         let send_result = tokio::select! {
                             result = send_local_operation_notice(&events_tx, &client_id, &attach_command_id, notice) => result,
                             _ = &mut attach_closed_rx => {
-                                clear_local_operation_cancellation(
-                                    &local_operation_cancellations,
-                                    &operation_client_id,
-                                    &operation_attach_command_id,
-                                    &operation_submit_command_id,
-                                );
                                 return;
                             }
                         };
                         if send_result.is_err() {
-                            clear_local_operation_cancellation(
-                                &local_operation_cancellations,
-                                &operation_client_id,
-                                &operation_attach_command_id,
-                                &operation_submit_command_id,
-                            );
                             return;
                         }
                     }
@@ -824,21 +894,9 @@ async fn run_local_operation_task(task: LocalOperationTask) {
                         notice,
                     ) => result,
                     _ = &mut attach_closed_rx => {
-                        clear_local_operation_cancellation(
-                            &local_operation_cancellations,
-                            &operation_client_id,
-                            &operation_attach_command_id,
-                            &operation_submit_command_id,
-                        );
                         return;
                     }
                 };
-                clear_local_operation_cancellation(
-                    &local_operation_cancellations,
-                    &operation_client_id,
-                    &operation_attach_command_id,
-                    &operation_submit_command_id,
-                );
                 return;
             }
         }
@@ -896,7 +954,7 @@ async fn send_local_operation_notice(
 }
 
 struct ActiveAttachReservation {
-    active_attaches: ActiveAttachRegistry,
+    attach_state: AttachStateRef,
     client_id: ClientId,
     client_command_id: ClientCommandId,
     previous_attach: Option<ClientCommandId>,
@@ -908,14 +966,14 @@ struct ActiveAttachReservation {
 
 impl ActiveAttachReservation {
     fn new(
-        active_attaches: ActiveAttachRegistry,
+        attach_state: AttachStateRef,
         client_id: ClientId,
         client_command_id: ClientCommandId,
         previous_attach: Option<ClientCommandId>,
         events_tx: Option<EventIngressSender>,
     ) -> Self {
         Self {
-            active_attaches,
+            attach_state,
             client_id,
             client_command_id,
             previous_attach,
@@ -954,12 +1012,14 @@ impl ActiveAttachReservation {
             )
             .await;
         }
-        restore_active_attach(
-            &self.active_attaches,
-            &self.client_id,
-            &self.client_command_id,
-            self.previous_attach.clone(),
-        );
+        self.attach_state
+            .lock()
+            .expect("server attach state lock")
+            .restore(
+                &self.client_id,
+                &self.client_command_id,
+                self.previous_attach.clone(),
+            );
         self.active = false;
     }
 }
@@ -970,21 +1030,23 @@ impl Drop for ActiveAttachReservation {
             if (self.events_reserved || self.router_attach_sent)
                 && let Some(events_tx) = &self.events_tx
             {
-                send_detach_client_and_restore_active(
+                send_detach_client_and_cleanup(
                     events_tx,
                     self.client_id.clone(),
                     self.client_command_id.clone(),
                     DetachReason::ClientDisconnected,
-                    Arc::clone(&self.active_attaches),
-                    self.previous_attach.clone(),
+                    Arc::clone(&self.attach_state),
+                    DetachCleanup::Restore(self.previous_attach.clone()),
                 );
             } else {
-                restore_active_attach(
-                    &self.active_attaches,
-                    &self.client_id,
-                    &self.client_command_id,
-                    self.previous_attach.clone(),
-                );
+                self.attach_state
+                    .lock()
+                    .expect("server attach state lock")
+                    .restore(
+                        &self.client_id,
+                        &self.client_command_id,
+                        self.previous_attach.clone(),
+                    );
             }
         }
     }
@@ -1068,14 +1130,11 @@ fn start_server_after_lock(
         router_tx: router.ingress_tx.clone(),
         events_tx: Mutex::new(Some(events.ingress_tx.clone())),
         client_sync_tx: Mutex::new(client_sync.ingress_tx.clone()),
-        active_attaches: Arc::new(StdMutex::new(HashMap::new())),
-        local_operation_hydrated_attaches: Arc::new(StdMutex::new(HashSet::new())),
+        attach_state: Arc::new(StdMutex::new(AttachState::default())),
         frame_channel_factory: Arc::new(TokioAttachFrameChannelFactory),
         command_mapper: args.command_mapper,
         local_operation_executor: args.local_operation_executor,
         login_gate: Arc::new(Semaphore::new(1)),
-        local_operation_closing_attaches: Arc::new(StdMutex::new(HashSet::new())),
-        local_operation_cancellations: Arc::new(StdMutex::new(HashMap::new())),
         local_operation_tasks: StdMutex::new(Vec::new()),
         web_control: StdMutex::new(None),
     });
@@ -1342,10 +1401,7 @@ struct ServerAttachFrameStream {
     // Drop upgrades it only to report client detach.
     events_tx: mpsc::WeakSender<EventIngress>,
     client_sync_tx: mpsc::WeakSender<ClientSyncIngress>,
-    active_attaches: ActiveAttachRegistry,
-    local_operation_hydrated_attaches: LocalOperationHydratedAttachRegistry,
-    local_operation_closing_attaches: LocalOperationClosingAttachRegistry,
-    local_operation_cancellations: LocalOperationCancellationRegistry,
+    attach_state: AttachStateRef,
     closed_reported: bool,
 }
 
@@ -1364,11 +1420,11 @@ impl futures_core::Stream for ServerAttachFrameStream {
                     ClientFrame::Snapshot(snapshot)
                         if snapshot.client_command_id == this.client_command_id
                 ) {
-                    mark_local_operation_hydrated_attach(
-                        &this.local_operation_hydrated_attaches,
-                        &this.client_id,
-                        &this.client_command_id,
-                    );
+                    this.attach_state
+                        .lock()
+                        .expect("server attach state lock")
+                        .hydrated
+                        .insert((this.client_id.clone(), this.client_command_id.clone()));
                 }
                 Poll::Ready(Some(Ok(client_frame_to_local(frame))))
             }
@@ -1382,34 +1438,24 @@ impl futures_core::Stream for ServerAttachFrameStream {
                         client_command_id.clone(),
                     );
                 }
-                cancel_local_operation_for_attach(
-                    &this.local_operation_closing_attaches,
-                    &this.local_operation_cancellations,
-                    &client_id,
-                    &client_command_id,
-                );
+                this.attach_state
+                    .lock()
+                    .expect("server attach state lock")
+                    .cancel_for_attach(&client_id, &client_command_id);
                 if let Some(events_tx) = this.events_tx.upgrade() {
-                    send_detach_client_and_clear_active(
+                    send_detach_client_and_cleanup(
                         &events_tx,
                         client_id,
                         client_command_id,
                         DetachReason::ClientDisconnected,
-                        Arc::clone(&this.active_attaches),
-                        Arc::clone(&this.local_operation_hydrated_attaches),
-                        Arc::clone(&this.local_operation_closing_attaches),
+                        Arc::clone(&this.attach_state),
+                        DetachCleanup::ClearAttach,
                     );
                 } else {
-                    clear_active_attach(&this.active_attaches, &client_id, &client_command_id);
-                    clear_local_operation_hydrated_attach(
-                        &this.local_operation_hydrated_attaches,
-                        &client_id,
-                        &client_command_id,
-                    );
-                    clear_local_operation_closing_attach(
-                        &this.local_operation_closing_attaches,
-                        &client_id,
-                        &client_command_id,
-                    );
+                    this.attach_state
+                        .lock()
+                        .expect("server attach state lock")
+                        .clear_attach(&client_id, &client_command_id);
                 }
                 this.closed_reported = true;
                 Poll::Ready(Some(Err(ServerRequestError::AttachChannelFailed)))
@@ -1436,35 +1482,25 @@ impl Drop for ServerAttachFrameStream {
             );
         }
 
-        cancel_local_operation_for_attach(
-            &self.local_operation_closing_attaches,
-            &self.local_operation_cancellations,
-            &client_id,
-            &client_command_id,
-        );
+        self.attach_state
+            .lock()
+            .expect("server attach state lock")
+            .cancel_for_attach(&client_id, &client_command_id);
 
         let Some(events_tx) = self.events_tx.upgrade() else {
-            clear_active_attach(&self.active_attaches, &client_id, &client_command_id);
-            clear_local_operation_hydrated_attach(
-                &self.local_operation_hydrated_attaches,
-                &client_id,
-                &client_command_id,
-            );
-            clear_local_operation_closing_attach(
-                &self.local_operation_closing_attaches,
-                &client_id,
-                &client_command_id,
-            );
+            self.attach_state
+                .lock()
+                .expect("server attach state lock")
+                .clear_attach(&client_id, &client_command_id);
             return;
         };
-        send_detach_client_and_clear_active(
+        send_detach_client_and_cleanup(
             &events_tx,
             client_id,
             client_command_id,
             DetachReason::ClientDisconnected,
-            Arc::clone(&self.active_attaches),
-            Arc::clone(&self.local_operation_hydrated_attaches),
-            Arc::clone(&self.local_operation_closing_attaches),
+            Arc::clone(&self.attach_state),
+            DetachCleanup::ClearAttach,
         );
     }
 }
@@ -1495,12 +1531,41 @@ fn send_cancel_hydration(
     }
 }
 
-fn send_detach_client_and_clear_closing(
+enum DetachCleanup {
+    ClearClosing,
+    Restore(Option<ClientCommandId>),
+    ClearAttach,
+}
+
+impl DetachCleanup {
+    fn apply(
+        self,
+        attach_state: &AttachStateRef,
+        client_id: &ClientId,
+        client_command_id: &ClientCommandId,
+    ) {
+        let mut state = attach_state.lock().expect("server attach state lock");
+        match self {
+            Self::ClearClosing => {
+                state
+                    .closing
+                    .remove(&(client_id.clone(), client_command_id.clone()));
+            }
+            Self::Restore(previous_attach) => {
+                state.restore(client_id, client_command_id, previous_attach);
+            }
+            Self::ClearAttach => state.clear_attach(client_id, client_command_id),
+        }
+    }
+}
+
+fn send_detach_client_and_cleanup(
     events_tx: &EventIngressSender,
     client_id: ClientId,
     client_command_id: ClientCommandId,
     reason: DetachReason,
-    local_operation_closing_attaches: LocalOperationClosingAttachRegistry,
+    attach_state: AttachStateRef,
+    cleanup: DetachCleanup,
 ) {
     let retry_events_tx = events_tx.clone();
     let detach = EventIngress::Control(EventControlMessage::DetachClient(DetachClient {
@@ -1511,29 +1576,17 @@ fn send_detach_client_and_clear_closing(
 
     match events_tx.try_send(detach) {
         Ok(()) | Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
-            clear_local_operation_closing_attach(
-                &local_operation_closing_attaches,
-                &client_id,
-                &client_command_id,
-            );
+            cleanup.apply(&attach_state, &client_id, &client_command_id);
         }
         Err(tokio::sync::mpsc::error::TrySendError::Full(detach)) => {
             if let Ok(handle) = tokio::runtime::Handle::try_current() {
                 handle.spawn(async move {
                     let _ = retry_events_tx.send(detach).await;
-                    clear_local_operation_closing_attach(
-                        &local_operation_closing_attaches,
-                        &client_id,
-                        &client_command_id,
-                    );
+                    cleanup.apply(&attach_state, &client_id, &client_command_id);
                 });
             } else {
                 let _ = retry_events_tx.blocking_send(detach);
-                clear_local_operation_closing_attach(
-                    &local_operation_closing_attaches,
-                    &client_id,
-                    &client_command_id,
-                );
+                cleanup.apply(&attach_state, &client_id, &client_command_id);
             }
         }
     }
@@ -1551,227 +1604,6 @@ async fn send_detach_client_await(
         reason,
     }));
     let _ = events_tx.send(detach).await;
-}
-
-fn send_detach_client_and_restore_active(
-    events_tx: &EventIngressSender,
-    client_id: ClientId,
-    client_command_id: ClientCommandId,
-    reason: DetachReason,
-    active_attaches: ActiveAttachRegistry,
-    previous_attach: Option<ClientCommandId>,
-) {
-    let retry_events_tx = events_tx.clone();
-    let detach = EventIngress::Control(EventControlMessage::DetachClient(DetachClient {
-        client_id: client_id.clone(),
-        client_command_id: client_command_id.clone(),
-        reason,
-    }));
-
-    match events_tx.try_send(detach) {
-        Ok(()) | Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
-            restore_active_attach(
-                &active_attaches,
-                &client_id,
-                &client_command_id,
-                previous_attach,
-            );
-        }
-        Err(tokio::sync::mpsc::error::TrySendError::Full(detach)) => {
-            if let Ok(handle) = tokio::runtime::Handle::try_current() {
-                handle.spawn(async move {
-                    let _ = retry_events_tx.send(detach).await;
-                    restore_active_attach(
-                        &active_attaches,
-                        &client_id,
-                        &client_command_id,
-                        previous_attach,
-                    );
-                });
-            } else {
-                let _ = retry_events_tx.blocking_send(detach);
-                restore_active_attach(
-                    &active_attaches,
-                    &client_id,
-                    &client_command_id,
-                    previous_attach,
-                );
-            }
-        }
-    }
-}
-
-fn send_detach_client_and_clear_active(
-    events_tx: &EventIngressSender,
-    client_id: ClientId,
-    client_command_id: ClientCommandId,
-    reason: DetachReason,
-    active_attaches: ActiveAttachRegistry,
-    local_operation_hydrated_attaches: LocalOperationHydratedAttachRegistry,
-    local_operation_closing_attaches: LocalOperationClosingAttachRegistry,
-) {
-    let retry_events_tx = events_tx.clone();
-    let detach = EventIngress::Control(EventControlMessage::DetachClient(DetachClient {
-        client_id: client_id.clone(),
-        client_command_id: client_command_id.clone(),
-        reason,
-    }));
-
-    match events_tx.try_send(detach) {
-        Ok(()) | Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
-            clear_active_attach(&active_attaches, &client_id, &client_command_id);
-            clear_local_operation_hydrated_attach(
-                &local_operation_hydrated_attaches,
-                &client_id,
-                &client_command_id,
-            );
-            clear_local_operation_closing_attach(
-                &local_operation_closing_attaches,
-                &client_id,
-                &client_command_id,
-            );
-        }
-        Err(tokio::sync::mpsc::error::TrySendError::Full(detach)) => {
-            if let Ok(handle) = tokio::runtime::Handle::try_current() {
-                handle.spawn(async move {
-                    let _ = retry_events_tx.send(detach).await;
-                    clear_active_attach(&active_attaches, &client_id, &client_command_id);
-                    clear_local_operation_hydrated_attach(
-                        &local_operation_hydrated_attaches,
-                        &client_id,
-                        &client_command_id,
-                    );
-                    clear_local_operation_closing_attach(
-                        &local_operation_closing_attaches,
-                        &client_id,
-                        &client_command_id,
-                    );
-                });
-            } else {
-                let _ = retry_events_tx.blocking_send(detach);
-                clear_active_attach(&active_attaches, &client_id, &client_command_id);
-                clear_local_operation_hydrated_attach(
-                    &local_operation_hydrated_attaches,
-                    &client_id,
-                    &client_command_id,
-                );
-                clear_local_operation_closing_attach(
-                    &local_operation_closing_attaches,
-                    &client_id,
-                    &client_command_id,
-                );
-            }
-        }
-    }
-}
-
-fn clear_active_attach(
-    active_attaches: &ActiveAttachRegistry,
-    client_id: &ClientId,
-    client_command_id: &ClientCommandId,
-) {
-    let mut active = active_attaches
-        .lock()
-        .expect("server active attach registry lock");
-    if active.get(client_id) == Some(client_command_id) {
-        active.remove(client_id);
-    }
-}
-
-fn mark_local_operation_hydrated_attach(
-    local_operation_hydrated_attaches: &LocalOperationHydratedAttachRegistry,
-    client_id: &ClientId,
-    attach_command_id: &ClientCommandId,
-) {
-    local_operation_hydrated_attaches
-        .lock()
-        .expect("server local operation hydrated attach lock")
-        .insert((client_id.clone(), attach_command_id.clone()));
-}
-
-fn clear_local_operation_hydrated_attach(
-    local_operation_hydrated_attaches: &LocalOperationHydratedAttachRegistry,
-    client_id: &ClientId,
-    attach_command_id: &ClientCommandId,
-) {
-    local_operation_hydrated_attaches
-        .lock()
-        .expect("server local operation hydrated attach lock")
-        .remove(&(client_id.clone(), attach_command_id.clone()));
-}
-
-fn cancel_local_operation_for_attach(
-    local_operation_closing_attaches: &LocalOperationClosingAttachRegistry,
-    local_operation_cancellations: &LocalOperationCancellationRegistry,
-    client_id: &ClientId,
-    attach_command_id: &ClientCommandId,
-) {
-    local_operation_closing_attaches
-        .lock()
-        .expect("server local operation closing attach lock")
-        .insert((client_id.clone(), attach_command_id.clone()));
-    let mut cancellations = local_operation_cancellations
-        .lock()
-        .expect("server local operation cancellation lock");
-    let keys = cancellations
-        .keys()
-        .filter(|(registered_client_id, registered_attach_command_id, _)| {
-            registered_client_id == client_id && registered_attach_command_id == attach_command_id
-        })
-        .cloned()
-        .collect::<Vec<_>>();
-    for key in keys {
-        if let Some(cancel_tx) = cancellations.remove(&key) {
-            let _ = cancel_tx.send(());
-        }
-    }
-}
-
-fn clear_local_operation_closing_attach(
-    local_operation_closing_attaches: &LocalOperationClosingAttachRegistry,
-    client_id: &ClientId,
-    attach_command_id: &ClientCommandId,
-) {
-    local_operation_closing_attaches
-        .lock()
-        .expect("server local operation closing attach lock")
-        .remove(&(client_id.clone(), attach_command_id.clone()));
-}
-
-fn clear_local_operation_cancellation(
-    local_operation_cancellations: &LocalOperationCancellationRegistry,
-    client_id: &ClientId,
-    attach_command_id: &ClientCommandId,
-    submit_command_id: &ClientCommandId,
-) {
-    local_operation_cancellations
-        .lock()
-        .expect("server local operation cancellation lock")
-        .remove(&(
-            client_id.clone(),
-            attach_command_id.clone(),
-            submit_command_id.clone(),
-        ));
-}
-
-fn restore_active_attach(
-    active_attaches: &ActiveAttachRegistry,
-    client_id: &ClientId,
-    client_command_id: &ClientCommandId,
-    previous_attach: Option<ClientCommandId>,
-) {
-    let mut active = active_attaches
-        .lock()
-        .expect("server active attach registry lock");
-    if active.get(client_id) != Some(client_command_id) {
-        return;
-    }
-
-    if let Some(previous_command_id) = previous_attach {
-        active.insert(client_id.clone(), previous_command_id);
-    } else {
-        active.remove(client_id);
-    }
 }
 
 fn local_subscription_to_command(
@@ -2523,9 +2355,10 @@ mod tests {
         assert_eq!(
             control
                 .inner
-                .local_operation_cancellations
+                .attach_state
                 .lock()
-                .expect("local operation cancellations")
+                .expect("attach state")
+                .cancellations
                 .len(),
             2
         );
@@ -2551,9 +2384,10 @@ mod tests {
         assert!(
             control
                 .inner
-                .local_operation_cancellations
+                .attach_state
                 .lock()
-                .expect("local operation cancellations")
+                .expect("attach state")
+                .cancellations
                 .is_empty()
         );
     }
@@ -2581,9 +2415,10 @@ mod tests {
         assert!(
             control
                 .inner
-                .local_operation_cancellations
+                .attach_state
                 .lock()
-                .expect("local operation cancellations")
+                .expect("attach state")
+                .cancellations
                 .is_empty()
         );
     }
@@ -2622,9 +2457,10 @@ mod tests {
         activate_attach(&control, "client-1", "attach-1");
         control
             .inner
-            .local_operation_closing_attaches
+            .attach_state
             .lock()
-            .expect("closing attaches")
+            .expect("attach state")
+            .closing
             .insert((
                 ClientId("client-1".to_owned()),
                 ClientCommandId("attach-1".to_owned()),
@@ -2642,9 +2478,10 @@ mod tests {
         assert!(
             control
                 .inner
-                .local_operation_cancellations
+                .attach_state
                 .lock()
-                .expect("local operation cancellations")
+                .expect("attach state")
+                .cancellations
                 .is_empty()
         );
     }
@@ -2667,22 +2504,32 @@ mod tests {
             .attach_client(test_attach_request())
             .await
             .expect("first attach accepted");
-        mark_local_operation_hydrated_attach(
-            &control.inner.local_operation_hydrated_attaches,
-            &ClientId("client-1".to_owned()),
-            &ClientCommandId("attach-1".to_owned()),
-        );
+        control
+            .inner
+            .attach_state
+            .lock()
+            .expect("attach state")
+            .hydrated
+            .insert((
+                ClientId("client-1".to_owned()),
+                ClientCommandId("attach-1".to_owned()),
+            ));
         let first = control.submit_command(login_command("command-1")).await;
         drop(stream);
         let (_accepted, _stream) = control
             .attach_client(test_attach_request_for("client-1", "attach-2"))
             .await
             .expect("second attach accepted");
-        mark_local_operation_hydrated_attach(
-            &control.inner.local_operation_hydrated_attaches,
-            &ClientId("client-1".to_owned()),
-            &ClientCommandId("attach-2".to_owned()),
-        );
+        control
+            .inner
+            .attach_state
+            .lock()
+            .expect("attach state")
+            .hydrated
+            .insert((
+                ClientId("client-1".to_owned()),
+                ClientCommandId("attach-2".to_owned()),
+            ));
 
         let mut second = control.submit_command(login_command("command-2")).await;
         for _ in 0..20 {
@@ -3337,10 +3184,7 @@ mod tests {
         let (frame_tx, frame_rx) = mpsc::channel(1);
         let (events_tx, _events_rx) = mpsc::channel(1);
         let (client_sync_tx, _client_sync_rx) = mpsc::channel(1);
-        let active_attaches = Arc::new(StdMutex::new(HashMap::new()));
-        let local_operation_hydrated_attaches = Arc::new(StdMutex::new(HashSet::new()));
-        let local_operation_closing_attaches = Arc::new(StdMutex::new(HashSet::new()));
-        let local_operation_cancellations = Arc::new(StdMutex::new(HashMap::new()));
+        let attach_state = Arc::new(StdMutex::new(AttachState::default()));
         let client_id = ClientId("client-1".to_owned());
         let attach_command_id = ClientCommandId("attach-1".to_owned());
         let mut stream = ServerAttachFrameStream {
@@ -3349,10 +3193,7 @@ mod tests {
             client_command_id: attach_command_id.clone(),
             events_tx: events_tx.downgrade(),
             client_sync_tx: client_sync_tx.downgrade(),
-            active_attaches,
-            local_operation_hydrated_attaches: Arc::clone(&local_operation_hydrated_attaches),
-            local_operation_closing_attaches,
-            local_operation_cancellations,
+            attach_state: Arc::clone(&attach_state),
             closed_reported: false,
         };
 
@@ -3372,9 +3213,10 @@ mod tests {
 
         assert!(matches!(frame, LocalClientFrame::Snapshot(_)));
         assert!(
-            local_operation_hydrated_attaches
+            attach_state
                 .lock()
-                .expect("hydrated attaches")
+                .expect("attach state")
+                .hydrated
                 .contains(&(client_id, attach_command_id))
         );
     }
@@ -3434,9 +3276,10 @@ mod tests {
             loop {
                 if control
                     .inner
-                    .active_attaches
+                    .attach_state
                     .lock()
-                    .expect("active attach registry")
+                    .expect("attach state")
+                    .active
                     .is_empty()
                 {
                     break;
@@ -3468,14 +3311,15 @@ mod tests {
         let (progress_tx, progress_rx) = mpsc::unbounded_channel();
         drop(progress_tx);
         let (attach_closed_tx, attach_closed_rx) = oneshot::channel();
-        let local_operation_cancellations = Arc::new(StdMutex::new(HashMap::new()));
+        let attach_state = Arc::new(StdMutex::new(AttachState::default()));
         let client_id = ClientId("client-1".to_owned());
         let attach_command_id = ClientCommandId("attach-1".to_owned());
         let submit_command_id = ClientCommandId("command-1".to_owned());
         let (cancel_tx, _cancel_rx) = oneshot::channel();
-        local_operation_cancellations
+        attach_state
             .lock()
-            .expect("local operation cancellations")
+            .expect("attach state")
+            .cancellations
             .insert(
                 (
                     client_id.clone(),
@@ -3499,7 +3343,7 @@ mod tests {
             submit_command_id,
             command_name: "login-chatgpt".to_owned(),
             _login_permit: None,
-            local_operation_cancellations: Arc::clone(&local_operation_cancellations),
+            attach_state: Arc::clone(&attach_state),
         }));
         tokio::time::sleep(Duration::from_millis(10)).await;
         attach_closed_tx
@@ -3511,9 +3355,10 @@ mod tests {
             .expect("local operation task exits")
             .expect("local operation task joins");
         assert!(
-            local_operation_cancellations
+            attach_state
                 .lock()
-                .expect("local operation cancellations")
+                .expect("attach state")
+                .cancellations
                 .is_empty()
         );
     }
@@ -3530,37 +3375,35 @@ mod tests {
                 },
             )))
             .expect("fill events mailbox");
-        let active_attaches = Arc::new(StdMutex::new(HashMap::new()));
-        let local_operation_hydrated_attaches = Arc::new(StdMutex::new(HashSet::new()));
-        let local_operation_closing_attaches = Arc::new(StdMutex::new(HashSet::new()));
+        let attach_state = Arc::new(StdMutex::new(AttachState::default()));
         let client_id = ClientId("client-1".to_owned());
         let attach_command_id = ClientCommandId("attach-1".to_owned());
-        active_attaches
-            .lock()
-            .expect("active attach registry")
-            .insert(client_id.clone(), attach_command_id.clone());
-        local_operation_hydrated_attaches
-            .lock()
-            .expect("hydrated attaches")
-            .insert((client_id.clone(), attach_command_id.clone()));
-        local_operation_closing_attaches
-            .lock()
-            .expect("closing attaches")
-            .insert((client_id.clone(), attach_command_id.clone()));
+        {
+            let mut state = attach_state.lock().expect("attach state");
+            state
+                .active
+                .insert(client_id.clone(), attach_command_id.clone());
+            state
+                .hydrated
+                .insert((client_id.clone(), attach_command_id.clone()));
+            state
+                .closing
+                .insert((client_id.clone(), attach_command_id.clone()));
+        }
 
-        send_detach_client_and_clear_active(
+        send_detach_client_and_cleanup(
             &events_tx,
             client_id.clone(),
             attach_command_id.clone(),
             DetachReason::ClientDisconnected,
-            Arc::clone(&active_attaches),
-            Arc::clone(&local_operation_hydrated_attaches),
-            Arc::clone(&local_operation_closing_attaches),
+            Arc::clone(&attach_state),
+            DetachCleanup::ClearAttach,
         );
         assert!(
-            local_operation_closing_attaches
+            attach_state
                 .lock()
-                .expect("closing attaches")
+                .expect("attach state")
+                .closing
                 .contains(&(client_id.clone(), attach_command_id.clone()))
         );
 
@@ -3575,9 +3418,10 @@ mod tests {
         ));
         timeout(Duration::from_millis(100), async {
             loop {
-                if local_operation_closing_attaches
+                if attach_state
                     .lock()
-                    .expect("closing attaches")
+                    .expect("attach state")
+                    .closing
                     .is_empty()
                 {
                     break;
@@ -3588,17 +3432,13 @@ mod tests {
         .await
         .expect("closing attach marker clears after detach is queued");
         assert!(
-            local_operation_closing_attaches
+            attach_state
                 .lock()
-                .expect("closing attaches")
+                .expect("attach state")
+                .closing
                 .is_empty()
         );
-        assert!(
-            active_attaches
-                .lock()
-                .expect("active attach registry")
-                .is_empty()
-        );
+        assert!(attach_state.lock().expect("attach state").active.is_empty());
     }
 
     fn accepting_router_sender() -> RouterIngressSender {
@@ -3718,14 +3558,11 @@ mod tests {
                 router_tx,
                 events_tx: Mutex::new(Some(events_tx)),
                 client_sync_tx: Mutex::new(client_sync_tx),
-                active_attaches: Arc::new(StdMutex::new(HashMap::new())),
-                local_operation_hydrated_attaches: Arc::new(StdMutex::new(HashSet::new())),
+                attach_state: Arc::new(StdMutex::new(AttachState::default())),
                 frame_channel_factory,
                 command_mapper,
                 local_operation_executor,
                 login_gate: Arc::new(Semaphore::new(1)),
-                local_operation_closing_attaches: Arc::new(StdMutex::new(HashSet::new())),
-                local_operation_cancellations: Arc::new(StdMutex::new(HashMap::new())),
                 local_operation_tasks: StdMutex::new(Vec::new()),
                 web_control: StdMutex::new(None),
             }),
@@ -3779,12 +3616,13 @@ mod tests {
     }
 
     fn activate_attach(control: &ServerControl, client_id: &str, client_command_id: &str) {
-        activate_unhydrated_attach(control, client_id, client_command_id);
-        mark_local_operation_hydrated_attach(
-            &control.inner.local_operation_hydrated_attaches,
-            &ClientId(client_id.to_owned()),
-            &ClientCommandId(client_command_id.to_owned()),
-        );
+        let client_id = ClientId(client_id.to_owned());
+        let client_command_id = ClientCommandId(client_command_id.to_owned());
+        let mut state = control.inner.attach_state.lock().expect("attach state");
+        state
+            .active
+            .insert(client_id.clone(), client_command_id.clone());
+        state.hydrated.insert((client_id, client_command_id));
     }
 
     fn activate_unhydrated_attach(
@@ -3794,9 +3632,10 @@ mod tests {
     ) {
         control
             .inner
-            .active_attaches
+            .attach_state
             .lock()
-            .expect("active attaches")
+            .expect("attach state")
+            .active
             .insert(
                 ClientId(client_id.to_owned()),
                 ClientCommandId(client_command_id.to_owned()),
