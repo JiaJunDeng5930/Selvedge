@@ -228,6 +228,23 @@ async fn invalid_unit_name_is_rejected_before_backend_calls() {
 }
 
 #[tokio::test]
+async fn option_shaped_unit_name_is_rejected_before_backend_calls() {
+    let _guard = TEST_LOCK.lock().await;
+    let backend = FakeSystemdBackend::new(vec![Ok(ServiceStatus::Active)]);
+
+    let result = SystemdClient::new(
+        SystemdConfig {
+            unit_name: "--version".to_owned(),
+            ..valid_config()
+        },
+        backend.clone(),
+    );
+
+    assert!(matches!(result, Err(SystemdError::InvalidUnitName)));
+    assert_eq!(backend.query_calls(), 0);
+}
+
+#[tokio::test]
 async fn config_validation_reports_first_invalid_field_in_order() {
     let _guard = TEST_LOCK.lock().await;
     let backend = FakeSystemdBackend::new(vec![Ok(ServiceStatus::Active)]);
@@ -287,6 +304,39 @@ async fn systemctl_backend_uses_runner_and_maps_show_output() {
                 "show".to_owned(),
                 "--property=LoadState".to_owned(),
                 "--property=ActiveState".to_owned(),
+                "--".to_owned(),
+                "selvedge-server.service".to_owned(),
+            ],
+            timeout: Duration::from_millis(123),
+        }]
+    );
+}
+
+#[tokio::test]
+async fn systemctl_backend_terminates_start_options_before_unit() {
+    let _guard = TEST_LOCK.lock().await;
+    let runner = RecordingProcessRunner::new(vec![Ok(SystemctlProcessOutput {
+        exit_code: Some(0),
+        stdout: Vec::new(),
+        stderr: Vec::new(),
+    })]);
+    let backend = SystemctlBackend::new_with_runner(systemctl_config(), runner.clone())
+        .expect("systemctl backend");
+
+    assert_eq!(
+        backend
+            .start_unit("selvedge-server.service", Duration::from_millis(123))
+            .await,
+        Ok(StartServiceOutcome::StartRequested)
+    );
+    assert_eq!(
+        runner.calls(),
+        vec![ProcessCall {
+            program: "/bin/systemctl".to_owned(),
+            args: vec![
+                "--system".to_owned(),
+                "start".to_owned(),
+                "--".to_owned(),
                 "selvedge-server.service".to_owned(),
             ],
             timeout: Duration::from_millis(123),
