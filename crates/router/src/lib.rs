@@ -18,7 +18,6 @@ use selvedge_core::TaskRuntimeSpawnDeps;
 use selvedge_db::DbPool;
 use selvedge_domain_model::TaskId;
 use selvedge_task_runtime_factory::{
-    CreateChildTaskAndRuntimeCommand, EnsureMissingTaskRuntimesCommand, EnsureTaskRuntimeCommand,
     FactoryCommand, FactoryEffectArgs, FactoryRuntimeInventory, run_factory_effect,
 };
 use tokio::task::JoinHandle;
@@ -474,19 +473,16 @@ impl RouterActor {
         );
         self.pending_effects_by_task
             .insert(task_id.clone(), effect_id.clone());
-        let command =
-            FactoryCommand::EnsureTaskRuntime(EnsureTaskRuntimeCommand { effect_id, task_id });
-        self.run_factory_effect(command).await
+        let command = FactoryCommand::EnsureTaskRuntime { task_id };
+        self.run_factory_effect(effect_id, command).await
     }
 
     async fn ensure_missing_task_runtimes(&mut self) -> Result<(), RouterExitStatus> {
         let effect_id = self.next_effect_id();
         self.pending_effects
             .insert(effect_id.clone(), PendingRuntimeEffect { task_id: None });
-        let command = FactoryCommand::EnsureMissingTaskRuntimes(EnsureMissingTaskRuntimesCommand {
-            effect_id,
-        });
-        self.run_factory_effect(command).await
+        self.run_factory_effect(effect_id, FactoryCommand::EnsureMissingTaskRuntimes)
+            .await
     }
 
     async fn create_child_task_and_runtime(
@@ -497,22 +493,22 @@ impl RouterActor {
         let effect_id = self.next_effect_id();
         self.pending_effects
             .insert(effect_id.clone(), PendingRuntimeEffect { task_id: None });
-        let command = FactoryCommand::CreateChildTaskAndRuntime(CreateChildTaskAndRuntimeCommand {
-            effect_id,
+        let command = FactoryCommand::CreateChildTaskAndRuntime {
             parent_task_id,
             child_cursor_node_id,
-        });
-        self.run_factory_effect(command).await
+        };
+        self.run_factory_effect(effect_id, command).await
     }
 
     async fn run_factory_effect(
         &mut self,
+        effect_id: FactoryEffectId,
         command: FactoryCommand,
     ) -> Result<(), RouterExitStatus> {
         let current_task_effect = match &command {
-            FactoryCommand::EnsureTaskRuntime(command) => Some(&command.task_id),
-            FactoryCommand::EnsureMissingTaskRuntimes(_)
-            | FactoryCommand::CreateChildTaskAndRuntime(_) => None,
+            FactoryCommand::EnsureTaskRuntime { task_id } => Some(task_id),
+            FactoryCommand::EnsureMissingTaskRuntimes
+            | FactoryCommand::CreateChildTaskAndRuntime { .. } => None,
         };
         let inventory = FactoryRuntimeInventory {
             live_task_runtimes: self.task_runtime_registry.keys().cloned().collect(),
@@ -524,6 +520,7 @@ impl RouterActor {
                 .collect(),
         };
         let envelope = run_factory_effect(FactoryEffectArgs {
+            effect_id,
             command,
             db: self.db.clone(),
             router_tx: self.router_tx.clone(),

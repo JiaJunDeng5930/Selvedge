@@ -18,31 +18,19 @@ use uuid::Uuid;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum FactoryCommand {
-    EnsureTaskRuntime(EnsureTaskRuntimeCommand),
-    EnsureMissingTaskRuntimes(EnsureMissingTaskRuntimesCommand),
-    CreateChildTaskAndRuntime(CreateChildTaskAndRuntimeCommand),
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct EnsureTaskRuntimeCommand {
-    pub effect_id: FactoryEffectId,
-    pub task_id: TaskId,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct EnsureMissingTaskRuntimesCommand {
-    pub effect_id: FactoryEffectId,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct CreateChildTaskAndRuntimeCommand {
-    pub effect_id: FactoryEffectId,
-    pub parent_task_id: TaskId,
-    pub child_cursor_node_id: HistoryNodeId,
+    EnsureTaskRuntime {
+        task_id: TaskId,
+    },
+    EnsureMissingTaskRuntimes,
+    CreateChildTaskAndRuntime {
+        parent_task_id: TaskId,
+        child_cursor_node_id: HistoryNodeId,
+    },
 }
 
 #[derive(Clone)]
 pub struct FactoryEffectArgs {
+    pub effect_id: FactoryEffectId,
     pub command: FactoryCommand,
     pub db: DbPool,
     pub router_tx: RouterIngressWeakSender,
@@ -57,39 +45,36 @@ pub struct FactoryRuntimeInventory {
 }
 
 pub fn run_factory_effect(args: FactoryEffectArgs) -> FactoryOutputEnvelope {
-    let (effect_id, output) = match args.command {
-        FactoryCommand::EnsureTaskRuntime(command) => {
-            let output = ensure_task_runtime(
-                &args.db,
-                &args.router_tx,
-                &args.core_spawn_deps,
-                &args.runtime_inventory,
-                command.task_id,
-                CreatedRuntimeKind::ExistingTaskRuntime,
-            );
-            (command.effect_id, output)
-        }
-        FactoryCommand::EnsureMissingTaskRuntimes(command) => {
-            let output = ensure_missing_task_runtimes(
-                &args.db,
-                &args.router_tx,
-                &args.core_spawn_deps,
-                &args.runtime_inventory,
-            );
-            (command.effect_id, output)
-        }
-        FactoryCommand::CreateChildTaskAndRuntime(command) => {
-            let output = create_child_task_and_runtime(
-                &args.db,
-                &args.router_tx,
-                &args.core_spawn_deps,
-                command.parent_task_id,
-                command.child_cursor_node_id,
-            );
-            (command.effect_id, output)
-        }
+    let output = match args.command {
+        FactoryCommand::EnsureTaskRuntime { task_id } => ensure_task_runtime(
+            &args.db,
+            &args.router_tx,
+            &args.core_spawn_deps,
+            &args.runtime_inventory,
+            task_id,
+            CreatedRuntimeKind::ExistingTaskRuntime,
+        ),
+        FactoryCommand::EnsureMissingTaskRuntimes => ensure_missing_task_runtimes(
+            &args.db,
+            &args.router_tx,
+            &args.core_spawn_deps,
+            &args.runtime_inventory,
+        ),
+        FactoryCommand::CreateChildTaskAndRuntime {
+            parent_task_id,
+            child_cursor_node_id,
+        } => create_child_task_and_runtime(
+            &args.db,
+            &args.router_tx,
+            &args.core_spawn_deps,
+            parent_task_id,
+            child_cursor_node_id,
+        ),
     };
-    FactoryOutputEnvelope { effect_id, output }
+    FactoryOutputEnvelope {
+        effect_id: args.effect_id,
+        output,
+    }
 }
 
 fn create_child_task_and_runtime(
