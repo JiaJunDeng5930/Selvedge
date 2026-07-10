@@ -73,3 +73,24 @@ fn public_api_exposes_chatgpt_auth_types_and_functions() {
     let _ = std::mem::size_of::<ChatgptAuthConfig>();
     let _ = std::mem::size_of::<ChatgptAuthFileWriteError>();
 }
+
+#[test]
+fn public_writer_rejects_empty_tokens_without_replacing_file() {
+    let tempdir = tempfile::tempdir().expect("temp dir");
+    let path = tempdir.path().join("chatgpt.json");
+    std::fs::write(&path, "existing credentials").expect("write existing file");
+    let tokens = ChatgptStoredTokens {
+        id_token: "id-token".to_owned(),
+        access_token: String::new(),
+        refresh_token: "refresh-token".to_owned(),
+    };
+
+    let error = persist_chatgpt_auth_file(&path, &tokens).expect_err("empty token must fail");
+
+    assert_eq!(error.path, path);
+    assert_eq!(error.reason, "tokens.access_token must not be empty");
+    assert_eq!(
+        std::fs::read_to_string(&path).expect("read existing file"),
+        "existing credentials"
+    );
+}
