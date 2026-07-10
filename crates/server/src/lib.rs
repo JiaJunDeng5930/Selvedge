@@ -2202,7 +2202,7 @@ fn init_config(explicit_home: Option<&PathBuf>) -> Result<(), ServerStartupError
 
     match result {
         Ok(()) => Ok(()),
-        Err(error) if error.to_string().contains("already") => {
+        Err(selvedge_config::ConfigError::AlreadyInitialized) => {
             if let Some(home) = explicit_home {
                 let selected_home = selvedge_config::selvedge_home()
                     .map_err(|error| ServerStartupError::ConfigInitFailed(error.to_string()))?;
@@ -2226,7 +2226,7 @@ fn init_config(explicit_home: Option<&PathBuf>) -> Result<(), ServerStartupError
 fn init_logging() -> Result<(), ServerStartupError> {
     match selvedge_logging::init() {
         Ok(()) => Ok(()),
-        Err(error) if error.to_string().contains("already") => Ok(()),
+        Err(selvedge_logging::InitError::AlreadyInitialized) => Ok(()),
         Err(error) => Err(ServerStartupError::LoggingInitFailed(error.to_string())),
     }
 }
