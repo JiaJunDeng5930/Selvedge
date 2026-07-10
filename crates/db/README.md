@@ -2,7 +2,7 @@
 
 <!-- selvedge-package-readme
 package: selvedge-db
-freshness_commit: 592f95539c225023a2f2d66f8096a3f85ac304ee
+freshness_fingerprint: 50c9752629a7867896babc7bc6221a6405d650d1
 -->
 
 This crate owns SQLite persistence for router-mediated Selvedge tasks.

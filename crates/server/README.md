@@ -2,7 +2,7 @@
 
 <!-- selvedge-package-readme
 package: selvedge-server
-freshness_commit: 592f95539c225023a2f2d66f8096a3f85ac304ee
+freshness_fingerprint: 35b8aa34f1874aef8f5e58fddbcbf3a57581efc6
 -->
 
 This crate owns the process-local Selvedge server lifecycle.
@@ -12,6 +12,8 @@ Use it to start the server runtime, hold the singleton lock, initialize config a
 `ServerStartArgs` uses the current `selvedge-api` boundary: server passes `ApiExecutorConfig` into the router, and provider selection remains inside each model-call request. This crate does not own a provider registry.
 
 The singleton lock is `<selvedge_home>/server.lock`. The lock file is removed during normal shutdown and startup-failure cleanup.
+
+Config and logging initialization recognize repeated initialization through their typed `AlreadyInitialized` variants. Every other initialization error remains a startup failure.
 
 This crate exposes the in-process control surface, validates localhost bind targets, and accepts attach requests after router-mediated events reservation succeeds.
 
@@ -47,7 +49,7 @@ flowchart TD
   Start -->|startup called| Lock
   Lock -->|lock file opens and exclusive lock succeeds| InitConfig
   Lock -->|lock path, open, or exclusive lock fails| StartupFailure
-  InitConfig -->|config and logging initialize| OpenDb
+  InitConfig -->|config and logging initialize or report typed AlreadyInitialized| OpenDb
   InitConfig -->|config or logging fails| StartupFailure
   OpenDb -->|SQLite opens at selected home| SpawnServices
   OpenDb -->|database open or schema setup fails| StartupFailure

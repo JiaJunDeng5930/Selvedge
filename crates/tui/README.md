@@ -2,7 +2,7 @@
 
 <!-- selvedge-package-readme
 package: selvedge-tui
-freshness_commit: 592f95539c225023a2f2d66f8096a3f85ac304ee
+freshness_fingerprint: 359665a211274e95161efdd0101235e9a710599d
 -->
 
 This crate owns the TUI startup boundary for attaching to an existing Selvedge local server.

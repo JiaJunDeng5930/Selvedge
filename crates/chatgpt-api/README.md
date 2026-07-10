@@ -2,7 +2,7 @@
 
 <!-- selvedge-package-readme
 package: chatgpt-api
-freshness_commit: 592f95539c225023a2f2d66f8096a3f85ac304ee
+freshness_fingerprint: 27ef3d25f870957af09e085826467d78ddbcd85f
 -->
 
 ## This crate is for
@@ -45,6 +45,8 @@ stream_completion_timeout_ms = 1800000
 
 `base_url` is the upstream ChatGPT API base URL. `stream_completion_timeout_ms`
 caps the total lifetime of a single successful response stream.
+
+The decoder caps one pending SSE frame at 1 MiB and the complete response stream at 4 MiB. Either boundary returns `ChatgptApiEndpointError::ResponseTooLarge`.
 
 ## Timeout Semantics
 
@@ -89,6 +91,7 @@ flowchart TD
   TransportError[Return transport lower-layer error]
   TimeoutError[Return stream completion timeout]
   DecodeError[Return event decode error]
+  SizeError[Return response-too-large endpoint error]
 
   Start -->|caller provides request| Validate
   Validate -->|model and input fields satisfy request rules| ResolveAuth
@@ -106,5 +109,6 @@ flowchart TD
   Decode -->|overall stream lifetime exceeds configured stream_completion_timeout_ms| TimeoutError
   Decode -->|body chunk read fails| TransportError
   Decode -->|SSE or JSON event payload cannot be decoded| DecodeError
+  Decode -->|one frame exceeds 1 MiB or the stream exceeds 4 MiB| SizeError
   YieldEvent -->|caller polls again before terminal event| Decode
 ```

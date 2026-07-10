@@ -2,7 +2,7 @@
 
 <!-- selvedge-package-readme
 package: selvedge-client
-freshness_commit: 592f95539c225023a2f2d66f8096a3f85ac304ee
+freshness_fingerprint: 9319fb7e12af6068d53a1e8fb07445b64c852ea6
 -->
 
 ## This crate is for
@@ -76,6 +76,7 @@ assert!(response.status.is_success());
 - `execute(...)` returns a full `HttpResponse` only for `2xx`
 - `stream(...)` returns a raw `ByteStream` only for `2xx`
 - non-`2xx` responses are returned as `HttpError::Status`
+- bodies buffered by `execute(...)` and non-`2xx` handling are capped at 4 MiB and return `HttpError::ResponseTooLarge`
 - response bodies stay raw; this crate does not auto-decompress or parse them
 
 ## Package State Machine
@@ -97,6 +98,7 @@ flowchart TD
   TransportError[Return Transport error]
   StatusError[Return Status error with raw body]
   TimeoutError[Return Timeout]
+  TooLarge[Return ResponseTooLarge]
 
   Start -->|caller invokes execute or stream| ReadConfig
   ReadConfig -->|selvedge_config read succeeds| Prepare
@@ -114,5 +116,6 @@ flowchart TD
   Buffer -->|execute body read succeeds for 2xx| Success
   Buffer -->|non-2xx body read succeeds| StatusError
   Buffer -->|body read fails| TransportError
+  Buffer -->|buffered bytes exceed 4 MiB| TooLarge
   OpenBody -->|stream response created| Success
 ```

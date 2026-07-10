@@ -2,7 +2,7 @@
 
 <!-- selvedge-package-readme
 package: selvedge-core
-freshness_commit: 592f95539c225023a2f2d66f8096a3f85ac304ee
+freshness_fingerprint: 8be33ec90784fb174eeaa6ff5376428c0eec3a8d
 -->
 
 This crate runs one task runtime actor per active task.
@@ -12,6 +12,8 @@ Use it to spawn a task-local runtime that loads SQLite state through `selvedge-d
 This crate only talks to the router mailbox and the database package. Provider calls, tool execution, event fanout, runtime registry ownership, and direct client delivery live in other crates.
 
 On `Start`, the runtime reads the active task snapshot and classifies the concrete cursor tail. User/system/function-output tails request a model call; function-call tails request tool execution; assistant/developer tails await user input with an empty queue. The runtime keeps only in-flight correlation ids and pending tool-call identity in memory; the task cursor lives in SQLite.
+
+Before dispatching a model call, the actor reads the conversation, tool manifest, and active model profile together on Tokio's blocking thread pool. SQLite work therefore leaves async runtime workers available for other actors.
 
 The actor checks `TaskRuntimeControl` before receiving each business mailbox command. A stop request makes the actor return from its loop at that safety point. The mailbox receive branch is behind the control branch and the actor rechecks stop after receiving a command, so a stop bit observed at the event boundary prevents the next business command from starting. The runtime writes `TaskRuntimeStopResult` from the actor's unified exit path, so a later stop call also completes after archive, database error, router shutdown, or dropped runtime mailbox.
 
@@ -29,7 +31,7 @@ flowchart TD
   LoadSnapshot[Read active task snapshot]
   ClassifyTail{cursor tail}
   AwaitInput[Await user input]
-  RequestModel[Send model call request to router]
+  RequestModel[Load model context on blocking pool and send request]
   AwaitModel[Await matching API output]
   RequestTool[Send tool execution request to router]
   AwaitTool[Await matching tool output]
@@ -47,7 +49,8 @@ flowchart TD
   ClassifyTail -->|tail is function call| RequestTool
   ClassifyTail -->|tail is assistant or developer and queued input is empty| AwaitInput
   ClassifyTail -->|tail is assistant or developer and queued input exists| QueueInput
-  RequestModel -->|router ingress send succeeds| AwaitModel
+  RequestModel -->|database reads and router ingress send succeed| AwaitModel
+  RequestModel -->|database read fails| DbError
   RequestModel -->|router ingress send fails| RouterClosed
   AwaitModel -->|matching completed API output arrives| ClassifyTail
   AwaitModel -->|matching failed API output arrives| AwaitInput

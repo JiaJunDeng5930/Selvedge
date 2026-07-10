@@ -2,7 +2,7 @@
 
 <!-- selvedge-package-readme
 package: selvedge
-freshness_commit: 592f95539c225023a2f2d66f8096a3f85ac304ee
+freshness_fingerprint: 857a7906a16a51d0f80466033cc7947740c9fa22
 -->
 
 Selvedge is a Rust repository scaffold with a clean local development flow, pre-commit hooks, and GitHub Actions CI.
@@ -25,6 +25,8 @@ just run
 just test
 ```
 
+`just run` starts the local server. `Ctrl-C` requests supervised shutdown and exits with status 130 after server tasks and the singleton lock are cleaned up.
+
 ## Development setup
 
 ```bash
@@ -40,6 +42,7 @@ just fmt
 just check
 just hooks
 just agents-index
+just readme-freshness
 just worktree feature/my-change
 ```
 
@@ -54,11 +57,13 @@ The diagram records the root package observable states and transition paths. Eac
 ```mermaid
 flowchart TD
   Start([selvedge binary starts])
-  Runtime[Create current-thread Tokio runtime]
+  Runtime[Create multi-thread Tokio runtime]
   RunCli[Run selvedge::run_cli with process argv]
+  Parse[Parse process arguments]
   InitConfig[Initialize config and logging through CLI flow]
   Command{parsed command}
   RunServer[Run local server]
+  StopServer[Request supervised server shutdown]
   Submit[Submit command to local server]
   WaitTerminal[Wait for terminal notice]
   Success[Exit code 0]
@@ -69,15 +74,17 @@ flowchart TD
   Start -->|main is invoked by the operating system| Runtime
   Runtime -->|Tokio runtime builds successfully| RunCli
   Runtime -->|Tokio runtime construction panics before CLI status mapping runs| PanicExit
-  RunCli -->|argv parses and dependencies initialize| InitConfig
-  RunCli -->|argv is empty, malformed, or contains an unsupported command shape| Failure
+  RunCli -->|CLI execution starts| Parse
+  Parse -->|argv identifies a supported command| InitConfig
+  Parse -->|argv is empty, malformed, or contains an unsupported command shape| Failure
   InitConfig -->|config and logging initialize successfully| Command
   InitConfig -->|config read, validation, or logging initialization fails| Failure
   Command -->|parsed command is RunServer| RunServer
   Command -->|parsed command is SubmitCommand| Submit
   RunServer -->|server startup and run complete successfully| Success
   RunServer -->|server startup, runtime, or dependency fails| Failure
-  RunServer -->|interruption is reported by CLI execution| Interrupted
+  RunServer -->|SIGINT is received| StopServer
+  StopServer -->|server tasks stop and lock cleanup completes| Interrupted
   Submit -->|local client connects, readiness succeeds, and router-backed command is accepted| Success
   Submit -->|server-owned command such as list-models is accepted| WaitTerminal
   Submit -->|local client connection, readiness, command rejection, or server wait fails| Failure

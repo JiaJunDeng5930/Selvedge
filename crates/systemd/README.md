@@ -2,12 +2,14 @@
 
 <!-- selvedge-package-readme
 package: selvedge-systemd
-freshness_commit: 592f95539c225023a2f2d66f8096a3f85ac304ee
+freshness_fingerprint: e08cfe6fdfe7ca50f8de6a51f9de7f2ca8b27308
 -->
 
 This crate owns the root-CLI systemd boundary for the Selvedge server unit.
 
 Use it to validate the configured `selvedge-server` unit name, query unit status with the configured operation timeout, request unit start with the configured operation timeout, and wait for systemd to report `Active` or `Failed`.
+
+Unit names must be nonempty, contain no whitespace, and avoid a leading `-`. Both query and start place `--` before the validated unit argument.
 
 `wait_service_active` polls until the configured timeout. If the caller drops the returned future, polling stops and no `SystemdError` is returned.
 
@@ -35,7 +37,7 @@ flowchart TD
   Start -->|start request is requested| ValidateUnit
   Start -->|wait_service_active is requested| ValidateUnit
   ValidateUnit -->|unit name is accepted by configured policy| Query
-  ValidateUnit -->|unit name is empty or violates policy| ValidationError
+  ValidateUnit -->|unit name is empty, starts with a dash, or contains whitespace| ValidationError
   Query -->|systemctl reports active| Active
   Query -->|systemctl reports inactive or activating| Inactive
   Query -->|systemctl reports failed| Failed

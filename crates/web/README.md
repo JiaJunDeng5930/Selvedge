@@ -2,7 +2,7 @@
 
 <!-- selvedge-package-readme
 package: selvedge-web
-freshness_commit: 592f95539c225023a2f2d66f8096a3f85ac304ee
+freshness_fingerprint: a1013e143a603af93fdddcf65a450b5c2ba1b68d
 -->
 
 This crate defines the localhost HTTP ingress boundary used by `selvedge-server`.
@@ -12,6 +12,8 @@ Use it to pass HTTP bind settings, bridge requests, bridge futures, attach frame
 `spawn_web_surface` binds the configured loopback address and keeps that listener owned by the web task. `WebControl` exposes the request handling core used by local HTTP routes: `ready` forwards readiness probes, `submit_command` validates and forwards command requests, and `attach` validates and wraps bridge frame streams.
 
 `WebBridge` is implemented by `selvedge-server`. The web package forwards through that bridge and never touches router, events, database, or systemd state.
+
+Each HTTP request requires one numeric-loopback `Host` header. `Origin` may be absent or use HTTP(S) with a numeric-loopback authority; duplicate or remote values are rejected. Request headers are capped at 16 KiB and request bodies at 4 MiB before allocation.
 
 Stopping the web control moves the runtime to closing, stops accepting new control operations, closes wrapped attach streams, releases the listener, and resolves the join handle with `WebExitStatus::Stopped`.
 
@@ -24,6 +26,7 @@ flowchart TD
   Start([spawn_web_surface])
   Bind[Bind configured loopback listener]
   Serving[Accept HTTP requests]
+  ValidateTarget[Validate Host, Origin, and request size]
   Ready[Forward ready probe to bridge]
   Submit[Validate and forward command]
   Attach[Validate and forward attach]
@@ -37,9 +40,11 @@ flowchart TD
   Start -->|caller provides bind settings and bridge| Bind
   Bind -->|listener binds to configured loopback address| Serving
   Bind -->|bind fails or address is invalid| StartError
-  Serving -->|ready route is requested| Ready
-  Serving -->|command route is requested| Submit
-  Serving -->|attach route is requested| Attach
+  Serving -->|HTTP request arrives| ValidateTarget
+  ValidateTarget -->|local target is valid and ready route is requested| Ready
+  ValidateTarget -->|local target is valid and command route is requested| Submit
+  ValidateTarget -->|local target is valid and attach route is requested| Attach
+  ValidateTarget -->|Host, Origin, headers, or body violate the boundary| RequestError
   Serving -->|stop is requested| Closing
   Ready -->|bridge ready succeeds| Serving
   Ready -->|bridge ready fails| BridgeError

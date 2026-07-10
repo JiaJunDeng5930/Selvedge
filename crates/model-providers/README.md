@@ -2,7 +2,7 @@
 
 <!-- selvedge-package-readme
 package: selvedge-model-providers
-freshness_commit: 592f95539c225023a2f2d66f8096a3f85ac304ee
+freshness_fingerprint: a940db27c74baf63d754324ff1c9b52825f733f7
 -->
 
 This crate owns the model provider registry and the shared configured-provider rules.

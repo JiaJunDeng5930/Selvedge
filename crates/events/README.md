@@ -2,7 +2,7 @@
 
 <!-- selvedge-package-readme
 package: selvedge-events
-freshness_commit: 592f95539c225023a2f2d66f8096a3f85ac304ee
+freshness_fingerprint: 74e9095269b62db559227da02d9a78e51b3027af
 -->
 
 This crate runs the client outbound event aggregator task.
