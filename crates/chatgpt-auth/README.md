@@ -2,7 +2,7 @@
 
 <!-- selvedge-package-readme
 package: chatgpt-auth
-freshness_fingerprint: 6d0ef62e299e9239e5794b0f5321ce04227f47f7
+freshness_fingerprint: 50eaec519a0688cda2b696bcc1083f49204ce83e
 -->
 
 This crate resolves ChatGPT auth state for request execution.
@@ -24,6 +24,8 @@ or atomically updates the `chatgpt` login credential record at
 
 `chatgpt-login` reuses the config, claims, path, and atomic-write APIs so both
 ChatGPT flows use one credential format implementation.
+The shared writer validates all token fields before replacing the credential
+file and leaves the existing file unchanged when validation fails.
 
 ## Package State Machine
 

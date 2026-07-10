@@ -151,6 +151,19 @@ pub(crate) fn persist(
     path: &Path,
     tokens: &ChatgptStoredTokens,
 ) -> Result<(), ChatgptAuthFileWriteError> {
+    for (field, value) in [
+        ("id_token", tokens.id_token.as_str()),
+        ("access_token", tokens.access_token.as_str()),
+        ("refresh_token", tokens.refresh_token.as_str()),
+    ] {
+        if value.is_empty() {
+            return Err(ChatgptAuthFileWriteError {
+                path: path.to_path_buf(),
+                reason: format!("tokens.{field} must not be empty"),
+            });
+        }
+    }
+
     let parent = path.parent().ok_or_else(|| ChatgptAuthFileWriteError {
         path: path.to_path_buf(),
         reason: "auth file path must have a parent directory".to_owned(),
