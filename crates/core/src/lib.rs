@@ -496,27 +496,29 @@ impl TaskRuntimeActor {
     }
 
     async fn request_model_call(&mut self) -> bool {
-        let conversation = match read_conversation_for_task(&self.db, &self.task_id) {
-            Ok(conversation) => conversation,
-            Err(error) => return self.stop_with_db_error(error).await,
+        let db = self.db.clone();
+        let task_id = self.task_id.clone();
+        let context = tokio::task::spawn_blocking(move || {
+            let conversation = read_conversation_for_task(&db, &task_id)?;
+            let tool_manifest = read_tool_manifest_for_task(&db, &task_id)?;
+            let loaded = load_active_task(&db, &task_id)?;
+            Ok::<_, DbError>((conversation, tool_manifest, loaded.task.model_profile_key))
+        })
+        .await;
+        let (conversation, tool_manifest, model_profile_key) = match context {
+            Ok(Ok(context)) => context,
+            Ok(Err(error)) => return self.stop_with_db_error(error).await,
+            Err(error) => {
+                return self
+                    .stop_with_internal_error(&format!("database worker failed: {error}"))
+                    .await;
+            }
         };
         if let Err(message) = validate_conversation_tool_pairs(&conversation) {
             return self.stop_with_internal_error(&message).await;
         }
-        let tool_manifest = match read_tool_manifest_for_task(&self.db, &self.task_id) {
-            Ok(tool_manifest) => tool_manifest,
-            Err(error) => return self.stop_with_db_error(error).await,
-        };
-        let loaded = match load_active_task(&self.db, &self.task_id) {
-            Ok(loaded) => loaded,
-            Err(error) => return self.stop_with_db_error(error).await,
-        };
         let model_run_id = ModelRunId(format!("{}-model-{}", self.task_id.0, Uuid::new_v4()));
-        let Some(provider) = self
-            .model_profiles
-            .get(&loaded.task.model_profile_key)
-            .cloned()
-        else {
+        let Some(provider) = self.model_profiles.get(&model_profile_key).cloned() else {
             return self
                 .stop_with_internal_error("model profile key is not configured")
                 .await;
