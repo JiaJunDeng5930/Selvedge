@@ -2,7 +2,7 @@
 
 <!-- selvedge-package-readme
 package: selvedge-local-client
-freshness_commit: 592f95539c225023a2f2d66f8096a3f85ac304ee
+freshness_fingerprint: 46ea6022c5c6c8a3036764c703e38630a71bdc43
 -->
 
 This crate owns the process-local client handle for talking to an existing Selvedge localhost server.
@@ -12,6 +12,8 @@ Use it to validate localhost endpoint configuration, connect through a caller-pr
 `LocalEndpoint` is structured as loopback TCP by construction: `TcpIpv4 { port }` means `127.0.0.1:<port>`, and `TcpIpv6 { port }` means `[::1]:<port>`. Port `0` is invalid.
 
 An active attach stream has one client-owned frame reader. `close()` and request failures close the active stream, drop the inner transport stream, and wake a pending reader so its next poll completes.
+
+HTTP response headers are capped at 16 KiB. Buffered JSON bodies and individual NDJSON lines are capped at 4 MiB. These boundaries return `LocalClientError::ResponseTooLarge`.
 
 This crate does not start the server, call systemd, select an IPC transport, inspect command payload schemas, cache snapshots, or access router/events/client-sync mailboxes directly.
 
@@ -33,6 +35,7 @@ flowchart TD
   ConfigError[Return endpoint validation error]
   TransportError[Return transport error]
   ProtocolError[Return protocol error]
+  TooLarge[Return ResponseTooLarge]
 
   Start -->|client is constructed| ValidateEndpoint
   ValidateEndpoint -->|endpoint is 127.0.0.1 or ::1 with nonzero port| Connect
@@ -42,15 +45,19 @@ flowchart TD
   Start -->|ready is called| ReadyProbe
   ReadyProbe -->|transport returns valid ready response| Success
   ReadyProbe -->|transport fails or response is malformed| TransportError
+  ReadyProbe -->|headers or JSON body exceed their limit| TooLarge
   Start -->|submit is called| Submit
   Submit -->|transport returns accepted command response| Success
   Submit -->|server rejects command with protocol reason| ProtocolError
   Submit -->|transport fails or response is malformed| TransportError
+  Submit -->|headers or JSON body exceed their limit| TooLarge
   Start -->|attach is called and no active attach exists| Attach
   Attach -->|server accepts attach request| ActiveAttach
   Attach -->|server rejects attach request| ProtocolError
   Attach -->|transport fails or attach response is malformed| TransportError
+  Attach -->|headers, rejection body, or first NDJSON item exceed their limit| TooLarge
   ActiveAttach -->|caller polls next frame and transport yields frame| ActiveAttach
   ActiveAttach -->|reader reaches EOF, request failure occurs, or close is called| Close
+  ActiveAttach -->|one NDJSON frame exceeds 4 MiB| TooLarge
   Close -->|transport close completes| Success
 ```

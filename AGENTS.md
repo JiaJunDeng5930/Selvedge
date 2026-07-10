@@ -21,9 +21,9 @@ This file is for coding agents working in this repository.
 
 - Each workspace package README contains a Mermaid package-level state machine.
 - Read the package state machine before changing package behavior or boundary errors.
-- Package README metadata includes `freshness_commit`, the commit whose package implementation the README state machine has been checked against.
-- `cargo xtask readme check-freshness` compares `freshness_commit..HEAD` for each package directory, excludes that package README, and reports packages with implementation changes that may require README review.
-- When reported package changes leave the README state machine accurate, update only `freshness_commit` to a commit after those package changes.
+- Package README metadata includes `freshness_fingerprint`, a history-independent hash of the package's tracked paths and staged blob ids. The package README is excluded.
+- `cargo xtask readme check-freshness` compares the recorded fingerprint with the current Git index and reports stale packages.
+- After reviewing affected state machines, run `cargo xtask readme update-freshness` to refresh every package fingerprint.
 
 ## Branch Protection
 

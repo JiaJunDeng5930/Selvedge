@@ -2,7 +2,7 @@
 
 <!-- selvedge-package-readme
 package: selvedge-api
-freshness_commit: 592f95539c225023a2f2d66f8096a3f85ac304ee
+freshness_fingerprint: c38b17985ef5693060c426789cf2e6a49be94886
 -->
 
 This crate executes one Selvedge model call and returns the completed result to the router mailbox.
@@ -12,6 +12,8 @@ Use it to dispatch a single provider call, normalize the provider response into 
 The public entry point is `execute_model_call(request, router_tx, config)`. Provider selection comes from `request.provider.provider_name`; the provider registry validates the configured provider and selected model before the ChatGPT adapter executes ChatGPT requests.
 
 For ChatGPT adapter dispatch, `request.provider.model_name` becomes the ChatGPT model. `request.provider.max_output_tokens` is accepted by the Selvedge request contract and ignored by this path because `chatgpt-api` exposes no request field for that control; ChatGPT `response.incomplete` with reason `max_output_tokens` returns `ModelFinishReason::Length` with accumulated output. ChatGPT dispatch pins ChatGPT capabilities to reasoning summaries enabled, text verbosity enabled, and default reasoning effort `medium` until Selvedge has a capability source.
+
+Spawned calls supervise provider panics and convert them into a correlated failure envelope. ChatGPT text `done` events must extend the accumulated UTF-8 delta exactly; mismatches become `ProviderResponse` failures. Every spawned call therefore reaches one terminal router outcome while router ingress remains available.
 
 This crate is not for database access, filesystem access, task creation, task runtime mutation, router registry mutation, retries, or persistence.
 
@@ -33,10 +35,12 @@ flowchart TD
   StreamError[Send provider ModelCallError]
   RouterClosed[Return RouterClosed terminal status]
   Spawned[Tokio task owns execution]
+  PanicFailure[Send correlated ProviderResponse failure]
 
   Start -->|caller invokes execute_model_call| Validate
   Start -->|caller invokes spawn_model_call_tokio_task| Spawned
   Spawned -->|task starts| Validate
+  Spawned -->|provider execution panics| PanicFailure
   Validate -->|required dispatch fields are present| ResolveProvider
   Validate -->|validate_dispatch_request returns error| ValidationError
   ResolveProvider -->|registry accepts chatgpt and selected model| Chatgpt
@@ -54,4 +58,6 @@ flowchart TD
   IncompleteProvider -->|router ingress send fails| RouterClosed
   StreamError -->|router ingress send succeeds| StreamError
   StreamError -->|router ingress send fails| RouterClosed
+  PanicFailure -->|router ingress send succeeds| PanicFailure
+  PanicFailure -->|router ingress send fails| RouterClosed
 ```

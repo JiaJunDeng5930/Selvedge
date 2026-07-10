@@ -21,6 +21,9 @@ readme-mermaid-check:
 readme-freshness-check:
     cargo xtask readme check-freshness
 
+readme-freshness:
+    cargo xtask readme update-freshness
+
 run:
     cargo run -- server
 

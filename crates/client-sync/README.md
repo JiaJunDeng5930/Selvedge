@@ -2,7 +2,7 @@
 
 <!-- selvedge-package-readme
 package: selvedge-client-sync
-freshness_commit: 592f95539c225023a2f2d66f8096a3f85ac304ee
+freshness_fingerprint: f45e8446b71a47011333ae4392d9bf26d89cdbf7
 -->
 
 This crate defines the client hydration synchronization boundary used by the server and router attach path.
@@ -11,11 +11,11 @@ Use it to pass hydration starts, cancellation, shutdown signals, snapshot builde
 
 ## Hydration Model
 
-`spawn_client_sync` starts one ingress loop. That loop owns the current hydration map keyed by `ClientId`; builder tasks only return snapshot results to the loop. This keeps replacement, cancellation, shutdown, and stale-result dropping in one ordering point.
+`spawn_client_sync` starts one ingress loop. That loop owns the current hydration map keyed by `ClientId` and a `JoinSet` containing every builder task. Each current entry holds its builder's `AbortHandle`, while the `JoinSet` owns completion and cleanup. Ingress and builder completions use fair `select!` scheduling.
 
 `ClientSyncIngress::StartHydration` sends `BeginClientHydration` to the events mailbox first. Current-state snapshot building starts after that send succeeds. Empty snapshot mode delivers an empty snapshot without calling the builder. A closed events mailbox is a fatal client-sync exit, and the builder is left untouched for that request.
 
-Only the current `(ClientId, ClientCommandId)` may deliver its builder result. A new command for the same client replaces the old command. A duplicate start for the current command is ignored. `CancelHydration` removes the matching current command. `Shutdown` stops the loop and drops late builder results.
+Only the current `(ClientId, ClientCommandId)` may deliver its builder result. A new command for the same client aborts the old builder. A duplicate start for the current command is ignored. `CancelHydration` aborts the matching builder. `Shutdown` aborts and joins every builder before the loop stops.
 
 Successful builder results are forwarded as `DeliverSnapshot` exactly as built. Builder errors are forwarded as an error `DeliverNotice` followed by `DetachClient` with `DetachReason::DeliveryFailed`. If either events send fails, the sync loop exits with `ClientSyncExitStatus::Fatal`.
 
@@ -40,10 +40,11 @@ flowchart TD
   Start -->|caller supplies events sender and builder| Loop
   Loop -->|StartHydration for new client command arrives| ReserveHydration
   Loop -->|StartHydration matches current client and command| IgnoreDuplicate
-  Loop -->|CancelHydration matches current client and command| Cancel
+  Loop -->|CancelHydration matches current client and command; abort builder| Cancel
   Loop -->|CancelHydration misses current command| Loop
-  Loop -->|Shutdown ingress arrives| Shutdown
+  Loop -->|Shutdown ingress arrives; abort and join all builders| Shutdown
   ReserveHydration -->|BeginClientHydration send succeeds| Build
+  Build -->|new command replaces current command; abort old builder| ReserveHydration
   ReserveHydration -->|events mailbox send fails| Fatal
   Build -->|builder returns snapshot for current command| DeliverSnapshot
   Build -->|builder returns error for current command| DeliverFailure

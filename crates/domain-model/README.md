@@ -2,7 +2,7 @@
 
 <!-- selvedge-package-readme
 package: selvedge-domain-model
-freshness_commit: 592f95539c225023a2f2d66f8096a3f85ac304ee
+freshness_fingerprint: 9336643422056626ad58fe8d013127bcfc90aced
 -->
 
 This crate defines the Selvedge domain model API slice used by model-call packages.
