@@ -22,7 +22,7 @@ readme-freshness-check:
     cargo xtask readme check-freshness
 
 run:
-    cargo run
+    cargo run -- server
 
 fmt:
     cargo fmt --all

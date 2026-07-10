@@ -195,10 +195,7 @@ impl CliServerStartArgsBuilder for DefaultCliServerStartArgsBuilder {
 }
 
 pub trait CliServerRunner: Send + Sync + 'static {
-    fn run_server(
-        &self,
-        args: ServerStartArgs,
-    ) -> impl Future<Output = selvedge_server::ServerExitStatus> + Send;
+    fn run_server(&self, args: ServerStartArgs) -> impl Future<Output = CliExitStatus> + Send;
 }
 
 pub trait CliServerStarter: Send + Sync + 'static {
@@ -209,17 +206,15 @@ pub trait CliServerStarter: Send + Sync + 'static {
 }
 
 pub async fn run_cli(args: CliRunArgs) -> CliExitStatus {
-    let parsed_command = parse_cli_args(&args.argv);
+    if let Err(error) = parse_cli_args(&args.argv) {
+        return CliExitStatus::InvalidArgs(error);
+    }
     if let Err(error) = selvedge_config::init() {
         return CliExitStatus::ConfigFailed(error.to_string());
     }
     if let Err(error) = selvedge_logging::init() {
         return CliExitStatus::LoggingFailed(error.to_string());
     }
-    if let Err(error) = parsed_command {
-        return CliExitStatus::InvalidArgs(error);
-    }
-
     run_cli_with_deps(
         args.argv,
         DefaultCliServerStarter,
@@ -327,10 +322,28 @@ where
     W: std::io::Write,
 {
     match status {
+        CliExitStatus::Success | CliExitStatus::Interrupted => Ok(()),
+        CliExitStatus::InvalidArgs(error) => writeln!(writer, "Invalid arguments: {error}"),
+        CliExitStatus::ConfigFailed(error) => writeln!(writer, "Configuration failed: {error}"),
+        CliExitStatus::LoggingFailed(error) => writeln!(writer, "Logging failed: {error}"),
+        CliExitStatus::ServerDependencyFailed(error) => {
+            writeln!(writer, "Server dependency failed: {error}")
+        }
+        CliExitStatus::ServerStartFailed(error) => {
+            writeln!(writer, "Server start failed: {error}")
+        }
+        CliExitStatus::ServerReadyTimeout => writeln!(writer, "Server readiness timed out."),
+        CliExitStatus::ServerNotReady => writeln!(writer, "Server is not ready."),
         CliExitStatus::CommandRejected(error) => {
             writeln!(writer, "Command rejected: {error}")
         }
-        _ => Ok(()),
+        CliExitStatus::CommandFailed(error) => writeln!(writer, "Command failed: {error}"),
+        CliExitStatus::LocalClientFailed(error) => {
+            writeln!(writer, "Local client failed: {error}")
+        }
+        CliExitStatus::ServerRunFailed(error) => {
+            writeln!(writer, "Server runtime failed: {error}")
+        }
     }
 }
 
@@ -418,7 +431,11 @@ where
         Err(error) => return CliExitStatus::ServerDependencyFailed(format!("{error:?}")),
     };
 
-    match server_runner.run_server(args).await {
+    server_runner.run_server(args).await
+}
+
+fn server_exit_status(status: selvedge_server::ServerExitStatus) -> CliExitStatus {
+    match status {
         selvedge_server::ServerExitStatus::Stopped => CliExitStatus::Success,
         selvedge_server::ServerExitStatus::StartupFailed(error) => {
             CliExitStatus::ServerRunFailed(format!("{error:?}"))
@@ -758,8 +775,45 @@ fn map_local_client_error(error: LocalClientError) -> CliError {
 struct DefaultCliServerRunner;
 
 impl CliServerRunner for DefaultCliServerRunner {
-    async fn run_server(&self, args: ServerStartArgs) -> selvedge_server::ServerExitStatus {
-        selvedge_server::run_server(args).await
+    async fn run_server(&self, args: ServerStartArgs) -> CliExitStatus {
+        let interrupt = tokio::signal::ctrl_c();
+        tokio::pin!(interrupt);
+        tokio::select! {
+            biased;
+            result = &mut interrupt => {
+                return result
+                    .map(|()| CliExitStatus::Interrupted)
+                    .unwrap_or_else(|error| CliExitStatus::ServerRunFailed(error.to_string()));
+            }
+            _ = tokio::task::yield_now() => {}
+        }
+
+        let handle = match selvedge_server::spawn_server(args) {
+            Ok(handle) => handle,
+            Err(error) => {
+                return server_exit_status(selvedge_server::ServerExitStatus::StartupFailed(error));
+            }
+        };
+        let control = handle.control;
+        let mut join_handle = handle.join_handle;
+
+        tokio::select! {
+            result = &mut join_handle => match result {
+                Ok(status) => server_exit_status(status),
+                Err(error) => CliExitStatus::ServerRunFailed(error.to_string()),
+            },
+            signal = &mut interrupt => {
+                if let Err(error) = signal {
+                    return CliExitStatus::ServerRunFailed(error.to_string());
+                }
+                control.stop().await;
+                match join_handle.await {
+                    Ok(selvedge_server::ServerExitStatus::Stopped) => CliExitStatus::Interrupted,
+                    Ok(status) => server_exit_status(status),
+                    Err(error) => CliExitStatus::ServerRunFailed(error.to_string()),
+                }
+            }
+        }
     }
 }
 
@@ -947,14 +1001,12 @@ mod tests {
     use std::collections::VecDeque;
     use std::sync::{Arc, Mutex};
 
+    use super::*;
     use selvedge_local_protocol::{
         CommandRejectReason, LocalClientNoticeFrame, LocalClientSnapshot, LocalClientSnapshotFrame,
         LocalClientSubscription, LocalDetailLevel, LocalNotice, LocalNoticeKind, LocalNoticeLevel,
         LocalTaskScope,
     };
-    use selvedge_server::ServerExitStatus;
-
-    use super::*;
 
     #[tokio::test]
     async fn command_uses_ready_client_without_systemd_start() {
@@ -1082,19 +1134,56 @@ mod tests {
     }
 
     #[test]
-    fn command_rejection_status_writes_stderr() {
-        let mut stderr = Vec::new();
+    fn failure_statuses_write_stderr() {
+        let cases = [
+            (
+                CliExitStatus::InvalidArgs("missing command".to_owned()),
+                "Invalid arguments: missing command\n",
+            ),
+            (
+                CliExitStatus::ConfigFailed("bad config".to_owned()),
+                "Configuration failed: bad config\n",
+            ),
+            (
+                CliExitStatus::LoggingFailed("bad logging".to_owned()),
+                "Logging failed: bad logging\n",
+            ),
+            (
+                CliExitStatus::ServerDependencyFailed("missing dependency".to_owned()),
+                "Server dependency failed: missing dependency\n",
+            ),
+            (
+                CliExitStatus::ServerStartFailed("start failed".to_owned()),
+                "Server start failed: start failed\n",
+            ),
+            (
+                CliExitStatus::ServerReadyTimeout,
+                "Server readiness timed out.\n",
+            ),
+            (CliExitStatus::ServerNotReady, "Server is not ready.\n"),
+            (
+                CliExitStatus::CommandRejected("UnsupportedCommand".to_owned()),
+                "Command rejected: UnsupportedCommand\n",
+            ),
+            (
+                CliExitStatus::CommandFailed("command failed".to_owned()),
+                "Command failed: command failed\n",
+            ),
+            (
+                CliExitStatus::LocalClientFailed("transport failed".to_owned()),
+                "Local client failed: transport failed\n",
+            ),
+            (
+                CliExitStatus::ServerRunFailed("runtime failed".to_owned()),
+                "Server runtime failed: runtime failed\n",
+            ),
+        ];
 
-        write_cli_exit_status(
-            &CliExitStatus::CommandRejected("UnsupportedCommand".to_owned()),
-            &mut stderr,
-        )
-        .expect("write stderr");
-
-        assert_eq!(
-            String::from_utf8(stderr).expect("stderr utf8"),
-            "Command rejected: UnsupportedCommand\n"
-        );
+        for (status, expected) in cases {
+            let mut stderr = Vec::new();
+            write_cli_exit_status(&status, &mut stderr).expect("write stderr");
+            assert_eq!(String::from_utf8(stderr).expect("stderr utf8"), expected);
+        }
     }
 
     #[tokio::test]
@@ -1488,7 +1577,7 @@ mod tests {
 
     struct FakeServerRunnerState {
         run_calls: usize,
-        status: ServerExitStatus,
+        status: CliExitStatus,
     }
 
     impl FakeServerRunner {
@@ -1496,14 +1585,14 @@ mod tests {
             Self {
                 state: Arc::new(Mutex::new(FakeServerRunnerState {
                     run_calls: 0,
-                    status: ServerExitStatus::Stopped,
+                    status: CliExitStatus::Success,
                 })),
             }
         }
     }
 
     impl CliServerRunner for FakeServerRunner {
-        async fn run_server(&self, _args: ServerStartArgs) -> ServerExitStatus {
+        async fn run_server(&self, _args: ServerStartArgs) -> CliExitStatus {
             let mut state = self.state.lock().expect("runner");
             state.run_calls += 1;
             state.status.clone()
