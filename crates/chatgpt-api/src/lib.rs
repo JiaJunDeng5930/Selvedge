@@ -8,8 +8,8 @@ use std::{
     time::Duration,
 };
 
-use futures::StreamExt;
 use futures_core::Stream;
+use futures_util::StreamExt;
 use http::{HeaderMap, HeaderValue, StatusCode};
 use serde_json::Value;
 use tokio::{sync::mpsc, task::JoinHandle};

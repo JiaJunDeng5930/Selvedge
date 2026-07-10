@@ -5,7 +5,7 @@ publish = false
 
 [dependencies]
 chatgpt-api = { path = "../chatgpt-api" }
-futures = "0.3.31"
+futures-util = "0.3.31"
 selvedge-command-model = { path = "../command-model" }
 selvedge-client = { path = "../client" }
 selvedge-config = { path = "../config" }

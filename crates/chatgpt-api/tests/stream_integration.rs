@@ -17,7 +17,7 @@ use chatgpt_api::{
     ChatgptRequestContext, ChatgptResponseEvent, ChatgptResponsesRequest, ChatgptTextOptions,
     ContentItem, MessageItem, ResponseItem, stream,
 };
-use futures::StreamExt;
+use futures_util::StreamExt;
 use serde_json::json;
 use support::{
     assert_child_success, auth_file_json, build_jwt, child_mode, init_api_test,
