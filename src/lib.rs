@@ -144,53 +144,33 @@ pub trait CliLocalClientConnector {
     ) -> impl Future<Output = Result<Self::Client, CliError>> + Send;
 }
 
-pub trait CliServerStartArgsBuilder {
-    fn build(&self, resolved_config: &CliResolvedConfig) -> Result<ServerStartArgs, CliError>;
-}
-
-pub struct DefaultCliServerStartArgsBuilder;
-
-impl DefaultCliServerStartArgsBuilder {
-    pub fn new() -> Self {
-        Self
-    }
-}
-
-impl Default for DefaultCliServerStartArgsBuilder {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl CliServerStartArgsBuilder for DefaultCliServerStartArgsBuilder {
-    fn build(&self, resolved_config: &CliResolvedConfig) -> Result<ServerStartArgs, CliError> {
-        let local_bind_target = match resolved_config.local_client_config.endpoint {
-            LocalEndpoint::TcpIpv4 { port } => LocalhostBindTarget::Ipv4 { port },
-            LocalEndpoint::TcpIpv6 { port } => LocalhostBindTarget::Ipv6 { port },
-        };
-        Ok(ServerStartArgs {
-            explicit_home: selvedge_config::selvedge_home().ok(),
-            api_config: ApiExecutorConfig {
-                request_timeout: resolved_config.systemd_config.operation_timeout,
-                max_response_bytes: None,
-            },
-            tool_executor: Arc::new(UnavailableToolExecutor),
-            core_spawn_deps: TaskRuntimeSpawnDeps::new(TaskRuntimeConfig {
-                mailbox_capacity: 64,
-                model_profiles: HashMap::new(),
-            }),
-            // NOTE: Skeleton startup wires explicit placeholders for command
-            // mapping and snapshot hydration package contracts.
-            snapshot_builder: Arc::new(EmptySnapshotBuilder),
-            command_mapper: Arc::new(UnsupportedCommandMapper),
-            local_operation_executor: Arc::new(DefaultLocalOperationExecutor),
-            local_binding: LocalBindingConfig {
-                bind_target: local_bind_target.clone(),
-            },
-            web_binding: Some(selvedge_server::WebBindingConfig {
-                bind_target: local_bind_target,
-            }),
-        })
+fn build_server_start_args(resolved_config: &CliResolvedConfig) -> ServerStartArgs {
+    let local_bind_target = match resolved_config.local_client_config.endpoint {
+        LocalEndpoint::TcpIpv4 { port } => LocalhostBindTarget::Ipv4 { port },
+        LocalEndpoint::TcpIpv6 { port } => LocalhostBindTarget::Ipv6 { port },
+    };
+    ServerStartArgs {
+        explicit_home: selvedge_config::selvedge_home().ok(),
+        api_config: ApiExecutorConfig {
+            request_timeout: resolved_config.systemd_config.operation_timeout,
+            max_response_bytes: None,
+        },
+        tool_executor: Arc::new(UnavailableToolExecutor),
+        core_spawn_deps: TaskRuntimeSpawnDeps::new(TaskRuntimeConfig {
+            mailbox_capacity: 64,
+            model_profiles: HashMap::new(),
+        }),
+        // NOTE: Skeleton startup wires explicit placeholders for command
+        // mapping and snapshot hydration package contracts.
+        snapshot_builder: Arc::new(EmptySnapshotBuilder),
+        command_mapper: Arc::new(UnsupportedCommandMapper),
+        local_operation_executor: Arc::new(DefaultLocalOperationExecutor),
+        local_binding: LocalBindingConfig {
+            bind_target: local_bind_target.clone(),
+        },
+        web_binding: Some(selvedge_server::WebBindingConfig {
+            bind_target: local_bind_target,
+        }),
     }
 }
 
@@ -220,17 +200,16 @@ pub async fn run_cli(args: CliRunArgs) -> CliExitStatus {
         DefaultCliServerStarter,
         DefaultCliServerRunner,
         DefaultCliLocalClientConnector,
-        DefaultCliServerStartArgsBuilder::new(),
     )
     .await
 }
 
 #[rustfmt::skip]
 pub async fn run_cli_with_deps<
-    S: CliServerStarter, R: CliServerRunner, C: CliLocalClientConnector, B: CliServerStartArgsBuilder,
+    S: CliServerStarter, R: CliServerRunner, C: CliLocalClientConnector,
 >(
     args: Vec<String>, server_starter: S, server_runner: R,
-    local_client_connector: C, server_start_args_builder: B,
+    local_client_connector: C,
 ) -> CliExitStatus {
     let command = match parse_cli_args(&args) {
         Ok(command) => command,
@@ -243,9 +222,7 @@ pub async fn run_cli_with_deps<
     };
 
     match command {
-        CliCommand::RunServer => {
-            run_server_subcommand(server_runner, server_start_args_builder, &resolved_config).await
-        }
+        CliCommand::RunServer => run_server_subcommand(server_runner, &resolved_config).await,
         CliCommand::SubmitCommand {
             command_name,
             payload,
@@ -417,21 +394,16 @@ fn parse_cli_args(args: &[String]) -> Result<CliCommand, String> {
     })
 }
 
-async fn run_server_subcommand<R, B>(
+async fn run_server_subcommand<R>(
     server_runner: R,
-    server_start_args_builder: B,
     resolved_config: &CliResolvedConfig,
 ) -> CliExitStatus
 where
     R: CliServerRunner,
-    B: CliServerStartArgsBuilder,
 {
-    let args = match server_start_args_builder.build(resolved_config) {
-        Ok(args) => args,
-        Err(error) => return CliExitStatus::ServerDependencyFailed(format!("{error:?}")),
-    };
-
-    server_runner.run_server(args).await
+    server_runner
+        .run_server(build_server_start_args(resolved_config))
+        .await
 }
 
 fn server_exit_status(status: selvedge_server::ServerExitStatus) -> CliExitStatus {
@@ -1019,7 +991,6 @@ mod tests {
             starter.clone(),
             FakeServerRunner::stopped(),
             connector,
-            DefaultCliServerStartArgsBuilder::new(),
         )
         .await;
 
@@ -1042,7 +1013,6 @@ mod tests {
             starter.clone(),
             FakeServerRunner::stopped(),
             connector,
-            DefaultCliServerStartArgsBuilder::new(),
         )
         .await;
 
@@ -1068,7 +1038,6 @@ mod tests {
             starter.clone(),
             FakeServerRunner::stopped(),
             connector,
-            DefaultCliServerStartArgsBuilder::new(),
         )
         .await;
 
@@ -1095,7 +1064,6 @@ mod tests {
             FakeServerStarter::new(),
             FakeServerRunner::stopped(),
             connector,
-            DefaultCliServerStartArgsBuilder::new(),
         )
         .await;
 
@@ -1199,7 +1167,6 @@ mod tests {
             starter.clone(),
             runner,
             connector,
-            DefaultCliServerStartArgsBuilder::new(),
         )
         .await;
 
@@ -1246,7 +1213,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn server_subcommand_uses_builder_and_runner_without_systemd_or_local_client() {
+    async fn server_subcommand_uses_runner_without_systemd_or_local_client() {
         let connector = FakeConnector::new(Vec::new());
         let connector_state = connector.state.clone();
         let starter = FakeServerStarter::new();
@@ -1258,7 +1225,6 @@ mod tests {
             starter.clone(),
             runner,
             connector,
-            DefaultCliServerStartArgsBuilder::new(),
         )
         .await;
 
@@ -1266,24 +1232,6 @@ mod tests {
         assert_eq!(connector_state.lock().expect("connector").connect_calls, 0);
         assert_eq!(starter.start_calls(), 0);
         assert_eq!(runner_state.lock().expect("runner").run_calls, 1);
-    }
-
-    #[tokio::test]
-    async fn server_builder_failure_skips_runner() {
-        let runner = FakeServerRunner::stopped();
-        let runner_state = runner.state.clone();
-
-        let status = run_cli_with_deps(
-            vec!["selvedge".to_owned(), "server".to_owned()],
-            FakeServerStarter::new(),
-            runner,
-            FakeConnector::new(Vec::new()),
-            FailingBuilder,
-        )
-        .await;
-
-        assert!(matches!(status, CliExitStatus::ServerDependencyFailed(_)));
-        assert_eq!(runner_state.lock().expect("runner").run_calls, 0);
     }
 
     #[tokio::test]
@@ -1299,7 +1247,6 @@ mod tests {
             starter.clone(),
             server_runner,
             connector,
-            DefaultCliServerStartArgsBuilder::new(),
         )
         .await;
 
@@ -1316,7 +1263,6 @@ mod tests {
             FakeServerStarter::new(),
             FakeServerRunner::stopped(),
             FakeConnector::new(vec![Ok(FakeClientPlan::list_models_failed())]),
-            DefaultCliServerStartArgsBuilder::new(),
         )
         .await;
 
@@ -1339,7 +1285,6 @@ mod tests {
             FakeServerStarter::new(),
             FakeServerRunner::stopped(),
             FakeConnector::new(vec![Ok(FakeClientPlan::login_chatgpt_failed())]),
-            DefaultCliServerStartArgsBuilder::new(),
         )
         .await;
 
@@ -1362,7 +1307,6 @@ mod tests {
             FakeServerStarter::new(),
             FakeServerRunner::stopped(),
             FakeConnector::new(vec![Ok(FakeClientPlan::router_command_without_attach())]),
-            DefaultCliServerStartArgsBuilder::new(),
         )
         .await;
 
@@ -1596,14 +1540,6 @@ mod tests {
             let mut state = self.state.lock().expect("runner");
             state.run_calls += 1;
             state.status.clone()
-        }
-    }
-
-    struct FailingBuilder;
-
-    impl CliServerStartArgsBuilder for FailingBuilder {
-        fn build(&self, _resolved_config: &CliResolvedConfig) -> Result<ServerStartArgs, CliError> {
-            Err(CliError::ServerDependencyFailed("missing dep".to_owned()))
         }
     }
 
