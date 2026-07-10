@@ -1,7 +1,8 @@
 #![doc = include_str!("../README.md")]
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::future::Future;
+use std::ops::ControlFlow;
 use std::pin::Pin;
 use std::sync::Arc;
 
@@ -12,7 +13,7 @@ use selvedge_command_model::{
     SnapshotMode,
 };
 use selvedge_domain_model::UnixTs;
-use tokio::sync::mpsc;
+use tokio::sync::mpsc::{self, error::TryRecvError};
 use tokio::task::{AbortHandle, JoinHandle, JoinSet};
 
 #[derive(Clone)]
@@ -103,72 +104,36 @@ pub fn spawn_client_sync(
     let join_handle = handle.spawn(async move {
         let mut current = HashMap::<ClientId, ActiveHydration>::new();
         let mut builds = JoinSet::<HydrationBuildResult>::new();
+        let mut deferred_ingress = VecDeque::new();
 
         loop {
+            if let Some(message) = deferred_ingress.pop_front() {
+                if let ControlFlow::Break(status) = apply_ingress(
+                    message,
+                    &events_tx,
+                    &snapshot_builder,
+                    &mut current,
+                    &mut builds,
+                )
+                .await
+                {
+                    return status;
+                }
+                continue;
+            }
+
             tokio::select! {
                 message = ingress_rx.recv() => {
                     match message {
-                        Some(ClientSyncIngress::StartHydration(begin)) => {
-                            let client_id = begin.client_id.clone();
-                            let client_command_id = begin.client_command_id.clone();
-
-                            if current.get(&client_id).map(|hydration| &hydration.client_command_id)
-                                == Some(&client_command_id)
-                            {
-                                continue;
-                            }
-
-                            let request = ClientSnapshotBuildRequest {
-                                client_id: client_id.clone(),
-                                client_command_id: client_command_id.clone(),
-                                subscription: begin.subscription.clone(),
-                            };
-
-                            // NOTE: Begin is the state handoff to events. Snapshot building starts after
-                            // that mailbox accepts Begin, so a closed events mailbox is a fatal hydration
-                            // boundary failure and the builder remains untouched.
-                            if send_control(
-                                &events_tx,
-                                EventControlMessage::BeginClientHydration(begin),
-                            )
-                            .await
-                            .is_err()
-                            {
-                                builds.shutdown().await;
-                                current.clear();
-                                return ClientSyncExitStatus::Fatal(
-                                    "events mailbox closed while beginning client hydration".to_owned(),
-                                );
-                            }
-
-                            let abort_handle = spawn_snapshot_build(
-                                &mut builds,
-                                snapshot_builder.clone(),
-                                request,
-                            );
-                            if let Some(previous) = current.insert(
-                                client_id,
-                                ActiveHydration {
-                                    client_command_id,
-                                    abort_handle,
-                                },
-                            ) {
-                                previous.abort_handle.abort();
-                            }
-                        }
-                        Some(ClientSyncIngress::CancelHydration(cancel)) => {
-                            if current.get(&cancel.client_id).map(|hydration| &hydration.client_command_id)
-                                == Some(&cancel.client_command_id)
-                                && let Some(cancelled) = current.remove(&cancel.client_id)
-                            {
-                                cancelled.abort_handle.abort();
-                            }
-                        }
-                        Some(ClientSyncIngress::Shutdown) => {
-                            builds.shutdown().await;
-                            current.clear();
-                            return ClientSyncExitStatus::Stopped;
-                        }
+                        Some(message) => if let ControlFlow::Break(status) = apply_ingress(
+                            message,
+                            &events_tx,
+                            &snapshot_builder,
+                            &mut current,
+                            &mut builds,
+                        ).await {
+                            return status;
+                        },
                         None => {
                             builds.shutdown().await;
                             current.clear();
@@ -189,6 +154,55 @@ pub fn spawn_client_sync(
                         }
                         None => continue,
                     };
+
+                    // Preserve FIFO through the first control that invalidates this result. When no
+                    // such control is queued, defer the batch so sustained ingress cannot starve builds.
+                    let mut queued_ingress = VecDeque::new();
+                    let mut ingress_disconnected = false;
+                    for _ in 0..args.ingress_capacity {
+                        match ingress_rx.try_recv() {
+                            Ok(message) => queued_ingress.push_back(message),
+                            Err(TryRecvError::Empty) => break,
+                            Err(TryRecvError::Disconnected) => {
+                                ingress_disconnected = true;
+                                break;
+                            }
+                        }
+                    }
+
+                    let controls_to_apply = if ingress_disconnected {
+                        queued_ingress.len()
+                    } else {
+                        queued_ingress
+                            .iter()
+                            .position(|message| {
+                                ingress_can_invalidate(message, &build_result.request)
+                            })
+                            .map_or(0, |position| position + 1)
+                    };
+                    for _ in 0..controls_to_apply {
+                        let message = queued_ingress
+                            .pop_front()
+                            .expect("queued ingress length was measured");
+                        if let ControlFlow::Break(status) = apply_ingress(
+                            message,
+                            &events_tx,
+                            &snapshot_builder,
+                            &mut current,
+                            &mut builds,
+                        )
+                        .await
+                        {
+                            return status;
+                        }
+                    }
+                    deferred_ingress.extend(queued_ingress);
+                    if ingress_disconnected {
+                        builds.shutdown().await;
+                        current.clear();
+                        return ClientSyncExitStatus::IngressClosed;
+                    }
+
                     // NOTE: This loop owns the current hydration map. Builder results deliver only
                     // while their client command is still current after replacement or cancellation.
                     if current.get(&build_result.request.client_id)
@@ -224,6 +238,91 @@ pub fn spawn_client_sync(
         ingress_tx,
         join_handle,
     })
+}
+
+fn ingress_can_invalidate(
+    message: &ClientSyncIngress,
+    request: &ClientSnapshotBuildRequest,
+) -> bool {
+    match message {
+        ClientSyncIngress::StartHydration(begin) => begin.client_id == request.client_id,
+        ClientSyncIngress::CancelHydration(cancel) => {
+            cancel.client_id == request.client_id
+                && cancel.client_command_id == request.client_command_id
+        }
+        ClientSyncIngress::Shutdown => true,
+    }
+}
+
+async fn apply_ingress(
+    message: ClientSyncIngress,
+    events_tx: &EventIngressSender,
+    snapshot_builder: &Arc<dyn ClientSnapshotBuilder>,
+    current: &mut HashMap<ClientId, ActiveHydration>,
+    builds: &mut JoinSet<HydrationBuildResult>,
+) -> ControlFlow<ClientSyncExitStatus> {
+    match message {
+        ClientSyncIngress::StartHydration(begin) => {
+            let client_id = begin.client_id.clone();
+            let client_command_id = begin.client_command_id.clone();
+
+            if current
+                .get(&client_id)
+                .map(|hydration| &hydration.client_command_id)
+                == Some(&client_command_id)
+            {
+                return ControlFlow::Continue(());
+            }
+
+            let request = ClientSnapshotBuildRequest {
+                client_id: client_id.clone(),
+                client_command_id: client_command_id.clone(),
+                subscription: begin.subscription.clone(),
+            };
+
+            // NOTE: Begin is the state handoff to events. Snapshot building starts after
+            // that mailbox accepts Begin, so a closed events mailbox is a fatal hydration
+            // boundary failure and the builder remains untouched.
+            if send_control(events_tx, EventControlMessage::BeginClientHydration(begin))
+                .await
+                .is_err()
+            {
+                builds.shutdown().await;
+                current.clear();
+                return ControlFlow::Break(ClientSyncExitStatus::Fatal(
+                    "events mailbox closed while beginning client hydration".to_owned(),
+                ));
+            }
+
+            let abort_handle = spawn_snapshot_build(builds, snapshot_builder.clone(), request);
+            if let Some(previous) = current.insert(
+                client_id,
+                ActiveHydration {
+                    client_command_id,
+                    abort_handle,
+                },
+            ) {
+                previous.abort_handle.abort();
+            }
+            ControlFlow::Continue(())
+        }
+        ClientSyncIngress::CancelHydration(cancel) => {
+            if current
+                .get(&cancel.client_id)
+                .map(|hydration| &hydration.client_command_id)
+                == Some(&cancel.client_command_id)
+                && let Some(cancelled) = current.remove(&cancel.client_id)
+            {
+                cancelled.abort_handle.abort();
+            }
+            ControlFlow::Continue(())
+        }
+        ClientSyncIngress::Shutdown => {
+            builds.shutdown().await;
+            current.clear();
+            ControlFlow::Break(ClientSyncExitStatus::Stopped)
+        }
+    }
 }
 
 fn spawn_snapshot_build(

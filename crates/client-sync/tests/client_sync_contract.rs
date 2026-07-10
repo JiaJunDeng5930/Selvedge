@@ -358,6 +358,79 @@ async fn cancel_aborts_builder() {
 }
 
 #[tokio::test]
+async fn queued_cancel_precedes_a_completed_builder_result() {
+    let _guard = TEST_LOCK.lock().await;
+
+    for trial in 0..16 {
+        let (events_tx, mut events_rx) = mpsc::channel(1);
+        let gate_tx = events_tx.clone();
+        let (release_tx, release_rx) = oneshot::channel();
+        let (_blocker_tx, blocker_rx) = oneshot::channel();
+        let builder = Arc::new(RecordingBuilder::new(vec![
+            BuildAction::Wait(release_rx),
+            BuildAction::Wait(blocker_rx),
+        ]));
+        let handle = spawn_client_sync(ClientSyncStartArgs {
+            events_tx,
+            snapshot_builder: builder,
+            ingress_capacity: 1,
+        })
+        .expect("spawn client sync");
+
+        handle
+            .ingress_tx
+            .send(ClientSyncIngress::StartHydration(begin(
+                "client-1", "attach-1",
+            )))
+            .await
+            .expect("send target start");
+        assert_begin(&recv_control(&mut events_rx).await, "client-1", "attach-1");
+
+        gate_tx
+            .send(EventIngress::Control(
+                EventControlMessage::BeginClientHydration(begin("gate", "gate")),
+            ))
+            .await
+            .expect("fill events mailbox");
+        handle
+            .ingress_tx
+            .send(ClientSyncIngress::StartHydration(begin(
+                "blocker", "blocker",
+            )))
+            .await
+            .expect("send blocker start");
+        drop(
+            timeout(Duration::from_secs(1), handle.ingress_tx.reserve())
+                .await
+                .expect("blocker was not received")
+                .expect("reserve ingress capacity"),
+        );
+
+        release_tx
+            .send(Ok(empty_snapshot()))
+            .expect("release target builder");
+        tokio::task::yield_now().await;
+        tokio::task::yield_now().await;
+        handle
+            .ingress_tx
+            .try_send(ClientSyncIngress::CancelHydration(CancelHydration {
+                client_id: ClientId("client-1".to_owned()),
+                client_command_id: ClientCommandId("attach-1".to_owned()),
+            }))
+            .expect("queue cancel");
+
+        assert_begin(&recv_control(&mut events_rx).await, "gate", "gate");
+        assert_begin(&recv_control(&mut events_rx).await, "blocker", "blocker");
+        assert!(
+            recv_control_timeout(&mut events_rx).await.is_none(),
+            "trial {trial} delivered a snapshot after its cancellation was queued"
+        );
+
+        shutdown(handle).await;
+    }
+}
+
+#[tokio::test]
 async fn shutdown_aborts_builder_before_task_stops() {
     let _guard = TEST_LOCK.lock().await;
     let (events_tx, mut events_rx) = mpsc::channel(8);

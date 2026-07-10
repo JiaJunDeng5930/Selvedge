@@ -2,7 +2,7 @@
 
 <!-- selvedge-package-readme
 package: selvedge-client-sync
-freshness_fingerprint: f45e8446b71a47011333ae4392d9bf26d89cdbf7
+freshness_fingerprint: 9a64a86b667085e22c7f9c5fb7fd5bb88402c04d
 -->
 
 This crate defines the client hydration synchronization boundary used by the server and router attach path.
@@ -11,7 +11,7 @@ Use it to pass hydration starts, cancellation, shutdown signals, snapshot builde
 
 ## Hydration Model
 
-`spawn_client_sync` starts one ingress loop. That loop owns the current hydration map keyed by `ClientId` and a `JoinSet` containing every builder task. Each current entry holds its builder's `AbortHandle`, while the `JoinSet` owns completion and cleanup. Ingress and builder completions use fair `select!` scheduling.
+`spawn_client_sync` starts one ingress loop. That loop owns the current hydration map keyed by `ClientId` and a `JoinSet` containing every builder task. Each current entry holds its builder's `AbortHandle`, while the `JoinSet` owns completion and cleanup. Ingress and builder completions use fair `select!` scheduling. Before delivering a selected builder result, the loop preserves FIFO while applying queued controls through the first same-client replacement, matching cancellation, or shutdown. A queued batch without such a control resumes after delivery, keeping completed builds schedulable under sustained ingress.
 
 `ClientSyncIngress::StartHydration` sends `BeginClientHydration` to the events mailbox first. Current-state snapshot building starts after that send succeeds. Empty snapshot mode delivers an empty snapshot without calling the builder. A closed events mailbox is a fatal client-sync exit, and the builder is left untouched for that request.
 
