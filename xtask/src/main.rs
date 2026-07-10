@@ -5,6 +5,7 @@ use std::process;
 use xtask::agents_index::{CheckStatus, DirectoryWarning, check_agents_md, update_agents_md};
 use xtask::readme_gate::{
     ReadmeFreshnessStatus, check_package_readme_mermaid, check_package_readmes_freshness,
+    update_package_readmes_freshness,
 };
 
 const WARNING_THRESHOLD: usize = 200;
@@ -51,13 +52,20 @@ fn main() {
                             "{}: stale README freshness metadata at {}",
                             package.package, package.readme_path
                         );
-                        eprintln!("  freshness_commit: {}", package.freshness_commit);
-                        for changed_file in package.changed_files {
-                            eprintln!("  changed: {changed_file}");
-                        }
+                        eprintln!("  recorded: {}", package.freshness_fingerprint);
+                        eprintln!("  current:  {}", package.current_fingerprint);
                     }
                     1
                 }
+                Err(error) => {
+                    eprintln!("{error}");
+                    1
+                }
+            }
+        }
+        [command, action] if command == "readme" && action == "update-freshness" => {
+            match update_package_readmes_freshness(&root) {
+                Ok(()) => 0,
                 Err(error) => {
                     eprintln!("{error}");
                     1
@@ -75,7 +83,7 @@ fn main() {
         }
         _ => {
             eprintln!(
-                "usage: cargo xtask agents-index <update|check>\n       cargo xtask readme <check-freshness|check-mermaid>"
+                "usage: cargo xtask agents-index <update|check>\n       cargo xtask readme <update-freshness|check-freshness|check-mermaid>"
             );
             2
         }

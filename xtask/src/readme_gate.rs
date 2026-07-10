@@ -1,7 +1,8 @@
 use std::collections::BTreeSet;
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 const METADATA_BEGIN: &str = "<!-- selvedge-package-readme";
 const METADATA_END: &str = "-->";
@@ -17,8 +18,8 @@ pub struct StalePackage {
     pub package: String,
     pub package_path: String,
     pub readme_path: String,
-    pub freshness_commit: String,
-    pub changed_files: Vec<String>,
+    pub freshness_fingerprint: String,
+    pub current_fingerprint: String,
 }
 
 pub fn check_package_readmes_freshness(root: &Path) -> Result<ReadmeFreshnessStatus, String> {
@@ -29,16 +30,14 @@ pub fn check_package_readmes_freshness(root: &Path) -> Result<ReadmeFreshnessSta
         let readme_path = package.path.join("README.md");
         let readme_content = read_file(root, &readme_path)?;
         let metadata = parse_metadata(&package, &readme_content)?;
-        ensure_commit_exists(root, &metadata.freshness_commit)?;
-        let changed_files =
-            changed_package_files_since(root, &metadata.freshness_commit, &package)?;
-        if !changed_files.is_empty() {
+        let current_fingerprint = package_content_fingerprint(root, &package)?;
+        if metadata.freshness_fingerprint != current_fingerprint {
             stale_packages.push(StalePackage {
                 package: package.name,
                 package_path: path_to_string(&package.path),
                 readme_path: path_to_string(&readme_path),
-                freshness_commit: metadata.freshness_commit,
-                changed_files,
+                freshness_fingerprint: metadata.freshness_fingerprint,
+                current_fingerprint,
             });
         }
     }
@@ -50,6 +49,29 @@ pub fn check_package_readmes_freshness(root: &Path) -> Result<ReadmeFreshnessSta
             packages: stale_packages,
         })
     }
+}
+
+pub fn update_package_readmes_freshness(root: &Path) -> Result<(), String> {
+    let updates = workspace_packages(root)?
+        .into_iter()
+        .map(|package| {
+            let readme_path = package.path.join("README.md");
+            let readme_content = read_file(root, &readme_path)?;
+            let fingerprint = package_content_fingerprint(root, &package)?;
+            let updated = update_fingerprint_metadata(&package, &readme_content, &fingerprint)?;
+            Ok((readme_path, updated))
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+
+    for (readme_path, updated) in updates {
+        fs::write(root.join(&readme_path), updated).map_err(|error| {
+            format!(
+                "failed to write {}: {error}",
+                root.join(&readme_path).display()
+            )
+        })?;
+    }
+    Ok(())
 }
 
 pub fn check_package_readme_mermaid(root: &Path) -> Result<(), String> {
@@ -95,7 +117,7 @@ struct WorkspacePackage {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ReadmeMetadata {
-    freshness_commit: String,
+    freshness_fingerprint: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -260,32 +282,17 @@ fn parse_metadata(
     package: &WorkspacePackage,
     readme_content: &str,
 ) -> Result<ReadmeMetadata, String> {
-    let start = readme_content.find(METADATA_BEGIN).ok_or_else(|| {
-        format!(
-            "{}/README.md:1: missing-readme-metadata: add selvedge-package-readme metadata",
-            path_to_string(&package.path)
-        )
-    })?;
-    let after_start = start + METADATA_BEGIN.len();
-    let end = readme_content[after_start..]
-        .find(METADATA_END)
-        .map(|offset| after_start + offset)
-        .ok_or_else(|| {
-            format!(
-                "{}/README.md:1: unterminated-readme-metadata: close selvedge-package-readme metadata",
-                path_to_string(&package.path)
-            )
-        })?;
-    let block = &readme_content[after_start..end];
+    let (start, end) = metadata_block_range(package, readme_content)?;
+    let block = &readme_content[start..end];
     let mut metadata_package = None;
-    let mut freshness_commit = None;
+    let mut freshness_fingerprint = None;
 
     for line in block.lines() {
         let trimmed = line.trim();
         if let Some(value) = trimmed.strip_prefix("package:") {
             metadata_package = Some(value.trim().to_owned());
-        } else if let Some(value) = trimmed.strip_prefix("freshness_commit:") {
-            freshness_commit = Some(value.trim().to_owned());
+        } else if let Some(value) = trimmed.strip_prefix("freshness_fingerprint:") {
+            freshness_fingerprint = Some(value.trim().to_owned());
         }
     }
 
@@ -303,98 +310,49 @@ fn parse_metadata(
         ));
     }
 
-    let freshness_commit = freshness_commit.ok_or_else(|| {
+    let freshness_fingerprint = freshness_fingerprint.ok_or_else(|| {
         format!(
-            "{}/README.md:1: missing-freshness-commit: metadata must include freshness_commit",
+            "{}/README.md:1: missing-freshness-fingerprint: metadata must include freshness_fingerprint",
             path_to_string(&package.path)
         )
     })?;
-    if !is_full_hex_commit(&freshness_commit) {
+    if !is_hex_fingerprint(&freshness_fingerprint) {
         return Err(format!(
-            "{}/README.md:1: invalid-freshness-commit: freshness_commit must be a 40-character hex commit hash",
+            "{}/README.md:1: invalid-freshness-fingerprint: freshness_fingerprint must be a 40- or 64-character hex hash",
             path_to_string(&package.path)
         ));
     }
 
-    Ok(ReadmeMetadata { freshness_commit })
+    Ok(ReadmeMetadata {
+        freshness_fingerprint,
+    })
 }
 
-fn is_full_hex_commit(value: &str) -> bool {
-    value.len() == 40 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
-}
-
-fn ensure_commit_exists(root: &Path, commit: &str) -> Result<(), String> {
-    let object = format!("{commit}^{{commit}}");
-    let output = isolated_git_command()
-        .current_dir(root)
-        .args(["cat-file", "-e", &object])
-        .output()
-        .map_err(|error| format!("failed to run git cat-file: {error}"))?;
-    if !output.status.success() {
-        return Err(format!("freshness commit `{commit}` is not a known commit"));
-    }
-
-    ensure_commit_is_ancestor(root, commit)
-}
-
-fn ensure_commit_is_ancestor(root: &Path, commit: &str) -> Result<(), String> {
-    let output = isolated_git_command()
-        .current_dir(root)
-        .args(["merge-base", "--is-ancestor", commit, "HEAD"])
-        .output()
-        .map_err(|error| format!("failed to run git merge-base: {error}"))?;
-    if output.status.success() {
-        Ok(())
-    } else if output.status.code() == Some(1) {
-        Err(format!(
-            "freshness commit `{commit}` is not an ancestor of HEAD"
-        ))
-    } else {
-        Err(format!(
-            "git merge-base failed for freshness commit `{commit}`: {}",
-            String::from_utf8_lossy(&output.stderr).trim()
-        ))
-    }
-}
-
-fn changed_package_files_since(
-    root: &Path,
-    commit: &str,
+fn metadata_block_range(
     package: &WorkspacePackage,
-) -> Result<Vec<String>, String> {
-    let range = format!("{commit}..HEAD");
-    let pathspecs = &package.diff_pathspecs;
-    let mut command = isolated_git_command();
-    command
-        .current_dir(root)
-        .args(["diff", "--name-only", "-z", &range, "--"]);
-    for pathspec in pathspecs {
-        command.arg(pathspec);
-    }
-    let output = command.output().map_err(|error| {
+    readme_content: &str,
+) -> Result<(usize, usize), String> {
+    let marker_start = readme_content.find(METADATA_BEGIN).ok_or_else(|| {
         format!(
-            "failed to run git diff for {}: {error}",
-            pathspecs.join(", ")
+            "{}/README.md:1: missing-readme-metadata: add selvedge-package-readme metadata",
+            path_to_string(&package.path)
         )
     })?;
-    if !output.status.success() {
-        return Err(format!(
-            "git diff failed for {}: {}",
-            pathspecs.join(", "),
-            String::from_utf8_lossy(&output.stderr).trim()
-        ));
-    }
+    let start = marker_start + METADATA_BEGIN.len();
+    let end = readme_content[start..]
+        .find(METADATA_END)
+        .map(|offset| start + offset)
+        .ok_or_else(|| {
+            format!(
+                "{}/README.md:1: unterminated-readme-metadata: close selvedge-package-readme metadata",
+                path_to_string(&package.path)
+            )
+        })?;
+    Ok((start, end))
+}
 
-    let readme_path = package_readme_path(&package.path);
-    let mut changed_files = output
-        .stdout
-        .split(|byte| *byte == b'\0')
-        .filter(|entry| !entry.is_empty())
-        .map(|entry| String::from_utf8_lossy(entry).into_owned())
-        .filter(|path| path != &readme_path)
-        .collect::<Vec<_>>();
-    changed_files.sort();
-    Ok(changed_files)
+fn is_hex_fingerprint(value: &str) -> bool {
+    matches!(value.len(), 40 | 64) && value.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
 fn package_readme_path(package_path: &Path) -> String {
@@ -403,6 +361,119 @@ fn package_readme_path(package_path: &Path) -> String {
     } else {
         path_to_string(&package_path.join("README.md"))
     }
+}
+
+fn package_content_fingerprint(root: &Path, package: &WorkspacePackage) -> Result<String, String> {
+    let mut list_command = isolated_git_command();
+    list_command
+        .current_dir(root)
+        .args(["ls-files", "--stage", "-z", "--"]);
+    for pathspec in &package.diff_pathspecs {
+        list_command.arg(pathspec);
+    }
+    let output = list_command
+        .output()
+        .map_err(|error| format!("failed to list tracked package files: {error}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "git ls-files failed for {}: {}",
+            package.diff_pathspecs.join(", "),
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+
+    let readme_path = package_readme_path(&package.path);
+    let mut entries = Vec::new();
+    for entry in output.stdout.split(|byte| *byte == b'\0') {
+        if entry.is_empty() {
+            continue;
+        }
+        let separator = entry
+            .iter()
+            .position(|byte| *byte == b'\t')
+            .ok_or_else(|| "git ls-files returned an invalid index entry".to_owned())?;
+        let path = &entry[separator + 1..];
+        if path == readme_path.as_bytes() {
+            continue;
+        }
+        let mut fields = entry[..separator].split(|byte| byte.is_ascii_whitespace());
+        let _mode = fields.next();
+        let blob = fields
+            .next()
+            .ok_or_else(|| "git ls-files index entry is missing a blob hash".to_owned())?;
+        let stage = fields
+            .next()
+            .ok_or_else(|| "git ls-files index entry is missing a stage".to_owned())?;
+        if stage != b"0" {
+            return Err(format!(
+                "cannot fingerprint unmerged package file {}",
+                String::from_utf8_lossy(path)
+            ));
+        }
+        entries.push((path.to_vec(), blob.to_vec()));
+    }
+    entries.sort_by(|left, right| left.0.cmp(&right.0));
+
+    let mut hash_command = isolated_git_command();
+    let mut child = hash_command
+        .current_dir(root)
+        .args(["hash-object", "--stdin"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .map_err(|error| format!("failed to run git hash-object: {error}"))?;
+    {
+        let stdin = child
+            .stdin
+            .as_mut()
+            .ok_or_else(|| "failed to open git hash-object stdin".to_owned())?;
+        for (path, blob) in entries {
+            stdin
+                .write_all(&path)
+                .and_then(|()| stdin.write_all(&[0]))
+                .and_then(|()| stdin.write_all(&blob))
+                .and_then(|()| stdin.write_all(&[0]))
+                .map_err(|error| format!("failed to write package fingerprint input: {error}"))?;
+        }
+    }
+    let output = child
+        .wait_with_output()
+        .map_err(|error| format!("failed to wait for git hash-object: {error}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "git hash-object failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_owned())
+}
+
+fn update_fingerprint_metadata(
+    package: &WorkspacePackage,
+    readme_content: &str,
+    fingerprint: &str,
+) -> Result<String, String> {
+    parse_metadata(package, readme_content)?;
+    let (start, end) = metadata_block_range(package, readme_content)?;
+    let block = &readme_content[start..end];
+
+    let key = "freshness_fingerprint:";
+    let key_start = block.find(key).ok_or_else(|| {
+        format!(
+            "{}/README.md:1: missing-freshness-fingerprint: metadata must include freshness_fingerprint",
+            path_to_string(&package.path)
+        )
+    })?;
+    let value_start = key_start + key.len();
+    let value_end = block[value_start..]
+        .find(['\r', '\n'])
+        .map_or(block.len(), |offset| value_start + offset);
+    let mut updated = readme_content.to_owned();
+    updated.replace_range(
+        start + value_start..start + value_end,
+        &format!(" {fingerprint}"),
+    );
+    Ok(updated)
 }
 
 fn extract_mermaid_diagrams(content: &str) -> Vec<MermaidDiagram> {
@@ -468,6 +539,7 @@ fn isolated_git_command() -> Command {
 mod tests {
     use super::{
         ReadmeFreshnessStatus, check_package_readme_mermaid, check_package_readmes_freshness,
+        update_package_readmes_freshness,
     };
     use std::fs;
     use std::path::Path;
@@ -475,52 +547,92 @@ mod tests {
     use tempfile::TempDir;
 
     #[test]
-    fn freshness_ignores_readme_changes_after_metadata_commit() {
+    fn update_freshness_writes_current_content_fingerprint() {
         let repo = TestRepo::new();
         repo.write(
             "crates/demo/Cargo.toml",
             "[package]\nname = \"demo\"\nedition = \"2024\"\n",
         );
         repo.write("crates/demo/src/lib.rs", "pub fn demo() {}\n");
-        repo.git_add(&["crates/demo/Cargo.toml", "crates/demo/src/lib.rs"]);
-        repo.git_commit("create package");
-        let commit = repo.head();
-        repo.write("crates/demo/README.md", &readme("demo", &commit, "A --> B"));
+        repo.write(
+            "crates/demo/README.md",
+            &fingerprint_readme("demo", &"0".repeat(40), "A --> B"),
+        );
+        repo.git_add(&[
+            "crates/demo/Cargo.toml",
+            "crates/demo/src/lib.rs",
+            "crates/demo/README.md",
+        ]);
+
+        update_package_readmes_freshness(repo.path()).expect("update should succeed");
+
+        let updated = fs::read_to_string(repo.path().join("crates/demo/README.md"))
+            .expect("README should be readable");
+        assert!(!updated.contains(&format!("freshness_fingerprint: {}", "0".repeat(40))));
+        assert!(updated.contains("freshness_fingerprint: "));
+        assert_eq!(
+            check_package_readmes_freshness(repo.path()).expect("freshness check should run"),
+            ReadmeFreshnessStatus::Fresh
+        );
+    }
+
+    #[test]
+    fn freshness_reports_staged_package_content_changes() {
+        let repo = TestRepo::new();
+        repo.write(
+            "crates/demo/Cargo.toml",
+            "[package]\nname = \"demo\"\nedition = \"2024\"\n",
+        );
+        repo.write("crates/demo/src/lib.rs", "pub fn demo() {}\n");
+        repo.write(
+            "crates/demo/README.md",
+            &fingerprint_readme("demo", &"0".repeat(40), "A --> B"),
+        );
+        repo.git_add(&[
+            "crates/demo/Cargo.toml",
+            "crates/demo/src/lib.rs",
+            "crates/demo/README.md",
+        ]);
+        update_package_readmes_freshness(repo.path()).expect("update should succeed");
         repo.git_add(&["crates/demo/README.md"]);
         repo.git_commit("document package");
+        repo.write("crates/demo/src/lib.rs", "pub fn demo() -> u8 { 1 }\n");
+        repo.git_add(&["crates/demo/src/lib.rs"]);
+
+        let status =
+            check_package_readmes_freshness(repo.path()).expect("freshness check should run");
+
+        assert!(matches!(status, ReadmeFreshnessStatus::Stale { .. }));
+    }
+
+    #[test]
+    fn freshness_ignores_readme_only_changes() {
+        let repo = TestRepo::new();
+        repo.write(
+            "crates/demo/Cargo.toml",
+            "[package]\nname = \"demo\"\nedition = \"2024\"\n",
+        );
+        repo.write("crates/demo/src/lib.rs", "pub fn demo() {}\n");
+        repo.write(
+            "crates/demo/README.md",
+            &fingerprint_readme("demo", &"0".repeat(40), "A --> B"),
+        );
+        repo.git_add(&[
+            "crates/demo/Cargo.toml",
+            "crates/demo/src/lib.rs",
+            "crates/demo/README.md",
+        ]);
+        update_package_readmes_freshness(repo.path()).expect("update should succeed");
+        let readme = repo
+            .read("crates/demo/README.md")
+            .replace("A --> B", "A --> C");
+        repo.write("crates/demo/README.md", &readme);
+        repo.git_add(&["crates/demo/README.md"]);
 
         let status =
             check_package_readmes_freshness(repo.path()).expect("freshness check should run");
 
         assert_eq!(status, ReadmeFreshnessStatus::Fresh);
-    }
-
-    #[test]
-    fn freshness_reports_package_changes_after_metadata_commit() {
-        let repo = TestRepo::new();
-        repo.write(
-            "crates/demo/Cargo.toml",
-            "[package]\nname = \"demo\"\nedition = \"2024\"\n",
-        );
-        repo.write("crates/demo/src/lib.rs", "pub fn demo() {}\n");
-        repo.git_add(&["crates/demo/Cargo.toml", "crates/demo/src/lib.rs"]);
-        repo.git_commit("create package");
-        let commit = repo.head();
-        repo.write("crates/demo/README.md", &readme("demo", &commit, "A --> B"));
-        repo.git_add(&["crates/demo/README.md"]);
-        repo.git_commit("document package");
-        repo.write("crates/demo/src/lib.rs", "pub fn demo() -> u8 { 1 }\n");
-        repo.git_add(&["crates/demo/src/lib.rs"]);
-        repo.git_commit("change package");
-
-        let status =
-            check_package_readmes_freshness(repo.path()).expect("freshness check should run");
-
-        let ReadmeFreshnessStatus::Stale { packages } = status else {
-            panic!("expected stale package");
-        };
-        assert_eq!(packages[0].package, "demo");
-        assert_eq!(packages[0].changed_files, vec!["crates/demo/src/lib.rs"]);
     }
 
     #[test]
@@ -533,7 +645,7 @@ mod tests {
         repo.write("crates/demo/src/lib.rs", "pub fn demo() {}\n");
         repo.write(
             "crates/demo/README.md",
-            &readme("demo", &repo.head(), "A --> B"),
+            &fingerprint_readme("demo", &"0".repeat(40), "A --> B"),
         );
         repo.git_add(&[
             "crates/demo/Cargo.toml",
@@ -566,11 +678,12 @@ mod tests {
             "crates/demo/src/lib.rs",
             "crates/template/Cargo.toml",
         ]);
-        repo.git_commit("create workspace packages");
-        let commit = repo.head();
-        repo.write("crates/demo/README.md", &readme("demo", &commit, "A --> B"));
+        repo.write(
+            "crates/demo/README.md",
+            &fingerprint_readme("demo", &"0".repeat(40), "A --> B"),
+        );
         repo.git_add(&["crates/demo/README.md"]);
-        repo.git_commit("document package");
+        update_package_readmes_freshness(repo.path()).expect("update should succeed");
 
         check_package_readme_mermaid(repo.path()).expect("excluded packages should be skipped");
         let status =
@@ -597,11 +710,11 @@ mod tests {
             "crates/demo/src/lib.rs",
             "crates/demo/fixtures/nested/Cargo.toml",
         ]);
-        repo.git_commit("create nested fixture manifest");
-        let commit = repo.head();
-        repo.write("crates/demo/README.md", &readme("demo", &commit, "A --> B"));
+        repo.write(
+            "crates/demo/README.md",
+            &fingerprint_readme("demo", &"0".repeat(40), "A --> B"),
+        );
         repo.git_add(&["crates/demo/README.md"]);
-        repo.git_commit("document package");
 
         check_package_readme_mermaid(repo.path())
             .expect("nested manifests outside Cargo workspace membership should be skipped");
@@ -615,16 +728,16 @@ mod tests {
             "[package]\nname = \"root-demo\"\nedition = \"2024\"\n\n[workspace]\nmembers = []\n",
         );
         repo.write("src/lib.rs", "pub fn root_demo() {}\n");
-        repo.git_add(&["Cargo.toml", "src/lib.rs"]);
-        repo.git_commit("create root package");
-        let commit = repo.head();
-        repo.write("README.md", &readme("root-demo", &commit, "A --> B"));
+        repo.write(
+            "README.md",
+            &fingerprint_readme("root-demo", &"0".repeat(40), "A --> B"),
+        );
+        repo.git_add(&["Cargo.toml", "src/lib.rs", "README.md"]);
+        update_package_readmes_freshness(repo.path()).expect("update should succeed");
         repo.git_add(&["README.md"]);
-        repo.git_commit("document root package");
         repo.write("build.rs", "fn main() {}\n");
         repo.write("examples/demo.rs", "fn main() {}\n");
         repo.git_add(&["build.rs", "examples/demo.rs"]);
-        repo.git_commit("add root package targets");
 
         let status =
             check_package_readmes_freshness(repo.path()).expect("freshness check should run");
@@ -633,9 +746,9 @@ mod tests {
             panic!("expected stale root package");
         };
         assert_eq!(packages[0].package, "root-demo");
-        assert_eq!(
-            packages[0].changed_files,
-            vec!["build.rs", "examples/demo.rs"]
+        assert_ne!(
+            packages[0].freshness_fingerprint,
+            packages[0].current_fingerprint
         );
     }
 
@@ -648,14 +761,15 @@ mod tests {
         );
         repo.write("src/lib.rs", "pub fn root_demo() {}\n");
         repo.write("build.rs", "fn main() {}\n");
-        repo.git_add(&["Cargo.toml", "src/lib.rs", "build.rs"]);
-        repo.git_commit("create root package with build script");
-        let commit = repo.head();
-        repo.write("README.md", &readme("root-demo", &commit, "A --> B"));
+        repo.write(
+            "README.md",
+            &fingerprint_readme("root-demo", &"0".repeat(40), "A --> B"),
+        );
+        repo.git_add(&["Cargo.toml", "src/lib.rs", "build.rs", "README.md"]);
+        update_package_readmes_freshness(repo.path()).expect("update should succeed");
         repo.git_add(&["README.md"]);
         repo.git_commit("document root package");
         repo.git_rm(&["build.rs"]);
-        repo.git_commit("remove root build script");
 
         let status =
             check_package_readmes_freshness(repo.path()).expect("freshness check should run");
@@ -664,36 +778,44 @@ mod tests {
             panic!("expected stale root package");
         };
         assert_eq!(packages[0].package, "root-demo");
-        assert_eq!(packages[0].changed_files, vec!["build.rs"]);
+        assert_ne!(
+            packages[0].freshness_fingerprint,
+            packages[0].current_fingerprint
+        );
     }
 
     #[test]
-    fn freshness_rejects_non_ancestor_metadata_commit() {
+    fn freshness_accepts_equivalent_content_after_history_rewrite() {
         let repo = TestRepo::new();
         repo.write(
             "crates/demo/Cargo.toml",
             "[package]\nname = \"demo\"\nedition = \"2024\"\n",
         );
         repo.write("crates/demo/src/lib.rs", "pub fn demo() {}\n");
-        repo.git_add(&["crates/demo/Cargo.toml", "crates/demo/src/lib.rs"]);
-        repo.git_commit("create package");
-        let non_ancestor_commit = repo.commit_tree("unrelated package tree");
         repo.write(
             "crates/demo/README.md",
-            &readme("demo", &non_ancestor_commit, "A --> B"),
+            &fingerprint_readme("demo", &"0".repeat(40), "A --> B"),
         );
+        repo.git_add(&[
+            "crates/demo/Cargo.toml",
+            "crates/demo/src/lib.rs",
+            "crates/demo/README.md",
+        ]);
+        update_package_readmes_freshness(repo.path()).expect("update should succeed");
         repo.git_add(&["crates/demo/README.md"]);
         repo.git_commit("document package");
+        let rewritten_head = repo.commit_tree("rewritten history");
+        repo.git_reset_hard(&rewritten_head);
 
-        let error = check_package_readmes_freshness(repo.path())
-            .expect_err("non-ancestor freshness commit should fail");
+        let status =
+            check_package_readmes_freshness(repo.path()).expect("freshness check should run");
 
-        assert!(error.contains("is not an ancestor of HEAD"));
+        assert_eq!(status, ReadmeFreshnessStatus::Fresh);
     }
 
-    fn readme(package: &str, commit: &str, diagram_body: &str) -> String {
+    fn fingerprint_readme(package: &str, fingerprint: &str, diagram_body: &str) -> String {
         format!(
-            "# {package}\n\n<!-- selvedge-package-readme\npackage: {package}\nfreshness_commit: {commit}\n-->\n\n```mermaid\nflowchart TD\n  {diagram_body}\n```\n"
+            "# {package}\n\n<!-- selvedge-package-readme\npackage: {package}\nfreshness_fingerprint: {fingerprint}\n-->\n\n```mermaid\nflowchart TD\n  {diagram_body}\n```\n"
         )
     }
 
@@ -736,6 +858,10 @@ mod tests {
             fs::write(full_path, content).expect("file should be written");
         }
 
+        fn read(&self, relative_path: &str) -> String {
+            fs::read_to_string(self.path().join(relative_path)).expect("file should be readable")
+        }
+
         fn git_add(&self, paths: &[&str]) {
             let mut args = vec!["add"];
             args.extend_from_slice(paths);
@@ -759,8 +885,8 @@ mod tests {
             run_git(self.path(), &["commit-tree", "HEAD^{tree}", "-m", message])
         }
 
-        fn head(&self) -> String {
-            run_git(self.path(), &["rev-parse", "HEAD"])
+        fn git_reset_hard(&self, commit: &str) {
+            run_git(self.path(), &["reset", "--hard", commit]);
         }
     }
 
