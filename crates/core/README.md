@@ -11,9 +11,13 @@ Use it to spawn a task-local runtime that loads SQLite state through `selvedge-d
 
 This crate only talks to the router mailbox and the database package. Provider calls, tool execution, event fanout, runtime registry ownership, and direct client delivery live in other crates.
 
-On `Start`, the runtime reads the active task snapshot and classifies the concrete cursor tail. User/system/function-output tails request a model call; function-call tails request tool execution; assistant/developer tails await user input with an empty queue. The runtime keeps only in-flight correlation ids and pending tool-call identity in memory; the task cursor lives in SQLite.
+On `Start`, the runtime reads the active task snapshot and classifies the concrete cursor tail. User/system/function-output tails request a model call; function-call tails request tool execution; assistant/developer tails await user input with an empty queue. The runtime keeps only in-flight correlation ids, the manifest sent with an active model request, and pending tool-call identity in memory; the task cursor lives in SQLite.
 
 Before dispatching a model call, the actor reads the conversation, tool manifest, and active model profile together on Tokio's blocking thread pool. SQLite work therefore leaves async runtime workers available for other actors.
+
+Durable function calls become explicit function-call conversation content, and function outputs become explicit function-output content. Their arguments remain one JSON object throughout replay, persistence, and execution dispatch.
+
+When a matching model reply arrives, the actor validates it against the exact manifest stored for that model run rather than reading the current publication state again. A tool unpublished after request dispatch can therefore finish the already-issued turn. Core rejects duplicate call ids and tools absent from that snapshot, but leaves JSON Schema interpretation to the selected executor.
 
 The actor checks `TaskRuntimeControl` before receiving each business mailbox command. A stop request makes the actor return from its loop at that safety point. The mailbox receive branch is behind the control branch and the actor rechecks stop after receiving a command, so a stop bit observed at the event boundary prevents the next business command from starting. The runtime writes `TaskRuntimeStopResult` from the actor's unified exit path, so a later stop call also completes after archive, database error, router shutdown, or dropped runtime mailbox.
 
@@ -35,6 +39,7 @@ flowchart TD
   AwaitInput[Await user input]
   RequestModel[Load model context on blocking pool and send request]
   AwaitModel[Await matching API output]
+  ValidateModelReply[Validate reply against sent manifest snapshot]
   RequestTool[Send tool execution request to router]
   AwaitTool[Await matching tool output]
   QueueInput[Queue or append user input]
@@ -46,6 +51,7 @@ flowchart TD
   Exit[Publish TaskRuntimeExitNotice]
   DbError[Exit on database error]
   RouterClosed[Exit on router ingress closure]
+  InternalError[Exit on invalid correlated reply]
 
   Start -->|task runtime actor starts| LoadSnapshot
   LoadSnapshot -->|active task snapshot read succeeds| ClassifyTail
@@ -57,7 +63,9 @@ flowchart TD
   RequestModel -->|database reads and router ingress send succeed| AwaitModel
   RequestModel -->|database read fails| DbError
   RequestModel -->|router ingress send fails| RouterClosed
-  AwaitModel -->|matching completed API output arrives| ClassifyTail
+  AwaitModel -->|matching completed API output arrives| ValidateModelReply
+  ValidateModelReply -->|call ids are unique and every tool belongs to the sent manifest| ClassifyTail
+  ValidateModelReply -->|a call id is duplicated or a tool was absent from the sent manifest| InternalError
   AwaitModel -->|matching failed API output arrives| AwaitInput
   AwaitModel -->|user input arrives while model is in flight| QueueInput
   RequestTool -->|router ingress send succeeds| AwaitTool
@@ -78,5 +86,6 @@ flowchart TD
   Stop -->|runtime unavailable is selected| FailPending
   DbError -->|database error is classified| FailPending
   RouterClosed -->|runtime unavailable is selected| FailPending
+  InternalError -->|runtime unavailable is selected| FailPending
   FailPending -->|mailbox responders are settled exactly once| Exit
 ```

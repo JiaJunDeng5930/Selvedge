@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use std::time::Duration;
 
 use selvedge_command_model::{
@@ -12,16 +12,18 @@ use selvedge_core::{SpawnTaskRuntimeArgs, TaskRuntimeConfig, spawn_task_runtime}
 use selvedge_db::{
     CreateRootTaskInput, FunctionCallId, NewFunctionCallNodeContent, NewFunctionOutputNodeContent,
     NewHistoryNode, NewHistoryNodeContent, NewMessageNodeContent, ReasoningEffort, TaskId,
-    ToolArgumentValue, ToolCallArgument, ToolName, ToolParameterName, UnixTs,
-    append_assistant_message_and_drain_queue, append_function_output_and_drain_queue,
-    append_model_reply_with_tool_calls_and_move_cursor, append_user_message_and_move_cursor,
-    create_history_node, create_root_task, load_active_task, queue_user_input, register_tool,
+    ToolName, UnixTs, append_assistant_message_and_drain_queue,
+    append_function_output_and_drain_queue, append_model_reply_with_tool_calls_and_move_cursor,
+    append_user_message_and_move_cursor, create_history_node, create_root_task, load_active_task,
+    queue_user_input, read_conversation_for_task, read_tool_manifest_for_task,
+    register_global_tool, register_tool, unpublish_global_tool,
 };
 use selvedge_domain_model::{
-    MessageContent, ModelFinishReason, ModelReply, StructuredPayload, ToolCallProposal,
-    ToolParameter, ToolParameterType, ToolSpec,
+    ConversationItem, JsonObject, MessageContent, ModelFinishReason, ModelReply, ToolCallProposal,
+    ToolSpec,
 };
 use selvedge_test_support::db::{default_model_profiles, open_memory_db};
+use serde_json::{Value, json};
 
 #[tokio::test]
 async fn task_runtime_starts_and_requests_model_call_from_system_cursor() {
@@ -242,15 +244,7 @@ async fn task_runtime_start_promotes_queue_before_awaiting_user_input() {
 #[tokio::test]
 async fn task_runtime_start_dispatches_tool_from_function_call_cursor() {
     let db = open_memory_db();
-    register_tool(
-        &db,
-        ToolSpec {
-            name: "search".to_owned(),
-            description: "search".to_owned(),
-            parameters: Vec::new(),
-        },
-    )
-    .expect("register tool");
+    register_tool(&db, tool_spec("search")).expect("register tool");
     create_root_task(
         &db,
         CreateRootTaskInput {
@@ -281,7 +275,7 @@ async fn task_runtime_start_dispatches_tool_from_function_call_cursor() {
         vec![NewFunctionCallNodeContent {
             function_call_id: FunctionCallId("call-1".to_owned()),
             tool_name: ToolName("search".to_owned()),
-            arguments: Vec::new(),
+            arguments: JsonObject::new(),
         }],
         UnixTs(2),
     )
@@ -317,15 +311,7 @@ async fn task_runtime_start_dispatches_tool_from_function_call_cursor() {
 #[tokio::test]
 async fn task_runtime_start_reconstructs_open_batched_tool_calls_from_history() {
     let db = open_memory_db();
-    register_tool(
-        &db,
-        ToolSpec {
-            name: "search".to_owned(),
-            description: "search".to_owned(),
-            parameters: Vec::new(),
-        },
-    )
-    .expect("register tool");
+    register_tool(&db, tool_spec("search")).expect("register tool");
     create_root_task(
         &db,
         CreateRootTaskInput {
@@ -357,12 +343,12 @@ async fn task_runtime_start_reconstructs_open_batched_tool_calls_from_history() 
             NewFunctionCallNodeContent {
                 function_call_id: FunctionCallId("call-1".to_owned()),
                 tool_name: ToolName("search".to_owned()),
-                arguments: Vec::new(),
+                arguments: JsonObject::new(),
             },
             NewFunctionCallNodeContent {
                 function_call_id: FunctionCallId("call-2".to_owned()),
                 tool_name: ToolName("search".to_owned()),
-                arguments: Vec::new(),
+                arguments: JsonObject::new(),
             },
         ],
         UnixTs(2),
@@ -404,12 +390,8 @@ async fn task_runtime_resolves_model_profile_key_into_provider_and_model() {
 
 #[tokio::test]
 async fn task_runtime_dispatches_all_tool_calls_before_next_model_call() {
-    let (runtime, mut router_rx, _router_tx) = spawn_runtime_with_task(vec![ToolSpec {
-        name: "search".to_owned(),
-        description: "search".to_owned(),
-        parameters: Vec::new(),
-    }])
-    .await;
+    let (runtime, mut router_rx, _router_tx) =
+        spawn_runtime_with_task(vec![tool_spec("search")]).await;
     let correlation = start_and_request_model(&runtime, &mut router_rx).await;
 
     runtime
@@ -423,12 +405,12 @@ async fn task_runtime_dispatches_all_tool_calls_before_next_model_call() {
                         ToolCallProposal {
                             call_id: "call-1".to_owned(),
                             tool_name: "search".to_owned(),
-                            arguments: StructuredPayload::Object(BTreeMap::new()),
+                            arguments: JsonObject::new(),
                         },
                         ToolCallProposal {
                             call_id: "call-2".to_owned(),
                             tool_name: "search".to_owned(),
-                            arguments: StructuredPayload::Object(BTreeMap::new()),
+                            arguments: JsonObject::new(),
                         },
                     ],
                     usage: None,
@@ -541,12 +523,8 @@ async fn task_runtime_stop_completes_when_router_ingress_is_not_drained() {
 
 #[tokio::test]
 async fn task_runtime_preserves_batched_tool_call_order_in_next_model_request() {
-    let (runtime, mut router_rx, _router_tx) = spawn_runtime_with_task(vec![ToolSpec {
-        name: "search".to_owned(),
-        description: "search".to_owned(),
-        parameters: Vec::new(),
-    }])
-    .await;
+    let (runtime, mut router_rx, _router_tx) =
+        spawn_runtime_with_task(vec![tool_spec("search")]).await;
     let correlation = start_and_request_model(&runtime, &mut router_rx).await;
 
     runtime
@@ -560,12 +538,12 @@ async fn task_runtime_preserves_batched_tool_call_order_in_next_model_request() 
                         ToolCallProposal {
                             call_id: "call-1".to_owned(),
                             tool_name: "search".to_owned(),
-                            arguments: StructuredPayload::Object(BTreeMap::new()),
+                            arguments: JsonObject::new(),
                         },
                         ToolCallProposal {
                             call_id: "call-2".to_owned(),
                             tool_name: "search".to_owned(),
-                            arguments: StructuredPayload::Object(BTreeMap::new()),
+                            arguments: JsonObject::new(),
                         },
                     ],
                     usage: None,
@@ -626,15 +604,7 @@ async fn task_runtime_preserves_batched_tool_call_order_in_next_model_request() 
 #[tokio::test]
 async fn task_runtime_ignores_tool_result_with_mismatched_call_identity() {
     let db = open_memory_db();
-    register_tool(
-        &db,
-        ToolSpec {
-            name: "search".to_owned(),
-            description: "search".to_owned(),
-            parameters: Vec::new(),
-        },
-    )
-    .expect("register tool");
+    register_tool(&db, tool_spec("search")).expect("register tool");
     create_root_task(
         &db,
         CreateRootTaskInput {
@@ -682,12 +652,12 @@ async fn task_runtime_ignores_tool_result_with_mismatched_call_identity() {
                         ToolCallProposal {
                             call_id: "call-1".to_owned(),
                             tool_name: "search".to_owned(),
-                            arguments: StructuredPayload::Object(BTreeMap::new()),
+                            arguments: JsonObject::new(),
                         },
                         ToolCallProposal {
                             call_id: "call-2".to_owned(),
                             tool_name: "search".to_owned(),
-                            arguments: StructuredPayload::Object(BTreeMap::new()),
+                            arguments: JsonObject::new(),
                         },
                     ],
                     usage: None,
@@ -744,19 +714,8 @@ async fn task_runtime_ignores_tool_result_with_mismatched_call_identity() {
 
 #[tokio::test]
 async fn task_runtime_rejects_duplicate_tool_call_ids_in_one_model_reply() {
-    let (runtime, mut router_rx, _router_tx) = spawn_runtime_with_task(vec![
-        ToolSpec {
-            name: "search".to_owned(),
-            description: "search".to_owned(),
-            parameters: Vec::new(),
-        },
-        ToolSpec {
-            name: "lookup".to_owned(),
-            description: "lookup".to_owned(),
-            parameters: Vec::new(),
-        },
-    ])
-    .await;
+    let (runtime, mut router_rx, _router_tx) =
+        spawn_runtime_with_task(vec![tool_spec("search"), tool_spec("lookup")]).await;
     let correlation = start_and_request_model(&runtime, &mut router_rx).await;
 
     runtime
@@ -770,12 +729,12 @@ async fn task_runtime_rejects_duplicate_tool_call_ids_in_one_model_reply() {
                         ToolCallProposal {
                             call_id: "call-1".to_owned(),
                             tool_name: "search".to_owned(),
-                            arguments: StructuredPayload::Object(BTreeMap::new()),
+                            arguments: JsonObject::new(),
                         },
                         ToolCallProposal {
                             call_id: "call-1".to_owned(),
                             tool_name: "lookup".to_owned(),
-                            arguments: StructuredPayload::Object(BTreeMap::new()),
+                            arguments: JsonObject::new(),
                         },
                     ],
                     usage: None,
@@ -790,34 +749,80 @@ async fn task_runtime_rejects_duplicate_tool_call_ids_in_one_model_reply() {
 }
 
 #[tokio::test]
-async fn task_runtime_uses_tool_parameter_type_for_integer_arguments() {
-    let (runtime, mut router_rx, _router_tx) = spawn_runtime_with_task(vec![ToolSpec {
-        name: "repeat".to_owned(),
-        description: "repeat".to_owned(),
-        parameters: vec![ToolParameter {
-            name: "count".to_owned(),
-            parameter_type: ToolParameterType::Integer,
-            description: "count".to_owned(),
-            required: true,
-        }],
-    }])
-    .await;
-    let correlation = start_and_request_model(&runtime, &mut router_rx).await;
+async fn task_runtime_validates_tool_reply_against_sent_manifest_snapshot() {
+    let db = open_memory_db();
+    register_global_tool(&db, required_integer_tool_spec("repeat")).expect("register global tool");
+    create_root_task(
+        &db,
+        CreateRootTaskInput {
+            task_id: TaskId("task-1".to_owned()),
+            cursor_node_id: create_history_node(
+                &db,
+                NewHistoryNode {
+                    parent_node_id: None,
+                    content: NewHistoryNodeContent::Message(NewMessageNodeContent {
+                        message_role: selvedge_db::MessageRole::System,
+                        message_text: "system".to_owned(),
+                    }),
+                    created_at: UnixTs(1),
+                },
+            )
+            .expect("create cursor node"),
+            model_profile_key: selvedge_db::ModelProfileKey("default".to_owned()),
+            reasoning_effort: ReasoningEffort::Medium,
+            enabled_tools: Vec::new(),
+            now: UnixTs(1),
+        },
+    )
+    .expect("create task");
+
+    let (router_tx, mut router_rx) = tokio::sync::mpsc::unbounded_channel();
+    let runtime = spawn_task_runtime(SpawnTaskRuntimeArgs {
+        task_id: TaskId("task-1".to_owned()),
+        db: db.clone(),
+        router_tx: router_tx.downgrade(),
+        config: TaskRuntimeConfig {
+            mailbox_capacity: 16,
+            model_profiles: model_profiles(),
+        },
+    })
+    .expect("spawn runtime");
+    let request = start_and_recv_model_request(&runtime, &mut router_rx).await;
+    assert_eq!(
+        request
+            .tool_manifest
+            .as_ref()
+            .expect("sent manifest")
+            .tools
+            .len(),
+        1
+    );
+
+    unpublish_global_tool(&db, &ToolName("repeat".to_owned())).expect("unpublish tool");
+    assert!(
+        read_tool_manifest_for_task(&db, &TaskId("task-1".to_owned()))
+            .expect("read current manifest")
+            .tools
+            .is_empty()
+    );
+
+    let arguments = json_object(json!({
+        "count": null,
+        "nested": {"items": [1, true, null]},
+        "large": 9007199254740993_u64
+    }));
 
     runtime
         .task_runtime_tx
         .send(TaskRuntimeCommand::ApiModelReply(
             ApiOutputEnvelope::Success {
-                correlation,
+                correlation: request.correlation,
                 reply: ModelReply {
                     content: None,
                     tool_calls: vec![ToolCallProposal {
                         call_id: "call-1".to_owned(),
                         tool_name: "repeat".to_owned(),
-                        arguments: StructuredPayload::Object(BTreeMap::from([(
-                            "count".to_owned(),
-                            StructuredPayload::Number(1.0),
-                        )])),
+                        arguments: arguments.clone(),
                     }],
                     usage: None,
                     finish_reason: ModelFinishReason::ToolCalls,
@@ -828,24 +833,26 @@ async fn task_runtime_uses_tool_parameter_type_for_integer_arguments() {
         .expect("send model reply");
 
     let tool_request = recv_tool_request(&mut router_rx).await;
-    assert_eq!(
-        tool_request.arguments[0].value,
-        ToolArgumentValue::Integer(1)
-    );
+    assert_eq!(tool_request.arguments, arguments);
+
+    let conversation =
+        read_conversation_for_task(&db, &TaskId("task-1".to_owned())).expect("read conversation");
+    assert!(matches!(
+        conversation.items.last(),
+        Some(ConversationItem::FunctionCall {
+            function_call_id,
+            tool_name,
+            arguments: persisted,
+        }) if function_call_id.0 == "call-1"
+            && tool_name.0 == "repeat"
+            && persisted == &arguments
+    ));
 }
 
 #[tokio::test]
 async fn task_runtime_rejects_tool_calls_outside_enabled_manifest() {
     let db = open_memory_db();
-    register_tool(
-        &db,
-        ToolSpec {
-            name: "disabled".to_owned(),
-            description: "disabled".to_owned(),
-            parameters: Vec::new(),
-        },
-    )
-    .expect("register disabled tool");
+    register_tool(&db, tool_spec("disabled")).expect("register disabled tool");
     create_root_task(
         &db,
         CreateRootTaskInput {
@@ -892,7 +899,7 @@ async fn task_runtime_rejects_tool_calls_outside_enabled_manifest() {
                     tool_calls: vec![ToolCallProposal {
                         call_id: "call-1".to_owned(),
                         tool_name: "disabled".to_owned(),
-                        arguments: StructuredPayload::Object(BTreeMap::new()),
+                        arguments: JsonObject::new(),
                     }],
                     usage: None,
                     finish_reason: ModelFinishReason::ToolCalls,
@@ -907,12 +914,8 @@ async fn task_runtime_rejects_tool_calls_outside_enabled_manifest() {
 
 #[tokio::test]
 async fn task_runtime_validates_all_tool_calls_before_dispatching_any() {
-    let (runtime, mut router_rx, _router_tx) = spawn_runtime_with_task(vec![ToolSpec {
-        name: "enabled".to_owned(),
-        description: "enabled".to_owned(),
-        parameters: Vec::new(),
-    }])
-    .await;
+    let (runtime, mut router_rx, _router_tx) =
+        spawn_runtime_with_task(vec![tool_spec("enabled")]).await;
     let correlation = start_and_request_model(&runtime, &mut router_rx).await;
 
     runtime
@@ -926,52 +929,14 @@ async fn task_runtime_validates_all_tool_calls_before_dispatching_any() {
                         ToolCallProposal {
                             call_id: "call-1".to_owned(),
                             tool_name: "enabled".to_owned(),
-                            arguments: StructuredPayload::Object(BTreeMap::new()),
+                            arguments: JsonObject::new(),
                         },
                         ToolCallProposal {
                             call_id: "call-2".to_owned(),
                             tool_name: "disabled".to_owned(),
-                            arguments: StructuredPayload::Object(BTreeMap::new()),
+                            arguments: JsonObject::new(),
                         },
                     ],
-                    usage: None,
-                    finish_reason: ModelFinishReason::ToolCalls,
-                },
-            },
-        ))
-        .await
-        .expect("send model reply");
-
-    assert_internal_exit(&mut router_rx).await;
-}
-
-#[tokio::test]
-async fn task_runtime_rejects_tool_calls_missing_required_arguments() {
-    let (runtime, mut router_rx, _router_tx) = spawn_runtime_with_task(vec![ToolSpec {
-        name: "repeat".to_owned(),
-        description: "repeat".to_owned(),
-        parameters: vec![ToolParameter {
-            name: "count".to_owned(),
-            parameter_type: ToolParameterType::Integer,
-            description: "count".to_owned(),
-            required: true,
-        }],
-    }])
-    .await;
-    let correlation = start_and_request_model(&runtime, &mut router_rx).await;
-
-    runtime
-        .task_runtime_tx
-        .send(TaskRuntimeCommand::ApiModelReply(
-            ApiOutputEnvelope::Success {
-                correlation,
-                reply: ModelReply {
-                    content: None,
-                    tool_calls: vec![ToolCallProposal {
-                        call_id: "call-1".to_owned(),
-                        tool_name: "repeat".to_owned(),
-                        arguments: StructuredPayload::Object(BTreeMap::new()),
-                    }],
                     usage: None,
                     finish_reason: ModelFinishReason::ToolCalls,
                 },
@@ -1343,47 +1308,6 @@ async fn task_runtime_uses_fresh_model_run_ids_after_respawn() {
 }
 
 #[tokio::test]
-async fn task_runtime_rejects_unconvertible_required_arguments() {
-    let (runtime, mut router_rx, _router_tx) = spawn_runtime_with_task(vec![ToolSpec {
-        name: "repeat".to_owned(),
-        description: "repeat".to_owned(),
-        parameters: vec![ToolParameter {
-            name: "count".to_owned(),
-            parameter_type: ToolParameterType::Integer,
-            description: "count".to_owned(),
-            required: true,
-        }],
-    }])
-    .await;
-    let correlation = start_and_request_model(&runtime, &mut router_rx).await;
-
-    runtime
-        .task_runtime_tx
-        .send(TaskRuntimeCommand::ApiModelReply(
-            ApiOutputEnvelope::Success {
-                correlation,
-                reply: ModelReply {
-                    content: None,
-                    tool_calls: vec![ToolCallProposal {
-                        call_id: "call-1".to_owned(),
-                        tool_name: "repeat".to_owned(),
-                        arguments: StructuredPayload::Object(BTreeMap::from([(
-                            "count".to_owned(),
-                            StructuredPayload::Null,
-                        )])),
-                    }],
-                    usage: None,
-                    finish_reason: ModelFinishReason::ToolCalls,
-                },
-            },
-        ))
-        .await
-        .expect("send model reply");
-
-    assert_internal_exit(&mut router_rx).await;
-}
-
-#[tokio::test]
 async fn task_runtime_preserves_queued_input_when_append_fails() {
     let db = open_memory_db();
     create_root_task(
@@ -1441,104 +1365,9 @@ async fn task_runtime_preserves_queued_input_when_append_fails() {
 }
 
 #[tokio::test]
-async fn task_runtime_rejects_fractional_integer_arguments_before_persistence() {
-    let (runtime, mut router_rx, _router_tx) = spawn_runtime_with_task(vec![ToolSpec {
-        name: "repeat".to_owned(),
-        description: "repeat".to_owned(),
-        parameters: vec![ToolParameter {
-            name: "count".to_owned(),
-            parameter_type: ToolParameterType::Integer,
-            description: "count".to_owned(),
-            required: true,
-        }],
-    }])
-    .await;
-    let correlation = start_and_request_model(&runtime, &mut router_rx).await;
-
-    runtime
-        .task_runtime_tx
-        .send(TaskRuntimeCommand::ApiModelReply(
-            ApiOutputEnvelope::Success {
-                correlation,
-                reply: ModelReply {
-                    content: None,
-                    tool_calls: vec![ToolCallProposal {
-                        call_id: "call-1".to_owned(),
-                        tool_name: "repeat".to_owned(),
-                        arguments: StructuredPayload::Object(BTreeMap::from([(
-                            "count".to_owned(),
-                            StructuredPayload::Number(1.5),
-                        )])),
-                    }],
-                    usage: None,
-                    finish_reason: ModelFinishReason::ToolCalls,
-                },
-            },
-        ))
-        .await
-        .expect("send model reply");
-
-    assert_internal_exit(&mut router_rx).await;
-}
-
-#[tokio::test]
-async fn task_runtime_rejects_out_of_range_integer_arguments() {
-    let (runtime, mut router_rx, _router_tx) = spawn_runtime_with_task(vec![ToolSpec {
-        name: "repeat".to_owned(),
-        description: "repeat".to_owned(),
-        parameters: vec![ToolParameter {
-            name: "count".to_owned(),
-            parameter_type: ToolParameterType::Integer,
-            description: "count".to_owned(),
-            required: true,
-        }],
-    }])
-    .await;
-    let correlation = start_and_request_model(&runtime, &mut router_rx).await;
-
-    runtime
-        .task_runtime_tx
-        .send(TaskRuntimeCommand::ApiModelReply(
-            ApiOutputEnvelope::Success {
-                correlation,
-                reply: ModelReply {
-                    content: None,
-                    tool_calls: vec![ToolCallProposal {
-                        call_id: "call-1".to_owned(),
-                        tool_name: "repeat".to_owned(),
-                        arguments: StructuredPayload::Object(BTreeMap::from([(
-                            "count".to_owned(),
-                            StructuredPayload::Number(9_223_372_036_854_775_808.0),
-                        )])),
-                    }],
-                    usage: None,
-                    finish_reason: ModelFinishReason::ToolCalls,
-                },
-            },
-        ))
-        .await
-        .expect("send model reply");
-
-    assert_internal_exit(&mut router_rx).await;
-}
-
-#[tokio::test]
 async fn task_runtime_recovers_open_tool_call_before_model_dispatch() {
     let db = open_memory_db();
-    register_tool(
-        &db,
-        ToolSpec {
-            name: "repeat".to_owned(),
-            description: "repeat".to_owned(),
-            parameters: vec![ToolParameter {
-                name: "count".to_owned(),
-                parameter_type: ToolParameterType::Integer,
-                description: "count".to_owned(),
-                required: true,
-            }],
-        },
-    )
-    .expect("register tool");
+    register_tool(&db, required_integer_tool_spec("repeat")).expect("register tool");
     create_root_task(
         &db,
         CreateRootTaskInput {
@@ -1569,10 +1398,7 @@ async fn task_runtime_recovers_open_tool_call_before_model_dispatch() {
         vec![NewFunctionCallNodeContent {
             function_call_id: FunctionCallId("call-1".to_owned()),
             tool_name: ToolName("repeat".to_owned()),
-            arguments: vec![ToolCallArgument {
-                name: ToolParameterName("count".to_owned()),
-                value: ToolArgumentValue::Integer(1),
-            }],
+            arguments: json_object(json!({"count": 1})),
         }],
         UnixTs(2),
     )
@@ -1610,20 +1436,7 @@ async fn task_runtime_recovers_open_tool_call_before_model_dispatch() {
 #[tokio::test]
 async fn task_runtime_allows_messages_between_tool_call_and_matching_output() {
     let db = open_memory_db();
-    register_tool(
-        &db,
-        ToolSpec {
-            name: "repeat".to_owned(),
-            description: "repeat".to_owned(),
-            parameters: vec![ToolParameter {
-                name: "count".to_owned(),
-                parameter_type: ToolParameterType::Integer,
-                description: "count".to_owned(),
-                required: true,
-            }],
-        },
-    )
-    .expect("register tool");
+    register_tool(&db, required_integer_tool_spec("repeat")).expect("register tool");
     create_root_task(
         &db,
         CreateRootTaskInput {
@@ -1654,10 +1467,7 @@ async fn task_runtime_allows_messages_between_tool_call_and_matching_output() {
         vec![NewFunctionCallNodeContent {
             function_call_id: FunctionCallId("call-1".to_owned()),
             tool_name: ToolName("repeat".to_owned()),
-            arguments: vec![ToolCallArgument {
-                name: ToolParameterName("count".to_owned()),
-                value: ToolArgumentValue::Integer(1),
-            }],
+            arguments: json_object(json!({"count": 1})),
         }],
         UnixTs(2),
     )
@@ -1834,20 +1644,14 @@ fn tool_transcript_events(request: &ModelCallDispatchRequest) -> Vec<String> {
         .conversation
         .messages
         .iter()
-        .filter_map(|message| {
-            let MessageContent::Structured(StructuredPayload::Object(fields)) = &message.content
-            else {
-                return None;
-            };
-            let Some(StructuredPayload::String(function_call_id)) = fields.get("function_call_id")
-            else {
-                return None;
-            };
-            match message.role {
-                selvedge_db::MessageRole::Assistant => Some(format!("call:{function_call_id}")),
-                selvedge_db::MessageRole::Tool => Some(format!("output:{function_call_id}")),
-                _ => None,
-            }
+        .filter_map(|message| match &message.content {
+            MessageContent::FunctionCall {
+                function_call_id, ..
+            } => Some(format!("call:{}", function_call_id.0)),
+            MessageContent::FunctionOutput {
+                function_call_id, ..
+            } => Some(format!("output:{}", function_call_id.0)),
+            _ => None,
         })
         .collect()
 }
@@ -1882,6 +1686,35 @@ async fn spawn_runtime_and_start_one_model_call(db: selvedge_db::DbPool) -> Mode
     let request = start_and_recv_model_request(&runtime, &mut router_rx).await;
     let _ = runtime.task_runtime_control.stop().await;
     request.correlation.model_run_id
+}
+
+fn tool_spec(name: &str) -> ToolSpec {
+    ToolSpec {
+        name: name.to_owned(),
+        description: name.to_owned(),
+        input_schema: JsonObject::new(),
+    }
+}
+
+fn required_integer_tool_spec(name: &str) -> ToolSpec {
+    ToolSpec {
+        name: name.to_owned(),
+        description: name.to_owned(),
+        input_schema: json_object(json!({
+            "type": "object",
+            "properties": {
+                "count": {"type": "integer"}
+            },
+            "required": ["count"]
+        })),
+    }
+}
+
+fn json_object(value: Value) -> JsonObject {
+    match value {
+        Value::Object(object) => object,
+        _ => panic!("test fixture must be a JSON object"),
+    }
 }
 
 fn model_profiles()

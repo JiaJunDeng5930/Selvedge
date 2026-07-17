@@ -8,9 +8,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::{Mutex, Notify, mpsc, oneshot};
 
 use selvedge_domain_model::{
-    ApiDomainValidationError, ConversationPath, FunctionCallId, HistoryNodeId, MessageRole,
-    ModelProfileKey, ModelProviderProfile, ModelReply, ReasoningEffort, ResponsePreference,
-    ToolCallArgument, ToolManifest, ToolName, UnixTs, validate_conversation_path,
+    ApiDomainValidationError, ConversationPath, FunctionCallId, HistoryNodeId, JsonObject,
+    MessageRole, ModelProfileKey, ModelProviderProfile, ModelReply, ReasoningEffort,
+    ResponsePreference, ToolManifest, ToolName, UnixTs, validate_conversation_path,
     validate_model_provider_profile, validate_model_reply, validate_tool_manifest,
 };
 
@@ -579,7 +579,7 @@ pub enum HistoryNodeProjectionBody {
     FunctionCall {
         function_call_id: FunctionCallId,
         tool_name: ToolName,
-        arguments: Vec<ToolCallArgument>,
+        arguments: JsonObject,
     },
     FunctionOutput {
         function_call_node_id: HistoryNodeId,
@@ -874,7 +874,7 @@ pub struct ToolExecutionRequest {
     pub function_call_node_id: HistoryNodeId,
     pub function_call_id: FunctionCallId,
     pub tool_name: ToolName,
-    pub arguments: Vec<ToolCallArgument>,
+    pub arguments: JsonObject,
 }
 
 #[derive(Clone, Debug, PartialEq)]
