@@ -55,7 +55,7 @@ async fn spawn_server_initializes_ready_control_and_creates_durable_paths() {
 }
 
 #[tokio::test]
-async fn startup_registers_the_four_global_harness_tools() {
+async fn startup_registers_the_five_global_harness_tools() {
     let _guard = SERVER_TEST_LOCK.lock().await;
     let home = SERVER_TEST_HOME.path();
     let handle = spawn_server(test_args(home.to_path_buf())).expect("spawn server");
@@ -100,6 +100,7 @@ async fn startup_registers_the_four_global_harness_tools() {
         tool_names,
         vec![
             "archive_task",
+            "bash",
             "fork_task",
             "read_task",
             "send_message_to_task",

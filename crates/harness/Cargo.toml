@@ -8,8 +8,9 @@ selvedge-command-model = { path = "../command-model" }
 selvedge-db = { path = "../db" }
 selvedge-domain-model = { path = "../domain-model" }
 selvedge-router = { path = "../router" }
+rustix = { version = "1.1.4", features = ["process"] }
 serde_json = "1.0.145"
-tokio = { version = "1.42.0", features = ["rt", "sync"] }
+tokio = { version = "1.42.0", features = ["io-util", "process", "rt", "sync", "time"] }
 
 [dev-dependencies]
 selvedge-api = { path = "../api" }
