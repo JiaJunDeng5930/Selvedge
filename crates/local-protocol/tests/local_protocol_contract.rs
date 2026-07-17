@@ -1,3 +1,4 @@
+use selvedge_domain_model::JsonObject;
 use selvedge_local_protocol::{
     AttachAccepted, AttachRejectReason, AttachRejected, AttachRequest, CommandOutcome,
     CommandRejectReason, CommandRequest, CommandResponse, LocalAttachStreamItem,
@@ -9,11 +10,10 @@ use selvedge_local_protocol::{
     LocalModelCallStatusEvent, LocalModelCallStatusPhase, LocalNotice, LocalNoticeLevel,
     LocalProtocolValidationError, LocalReasoningEffort, LocalSnapshotTaskVersion, LocalStreamError,
     LocalStreamErrorReason, LocalTaskParentProjection, LocalTaskProjection,
-    LocalTaskProjectionStatus, LocalTaskScope, LocalToolArgumentValue, LocalToolCallArgument,
-    LocalToolExecutionStatusEvent, LocalToolExecutionStatusPhase, ReadyRequest, ReadyResponse,
-    ReadyState, http_problem, validate_attach_request, validate_attach_stream_item,
-    validate_client_frame, validate_command_request, validate_ready_request, validate_snapshot,
-    validate_subscription,
+    LocalTaskProjectionStatus, LocalTaskScope, LocalToolExecutionStatusEvent,
+    LocalToolExecutionStatusPhase, ReadyRequest, ReadyResponse, ReadyState, http_problem,
+    validate_attach_request, validate_attach_stream_item, validate_client_frame,
+    validate_command_request, validate_ready_request, validate_snapshot, validate_subscription,
 };
 use serde_json::json;
 
@@ -157,23 +157,20 @@ fn frame_validation_enforces_delivery_sequence_snapshot_and_notice_contracts() {
         Err(LocalProtocolValidationError::EmptyTaskId)
     );
 
-    let empty_tool_argument = LocalClientSnapshot {
+    let empty_tool_name = LocalClientSnapshot {
         history_nodes: vec![LocalHistoryNodeProjection {
             body: LocalHistoryNodeProjectionBody::FunctionCall {
                 function_call_id: "call-1".to_owned(),
-                tool_name: "tool".to_owned(),
-                arguments: vec![LocalToolCallArgument {
-                    name: " ".to_owned(),
-                    value: LocalToolArgumentValue::Boolean(true),
-                }],
+                tool_name: " ".to_owned(),
+                arguments: JsonObject::new(),
             },
             ..valid_history_message()
         }],
         ..snapshot.clone()
     };
     assert_eq!(
-        validate_snapshot(&empty_tool_argument),
-        Err(LocalProtocolValidationError::EmptyToolArgumentName)
+        validate_snapshot(&empty_tool_name),
+        Err(LocalProtocolValidationError::EmptyToolName)
     );
 
     let invalid_function_output_ref = LocalClientSnapshot {
@@ -313,6 +310,57 @@ fn protocol_messages_round_trip_through_json() {
         serde_json::from_str::<LocalProtocolValidationError>(&error_json)
             .expect("deserialize validation error"),
         LocalProtocolValidationError::EmptyTaskId
+    );
+}
+
+#[test]
+fn function_call_arguments_round_trip_as_a_json_object() {
+    let arguments: JsonObject = serde_json::from_str(
+        r#"{
+            "query": {"filters": [{"kind": "tag", "value": null}]},
+            "limit": 9007199254740993,
+            "modes": ["exact", "fuzzy"]
+        }"#,
+    )
+    .expect("deserialize object arguments");
+    let history_node = LocalHistoryNodeProjection {
+        node_id: 2,
+        parent_node_id: Some(1),
+        created_at: 30,
+        body: LocalHistoryNodeProjectionBody::FunctionCall {
+            function_call_id: "call-1".to_owned(),
+            tool_name: "search".to_owned(),
+            arguments: arguments.clone(),
+        },
+    };
+
+    validate_snapshot(&LocalClientSnapshot {
+        generated_at: 100,
+        tasks: vec![valid_task_projection()],
+        task_parent_edges: Vec::new(),
+        history_nodes: vec![history_node.clone()],
+        task_versions: vec![LocalSnapshotTaskVersion {
+            task_id: "task-1".to_owned(),
+            state_version: 1,
+        }],
+    })
+    .expect("function call projection is valid");
+
+    let encoded = serde_json::to_value(&history_node).expect("serialize function call projection");
+    assert_eq!(
+        encoded["body"]["FunctionCall"]["arguments"],
+        json!(arguments)
+    );
+
+    let decoded: LocalHistoryNodeProjection =
+        serde_json::from_value(encoded).expect("deserialize function call projection");
+    assert_eq!(decoded, history_node);
+    let LocalHistoryNodeProjectionBody::FunctionCall { arguments, .. } = decoded.body else {
+        panic!("expected function call projection");
+    };
+    assert_eq!(
+        arguments.get("limit").and_then(serde_json::Value::as_u64),
+        Some(9_007_199_254_740_993)
     );
 }
 

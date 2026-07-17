@@ -7,9 +7,11 @@ freshness_fingerprint: babb6418e9c084d4b3f2c1353542324d866657e0
 
 This crate implements Selvedge task self-orchestration and bounded Bash command execution for model tool calls.
 
-Use it for the five harness tool manifests, typed invocation parsing, argument validation, SQLite-backed task reads, router-mediated task mutations, non-interactive Bash commands, stable JSON output, and the production `ToolExecutionSpawner`.
+Use it for the five harness tool manifests, complete JSON input schemas, typed invocation parsing from JSON objects, argument validation, SQLite-backed task reads, router-mediated task mutations, non-interactive Bash commands, stable JSON output, and the production `ToolExecutionSpawner`.
 
 Calling task identity and complete function-call correlation come from `ToolExecutionRequest`, not model arguments. SQLite reads run on Tokio's blocking pool. Fork, send, and archive wait for typed router responders, so enqueueing a command is never reported as business success.
+
+Every built-in schema is a closed object with typed, described properties and an explicit required set. Runtime parsing still owns semantic checks such as non-whitespace strings and numeric ranges. Task history projects function-call arguments as their original JSON object, including nested objects, arrays, and nulls.
 
 `bash` runs `/bin/bash -lc` with null stdin and inherits the server process working directory and environment. Its timeout defaults to 30 seconds and accepts 100 through 120000 milliseconds. Stdout and stderr are drained concurrently, each retains at most 65536 bytes, and the result reports truncation separately. Zero and nonzero exits are successful tool executions; signal termination is represented by a null `exit_code`.
 
@@ -28,7 +30,7 @@ flowchart TD
   Start([caller supplies ToolExecutionRequest])
   Supervise[Start supervised execution]
   Select{tool name}
-  Validate[Validate flat primitive arguments]
+  Validate[Validate the JSON argument object]
   Invocation[Build typed harness invocation]
   Read[Read SQLite snapshot on blocking pool]
   Mutate[Send router mutation and wait for responder]
@@ -47,7 +49,7 @@ flowchart TD
   Supervise -->|tool name is one of the five harness names| Validate
   Supervise -->|tool name is not a harness name| Unknown
   Supervise -->|inner execution panics or is cancelled| Panic
-  Validate -->|required, optional, type, uniqueness, and range rules hold| Invocation
+  Validate -->|allowed keys, required values, types, and semantic ranges hold| Invocation
   Validate -->|an argument rule fails| Invalid
   Invocation -->|invocation is read_task| Read
   Invocation -->|invocation is fork, send, or archive| Mutate

@@ -11,10 +11,10 @@ use selvedge_command_model::ClientSnapshot;
 use selvedge_core::{TaskRuntimeConfig, TaskRuntimeSpawnDeps};
 use selvedge_db::{
     CreateRootTaskInput, NewHistoryNode, NewHistoryNodeContent, NewMessageNodeContent,
-    OpenDbOptions, ReasoningEffort, TaskId, create_history_node, create_root_task, open_db,
-    read_tool_manifest_for_task,
+    OpenDbOptions, ReasoningEffort, TaskId, ToolExecutionSource, create_history_node,
+    create_root_task, open_db, read_tool_execution_source, read_tool_manifest_for_task,
 };
-use selvedge_domain_model::{ModelProfileKey, UnixTs};
+use selvedge_domain_model::{ModelProfileKey, ToolName, UnixTs};
 use selvedge_local_protocol::{
     AttachRejectReason, AttachRequest, CommandOutcome, CommandRejectReason, CommandRequest,
     LocalClientCommandId, LocalClientFrame, LocalClientId, LocalClientSubscription,
@@ -106,6 +106,13 @@ async fn startup_registers_the_five_global_harness_tools() {
             "send_message_to_task",
         ]
     );
+    for tool_name in tool_names {
+        assert_eq!(
+            read_tool_execution_source(&db, &ToolName(tool_name))
+                .expect("read harness execution source"),
+            ToolExecutionSource::Harness
+        );
+    }
 
     handle.control.stop().await;
     handle.join_handle.await.expect("join server");

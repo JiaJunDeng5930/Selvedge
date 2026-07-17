@@ -3,8 +3,7 @@ use selvedge_command_model::{
     ToolExecutionRunId,
 };
 use selvedge_domain_model::{
-    FunctionCallId, HistoryNodeId, MessageRole, TaskId, ToolArgumentValue, ToolCallArgument,
-    ToolName, ToolParameter, ToolParameterName, ToolParameterType, ToolSpec, UnixTs,
+    FunctionCallId, HistoryNodeId, JsonObject, MessageRole, TaskId, ToolName, ToolSpec, UnixTs,
 };
 use selvedge_harness::{
     ARCHIVE_TASK_TOOL_NAME, ArchiveTaskInvocation, ArchiveTaskSuccess, BASH_TOOL_NAME,
@@ -15,6 +14,7 @@ use selvedge_harness::{
     SendMessageToTaskInvocation, SendMessageToTaskSuccess, encode_tool_execution_result,
     parse_invocation, tool_manifest,
 };
+use serde_json::Value;
 
 #[test]
 fn manifest_defines_exactly_the_five_harness_tools() {
@@ -26,63 +26,82 @@ fn manifest_defines_exactly_the_five_harness_tools() {
                 description:
                     "Create an active child task from the calling task and give it an initial prompt."
                         .to_owned(),
-                parameters: vec![string_parameter(
-                    "prompt",
-                    "Initial prompt for the child task.",
-                    true,
-                )],
+                input_schema: input_schema(
+                    [(
+                        "prompt",
+                        string_property("Initial prompt for the child task."),
+                    )],
+                    &["prompt"],
+                ),
             },
             ToolSpec {
                 name: "read_task".to_owned(),
                 description:
                     "Read task state and a page of history. Omit task_id to read the calling task."
                         .to_owned(),
-                parameters: vec![
-                    string_parameter(
-                        "task_id",
-                        "Task to read; omit it to read the calling task.",
-                        false,
-                    ),
-                    integer_parameter(
-                        "after_node_id",
-                        "Return history nodes after this node ID.",
-                        false,
-                    ),
-                    integer_parameter(
-                        "limit",
-                        "Maximum history nodes to return, from 1 through 100.",
-                        false,
-                    ),
-                ],
+                input_schema: input_schema(
+                    [
+                        (
+                            "task_id",
+                            string_property(
+                                "Task to read; omit it to read the calling task.",
+                            ),
+                        ),
+                        (
+                            "after_node_id",
+                            integer_property("Return history nodes after this node ID."),
+                        ),
+                        (
+                            "limit",
+                            integer_property(
+                                "Maximum history nodes to return, from 1 through 100.",
+                            ),
+                        ),
+                    ],
+                    &[],
+                ),
             },
             ToolSpec {
                 name: "send_message_to_task".to_owned(),
                 description:
                     "Send a message to an active task and report whether it was committed or queued."
                         .to_owned(),
-                parameters: vec![
-                    string_parameter("task_id", "Task that should receive the message.", true),
-                    string_parameter("message", "Message to send to the task.", true),
-                ],
+                input_schema: input_schema(
+                    [
+                        (
+                            "task_id",
+                            string_property("Task that should receive the message."),
+                        ),
+                        ("message", string_property("Message to send to the task.")),
+                    ],
+                    &["message", "task_id"],
+                ),
             },
             ToolSpec {
                 name: "archive_task".to_owned(),
                 description: "Archive another active task.".to_owned(),
-                parameters: vec![string_parameter("task_id", "Task to archive.", true)],
+                input_schema: input_schema(
+                    [("task_id", string_property("Task to archive."))],
+                    &["task_id"],
+                ),
             },
             ToolSpec {
                 name: "bash".to_owned(),
                 description:
                     "Run a non-interactive Bash login command in the server process environment and working directory. Stdout and stderr are each capped at 65536 bytes."
                         .to_owned(),
-                parameters: vec![
-                    string_parameter("command", "Bash command to run.", true),
-                    integer_parameter(
-                        "timeout_ms",
-                        "Timeout in milliseconds; defaults to 30000, from 100 through 120000.",
-                        false,
-                    ),
-                ],
+                input_schema: input_schema(
+                    [
+                        ("command", string_property("Bash command to run.")),
+                        (
+                            "timeout_ms",
+                            integer_property(
+                                "Timeout in milliseconds; defaults to 30000, from 100 through 120000.",
+                            ),
+                        ),
+                    ],
+                    &["command"],
+                ),
             },
         ]
     );
@@ -213,17 +232,6 @@ fn invalid_requests_are_rejected_without_backend_state() {
             request(FORK_TASK_TOOL_NAME, vec![string_argument("extra", "value")]),
             HarnessErrorCode::InvalidArguments,
             "unexpected argument 'extra'",
-        ),
-        (
-            request(
-                FORK_TASK_TOOL_NAME,
-                vec![
-                    string_argument("prompt", "one"),
-                    string_argument("prompt", "two"),
-                ],
-            ),
-            HarnessErrorCode::InvalidArguments,
-            "duplicate argument 'prompt'",
         ),
         (
             request(FORK_TASK_TOOL_NAME, vec![integer_argument("prompt", 1)]),
@@ -403,10 +411,20 @@ fn read_history_encodes_each_existing_history_body_shape() {
                     HistoryNodeProjectionBody::FunctionCall {
                         function_call_id: FunctionCallId("call-1".to_owned()),
                         tool_name: ToolName("read_task".to_owned()),
-                        arguments: vec![
+                        arguments: argument_object(vec![
                             string_argument("task_id", "task-2"),
                             integer_argument("limit", 10),
-                        ],
+                            (
+                                "options".to_owned(),
+                                Value::Object(JsonObject::from_iter([(
+                                    "include".to_owned(),
+                                    Value::Array(vec![
+                                        Value::String("reasoning".to_owned()),
+                                        Value::Null,
+                                    ]),
+                                )])),
+                            ),
+                        ]),
                     },
                 ),
                 history_node(
@@ -428,7 +446,7 @@ fn read_history_encodes_each_existing_history_body_shape() {
 
     assert_eq!(
         success.to_stable_json(),
-        r#"{"cursor_node_id":4,"history":{"has_more":false,"next_after_node_id":null,"nodes":[{"created_at":10,"kind":"reasoning","node_id":1,"parent_node_id":null,"text":"thinking"},{"arguments":[{"name":"task_id","value":"task-2"},{"name":"limit","value":10}],"created_at":10,"function_call_id":"call-1","kind":"function_call","node_id":2,"parent_node_id":null,"tool_name":"read_task"},{"created_at":10,"function_call_id":"call-1","function_call_node_id":2,"is_error":false,"kind":"function_output","node_id":3,"output_text":"{}","parent_node_id":null,"tool_name":"read_task"}]},"parent_task_id":"parent","queued_message_count":2,"state_version":7,"status":"archived","task_id":"task-1"}"#
+        r#"{"cursor_node_id":4,"history":{"has_more":false,"next_after_node_id":null,"nodes":[{"created_at":10,"kind":"reasoning","node_id":1,"parent_node_id":null,"text":"thinking"},{"arguments":{"limit":10,"options":{"include":["reasoning",null]},"task_id":"task-2"},"created_at":10,"function_call_id":"call-1","kind":"function_call","node_id":2,"parent_node_id":null,"tool_name":"read_task"},{"created_at":10,"function_call_id":"call-1","function_call_node_id":2,"is_error":false,"kind":"function_output","node_id":3,"output_text":"{}","parent_node_id":null,"tool_name":"read_task"}]},"parent_task_id":"parent","queued_message_count":2,"state_version":7,"status":"archived","task_id":"task-1"}"#
     );
 }
 
@@ -524,47 +542,72 @@ fn tool_result_encoding_preserves_all_request_correlation_and_error_state() {
     );
 }
 
-fn request(tool_name: &str, arguments: Vec<ToolCallArgument>) -> ToolExecutionRequest {
+fn request(tool_name: &str, arguments: Vec<(String, Value)>) -> ToolExecutionRequest {
     ToolExecutionRequest {
         task_id: TaskId("task-1".to_owned()),
         tool_execution_run_id: ToolExecutionRunId("execution-1".to_owned()),
         function_call_node_id: HistoryNodeId(9),
         function_call_id: FunctionCallId("call-1".to_owned()),
         tool_name: ToolName(tool_name.to_owned()),
-        arguments,
+        arguments: argument_object(arguments),
     }
 }
 
-fn string_argument(name: &str, value: &str) -> ToolCallArgument {
-    ToolCallArgument {
-        name: ToolParameterName(name.to_owned()),
-        value: ToolArgumentValue::String(value.to_owned()),
-    }
+fn argument_object(entries: Vec<(String, Value)>) -> JsonObject {
+    entries.into_iter().collect()
 }
 
-fn integer_argument(name: &str, value: i64) -> ToolCallArgument {
-    ToolCallArgument {
-        name: ToolParameterName(name.to_owned()),
-        value: ToolArgumentValue::Integer(value),
-    }
+fn string_argument(name: &str, value: &str) -> (String, Value) {
+    (name.to_owned(), Value::String(value.to_owned()))
 }
 
-fn string_parameter(name: &str, description: &str, required: bool) -> ToolParameter {
-    ToolParameter {
-        name: name.to_owned(),
-        parameter_type: ToolParameterType::String,
-        description: description.to_owned(),
-        required,
-    }
+fn integer_argument(name: &str, value: i64) -> (String, Value) {
+    (name.to_owned(), Value::from(value))
 }
 
-fn integer_parameter(name: &str, description: &str, required: bool) -> ToolParameter {
-    ToolParameter {
-        name: name.to_owned(),
-        parameter_type: ToolParameterType::Integer,
-        description: description.to_owned(),
-        required,
-    }
+fn input_schema<const N: usize>(properties: [(&str, Value); N], required: &[&str]) -> JsonObject {
+    JsonObject::from_iter([
+        ("type".to_owned(), Value::String("object".to_owned())),
+        (
+            "properties".to_owned(),
+            Value::Object(
+                properties
+                    .into_iter()
+                    .map(|(name, schema)| (name.to_owned(), schema))
+                    .collect(),
+            ),
+        ),
+        (
+            "required".to_owned(),
+            Value::Array(
+                required
+                    .iter()
+                    .map(|name| Value::String((*name).to_owned()))
+                    .collect(),
+            ),
+        ),
+        ("additionalProperties".to_owned(), Value::Bool(false)),
+    ])
+}
+
+fn string_property(description: &str) -> Value {
+    Value::Object(JsonObject::from_iter([
+        ("type".to_owned(), Value::String("string".to_owned())),
+        (
+            "description".to_owned(),
+            Value::String(description.to_owned()),
+        ),
+    ]))
+}
+
+fn integer_property(description: &str) -> Value {
+    Value::Object(JsonObject::from_iter([
+        ("type".to_owned(), Value::String("integer".to_owned())),
+        (
+            "description".to_owned(),
+            Value::String(description.to_owned()),
+        ),
+    ]))
 }
 
 fn read_success(status: TaskProjectionStatus) -> ReadTaskSuccess {

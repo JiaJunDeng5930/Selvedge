@@ -20,10 +20,9 @@ use selvedge_db::{
     DbError, DbPool, HistoryNode, ReadTaskInput, TaskRead, TaskStatusRow, read_task,
 };
 use selvedge_domain_model::{
-    HistoryNodeId, MessageRole, TaskId, ToolArgumentValue, ToolCallArgument, ToolManifest,
-    ToolParameter, ToolParameterType, ToolSpec,
+    HistoryNodeId, JsonObject, MessageRole, TaskId, ToolManifest, ToolSpec,
 };
-use serde_json::{Number, Value};
+use serde_json::Value;
 use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::process::Command;
 use tokio::task::JoinHandle;
@@ -50,84 +49,130 @@ pub fn tool_manifest() -> ToolManifest {
                 name: FORK_TASK_TOOL_NAME.to_owned(),
                 description: "Create an active child task from the calling task and give it an initial prompt."
                     .to_owned(),
-                parameters: vec![string_parameter(
-                    "prompt",
-                    "Initial prompt for the child task.",
-                    true,
-                )],
+                input_schema: input_schema(
+                    [(
+                        "prompt",
+                        string_property("Initial prompt for the child task."),
+                    )],
+                    &["prompt"],
+                ),
             },
             ToolSpec {
                 name: READ_TASK_TOOL_NAME.to_owned(),
                 description:
                     "Read task state and a page of history. Omit task_id to read the calling task."
                         .to_owned(),
-                parameters: vec![
-                    string_parameter(
-                        "task_id",
-                        "Task to read; omit it to read the calling task.",
-                        false,
-                    ),
-                    integer_parameter(
-                        "after_node_id",
-                        "Return history nodes after this node ID.",
-                        false,
-                    ),
-                    integer_parameter(
-                        "limit",
-                        "Maximum history nodes to return, from 1 through 100.",
-                        false,
-                    ),
-                ],
+                input_schema: input_schema(
+                    [
+                        (
+                            "task_id",
+                            string_property("Task to read; omit it to read the calling task."),
+                        ),
+                        (
+                            "after_node_id",
+                            integer_property(
+                                "Return history nodes after this node ID.",
+                            ),
+                        ),
+                        (
+                            "limit",
+                            integer_property(
+                                "Maximum history nodes to return, from 1 through 100.",
+                            ),
+                        ),
+                    ],
+                    &[],
+                ),
             },
             ToolSpec {
                 name: SEND_MESSAGE_TO_TASK_TOOL_NAME.to_owned(),
                 description:
                     "Send a message to an active task and report whether it was committed or queued."
                         .to_owned(),
-                parameters: vec![
-                    string_parameter("task_id", "Task that should receive the message.", true),
-                    string_parameter("message", "Message to send to the task.", true),
-                ],
+                input_schema: input_schema(
+                    [
+                        (
+                            "task_id",
+                            string_property("Task that should receive the message."),
+                        ),
+                        ("message", string_property("Message to send to the task.")),
+                    ],
+                    &["message", "task_id"],
+                ),
             },
             ToolSpec {
                 name: ARCHIVE_TASK_TOOL_NAME.to_owned(),
                 description: "Archive another active task.".to_owned(),
-                parameters: vec![string_parameter("task_id", "Task to archive.", true)],
+                input_schema: input_schema(
+                    [("task_id", string_property("Task to archive."))],
+                    &["task_id"],
+                ),
             },
             ToolSpec {
                 name: BASH_TOOL_NAME.to_owned(),
                 description:
                     "Run a non-interactive Bash login command in the server process environment and working directory. Stdout and stderr are each capped at 65536 bytes."
                         .to_owned(),
-                parameters: vec![
-                    string_parameter("command", "Bash command to run.", true),
-                    integer_parameter(
-                        "timeout_ms",
-                        "Timeout in milliseconds; defaults to 30000, from 100 through 120000.",
-                        false,
-                    ),
-                ],
+                input_schema: input_schema(
+                    [
+                        ("command", string_property("Bash command to run.")),
+                        (
+                            "timeout_ms",
+                            integer_property(
+                                "Timeout in milliseconds; defaults to 30000, from 100 through 120000.",
+                            ),
+                        ),
+                    ],
+                    &["command"],
+                ),
             },
         ],
     }
 }
 
-fn string_parameter(name: &str, description: &str, required: bool) -> ToolParameter {
-    ToolParameter {
-        name: name.to_owned(),
-        parameter_type: ToolParameterType::String,
-        description: description.to_owned(),
-        required,
-    }
+fn input_schema<const N: usize>(properties: [(&str, Value); N], required: &[&str]) -> JsonObject {
+    JsonObject::from_iter([
+        ("type".to_owned(), Value::String("object".to_owned())),
+        (
+            "properties".to_owned(),
+            Value::Object(
+                properties
+                    .into_iter()
+                    .map(|(name, schema)| (name.to_owned(), schema))
+                    .collect(),
+            ),
+        ),
+        (
+            "required".to_owned(),
+            Value::Array(
+                required
+                    .iter()
+                    .map(|name| Value::String((*name).to_owned()))
+                    .collect(),
+            ),
+        ),
+        ("additionalProperties".to_owned(), Value::Bool(false)),
+    ])
 }
 
-fn integer_parameter(name: &str, description: &str, required: bool) -> ToolParameter {
-    ToolParameter {
-        name: name.to_owned(),
-        parameter_type: ToolParameterType::Integer,
-        description: description.to_owned(),
-        required,
-    }
+fn string_property(description: &str) -> Value {
+    Value::Object(JsonObject::from_iter([
+        ("type".to_owned(), Value::String("string".to_owned())),
+        (
+            "description".to_owned(),
+            Value::String(description.to_owned()),
+        ),
+    ]))
+}
+
+fn integer_property(description: &str) -> Value {
+    Value::Object(JsonObject::from_iter([
+        ("type".to_owned(), Value::String("integer".to_owned())),
+        (
+            "description".to_owned(),
+            Value::String(description.to_owned()),
+        ),
+    ]))
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -182,7 +227,7 @@ pub fn parse_invocation(request: &ToolExecutionRequest) -> Result<HarnessInvocat
     }
 }
 
-fn parse_bash(arguments: &[ToolCallArgument]) -> Result<HarnessInvocation, HarnessError> {
+fn parse_bash(arguments: &JsonObject) -> Result<HarnessInvocation, HarnessError> {
     let arguments = Arguments::new(arguments, &["command", "timeout_ms"])?;
     let command = arguments.required_nonempty_string("command")?;
     let timeout_ms = arguments
@@ -199,13 +244,13 @@ fn parse_bash(arguments: &[ToolCallArgument]) -> Result<HarnessInvocation, Harne
     }))
 }
 
-fn parse_fork_task(arguments: &[ToolCallArgument]) -> Result<HarnessInvocation, HarnessError> {
+fn parse_fork_task(arguments: &JsonObject) -> Result<HarnessInvocation, HarnessError> {
     let arguments = Arguments::new(arguments, &["prompt"])?;
     let prompt = arguments.required_nonempty_string("prompt")?;
     Ok(HarnessInvocation::ForkTask(ForkTaskInvocation { prompt }))
 }
 
-fn parse_read_task(arguments: &[ToolCallArgument]) -> Result<HarnessInvocation, HarnessError> {
+fn parse_read_task(arguments: &JsonObject) -> Result<HarnessInvocation, HarnessError> {
     let arguments = Arguments::new(arguments, &["task_id", "after_node_id", "limit"])?;
     let task_id = arguments.optional_nonempty_string("task_id")?.map(TaskId);
     let after_node_id = arguments
@@ -228,9 +273,7 @@ fn parse_read_task(arguments: &[ToolCallArgument]) -> Result<HarnessInvocation, 
     }))
 }
 
-fn parse_send_message_to_task(
-    arguments: &[ToolCallArgument],
-) -> Result<HarnessInvocation, HarnessError> {
+fn parse_send_message_to_task(arguments: &JsonObject) -> Result<HarnessInvocation, HarnessError> {
     let arguments = Arguments::new(arguments, &["task_id", "message"])?;
     Ok(HarnessInvocation::SendMessageToTask(
         SendMessageToTaskInvocation {
@@ -242,7 +285,7 @@ fn parse_send_message_to_task(
 
 fn parse_archive_task(
     calling_task_id: &TaskId,
-    arguments: &[ToolCallArgument],
+    arguments: &JsonObject,
 ) -> Result<HarnessInvocation, HarnessError> {
     let arguments = Arguments::new(arguments, &["task_id"])?;
     let task_id = TaskId(arguments.required_nonempty_string("task_id")?);
@@ -258,29 +301,19 @@ fn parse_archive_task(
 }
 
 struct Arguments<'a> {
-    values: BTreeMap<&'a str, &'a ToolArgumentValue>,
+    values: &'a JsonObject,
 }
 
 impl<'a> Arguments<'a> {
-    fn new(
-        arguments: &'a [ToolCallArgument],
-        allowed: &[&str],
-    ) -> Result<Arguments<'a>, HarnessError> {
-        let mut values = BTreeMap::new();
-        for argument in arguments {
-            let name = argument.name.0.as_str();
-            if !allowed.contains(&name) {
+    fn new(arguments: &'a JsonObject, allowed: &[&str]) -> Result<Arguments<'a>, HarnessError> {
+        for name in arguments.keys() {
+            if !allowed.contains(&name.as_str()) {
                 return Err(HarnessError::invalid_arguments(format!(
                     "unexpected argument '{name}'"
                 )));
             }
-            if values.insert(name, &argument.value).is_some() {
-                return Err(HarnessError::invalid_arguments(format!(
-                    "duplicate argument '{name}'"
-                )));
-            }
         }
-        Ok(Arguments { values })
+        Ok(Arguments { values: arguments })
     }
 
     fn required_nonempty_string(&self, name: &str) -> Result<String, HarnessError> {
@@ -293,7 +326,7 @@ impl<'a> Arguments<'a> {
         let Some(value) = self.values.get(name) else {
             return Ok(None);
         };
-        let ToolArgumentValue::String(value) = value else {
+        let Value::String(value) = value else {
             return Err(HarnessError::invalid_arguments(format!(
                 "argument '{name}' must be a string"
             )));
@@ -310,12 +343,14 @@ impl<'a> Arguments<'a> {
         let Some(value) = self.values.get(name) else {
             return Ok(None);
         };
-        let ToolArgumentValue::Integer(value) = value else {
+        let Value::Number(value) = value else {
             return Err(HarnessError::invalid_arguments(format!(
                 "argument '{name}' must be an integer"
             )));
         };
-        Ok(Some(*value))
+        value.as_i64().map(Some).ok_or_else(|| {
+            HarnessError::invalid_arguments(format!("argument '{name}' must be an integer"))
+        })
     }
 }
 
@@ -1209,10 +1244,7 @@ fn history_node_json(node: &HistoryNodeProjection) -> Value {
                 Value::String(function_call_id.0.clone()),
             );
             fields.insert("tool_name".to_owned(), Value::String(tool_name.0.clone()));
-            fields.insert(
-                "arguments".to_owned(),
-                Value::Array(arguments.iter().map(tool_argument_json).collect()),
-            );
+            fields.insert("arguments".to_owned(), Value::Object(arguments.clone()));
         }
         HistoryNodeProjectionBody::FunctionOutput {
             function_call_node_id,
@@ -1240,24 +1272,6 @@ fn history_node_json(node: &HistoryNodeProjection) -> Value {
     }
 
     Value::Object(fields.into_iter().collect())
-}
-
-fn tool_argument_json(argument: &ToolCallArgument) -> Value {
-    object([
-        ("name", Value::String(argument.name.0.clone())),
-        ("value", tool_argument_value_json(&argument.value)),
-    ])
-}
-
-fn tool_argument_value_json(value: &ToolArgumentValue) -> Value {
-    match value {
-        ToolArgumentValue::String(value) => Value::String(value.clone()),
-        ToolArgumentValue::Integer(value) => Value::from(*value),
-        ToolArgumentValue::Number(value) => {
-            Number::from_f64(*value).map_or(Value::Null, Value::Number)
-        }
-        ToolArgumentValue::Boolean(value) => Value::Bool(*value),
-    }
 }
 
 fn task_id_json(task_id: &TaskId) -> Value {
@@ -1302,7 +1316,7 @@ fn object<const N: usize>(entries: [(&str, Value); N]) -> Value {
 #[cfg(test)]
 mod tests {
     use selvedge_command_model::{RouterIngressMessage, ToolExecutionRunId};
-    use selvedge_domain_model::{FunctionCallId, HistoryNodeId, TaskId, ToolName};
+    use selvedge_domain_model::{FunctionCallId, HistoryNodeId, JsonObject, TaskId, ToolName};
 
     use super::{HarnessSuccess, spawn_supervised_execution};
     use crate::ToolExecutionRequest;
@@ -1315,7 +1329,7 @@ mod tests {
             function_call_node_id: HistoryNodeId(7),
             function_call_id: FunctionCallId("call-1".to_owned()),
             tool_name: ToolName("read_task".to_owned()),
-            arguments: Vec::new(),
+            arguments: JsonObject::new(),
         };
         let (router_tx, mut router_rx) = tokio::sync::mpsc::unbounded_channel();
         let supervisor =

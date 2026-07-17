@@ -9,6 +9,8 @@ This crate defines the localhost protocol data model shared by the Selvedge serv
 
 Use it for serializable ready probes, command submission envelopes, attach requests, attach responses, client subscriptions, client frames, snapshots, projections, events, and validation errors.
 
+Function-call history projections expose arguments as one JSON object. Nested objects, arrays, nulls, and exact JSON numbers therefore cross the local boundary without being flattened into name/value entries.
+
 This crate does not access the network, database, filesystem, runtime, or mailbox. Transport limits, authentication, concrete command support, payload schemas, and task existence checks are enforced by the crates that own those boundaries.
 
 Command rejection and attach rejection use separate reason enums. Command rejection must cover malformed request, server readiness, missing client attachment, login contention, unsupported command, router mailbox closure, and internal failure. Attach rejection must cover malformed request, server not ready, duplicate active attach, client registry capacity exhaustion, router mailbox closure, client-sync unavailability, attach channel creation failure, and internal failure.
@@ -36,7 +38,7 @@ flowchart TD
   ReadyProbe -->|JSON shape matches ready request or response| Validate
   Command -->|JSON shape has command id, name, payload, and client id where required| Validate
   Attach -->|JSON shape has client id, command id, and subscriptions| Validate
-  Frame -->|JSON shape matches snapshot, event, notice, or detach frame| Validate
+  Frame -->|JSON shape matches snapshot, event, or notice and function-call arguments are objects| Validate
   Validate -->|all required fields and enum values are accepted| Accepted
   Validate -->|malformed request, readiness, missing attachment, login contention, duplicate attach, capacity, router, client-sync, channel, unsupported command, or internal condition is reported| Rejected
   Accepted -->|caller serializes boundary value| Encode

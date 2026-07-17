@@ -15,17 +15,18 @@ use selvedge_core::{
 use selvedge_db::{
     CreateRootTaskInput, DbError, DbPool, FunctionCallId, HistoryNodeId, ModelProfileKey,
     NewFunctionCallNodeContent, NewFunctionOutputNodeContent, ReadTaskInput, ReasoningEffort,
-    TaskId, TaskStatusRow, ToolArgumentValue, ToolCallArgument, ToolName, ToolParameterName,
-    UnixTs, append_function_output_and_drain_queue,
+    TaskId, TaskStatusRow, ToolName, UnixTs, append_function_output_and_drain_queue,
     append_model_reply_with_tool_calls_and_move_cursor, append_user_message_and_move_cursor,
     archive_task, create_root_task, read_task, register_global_tool,
 };
+use selvedge_domain_model::JsonObject;
 use selvedge_harness::{
     ARCHIVE_TASK_TOOL_NAME, BASH_TOOL_NAME, FORK_TASK_TOOL_NAME, HarnessToolExecutor,
     READ_TASK_TOOL_NAME, SEND_MESSAGE_TO_TASK_TOOL_NAME, tool_manifest,
 };
 use selvedge_router::{RouterExitStatus, RouterStartArgs, ToolExecutionSpawner, spawn_router};
 use selvedge_test_support::db::{create_message_node, open_memory_db};
+use serde_json::Value;
 use tokio::sync::mpsc;
 use tokio::time::timeout;
 
@@ -461,7 +462,7 @@ fn append_tool_call(
     task_id: &TaskId,
     function_call_id: &str,
     tool_name: &str,
-    arguments: Vec<ToolCallArgument>,
+    arguments: Vec<(String, Value)>,
 ) -> HistoryNodeId {
     append_model_reply_with_tool_calls_and_move_cursor(
         db,
@@ -470,7 +471,7 @@ fn append_tool_call(
         vec![NewFunctionCallNodeContent {
             function_call_id: FunctionCallId(function_call_id.to_owned()),
             tool_name: ToolName(tool_name.to_owned()),
-            arguments,
+            arguments: argument_object(arguments),
         }],
         UnixTs(10),
     )
@@ -483,7 +484,7 @@ fn tool_request(
     function_call_node_id: HistoryNodeId,
     function_call_id: &str,
     tool_name: &str,
-    arguments: Vec<ToolCallArgument>,
+    arguments: Vec<(String, Value)>,
 ) -> ToolExecutionRequest {
     ToolExecutionRequest {
         task_id: task_id.clone(),
@@ -491,15 +492,16 @@ fn tool_request(
         function_call_node_id,
         function_call_id: FunctionCallId(function_call_id.to_owned()),
         tool_name: ToolName(tool_name.to_owned()),
-        arguments,
+        arguments: argument_object(arguments),
     }
 }
 
-fn string_argument(name: &str, value: &str) -> ToolCallArgument {
-    ToolCallArgument {
-        name: ToolParameterName(name.to_owned()),
-        value: ToolArgumentValue::String(value.to_owned()),
-    }
+fn argument_object(entries: Vec<(String, Value)>) -> JsonObject {
+    entries.into_iter().collect()
+}
+
+fn string_argument(name: &str, value: &str) -> (String, Value) {
+    (name.to_owned(), Value::String(value.to_owned()))
 }
 
 fn result_correlation(
