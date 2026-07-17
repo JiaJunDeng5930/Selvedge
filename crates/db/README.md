@@ -7,7 +7,7 @@ freshness_fingerprint: 4643ebd4616c8642c8ea9970a1ae1b92ef7920f6
 
 This crate owns SQLite persistence for router-mediated Selvedge tasks.
 
-Use it to open a schema-v5 SQLite database, migrate schema-v4 databases, register non-global or global tools, create root tasks, atomically fork child tasks from open function calls, commit task-runtime state transitions, queue user inputs, archive tasks, and read bounded task snapshots.
+Use it to open a schema-v6 SQLite database, migrate schema-v5 databases, register non-global or global harness tools, create root tasks, atomically fork child tasks from open function calls, commit task-runtime state transitions, queue user inputs, archive tasks, and read bounded task snapshots.
 
 This crate is for SQLite persistence only. Runtime wait state, provider calls, tool execution, router registries, and event delivery live in other crates.
 
@@ -15,7 +15,9 @@ Resource boundaries:
 
 - `create_history_node` inserts one history node. History parent links are a standalone graph.
 - `create_root_task` inserts one task row at a caller-provided existing `cursor_node_id`. Task parent links and history parent links are separate graphs.
-- `register_global_tool` accepts a new definition, an exact repeat, or an exact non-global definition promoted to global. A conflicting stored definition fails without changing the catalog.
+- Tool definitions store the complete input JSON Schema separately from a closed execution route. The current registration APIs create harness routes; a route can also represent one remote tool on a named MCP server.
+- `register_global_tool` accepts a new harness definition, an exact harness repeat, or an exact non-global harness definition promoted to global. A conflicting schema, description, or route fails without changing the catalog.
+- `unpublish_global_tool` changes only publication. The definition, execution route, task-specific references, and function-call history remain durable.
 - `read_tool_manifest_for_task` merges database-marked global tools with that task's `task_tools` rows for active or archived tasks.
 - `fork_task_from_function_call` requires an active parent and an exact open function-call identity on its current cursor path. It finds the history node before that call's contiguous function-call batch, appends the child user prompt there, copies the parent model profile, reasoning effort, and task-specific tools, and writes the parent edge in one transaction.
 - `read_task` returns task identity, durable status, state version, cursor, optional parent, queued-input count, an exclusive `after_node_id` history page, and an exact `has_more` flag from one SQLite read transaction. Page limits are `1..=100`, and the after node must be on that task's cursor path.
@@ -33,8 +35,8 @@ flowchart TD
   Start([database API call])
   Open[Open SQLite database]
   Schema{stored schema state}
-  Initialize[Create schema v5]
-  Migrate[Migrate schema v4 to v5]
+  Initialize[Create schema v6]
+  Migrate[Migrate schema v5 to v6]
   SnapshotTx[Start read_task transaction]
   SnapshotValidate[Validate task, limit, and after node]
   SnapshotPage[Read metadata and cursor-path page]
@@ -45,19 +47,19 @@ flowchart TD
   Return[Return caller-visible result]
   OpenError[Return open or migration error]
   ReadError[Return read or decode error]
-  ValidationError[Return invalid task, cursor, tool, argument, or state error]
+  ValidationError[Return invalid task, cursor, tool, publication, or state error]
   CommitError[Return commit database error]
 
   Start -->|open_db is called| Open
   Open -->|database has no application tables| Initialize
   Open -->|database has application tables and schema metadata is readable| Schema
   Open -->|SQLite open or schema metadata read fails| OpenError
-  Schema -->|stored version is router-mediated-redesign-v4| Migrate
-  Schema -->|stored version is harness-persistence-v5| Return
+  Schema -->|stored version is harness-persistence-v5| Migrate
+  Schema -->|stored version is json-tool-foundation-v6| Return
   Schema -->|stored version is missing or unsupported| OpenError
-  Initialize -->|schema-v5 batch succeeds| Return
+  Initialize -->|schema-v6 batch succeeds| Return
   Initialize -->|schema creation fails| OpenError
-  Migrate -->|global marker, index, and version update commit| Return
+  Migrate -->|schemas and argument objects are rebuilt, old flat tables are removed, and the version update commits| Return
   Migrate -->|migration transaction fails| OpenError
   Start -->|read_task is called with open connection| SnapshotTx
   SnapshotTx -->|transaction begins| SnapshotValidate
@@ -72,7 +74,7 @@ flowchart TD
   Read -->|query fails or stored enum, JSON, id, or argument value is invalid| ReadError
   WriteTx -->|transaction begins| Validate
   WriteTx -->|transaction begin fails| CommitError
-  Validate -->|task, cursor, queue, history parent, exact global tool, and fork-call preconditions hold| Commit
+  Validate -->|task, cursor, queue, history parent, exact global harness tool, publication, and fork-call preconditions hold| Commit
   Validate -->|requested transition conflicts with durable state| ValidationError
   Validate -->|read inside transaction fails| ReadError
   Commit -->|SQLite commit succeeds| Return

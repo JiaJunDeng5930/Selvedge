@@ -6,31 +6,30 @@ CREATE TABLE schema_metadata (
 );
 
 INSERT INTO schema_metadata (schema_key, schema_value)
-VALUES ('selvedge_schema_version', 'json-tool-foundation-v6');
+VALUES ('selvedge_schema_version', 'harness-persistence-v5');
 
 CREATE TABLE tools (
     tool_name TEXT PRIMARY KEY CHECK (length(tool_name) > 0),
     description_text TEXT NOT NULL CHECK (length(description_text) > 0),
-    input_schema_json TEXT NOT NULL DEFAULT '{}'
-        CHECK (json_valid(input_schema_json) AND json_type(input_schema_json) = 'object'),
-    mcp_server_id TEXT,
-    remote_tool_name TEXT,
-    execution_source_kind TEXT NOT NULL DEFAULT 'harness' CHECK (
-        (execution_source_kind = 'harness' AND mcp_server_id IS NULL AND remote_tool_name IS NULL)
-        OR
-        (
-            execution_source_kind = 'mcp'
-            AND mcp_server_id IS NOT NULL
-            AND remote_tool_name IS NOT NULL
-            AND length(mcp_server_id) > 0
-            AND length(remote_tool_name) > 0
-        )
-    ),
     is_global INTEGER NOT NULL DEFAULT 0 CHECK (is_global IN (0, 1))
 );
 
 CREATE INDEX idx_tools_global_name
     ON tools(is_global, tool_name);
+
+CREATE TABLE tool_parameters (
+    tool_name TEXT NOT NULL,
+    parameter_name TEXT NOT NULL CHECK (length(parameter_name) > 0),
+    parameter_type TEXT NOT NULL CHECK (parameter_type IN ('string', 'integer', 'number', 'boolean')),
+    description_text TEXT NOT NULL CHECK (length(description_text) > 0),
+    is_required INTEGER NOT NULL CHECK (is_required IN (0, 1)),
+    PRIMARY KEY (tool_name, parameter_name),
+    UNIQUE (tool_name, parameter_name, parameter_type),
+    FOREIGN KEY (tool_name) REFERENCES tools(tool_name) ON UPDATE CASCADE ON DELETE CASCADE
+);
+
+CREATE INDEX idx_tool_parameters_tool_required
+    ON tool_parameters(tool_name, is_required, parameter_name);
 
 CREATE TABLE history_nodes (
     node_id INTEGER PRIMARY KEY,
@@ -66,8 +65,6 @@ CREATE TABLE history_function_call_nodes (
     node_content_kind TEXT NOT NULL DEFAULT 'function_call' CHECK (node_content_kind = 'function_call'),
     function_call_id TEXT NOT NULL CHECK (length(function_call_id) > 0),
     tool_name TEXT NOT NULL CHECK (length(tool_name) > 0),
-    arguments_json TEXT NOT NULL DEFAULT '{}'
-        CHECK (json_valid(arguments_json) AND json_type(arguments_json) = 'object'),
     FOREIGN KEY (node_id, node_content_kind) REFERENCES history_nodes(node_id, content_kind) ON UPDATE RESTRICT ON DELETE CASCADE,
     FOREIGN KEY (tool_name) REFERENCES tools(tool_name) ON UPDATE CASCADE ON DELETE RESTRICT,
     UNIQUE (node_id, tool_name),
@@ -79,6 +76,32 @@ CREATE INDEX idx_history_function_call_id
 
 CREATE INDEX idx_history_function_call_tool
     ON history_function_call_nodes(tool_name, node_id);
+
+CREATE TABLE history_function_call_arguments (
+    function_call_node_id INTEGER NOT NULL,
+    tool_name TEXT NOT NULL CHECK (length(tool_name) > 0),
+    argument_name TEXT NOT NULL CHECK (length(argument_name) > 0),
+    value_type TEXT NOT NULL CHECK (value_type IN ('string', 'integer', 'number', 'boolean')),
+    string_value TEXT,
+    integer_value INTEGER,
+    number_value REAL,
+    boolean_value INTEGER CHECK (boolean_value IN (0, 1)),
+    PRIMARY KEY (function_call_node_id, argument_name),
+    FOREIGN KEY (function_call_node_id, tool_name) REFERENCES history_function_call_nodes(node_id, tool_name) ON UPDATE RESTRICT ON DELETE CASCADE,
+    FOREIGN KEY (tool_name, argument_name, value_type) REFERENCES tool_parameters(tool_name, parameter_name, parameter_type) ON UPDATE CASCADE ON DELETE RESTRICT,
+    CHECK (
+        (value_type = 'string' AND string_value IS NOT NULL AND integer_value IS NULL AND number_value IS NULL AND boolean_value IS NULL)
+        OR (value_type = 'integer' AND string_value IS NULL AND integer_value IS NOT NULL AND number_value IS NULL AND boolean_value IS NULL)
+        OR (value_type = 'number' AND string_value IS NULL AND integer_value IS NULL AND number_value IS NOT NULL AND boolean_value IS NULL)
+        OR (value_type = 'boolean' AND string_value IS NULL AND integer_value IS NULL AND number_value IS NULL AND boolean_value IS NOT NULL)
+    )
+);
+
+CREATE INDEX idx_history_function_call_args_call_tool
+    ON history_function_call_arguments(function_call_node_id, tool_name);
+
+CREATE INDEX idx_history_function_call_args_parameter
+    ON history_function_call_arguments(tool_name, argument_name, value_type);
 
 CREATE TABLE history_function_output_nodes (
     node_id INTEGER PRIMARY KEY,

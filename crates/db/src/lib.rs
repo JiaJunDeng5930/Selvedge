@@ -1,18 +1,16 @@
 #![doc = include_str!("../README.md")]
 
-use std::collections::HashSet;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::{error::Error, fmt};
 
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 pub use selvedge_domain_model::{
-    Conversation, ConversationItem, FunctionCallId, HistoryNodeId, MessageRole, ModelProfileKey,
-    ReasoningEffort, TaskId, ToolArgumentValue, ToolCallArgument, ToolManifest, ToolName,
-    ToolParameterName, ToolParameterType, ToolSpec, UnixTs,
+    Conversation, ConversationItem, FunctionCallId, HistoryNodeId, JsonObject, MessageRole,
+    ModelProfileKey, ReasoningEffort, TaskId, ToolManifest, ToolName, ToolSpec, UnixTs,
 };
 
-const SCHEMA_VERSION: &str = "harness-persistence-v5";
-const PREVIOUS_SCHEMA_VERSION: &str = "router-mediated-redesign-v4";
+const SCHEMA_VERSION: &str = "json-tool-foundation-v6";
+const PREVIOUS_SCHEMA_VERSION: &str = "harness-persistence-v5";
 pub const MAX_TASK_HISTORY_PAGE_SIZE: u32 = 100;
 
 #[derive(Clone)]
@@ -82,18 +80,12 @@ pub struct OpenDbOptions {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ToolRow {
-    pub tool_name: ToolName,
-    pub description_text: String,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ToolParameterRow {
-    pub tool_name: ToolName,
-    pub parameter_name: ToolParameterName,
-    pub parameter_type: ToolParameterType,
-    pub description_text: String,
-    pub is_required: bool,
+pub enum ToolExecutionSource {
+    Harness,
+    Mcp {
+        server_id: String,
+        remote_tool_name: String,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -157,14 +149,6 @@ pub struct HistoryFunctionCallNodeRow {
     pub tool_name: ToolName,
 }
 
-#[derive(Clone, Debug, PartialEq)]
-pub struct HistoryFunctionCallArgumentRow {
-    pub function_call_node_id: HistoryNodeId,
-    pub tool_name: ToolName,
-    pub argument_name: ToolParameterName,
-    pub value: ToolArgumentValue,
-}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HistoryFunctionOutputNodeRow {
     pub node_id: HistoryNodeId,
@@ -180,7 +164,7 @@ pub struct OpenFunctionCall {
     pub function_call_node_id: HistoryNodeId,
     pub function_call_id: FunctionCallId,
     pub tool_name: ToolName,
-    pub arguments: Vec<ToolCallArgument>,
+    pub arguments: JsonObject,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -204,7 +188,7 @@ pub enum HistoryNode {
         created_at: UnixTs,
         function_call_id: FunctionCallId,
         tool_name: ToolName,
-        arguments: Vec<ToolCallArgument>,
+        arguments: JsonObject,
     },
     FunctionOutput {
         node_id: HistoryNodeId,
@@ -307,7 +291,7 @@ pub struct NewReasoningNodeContent {
 pub struct NewFunctionCallNodeContent {
     pub function_call_id: FunctionCallId,
     pub tool_name: ToolName,
-    pub arguments: Vec<ToolCallArgument>,
+    pub arguments: JsonObject,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -364,34 +348,71 @@ pub fn verify_schema(db: &DbPool) -> Result<(), DbError> {
 pub fn register_tool(db: &DbPool, tool: ToolSpec) -> Result<(), DbError> {
     let mut connection = db.connection()?;
     let tx = connection.transaction().map_err(map_error)?;
-    insert_tool_in_tx(&tx, canonicalize_tool_spec(tool), false)?;
+    insert_tool_in_tx(&tx, tool, ToolExecutionSource::Harness, false)?;
     tx.commit().map_err(map_error)
 }
 
 pub fn register_global_tool(db: &DbPool, tool: ToolSpec) -> Result<(), DbError> {
-    let tool = canonicalize_tool_spec(tool);
     let mut connection = db.connection()?;
     let tx = connection
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(map_error)?;
     match read_tool_definition_in_connection(&tx, &tool.name)? {
-        Some((stored, _)) if stored != tool => {
+        Some((stored, source, _)) if stored != tool || source != ToolExecutionSource::Harness => {
             return Err(DbError::Constraint(format!(
-                "global tool definition conflicts with stored tool: {}",
+                "global harness tool conflicts with stored tool: {}",
                 tool.name
             )));
         }
-        Some((_, true)) => {}
-        Some((_, false)) => {
+        Some((_, _, true)) => {}
+        Some((_, _, false)) => {
             tx.execute(
                 "UPDATE tools SET is_global = 1 WHERE tool_name = ?1",
                 params![tool.name],
             )
             .map_err(map_error)?;
         }
-        None => insert_tool_in_tx(&tx, tool, true)?,
+        None => insert_tool_in_tx(&tx, tool, ToolExecutionSource::Harness, true)?,
     }
     tx.commit().map_err(map_error)
+}
+
+pub fn unpublish_global_tool(db: &DbPool, tool_name: &ToolName) -> Result<(), DbError> {
+    let mut connection = db.connection()?;
+    let tx = connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(map_error)?;
+    let changed = tx
+        .execute(
+            "UPDATE tools SET is_global = 0 WHERE tool_name = ?1",
+            params![tool_name.0],
+        )
+        .map_err(map_error)?;
+    if changed == 0 {
+        return Err(DbError::NotFound);
+    }
+    tx.commit().map_err(map_error)
+}
+
+pub fn read_tool_execution_source(
+    db: &DbPool,
+    tool_name: &ToolName,
+) -> Result<ToolExecutionSource, DbError> {
+    let connection = db.connection()?;
+    connection
+        .query_row(
+            "SELECT execution_source_kind, mcp_server_id, remote_tool_name
+             FROM tools
+             WHERE tool_name = ?1",
+            params![tool_name.0],
+            |row| {
+                decode_tool_execution_source(&row.get::<_, String>(0)?, row.get(1)?, row.get(2)?)
+                    .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))
+            },
+        )
+        .optional()
+        .map_err(map_error)?
+        .ok_or(DbError::NotFound)
 }
 
 pub fn create_history_node(db: &DbPool, node: NewHistoryNode) -> Result<HistoryNodeId, DbError> {
@@ -1070,7 +1091,7 @@ pub fn read_tool_manifest_for_task(db: &DbPool, task_id: &TaskId) -> Result<Tool
     ensure_task_exists(&connection, task_id)?;
     let mut statement = connection
         .prepare(
-            "SELECT t.tool_name, t.description_text
+            "SELECT t.tool_name, t.description_text, t.input_schema_json
              FROM tools t
              LEFT JOIN task_tools tt
                ON tt.tool_name = t.tool_name
@@ -1081,41 +1102,22 @@ pub fn read_tool_manifest_for_task(db: &DbPool, task_id: &TaskId) -> Result<Tool
         .map_err(map_error)?;
     let tools = statement
         .query_map(params![task_id.0], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+            ))
         })
         .map_err(map_error)?
         .collect::<Result<Vec<_>, _>>()
         .map_err(map_error)?;
 
     let mut manifest_tools = Vec::with_capacity(tools.len());
-    for (name, description) in tools {
-        let mut parameter_statement = connection
-            .prepare(
-                "SELECT parameter_name, parameter_type, description_text, is_required
-                 FROM tool_parameters
-                 WHERE tool_name = ?1
-                 ORDER BY parameter_name ASC",
-            )
-            .map_err(map_error)?;
-        let parameters = parameter_statement
-            .query_map(params![name], |row| {
-                Ok(selvedge_domain_model::ToolParameter {
-                    name: row.get(0)?,
-                    parameter_type: tool_parameter_type_from_db(&row.get::<_, String>(1)?)
-                        .map_err(|error| {
-                            rusqlite::Error::ToSqlConversionFailure(Box::new(error))
-                        })?,
-                    description: row.get(2)?,
-                    required: row.get::<_, i64>(3)? == 1,
-                })
-            })
-            .map_err(map_error)?
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(map_error)?;
+    for (name, description, input_schema_json) in tools {
         manifest_tools.push(ToolSpec {
             name,
             description,
-            parameters,
+            input_schema: decode_json_object(&input_schema_json)?,
         });
     }
     Ok(ToolManifest {
@@ -1178,7 +1180,10 @@ impl DbPool {
 }
 
 fn migrate_schema(connection: &mut Connection) -> Result<(), DbError> {
-    let actual: Option<String> = connection
+    let tx = connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(map_error)?;
+    let actual: Option<String> = tx
         .query_row(
             "SELECT schema_value
              FROM schema_metadata
@@ -1189,16 +1194,129 @@ fn migrate_schema(connection: &mut Connection) -> Result<(), DbError> {
         .optional()
         .map_err(map_error)?;
     if actual.as_deref() != Some(PREVIOUS_SCHEMA_VERSION) {
+        tx.rollback().map_err(map_error)?;
         return Ok(());
     }
 
-    let tx = connection
-        .transaction_with_behavior(TransactionBehavior::Immediate)
-        .map_err(map_error)?;
     tx.execute_batch(
         "ALTER TABLE tools
-             ADD COLUMN is_global INTEGER NOT NULL DEFAULT 0 CHECK (is_global IN (0, 1));
-         CREATE INDEX idx_tools_global_name ON tools(is_global, tool_name);",
+             ADD COLUMN input_schema_json TEXT NOT NULL DEFAULT '{}'
+             CHECK (json_valid(input_schema_json) AND json_type(input_schema_json) = 'object');
+         ALTER TABLE tools ADD COLUMN mcp_server_id TEXT;
+         ALTER TABLE tools ADD COLUMN remote_tool_name TEXT;
+         ALTER TABLE tools
+             ADD COLUMN execution_source_kind TEXT NOT NULL DEFAULT 'harness'
+             CHECK (
+                 (
+                     execution_source_kind = 'harness'
+                     AND mcp_server_id IS NULL
+                     AND remote_tool_name IS NULL
+                 )
+                 OR
+                 (
+                     execution_source_kind = 'mcp'
+                     AND mcp_server_id IS NOT NULL
+                     AND remote_tool_name IS NOT NULL
+                     AND length(mcp_server_id) > 0
+                     AND length(remote_tool_name) > 0
+                 )
+             );
+         ALTER TABLE history_function_call_nodes
+             ADD COLUMN arguments_json TEXT NOT NULL DEFAULT '{}'
+             CHECK (json_valid(arguments_json) AND json_type(arguments_json) = 'object');",
+    )
+    .map_err(map_error)?;
+
+    let tool_names = {
+        let mut statement = tx
+            .prepare("SELECT tool_name FROM tools ORDER BY tool_name ASC")
+            .map_err(map_error)?;
+        statement
+            .query_map([], |row| row.get::<_, String>(0))
+            .map_err(map_error)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(map_error)?
+    };
+    for tool_name in tool_names {
+        let parameters = {
+            let mut statement = tx
+                .prepare(
+                    "SELECT parameter_name, parameter_type, description_text, is_required
+                     FROM tool_parameters
+                     WHERE tool_name = ?1
+                     ORDER BY parameter_name ASC",
+                )
+                .map_err(map_error)?;
+            statement
+                .query_map(params![tool_name], |row| {
+                    Ok(LegacyToolParameter {
+                        name: row.get(0)?,
+                        parameter_type: row.get(1)?,
+                        description: row.get(2)?,
+                        required: row.get::<_, i64>(3)? == 1,
+                    })
+                })
+                .map_err(map_error)?
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(map_error)?
+        };
+        let input_schema_json = encode_json_object(&legacy_input_schema(parameters)?)?;
+        tx.execute(
+            "UPDATE tools SET input_schema_json = ?1 WHERE tool_name = ?2",
+            params![input_schema_json, tool_name],
+        )
+        .map_err(map_error)?;
+    }
+
+    let function_call_node_ids = {
+        let mut statement = tx
+            .prepare("SELECT node_id FROM history_function_call_nodes ORDER BY node_id ASC")
+            .map_err(map_error)?;
+        statement
+            .query_map([], |row| row.get::<_, i64>(0))
+            .map_err(map_error)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(map_error)?
+    };
+    for node_id in function_call_node_ids {
+        let arguments = {
+            let mut statement = tx
+                .prepare(
+                    "SELECT argument_name, value_type, string_value, integer_value,
+                            number_value, boolean_value
+                     FROM history_function_call_arguments
+                     WHERE function_call_node_id = ?1
+                     ORDER BY argument_name ASC",
+                )
+                .map_err(map_error)?;
+            let rows = statement
+                .query_map(params![node_id], |row| {
+                    Ok(LegacyArgument {
+                        name: row.get(0)?,
+                        value_type: row.get(1)?,
+                        string_value: row.get(2)?,
+                        integer_value: row.get(3)?,
+                        number_value: row.get(4)?,
+                        boolean_value: row.get(5)?,
+                    })
+                })
+                .map_err(map_error)?
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(map_error)?;
+            legacy_arguments(rows)?
+        };
+        tx.execute(
+            "UPDATE history_function_call_nodes
+             SET arguments_json = ?1
+             WHERE node_id = ?2",
+            params![encode_json_object(&arguments)?, node_id],
+        )
+        .map_err(map_error)?;
+    }
+
+    tx.execute_batch(
+        "DROP TABLE history_function_call_arguments;
+         DROP TABLE tool_parameters;",
     )
     .map_err(map_error)?;
     tx.execute(
@@ -1542,90 +1660,70 @@ fn list_queued_inputs(db: &DbPool, task_id: &TaskId) -> Result<Vec<QueuedUserInp
         .map_err(map_error)
 }
 
-fn canonicalize_tool_spec(mut tool: ToolSpec) -> ToolSpec {
-    tool.parameters
-        .sort_by(|left, right| left.name.cmp(&right.name));
-    tool
-}
-
 fn insert_tool_in_tx(
     tx: &rusqlite::Transaction<'_>,
     tool: ToolSpec,
+    execution_source: ToolExecutionSource,
     is_global: bool,
 ) -> Result<(), DbError> {
+    let (execution_source_kind, mcp_server_id, remote_tool_name) =
+        encode_tool_execution_source(execution_source);
     tx.execute(
-        "INSERT INTO tools (tool_name, description_text, is_global)
-         VALUES (?1, ?2, ?3)",
-        params![tool.name, tool.description, bool_to_i64(is_global)],
+        "INSERT INTO tools
+         (tool_name, description_text, input_schema_json, execution_source_kind,
+          mcp_server_id, remote_tool_name, is_global)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        params![
+            tool.name,
+            tool.description,
+            encode_json_object(&tool.input_schema)?,
+            execution_source_kind,
+            mcp_server_id,
+            remote_tool_name,
+            bool_to_i64(is_global)
+        ],
     )
     .map_err(map_error)?;
-    for parameter in tool.parameters {
-        tx.execute(
-            "INSERT INTO tool_parameters
-             (tool_name, parameter_name, parameter_type, description_text, is_required)
-             VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![
-                tool.name,
-                parameter.name,
-                tool_parameter_type_to_db(&parameter.parameter_type),
-                parameter.description,
-                bool_to_i64(parameter.required)
-            ],
-        )
-        .map_err(map_error)?;
-    }
     Ok(())
 }
 
 fn read_tool_definition_in_connection(
     connection: &Connection,
     tool_name: &str,
-) -> Result<Option<(ToolSpec, bool)>, DbError> {
+) -> Result<Option<(ToolSpec, ToolExecutionSource, bool)>, DbError> {
     let stored = connection
         .query_row(
-            "SELECT description_text, is_global
+            "SELECT description_text, input_schema_json, execution_source_kind,
+                    mcp_server_id, remote_tool_name, is_global
              FROM tools
              WHERE tool_name = ?1",
             params![tool_name],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)? == 1)),
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    decode_tool_execution_source(
+                        &row.get::<_, String>(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                    )
+                    .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?,
+                    row.get::<_, i64>(5)? == 1,
+                ))
+            },
         )
         .optional()
         .map_err(map_error)?;
-    let Some((description, is_global)) = stored else {
+    let Some((description, input_schema_json, execution_source, is_global)) = stored else {
         return Ok(None);
-    };
-
-    let parameters = {
-        let mut statement = connection
-            .prepare(
-                "SELECT parameter_name, parameter_type, description_text, is_required
-                 FROM tool_parameters
-                 WHERE tool_name = ?1
-                 ORDER BY parameter_name ASC",
-            )
-            .map_err(map_error)?;
-        statement
-            .query_map(params![tool_name], |row| {
-                Ok(selvedge_domain_model::ToolParameter {
-                    name: row.get(0)?,
-                    parameter_type: tool_parameter_type_from_db(&row.get::<_, String>(1)?)
-                        .map_err(|error| {
-                            rusqlite::Error::ToSqlConversionFailure(Box::new(error))
-                        })?,
-                    description: row.get(2)?,
-                    required: row.get::<_, i64>(3)? == 1,
-                })
-            })
-            .map_err(map_error)?
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(map_error)?
     };
     Ok(Some((
         ToolSpec {
             name: tool_name.to_owned(),
             description,
-            parameters,
+            input_schema: decode_json_object(&input_schema_json)?,
         },
+        execution_source,
         is_global,
     )))
 }
@@ -1697,61 +1795,18 @@ fn insert_function_call_node(
     node_id: HistoryNodeId,
     content: NewFunctionCallNodeContent,
 ) -> Result<(), DbError> {
-    let argument_names = content
-        .arguments
-        .iter()
-        .map(|argument| argument.name.0.as_str())
-        .collect::<HashSet<_>>();
-    let required_parameters = {
-        let mut statement = tx
-            .prepare(
-                "SELECT parameter_name
-                 FROM tool_parameters
-                 WHERE tool_name = ?1 AND is_required = 1
-                 ORDER BY parameter_name ASC",
-            )
-            .map_err(map_error)?;
-        statement
-            .query_map(params![content.tool_name.0], |row| row.get::<_, String>(0))
-            .map_err(map_error)?
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(map_error)?
-    };
-    for parameter_name in required_parameters {
-        if !argument_names.contains(parameter_name.as_str()) {
-            return Err(DbError::Constraint(format!(
-                "required tool argument is missing: {}.{}",
-                content.tool_name.0, parameter_name
-            )));
-        }
-    }
-
     tx.execute(
-        "INSERT INTO history_function_call_nodes (node_id, function_call_id, tool_name)
-         VALUES (?1, ?2, ?3)",
-        params![node_id.0, content.function_call_id.0, content.tool_name.0],
+        "INSERT INTO history_function_call_nodes
+         (node_id, function_call_id, tool_name, arguments_json)
+         VALUES (?1, ?2, ?3, ?4)",
+        params![
+            node_id.0,
+            content.function_call_id.0,
+            content.tool_name.0,
+            encode_json_object(&content.arguments)?
+        ],
     )
     .map_err(map_error)?;
-    for argument in content.arguments {
-        let (value_type, string_value, integer_value, number_value, boolean_value) =
-            tool_argument_value_to_db(argument.value);
-        tx.execute(
-            "INSERT INTO history_function_call_arguments
-             (function_call_node_id, tool_name, argument_name, value_type, string_value, integer_value, number_value, boolean_value)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-            params![
-                node_id.0,
-                content.tool_name.0,
-                argument.name.0,
-                value_type,
-                string_value,
-                integer_value,
-                number_value,
-                boolean_value
-            ],
-        )
-        .map_err(map_error)?;
-    }
     Ok(())
 }
 
@@ -1871,33 +1926,17 @@ fn read_function_call_node(
 fn read_function_call_arguments(
     connection: &Connection,
     node_id: &HistoryNodeId,
-) -> Result<Vec<ToolCallArgument>, DbError> {
-    let mut statement = connection
-        .prepare(
-            "SELECT argument_name, value_type, string_value, integer_value, number_value, boolean_value
-             FROM history_function_call_arguments
-             WHERE function_call_node_id = ?1
-             ORDER BY argument_name ASC",
+) -> Result<JsonObject, DbError> {
+    let arguments_json = connection
+        .query_row(
+            "SELECT arguments_json
+             FROM history_function_call_nodes
+             WHERE node_id = ?1",
+            params![node_id.0],
+            |row| row.get::<_, String>(0),
         )
         .map_err(map_error)?;
-    statement
-        .query_map(params![node_id.0], |row| {
-            let value_type: String = row.get(1)?;
-            Ok(ToolCallArgument {
-                name: ToolParameterName(row.get(0)?),
-                value: tool_argument_value_from_db(
-                    &value_type,
-                    row.get(2)?,
-                    row.get(3)?,
-                    row.get(4)?,
-                    row.get(5)?,
-                )
-                .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?,
-            })
-        })
-        .map_err(map_error)?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(map_error)
+    decode_json_object(&arguments_json)
 }
 
 fn read_function_output_node(
@@ -2031,68 +2070,153 @@ fn reasoning_effort_from_db(value: &str) -> Result<ReasoningEffort, DbError> {
     }
 }
 
-fn tool_parameter_type_to_db(value: &ToolParameterType) -> &'static str {
-    match value {
-        ToolParameterType::String => "string",
-        ToolParameterType::Integer => "integer",
-        ToolParameterType::Number => "number",
-        ToolParameterType::Boolean => "boolean",
-    }
+struct LegacyToolParameter {
+    name: String,
+    parameter_type: String,
+    description: String,
+    required: bool,
 }
 
-fn tool_parameter_type_from_db(value: &str) -> Result<ToolParameterType, DbError> {
-    match value {
-        "string" => Ok(ToolParameterType::String),
-        "integer" => Ok(ToolParameterType::Integer),
-        "number" => Ok(ToolParameterType::Number),
-        "boolean" => Ok(ToolParameterType::Boolean),
-        other => Err(DbError::Storage(format!(
-            "unknown tool parameter type: {other}"
-        ))),
-    }
-}
-
-type DbArgumentValue = (
-    &'static str,
-    Option<String>,
-    Option<i64>,
-    Option<f64>,
-    Option<i64>,
-);
-
-fn tool_argument_value_to_db(value: ToolArgumentValue) -> DbArgumentValue {
-    match value {
-        ToolArgumentValue::String(value) => ("string", Some(value), None, None, None),
-        ToolArgumentValue::Integer(value) => ("integer", None, Some(value), None, None),
-        ToolArgumentValue::Number(value) => ("number", None, None, Some(value), None),
-        ToolArgumentValue::Boolean(value) => {
-            ("boolean", None, None, None, Some(bool_to_i64(value)))
-        }
-    }
-}
-
-fn tool_argument_value_from_db(
-    value_type: &str,
+struct LegacyArgument {
+    name: String,
+    value_type: String,
     string_value: Option<String>,
     integer_value: Option<i64>,
     number_value: Option<f64>,
     boolean_value: Option<i64>,
-) -> Result<ToolArgumentValue, DbError> {
-    match value_type {
-        "string" => string_value
-            .map(ToolArgumentValue::String)
-            .ok_or_else(|| DbError::Storage("string argument value is missing".to_owned())),
-        "integer" => integer_value
-            .map(ToolArgumentValue::Integer)
-            .ok_or_else(|| DbError::Storage("integer argument value is missing".to_owned())),
-        "number" => number_value
-            .map(ToolArgumentValue::Number)
-            .ok_or_else(|| DbError::Storage("number argument value is missing".to_owned())),
-        "boolean" => boolean_value
-            .map(|value| ToolArgumentValue::Boolean(value == 1))
-            .ok_or_else(|| DbError::Storage("boolean argument value is missing".to_owned())),
-        other => Err(DbError::Storage(format!(
-            "unknown argument value type: {other}"
+}
+
+fn legacy_input_schema(parameters: Vec<LegacyToolParameter>) -> Result<JsonObject, DbError> {
+    let mut properties = JsonObject::new();
+    let mut required = Vec::new();
+    for parameter in parameters {
+        if !matches!(
+            parameter.parameter_type.as_str(),
+            "string" | "integer" | "number" | "boolean"
+        ) {
+            return Err(DbError::Storage(format!(
+                "unknown tool parameter type: {}",
+                parameter.parameter_type
+            )));
+        }
+        properties.insert(
+            parameter.name.clone(),
+            serde_json::Value::Object(JsonObject::from_iter([
+                (
+                    "type".to_owned(),
+                    serde_json::Value::String(parameter.parameter_type),
+                ),
+                (
+                    "description".to_owned(),
+                    serde_json::Value::String(parameter.description),
+                ),
+            ])),
+        );
+        if parameter.required {
+            required.push(serde_json::Value::String(parameter.name));
+        }
+    }
+
+    Ok(JsonObject::from_iter([
+        (
+            "type".to_owned(),
+            serde_json::Value::String("object".to_owned()),
+        ),
+        (
+            "properties".to_owned(),
+            serde_json::Value::Object(properties),
+        ),
+        ("required".to_owned(), serde_json::Value::Array(required)),
+        (
+            "additionalProperties".to_owned(),
+            serde_json::Value::Bool(false),
+        ),
+    ]))
+}
+
+fn legacy_arguments(arguments: Vec<LegacyArgument>) -> Result<JsonObject, DbError> {
+    arguments
+        .into_iter()
+        .map(|argument| {
+            let value = match argument.value_type.as_str() {
+                "string" => argument
+                    .string_value
+                    .map(serde_json::Value::String)
+                    .ok_or_else(|| {
+                        DbError::Storage("string argument value is missing".to_owned())
+                    })?,
+                "integer" => argument
+                    .integer_value
+                    .map(|value| serde_json::Value::Number(value.into()))
+                    .ok_or_else(|| {
+                        DbError::Storage("integer argument value is missing".to_owned())
+                    })?,
+                "number" => argument
+                    .number_value
+                    .and_then(serde_json::Number::from_f64)
+                    .map(serde_json::Value::Number)
+                    .ok_or_else(|| {
+                        DbError::Storage("number argument value is missing or invalid".to_owned())
+                    })?,
+                "boolean" => match argument.boolean_value {
+                    Some(0) => serde_json::Value::Bool(false),
+                    Some(1) => serde_json::Value::Bool(true),
+                    _ => {
+                        return Err(DbError::Storage(
+                            "boolean argument value is missing or invalid".to_owned(),
+                        ));
+                    }
+                },
+                other => {
+                    return Err(DbError::Storage(format!(
+                        "unknown argument value type: {other}"
+                    )));
+                }
+            };
+            Ok((argument.name, value))
+        })
+        .collect()
+}
+
+fn encode_json_object(object: &JsonObject) -> Result<String, DbError> {
+    serde_json::to_string(object)
+        .map_err(|error| DbError::Storage(format!("could not encode JSON object: {error}")))
+}
+
+fn decode_json_object(json: &str) -> Result<JsonObject, DbError> {
+    serde_json::from_str(json)
+        .map_err(|error| DbError::Storage(format!("stored JSON object is invalid: {error}")))
+}
+
+fn encode_tool_execution_source(
+    source: ToolExecutionSource,
+) -> (&'static str, Option<String>, Option<String>) {
+    match source {
+        ToolExecutionSource::Harness => ("harness", None, None),
+        ToolExecutionSource::Mcp {
+            server_id,
+            remote_tool_name,
+        } => ("mcp", Some(server_id), Some(remote_tool_name)),
+    }
+}
+
+fn decode_tool_execution_source(
+    kind: &str,
+    server_id: Option<String>,
+    remote_tool_name: Option<String>,
+) -> Result<ToolExecutionSource, DbError> {
+    match (kind, server_id, remote_tool_name) {
+        ("harness", None, None) => Ok(ToolExecutionSource::Harness),
+        ("mcp", Some(server_id), Some(remote_tool_name))
+            if !server_id.is_empty() && !remote_tool_name.is_empty() =>
+        {
+            Ok(ToolExecutionSource::Mcp {
+                server_id,
+                remote_tool_name,
+            })
+        }
+        (other, _, _) => Err(DbError::Storage(format!(
+            "invalid tool execution source: {other}"
         ))),
     }
 }
