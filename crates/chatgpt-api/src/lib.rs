@@ -681,14 +681,35 @@ fn response_item_from_object(item: &JsonObject) -> Result<ResponseItem, ChatgptA
                 .map(content_item_from_value)
                 .collect::<Result<Vec<_>, _>>()?,
         })),
-        "function_call" => Ok(ResponseItem::FunctionCall(FunctionCallItem {
-            id: optional_string(item, "id")?,
-            status: optional_string(item, "status")?,
-            name: required_string(item, "name")?,
-            namespace: optional_string(item, "namespace")?,
-            arguments: function_call_arguments(item)?,
-            call_id: required_string(item, "call_id")?,
-        })),
+        "function_call" => {
+            let id = optional_string(item, "id")?;
+            let status = optional_string(item, "status")?;
+            let name = required_string(item, "name")?;
+            let namespace = optional_string(item, "namespace")?;
+            let call_id = required_string(item, "call_id")?;
+
+            match function_call_arguments(item)? {
+                DecodedFunctionCallArguments::Pending => {
+                    Ok(ResponseItem::PendingFunctionCall(PendingFunctionCallItem {
+                        id,
+                        status,
+                        name,
+                        namespace,
+                        call_id,
+                    }))
+                }
+                DecodedFunctionCallArguments::Complete(arguments) => {
+                    Ok(ResponseItem::FunctionCall(FunctionCallItem {
+                        id,
+                        status,
+                        name,
+                        namespace,
+                        arguments,
+                        call_id,
+                    }))
+                }
+            }
+        }
         "function_call_output" => Ok(ResponseItem::FunctionCallOutput(FunctionCallOutputItem {
             id: optional_string(item, "id")?,
             status: optional_string(item, "status")?,
@@ -734,15 +755,26 @@ fn response_item_from_object(item: &JsonObject) -> Result<ResponseItem, ChatgptA
     }
 }
 
-fn function_call_arguments(item: &JsonObject) -> Result<JsonObject, ChatgptApiError> {
+enum DecodedFunctionCallArguments {
+    Pending,
+    Complete(JsonObject),
+}
+
+fn function_call_arguments(
+    item: &JsonObject,
+) -> Result<DecodedFunctionCallArguments, ChatgptApiError> {
     let raw = required_string(item, "arguments")?;
+    if raw.is_empty() {
+        return Ok(DecodedFunctionCallArguments::Pending);
+    }
+
     let value = serde_json::from_str::<Value>(&raw)
         .map_err(|_| malformed_event("arguments", "must contain valid JSON"))?;
     let Value::Object(arguments) = value else {
         return Err(malformed_event("arguments", "must contain a JSON object"));
     };
 
-    Ok(arguments)
+    Ok(DecodedFunctionCallArguments::Complete(arguments))
 }
 
 fn content_item_from_value(value: &Value) -> Result<ContentItem, ChatgptApiError> {
@@ -1306,6 +1338,18 @@ fn response_item_to_json(item: &ResponseItem) -> Value {
             insert_optional_string(&mut value, "namespace", call.namespace.as_deref());
             Value::Object(value)
         }
+        ResponseItem::PendingFunctionCall(call) => {
+            let mut value = JsonObject::from_iter([
+                ("type".to_owned(), Value::String("function_call".to_owned())),
+                ("name".to_owned(), Value::String(call.name.clone())),
+                ("arguments".to_owned(), Value::String(String::new())),
+                ("call_id".to_owned(), Value::String(call.call_id.clone())),
+            ]);
+            insert_optional_string(&mut value, "id", call.id.as_deref());
+            insert_optional_string(&mut value, "status", call.status.as_deref());
+            insert_optional_string(&mut value, "namespace", call.namespace.as_deref());
+            Value::Object(value)
+        }
         ResponseItem::FunctionCallOutput(output) => {
             let mut value = JsonObject::from_iter([
                 (
@@ -1712,6 +1756,7 @@ pub struct ChatgptUsage {
 pub enum ResponseItem {
     Message(MessageItem),
     FunctionCall(FunctionCallItem),
+    PendingFunctionCall(PendingFunctionCallItem),
     FunctionCallOutput(FunctionCallOutputItem),
     CustomToolCallOutput(CustomToolCallOutputItem),
     Reasoning(ReasoningItem),
@@ -1733,6 +1778,15 @@ pub struct FunctionCallItem {
     pub name: String,
     pub namespace: Option<String>,
     pub arguments: JsonObject,
+    pub call_id: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PendingFunctionCallItem {
+    pub id: Option<String>,
+    pub status: Option<String>,
+    pub name: String,
+    pub namespace: Option<String>,
     pub call_id: String,
 }
 
@@ -2278,6 +2332,23 @@ mod tests {
             serde_json::from_str::<serde_json::Value>(replayed_arguments)
                 .expect("replayed arguments JSON"),
             expected
+        );
+    }
+
+    #[test]
+    fn empty_function_call_arguments_decode_as_explicit_pending_item() {
+        let item = response_item_from_object(&JsonObject::from_iter([
+            ("type".to_owned(), serde_json::json!("function_call")),
+            ("name".to_owned(), serde_json::json!("lookup")),
+            ("call_id".to_owned(), serde_json::json!("call-1")),
+            ("arguments".to_owned(), serde_json::json!("")),
+        ]))
+        .expect("pending function call");
+
+        assert!(matches!(item, ResponseItem::PendingFunctionCall(_)));
+        assert_eq!(
+            response_item_to_json(&item).get("arguments"),
+            Some(&serde_json::json!(""))
         );
     }
 
