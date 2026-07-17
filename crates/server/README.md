@@ -2,7 +2,7 @@
 
 <!-- selvedge-package-readme
 package: selvedge-server
-freshness_fingerprint: a844af8cb79c890a8def7062a8bfb255f66e7d42
+freshness_fingerprint: c0393ff31e868b46ba4c41170696d8634ab5af68
 -->
 
 This crate owns the process-local Selvedge server lifecycle.
@@ -25,9 +25,12 @@ one atomic attach state.
 
 ## Package State Machine
 
-Server-owned local commands execute through the injected `LocalOperationExecutor`.
-`list-models` and provider login operations are admitted only for an attached
-client, run outside the router mailbox, and deliver terminal notice frames.
+Client command requests decode through the private, closed `ClientCommand` enum.
+The exact `login-chatgpt` and `list-models` names both require an empty JSON object
+payload; malformed payloads and unsupported names remain distinct rejection
+paths. An exhaustive match dispatches both variants through the injected
+`LocalOperationExecutor`. Operations are admitted only for an attached client,
+run outside the router mailbox, and deliver terminal notice frames.
 
 The diagram records the package-level observable states and transition paths. Each edge label names the concrete condition checked at this package boundary.
 
@@ -40,9 +43,10 @@ flowchart TD
   SpawnServices[Start events, client-sync, router, and web surface]
   Ready[ServerControl ready]
   Probe[Handle ready probe]
-  Submit[Handle local command]
+  Submit[Validate local command request]
+  Decode[Decode closed ClientCommand]
+  Dispatch{Match ClientCommand variant}
   LocalOperation[Run server-owned local operation]
-  RouterCommand[Send router command]
   Attach[Handle attach request]
   Hydrate[Start client hydration]
   Stop[Stop server]
@@ -62,12 +66,13 @@ flowchart TD
   Ready -->|ready probe arrives| Probe
   Probe -->|server is ready| Ready
   Ready -->|command request arrives| Submit
-  Submit -->|command name is server-owned and attach admission is satisfied| LocalOperation
-  Submit -->|router accepts command send| RouterCommand
-  Submit -->|command validation or router send fails| RequestFailure
+  Submit -->|server is ready and protocol fields are valid| Decode
+  Submit -->|server is not ready or protocol fields are invalid| RequestFailure
+  Decode -->|exact supported name has an empty object payload| Dispatch
+  Decode -->|payload is malformed or command name is unsupported| RequestFailure
+  Dispatch -->|LoginChatgpt or ListModels passes operation admission| LocalOperation
+  Dispatch -->|operation admission fails| RequestFailure
   LocalOperation -->|operation task starts and terminal notice will be delivered| Ready
-  LocalOperation -->|operation admission or task startup fails| RequestFailure
-  RouterCommand -->|router mailbox accepts command| Ready
   Ready -->|attach request arrives| Attach
   Attach -->|router reserves event session| Hydrate
   Attach -->|router admission rejects or channel creation fails| RequestFailure

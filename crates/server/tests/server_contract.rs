@@ -7,10 +7,7 @@ use selvedge_api::ApiExecutorConfig;
 use selvedge_client_sync::{
     ClientSnapshotBuildFuture, ClientSnapshotBuildRequest, ClientSnapshotBuilder,
 };
-use selvedge_command_model::{
-    ClientSnapshot, RouterCommand, RouterCommandEnvelope, RouterIngressWeakSender,
-    ToolExecutionRequest,
-};
+use selvedge_command_model::{ClientSnapshot, RouterIngressWeakSender, ToolExecutionRequest};
 use selvedge_core::{TaskRuntimeConfig, TaskRuntimeSpawnDeps};
 use selvedge_domain_model::{ModelProfileKey, UnixTs};
 use selvedge_local_protocol::{
@@ -20,10 +17,9 @@ use selvedge_local_protocol::{
 };
 use selvedge_router::{ToolExecutionSpawnError, ToolExecutionSpawner};
 use selvedge_server::{
-    LocalBindingConfig, LocalCommandMapper, LocalOperationCommand, LocalOperationExecutor,
-    LocalOperationFuture, LocalOperationProgressSender, LocalOperationSuccess, LocalhostBindTarget,
-    ServerRequestError, ServerRuntimeState, ServerStartArgs, ServerStartupError, WebBindingConfig,
-    spawn_server,
+    LocalBindingConfig, LocalOperationCommand, LocalOperationExecutor, LocalOperationFuture,
+    LocalOperationProgressSender, LocalOperationSuccess, LocalhostBindTarget, ServerRuntimeState,
+    ServerStartArgs, ServerStartupError, WebBindingConfig, spawn_server,
 };
 use selvedge_test_support::http::released_loopback_port;
 use tempfile::TempDir;
@@ -38,9 +34,8 @@ static SERVER_TEST_HOME: LazyLock<TempDir> = LazyLock::new(|| TempDir::new().exp
 async fn spawn_server_initializes_ready_control_and_creates_durable_paths() {
     let _guard = SERVER_TEST_LOCK.lock().await;
     let home = SERVER_TEST_HOME.path();
-    let mapper = Arc::new(RecordingMapper::new());
 
-    let handle = spawn_server(test_args(home.to_path_buf(), mapper.clone())).expect("spawn server");
+    let handle = spawn_server(test_args(home.to_path_buf())).expect("spawn server");
 
     assert_eq!(handle.control.state().await, ServerRuntimeState::Ready);
     assert_eq!(
@@ -60,16 +55,9 @@ async fn spawn_server_initializes_ready_control_and_creates_durable_paths() {
 async fn singleton_lock_rejects_second_server_for_same_home() {
     let _guard = SERVER_TEST_LOCK.lock().await;
     let home = SERVER_TEST_HOME.path();
-    let first = spawn_server(test_args(
-        home.to_path_buf(),
-        Arc::new(RecordingMapper::new()),
-    ))
-    .expect("spawn first server");
+    let first = spawn_server(test_args(home.to_path_buf())).expect("spawn first server");
 
-    let second = spawn_server(test_args(
-        home.to_path_buf(),
-        Arc::new(RecordingMapper::new()),
-    ));
+    let second = spawn_server(test_args(home.to_path_buf()));
 
     assert!(matches!(
         second,
@@ -85,13 +73,13 @@ async fn singleton_lock_rejects_second_web_enabled_server_before_port_bind() {
     let _guard = SERVER_TEST_LOCK.lock().await;
     let home = SERVER_TEST_HOME.path();
     let port = unused_tcp_v4_port();
-    let mut first_args = test_args(home.to_path_buf(), Arc::new(RecordingMapper::new()));
+    let mut first_args = test_args(home.to_path_buf());
     first_args.web_binding = Some(WebBindingConfig {
         bind_target: LocalhostBindTarget::Ipv4 { port },
     });
     let first = spawn_server(first_args).expect("spawn first server");
 
-    let mut second_args = test_args(home.to_path_buf(), Arc::new(RecordingMapper::new()));
+    let mut second_args = test_args(home.to_path_buf());
     second_args.web_binding = Some(WebBindingConfig {
         bind_target: LocalhostBindTarget::Ipv4 { port },
     });
@@ -112,11 +100,8 @@ async fn stale_lock_file_does_not_block_server_restart() {
     let home = SERVER_TEST_HOME.path();
     std::fs::write(home.join("server.lock"), "stale").expect("write stale lock");
 
-    let handle = spawn_server(test_args(
-        home.to_path_buf(),
-        Arc::new(RecordingMapper::new()),
-    ))
-    .expect("spawn server with stale lock file");
+    let handle =
+        spawn_server(test_args(home.to_path_buf())).expect("spawn server with stale lock file");
 
     handle.control.stop().await;
     handle.join_handle.await.expect("join server");
@@ -133,20 +118,14 @@ async fn startup_failure_after_lock_removes_recoverable_lock_file() {
     let _ = std::fs::remove_dir_all(&sqlite_path);
     std::fs::create_dir(&sqlite_path).expect("create sqlite path directory");
 
-    let failed = spawn_server(test_args(
-        home.to_path_buf(),
-        Arc::new(RecordingMapper::new()),
-    ));
+    let failed = spawn_server(test_args(home.to_path_buf()));
 
     assert!(matches!(failed, Err(ServerStartupError::DbOpenFailed(_))));
     assert!(!lock_path.exists());
 
     std::fs::remove_dir(&sqlite_path).expect("remove sqlite path directory");
-    let restarted = spawn_server(test_args(
-        home.to_path_buf(),
-        Arc::new(RecordingMapper::new()),
-    ))
-    .expect("stale lock file should remain recoverable");
+    let restarted = spawn_server(test_args(home.to_path_buf()))
+        .expect("stale lock file should remain recoverable");
     restarted.control.stop().await;
     restarted.join_handle.await.expect("join restarted server");
 }
@@ -160,7 +139,7 @@ async fn invalid_web_bind_target_is_rejected_before_durable_startup_side_effects
     let _ = std::fs::remove_file(&lock_path);
     let _ = std::fs::remove_file(&sqlite_path);
 
-    let mut args = test_args(home.to_path_buf(), Arc::new(RecordingMapper::new()));
+    let mut args = test_args(home.to_path_buf());
     args.web_binding = Some(WebBindingConfig {
         bind_target: LocalhostBindTarget::Ipv4 { port: 0 },
     });
@@ -183,7 +162,7 @@ async fn occupied_web_bind_target_is_rejected_before_runtime_tasks_start() {
     let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).expect("bind occupied port");
     let port = listener.local_addr().expect("occupied addr").port();
 
-    let mut args = test_args(home.to_path_buf(), Arc::new(RecordingMapper::new()));
+    let mut args = test_args(home.to_path_buf());
     args.web_binding = Some(WebBindingConfig {
         bind_target: LocalhostBindTarget::Ipv4 { port },
     });
@@ -199,18 +178,26 @@ async fn occupied_web_bind_target_is_rejected_before_runtime_tasks_start() {
 }
 
 #[tokio::test]
-async fn command_submit_maps_to_router_mailbox() {
+async fn supported_command_is_accepted() {
     let _guard = SERVER_TEST_LOCK.lock().await;
     let home = SERVER_TEST_HOME.path();
-    let mapper = Arc::new(RecordingMapper::new());
-    let handle = spawn_server(test_args(home.to_path_buf(), mapper.clone())).expect("spawn server");
+    let handle = spawn_server(test_args(home.to_path_buf())).expect("spawn server");
+    let (_accepted, mut frames) = handle
+        .control
+        .attach_client(valid_attach("attach-1"))
+        .await
+        .expect("attach accepted");
+    timeout(Duration::from_secs(1), frames.next())
+        .await
+        .expect("snapshot timeout")
+        .expect("snapshot frame")
+        .expect("snapshot frame ok");
 
     let accepted = handle
         .control
-        .submit_command(valid_command("command-1"))
+        .submit_command(list_models_command("command-1"))
         .await;
     assert_eq!(accepted.outcome, CommandOutcome::Accepted);
-    assert_eq!(mapper.seen_commands(), vec!["send-user-input".to_owned()]);
 
     handle.control.stop().await;
     handle.join_handle.await.expect("join server");
@@ -222,27 +209,37 @@ async fn stop_waits_for_in_flight_command_acceptance_decision() {
     let home = SERVER_TEST_HOME.path();
     let (entered_tx, entered_rx) = std_mpsc::channel();
     let (release_tx, release_rx) = std_mpsc::channel();
-    let handle = spawn_server(test_args(
+    let handle = spawn_server(test_args_with_local_operation_executor(
         home.to_path_buf(),
-        Arc::new(BlockingMapper {
+        Arc::new(BlockingLocalOperationExecutor {
             entered_tx,
             release_rx: Mutex::new(release_rx),
         }),
     ))
     .expect("spawn server");
+    let (_accepted, mut frames) = handle
+        .control
+        .attach_client(valid_attach("attach-1"))
+        .await
+        .expect("attach accepted");
+    timeout(Duration::from_secs(1), frames.next())
+        .await
+        .expect("snapshot timeout")
+        .expect("snapshot frame")
+        .expect("snapshot frame ok");
 
     let runtime_handle = tokio::runtime::Handle::current();
     let submit_control = handle.control.clone();
     let submit_thread = std::thread::spawn(move || {
         runtime_handle.block_on(async move {
             submit_control
-                .submit_command(valid_command("command-1"))
+                .submit_command(list_models_command("command-1"))
                 .await
         })
     });
     entered_rx
         .recv_timeout(Duration::from_secs(1))
-        .expect("mapper should enter command acceptance");
+        .expect("executor should enter command acceptance");
 
     let stop_control = handle.control.clone();
     let mut stop_task = tokio::spawn(async move { stop_control.stop().await });
@@ -250,7 +247,7 @@ async fn stop_waits_for_in_flight_command_acceptance_decision() {
         .await
         .is_err();
 
-    release_tx.send(()).expect("release mapper");
+    release_tx.send(()).expect("release executor");
     assert!(stop_waited);
     let response = submit_thread.join().expect("join submit thread");
     assert_eq!(response.outcome, CommandOutcome::Accepted);
@@ -259,15 +256,14 @@ async fn stop_waits_for_in_flight_command_acceptance_decision() {
 }
 
 #[tokio::test]
-async fn command_mapper_can_reject_unsupported_local_command() {
+async fn unknown_command_is_rejected() {
     let _guard = SERVER_TEST_LOCK.lock().await;
     let home = SERVER_TEST_HOME.path();
-    let handle = spawn_server(test_args(home.to_path_buf(), Arc::new(RejectingMapper)))
-        .expect("spawn server");
+    let handle = spawn_server(test_args(home.to_path_buf())).expect("spawn server");
 
     let rejected = handle
         .control
-        .submit_command(valid_command("command-1"))
+        .submit_command(unsupported_command("command-1"))
         .await;
 
     assert_eq!(
@@ -283,11 +279,7 @@ async fn command_mapper_can_reject_unsupported_local_command() {
 async fn attach_client_accepts_and_streams_initial_snapshot() {
     let _guard = SERVER_TEST_LOCK.lock().await;
     let home = SERVER_TEST_HOME.path();
-    let handle = spawn_server(test_args(
-        home.to_path_buf(),
-        Arc::new(RecordingMapper::new()),
-    ))
-    .expect("spawn server");
+    let handle = spawn_server(test_args(home.to_path_buf())).expect("spawn server");
 
     let (accepted, mut frames) = handle
         .control
@@ -335,11 +327,7 @@ async fn attach_client_accepts_and_streams_initial_snapshot() {
 async fn dropped_attach_stream_detaches_events_session() {
     let _guard = SERVER_TEST_LOCK.lock().await;
     let home = SERVER_TEST_HOME.path();
-    let handle = spawn_server(test_args(
-        home.to_path_buf(),
-        Arc::new(RecordingMapper::new()),
-    ))
-    .expect("spawn server");
+    let handle = spawn_server(test_args(home.to_path_buf())).expect("spawn server");
 
     for index in 0..70 {
         let (_accepted, mut frames) = handle
@@ -368,17 +356,13 @@ async fn dropped_attach_stream_detaches_events_session() {
 async fn stopped_server_rejects_new_command_submissions() {
     let _guard = SERVER_TEST_LOCK.lock().await;
     let home = SERVER_TEST_HOME.path();
-    let handle = spawn_server(test_args(
-        home.to_path_buf(),
-        Arc::new(RecordingMapper::new()),
-    ))
-    .expect("spawn server");
+    let handle = spawn_server(test_args(home.to_path_buf())).expect("spawn server");
 
     handle.control.stop().await;
 
     let response = handle
         .control
-        .submit_command(valid_command("command-1"))
+        .submit_command(list_models_command("command-1"))
         .await;
     assert_eq!(
         response.outcome,
@@ -392,19 +376,12 @@ async fn stopped_server_rejects_new_command_submissions() {
 async fn initialized_config_rejects_mismatched_explicit_home() {
     let _guard = SERVER_TEST_LOCK.lock().await;
     let home = SERVER_TEST_HOME.path();
-    let handle = spawn_server(test_args(
-        home.to_path_buf(),
-        Arc::new(RecordingMapper::new()),
-    ))
-    .expect("spawn server");
+    let handle = spawn_server(test_args(home.to_path_buf())).expect("spawn server");
     handle.control.stop().await;
     handle.join_handle.await.expect("join server");
 
     let other_home = TempDir::new().expect("other temp home");
-    let result = spawn_server(test_args(
-        other_home.path().to_path_buf(),
-        Arc::new(RecordingMapper::new()),
-    ));
+    let result = spawn_server(test_args(other_home.path().to_path_buf()));
 
     assert!(matches!(
         result,
@@ -422,11 +399,8 @@ async fn relative_explicit_home_cleans_lock_after_working_directory_changes() {
     let _ = std::fs::remove_file(home.join("server.lock"));
 
     std::env::set_current_dir(&parent).expect("enter home parent");
-    let handle = spawn_server(test_args(
-        std::path::PathBuf::from(home_name),
-        Arc::new(RecordingMapper::new()),
-    ))
-    .expect("spawn server with relative home");
+    let handle = spawn_server(test_args(std::path::PathBuf::from(home_name)))
+        .expect("spawn server with relative home");
     assert!(home.join("server.lock").exists());
 
     let other_cwd = TempDir::new().expect("other cwd");
@@ -438,70 +412,27 @@ async fn relative_explicit_home_cleans_lock_after_working_directory_changes() {
     assert!(!home.join("server.lock").exists());
 }
 
-struct RejectingMapper;
-
-impl LocalCommandMapper for RejectingMapper {
-    fn map_command(
-        &self,
-        _request: CommandRequest,
-    ) -> Result<RouterCommandEnvelope, ServerRequestError> {
-        Err(ServerRequestError::UnsupportedCommand)
-    }
-}
-
-struct RecordingMapper {
-    seen: Mutex<Vec<String>>,
-}
-
-impl RecordingMapper {
-    fn new() -> Self {
-        Self {
-            seen: Mutex::new(Vec::new()),
-        }
-    }
-
-    fn seen_commands(&self) -> Vec<String> {
-        self.seen.lock().expect("mapper lock").clone()
-    }
-}
-
-impl LocalCommandMapper for RecordingMapper {
-    fn map_command(
-        &self,
-        request: CommandRequest,
-    ) -> Result<RouterCommandEnvelope, ServerRequestError> {
-        self.seen
-            .lock()
-            .expect("mapper lock")
-            .push(request.command_name);
-        Ok(RouterCommandEnvelope {
-            client_id: None,
-            client_command_id: None,
-            command: RouterCommand::EnsureMissingTaskRuntimes,
-        })
-    }
-}
-
-struct BlockingMapper {
+struct BlockingLocalOperationExecutor {
     entered_tx: std_mpsc::Sender<()>,
     release_rx: Mutex<std_mpsc::Receiver<()>>,
 }
 
-impl LocalCommandMapper for BlockingMapper {
-    fn map_command(
+impl LocalOperationExecutor for BlockingLocalOperationExecutor {
+    fn execute(
         &self,
-        _request: CommandRequest,
-    ) -> Result<RouterCommandEnvelope, ServerRequestError> {
-        self.entered_tx.send(()).expect("send mapper entry");
+        _command: LocalOperationCommand,
+        _progress_tx: LocalOperationProgressSender,
+    ) -> LocalOperationFuture {
+        self.entered_tx.send(()).expect("send executor entry");
         self.release_rx
             .lock()
             .expect("release lock")
             .recv_timeout(Duration::from_secs(1))
-            .expect("mapper release");
-        Ok(RouterCommandEnvelope {
-            client_id: None,
-            client_command_id: None,
-            command: RouterCommand::EnsureMissingTaskRuntimes,
+            .expect("executor release");
+        Box::pin(async {
+            Ok(LocalOperationSuccess {
+                message_text: "completed".to_owned(),
+            })
         })
     }
 }
@@ -550,7 +481,14 @@ impl LocalOperationExecutor for NoopLocalOperationExecutor {
     }
 }
 
-fn test_args(home: std::path::PathBuf, mapper: Arc<dyn LocalCommandMapper>) -> ServerStartArgs {
+fn test_args(home: std::path::PathBuf) -> ServerStartArgs {
+    test_args_with_local_operation_executor(home, Arc::new(NoopLocalOperationExecutor))
+}
+
+fn test_args_with_local_operation_executor(
+    home: std::path::PathBuf,
+    local_operation_executor: Arc<dyn LocalOperationExecutor>,
+) -> ServerStartArgs {
     ServerStartArgs {
         explicit_home: Some(home),
         api_config: ApiExecutorConfig {
@@ -563,8 +501,7 @@ fn test_args(home: std::path::PathBuf, mapper: Arc<dyn LocalCommandMapper>) -> S
             model_profiles: HashMap::<ModelProfileKey, _>::new(),
         }),
         snapshot_builder: Arc::new(EmptySnapshotBuilder),
-        command_mapper: mapper,
-        local_operation_executor: Arc::new(NoopLocalOperationExecutor),
+        local_operation_executor,
         local_binding: LocalBindingConfig {
             bind_target: LocalhostBindTarget::Ipv4 { port: 0 },
         },
@@ -576,12 +513,21 @@ fn unused_tcp_v4_port() -> u16 {
     released_loopback_port()
 }
 
-fn valid_command(command_id: &str) -> CommandRequest {
+fn unsupported_command(command_id: &str) -> CommandRequest {
     CommandRequest {
         client_id: LocalClientId::new("client-1").expect("valid client id"),
         client_command_id: LocalClientCommandId::new(command_id).expect("valid command id"),
         command_name: "send-user-input".to_owned(),
         payload: serde_json::json!({"message": "hello"}),
+    }
+}
+
+fn list_models_command(command_id: &str) -> CommandRequest {
+    CommandRequest {
+        client_id: LocalClientId::new("client-1").expect("valid client id"),
+        client_command_id: LocalClientCommandId::new(command_id).expect("valid command id"),
+        command_name: "list-models".to_owned(),
+        payload: serde_json::json!({}),
     }
 }
 

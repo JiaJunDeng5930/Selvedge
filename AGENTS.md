@@ -145,7 +145,7 @@ This file is for coding agents working in this repository.
 |crates/router/src:{lib.rs}
 |crates/router/tests:{router_contract.rs}
 |crates/server:{src/,tests/,Cargo.toml,README.md}
-|crates/server/src:{lib.rs}
+|crates/server/src:{command.rs,lib.rs}
 |crates/server/tests:{server_contract.rs}
 |crates/systemd:{src/,tests/,Cargo.toml,README.md}
 |crates/systemd/src:{lib.rs}
