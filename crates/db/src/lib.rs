@@ -4,14 +4,16 @@ use std::collections::HashSet;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::{error::Error, fmt};
 
-use rusqlite::{Connection, OptionalExtension, params};
+use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 pub use selvedge_domain_model::{
     Conversation, ConversationItem, FunctionCallId, HistoryNodeId, MessageRole, ModelProfileKey,
     ReasoningEffort, TaskId, ToolArgumentValue, ToolCallArgument, ToolManifest, ToolName,
     ToolParameterName, ToolParameterType, ToolSpec, UnixTs,
 };
 
-const SCHEMA_VERSION: &str = "router-mediated-redesign-v4";
+const SCHEMA_VERSION: &str = "harness-persistence-v5";
+const PREVIOUS_SCHEMA_VERSION: &str = "router-mediated-redesign-v4";
+pub const MAX_TASK_HISTORY_PAGE_SIZE: u32 = 100;
 
 #[derive(Clone)]
 pub struct DbPool {
@@ -229,12 +231,33 @@ pub struct CreateRootTaskInput {
     pub now: UnixTs,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct CreateChildTaskInput {
+#[derive(Clone, Debug, PartialEq)]
+pub struct ForkTaskInput {
     pub parent_task_id: TaskId,
     pub child_task_id: TaskId,
-    pub cursor_node_id: HistoryNodeId,
+    pub function_call_node_id: HistoryNodeId,
+    pub function_call_id: FunctionCallId,
+    pub tool_name: ToolName,
+    pub child_user_prompt: String,
     pub now: UnixTs,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ReadTaskInput {
+    pub task_id: TaskId,
+    pub after_node_id: Option<HistoryNodeId>,
+    pub limit: u32,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct TaskRead {
+    pub task_id: TaskId,
+    pub task_status: TaskStatusRow,
+    pub state_version: u64,
+    pub cursor_node_id: HistoryNodeId,
+    pub parent_task_id: Option<TaskId>,
+    pub queued_input_count: u64,
+    pub history_nodes: Vec<HistoryNode>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -288,7 +311,7 @@ pub struct NewFunctionOutputNodeContent {
 }
 
 pub fn open_db(options: OpenDbOptions) -> Result<DbPool, DbError> {
-    let connection = Connection::open(&options.sqlite_path).map_err(map_error)?;
+    let mut connection = Connection::open(&options.sqlite_path).map_err(map_error)?;
     connection
         .pragma_update(None, "foreign_keys", "ON")
         .map_err(map_error)?;
@@ -297,6 +320,8 @@ pub fn open_db(options: OpenDbOptions) -> Result<DbPool, DbError> {
         connection
             .execute_batch(include_str!("schema.sql"))
             .map_err(map_error)?;
+    } else {
+        migrate_schema(&mut connection)?;
     }
 
     let db = DbPool {
@@ -330,24 +355,32 @@ pub fn verify_schema(db: &DbPool) -> Result<(), DbError> {
 pub fn register_tool(db: &DbPool, tool: ToolSpec) -> Result<(), DbError> {
     let mut connection = db.connection()?;
     let tx = connection.transaction().map_err(map_error)?;
-    tx.execute(
-        "INSERT INTO tools (tool_name, description_text) VALUES (?1, ?2)",
-        params![tool.name, tool.description],
-    )
-    .map_err(map_error)?;
-    for parameter in tool.parameters {
-        tx.execute(
-            "INSERT INTO tool_parameters (tool_name, parameter_name, parameter_type, description_text, is_required)
-             VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![
-                tool.name,
-                parameter.name,
-                tool_parameter_type_to_db(&parameter.parameter_type),
-                parameter.description,
-                bool_to_i64(parameter.required)
-            ],
-        )
+    insert_tool_in_tx(&tx, canonicalize_tool_spec(tool), false)?;
+    tx.commit().map_err(map_error)
+}
+
+pub fn register_global_tool(db: &DbPool, tool: ToolSpec) -> Result<(), DbError> {
+    let tool = canonicalize_tool_spec(tool);
+    let mut connection = db.connection()?;
+    let tx = connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(map_error)?;
+    match read_tool_definition_in_connection(&tx, &tool.name)? {
+        Some((stored, _)) if stored != tool => {
+            return Err(DbError::Constraint(format!(
+                "global tool definition conflicts with stored tool: {}",
+                tool.name
+            )));
+        }
+        Some((_, true)) => {}
+        Some((_, false)) => {
+            tx.execute(
+                "UPDATE tools SET is_global = 1 WHERE tool_name = ?1",
+                params![tool.name],
+            )
+            .map_err(map_error)?;
+        }
+        None => insert_tool_in_tx(&tx, tool, true)?,
     }
     tx.commit().map_err(map_error)
 }
@@ -387,50 +420,68 @@ pub fn create_root_task(db: &DbPool, input: CreateRootTaskInput) -> Result<TaskR
         }
         tx.commit().map_err(map_error)?;
     }
-    read_task(db, &task_id)
+    read_task_row(db, &task_id)
 }
 
-pub fn create_child_task(db: &DbPool, input: CreateChildTaskInput) -> Result<TaskRow, DbError> {
-    let child_task_id = input.child_task_id.clone();
-    {
-        let mut connection = db.connection()?;
-        let tx = connection.transaction().map_err(map_error)?;
-        let parent = read_task_in_tx(&tx, &input.parent_task_id)?;
-        if parent.task_status != TaskStatusRow::Active {
-            return Err(DbError::TaskNotActive);
-        }
-        tx.execute(
-            "INSERT INTO tasks
-             (task_id, task_status, cursor_node_id, model_profile_key, reasoning_effort, state_version, created_at, updated_at)
-             VALUES (?1, 'active', ?2, ?3, ?4, 0, ?5, ?5)",
-            params![
-                input.child_task_id.0,
-                input.cursor_node_id.0,
-                parent.model_profile_key.0,
-                reasoning_effort_to_db(&parent.reasoning_effort),
-                input.now.0
-            ],
-        )
-        .map_err(map_error)?;
-        tx.execute(
-            "INSERT INTO task_tools (task_id, tool_name)
-             SELECT ?1, tool_name FROM task_tools WHERE task_id = ?2",
-            params![input.child_task_id.0, input.parent_task_id.0],
-        )
-        .map_err(map_error)?;
-        tx.execute(
-            "INSERT INTO task_parent_edges (parent_task_id, child_task_id, created_at)
-             VALUES (?1, ?2, ?3)",
-            params![input.parent_task_id.0, input.child_task_id.0, input.now.0],
-        )
-        .map_err(map_error)?;
-        tx.commit().map_err(map_error)?;
+pub fn fork_task_from_function_call(db: &DbPool, input: ForkTaskInput) -> Result<TaskRow, DbError> {
+    if input.child_user_prompt.is_empty() {
+        return Err(DbError::Constraint(
+            "forked task user prompt cannot be empty".to_owned(),
+        ));
     }
-    read_task(db, &child_task_id)
+
+    let mut connection = db.connection()?;
+    let tx = connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(map_error)?;
+    let parent = read_task_in_tx(&tx, &input.parent_task_id)?;
+    if parent.task_status != TaskStatusRow::Active {
+        return Err(DbError::TaskNotActive);
+    }
+    let safe_parent_node_id = safe_fork_parent_for_open_call_in_tx(&tx, &parent, &input)?;
+    let child_cursor_node_id = insert_history_node(
+        &tx,
+        NewHistoryNode {
+            parent_node_id: safe_parent_node_id,
+            content: NewHistoryNodeContent::Message(NewMessageNodeContent {
+                message_role: MessageRole::User,
+                message_text: input.child_user_prompt,
+            }),
+            created_at: input.now,
+        },
+    )?;
+    tx.execute(
+        "INSERT INTO tasks
+         (task_id, task_status, cursor_node_id, model_profile_key, reasoning_effort, state_version, created_at, updated_at)
+         VALUES (?1, 'active', ?2, ?3, ?4, 0, ?5, ?5)",
+        params![
+            input.child_task_id.0,
+            child_cursor_node_id.0,
+            parent.model_profile_key.0,
+            reasoning_effort_to_db(&parent.reasoning_effort),
+            input.now.0
+        ],
+    )
+    .map_err(map_error)?;
+    tx.execute(
+        "INSERT INTO task_tools (task_id, tool_name)
+         SELECT ?1, tool_name FROM task_tools WHERE task_id = ?2",
+        params![input.child_task_id.0, input.parent_task_id.0],
+    )
+    .map_err(map_error)?;
+    tx.execute(
+        "INSERT INTO task_parent_edges (parent_task_id, child_task_id, created_at)
+         VALUES (?1, ?2, ?3)",
+        params![input.parent_task_id.0, input.child_task_id.0, input.now.0],
+    )
+    .map_err(map_error)?;
+    let child = read_task_in_tx(&tx, &input.child_task_id)?;
+    tx.commit().map_err(map_error)?;
+    Ok(child)
 }
 
 pub fn load_active_task(db: &DbPool, task_id: &TaskId) -> Result<LoadedActiveTask, DbError> {
-    let task = read_task(db, task_id)?;
+    let task = read_task_row(db, task_id)?;
     if task.task_status != TaskStatusRow::Active {
         return Err(DbError::TaskNotActive);
     }
@@ -949,15 +1000,70 @@ pub fn read_task_parent_edges(db: &DbPool) -> Result<Vec<TaskParentEdgeRow>, DbE
         .map_err(map_error)
 }
 
+pub fn read_task(db: &DbPool, input: ReadTaskInput) -> Result<TaskRead, DbError> {
+    if input.limit == 0 || input.limit > MAX_TASK_HISTORY_PAGE_SIZE {
+        return Err(DbError::Constraint(format!(
+            "task history page limit must be between 1 and {MAX_TASK_HISTORY_PAGE_SIZE}"
+        )));
+    }
+
+    let mut connection = db.connection()?;
+    let tx = connection.transaction().map_err(map_error)?;
+    let task = read_task_in_tx(&tx, &input.task_id)?;
+    if let Some(after_node_id) = input.after_node_id {
+        ensure_task_path_contains_node_in_tx(&tx, task.cursor_node_id, after_node_id)?;
+    }
+    let node_ids = read_history_page_node_ids_in_tx(
+        &tx,
+        task.cursor_node_id,
+        input.after_node_id,
+        input.limit,
+    )?;
+    let mut history_nodes = Vec::with_capacity(node_ids.len());
+    for node_id in node_ids {
+        history_nodes.push(read_history_node_concrete_in_connection(&tx, &node_id)?);
+    }
+    let parent_task_id = tx
+        .query_row(
+            "SELECT parent_task_id
+             FROM task_parent_edges
+             WHERE child_task_id = ?1",
+            params![input.task_id.0],
+            |row| row.get::<_, String>(0).map(TaskId),
+        )
+        .optional()
+        .map_err(map_error)?;
+    let queued_input_count: i64 = tx
+        .query_row(
+            "SELECT COUNT(*) FROM queued_user_inputs WHERE task_id = ?1",
+            params![input.task_id.0],
+            |row| row.get(0),
+        )
+        .map_err(map_error)?;
+    let result = TaskRead {
+        task_id: task.task_id,
+        task_status: task.task_status,
+        state_version: task.state_version,
+        cursor_node_id: task.cursor_node_id,
+        parent_task_id,
+        queued_input_count: i64_to_u64(queued_input_count)?,
+        history_nodes,
+    };
+    tx.commit().map_err(map_error)?;
+    Ok(result)
+}
+
 pub fn read_tool_manifest_for_task(db: &DbPool, task_id: &TaskId) -> Result<ToolManifest, DbError> {
     let connection = db.connection()?;
-    ensure_active_task(&connection, task_id)?;
+    ensure_task_exists(&connection, task_id)?;
     let mut statement = connection
         .prepare(
             "SELECT t.tool_name, t.description_text
              FROM tools t
-             INNER JOIN task_tools tt ON tt.tool_name = t.tool_name
-             WHERE tt.task_id = ?1
+             LEFT JOIN task_tools tt
+               ON tt.tool_name = t.tool_name
+              AND tt.task_id = ?1
+             WHERE t.is_global = 1 OR tt.task_id IS NOT NULL
              ORDER BY t.tool_name ASC",
         )
         .map_err(map_error)?;
@@ -1059,6 +1165,40 @@ impl DbPool {
     }
 }
 
+fn migrate_schema(connection: &mut Connection) -> Result<(), DbError> {
+    let actual: Option<String> = connection
+        .query_row(
+            "SELECT schema_value
+             FROM schema_metadata
+             WHERE schema_key = 'selvedge_schema_version'",
+            [],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(map_error)?;
+    if actual.as_deref() != Some(PREVIOUS_SCHEMA_VERSION) {
+        return Ok(());
+    }
+
+    let tx = connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(map_error)?;
+    tx.execute_batch(
+        "ALTER TABLE tools
+             ADD COLUMN is_global INTEGER NOT NULL DEFAULT 0 CHECK (is_global IN (0, 1));
+         CREATE INDEX idx_tools_global_name ON tools(is_global, tool_name);",
+    )
+    .map_err(map_error)?;
+    tx.execute(
+        "UPDATE schema_metadata
+         SET schema_value = ?1
+         WHERE schema_key = 'selvedge_schema_version'",
+        params![SCHEMA_VERSION],
+    )
+    .map_err(map_error)?;
+    tx.commit().map_err(map_error)
+}
+
 fn database_is_empty(connection: &Connection) -> Result<bool, DbError> {
     let count: i64 = connection
         .query_row(
@@ -1070,7 +1210,7 @@ fn database_is_empty(connection: &Connection) -> Result<bool, DbError> {
     Ok(count == 0)
 }
 
-fn read_task(db: &DbPool, task_id: &TaskId) -> Result<TaskRow, DbError> {
+fn read_task_row(db: &DbPool, task_id: &TaskId) -> Result<TaskRow, DbError> {
     let connection = db.connection()?;
     connection
         .query_row(
@@ -1096,6 +1236,139 @@ fn read_task_in_tx(tx: &rusqlite::Transaction<'_>, task_id: &TaskId) -> Result<T
     .optional()
     .map_err(map_error)?
     .ok_or(DbError::NotFound)
+}
+
+fn safe_fork_parent_for_open_call_in_tx(
+    tx: &rusqlite::Transaction<'_>,
+    parent: &TaskRow,
+    input: &ForkTaskInput,
+) -> Result<Option<HistoryNodeId>, DbError> {
+    let safe_parent_node_id = tx
+        .query_row(
+            "WITH RECURSIVE current_path(node_id, parent_node_id) AS (
+                SELECT node_id, parent_node_id
+                FROM history_nodes
+                WHERE node_id = ?1
+                UNION ALL
+                SELECT parent.node_id, parent.parent_node_id
+                FROM history_nodes parent
+                JOIN current_path child ON parent.node_id = child.parent_node_id
+             ),
+             target_call(node_id, parent_node_id) AS (
+                SELECT path.node_id, path.parent_node_id
+                FROM current_path path
+                JOIN history_function_call_nodes calls ON calls.node_id = path.node_id
+                LEFT JOIN history_function_output_nodes outputs
+                  ON outputs.function_call_node_id = calls.node_id
+                WHERE calls.node_id = ?2
+                  AND calls.function_call_id = ?3
+                  AND calls.tool_name = ?4
+                  AND outputs.node_id IS NULL
+             ),
+             call_batch(node_id, parent_node_id, depth) AS (
+                SELECT node_id, parent_node_id, 0
+                FROM target_call
+                UNION ALL
+                SELECT parent.node_id, parent.parent_node_id, batch.depth + 1
+                FROM history_nodes parent
+                JOIN call_batch batch ON parent.node_id = batch.parent_node_id
+                WHERE parent.content_kind = 'function_call'
+             )
+             SELECT parent_node_id
+             FROM call_batch
+             ORDER BY depth DESC
+             LIMIT 1",
+            params![
+                parent.cursor_node_id.0,
+                input.function_call_node_id.0,
+                input.function_call_id.0,
+                input.tool_name.0
+            ],
+            |row| row.get::<_, Option<i64>>(0),
+        )
+        .optional()
+        .map_err(map_error)?;
+
+    safe_parent_node_id
+        .map(|node_id| node_id.map(HistoryNodeId))
+        .ok_or_else(|| {
+            DbError::Constraint(
+                "fork function call is not open on the parent task current path".to_owned(),
+            )
+        })
+}
+
+fn ensure_task_path_contains_node_in_tx(
+    tx: &rusqlite::Transaction<'_>,
+    cursor_node_id: HistoryNodeId,
+    node_id: HistoryNodeId,
+) -> Result<(), DbError> {
+    let exists: bool = tx
+        .query_row(
+            "WITH RECURSIVE current_path(node_id, parent_node_id) AS (
+                SELECT node_id, parent_node_id
+                FROM history_nodes
+                WHERE node_id = ?1
+                UNION ALL
+                SELECT parent.node_id, parent.parent_node_id
+                FROM history_nodes parent
+                JOIN current_path child ON parent.node_id = child.parent_node_id
+             )
+             SELECT EXISTS(
+                SELECT 1 FROM current_path WHERE node_id = ?2
+             )",
+            params![cursor_node_id.0, node_id.0],
+            |row| row.get(0),
+        )
+        .map_err(map_error)?;
+    if exists {
+        Ok(())
+    } else {
+        Err(DbError::Constraint(
+            "after node is not on the task cursor path".to_owned(),
+        ))
+    }
+}
+
+fn read_history_page_node_ids_in_tx(
+    tx: &rusqlite::Transaction<'_>,
+    cursor_node_id: HistoryNodeId,
+    after_node_id: Option<HistoryNodeId>,
+    limit: u32,
+) -> Result<Vec<HistoryNodeId>, DbError> {
+    let mut statement = tx
+        .prepare(
+            "WITH RECURSIVE current_path(node_id, parent_node_id, depth) AS (
+                SELECT node_id, parent_node_id, 0
+                FROM history_nodes
+                WHERE node_id = ?1
+                UNION ALL
+                SELECT parent.node_id, parent.parent_node_id, child.depth + 1
+                FROM history_nodes parent
+                JOIN current_path child ON parent.node_id = child.parent_node_id
+             )
+             SELECT node_id
+             FROM current_path
+             WHERE ?2 IS NULL
+                OR depth < (
+                    SELECT depth FROM current_path WHERE node_id = ?2
+                )
+             ORDER BY depth DESC
+             LIMIT ?3",
+        )
+        .map_err(map_error)?;
+    statement
+        .query_map(
+            params![
+                cursor_node_id.0,
+                after_node_id.map(|node_id| node_id.0),
+                i64::from(limit)
+            ],
+            |row| row.get::<_, i64>(0).map(HistoryNodeId),
+        )
+        .map_err(map_error)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(map_error)
 }
 
 fn ensure_current_path_contains_open_function_call(
@@ -1263,6 +1536,94 @@ fn list_queued_inputs(db: &DbPool, task_id: &TaskId) -> Result<Vec<QueuedUserInp
         .map_err(map_error)
 }
 
+fn canonicalize_tool_spec(mut tool: ToolSpec) -> ToolSpec {
+    tool.parameters
+        .sort_by(|left, right| left.name.cmp(&right.name));
+    tool
+}
+
+fn insert_tool_in_tx(
+    tx: &rusqlite::Transaction<'_>,
+    tool: ToolSpec,
+    is_global: bool,
+) -> Result<(), DbError> {
+    tx.execute(
+        "INSERT INTO tools (tool_name, description_text, is_global)
+         VALUES (?1, ?2, ?3)",
+        params![tool.name, tool.description, bool_to_i64(is_global)],
+    )
+    .map_err(map_error)?;
+    for parameter in tool.parameters {
+        tx.execute(
+            "INSERT INTO tool_parameters
+             (tool_name, parameter_name, parameter_type, description_text, is_required)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![
+                tool.name,
+                parameter.name,
+                tool_parameter_type_to_db(&parameter.parameter_type),
+                parameter.description,
+                bool_to_i64(parameter.required)
+            ],
+        )
+        .map_err(map_error)?;
+    }
+    Ok(())
+}
+
+fn read_tool_definition_in_connection(
+    connection: &Connection,
+    tool_name: &str,
+) -> Result<Option<(ToolSpec, bool)>, DbError> {
+    let stored = connection
+        .query_row(
+            "SELECT description_text, is_global
+             FROM tools
+             WHERE tool_name = ?1",
+            params![tool_name],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)? == 1)),
+        )
+        .optional()
+        .map_err(map_error)?;
+    let Some((description, is_global)) = stored else {
+        return Ok(None);
+    };
+
+    let parameters = {
+        let mut statement = connection
+            .prepare(
+                "SELECT parameter_name, parameter_type, description_text, is_required
+                 FROM tool_parameters
+                 WHERE tool_name = ?1
+                 ORDER BY parameter_name ASC",
+            )
+            .map_err(map_error)?;
+        statement
+            .query_map(params![tool_name], |row| {
+                Ok(selvedge_domain_model::ToolParameter {
+                    name: row.get(0)?,
+                    parameter_type: tool_parameter_type_from_db(&row.get::<_, String>(1)?)
+                        .map_err(|error| {
+                            rusqlite::Error::ToSqlConversionFailure(Box::new(error))
+                        })?,
+                    description: row.get(2)?,
+                    required: row.get::<_, i64>(3)? == 1,
+                })
+            })
+            .map_err(map_error)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(map_error)?
+    };
+    Ok(Some((
+        ToolSpec {
+            name: tool_name.to_owned(),
+            description,
+            parameters,
+        },
+        is_global,
+    )))
+}
+
 fn insert_history_node(
     tx: &rusqlite::Transaction<'_>,
     node: NewHistoryNode,
@@ -1410,19 +1771,18 @@ fn insert_function_output_node(
     Ok(())
 }
 
-fn ensure_active_task(connection: &Connection, task_id: &TaskId) -> Result<(), DbError> {
-    let status: Option<String> = connection
+fn ensure_task_exists(connection: &Connection, task_id: &TaskId) -> Result<(), DbError> {
+    let exists: bool = connection
         .query_row(
-            "SELECT task_status FROM tasks WHERE task_id = ?1",
+            "SELECT EXISTS(SELECT 1 FROM tasks WHERE task_id = ?1)",
             params![task_id.0],
             |row| row.get(0),
         )
-        .optional()
         .map_err(map_error)?;
-    match status.as_deref() {
-        Some("active") => Ok(()),
-        Some(_) => Err(DbError::TaskNotActive),
-        None => Err(DbError::NotFound),
+    if exists {
+        Ok(())
+    } else {
+        Err(DbError::NotFound)
     }
 }
 

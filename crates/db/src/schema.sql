@@ -6,12 +6,16 @@ CREATE TABLE schema_metadata (
 );
 
 INSERT INTO schema_metadata (schema_key, schema_value)
-VALUES ('selvedge_schema_version', 'router-mediated-redesign-v4');
+VALUES ('selvedge_schema_version', 'harness-persistence-v5');
 
 CREATE TABLE tools (
     tool_name TEXT PRIMARY KEY CHECK (length(tool_name) > 0),
-    description_text TEXT NOT NULL CHECK (length(description_text) > 0)
+    description_text TEXT NOT NULL CHECK (length(description_text) > 0),
+    is_global INTEGER NOT NULL DEFAULT 0 CHECK (is_global IN (0, 1))
 );
+
+CREATE INDEX idx_tools_global_name
+    ON tools(is_global, tool_name);
 
 CREATE TABLE tool_parameters (
     tool_name TEXT NOT NULL,
