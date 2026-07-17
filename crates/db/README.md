@@ -2,12 +2,12 @@
 
 <!-- selvedge-package-readme
 package: selvedge-db
-freshness_fingerprint: 50c9752629a7867896babc7bc6221a6405d650d1
+freshness_fingerprint: dc1790ca509e51bb991f4121d97cc549b49ecd91
 -->
 
 This crate owns SQLite persistence for router-mediated Selvedge tasks.
 
-Use it to open a schema-v4 SQLite database, register global tools, create tasks, commit task-runtime state transitions, queue user inputs, archive tasks, and read task-local model context.
+Use it to open a schema-v5 SQLite database, migrate schema-v4 databases, register non-global or global tools, create root tasks, atomically fork child tasks from open function calls, commit task-runtime state transitions, queue user inputs, archive tasks, and read bounded task snapshots.
 
 This crate is for SQLite persistence only. Runtime wait state, provider calls, tool execution, router registries, and event delivery live in other crates.
 
@@ -15,7 +15,10 @@ Resource boundaries:
 
 - `create_history_node` inserts one history node. History parent links are a standalone graph.
 - `create_root_task` inserts one task row at a caller-provided existing `cursor_node_id`. Task parent links and history parent links are separate graphs.
-- `create_child_task` records a task-layer parent edge and a caller-provided existing `cursor_node_id`.
+- `register_global_tool` accepts a new definition, an exact repeat, or an exact non-global definition promoted to global. A conflicting stored definition fails without changing the catalog.
+- `read_tool_manifest_for_task` merges database-marked global tools with that task's `task_tools` rows for active or archived tasks.
+- `fork_task_from_function_call` requires an active parent and an exact open function-call identity on its current cursor path. It finds the history node before that call's contiguous function-call batch, appends the child user prompt there, copies the parent model profile, reasoning effort, and task-specific tools, and writes the parent edge in one transaction.
+- `read_task` returns task identity, durable status, state version, cursor, optional parent, queued-input count, and an exclusive `after_node_id` history page from one SQLite read transaction. Page limits are `1..=100`, and the after node must be on that task's cursor path.
 - `read_task_parent_edges` returns durable task-layer parent edges for router snapshots and factory verification.
 - A task cursor is a pointer into history, with no ownership claim over the pointed node.
 
@@ -28,8 +31,14 @@ The diagram records the package-level observable states and transition paths. Ea
 ```mermaid
 flowchart TD
   Start([database API call])
-  Open[Open schema-v4 SQLite database]
-  Read[Read tasks, history, queues, tools, or projections]
+  Open[Open SQLite database]
+  Schema{stored schema state}
+  Initialize[Create schema v5]
+  Migrate[Migrate schema v4 to v5]
+  SnapshotTx[Start read_task transaction]
+  SnapshotValidate[Validate task, limit, and after node]
+  SnapshotPage[Read metadata and cursor-path page]
+  Read[Read other tasks, history, queues, tools, or projections]
   WriteTx[Start transition transaction]
   Validate[Validate durable preconditions]
   Commit[Commit transaction]
@@ -39,16 +48,31 @@ flowchart TD
   ValidationError[Return invalid task, cursor, tool, argument, or state error]
   CommitError[Return commit database error]
 
-  Start -->|open_database is called| Open
-  Start -->|read API is called with open connection| Read
+  Start -->|open_db is called| Open
+  Open -->|database has no application tables| Initialize
+  Open -->|database has application tables and schema metadata is readable| Schema
+  Open -->|SQLite open or schema metadata read fails| OpenError
+  Schema -->|stored version is router-mediated-redesign-v4| Migrate
+  Schema -->|stored version is harness-persistence-v5| Return
+  Schema -->|stored version is missing or unsupported| OpenError
+  Initialize -->|schema-v5 batch succeeds| Return
+  Initialize -->|schema creation fails| OpenError
+  Migrate -->|global marker, index, and version update commit| Return
+  Migrate -->|migration transaction fails| OpenError
+  Start -->|read_task is called with open connection| SnapshotTx
+  SnapshotTx -->|transaction begins| SnapshotValidate
+  SnapshotTx -->|transaction begin fails| ReadError
+  SnapshotValidate -->|task exists, limit is 1 through 100, and after node is absent or on the cursor path| SnapshotPage
+  SnapshotValidate -->|task is missing, limit is invalid, or after node is outside the cursor path| ValidationError
+  SnapshotPage -->|metadata, count, parent, and page decode in the same snapshot| Commit
+  SnapshotPage -->|query or stored value decode fails| ReadError
+  Start -->|any other read API is called with open connection| Read
   Start -->|transition write API is called with open connection| WriteTx
-  Open -->|SQLite opens and schema version is usable| Return
-  Open -->|SQLite open or schema setup fails| OpenError
   Read -->|query succeeds and rows decode to domain model| Return
   Read -->|query fails or stored enum, JSON, id, or argument value is invalid| ReadError
   WriteTx -->|transaction begins| Validate
   WriteTx -->|transaction begin fails| CommitError
-  Validate -->|task, cursor, queue, history parent, and tool preconditions hold| Commit
+  Validate -->|task, cursor, queue, history parent, exact global tool, and fork-call preconditions hold| Commit
   Validate -->|requested transition conflicts with durable state| ValidationError
   Validate -->|read inside transaction fails| ReadError
   Commit -->|SQLite commit succeeds| Return
