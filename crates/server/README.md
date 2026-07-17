@@ -11,7 +11,9 @@ Use it to start the server runtime, hold the singleton lock, initialize config a
 
 `ServerStartArgs` uses the current `selvedge-api` boundary: server passes `ApiExecutorConfig` into the router, and provider selection remains inside each model-call request. This crate does not own a provider registry.
 
-After opening SQLite, startup registers the exact harness manifests idempotently and constructs the production `HarnessToolExecutor` from that database. Conflicting persisted definitions fail startup. Once the router exists, startup enqueues one active-task recovery scan before exposing ready control.
+After opening SQLite, startup registers the exact harness manifests idempotently as global tools with durable Harness execution routes, then constructs the production `HarnessToolExecutor` from that database. Conflicting persisted definitions fail startup. Once the router exists, startup enqueues one active-task recovery scan before exposing ready control.
+
+Function-call history projections carry one JSON object unchanged across the command-model and local-protocol boundary. The server does not flatten arguments or reinterpret their values.
 
 The singleton lock is `<selvedge_home>/server.lock`. The lock file is removed during normal shutdown and startup-failure cleanup.
 
@@ -42,7 +44,7 @@ flowchart TD
   Lock[Acquire singleton lock]
   InitConfig[Initialize config and logging]
   OpenDb[Open selvedge.sqlite]
-  RegisterTools[Register five global harness tools]
+  RegisterTools[Register five global tools with Harness execution routes]
   SpawnServices[Start events, client-sync, router, and web surface]
   Recover[Request active task runtime recovery]
   Ready[ServerControl ready]
@@ -65,7 +67,7 @@ flowchart TD
   InitConfig -->|config or logging fails| StartupFailure
   OpenDb -->|SQLite opens at selected home| RegisterTools
   OpenDb -->|database open or schema setup fails| StartupFailure
-  RegisterTools -->|all five definitions are new or exact repeats| SpawnServices
+  RegisterTools -->|all five definitions and Harness routes are new or exact repeats| SpawnServices
   RegisterTools -->|a definition conflicts or SQLite write fails| StartupFailure
   SpawnServices -->|events, client-sync, router, and optional web tasks start| Recover
   SpawnServices -->|any required task setup fails| StartupFailure

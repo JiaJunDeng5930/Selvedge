@@ -31,9 +31,7 @@ use selvedge_command_model::{
 };
 use selvedge_core::TaskRuntimeSpawnDeps;
 use selvedge_db::{OpenDbOptions, open_db, register_global_tool};
-use selvedge_domain_model::{
-    MessageRole, ReasoningEffort, TaskId, ToolArgumentValue, ToolCallArgument,
-};
+use selvedge_domain_model::{MessageRole, ReasoningEffort, TaskId};
 use selvedge_events::{EventsHandle, EventsStartArgs, SpawnEventsError, spawn_events_task};
 use selvedge_harness::{HarnessToolExecutor, tool_manifest};
 use selvedge_local_protocol::{
@@ -45,9 +43,8 @@ use selvedge_local_protocol::{
     LocalModelCallStatusPhase, LocalNotice, LocalNoticeKind, LocalNoticeLevel,
     LocalReasoningEffort, LocalSnapshotMode, LocalSnapshotTaskVersion, LocalTaskChangedEvent,
     LocalTaskParentProjection, LocalTaskProjection, LocalTaskProjectionStatus, LocalTaskScope,
-    LocalToolArgumentValue, LocalToolCallArgument, LocalToolExecutionStatusEvent,
-    LocalToolExecutionStatusPhase, ReadyRequest, ReadyResponse, ReadyState,
-    validate_attach_request, validate_command_request, validate_ready_request,
+    LocalToolExecutionStatusEvent, LocalToolExecutionStatusPhase, ReadyRequest, ReadyResponse,
+    ReadyState, validate_attach_request, validate_command_request, validate_ready_request,
 };
 use selvedge_router::{RouterExitStatus, RouterHandle, RouterStartArgs, SpawnRouterError};
 use selvedge_web::{
@@ -1716,7 +1713,7 @@ fn history_node_body_to_local(body: HistoryNodeProjectionBody) -> LocalHistoryNo
         } => LocalHistoryNodeProjectionBody::FunctionCall {
             function_call_id: function_call_id.0,
             tool_name: tool_name.0,
-            arguments: arguments.into_iter().map(tool_argument_to_local).collect(),
+            arguments,
         },
         HistoryNodeProjectionBody::FunctionOutput {
             function_call_node_id,
@@ -1853,22 +1850,6 @@ fn message_role_to_local(role: MessageRole) -> LocalMessageRole {
         MessageRole::User => LocalMessageRole::User,
         MessageRole::Assistant => LocalMessageRole::Assistant,
         MessageRole::Tool => LocalMessageRole::Tool,
-    }
-}
-
-fn tool_argument_to_local(argument: ToolCallArgument) -> LocalToolCallArgument {
-    LocalToolCallArgument {
-        name: argument.name.0,
-        value: tool_argument_value_to_local(argument.value),
-    }
-}
-
-fn tool_argument_value_to_local(value: ToolArgumentValue) -> LocalToolArgumentValue {
-    match value {
-        ToolArgumentValue::String(value) => LocalToolArgumentValue::String(value),
-        ToolArgumentValue::Integer(value) => LocalToolArgumentValue::Integer(value),
-        ToolArgumentValue::Number(value) => LocalToolArgumentValue::Number(value),
-        ToolArgumentValue::Boolean(value) => LocalToolArgumentValue::Boolean(value),
     }
 }
 
@@ -2100,7 +2081,7 @@ mod tests {
     use super::*;
     use futures_util::StreamExt;
     use selvedge_command_model::ClientSnapshotFrame;
-    use selvedge_domain_model::UnixTs;
+    use selvedge_domain_model::{FunctionCallId, ToolName, UnixTs};
     use std::time::Duration;
     use tokio::sync::oneshot;
     use tokio::time::timeout;
@@ -2119,6 +2100,34 @@ mod tests {
                 })
             })
         }
+    }
+
+    #[test]
+    fn function_call_projection_preserves_nested_json_arguments() {
+        let serde_json::Value::Object(arguments) = serde_json::json!({
+            "large_integer": 9_007_199_254_740_993_u64,
+            "nested": {
+                "nullable": null,
+                "choices": ["fast", {"retries": 3}]
+            }
+        }) else {
+            panic!("test arguments must be an object");
+        };
+
+        let projected = history_node_body_to_local(HistoryNodeProjectionBody::FunctionCall {
+            function_call_id: FunctionCallId("call-1".to_owned()),
+            tool_name: ToolName("nested_tool".to_owned()),
+            arguments: arguments.clone(),
+        });
+
+        assert_eq!(
+            projected,
+            LocalHistoryNodeProjectionBody::FunctionCall {
+                function_call_id: "call-1".to_owned(),
+                tool_name: "nested_tool".to_owned(),
+                arguments,
+            }
+        );
     }
 
     struct PendingLocalOperationExecutor;

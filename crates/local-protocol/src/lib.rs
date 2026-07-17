@@ -2,6 +2,7 @@
 
 use std::collections::BTreeSet;
 
+use selvedge_domain_model::JsonObject;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 
@@ -201,7 +202,7 @@ pub enum LocalHistoryNodeProjectionBody {
     FunctionCall {
         function_call_id: String,
         tool_name: String,
-        arguments: Vec<LocalToolCallArgument>,
+        arguments: JsonObject,
     },
     FunctionOutput {
         function_call_node_id: i64,
@@ -323,20 +324,6 @@ pub enum LocalReasoningEffort {
     High,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct LocalToolCallArgument {
-    pub name: String,
-    pub value: LocalToolArgumentValue,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub enum LocalToolArgumentValue {
-    String(String),
-    Integer(i64),
-    Number(f64),
-    Boolean(bool),
-}
-
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum LocalProtocolValidationError {
     EmptyClientId,
@@ -350,7 +337,6 @@ pub enum LocalProtocolValidationError {
     InvalidParentHistoryNodeId,
     EmptyModelProfileKey,
     EmptyToolName,
-    EmptyToolArgumentName,
     EmptyNoticeText,
     EmptyVerificationUrl,
     EmptyUserCode,
@@ -686,18 +672,8 @@ fn validate_history_node_body(
     match body {
         LocalHistoryNodeProjectionBody::Message { .. }
         | LocalHistoryNodeProjectionBody::Reasoning { .. } => Ok(()),
-        LocalHistoryNodeProjectionBody::FunctionCall {
-            tool_name,
-            arguments,
-            ..
-        } => {
-            validate_tool_name(tool_name)?;
-            for argument in arguments {
-                if argument.name.trim().is_empty() {
-                    return Err(LocalProtocolValidationError::EmptyToolArgumentName);
-                }
-            }
-            Ok(())
+        LocalHistoryNodeProjectionBody::FunctionCall { tool_name, .. } => {
+            validate_tool_name(tool_name)
         }
         LocalHistoryNodeProjectionBody::FunctionOutput {
             function_call_node_id,

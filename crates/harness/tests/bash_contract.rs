@@ -7,13 +7,11 @@ use rustix::process::{Pid, test_kill_process, test_kill_process_group};
 use selvedge_command_model::{
     RouterIngressMessage, ToolExecutionRequest, ToolExecutionResult, ToolExecutionRunId,
 };
-use selvedge_domain_model::{
-    FunctionCallId, HistoryNodeId, TaskId, ToolArgumentValue, ToolCallArgument, ToolName,
-    ToolParameterName,
-};
+use selvedge_domain_model::{FunctionCallId, HistoryNodeId, TaskId, ToolName};
 use selvedge_harness::{BASH_OUTPUT_LIMIT_BYTES, BASH_TOOL_NAME, HarnessToolExecutor};
 use selvedge_router::ToolExecutionSpawner;
 use selvedge_test_support::db::open_memory_db;
+use serde_json::Value;
 use tokio::sync::mpsc;
 use tokio::time::{sleep, timeout};
 
@@ -143,7 +141,7 @@ async fn bash_timeout_terminates_the_process_group_and_returns_one_terminal_erro
     assert_eq!(test_kill_process(child_pid), Err(Errno::SRCH));
 }
 
-async fn execute(arguments: Vec<ToolCallArgument>) -> ToolExecutionResult {
+async fn execute(arguments: Vec<(String, Value)>) -> ToolExecutionResult {
     let executor = HarnessToolExecutor::new(open_memory_db());
     let request = ToolExecutionRequest {
         task_id: TaskId("task-1".to_owned()),
@@ -151,7 +149,7 @@ async fn execute(arguments: Vec<ToolCallArgument>) -> ToolExecutionResult {
         function_call_node_id: HistoryNodeId(7),
         function_call_id: FunctionCallId("call-1".to_owned()),
         tool_name: ToolName(BASH_TOOL_NAME.to_owned()),
-        arguments,
+        arguments: arguments.into_iter().collect(),
     };
     let (router_tx, mut router_rx) = mpsc::unbounded_channel();
     executor
@@ -178,18 +176,12 @@ async fn execute(arguments: Vec<ToolCallArgument>) -> ToolExecutionResult {
     result
 }
 
-fn string_argument(name: &str, value: &str) -> ToolCallArgument {
-    ToolCallArgument {
-        name: ToolParameterName(name.to_owned()),
-        value: ToolArgumentValue::String(value.to_owned()),
-    }
+fn string_argument(name: &str, value: &str) -> (String, Value) {
+    (name.to_owned(), Value::String(value.to_owned()))
 }
 
-fn integer_argument(name: &str, value: i64) -> ToolCallArgument {
-    ToolCallArgument {
-        name: ToolParameterName(name.to_owned()),
-        value: ToolArgumentValue::Integer(value),
-    }
+fn integer_argument(name: &str, value: i64) -> (String, Value) {
+    (name.to_owned(), Value::from(value))
 }
 
 fn parse_pid(value: &str) -> Pid {
