@@ -88,6 +88,82 @@ pub type EventIngressSender = mpsc::Sender<EventIngress>;
 pub type ClientFrameSender = mpsc::Sender<ClientFrame>;
 pub type RouterAttachAdmissionSender = oneshot::Sender<RouterAttachAdmissionResult>;
 pub type EventClientReservationSender = oneshot::Sender<EventClientReservationResult>;
+pub type SendUserInputResult = Result<SendUserInputOutcome, TaskCommandError>;
+pub type ArchiveTaskResult = Result<ArchiveTaskOutcome, TaskCommandError>;
+pub type SendUserInputResponseReceiver = oneshot::Receiver<SendUserInputResult>;
+pub type ArchiveTaskResponseReceiver = oneshot::Receiver<ArchiveTaskResult>;
+pub type SendUserInputResponder = TaskCommandResponder<SendUserInputOutcome>;
+pub type ArchiveTaskResponder = TaskCommandResponder<ArchiveTaskOutcome>;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SendUserInputOutcome {
+    Committed { node_id: HistoryNodeId },
+    Queued,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ArchiveTaskOutcome {
+    Archived,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TaskCommandError {
+    InvalidCommand,
+    TaskMissing,
+    TaskArchived,
+    RuntimeUnavailable,
+    PersistenceFailed,
+}
+
+pub struct TaskCommandResponder<T> {
+    result_tx: Option<oneshot::Sender<Result<T, TaskCommandError>>>,
+}
+
+impl<T> TaskCommandResponder<T> {
+    pub fn settle(mut self, result: Result<T, TaskCommandError>) {
+        if let Some(result_tx) = self.result_tx.take() {
+            let _ = result_tx.send(result);
+        }
+    }
+}
+
+impl<T> Drop for TaskCommandResponder<T> {
+    fn drop(&mut self) {
+        if let Some(result_tx) = self.result_tx.take() {
+            let _ = result_tx.send(Err(TaskCommandError::RuntimeUnavailable));
+        }
+    }
+}
+
+impl<T> fmt::Debug for TaskCommandResponder<T> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("TaskCommandResponder")
+            .field("pending", &self.result_tx.is_some())
+            .finish()
+    }
+}
+
+pub fn send_user_input_response_channel() -> (SendUserInputResponder, SendUserInputResponseReceiver)
+{
+    let (result_tx, result_rx) = oneshot::channel();
+    (
+        TaskCommandResponder {
+            result_tx: Some(result_tx),
+        },
+        result_rx,
+    )
+}
+
+pub fn archive_task_response_channel() -> (ArchiveTaskResponder, ArchiveTaskResponseReceiver) {
+    let (result_tx, result_rx) = oneshot::channel();
+    (
+        TaskCommandResponder {
+            result_tx: Some(result_tx),
+        },
+        result_rx,
+    )
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct FactoryEffectId(pub String);
@@ -120,9 +196,11 @@ pub enum RouterCommand {
     SendUserInput {
         task_id: TaskId,
         message_text: String,
+        responder: SendUserInputResponder,
     },
     ArchiveTask {
         task_id: TaskId,
+        responder: ArchiveTaskResponder,
     },
     StopTaskRuntime {
         task_id: TaskId,
@@ -684,10 +762,15 @@ pub struct ToolExecutionRunId(pub String);
 #[derive(Debug)]
 pub enum TaskRuntimeCommand {
     Start,
-    UserInput { message_text: String },
+    UserInput {
+        message_text: String,
+        responder: SendUserInputResponder,
+    },
     ApiModelReply(ApiOutputEnvelope),
     ToolResult(ToolExecutionResult),
-    Archive,
+    Archive {
+        responder: ArchiveTaskResponder,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -823,13 +906,14 @@ pub fn validate_router_command(
         RouterCommand::SendUserInput {
             task_id,
             message_text,
+            ..
         } => {
             validate_task_id(task_id)?;
             if message_text.trim().is_empty() {
                 return Err(RouterCommandValidationError::EmptyMessageText);
             }
         }
-        RouterCommand::ArchiveTask { task_id }
+        RouterCommand::ArchiveTask { task_id, .. }
         | RouterCommand::StopTaskRuntime { task_id }
         | RouterCommand::EnsureTaskRuntime { task_id } => validate_task_id(task_id)?,
         RouterCommand::EnsureMissingTaskRuntimes => {}

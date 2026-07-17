@@ -18,6 +18,8 @@ Router ingress is unbounded. The router is the lifecycle coordinator for task ru
 Core output routing is task-id based. A runtime that enqueued core output before a synchronous stop still has that output routed normally; stop controls runtime registry ownership and future task command delivery.
 Core output with an embedded task id must match the envelope task id before the router starts model calls, tool executions, or event publication.
 
+User input and archive remain pending business operations while the router creates a missing runtime, flushes deferred commands, or replaces a closed mailbox. The router never settles them successfully: only the task runtime can do that after SQLite commits. Factory failures are mapped to task missing, task archived, persistence failure, or runtime unavailable, and router shutdown fails deferred and unread task commands before releasing their responders.
+
 Attach routing is an admission boundary. `RouterCommand::AttachClient` sends `ReserveClientSession` to events and answers the command's admission responder with the reservation result; snapshot hydration starts later through client-sync after server observes the accepted admission.
 
 ## Runtime Ownership Decision
@@ -46,6 +48,7 @@ flowchart TD
   RuntimeLive[Runtime registered live]
   RuntimePending[Runtime creation pending]
   RuntimeStopping[Runtime stop barrier in progress]
+  TaskResponseSettled[Task command response failed]
   Events[Forward event control]
   ErrorNotice[Publish diagnostic notice]
   Shutdown[Exit when ingress closes]
@@ -63,9 +66,10 @@ flowchart TD
   Command -->|validation, missing runtime, events, database, or factory dispatch fails| ErrorNotice
   RuntimePending -->|factory effect is started for task| Loop
   FactoryOutput -->|runtime created for pending task| RuntimeLive
-  FactoryOutput -->|factory skipped or failed task| ErrorNotice
+  FactoryOutput -->|factory failed for a deferred task command| TaskResponseSettled
+  TaskResponseSettled -->|typed failure is sent exactly once| ErrorNotice
   RuntimeLive -->|runtime send succeeds| Loop
-  RuntimeLive -->|runtime send fails| ErrorNotice
+  RuntimeLive -->|runtime send fails and recreation cannot accept the command| TaskResponseSettled
   RuntimeStopping -->|TaskRuntimeControl stop result resolves| Loop
   CoreOutput -->|task id matches envelope and action is model call, tool call, or event publish| Events
   CoreOutput -->|task id mismatch or downstream send fails| ErrorNotice
@@ -77,4 +81,6 @@ flowchart TD
   Events -->|event ingress send fails| ErrorNotice
   ErrorNotice -->|diagnostic handling completes| Loop
   Loop -->|all router ingress senders are dropped| Shutdown
+  Loop -->|StopRouter is received| Shutdown
+  Shutdown -->|deferred and unread task commands are failed| TaskResponseSettled
 ```

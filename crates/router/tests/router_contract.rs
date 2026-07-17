@@ -9,14 +9,16 @@ use selvedge_command_model::{
     DomainEvent, DomainEventPublishRequest, EventClientReservationResult, EventControlMessage,
     EventIngress, ModelCallError, ModelCallErrorKind, ModelRunId, RawEvent,
     RouterAttachAdmissionResult, RouterCommand, RouterCommandEnvelope, RouterIngressMessage,
-    TaskRuntimeCommand, TaskRuntimeControl, TaskRuntimeExitNotice, TaskRuntimeExitReason,
-    TaskScope, ToolExecutionRequest, ToolExecutionResult, ToolExecutionRunId,
+    SendUserInputOutcome, TaskCommandError, TaskRuntimeCommand, TaskRuntimeControl,
+    TaskRuntimeExitNotice, TaskRuntimeExitReason, TaskScope, ToolExecutionRequest,
+    ToolExecutionResult, ToolExecutionRunId, archive_task_response_channel,
+    send_user_input_response_channel,
 };
 use selvedge_core::{
     SpawnTaskRuntimeArgs, SpawnTaskRuntimeError, SpawnedTaskRuntime, TaskRuntimeConfig,
     TaskRuntimeSpawnDeps, TaskRuntimeSpawner,
 };
-use selvedge_db::{DbPool, ModelProfileKey, TaskId, UnixTs};
+use selvedge_db::{DbPool, ModelProfileKey, TaskId, UnixTs, archive_task};
 use selvedge_domain_model::{FunctionCallId, HistoryNodeId, ModelProviderProfile, ToolName};
 use selvedge_router::{
     RouterExitStatus, RouterStartArgs, ToolExecutionSpawnError, ToolExecutionSpawner, spawn_router,
@@ -201,6 +203,7 @@ async fn task_local_command_creates_runtime_and_flushes_deferred_user_input() {
             command: RouterCommand::SendUserInput {
                 task_id: TaskId("task-1".to_owned()),
                 message_text: "hello".to_owned(),
+                responder: send_user_input_response_channel().0,
             },
         }))
         .expect("send command");
@@ -209,7 +212,7 @@ async fn task_local_command_creates_runtime_and_flushes_deferred_user_input() {
     let start = runtime_rx.recv().await.expect("start command");
     assert!(matches!(start, TaskRuntimeCommand::Start));
     let input = runtime_rx.recv().await.expect("user input command");
-    let TaskRuntimeCommand::UserInput { message_text } = input else {
+    let TaskRuntimeCommand::UserInput { message_text, .. } = input else {
         panic!("unexpected task runtime command");
     };
     assert_eq!(message_text, "hello");
@@ -219,6 +222,240 @@ async fn task_local_command_creates_runtime_and_flushes_deferred_user_input() {
         .send(RouterIngressMessage::StopRouter)
         .expect("stop router");
     spawner.finish_stop("task-1").await;
+    assert_eq!(
+        handle.join_handle.await.expect("join router"),
+        RouterExitStatus::Stopped
+    );
+}
+
+#[tokio::test]
+async fn deferred_user_input_settles_after_the_runtime_sqlite_transition() {
+    let db = open_memory_db();
+    create_root(&db, "task-1");
+    let (events_tx, _events_rx) = tokio::sync::mpsc::channel(8);
+    let handle = spawn_router(RouterStartArgs {
+        db,
+        events_tx,
+        api_config: ApiExecutorConfig {
+            request_timeout: Duration::from_secs(1),
+            max_response_bytes: None,
+        },
+        tool_executor: Arc::new(NoopToolSpawner),
+        core_spawn_deps: TaskRuntimeSpawnDeps::new(TaskRuntimeConfig {
+            mailbox_capacity: 8,
+            model_profiles: model_profiles(),
+        }),
+    })
+    .expect("spawn router");
+
+    let (responder, response) = send_user_input_response_channel();
+    handle
+        .ingress_tx
+        .send(RouterIngressMessage::Command(RouterCommandEnvelope {
+            client_id: None,
+            client_command_id: None,
+            command: RouterCommand::SendUserInput {
+                task_id: TaskId("task-1".to_owned()),
+                message_text: "deferred".to_owned(),
+                responder,
+            },
+        }))
+        .expect("send input");
+    assert_eq!(
+        response.await.expect("input response"),
+        Ok(SendUserInputOutcome::Queued)
+    );
+
+    handle
+        .ingress_tx
+        .send(RouterIngressMessage::StopRouter)
+        .expect("stop router");
+    assert_eq!(
+        handle.join_handle.await.expect("join router"),
+        RouterExitStatus::Stopped
+    );
+}
+
+#[tokio::test]
+async fn missing_and_archived_tasks_settle_deferred_commands() {
+    let db = open_memory_db();
+    create_root(&db, "archived");
+    archive_task(&db, &TaskId("archived".to_owned()), UnixTs(2)).expect("archive task");
+    let (events_tx, _events_rx) = tokio::sync::mpsc::channel(8);
+    let handle = spawn_router(RouterStartArgs {
+        db,
+        events_tx,
+        api_config: ApiExecutorConfig {
+            request_timeout: Duration::from_secs(1),
+            max_response_bytes: None,
+        },
+        tool_executor: Arc::new(NoopToolSpawner),
+        core_spawn_deps: TaskRuntimeSpawnDeps::new(TaskRuntimeConfig {
+            mailbox_capacity: 8,
+            model_profiles: model_profiles(),
+        }),
+    })
+    .expect("spawn router");
+
+    let (invalid_responder, invalid_response) = send_user_input_response_channel();
+    handle
+        .ingress_tx
+        .send(RouterIngressMessage::Command(RouterCommandEnvelope {
+            client_id: None,
+            client_command_id: None,
+            command: RouterCommand::SendUserInput {
+                task_id: TaskId("missing".to_owned()),
+                message_text: " ".to_owned(),
+                responder: invalid_responder,
+            },
+        }))
+        .expect("send invalid input");
+    assert_eq!(
+        invalid_response.await.expect("invalid response"),
+        Err(TaskCommandError::InvalidCommand)
+    );
+
+    let (missing_responder, missing_response) = send_user_input_response_channel();
+    handle
+        .ingress_tx
+        .send(RouterIngressMessage::Command(RouterCommandEnvelope {
+            client_id: None,
+            client_command_id: None,
+            command: RouterCommand::SendUserInput {
+                task_id: TaskId("missing".to_owned()),
+                message_text: "hello".to_owned(),
+                responder: missing_responder,
+            },
+        }))
+        .expect("send missing input");
+    assert_eq!(
+        missing_response.await.expect("missing response"),
+        Err(TaskCommandError::TaskMissing)
+    );
+
+    let (archived_responder, archived_response) = send_user_input_response_channel();
+    handle
+        .ingress_tx
+        .send(RouterIngressMessage::Command(RouterCommandEnvelope {
+            client_id: None,
+            client_command_id: None,
+            command: RouterCommand::SendUserInput {
+                task_id: TaskId("archived".to_owned()),
+                message_text: "hello".to_owned(),
+                responder: archived_responder,
+            },
+        }))
+        .expect("send archived input");
+    assert_eq!(
+        archived_response.await.expect("archived response"),
+        Err(TaskCommandError::TaskArchived)
+    );
+
+    handle
+        .ingress_tx
+        .send(RouterIngressMessage::StopRouter)
+        .expect("stop router");
+    assert_eq!(
+        handle.join_handle.await.expect("join router"),
+        RouterExitStatus::Stopped
+    );
+}
+
+#[tokio::test]
+async fn factory_and_runtime_mailbox_failures_settle_commands() {
+    for spawner in [
+        Arc::new(FailingRuntimeSpawner) as Arc<dyn TaskRuntimeSpawner>,
+        Arc::new(ClosedMailboxRuntimeSpawner) as Arc<dyn TaskRuntimeSpawner>,
+    ] {
+        let db = open_memory_db();
+        create_root(&db, "task-1");
+        let (events_tx, _events_rx) = tokio::sync::mpsc::channel(8);
+        let handle = spawn_router(RouterStartArgs {
+            db,
+            events_tx,
+            api_config: ApiExecutorConfig {
+                request_timeout: Duration::from_secs(1),
+                max_response_bytes: None,
+            },
+            tool_executor: Arc::new(NoopToolSpawner),
+            core_spawn_deps: TaskRuntimeSpawnDeps::with_spawner(
+                TaskRuntimeConfig {
+                    mailbox_capacity: 8,
+                    model_profiles: model_profiles(),
+                },
+                spawner,
+            ),
+        })
+        .expect("spawn router");
+
+        let (responder, response) = send_user_input_response_channel();
+        handle
+            .ingress_tx
+            .send(RouterIngressMessage::Command(RouterCommandEnvelope {
+                client_id: None,
+                client_command_id: None,
+                command: RouterCommand::SendUserInput {
+                    task_id: TaskId("task-1".to_owned()),
+                    message_text: "hello".to_owned(),
+                    responder,
+                },
+            }))
+            .expect("send input");
+        assert_eq!(
+            response.await.expect("input response"),
+            Err(TaskCommandError::RuntimeUnavailable)
+        );
+
+        handle
+            .ingress_tx
+            .send(RouterIngressMessage::StopRouter)
+            .expect("stop router");
+        assert_eq!(
+            handle.join_handle.await.expect("join router"),
+            RouterExitStatus::Stopped
+        );
+    }
+}
+
+#[tokio::test]
+async fn router_shutdown_settles_commands_queued_behind_stop() {
+    let db = open_memory_db();
+    let (events_tx, _events_rx) = tokio::sync::mpsc::channel(8);
+    let handle = spawn_router(RouterStartArgs {
+        db,
+        events_tx,
+        api_config: ApiExecutorConfig {
+            request_timeout: Duration::from_secs(1),
+            max_response_bytes: None,
+        },
+        tool_executor: Arc::new(NoopToolSpawner),
+        core_spawn_deps: TaskRuntimeSpawnDeps::new(TaskRuntimeConfig {
+            mailbox_capacity: 8,
+            model_profiles: model_profiles(),
+        }),
+    })
+    .expect("spawn router");
+    let (responder, response) = send_user_input_response_channel();
+
+    handle
+        .ingress_tx
+        .send(RouterIngressMessage::StopRouter)
+        .expect("stop router");
+    let _ = handle
+        .ingress_tx
+        .send(RouterIngressMessage::Command(RouterCommandEnvelope {
+            client_id: None,
+            client_command_id: None,
+            command: RouterCommand::SendUserInput {
+                task_id: TaskId("task-1".to_owned()),
+                message_text: "after stop".to_owned(),
+                responder,
+            },
+        }));
+    assert_eq!(
+        response.await.expect("shutdown response"),
+        Err(TaskCommandError::RuntimeUnavailable)
+    );
     assert_eq!(
         handle.join_handle.await.expect("join router"),
         RouterExitStatus::Stopped
@@ -360,6 +597,7 @@ async fn stop_runtime_removes_sender_before_later_task_commands() {
             command: RouterCommand::SendUserInput {
                 task_id: TaskId("task-1".to_owned()),
                 message_text: "after stop".to_owned(),
+                responder: send_user_input_response_channel().0,
             },
         }))
         .expect("send user input");
@@ -371,7 +609,7 @@ async fn stop_runtime_removes_sender_before_later_task_commands() {
             .expect("replacement start"),
         TaskRuntimeCommand::Start
     ));
-    let TaskRuntimeCommand::UserInput { message_text } = replacement_runtime_rx
+    let TaskRuntimeCommand::UserInput { message_text, .. } = replacement_runtime_rx
         .recv()
         .await
         .expect("replacement input")
@@ -458,6 +696,7 @@ async fn stale_runtime_exit_preserves_replacement_runtime() {
             command: RouterCommand::SendUserInput {
                 task_id: TaskId("task-1".to_owned()),
                 message_text: "after stop".to_owned(),
+                responder: send_user_input_response_channel().0,
             },
         }))
         .expect("send user input");
@@ -633,13 +872,14 @@ async fn inactive_archive_is_delivered_before_runtime_start() {
             client_command_id: None,
             command: RouterCommand::ArchiveTask {
                 task_id: TaskId("task-1".to_owned()),
+                responder: archive_task_response_channel().0,
             },
         }))
         .expect("send archive");
     let mut runtime_rx = spawner.wait_receiver("task-1").await;
     assert!(matches!(
         runtime_rx.recv().await.expect("archive command"),
-        TaskRuntimeCommand::Archive
+        TaskRuntimeCommand::Archive { .. }
     ));
     if let Ok(Some(command)) =
         tokio::time::timeout(Duration::from_millis(50), runtime_rx.recv()).await
@@ -1229,6 +1469,34 @@ impl TaskRuntimeSpawner for CapturingRuntimeSpawner {
             task_id: args.task_id,
             task_runtime_tx,
             task_runtime_control,
+        })
+    }
+}
+
+struct FailingRuntimeSpawner;
+
+impl TaskRuntimeSpawner for FailingRuntimeSpawner {
+    fn spawn_task_runtime(
+        &self,
+        _args: SpawnTaskRuntimeArgs,
+    ) -> Result<SpawnedTaskRuntime, SpawnTaskRuntimeError> {
+        Err(SpawnTaskRuntimeError::TokioSpawnFailed)
+    }
+}
+
+struct ClosedMailboxRuntimeSpawner;
+
+impl TaskRuntimeSpawner for ClosedMailboxRuntimeSpawner {
+    fn spawn_task_runtime(
+        &self,
+        args: SpawnTaskRuntimeArgs,
+    ) -> Result<SpawnedTaskRuntime, SpawnTaskRuntimeError> {
+        let (task_runtime_tx, task_runtime_rx) = tokio::sync::mpsc::channel(1);
+        drop(task_runtime_rx);
+        Ok(SpawnedTaskRuntime {
+            task_id: args.task_id,
+            task_runtime_tx,
+            task_runtime_control: TaskRuntimeControl::new(),
         })
     }
 }
