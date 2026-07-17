@@ -7,8 +7,9 @@ use selvedge_command_model::{
     FactoryTaskFailure, HistoryAppendedEvent, HistoryAppendedRawEvent, ModelCallDispatchRequest,
     ModelCallError, ModelCallErrorKind, ModelRunId, RouterCommand, RouterCommandEnvelope,
     RouterCommandValidationError, RouterIngressApiMessage, RouterIngressMessage,
-    SnapshotTaskVersion, TaskId, TaskProjection, TaskProjectionStatus, TaskRuntimeControl,
-    TaskRuntimeCreated, TaskScope, validate_api_output_envelope, validate_dispatch_request,
+    SnapshotTaskVersion, TaskCommandError, TaskId, TaskProjection, TaskProjectionStatus,
+    TaskRuntimeControl, TaskRuntimeCreated, TaskScope, archive_task_response_channel,
+    send_user_input_response_channel, validate_api_output_envelope, validate_dispatch_request,
     validate_router_command,
 };
 use selvedge_domain_model::{
@@ -338,11 +339,29 @@ fn router_command_validation_enforces_envelope_and_task_payload_contract() {
         command: RouterCommand::SendUserInput {
             task_id: TaskId("task-1".to_owned()),
             message_text: " ".to_owned(),
+            responder: send_user_input_response_channel().0,
         },
     };
     assert_eq!(
         validate_router_command(&empty_message),
         Err(RouterCommandValidationError::EmptyMessageText)
+    );
+}
+
+#[test]
+fn dropped_task_command_responders_settle_as_runtime_unavailable() {
+    let (input_responder, mut input_response) = send_user_input_response_channel();
+    drop(input_responder);
+    assert_eq!(
+        input_response.try_recv().expect("input response"),
+        Err(TaskCommandError::RuntimeUnavailable)
+    );
+
+    let (archive_responder, mut archive_response) = archive_task_response_channel();
+    drop(archive_responder);
+    assert_eq!(
+        archive_response.try_recv().expect("archive response"),
+        Err(TaskCommandError::RuntimeUnavailable)
     );
 }
 

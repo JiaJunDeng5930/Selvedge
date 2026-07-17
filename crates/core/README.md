@@ -17,6 +17,8 @@ Before dispatching a model call, the actor reads the conversation, tool manifest
 
 The actor checks `TaskRuntimeControl` before receiving each business mailbox command. A stop request makes the actor return from its loop at that safety point. The mailbox receive branch is behind the control branch and the actor rechecks stop after receiving a command, so a stop bit observed at the event boundary prevents the next business command from starting. The runtime writes `TaskRuntimeStopResult` from the actor's unified exit path, so a later stop call also completes after archive, database error, router shutdown, or dropped runtime mailbox.
 
+User-input responders return `Committed` with the persisted history node id only after the history append and cursor transaction commits, or `Queued` only after the FIFO queue transaction commits. Archive returns `Archived` only after its transaction commits. On archive, database failure, internal failure, or stop, the runtime drains its business mailbox and settles every remaining task responder with the terminal task error.
+
 Runtime output to the router uses the unbounded router ingress sender. Event handlers can enqueue router output synchronously and return to the control check without waiting for router mailbox capacity.
 
 `TaskRuntimeSpawnDeps` wraps the runtime config and a `TaskRuntimeSpawner` implementation. Use `TaskRuntimeSpawnDeps::new` for the default Tokio-backed spawner and `with_spawner` for boundary tests.
@@ -36,7 +38,10 @@ flowchart TD
   RequestTool[Send tool execution request to router]
   AwaitTool[Await matching tool output]
   QueueInput[Queue or append user input]
+  InputSettled[Settle input responder]
   Archive[Archive task]
+  ArchiveSettled[Settle archive responder]
+  FailPending[Fail remaining task responders]
   Stop[Exit after stop control]
   Exit[Publish TaskRuntimeExitNotice]
   DbError[Exit on database error]
@@ -60,13 +65,18 @@ flowchart TD
   AwaitTool -->|matching tool result arrives| ClassifyTail
   AwaitTool -->|user input arrives while tool is in flight| QueueInput
   AwaitInput -->|user input command arrives| QueueInput
-  QueueInput -->|database transition succeeds| ClassifyTail
-  QueueInput -->|database transition fails| DbError
+  QueueInput -->|database transition succeeds| InputSettled
+  InputSettled -->|committed or queued outcome is sent| ClassifyTail
+  QueueInput -->|database transition fails and responder is failed| DbError
   AwaitInput -->|archive command arrives| Archive
-  Archive -->|database archive succeeds| Exit
-  Archive -->|database archive fails| DbError
+  Archive -->|database archive succeeds| ArchiveSettled
+  ArchiveSettled -->|archived outcome is sent| FailPending
+  Archive -->|database archive fails and responder is failed| DbError
   AwaitInput -->|stop control observed before business command starts| Stop
   AwaitModel -->|stop control observed at command boundary| Stop
   AwaitTool -->|stop control observed at command boundary| Stop
-  Stop -->|actor writes stop result| Exit
+  Stop -->|runtime unavailable is selected| FailPending
+  DbError -->|database error is classified| FailPending
+  RouterClosed -->|runtime unavailable is selected| FailPending
+  FailPending -->|mailbox responders are settled exactly once| Exit
 ```
