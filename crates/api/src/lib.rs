@@ -22,8 +22,7 @@ use selvedge_command_model::{
 };
 use selvedge_domain_model::{
     ConversationMessage, MessageContent, MessageRole, ModelFinishReason, ModelReply,
-    ResponsePreference, StructuredPayload, TokenUsage, ToolCallProposal, ToolManifest,
-    ToolParameterType, validate_model_reply,
+    ResponsePreference, TokenUsage, ToolCallProposal, ToolManifest, validate_model_reply,
 };
 use selvedge_model_providers::{ProviderRegistryError, default_registry};
 
@@ -245,7 +244,7 @@ async fn call_chatgpt(
     request: &ModelCallDispatchRequest,
     config: &ApiExecutorConfig,
 ) -> Result<ModelReply, ModelCallError> {
-    let chatgpt_request = chatgpt_request_from_dispatch(request)?;
+    let chatgpt_request = chatgpt_request_from_dispatch(request);
     let mut response_stream = stream(chatgpt_request).await.map_err(map_chatgpt_error)?;
     let mut byte_counter = config.max_response_bytes.map(BoundedByteCounter::new);
     let mut text_parts = BTreeMap::new();
@@ -308,8 +307,17 @@ async fn call_chatgpt(
                 item: ResponseItem::FunctionCall(function_call),
                 ..
             } => {
-                count_stream_bytes(&mut byte_counter, function_call.arguments.as_bytes())?;
-                tool_calls.push(tool_call_from_chatgpt(function_call)?);
+                let encoded_arguments =
+                    serde_json::to_vec(&function_call.arguments).map_err(|error| {
+                        model_call_error(
+                            ModelCallErrorKind::ProviderResponse,
+                            format!(
+                                "chatgpt function-call arguments could not be encoded: {error}"
+                            ),
+                        )
+                    })?;
+                count_stream_bytes(&mut byte_counter, &encoded_arguments)?;
+                tool_calls.push(tool_call_from_chatgpt(function_call));
             }
             ChatgptResponseEvent::Completed(snapshot) => {
                 usage = snapshot.usage.and_then(|usage| {
@@ -357,11 +365,9 @@ async fn call_chatgpt(
     })
 }
 
-fn chatgpt_request_from_dispatch(
-    request: &ModelCallDispatchRequest,
-) -> Result<ChatgptResponsesRequest, ModelCallError> {
+fn chatgpt_request_from_dispatch(request: &ModelCallDispatchRequest) -> ChatgptResponsesRequest {
     // NOTE: ChatGPT dispatch ignores max_output_tokens because chatgpt-api exposes no request field for this control; max-token incompletes are reported as Length replies.
-    Ok(ChatgptResponsesRequest {
+    ChatgptResponsesRequest {
         model: request.provider.model_name.clone(),
         // HACK: Pin direct ChatGPT dispatch to the current Selvedge capability decision until a capability source exists.
         model_capabilities: ChatgptModelCapabilities {
@@ -389,33 +395,59 @@ fn chatgpt_request_from_dispatch(
             .messages
             .iter()
             .map(chatgpt_item_from_message)
-            .collect::<Result<Vec<_>, _>>()?,
+            .collect(),
         tools: chatgpt_tools(request.tool_manifest.as_ref(), &request.response_preference),
         parallel_tool_calls: true,
         reasoning: ChatgptReasoningOptions::default(),
         text: ChatgptTextOptions::default(),
         service_tier: None,
-    })
+    }
 }
 
-fn chatgpt_item_from_message(
-    message: &ConversationMessage,
-) -> Result<ResponseItem, ModelCallError> {
-    if let MessageContent::Structured(payload) = &message.content
-        && let Some(item) = chatgpt_tool_history_item(&message.role, payload)?
-    {
-        return Ok(item);
+fn chatgpt_item_from_message(message: &ConversationMessage) -> ResponseItem {
+    match &message.content {
+        MessageContent::FunctionCall {
+            function_call_id,
+            tool_name,
+            arguments,
+        } => ResponseItem::FunctionCall(FunctionCallItem {
+            id: None,
+            status: Some("completed".to_owned()),
+            name: tool_name.0.clone(),
+            namespace: None,
+            arguments: arguments.clone(),
+            call_id: function_call_id.0.clone(),
+        }),
+        MessageContent::FunctionOutput {
+            function_call_id,
+            output_text,
+            ..
+        } => ResponseItem::FunctionCallOutput(FunctionCallOutputItem {
+            id: None,
+            status: Some("completed".to_owned()),
+            call_id: function_call_id.0.clone(),
+            output: ToolOutput::Text(output_text.clone()),
+        }),
+        MessageContent::Text(text) => {
+            let content = if message.role == MessageRole::Assistant {
+                ContentItem::OutputText {
+                    text: text.clone(),
+                    raw: serde_json::Map::new(),
+                }
+            } else {
+                ContentItem::InputText { text: text.clone() }
+            };
+            ResponseItem::Message(MessageItem {
+                id: message
+                    .source_node_id
+                    .as_ref()
+                    .map(|node_id| node_id.0.clone()),
+                status: Some("completed".to_owned()),
+                role: chatgpt_role(&message.role).to_owned(),
+                content: vec![content],
+            })
+        }
     }
-
-    Ok(ResponseItem::Message(MessageItem {
-        id: message
-            .source_node_id
-            .as_ref()
-            .map(|node_id| node_id.0.clone()),
-        status: Some("completed".to_owned()),
-        role: chatgpt_role(&message.role).to_owned(),
-        content: vec![chatgpt_content_item_from_message(message)?],
-    }))
 }
 
 fn chatgpt_role(role: &MessageRole) -> &'static str {
@@ -426,127 +458,6 @@ fn chatgpt_role(role: &MessageRole) -> &'static str {
         MessageRole::Assistant => "assistant",
         MessageRole::Tool => "tool",
     }
-}
-
-fn chatgpt_content_item_from_message(
-    message: &ConversationMessage,
-) -> Result<ContentItem, ModelCallError> {
-    let text = message_content_text(&message.content)?;
-    if message.role == MessageRole::Assistant {
-        return Ok(ContentItem::OutputText {
-            text,
-            raw: serde_json::Map::new(),
-        });
-    }
-    Ok(ContentItem::InputText { text })
-}
-
-fn message_content_text(content: &MessageContent) -> Result<String, ModelCallError> {
-    match content {
-        MessageContent::Text(text) | MessageContent::ToolResultSummary(text) => Ok(text.clone()),
-        MessageContent::Structured(payload) => serde_json::to_string(payload).map_err(|error| {
-            model_call_error(
-                ModelCallErrorKind::ProviderResponse,
-                format!("structured message content could not be encoded: {error}"),
-            )
-        }),
-    }
-}
-
-fn chatgpt_tool_history_item(
-    role: &MessageRole,
-    payload: &StructuredPayload,
-) -> Result<Option<ResponseItem>, ModelCallError> {
-    let StructuredPayload::Object(object) = payload else {
-        return Ok(None);
-    };
-
-    match role {
-        MessageRole::Assistant => {
-            let Some(function_call_id) = payload_string_field(object, "function_call_id") else {
-                return Ok(None);
-            };
-            let Some(tool_name) = payload_string_field(object, "tool_name") else {
-                return Ok(None);
-            };
-            let arguments = tool_history_arguments_json(
-                object
-                    .get("arguments")
-                    .ok_or_else(|| missing_tool_history_field("arguments"))?,
-            )?;
-            Ok(Some(ResponseItem::FunctionCall(FunctionCallItem {
-                id: None,
-                status: Some("completed".to_owned()),
-                name: tool_name.to_owned(),
-                namespace: None,
-                arguments,
-                call_id: function_call_id.to_owned(),
-            })))
-        }
-        MessageRole::Tool => {
-            let Some(function_call_id) = payload_string_field(object, "function_call_id") else {
-                return Ok(None);
-            };
-            let output_text = payload_string_field(object, "output_text")
-                .ok_or_else(|| missing_tool_history_field("output_text"))?;
-            Ok(Some(ResponseItem::FunctionCallOutput(
-                FunctionCallOutputItem {
-                    id: None,
-                    status: Some("completed".to_owned()),
-                    call_id: function_call_id.to_owned(),
-                    output: ToolOutput::Text(output_text.to_owned()),
-                },
-            )))
-        }
-        MessageRole::System | MessageRole::Developer | MessageRole::User => Ok(None),
-    }
-}
-
-fn payload_string_field<'a>(
-    object: &'a BTreeMap<String, StructuredPayload>,
-    field: &str,
-) -> Option<&'a str> {
-    match object.get(field) {
-        Some(StructuredPayload::String(value)) => Some(value.as_str()),
-        _ => None,
-    }
-}
-
-fn missing_tool_history_field(field: &str) -> ModelCallError {
-    model_call_error(
-        ModelCallErrorKind::ProviderRequest,
-        format!("tool history is missing {field}"),
-    )
-}
-
-fn tool_history_arguments_json(payload: &StructuredPayload) -> Result<String, ModelCallError> {
-    let StructuredPayload::Array(arguments) = payload else {
-        return Err(model_call_error(
-            ModelCallErrorKind::ProviderRequest,
-            "tool history arguments must be an array",
-        ));
-    };
-    let mut object = serde_json::Map::new();
-    for argument in arguments {
-        let StructuredPayload::Object(argument) = argument else {
-            return Err(model_call_error(
-                ModelCallErrorKind::ProviderRequest,
-                "tool history argument must be an object",
-            ));
-        };
-        let name = payload_string_field(argument, "name")
-            .ok_or_else(|| missing_tool_history_field("argument name"))?;
-        let value = argument
-            .get("value")
-            .ok_or_else(|| missing_tool_history_field("argument value"))?;
-        object.insert(name.to_owned(), json_value_from_structured_payload(value));
-    }
-    serde_json::to_string(&object).map_err(|error| {
-        model_call_error(
-            ModelCallErrorKind::ProviderRequest,
-            format!("tool history arguments could not be encoded: {error}"),
-        )
-    })
 }
 
 fn chatgpt_tools(
@@ -564,21 +475,6 @@ fn chatgpt_tools(
         .tools
         .iter()
         .map(|tool| {
-            let mut properties = serde_json::Map::new();
-            let mut required = Vec::new();
-            for parameter in &tool.parameters {
-                properties.insert(
-                    parameter.name.clone(),
-                    serde_json::json!({
-                        "type": chatgpt_parameter_type(&parameter.parameter_type),
-                        "description": parameter.description,
-                    }),
-                );
-                if parameter.required {
-                    required.push(serde_json::Value::String(parameter.name.clone()));
-                }
-            }
-
             ToolDescriptor(serde_json::Map::from_iter([
                 ("type".to_owned(), serde_json::json!("function")),
                 ("name".to_owned(), serde_json::json!(tool.name)),
@@ -588,27 +484,11 @@ fn chatgpt_tools(
                 ),
                 (
                     "parameters".to_owned(),
-                    serde_json::Value::Object(serde_json::Map::from_iter([
-                        ("type".to_owned(), serde_json::json!("object")),
-                        (
-                            "properties".to_owned(),
-                            serde_json::Value::Object(properties),
-                        ),
-                        ("required".to_owned(), serde_json::Value::Array(required)),
-                    ])),
+                    serde_json::Value::Object(tool.input_schema.clone()),
                 ),
             ]))
         })
         .collect()
-}
-
-fn chatgpt_parameter_type(parameter_type: &ToolParameterType) -> &'static str {
-    match parameter_type {
-        ToolParameterType::String => "string",
-        ToolParameterType::Integer => "integer",
-        ToolParameterType::Number => "number",
-        ToolParameterType::Boolean => "boolean",
-    }
 }
 
 fn append_message_content(
@@ -629,98 +509,11 @@ fn append_message_content(
     Ok(())
 }
 
-fn tool_call_from_chatgpt(
-    function_call: FunctionCallItem,
-) -> Result<ToolCallProposal, ModelCallError> {
-    Ok(ToolCallProposal {
+fn tool_call_from_chatgpt(function_call: FunctionCallItem) -> ToolCallProposal {
+    ToolCallProposal {
         call_id: function_call.call_id,
         tool_name: function_call.name,
-        arguments: structured_payload_from_json_string(&function_call.arguments)?,
-    })
-}
-
-fn structured_payload_from_json_string(raw: &str) -> Result<StructuredPayload, ModelCallError> {
-    let value = serde_json::from_str::<serde_json::Value>(raw).map_err(|error| {
-        model_call_error(
-            ModelCallErrorKind::ProviderResponse,
-            format!("chatgpt function-call arguments are invalid JSON: {error}"),
-        )
-    })?;
-    if !value.is_object() {
-        return Err(model_call_error(
-            ModelCallErrorKind::ProviderResponse,
-            "chatgpt function-call arguments must be a JSON object",
-        ));
-    }
-    structured_payload_from_json_value(value)
-}
-
-fn structured_payload_from_json_value(
-    value: serde_json::Value,
-) -> Result<StructuredPayload, ModelCallError> {
-    match value {
-        serde_json::Value::Object(object) => Ok(StructuredPayload::Object(
-            object
-                .into_iter()
-                .map(|(key, value)| Ok((key, structured_payload_from_json_value(value)?)))
-                .collect::<Result<BTreeMap<_, _>, ModelCallError>>()?,
-        )),
-        serde_json::Value::Array(values) => Ok(StructuredPayload::Array(
-            values
-                .into_iter()
-                .map(structured_payload_from_json_value)
-                .collect::<Result<Vec<_>, _>>()?,
-        )),
-        serde_json::Value::String(value) => Ok(StructuredPayload::String(value)),
-        serde_json::Value::Number(value) => {
-            Ok(StructuredPayload::Number(f64_from_json_number(&value)?))
-        }
-        serde_json::Value::Bool(value) => Ok(StructuredPayload::Boolean(value)),
-        serde_json::Value::Null => Ok(StructuredPayload::Null),
-    }
-}
-
-fn f64_from_json_number(value: &serde_json::Number) -> Result<f64, ModelCallError> {
-    const MAX_EXACT_INTEGER: u64 = 9_007_199_254_740_992;
-
-    if let Some(unsigned) = value.as_u64() {
-        if unsigned > MAX_EXACT_INTEGER {
-            return Err(imprecise_chatgpt_number_error());
-        }
-    } else if let Some(signed) = value.as_i64()
-        && signed.unsigned_abs() > MAX_EXACT_INTEGER
-    {
-        return Err(imprecise_chatgpt_number_error());
-    }
-
-    value.as_f64().ok_or_else(imprecise_chatgpt_number_error)
-}
-
-fn imprecise_chatgpt_number_error() -> ModelCallError {
-    model_call_error(
-        ModelCallErrorKind::ProviderResponse,
-        "chatgpt function-call arguments contain a number that cannot be represented without precision loss",
-    )
-}
-
-fn json_value_from_structured_payload(payload: &StructuredPayload) -> serde_json::Value {
-    match payload {
-        StructuredPayload::Object(object) => serde_json::Value::Object(
-            object
-                .iter()
-                .map(|(key, value)| (key.clone(), json_value_from_structured_payload(value)))
-                .collect(),
-        ),
-        StructuredPayload::Array(values) => serde_json::Value::Array(
-            values
-                .iter()
-                .map(json_value_from_structured_payload)
-                .collect(),
-        ),
-        StructuredPayload::String(value) => serde_json::Value::String(value.clone()),
-        StructuredPayload::Number(value) => serde_json::json!(value),
-        StructuredPayload::Boolean(value) => serde_json::Value::Bool(*value),
-        StructuredPayload::Null => serde_json::Value::Null,
+        arguments: function_call.arguments,
     }
 }
 

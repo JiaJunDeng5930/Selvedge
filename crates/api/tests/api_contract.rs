@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, time::Duration};
+use std::time::Duration;
 
 use axum::{
     Json, Router,
@@ -15,9 +15,8 @@ use selvedge_command_model::{
     ModelCallErrorKind, ModelRunId, RouterIngressApiMessage, TaskId, validate_api_output_envelope,
 };
 use selvedge_domain_model::{
-    ConversationMessage, ConversationPath, MessageContent, MessageRole, ModelFinishReason,
-    ModelProviderProfile, ResponsePreference, StructuredPayload, ToolManifest, ToolParameter,
-    ToolParameterType, ToolSpec,
+    ConversationMessage, ConversationPath, FunctionCallId, JsonObject, MessageContent, MessageRole,
+    ModelFinishReason, ModelProviderProfile, ResponsePreference, ToolManifest, ToolName, ToolSpec,
 };
 use selvedge_test_support::{
     chatgpt_auth::{auth_file_json, build_unsigned_jwt as build_jwt, write_auth_file},
@@ -153,12 +152,12 @@ base_url = "{}"
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn chatgpt_dispatch_preserves_tool_history_items_and_text_preference() {
+async fn chatgpt_dispatch_preserves_json_tool_history_and_full_input_schema() {
     const FLAG: &str = "SELVEDGE_API_CHATGPT_TOOL_HISTORY_CHILD";
 
     if !child_mode(FLAG) {
         assert_child_success(&run_child(
-            "chatgpt_dispatch_preserves_tool_history_items_and_text_preference",
+            "chatgpt_dispatch_preserves_json_tool_history_and_full_input_schema",
             FLAG,
         ));
         return;
@@ -223,49 +222,27 @@ base_url = "{}"
     );
 
     let mut request = valid_dispatch_request();
+    let arguments = serde_json::from_str::<JsonObject>(
+        r#"{"id":9007199254740993,"nullable":null,"nested":{"values":["rust",{"kind":"crate"}]}}"#,
+    )
+    .expect("tool arguments object");
     request.conversation.messages.push(ConversationMessage {
         role: MessageRole::Assistant,
-        content: MessageContent::Structured(StructuredPayload::Object(BTreeMap::from([
-            (
-                "function_call_id".to_owned(),
-                StructuredPayload::String("call-1".to_owned()),
-            ),
-            (
-                "tool_name".to_owned(),
-                StructuredPayload::String("search".to_owned()),
-            ),
-            (
-                "arguments".to_owned(),
-                StructuredPayload::Array(vec![StructuredPayload::Object(BTreeMap::from([
-                    (
-                        "name".to_owned(),
-                        StructuredPayload::String("query".to_owned()),
-                    ),
-                    (
-                        "value".to_owned(),
-                        StructuredPayload::String("rust".to_owned()),
-                    ),
-                ]))]),
-            ),
-        ]))),
+        content: MessageContent::FunctionCall {
+            function_call_id: FunctionCallId("call-1".to_owned()),
+            tool_name: ToolName("search".to_owned()),
+            arguments: arguments.clone(),
+        },
         source_node_id: None,
     });
     request.conversation.messages.push(ConversationMessage {
         role: MessageRole::Tool,
-        content: MessageContent::Structured(StructuredPayload::Object(BTreeMap::from([
-            (
-                "function_call_id".to_owned(),
-                StructuredPayload::String("call-1".to_owned()),
-            ),
-            (
-                "tool_name".to_owned(),
-                StructuredPayload::String("search".to_owned()),
-            ),
-            (
-                "output_text".to_owned(),
-                StructuredPayload::String("result".to_owned()),
-            ),
-        ]))),
+        content: MessageContent::FunctionOutput {
+            function_call_id: FunctionCallId("call-1".to_owned()),
+            tool_name: ToolName("search".to_owned()),
+            output_text: "result".to_owned(),
+            is_error: false,
+        },
         source_node_id: None,
     });
     request.conversation.messages.push(ConversationMessage {
@@ -273,16 +250,31 @@ base_url = "{}"
         content: MessageContent::Text("previous answer".to_owned()),
         source_node_id: None,
     });
+    let input_schema = serde_json::from_value::<JsonObject>(serde_json::json!({
+        "type": "object",
+        "properties": {
+            "filter": {
+                "type": "object",
+                "properties": {
+                    "tags": {
+                        "type": "array",
+                        "items": {"type": "string"}
+                    }
+                }
+            },
+            "mode": {
+                "type": "string",
+                "enum": ["fast", "exact"]
+            }
+        },
+        "required": ["filter"]
+    }))
+    .expect("input schema object");
     request.tool_manifest = Some(ToolManifest {
         tools: vec![ToolSpec {
             name: "search".to_owned(),
             description: "search".to_owned(),
-            parameters: vec![ToolParameter {
-                name: "query".to_owned(),
-                parameter_type: ToolParameterType::String,
-                description: "query".to_owned(),
-                required: true,
-            }],
+            input_schema: input_schema.clone(),
         }],
     });
     let (router_tx, mut router_rx) = mpsc::unbounded_channel();
@@ -312,9 +304,14 @@ base_url = "{}"
         captured_body.pointer("/input/1/type"),
         Some(&serde_json::json!("function_call"))
     );
+    let replayed_arguments = captured_body
+        .pointer("/input/1/arguments")
+        .and_then(serde_json::Value::as_str)
+        .expect("replayed function-call arguments");
     assert_eq!(
-        captured_body.pointer("/input/1/arguments"),
-        Some(&serde_json::json!("{\"query\":\"rust\"}"))
+        serde_json::from_str::<serde_json::Value>(replayed_arguments)
+            .expect("replayed arguments JSON"),
+        serde_json::Value::Object(arguments)
     );
     assert_eq!(
         captured_body.pointer("/input/2/type"),
@@ -327,6 +324,10 @@ base_url = "{}"
     assert_eq!(
         captured_body.pointer("/tools/0/name"),
         Some(&serde_json::json!("search"))
+    );
+    assert_eq!(
+        captured_body.pointer("/tools/0/parameters"),
+        Some(&serde_json::Value::Object(input_schema))
     );
 }
 
@@ -504,12 +505,12 @@ base_url = "{}"
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn chatgpt_imprecise_integer_tool_argument_sends_provider_response_failure() {
+async fn chatgpt_preserves_lossless_json_tool_arguments_in_model_reply() {
     const FLAG: &str = "SELVEDGE_API_CHATGPT_IMPRECISE_INTEGER_CHILD";
 
     if !child_mode(FLAG) {
         assert_child_success(&run_child(
-            "chatgpt_imprecise_integer_tool_argument_sends_provider_response_failure",
+            "chatgpt_preserves_lossless_json_tool_arguments_in_model_reply",
             FLAG,
         ));
         return;
@@ -520,7 +521,10 @@ async fn chatgpt_imprecise_integer_tool_argument_sends_provider_response_failure
         post(|| async move {
             let body = Body::from_stream(async_stream::stream! {
                 yield Ok::<_, std::convert::Infallible>(bytes::Bytes::from(
-                    "data: {\"type\":\"response.output_item.done\",\"output_index\":0,\"item\":{\"type\":\"function_call\",\"id\":\"item-1\",\"status\":\"completed\",\"name\":\"lookup\",\"arguments\":\"{\\\"id\\\":9007199254740993}\",\"call_id\":\"call-1\"}}\n\n",
+                    "data: {\"type\":\"response.output_item.done\",\"output_index\":0,\"item\":{\"type\":\"function_call\",\"id\":\"item-1\",\"status\":\"completed\",\"name\":\"lookup\",\"arguments\":\"{\\\"id\\\":9007199254740993,\\\"nullable\\\":null,\\\"nested\\\":{\\\"values\\\":[true,{\\\"mode\\\":\\\"exact\\\"}]}}\",\"call_id\":\"call-1\"}}\n\n",
+                ));
+                yield Ok::<_, std::convert::Infallible>(bytes::Bytes::from(
+                    "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp-1\",\"model\":\"gpt-5\"}}\n\n",
                 ));
             });
 
@@ -573,10 +577,20 @@ base_url = "{}"
 
     assert_eq!(status, ApiCallTerminalStatus::OutputSent);
     let message = router_rx.recv().await.expect("router message");
-    assert_failure(
-        message,
-        request.correlation,
-        ModelCallErrorKind::ProviderResponse,
+    let RouterIngressApiMessage::ApiOutput(ApiOutputEnvelope::Success { correlation, reply }) =
+        message
+    else {
+        panic!("expected successful model reply");
+    };
+    assert_eq!(correlation, request.correlation);
+    assert_eq!(reply.finish_reason, ModelFinishReason::ToolCalls);
+    assert_eq!(reply.tool_calls.len(), 1);
+    assert_eq!(
+        serde_json::Value::Object(reply.tool_calls[0].arguments.clone()),
+        serde_json::from_str::<serde_json::Value>(
+            r#"{"id":9007199254740993,"nullable":null,"nested":{"values":[true,{"mode":"exact"}]}}"#
+        )
+        .expect("expected arguments")
     );
 }
 

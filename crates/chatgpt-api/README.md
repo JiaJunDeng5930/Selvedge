@@ -32,6 +32,10 @@ Callers build a `ChatgptResponsesRequest` and pass it to `stream(...)`.
 The returned `ChatgptResponseStream` yields `Result<ChatgptResponseEvent, ChatgptApiError>`.
 Callers are responsible for preserving the full `input` history and the
 `effective_turn_state()` value they want to replay on the next call.
+`FunctionCallItem.arguments` is a `JsonObject`: this crate decodes the
+provider's string-valued wire field at ingress and encodes it again only when
+building a replay request. Arbitrary-precision JSON numbers therefore remain
+lossless across provider normalization and replay.
 
 ## Config
 
@@ -104,11 +108,11 @@ flowchart TD
   OpenStream -->|selvedge-client returns transport status, build, config, or timeout error| TransportError
   RetryAfterUnauthorized -->|forced auth refresh succeeds| OpenStream
   RetryAfterUnauthorized -->|forced auth refresh fails| AuthError
-  Decode -->|valid SSE event maps to response event| YieldEvent
+  Decode -->|valid SSE event, including object-shaped function arguments, maps to response event| YieldEvent
   Decode -->|provider sends terminal completion event| Complete
   Decode -->|overall stream lifetime exceeds configured stream_completion_timeout_ms| TimeoutError
   Decode -->|body chunk read fails| TransportError
-  Decode -->|SSE or JSON event payload cannot be decoded| DecodeError
+  Decode -->|SSE, JSON event payload, or function arguments cannot be decoded| DecodeError
   Decode -->|one frame exceeds 1 MiB or the stream exceeds 4 MiB| SizeError
   YieldEvent -->|caller polls again before terminal event| Decode
 ```

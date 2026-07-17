@@ -1,8 +1,10 @@
 #![doc = include_str!("../README.md")]
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
 use serde::Serialize;
+
+pub type JsonObject = serde_json::Map<String, serde_json::Value>;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
 pub struct HistoryNodeIdRef(pub String);
@@ -15,9 +17,6 @@ pub struct HistoryNodeId(pub i64);
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize)]
 pub struct ToolName(pub String);
-
-#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize)]
-pub struct ToolParameterName(pub String);
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
 pub struct FunctionCallId(pub String);
@@ -52,8 +51,17 @@ pub enum MessageRole {
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub enum MessageContent {
     Text(String),
-    Structured(StructuredPayload),
-    ToolResultSummary(String),
+    FunctionCall {
+        function_call_id: FunctionCallId,
+        tool_name: ToolName,
+        arguments: JsonObject,
+    },
+    FunctionOutput {
+        function_call_id: FunctionCallId,
+        tool_name: ToolName,
+        output_text: String,
+        is_error: bool,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -65,23 +73,7 @@ pub struct ToolManifest {
 pub struct ToolSpec {
     pub name: String,
     pub description: String,
-    pub parameters: Vec<ToolParameter>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-pub struct ToolParameter {
-    pub name: String,
-    pub parameter_type: ToolParameterType,
-    pub description: String,
-    pub required: bool,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-pub enum ToolParameterType {
-    String,
-    Integer,
-    Number,
-    Boolean,
+    pub input_schema: JsonObject,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -106,7 +98,7 @@ pub enum ConversationItem {
     FunctionCall {
         function_call_id: FunctionCallId,
         tool_name: ToolName,
-        arguments: Vec<ToolCallArgument>,
+        arguments: JsonObject,
     },
     FunctionOutput {
         function_call_id: FunctionCallId,
@@ -114,30 +106,6 @@ pub enum ConversationItem {
         output_text: String,
         is_error: bool,
     },
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize)]
-pub struct ToolCallArgument {
-    pub name: ToolParameterName,
-    pub value: ToolArgumentValue,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize)]
-pub enum ToolArgumentValue {
-    String(String),
-    Integer(i64),
-    Number(f64),
-    Boolean(bool),
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize)]
-pub enum StructuredPayload {
-    Object(BTreeMap<String, StructuredPayload>),
-    Array(Vec<StructuredPayload>),
-    String(String),
-    Number(f64),
-    Boolean(bool),
-    Null,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -168,7 +136,7 @@ pub struct ModelReply {
 pub struct ToolCallProposal {
     pub call_id: String,
     pub tool_name: String,
-    pub arguments: StructuredPayload,
+    pub arguments: JsonObject,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -191,8 +159,6 @@ pub enum ApiDomainValidationError {
     EmptyConversationPath,
     EmptyToolName,
     DuplicateToolName,
-    EmptyToolParameterName,
-    DuplicateToolParameterName,
     EmptyProviderName,
     EmptyModelName,
     EmptyModelReply,
@@ -218,18 +184,6 @@ pub fn validate_tool_manifest(manifest: &ToolManifest) -> Result<(), ApiDomainVa
 
         if !tool_names.insert(tool.name.as_str()) {
             return Err(ApiDomainValidationError::DuplicateToolName);
-        }
-
-        let mut parameter_names = BTreeSet::new();
-
-        for parameter in &tool.parameters {
-            if parameter.name.trim().is_empty() {
-                return Err(ApiDomainValidationError::EmptyToolParameterName);
-            }
-
-            if !parameter_names.insert(parameter.name.as_str()) {
-                return Err(ApiDomainValidationError::DuplicateToolParameterName);
-            }
         }
     }
 
