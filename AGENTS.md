@@ -120,7 +120,8 @@ This file is for coding agents working in this repository.
 |crates/core/tests:{runtime_contract.rs}
 |crates/db:{src/,tests/,Cargo.toml,README.md}
 |crates/db/src:{lib.rs,schema.sql}
-|crates/db/tests:{db_contract.rs}
+|crates/db/tests:{fixtures/,db_contract.rs}
+|crates/db/tests/fixtures:{schema_v5.sql}
 |crates/domain-model:{src/,tests/,Cargo.toml,README.md}
 |crates/domain-model/src:{lib.rs}
 |crates/domain-model/tests:{domain_contract.rs}

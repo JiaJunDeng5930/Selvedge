@@ -2,7 +2,7 @@
 
 <!-- selvedge-package-readme
 package: chatgpt-api
-freshness_fingerprint: fd0bf73dbe6519a5f9b3e50a6394660fb582cc10
+freshness_fingerprint: 9240484cef84fc942a48e687da0674620163f3f3
 -->
 
 ## This crate is for

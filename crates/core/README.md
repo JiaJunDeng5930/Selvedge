@@ -2,7 +2,7 @@
 
 <!-- selvedge-package-readme
 package: selvedge-core
-freshness_fingerprint: 4a8b33bccc54c03f84c078eab275185fb04f4b5c
+freshness_fingerprint: 879450430a0a742fe98d21f0f424bddb0a4ef96f
 -->
 
 This crate runs one task runtime actor per active task.

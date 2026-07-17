@@ -14,7 +14,7 @@ use selvedge_db::{
     UnixTs, append_model_reply_with_tool_calls_and_move_cursor, archive_task, create_root_task,
     load_active_task, read_task_parent_edges, read_tool_manifest_for_task, register_tool,
 };
-use selvedge_domain_model::ModelProviderProfile;
+use selvedge_domain_model::{JsonObject, ModelProviderProfile};
 use selvedge_task_runtime_factory::{
     FactoryCommand, FactoryEffectArgs, FactoryRuntimeInventory, run_factory_effect,
 };
@@ -163,7 +163,7 @@ async fn create_child_task_and_runtime_persists_child_and_copies_parent_settings
         ToolSpec {
             name: "search".to_owned(),
             description: "search".to_owned(),
-            parameters: Vec::new(),
+            input_schema: JsonObject::new(),
         },
     )
     .expect("register tool");
@@ -403,7 +403,7 @@ fn append_fork_call(db: &DbPool, task_id: &str, function_call_id: &str) -> Histo
         ToolSpec {
             name: "fork_task".to_owned(),
             description: "fork".to_owned(),
-            parameters: Vec::new(),
+            input_schema: JsonObject::new(),
         },
     )
     .expect("register fork tool");
@@ -414,7 +414,7 @@ fn append_fork_call(db: &DbPool, task_id: &str, function_call_id: &str) -> Histo
         vec![NewFunctionCallNodeContent {
             function_call_id: FunctionCallId(function_call_id.to_owned()),
             tool_name: ToolName("fork_task".to_owned()),
-            arguments: Vec::new(),
+            arguments: JsonObject::new(),
         }],
         UnixTs(2),
     )

@@ -19,7 +19,9 @@ use selvedge_core::{
     TaskRuntimeSpawnDeps, TaskRuntimeSpawner,
 };
 use selvedge_db::{DbPool, ModelProfileKey, TaskId, UnixTs, archive_task};
-use selvedge_domain_model::{FunctionCallId, HistoryNodeId, ModelProviderProfile, ToolName};
+use selvedge_domain_model::{
+    FunctionCallId, HistoryNodeId, JsonObject, ModelProviderProfile, ToolName,
+};
 use selvedge_router::{
     RouterExitStatus, RouterStartArgs, ToolExecutionSpawnError, ToolExecutionSpawner, spawn_router,
 };
@@ -1301,7 +1303,7 @@ fn tool_request(task_id: &str) -> ToolExecutionRequest {
         function_call_node_id: HistoryNodeId(1),
         function_call_id: FunctionCallId("call-1".to_owned()),
         tool_name: ToolName("tool".to_owned()),
-        arguments: Vec::new(),
+        arguments: JsonObject::new(),
     }
 }
 
