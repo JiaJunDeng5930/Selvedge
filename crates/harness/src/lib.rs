@@ -1,17 +1,27 @@
 #![doc = include_str!("../README.md")]
 
 use std::collections::BTreeMap;
+use std::future::Future;
 use std::{error::Error, fmt};
 
 use selvedge_command_model::{
-    HistoryNodeProjection, HistoryNodeProjectionBody, TaskProjectionStatus, ToolExecutionRequest,
-    ToolExecutionResult,
+    ArchiveTaskOutcome, ForkTaskError, ForkTaskOutcome, HistoryNodeProjection,
+    HistoryNodeProjectionBody, RouterCommand, RouterCommandEnvelope, RouterIngressMessage,
+    RouterIngressWeakSender, SendUserInputOutcome, TaskCommandError, TaskProjectionStatus,
+    ToolExecutionRequest, ToolExecutionResult, archive_task_response_channel,
+    fork_task_response_channel, send_user_input_response_channel,
+};
+use selvedge_db::{
+    DbError, DbPool, HistoryNode, ReadTaskInput, TaskRead, TaskStatusRow, read_task,
 };
 use selvedge_domain_model::{
     HistoryNodeId, MessageRole, TaskId, ToolArgumentValue, ToolCallArgument, ToolManifest,
     ToolParameter, ToolParameterType, ToolSpec,
 };
 use serde_json::{Number, Value};
+use tokio::task::JoinHandle;
+
+use selvedge_router::{ToolExecutionSpawnError, ToolExecutionSpawner};
 
 pub const FORK_TASK_TOOL_NAME: &str = "fork_task";
 pub const READ_TASK_TOOL_NAME: &str = "read_task";
@@ -435,6 +445,397 @@ pub fn encode_tool_execution_result(
     }
 }
 
+#[derive(Clone)]
+pub struct HarnessToolExecutor {
+    db: DbPool,
+}
+
+impl HarnessToolExecutor {
+    pub fn new(db: DbPool) -> Self {
+        Self { db }
+    }
+}
+
+impl ToolExecutionSpawner for HarnessToolExecutor {
+    fn spawn_tool_execution(
+        &self,
+        request: ToolExecutionRequest,
+        router_tx: RouterIngressWeakSender,
+    ) -> Result<JoinHandle<()>, ToolExecutionSpawnError> {
+        let db = self.db.clone();
+        let execution_request = request.clone();
+        let execution_router_tx = router_tx.clone();
+        spawn_supervised_execution(request, router_tx, async move {
+            execute_request(db, execution_request, execution_router_tx).await
+        })
+    }
+}
+
+fn spawn_supervised_execution<F>(
+    request: ToolExecutionRequest,
+    router_tx: RouterIngressWeakSender,
+    execution: F,
+) -> Result<JoinHandle<()>, ToolExecutionSpawnError>
+where
+    F: Future<Output = Result<HarnessSuccess, HarnessError>> + Send + 'static,
+{
+    let runtime = tokio::runtime::Handle::try_current()
+        .map_err(|_| ToolExecutionSpawnError::TokioSpawnFailed)?;
+    Ok(runtime.spawn(async move {
+        let outcome = match tokio::spawn(execution).await {
+            Ok(outcome) => outcome,
+            Err(error) if error.is_panic() => Err(HarnessError::new(
+                HarnessErrorCode::ExecutorPanicked,
+                "tool executor panicked",
+            )),
+            Err(_) => Err(HarnessError::new(
+                HarnessErrorCode::OperationCancelled,
+                "tool execution was cancelled",
+            )),
+        };
+        let result = encode_tool_execution_result(&request, outcome);
+        if let Some(router_tx) = router_tx.upgrade() {
+            let _ = router_tx.send(RouterIngressMessage::Tool(result));
+        }
+    }))
+}
+
+async fn execute_request(
+    db: DbPool,
+    request: ToolExecutionRequest,
+    router_tx: RouterIngressWeakSender,
+) -> Result<HarnessSuccess, HarnessError> {
+    match parse_invocation(&request)? {
+        HarnessInvocation::ForkTask(invocation) => {
+            execute_fork_task(request, invocation, router_tx).await
+        }
+        HarnessInvocation::ReadTask(invocation) => {
+            execute_read_task(db, request.task_id, invocation).await
+        }
+        HarnessInvocation::SendMessageToTask(invocation) => {
+            execute_send_message_to_task(invocation, router_tx).await
+        }
+        HarnessInvocation::ArchiveTask(invocation) => {
+            execute_archive_task(invocation, router_tx).await
+        }
+    }
+}
+
+async fn execute_fork_task(
+    request: ToolExecutionRequest,
+    invocation: ForkTaskInvocation,
+    router_tx: RouterIngressWeakSender,
+) -> Result<HarnessSuccess, HarnessError> {
+    let (responder, response) = fork_task_response_channel();
+    send_router_command(
+        &router_tx,
+        RouterCommand::CreateChildTaskAndRuntime {
+            parent_task_id: request.task_id,
+            function_call_node_id: request.function_call_node_id,
+            function_call_id: request.function_call_id,
+            tool_name: request.tool_name,
+            child_prompt: invocation.prompt,
+            responder,
+        },
+    )?;
+    match response.await {
+        Ok(Ok(ForkTaskOutcome::RuntimeStarted { task_id })) => {
+            Ok(HarnessSuccess::ForkTask(ForkTaskSuccess { task_id }))
+        }
+        Ok(Err(error)) => Err(map_fork_task_error(error)),
+        Err(_) => Err(HarnessError::new(
+            HarnessErrorCode::OperationCancelled,
+            "fork task response was cancelled",
+        )),
+    }
+}
+
+async fn execute_read_task(
+    db: DbPool,
+    calling_task_id: TaskId,
+    invocation: ReadTaskInvocation,
+) -> Result<HarnessSuccess, HarnessError> {
+    let task_id = invocation.task_id.unwrap_or(calling_task_id);
+    let limit = u32::from(invocation.limit.unwrap_or(MAX_READ_LIMIT as u8));
+    let read = tokio::task::spawn_blocking(move || {
+        read_task(
+            &db,
+            ReadTaskInput {
+                task_id,
+                after_node_id: invocation.after_node_id,
+                limit,
+            },
+        )
+    })
+    .await
+    .map_err(map_join_error)?
+    .map_err(map_read_error)?;
+    Ok(HarnessSuccess::ReadTask(task_read_success(read)))
+}
+
+async fn execute_send_message_to_task(
+    invocation: SendMessageToTaskInvocation,
+    router_tx: RouterIngressWeakSender,
+) -> Result<HarnessSuccess, HarnessError> {
+    let task_id = invocation.task_id;
+    let (responder, response) = send_user_input_response_channel();
+    send_router_command(
+        &router_tx,
+        RouterCommand::SendUserInput {
+            task_id: task_id.clone(),
+            message_text: invocation.message,
+            responder,
+        },
+    )?;
+    match response.await {
+        Ok(Ok(SendUserInputOutcome::Committed { node_id })) => Ok(
+            HarnessSuccess::SendMessageToTask(SendMessageToTaskSuccess {
+                task_id,
+                disposition: MessageDisposition::Committed { node_id },
+            }),
+        ),
+        Ok(Ok(SendUserInputOutcome::Queued)) => Ok(HarnessSuccess::SendMessageToTask(
+            SendMessageToTaskSuccess {
+                task_id,
+                disposition: MessageDisposition::Queued,
+            },
+        )),
+        Ok(Err(error)) => Err(map_task_command_error(error)),
+        Err(_) => Err(HarnessError::new(
+            HarnessErrorCode::OperationCancelled,
+            "send message response was cancelled",
+        )),
+    }
+}
+
+async fn execute_archive_task(
+    invocation: ArchiveTaskInvocation,
+    router_tx: RouterIngressWeakSender,
+) -> Result<HarnessSuccess, HarnessError> {
+    let task_id = invocation.task_id;
+    let (responder, response) = archive_task_response_channel();
+    send_router_command(
+        &router_tx,
+        RouterCommand::ArchiveTask {
+            task_id: task_id.clone(),
+            responder,
+        },
+    )?;
+    match response.await {
+        Ok(Ok(ArchiveTaskOutcome::Archived)) => {
+            Ok(HarnessSuccess::ArchiveTask(ArchiveTaskSuccess { task_id }))
+        }
+        Ok(Err(error)) => Err(map_task_command_error(error)),
+        Err(_) => Err(HarnessError::new(
+            HarnessErrorCode::OperationCancelled,
+            "archive task response was cancelled",
+        )),
+    }
+}
+
+fn send_router_command(
+    router_tx: &RouterIngressWeakSender,
+    command: RouterCommand,
+) -> Result<(), HarnessError> {
+    let router_tx = router_tx.upgrade().ok_or_else(|| {
+        HarnessError::new(HarnessErrorCode::RouterUnavailable, "router is unavailable")
+    })?;
+    router_tx
+        .send(RouterIngressMessage::Command(RouterCommandEnvelope {
+            client_id: None,
+            client_command_id: None,
+            command,
+        }))
+        .map_err(|_| {
+            HarnessError::new(HarnessErrorCode::RouterUnavailable, "router is unavailable")
+        })
+}
+
+fn map_fork_task_error(error: ForkTaskError) -> HarnessError {
+    match error {
+        ForkTaskError::InvalidCommand => HarnessError::new(
+            HarnessErrorCode::InvalidArguments,
+            "fork task command was invalid",
+        ),
+        ForkTaskError::ParentTaskMissing => {
+            HarnessError::new(HarnessErrorCode::TaskNotFound, "parent task was not found")
+        }
+        ForkTaskError::ParentTaskArchived => {
+            HarnessError::new(HarnessErrorCode::TaskArchived, "parent task is archived")
+        }
+        ForkTaskError::StaleToolCall => {
+            HarnessError::new(HarnessErrorCode::StaleToolCall, "fork tool call is stale")
+        }
+        ForkTaskError::PersistenceFailed => HarnessError::new(
+            HarnessErrorCode::StorageError,
+            "fork task persistence failed",
+        ),
+        ForkTaskError::RuntimeUnavailable => HarnessError::new(
+            HarnessErrorCode::RouterUnavailable,
+            "child task runtime is unavailable",
+        ),
+        ForkTaskError::RuntimeStartFailedAfterChildCreated { task_id } => {
+            HarnessError::runtime_start_failed_after_child_created(
+                task_id,
+                "child task was created but its runtime did not start",
+            )
+        }
+    }
+}
+
+fn map_task_command_error(error: TaskCommandError) -> HarnessError {
+    match error {
+        TaskCommandError::TaskMissing => {
+            HarnessError::new(HarnessErrorCode::TaskNotFound, "task was not found")
+        }
+        TaskCommandError::TaskArchived => {
+            HarnessError::new(HarnessErrorCode::TaskArchived, "task is archived")
+        }
+        TaskCommandError::PersistenceFailed => {
+            HarnessError::new(HarnessErrorCode::StorageError, "task persistence failed")
+        }
+        TaskCommandError::InvalidCommand => HarnessError::new(
+            HarnessErrorCode::InvalidArguments,
+            "task command was invalid",
+        ),
+        TaskCommandError::RuntimeUnavailable => HarnessError::new(
+            HarnessErrorCode::RouterUnavailable,
+            "task runtime is unavailable",
+        ),
+    }
+}
+
+fn map_read_error(error: DbError) -> HarnessError {
+    match error {
+        DbError::NotFound => {
+            HarnessError::new(HarnessErrorCode::TaskNotFound, "task was not found")
+        }
+        DbError::HistoryCursorNotOnTask => HarnessError::new(
+            HarnessErrorCode::HistoryCursorNotOnTask,
+            "history cursor is not on the task path",
+        ),
+        DbError::TaskNotActive => {
+            HarnessError::new(HarnessErrorCode::TaskArchived, "task is archived")
+        }
+        DbError::StaleFunctionCall
+        | DbError::Constraint(_)
+        | DbError::Storage(_)
+        | DbError::SchemaMismatch { .. } => {
+            HarnessError::new(HarnessErrorCode::StorageError, error.to_string())
+        }
+    }
+}
+
+fn map_join_error(error: tokio::task::JoinError) -> HarnessError {
+    if error.is_panic() {
+        HarnessError::new(HarnessErrorCode::ExecutorPanicked, "tool executor panicked")
+    } else {
+        HarnessError::new(
+            HarnessErrorCode::OperationCancelled,
+            "tool execution was cancelled",
+        )
+    }
+}
+
+fn task_read_success(read: TaskRead) -> ReadTaskSuccess {
+    let history_nodes = read
+        .history_nodes
+        .into_iter()
+        .map(history_node_projection)
+        .collect::<Vec<_>>();
+    let next_after_node_id = read
+        .has_more
+        .then(|| history_nodes.last().map(|node| node.node_id))
+        .flatten();
+    ReadTaskSuccess {
+        task_id: read.task_id,
+        status: match read.task_status {
+            TaskStatusRow::Active => TaskProjectionStatus::Active,
+            TaskStatusRow::Archived => TaskProjectionStatus::Archived,
+        },
+        state_version: read.state_version,
+        cursor_node_id: read.cursor_node_id,
+        parent_task_id: read.parent_task_id,
+        queued_message_count: read.queued_input_count,
+        history: HistoryPage {
+            nodes: history_nodes,
+            next_after_node_id,
+            has_more: read.has_more,
+        },
+    }
+}
+
+fn history_node_projection(node: HistoryNode) -> HistoryNodeProjection {
+    match node {
+        HistoryNode::Message {
+            node_id,
+            parent_node_id,
+            created_at,
+            message_role,
+            message_text,
+        } => HistoryNodeProjection {
+            node_id,
+            parent_node_id,
+            created_at,
+            body: HistoryNodeProjectionBody::Message {
+                role: message_role,
+                text: message_text,
+            },
+        },
+        HistoryNode::Reasoning {
+            node_id,
+            parent_node_id,
+            created_at,
+            reasoning_text,
+        } => HistoryNodeProjection {
+            node_id,
+            parent_node_id,
+            created_at,
+            body: HistoryNodeProjectionBody::Reasoning {
+                text: reasoning_text,
+            },
+        },
+        HistoryNode::FunctionCall {
+            node_id,
+            parent_node_id,
+            created_at,
+            function_call_id,
+            tool_name,
+            arguments,
+        } => HistoryNodeProjection {
+            node_id,
+            parent_node_id,
+            created_at,
+            body: HistoryNodeProjectionBody::FunctionCall {
+                function_call_id,
+                tool_name,
+                arguments,
+            },
+        },
+        HistoryNode::FunctionOutput {
+            node_id,
+            parent_node_id,
+            created_at,
+            function_call_node_id,
+            function_call_id,
+            tool_name,
+            output_text,
+            is_error,
+        } => HistoryNodeProjection {
+            node_id,
+            parent_node_id,
+            created_at,
+            body: HistoryNodeProjectionBody::FunctionOutput {
+                function_call_node_id,
+                function_call_id,
+                tool_name,
+                output_text,
+                is_error,
+            },
+        },
+    }
+}
+
 fn success_json(success: &HarnessSuccess) -> Value {
     match success {
         HarnessSuccess::ForkTask(success) => object([
@@ -632,4 +1033,54 @@ fn object<const N: usize>(entries: [(&str, Value); N]) -> Value {
         .map(|(key, value)| (key.to_owned(), value))
         .collect::<BTreeMap<_, _>>();
     Value::Object(fields.into_iter().collect())
+}
+
+#[cfg(test)]
+mod tests {
+    use selvedge_command_model::{RouterIngressMessage, ToolExecutionRunId};
+    use selvedge_domain_model::{FunctionCallId, HistoryNodeId, TaskId, ToolName};
+
+    use super::{HarnessSuccess, spawn_supervised_execution};
+    use crate::ToolExecutionRequest;
+
+    #[tokio::test]
+    async fn panicking_execution_still_emits_one_correlated_terminal_result() {
+        let request = ToolExecutionRequest {
+            task_id: TaskId("task-1".to_owned()),
+            tool_execution_run_id: ToolExecutionRunId("run-1".to_owned()),
+            function_call_node_id: HistoryNodeId(7),
+            function_call_id: FunctionCallId("call-1".to_owned()),
+            tool_name: ToolName("read_task".to_owned()),
+            arguments: Vec::new(),
+        };
+        let (router_tx, mut router_rx) = tokio::sync::mpsc::unbounded_channel();
+        let supervisor =
+            spawn_supervised_execution(request.clone(), router_tx.downgrade(), async move {
+                panic!("executor panic");
+                #[allow(unreachable_code)]
+                Ok::<HarnessSuccess, super::HarnessError>(unreachable!())
+            })
+            .expect("spawn supervisor");
+
+        supervisor.await.expect("supervisor completes");
+        let RouterIngressMessage::Tool(result) =
+            router_rx.recv().await.expect("terminal tool result")
+        else {
+            panic!("unexpected router message");
+        };
+        assert_eq!(result.task_id, request.task_id);
+        assert_eq!(result.tool_execution_run_id, request.tool_execution_run_id);
+        assert_eq!(result.function_call_node_id, request.function_call_node_id);
+        assert_eq!(result.function_call_id, request.function_call_id);
+        assert_eq!(result.tool_name, request.tool_name);
+        assert!(result.is_error);
+        assert_eq!(
+            result.output_text,
+            r#"{"error":{"code":"executor_panicked","message":"tool executor panicked"}}"#
+        );
+        assert!(matches!(
+            router_rx.try_recv(),
+            Err(tokio::sync::mpsc::error::TryRecvError::Empty)
+        ));
+    }
 }

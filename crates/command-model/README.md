@@ -2,7 +2,7 @@
 
 <!-- selvedge-package-readme
 package: selvedge-command-model
-freshness_fingerprint: 50cfe1b36d75d83cf2abfaf0f096fa4eb369bb47
+freshness_fingerprint: 21a340d3b3669a1e9281100baae8e824a6336567
 -->
 
 This crate defines the Selvedge command model API slice used to dispatch model calls, return completed API outputs to the router, and describe router-mediated client event ingress.
@@ -15,6 +15,7 @@ This crate is not for network access, database access, filesystem access, provid
 `TaskRuntimeControl` is the shared control block for one runtime. Freeze is a state bit on that control block. `TaskRuntimeControl::stop` is an async function with synchronous barrier semantics: it sets the stop bit and resolves only after the runtime actor writes `TaskRuntimeStopResult`.
 `TaskRuntimeCommand` carries business input only. Stop is outside the business mailbox.
 `RouterCommand::SendUserInput` and `RouterCommand::ArchiveTask` carry typed responders through the router and task runtime. Input succeeds as `Committed` with its persisted history node id or as `Queued`; archive succeeds as `Archived`. Dropping an unsettled responder returns `RuntimeUnavailable`, so mailbox replacement, cancellation, and shutdown cannot be mistaken for a committed SQLite transition.
+`RouterCommand::CreateChildTaskAndRuntime` carries the parent and exact function-call identity plus the typed child prompt. Its responder succeeds only after the fork transaction commits and the child runtime is registered and accepts `Start`. A later runtime failure preserves the durable child id in `RuntimeStartFailedAfterChildCreated`.
 `RouterIngressSender` is unbounded. Runtime, API, and tool outputs must be able to enqueue router ingress without awaiting router mailbox capacity, because router stop waits synchronously for runtime actors to finish.
 `RouterIngressWeakSender` is for internal router producers. Internal producers upgrade it only while an external ingress owner keeps the router mailbox open.
 `CoreOutputEnvelope` carries `task_id` for task-based router routing.
@@ -41,6 +42,8 @@ flowchart TD
   StopFinished[Stop result published]
   TaskResponsePending[Task command response pending]
   TaskResponseSettled[Task command response settled]
+  ForkResponsePending[Fork response pending]
+  ForkResponseSettled[Fork response settled]
   Valid[Return accepted value]
   Invalid[Return validation error]
 
@@ -49,6 +52,7 @@ flowchart TD
   Start -->|caller validates router command envelope| ValidateRouterCommand
   Start -->|caller creates TaskRuntimeControl| ControlReady
   Start -->|caller creates a user-input or archive response channel| TaskResponsePending
+  Start -->|caller creates a fork response channel| ForkResponsePending
   ValidateDispatch -->|correlation, task, provider, profile, and input fields satisfy contract| Valid
   ValidateDispatch -->|required dispatch field is empty or inconsistent| Invalid
   ValidateApiOutput -->|output envelope correlation and payload are consistent| Valid
@@ -63,4 +67,6 @@ flowchart TD
   StopFinished -->|later stop call observes stored result| StopFinished
   TaskResponsePending -->|runtime reports a committed SQLite outcome or classified failure| TaskResponseSettled
   TaskResponsePending -->|unsettled responder is dropped| TaskResponseSettled
+  ForkResponsePending -->|router reports runtime start or a classified fork failure| ForkResponseSettled
+  ForkResponsePending -->|unsettled responder is dropped| ForkResponseSettled
 ```

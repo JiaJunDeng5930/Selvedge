@@ -90,8 +90,10 @@ pub type RouterAttachAdmissionSender = oneshot::Sender<RouterAttachAdmissionResu
 pub type EventClientReservationSender = oneshot::Sender<EventClientReservationResult>;
 pub type SendUserInputResult = Result<SendUserInputOutcome, TaskCommandError>;
 pub type ArchiveTaskResult = Result<ArchiveTaskOutcome, TaskCommandError>;
+pub type ForkTaskResult = Result<ForkTaskOutcome, ForkTaskError>;
 pub type SendUserInputResponseReceiver = oneshot::Receiver<SendUserInputResult>;
 pub type ArchiveTaskResponseReceiver = oneshot::Receiver<ArchiveTaskResult>;
+pub type ForkTaskResponseReceiver = oneshot::Receiver<ForkTaskResult>;
 pub type SendUserInputResponder = TaskCommandResponder<SendUserInputOutcome>;
 pub type ArchiveTaskResponder = TaskCommandResponder<ArchiveTaskOutcome>;
 
@@ -104,6 +106,22 @@ pub enum SendUserInputOutcome {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ArchiveTaskOutcome {
     Archived,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ForkTaskOutcome {
+    RuntimeStarted { task_id: TaskId },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ForkTaskError {
+    InvalidCommand,
+    ParentTaskMissing,
+    ParentTaskArchived,
+    StaleToolCall,
+    PersistenceFailed,
+    RuntimeUnavailable,
+    RuntimeStartFailedAfterChildCreated { task_id: TaskId },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -165,6 +183,45 @@ pub fn archive_task_response_channel() -> (ArchiveTaskResponder, ArchiveTaskResp
     )
 }
 
+pub struct ForkTaskResponder {
+    result_tx: Option<oneshot::Sender<ForkTaskResult>>,
+}
+
+impl ForkTaskResponder {
+    pub fn settle(mut self, result: ForkTaskResult) {
+        if let Some(result_tx) = self.result_tx.take() {
+            let _ = result_tx.send(result);
+        }
+    }
+}
+
+impl Drop for ForkTaskResponder {
+    fn drop(&mut self) {
+        if let Some(result_tx) = self.result_tx.take() {
+            let _ = result_tx.send(Err(ForkTaskError::RuntimeUnavailable));
+        }
+    }
+}
+
+impl fmt::Debug for ForkTaskResponder {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ForkTaskResponder")
+            .field("pending", &self.result_tx.is_some())
+            .finish()
+    }
+}
+
+pub fn fork_task_response_channel() -> (ForkTaskResponder, ForkTaskResponseReceiver) {
+    let (result_tx, result_rx) = oneshot::channel();
+    (
+        ForkTaskResponder {
+            result_tx: Some(result_tx),
+        },
+        result_rx,
+    )
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct FactoryEffectId(pub String);
 
@@ -211,7 +268,11 @@ pub enum RouterCommand {
     EnsureMissingTaskRuntimes,
     CreateChildTaskAndRuntime {
         parent_task_id: TaskId,
-        child_cursor_node_id: HistoryNodeId,
+        function_call_node_id: HistoryNodeId,
+        function_call_id: FunctionCallId,
+        tool_name: ToolName,
+        child_prompt: String,
+        responder: ForkTaskResponder,
     },
 }
 
@@ -232,6 +293,10 @@ pub enum RouterCommandValidationError {
     EmptyTaskId,
     EmptyMessageText,
     EmptyParentTaskId,
+    InvalidFunctionCallNodeId,
+    EmptyFunctionCallId,
+    EmptyToolName,
+    EmptyChildPrompt,
 }
 
 #[derive(Debug)]
@@ -302,7 +367,7 @@ pub enum FactoryFailureKind {
     ParentTaskArchived,
     TaskMissing,
     TaskArchived,
-    CursorNodeMissing,
+    StaleToolCall,
     RuntimeInventoryUnavailable,
     RuntimeAlreadyLive,
     RuntimeCreationPending,
@@ -917,9 +982,28 @@ pub fn validate_router_command(
         | RouterCommand::StopTaskRuntime { task_id }
         | RouterCommand::EnsureTaskRuntime { task_id } => validate_task_id(task_id)?,
         RouterCommand::EnsureMissingTaskRuntimes => {}
-        RouterCommand::CreateChildTaskAndRuntime { parent_task_id, .. } => {
+        RouterCommand::CreateChildTaskAndRuntime {
+            parent_task_id,
+            function_call_node_id,
+            function_call_id,
+            tool_name,
+            child_prompt,
+            ..
+        } => {
             if parent_task_id.0.trim().is_empty() {
                 return Err(RouterCommandValidationError::EmptyParentTaskId);
+            }
+            if function_call_node_id.0 <= 0 {
+                return Err(RouterCommandValidationError::InvalidFunctionCallNodeId);
+            }
+            if function_call_id.0.trim().is_empty() {
+                return Err(RouterCommandValidationError::EmptyFunctionCallId);
+            }
+            if tool_name.0.trim().is_empty() {
+                return Err(RouterCommandValidationError::EmptyToolName);
+            }
+            if child_prompt.trim().is_empty() {
+                return Err(RouterCommandValidationError::EmptyChildPrompt);
             }
         }
     }

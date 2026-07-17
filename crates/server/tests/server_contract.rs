@@ -7,15 +7,19 @@ use selvedge_api::ApiExecutorConfig;
 use selvedge_client_sync::{
     ClientSnapshotBuildFuture, ClientSnapshotBuildRequest, ClientSnapshotBuilder,
 };
-use selvedge_command_model::{ClientSnapshot, RouterIngressWeakSender, ToolExecutionRequest};
+use selvedge_command_model::ClientSnapshot;
 use selvedge_core::{TaskRuntimeConfig, TaskRuntimeSpawnDeps};
+use selvedge_db::{
+    CreateRootTaskInput, NewHistoryNode, NewHistoryNodeContent, NewMessageNodeContent,
+    OpenDbOptions, ReasoningEffort, TaskId, create_history_node, create_root_task, open_db,
+    read_tool_manifest_for_task,
+};
 use selvedge_domain_model::{ModelProfileKey, UnixTs};
 use selvedge_local_protocol::{
     AttachRejectReason, AttachRequest, CommandOutcome, CommandRejectReason, CommandRequest,
     LocalClientCommandId, LocalClientFrame, LocalClientId, LocalClientSubscription,
     LocalDetailLevel, LocalTaskScope, ReadyRequest, ReadyState,
 };
-use selvedge_router::{ToolExecutionSpawnError, ToolExecutionSpawner};
 use selvedge_server::{
     LocalBindingConfig, LocalOperationCommand, LocalOperationExecutor, LocalOperationFuture,
     LocalOperationProgressSender, LocalOperationSuccess, LocalhostBindTarget, ServerRuntimeState,
@@ -24,7 +28,6 @@ use selvedge_server::{
 use selvedge_test_support::http::released_loopback_port;
 use tempfile::TempDir;
 use tokio::sync::Mutex as AsyncMutex;
-use tokio::task::JoinHandle;
 use tokio::time::timeout;
 
 static SERVER_TEST_LOCK: LazyLock<AsyncMutex<()>> = LazyLock::new(|| AsyncMutex::new(()));
@@ -49,6 +52,62 @@ async fn spawn_server_initializes_ready_control_and_creates_durable_paths() {
     handle.join_handle.await.expect("join server");
     assert_eq!(handle.control.state().await, ServerRuntimeState::Stopped);
     assert!(!home.join("server.lock").exists());
+}
+
+#[tokio::test]
+async fn startup_registers_the_four_global_harness_tools() {
+    let _guard = SERVER_TEST_LOCK.lock().await;
+    let home = SERVER_TEST_HOME.path();
+    let handle = spawn_server(test_args(home.to_path_buf())).expect("spawn server");
+    let db = open_db(OpenDbOptions {
+        sqlite_path: home.join("selvedge.sqlite").to_string_lossy().to_string(),
+    })
+    .expect("open server database");
+    let cursor_node_id = create_history_node(
+        &db,
+        NewHistoryNode {
+            parent_node_id: None,
+            content: NewHistoryNodeContent::Message(NewMessageNodeContent {
+                message_role: selvedge_db::MessageRole::User,
+                message_text: "probe".to_owned(),
+            }),
+            created_at: UnixTs(1),
+        },
+    )
+    .expect("create probe history");
+    let task_id = TaskId("manifest-probe".to_owned());
+    create_root_task(
+        &db,
+        CreateRootTaskInput {
+            task_id: task_id.clone(),
+            cursor_node_id,
+            model_profile_key: ModelProfileKey("default".to_owned()),
+            reasoning_effort: ReasoningEffort::Medium,
+            enabled_tools: Vec::new(),
+            now: UnixTs(1),
+        },
+    )
+    .expect("create probe task");
+
+    let mut tool_names = read_tool_manifest_for_task(&db, &task_id)
+        .expect("read global harness tools")
+        .tools
+        .into_iter()
+        .map(|tool| tool.name)
+        .collect::<Vec<_>>();
+    tool_names.sort();
+    assert_eq!(
+        tool_names,
+        vec![
+            "archive_task",
+            "fork_task",
+            "read_task",
+            "send_message_to_task",
+        ]
+    );
+
+    handle.control.stop().await;
+    handle.join_handle.await.expect("join server");
 }
 
 #[tokio::test]
@@ -453,18 +512,6 @@ impl ClientSnapshotBuilder for EmptySnapshotBuilder {
     }
 }
 
-struct NoopToolExecutor;
-
-impl ToolExecutionSpawner for NoopToolExecutor {
-    fn spawn_tool_execution(
-        &self,
-        _request: ToolExecutionRequest,
-        _router_tx: RouterIngressWeakSender,
-    ) -> Result<JoinHandle<()>, ToolExecutionSpawnError> {
-        Err(ToolExecutionSpawnError::ToolExecutorUnavailable)
-    }
-}
-
 struct NoopLocalOperationExecutor;
 
 impl LocalOperationExecutor for NoopLocalOperationExecutor {
@@ -495,7 +542,6 @@ fn test_args_with_local_operation_executor(
             request_timeout: Duration::from_secs(1),
             max_response_bytes: None,
         },
-        tool_executor: Arc::new(NoopToolExecutor),
         core_spawn_deps: TaskRuntimeSpawnDeps::new(TaskRuntimeConfig {
             mailbox_capacity: 4,
             model_profiles: HashMap::<ModelProfileKey, _>::new(),

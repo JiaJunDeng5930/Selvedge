@@ -2,7 +2,7 @@
 
 <!-- selvedge-package-readme
 package: selvedge-db
-freshness_fingerprint: dc1790ca509e51bb991f4121d97cc549b49ecd91
+freshness_fingerprint: 4643ebd4616c8642c8ea9970a1ae1b92ef7920f6
 -->
 
 This crate owns SQLite persistence for router-mediated Selvedge tasks.
@@ -18,7 +18,7 @@ Resource boundaries:
 - `register_global_tool` accepts a new definition, an exact repeat, or an exact non-global definition promoted to global. A conflicting stored definition fails without changing the catalog.
 - `read_tool_manifest_for_task` merges database-marked global tools with that task's `task_tools` rows for active or archived tasks.
 - `fork_task_from_function_call` requires an active parent and an exact open function-call identity on its current cursor path. It finds the history node before that call's contiguous function-call batch, appends the child user prompt there, copies the parent model profile, reasoning effort, and task-specific tools, and writes the parent edge in one transaction.
-- `read_task` returns task identity, durable status, state version, cursor, optional parent, queued-input count, and an exclusive `after_node_id` history page from one SQLite read transaction. Page limits are `1..=100`, and the after node must be on that task's cursor path.
+- `read_task` returns task identity, durable status, state version, cursor, optional parent, queued-input count, an exclusive `after_node_id` history page, and an exact `has_more` flag from one SQLite read transaction. Page limits are `1..=100`, and the after node must be on that task's cursor path.
 - `read_task_parent_edges` returns durable task-layer parent edges for router snapshots and factory verification.
 - A task cursor is a pointer into history, with no ownership claim over the pointed node.
 

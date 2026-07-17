@@ -30,11 +30,12 @@ use selvedge_command_model::{
     TaskProjectionStatus, TaskScope, ToolExecutionStatusPhase,
 };
 use selvedge_core::TaskRuntimeSpawnDeps;
-use selvedge_db::{OpenDbOptions, open_db};
+use selvedge_db::{OpenDbOptions, open_db, register_global_tool};
 use selvedge_domain_model::{
     MessageRole, ReasoningEffort, TaskId, ToolArgumentValue, ToolCallArgument,
 };
 use selvedge_events::{EventsHandle, EventsStartArgs, SpawnEventsError, spawn_events_task};
+use selvedge_harness::{HarnessToolExecutor, tool_manifest};
 use selvedge_local_protocol::{
     AttachAccepted, AttachRejectReason, AttachRejected, AttachRequest, CommandOutcome,
     CommandRejectReason, CommandRequest, CommandResponse, LocalClientCommandId, LocalClientEvent,
@@ -48,9 +49,7 @@ use selvedge_local_protocol::{
     LocalToolExecutionStatusPhase, ReadyRequest, ReadyResponse, ReadyState,
     validate_attach_request, validate_command_request, validate_ready_request,
 };
-use selvedge_router::{
-    RouterExitStatus, RouterHandle, RouterStartArgs, SpawnRouterError, ToolExecutionSpawner,
-};
+use selvedge_router::{RouterExitStatus, RouterHandle, RouterStartArgs, SpawnRouterError};
 use selvedge_web::{
     ReservedWebStartArgs, WebBindReservation, WebBridge, WebHandle, WebLocalhostBind,
     WebLocalhostHost, WebStartError, reserve_web_bind, spawn_reserved_web_surface,
@@ -207,7 +206,6 @@ impl AttachFrameChannelFactory for TokioAttachFrameChannelFactory {
 pub struct ServerStartArgs {
     pub explicit_home: Option<PathBuf>,
     pub api_config: ApiExecutorConfig,
-    pub tool_executor: Arc<dyn ToolExecutionSpawner>,
     pub core_spawn_deps: TaskRuntimeSpawnDeps,
     pub snapshot_builder: Arc<dyn ClientSnapshotBuilder>,
     pub local_operation_executor: Arc<dyn LocalOperationExecutor>,
@@ -275,6 +273,7 @@ pub enum ServerStartupError {
     ConfigInitFailed(String),
     LoggingInitFailed(String),
     DbOpenFailed(String),
+    ToolRegistrationFailed(String),
     EventsStartFailed(String),
     ClientSyncStartFailed(String),
     RouterStartFailed(String),
@@ -1043,6 +1042,14 @@ fn start_server_after_lock(
             return Err(ServerStartupError::DbOpenFailed(error.to_string()));
         }
     };
+    for tool in tool_manifest().tools {
+        if let Err(error) = register_global_tool(&db, tool) {
+            cleanup_startup_lock(&home);
+            return Err(ServerStartupError::ToolRegistrationFailed(
+                error.to_string(),
+            ));
+        }
+    }
 
     let events = match spawn_events_task(EventsStartArgs {
         ingress_capacity: DEFAULT_EVENTS_INGRESS_CAPACITY,
@@ -1069,10 +1076,10 @@ fn start_server_after_lock(
     };
 
     let router = match selvedge_router::spawn_router(RouterStartArgs {
-        db,
+        db: db.clone(),
         events_tx: events.ingress_tx.clone(),
         api_config: args.api_config,
-        tool_executor: args.tool_executor,
+        tool_executor: Arc::new(HarnessToolExecutor::new(db)),
         core_spawn_deps: args.core_spawn_deps,
     }) {
         Ok(router) => router,
@@ -1081,6 +1088,20 @@ fn start_server_after_lock(
             return Err(map_router_start_error(error));
         }
     };
+    if router
+        .ingress_tx
+        .send(RouterIngressMessage::Command(RouterCommandEnvelope {
+            client_id: None,
+            client_command_id: None,
+            command: RouterCommand::EnsureMissingTaskRuntimes,
+        }))
+        .is_err()
+    {
+        cleanup_startup_lock(&home);
+        return Err(ServerStartupError::RouterStartFailed(
+            "router closed before active runtime recovery".to_owned(),
+        ));
+    }
 
     let inner = Arc::new(ServerInner {
         state: RwLock::new(ServerRuntimeState::Ready),

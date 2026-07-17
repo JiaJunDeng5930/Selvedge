@@ -2,7 +2,7 @@
 
 <!-- selvedge-package-readme
 package: selvedge-router
-freshness_fingerprint: e504059e639957954406a2579c11062359d83240
+freshness_fingerprint: edf88388d60bec87b33b169073cceb7069325e62
 -->
 
 This crate owns the Selvedge router actor.
@@ -19,6 +19,8 @@ Core output routing is task-id based. A runtime that enqueued core output before
 Core output with an embedded task id must match the envelope task id before the router starts model calls, tool executions, or event publication.
 
 User input and archive remain pending business operations while the router creates a missing runtime, flushes deferred commands, or replaces a closed mailbox. The router never settles them successfully: only the task runtime can do that after SQLite commits. Factory failures are mapped to task missing, task archived, persistence failure, or runtime unavailable, and router shutdown fails deferred and unread task commands before releasing their responders.
+
+Fork is a router-owned factory effect keyed by the calling task's exact open function-call identity. Factory SQLite work runs on Tokio's blocking pool. The router reports fork success only after the committed child runtime is registered and accepts `Start`; if the durable child exists but spawn or registration fails, the fork responder returns that child id with the partial failure.
 
 Attach routing is an admission boundary. `RouterCommand::AttachClient` sends `ReserveClientSession` to events and answers the command's admission responder with the reservation result; snapshot hydration starts later through client-sync after server observes the accepted admission.
 
@@ -49,6 +51,7 @@ flowchart TD
   RuntimePending[Runtime creation pending]
   RuntimeStopping[Runtime stop barrier in progress]
   TaskResponseSettled[Task command response failed]
+  ForkResponseSettled[Fork response settled]
   Events[Forward event control]
   ErrorNotice[Publish diagnostic notice]
   Shutdown[Exit when ingress closes]
@@ -60,13 +63,14 @@ flowchart TD
   Loop -->|ToolExecutionResult arrives| ToolOutput
   Loop -->|FactoryOutputEnvelope arrives| FactoryOutput
   Command -->|AttachClient reservation send succeeds| Events
-  Command -->|Start, create, scan, or child-task command needs runtime and registry lacks live entry| RuntimePending
+  Command -->|Start, recovery scan, or fork command needs a runtime effect| RuntimePending
   Command -->|task command targets live runtime| RuntimeLive
   Command -->|StopTaskRuntime targets live runtime| RuntimeStopping
   Command -->|validation, missing runtime, events, database, or factory dispatch fails| ErrorNotice
   RuntimePending -->|factory effect is started for task| Loop
   FactoryOutput -->|runtime created for pending task| RuntimeLive
   FactoryOutput -->|factory failed for a deferred task command| TaskResponseSettled
+  FactoryOutput -->|fork child starts or fails after commit| ForkResponseSettled
   TaskResponseSettled -->|typed failure is sent exactly once| ErrorNotice
   RuntimeLive -->|runtime send succeeds| Loop
   RuntimeLive -->|runtime send fails and recreation cannot accept the command| TaskResponseSettled

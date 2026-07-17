@@ -4,18 +4,18 @@ use selvedge_command_model::{
     ClientSubscription, CreatedRuntimeKind, DeliverySeq, DetailLevel, EventControlMessage,
     EventIngress, FactoryEffectId, FactoryFailure, FactoryFailureKind, FactoryOutput,
     FactoryOutputEnvelope, FactoryScanOutput, FactorySkipReason, FactorySkippedTask,
-    FactoryTaskFailure, HistoryAppendedEvent, HistoryAppendedRawEvent, ModelCallDispatchRequest,
-    ModelCallError, ModelCallErrorKind, ModelRunId, RouterCommand, RouterCommandEnvelope,
-    RouterCommandValidationError, RouterIngressApiMessage, RouterIngressMessage,
-    SnapshotTaskVersion, TaskCommandError, TaskId, TaskProjection, TaskProjectionStatus,
-    TaskRuntimeControl, TaskRuntimeCreated, TaskScope, archive_task_response_channel,
-    send_user_input_response_channel, validate_api_output_envelope, validate_dispatch_request,
-    validate_router_command,
+    FactoryTaskFailure, ForkTaskError, HistoryAppendedEvent, HistoryAppendedRawEvent,
+    ModelCallDispatchRequest, ModelCallError, ModelCallErrorKind, ModelRunId, RouterCommand,
+    RouterCommandEnvelope, RouterCommandValidationError, RouterIngressApiMessage,
+    RouterIngressMessage, SnapshotTaskVersion, TaskCommandError, TaskId, TaskProjection,
+    TaskProjectionStatus, TaskRuntimeControl, TaskRuntimeCreated, TaskScope,
+    archive_task_response_channel, fork_task_response_channel, send_user_input_response_channel,
+    validate_api_output_envelope, validate_dispatch_request, validate_router_command,
 };
 use selvedge_domain_model::{
-    ConversationMessage, ConversationPath, HistoryNodeId, MessageContent, MessageRole,
-    ModelFinishReason, ModelProfileKey, ModelProviderProfile, ModelReply, ReasoningEffort,
-    ResponsePreference, UnixTs,
+    ConversationMessage, ConversationPath, FunctionCallId, HistoryNodeId, MessageContent,
+    MessageRole, ModelFinishReason, ModelProfileKey, ModelProviderProfile, ModelReply,
+    ReasoningEffort, ResponsePreference, ToolName, UnixTs,
 };
 
 #[test]
@@ -346,6 +346,23 @@ fn router_command_validation_enforces_envelope_and_task_payload_contract() {
         validate_router_command(&empty_message),
         Err(RouterCommandValidationError::EmptyMessageText)
     );
+
+    let empty_fork_prompt = RouterCommandEnvelope {
+        client_id: None,
+        client_command_id: None,
+        command: RouterCommand::CreateChildTaskAndRuntime {
+            parent_task_id: TaskId("task-1".to_owned()),
+            function_call_node_id: HistoryNodeId(1),
+            function_call_id: FunctionCallId("call-1".to_owned()),
+            tool_name: ToolName("fork_task".to_owned()),
+            child_prompt: " ".to_owned(),
+            responder: fork_task_response_channel().0,
+        },
+    };
+    assert_eq!(
+        validate_router_command(&empty_fork_prompt),
+        Err(RouterCommandValidationError::EmptyChildPrompt)
+    );
 }
 
 #[test]
@@ -362,6 +379,13 @@ fn dropped_task_command_responders_settle_as_runtime_unavailable() {
     assert_eq!(
         archive_response.try_recv().expect("archive response"),
         Err(TaskCommandError::RuntimeUnavailable)
+    );
+
+    let (fork_responder, mut fork_response) = fork_task_response_channel();
+    drop(fork_responder);
+    assert_eq!(
+        fork_response.try_recv().expect("fork response"),
+        Err(ForkTaskError::RuntimeUnavailable)
     );
 }
 

@@ -13,6 +13,7 @@ members = [
     "crates/db",
     "crates/domain-model",
     "crates/events",
+    "crates/harness",
     "crates/logging",
     "crates/local-client",
     "crates/local-protocol",

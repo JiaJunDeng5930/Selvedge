@@ -5,10 +5,17 @@ publish = false
 
 [dependencies]
 selvedge-command-model = { path = "../command-model" }
+selvedge-db = { path = "../db" }
 selvedge-domain-model = { path = "../domain-model" }
+selvedge-router = { path = "../router" }
 serde_json = "1.0.145"
+tokio = { version = "1.42.0", features = ["rt", "sync"] }
 
-[workspace]
+[dev-dependencies]
+selvedge-api = { path = "../api" }
+selvedge-core = { path = "../core" }
+selvedge-test-support = { path = "../test-support", features = ["db-fixtures"] }
+tokio = { version = "1.42.0", features = ["macros", "rt", "sync", "time"] }
 
 [lints.rust]
 unsafe_code = "forbid"

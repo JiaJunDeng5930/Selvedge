@@ -27,6 +27,8 @@ pub struct DbTransaction;
 pub enum DbError {
     NotFound,
     TaskNotActive,
+    StaleFunctionCall,
+    HistoryCursorNotOnTask,
     Constraint(String),
     Storage(String),
     SchemaMismatch {
@@ -40,6 +42,12 @@ impl fmt::Display for DbError {
         match self {
             DbError::NotFound => write!(formatter, "row was not found"),
             DbError::TaskNotActive => write!(formatter, "task is not active"),
+            DbError::StaleFunctionCall => {
+                write!(formatter, "fork function call is not open on the task path")
+            }
+            DbError::HistoryCursorNotOnTask => {
+                write!(formatter, "history cursor is not on the task path")
+            }
             DbError::Constraint(message) => write!(formatter, "constraint failed: {message}"),
             DbError::Storage(message) => write!(formatter, "storage failed: {message}"),
             DbError::SchemaMismatch { expected, actual } => {
@@ -258,6 +266,7 @@ pub struct TaskRead {
     pub parent_task_id: Option<TaskId>,
     pub queued_input_count: u64,
     pub history_nodes: Vec<HistoryNode>,
+    pub has_more: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -439,7 +448,7 @@ pub fn fork_task_from_function_call(db: &DbPool, input: ForkTaskInput) -> Result
         return Err(DbError::TaskNotActive);
     }
     let safe_parent_node_id = safe_fork_parent_for_open_call_in_tx(&tx, &parent, &input)?;
-    let child_cursor_node_id = insert_history_node(
+    let child_prompt_node_id = insert_history_node(
         &tx,
         NewHistoryNode {
             parent_node_id: safe_parent_node_id,
@@ -456,7 +465,7 @@ pub fn fork_task_from_function_call(db: &DbPool, input: ForkTaskInput) -> Result
          VALUES (?1, 'active', ?2, ?3, ?4, 0, ?5, ?5)",
         params![
             input.child_task_id.0,
-            child_cursor_node_id.0,
+            child_prompt_node_id.0,
             parent.model_profile_key.0,
             reasoning_effort_to_db(&parent.reasoning_effort),
             input.now.0
@@ -1013,12 +1022,14 @@ pub fn read_task(db: &DbPool, input: ReadTaskInput) -> Result<TaskRead, DbError>
     if let Some(after_node_id) = input.after_node_id {
         ensure_task_path_contains_node_in_tx(&tx, task.cursor_node_id, after_node_id)?;
     }
-    let node_ids = read_history_page_node_ids_in_tx(
+    let mut node_ids = read_history_page_node_ids_in_tx(
         &tx,
         task.cursor_node_id,
         input.after_node_id,
-        input.limit,
+        input.limit + 1,
     )?;
+    let has_more = node_ids.len() > input.limit as usize;
+    node_ids.truncate(input.limit as usize);
     let mut history_nodes = Vec::with_capacity(node_ids.len());
     for node_id in node_ids {
         history_nodes.push(read_history_node_concrete_in_connection(&tx, &node_id)?);
@@ -1048,6 +1059,7 @@ pub fn read_task(db: &DbPool, input: ReadTaskInput) -> Result<TaskRead, DbError>
         parent_task_id,
         queued_input_count: i64_to_u64(queued_input_count)?,
         history_nodes,
+        has_more,
     };
     tx.commit().map_err(map_error)?;
     Ok(result)
@@ -1291,11 +1303,7 @@ fn safe_fork_parent_for_open_call_in_tx(
 
     safe_parent_node_id
         .map(|node_id| node_id.map(HistoryNodeId))
-        .ok_or_else(|| {
-            DbError::Constraint(
-                "fork function call is not open on the parent task current path".to_owned(),
-            )
-        })
+        .ok_or(DbError::StaleFunctionCall)
 }
 
 fn ensure_task_path_contains_node_in_tx(
@@ -1324,9 +1332,7 @@ fn ensure_task_path_contains_node_in_tx(
     if exists {
         Ok(())
     } else {
-        Err(DbError::Constraint(
-            "after node is not on the task cursor path".to_owned(),
-        ))
+        Err(DbError::HistoryCursorNotOnTask)
     }
 }
 

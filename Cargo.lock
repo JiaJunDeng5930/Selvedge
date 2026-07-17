@@ -1629,6 +1629,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "selvedge-harness"
+version = "0.0.0"
+dependencies = [
+ "selvedge-api",
+ "selvedge-command-model",
+ "selvedge-core",
+ "selvedge-db",
+ "selvedge-domain-model",
+ "selvedge-router",
+ "selvedge-test-support",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "selvedge-local-client"
 version = "0.0.0"
 dependencies = [
@@ -1714,6 +1729,7 @@ dependencies = [
  "selvedge-db",
  "selvedge-domain-model",
  "selvedge-events",
+ "selvedge-harness",
  "selvedge-local-protocol",
  "selvedge-logging",
  "selvedge-router",

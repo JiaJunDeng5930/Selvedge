@@ -8,11 +8,11 @@ use selvedge_command_model::{
     ApiOutputEnvelope, CoreOutputEnvelope, CoreOutputMessage, DebugRawEvent, DetachReason,
     DomainEvent, DomainEventPublishRequest, EventClientReservationResult, EventControlMessage,
     EventIngress, EventIngressSender, FactoryEffectId, FactoryFailureKind, FactoryOutput,
-    FactoryOutputEnvelope, FactoryScanOutput, FactoryTaskFailure, RawEvent, ReserveClientSession,
-    RouterAttachAdmissionResult, RouterCommand, RouterCommandEnvelope, RouterIngressMessage,
-    RouterIngressSender, RouterIngressWeakSender, TaskCommandError, TaskRuntimeCommand,
-    TaskRuntimeControl, TaskRuntimeExitNotice, TaskRuntimeSender, ToolExecutionRequest,
-    ToolExecutionResult, validate_router_command,
+    FactoryOutputEnvelope, FactoryScanOutput, FactoryTaskFailure, ForkTaskError, ForkTaskOutcome,
+    ForkTaskResponder, RawEvent, ReserveClientSession, RouterAttachAdmissionResult, RouterCommand,
+    RouterCommandEnvelope, RouterIngressMessage, RouterIngressSender, RouterIngressWeakSender,
+    TaskCommandError, TaskRuntimeCommand, TaskRuntimeControl, TaskRuntimeExitNotice,
+    TaskRuntimeSender, ToolExecutionRequest, ToolExecutionResult, validate_router_command,
 };
 use selvedge_core::TaskRuntimeSpawnDeps;
 use selvedge_db::DbPool;
@@ -101,15 +101,21 @@ struct RouterActor {
     next_effect_seq: u64,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
 struct PendingRuntimeEffect {
     task_id: Option<TaskId>,
+    fork_responder: Option<ForkTaskResponder>,
 }
 
 #[derive(Clone, Debug)]
 struct RuntimeRegistryEntry {
     sender: TaskRuntimeSender,
     control: TaskRuntimeControl,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum RegisterRuntimeOutcome {
+    Started,
+    Failed,
 }
 
 impl RouterActor {
@@ -218,10 +224,21 @@ impl RouterActor {
             RouterCommand::EnsureMissingTaskRuntimes => self.ensure_missing_task_runtimes().await,
             RouterCommand::CreateChildTaskAndRuntime {
                 parent_task_id,
-                child_cursor_node_id,
+                function_call_node_id,
+                function_call_id,
+                tool_name,
+                child_prompt,
+                responder,
             } => {
-                self.create_child_task_and_runtime(parent_task_id, child_cursor_node_id)
-                    .await
+                self.create_child_task_and_runtime(
+                    parent_task_id,
+                    function_call_node_id,
+                    function_call_id,
+                    tool_name,
+                    child_prompt,
+                    responder,
+                )
+                .await
             }
         }
     }
@@ -478,6 +495,7 @@ impl RouterActor {
             effect_id.clone(),
             PendingRuntimeEffect {
                 task_id: Some(task_id.clone()),
+                fork_responder: None,
             },
         );
         self.pending_effects_by_task
@@ -488,8 +506,13 @@ impl RouterActor {
 
     async fn ensure_missing_task_runtimes(&mut self) -> Result<(), RouterExitStatus> {
         let effect_id = self.next_effect_id();
-        self.pending_effects
-            .insert(effect_id.clone(), PendingRuntimeEffect { task_id: None });
+        self.pending_effects.insert(
+            effect_id.clone(),
+            PendingRuntimeEffect {
+                task_id: None,
+                fork_responder: None,
+            },
+        );
         self.run_factory_effect(effect_id, FactoryCommand::EnsureMissingTaskRuntimes)
             .await
     }
@@ -497,14 +520,26 @@ impl RouterActor {
     async fn create_child_task_and_runtime(
         &mut self,
         parent_task_id: TaskId,
-        child_cursor_node_id: selvedge_domain_model::HistoryNodeId,
+        function_call_node_id: selvedge_domain_model::HistoryNodeId,
+        function_call_id: selvedge_domain_model::FunctionCallId,
+        tool_name: selvedge_domain_model::ToolName,
+        child_prompt: String,
+        responder: ForkTaskResponder,
     ) -> Result<(), RouterExitStatus> {
         let effect_id = self.next_effect_id();
-        self.pending_effects
-            .insert(effect_id.clone(), PendingRuntimeEffect { task_id: None });
+        self.pending_effects.insert(
+            effect_id.clone(),
+            PendingRuntimeEffect {
+                task_id: None,
+                fork_responder: Some(responder),
+            },
+        );
         let command = FactoryCommand::CreateChildTaskAndRuntime {
             parent_task_id,
-            child_cursor_node_id,
+            function_call_node_id,
+            function_call_id,
+            tool_name,
+            child_prompt,
         };
         self.run_factory_effect(effect_id, command).await
     }
@@ -528,14 +563,34 @@ impl RouterActor {
                 .cloned()
                 .collect(),
         };
-        let envelope = run_factory_effect(FactoryEffectArgs {
+        let pending_effect_id = effect_id.clone();
+        let factory_args = FactoryEffectArgs {
             effect_id,
             command,
             db: self.db.clone(),
             router_tx: self.router_tx.clone(),
             core_spawn_deps: self.core_spawn_deps.clone(),
             runtime_inventory: inventory,
-        });
+        };
+        let envelope =
+            match tokio::task::spawn_blocking(move || run_factory_effect(factory_args)).await {
+                Ok(envelope) => envelope,
+                Err(error) => {
+                    let Some(mut pending) = self.pending_effects.remove(&pending_effect_id) else {
+                        return Ok(());
+                    };
+                    if let Some(task_id) = &pending.task_id {
+                        self.pending_effects_by_task.remove(task_id);
+                        self.fail_deferred_commands(task_id, TaskCommandError::RuntimeUnavailable);
+                    }
+                    if let Some(responder) = pending.fork_responder.take() {
+                        responder.settle(Err(ForkTaskError::RuntimeUnavailable));
+                    }
+                    return self
+                        .publish_debug(None, format!("factory effect task failed: {error}"))
+                        .await;
+                }
+            };
         self.apply_factory_output(envelope).await
     }
 
@@ -543,18 +598,64 @@ impl RouterActor {
         &mut self,
         envelope: FactoryOutputEnvelope,
     ) -> Result<(), RouterExitStatus> {
-        let Some(pending) = self.pending_effects.remove(&envelope.effect_id) else {
+        let Some(mut pending) = self.pending_effects.remove(&envelope.effect_id) else {
             return self
                 .publish_debug(None, "stale factory output discarded")
                 .await;
         };
-        let pending_task_id = pending.task_id;
+        let pending_task_id = pending.task_id.take();
+        let fork_responder = pending.fork_responder.take();
         if let Some(task_id) = &pending_task_id {
             self.pending_effects_by_task.remove(task_id);
         }
 
         match envelope.output {
             FactoryOutput::RuntimeCreated(created) => {
+                if let Some(responder) = fork_responder {
+                    let child_task_id = created.task_id.clone();
+                    if created.created_runtime_kind
+                        != selvedge_command_model::CreatedRuntimeKind::ChildTaskRuntime
+                    {
+                        responder.settle(Err(ForkTaskError::RuntimeUnavailable));
+                        return self
+                            .publish_debug(
+                                Some(child_task_id),
+                                "factory runtime kind did not match fork effect",
+                            )
+                            .await;
+                    }
+                    return match self
+                        .register_runtime(
+                            created.task_id,
+                            created.task_runtime_tx,
+                            created.task_runtime_control,
+                        )
+                        .await
+                    {
+                        Ok(RegisterRuntimeOutcome::Started) => {
+                            responder.settle(Ok(ForkTaskOutcome::RuntimeStarted {
+                                task_id: child_task_id,
+                            }));
+                            Ok(())
+                        }
+                        Ok(RegisterRuntimeOutcome::Failed) => {
+                            responder.settle(Err(
+                                ForkTaskError::RuntimeStartFailedAfterChildCreated {
+                                    task_id: child_task_id,
+                                },
+                            ));
+                            Ok(())
+                        }
+                        Err(status) => {
+                            responder.settle(Err(
+                                ForkTaskError::RuntimeStartFailedAfterChildCreated {
+                                    task_id: child_task_id,
+                                },
+                            ));
+                            Err(status)
+                        }
+                    };
+                }
                 if pending_task_id
                     .as_ref()
                     .is_some_and(|task_id| task_id != &created.task_id)
@@ -575,8 +676,12 @@ impl RouterActor {
                     created.task_runtime_control,
                 )
                 .await
+                .map(|_| ())
             }
             FactoryOutput::ScanFinished(scan) => {
+                if let Some(responder) = fork_responder {
+                    responder.settle(Err(ForkTaskError::RuntimeUnavailable));
+                }
                 if let Some(task_id) = pending_task_id {
                     self.fail_deferred_commands(&task_id, TaskCommandError::RuntimeUnavailable);
                     return self
@@ -589,6 +694,12 @@ impl RouterActor {
                 self.apply_scan_output(scan).await
             }
             FactoryOutput::Failed(failure) => {
+                if let Some(responder) = fork_responder {
+                    responder.settle(Err(fork_task_factory_error(
+                        &failure.kind,
+                        failure.task_id.as_ref(),
+                    )));
+                }
                 if let Some(task_id) = pending_task_id {
                     if failure.task_id.as_ref() != Some(&task_id) {
                         self.fail_deferred_commands(&task_id, TaskCommandError::RuntimeUnavailable);
@@ -629,15 +740,15 @@ impl RouterActor {
         task_id: TaskId,
         sender: TaskRuntimeSender,
         control: TaskRuntimeControl,
-    ) -> Result<(), RouterExitStatus> {
+    ) -> Result<RegisterRuntimeOutcome, RouterExitStatus> {
         if self.task_runtime_registry.contains_key(&task_id) {
             self.fail_deferred_commands(&task_id, TaskCommandError::RuntimeUnavailable);
-            return self
-                .publish_debug(
-                    Some(task_id),
-                    "factory runtime would replace a live task runtime",
-                )
-                .await;
+            self.publish_debug(
+                Some(task_id),
+                "factory runtime would replace a live task runtime",
+            )
+            .await?;
+            return Ok(RegisterRuntimeOutcome::Failed);
         }
         self.task_runtime_registry.insert(
             task_id.clone(),
@@ -656,20 +767,20 @@ impl RouterActor {
                     self.task_runtime_registry.remove(&task_id);
                     settle_task_runtime_command(error.0, TaskCommandError::RuntimeUnavailable);
                     settle_task_runtime_commands(deferred, TaskCommandError::RuntimeUnavailable);
-                    return self
-                        .publish_debug(Some(task_id), "deferred task command delivery failed")
-                        .await;
+                    self.publish_debug(Some(task_id), "deferred task command delivery failed")
+                        .await?;
+                    return Ok(RegisterRuntimeOutcome::Failed);
                 }
             }
-            return Ok(());
+            return Ok(RegisterRuntimeOutcome::Started);
         }
 
         if sender.send(TaskRuntimeCommand::Start).await.is_err() {
             self.task_runtime_registry.remove(&task_id);
             settle_task_runtime_commands(deferred, TaskCommandError::RuntimeUnavailable);
-            return self
-                .publish_debug(Some(task_id), "task runtime start failed")
-                .await;
+            self.publish_debug(Some(task_id), "task runtime start failed")
+                .await?;
+            return Ok(RegisterRuntimeOutcome::Failed);
         }
 
         while let Some(command) = deferred.pop_front() {
@@ -677,12 +788,12 @@ impl RouterActor {
                 self.task_runtime_registry.remove(&task_id);
                 settle_task_runtime_command(error.0, TaskCommandError::RuntimeUnavailable);
                 settle_task_runtime_commands(deferred, TaskCommandError::RuntimeUnavailable);
-                return self
-                    .publish_debug(Some(task_id), "deferred task command delivery failed")
-                    .await;
+                self.publish_debug(Some(task_id), "deferred task command delivery failed")
+                    .await?;
+                return Ok(RegisterRuntimeOutcome::Failed);
             }
         }
-        Ok(())
+        Ok(RegisterRuntimeOutcome::Started)
     }
 
     async fn stop_task_runtime(&mut self, task_id: TaskId) -> Result<(), RouterExitStatus> {
@@ -832,13 +943,20 @@ fn settle_router_command(command: RouterCommand, error: TaskCommandError) {
     match command {
         RouterCommand::SendUserInput { responder, .. } => responder.settle(Err(error)),
         RouterCommand::ArchiveTask { responder, .. } => responder.settle(Err(error)),
+        RouterCommand::CreateChildTaskAndRuntime { responder, .. } => {
+            let error = if error == TaskCommandError::InvalidCommand {
+                ForkTaskError::InvalidCommand
+            } else {
+                ForkTaskError::RuntimeUnavailable
+            };
+            responder.settle(Err(error));
+        }
         RouterCommand::AttachClient { .. }
         | RouterCommand::DetachClient { .. }
         | RouterCommand::UpdateSubscription { .. }
         | RouterCommand::StopTaskRuntime { .. }
         | RouterCommand::EnsureTaskRuntime { .. }
-        | RouterCommand::EnsureMissingTaskRuntimes
-        | RouterCommand::CreateChildTaskAndRuntime { .. } => {}
+        | RouterCommand::EnsureMissingTaskRuntimes => {}
     }
 }
 
@@ -871,10 +989,35 @@ fn task_command_factory_error(kind: &FactoryFailureKind) -> TaskCommandError {
         }
         FactoryFailureKind::DbReadFailed
         | FactoryFailureKind::DbWriteFailed
-        | FactoryFailureKind::CursorNodeMissing => TaskCommandError::PersistenceFailed,
+        | FactoryFailureKind::StaleToolCall => TaskCommandError::PersistenceFailed,
         FactoryFailureKind::RuntimeInventoryUnavailable
         | FactoryFailureKind::RuntimeAlreadyLive
         | FactoryFailureKind::RuntimeCreationPending
         | FactoryFailureKind::CoreSpawnFailed => TaskCommandError::RuntimeUnavailable,
+    }
+}
+
+fn fork_task_factory_error(kind: &FactoryFailureKind, task_id: Option<&TaskId>) -> ForkTaskError {
+    match kind {
+        FactoryFailureKind::ParentTaskMissing | FactoryFailureKind::TaskMissing => {
+            ForkTaskError::ParentTaskMissing
+        }
+        FactoryFailureKind::ParentTaskArchived | FactoryFailureKind::TaskArchived => {
+            ForkTaskError::ParentTaskArchived
+        }
+        FactoryFailureKind::StaleToolCall => ForkTaskError::StaleToolCall,
+        FactoryFailureKind::DbReadFailed | FactoryFailureKind::DbWriteFailed => {
+            ForkTaskError::PersistenceFailed
+        }
+        FactoryFailureKind::CoreSpawnFailed => {
+            task_id.map_or(ForkTaskError::RuntimeUnavailable, |task_id| {
+                ForkTaskError::RuntimeStartFailedAfterChildCreated {
+                    task_id: task_id.clone(),
+                }
+            })
+        }
+        FactoryFailureKind::RuntimeInventoryUnavailable
+        | FactoryFailureKind::RuntimeAlreadyLive
+        | FactoryFailureKind::RuntimeCreationPending => ForkTaskError::RuntimeUnavailable,
     }
 }
