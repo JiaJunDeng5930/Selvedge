@@ -1,16 +1,23 @@
 use selvedge_db::{
     CreateRootTaskInput, DbError, DbPool, ForkTaskInput, FunctionCallId, HistoryNode,
-    HistoryNodeId, MessageRole, ModelProfileKey, NewFunctionCallNodeContent,
+    HistoryNodeId, JsonObject, MessageRole, ModelProfileKey, NewFunctionCallNodeContent,
     NewFunctionOutputNodeContent, NewHistoryNode, NewHistoryNodeContent, NewMessageNodeContent,
-    OpenDbOptions, ReadTaskInput, ReasoningEffort, TaskId, TaskStatusRow, ToolManifest, ToolName,
-    ToolParameterType, ToolSpec, UnixTs, append_function_output_and_drain_queue,
+    OpenDbOptions, ReadTaskInput, ReasoningEffort, TaskId, TaskStatusRow, ToolExecutionSource,
+    ToolManifest, ToolName, ToolSpec, UnixTs, append_function_output_and_drain_queue,
     append_model_reply_with_tool_calls_and_move_cursor, append_user_message_and_move_cursor,
     archive_task, create_history_node, create_root_task, fork_task_from_function_call,
     load_active_task, open_db, queue_user_input, read_conversation_for_task, read_task,
-    read_tool_manifest_for_task, register_global_tool, register_tool,
+    read_tool_execution_source, read_tool_manifest_for_task, register_global_tool, register_tool,
+    unpublish_global_tool,
 };
 use selvedge_domain_model::ConversationItem;
-use selvedge_domain_model::ToolParameter;
+
+fn json_object(value: serde_json::Value) -> JsonObject {
+    match value {
+        serde_json::Value::Object(object) => object,
+        _ => panic!("test JSON value must be an object"),
+    }
+}
 
 fn create_message_node(
     db: &DbPool,
@@ -37,7 +44,7 @@ fn tool_spec(name: &str, description: &str) -> ToolSpec {
     ToolSpec {
         name: name.to_owned(),
         description: description.to_owned(),
-        parameters: Vec::new(),
+        input_schema: JsonObject::new(),
     }
 }
 
@@ -45,7 +52,7 @@ fn function_call(call_id: &str, tool_name: &str) -> NewFunctionCallNodeContent {
     NewFunctionCallNodeContent {
         function_call_id: FunctionCallId(call_id.to_owned()),
         tool_name: ToolName(tool_name.to_owned()),
-        arguments: Vec::new(),
+        arguments: JsonObject::new(),
     }
 }
 
@@ -364,12 +371,20 @@ fn global_tool_registration_is_exactly_idempotent_and_merges_with_task_tools() {
     let global_tool = ToolSpec {
         name: "read_task".to_owned(),
         description: "Read durable task state".to_owned(),
-        parameters: vec![ToolParameter {
-            name: "task_id".to_owned(),
-            parameter_type: ToolParameterType::String,
-            description: "Task identifier".to_owned(),
-            required: true,
-        }],
+        input_schema: serde_json::json!({
+            "type": "object",
+            "properties": {
+                "task_id": {
+                    "type": "string",
+                    "description": "Task identifier"
+                }
+            },
+            "required": ["task_id"],
+            "additionalProperties": false
+        })
+        .as_object()
+        .expect("object schema")
+        .clone(),
     };
     register_global_tool(&db, global_tool.clone()).expect("register global tool");
     register_global_tool(&db, global_tool.clone()).expect("repeat exact registration");
@@ -712,36 +727,32 @@ fn fork_failures_leave_no_child_or_orphan_history() {
 }
 
 #[test]
-fn open_db_migrates_v4_tool_rows_to_non_global_before_global_registration() {
-    let directory = tempfile::tempdir().expect("temp directory");
-    let sqlite_path = directory.path().join("migration.sqlite");
-    let v4_schema = include_str!("../src/schema.sql")
-        .replace("harness-persistence-v5", "router-mediated-redesign-v4")
-        .replace(
-            ",\n    is_global INTEGER NOT NULL DEFAULT 0 CHECK (is_global IN (0, 1))",
-            "",
-        )
-        .replace(
-            "CREATE INDEX idx_tools_global_name\n    ON tools(is_global, tool_name);\n\n",
-            "",
-        );
-    assert!(!v4_schema.contains("is_global"));
-    rusqlite::Connection::open(&sqlite_path)
-        .expect("open v4 database")
-        .execute_batch(&v4_schema)
-        .expect("create v4 schema");
-
+fn global_unpublish_preserves_history_definition_and_harness_route() {
     let db = open_db(OpenDbOptions {
-        sqlite_path: sqlite_path.to_string_lossy().into_owned(),
+        sqlite_path: ":memory:".to_owned(),
     })
-    .expect("migrate database");
-    let global_tool = tool_spec("read_task", "Read durable task state");
-    register_global_tool(&db, global_tool.clone()).expect("register after migration");
+    .expect("open db");
+    let tool = ToolSpec {
+        name: "nested_tool".to_owned(),
+        description: "Accept nested JSON".to_owned(),
+        input_schema: json_object(serde_json::json!({
+            "type": "object",
+            "properties": {
+                "payload": {
+                    "type": "object",
+                    "properties": {
+                        "values": { "type": "array" }
+                    }
+                }
+            }
+        })),
+    };
+    register_global_tool(&db, tool.clone()).expect("register global tool");
     let task = create_root_task(
         &db,
         CreateRootTaskInput {
             task_id: TaskId("task".to_owned()),
-            cursor_node_id: create_message_node(&db, None, MessageRole::User, "hello", UnixTs(10)),
+            cursor_node_id: create_message_node(&db, None, MessageRole::User, "run", UnixTs(10)),
             model_profile_key: ModelProfileKey("default".to_owned()),
             reasoning_effort: ReasoningEffort::Medium,
             enabled_tools: Vec::new(),
@@ -749,10 +760,254 @@ fn open_db_migrates_v4_tool_rows_to_non_global_before_global_registration() {
         },
     )
     .expect("create task");
-    assert_eq!(
+    let arguments = json_object(serde_json::json!({
+        "large": 9007199254740993_u64,
+        "nested": {
+            "values": [null, true, "text"]
+        }
+    }));
+    append_model_reply_with_tool_calls_and_move_cursor(
+        &db,
+        &task.task_id,
+        None,
+        vec![NewFunctionCallNodeContent {
+            function_call_id: FunctionCallId("call".to_owned()),
+            tool_name: ToolName(tool.name.clone()),
+            arguments: arguments.clone(),
+        }],
+        UnixTs(11),
+    )
+    .expect("persist function call");
+
+    unpublish_global_tool(&db, &ToolName(tool.name.clone())).expect("unpublish tool");
+
+    assert!(
         read_tool_manifest_for_task(&db, &task.task_id)
+            .expect("read manifest after unpublish")
+            .tools
+            .is_empty()
+    );
+    assert_eq!(
+        read_tool_execution_source(&db, &ToolName(tool.name.clone())).expect("read durable route"),
+        ToolExecutionSource::Harness
+    );
+    let persisted_arguments = read_task(
+        &db,
+        ReadTaskInput {
+            task_id: task.task_id,
+            after_node_id: None,
+            limit: 100,
+        },
+    )
+    .expect("read history after unpublish")
+    .history_nodes
+    .into_iter()
+    .find_map(|node| match node {
+        HistoryNode::FunctionCall { arguments, .. } => Some(arguments),
+        _ => None,
+    })
+    .expect("persisted function call");
+    assert_eq!(persisted_arguments, arguments);
+
+    register_global_tool(&db, tool.clone()).expect("republish exact durable definition");
+    assert_eq!(
+        read_tool_manifest_for_task(&db, &TaskId("task".to_owned()))
+            .expect("read republished manifest")
+            .tools,
+        vec![tool]
+    );
+}
+
+#[test]
+fn execution_source_is_closed_and_harness_registration_cannot_claim_an_mcp_route() {
+    let directory = tempfile::tempdir().expect("temp directory");
+    let sqlite_path = directory.path().join("routes.sqlite");
+    let db = open_db(OpenDbOptions {
+        sqlite_path: sqlite_path.to_string_lossy().into_owned(),
+    })
+    .expect("open db");
+    let raw = rusqlite::Connection::open(&sqlite_path).expect("open raw database");
+    assert!(
+        raw.execute(
+            "INSERT INTO tools
+             (tool_name, description_text, input_schema_json, execution_source_kind,
+              mcp_server_id, remote_tool_name, is_global)
+             VALUES ('broken', 'Broken route', '{}', 'mcp', 'server', NULL, 0)",
+            [],
+        )
+        .is_err()
+    );
+    raw.execute(
+        "INSERT INTO tools
+         (tool_name, description_text, input_schema_json, execution_source_kind,
+          mcp_server_id, remote_tool_name, is_global)
+         VALUES ('remote', 'Remote route', '{}', 'mcp', 'server', 'lookup', 0)",
+        [],
+    )
+    .expect("insert complete MCP route");
+
+    let tool_name = ToolName("remote".to_owned());
+    assert_eq!(
+        read_tool_execution_source(&db, &tool_name).expect("read MCP route"),
+        ToolExecutionSource::Mcp {
+            server_id: "server".to_owned(),
+            remote_tool_name: "lookup".to_owned(),
+        }
+    );
+    assert!(matches!(
+        register_global_tool(&db, tool_spec("remote", "Remote route")),
+        Err(DbError::Constraint(_))
+    ));
+    assert_eq!(
+        read_tool_execution_source(&db, &tool_name).expect("route survives failed registration"),
+        ToolExecutionSource::Mcp {
+            server_id: "server".to_owned(),
+            remote_tool_name: "lookup".to_owned(),
+        }
+    );
+}
+
+#[test]
+fn open_db_migrates_v5_schemas_and_arguments_to_v6_json_storage() {
+    let directory = tempfile::tempdir().expect("temp directory");
+    let sqlite_path = directory.path().join("migration.sqlite");
+    let legacy = rusqlite::Connection::open(&sqlite_path).expect("open v5 database");
+    legacy
+        .execute_batch(include_str!("fixtures/schema_v5.sql"))
+        .expect("create v5 schema");
+    legacy
+        .execute_batch(
+            "INSERT INTO tools (tool_name, description_text, is_global)
+             VALUES ('legacy', 'Legacy tool', 1);
+             INSERT INTO tool_parameters
+             (tool_name, parameter_name, parameter_type, description_text, is_required)
+             VALUES
+               ('legacy', 'ratio', 'number', 'Ratio value', 1),
+               ('legacy', 'query', 'string', 'Query text', 1),
+               ('legacy', 'enabled', 'boolean', 'Enabled flag', 0),
+               ('legacy', 'count', 'integer', 'Exact count', 1);
+
+             INSERT INTO history_nodes (node_id, parent_node_id, content_kind, created_at)
+             VALUES
+               (1, NULL, 'message', 10),
+               (2, 1, 'function_call', 11),
+               (3, 2, 'function_call', 12);
+             INSERT INTO history_message_nodes (node_id, message_role, message_text)
+             VALUES (1, 'user', 'migrate');
+             INSERT INTO history_function_call_nodes
+             (node_id, function_call_id, tool_name)
+             VALUES
+               (2, 'populated', 'legacy'),
+               (3, 'empty', 'legacy');
+             INSERT INTO history_function_call_arguments
+             (function_call_node_id, tool_name, argument_name, value_type,
+              string_value, integer_value, number_value, boolean_value)
+             VALUES
+               (2, 'legacy', 'ratio', 'number', NULL, NULL, 1.25, NULL),
+               (2, 'legacy', 'query', 'string', 'hello', NULL, NULL, NULL),
+               (2, 'legacy', 'enabled', 'boolean', NULL, NULL, NULL, 1),
+               (2, 'legacy', 'count', 'integer', NULL, 9007199254740993, NULL, NULL);
+             INSERT INTO tasks
+             (task_id, task_status, cursor_node_id, model_profile_key, reasoning_effort,
+              state_version, created_at, updated_at)
+             VALUES ('task', 'active', 3, 'default', 'medium', 0, 10, 12);",
+        )
+        .expect("seed v5 rows");
+    drop(legacy);
+
+    let db = open_db(OpenDbOptions {
+        sqlite_path: sqlite_path.to_string_lossy().into_owned(),
+    })
+    .expect("migrate database");
+    let expected_tool = ToolSpec {
+        name: "legacy".to_owned(),
+        description: "Legacy tool".to_owned(),
+        input_schema: json_object(serde_json::json!({
+            "type": "object",
+            "properties": {
+                "count": {
+                    "type": "integer",
+                    "description": "Exact count"
+                },
+                "enabled": {
+                    "type": "boolean",
+                    "description": "Enabled flag"
+                },
+                "query": {
+                    "type": "string",
+                    "description": "Query text"
+                },
+                "ratio": {
+                    "type": "number",
+                    "description": "Ratio value"
+                }
+            },
+            "required": ["count", "query", "ratio"],
+            "additionalProperties": false
+        })),
+    };
+    assert_eq!(
+        read_tool_manifest_for_task(&db, &TaskId("task".to_owned()))
             .expect("read migrated manifest")
             .tools,
-        vec![global_tool]
+        vec![expected_tool]
+    );
+    assert_eq!(
+        read_tool_execution_source(&db, &ToolName("legacy".to_owned()))
+            .expect("read migrated route"),
+        ToolExecutionSource::Harness
+    );
+
+    let calls = read_conversation_for_task(&db, &TaskId("task".to_owned()))
+        .expect("read migrated conversation")
+        .items
+        .into_iter()
+        .filter_map(|item| match item {
+            ConversationItem::FunctionCall {
+                function_call_id,
+                arguments,
+                ..
+            } => Some((function_call_id, arguments)),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        calls,
+        vec![
+            (
+                FunctionCallId("populated".to_owned()),
+                json_object(serde_json::json!({
+                    "count": 9007199254740993_u64,
+                    "enabled": true,
+                    "query": "hello",
+                    "ratio": 1.25
+                }))
+            ),
+            (FunctionCallId("empty".to_owned()), JsonObject::new())
+        ]
+    );
+
+    let raw = rusqlite::Connection::open(&sqlite_path).expect("open migrated database");
+    let legacy_table_count = raw
+        .query_row(
+            "SELECT COUNT(*)
+             FROM sqlite_master
+             WHERE type = 'table'
+               AND name IN ('tool_parameters', 'history_function_call_arguments')",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .expect("inspect migrated tables");
+    assert_eq!(legacy_table_count, 0);
+    assert_eq!(
+        raw.query_row(
+            "SELECT schema_value
+             FROM schema_metadata
+             WHERE schema_key = 'selvedge_schema_version'",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .expect("read schema version"),
+        "json-tool-foundation-v6"
     );
 }
