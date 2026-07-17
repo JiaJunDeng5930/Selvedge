@@ -99,7 +99,7 @@ fn public_api_exposes_chatgpt_response_stream_types() {
         status: Some("completed".to_owned()),
         name: "do_work".to_owned(),
         namespace: Some("tools".to_owned()),
-        arguments: "{\"x\":1}".to_owned(),
+        arguments: JsonObject::from_iter([("x".to_owned(), serde_json::json!(1))]),
         call_id: "call-1".to_owned(),
     });
     let output_item = ResponseItem::FunctionCallOutput(FunctionCallOutputItem {

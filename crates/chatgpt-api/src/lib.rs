@@ -11,6 +11,7 @@ use std::{
 use futures_core::Stream;
 use futures_util::StreamExt;
 use http::{HeaderMap, HeaderValue, StatusCode};
+pub use selvedge_domain_model::JsonObject;
 use serde_json::Value;
 use tokio::{sync::mpsc, task::JoinHandle};
 
@@ -18,8 +19,6 @@ const DEFAULT_CHATGPT_BASE_URL: &str = "https://chatgpt.com/backend-api/codex";
 const DEFAULT_CHATGPT_STREAM_COMPLETION_TIMEOUT_MS: u64 = 1_800_000;
 const MAX_SSE_FRAME_BYTES: usize = 1024 * 1024;
 const MAX_RESPONSE_STREAM_BYTES: usize = 4 * 1024 * 1024;
-
-pub type JsonObject = serde_json::Map<String, Value>;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ChatgptApiConfig {
@@ -687,7 +686,7 @@ fn response_item_from_object(item: &JsonObject) -> Result<ResponseItem, ChatgptA
             status: optional_string(item, "status")?,
             name: required_string(item, "name")?,
             namespace: optional_string(item, "namespace")?,
-            arguments: required_string(item, "arguments")?,
+            arguments: function_call_arguments(item)?,
             call_id: required_string(item, "call_id")?,
         })),
         "function_call_output" => Ok(ResponseItem::FunctionCallOutput(FunctionCallOutputItem {
@@ -733,6 +732,17 @@ fn response_item_from_object(item: &JsonObject) -> Result<ResponseItem, ChatgptA
             raw: item.clone(),
         })),
     }
+}
+
+fn function_call_arguments(item: &JsonObject) -> Result<JsonObject, ChatgptApiError> {
+    let raw = required_string(item, "arguments")?;
+    let value = serde_json::from_str::<Value>(&raw)
+        .map_err(|_| malformed_event("arguments", "must contain valid JSON"))?;
+    let Value::Object(arguments) = value else {
+        return Err(malformed_event("arguments", "must contain a JSON object"));
+    };
+
+    Ok(arguments)
 }
 
 fn content_item_from_value(value: &Value) -> Result<ContentItem, ChatgptApiError> {
@@ -1287,7 +1297,7 @@ fn response_item_to_json(item: &ResponseItem) -> Value {
                 ("name".to_owned(), Value::String(call.name.clone())),
                 (
                     "arguments".to_owned(),
-                    Value::String(call.arguments.clone()),
+                    Value::String(Value::Object(call.arguments.clone()).to_string()),
                 ),
                 ("call_id".to_owned(), Value::String(call.call_id.clone())),
             ]);
@@ -1722,7 +1732,7 @@ pub struct FunctionCallItem {
     pub status: Option<String>,
     pub name: String,
     pub namespace: Option<String>,
-    pub arguments: String,
+    pub arguments: JsonObject,
     pub call_id: String,
 }
 
@@ -1874,7 +1884,8 @@ mod tests {
         ContentItem, JsonObject, MessageItem, ReasoningItem, ResponseItem, TextVerbosity,
         ToolDescriptor, build_http_request, chatgpt_usage_from_value, content_item_from_value,
         failed_endpoint_event, is_retryable_client_error, map_stream_event,
-        response_item_from_object, retry_delay_for_attempt, take_next_sse_frame,
+        response_item_from_object, response_item_to_json, retry_delay_for_attempt,
+        take_next_sse_frame,
     };
     use chatgpt_auth::ResolvedChatgptAuth;
     use http::{HeaderMap, HeaderValue, StatusCode};
@@ -2232,6 +2243,58 @@ mod tests {
         .expect("custom tool call");
 
         assert!(matches!(item, ResponseItem::Opaque(_)));
+    }
+
+    #[test]
+    fn function_call_arguments_remain_lossless_across_wire_decode_and_replay() {
+        let expected = serde_json::from_str::<serde_json::Value>(
+            r#"{"id":9007199254740993,"nullable":null,"nested":{"values":[true,{"mode":"exact"}]}}"#,
+        )
+        .expect("expected arguments");
+        let item = response_item_from_object(&JsonObject::from_iter([
+            ("type".to_owned(), serde_json::json!("function_call")),
+            ("name".to_owned(), serde_json::json!("lookup")),
+            ("call_id".to_owned(), serde_json::json!("call-1")),
+            (
+                "arguments".to_owned(),
+                serde_json::json!(
+                    r#"{"id":9007199254740993,"nullable":null,"nested":{"values":[true,{"mode":"exact"}]}}"#
+                ),
+            ),
+        ]))
+        .expect("function call");
+
+        let ResponseItem::FunctionCall(call) = &item else {
+            panic!("expected function call");
+        };
+        assert_eq!(serde_json::Value::Object(call.arguments.clone()), expected);
+
+        let replay = response_item_to_json(&item);
+        let replayed_arguments = replay
+            .get("arguments")
+            .and_then(serde_json::Value::as_str)
+            .expect("replayed arguments");
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(replayed_arguments)
+                .expect("replayed arguments JSON"),
+            expected
+        );
+    }
+
+    #[test]
+    fn function_call_argument_decoder_rejects_non_object_json() {
+        let error = response_item_from_object(&JsonObject::from_iter([
+            ("type".to_owned(), serde_json::json!("function_call")),
+            ("name".to_owned(), serde_json::json!("lookup")),
+            ("call_id".to_owned(), serde_json::json!("call-1")),
+            ("arguments".to_owned(), serde_json::json!("[1,2,3]")),
+        ]))
+        .expect_err("array arguments must fail");
+
+        assert!(matches!(
+            error,
+            ChatgptApiError::Endpoint(ChatgptApiEndpointError::MalformedEvent { .. })
+        ));
     }
 
     #[test]

@@ -15,6 +15,11 @@ For ChatGPT adapter dispatch, `request.provider.model_name` becomes the ChatGPT 
 
 Spawned calls supervise provider panics and convert them into a correlated failure envelope. ChatGPT text `done` events must extend the accumulated UTF-8 delta exactly; mismatches become `ProviderResponse` failures. Every spawned call therefore reaches one terminal router outcome while router ingress remains available.
 
+The ChatGPT adapter copies each tool's complete JSON input schema into the
+provider descriptor. Function-call history is replayed only from explicit
+function-call and function-output message content, and decoded function-call
+arguments remain JSON objects without numeric conversion.
+
 This crate is not for database access, filesystem access, task creation, task runtime mutation, router registry mutation, retries, or persistence.
 
 ## Package State Machine
@@ -46,7 +51,7 @@ flowchart TD
   ResolveProvider -->|registry accepts chatgpt and selected model| Chatgpt
   ResolveProvider -->|provider id is absent from registry| UnknownProvider
   ResolveProvider -->|credential or model-source rule is unsatisfied| IncompleteProvider
-  Chatgpt -->|stream opens and yields response events| Accumulate
+  Chatgpt -->|stream opens and yields text or object-shaped function-call events| Accumulate
   Chatgpt -->|chatgpt-api returns endpoint, auth, transport, timeout, or validation error| StreamError
   Accumulate -->|stream yields completed event or closes after terminal response| Complete
   Accumulate -->|stream yields an error before completion| StreamError

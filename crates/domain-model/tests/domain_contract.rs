@@ -1,10 +1,8 @@
-use std::collections::BTreeMap;
-
 use selvedge_domain_model::{
-    ApiDomainValidationError, ConversationMessage, ConversationPath, MessageContent, MessageRole,
-    ModelFinishReason, ModelProviderProfile, ModelReply, StructuredPayload, ToolCallProposal,
-    ToolManifest, ToolParameter, ToolParameterType, ToolSpec, validate_conversation_path,
-    validate_model_provider_profile, validate_model_reply, validate_tool_manifest,
+    ApiDomainValidationError, ConversationMessage, ConversationPath, JsonObject, MessageContent,
+    MessageRole, ModelFinishReason, ModelProviderProfile, ModelReply, ToolCallProposal,
+    ToolManifest, ToolSpec, validate_conversation_path, validate_model_provider_profile,
+    validate_model_reply, validate_tool_manifest,
 };
 
 #[test]
@@ -51,7 +49,7 @@ fn tool_manifest_rejects_empty_or_duplicate_tool_names() {
         tools: vec![ToolSpec {
             name: " ".to_owned(),
             description: "search".to_owned(),
-            parameters: Vec::new(),
+            input_schema: JsonObject::new(),
         }],
     };
 
@@ -65,12 +63,12 @@ fn tool_manifest_rejects_empty_or_duplicate_tool_names() {
             ToolSpec {
                 name: "search".to_owned(),
                 description: "search".to_owned(),
-                parameters: Vec::new(),
+                input_schema: JsonObject::new(),
             },
             ToolSpec {
                 name: "search".to_owned(),
                 description: "search again".to_owned(),
-                parameters: Vec::new(),
+                input_schema: JsonObject::new(),
             },
         ],
     };
@@ -78,53 +76,6 @@ fn tool_manifest_rejects_empty_or_duplicate_tool_names() {
     assert_eq!(
         validate_tool_manifest(&duplicate_name),
         Err(ApiDomainValidationError::DuplicateToolName)
-    );
-}
-
-#[test]
-fn tool_manifest_rejects_empty_or_duplicate_parameter_names_per_tool() {
-    let empty_parameter = ToolManifest {
-        tools: vec![ToolSpec {
-            name: "search".to_owned(),
-            description: "search".to_owned(),
-            parameters: vec![ToolParameter {
-                name: String::new(),
-                parameter_type: ToolParameterType::String,
-                description: "query".to_owned(),
-                required: true,
-            }],
-        }],
-    };
-
-    assert_eq!(
-        validate_tool_manifest(&empty_parameter),
-        Err(ApiDomainValidationError::EmptyToolParameterName)
-    );
-
-    let duplicate_parameter = ToolManifest {
-        tools: vec![ToolSpec {
-            name: "search".to_owned(),
-            description: "search".to_owned(),
-            parameters: vec![
-                ToolParameter {
-                    name: "query".to_owned(),
-                    parameter_type: ToolParameterType::String,
-                    description: "query".to_owned(),
-                    required: true,
-                },
-                ToolParameter {
-                    name: "query".to_owned(),
-                    parameter_type: ToolParameterType::String,
-                    description: "query again".to_owned(),
-                    required: false,
-                },
-            ],
-        }],
-    };
-
-    assert_eq!(
-        validate_tool_manifest(&duplicate_parameter),
-        Err(ApiDomainValidationError::DuplicateToolParameterName)
     );
 }
 
@@ -174,7 +125,7 @@ fn model_reply_requires_text_or_valid_tool_calls() {
         tool_calls: vec![ToolCallProposal {
             call_id: String::new(),
             tool_name: "search".to_owned(),
-            arguments: StructuredPayload::Object(BTreeMap::new()),
+            arguments: JsonObject::new(),
         }],
         usage: None,
         finish_reason: ModelFinishReason::ToolCalls,
@@ -190,7 +141,7 @@ fn model_reply_requires_text_or_valid_tool_calls() {
         tool_calls: vec![ToolCallProposal {
             call_id: "call-1".to_owned(),
             tool_name: " ".to_owned(),
-            arguments: StructuredPayload::Object(BTreeMap::new()),
+            arguments: JsonObject::new(),
         }],
         usage: None,
         finish_reason: ModelFinishReason::ToolCalls,
