@@ -5,11 +5,12 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use selvedge_command_model::{
-    ApiEffectId, ApiOutputEnvelope, CoreOutputEnvelope, CoreOutputMessage, DomainEvent,
-    DomainEventPublishRequest, ModelCallDispatchRequest, ModelRunId, RouterIngressMessage,
-    RouterIngressWeakSender, TaskRuntimeCommand, TaskRuntimeControl, TaskRuntimeExitNotice,
-    TaskRuntimeExitReason, TaskRuntimeSender, TaskRuntimeStopResult, ToolExecutionRequest,
-    ToolExecutionResult, ToolExecutionRunId,
+    ApiEffectId, ApiOutputEnvelope, ArchiveTaskOutcome, ArchiveTaskResponder, CoreOutputEnvelope,
+    CoreOutputMessage, DomainEvent, DomainEventPublishRequest, ModelCallDispatchRequest,
+    ModelRunId, RouterIngressMessage, RouterIngressWeakSender, SendUserInputOutcome,
+    SendUserInputResponder, TaskCommandError, TaskRuntimeCommand, TaskRuntimeControl,
+    TaskRuntimeExitNotice, TaskRuntimeExitReason, TaskRuntimeSender, TaskRuntimeStopResult,
+    ToolExecutionRequest, ToolExecutionResult, ToolExecutionRunId,
 };
 use selvedge_db::{
     DbError, DbPool, FunctionCallId, HistoryNode, HistoryNodeId, MessageRole,
@@ -113,6 +114,7 @@ pub fn spawn_task_runtime(
         started: false,
         model_profiles: args.config.model_profiles,
         wait_state: WaitState::AwaitingUserInput,
+        terminal_task_error: None,
     };
     tokio::spawn(actor.run());
 
@@ -128,6 +130,7 @@ struct TaskRuntimeActor {
     started: bool,
     model_profiles: HashMap<ModelProfileKey, ModelProviderProfile>,
     wait_state: WaitState,
+    terminal_task_error: Option<TaskCommandError>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -184,19 +187,27 @@ impl TaskRuntimeActor {
             }
             let should_stop = match command {
                 TaskRuntimeCommand::Start => self.handle_start().await,
-                TaskRuntimeCommand::UserInput { message_text } => {
-                    self.handle_user_input(message_text).await
-                }
+                TaskRuntimeCommand::UserInput {
+                    message_text,
+                    responder,
+                } => self.handle_user_input(message_text, responder).await,
                 TaskRuntimeCommand::ApiModelReply(envelope) => {
                     self.handle_model_reply(envelope).await
                 }
                 TaskRuntimeCommand::ToolResult(result) => self.handle_tool_result(result).await,
-                TaskRuntimeCommand::Archive => self.handle_archive().await,
+                TaskRuntimeCommand::Archive { responder } => self.handle_archive(responder).await,
             };
 
             if should_stop {
                 break;
             }
+        }
+        self.rx.close();
+        let terminal_error = self
+            .terminal_task_error
+            .unwrap_or(TaskCommandError::RuntimeUnavailable);
+        while let Some(command) = self.rx.recv().await {
+            settle_task_runtime_command(command, terminal_error);
         }
         self.task_runtime_control
             .finish_stop(TaskRuntimeStopResult)
@@ -219,11 +230,7 @@ impl TaskRuntimeActor {
                 }
                 self.start_from_cursor_tail(loaded).await
             }
-            Err(error) => {
-                self.send_exit(TaskRuntimeExitReason::DbError(error.to_string()))
-                    .await;
-                true
-            }
+            Err(error) => self.stop_with_db_error(error).await,
         }
     }
 
@@ -303,22 +310,39 @@ impl TaskRuntimeActor {
         }
     }
 
-    async fn handle_user_input(&mut self, message_text: String) -> bool {
+    async fn handle_user_input(
+        &mut self,
+        message_text: String,
+        responder: SendUserInputResponder,
+    ) -> bool {
         if message_text.is_empty() {
+            responder.settle(Err(TaskCommandError::InvalidCommand));
             return self
                 .stop_with_internal_error("user input must not be empty")
                 .await;
         }
 
         match self.wait_state {
-            WaitState::AwaitingUserInput => {
-                self.commit_user_message_and_request_model(message_text)
-                    .await
-            }
+            WaitState::AwaitingUserInput => match self.append_user_message(message_text) {
+                Ok(node_id) => {
+                    responder.settle(Ok(SendUserInputOutcome::Committed { node_id }));
+                    self.request_model_call().await
+                }
+                Err(error) => {
+                    responder.settle(Err(task_command_db_error(&error)));
+                    self.stop_with_db_error(error).await
+                }
+            },
             WaitState::WaitingModelReply { .. } | WaitState::WaitingToolResult { .. } => {
                 match queue_user_input(&self.db, &self.task_id, message_text, now()) {
-                    Ok(_) => false,
-                    Err(error) => self.stop_with_db_error(error).await,
+                    Ok(_) => {
+                        responder.settle(Ok(SendUserInputOutcome::Queued));
+                        false
+                    }
+                    Err(error) => {
+                        responder.settle(Err(task_command_db_error(&error)));
+                        self.stop_with_db_error(error).await
+                    }
                 }
             }
         }
@@ -473,26 +497,23 @@ impl TaskRuntimeActor {
         }
     }
 
-    async fn handle_archive(&mut self) -> bool {
+    async fn handle_archive(&mut self, responder: ArchiveTaskResponder) -> bool {
         match archive_task(&self.db, &self.task_id, now()) {
             Ok(()) => {
+                responder.settle(Ok(ArchiveTaskOutcome::Archived));
+                self.terminal_task_error = Some(TaskCommandError::TaskArchived);
                 self.send_exit(TaskRuntimeExitReason::Archived).await;
                 true
             }
-            Err(error) => self.stop_with_db_error(error).await,
+            Err(error) => {
+                responder.settle(Err(task_command_db_error(&error)));
+                self.stop_with_db_error(error).await
+            }
         }
     }
 
-    async fn commit_user_message_and_request_model(&mut self, message_text: String) -> bool {
-        match self.append_user_message(message_text) {
-            Ok(()) => self.request_model_call().await,
-            Err(error) => self.stop_with_db_error(error).await,
-        }
-    }
-
-    fn append_user_message(&mut self, message_text: String) -> Result<(), DbError> {
+    fn append_user_message(&mut self, message_text: String) -> Result<HistoryNodeId, DbError> {
         append_user_message_and_move_cursor(&self.db, &self.task_id, message_text, now())
-            .map(|_| ())
     }
 
     async fn request_model_call(&mut self) -> bool {
@@ -634,16 +655,38 @@ impl TaskRuntimeActor {
         }));
     }
 
-    async fn stop_with_db_error(&self, error: DbError) -> bool {
+    async fn stop_with_db_error(&mut self, error: DbError) -> bool {
+        self.terminal_task_error = Some(task_command_db_error(&error));
         self.send_exit(TaskRuntimeExitReason::DbError(error.to_string()))
             .await;
         true
     }
 
-    async fn stop_with_internal_error(&self, message: &str) -> bool {
+    async fn stop_with_internal_error(&mut self, message: &str) -> bool {
+        self.terminal_task_error = Some(TaskCommandError::RuntimeUnavailable);
         self.send_exit(TaskRuntimeExitReason::InternalError(message.to_owned()))
             .await;
         true
+    }
+}
+
+fn task_command_db_error(error: &DbError) -> TaskCommandError {
+    match error {
+        DbError::NotFound => TaskCommandError::TaskMissing,
+        DbError::TaskNotActive => TaskCommandError::TaskArchived,
+        DbError::Constraint(_) | DbError::Storage(_) | DbError::SchemaMismatch { .. } => {
+            TaskCommandError::PersistenceFailed
+        }
+    }
+}
+
+fn settle_task_runtime_command(command: TaskRuntimeCommand, error: TaskCommandError) {
+    match command {
+        TaskRuntimeCommand::UserInput { responder, .. } => responder.settle(Err(error)),
+        TaskRuntimeCommand::Archive { responder } => responder.settle(Err(error)),
+        TaskRuntimeCommand::Start
+        | TaskRuntimeCommand::ApiModelReply(_)
+        | TaskRuntimeCommand::ToolResult(_) => {}
     }
 }
 

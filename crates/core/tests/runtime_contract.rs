@@ -2,9 +2,11 @@ use std::collections::{BTreeMap, HashMap};
 use std::time::Duration;
 
 use selvedge_command_model::{
-    ApiCallCorrelation, ApiOutputEnvelope, CoreOutputMessage, DomainEvent,
+    ApiCallCorrelation, ApiOutputEnvelope, ArchiveTaskOutcome, CoreOutputMessage, DomainEvent,
     ModelCallDispatchRequest, ModelCallError, ModelCallErrorKind, ModelRunId, RouterIngressMessage,
-    RouterIngressSender, TaskRuntimeCommand, TaskRuntimeExitReason, ToolExecutionResult,
+    RouterIngressSender, SendUserInputOutcome, TaskCommandError, TaskRuntimeCommand,
+    TaskRuntimeExitReason, ToolExecutionResult, archive_task_response_channel,
+    send_user_input_response_channel,
 };
 use selvedge_core::{SpawnTaskRuntimeArgs, TaskRuntimeConfig, spawn_task_runtime};
 use selvedge_db::{
@@ -462,11 +464,47 @@ async fn task_runtime_dispatches_all_tool_calls_before_next_model_call() {
 async fn task_runtime_stop_returns_after_archive_exit() {
     let (runtime, mut router_rx, _router_tx) = spawn_runtime_with_task(Vec::new()).await;
 
+    runtime.task_runtime_control.freeze();
+    let (archive_responder, archive_response) = archive_task_response_channel();
+    let (late_input_responder, late_input_response) = send_user_input_response_channel();
+    let (racing_archive_responder, racing_archive_response) = archive_task_response_channel();
     runtime
         .task_runtime_tx
-        .send(TaskRuntimeCommand::Archive)
+        .send(TaskRuntimeCommand::Archive {
+            responder: archive_responder,
+        })
         .await
         .expect("send archive");
+    runtime
+        .task_runtime_tx
+        .send(TaskRuntimeCommand::UserInput {
+            message_text: "after archive".to_owned(),
+            responder: late_input_responder,
+        })
+        .await
+        .expect("send late input");
+    runtime
+        .task_runtime_tx
+        .send(TaskRuntimeCommand::Archive {
+            responder: racing_archive_responder,
+        })
+        .await
+        .expect("send racing archive");
+    runtime.task_runtime_control.unfreeze();
+    assert_eq!(
+        archive_response.await.expect("archive response"),
+        Ok(ArchiveTaskOutcome::Archived)
+    );
+    assert_eq!(
+        late_input_response.await.expect("late input response"),
+        Err(TaskCommandError::TaskArchived)
+    );
+    assert_eq!(
+        racing_archive_response
+            .await
+            .expect("racing archive response"),
+        Err(TaskCommandError::TaskArchived)
+    );
     let message = router_rx.recv().await.expect("runtime exit");
     assert!(matches!(
         message,
@@ -953,6 +991,7 @@ async fn task_runtime_ignores_unrelated_validation_failure_while_waiting() {
         .task_runtime_tx
         .send(TaskRuntimeCommand::UserInput {
             message_text: "queued".to_owned(),
+            responder: send_user_input_response_channel().0,
         })
         .await
         .expect("queue while waiting");
@@ -1047,6 +1086,7 @@ async fn task_runtime_promotes_queued_input_after_model_failure() {
         .task_runtime_tx
         .send(TaskRuntimeCommand::UserInput {
             message_text: "queued".to_owned(),
+            responder: send_user_input_response_channel().0,
         })
         .await
         .expect("queue input");
@@ -1082,6 +1122,63 @@ async fn task_runtime_promotes_queued_input_after_model_failure() {
                 _ => None,
             });
     assert_eq!(last_text, Some("queued"));
+}
+
+#[tokio::test]
+async fn user_input_response_distinguishes_committed_and_queued_transitions() {
+    let (runtime, mut router_rx, _router_tx) = spawn_runtime_with_task(vec![]).await;
+    let correlation = start_and_request_model(&runtime, &mut router_rx).await;
+    runtime
+        .task_runtime_tx
+        .send(TaskRuntimeCommand::ApiModelReply(
+            ApiOutputEnvelope::Failure {
+                correlation,
+                error: ModelCallError {
+                    kind: ModelCallErrorKind::ProviderNetwork,
+                    message: "network".to_owned(),
+                },
+            },
+        ))
+        .await
+        .expect("send model failure");
+    let _error_event = router_rx.recv().await.expect("error event");
+
+    let (committed_responder, committed_response) = send_user_input_response_channel();
+    runtime
+        .task_runtime_tx
+        .send(TaskRuntimeCommand::UserInput {
+            message_text: "committed".to_owned(),
+            responder: committed_responder,
+        })
+        .await
+        .expect("send committed input");
+    let Ok(SendUserInputOutcome::Committed { node_id }) =
+        committed_response.await.expect("committed response")
+    else {
+        panic!("unexpected committed response");
+    };
+    assert!(node_id.0 > 0);
+    let request = recv_model_request(&mut router_rx).await;
+    assert!(request.conversation.messages.iter().any(|message| {
+        matches!(
+            &message.content,
+            MessageContent::Text(text) if text == "committed"
+        )
+    }));
+
+    let (queued_responder, queued_response) = send_user_input_response_channel();
+    runtime
+        .task_runtime_tx
+        .send(TaskRuntimeCommand::UserInput {
+            message_text: "queued".to_owned(),
+            responder: queued_responder,
+        })
+        .await
+        .expect("send queued input");
+    assert_eq!(
+        queued_response.await.expect("queued response"),
+        Ok(SendUserInputOutcome::Queued)
+    );
 }
 
 #[tokio::test]
@@ -1128,13 +1225,34 @@ async fn task_runtime_rejects_empty_idle_user_input_before_append() {
         .expect("send start");
     let _ready = router_rx.recv().await.expect("ready");
 
+    runtime.task_runtime_control.freeze();
+    let (responder, response) = send_user_input_response_channel();
+    let (late_responder, late_response) = send_user_input_response_channel();
     runtime
         .task_runtime_tx
         .send(TaskRuntimeCommand::UserInput {
             message_text: String::new(),
+            responder,
         })
         .await
         .expect("send empty input");
+    runtime
+        .task_runtime_tx
+        .send(TaskRuntimeCommand::UserInput {
+            message_text: "after runtime failure".to_owned(),
+            responder: late_responder,
+        })
+        .await
+        .expect("send late input");
+    runtime.task_runtime_control.unfreeze();
+    assert_eq!(
+        response.await.expect("input response"),
+        Err(TaskCommandError::InvalidCommand)
+    );
+    assert_eq!(
+        late_response.await.expect("late response"),
+        Err(TaskCommandError::RuntimeUnavailable)
+    );
 
     assert_internal_exit(&mut router_rx).await;
 }
@@ -1179,6 +1297,7 @@ async fn task_runtime_preserves_model_wait_state_for_stray_tool_result() {
         .task_runtime_tx
         .send(TaskRuntimeCommand::UserInput {
             message_text: "queued".to_owned(),
+            responder: send_user_input_response_channel().0,
         })
         .await
         .expect("queue input");
@@ -1585,6 +1704,7 @@ async fn task_runtime_allows_messages_between_tool_call_and_matching_output() {
         .task_runtime_tx
         .send(TaskRuntimeCommand::UserInput {
             message_text: "hello".to_owned(),
+            responder: send_user_input_response_channel().0,
         })
         .await
         .expect("send input");

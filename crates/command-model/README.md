@@ -14,6 +14,7 @@ This crate is not for network access, database access, filesystem access, provid
 `RuntimeReady` is only a readiness signal. The task runtime sender is returned by `selvedge-core::spawn_task_runtime` to the creator that owns router registration.
 `TaskRuntimeControl` is the shared control block for one runtime. Freeze is a state bit on that control block. `TaskRuntimeControl::stop` is an async function with synchronous barrier semantics: it sets the stop bit and resolves only after the runtime actor writes `TaskRuntimeStopResult`.
 `TaskRuntimeCommand` carries business input only. Stop is outside the business mailbox.
+`RouterCommand::SendUserInput` and `RouterCommand::ArchiveTask` carry typed responders through the router and task runtime. Input succeeds as `Committed` with its persisted history node id or as `Queued`; archive succeeds as `Archived`. Dropping an unsettled responder returns `RuntimeUnavailable`, so mailbox replacement, cancellation, and shutdown cannot be mistaken for a committed SQLite transition.
 `RouterIngressSender` is unbounded. Runtime, API, and tool outputs must be able to enqueue router ingress without awaiting router mailbox capacity, because router stop waits synchronously for runtime actors to finish.
 `RouterIngressWeakSender` is for internal router producers. Internal producers upgrade it only while an external ingress owner keeps the router mailbox open.
 `CoreOutputEnvelope` carries `task_id` for task-based router routing.
@@ -38,6 +39,8 @@ flowchart TD
   Frozen[TaskRuntimeControl frozen]
   Stopping[TaskRuntimeControl stopping]
   StopFinished[Stop result published]
+  TaskResponsePending[Task command response pending]
+  TaskResponseSettled[Task command response settled]
   Valid[Return accepted value]
   Invalid[Return validation error]
 
@@ -45,6 +48,7 @@ flowchart TD
   Start -->|caller validates API output envelope| ValidateApiOutput
   Start -->|caller validates router command envelope| ValidateRouterCommand
   Start -->|caller creates TaskRuntimeControl| ControlReady
+  Start -->|caller creates a user-input or archive response channel| TaskResponsePending
   ValidateDispatch -->|correlation, task, provider, profile, and input fields satisfy contract| Valid
   ValidateDispatch -->|required dispatch field is empty or inconsistent| Invalid
   ValidateApiOutput -->|output envelope correlation and payload are consistent| Valid
@@ -57,4 +61,6 @@ flowchart TD
   Frozen -->|stop is called| Stopping
   Stopping -->|finish_stop stores result and notifies waiters| StopFinished
   StopFinished -->|later stop call observes stored result| StopFinished
+  TaskResponsePending -->|runtime reports a committed SQLite outcome or classified failure| TaskResponseSettled
+  TaskResponsePending -->|unsettled responder is dropped| TaskResponseSettled
 ```
