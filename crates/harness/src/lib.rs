@@ -22,7 +22,7 @@ use selvedge_db::{
 use selvedge_domain_model::{
     HistoryNodeId, JsonObject, MessageRole, TaskId, ToolManifest, ToolSpec,
 };
-use serde_json::Value;
+use serde_json::{Number, Value};
 use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::process::Command;
 use tokio::task::JoinHandle;
@@ -348,9 +348,89 @@ impl<'a> Arguments<'a> {
                 "argument '{name}' must be an integer"
             )));
         };
-        value.as_i64().map(Some).ok_or_else(|| {
+        exact_json_integer(value).map(Some).ok_or_else(|| {
             HarnessError::invalid_arguments(format!("argument '{name}' must be an integer"))
         })
+    }
+}
+
+// JSON Schema integer semantics are mathematical, so decimal and exponent
+// spellings must be evaluated from the exact token instead of through f64.
+fn exact_json_integer(number: &Number) -> Option<i64> {
+    let source = number.to_string();
+    let (negative, unsigned) = match source.strip_prefix('-') {
+        Some(unsigned) => (true, unsigned),
+        None => (false, source.as_str()),
+    };
+    let exponent_start = unsigned.find(['e', 'E']);
+    let (mantissa, exponent) = exponent_start.map_or((unsigned, None), |index| {
+        (&unsigned[..index], Some(&unsigned[index + 1..]))
+    });
+    let (whole, fraction) = mantissa.split_once('.').unwrap_or((mantissa, ""));
+    let mut digits = String::with_capacity(whole.len() + fraction.len());
+    digits.push_str(whole);
+    digits.push_str(fraction);
+
+    if digits.bytes().all(|digit| digit == b'0') {
+        return Some(0);
+    }
+
+    let exponent = match exponent {
+        Some(exponent) => exponent.parse::<i64>().ok()?,
+        None => 0,
+    };
+    let fraction_len = i64::try_from(fraction.len()).ok()?;
+    let scale = exponent.checked_sub(fraction_len)?;
+    let coefficient_end = if scale < 0 {
+        let discarded_len = scale.checked_neg()?;
+        if discarded_len > i64::try_from(digits.len()).ok()? {
+            return None;
+        }
+        let coefficient_end = digits.len() - usize::try_from(discarded_len).ok()?;
+        if digits.as_bytes()[coefficient_end..]
+            .iter()
+            .any(|digit| *digit != b'0')
+        {
+            return None;
+        }
+        coefficient_end
+    } else {
+        digits.len()
+    };
+
+    // A nonzero i64 cannot contain more than 19 decimal places. This bound
+    // also keeps enormous JSON exponents from turning into long loops.
+    if scale > 18 {
+        return None;
+    }
+    let limit = if negative {
+        (i64::MAX as u64) + 1
+    } else {
+        i64::MAX as u64
+    };
+    let mut magnitude = 0_u64;
+    for digit in digits.as_bytes()[..coefficient_end].iter().copied() {
+        let digit = u64::from(digit.checked_sub(b'0')?);
+        if digit > 9 {
+            return None;
+        }
+        magnitude = magnitude.checked_mul(10)?.checked_add(digit)?;
+        if magnitude > limit {
+            return None;
+        }
+    }
+    for _ in 0..usize::try_from(scale).unwrap_or(0) {
+        magnitude = magnitude.checked_mul(10)?;
+        if magnitude > limit {
+            return None;
+        }
+    }
+
+    if negative && magnitude == (i64::MAX as u64) + 1 {
+        Some(i64::MIN)
+    } else {
+        let magnitude = i64::try_from(magnitude).ok()?;
+        Some(if negative { -magnitude } else { magnitude })
     }
 }
 
