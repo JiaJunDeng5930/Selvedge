@@ -505,12 +505,12 @@ base_url = "{}"
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn chatgpt_preserves_lossless_json_tool_arguments_in_model_reply() {
-    const FLAG: &str = "SELVEDGE_API_CHATGPT_IMPRECISE_INTEGER_CHILD";
+async fn chatgpt_accepts_pending_added_then_lossless_done_arguments() {
+    const FLAG: &str = "SELVEDGE_API_CHATGPT_PENDING_ARGUMENTS_CHILD";
 
     if !child_mode(FLAG) {
         assert_child_success(&run_child(
-            "chatgpt_preserves_lossless_json_tool_arguments_in_model_reply",
+            "chatgpt_accepts_pending_added_then_lossless_done_arguments",
             FLAG,
         ));
         return;
@@ -520,6 +520,9 @@ async fn chatgpt_preserves_lossless_json_tool_arguments_in_model_reply() {
         "/responses",
         post(|| async move {
             let body = Body::from_stream(async_stream::stream! {
+                yield Ok::<_, std::convert::Infallible>(bytes::Bytes::from(
+                    "data: {\"type\":\"response.output_item.added\",\"output_index\":0,\"item\":{\"type\":\"function_call\",\"id\":\"item-1\",\"status\":\"in_progress\",\"name\":\"lookup\",\"arguments\":\"\",\"call_id\":\"call-1\"}}\n\n",
+                ));
                 yield Ok::<_, std::convert::Infallible>(bytes::Bytes::from(
                     "data: {\"type\":\"response.output_item.done\",\"output_index\":0,\"item\":{\"type\":\"function_call\",\"id\":\"item-1\",\"status\":\"completed\",\"name\":\"lookup\",\"arguments\":\"{\\\"id\\\":9007199254740993,\\\"nullable\\\":null,\\\"nested\\\":{\\\"values\\\":[true,{\\\"mode\\\":\\\"exact\\\"}]}}\",\"call_id\":\"call-1\"}}\n\n",
                 ));

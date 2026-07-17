@@ -7,8 +7,8 @@ use chatgpt_api::{
     ChatgptRequestContext, ChatgptResponseEvent, ChatgptResponseSnapshot, ChatgptResponseStream,
     ChatgptResponsesRequest, ChatgptServiceTier, ChatgptTextOptions, ChatgptUsage, ContentItem,
     FunctionCallItem, FunctionCallOutputItem, JsonObject, MessageItem, OpaqueResponseItem,
-    ReasoningItem, RequestValidationError, ResponseItem, TextVerbosity, ToolDescriptor, ToolOutput,
-    stream,
+    PendingFunctionCallItem, ReasoningItem, RequestValidationError, ResponseItem, TextVerbosity,
+    ToolDescriptor, ToolOutput, stream,
 };
 
 #[test]
@@ -108,6 +108,13 @@ fn public_api_exposes_chatgpt_response_stream_types() {
         call_id: "call-1".to_owned(),
         output: ToolOutput::Text("done".to_owned()),
     });
+    let pending_item = ResponseItem::PendingFunctionCall(PendingFunctionCallItem {
+        id: Some("call-item".to_owned()),
+        status: Some("in_progress".to_owned()),
+        name: "do_work".to_owned(),
+        namespace: Some("tools".to_owned()),
+        call_id: "call-1".to_owned(),
+    });
     let reasoning_item = ResponseItem::Reasoning(ReasoningItem {
         id: Some("reasoning-1".to_owned()),
         status: Some("completed".to_owned()),
@@ -130,6 +137,7 @@ fn public_api_exposes_chatgpt_response_stream_types() {
     assert!(matches!(other, ChatgptApiEndpointError::Other(_)));
     assert!(matches!(event, ChatgptResponseEvent::Completed(_)));
     assert!(matches!(item, ResponseItem::FunctionCall(_)));
+    assert!(matches!(pending_item, ResponseItem::PendingFunctionCall(_)));
     assert!(matches!(output_item, ResponseItem::FunctionCallOutput(_)));
     assert!(matches!(reasoning_item, ResponseItem::Reasoning(_)));
     assert!(matches!(opaque, ResponseItem::Opaque(_)));

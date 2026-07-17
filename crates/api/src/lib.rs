@@ -319,6 +319,15 @@ async fn call_chatgpt(
                 count_stream_bytes(&mut byte_counter, &encoded_arguments)?;
                 tool_calls.push(tool_call_from_chatgpt(function_call));
             }
+            ChatgptResponseEvent::OutputItemDone {
+                item: ResponseItem::PendingFunctionCall(_),
+                ..
+            } => {
+                return Err(model_call_error(
+                    ModelCallErrorKind::ProviderResponse,
+                    "chatgpt completed a function call before its arguments were available",
+                ));
+            }
             ChatgptResponseEvent::Completed(snapshot) => {
                 usage = snapshot.usage.and_then(|usage| {
                     usage.input_tokens.zip(usage.output_tokens).map(
