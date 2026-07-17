@@ -21,8 +21,8 @@ use selvedge_db::{
     archive_task, create_root_task, read_task, register_global_tool,
 };
 use selvedge_harness::{
-    ARCHIVE_TASK_TOOL_NAME, FORK_TASK_TOOL_NAME, HarnessToolExecutor, READ_TASK_TOOL_NAME,
-    SEND_MESSAGE_TO_TASK_TOOL_NAME, tool_manifest,
+    ARCHIVE_TASK_TOOL_NAME, BASH_TOOL_NAME, FORK_TASK_TOOL_NAME, HarnessToolExecutor,
+    READ_TASK_TOOL_NAME, SEND_MESSAGE_TO_TASK_TOOL_NAME, tool_manifest,
 };
 use selvedge_router::{RouterExitStatus, RouterStartArgs, ToolExecutionSpawner, spawn_router};
 use selvedge_test_support::db::{create_message_node, open_memory_db};
@@ -263,6 +263,39 @@ async fn executor_closes_fork_send_read_and_archive_through_router_and_sqlite() 
         TaskStatusRow::Archived
     );
 
+    let bash_call_node_id = append_tool_call(
+        &db,
+        &parent_task_id,
+        "bash-call",
+        BASH_TOOL_NAME,
+        vec![string_argument("command", "printf integrated")],
+    );
+    let bash_request = tool_request(
+        &parent_task_id,
+        "run-bash",
+        bash_call_node_id,
+        "bash-call",
+        BASH_TOOL_NAME,
+        vec![string_argument("command", "printf integrated")],
+    );
+    let bash_result = execute_and_receive(
+        executor.as_ref(),
+        bash_request.clone(),
+        router.ingress_tx.downgrade(),
+        &mut tool_result_rx,
+    )
+    .await;
+    assert_eq!(
+        result_correlation(&bash_result),
+        result_correlation_from_request(&bash_request)
+    );
+    assert!(!bash_result.is_error);
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&bash_result.output_text)
+            .expect("decode bash output")["stdout"],
+        "integrated"
+    );
+
     let parent = read_task(
         &db,
         ReadTaskInput {
@@ -278,7 +311,7 @@ async fn executor_closes_fork_send_read_and_archive_through_router_and_sqlite() 
             .iter()
             .filter(|node| matches!(node, selvedge_db::HistoryNode::FunctionOutput { .. }))
             .count(),
-        4
+        5
     );
 
     router

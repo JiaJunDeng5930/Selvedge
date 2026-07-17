@@ -1632,6 +1632,7 @@ dependencies = [
 name = "selvedge-harness"
 version = "0.0.0"
 dependencies = [
+ "rustix",
  "selvedge-api",
  "selvedge-command-model",
  "selvedge-core",

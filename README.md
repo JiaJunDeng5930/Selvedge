@@ -27,7 +27,7 @@ just test
 
 `just run` starts the local server. `Ctrl-C` requests supervised shutdown and exits with status 130 after server tasks and the singleton lock are cleaned up.
 
-Server startup installs the built-in `fork_task`, `read_task`, `send_message_to_task`, and `archive_task` model tools and requests recovery for every active durable task. The current CLI still supplies no model profiles and does not provision a root task, so those remain separate prerequisites for a model-driven production session.
+Server startup installs the built-in `fork_task`, `read_task`, `send_message_to_task`, `archive_task`, and `bash` model tools and requests recovery for every active durable task. The current CLI still supplies no model profiles and does not provision a root task, so those remain separate prerequisites for a model-driven production session.
 
 ## Development setup
 

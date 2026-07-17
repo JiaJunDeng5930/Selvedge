@@ -2,8 +2,13 @@
 
 use std::collections::BTreeMap;
 use std::future::Future;
+use std::io;
+use std::process::Stdio;
+use std::time::Duration;
 use std::{error::Error, fmt};
 
+use rustix::io::Errno;
+use rustix::process::{Pid, Signal, kill_process_group};
 use selvedge_command_model::{
     ArchiveTaskOutcome, ForkTaskError, ForkTaskOutcome, HistoryNodeProjection,
     HistoryNodeProjectionBody, RouterCommand, RouterCommandEnvelope, RouterIngressMessage,
@@ -19,6 +24,8 @@ use selvedge_domain_model::{
     ToolParameter, ToolParameterType, ToolSpec,
 };
 use serde_json::{Number, Value};
+use tokio::io::{AsyncRead, AsyncReadExt};
+use tokio::process::Command;
 use tokio::task::JoinHandle;
 
 use selvedge_router::{ToolExecutionSpawnError, ToolExecutionSpawner};
@@ -27,8 +34,14 @@ pub const FORK_TASK_TOOL_NAME: &str = "fork_task";
 pub const READ_TASK_TOOL_NAME: &str = "read_task";
 pub const SEND_MESSAGE_TO_TASK_TOOL_NAME: &str = "send_message_to_task";
 pub const ARCHIVE_TASK_TOOL_NAME: &str = "archive_task";
+pub const BASH_TOOL_NAME: &str = "bash";
+pub const DEFAULT_BASH_TIMEOUT_MS: i64 = 30_000;
+pub const MIN_BASH_TIMEOUT_MS: i64 = 100;
+pub const MAX_BASH_TIMEOUT_MS: i64 = 120_000;
+pub const BASH_OUTPUT_LIMIT_BYTES: usize = 64 * 1024;
 
 const MAX_READ_LIMIT: i64 = 100;
+const BASH_REAP_TIMEOUT: Duration = Duration::from_secs(5);
 
 pub fn tool_manifest() -> ToolManifest {
     ToolManifest {
@@ -81,6 +94,20 @@ pub fn tool_manifest() -> ToolManifest {
                 description: "Archive another active task.".to_owned(),
                 parameters: vec![string_parameter("task_id", "Task to archive.", true)],
             },
+            ToolSpec {
+                name: BASH_TOOL_NAME.to_owned(),
+                description:
+                    "Run a non-interactive Bash login command in the server process environment and working directory. Stdout and stderr are each capped at 65536 bytes."
+                        .to_owned(),
+                parameters: vec![
+                    string_parameter("command", "Bash command to run.", true),
+                    integer_parameter(
+                        "timeout_ms",
+                        "Timeout in milliseconds; defaults to 30000, from 100 through 120000.",
+                        false,
+                    ),
+                ],
+            },
         ],
     }
 }
@@ -109,6 +136,7 @@ pub enum HarnessInvocation {
     ReadTask(ReadTaskInvocation),
     SendMessageToTask(SendMessageToTaskInvocation),
     ArchiveTask(ArchiveTaskInvocation),
+    Bash(BashInvocation),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -134,17 +162,41 @@ pub struct ArchiveTaskInvocation {
     pub task_id: TaskId,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BashInvocation {
+    pub command: String,
+    pub timeout_ms: u64,
+}
+
 pub fn parse_invocation(request: &ToolExecutionRequest) -> Result<HarnessInvocation, HarnessError> {
     match request.tool_name.0.as_str() {
         FORK_TASK_TOOL_NAME => parse_fork_task(&request.arguments),
         READ_TASK_TOOL_NAME => parse_read_task(&request.arguments),
         SEND_MESSAGE_TO_TASK_TOOL_NAME => parse_send_message_to_task(&request.arguments),
         ARCHIVE_TASK_TOOL_NAME => parse_archive_task(&request.task_id, &request.arguments),
+        BASH_TOOL_NAME => parse_bash(&request.arguments),
         unknown => Err(HarnessError::new(
             HarnessErrorCode::UnknownTool,
             format!("unknown tool '{unknown}'"),
         )),
     }
+}
+
+fn parse_bash(arguments: &[ToolCallArgument]) -> Result<HarnessInvocation, HarnessError> {
+    let arguments = Arguments::new(arguments, &["command", "timeout_ms"])?;
+    let command = arguments.required_nonempty_string("command")?;
+    let timeout_ms = arguments
+        .optional_integer("timeout_ms")?
+        .unwrap_or(DEFAULT_BASH_TIMEOUT_MS);
+    if !(MIN_BASH_TIMEOUT_MS..=MAX_BASH_TIMEOUT_MS).contains(&timeout_ms) {
+        return Err(HarnessError::invalid_arguments(format!(
+            "argument 'timeout_ms' must be between {MIN_BASH_TIMEOUT_MS} and {MAX_BASH_TIMEOUT_MS}"
+        )));
+    }
+    Ok(HarnessInvocation::Bash(BashInvocation {
+        command,
+        timeout_ms: timeout_ms as u64,
+    }))
 }
 
 fn parse_fork_task(arguments: &[ToolCallArgument]) -> Result<HarnessInvocation, HarnessError> {
@@ -273,6 +325,7 @@ pub enum HarnessSuccess {
     ReadTask(ReadTaskSuccess),
     SendMessageToTask(SendMessageToTaskSuccess),
     ArchiveTask(ArchiveTaskSuccess),
+    Bash(BashSuccess),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -315,6 +368,15 @@ pub struct ArchiveTaskSuccess {
     pub task_id: TaskId,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BashSuccess {
+    pub exit_code: Option<i32>,
+    pub stdout: String,
+    pub stderr: String,
+    pub stdout_truncated: bool,
+    pub stderr_truncated: bool,
+}
+
 impl HarnessSuccess {
     pub fn to_stable_json(&self) -> String {
         success_json(self).to_string()
@@ -335,6 +397,10 @@ pub enum HarnessErrorCode {
     RuntimeStartFailed,
     StorageError,
     ExecutorPanicked,
+    CommandSpawnFailed,
+    CommandIoFailed,
+    CommandWaitFailed,
+    CommandTimedOut,
 }
 
 impl HarnessErrorCode {
@@ -352,6 +418,10 @@ impl HarnessErrorCode {
             HarnessErrorCode::RuntimeStartFailed => "runtime_start_failed",
             HarnessErrorCode::StorageError => "storage_error",
             HarnessErrorCode::ExecutorPanicked => "executor_panicked",
+            HarnessErrorCode::CommandSpawnFailed => "command_spawn_failed",
+            HarnessErrorCode::CommandIoFailed => "command_io_failed",
+            HarnessErrorCode::CommandWaitFailed => "command_wait_failed",
+            HarnessErrorCode::CommandTimedOut => "command_timed_out",
         }
     }
 }
@@ -518,6 +588,7 @@ async fn execute_request(
         HarnessInvocation::ArchiveTask(invocation) => {
             execute_archive_task(invocation, router_tx).await
         }
+        HarnessInvocation::Bash(invocation) => execute_bash(invocation).await,
     }
 }
 
@@ -630,6 +701,189 @@ async fn execute_archive_task(
             HarnessErrorCode::OperationCancelled,
             "archive task response was cancelled",
         )),
+    }
+}
+
+async fn execute_bash(invocation: BashInvocation) -> Result<HarnessSuccess, HarnessError> {
+    let mut command = Command::new("/bin/bash");
+    command
+        .arg("-lc")
+        .arg(&invocation.command)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true)
+        .process_group(0);
+    let mut child = command.spawn().map_err(|error| {
+        HarnessError::new(
+            HarnessErrorCode::CommandSpawnFailed,
+            format!("failed to spawn bash command: {error}"),
+        )
+    })?;
+    let process_group_id = child
+        .id()
+        .and_then(|id| i32::try_from(id).ok())
+        .and_then(Pid::from_raw)
+        .ok_or_else(|| {
+            HarnessError::new(
+                HarnessErrorCode::CommandSpawnFailed,
+                "spawned bash command did not have a process ID",
+            )
+        })?;
+    let mut process_group = ProcessGroupGuard::new(process_group_id);
+    let stdout = child.stdout.take().ok_or_else(|| {
+        HarnessError::new(
+            HarnessErrorCode::CommandIoFailed,
+            "failed to capture bash stdout",
+        )
+    })?;
+    let stderr = child.stderr.take().ok_or_else(|| {
+        HarnessError::new(
+            HarnessErrorCode::CommandIoFailed,
+            "failed to capture bash stderr",
+        )
+    })?;
+
+    // The readers keep draining after their prefixes fill so neither child pipe can block.
+    let mut stdout_reader = tokio::spawn(capture_output(stdout));
+    let mut stderr_reader = tokio::spawn(capture_output(stderr));
+    let completed = tokio::time::timeout(Duration::from_millis(invocation.timeout_ms), async {
+        let status = child.wait().await;
+        let stdout = (&mut stdout_reader).await;
+        let stderr = (&mut stderr_reader).await;
+        (status, stdout, stderr)
+    })
+    .await;
+
+    let (status, stdout, stderr) = match completed {
+        Ok(completed) => {
+            // A non-interactive command cannot leave a background session behind.
+            process_group.terminate()?;
+            process_group.disarm();
+            completed
+        }
+        Err(_) => {
+            let termination = process_group.terminate();
+            let cleanup = tokio::time::timeout(BASH_REAP_TIMEOUT, async {
+                let status = child.wait().await;
+                let stdout = (&mut stdout_reader).await;
+                let stderr = (&mut stderr_reader).await;
+                (status, stdout, stderr)
+            })
+            .await;
+            let (status, _, _) = match cleanup {
+                Ok(cleanup) => cleanup,
+                Err(_) => {
+                    stdout_reader.abort();
+                    stderr_reader.abort();
+                    return Err(HarnessError::new(
+                        HarnessErrorCode::CommandWaitFailed,
+                        "timed-out bash command could not be reaped",
+                    ));
+                }
+            };
+            termination?;
+            status.map_err(|error| {
+                HarnessError::new(
+                    HarnessErrorCode::CommandWaitFailed,
+                    format!("failed to reap timed-out bash command: {error}"),
+                )
+            })?;
+            process_group.disarm();
+            return Err(HarnessError::new(
+                HarnessErrorCode::CommandTimedOut,
+                format!("bash command timed out after {} ms", invocation.timeout_ms),
+            ));
+        }
+    };
+
+    let status = status.map_err(|error| {
+        HarnessError::new(
+            HarnessErrorCode::CommandWaitFailed,
+            format!("failed to wait for bash command: {error}"),
+        )
+    })?;
+    let stdout = capture_result("stdout", stdout)?;
+    let stderr = capture_result("stderr", stderr)?;
+    Ok(HarnessSuccess::Bash(BashSuccess {
+        exit_code: status.code(),
+        stdout: stdout.text,
+        stderr: stderr.text,
+        stdout_truncated: stdout.truncated,
+        stderr_truncated: stderr.truncated,
+    }))
+}
+
+struct CapturedOutput {
+    text: String,
+    truncated: bool,
+}
+
+async fn capture_output(mut reader: impl AsyncRead + Unpin) -> Result<CapturedOutput, io::Error> {
+    let mut bytes = Vec::with_capacity(BASH_OUTPUT_LIMIT_BYTES);
+    let mut buffer = [0_u8; 8192];
+    let mut truncated = false;
+    loop {
+        let read = reader.read(&mut buffer).await?;
+        if read == 0 {
+            break;
+        }
+        let remaining = BASH_OUTPUT_LIMIT_BYTES.saturating_sub(bytes.len());
+        let retained = read.min(remaining);
+        bytes.extend_from_slice(&buffer[..retained]);
+        truncated |= retained < read;
+    }
+    Ok(CapturedOutput {
+        text: String::from_utf8_lossy(&bytes).into_owned(),
+        truncated,
+    })
+}
+
+fn capture_result(
+    stream: &str,
+    result: Result<Result<CapturedOutput, io::Error>, tokio::task::JoinError>,
+) -> Result<CapturedOutput, HarnessError> {
+    result.map_err(map_join_error)?.map_err(|error| {
+        HarnessError::new(
+            HarnessErrorCode::CommandIoFailed,
+            format!("failed to read bash {stream}: {error}"),
+        )
+    })
+}
+
+struct ProcessGroupGuard {
+    process_group_id: Pid,
+    armed: bool,
+}
+
+impl ProcessGroupGuard {
+    fn new(process_group_id: Pid) -> Self {
+        Self {
+            process_group_id,
+            armed: true,
+        }
+    }
+
+    fn terminate(&self) -> Result<(), HarnessError> {
+        match kill_process_group(self.process_group_id, Signal::KILL) {
+            Ok(()) | Err(Errno::SRCH) => Ok(()),
+            Err(error) => Err(HarnessError::new(
+                HarnessErrorCode::CommandWaitFailed,
+                format!("failed to terminate bash process group: {error}"),
+            )),
+        }
+    }
+
+    fn disarm(&mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for ProcessGroupGuard {
+    fn drop(&mut self) {
+        if self.armed {
+            let _ = kill_process_group(self.process_group_id, Signal::KILL);
+        }
     }
 }
 
@@ -877,6 +1131,16 @@ fn success_json(success: &HarnessSuccess) -> Value {
         HarnessSuccess::ArchiveTask(success) => object([
             ("task_id", task_id_json(&success.task_id)),
             ("status", Value::String("archived".to_owned())),
+        ]),
+        HarnessSuccess::Bash(success) => object([
+            (
+                "exit_code",
+                success.exit_code.map_or(Value::Null, Value::from),
+            ),
+            ("stdout", Value::String(success.stdout.clone())),
+            ("stderr", Value::String(success.stderr.clone())),
+            ("stdout_truncated", Value::Bool(success.stdout_truncated)),
+            ("stderr_truncated", Value::Bool(success.stderr_truncated)),
         ]),
     }
 }

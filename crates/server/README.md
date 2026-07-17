@@ -2,12 +2,12 @@
 
 <!-- selvedge-package-readme
 package: selvedge-server
-freshness_fingerprint: 1566bca192132cabb621a05f4cf54af479241dc9
+freshness_fingerprint: 5562e838fac0aadd7a36257062c39edfd2f900ea
 -->
 
 This crate owns the process-local Selvedge server lifecycle.
 
-Use it to start the server runtime, hold the singleton lock, initialize config and logging, open the SQLite database at `<selvedge_home>/selvedge.sqlite`, install the four built-in harness tools, start events, client-sync, router, and optional web surface tasks, recover active task runtimes, and expose the in-process `ServerControl` used by local clients and UI surfaces.
+Use it to start the server runtime, hold the singleton lock, initialize config and logging, open the SQLite database at `<selvedge_home>/selvedge.sqlite`, install the five built-in harness tools, start events, client-sync, router, and optional web surface tasks, recover active task runtimes, and expose the in-process `ServerControl` used by local clients and UI surfaces.
 
 `ServerStartArgs` uses the current `selvedge-api` boundary: server passes `ApiExecutorConfig` into the router, and provider selection remains inside each model-call request. This crate does not own a provider registry.
 
@@ -42,7 +42,7 @@ flowchart TD
   Lock[Acquire singleton lock]
   InitConfig[Initialize config and logging]
   OpenDb[Open selvedge.sqlite]
-  RegisterTools[Register four global harness tools]
+  RegisterTools[Register five global harness tools]
   SpawnServices[Start events, client-sync, router, and web surface]
   Recover[Request active task runtime recovery]
   Ready[ServerControl ready]
@@ -65,7 +65,7 @@ flowchart TD
   InitConfig -->|config or logging fails| StartupFailure
   OpenDb -->|SQLite opens at selected home| RegisterTools
   OpenDb -->|database open or schema setup fails| StartupFailure
-  RegisterTools -->|all four definitions are new or exact repeats| SpawnServices
+  RegisterTools -->|all five definitions are new or exact repeats| SpawnServices
   RegisterTools -->|a definition conflicts or SQLite write fails| StartupFailure
   SpawnServices -->|events, client-sync, router, and optional web tasks start| Recover
   SpawnServices -->|any required task setup fails| StartupFailure

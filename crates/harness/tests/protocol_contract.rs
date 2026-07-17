@@ -7,15 +7,17 @@ use selvedge_domain_model::{
     ToolName, ToolParameter, ToolParameterName, ToolParameterType, ToolSpec, UnixTs,
 };
 use selvedge_harness::{
-    ARCHIVE_TASK_TOOL_NAME, ArchiveTaskInvocation, ArchiveTaskSuccess, FORK_TASK_TOOL_NAME,
-    ForkTaskInvocation, ForkTaskSuccess, HarnessError, HarnessErrorCode, HarnessInvocation,
-    HarnessSuccess, HistoryPage, MessageDisposition, READ_TASK_TOOL_NAME, ReadTaskInvocation,
-    ReadTaskSuccess, SEND_MESSAGE_TO_TASK_TOOL_NAME, SendMessageToTaskInvocation,
-    SendMessageToTaskSuccess, encode_tool_execution_result, parse_invocation, tool_manifest,
+    ARCHIVE_TASK_TOOL_NAME, ArchiveTaskInvocation, ArchiveTaskSuccess, BASH_TOOL_NAME,
+    BashInvocation, BashSuccess, DEFAULT_BASH_TIMEOUT_MS, FORK_TASK_TOOL_NAME, ForkTaskInvocation,
+    ForkTaskSuccess, HarnessError, HarnessErrorCode, HarnessInvocation, HarnessSuccess,
+    HistoryPage, MAX_BASH_TIMEOUT_MS, MIN_BASH_TIMEOUT_MS, MessageDisposition, READ_TASK_TOOL_NAME,
+    ReadTaskInvocation, ReadTaskSuccess, SEND_MESSAGE_TO_TASK_TOOL_NAME,
+    SendMessageToTaskInvocation, SendMessageToTaskSuccess, encode_tool_execution_result,
+    parse_invocation, tool_manifest,
 };
 
 #[test]
-fn manifest_defines_exactly_the_four_harness_tools() {
+fn manifest_defines_exactly_the_five_harness_tools() {
     assert_eq!(
         tool_manifest().tools,
         vec![
@@ -67,6 +69,20 @@ fn manifest_defines_exactly_the_four_harness_tools() {
                 name: "archive_task".to_owned(),
                 description: "Archive another active task.".to_owned(),
                 parameters: vec![string_parameter("task_id", "Task to archive.", true)],
+            },
+            ToolSpec {
+                name: "bash".to_owned(),
+                description:
+                    "Run a non-interactive Bash login command in the server process environment and working directory. Stdout and stderr are each capped at 65536 bytes."
+                        .to_owned(),
+                parameters: vec![
+                    string_parameter("command", "Bash command to run.", true),
+                    integer_parameter(
+                        "timeout_ms",
+                        "Timeout in milliseconds; defaults to 30000, from 100 through 120000.",
+                        false,
+                    ),
+                ],
             },
         ]
     );
@@ -135,6 +151,42 @@ fn valid_requests_parse_to_typed_invocations() {
             ),
             HarnessInvocation::ArchiveTask(ArchiveTaskInvocation {
                 task_id: TaskId("task-2".to_owned()),
+            }),
+        ),
+        (
+            request(
+                BASH_TOOL_NAME,
+                vec![string_argument("command", "printf hello")],
+            ),
+            HarnessInvocation::Bash(BashInvocation {
+                command: "printf hello".to_owned(),
+                timeout_ms: DEFAULT_BASH_TIMEOUT_MS as u64,
+            }),
+        ),
+        (
+            request(
+                BASH_TOOL_NAME,
+                vec![
+                    string_argument("command", "true"),
+                    integer_argument("timeout_ms", MIN_BASH_TIMEOUT_MS),
+                ],
+            ),
+            HarnessInvocation::Bash(BashInvocation {
+                command: "true".to_owned(),
+                timeout_ms: MIN_BASH_TIMEOUT_MS as u64,
+            }),
+        ),
+        (
+            request(
+                BASH_TOOL_NAME,
+                vec![
+                    string_argument("command", "true"),
+                    integer_argument("timeout_ms", MAX_BASH_TIMEOUT_MS),
+                ],
+            ),
+            HarnessInvocation::Bash(BashInvocation {
+                command: "true".to_owned(),
+                timeout_ms: MAX_BASH_TIMEOUT_MS as u64,
             }),
         ),
     ];
@@ -225,6 +277,54 @@ fn invalid_requests_are_rejected_without_backend_state() {
             HarnessErrorCode::InvalidArguments,
             "argument 'limit' must be between 1 and 100",
         ),
+        (
+            request(BASH_TOOL_NAME, Vec::new()),
+            HarnessErrorCode::InvalidArguments,
+            "missing required argument 'command'",
+        ),
+        (
+            request(BASH_TOOL_NAME, vec![string_argument("extra", "value")]),
+            HarnessErrorCode::InvalidArguments,
+            "unexpected argument 'extra'",
+        ),
+        (
+            request(BASH_TOOL_NAME, vec![string_argument("command", "  ")]),
+            HarnessErrorCode::InvalidArguments,
+            "argument 'command' must not be empty",
+        ),
+        (
+            request(
+                BASH_TOOL_NAME,
+                vec![
+                    string_argument("command", "true"),
+                    string_argument("timeout_ms", "1000"),
+                ],
+            ),
+            HarnessErrorCode::InvalidArguments,
+            "argument 'timeout_ms' must be an integer",
+        ),
+        (
+            request(
+                BASH_TOOL_NAME,
+                vec![
+                    string_argument("command", "true"),
+                    integer_argument("timeout_ms", MIN_BASH_TIMEOUT_MS - 1),
+                ],
+            ),
+            HarnessErrorCode::InvalidArguments,
+            "argument 'timeout_ms' must be between 100 and 120000",
+        ),
+        (
+            request(
+                BASH_TOOL_NAME,
+                vec![
+                    string_argument("command", "true"),
+                    integer_argument("timeout_ms", MAX_BASH_TIMEOUT_MS + 1),
+                ],
+            ),
+            HarnessErrorCode::InvalidArguments,
+            "argument 'timeout_ms' must be between 100 and 120000",
+        ),
     ];
 
     for (request, code, message) in cases {
@@ -269,6 +369,16 @@ fn every_success_projection_has_stable_json() {
                 task_id: TaskId("task-2".to_owned()),
             }),
             r#"{"status":"archived","task_id":"task-2"}"#,
+        ),
+        (
+            HarnessSuccess::Bash(BashSuccess {
+                exit_code: Some(7),
+                stdout: "out".to_owned(),
+                stderr: "err".to_owned(),
+                stdout_truncated: true,
+                stderr_truncated: false,
+            }),
+            r#"{"exit_code":7,"stderr":"err","stderr_truncated":false,"stdout":"out","stdout_truncated":true}"#,
         ),
     ];
 
@@ -337,6 +447,10 @@ fn every_error_code_uses_the_unified_stable_envelope() {
         HarnessErrorCode::RuntimeStartFailed,
         HarnessErrorCode::StorageError,
         HarnessErrorCode::ExecutorPanicked,
+        HarnessErrorCode::CommandSpawnFailed,
+        HarnessErrorCode::CommandIoFailed,
+        HarnessErrorCode::CommandWaitFailed,
+        HarnessErrorCode::CommandTimedOut,
     ];
 
     for code in codes {
