@@ -2,7 +2,7 @@
 
 <!-- selvedge-package-readme
 package: selvedge
-freshness_fingerprint: 2e7c9948ea3d91de30e13026a28391b3efc65302
+freshness_fingerprint: b17e0c5a9b3f7bba58bab12572bd45e28c35f534
 -->
 
 Selvedge is a Rust repository scaffold with a clean local development flow, pre-commit hooks, and GitHub Actions CI.
@@ -26,6 +26,8 @@ just test
 ```
 
 `just run` starts the local server. `Ctrl-C` requests supervised shutdown and exits with status 130 after server tasks and the singleton lock are cleaned up.
+
+Server startup installs the built-in `fork_task`, `read_task`, `send_message_to_task`, and `archive_task` model tools and requests recovery for every active durable task. The current CLI still supplies no model profiles and does not provision a root task, so those remain separate prerequisites for a model-driven production session.
 
 ## Development setup
 

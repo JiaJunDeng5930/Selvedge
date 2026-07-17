@@ -674,9 +674,11 @@ fn task_command_db_error(error: &DbError) -> TaskCommandError {
     match error {
         DbError::NotFound => TaskCommandError::TaskMissing,
         DbError::TaskNotActive => TaskCommandError::TaskArchived,
-        DbError::Constraint(_) | DbError::Storage(_) | DbError::SchemaMismatch { .. } => {
-            TaskCommandError::PersistenceFailed
-        }
+        DbError::StaleFunctionCall
+        | DbError::HistoryCursorNotOnTask
+        | DbError::Constraint(_)
+        | DbError::Storage(_)
+        | DbError::SchemaMismatch { .. } => TaskCommandError::PersistenceFailed,
     }
 }
 

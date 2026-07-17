@@ -10,10 +10,10 @@ use selvedge_command_model::{
 };
 use selvedge_core::{SpawnTaskRuntimeArgs, SpawnTaskRuntimeError, TaskRuntimeSpawnDeps};
 use selvedge_db::{
-    CreateChildTaskInput, DbError, DbPool, TaskId, UnixTs, create_child_task, list_active_tasks,
-    load_active_task,
+    DbError, DbPool, ForkTaskInput, TaskId, UnixTs, fork_task_from_function_call,
+    list_active_tasks, load_active_task,
 };
-use selvedge_domain_model::HistoryNodeId;
+use selvedge_domain_model::{FunctionCallId, HistoryNodeId, ToolName};
 use uuid::Uuid;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -24,7 +24,10 @@ pub enum FactoryCommand {
     EnsureMissingTaskRuntimes,
     CreateChildTaskAndRuntime {
         parent_task_id: TaskId,
-        child_cursor_node_id: HistoryNodeId,
+        function_call_node_id: HistoryNodeId,
+        function_call_id: FunctionCallId,
+        tool_name: ToolName,
+        child_prompt: String,
     },
 }
 
@@ -62,13 +65,21 @@ pub fn run_factory_effect(args: FactoryEffectArgs) -> FactoryOutputEnvelope {
         ),
         FactoryCommand::CreateChildTaskAndRuntime {
             parent_task_id,
-            child_cursor_node_id,
+            function_call_node_id,
+            function_call_id,
+            tool_name,
+            child_prompt,
         } => create_child_task_and_runtime(
             &args.db,
             &args.router_tx,
             &args.core_spawn_deps,
-            parent_task_id,
-            child_cursor_node_id,
+            ChildForkInput {
+                parent_task_id,
+                function_call_node_id,
+                function_call_id,
+                tool_name,
+                child_prompt,
+            },
         ),
     };
     FactoryOutputEnvelope {
@@ -77,35 +88,55 @@ pub fn run_factory_effect(args: FactoryEffectArgs) -> FactoryOutputEnvelope {
     }
 }
 
+struct ChildForkInput {
+    parent_task_id: TaskId,
+    function_call_node_id: HistoryNodeId,
+    function_call_id: FunctionCallId,
+    tool_name: ToolName,
+    child_prompt: String,
+}
+
 fn create_child_task_and_runtime(
     db: &DbPool,
     router_tx: &RouterIngressWeakSender,
     core_spawn_deps: &TaskRuntimeSpawnDeps,
-    parent_task_id: TaskId,
-    child_cursor_node_id: HistoryNodeId,
+    input: ChildForkInput,
 ) -> FactoryOutput {
     let child_task_id = TaskId(format!("child-{}", Uuid::new_v4()));
-    let child = match create_child_task(
+    let child = match fork_task_from_function_call(
         db,
-        CreateChildTaskInput {
-            parent_task_id: parent_task_id.clone(),
+        ForkTaskInput {
+            parent_task_id: input.parent_task_id.clone(),
             child_task_id,
-            cursor_node_id: child_cursor_node_id,
+            function_call_node_id: input.function_call_node_id,
+            function_call_id: input.function_call_id,
+            tool_name: input.tool_name,
+            child_user_prompt: input.child_prompt,
             now: now(),
         },
     ) {
         Ok(child) => child,
         Err(error) => {
-            return FactoryOutput::Failed(map_create_child_failure(parent_task_id, error));
+            return FactoryOutput::Failed(map_create_child_failure(input.parent_task_id, error));
         }
     };
-    spawn_task_runtime(
-        db,
-        router_tx,
-        core_spawn_deps,
-        child.task_id,
-        CreatedRuntimeKind::ChildTaskRuntime,
-    )
+    let child_task_id = child.task_id;
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        spawn_task_runtime(
+            db,
+            router_tx,
+            core_spawn_deps,
+            child_task_id.clone(),
+            CreatedRuntimeKind::ChildTaskRuntime,
+        )
+    }))
+    .unwrap_or_else(|_| {
+        FactoryOutput::Failed(FactoryFailure {
+            task_id: Some(child_task_id),
+            kind: FactoryFailureKind::CoreSpawnFailed,
+            message: "task runtime spawner panicked".to_owned(),
+        })
+    })
 }
 
 fn ensure_missing_task_runtimes(
@@ -279,6 +310,11 @@ fn map_load_task_failure(task_id: Option<TaskId>, error: DbError) -> FactoryFail
             kind: FactoryFailureKind::TaskArchived,
             message: "task is archived".to_owned(),
         },
+        DbError::StaleFunctionCall | DbError::HistoryCursorNotOnTask => FactoryFailure {
+            task_id,
+            kind: FactoryFailureKind::DbReadFailed,
+            message: error.to_string(),
+        },
         error => FactoryFailure {
             task_id,
             kind: FactoryFailureKind::DbReadFailed,
@@ -299,10 +335,10 @@ fn map_create_child_failure(parent_task_id: TaskId, error: DbError) -> FactoryFa
             kind: FactoryFailureKind::ParentTaskArchived,
             message: "parent task is archived".to_owned(),
         },
-        DbError::Constraint(message) => FactoryFailure {
+        DbError::StaleFunctionCall => FactoryFailure {
             task_id: Some(parent_task_id),
-            kind: FactoryFailureKind::CursorNodeMissing,
-            message,
+            kind: FactoryFailureKind::StaleToolCall,
+            message: "fork tool call is stale".to_owned(),
         },
         error => FactoryFailure {
             task_id: Some(parent_task_id),

@@ -14,7 +14,7 @@ use selvedge_api::ApiExecutorConfig;
 use selvedge_client_sync::{
     ClientSnapshotBuildFuture, ClientSnapshotBuildRequest, ClientSnapshotBuilder,
 };
-use selvedge_command_model::{ClientSnapshot, RouterIngressWeakSender, ToolExecutionRequest};
+use selvedge_command_model::ClientSnapshot;
 use selvedge_core::{TaskRuntimeConfig, TaskRuntimeSpawnDeps};
 use selvedge_domain_model::UnixTs;
 use selvedge_local_client::{LocalClientConfig, LocalClientError, LocalEndpoint, LocalFrameStream};
@@ -23,14 +23,12 @@ use selvedge_local_protocol::{
     LocalClientCommandId, LocalClientFrame, LocalClientId, LocalNoticeKind, LocalSnapshotMode,
     ReadyRequest, ReadyResponse, ReadyState,
 };
-use selvedge_router::{ToolExecutionSpawnError, ToolExecutionSpawner};
 use selvedge_server::{
     LocalBindingConfig, LocalOperationCommand, LocalOperationExecutor, LocalOperationFailure,
     LocalOperationFuture, LocalOperationProgress, LocalOperationProgressSender,
     LocalOperationSuccess, LocalhostBindTarget, ServerStartArgs, ServerStartupError,
 };
 use selvedge_systemd::SystemdConfig;
-use tokio::task::JoinHandle;
 
 const DEFAULT_LOCAL_PORT: u16 = 8080;
 const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
@@ -152,7 +150,6 @@ fn build_server_start_args(resolved_config: &CliResolvedConfig) -> ServerStartAr
             request_timeout: resolved_config.systemd_config.operation_timeout,
             max_response_bytes: None,
         },
-        tool_executor: Arc::new(UnavailableToolExecutor),
         core_spawn_deps: TaskRuntimeSpawnDeps::new(TaskRuntimeConfig {
             mailbox_capacity: 64,
             model_profiles: HashMap::new(),
@@ -912,18 +909,6 @@ impl ChatgptLoginProgressSink for ServerLoginProgressSink {
                 }
             }
         })
-    }
-}
-
-struct UnavailableToolExecutor;
-
-impl ToolExecutionSpawner for UnavailableToolExecutor {
-    fn spawn_tool_execution(
-        &self,
-        _request: ToolExecutionRequest,
-        _router_tx: RouterIngressWeakSender,
-    ) -> Result<JoinHandle<()>, ToolExecutionSpawnError> {
-        Err(ToolExecutionSpawnError::ToolExecutorUnavailable)
     }
 }
 

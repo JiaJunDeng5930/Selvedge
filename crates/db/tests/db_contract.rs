@@ -497,7 +497,7 @@ fn read_task_pages_active_and_archived_cursor_paths_and_rejects_invalid_bounds()
                 limit: 1,
             },
         ),
-        Err(DbError::Constraint(_))
+        Err(DbError::HistoryCursorNotOnTask)
     ));
     assert!(matches!(
         read_task(
@@ -612,7 +612,7 @@ fn fork_failures_leave_no_child_or_orphan_history() {
                 now: UnixTs(12),
             },
         ),
-        Err(DbError::Constraint(_))
+        Err(DbError::StaleFunctionCall)
     ));
     assert_eq!(durable_counts(), before_missing);
     assert_child_missing("missing-child");
@@ -667,7 +667,7 @@ fn fork_failures_leave_no_child_or_orphan_history() {
                 now: UnixTs(33),
             },
         ),
-        Err(DbError::Constraint(_))
+        Err(DbError::StaleFunctionCall)
     ));
     assert_eq!(durable_counts(), before_stale);
     assert_child_missing("stale-child");

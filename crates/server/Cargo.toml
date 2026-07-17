@@ -14,6 +14,7 @@ selvedge-core = { path = "../core" }
 selvedge-db = { path = "../db" }
 selvedge-domain-model = { path = "../domain-model" }
 selvedge-events = { path = "../events" }
+selvedge-harness = { path = "../harness" }
 selvedge-local-protocol = { path = "../local-protocol" }
 selvedge-logging = { path = "../logging" }
 selvedge-router = { path = "../router" }

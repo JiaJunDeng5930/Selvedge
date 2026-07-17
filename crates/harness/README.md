@@ -2,14 +2,16 @@
 
 <!-- selvedge-package-readme
 package: selvedge-harness
-freshness_fingerprint: 1111a356944d1d1cb3cc33dcb9e70a5f452060c4
+freshness_fingerprint: 92f5fe6e5d09dde0825596221c735174d17b6b93
 -->
 
-This crate defines the model-visible protocol for Selvedge task self-orchestration.
+This crate implements Selvedge task self-orchestration for model tool calls.
 
-Use it for the four harness tool manifests, typed invocation parsing, argument validation, typed success projections, stable JSON output, and correlated `ToolExecutionResult` construction.
+Use it for the four harness tool manifests, typed invocation parsing, argument validation, SQLite-backed task reads, router-mediated task mutations, stable JSON output, and the production `ToolExecutionSpawner`.
 
-This crate does not execute tools, access storage, coordinate runtimes, or define task lifecycle states beyond `active` and `archived`. Calling task identity and function-call correlation come from `ToolExecutionRequest`, not model arguments.
+Calling task identity and complete function-call correlation come from `ToolExecutionRequest`, not model arguments. SQLite reads run on Tokio's blocking pool. Fork, send, and archive wait for typed router responders, so enqueueing a command is never reported as business success.
+
+The executor supervises each request in an inner Tokio task and attempts exactly one terminal `ToolExecutionResult` delivery. The result copies the request's task, run, function-call node, function-call id, and tool name unchanged. A panic or cancelled inner task becomes a correlated error result instead of leaving the calling runtime waiting forever.
 
 When a fork transaction has already created a durable child but runtime startup fails, the typed error preserves that child as `task_id` with `task_created: true`. The protocol does not imply that the child was rolled back.
 
@@ -20,22 +22,34 @@ The diagram records the package-level observable states and transition paths. Ea
 ```mermaid
 flowchart TD
   Start([caller supplies ToolExecutionRequest])
+  Supervise[Start supervised execution]
   Select{tool name}
   Validate[Validate flat primitive arguments]
-  Invocation[Return typed harness invocation]
+  Invocation[Build typed harness invocation]
+  Read[Read SQLite snapshot on blocking pool]
+  Mutate[Send router mutation and wait for responder]
   Invalid[Return invalid_arguments]
   Unknown[Return unknown_tool]
-  Outcome{caller supplies typed outcome}
+  Panic[Map panic or cancellation]
+  Outcome{execution outcome}
   Success[Encode stable success JSON]
   Failure[Encode stable error envelope]
   PartialFailure[Encode runtime failure with durable child identity]
-  Result[Return correlated ToolExecutionResult]
+  Result[Send one correlated ToolExecutionResult]
 
-  Start -->|tool name is one of the four harness names| Validate
-  Start -->|tool name is not a harness name| Unknown
+  Start -->|Tokio runtime accepts the supervisor| Supervise
+  Supervise -->|tool name is one of the four harness names| Validate
+  Supervise -->|tool name is not a harness name| Unknown
+  Supervise -->|inner execution panics or is cancelled| Panic
   Validate -->|required, optional, type, uniqueness, and range rules hold| Invocation
   Validate -->|an argument rule fails| Invalid
-  Invocation -->|an executor later supplies a success or error| Outcome
+  Invocation -->|invocation is read_task| Read
+  Invocation -->|invocation is fork, send, or archive| Mutate
+  Read -->|SQLite read completes| Outcome
+  Mutate -->|router responder settles| Outcome
+  Panic -->|supervisor classifies the JoinError| Failure
+  Invalid -->|validation error is terminal| Failure
+  Unknown -->|unknown tool error is terminal| Failure
   Outcome -->|outcome is successful| Success
   Outcome -->|outcome is an error without a committed child| Failure
   Outcome -->|runtime startup failed after the child commit| PartialFailure
