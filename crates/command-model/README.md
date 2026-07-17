@@ -19,6 +19,7 @@ This crate is not for network access, database access, filesystem access, provid
 `RouterIngressSender` is unbounded. Runtime, API, and tool outputs must be able to enqueue router ingress without awaiting router mailbox capacity, because router stop waits synchronously for runtime actors to finish.
 `RouterIngressWeakSender` is for internal router producers. Internal producers upgrade it only while an external ingress owner keeps the router mailbox open.
 `CoreOutputEnvelope` carries `task_id` for task-based router routing.
+Function-call history projections and tool execution requests carry their arguments as one `JsonObject`, so nested values, arrays, nulls, and exact JSON numbers cross router and client boundaries without flat primitive conversion.
 
 `EventIngressSender` is owned by the router. `ClientFrameSender` is supplied by the router for a single client session. Delivery sequencing and hydration buffering live in `selvedge-events`.
 `RouterCommand::AttachClient` carries an admission responder. The router must answer it after events reserves the client session slot; server uses that response as the attach accepted boundary before starting client-sync hydration.

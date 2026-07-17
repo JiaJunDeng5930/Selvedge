@@ -12,6 +12,7 @@ uuid = { version = "1.11.0", features = ["v4"] }
 
 [dev-dependencies]
 selvedge-test-support = { path = "../test-support", features = ["db-fixtures"] }
+serde_json = { version = "1.0.149", features = ["arbitrary_precision"] }
 tokio = { version = "1.42.0", features = ["macros", "rt", "sync", "time"] }
 
 [lints.rust]

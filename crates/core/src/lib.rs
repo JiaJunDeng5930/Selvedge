@@ -1,6 +1,6 @@
 #![doc = include_str!("../README.md")]
 
-use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -14,17 +14,15 @@ use selvedge_command_model::{
 };
 use selvedge_db::{
     DbError, DbPool, FunctionCallId, HistoryNode, HistoryNodeId, MessageRole,
-    NewFunctionCallNodeContent, NewFunctionOutputNodeContent, TaskId, ToolArgumentValue,
-    ToolCallArgument, ToolName, ToolParameterName, UnixTs,
+    NewFunctionCallNodeContent, NewFunctionOutputNodeContent, TaskId, ToolName, UnixTs,
     append_assistant_message_and_drain_queue, append_function_output_and_drain_queue,
     append_model_reply_with_tool_calls_and_move_cursor, append_user_message_and_move_cursor,
     archive_task, drain_queued_user_inputs_and_move_cursor, load_active_task, queue_user_input,
     read_conversation_for_task, read_open_function_calls_for_task, read_tool_manifest_for_task,
 };
 use selvedge_domain_model::{
-    ConversationItem, ConversationMessage, ConversationPath, MessageContent, ModelProfileKey,
-    ModelProviderProfile, ResponsePreference, StructuredPayload, ToolCallProposal, ToolManifest,
-    ToolParameterType,
+    ConversationItem, ConversationMessage, ConversationPath, JsonObject, MessageContent,
+    ModelProfileKey, ModelProviderProfile, ResponsePreference, ToolCallProposal, ToolManifest,
 };
 use uuid::Uuid;
 
@@ -138,6 +136,7 @@ enum WaitState {
     AwaitingUserInput,
     WaitingModelReply {
         model_run_id: ModelRunId,
+        tool_manifest: ToolManifest,
     },
     WaitingToolResult {
         tool_run_id: ToolExecutionRunId,
@@ -150,7 +149,7 @@ enum WaitState {
 struct ValidatedToolCall {
     function_call_id: FunctionCallId,
     tool_name: ToolName,
-    arguments: Vec<ToolCallArgument>,
+    arguments: JsonObject,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -158,7 +157,7 @@ struct PendingToolCall {
     function_call_node_id: HistoryNodeId,
     function_call_id: FunctionCallId,
     tool_name: ToolName,
-    arguments: Vec<ToolCallArgument>,
+    arguments: JsonObject,
 }
 
 impl TaskRuntimeActor {
@@ -349,8 +348,11 @@ impl TaskRuntimeActor {
     }
 
     async fn handle_model_reply(&mut self, envelope: ApiOutputEnvelope) -> bool {
-        let expected_model_run_id = match &self.wait_state {
-            WaitState::WaitingModelReply { model_run_id } => model_run_id.clone(),
+        let (expected_model_run_id, tool_manifest) = match &self.wait_state {
+            WaitState::WaitingModelReply {
+                model_run_id,
+                tool_manifest,
+            } => (model_run_id.clone(), tool_manifest.clone()),
             WaitState::AwaitingUserInput | WaitState::WaitingToolResult { .. } => return false,
         };
 
@@ -364,10 +366,6 @@ impl TaskRuntimeActor {
                 let validated_tool_calls = if reply.tool_calls.is_empty() {
                     VecDeque::new()
                 } else {
-                    let tool_manifest = match read_tool_manifest_for_task(&self.db, &self.task_id) {
-                        Ok(tool_manifest) => tool_manifest,
-                        Err(error) => return self.stop_with_db_error(error).await,
-                    };
                     match validate_tool_calls(reply.tool_calls, &tool_manifest) {
                         Ok(tool_calls) => tool_calls,
                         Err(message) => return self.stop_with_internal_error(&message).await,
@@ -552,10 +550,13 @@ impl TaskRuntimeActor {
             },
             provider,
             conversation: conversation_to_path(conversation),
-            tool_manifest: Some(tool_manifest),
+            tool_manifest: Some(tool_manifest.clone()),
             response_preference: ResponsePreference::PlainTextOrToolCalls,
         };
-        self.wait_state = WaitState::WaitingModelReply { model_run_id };
+        self.wait_state = WaitState::WaitingModelReply {
+            model_run_id,
+            tool_manifest,
+        };
         self.send_core(CoreOutputMessage::RequestModelCall(request))
             .await
             .is_err()
@@ -764,25 +765,11 @@ fn conversation_item_to_message(item: ConversationItem) -> ConversationMessage {
             arguments,
         } => ConversationMessage {
             role: MessageRole::Assistant,
-            content: MessageContent::Structured(StructuredPayload::Object(BTreeMap::from([
-                (
-                    "function_call_id".to_owned(),
-                    StructuredPayload::String(function_call_id.0),
-                ),
-                (
-                    "tool_name".to_owned(),
-                    StructuredPayload::String(tool_name.0),
-                ),
-                (
-                    "arguments".to_owned(),
-                    StructuredPayload::Array(
-                        arguments
-                            .into_iter()
-                            .map(argument_to_structured_payload)
-                            .collect(),
-                    ),
-                ),
-            ]))),
+            content: MessageContent::FunctionCall {
+                function_call_id,
+                tool_name,
+                arguments,
+            },
             source_node_id: None,
         },
         ConversationItem::FunctionOutput {
@@ -792,37 +779,15 @@ fn conversation_item_to_message(item: ConversationItem) -> ConversationMessage {
             is_error,
         } => ConversationMessage {
             role: MessageRole::Tool,
-            content: MessageContent::Structured(StructuredPayload::Object(BTreeMap::from([
-                (
-                    "function_call_id".to_owned(),
-                    StructuredPayload::String(function_call_id.0),
-                ),
-                (
-                    "tool_name".to_owned(),
-                    StructuredPayload::String(tool_name.0),
-                ),
-                (
-                    "output_text".to_owned(),
-                    StructuredPayload::String(output_text),
-                ),
-                ("is_error".to_owned(), StructuredPayload::Boolean(is_error)),
-            ]))),
+            content: MessageContent::FunctionOutput {
+                function_call_id,
+                tool_name,
+                output_text,
+                is_error,
+            },
             source_node_id: None,
         },
     }
-}
-
-fn argument_to_structured_payload(argument: ToolCallArgument) -> StructuredPayload {
-    StructuredPayload::Object(BTreeMap::from([
-        (
-            "name".to_owned(),
-            StructuredPayload::String(argument.name.0),
-        ),
-        (
-            "value".to_owned(),
-            tool_argument_value_to_payload(argument.value),
-        ),
-    ]))
 }
 
 fn validate_tool_calls(
@@ -840,110 +805,20 @@ fn validate_tool_calls(
             return Err("model reply contains duplicate tool call id".to_owned());
         }
         let tool_name = ToolName(tool_call.tool_name);
-        let arguments =
-            tool_call_arguments_from_payload(tool_call.arguments, &tool_name, tool_manifest)?;
+        if !tool_manifest
+            .tools
+            .iter()
+            .any(|tool| tool.name == tool_name.0)
+        {
+            return Err(format!("tool is not enabled for task: {}", tool_name.0));
+        }
         validated.push_back(ValidatedToolCall {
             function_call_id: FunctionCallId(tool_call.call_id),
             tool_name,
-            arguments,
+            arguments: tool_call.arguments,
         });
     }
     Ok(validated)
-}
-
-fn tool_call_arguments_from_payload(
-    payload: StructuredPayload,
-    tool_name: &ToolName,
-    tool_manifest: &ToolManifest,
-) -> Result<Vec<ToolCallArgument>, String> {
-    let Some(tool_spec) = tool_manifest
-        .tools
-        .iter()
-        .find(|tool| tool.name == tool_name.0)
-    else {
-        return Err(format!("tool is not enabled for task: {}", tool_name.0));
-    };
-    let StructuredPayload::Object(arguments) = payload else {
-        return Err(format!("tool arguments must be an object: {}", tool_name.0));
-    };
-    for parameter in tool_spec
-        .parameters
-        .iter()
-        .filter(|parameter| parameter.required)
-    {
-        if !arguments.contains_key(&parameter.name) {
-            return Err(format!(
-                "required tool argument is missing: {}.{}",
-                tool_name.0, parameter.name
-            ));
-        }
-    }
-
-    let mut converted = Vec::with_capacity(arguments.len());
-    for (name, value) in arguments {
-        let Some(parameter_type) = tool_spec
-            .parameters
-            .iter()
-            .find(|parameter| parameter.name == name)
-            .map(|parameter| &parameter.parameter_type)
-        else {
-            return Err(format!(
-                "tool argument is not declared: {}.{}",
-                tool_name.0, name
-            ));
-        };
-        let Some(value) = tool_argument_value_from_payload(value, parameter_type) else {
-            return Err(format!(
-                "tool argument value cannot be converted: {}.{}",
-                tool_name.0, name
-            ));
-        };
-        converted.push(ToolCallArgument {
-            name: ToolParameterName(name),
-            value,
-        });
-    }
-    Ok(converted)
-}
-
-fn tool_argument_value_from_payload(
-    payload: StructuredPayload,
-    parameter_type: &ToolParameterType,
-) -> Option<ToolArgumentValue> {
-    match (parameter_type, payload) {
-        (ToolParameterType::String, StructuredPayload::String(value)) => {
-            Some(ToolArgumentValue::String(value))
-        }
-        (ToolParameterType::Integer, StructuredPayload::Number(value))
-            if value.is_finite()
-                && value.fract() == 0.0
-                && value >= i64::MIN as f64
-                && value < 9_223_372_036_854_775_808.0 =>
-        {
-            let converted = value as i64;
-            if converted as f64 == value {
-                Some(ToolArgumentValue::Integer(converted))
-            } else {
-                None
-            }
-        }
-        (ToolParameterType::Number, StructuredPayload::Number(value)) if value.is_finite() => {
-            Some(ToolArgumentValue::Number(value))
-        }
-        (ToolParameterType::Boolean, StructuredPayload::Boolean(value)) => {
-            Some(ToolArgumentValue::Boolean(value))
-        }
-        _ => None,
-    }
-}
-
-fn tool_argument_value_to_payload(value: ToolArgumentValue) -> StructuredPayload {
-    match value {
-        ToolArgumentValue::String(value) => StructuredPayload::String(value),
-        ToolArgumentValue::Integer(value) => StructuredPayload::Number(value as f64),
-        ToolArgumentValue::Number(value) => StructuredPayload::Number(value),
-        ToolArgumentValue::Boolean(value) => StructuredPayload::Boolean(value),
-    }
 }
 
 fn now() -> UnixTs {
