@@ -2,7 +2,7 @@
 
 <!-- selvedge-package-readme
 package: selvedge
-freshness_fingerprint: 36b1017a9e701436487239275dd0c3f29d9a6b36
+freshness_fingerprint: 2e7c9948ea3d91de30e13026a28391b3efc65302
 -->
 
 Selvedge is a Rust repository scaffold with a clean local development flow, pre-commit hooks, and GitHub Actions CI.
@@ -85,8 +85,7 @@ flowchart TD
   RunServer -->|server startup, runtime, or dependency fails| Failure
   RunServer -->|SIGINT is received| StopServer
   StopServer -->|server tasks stop and lock cleanup completes| Interrupted
-  Submit -->|local client connects, readiness succeeds, and router-backed command is accepted| Success
-  Submit -->|server-owned command such as list-models is accepted| WaitTerminal
+  Submit -->|server accepts typed login-chatgpt or list-models command| WaitTerminal
   Submit -->|local client connection, readiness, command rejection, or server wait fails| Failure
   WaitTerminal -->|matching CommandCompleted notice arrives| Success
   WaitTerminal -->|matching CommandFailed notice, stream close, or protocol error arrives| Failure

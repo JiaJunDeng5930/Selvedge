@@ -14,9 +14,7 @@ use selvedge_api::ApiExecutorConfig;
 use selvedge_client_sync::{
     ClientSnapshotBuildFuture, ClientSnapshotBuildRequest, ClientSnapshotBuilder,
 };
-use selvedge_command_model::{
-    ClientSnapshot, RouterCommandEnvelope, RouterIngressWeakSender, ToolExecutionRequest,
-};
+use selvedge_command_model::{ClientSnapshot, RouterIngressWeakSender, ToolExecutionRequest};
 use selvedge_core::{TaskRuntimeConfig, TaskRuntimeSpawnDeps};
 use selvedge_domain_model::UnixTs;
 use selvedge_local_client::{LocalClientConfig, LocalClientError, LocalEndpoint, LocalFrameStream};
@@ -27,10 +25,9 @@ use selvedge_local_protocol::{
 };
 use selvedge_router::{ToolExecutionSpawnError, ToolExecutionSpawner};
 use selvedge_server::{
-    LocalBindingConfig, LocalCommandMapper, LocalOperationCommand, LocalOperationExecutor,
-    LocalOperationFailure, LocalOperationFuture, LocalOperationProgress,
-    LocalOperationProgressSender, LocalOperationSuccess, LocalhostBindTarget, ServerRequestError,
-    ServerStartArgs, ServerStartupError,
+    LocalBindingConfig, LocalOperationCommand, LocalOperationExecutor, LocalOperationFailure,
+    LocalOperationFuture, LocalOperationProgress, LocalOperationProgressSender,
+    LocalOperationSuccess, LocalhostBindTarget, ServerStartArgs, ServerStartupError,
 };
 use selvedge_systemd::SystemdConfig;
 use tokio::task::JoinHandle;
@@ -160,10 +157,9 @@ fn build_server_start_args(resolved_config: &CliResolvedConfig) -> ServerStartAr
             mailbox_capacity: 64,
             model_profiles: HashMap::new(),
         }),
-        // NOTE: Skeleton startup wires explicit placeholders for command
-        // mapping and snapshot hydration package contracts.
+        // NOTE: Skeleton startup wires an explicit placeholder for snapshot
+        // hydration until the database-backed builder is implemented.
         snapshot_builder: Arc::new(EmptySnapshotBuilder),
-        command_mapper: Arc::new(UnsupportedCommandMapper),
         local_operation_executor: Arc::new(DefaultLocalOperationExecutor),
         local_binding: LocalBindingConfig {
             bind_target: local_bind_target.clone(),
@@ -946,19 +942,6 @@ impl ClientSnapshotBuilder for EmptySnapshotBuilder {
                 task_versions: Vec::new(),
             })
         })
-    }
-}
-
-// NOTE: Skeleton command mapping rejects all command names through the normal
-// server unsupported-command outcome.
-struct UnsupportedCommandMapper;
-
-impl LocalCommandMapper for UnsupportedCommandMapper {
-    fn map_command(
-        &self,
-        _request: CommandRequest,
-    ) -> Result<RouterCommandEnvelope, ServerRequestError> {
-        Err(ServerRequestError::UnsupportedCommand)
     }
 }
 

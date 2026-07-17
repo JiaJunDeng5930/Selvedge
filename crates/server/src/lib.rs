@@ -1,5 +1,7 @@
 #![doc = include_str!("../README.md")]
 
+mod command;
+
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::fs::{File, OpenOptions};
@@ -56,6 +58,8 @@ use selvedge_web::{
 use tokio::sync::{Mutex, Notify, OwnedSemaphorePermit, RwLock, Semaphore, mpsc, oneshot};
 use tokio::task::{JoinError, JoinHandle};
 
+use command::{ClientCommand, ClientCommandDecodeError};
+
 const SQLITE_FILE_NAME: &str = "selvedge.sqlite";
 const LOCK_FILE_NAME: &str = "server.lock";
 const DEFAULT_EVENTS_INGRESS_CAPACITY: usize = 64;
@@ -65,7 +69,6 @@ const DEFAULT_CLIENT_SYNC_INGRESS_CAPACITY: usize = 64;
 
 type AttachStateRef = Arc<StdMutex<AttachState>>;
 type AttachFrameChannelFactoryRef = Arc<dyn AttachFrameChannelFactory>;
-type LocalCommandMapperRef = Arc<dyn LocalCommandMapper>;
 type LocalOperationExecutorRef = Arc<dyn LocalOperationExecutor>;
 pub type LocalOperationFuture =
     Pin<Box<dyn Future<Output = Result<LocalOperationSuccess, LocalOperationFailure>> + Send>>;
@@ -207,7 +210,6 @@ pub struct ServerStartArgs {
     pub tool_executor: Arc<dyn ToolExecutionSpawner>,
     pub core_spawn_deps: TaskRuntimeSpawnDeps,
     pub snapshot_builder: Arc<dyn ClientSnapshotBuilder>,
-    pub command_mapper: Arc<dyn LocalCommandMapper>,
     pub local_operation_executor: Arc<dyn LocalOperationExecutor>,
     pub local_binding: LocalBindingConfig,
     pub web_binding: Option<WebBindingConfig>,
@@ -283,17 +285,9 @@ pub enum ServerStartupError {
 pub enum ServerRequestError {
     NotReady,
     ProtocolValidationFailed,
-    UnsupportedCommand,
     RouterMailboxClosed,
     AttachChannelFailed,
     InternalFailure(String),
-}
-
-pub trait LocalCommandMapper: Send + Sync {
-    fn map_command(
-        &self,
-        request: CommandRequest,
-    ) -> Result<RouterCommandEnvelope, ServerRequestError>;
 }
 
 pub trait LocalOperationExecutor: Send + Sync {
@@ -569,57 +563,26 @@ impl ServerControl {
             return CommandOutcome::Rejected(CommandRejectReason::MalformedRequest);
         }
 
-        if request.command_name == "login-chatgpt" || request.command_name == "list-models" {
-            if !request
-                .payload
-                .as_object()
-                .is_some_and(|object| object.is_empty())
-            {
-                return CommandOutcome::Rejected(CommandRejectReason::MalformedRequest);
-            }
-            let operation_command = if request.command_name == "login-chatgpt" {
-                LocalOperationCommand::LoginChatgpt
-            } else {
-                LocalOperationCommand::ListModels
-            };
-            return self
-                .submit_local_operation(request, operation_command)
-                .await;
-        }
-
-        let command = match self.inner.command_mapper.map_command(request) {
+        let command = match ClientCommand::try_from(&request) {
             Ok(command) => command,
-            Err(ServerRequestError::UnsupportedCommand) => {
-                return CommandOutcome::Rejected(CommandRejectReason::UnsupportedCommand);
-            }
-            Err(ServerRequestError::RouterMailboxClosed) => {
-                self.begin_shutdown_locked().await;
-                return CommandOutcome::Rejected(CommandRejectReason::RouterMailboxClosed);
-            }
-            Err(ServerRequestError::NotReady) => {
-                return CommandOutcome::Rejected(CommandRejectReason::ServerNotReady);
-            }
-            Err(ServerRequestError::ProtocolValidationFailed) => {
+            Err(ClientCommandDecodeError::MalformedPayload) => {
                 return CommandOutcome::Rejected(CommandRejectReason::MalformedRequest);
             }
-            Err(
-                ServerRequestError::AttachChannelFailed | ServerRequestError::InternalFailure(_),
-            ) => {
-                return CommandOutcome::Rejected(CommandRejectReason::InternalFailure);
+            Err(ClientCommandDecodeError::UnsupportedCommand) => {
+                return CommandOutcome::Rejected(CommandRejectReason::UnsupportedCommand);
             }
         };
 
-        if self
-            .inner
-            .router_tx
-            .send(RouterIngressMessage::Command(command))
-            .is_err()
-        {
-            self.begin_shutdown_locked().await;
-            return CommandOutcome::Rejected(CommandRejectReason::RouterMailboxClosed);
+        match command {
+            ClientCommand::LoginChatgpt => {
+                self.submit_local_operation(request, LocalOperationCommand::LoginChatgpt)
+                    .await
+            }
+            ClientCommand::ListModels => {
+                self.submit_local_operation(request, LocalOperationCommand::ListModels)
+                    .await
+            }
         }
-
-        CommandOutcome::Accepted
     }
 
     async fn submit_local_operation(
@@ -721,7 +684,6 @@ struct ServerInner {
     client_sync_tx: Mutex<selvedge_client_sync::ClientSyncSender>,
     attach_state: AttachStateRef,
     frame_channel_factory: AttachFrameChannelFactoryRef,
-    command_mapper: LocalCommandMapperRef,
     local_operation_executor: LocalOperationExecutorRef,
     login_gate: Arc<Semaphore>,
     local_operation_tasks: StdMutex<Vec<JoinHandle<()>>>,
@@ -1132,7 +1094,6 @@ fn start_server_after_lock(
         client_sync_tx: Mutex::new(client_sync.ingress_tx.clone()),
         attach_state: Arc::new(StdMutex::new(AttachState::default())),
         frame_channel_factory: Arc::new(TokioAttachFrameChannelFactory),
-        command_mapper: args.command_mapper,
         local_operation_executor: args.local_operation_executor,
         login_gate: Arc::new(Semaphore::new(1)),
         local_operation_tasks: StdMutex::new(Vec::new()),
@@ -1977,9 +1938,6 @@ fn server_request_error_to_web_bridge_error(
         ServerRequestError::ProtocolValidationFailed => {
             selvedge_web::WebBridgeError::ProtocolValidationFailed
         }
-        ServerRequestError::UnsupportedCommand => {
-            selvedge_web::WebBridgeError::CommandRejected("unsupported command".to_owned())
-        }
         ServerRequestError::RouterMailboxClosed => selvedge_web::WebBridgeError::ServerNotReady,
         ServerRequestError::AttachChannelFailed => {
             selvedge_web::WebBridgeError::AttachRejected("attach channel failed".to_owned())
@@ -2126,32 +2084,6 @@ mod tests {
     use tokio::sync::oneshot;
     use tokio::time::timeout;
 
-    struct UnusedMapper;
-
-    impl LocalCommandMapper for UnusedMapper {
-        fn map_command(
-            &self,
-            _request: CommandRequest,
-        ) -> Result<RouterCommandEnvelope, ServerRequestError> {
-            unreachable!("attach shutdown-path tests never submit commands")
-        }
-    }
-
-    struct AcceptingMapper;
-
-    impl LocalCommandMapper for AcceptingMapper {
-        fn map_command(
-            &self,
-            request: CommandRequest,
-        ) -> Result<RouterCommandEnvelope, ServerRequestError> {
-            Ok(RouterCommandEnvelope {
-                client_id: Some(ClientId(request.client_id.0)),
-                client_command_id: Some(ClientCommandId(request.client_command_id.0)),
-                command: RouterCommand::EnsureMissingTaskRuntimes,
-            })
-        }
-    }
-
     struct NoopLocalOperationExecutor;
 
     impl LocalOperationExecutor for NoopLocalOperationExecutor {
@@ -2277,12 +2209,11 @@ mod tests {
         let (router_tx, _router_rx) = mpsc::unbounded_channel();
         let (client_sync_tx, _client_sync_rx) = mpsc::channel(1);
         let (events_tx, _events_rx) = mpsc::channel(8);
-        let control = test_control_with_frame_channel_factory_mapper_and_executor(
+        let control = test_control_with_frame_channel_factory_and_executor(
             router_tx,
             client_sync_tx,
             events_tx,
             Arc::new(TokioAttachFrameChannelFactory),
-            Arc::new(UnusedMapper),
             Arc::new(PendingLocalOperationExecutor),
         );
         activate_attach(&control, "client-1", "attach-1");
@@ -2302,12 +2233,11 @@ mod tests {
         let (router_tx, _router_rx) = mpsc::unbounded_channel();
         let (client_sync_tx, _client_sync_rx) = mpsc::channel(1);
         let (events_tx, _events_rx) = mpsc::channel(8);
-        let control = test_control_with_frame_channel_factory_mapper_and_executor(
+        let control = test_control_with_frame_channel_factory_and_executor(
             router_tx,
             client_sync_tx,
             events_tx,
             Arc::new(TokioAttachFrameChannelFactory),
-            Arc::new(UnusedMapper),
             Arc::new(PendingLocalOperationExecutor),
         );
         activate_attach(&control, "client-1", "attach-1");
@@ -2331,12 +2261,11 @@ mod tests {
         let (router_tx, _router_rx) = mpsc::unbounded_channel();
         let (client_sync_tx, _client_sync_rx) = mpsc::channel(1);
         let (events_tx, _events_rx) = mpsc::channel(8);
-        let control = test_control_with_frame_channel_factory_mapper_and_executor(
+        let control = test_control_with_frame_channel_factory_and_executor(
             router_tx,
             client_sync_tx,
             events_tx,
             Arc::new(TokioAttachFrameChannelFactory),
-            Arc::new(UnusedMapper),
             Arc::new(PendingLocalOperationExecutor),
         );
         activate_attach(&control, "client-1", "attach-1");
@@ -2491,12 +2420,11 @@ mod tests {
         let router_tx = accepting_router_sender();
         let (client_sync_tx, _client_sync_rx) = mpsc::channel(4);
         let (events_tx, _events_rx) = mpsc::channel(8);
-        let control = test_control_with_frame_channel_factory_mapper_and_executor(
+        let control = test_control_with_frame_channel_factory_and_executor(
             router_tx,
             client_sync_tx,
             events_tx,
             Arc::new(TokioAttachFrameChannelFactory),
-            Arc::new(UnusedMapper),
             Arc::new(PendingLocalOperationExecutor),
         );
 
@@ -2549,12 +2477,11 @@ mod tests {
         let (router_tx, _router_rx) = mpsc::unbounded_channel();
         let (client_sync_tx, _client_sync_rx) = mpsc::channel(1);
         let (events_tx, _events_rx) = mpsc::channel(8);
-        let control = test_control_with_frame_channel_factory_mapper_and_executor(
+        let control = test_control_with_frame_channel_factory_and_executor(
             router_tx,
             client_sync_tx,
             events_tx,
             Arc::new(TokioAttachFrameChannelFactory),
-            Arc::new(UnusedMapper),
             Arc::new(PendingLocalOperationExecutor),
         );
         activate_attach(&control, "client-1", "attach-1");
@@ -2578,16 +2505,12 @@ mod tests {
         let router_tx = accepting_router_sender();
         let (client_sync_tx, _client_sync_rx) = mpsc::channel(1);
         let (events_tx, _events_rx) = mpsc::channel(1);
-        let control = test_control_with_mapper(
-            router_tx,
-            client_sync_tx,
-            events_tx,
-            Arc::new(AcceptingMapper),
-        );
+        let control = test_control(router_tx, client_sync_tx, events_tx);
+        activate_attach(&control, "client-1", "attach-1");
         let bridge = ServerWebBridge { control };
 
         let response = bridge
-            .submit_command(test_command_request())
+            .submit_command(login_command("command-1"))
             .await
             .expect("web command forwards");
 
@@ -3498,53 +3421,20 @@ mod tests {
         events_tx: EventIngressSender,
         frame_channel_factory: Arc<dyn AttachFrameChannelFactory>,
     ) -> ServerControl {
-        test_control_with_frame_channel_factory_and_mapper(
+        test_control_with_frame_channel_factory_and_executor(
             router_tx,
             client_sync_tx,
             events_tx,
             frame_channel_factory,
-            Arc::new(UnusedMapper),
-        )
-    }
-
-    fn test_control_with_mapper(
-        router_tx: RouterIngressSender,
-        client_sync_tx: selvedge_client_sync::ClientSyncSender,
-        events_tx: EventIngressSender,
-        command_mapper: Arc<dyn LocalCommandMapper>,
-    ) -> ServerControl {
-        test_control_with_frame_channel_factory_and_mapper(
-            router_tx,
-            client_sync_tx,
-            events_tx,
-            Arc::new(TokioAttachFrameChannelFactory),
-            command_mapper,
-        )
-    }
-
-    fn test_control_with_frame_channel_factory_and_mapper(
-        router_tx: RouterIngressSender,
-        client_sync_tx: selvedge_client_sync::ClientSyncSender,
-        events_tx: EventIngressSender,
-        frame_channel_factory: Arc<dyn AttachFrameChannelFactory>,
-        command_mapper: Arc<dyn LocalCommandMapper>,
-    ) -> ServerControl {
-        test_control_with_frame_channel_factory_mapper_and_executor(
-            router_tx,
-            client_sync_tx,
-            events_tx,
-            frame_channel_factory,
-            command_mapper,
             Arc::new(NoopLocalOperationExecutor),
         )
     }
 
-    fn test_control_with_frame_channel_factory_mapper_and_executor(
+    fn test_control_with_frame_channel_factory_and_executor(
         router_tx: RouterIngressSender,
         client_sync_tx: selvedge_client_sync::ClientSyncSender,
         events_tx: EventIngressSender,
         frame_channel_factory: Arc<dyn AttachFrameChannelFactory>,
-        command_mapper: Arc<dyn LocalCommandMapper>,
         local_operation_executor: Arc<dyn LocalOperationExecutor>,
     ) -> ServerControl {
         ServerControl {
@@ -3560,7 +3450,6 @@ mod tests {
                 client_sync_tx: Mutex::new(client_sync_tx),
                 attach_state: Arc::new(StdMutex::new(AttachState::default())),
                 frame_channel_factory,
-                command_mapper,
                 local_operation_executor,
                 login_gate: Arc::new(Semaphore::new(1)),
                 local_operation_tasks: StdMutex::new(Vec::new()),
@@ -3584,16 +3473,6 @@ mod tests {
             }
             ClientSyncExitStatus::IngressClosed
         })
-    }
-
-    fn test_command_request() -> CommandRequest {
-        CommandRequest {
-            client_id: selvedge_local_protocol::LocalClientId::new("client-1")
-                .expect("valid client id"),
-            client_command_id: LocalClientCommandId::new("command-1").expect("valid command id"),
-            command_name: "send-user-input".to_owned(),
-            payload: serde_json::json!({"message": "hello"}),
-        }
     }
 
     fn login_command(client_command_id: &str) -> CommandRequest {
