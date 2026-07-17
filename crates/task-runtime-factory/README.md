@@ -2,7 +2,7 @@
 
 <!-- selvedge-package-readme
 package: selvedge-task-runtime-factory
-freshness_fingerprint: e261ad7f6a60a4f74f383c38e205a0f96047f30b
+freshness_fingerprint: c7a4df3e000da187a2b5deb65d1cba5c54b07fed
 -->
 
 This crate runs one-shot factory effects for router-mediated task runtimes.

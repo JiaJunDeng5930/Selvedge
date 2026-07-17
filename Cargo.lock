@@ -248,6 +248,7 @@ dependencies = [
  "selvedge-client",
  "selvedge-config",
  "selvedge-config-model",
+ "selvedge-domain-model",
  "selvedge-logging",
  "selvedge-test-support",
  "serde",
@@ -1599,6 +1600,7 @@ dependencies = [
  "selvedge-db",
  "selvedge-domain-model",
  "selvedge-test-support",
+ "serde_json",
  "tokio",
  "uuid",
 ]
@@ -1609,6 +1611,7 @@ version = "0.0.0"
 dependencies = [
  "rusqlite",
  "selvedge-domain-model",
+ "serde_json",
  "tempfile",
 ]
 
@@ -1617,6 +1620,7 @@ name = "selvedge-domain-model"
 version = "0.0.0"
 dependencies = [
  "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -1662,6 +1666,7 @@ dependencies = [
 name = "selvedge-local-protocol"
 version = "0.0.0"
 dependencies = [
+ "selvedge-domain-model",
  "serde",
  "serde_json",
 ]
