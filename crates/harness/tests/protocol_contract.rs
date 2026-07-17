@@ -152,6 +152,17 @@ fn valid_requests_parse_to_typed_invocations() {
         ),
         (
             request(
+                READ_TASK_TOOL_NAME,
+                vec![json_number_argument("after_node_id", "9007199254740993.0")],
+            ),
+            HarnessInvocation::ReadTask(ReadTaskInvocation {
+                task_id: None,
+                after_node_id: Some(HistoryNodeId(9_007_199_254_740_993)),
+                limit: None,
+            }),
+        ),
+        (
+            request(
                 SEND_MESSAGE_TO_TASK_TOOL_NAME,
                 vec![
                     string_argument("task_id", "task-2"),
@@ -206,6 +217,32 @@ fn valid_requests_parse_to_typed_invocations() {
             HarnessInvocation::Bash(BashInvocation {
                 command: "true".to_owned(),
                 timeout_ms: MAX_BASH_TIMEOUT_MS as u64,
+            }),
+        ),
+        (
+            request(
+                BASH_TOOL_NAME,
+                vec![
+                    string_argument("command", "true"),
+                    json_number_argument("timeout_ms", "100.0"),
+                ],
+            ),
+            HarnessInvocation::Bash(BashInvocation {
+                command: "true".to_owned(),
+                timeout_ms: 100,
+            }),
+        ),
+        (
+            request(
+                BASH_TOOL_NAME,
+                vec![
+                    string_argument("command", "true"),
+                    json_number_argument("timeout_ms", "1e2"),
+                ],
+            ),
+            HarnessInvocation::Bash(BashInvocation {
+                command: "true".to_owned(),
+                timeout_ms: 100,
             }),
         ),
     ];
@@ -284,6 +321,22 @@ fn invalid_requests_are_rejected_without_backend_state() {
             request(READ_TASK_TOOL_NAME, vec![integer_argument("limit", 101)]),
             HarnessErrorCode::InvalidArguments,
             "argument 'limit' must be between 1 and 100",
+        ),
+        (
+            request(
+                READ_TASK_TOOL_NAME,
+                vec![json_number_argument("after_node_id", "1.5")],
+            ),
+            HarnessErrorCode::InvalidArguments,
+            "argument 'after_node_id' must be an integer",
+        ),
+        (
+            request(
+                READ_TASK_TOOL_NAME,
+                vec![json_number_argument("after_node_id", "9223372036854775808")],
+            ),
+            HarnessErrorCode::InvalidArguments,
+            "argument 'after_node_id' must be an integer",
         ),
         (
             request(BASH_TOOL_NAME, Vec::new()),
@@ -563,6 +616,12 @@ fn string_argument(name: &str, value: &str) -> (String, Value) {
 
 fn integer_argument(name: &str, value: i64) -> (String, Value) {
     (name.to_owned(), Value::from(value))
+}
+
+fn json_number_argument(name: &str, value: &str) -> (String, Value) {
+    let value = serde_json::from_str(value).expect("parse JSON number");
+    assert!(matches!(value, Value::Number(_)));
+    (name.to_owned(), value)
 }
 
 fn input_schema<const N: usize>(properties: [(&str, Value); N], required: &[&str]) -> JsonObject {
