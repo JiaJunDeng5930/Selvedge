@@ -5,7 +5,7 @@ package: selvedge-command-model
 freshness_fingerprint: 98b2a13cc052d404addaee31a587bcc95b861746
 -->
 
-This crate defines the Selvedge command model API slice used to dispatch model calls, return completed API outputs to the router, and describe router-mediated client event ingress.
+This crate defines the Selvedge command model API slice used to dispatch model calls, return completed API and branched tool outputs to the router, and describe router-mediated client event ingress.
 
 Use it to define model-call request correlation, dispatch request, output envelope, call error, router ingress message types, router commands, factory output messages, event ingress messages, client subscriptions, client snapshots, raw events, and client outbound frames.
 
@@ -15,7 +15,7 @@ This crate is not for network access, database access, filesystem access, provid
 `TaskRuntimeControl` is the shared control block for one runtime. Freeze is a state bit on that control block. `TaskRuntimeControl::stop` is an async function with synchronous barrier semantics: it sets the stop bit and resolves only after the runtime actor writes `TaskRuntimeStopResult`.
 `TaskRuntimeCommand` carries business input only. Stop is outside the business mailbox.
 `RouterCommand::SendUserInput` and `RouterCommand::ArchiveTask` carry typed responders through the router and task runtime. Input succeeds as `Committed` with its persisted history node id or as `Queued`; archive succeeds as `Archived`. Dropping an unsettled responder returns `RuntimeUnavailable`, so mailbox replacement, cancellation, and shutdown cannot be mistaken for a committed SQLite transition.
-`RouterCommand::CreateChildTaskAndRuntime` carries the parent and exact function-call identity plus the typed child prompt. Its responder succeeds only after the fork transaction commits and the child runtime is registered and accepts `Start`. A later runtime failure preserves the durable child id in `RuntimeStartFailedAfterChildCreated`.
+`ToolExecutionResult` contains one or more ordered branches. A branch targets the calling task or a newly identified child task and carries JSON output, an error bit, and ordinary user messages to append after the output. `CoreOutputMessage::EnsureTaskRuntimes` asks the router to start runtimes for task ids that core has already committed.
 `RouterIngressSender` is unbounded. Runtime, API, and tool outputs must be able to enqueue router ingress without awaiting router mailbox capacity, because router stop waits synchronously for runtime actors to finish.
 `RouterIngressWeakSender` is for internal router producers. Internal producers upgrade it only while an external ingress owner keeps the router mailbox open.
 `CoreOutputEnvelope` carries `task_id` for task-based router routing.
@@ -43,8 +43,7 @@ flowchart TD
   StopFinished[Stop result published]
   TaskResponsePending[Task command response pending]
   TaskResponseSettled[Task command response settled]
-  ForkResponsePending[Fork response pending]
-  ForkResponseSettled[Fork response settled]
+  ToolResult[Construct branched tool result]
   Valid[Return accepted value]
   Invalid[Return validation error]
 
@@ -53,7 +52,7 @@ flowchart TD
   Start -->|caller validates router command envelope| ValidateRouterCommand
   Start -->|caller creates TaskRuntimeControl| ControlReady
   Start -->|caller creates a user-input or archive response channel| TaskResponsePending
-  Start -->|caller creates a fork response channel| ForkResponsePending
+  Start -->|caller constructs a completed tool result| ToolResult
   ValidateDispatch -->|correlation, task, provider, profile, and input fields satisfy contract| Valid
   ValidateDispatch -->|required dispatch field is empty or inconsistent| Invalid
   ValidateApiOutput -->|output envelope correlation and payload are consistent| Valid
@@ -68,6 +67,5 @@ flowchart TD
   StopFinished -->|later stop call observes stored result| StopFinished
   TaskResponsePending -->|runtime reports a committed SQLite outcome or classified failure| TaskResponseSettled
   TaskResponsePending -->|unsettled responder is dropped| TaskResponseSettled
-  ForkResponsePending -->|router reports runtime start or a classified fork failure| ForkResponseSettled
-  ForkResponsePending -->|unsettled responder is dropped| ForkResponseSettled
+  ToolResult -->|every branch has a target, JSON output, error bit, and user messages| Valid
 ```

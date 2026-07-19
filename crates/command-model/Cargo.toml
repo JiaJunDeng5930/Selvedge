@@ -5,6 +5,7 @@ publish = false
 
 [dependencies]
 selvedge-domain-model = { path = "../domain-model" }
+serde_json = "1.0.145"
 tokio = { version = "1.42.0", features = ["sync"] }
 
 [lints.rust]

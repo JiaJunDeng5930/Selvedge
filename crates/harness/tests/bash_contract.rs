@@ -5,7 +5,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use rustix::io::Errno;
 use rustix::process::{Pid, test_kill_process, test_kill_process_group};
 use selvedge_command_model::{
-    RouterIngressMessage, ToolExecutionRequest, ToolExecutionResult, ToolExecutionRunId,
+    RouterIngressMessage, ToolExecutionBranch, ToolExecutionBranchTarget, ToolExecutionRequest,
+    ToolExecutionRunId,
 };
 use selvedge_domain_model::{FunctionCallId, HistoryNodeId, TaskId, ToolName};
 use selvedge_harness::{BASH_OUTPUT_LIMIT_BYTES, BASH_TOOL_NAME, HarnessToolExecutor};
@@ -24,8 +25,14 @@ async fn bash_reports_zero_nonzero_and_signal_terminal_statuses() {
     .await;
     assert!(!zero.is_error);
     assert_eq!(
-        zero.output_text,
-        r#"{"exit_code":0,"stderr":"stderr","stderr_truncated":false,"stdout":"stdout","stdout_truncated":false}"#
+        zero.output,
+        serde_json::json!({
+            "exit_code": 0,
+            "stderr": "stderr",
+            "stderr_truncated": false,
+            "stdout": "stdout",
+            "stdout_truncated": false
+        })
     );
 
     let nonzero = execute(vec![string_argument(
@@ -35,15 +42,19 @@ async fn bash_reports_zero_nonzero_and_signal_terminal_statuses() {
     .await;
     assert!(!nonzero.is_error);
     assert_eq!(
-        nonzero.output_text,
-        r#"{"exit_code":7,"stderr":"failure","stderr_truncated":false,"stdout":"partial","stdout_truncated":false}"#
+        nonzero.output,
+        serde_json::json!({
+            "exit_code": 7,
+            "stderr": "failure",
+            "stderr_truncated": false,
+            "stdout": "partial",
+            "stdout_truncated": false
+        })
     );
 
     let signalled = execute(vec![string_argument("command", "kill -TERM $$")]).await;
     assert!(!signalled.is_error);
-    let output: serde_json::Value =
-        serde_json::from_str(&signalled.output_text).expect("decode signal output");
-    assert!(output["exit_code"].is_null());
+    assert!(signalled.output["exit_code"].is_null());
 }
 
 #[tokio::test]
@@ -53,9 +64,8 @@ async fn bash_uses_login_shell_with_server_working_directory_and_environment() {
         "printf '%s\n%s\n' \"$PWD\" \"$CARGO_MANIFEST_DIR\"; shopt -q login_shell",
     )])
     .await;
-    assert!(!result.is_error, "bash failed: {}", result.output_text);
-    let output: serde_json::Value =
-        serde_json::from_str(&result.output_text).expect("decode bash output");
+    assert!(!result.is_error, "bash failed: {}", result.output);
+    let output = result.output;
     assert_eq!(output["exit_code"], 0);
     let stdout = output["stdout"].as_str().expect("stdout string");
     let mut lines = stdout.lines();
@@ -82,9 +92,8 @@ async fn bash_drains_large_stdout_and_stderr_concurrently_and_marks_each_prefix(
         integer_argument("timeout_ms", 5_000),
     ])
     .await;
-    assert!(!result.is_error, "bash failed: {}", result.output_text);
-    let output: serde_json::Value =
-        serde_json::from_str(&result.output_text).expect("decode bash output");
+    assert!(!result.is_error, "bash failed: {}", result.output);
+    let output = result.output;
     assert_eq!(output["exit_code"], 0);
     assert_eq!(
         output["stdout"].as_str().expect("stdout string").len(),
@@ -120,8 +129,13 @@ async fn bash_timeout_terminates_the_process_group_and_returns_one_terminal_erro
     .await;
     assert!(result.is_error);
     assert_eq!(
-        result.output_text,
-        r#"{"error":{"code":"command_timed_out","message":"bash command timed out after 300 ms"}}"#
+        result.output,
+        serde_json::json!({
+            "error": {
+                "code": "command_timed_out",
+                "message": "bash command timed out after 300 ms"
+            }
+        })
     );
 
     let pids = fs::read_to_string(&pid_path).expect("timeout command wrote pids");
@@ -141,7 +155,7 @@ async fn bash_timeout_terminates_the_process_group_and_returns_one_terminal_erro
     assert_eq!(test_kill_process(child_pid), Err(Errno::SRCH));
 }
 
-async fn execute(arguments: Vec<(String, Value)>) -> ToolExecutionResult {
+async fn execute(arguments: Vec<(String, Value)>) -> ToolExecutionBranch {
     let executor = HarnessToolExecutor::new(open_memory_db());
     let request = ToolExecutionRequest {
         task_id: TaskId("task-1".to_owned()),
@@ -169,11 +183,15 @@ async fn execute(arguments: Vec<(String, Value)>) -> ToolExecutionResult {
     assert_eq!(result.function_call_node_id, request.function_call_node_id);
     assert_eq!(result.function_call_id, request.function_call_id);
     assert_eq!(result.tool_name, request.tool_name);
+    assert_eq!(result.branches.len(), 1);
     assert!(matches!(
         router_rx.try_recv(),
         Err(mpsc::error::TryRecvError::Empty)
     ));
-    result
+    let branch = result.branches.into_iter().next().expect("calling branch");
+    assert_eq!(branch.target, ToolExecutionBranchTarget::CallingTask);
+    assert!(branch.messages.is_empty());
+    branch
 }
 
 fn string_argument(name: &str, value: &str) -> (String, Value) {
