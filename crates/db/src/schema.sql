@@ -6,7 +6,7 @@ CREATE TABLE schema_metadata (
 );
 
 INSERT INTO schema_metadata (schema_key, schema_value)
-VALUES ('selvedge_schema_version', 'json-tool-foundation-v6');
+VALUES ('selvedge_schema_version', 'tool-result-branches-v7');
 
 CREATE TABLE tools (
     tool_name TEXT PRIMARY KEY CHECK (length(tool_name) > 0),
@@ -86,15 +86,36 @@ CREATE TABLE history_function_output_nodes (
     function_call_node_id INTEGER NOT NULL,
     function_call_id TEXT NOT NULL CHECK (length(function_call_id) > 0),
     tool_name TEXT NOT NULL CHECK (length(tool_name) > 0),
-    output_text TEXT NOT NULL,
+    output_json TEXT NOT NULL CHECK (json_valid(output_json)),
     is_error INTEGER NOT NULL CHECK (is_error IN (0, 1)),
     FOREIGN KEY (node_id, node_content_kind) REFERENCES history_nodes(node_id, content_kind) ON UPDATE RESTRICT ON DELETE CASCADE,
-    FOREIGN KEY (function_call_node_id, function_call_id, tool_name) REFERENCES history_function_call_nodes(node_id, function_call_id, tool_name) ON UPDATE RESTRICT ON DELETE RESTRICT,
-    UNIQUE (function_call_node_id)
+    FOREIGN KEY (function_call_node_id, function_call_id, tool_name) REFERENCES history_function_call_nodes(node_id, function_call_id, tool_name) ON UPDATE RESTRICT ON DELETE RESTRICT
 );
 
 CREATE INDEX idx_history_function_output_call
     ON history_function_output_nodes(function_call_node_id);
+
+CREATE TRIGGER history_function_output_open_path
+BEFORE INSERT ON history_function_output_nodes
+WHEN EXISTS (
+    WITH RECURSIVE ancestors(node_id, parent_node_id) AS (
+        SELECT node_id, parent_node_id
+        FROM history_nodes
+        WHERE node_id = NEW.node_id
+        UNION ALL
+        SELECT parent.node_id, parent.parent_node_id
+        FROM history_nodes parent
+        JOIN ancestors child ON parent.node_id = child.parent_node_id
+    )
+    SELECT 1
+    FROM ancestors
+    JOIN history_function_output_nodes existing
+      ON existing.node_id = ancestors.node_id
+    WHERE existing.function_call_node_id = NEW.function_call_node_id
+)
+BEGIN
+    SELECT RAISE(ABORT, 'function call already has an output on this history path');
+END;
 
 CREATE TABLE tasks (
     task_id TEXT PRIMARY KEY CHECK (length(task_id) > 0),

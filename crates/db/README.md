@@ -2,12 +2,12 @@
 
 <!-- selvedge-package-readme
 package: selvedge-db
-freshness_fingerprint: 1474a0da8cc7e1c068edfd7cf1895740c9d77ad4
+freshness_fingerprint: 72492e28b3bcf129fec40004fe71db8a110bf9fb
 -->
 
 This crate owns SQLite persistence for router-mediated Selvedge tasks.
 
-Use it to open a schema-v6 SQLite database, migrate schema-v5 databases, register non-global or global harness tools, create root tasks, atomically fork child tasks from open function calls, commit task-runtime state transitions, queue user inputs, archive tasks, and read bounded task snapshots.
+Use it to open a schema-v7 SQLite database, migrate schema-v5 or schema-v6 databases, register non-global or global harness tools, create root tasks, atomically commit tool-result branches, commit other task-runtime state transitions, queue user inputs, archive tasks, and read bounded task snapshots.
 
 This crate is for SQLite persistence only. Runtime wait state, provider calls, tool execution, router registries, and event delivery live in other crates.
 
@@ -19,12 +19,14 @@ Resource boundaries:
 - `register_global_tool` accepts a new harness definition, an exact harness repeat, or an exact non-global harness definition promoted to global. A conflicting schema, description, or route fails without changing the catalog.
 - `unpublish_global_tool` changes only publication. The definition, execution route, task-specific references, and function-call history remain durable.
 - `read_tool_manifest_for_task` merges database-marked global tools with that task's `task_tools` rows for active or archived tasks.
-- `fork_task_from_function_call` requires an active parent and an exact open function-call identity on its current cursor path. It finds the history node before that call's contiguous function-call batch, appends the child user prompt there, copies the parent model profile, reasoning effort, and task-specific tools, and writes the parent edge in one transaction.
+- `commit_tool_result_branches` requires one calling-task branch and accepts zero or more new-child branches for an exact open function call on the calling task's current cursor path. Every output is a sibling under that cursor. The calling branch then appends its supplied user messages and drains queued inputs; each child branch appends its own supplied user messages. Child task rows, parent edges, inherited task-specific tools, all history nodes, and every cursor are committed in one transaction.
+- Function outputs store arbitrary JSON values. The schema permits outputs for the same call on sibling paths while rejecting a second output on one history path.
 - `read_task` returns task identity, durable status, state version, cursor, optional parent, queued-input count, an exclusive `after_node_id` history page, and an exact `has_more` flag from one SQLite read transaction. Page limits are `1..=100`, and the after node must be on that task's cursor path.
 - `read_task_parent_edges` returns durable task-layer parent edges for router snapshots and factory verification.
+- `read_conversation_for_task` projects the cursor path into `Conversation.messages`: ordinary messages contain JSON strings, calls and outputs contain the shared JSON tool protocol, and every projected message records its source history node.
 - A task cursor is a pointer into history, with no ownership claim over the pointed node.
 
-Public transition writes keep cursor movement atomic with the history append they perform: user message commit, model reply with tool calls, assistant reply with queued-input drain, tool output with queued-input drain, queued input promotion, queue input, and archive.
+Public transition writes keep cursor movement atomic with the history append they perform: user message commit, model reply with tool calls, assistant reply with queued-input drain, tool-result branch commit, queued input promotion, queue input, and archive.
 
 ## Package State Machine
 
@@ -35,8 +37,8 @@ flowchart TD
   Start([database API call])
   Open[Open SQLite database]
   Schema{stored schema state}
-  Initialize[Create schema v6]
-  Migrate[Migrate schema v5 to v6]
+  Initialize[Create schema v7]
+  Migrate[Migrate schema v5 or v6 to v7]
   SnapshotTx[Start read_task transaction]
   SnapshotValidate[Validate task, limit, and after node]
   SnapshotPage[Read metadata and cursor-path page]
@@ -54,12 +56,12 @@ flowchart TD
   Open -->|database has no application tables| Initialize
   Open -->|database has application tables and schema metadata is readable| Schema
   Open -->|SQLite open or schema metadata read fails| OpenError
-  Schema -->|stored version is harness-persistence-v5| Migrate
-  Schema -->|stored version is json-tool-foundation-v6| Return
+  Schema -->|stored version is harness-persistence-v5 or json-tool-foundation-v6| Migrate
+  Schema -->|stored version is tool-result-branches-v7| Return
   Schema -->|stored version is missing or unsupported| OpenError
-  Initialize -->|schema-v6 batch succeeds| Return
+  Initialize -->|schema-v7 batch succeeds| Return
   Initialize -->|schema creation fails| OpenError
-  Migrate -->|schemas and argument objects are rebuilt, old flat tables are removed, and the version update commits| Return
+  Migrate -->|legacy tool JSON is normalized, output storage is rebuilt for JSON sibling branches, and the version update commits| Return
   Migrate -->|migration transaction fails| OpenError
   Start -->|read_task is called with open connection| SnapshotTx
   SnapshotTx -->|transaction begins| SnapshotValidate
@@ -74,7 +76,7 @@ flowchart TD
   Read -->|query fails or stored enum, JSON, id, or argument value is invalid| ReadError
   WriteTx -->|transaction begins| Validate
   WriteTx -->|transaction begin fails| CommitError
-  Validate -->|task, cursor, queue, history parent, exact global harness tool, publication, and fork-call preconditions hold| Commit
+  Validate -->|task, cursor, queue, history parent, exact global harness tool, publication, and path-local open-call preconditions hold| Commit
   Validate -->|requested transition conflicts with durable state| ValidationError
   Validate -->|read inside transaction fails| ReadError
   Commit -->|SQLite commit succeeds| Return
