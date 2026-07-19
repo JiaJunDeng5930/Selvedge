@@ -2,7 +2,7 @@
 
 <!-- selvedge-package-readme
 package: selvedge-core
-freshness_fingerprint: 879450430a0a742fe98d21f0f424bddb0a4ef96f
+freshness_fingerprint: e728a7007df817bab293cbc0bc955a03d4573acf
 -->
 
 This crate runs one task runtime actor per active task.
@@ -15,7 +15,9 @@ On `Start`, the runtime reads the active task snapshot and classifies the concre
 
 Before dispatching a model call, the actor reads the conversation, tool manifest, and active model profile together on Tokio's blocking thread pool. SQLite work therefore leaves async runtime workers available for other actors.
 
-Durable function calls become explicit function-call conversation content, and function outputs become explicit function-output content. Their arguments remain one JSON object throughout replay, persistence, and execution dispatch.
+Durable history is projected into one provider-neutral conversation model whose message content is JSON. Function calls and outputs use the shared discriminated JSON contract from `selvedge-domain-model`; core validates call/output pairing through that contract without introducing a second conversation representation.
+
+A matching tool execution result contains one or more history branches. Core commits all branch outputs, child tasks, optional child messages, and cursor changes through one database transaction. The calling task always has exactly one branch; any committed child task ids are then sent to the router's ordinary runtime-ensure path. Runtime creation is derived from committed task state and is not part of the history transaction.
 
 When a matching model reply arrives, the actor validates it against the exact manifest stored for that model run rather than reading the current publication state again. A tool unpublished after request dispatch can therefore finish the already-issued turn. Core rejects duplicate call ids and tools absent from that snapshot, but leaves JSON Schema interpretation to the selected executor.
 
@@ -42,6 +44,8 @@ flowchart TD
   ValidateModelReply[Validate reply against sent manifest snapshot]
   RequestTool[Send tool execution request to router]
   AwaitTool[Await matching tool output]
+  CommitToolBranches[Atomically commit tool-result branches]
+  EnsureChildRuntimes[Ask router to ensure committed child runtimes]
   QueueInput[Queue or append user input]
   InputSettled[Settle input responder]
   Archive[Archive task]
@@ -70,7 +74,12 @@ flowchart TD
   AwaitModel -->|user input arrives while model is in flight| QueueInput
   RequestTool -->|router ingress send succeeds| AwaitTool
   RequestTool -->|router ingress send fails| RouterClosed
-  AwaitTool -->|matching tool result arrives| ClassifyTail
+  AwaitTool -->|matching tool result arrives| CommitToolBranches
+  CommitToolBranches -->|single calling branch commits| ClassifyTail
+  CommitToolBranches -->|calling and child branches commit| EnsureChildRuntimes
+  CommitToolBranches -->|database transition fails| DbError
+  EnsureChildRuntimes -->|router ingress send succeeds| ClassifyTail
+  EnsureChildRuntimes -->|router ingress send fails| RouterClosed
   AwaitTool -->|user input arrives while tool is in flight| QueueInput
   AwaitInput -->|user input command arrives| QueueInput
   QueueInput -->|database transition succeeds| InputSettled
