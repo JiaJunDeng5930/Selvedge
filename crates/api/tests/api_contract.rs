@@ -15,8 +15,8 @@ use selvedge_command_model::{
     ModelCallErrorKind, ModelRunId, RouterIngressApiMessage, TaskId, validate_api_output_envelope,
 };
 use selvedge_domain_model::{
-    ConversationMessage, ConversationPath, FunctionCallId, JsonObject, MessageContent, MessageRole,
-    ModelFinishReason, ModelProviderProfile, ResponsePreference, ToolManifest, ToolName, ToolSpec,
+    Conversation, ConversationMessage, FunctionCallId, JsonObject, MessageRole, ModelFinishReason,
+    ModelProviderProfile, ResponsePreference, ToolManifest, ToolName, ToolSpec,
 };
 use selvedge_test_support::{
     chatgpt_auth::{auth_file_json, build_unsigned_jwt as build_jwt, write_auth_file},
@@ -226,30 +226,37 @@ base_url = "{}"
         r#"{"id":9007199254740993,"nullable":null,"nested":{"values":["rust",{"kind":"crate"}]}}"#,
     )
     .expect("tool arguments object");
-    request.conversation.messages.push(ConversationMessage {
-        role: MessageRole::Assistant,
-        content: MessageContent::FunctionCall {
-            function_call_id: FunctionCallId("call-1".to_owned()),
-            tool_name: ToolName("search".to_owned()),
-            arguments: arguments.clone(),
-        },
-        source_node_id: None,
+    request
+        .conversation
+        .messages
+        .push(ConversationMessage::function_call(
+            FunctionCallId("call-1".to_owned()),
+            ToolName("search".to_owned()),
+            arguments.clone(),
+            None,
+        ));
+    let tool_output = serde_json::json!({
+        "matches": ["serde", "serde_json"],
+        "total": 2,
     });
-    request.conversation.messages.push(ConversationMessage {
-        role: MessageRole::Tool,
-        content: MessageContent::FunctionOutput {
-            function_call_id: FunctionCallId("call-1".to_owned()),
-            tool_name: ToolName("search".to_owned()),
-            output_text: "result".to_owned(),
-            is_error: false,
-        },
-        source_node_id: None,
-    });
-    request.conversation.messages.push(ConversationMessage {
-        role: MessageRole::Assistant,
-        content: MessageContent::Text("previous answer".to_owned()),
-        source_node_id: None,
-    });
+    request
+        .conversation
+        .messages
+        .push(ConversationMessage::function_output(
+            FunctionCallId("call-1".to_owned()),
+            ToolName("search".to_owned()),
+            tool_output.clone(),
+            false,
+            None,
+        ));
+    request
+        .conversation
+        .messages
+        .push(ConversationMessage::text(
+            MessageRole::Assistant,
+            "previous answer",
+            None,
+        ));
     let input_schema = serde_json::from_value::<JsonObject>(serde_json::json!({
         "type": "object",
         "properties": {
@@ -316,6 +323,14 @@ base_url = "{}"
     assert_eq!(
         captured_body.pointer("/input/2/type"),
         Some(&serde_json::json!("function_call_output"))
+    );
+    let replayed_output = captured_body
+        .pointer("/input/2/output")
+        .and_then(serde_json::Value::as_str)
+        .expect("replayed function output");
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(replayed_output).expect("replayed output JSON"),
+        tool_output
     );
     assert_eq!(
         captured_body.pointer("/input/3/content/0/type"),
@@ -809,12 +824,8 @@ fn valid_dispatch_request() -> ModelCallDispatchRequest {
             temperature: None,
             max_output_tokens: None,
         },
-        conversation: ConversationPath {
-            messages: vec![ConversationMessage {
-                role: MessageRole::User,
-                content: MessageContent::Text("hello".to_owned()),
-                source_node_id: None,
-            }],
+        conversation: Conversation {
+            messages: vec![ConversationMessage::text(MessageRole::User, "hello", None)],
         },
         tool_manifest: None,
         response_preference: ResponsePreference::PlainTextOrToolCalls,

@@ -6,6 +6,9 @@ use serde::Serialize;
 
 pub type JsonObject = serde_json::Map<String, serde_json::Value>;
 
+pub const FUNCTION_CALL_CONTENT_TYPE: &str = "function_call";
+pub const FUNCTION_OUTPUT_CONTENT_TYPE: &str = "function_output";
+
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
 pub struct HistoryNodeIdRef(pub String);
 
@@ -28,15 +31,103 @@ pub struct ModelProfileKey(pub String);
 pub struct UnixTs(pub i64);
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
-pub struct ConversationPath {
+pub struct Conversation {
     pub messages: Vec<ConversationMessage>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct ConversationMessage {
     pub role: MessageRole,
-    pub content: MessageContent,
+    pub content: serde_json::Value,
     pub source_node_id: Option<HistoryNodeIdRef>,
+}
+
+impl ConversationMessage {
+    pub fn text(
+        role: MessageRole,
+        content: impl Into<String>,
+        source_node_id: Option<HistoryNodeIdRef>,
+    ) -> Self {
+        Self {
+            role,
+            content: serde_json::Value::String(content.into()),
+            source_node_id,
+        }
+    }
+
+    pub fn function_call(
+        function_call_id: FunctionCallId,
+        tool_name: ToolName,
+        arguments: JsonObject,
+        source_node_id: Option<HistoryNodeIdRef>,
+    ) -> Self {
+        Self {
+            role: MessageRole::Assistant,
+            content: serde_json::json!({
+                "type": FUNCTION_CALL_CONTENT_TYPE,
+                "function_call_id": function_call_id.0,
+                "tool_name": tool_name.0,
+                "arguments": arguments,
+            }),
+            source_node_id,
+        }
+    }
+
+    pub fn function_output(
+        function_call_id: FunctionCallId,
+        tool_name: ToolName,
+        output: serde_json::Value,
+        is_error: bool,
+        source_node_id: Option<HistoryNodeIdRef>,
+    ) -> Self {
+        Self {
+            role: MessageRole::Tool,
+            content: serde_json::json!({
+                "type": FUNCTION_OUTPUT_CONTENT_TYPE,
+                "function_call_id": function_call_id.0,
+                "tool_name": tool_name.0,
+                "output": output,
+                "is_error": is_error,
+            }),
+            source_node_id,
+        }
+    }
+
+    pub fn content_type(&self) -> Option<&str> {
+        self.content.get("type").and_then(serde_json::Value::as_str)
+    }
+
+    pub fn function_call_id(&self) -> Option<&str> {
+        self.content
+            .get("function_call_id")
+            .and_then(serde_json::Value::as_str)
+    }
+
+    pub fn tool_name(&self) -> Option<&str> {
+        self.content
+            .get("tool_name")
+            .and_then(serde_json::Value::as_str)
+    }
+
+    pub fn function_call_arguments(&self) -> Option<&JsonObject> {
+        (self.content_type() == Some(FUNCTION_CALL_CONTENT_TYPE))
+            .then(|| self.content.get("arguments"))
+            .flatten()
+            .and_then(serde_json::Value::as_object)
+    }
+
+    pub fn function_output_value(&self) -> Option<&serde_json::Value> {
+        (self.content_type() == Some(FUNCTION_OUTPUT_CONTENT_TYPE))
+            .then(|| self.content.get("output"))
+            .flatten()
+    }
+
+    pub fn function_output_is_error(&self) -> Option<bool> {
+        (self.content_type() == Some(FUNCTION_OUTPUT_CONTENT_TYPE))
+            .then(|| self.content.get("is_error"))
+            .flatten()
+            .and_then(serde_json::Value::as_bool)
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -46,22 +137,6 @@ pub enum MessageRole {
     User,
     Assistant,
     Tool,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize)]
-pub enum MessageContent {
-    Text(String),
-    FunctionCall {
-        function_call_id: FunctionCallId,
-        tool_name: ToolName,
-        arguments: JsonObject,
-    },
-    FunctionOutput {
-        function_call_id: FunctionCallId,
-        tool_name: ToolName,
-        output_text: String,
-        is_error: bool,
-    },
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -82,30 +157,6 @@ pub enum ReasoningEffort {
     Low,
     Medium,
     High,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize)]
-pub struct Conversation {
-    pub items: Vec<ConversationItem>,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize)]
-pub enum ConversationItem {
-    Message {
-        role: MessageRole,
-        text: String,
-    },
-    FunctionCall {
-        function_call_id: FunctionCallId,
-        tool_name: ToolName,
-        arguments: JsonObject,
-    },
-    FunctionOutput {
-        function_call_id: FunctionCallId,
-        tool_name: ToolName,
-        output_text: String,
-        is_error: bool,
-    },
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -156,7 +207,7 @@ pub enum ModelFinishReason {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ApiDomainValidationError {
-    EmptyConversationPath,
+    EmptyConversation,
     EmptyToolName,
     DuplicateToolName,
     EmptyProviderName,
@@ -166,9 +217,9 @@ pub enum ApiDomainValidationError {
     EmptyToolCallName,
 }
 
-pub fn validate_conversation_path(path: &ConversationPath) -> Result<(), ApiDomainValidationError> {
-    if path.messages.is_empty() {
-        return Err(ApiDomainValidationError::EmptyConversationPath);
+pub fn validate_conversation(conversation: &Conversation) -> Result<(), ApiDomainValidationError> {
+    if conversation.messages.is_empty() {
+        return Err(ApiDomainValidationError::EmptyConversation);
     }
 
     Ok(())

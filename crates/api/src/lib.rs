@@ -21,8 +21,9 @@ use selvedge_command_model::{
     RouterIngressApiMessage, RouterIngressWeakSender, validate_dispatch_request,
 };
 use selvedge_domain_model::{
-    ConversationMessage, MessageContent, MessageRole, ModelFinishReason, ModelReply,
-    ResponsePreference, TokenUsage, ToolCallProposal, ToolManifest, validate_model_reply,
+    ConversationMessage, FUNCTION_CALL_CONTENT_TYPE, FUNCTION_OUTPUT_CONTENT_TYPE, MessageRole,
+    ModelFinishReason, ModelReply, ResponsePreference, TokenUsage, ToolCallProposal, ToolManifest,
+    validate_model_reply,
 };
 use selvedge_model_providers::{ProviderRegistryError, default_registry};
 
@@ -244,7 +245,7 @@ async fn call_chatgpt(
     request: &ModelCallDispatchRequest,
     config: &ApiExecutorConfig,
 ) -> Result<ModelReply, ModelCallError> {
-    let chatgpt_request = chatgpt_request_from_dispatch(request);
+    let chatgpt_request = chatgpt_request_from_dispatch(request)?;
     let mut response_stream = stream(chatgpt_request).await.map_err(map_chatgpt_error)?;
     let mut byte_counter = config.max_response_bytes.map(BoundedByteCounter::new);
     let mut text_parts = BTreeMap::new();
@@ -374,9 +375,11 @@ async fn call_chatgpt(
     })
 }
 
-fn chatgpt_request_from_dispatch(request: &ModelCallDispatchRequest) -> ChatgptResponsesRequest {
+fn chatgpt_request_from_dispatch(
+    request: &ModelCallDispatchRequest,
+) -> Result<ChatgptResponsesRequest, ModelCallError> {
     // NOTE: ChatGPT dispatch ignores max_output_tokens because chatgpt-api exposes no request field for this control; max-token incompletes are reported as Length replies.
-    ChatgptResponsesRequest {
+    Ok(ChatgptResponsesRequest {
         model: request.provider.model_name.clone(),
         // HACK: Pin direct ChatGPT dispatch to the current Selvedge capability decision until a capability source exists.
         model_capabilities: ChatgptModelCapabilities {
@@ -404,59 +407,129 @@ fn chatgpt_request_from_dispatch(request: &ModelCallDispatchRequest) -> ChatgptR
             .messages
             .iter()
             .map(chatgpt_item_from_message)
-            .collect(),
+            .collect::<Result<Vec<_>, _>>()?,
         tools: chatgpt_tools(request.tool_manifest.as_ref(), &request.response_preference),
         parallel_tool_calls: true,
         reasoning: ChatgptReasoningOptions::default(),
         text: ChatgptTextOptions::default(),
         service_tier: None,
+    })
+}
+
+fn chatgpt_item_from_message(
+    message: &ConversationMessage,
+) -> Result<ResponseItem, ModelCallError> {
+    if let Some(text) = message.content.as_str() {
+        let content = if message.role == MessageRole::Assistant {
+            ContentItem::OutputText {
+                text: text.to_owned(),
+                raw: serde_json::Map::new(),
+            }
+        } else {
+            ContentItem::InputText {
+                text: text.to_owned(),
+            }
+        };
+        return Ok(ResponseItem::Message(MessageItem {
+            id: message
+                .source_node_id
+                .as_ref()
+                .map(|node_id| node_id.0.clone()),
+            status: Some("completed".to_owned()),
+            role: chatgpt_role(&message.role).to_owned(),
+            content: vec![content],
+        }));
+    }
+
+    match message.content_type() {
+        Some(FUNCTION_CALL_CONTENT_TYPE) => {
+            let function_call_id = required_chatgpt_content_field(
+                message.function_call_id(),
+                FUNCTION_CALL_CONTENT_TYPE,
+                "function_call_id",
+            )?;
+            let tool_name = required_chatgpt_content_field(
+                message.tool_name(),
+                FUNCTION_CALL_CONTENT_TYPE,
+                "tool_name",
+            )?;
+            let arguments = message.function_call_arguments().ok_or_else(|| {
+                invalid_chatgpt_content(
+                    FUNCTION_CALL_CONTENT_TYPE,
+                    "arguments must be a JSON object",
+                )
+            })?;
+
+            Ok(ResponseItem::FunctionCall(FunctionCallItem {
+                id: None,
+                status: Some("completed".to_owned()),
+                name: tool_name.to_owned(),
+                namespace: None,
+                arguments: arguments.clone(),
+                call_id: function_call_id.to_owned(),
+            }))
+        }
+        Some(FUNCTION_OUTPUT_CONTENT_TYPE) => {
+            let function_call_id = required_chatgpt_content_field(
+                message.function_call_id(),
+                FUNCTION_OUTPUT_CONTENT_TYPE,
+                "function_call_id",
+            )?;
+            required_chatgpt_content_field(
+                message.tool_name(),
+                FUNCTION_OUTPUT_CONTENT_TYPE,
+                "tool_name",
+            )?;
+            message.function_output_is_error().ok_or_else(|| {
+                invalid_chatgpt_content(FUNCTION_OUTPUT_CONTENT_TYPE, "is_error must be a boolean")
+            })?;
+            let output = message.function_output_value().ok_or_else(|| {
+                invalid_chatgpt_content(FUNCTION_OUTPUT_CONTENT_TYPE, "output is required")
+            })?;
+            let output_text = if let Some(text) = output.as_str() {
+                text.to_owned()
+            } else {
+                serde_json::to_string(output).map_err(|error| {
+                    invalid_chatgpt_content(
+                        FUNCTION_OUTPUT_CONTENT_TYPE,
+                        format!("output could not be serialized: {error}"),
+                    )
+                })?
+            };
+
+            Ok(ResponseItem::FunctionCallOutput(FunctionCallOutputItem {
+                id: None,
+                status: Some("completed".to_owned()),
+                call_id: function_call_id.to_owned(),
+                output: ToolOutput::Text(output_text),
+            }))
+        }
+        Some(content_type) => Err(invalid_chatgpt_content(
+            content_type,
+            "content type is not supported",
+        )),
+        None => Err(model_call_error(
+            ModelCallErrorKind::ProviderRequest,
+            "chatgpt conversation content must be a JSON string or a typed JSON object",
+        )),
     }
 }
 
-fn chatgpt_item_from_message(message: &ConversationMessage) -> ResponseItem {
-    match &message.content {
-        MessageContent::FunctionCall {
-            function_call_id,
-            tool_name,
-            arguments,
-        } => ResponseItem::FunctionCall(FunctionCallItem {
-            id: None,
-            status: Some("completed".to_owned()),
-            name: tool_name.0.clone(),
-            namespace: None,
-            arguments: arguments.clone(),
-            call_id: function_call_id.0.clone(),
-        }),
-        MessageContent::FunctionOutput {
-            function_call_id,
-            output_text,
-            ..
-        } => ResponseItem::FunctionCallOutput(FunctionCallOutputItem {
-            id: None,
-            status: Some("completed".to_owned()),
-            call_id: function_call_id.0.clone(),
-            output: ToolOutput::Text(output_text.clone()),
-        }),
-        MessageContent::Text(text) => {
-            let content = if message.role == MessageRole::Assistant {
-                ContentItem::OutputText {
-                    text: text.clone(),
-                    raw: serde_json::Map::new(),
-                }
-            } else {
-                ContentItem::InputText { text: text.clone() }
-            };
-            ResponseItem::Message(MessageItem {
-                id: message
-                    .source_node_id
-                    .as_ref()
-                    .map(|node_id| node_id.0.clone()),
-                status: Some("completed".to_owned()),
-                role: chatgpt_role(&message.role).to_owned(),
-                content: vec![content],
-            })
-        }
-    }
+fn required_chatgpt_content_field<'a>(
+    value: Option<&'a str>,
+    content_type: &str,
+    field: &str,
+) -> Result<&'a str, ModelCallError> {
+    value.ok_or_else(|| {
+        invalid_chatgpt_content(content_type, format!("{field} must be a JSON string"))
+    })
+}
+
+fn invalid_chatgpt_content(content_type: &str, detail: impl std::fmt::Display) -> ModelCallError {
+    model_call_error(
+        ModelCallErrorKind::ProviderRequest,
+        format!("invalid chatgpt {content_type} conversation content: {detail}"),
+    )
 }
 
 fn chatgpt_role(role: &MessageRole) -> &'static str {
