@@ -5,10 +5,12 @@ use std::io;
 use std::sync::Arc;
 use std::time::Duration;
 
-use rmcp::model::{CallToolRequestParams, TaskSupport, Tool};
-use rmcp::service::RunningService;
+use rmcp::model::{
+    CallToolRequest, CallToolRequestParams, ClientRequest, ServerResult, TaskSupport, Tool,
+};
+use rmcp::service::{PeerRequestOptions, RunningService};
 use rmcp::transport::TokioChildProcess;
-use rmcp::{Peer, RoleClient, ServiceExt};
+use rmcp::{Peer, RoleClient, ServiceError, ServiceExt};
 use selvedge_config_model::McpServerConfig;
 use selvedge_db::McpToolRegistration;
 use selvedge_domain_model::{JsonObject, ToolSpec};
@@ -105,24 +107,27 @@ impl McpConnectionSet {
                 format!("MCP server '{server_id}' is not connected"),
             )
         })?;
-        let request = CallToolRequestParams::new(remote_tool_name).with_arguments(arguments);
-        let result = tokio::time::timeout(connection.timeout, connection.peer.call_tool(request))
+        let request = ClientRequest::CallToolRequest(CallToolRequest::new(
+            CallToolRequestParams::new(remote_tool_name).with_arguments(arguments),
+        ));
+        let handle = connection
+            .peer
+            .send_cancellable_request(
+                request,
+                PeerRequestOptions::with_timeout(connection.timeout),
+            )
             .await
-            .map_err(|_| {
-                HarnessError::new(
-                    HarnessErrorCode::McpCallTimedOut,
-                    format!(
-                        "MCP tool call on server '{server_id}' timed out after {} ms",
-                        connection.timeout.as_millis()
-                    ),
-                )
-            })?
-            .map_err(|error| {
-                HarnessError::new(
-                    HarnessErrorCode::McpCallFailed,
-                    format!("MCP tool call on server '{server_id}' failed: {error}"),
-                )
-            })?;
+            .map_err(|error| map_call_error(server_id, connection.timeout, error))?;
+        let response = handle
+            .await_response()
+            .await
+            .map_err(|error| map_call_error(server_id, connection.timeout, error))?;
+        let ServerResult::CallToolResult(result) = response else {
+            return Err(HarnessError::new(
+                HarnessErrorCode::McpCallFailed,
+                format!("MCP tool call on server '{server_id}' returned an unexpected response"),
+            ));
+        };
         let is_error = result.is_error == Some(true);
         let output = serde_json::to_value(result).map_err(|error| {
             HarnessError::new(
@@ -131,6 +136,22 @@ impl McpConnectionSet {
             )
         })?;
         Ok((output, is_error))
+    }
+}
+
+fn map_call_error(server_id: &str, timeout: Duration, error: ServiceError) -> HarnessError {
+    match error {
+        ServiceError::Timeout { .. } => HarnessError::new(
+            HarnessErrorCode::McpCallTimedOut,
+            format!(
+                "MCP tool call on server '{server_id}' timed out after {} ms",
+                timeout.as_millis()
+            ),
+        ),
+        error => HarnessError::new(
+            HarnessErrorCode::McpCallFailed,
+            format!("MCP tool call on server '{server_id}' failed: {error}"),
+        ),
     }
 }
 

@@ -757,7 +757,7 @@ impl CliServerRunner for DefaultCliServerRunner {
             _ = tokio::task::yield_now() => {}
         }
 
-        let handle = match selvedge_server::spawn_server(args) {
+        let handle = match selvedge_server::spawn_server(args).await {
             Ok(handle) => handle,
             Err(error) => {
                 return server_exit_status(selvedge_server::ServerExitStatus::StartupFailed(error));

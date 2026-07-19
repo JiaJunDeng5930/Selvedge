@@ -171,7 +171,17 @@ async fn executor_routes_from_the_durable_catalog_and_preserves_full_error_json(
 #[tokio::test]
 async fn executor_maps_mcp_timeouts_to_one_correlated_error_branch() {
     let db = open_memory_db();
-    let (connections, registrations) = McpConnectionSet::connect(&configs("slow", 100))
+    let marker = temp_marker("cancel");
+    let mut configs = configs("slow", 100);
+    configs
+        .get_mut("alpha.beta")
+        .expect("fixture config")
+        .env
+        .insert(
+            "MCP_CANCEL_MARKER".to_owned(),
+            marker.to_string_lossy().into_owned(),
+        );
+    let (connections, registrations) = McpConnectionSet::connect(&configs)
         .await
         .expect("connect fixture");
     replace_global_mcp_tools(&db, registrations).expect("publish MCP catalog");
@@ -188,7 +198,22 @@ async fn executor_maps_mcp_timeouts_to_one_correlated_error_branch() {
 
     assert!(branch.is_error);
     assert_eq!(branch.output["error"]["code"], "mcp_call_timed_out");
+    for _ in 0..50 {
+        if marker.exists() {
+            let notification: Value =
+                serde_json::from_str(&fs::read_to_string(&marker).expect("captured cancellation"))
+                    .expect("cancellation JSON");
+            assert_eq!(notification["method"], "notifications/cancelled");
+            assert_eq!(notification["params"]["reason"], "request timeout");
+            assert!(notification["params"]["requestId"].is_number());
+            fs::remove_file(&marker).expect("remove cancellation marker");
+            connections.close().await;
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
     connections.close().await;
+    panic!("MCP server did not receive cancellation after tool timeout");
 }
 
 #[tokio::test]
