@@ -2,7 +2,7 @@
 
 <!-- selvedge-package-readme
 package: selvedge-domain-model
-freshness_fingerprint: babd97983f5cec64b996241879634dc187cea019
+freshness_fingerprint: 6ac0cc761263cf3773460bde97bed532b13eb7f9
 -->
 
 This crate defines the Selvedge domain model API slice used by model-call packages.
@@ -10,9 +10,11 @@ This crate defines the Selvedge domain model API slice used by model-call packag
 Use it to define conversation, tool, provider, and normalized model reply data structures.
 
 Tool input schemas and function-call arguments use `JsonObject`, backed by
-`serde_json` with arbitrary-precision number decoding. Conversation replay has
-explicit function-call and function-output content variants, so callers do not
-encode tool history as generic structured messages.
+`serde_json` with arbitrary-precision number decoding. `Conversation` stores one
+ordered list of `ConversationMessage` values whose content is arbitrary JSON.
+Text content is a JSON string. Function calls and outputs use typed JSON objects;
+the message constructors and readers define their shared field contract without
+adding another persisted content model.
 
 This crate is not for network access, database access, filesystem access, provider execution, or task runtime mutation.
 
@@ -30,7 +32,7 @@ flowchart TD
   Ready[Value ready for package boundary]
   Serialize[Serialize or clone for caller]
 
-  Start -->|caller constructs conversation path, message, node id, or task id| Conversation
+  Start -->|caller constructs conversation, JSON message, node id, or task id| Conversation
   Start -->|caller constructs tool name, full input schema, manifest, call id, or object arguments| Tool
   Start -->|caller constructs provider profile or reasoning effort| Provider
   Start -->|caller constructs model reply content, tool call, usage, or finish reason| Reply

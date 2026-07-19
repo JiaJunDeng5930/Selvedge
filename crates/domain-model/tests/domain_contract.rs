@@ -1,46 +1,100 @@
 use selvedge_domain_model::{
-    ApiDomainValidationError, ConversationMessage, ConversationPath, JsonObject, MessageContent,
+    ApiDomainValidationError, Conversation, ConversationMessage, FunctionCallId, JsonObject,
     MessageRole, ModelFinishReason, ModelProviderProfile, ModelReply, ToolCallProposal,
-    ToolManifest, ToolSpec, validate_conversation_path, validate_model_provider_profile,
+    ToolManifest, ToolName, ToolSpec, validate_conversation, validate_model_provider_profile,
     validate_model_reply, validate_tool_manifest,
 };
 
 #[test]
-fn conversation_path_requires_at_least_one_message_and_preserves_order() {
-    let empty = ConversationPath {
+fn conversation_requires_at_least_one_message_and_preserves_text_json() {
+    let empty = Conversation {
         messages: Vec::new(),
     };
 
     assert_eq!(
-        validate_conversation_path(&empty),
-        Err(ApiDomainValidationError::EmptyConversationPath)
+        validate_conversation(&empty),
+        Err(ApiDomainValidationError::EmptyConversation)
     );
 
-    let path = ConversationPath {
+    let conversation = Conversation {
         messages: vec![
-            ConversationMessage {
-                role: MessageRole::System,
-                content: MessageContent::Text("system".to_owned()),
-                source_node_id: None,
-            },
-            ConversationMessage {
-                role: MessageRole::User,
-                content: MessageContent::Text("user".to_owned()),
-                source_node_id: None,
-            },
+            ConversationMessage::text(MessageRole::System, "system", None),
+            ConversationMessage::text(MessageRole::User, "user", None),
         ],
     };
 
-    validate_conversation_path(&path).expect("valid conversation path");
+    validate_conversation(&conversation).expect("valid conversation");
 
-    match &path.messages[0].content {
-        MessageContent::Text(value) => assert_eq!(value, "system"),
-        _ => panic!("unexpected content"),
-    }
-    match &path.messages[1].content {
-        MessageContent::Text(value) => assert_eq!(value, "user"),
-        _ => panic!("unexpected content"),
-    }
+    assert_eq!(
+        conversation.messages[0].content,
+        serde_json::json!("system")
+    );
+    assert_eq!(conversation.messages[1].content, serde_json::json!("user"));
+}
+
+#[test]
+fn conversation_tool_content_uses_the_shared_json_contract() {
+    let arguments = serde_json::from_value::<JsonObject>(serde_json::json!({
+        "query": "rust",
+        "page": 2,
+    }))
+    .expect("arguments object");
+    let function_call = ConversationMessage::function_call(
+        FunctionCallId("call-1".to_owned()),
+        ToolName("search".to_owned()),
+        arguments.clone(),
+        None,
+    );
+
+    assert_eq!(function_call.role, MessageRole::Assistant);
+    assert_eq!(
+        function_call.content,
+        serde_json::json!({
+            "type": "function_call",
+            "function_call_id": "call-1",
+            "tool_name": "search",
+            "arguments": arguments,
+        })
+    );
+    assert_eq!(function_call.content_type(), Some("function_call"));
+    assert_eq!(function_call.function_call_id(), Some("call-1"));
+    assert_eq!(function_call.tool_name(), Some("search"));
+    assert_eq!(
+        function_call.function_call_arguments(),
+        function_call
+            .content
+            .get("arguments")
+            .and_then(serde_json::Value::as_object)
+    );
+
+    let output = serde_json::json!({"matches": ["serde", "serde_json"]});
+    let function_output = ConversationMessage::function_output(
+        FunctionCallId("call-1".to_owned()),
+        ToolName("search".to_owned()),
+        output.clone(),
+        false,
+        None,
+    );
+
+    assert_eq!(function_output.role, MessageRole::Tool);
+    assert_eq!(
+        function_output.content,
+        serde_json::json!({
+            "type": "function_output",
+            "function_call_id": "call-1",
+            "tool_name": "search",
+            "output": output,
+            "is_error": false,
+        })
+    );
+    assert_eq!(function_output.content_type(), Some("function_output"));
+    assert_eq!(function_output.function_call_id(), Some("call-1"));
+    assert_eq!(function_output.tool_name(), Some("search"));
+    assert_eq!(
+        function_output.function_output_value(),
+        function_output.content.get("output")
+    );
+    assert_eq!(function_output.function_output_is_error(), Some(false));
 }
 
 #[test]
