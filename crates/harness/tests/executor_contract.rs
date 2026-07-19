@@ -1,549 +1,145 @@
-use std::collections::HashMap;
-use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
-use selvedge_api::ApiExecutorConfig;
 use selvedge_command_model::{
-    ArchiveTaskOutcome, RouterCommand, RouterCommandEnvelope, RouterIngressMessage,
-    SendUserInputOutcome, TaskCommandError, TaskRuntimeCommand, TaskRuntimeControl,
-    TaskRuntimeStopResult, ToolExecutionRequest, ToolExecutionResult, ToolExecutionRunId,
+    RouterIngressMessage, ToolExecutionBranchTarget, ToolExecutionRequest, ToolExecutionResult,
+    ToolExecutionRunId,
 };
-use selvedge_core::{
-    SpawnTaskRuntimeArgs, SpawnTaskRuntimeError, SpawnedTaskRuntime, TaskRuntimeConfig,
-    TaskRuntimeSpawnDeps, TaskRuntimeSpawner,
-};
-use selvedge_db::{
-    CreateRootTaskInput, DbError, DbPool, FunctionCallId, HistoryNodeId, ModelProfileKey,
-    NewFunctionCallNodeContent, NewFunctionOutputNodeContent, ReadTaskInput, ReasoningEffort,
-    TaskId, TaskStatusRow, ToolName, UnixTs, append_function_output_and_drain_queue,
-    append_model_reply_with_tool_calls_and_move_cursor, append_user_message_and_move_cursor,
-    archive_task, create_root_task, read_task, register_global_tool,
-};
-use selvedge_domain_model::JsonObject;
-use selvedge_harness::{
-    ARCHIVE_TASK_TOOL_NAME, BASH_TOOL_NAME, FORK_TASK_TOOL_NAME, HarnessToolExecutor,
-    READ_TASK_TOOL_NAME, SEND_MESSAGE_TO_TASK_TOOL_NAME, tool_manifest,
-};
-use selvedge_router::{RouterExitStatus, RouterStartArgs, ToolExecutionSpawner, spawn_router};
-use selvedge_test_support::db::{create_message_node, open_memory_db};
+use selvedge_domain_model::{FunctionCallId, HistoryNodeId, JsonObject, TaskId, ToolName, UnixTs};
+use selvedge_harness::{FORK_TASK_TOOL_NAME, HarnessToolExecutor, READ_TASK_TOOL_NAME};
+use selvedge_router::ToolExecutionSpawner;
+use selvedge_test_support::db::{create_root_task_with_user_message, open_memory_db};
 use serde_json::Value;
 use tokio::sync::mpsc;
-use tokio::time::timeout;
 
 #[tokio::test]
-async fn executor_closes_fork_send_read_and_archive_through_router_and_sqlite() {
+async fn fork_executor_returns_numbered_branches_and_aligned_messages() {
     let db = open_memory_db();
-    for tool in tool_manifest().tools {
-        register_global_tool(&db, tool).expect("register harness tool");
-    }
-    let parent_task_id = TaskId("parent".to_owned());
-    let root_node_id = create_message_node(
-        &db,
-        None,
-        selvedge_db::MessageRole::User,
-        "parent prompt",
-        UnixTs(1),
-    );
-    create_root_task(
-        &db,
-        CreateRootTaskInput {
-            task_id: parent_task_id.clone(),
-            cursor_node_id: root_node_id,
-            model_profile_key: ModelProfileKey("default".to_owned()),
-            reasoning_effort: ReasoningEffort::Medium,
-            enabled_tools: Vec::new(),
-            now: UnixTs(1),
-        },
-    )
-    .expect("create parent task");
-
-    let (started_tx, mut started_rx) = mpsc::unbounded_channel();
-    let (tool_result_tx, mut tool_result_rx) = mpsc::unbounded_channel();
-    let spawner = Arc::new(CommittingRuntimeSpawner {
-        started_tx,
-        tool_result_tx,
-    });
-    let (events_tx, _events_rx) = mpsc::channel(32);
-    let executor = Arc::new(HarnessToolExecutor::new(db.clone()));
-    let router = spawn_router(RouterStartArgs {
-        db: db.clone(),
-        events_tx,
-        api_config: ApiExecutorConfig {
-            request_timeout: Duration::from_secs(1),
-            max_response_bytes: None,
-        },
-        tool_executor: executor.clone(),
-        core_spawn_deps: TaskRuntimeSpawnDeps::with_spawner(
-            TaskRuntimeConfig {
-                mailbox_capacity: 8,
-                model_profiles: HashMap::new(),
-            },
-            spawner,
-        ),
-    })
-    .expect("spawn router");
-
-    router
-        .ingress_tx
-        .send(RouterIngressMessage::Command(RouterCommandEnvelope {
-            client_id: None,
-            client_command_id: None,
-            command: RouterCommand::EnsureTaskRuntime {
-                task_id: parent_task_id.clone(),
-            },
-        }))
-        .expect("ensure parent runtime");
-    assert_eq!(
-        recv_timeout(&mut started_rx).await,
-        parent_task_id,
-        "parent runtime must be registered and started"
-    );
-
-    let fork_call_node_id = append_tool_call(
-        &db,
-        &parent_task_id,
-        "fork-call",
-        FORK_TASK_TOOL_NAME,
-        vec![string_argument("prompt", "child prompt")],
-    );
-    let fork_request = tool_request(
-        &parent_task_id,
-        "run-fork",
-        fork_call_node_id,
-        "fork-call",
-        FORK_TASK_TOOL_NAME,
-        vec![string_argument("prompt", "child prompt")],
-    );
-    let fork_result = execute_and_receive(
-        executor.as_ref(),
-        fork_request.clone(),
-        router.ingress_tx.downgrade(),
-        &mut tool_result_rx,
-    )
-    .await;
-    assert_eq!(
-        result_correlation(&fork_result),
-        result_correlation_from_request(&fork_request)
-    );
-    assert!(!fork_result.is_error);
-    let fork_json: serde_json::Value =
-        serde_json::from_str(&fork_result.output_text).expect("decode fork output");
-    let child_task_id = TaskId(
-        fork_json["task_id"]
-            .as_str()
-            .expect("fork output child id")
-            .to_owned(),
-    );
-    assert_eq!(
-        recv_timeout(&mut started_rx).await,
-        child_task_id,
-        "child runtime must start before fork reports success"
-    );
-    let child = read_task(
-        &db,
-        ReadTaskInput {
-            task_id: child_task_id.clone(),
-            after_node_id: None,
-            limit: 100,
-        },
-    )
-    .expect("read durable child");
-    assert_eq!(child.parent_task_id, Some(parent_task_id.clone()));
-    assert!(child.history_nodes.iter().any(|node| {
-        matches!(
-            node,
-            selvedge_db::HistoryNode::Message { message_text, .. }
-                if message_text == "child prompt"
-        )
-    }));
-
-    let send_call_node_id = append_tool_call(
-        &db,
-        &parent_task_id,
-        "send-call",
-        SEND_MESSAGE_TO_TASK_TOOL_NAME,
-        vec![
-            string_argument("task_id", &child_task_id.0),
-            string_argument("message", "continue"),
-        ],
-    );
-    let send_result = execute_and_receive(
-        executor.as_ref(),
-        tool_request(
-            &parent_task_id,
-            "run-send",
-            send_call_node_id,
-            "send-call",
-            SEND_MESSAGE_TO_TASK_TOOL_NAME,
+    let executor = HarnessToolExecutor::new(db.clone());
+    let result = execute(
+        &executor,
+        request(
+            FORK_TASK_TOOL_NAME,
             vec![
-                string_argument("task_id", &child_task_id.0),
-                string_argument("message", "continue"),
+                ("child_count".to_owned(), Value::from(3)),
+                (
+                    "messages".to_owned(),
+                    Value::Array(vec![
+                        Value::String("research".to_owned()),
+                        Value::String("implement".to_owned()),
+                        Value::String("review".to_owned()),
+                    ]),
+                ),
             ],
         ),
-        router.ingress_tx.downgrade(),
-        &mut tool_result_rx,
     )
     .await;
-    assert!(
-        !send_result.is_error,
-        "send failed: {}",
-        send_result.output_text
-    );
+
+    assert_eq!(result.branches.len(), 4);
     assert_eq!(
-        serde_json::from_str::<serde_json::Value>(&send_result.output_text)
-            .expect("decode send output")["disposition"],
-        "committed"
+        result.branches[0].target,
+        ToolExecutionBranchTarget::CallingTask
     );
+    assert_eq!(result.branches[0].output, Value::from(0));
+    assert!(!result.branches[0].is_error);
+    assert!(result.branches[0].messages.is_empty());
 
-    let read_call_node_id = append_tool_call(
-        &db,
-        &parent_task_id,
-        "read-call",
-        READ_TASK_TOOL_NAME,
-        vec![string_argument("task_id", &child_task_id.0)],
-    );
-    let read_result = execute_and_receive(
-        executor.as_ref(),
-        tool_request(
-            &parent_task_id,
-            "run-read",
-            read_call_node_id,
-            "read-call",
-            READ_TASK_TOOL_NAME,
-            vec![string_argument("task_id", &child_task_id.0)],
-        ),
-        router.ingress_tx.downgrade(),
-        &mut tool_result_rx,
-    )
-    .await;
-    assert!(!read_result.is_error);
-    let read_json: serde_json::Value =
-        serde_json::from_str(&read_result.output_text).expect("decode read output");
-    assert_eq!(read_json["status"], "active");
-    assert!(
-        read_json["history"]["nodes"]
-            .as_array()
-            .expect("history array")
-            .iter()
-            .any(|node| node["text"] == "continue")
-    );
-
-    let archive_call_node_id = append_tool_call(
-        &db,
-        &parent_task_id,
-        "archive-call",
-        ARCHIVE_TASK_TOOL_NAME,
-        vec![string_argument("task_id", &child_task_id.0)],
-    );
-    let archive_result = execute_and_receive(
-        executor.as_ref(),
-        tool_request(
-            &parent_task_id,
-            "run-archive",
-            archive_call_node_id,
-            "archive-call",
-            ARCHIVE_TASK_TOOL_NAME,
-            vec![string_argument("task_id", &child_task_id.0)],
-        ),
-        router.ingress_tx.downgrade(),
-        &mut tool_result_rx,
-    )
-    .await;
-    assert!(!archive_result.is_error);
-    assert_eq!(
-        read_task(
-            &db,
-            ReadTaskInput {
-                task_id: child_task_id,
-                after_node_id: None,
-                limit: 100,
-            },
-        )
-        .expect("read archived child")
-        .task_status,
-        TaskStatusRow::Archived
-    );
-
-    let bash_call_node_id = append_tool_call(
-        &db,
-        &parent_task_id,
-        "bash-call",
-        BASH_TOOL_NAME,
-        vec![string_argument("command", "printf integrated")],
-    );
-    let bash_request = tool_request(
-        &parent_task_id,
-        "run-bash",
-        bash_call_node_id,
-        "bash-call",
-        BASH_TOOL_NAME,
-        vec![string_argument("command", "printf integrated")],
-    );
-    let bash_result = execute_and_receive(
-        executor.as_ref(),
-        bash_request.clone(),
-        router.ingress_tx.downgrade(),
-        &mut tool_result_rx,
-    )
-    .await;
-    assert_eq!(
-        result_correlation(&bash_result),
-        result_correlation_from_request(&bash_request)
-    );
-    assert!(!bash_result.is_error);
-    assert_eq!(
-        serde_json::from_str::<serde_json::Value>(&bash_result.output_text)
-            .expect("decode bash output")["stdout"],
-        "integrated"
-    );
-
-    let parent = read_task(
-        &db,
-        ReadTaskInput {
-            task_id: parent_task_id,
-            after_node_id: None,
-            limit: 100,
-        },
-    )
-    .expect("read parent results");
-    assert_eq!(
-        parent
-            .history_nodes
-            .iter()
-            .filter(|node| matches!(node, selvedge_db::HistoryNode::FunctionOutput { .. }))
-            .count(),
-        5
-    );
-
-    router
-        .ingress_tx
-        .send(RouterIngressMessage::StopRouter)
-        .expect("stop router");
-    assert_eq!(
-        timeout(Duration::from_secs(1), router.join_handle)
-            .await
-            .expect("router stop timeout")
-            .expect("router join"),
-        RouterExitStatus::Stopped
-    );
-}
-
-#[derive(Clone)]
-struct CommittingRuntimeSpawner {
-    started_tx: mpsc::UnboundedSender<TaskId>,
-    tool_result_tx: mpsc::UnboundedSender<ToolExecutionResult>,
-}
-
-impl TaskRuntimeSpawner for CommittingRuntimeSpawner {
-    fn spawn_task_runtime(
-        &self,
-        args: SpawnTaskRuntimeArgs,
-    ) -> Result<SpawnedTaskRuntime, SpawnTaskRuntimeError> {
-        let (task_runtime_tx, mut task_runtime_rx) =
-            mpsc::channel(args.config.mailbox_capacity.max(1));
-        let control = TaskRuntimeControl::new();
-        let actor_control = control.clone();
-        let task_id = args.task_id.clone();
-        let actor_task_id = task_id.clone();
-        let db = args.db;
-        let started_tx = self.started_tx.clone();
-        let tool_result_tx = self.tool_result_tx.clone();
-        tokio::spawn(async move {
-            loop {
-                tokio::select! {
-                    _ = actor_control.wait_for_control_change() => {
-                        if actor_control.is_stopping() {
-                            break;
-                        }
-                    }
-                    command = task_runtime_rx.recv() => {
-                        let Some(command) = command else {
-                            break;
-                        };
-                        match command {
-                            TaskRuntimeCommand::Start => {
-                                let _ = started_tx.send(actor_task_id.clone());
-                            }
-                            TaskRuntimeCommand::UserInput { message_text, responder } => {
-                                let db = db.clone();
-                                let task_id = actor_task_id.clone();
-                                let now = now();
-                                let result = tokio::task::spawn_blocking(move || {
-                                    append_user_message_and_move_cursor(
-                                        &db,
-                                        &task_id,
-                                        message_text,
-                                        now,
-                                    )
-                                })
-                                .await;
-                                responder.settle(match result {
-                                    Ok(Ok(node_id)) => Ok(SendUserInputOutcome::Committed { node_id }),
-                                    Ok(Err(DbError::TaskNotActive)) => Err(TaskCommandError::TaskArchived),
-                                    Ok(Err(DbError::NotFound)) => Err(TaskCommandError::TaskMissing),
-                                    Ok(Err(_)) | Err(_) => Err(TaskCommandError::PersistenceFailed),
-                                });
-                            }
-                            TaskRuntimeCommand::Archive { responder } => {
-                                let db = db.clone();
-                                let task_id = actor_task_id.clone();
-                                let now = now();
-                                let result = tokio::task::spawn_blocking(move || {
-                                    archive_task(&db, &task_id, now)
-                                })
-                                .await;
-                                responder.settle(match result {
-                                    Ok(Ok(())) => Ok(ArchiveTaskOutcome::Archived),
-                                    Ok(Err(DbError::TaskNotActive)) => Err(TaskCommandError::TaskArchived),
-                                    Ok(Err(DbError::NotFound)) => Err(TaskCommandError::TaskMissing),
-                                    Ok(Err(_)) | Err(_) => Err(TaskCommandError::PersistenceFailed),
-                                });
-                            }
-                            TaskRuntimeCommand::ToolResult(result) => {
-                                let db = db.clone();
-                                let task_id = actor_task_id.clone();
-                                let persisted_result = result.clone();
-                                let persisted = tokio::task::spawn_blocking(move || {
-                                    append_function_output_and_drain_queue(
-                                        &db,
-                                        &task_id,
-                                        NewFunctionOutputNodeContent {
-                                            function_call_node_id: persisted_result.function_call_node_id,
-                                            function_call_id: persisted_result.function_call_id,
-                                            tool_name: persisted_result.tool_name,
-                                            output_text: persisted_result.output_text,
-                                            is_error: persisted_result.is_error,
-                                        },
-                                        UnixTs(40),
-                                    )
-                                })
-                                .await;
-                                assert!(matches!(persisted, Ok(Ok(_))));
-                                let _ = tool_result_tx.send(result);
-                            }
-                            TaskRuntimeCommand::ApiModelReply(_) => {}
-                        }
-                    }
-                }
-            }
-            actor_control.finish_stop(TaskRuntimeStopResult).await;
-        });
-        Ok(SpawnedTaskRuntime {
-            task_id,
-            task_runtime_tx,
-            task_runtime_control: control,
-        })
+    let mut child_ids = Vec::new();
+    for (index, branch) in result.branches[1..].iter().enumerate() {
+        let ToolExecutionBranchTarget::NewChildTask { task_id } = &branch.target else {
+            panic!("expected child branch");
+        };
+        child_ids.push(task_id.clone());
+        assert_eq!(branch.output, Value::from(index + 1));
+        assert!(!branch.is_error);
     }
+    assert_eq!(result.branches[1].messages, vec!["research"]);
+    assert_eq!(result.branches[2].messages, vec!["implement"]);
+    assert_eq!(result.branches[3].messages, vec!["review"]);
+    child_ids.sort();
+    child_ids.dedup();
+    assert_eq!(child_ids.len(), 3);
+    assert!(
+        selvedge_db::list_active_tasks(&db)
+            .expect("list active tasks")
+            .is_empty()
+    );
 }
 
-async fn execute_and_receive(
+#[tokio::test]
+async fn fork_without_messages_leaves_child_follow_up_messages_empty() {
+    let executor = HarnessToolExecutor::new(open_memory_db());
+    let result = execute(
+        &executor,
+        request(
+            FORK_TASK_TOOL_NAME,
+            vec![("child_count".to_owned(), Value::from(2))],
+        ),
+    )
+    .await;
+
+    assert_eq!(result.branches.len(), 3);
+    assert!(
+        result
+            .branches
+            .iter()
+            .all(|branch| branch.messages.is_empty())
+    );
+}
+
+#[tokio::test]
+async fn ordinary_tool_returns_one_calling_task_branch() {
+    let db = open_memory_db();
+    create_root_task_with_user_message(&db, "task-1", "hello", UnixTs(1));
+    let executor = HarnessToolExecutor::new(db);
+    let result = execute(&executor, request(READ_TASK_TOOL_NAME, Vec::new())).await;
+
+    assert_eq!(result.branches.len(), 1);
+    let branch = &result.branches[0];
+    assert_eq!(branch.target, ToolExecutionBranchTarget::CallingTask);
+    assert!(!branch.is_error);
+    assert!(branch.messages.is_empty());
+    assert_eq!(branch.output["task_id"], "task-1");
+    assert_eq!(branch.output["status"], "active");
+}
+
+async fn execute(
     executor: &HarnessToolExecutor,
     request: ToolExecutionRequest,
-    router_tx: selvedge_command_model::RouterIngressWeakSender,
-    result_rx: &mut mpsc::UnboundedReceiver<ToolExecutionResult>,
 ) -> ToolExecutionResult {
+    let (router_tx, mut router_rx) = mpsc::unbounded_channel();
+    let expected = request.clone();
     executor
-        .spawn_tool_execution(request, router_tx)
-        .expect("spawn execution")
+        .spawn_tool_execution(request, router_tx.downgrade())
+        .expect("spawn tool execution")
         .await
-        .expect("execution supervisor");
-    recv_timeout(result_rx).await
+        .expect("tool execution supervisor");
+    let RouterIngressMessage::Tool(result) =
+        tokio::time::timeout(Duration::from_secs(1), router_rx.recv())
+            .await
+            .expect("tool result timeout")
+            .expect("router channel open")
+    else {
+        panic!("unexpected router message");
+    };
+    assert_eq!(result.task_id, expected.task_id);
+    assert_eq!(result.tool_execution_run_id, expected.tool_execution_run_id);
+    assert_eq!(result.function_call_node_id, expected.function_call_node_id);
+    assert_eq!(result.function_call_id, expected.function_call_id);
+    assert_eq!(result.tool_name, expected.tool_name);
+    assert!(matches!(
+        router_rx.try_recv(),
+        Err(mpsc::error::TryRecvError::Empty)
+    ));
+    result
 }
 
-async fn recv_timeout<T>(receiver: &mut mpsc::UnboundedReceiver<T>) -> T {
-    timeout(Duration::from_secs(1), receiver.recv())
-        .await
-        .expect("receive timeout")
-        .expect("sender open")
-}
-
-fn append_tool_call(
-    db: &DbPool,
-    task_id: &TaskId,
-    function_call_id: &str,
-    tool_name: &str,
-    arguments: Vec<(String, Value)>,
-) -> HistoryNodeId {
-    append_model_reply_with_tool_calls_and_move_cursor(
-        db,
-        task_id,
-        None,
-        vec![NewFunctionCallNodeContent {
-            function_call_id: FunctionCallId(function_call_id.to_owned()),
-            tool_name: ToolName(tool_name.to_owned()),
-            arguments: argument_object(arguments),
-        }],
-        UnixTs(10),
-    )
-    .expect("append tool call")[0]
-}
-
-fn tool_request(
-    task_id: &TaskId,
-    run_id: &str,
-    function_call_node_id: HistoryNodeId,
-    function_call_id: &str,
-    tool_name: &str,
-    arguments: Vec<(String, Value)>,
-) -> ToolExecutionRequest {
+fn request(tool_name: &str, arguments: Vec<(String, Value)>) -> ToolExecutionRequest {
     ToolExecutionRequest {
-        task_id: task_id.clone(),
-        tool_execution_run_id: ToolExecutionRunId(run_id.to_owned()),
-        function_call_node_id,
-        function_call_id: FunctionCallId(function_call_id.to_owned()),
+        task_id: TaskId("task-1".to_owned()),
+        tool_execution_run_id: ToolExecutionRunId("run-1".to_owned()),
+        function_call_node_id: HistoryNodeId(7),
+        function_call_id: FunctionCallId("call-1".to_owned()),
         tool_name: ToolName(tool_name.to_owned()),
-        arguments: argument_object(arguments),
+        arguments: JsonObject::from_iter(arguments),
     }
-}
-
-fn argument_object(entries: Vec<(String, Value)>) -> JsonObject {
-    entries.into_iter().collect()
-}
-
-fn string_argument(name: &str, value: &str) -> (String, Value) {
-    (name.to_owned(), Value::String(value.to_owned()))
-}
-
-fn result_correlation(
-    result: &ToolExecutionResult,
-) -> (
-    TaskId,
-    ToolExecutionRunId,
-    HistoryNodeId,
-    FunctionCallId,
-    ToolName,
-) {
-    (
-        result.task_id.clone(),
-        result.tool_execution_run_id.clone(),
-        result.function_call_node_id,
-        result.function_call_id.clone(),
-        result.tool_name.clone(),
-    )
-}
-
-fn result_correlation_from_request(
-    request: &ToolExecutionRequest,
-) -> (
-    TaskId,
-    ToolExecutionRunId,
-    HistoryNodeId,
-    FunctionCallId,
-    ToolName,
-) {
-    (
-        request.task_id.clone(),
-        request.tool_execution_run_id.clone(),
-        request.function_call_node_id,
-        request.function_call_id.clone(),
-        request.tool_name.clone(),
-    )
-}
-
-fn now() -> UnixTs {
-    UnixTs(
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_or(0, |duration| duration.as_secs() as i64),
-    )
 }

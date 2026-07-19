@@ -1,6 +1,6 @@
 use selvedge_command_model::{
-    HistoryNodeProjection, HistoryNodeProjectionBody, TaskProjectionStatus, ToolExecutionRequest,
-    ToolExecutionRunId,
+    HistoryNodeProjection, HistoryNodeProjectionBody, TaskProjectionStatus,
+    ToolExecutionBranchTarget, ToolExecutionRequest, ToolExecutionRunId,
 };
 use selvedge_domain_model::{
     FunctionCallId, HistoryNodeId, JsonObject, MessageRole, TaskId, ToolName, ToolSpec, UnixTs,
@@ -8,8 +8,8 @@ use selvedge_domain_model::{
 use selvedge_harness::{
     ARCHIVE_TASK_TOOL_NAME, ArchiveTaskInvocation, ArchiveTaskSuccess, BASH_TOOL_NAME,
     BashInvocation, BashSuccess, DEFAULT_BASH_TIMEOUT_MS, FORK_TASK_TOOL_NAME, ForkTaskInvocation,
-    ForkTaskSuccess, HarnessError, HarnessErrorCode, HarnessInvocation, HarnessSuccess,
-    HistoryPage, MAX_BASH_TIMEOUT_MS, MIN_BASH_TIMEOUT_MS, MessageDisposition, READ_TASK_TOOL_NAME,
+    HarnessError, HarnessErrorCode, HarnessInvocation, HarnessSuccess, HistoryPage,
+    MAX_BASH_TIMEOUT_MS, MIN_BASH_TIMEOUT_MS, MessageDisposition, READ_TASK_TOOL_NAME,
     ReadTaskInvocation, ReadTaskSuccess, SEND_MESSAGE_TO_TASK_TOOL_NAME,
     SendMessageToTaskInvocation, SendMessageToTaskSuccess, encode_tool_execution_result,
     parse_invocation, tool_manifest,
@@ -24,14 +24,22 @@ fn manifest_defines_exactly_the_five_harness_tools() {
             ToolSpec {
                 name: "fork_task".to_owned(),
                 description:
-                    "Create an active child task from the calling task and give it an initial prompt."
+                    "Create parallel child task branches with optional aligned initial messages."
                         .to_owned(),
                 input_schema: input_schema(
-                    [(
-                        "prompt",
-                        string_property("Initial prompt for the child task."),
-                    )],
-                    &["prompt"],
+                    [
+                        (
+                            "child_count",
+                            integer_property("Number of child task branches to create."),
+                        ),
+                        (
+                            "messages",
+                            string_array_property(
+                                "Optional initial messages aligned by child branch number.",
+                            ),
+                        ),
+                    ],
+                    &["child_count"],
                 ),
             },
             ToolSpec {
@@ -113,10 +121,14 @@ fn valid_requests_parse_to_typed_invocations() {
         (
             request(
                 FORK_TASK_TOOL_NAME,
-                vec![string_argument("prompt", "investigate")],
+                vec![
+                    integer_argument("child_count", 2),
+                    string_array_argument("messages", &["investigate", "review"]),
+                ],
             ),
             HarnessInvocation::ForkTask(ForkTaskInvocation {
-                prompt: "investigate".to_owned(),
+                child_count: 2,
+                messages: Some(vec!["investigate".to_owned(), "review".to_owned()]),
             }),
         ),
         (
@@ -263,7 +275,7 @@ fn invalid_requests_are_rejected_without_backend_state() {
         (
             request(FORK_TASK_TOOL_NAME, Vec::new()),
             HarnessErrorCode::InvalidArguments,
-            "missing required argument 'prompt'",
+            "missing required argument 'child_count'",
         ),
         (
             request(FORK_TASK_TOOL_NAME, vec![string_argument("extra", "value")]),
@@ -271,14 +283,42 @@ fn invalid_requests_are_rejected_without_backend_state() {
             "unexpected argument 'extra'",
         ),
         (
-            request(FORK_TASK_TOOL_NAME, vec![integer_argument("prompt", 1)]),
+            request(
+                FORK_TASK_TOOL_NAME,
+                vec![string_argument("child_count", "1")],
+            ),
             HarnessErrorCode::InvalidArguments,
-            "argument 'prompt' must be a string",
+            "argument 'child_count' must be an integer",
         ),
         (
-            request(FORK_TASK_TOOL_NAME, vec![string_argument("prompt", "  ")]),
+            request(
+                FORK_TASK_TOOL_NAME,
+                vec![integer_argument("child_count", 0)],
+            ),
             HarnessErrorCode::InvalidArguments,
-            "argument 'prompt' must not be empty",
+            "argument 'child_count' must be a positive integer",
+        ),
+        (
+            request(
+                FORK_TASK_TOOL_NAME,
+                vec![
+                    integer_argument("child_count", 2),
+                    string_array_argument("messages", &["only one"]),
+                ],
+            ),
+            HarnessErrorCode::InvalidArguments,
+            "argument 'messages' length must equal 'child_count'",
+        ),
+        (
+            request(
+                FORK_TASK_TOOL_NAME,
+                vec![
+                    integer_argument("child_count", 1),
+                    ("messages".to_owned(), Value::Array(vec![Value::from(1)])),
+                ],
+            ),
+            HarnessErrorCode::InvalidArguments,
+            "argument 'messages' must be an array of strings",
         ),
         (
             request(READ_TASK_TOOL_NAME, vec![string_argument("task_id", "")]),
@@ -400,12 +440,6 @@ fn invalid_requests_are_rejected_without_backend_state() {
 fn every_success_projection_has_stable_json() {
     let cases = [
         (
-            HarnessSuccess::ForkTask(ForkTaskSuccess {
-                task_id: TaskId("child".to_owned()),
-            }),
-            r#"{"status":"active","task_id":"child"}"#,
-        ),
-        (
             HarnessSuccess::ReadTask(read_success(TaskProjectionStatus::Active)),
             r#"{"cursor_node_id":4,"history":{"has_more":true,"next_after_node_id":4,"nodes":[{"created_at":10,"kind":"message","node_id":4,"parent_node_id":null,"role":"user","text":"hello"}]},"parent_task_id":"parent","queued_message_count":2,"state_version":7,"status":"active","task_id":"task-1"}"#,
         ),
@@ -510,12 +544,10 @@ fn every_error_code_uses_the_unified_stable_envelope() {
         HarnessErrorCode::UnknownTool,
         HarnessErrorCode::TaskNotFound,
         HarnessErrorCode::TaskArchived,
-        HarnessErrorCode::StaleToolCall,
         HarnessErrorCode::HistoryCursorNotOnTask,
         HarnessErrorCode::CannotArchiveCurrentTask,
         HarnessErrorCode::OperationCancelled,
         HarnessErrorCode::RouterUnavailable,
-        HarnessErrorCode::RuntimeStartFailed,
         HarnessErrorCode::StorageError,
         HarnessErrorCode::ExecutorPanicked,
         HarnessErrorCode::CommandSpawnFailed,
@@ -537,42 +569,23 @@ fn every_error_code_uses_the_unified_stable_envelope() {
 }
 
 #[test]
-fn runtime_start_failure_after_child_commit_preserves_the_child_identity() {
-    let request = request(FORK_TASK_TOOL_NAME, Vec::new());
-    let child_task_id = TaskId("child".to_owned());
-    let error = HarnessError::runtime_start_failed_after_child_created(
-        child_task_id.clone(),
-        "runtime did not start",
-    );
-
-    assert_eq!(error.code(), HarnessErrorCode::RuntimeStartFailed);
-    assert_eq!(error.created_child_task_id(), Some(&child_task_id));
-
-    let result = encode_tool_execution_result(&request, Err(error));
-
-    assert!(result.is_error);
-    assert_eq!(result.task_id, request.task_id);
-    assert_eq!(result.function_call_id, request.function_call_id);
-    assert_eq!(
-        result.output_text,
-        r#"{"error":{"code":"runtime_start_failed","message":"runtime did not start","task_created":true,"task_id":"child"}}"#
-    );
-}
-
-#[test]
 fn tool_result_encoding_preserves_all_request_correlation_and_error_state() {
-    let request = request(FORK_TASK_TOOL_NAME, Vec::new());
+    let request = request(BASH_TOOL_NAME, Vec::new());
     let success = encode_tool_execution_result(
         &request,
-        Ok(HarnessSuccess::ForkTask(ForkTaskSuccess {
-            task_id: TaskId("child".to_owned()),
+        Ok(HarnessSuccess::Bash(BashSuccess {
+            exit_code: Some(0),
+            stdout: "done".to_owned(),
+            stderr: String::new(),
+            stdout_truncated: false,
+            stderr_truncated: false,
         })),
     );
     let failure = encode_tool_execution_result(
         &request,
         Err(HarnessError::new(
-            HarnessErrorCode::RuntimeStartFailed,
-            "runtime did not start",
+            HarnessErrorCode::InvalidArguments,
+            "bad input",
         )),
     );
 
@@ -582,16 +595,33 @@ fn tool_result_encoding_preserves_all_request_correlation_and_error_state() {
         assert_eq!(result.function_call_node_id, request.function_call_node_id);
         assert_eq!(result.function_call_id, request.function_call_id);
         assert_eq!(result.tool_name, request.tool_name);
+        assert_eq!(result.branches.len(), 1);
+        assert_eq!(
+            result.branches[0].target,
+            ToolExecutionBranchTarget::CallingTask
+        );
+        assert!(result.branches[0].messages.is_empty());
     }
-    assert!(!success.is_error);
+    assert!(!success.branches[0].is_error);
     assert_eq!(
-        success.output_text,
-        r#"{"status":"active","task_id":"child"}"#
+        success.branches[0].output,
+        serde_json::json!({
+            "exit_code": 0,
+            "stderr": "",
+            "stderr_truncated": false,
+            "stdout": "done",
+            "stdout_truncated": false
+        })
     );
-    assert!(failure.is_error);
+    assert!(failure.branches[0].is_error);
     assert_eq!(
-        failure.output_text,
-        r#"{"error":{"code":"runtime_start_failed","message":"runtime did not start"}}"#
+        failure.branches[0].output,
+        serde_json::json!({
+            "error": {
+                "code": "invalid_arguments",
+                "message": "bad input"
+            }
+        })
     );
 }
 
@@ -616,6 +646,18 @@ fn string_argument(name: &str, value: &str) -> (String, Value) {
 
 fn integer_argument(name: &str, value: i64) -> (String, Value) {
     (name.to_owned(), Value::from(value))
+}
+
+fn string_array_argument(name: &str, values: &[&str]) -> (String, Value) {
+    (
+        name.to_owned(),
+        Value::Array(
+            values
+                .iter()
+                .map(|value| Value::String((*value).to_owned()))
+                .collect(),
+        ),
+    )
 }
 
 fn json_number_argument(name: &str, value: &str) -> (String, Value) {
@@ -662,6 +704,23 @@ fn string_property(description: &str) -> Value {
 fn integer_property(description: &str) -> Value {
     Value::Object(JsonObject::from_iter([
         ("type".to_owned(), Value::String("integer".to_owned())),
+        (
+            "description".to_owned(),
+            Value::String(description.to_owned()),
+        ),
+    ]))
+}
+
+fn string_array_property(description: &str) -> Value {
+    Value::Object(JsonObject::from_iter([
+        ("type".to_owned(), Value::String("array".to_owned())),
+        (
+            "items".to_owned(),
+            Value::Object(JsonObject::from_iter([(
+                "type".to_owned(),
+                Value::String("string".to_owned()),
+            )])),
+        ),
         (
             "description".to_owned(),
             Value::String(description.to_owned()),
