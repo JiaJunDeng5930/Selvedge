@@ -4,8 +4,11 @@ use selvedge_command_model::{
     RouterIngressMessage, ToolExecutionBranchTarget, ToolExecutionRequest, ToolExecutionResult,
     ToolExecutionRunId,
 };
+use selvedge_db::{DbPool, register_global_tool};
 use selvedge_domain_model::{FunctionCallId, HistoryNodeId, JsonObject, TaskId, ToolName, UnixTs};
-use selvedge_harness::{FORK_TASK_TOOL_NAME, HarnessToolExecutor, READ_TASK_TOOL_NAME};
+use selvedge_harness::{
+    FORK_TASK_TOOL_NAME, McpConnectionSet, READ_TASK_TOOL_NAME, ToolExecutor, tool_manifest,
+};
 use selvedge_router::ToolExecutionSpawner;
 use selvedge_test_support::db::{create_root_task_with_user_message, open_memory_db};
 use serde_json::Value;
@@ -14,7 +17,7 @@ use tokio::sync::mpsc;
 #[tokio::test]
 async fn fork_executor_returns_numbered_branches_and_aligned_messages() {
     let db = open_memory_db();
-    let executor = HarnessToolExecutor::new(db.clone());
+    let executor = executor(db.clone());
     let result = execute(
         &executor,
         request(
@@ -67,7 +70,7 @@ async fn fork_executor_returns_numbered_branches_and_aligned_messages() {
 
 #[tokio::test]
 async fn fork_without_messages_leaves_child_follow_up_messages_empty() {
-    let executor = HarnessToolExecutor::new(open_memory_db());
+    let executor = executor(open_memory_db());
     let result = execute(
         &executor,
         request(
@@ -90,7 +93,7 @@ async fn fork_without_messages_leaves_child_follow_up_messages_empty() {
 async fn ordinary_tool_returns_one_calling_task_branch() {
     let db = open_memory_db();
     create_root_task_with_user_message(&db, "task-1", "hello", UnixTs(1));
-    let executor = HarnessToolExecutor::new(db);
+    let executor = executor(db);
     let result = execute(&executor, request(READ_TASK_TOOL_NAME, Vec::new())).await;
 
     assert_eq!(result.branches.len(), 1);
@@ -102,10 +105,7 @@ async fn ordinary_tool_returns_one_calling_task_branch() {
     assert_eq!(branch.output["status"], "active");
 }
 
-async fn execute(
-    executor: &HarnessToolExecutor,
-    request: ToolExecutionRequest,
-) -> ToolExecutionResult {
+async fn execute(executor: &ToolExecutor, request: ToolExecutionRequest) -> ToolExecutionResult {
     let (router_tx, mut router_rx) = mpsc::unbounded_channel();
     let expected = request.clone();
     executor
@@ -131,6 +131,13 @@ async fn execute(
         Err(mpsc::error::TryRecvError::Empty)
     ));
     result
+}
+
+fn executor(db: DbPool) -> ToolExecutor {
+    for tool in tool_manifest().tools {
+        register_global_tool(&db, tool).expect("register harness tool");
+    }
+    ToolExecutor::new(db, McpConnectionSet::default())
 }
 
 fn request(tool_name: &str, arguments: Vec<(String, Value)>) -> ToolExecutionRequest {

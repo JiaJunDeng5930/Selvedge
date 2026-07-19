@@ -1,5 +1,7 @@
 #![doc = include_str!("../README.md")]
 
+mod mcp;
+
 use std::collections::BTreeMap;
 use std::future::Future;
 use std::io;
@@ -17,7 +19,8 @@ use selvedge_command_model::{
     send_user_input_response_channel,
 };
 use selvedge_db::{
-    DbError, DbPool, HistoryNode, ReadTaskInput, TaskRead, TaskStatusRow, read_task,
+    DbError, DbPool, HistoryNode, ReadTaskInput, TaskRead, TaskStatusRow, ToolExecutionSource,
+    read_task, read_tool_execution_source,
 };
 use selvedge_domain_model::{
     HistoryNodeId, JsonObject, MessageRole, TaskId, ToolManifest, ToolSpec,
@@ -29,6 +32,8 @@ use tokio::task::JoinHandle;
 use uuid::Uuid;
 
 use selvedge_router::{ToolExecutionSpawnError, ToolExecutionSpawner};
+
+pub use mcp::{McpConnectionSet, McpStartupError, McpStartupOperation};
 
 pub const FORK_TASK_TOOL_NAME: &str = "fork_task";
 pub const READ_TASK_TOOL_NAME: &str = "read_task";
@@ -589,6 +594,10 @@ pub enum HarnessErrorCode {
     CommandIoFailed,
     CommandWaitFailed,
     CommandTimedOut,
+    McpRouteUnavailable,
+    McpCallFailed,
+    McpCallTimedOut,
+    McpResultEncodingFailed,
 }
 
 impl HarnessErrorCode {
@@ -608,6 +617,10 @@ impl HarnessErrorCode {
             HarnessErrorCode::CommandIoFailed => "command_io_failed",
             HarnessErrorCode::CommandWaitFailed => "command_wait_failed",
             HarnessErrorCode::CommandTimedOut => "command_timed_out",
+            HarnessErrorCode::McpRouteUnavailable => "mcp_route_unavailable",
+            HarnessErrorCode::McpCallFailed => "mcp_call_failed",
+            HarnessErrorCode::McpCallTimedOut => "mcp_call_timed_out",
+            HarnessErrorCode::McpResultEncodingFailed => "mcp_result_encoding_failed",
         }
     }
 }
@@ -686,27 +699,29 @@ fn calling_task_branch(output: Value, is_error: bool) -> ToolExecutionBranch {
 }
 
 #[derive(Clone)]
-pub struct HarnessToolExecutor {
+pub struct ToolExecutor {
     db: DbPool,
+    mcp: McpConnectionSet,
 }
 
-impl HarnessToolExecutor {
-    pub fn new(db: DbPool) -> Self {
-        Self { db }
+impl ToolExecutor {
+    pub fn new(db: DbPool, mcp: McpConnectionSet) -> Self {
+        Self { db, mcp }
     }
 }
 
-impl ToolExecutionSpawner for HarnessToolExecutor {
+impl ToolExecutionSpawner for ToolExecutor {
     fn spawn_tool_execution(
         &self,
         request: ToolExecutionRequest,
         router_tx: RouterIngressWeakSender,
     ) -> Result<JoinHandle<()>, ToolExecutionSpawnError> {
         let db = self.db.clone();
+        let mcp = self.mcp.clone();
         let execution_request = request.clone();
         let execution_router_tx = router_tx.clone();
         spawn_supervised_execution(request, router_tx, async move {
-            execute_request(db, execution_request, execution_router_tx).await
+            execute_routed_request(db, mcp, execution_request, execution_router_tx).await
         })
     }
 }
@@ -747,7 +762,34 @@ where
     }))
 }
 
-async fn execute_request(
+async fn execute_routed_request(
+    db: DbPool,
+    mcp: McpConnectionSet,
+    request: ToolExecutionRequest,
+    router_tx: RouterIngressWeakSender,
+) -> Result<Vec<ToolExecutionBranch>, HarnessError> {
+    let route_db = db.clone();
+    let tool_name = request.tool_name.clone();
+    let source =
+        tokio::task::spawn_blocking(move || read_tool_execution_source(&route_db, &tool_name))
+            .await
+            .map_err(map_join_error)?
+            .map_err(map_tool_route_error)?;
+    match source {
+        ToolExecutionSource::Harness => execute_harness_request(db, request, router_tx).await,
+        ToolExecutionSource::Mcp {
+            server_id,
+            remote_tool_name,
+        } => {
+            let (output, is_error) = mcp
+                .call_tool(&server_id, remote_tool_name, request.arguments)
+                .await?;
+            Ok(vec![calling_task_branch(output, is_error)])
+        }
+    }
+}
+
+async fn execute_harness_request(
     db: DbPool,
     request: ToolExecutionRequest,
     router_tx: RouterIngressWeakSender,
@@ -770,6 +812,19 @@ async fn execute_request(
         HarnessInvocation::Bash(invocation) => {
             execute_bash(invocation).await.map(single_success_branch)
         }
+    }
+}
+
+fn map_tool_route_error(error: DbError) -> HarnessError {
+    match error {
+        DbError::NotFound => HarnessError::new(
+            HarnessErrorCode::UnknownTool,
+            "tool does not have a durable execution route",
+        ),
+        error => HarnessError::new(
+            HarnessErrorCode::StorageError,
+            format!("failed to read tool execution route: {error}"),
+        ),
     }
 }
 

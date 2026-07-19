@@ -9,7 +9,9 @@ use selvedge_command_model::{
     ToolExecutionRunId,
 };
 use selvedge_domain_model::{FunctionCallId, HistoryNodeId, TaskId, ToolName};
-use selvedge_harness::{BASH_OUTPUT_LIMIT_BYTES, BASH_TOOL_NAME, HarnessToolExecutor};
+use selvedge_harness::{
+    BASH_OUTPUT_LIMIT_BYTES, BASH_TOOL_NAME, McpConnectionSet, ToolExecutor, tool_manifest,
+};
 use selvedge_router::ToolExecutionSpawner;
 use selvedge_test_support::db::open_memory_db;
 use serde_json::Value;
@@ -156,7 +158,11 @@ async fn bash_timeout_terminates_the_process_group_and_returns_one_terminal_erro
 }
 
 async fn execute(arguments: Vec<(String, Value)>) -> ToolExecutionBranch {
-    let executor = HarnessToolExecutor::new(open_memory_db());
+    let db = open_memory_db();
+    for tool in tool_manifest().tools {
+        selvedge_db::register_global_tool(&db, tool).expect("register harness tool");
+    }
+    let executor = ToolExecutor::new(db, McpConnectionSet::default());
     let request = ToolExecutionRequest {
         task_id: TaskId("task-1".to_owned()),
         tool_execution_run_id: ToolExecutionRunId("run-1".to_owned()),

@@ -2,14 +2,18 @@
 
 <!-- selvedge-package-readme
 package: selvedge-harness
-freshness_fingerprint: cd73608e53f36d99d9c5b484e1ca4c6cbedb6f53
+freshness_fingerprint: 9a89d2a33b6d17076c0aa5a1320b3f58257a22c8
 -->
 
-This crate implements Selvedge task self-orchestration and bounded Bash command execution for model tool calls.
+This crate implements Selvedge task self-orchestration, bounded Bash command execution, and stdio MCP client execution for model tool calls.
 
-Use it for the five harness tool manifests, complete JSON input schemas, typed invocation parsing from JSON objects, argument validation, SQLite-backed task reads, router-mediated task mutations, non-interactive Bash commands, stable JSON output, and the production `ToolExecutionSpawner`.
+Use it for the five harness tool manifests, complete JSON input schemas, typed invocation parsing from JSON objects, argument validation, SQLite-backed task reads, router-mediated task mutations, non-interactive Bash commands, MCP discovery and calls, stable JSON output, and the production `ToolExecutionSpawner`.
 
 Calling task identity and complete function-call correlation come from `ToolExecutionRequest`, not model arguments. SQLite reads run on Tokio's blocking pool. Send and archive wait for typed router responders, so enqueueing a command is never reported as business success.
+
+`McpConnectionSet` starts each configured command directly with its configured arguments and environment, completes MCP initialization, and consumes every page from `tools/list`. A discovered tool is published as `mcp__<normalized server id>__<normalized remote name>` only when that name is valid and unique and the tool does not require MCP task-mode execution. Missing descriptions receive a stable route-derived description so every definition satisfies the durable catalog contract.
+
+The production `ToolExecutor` reads each call's durable execution source before dispatch. Harness routes use the five built-in implementations; MCP routes use the discovered server connection and stored remote tool name under that server's timeout. Connections are shared across concurrent calls and retained separately from their cloneable peers so shutdown can close each child service exactly once. A complete MCP `CallToolResult` remains arbitrary JSON in the ordinary calling-task branch, and `isError: true` marks that branch as an error without rewriting the remote result.
 
 `fork_task` accepts a positive `child_count` and an optional `messages` string array of the same length. It creates one calling-task branch with JSON number `0` and one new-child branch per requested child with JSON numbers `1` through `child_count`; each aligned initial message is attached to its child branch and is not part of the branch output. The executor generates child task ids only. Core owns the later transactional branch commit and runtime startup.
 
@@ -19,7 +23,7 @@ Every built-in schema is a closed object with typed, described properties and an
 
 Each Bash invocation owns a process group. A timeout sends `SIGKILL` to that group, waits for the shell and pipe readers to settle, and returns `command_timed_out`; the same group guard prevents a cancelled or panicking invocation from leaving command processes behind. Background sessions, PTYs, stdin writes, policy, approval, and sandboxing are outside this crate.
 
-The executor supervises each request in an inner Tokio task and attempts exactly one terminal `ToolExecutionResult` delivery. The result copies the request's task, run, function-call node, function-call id, and tool name unchanged. Ordinary tools and terminal executor failures produce one calling-task branch. A panic or cancelled inner task becomes a correlated error branch instead of leaving the calling runtime waiting forever.
+The executor supervises each request in an inner Tokio task and attempts exactly one terminal `ToolExecutionResult` delivery. The result copies the request's task, run, function-call node, function-call id, and tool name unchanged. Ordinary tools and terminal executor failures produce one calling-task branch. A panic or cancelled inner task becomes a correlated error branch instead of leaving the calling runtime waiting forever. This crate does not implement MCP resources, prompts, sampling, elicitation, HTTP transports, or task-mode calls.
 
 ## Package State Machine
 
@@ -29,7 +33,9 @@ The diagram records the package-level observable states and transition paths. Ea
 flowchart TD
   Start([caller supplies ToolExecutionRequest])
   Supervise[Start supervised execution]
-  Select{tool name}
+  Route[Read durable tool execution source]
+  Source{execution source}
+  Select{harness tool name}
   Validate[Validate the JSON argument object]
   Invocation[Build typed harness invocation]
   Fork[Generate child ids and numbered branches]
@@ -37,6 +43,8 @@ flowchart TD
   Mutate[Send router mutation and wait for responder]
   Bash[Run Bash login command in a process group and drain both output pipes]
   BashTimeout[Kill the process group and reap the shell]
+  McpRoute[Find shared MCP server connection and stored remote name]
+  McpCall[Call remote tool under configured timeout]
   Invalid[Return invalid_arguments]
   Unknown[Return unknown_tool]
   Panic[Map panic or cancellation]
@@ -46,9 +54,15 @@ flowchart TD
   Result[Send one correlated ToolExecutionResult]
 
   Start -->|Tokio runtime accepts the supervisor| Supervise
-  Supervise -->|tool name is one of the five harness names| Validate
-  Supervise -->|tool name is not a harness name| Unknown
+  Supervise -->|inner execution starts| Route
   Supervise -->|inner execution panics or is cancelled| Panic
+  Route -->|stored route is available| Source
+  Route -->|route is missing| Unknown
+  Route -->|route storage read fails| Failure
+  Source -->|route kind is Harness| Select
+  Source -->|route kind is MCP| McpRoute
+  Select -->|tool name is one of the five harness names| Validate
+  Select -->|tool name is not a harness name| Unknown
   Validate -->|allowed keys, required values, types, and semantic ranges hold| Invocation
   Validate -->|an argument rule fails| Invalid
   Invocation -->|invocation is read_task| Read
@@ -62,6 +76,10 @@ flowchart TD
   Bash -->|spawn, pipe read, or wait fails| Failure
   BashTimeout -->|process group termination and shell reap complete| Failure
   BashTimeout -->|termination or reap fails| Failure
+  McpRoute -->|configured connection is present| McpCall
+  McpRoute -->|configured connection is absent| Failure
+  McpCall -->|remote CallToolResult arrives| Result
+  McpCall -->|protocol, transport, or timeout fails| Failure
   Panic -->|supervisor classifies the JoinError| Failure
   Fork -->|calling branch and all requested child branches are built| Result
   Invalid -->|validation error is terminal| Failure
