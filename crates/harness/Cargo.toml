@@ -4,7 +4,9 @@ edition = "2024"
 publish = false
 
 [dependencies]
+rmcp = { version = "=2.2.0", default-features = false, features = ["client", "transport-child-process"] }
 selvedge-command-model = { path = "../command-model" }
+selvedge-config-model = { path = "../config-model" }
 selvedge-db = { path = "../db" }
 selvedge-domain-model = { path = "../domain-model" }
 selvedge-router = { path = "../router" }
