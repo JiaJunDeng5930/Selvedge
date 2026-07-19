@@ -1,5 +1,6 @@
 #![doc = include_str!("../README.md")]
 
+use std::collections::HashSet;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::{error::Error, fmt};
 
@@ -89,6 +90,13 @@ pub enum ToolExecutionSource {
         server_id: String,
         remote_tool_name: String,
     },
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct McpToolRegistration {
+    pub tool: ToolSpec,
+    pub server_id: String,
+    pub remote_tool_name: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -395,6 +403,70 @@ pub fn register_global_tool(db: &DbPool, tool: ToolSpec) -> Result<(), DbError> 
         }
         None => insert_tool_in_tx(&tx, tool, ToolExecutionSource::Harness, true)?,
     }
+    tx.commit().map_err(map_error)
+}
+
+pub fn replace_global_mcp_tools(
+    db: &DbPool,
+    registrations: Vec<McpToolRegistration>,
+) -> Result<(), DbError> {
+    let mut connection = db.connection()?;
+    let tx = connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(map_error)?;
+    tx.execute(
+        "UPDATE tools SET is_global = 0 WHERE execution_source_kind = 'mcp'",
+        [],
+    )
+    .map_err(map_error)?;
+
+    let mut supplied_names = HashSet::with_capacity(registrations.len());
+    for registration in registrations {
+        let McpToolRegistration {
+            tool,
+            server_id,
+            remote_tool_name,
+        } = registration;
+        if server_id.is_empty() || remote_tool_name.is_empty() {
+            return Err(DbError::Constraint(
+                "MCP server and remote tool names must be non-empty".to_owned(),
+            ));
+        }
+        if !supplied_names.insert(tool.name.clone()) {
+            return Err(DbError::Constraint(format!(
+                "duplicate MCP tool name: {}",
+                tool.name
+            )));
+        }
+
+        let execution_source = ToolExecutionSource::Mcp {
+            server_id,
+            remote_tool_name,
+        };
+        match read_tool_definition_in_connection(&tx, &tool.name)? {
+            Some((_, stored_source, _)) if stored_source == execution_source => {
+                tx.execute(
+                    "UPDATE tools
+                     SET description_text = ?2, input_schema_json = ?3, is_global = 1
+                     WHERE tool_name = ?1",
+                    params![
+                        tool.name,
+                        tool.description,
+                        encode_json_object(&tool.input_schema)?
+                    ],
+                )
+                .map_err(map_error)?;
+            }
+            Some(_) => {
+                return Err(DbError::Constraint(format!(
+                    "MCP tool route conflicts with stored tool: {}",
+                    tool.name
+                )));
+            }
+            None => insert_tool_in_tx(&tx, tool, execution_source, true)?,
+        }
+    }
+
     tx.commit().map_err(map_error)
 }
 

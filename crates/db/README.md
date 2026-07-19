@@ -7,7 +7,7 @@ freshness_fingerprint: 72492e28b3bcf129fec40004fe71db8a110bf9fb
 
 This crate owns SQLite persistence for router-mediated Selvedge tasks.
 
-Use it to open a schema-v7 SQLite database, migrate schema-v5 or schema-v6 databases, register non-global or global harness tools, create root tasks, atomically commit tool-result branches, commit other task-runtime state transitions, queue user inputs, archive tasks, and read bounded task snapshots.
+Use it to open a schema-v7 SQLite database, migrate schema-v5 or schema-v6 databases, register harness tools, atomically reconcile the global MCP tool catalog, create root tasks, atomically commit tool-result branches, commit other task-runtime state transitions, queue user inputs, archive tasks, and read bounded task snapshots.
 
 This crate is for SQLite persistence only. Runtime wait state, provider calls, tool execution, router registries, and event delivery live in other crates.
 
@@ -17,6 +17,7 @@ Resource boundaries:
 - `create_root_task` inserts one task row at a caller-provided existing `cursor_node_id`. Task parent links and history parent links are separate graphs.
 - Tool definitions store the complete input JSON Schema separately from a closed execution route. The current registration APIs create harness routes; a route can also represent one remote tool on a named MCP server.
 - `register_global_tool` accepts a new harness definition, an exact harness repeat, or an exact non-global harness definition promoted to global. A conflicting schema, description, or route fails without changing the catalog.
+- `replace_global_mcp_tools` treats its input as the complete discovered MCP catalog. One immediate transaction unpublishes every prior MCP route, inserts new routes, refreshes definitions for matching routes, and republishes the supplied set; duplicate local names, empty remote identities, and route conflicts roll back the whole refresh without changing harness rows.
 - `unpublish_global_tool` changes only publication. The definition, execution route, task-specific references, and function-call history remain durable.
 - `read_tool_manifest_for_task` merges database-marked global tools with that task's `task_tools` rows for active or archived tasks.
 - `commit_tool_result_branches` requires one calling-task branch and accepts zero or more new-child branches for an exact open function call on the calling task's current cursor path. Every output is a sibling under that cursor. The calling branch then appends its supplied user messages and drains queued inputs; each child branch appends its own supplied user messages. Child task rows, parent edges, inherited task-specific tools, all history nodes, and every cursor are committed in one transaction.
@@ -76,7 +77,7 @@ flowchart TD
   Read -->|query fails or stored enum, JSON, id, or argument value is invalid| ReadError
   WriteTx -->|transaction begins| Validate
   WriteTx -->|transaction begin fails| CommitError
-  Validate -->|task, cursor, queue, history parent, exact global harness tool, publication, and path-local open-call preconditions hold| Commit
+  Validate -->|task, cursor, queue, history parent, harness registration, complete MCP catalog reconciliation, publication, and path-local open-call preconditions hold| Commit
   Validate -->|requested transition conflicts with durable state| ValidationError
   Validate -->|read inside transaction fails| ReadError
   Commit -->|SQLite commit succeeds| Return
