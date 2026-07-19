@@ -5,22 +5,22 @@ use selvedge_command_model::{
     ApiCallCorrelation, ApiOutputEnvelope, ArchiveTaskOutcome, CoreOutputMessage, DomainEvent,
     ModelCallDispatchRequest, ModelCallError, ModelCallErrorKind, ModelRunId, RouterIngressMessage,
     RouterIngressSender, SendUserInputOutcome, TaskCommandError, TaskRuntimeCommand,
-    TaskRuntimeExitReason, ToolExecutionResult, archive_task_response_channel,
-    send_user_input_response_channel,
+    TaskRuntimeExitReason, ToolExecutionBranch, ToolExecutionBranchTarget, ToolExecutionResult,
+    archive_task_response_channel, send_user_input_response_channel,
 };
 use selvedge_core::{SpawnTaskRuntimeArgs, TaskRuntimeConfig, spawn_task_runtime};
 use selvedge_db::{
-    CreateRootTaskInput, FunctionCallId, NewFunctionCallNodeContent, NewFunctionOutputNodeContent,
+    CommitToolResultBranchesInput, CreateRootTaskInput, FunctionCallId, NewFunctionCallNodeContent,
     NewHistoryNode, NewHistoryNodeContent, NewMessageNodeContent, ReasoningEffort, TaskId,
-    ToolName, UnixTs, append_assistant_message_and_drain_queue,
-    append_function_output_and_drain_queue, append_model_reply_with_tool_calls_and_move_cursor,
-    append_user_message_and_move_cursor, create_history_node, create_root_task, load_active_task,
-    queue_user_input, read_conversation_for_task, read_tool_manifest_for_task,
-    register_global_tool, register_tool, unpublish_global_tool,
+    ToolName, ToolResultBranch, ToolResultBranchTarget, UnixTs,
+    append_assistant_message_and_drain_queue, append_model_reply_with_tool_calls_and_move_cursor,
+    append_user_message_and_move_cursor, commit_tool_result_branches, create_history_node,
+    create_root_task, load_active_task, queue_user_input, read_conversation_for_task,
+    read_tool_manifest_for_task, register_global_tool, register_tool, unpublish_global_tool,
 };
 use selvedge_domain_model::{
-    ConversationItem, JsonObject, MessageContent, ModelFinishReason, ModelReply, ToolCallProposal,
-    ToolSpec,
+    FUNCTION_CALL_CONTENT_TYPE, FUNCTION_OUTPUT_CONTENT_TYPE, JsonObject, ModelFinishReason,
+    ModelReply, ToolCallProposal, ToolSpec,
 };
 use selvedge_test_support::db::{default_model_profiles, open_memory_db};
 use serde_json::{Value, json};
@@ -150,15 +150,11 @@ async fn task_runtime_start_requests_model_from_user_cursor_without_draining_que
     .await
     .expect("model request from user cursor");
 
-    let last_text =
-        request
-            .conversation
-            .messages
-            .last()
-            .and_then(|message| match &message.content {
-                MessageContent::Text(text) => Some(text.as_str()),
-                _ => None,
-            });
+    let last_text = request
+        .conversation
+        .messages
+        .last()
+        .and_then(|message| message.content.as_str());
     assert_eq!(last_text, Some("current"));
     assert_eq!(
         load_active_task(&db, &TaskId("task-1".to_owned()))
@@ -222,15 +218,11 @@ async fn task_runtime_start_promotes_queue_before_awaiting_user_input() {
         .expect("send start");
     let _ready = router_rx.recv().await.expect("ready");
     let request = recv_model_request(&mut router_rx).await;
-    let last_text =
-        request
-            .conversation
-            .messages
-            .last()
-            .and_then(|message| match &message.content {
-                MessageContent::Text(text) => Some(text.as_str()),
-                _ => None,
-            });
+    let last_text = request
+        .conversation
+        .messages
+        .last()
+        .and_then(|message| message.content.as_str());
 
     assert_eq!(last_text, Some("queued"));
     assert!(
@@ -432,8 +424,7 @@ async fn task_runtime_dispatches_all_tool_calls_before_next_model_call() {
             function_call_node_id: first_tool_request.function_call_node_id,
             function_call_id: first_tool_request.function_call_id,
             tool_name: first_tool_request.tool_name,
-            output_text: "first".to_owned(),
-            is_error: false,
+            branches: calling_tool_result_branches(json!("first"), false),
         }))
         .await
         .expect("send first tool result");
@@ -563,8 +554,7 @@ async fn task_runtime_preserves_batched_tool_call_order_in_next_model_request() 
             function_call_node_id: first_tool_request.function_call_node_id,
             function_call_id: first_tool_request.function_call_id,
             tool_name: first_tool_request.tool_name,
-            output_text: "first".to_owned(),
-            is_error: false,
+            branches: calling_tool_result_branches(json!("first"), false),
         }))
         .await
         .expect("send first tool result");
@@ -578,8 +568,7 @@ async fn task_runtime_preserves_batched_tool_call_order_in_next_model_request() 
             function_call_node_id: second_tool_request.function_call_node_id,
             function_call_id: second_tool_request.function_call_id,
             tool_name: second_tool_request.tool_name,
-            output_text: "second".to_owned(),
-            is_error: false,
+            branches: calling_tool_result_branches(json!("second"), false),
         }))
         .await
         .expect("send second tool result");
@@ -682,8 +671,7 @@ async fn task_runtime_ignores_tool_result_with_mismatched_call_identity() {
             function_call_node_id: call_2_node_id,
             function_call_id: FunctionCallId("call-2".to_owned()),
             tool_name: first_tool_request.tool_name.clone(),
-            output_text: "wrong".to_owned(),
-            is_error: false,
+            branches: calling_tool_result_branches(json!("wrong"), false),
         }))
         .await
         .expect("send mismatched tool result");
@@ -702,8 +690,7 @@ async fn task_runtime_ignores_tool_result_with_mismatched_call_identity() {
             function_call_node_id: first_tool_request.function_call_node_id,
             function_call_id: first_tool_request.function_call_id,
             tool_name: first_tool_request.tool_name,
-            output_text: "first".to_owned(),
-            is_error: false,
+            branches: calling_tool_result_branches(json!("first"), false),
         }))
         .await
         .expect("send correct tool result");
@@ -837,16 +824,11 @@ async fn task_runtime_validates_tool_reply_against_sent_manifest_snapshot() {
 
     let conversation =
         read_conversation_for_task(&db, &TaskId("task-1".to_owned())).expect("read conversation");
-    assert!(matches!(
-        conversation.items.last(),
-        Some(ConversationItem::FunctionCall {
-            function_call_id,
-            tool_name,
-            arguments: persisted,
-        }) if function_call_id.0 == "call-1"
-            && tool_name.0 == "repeat"
-            && persisted == &arguments
-    ));
+    let persisted = conversation.messages.last().expect("function call message");
+    assert_eq!(persisted.content_type(), Some(FUNCTION_CALL_CONTENT_TYPE));
+    assert_eq!(persisted.function_call_id(), Some("call-1"));
+    assert_eq!(persisted.tool_name(), Some("repeat"));
+    assert_eq!(persisted.function_call_arguments(), Some(&arguments));
 }
 
 #[tokio::test]
@@ -1077,15 +1059,11 @@ async fn task_runtime_promotes_queued_input_after_model_failure() {
             if matches!(&envelope.message, CoreOutputMessage::PublishDomainEvent(_))
     ));
     let request = recv_model_request(&mut router_rx).await;
-    let last_text =
-        request
-            .conversation
-            .messages
-            .last()
-            .and_then(|message| match &message.content {
-                MessageContent::Text(text) => Some(text.as_str()),
-                _ => None,
-            });
+    let last_text = request
+        .conversation
+        .messages
+        .last()
+        .and_then(|message| message.content.as_str());
     assert_eq!(last_text, Some("queued"));
 }
 
@@ -1124,12 +1102,13 @@ async fn user_input_response_distinguishes_committed_and_queued_transitions() {
     };
     assert!(node_id.0 > 0);
     let request = recv_model_request(&mut router_rx).await;
-    assert!(request.conversation.messages.iter().any(|message| {
-        matches!(
-            &message.content,
-            MessageContent::Text(text) if text == "committed"
-        )
-    }));
+    assert!(
+        request
+            .conversation
+            .messages
+            .iter()
+            .any(|message| message.content.as_str() == Some("committed"))
+    );
 
     let (queued_responder, queued_response) = send_user_input_response_channel();
     runtime
@@ -1253,8 +1232,7 @@ async fn task_runtime_preserves_model_wait_state_for_stray_tool_result() {
             function_call_node_id: selvedge_db::HistoryNodeId(1),
             function_call_id: selvedge_db::FunctionCallId("call".to_owned()),
             tool_name: selvedge_db::ToolName("tool".to_owned()),
-            output_text: "stray".to_owned(),
-            is_error: false,
+            branches: calling_tool_result_branches(json!("stray"), false),
         }))
         .await
         .expect("send stray tool result");
@@ -1479,17 +1457,21 @@ async fn task_runtime_allows_messages_between_tool_call_and_matching_output() {
         UnixTs(3),
     )
     .expect("append interleaved message");
-    append_function_output_and_drain_queue(
+    commit_tool_result_branches(
         &db,
-        &TaskId("task-1".to_owned()),
-        NewFunctionOutputNodeContent {
+        CommitToolResultBranchesInput {
+            calling_task_id: TaskId("task-1".to_owned()),
             function_call_node_id,
             function_call_id: FunctionCallId("call-1".to_owned()),
             tool_name: ToolName("repeat".to_owned()),
-            output_text: "done".to_owned(),
-            is_error: false,
+            branches: vec![ToolResultBranch {
+                target: ToolResultBranchTarget::CallingTask,
+                output: json!("done"),
+                is_error: false,
+                user_messages: Vec::new(),
+            }],
+            now: UnixTs(4),
         },
-        UnixTs(4),
     )
     .expect("append function output");
     let (router_tx, mut router_rx) = tokio::sync::mpsc::unbounded_channel();
@@ -1644,16 +1626,25 @@ fn tool_transcript_events(request: &ModelCallDispatchRequest) -> Vec<String> {
         .conversation
         .messages
         .iter()
-        .filter_map(|message| match &message.content {
-            MessageContent::FunctionCall {
-                function_call_id, ..
-            } => Some(format!("call:{}", function_call_id.0)),
-            MessageContent::FunctionOutput {
-                function_call_id, ..
-            } => Some(format!("output:{}", function_call_id.0)),
+        .filter_map(|message| match message.content_type() {
+            Some(FUNCTION_CALL_CONTENT_TYPE) => message
+                .function_call_id()
+                .map(|function_call_id| format!("call:{function_call_id}")),
+            Some(FUNCTION_OUTPUT_CONTENT_TYPE) => message
+                .function_call_id()
+                .map(|function_call_id| format!("output:{function_call_id}")),
             _ => None,
         })
         .collect()
+}
+
+fn calling_tool_result_branches(output: Value, is_error: bool) -> Vec<ToolExecutionBranch> {
+    vec![ToolExecutionBranch {
+        target: ToolExecutionBranchTarget::CallingTask,
+        output,
+        is_error,
+        messages: Vec::new(),
+    }]
 }
 
 async fn assert_internal_exit(

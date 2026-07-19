@@ -10,18 +10,19 @@ use selvedge_command_model::{
     ModelRunId, RouterIngressMessage, RouterIngressWeakSender, SendUserInputOutcome,
     SendUserInputResponder, TaskCommandError, TaskRuntimeCommand, TaskRuntimeControl,
     TaskRuntimeExitNotice, TaskRuntimeExitReason, TaskRuntimeSender, TaskRuntimeStopResult,
-    ToolExecutionRequest, ToolExecutionResult, ToolExecutionRunId,
+    ToolExecutionBranchTarget, ToolExecutionRequest, ToolExecutionResult, ToolExecutionRunId,
 };
 use selvedge_db::{
-    DbError, DbPool, FunctionCallId, HistoryNode, HistoryNodeId, MessageRole,
-    NewFunctionCallNodeContent, NewFunctionOutputNodeContent, TaskId, ToolName, UnixTs,
-    append_assistant_message_and_drain_queue, append_function_output_and_drain_queue,
+    CommitToolResultBranchesInput, DbError, DbPool, FunctionCallId, HistoryNode, HistoryNodeId,
+    MessageRole, NewFunctionCallNodeContent, TaskId, ToolName, ToolResultBranch,
+    ToolResultBranchTarget, UnixTs, append_assistant_message_and_drain_queue,
     append_model_reply_with_tool_calls_and_move_cursor, append_user_message_and_move_cursor,
-    archive_task, drain_queued_user_inputs_and_move_cursor, load_active_task, queue_user_input,
-    read_conversation_for_task, read_open_function_calls_for_task, read_tool_manifest_for_task,
+    archive_task, commit_tool_result_branches, drain_queued_user_inputs_and_move_cursor,
+    load_active_task, queue_user_input, read_conversation_for_task,
+    read_open_function_calls_for_task, read_tool_manifest_for_task,
 };
 use selvedge_domain_model::{
-    ConversationItem, ConversationMessage, ConversationPath, JsonObject, MessageContent,
+    Conversation, FUNCTION_CALL_CONTENT_TYPE, FUNCTION_OUTPUT_CONTENT_TYPE, JsonObject,
     ModelProfileKey, ModelProviderProfile, ResponsePreference, ToolCallProposal, ToolManifest,
 };
 use uuid::Uuid;
@@ -474,20 +475,45 @@ impl TaskRuntimeActor {
                 }
             };
 
-        let append_result = append_function_output_and_drain_queue(
+        let commit_result = commit_tool_result_branches(
             &self.db,
-            &self.task_id,
-            NewFunctionOutputNodeContent {
+            CommitToolResultBranchesInput {
+                calling_task_id: self.task_id.clone(),
                 function_call_node_id: result.function_call_node_id,
                 function_call_id: result.function_call_id,
                 tool_name: result.tool_name,
-                output_text: result.output_text,
-                is_error: result.is_error,
+                branches: result
+                    .branches
+                    .into_iter()
+                    .map(|branch| ToolResultBranch {
+                        target: match branch.target {
+                            ToolExecutionBranchTarget::CallingTask => {
+                                ToolResultBranchTarget::CallingTask
+                            }
+                            ToolExecutionBranchTarget::NewChildTask { task_id } => {
+                                ToolResultBranchTarget::NewChildTask(task_id)
+                            }
+                        },
+                        output: branch.output,
+                        is_error: branch.is_error,
+                        user_messages: branch.messages,
+                    })
+                    .collect(),
+                now: now(),
             },
-            now(),
         );
-        match append_result {
-            Ok(_) => {
+        match commit_result {
+            Ok(committed) => {
+                if !committed.created_child_task_ids.is_empty()
+                    && self
+                        .send_core(CoreOutputMessage::EnsureTaskRuntimes {
+                            task_ids: committed.created_child_task_ids,
+                        })
+                        .await
+                        .is_err()
+                {
+                    return true;
+                }
                 self.dispatch_next_tool_or_request_model(pending_tool_calls)
                     .await
             }
@@ -549,7 +575,7 @@ impl TaskRuntimeActor {
                 model_run_id: model_run_id.clone(),
             },
             provider,
-            conversation: conversation_to_path(conversation),
+            conversation,
             tool_manifest: Some(tool_manifest.clone()),
             response_preference: ResponsePreference::PlainTextOrToolCalls,
         };
@@ -693,50 +719,50 @@ fn settle_task_runtime_command(command: TaskRuntimeCommand, error: TaskCommandEr
     }
 }
 
-fn conversation_to_path(conversation: selvedge_db::Conversation) -> ConversationPath {
-    let messages = conversation
-        .items
-        .into_iter()
-        .map(conversation_item_to_message)
-        .collect();
-    ConversationPath { messages }
-}
-
-fn validate_conversation_tool_pairs(
-    conversation: &selvedge_db::Conversation,
-) -> Result<(), String> {
+fn validate_conversation_tool_pairs(conversation: &Conversation) -> Result<(), String> {
     let mut pending_tool_calls = HashMap::new();
 
-    for item in &conversation.items {
-        match item {
-            ConversationItem::FunctionCall {
-                function_call_id,
-                tool_name,
-                ..
-            } => {
+    for message in &conversation.messages {
+        match message.content_type() {
+            Some(FUNCTION_CALL_CONTENT_TYPE) => {
+                let function_call_id = message.function_call_id().ok_or_else(|| {
+                    "conversation tool call is missing function_call_id".to_owned()
+                })?;
+                let tool_name = message
+                    .tool_name()
+                    .ok_or_else(|| "conversation tool call is missing tool_name".to_owned())?;
+                if message.function_call_arguments().is_none() {
+                    return Err("conversation tool call is missing arguments".to_owned());
+                }
                 if pending_tool_calls
-                    .insert(function_call_id.0.clone(), tool_name.0.clone())
+                    .insert(function_call_id.to_owned(), tool_name.to_owned())
                     .is_some()
                 {
                     return Err("conversation contains duplicate open tool call id".to_owned());
                 }
             }
-            ConversationItem::FunctionOutput {
-                function_call_id,
-                tool_name,
-                ..
-            } => {
-                let Some(expected_tool_name) = pending_tool_calls.remove(&function_call_id.0)
-                else {
+            Some(FUNCTION_OUTPUT_CONTENT_TYPE) => {
+                let function_call_id = message.function_call_id().ok_or_else(|| {
+                    "conversation tool output is missing function_call_id".to_owned()
+                })?;
+                let tool_name = message
+                    .tool_name()
+                    .ok_or_else(|| "conversation tool output is missing tool_name".to_owned())?;
+                if message.function_output_value().is_none()
+                    || message.function_output_is_error().is_none()
+                {
+                    return Err("conversation tool output is incomplete".to_owned());
+                }
+                let Some(expected_tool_name) = pending_tool_calls.remove(function_call_id) else {
                     return Err(
                         "conversation contains tool output without matching call".to_owned()
                     );
                 };
-                if expected_tool_name != tool_name.0 {
+                if expected_tool_name != tool_name {
                     return Err("conversation contains tool output with mismatched tool".to_owned());
                 }
             }
-            ConversationItem::Message { .. } => {}
+            _ => {}
         }
     }
 
@@ -749,44 +775,6 @@ fn validate_conversation_tool_pairs(
         Ok(())
     } else {
         Err("conversation contains tool call without matching output".to_owned())
-    }
-}
-
-fn conversation_item_to_message(item: ConversationItem) -> ConversationMessage {
-    match item {
-        ConversationItem::Message { role, text } => ConversationMessage {
-            role,
-            content: MessageContent::Text(text),
-            source_node_id: None,
-        },
-        ConversationItem::FunctionCall {
-            function_call_id,
-            tool_name,
-            arguments,
-        } => ConversationMessage {
-            role: MessageRole::Assistant,
-            content: MessageContent::FunctionCall {
-                function_call_id,
-                tool_name,
-                arguments,
-            },
-            source_node_id: None,
-        },
-        ConversationItem::FunctionOutput {
-            function_call_id,
-            tool_name,
-            output_text,
-            is_error,
-        } => ConversationMessage {
-            role: MessageRole::Tool,
-            content: MessageContent::FunctionOutput {
-                function_call_id,
-                tool_name,
-                output_text,
-                is_error,
-            },
-            source_node_id: None,
-        },
     }
 }
 
