@@ -129,8 +129,9 @@ This file is for coding agents working in this repository.
 |crates/events/src:{lib.rs}
 |crates/events/tests:{events_contract.rs}
 |crates/harness:{src/,tests/,Cargo.toml,README.md}
-|crates/harness/src:{lib.rs}
-|crates/harness/tests:{bash_contract.rs,executor_contract.rs,protocol_contract.rs}
+|crates/harness/src:{lib.rs,mcp.rs}
+|crates/harness/tests:{fixtures/,bash_contract.rs,executor_contract.rs,mcp_contract.rs,protocol_contract.rs}
+|crates/harness/tests/fixtures:{mcp_server.sh}
 |crates/local-client:{src/,tests/,Cargo.toml,README.md}
 |crates/local-client/src:{lib.rs}
 |crates/local-client/tests:{local_client_contract.rs}

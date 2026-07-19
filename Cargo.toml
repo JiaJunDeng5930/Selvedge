@@ -61,6 +61,7 @@ selvedge-config = { path = "crates/config" }
 selvedge-logging = { path = "crates/logging" }
 tempfile = "3.14.0"
 tokio = { version = "1.42.0", features = ["macros", "rt", "sync", "time"] }
+toml = "0.8.23"
 
 [lints.rust]
 unsafe_code = "forbid"

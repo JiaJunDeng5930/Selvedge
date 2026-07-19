@@ -34,12 +34,18 @@ while IFS= read -r request; do
         printf '%s' "$request" > "$MCP_REQUEST_MARKER"
       fi
       if [ "$mode" = "slow" ]; then
-        sleep 1
+        continue
       fi
       if [ "$mode" = "disconnect" ]; then
         exit 0
       fi
       printf '%s\n' "{\"jsonrpc\":\"2.0\",\"id\":$id,\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"remote failure\"}],\"structuredContent\":{\"nested\":[1,true,null]},\"isError\":true,\"_meta\":{\"source\":\"fixture\"}}}"
+      ;;
+    *'"method":"notifications/cancelled"'*)
+      if [ -n "${MCP_CANCEL_MARKER:-}" ]; then
+        printf '%s' "$request" > "$MCP_CANCEL_MARKER.tmp"
+        mv "$MCP_CANCEL_MARKER.tmp" "$MCP_CANCEL_MARKER"
+      fi
       ;;
   esac
 done
