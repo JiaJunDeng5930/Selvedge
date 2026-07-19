@@ -1719,13 +1719,13 @@ fn history_node_body_to_local(body: HistoryNodeProjectionBody) -> LocalHistoryNo
             function_call_node_id,
             function_call_id,
             tool_name,
-            output_text,
+            output,
             is_error,
         } => LocalHistoryNodeProjectionBody::FunctionOutput {
             function_call_node_id: function_call_node_id.0,
             function_call_id: function_call_id.0,
             tool_name: tool_name.0,
-            output_text,
+            output,
             is_error,
         },
     }

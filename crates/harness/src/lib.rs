@@ -1227,7 +1227,7 @@ fn history_node_projection(node: HistoryNode) -> HistoryNodeProjection {
                 function_call_node_id,
                 function_call_id,
                 tool_name,
-                output_text: output.to_string(),
+                output,
                 is_error,
             },
         },
@@ -1351,7 +1351,7 @@ fn history_node_json(node: &HistoryNodeProjection) -> Value {
             function_call_node_id,
             function_call_id,
             tool_name,
-            output_text,
+            output,
             is_error,
         } => {
             fields.insert(
@@ -1367,7 +1367,7 @@ fn history_node_json(node: &HistoryNodeProjection) -> Value {
                 Value::String(function_call_id.0.clone()),
             );
             fields.insert("tool_name".to_owned(), Value::String(tool_name.0.clone()));
-            fields.insert("output_text".to_owned(), Value::String(output_text.clone()));
+            fields.insert("output".to_owned(), output.clone());
             fields.insert("is_error".to_owned(), Value::Bool(*is_error));
         }
     }

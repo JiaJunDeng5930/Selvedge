@@ -2,14 +2,14 @@
 
 <!-- selvedge-package-readme
 package: selvedge-local-protocol
-freshness_fingerprint: fe63b7a46247cfa972455482f1bb10966932dd34
+freshness_fingerprint: 832bce0c5bd9326b3e729c2d0d6a63ba72cc4899
 -->
 
 This crate defines the localhost protocol data model shared by the Selvedge server, root CLI, local client, TUI, and web client.
 
 Use it for serializable ready probes, command submission envelopes, attach requests, attach responses, client subscriptions, client frames, snapshots, projections, events, and validation errors.
 
-Function-call history projections expose arguments as one JSON object. Nested objects, arrays, nulls, and exact JSON numbers therefore cross the local boundary without being flattened into name/value entries.
+Function-call history projections expose arguments as one JSON object, and function outputs expose their original JSON value. Nested objects, arrays, nulls, and exact JSON numbers therefore cross the local boundary without being flattened or stringified.
 
 This crate does not access the network, database, filesystem, runtime, or mailbox. Transport limits, authentication, concrete command support, payload schemas, and task existence checks are enforced by the crates that own those boundaries.
 

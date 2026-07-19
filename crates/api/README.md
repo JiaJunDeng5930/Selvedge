@@ -2,7 +2,7 @@
 
 <!-- selvedge-package-readme
 package: selvedge-api
-freshness_fingerprint: 41f08fb06e8761b6f7de00770f83f211dd34feee
+freshness_fingerprint: 684e8cf9e3421ff3254121ac8d5cbbec0f239075
 -->
 
 This crate executes one Selvedge model call and returns the completed result to the router mailbox.
@@ -19,7 +19,9 @@ The ChatGPT adapter copies each tool's complete JSON input schema into the
 provider descriptor. It maps the shared conversation JSON protocol into
 provider items: strings become text messages, `function_call` objects retain
 object-shaped arguments without numeric conversion, and `function_output`
-objects serialize non-string output as provider text.
+objects serialize non-string output as provider text. Local history
+`source_node_id` values remain provenance and are not reused as provider item
+identifiers.
 
 This crate is not for database access, filesystem access, task creation, task runtime mutation, router registry mutation, retries, or persistence.
 

@@ -179,7 +179,7 @@ fn frame_validation_enforces_delivery_sequence_snapshot_and_notice_contracts() {
                 function_call_node_id: 0,
                 function_call_id: "call-1".to_owned(),
                 tool_name: "tool".to_owned(),
-                output_text: "done".to_owned(),
+                output: serde_json::json!(1),
                 is_error: false,
             },
             ..valid_history_message()
@@ -361,6 +361,30 @@ fn function_call_arguments_round_trip_as_a_json_object() {
     assert_eq!(
         arguments.get("limit").and_then(serde_json::Value::as_u64),
         Some(9_007_199_254_740_993)
+    );
+}
+
+#[test]
+fn function_output_round_trip_preserves_json_value() {
+    let history_node = LocalHistoryNodeProjection {
+        node_id: 3,
+        parent_node_id: Some(2),
+        created_at: 30,
+        body: LocalHistoryNodeProjectionBody::FunctionOutput {
+            function_call_node_id: 2,
+            function_call_id: "call-1".to_owned(),
+            tool_name: "fork_task".to_owned(),
+            output: json!(1),
+            is_error: false,
+        },
+    };
+
+    let encoded = serde_json::to_value(&history_node).expect("serialize function output");
+    assert_eq!(encoded["body"]["FunctionOutput"]["output"], json!(1));
+    assert_eq!(
+        serde_json::from_value::<LocalHistoryNodeProjection>(encoded)
+            .expect("deserialize function output"),
+        history_node
     );
 }
 

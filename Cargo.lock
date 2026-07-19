@@ -1567,6 +1567,7 @@ name = "selvedge-command-model"
 version = "0.0.0"
 dependencies = [
  "selvedge-domain-model",
+ "serde_json",
  "tokio",
 ]
 
@@ -1646,6 +1647,7 @@ dependencies = [
  "selvedge-test-support",
  "serde_json",
  "tokio",
+ "uuid",
 ]
 
 [[package]]
@@ -1717,6 +1719,7 @@ dependencies = [
  "selvedge-events",
  "selvedge-task-runtime-factory",
  "selvedge-test-support",
+ "serde_json",
  "tokio",
 ]
 
@@ -1763,7 +1766,6 @@ dependencies = [
  "selvedge-domain-model",
  "selvedge-test-support",
  "tokio",
- "uuid",
 ]
 
 [[package]]

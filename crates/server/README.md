@@ -2,7 +2,7 @@
 
 <!-- selvedge-package-readme
 package: selvedge-server
-freshness_fingerprint: a3b5550ece065cebb3d4f399934551576b6d0380
+freshness_fingerprint: 57e0c96da38651648c423f11eac518eda16dac16
 -->
 
 This crate owns the process-local Selvedge server lifecycle.
@@ -13,7 +13,7 @@ Use it to start the server runtime, hold the singleton lock, initialize config a
 
 After opening SQLite, startup registers the exact harness manifests idempotently as global tools with durable Harness execution routes, then constructs the production `HarnessToolExecutor` from that database. Conflicting persisted definitions fail startup. Once the router exists, startup enqueues one active-task recovery scan before exposing ready control.
 
-Function-call history projections carry one JSON object unchanged across the command-model and local-protocol boundary. The server does not flatten arguments or reinterpret their values.
+Function-call history projections carry one JSON object and function outputs carry one JSON value unchanged across the command-model and local-protocol boundary. The server does not flatten arguments or stringify outputs.
 
 The singleton lock is `<selvedge_home>/server.lock`. The lock file is removed during normal shutdown and startup-failure cleanup.
 
