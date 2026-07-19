@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, LazyLock, Mutex, mpsc as std_mpsc};
 use std::time::Duration;
 
@@ -8,6 +8,7 @@ use selvedge_client_sync::{
     ClientSnapshotBuildFuture, ClientSnapshotBuildRequest, ClientSnapshotBuilder,
 };
 use selvedge_command_model::ClientSnapshot;
+use selvedge_config_model::McpServerConfig;
 use selvedge_core::{TaskRuntimeConfig, TaskRuntimeSpawnDeps};
 use selvedge_db::{
     CreateRootTaskInput, NewHistoryNode, NewHistoryNodeContent, NewMessageNodeContent,
@@ -38,7 +39,9 @@ async fn spawn_server_initializes_ready_control_and_creates_durable_paths() {
     let _guard = SERVER_TEST_LOCK.lock().await;
     let home = SERVER_TEST_HOME.path();
 
-    let handle = spawn_server(test_args(home.to_path_buf())).expect("spawn server");
+    let handle = spawn_server(test_args(home.to_path_buf()))
+        .await
+        .expect("spawn server");
 
     assert_eq!(handle.control.state().await, ServerRuntimeState::Ready);
     assert_eq!(
@@ -58,7 +61,9 @@ async fn spawn_server_initializes_ready_control_and_creates_durable_paths() {
 async fn startup_registers_the_five_global_harness_tools() {
     let _guard = SERVER_TEST_LOCK.lock().await;
     let home = SERVER_TEST_HOME.path();
-    let handle = spawn_server(test_args(home.to_path_buf())).expect("spawn server");
+    let handle = spawn_server(test_args(home.to_path_buf()))
+        .await
+        .expect("spawn server");
     let db = open_db(OpenDbOptions {
         sqlite_path: home.join("selvedge.sqlite").to_string_lossy().to_string(),
     })
@@ -122,9 +127,11 @@ async fn startup_registers_the_five_global_harness_tools() {
 async fn singleton_lock_rejects_second_server_for_same_home() {
     let _guard = SERVER_TEST_LOCK.lock().await;
     let home = SERVER_TEST_HOME.path();
-    let first = spawn_server(test_args(home.to_path_buf())).expect("spawn first server");
+    let first = spawn_server(test_args(home.to_path_buf()))
+        .await
+        .expect("spawn first server");
 
-    let second = spawn_server(test_args(home.to_path_buf()));
+    let second = spawn_server(test_args(home.to_path_buf())).await;
 
     assert!(matches!(
         second,
@@ -144,13 +151,13 @@ async fn singleton_lock_rejects_second_web_enabled_server_before_port_bind() {
     first_args.web_binding = Some(WebBindingConfig {
         bind_target: LocalhostBindTarget::Ipv4 { port },
     });
-    let first = spawn_server(first_args).expect("spawn first server");
+    let first = spawn_server(first_args).await.expect("spawn first server");
 
     let mut second_args = test_args(home.to_path_buf());
     second_args.web_binding = Some(WebBindingConfig {
         bind_target: LocalhostBindTarget::Ipv4 { port },
     });
-    let second = spawn_server(second_args);
+    let second = spawn_server(second_args).await;
 
     assert!(matches!(
         second,
@@ -167,8 +174,9 @@ async fn stale_lock_file_does_not_block_server_restart() {
     let home = SERVER_TEST_HOME.path();
     std::fs::write(home.join("server.lock"), "stale").expect("write stale lock");
 
-    let handle =
-        spawn_server(test_args(home.to_path_buf())).expect("spawn server with stale lock file");
+    let handle = spawn_server(test_args(home.to_path_buf()))
+        .await
+        .expect("spawn server with stale lock file");
 
     handle.control.stop().await;
     handle.join_handle.await.expect("join server");
@@ -185,14 +193,47 @@ async fn startup_failure_after_lock_removes_recoverable_lock_file() {
     let _ = std::fs::remove_dir_all(&sqlite_path);
     std::fs::create_dir(&sqlite_path).expect("create sqlite path directory");
 
-    let failed = spawn_server(test_args(home.to_path_buf()));
+    let failed = spawn_server(test_args(home.to_path_buf())).await;
 
     assert!(matches!(failed, Err(ServerStartupError::DbOpenFailed(_))));
     assert!(!lock_path.exists());
 
     std::fs::remove_dir(&sqlite_path).expect("remove sqlite path directory");
     let restarted = spawn_server(test_args(home.to_path_buf()))
+        .await
         .expect("stale lock file should remain recoverable");
+    restarted.control.stop().await;
+    restarted.join_handle.await.expect("join restarted server");
+}
+
+#[tokio::test]
+async fn mcp_start_failure_removes_recoverable_lock_file() {
+    let _guard = SERVER_TEST_LOCK.lock().await;
+    let home = SERVER_TEST_HOME.path();
+    let lock_path = home.join("server.lock");
+    let _ = std::fs::remove_file(&lock_path);
+    let mut args = test_args(home.to_path_buf());
+    args.mcp_servers.insert(
+        "missing".to_owned(),
+        McpServerConfig {
+            command: home
+                .join("missing-mcp-server")
+                .to_string_lossy()
+                .to_string(),
+            args: Vec::new(),
+            env: BTreeMap::new(),
+            timeout_ms: 100,
+        },
+    );
+
+    let failed = spawn_server(args).await;
+
+    assert!(matches!(failed, Err(ServerStartupError::McpStartFailed(_))));
+    assert!(!lock_path.exists());
+
+    let restarted = spawn_server(test_args(home.to_path_buf()))
+        .await
+        .expect("MCP startup failure should leave the server restartable");
     restarted.control.stop().await;
     restarted.join_handle.await.expect("join restarted server");
 }
@@ -211,7 +252,7 @@ async fn invalid_web_bind_target_is_rejected_before_durable_startup_side_effects
         bind_target: LocalhostBindTarget::Ipv4 { port: 0 },
     });
 
-    let failed = spawn_server(args);
+    let failed = spawn_server(args).await;
 
     assert!(matches!(failed, Err(ServerStartupError::InvalidBindTarget)));
     assert!(!sqlite_path.exists());
@@ -234,7 +275,7 @@ async fn occupied_web_bind_target_is_rejected_before_runtime_tasks_start() {
         bind_target: LocalhostBindTarget::Ipv4 { port },
     });
 
-    let failed = spawn_server(args);
+    let failed = spawn_server(args).await;
 
     assert!(matches!(
         failed,
@@ -248,7 +289,9 @@ async fn occupied_web_bind_target_is_rejected_before_runtime_tasks_start() {
 async fn supported_command_is_accepted() {
     let _guard = SERVER_TEST_LOCK.lock().await;
     let home = SERVER_TEST_HOME.path();
-    let handle = spawn_server(test_args(home.to_path_buf())).expect("spawn server");
+    let handle = spawn_server(test_args(home.to_path_buf()))
+        .await
+        .expect("spawn server");
     let (_accepted, mut frames) = handle
         .control
         .attach_client(valid_attach("attach-1"))
@@ -283,6 +326,7 @@ async fn stop_waits_for_in_flight_command_acceptance_decision() {
             release_rx: Mutex::new(release_rx),
         }),
     ))
+    .await
     .expect("spawn server");
     let (_accepted, mut frames) = handle
         .control
@@ -326,7 +370,9 @@ async fn stop_waits_for_in_flight_command_acceptance_decision() {
 async fn unknown_command_is_rejected() {
     let _guard = SERVER_TEST_LOCK.lock().await;
     let home = SERVER_TEST_HOME.path();
-    let handle = spawn_server(test_args(home.to_path_buf())).expect("spawn server");
+    let handle = spawn_server(test_args(home.to_path_buf()))
+        .await
+        .expect("spawn server");
 
     let rejected = handle
         .control
@@ -346,7 +392,9 @@ async fn unknown_command_is_rejected() {
 async fn attach_client_accepts_and_streams_initial_snapshot() {
     let _guard = SERVER_TEST_LOCK.lock().await;
     let home = SERVER_TEST_HOME.path();
-    let handle = spawn_server(test_args(home.to_path_buf())).expect("spawn server");
+    let handle = spawn_server(test_args(home.to_path_buf()))
+        .await
+        .expect("spawn server");
 
     let (accepted, mut frames) = handle
         .control
@@ -394,7 +442,9 @@ async fn attach_client_accepts_and_streams_initial_snapshot() {
 async fn dropped_attach_stream_detaches_events_session() {
     let _guard = SERVER_TEST_LOCK.lock().await;
     let home = SERVER_TEST_HOME.path();
-    let handle = spawn_server(test_args(home.to_path_buf())).expect("spawn server");
+    let handle = spawn_server(test_args(home.to_path_buf()))
+        .await
+        .expect("spawn server");
 
     for index in 0..70 {
         let (_accepted, mut frames) = handle
@@ -423,7 +473,9 @@ async fn dropped_attach_stream_detaches_events_session() {
 async fn stopped_server_rejects_new_command_submissions() {
     let _guard = SERVER_TEST_LOCK.lock().await;
     let home = SERVER_TEST_HOME.path();
-    let handle = spawn_server(test_args(home.to_path_buf())).expect("spawn server");
+    let handle = spawn_server(test_args(home.to_path_buf()))
+        .await
+        .expect("spawn server");
 
     handle.control.stop().await;
 
@@ -443,12 +495,14 @@ async fn stopped_server_rejects_new_command_submissions() {
 async fn initialized_config_rejects_mismatched_explicit_home() {
     let _guard = SERVER_TEST_LOCK.lock().await;
     let home = SERVER_TEST_HOME.path();
-    let handle = spawn_server(test_args(home.to_path_buf())).expect("spawn server");
+    let handle = spawn_server(test_args(home.to_path_buf()))
+        .await
+        .expect("spawn server");
     handle.control.stop().await;
     handle.join_handle.await.expect("join server");
 
     let other_home = TempDir::new().expect("other temp home");
-    let result = spawn_server(test_args(other_home.path().to_path_buf()));
+    let result = spawn_server(test_args(other_home.path().to_path_buf())).await;
 
     assert!(matches!(
         result,
@@ -467,6 +521,7 @@ async fn relative_explicit_home_cleans_lock_after_working_directory_changes() {
 
     std::env::set_current_dir(&parent).expect("enter home parent");
     let handle = spawn_server(test_args(std::path::PathBuf::from(home_name)))
+        .await
         .expect("spawn server with relative home");
     assert!(home.join("server.lock").exists());
 
@@ -546,6 +601,7 @@ fn test_args_with_local_operation_executor(
 ) -> ServerStartArgs {
     ServerStartArgs {
         explicit_home: Some(home),
+        mcp_servers: BTreeMap::new(),
         api_config: ApiExecutorConfig {
             request_timeout: Duration::from_secs(1),
             max_response_bytes: None,
