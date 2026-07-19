@@ -7,11 +7,11 @@ freshness_fingerprint: 57e0c96da38651648c423f11eac518eda16dac16
 
 This crate owns the process-local Selvedge server lifecycle.
 
-Use it to start the server runtime, hold the singleton lock, initialize config and logging, open the SQLite database at `<selvedge_home>/selvedge.sqlite`, install the five built-in harness tools, start events, client-sync, router, and optional web surface tasks, recover active task runtimes, and expose the in-process `ServerControl` used by local clients and UI surfaces.
+Use it to start the server runtime, hold the singleton lock, initialize config and logging, open the SQLite database at `<selvedge_home>/selvedge.sqlite`, install the five built-in harness tools, discover configured stdio MCP tools, start events, client-sync, router, and optional web surface tasks, recover active task runtimes, and expose the in-process `ServerControl` used by local clients and UI surfaces.
 
-`ServerStartArgs` uses the current `selvedge-api` boundary: server passes `ApiExecutorConfig` into the router, and provider selection remains inside each model-call request. This crate does not own a provider registry.
+`ServerStartArgs` uses the current `selvedge-api` boundary: server passes `ApiExecutorConfig` into the router, and provider selection remains inside each model-call request. It also receives the effective MCP server map from the configuration boundary. This crate does not own a provider registry.
 
-After opening SQLite, startup registers the exact harness manifests idempotently as global tools with durable Harness execution routes, then constructs the production `HarnessToolExecutor` from that database. Conflicting persisted definitions fail startup. Once the router exists, startup enqueues one active-task recovery scan before exposing ready control.
+After opening SQLite, startup registers the exact harness manifests idempotently as global tools with durable Harness execution routes. It then connects configured MCP servers, discovers their complete tool catalogs, and atomically replaces the published global MCP set before constructing the unified executor. Discovery and catalog conflicts fail startup before task recovery. The shared MCP connections stay alive for concurrent calls and close after the supervised services stop.
 
 Function-call history projections carry one JSON object and function outputs carry one JSON value unchanged across the command-model and local-protocol boundary. The server does not flatten arguments or stringify outputs.
 
@@ -45,6 +45,8 @@ flowchart TD
   InitConfig[Initialize config and logging]
   OpenDb[Open selvedge.sqlite]
   RegisterTools[Register five global tools with Harness execution routes]
+  DiscoverMcp[Connect MCP servers and discover complete tool catalogs]
+  PublishMcp[Atomically replace published global MCP tools]
   SpawnServices[Start events, client-sync, router, and web surface]
   Recover[Request active task runtime recovery]
   Ready[ServerControl ready]
@@ -56,6 +58,7 @@ flowchart TD
   Attach[Handle attach request]
   Hydrate[Start client hydration]
   Stop[Stop server]
+  CloseMcp[Close MCP server connections]
   StartupFailure[Return startup error and cleanup]
   RequestFailure[Return control-surface error]
   Stopped[Server stopped]
@@ -67,8 +70,12 @@ flowchart TD
   InitConfig -->|config or logging fails| StartupFailure
   OpenDb -->|SQLite opens at selected home| RegisterTools
   OpenDb -->|database open or schema setup fails| StartupFailure
-  RegisterTools -->|all five definitions and Harness routes are new or exact repeats| SpawnServices
+  RegisterTools -->|all five definitions and Harness routes are new or exact repeats| DiscoverMcp
   RegisterTools -->|a definition conflicts or SQLite write fails| StartupFailure
+  DiscoverMcp -->|all configured servers initialize and list supported tools| PublishMcp
+  DiscoverMcp -->|transport, protocol, discovery, or definition validation fails| StartupFailure
+  PublishMcp -->|complete MCP catalog commits atomically| SpawnServices
+  PublishMcp -->|catalog route conflict or SQLite write fails| StartupFailure
   SpawnServices -->|events, client-sync, router, and optional web tasks start| Recover
   SpawnServices -->|any required task setup fails| StartupFailure
   Recover -->|router accepts the recovery scan| Ready
@@ -89,6 +96,7 @@ flowchart TD
   Hydrate -->|client-sync StartHydration send succeeds| Ready
   Hydrate -->|client-sync send fails| RequestFailure
   Ready -->|shutdown is requested or control is dropped| Stop
-  Stop -->|tasks stop and lock file is removed| Stopped
+  Stop -->|supervised services have stopped| CloseMcp
+  CloseMcp -->|connections close and lock file is removed| Stopped
   StartupFailure -->|normal cleanup removes lock file when owned| Stopped
 ```

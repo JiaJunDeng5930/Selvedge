@@ -2,7 +2,7 @@
 
 mod command;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt;
 use std::fs::{File, OpenOptions};
 use std::future::Future;
@@ -29,11 +29,12 @@ use selvedge_command_model::{
     RouterIngressSender, SnapshotMode, SnapshotTaskVersion, TaskParentProjection, TaskProjection,
     TaskProjectionStatus, TaskScope, ToolExecutionStatusPhase,
 };
+use selvedge_config_model::McpServerConfig;
 use selvedge_core::TaskRuntimeSpawnDeps;
-use selvedge_db::{OpenDbOptions, open_db, register_global_tool};
+use selvedge_db::{OpenDbOptions, open_db, register_global_tool, replace_global_mcp_tools};
 use selvedge_domain_model::{MessageRole, ReasoningEffort, TaskId};
 use selvedge_events::{EventsHandle, EventsStartArgs, SpawnEventsError, spawn_events_task};
-use selvedge_harness::{HarnessToolExecutor, tool_manifest};
+use selvedge_harness::{McpConnectionSet, ToolExecutor, tool_manifest};
 use selvedge_local_protocol::{
     AttachAccepted, AttachRejectReason, AttachRejected, AttachRequest, CommandOutcome,
     CommandRejectReason, CommandRequest, CommandResponse, LocalClientCommandId, LocalClientEvent,
@@ -202,6 +203,7 @@ impl AttachFrameChannelFactory for TokioAttachFrameChannelFactory {
 
 pub struct ServerStartArgs {
     pub explicit_home: Option<PathBuf>,
+    pub mcp_servers: BTreeMap<String, McpServerConfig>,
     pub api_config: ApiExecutorConfig,
     pub core_spawn_deps: TaskRuntimeSpawnDeps,
     pub snapshot_builder: Arc<dyn ClientSnapshotBuilder>,
@@ -271,6 +273,8 @@ pub enum ServerStartupError {
     LoggingInitFailed(String),
     DbOpenFailed(String),
     ToolRegistrationFailed(String),
+    McpStartFailed(String),
+    McpCatalogRegistrationFailed(String),
     EventsStartFailed(String),
     ClientSyncStartFailed(String),
     RouterStartFailed(String),
@@ -322,7 +326,7 @@ pub struct LocalOperationFailure {
 }
 
 pub async fn run_server(args: ServerStartArgs) -> ServerExitStatus {
-    match spawn_server(args) {
+    match spawn_server(args).await {
         Ok(handle) => handle
             .join_handle
             .await
@@ -331,7 +335,7 @@ pub async fn run_server(args: ServerStartArgs) -> ServerExitStatus {
     }
 }
 
-pub fn spawn_server(args: ServerStartArgs) -> Result<ServerHandle, ServerStartupError> {
+pub async fn spawn_server(args: ServerStartArgs) -> Result<ServerHandle, ServerStartupError> {
     validate_bind_target(&args.local_binding.bind_target)?;
     if let Some(web_binding) = &args.web_binding {
         validate_web_bind_target(&web_binding.bind_target)?;
@@ -348,7 +352,7 @@ pub fn spawn_server(args: ServerStartArgs) -> Result<ServerHandle, ServerStartup
         }
     };
 
-    let startup_result = start_server_after_lock(args, home, singleton_lock, web_bind);
+    let startup_result = start_server_after_lock(args, home, singleton_lock, web_bind).await;
     if let Err(error) = &startup_result {
         return Err(error.clone());
     }
@@ -1019,7 +1023,7 @@ impl ServerContext {
     }
 }
 
-fn start_server_after_lock(
+async fn start_server_after_lock(
     args: ServerStartArgs,
     home: PathBuf,
     singleton_lock: File,
@@ -1046,6 +1050,19 @@ fn start_server_after_lock(
                 error.to_string(),
             ));
         }
+    }
+    let (mcp_connections, mcp_tools) = match McpConnectionSet::connect(&args.mcp_servers).await {
+        Ok(discovery) => discovery,
+        Err(error) => {
+            cleanup_startup_lock(&home);
+            return Err(ServerStartupError::McpStartFailed(error.to_string()));
+        }
+    };
+    if let Err(error) = replace_global_mcp_tools(&db, mcp_tools) {
+        cleanup_startup_lock(&home);
+        return Err(ServerStartupError::McpCatalogRegistrationFailed(
+            error.to_string(),
+        ));
     }
 
     let events = match spawn_events_task(EventsStartArgs {
@@ -1076,7 +1093,7 @@ fn start_server_after_lock(
         db: db.clone(),
         events_tx: events.ingress_tx.clone(),
         api_config: args.api_config,
-        tool_executor: Arc::new(HarnessToolExecutor::new(db)),
+        tool_executor: Arc::new(ToolExecutor::new(db, mcp_connections.clone())),
         core_spawn_deps: args.core_spawn_deps,
     }) {
         Ok(router) => router,
@@ -1131,7 +1148,14 @@ fn start_server_after_lock(
     };
     *inner.web_control.lock().expect("server web control lock") =
         web.as_ref().map(|handle| handle.control.clone());
-    let join_handle = spawn_server_join_task(inner.clone(), router, events, client_sync, web);
+    let join_handle = spawn_server_join_task(
+        inner.clone(),
+        router,
+        events,
+        client_sync,
+        web,
+        mcp_connections,
+    );
 
     Ok(ServerContext { inner, join_handle })
 }
@@ -1146,6 +1170,7 @@ fn spawn_server_join_task(
     events: EventsHandle,
     client_sync: ClientSyncHandle,
     web: Option<WebHandle>,
+    mcp_connections: McpConnectionSet,
 ) -> JoinHandle<ServerExitStatus> {
     tokio::spawn(async move {
         let router_tx = router.ingress_tx;
@@ -1193,6 +1218,7 @@ fn spawn_server_join_task(
             events.ingress_tx,
         )
         .await;
+        mcp_connections.close().await;
 
         let _ = std::fs::remove_file(&inner.lock_path);
         *inner.state.write().await = match status {
@@ -2601,6 +2627,7 @@ mod tests {
                 join_handle: client_sync_join_for_test(client_sync_rx),
             },
             None,
+            empty_mcp_connection_set().await,
         );
 
         let status = timeout(Duration::from_millis(100), join_handle)
@@ -2637,6 +2664,7 @@ mod tests {
                 join_handle: client_sync_join_for_test(client_sync_rx),
             },
             None,
+            empty_mcp_connection_set().await,
         );
 
         control.stop().await;
@@ -3503,6 +3531,16 @@ mod tests {
             }
             ClientSyncExitStatus::IngressClosed
         })
+    }
+
+    async fn empty_mcp_connection_set() -> McpConnectionSet {
+        match McpConnectionSet::connect(&BTreeMap::new()).await {
+            Ok((connections, registrations)) => {
+                assert!(registrations.is_empty());
+                connections
+            }
+            Err(error) => panic!("empty MCP connection set must start: {error}"),
+        }
     }
 
     fn login_command(client_command_id: &str) -> CommandRequest {

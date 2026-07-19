@@ -10,6 +10,7 @@ selvedge-api = { path = "../api" }
 selvedge-client-sync = { path = "../client-sync" }
 selvedge-command-model = { path = "../command-model" }
 selvedge-config = { path = "../config" }
+selvedge-config-model = { path = "../config-model" }
 selvedge-core = { path = "../core" }
 selvedge-db = { path = "../db" }
 selvedge-domain-model = { path = "../domain-model" }
