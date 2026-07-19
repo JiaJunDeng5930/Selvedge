@@ -159,10 +159,14 @@ async fn bash_timeout_terminates_the_process_group_and_returns_one_terminal_erro
 
 async fn execute(arguments: Vec<(String, Value)>) -> ToolExecutionBranch {
     let db = open_memory_db();
-    for tool in tool_manifest().tools {
+    for tool in tool_manifest(&selvedge_config_model::HarnessConfig::default()).tools {
         selvedge_db::register_global_tool(&db, tool).expect("register harness tool");
     }
-    let executor = ToolExecutor::new(db, McpConnectionSet::default());
+    let executor = ToolExecutor::new(
+        db,
+        McpConnectionSet::default(),
+        selvedge_config_model::HarnessConfig::default(),
+    );
     let request = ToolExecutionRequest {
         task_id: TaskId("task-1".to_owned()),
         tool_execution_run_id: ToolExecutionRunId("run-1".to_owned()),

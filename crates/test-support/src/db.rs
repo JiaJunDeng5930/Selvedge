@@ -9,8 +9,13 @@ use selvedge_db::{
 use selvedge_domain_model::ModelProviderProfile;
 
 pub fn open_memory_db() -> DbPool {
+    open_memory_db_with_max_task_descendants(20)
+}
+
+pub fn open_memory_db_with_max_task_descendants(max_task_descendants: u32) -> DbPool {
     open_db(OpenDbOptions {
         sqlite_path: ":memory:".to_owned(),
+        max_task_descendants,
     })
     .expect("open db")
 }

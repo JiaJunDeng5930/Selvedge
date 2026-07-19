@@ -1,26 +1,36 @@
 use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt;
+use std::future::Future;
 use std::io;
+use std::process::Stdio;
 use std::sync::Arc;
 use std::time::Duration;
 
+use futures_util::{SinkExt, StreamExt};
 use rmcp::model::{
-    CallToolRequest, CallToolRequestParams, ClientRequest, ServerResult, TaskSupport, Tool,
+    CallToolRequest, CallToolRequestParams, ClientRequest, PaginatedRequestParams, ServerResult,
+    TaskSupport, Tool,
 };
-use rmcp::service::{PeerRequestOptions, RunningService};
-use rmcp::transport::TokioChildProcess;
+use rmcp::service::{PeerRequestOptions, RunningService, RxJsonRpcMessage, TxJsonRpcMessage};
+use rmcp::transport::{Transport, async_rw::JsonRpcMessageCodec};
 use rmcp::{Peer, RoleClient, ServiceError, ServiceExt};
 use selvedge_config_model::McpServerConfig;
 use selvedge_db::McpToolRegistration;
 use selvedge_domain_model::{JsonObject, ToolSpec};
 use serde_json::Value;
-use tokio::process::Command;
+use tokio::process::{Child, ChildStdin, ChildStdout, Command};
 use tokio::sync::Mutex;
+use tokio_util::codec::{FramedRead, FramedWrite};
 
 use crate::{HarnessError, HarnessErrorCode};
 
 type McpService = RunningService<RoleClient, ()>;
+
+const MAX_MCP_FRAME_BYTES: usize = 4 * 1024 * 1024;
+const MAX_MCP_CATALOG_BYTES: usize = 4 * 1024 * 1024;
+const MAX_MCP_TOOL_COUNT: usize = 1_024;
+const MCP_CHILD_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(3);
 
 #[derive(Clone, Default)]
 pub struct McpConnectionSet {
@@ -40,15 +50,17 @@ impl McpConnectionSet {
         let mut connections = BTreeMap::new();
         let mut registrations = Vec::new();
         let mut routes = BTreeMap::<String, (String, String)>::new();
+        let mut catalog_budget = CatalogBudget::default();
 
         for (server_id, config) in configs {
-            let (connection, tools) = match connect_server(server_id, config).await {
-                Ok(connected) => connected,
-                Err(error) => {
-                    close_connections(connections).await;
-                    return Err(error);
-                }
-            };
+            let (connection, tools) =
+                match connect_server(server_id, config, &mut catalog_budget).await {
+                    Ok(connected) => connected,
+                    Err(error) => {
+                        close_connections(connections).await;
+                        return Err(error);
+                    }
+                };
             connections.insert(server_id.clone(), Arc::new(connection));
 
             for tool in tools {
@@ -166,14 +178,16 @@ async fn close_connections(connections: BTreeMap<String, Arc<McpConnection>>) {
 async fn connect_server(
     server_id: &str,
     config: &McpServerConfig,
+    catalog_budget: &mut CatalogBudget,
 ) -> Result<(McpConnection, Vec<Tool>), McpStartupError> {
     let timeout = Duration::from_millis(config.timeout_ms);
     let mut command = Command::new(&config.command);
     command.args(&config.args).envs(&config.env);
-    let transport = TokioChildProcess::new(command).map_err(|source| McpStartupError::Spawn {
-        server_id: server_id.to_owned(),
-        source,
-    })?;
+    let transport =
+        BoundedChildProcess::spawn(command).map_err(|source| McpStartupError::Spawn {
+            server_id: server_id.to_owned(),
+            source,
+        })?;
     let mut service = tokio::time::timeout(timeout, ().serve(transport))
         .await
         .map_err(|_| McpStartupError::TimedOut {
@@ -186,24 +200,23 @@ async fn connect_server(
             message: error.to_string(),
         })?;
     let peer = service.peer().clone();
-    let tools = match tokio::time::timeout(timeout, peer.list_all_tools()).await {
-        Ok(Ok(tools)) => tools,
-        Ok(Err(error)) => {
-            let _ = service.close().await;
-            return Err(McpStartupError::ListTools {
-                server_id: server_id.to_owned(),
-                message: error.to_string(),
-            });
-        }
-        Err(_) => {
-            let _ = service.close().await;
-            return Err(McpStartupError::TimedOut {
-                server_id: server_id.to_owned(),
-                operation: McpStartupOperation::ListTools,
-                timeout_ms: config.timeout_ms,
-            });
-        }
-    };
+    let tools =
+        match tokio::time::timeout(timeout, discover_tools(&peer, server_id, catalog_budget)).await
+        {
+            Ok(Ok(tools)) => tools,
+            Ok(Err(error)) => {
+                let _ = service.close().await;
+                return Err(error);
+            }
+            Err(_) => {
+                let _ = service.close().await;
+                return Err(McpStartupError::TimedOut {
+                    server_id: server_id.to_owned(),
+                    operation: McpStartupOperation::ListTools,
+                    timeout_ms: config.timeout_ms,
+                });
+            }
+        };
     Ok((
         McpConnection {
             peer,
@@ -212,6 +225,146 @@ async fn connect_server(
         },
         tools,
     ))
+}
+
+async fn discover_tools(
+    peer: &Peer<RoleClient>,
+    server_id: &str,
+    catalog_budget: &mut CatalogBudget,
+) -> Result<Vec<Tool>, McpStartupError> {
+    let mut tools = Vec::new();
+    let mut cursor = None;
+    loop {
+        let result = peer
+            .list_tools(Some(PaginatedRequestParams::default().with_cursor(cursor)))
+            .await
+            .map_err(|error| McpStartupError::ListTools {
+                server_id: server_id.to_owned(),
+                message: error.to_string(),
+            })?;
+        for tool in result.tools {
+            catalog_budget.consume(server_id, &tool)?;
+            tools.push(tool);
+        }
+        cursor = result.next_cursor;
+        if cursor.is_none() {
+            return Ok(tools);
+        }
+    }
+}
+
+struct CatalogBudget {
+    tool_count: usize,
+    catalog_bytes: usize,
+}
+
+impl Default for CatalogBudget {
+    fn default() -> Self {
+        Self {
+            tool_count: 0,
+            catalog_bytes: 2,
+        }
+    }
+}
+
+impl CatalogBudget {
+    fn consume(&mut self, server_id: &str, tool: &Tool) -> Result<(), McpStartupError> {
+        let encoded_len = serde_json::to_vec(tool)
+            .map_err(|error| McpStartupError::ListTools {
+                server_id: server_id.to_owned(),
+                message: format!("failed to measure tool catalog: {error}"),
+            })?
+            .len();
+        self.catalog_bytes = self
+            .catalog_bytes
+            .saturating_add(encoded_len + usize::from(self.tool_count > 0));
+        if self.tool_count == MAX_MCP_TOOL_COUNT || self.catalog_bytes > MAX_MCP_CATALOG_BYTES {
+            return Err(McpStartupError::CatalogLimitExceeded {
+                server_id: server_id.to_owned(),
+                max_tools: MAX_MCP_TOOL_COUNT,
+                max_bytes: MAX_MCP_CATALOG_BYTES,
+            });
+        }
+        self.tool_count += 1;
+        Ok(())
+    }
+}
+
+type McpWriter = FramedWrite<ChildStdin, JsonRpcMessageCodec<TxJsonRpcMessage<RoleClient>>>;
+
+struct BoundedChildProcess {
+    child: Option<Child>,
+    reader: FramedRead<ChildStdout, JsonRpcMessageCodec<RxJsonRpcMessage<RoleClient>>>,
+    writer: Arc<Mutex<Option<McpWriter>>>,
+}
+
+impl BoundedChildProcess {
+    fn spawn(mut command: Command) -> io::Result<Self> {
+        command
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::inherit())
+            .kill_on_drop(true);
+        let mut child = command.spawn()?;
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| io::Error::other("MCP child stdout was not piped"))?;
+        let stdin = child
+            .stdin
+            .take()
+            .ok_or_else(|| io::Error::other("MCP child stdin was not piped"))?;
+        Ok(Self {
+            child: Some(child),
+            reader: FramedRead::new(
+                stdout,
+                JsonRpcMessageCodec::new_with_max_length(MAX_MCP_FRAME_BYTES),
+            ),
+            writer: Arc::new(Mutex::new(Some(FramedWrite::new(
+                stdin,
+                JsonRpcMessageCodec::default(),
+            )))),
+        })
+    }
+}
+
+impl Transport<RoleClient> for BoundedChildProcess {
+    type Error = io::Error;
+
+    fn send(
+        &mut self,
+        item: TxJsonRpcMessage<RoleClient>,
+    ) -> impl Future<Output = Result<(), Self::Error>> + Send + 'static {
+        let writer = self.writer.clone();
+        async move {
+            let mut writer = writer.lock().await;
+            match writer.as_mut() {
+                Some(writer) => writer.send(item).await.map_err(Into::into),
+                None => Err(io::Error::new(
+                    io::ErrorKind::NotConnected,
+                    "MCP transport is closed",
+                )),
+            }
+        }
+    }
+
+    async fn receive(&mut self) -> Option<RxJsonRpcMessage<RoleClient>> {
+        match self.reader.next().await {
+            Some(Ok(message)) => Some(message),
+            Some(Err(_)) | None => None,
+        }
+    }
+
+    async fn close(&mut self) -> Result<(), Self::Error> {
+        self.writer.lock().await.take();
+        let Some(mut child) = self.child.take() else {
+            return Ok(());
+        };
+        match tokio::time::timeout(MCP_CHILD_SHUTDOWN_TIMEOUT, child.wait()).await {
+            Ok(result) => result.map(|_| ()),
+            Err(_) => child.kill().await,
+        }
+    }
 }
 
 fn convert_tool(server_id: &str, tool: Tool) -> Result<McpToolRegistration, McpStartupError> {
@@ -295,6 +448,11 @@ pub enum McpStartupError {
         server_id: String,
         message: String,
     },
+    CatalogLimitExceeded {
+        server_id: String,
+        max_tools: usize,
+        max_bytes: usize,
+    },
     TimedOut {
         server_id: String,
         operation: McpStartupOperation,
@@ -339,6 +497,14 @@ impl fmt::Display for McpStartupError {
                     "MCP server '{server_id}' tools/list failed: {message}"
                 )
             }
+            Self::CatalogLimitExceeded {
+                server_id,
+                max_tools,
+                max_bytes,
+            } => write!(
+                formatter,
+                "MCP server '{server_id}' tool catalog exceeds {max_tools} tools or {max_bytes} bytes"
+            ),
             Self::TimedOut {
                 server_id,
                 operation,

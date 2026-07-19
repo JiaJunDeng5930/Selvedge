@@ -25,6 +25,7 @@ use selvedge_domain_model::{
     Conversation, FUNCTION_CALL_CONTENT_TYPE, FUNCTION_OUTPUT_CONTENT_TYPE, JsonObject,
     ModelProfileKey, ModelProviderProfile, ResponsePreference, ToolCallProposal, ToolManifest,
 };
+use serde_json::Value;
 use uuid::Uuid;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -475,13 +476,16 @@ impl TaskRuntimeActor {
                 }
             };
 
+        let function_call_node_id = result.function_call_node_id;
+        let function_call_id = result.function_call_id;
+        let tool_name = result.tool_name;
         let commit_result = commit_tool_result_branches(
             &self.db,
             CommitToolResultBranchesInput {
                 calling_task_id: self.task_id.clone(),
-                function_call_node_id: result.function_call_node_id,
-                function_call_id: result.function_call_id,
-                tool_name: result.tool_name,
+                function_call_node_id,
+                function_call_id: function_call_id.clone(),
+                tool_name: tool_name.clone(),
                 branches: result
                     .branches
                     .into_iter()
@@ -502,6 +506,27 @@ impl TaskRuntimeActor {
                 now: now(),
             },
         );
+        let commit_result = match commit_result {
+            Err(DbError::TaskDescendantLimitExceeded { task_id, limit }) => {
+                commit_tool_result_branches(
+                    &self.db,
+                    CommitToolResultBranchesInput {
+                        calling_task_id: self.task_id.clone(),
+                        function_call_node_id,
+                        function_call_id,
+                        tool_name,
+                        branches: vec![ToolResultBranch {
+                            target: ToolResultBranchTarget::CallingTask,
+                            output: task_descendant_limit_output(&task_id, limit),
+                            is_error: true,
+                            user_messages: Vec::new(),
+                        }],
+                        now: now(),
+                    },
+                )
+            }
+            result => result,
+        };
         match commit_result {
             Ok(committed) => {
                 if !committed.created_child_task_ids.is_empty()
@@ -703,10 +728,20 @@ fn task_command_db_error(error: &DbError) -> TaskCommandError {
         DbError::TaskNotActive => TaskCommandError::TaskArchived,
         DbError::StaleFunctionCall
         | DbError::HistoryCursorNotOnTask
+        | DbError::TaskDescendantLimitExceeded { .. }
         | DbError::Constraint(_)
         | DbError::Storage(_)
         | DbError::SchemaMismatch { .. } => TaskCommandError::PersistenceFailed,
     }
+}
+
+fn task_descendant_limit_output(task_id: &TaskId, limit: u32) -> Value {
+    serde_json::json!({
+        "error": {
+            "code": "task_descendant_limit_exceeded",
+            "message": format!("task '{}' cannot exceed {limit} descendants", task_id.0),
+        }
+    })
 }
 
 fn settle_task_runtime_command(command: TaskRuntimeCommand, error: TaskCommandError) {

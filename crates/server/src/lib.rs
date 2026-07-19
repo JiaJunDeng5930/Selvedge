@@ -29,7 +29,7 @@ use selvedge_command_model::{
     RouterIngressSender, SnapshotMode, SnapshotTaskVersion, TaskParentProjection, TaskProjection,
     TaskProjectionStatus, TaskScope, ToolExecutionStatusPhase,
 };
-use selvedge_config_model::McpServerConfig;
+use selvedge_config_model::{HarnessConfig, McpServerConfig};
 use selvedge_core::TaskRuntimeSpawnDeps;
 use selvedge_db::{OpenDbOptions, open_db, register_global_tool, replace_global_mcp_tools};
 use selvedge_domain_model::{MessageRole, ReasoningEffort, TaskId};
@@ -203,6 +203,7 @@ impl AttachFrameChannelFactory for TokioAttachFrameChannelFactory {
 
 pub struct ServerStartArgs {
     pub explicit_home: Option<PathBuf>,
+    pub harness_config: HarnessConfig,
     pub mcp_servers: BTreeMap<String, McpServerConfig>,
     pub api_config: ApiExecutorConfig,
     pub core_spawn_deps: TaskRuntimeSpawnDeps,
@@ -1036,6 +1037,7 @@ async fn start_server_after_lock(
 
     let db = match open_db(OpenDbOptions {
         sqlite_path: sqlite_path_for_home(&home).to_string_lossy().to_string(),
+        max_task_descendants: args.harness_config.max_descendants_per_task,
     }) {
         Ok(db) => db,
         Err(error) => {
@@ -1043,7 +1045,7 @@ async fn start_server_after_lock(
             return Err(ServerStartupError::DbOpenFailed(error.to_string()));
         }
     };
-    for tool in tool_manifest().tools {
+    for tool in tool_manifest(&args.harness_config).tools {
         if let Err(error) = register_global_tool(&db, tool) {
             cleanup_startup_lock(&home);
             return Err(ServerStartupError::ToolRegistrationFailed(
@@ -1093,7 +1095,11 @@ async fn start_server_after_lock(
         db: db.clone(),
         events_tx: events.ingress_tx.clone(),
         api_config: args.api_config,
-        tool_executor: Arc::new(ToolExecutor::new(db, mcp_connections.clone())),
+        tool_executor: Arc::new(ToolExecutor::new(
+            db,
+            mcp_connections.clone(),
+            args.harness_config,
+        )),
         core_spawn_deps: args.core_spawn_deps,
     }) {
         Ok(router) => router,

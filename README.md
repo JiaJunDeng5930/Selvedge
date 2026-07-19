@@ -2,7 +2,7 @@
 
 <!-- selvedge-package-readme
 package: selvedge
-freshness_fingerprint: d44faede75dbdc382dc40484324980b1b87f0ac7
+freshness_fingerprint: 8f96a2518c1a3d3108ed55ac75a8129839ef317c
 -->
 
 Selvedge is a Rust repository scaffold with a clean local development flow, pre-commit hooks, and GitHub Actions CI.

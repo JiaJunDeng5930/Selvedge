@@ -14,6 +14,7 @@ pub struct AppConfig {
     pub logging: LoggingConfig,
     pub feature: FeatureConfig,
     pub llm: LlmConfig,
+    pub harness: HarnessConfig,
     pub mcp: McpConfig,
 }
 
@@ -24,6 +25,7 @@ impl AppConfig {
         self.logging.validate()?;
         self.feature.validate()?;
         self.llm.validate()?;
+        self.harness.validate()?;
         self.mcp.validate()?;
 
         Ok(())
@@ -40,6 +42,39 @@ impl TryFrom<Table> for AppConfig {
         config.validate()?;
 
         Ok(config)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct HarnessConfig {
+    pub max_children_per_fork: u32,
+    pub max_descendants_per_task: u32,
+}
+
+impl HarnessConfig {
+    const DEFAULT_MAX_CHILDREN_PER_FORK: u32 = 5;
+    const DEFAULT_MAX_DESCENDANTS_PER_TASK: u32 = 20;
+
+    pub fn validate(&self) -> Result<(), ValidationError> {
+        if self.max_children_per_fork == 0 {
+            return Err(ValidationError::InvalidMaxChildrenPerFork);
+        }
+        if self.max_descendants_per_task == 0 {
+            return Err(ValidationError::InvalidMaxDescendantsPerTask);
+        }
+        if self.max_children_per_fork > self.max_descendants_per_task {
+            return Err(ValidationError::ForkLimitExceedsDescendantLimit);
+        }
+        Ok(())
+    }
+}
+
+impl Default for HarnessConfig {
+    fn default() -> Self {
+        Self {
+            max_children_per_fork: Self::DEFAULT_MAX_CHILDREN_PER_FORK,
+            max_descendants_per_task: Self::DEFAULT_MAX_DESCENDANTS_PER_TASK,
+        }
     }
 }
 
@@ -505,6 +540,12 @@ pub enum ValidationError {
         provider_id: String,
         setting: String,
     },
+    #[error("harness.max_children_per_fork must be greater than zero")]
+    InvalidMaxChildrenPerFork,
+    #[error("harness.max_descendants_per_task must be greater than zero")]
+    InvalidMaxDescendantsPerTask,
+    #[error("harness.max_children_per_fork must not exceed harness.max_descendants_per_task")]
+    ForkLimitExceedsDescendantLimit,
     #[error("mcp.servers contains invalid server id {server_id:?}")]
     InvalidMcpServerId { server_id: String },
     #[error("mcp.servers.{server_id}.command must not be blank")]
@@ -527,6 +568,7 @@ struct AppConfigInput {
     logging: LoggingConfigInput,
     feature: FeatureConfigInput,
     llm: LlmConfigInput,
+    harness: HarnessConfigInput,
     mcp: McpConfigInput,
 }
 
@@ -538,6 +580,7 @@ impl AppConfigInput {
             logging: self.logging.materialize(),
             feature: self.feature.materialize(),
             llm: self.llm.materialize(),
+            harness: self.harness.materialize(),
             mcp: self.mcp.materialize(),
         }
     }
@@ -655,6 +698,26 @@ struct LlmProviderConfigInput {
 #[serde(default, deny_unknown_fields)]
 struct McpConfigInput {
     servers: BTreeMap<String, McpServerConfigInput>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct HarnessConfigInput {
+    max_children_per_fork: Option<u32>,
+    max_descendants_per_task: Option<u32>,
+}
+
+impl HarnessConfigInput {
+    fn materialize(self) -> HarnessConfig {
+        HarnessConfig {
+            max_children_per_fork: self
+                .max_children_per_fork
+                .unwrap_or(HarnessConfig::DEFAULT_MAX_CHILDREN_PER_FORK),
+            max_descendants_per_task: self
+                .max_descendants_per_task
+                .unwrap_or(HarnessConfig::DEFAULT_MAX_DESCENDANTS_PER_TASK),
+        }
+    }
 }
 
 impl McpConfigInput {

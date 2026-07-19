@@ -18,6 +18,7 @@ use selvedge_command_model::{
     ToolExecutionRequest, ToolExecutionResult, archive_task_response_channel,
     send_user_input_response_channel,
 };
+use selvedge_config_model::HarnessConfig;
 use selvedge_db::{
     DbError, DbPool, HistoryNode, ReadTaskInput, TaskRead, TaskStatusRow, ToolExecutionSource,
     read_task, read_tool_execution_source,
@@ -48,24 +49,30 @@ pub const BASH_OUTPUT_LIMIT_BYTES: usize = 64 * 1024;
 const MAX_READ_LIMIT: i64 = 100;
 const BASH_REAP_TIMEOUT: Duration = Duration::from_secs(5);
 
-pub fn tool_manifest() -> ToolManifest {
+pub fn tool_manifest(config: &HarnessConfig) -> ToolManifest {
     ToolManifest {
         tools: vec![
             ToolSpec {
                 name: FORK_TASK_TOOL_NAME.to_owned(),
-                description:
-                    "Create parallel child task branches with optional aligned initial messages."
-                        .to_owned(),
+                description: format!(
+                    "Create up to {} parallel child task branches with optional aligned initial messages.",
+                    config.max_children_per_fork
+                ),
                 input_schema: input_schema(
                     [
                         (
                             "child_count",
-                            integer_property("Number of child task branches to create."),
+                            bounded_integer_property(
+                                "Number of child task branches to create.",
+                                1,
+                                i64::from(config.max_children_per_fork),
+                            ),
                         ),
                         (
                             "messages",
                             string_array_property(
                                 "Optional initial messages aligned by child branch number.",
+                                config.max_children_per_fork,
                             ),
                         ),
                     ],
@@ -91,8 +98,10 @@ pub fn tool_manifest() -> ToolManifest {
                         ),
                         (
                             "limit",
-                            integer_property(
+                            bounded_integer_property(
                                 "Maximum history nodes to return, from 1 through 100.",
+                                1,
+                                MAX_READ_LIMIT,
                             ),
                         ),
                     ],
@@ -133,8 +142,10 @@ pub fn tool_manifest() -> ToolManifest {
                         ("command", string_property("Bash command to run.")),
                         (
                             "timeout_ms",
-                            integer_property(
+                            bounded_integer_property(
                                 "Timeout in milliseconds; defaults to 30000, from 100 through 120000.",
+                                MIN_BASH_TIMEOUT_MS,
+                                MAX_BASH_TIMEOUT_MS,
                             ),
                         ),
                     ],
@@ -190,7 +201,19 @@ fn integer_property(description: &str) -> Value {
     ]))
 }
 
-fn string_array_property(description: &str) -> Value {
+fn bounded_integer_property(description: &str, minimum: i64, maximum: i64) -> Value {
+    Value::Object(JsonObject::from_iter([
+        ("type".to_owned(), Value::String("integer".to_owned())),
+        (
+            "description".to_owned(),
+            Value::String(description.to_owned()),
+        ),
+        ("minimum".to_owned(), Value::from(minimum)),
+        ("maximum".to_owned(), Value::from(maximum)),
+    ]))
+}
+
+fn string_array_property(description: &str, max_items: u32) -> Value {
     Value::Object(JsonObject::from_iter([
         ("type".to_owned(), Value::String("array".to_owned())),
         (
@@ -204,6 +227,8 @@ fn string_array_property(description: &str) -> Value {
             "description".to_owned(),
             Value::String(description.to_owned()),
         ),
+        ("minItems".to_owned(), Value::from(1)),
+        ("maxItems".to_owned(), Value::from(max_items)),
     ]))
 }
 
@@ -246,9 +271,12 @@ pub struct BashInvocation {
     pub timeout_ms: u64,
 }
 
-pub fn parse_invocation(request: &ToolExecutionRequest) -> Result<HarnessInvocation, HarnessError> {
+pub fn parse_invocation(
+    request: &ToolExecutionRequest,
+    config: &HarnessConfig,
+) -> Result<HarnessInvocation, HarnessError> {
     match request.tool_name.0.as_str() {
-        FORK_TASK_TOOL_NAME => parse_fork_task(&request.arguments),
+        FORK_TASK_TOOL_NAME => parse_fork_task(&request.arguments, config),
         READ_TASK_TOOL_NAME => parse_read_task(&request.arguments),
         SEND_MESSAGE_TO_TASK_TOOL_NAME => parse_send_message_to_task(&request.arguments),
         ARCHIVE_TASK_TOOL_NAME => parse_archive_task(&request.task_id, &request.arguments),
@@ -277,15 +305,21 @@ fn parse_bash(arguments: &JsonObject) -> Result<HarnessInvocation, HarnessError>
     }))
 }
 
-fn parse_fork_task(arguments: &JsonObject) -> Result<HarnessInvocation, HarnessError> {
+fn parse_fork_task(
+    arguments: &JsonObject,
+    config: &HarnessConfig,
+) -> Result<HarnessInvocation, HarnessError> {
     let arguments = Arguments::new(arguments, &["child_count", "messages"])?;
     let child_count = arguments.required_integer("child_count")?;
     let child_count = usize::try_from(child_count)
         .ok()
-        .filter(|child_count| *child_count > 0)
-        .ok_or_else(|| {
-            HarnessError::invalid_arguments("argument 'child_count' must be a positive integer")
-        })?;
+        .filter(|child_count| (1..=config.max_children_per_fork as usize).contains(child_count));
+    let Some(child_count) = child_count else {
+        return Err(HarnessError::invalid_arguments(format!(
+            "argument 'child_count' must be between 1 and {}",
+            config.max_children_per_fork
+        )));
+    };
     let messages = arguments.optional_nonempty_string_array("messages")?;
     if messages
         .as_ref()
@@ -702,11 +736,12 @@ fn calling_task_branch(output: Value, is_error: bool) -> ToolExecutionBranch {
 pub struct ToolExecutor {
     db: DbPool,
     mcp: McpConnectionSet,
+    config: HarnessConfig,
 }
 
 impl ToolExecutor {
-    pub fn new(db: DbPool, mcp: McpConnectionSet) -> Self {
-        Self { db, mcp }
+    pub fn new(db: DbPool, mcp: McpConnectionSet, config: HarnessConfig) -> Self {
+        Self { db, mcp, config }
     }
 }
 
@@ -718,10 +753,11 @@ impl ToolExecutionSpawner for ToolExecutor {
     ) -> Result<JoinHandle<()>, ToolExecutionSpawnError> {
         let db = self.db.clone();
         let mcp = self.mcp.clone();
+        let config = self.config.clone();
         let execution_request = request.clone();
         let execution_router_tx = router_tx.clone();
         spawn_supervised_execution(request, router_tx, async move {
-            execute_routed_request(db, mcp, execution_request, execution_router_tx).await
+            execute_routed_request(db, mcp, config, execution_request, execution_router_tx).await
         })
     }
 }
@@ -765,6 +801,7 @@ where
 async fn execute_routed_request(
     db: DbPool,
     mcp: McpConnectionSet,
+    config: HarnessConfig,
     request: ToolExecutionRequest,
     router_tx: RouterIngressWeakSender,
 ) -> Result<Vec<ToolExecutionBranch>, HarnessError> {
@@ -776,7 +813,9 @@ async fn execute_routed_request(
             .map_err(map_join_error)?
             .map_err(map_tool_route_error)?;
     match source {
-        ToolExecutionSource::Harness => execute_harness_request(db, request, router_tx).await,
+        ToolExecutionSource::Harness => {
+            execute_harness_request(db, config, request, router_tx).await
+        }
         ToolExecutionSource::Mcp {
             server_id,
             remote_tool_name,
@@ -791,10 +830,11 @@ async fn execute_routed_request(
 
 async fn execute_harness_request(
     db: DbPool,
+    config: HarnessConfig,
     request: ToolExecutionRequest,
     router_tx: RouterIngressWeakSender,
 ) -> Result<Vec<ToolExecutionBranch>, HarnessError> {
-    match parse_invocation(&request)? {
+    match parse_invocation(&request, &config)? {
         HarnessInvocation::ForkTask(invocation) => Ok(execute_fork_task(invocation)),
         HarnessInvocation::ReadTask(invocation) => {
             execute_read_task(db, request.task_id, invocation)
@@ -1171,6 +1211,7 @@ fn map_read_error(error: DbError) -> HarnessError {
             HarnessError::new(HarnessErrorCode::TaskArchived, "task is archived")
         }
         DbError::StaleFunctionCall
+        | DbError::TaskDescendantLimitExceeded { .. }
         | DbError::Constraint(_)
         | DbError::Storage(_)
         | DbError::SchemaMismatch { .. } => {
