@@ -7,10 +7,9 @@ publish = false
 selvedge-command-model = { path = "../command-model" }
 selvedge-core = { path = "../core" }
 selvedge-db = { path = "../db" }
-selvedge-domain-model = { path = "../domain-model" }
-uuid = { version = "1.11.0", features = ["v4"] }
 
 [dev-dependencies]
+selvedge-domain-model = { path = "../domain-model" }
 selvedge-test-support = { path = "../test-support", features = ["db-fixtures"] }
 tokio = { version = "1.42.0", features = ["macros", "rt", "sync", "time"] }
 

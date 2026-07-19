@@ -1,26 +1,16 @@
 use std::collections::HashMap;
-use std::sync::Arc;
 
 use selvedge_command_model::{
-    CreatedRuntimeKind, FactoryEffectId, FactoryFailureKind, FactoryOutput, FactorySkipReason,
+    FactoryEffectId, FactoryFailureKind, FactoryOutput, FactorySkipReason,
 };
-use selvedge_core::{
-    SpawnTaskRuntimeArgs, SpawnTaskRuntimeError, SpawnedTaskRuntime, TaskRuntimeConfig,
-    TaskRuntimeSpawnDeps, TaskRuntimeSpawner,
-};
-use selvedge_db::{
-    CreateRootTaskInput, DbPool, FunctionCallId, HistoryNode, HistoryNodeId, MessageRole,
-    ModelProfileKey, NewFunctionCallNodeContent, ReasoningEffort, TaskId, ToolName, ToolSpec,
-    UnixTs, append_model_reply_with_tool_calls_and_move_cursor, archive_task, create_root_task,
-    load_active_task, read_task_parent_edges, read_tool_manifest_for_task, register_tool,
-};
-use selvedge_domain_model::{JsonObject, ModelProviderProfile};
+use selvedge_core::{TaskRuntimeConfig, TaskRuntimeSpawnDeps};
+use selvedge_db::{DbPool, ModelProfileKey, TaskId, UnixTs, archive_task};
+use selvedge_domain_model::ModelProviderProfile;
 use selvedge_task_runtime_factory::{
     FactoryCommand, FactoryEffectArgs, FactoryRuntimeInventory, run_factory_effect,
 };
 use selvedge_test_support::db::{
-    create_message_node as create_test_message_node, create_root_task_with_user_message,
-    default_model_profiles, open_memory_db,
+    create_root_task_with_user_message, default_model_profiles, open_memory_db,
 };
 
 #[tokio::test]
@@ -47,10 +37,6 @@ async fn ensure_task_runtime_creates_runtime_for_existing_active_task() {
         panic!("unexpected factory output");
     };
     assert_eq!(created.task_id, TaskId("task-1".to_owned()));
-    assert_eq!(
-        created.created_runtime_kind,
-        CreatedRuntimeKind::ExistingTaskRuntime
-    );
 
     assert!(router_rx.try_recv().is_err());
 }
@@ -139,10 +125,6 @@ async fn ensure_missing_task_runtimes_skips_live_and_pending_inventory() {
 
     assert_eq!(scan.created.len(), 1);
     assert_eq!(scan.created[0].task_id, TaskId("missing".to_owned()));
-    assert_eq!(
-        scan.created[0].created_runtime_kind,
-        CreatedRuntimeKind::ExistingTaskRuntime
-    );
     assert_eq!(scan.failed, Vec::new());
     assert_eq!(scan.skipped.len(), 2);
     assert!(scan.skipped.iter().any(|skipped| {
@@ -155,171 +137,8 @@ async fn ensure_missing_task_runtimes_skips_live_and_pending_inventory() {
     }));
 }
 
-#[tokio::test]
-async fn create_child_task_and_runtime_persists_child_and_copies_parent_settings() {
-    let db = open_memory_db();
-    register_tool(
-        &db,
-        ToolSpec {
-            name: "search".to_owned(),
-            description: "search".to_owned(),
-            input_schema: JsonObject::new(),
-        },
-    )
-    .expect("register tool");
-    let parent_cursor_node_id = create_message_node(&db, None, MessageRole::User, "parent");
-    create_root_task(
-        &db,
-        CreateRootTaskInput {
-            task_id: TaskId("parent".to_owned()),
-            cursor_node_id: parent_cursor_node_id,
-            model_profile_key: ModelProfileKey("default".to_owned()),
-            reasoning_effort: ReasoningEffort::High,
-            enabled_tools: vec![ToolName("search".to_owned())],
-            now: UnixTs(1),
-        },
-    )
-    .expect("create parent task");
-    let function_call_node_id = append_fork_call(&db, "parent", "fork-1");
-
-    let (router_tx, _router_rx) = tokio::sync::mpsc::unbounded_channel();
-    let envelope = run_factory_effect(FactoryEffectArgs {
-        effect_id: FactoryEffectId("factory-child".to_owned()),
-        command: FactoryCommand::CreateChildTaskAndRuntime {
-            parent_task_id: TaskId("parent".to_owned()),
-            function_call_node_id,
-            function_call_id: FunctionCallId("fork-1".to_owned()),
-            tool_name: ToolName("fork_task".to_owned()),
-            child_prompt: "child prompt".to_owned(),
-        },
-        db: db.clone(),
-        router_tx: router_tx.downgrade(),
-        core_spawn_deps: TaskRuntimeSpawnDeps::new(TaskRuntimeConfig {
-            mailbox_capacity: 8,
-            model_profiles: model_profiles(),
-        }),
-        runtime_inventory: empty_inventory(),
-    });
-    assert_eq!(
-        envelope.effect_id,
-        FactoryEffectId("factory-child".to_owned())
-    );
-    let FactoryOutput::RuntimeCreated(created) = envelope.output else {
-        panic!("unexpected factory output");
-    };
-    assert_eq!(
-        created.created_runtime_kind,
-        CreatedRuntimeKind::ChildTaskRuntime
-    );
-
-    let child = load_active_task(&db, &created.task_id).expect("load child task");
-    assert!(matches!(
-        child.cursor_node,
-        HistoryNode::Message {
-            message_role: MessageRole::User,
-            ref message_text,
-            ..
-        } if message_text == "child prompt"
-    ));
-    assert_eq!(
-        child.task.model_profile_key,
-        ModelProfileKey("default".to_owned())
-    );
-    assert_eq!(child.task.reasoning_effort, ReasoningEffort::High);
-
-    let manifest = read_tool_manifest_for_task(&db, &created.task_id).expect("child manifest");
-    assert_eq!(manifest.tools[0].name, "search");
-
-    let edges = read_task_parent_edges(&db).expect("read task edges");
-    assert!(edges.iter().any(|edge| {
-        edge.parent_task_id == TaskId("parent".to_owned()) && edge.child_task_id == created.task_id
-    }));
-}
-
-#[tokio::test]
-async fn create_child_task_and_runtime_reports_parent_and_cursor_failures() {
-    let missing_parent =
-        run_create_child(open_memory_db(), "missing", HistoryNodeId(1), "fork-1").await;
-    let FactoryOutput::Failed(failure) = missing_parent else {
-        panic!("unexpected factory output");
-    };
-    assert_eq!(failure.kind, FactoryFailureKind::ParentTaskMissing);
-
-    let db = open_memory_db();
-    create_root(&db, "archived");
-    let archived_call = append_fork_call(&db, "archived", "fork-1");
-    archive_task(&db, &TaskId("archived".to_owned()), UnixTs(2)).expect("archive task");
-    let archived_parent = run_create_child(db, "archived", archived_call, "fork-1").await;
-    let FactoryOutput::Failed(failure) = archived_parent else {
-        panic!("unexpected factory output");
-    };
-    assert_eq!(failure.kind, FactoryFailureKind::ParentTaskArchived);
-
-    let db = open_memory_db();
-    create_root(&db, "parent");
-    let missing_cursor = run_create_child(db, "parent", HistoryNodeId(9_999), "fork-1").await;
-    let FactoryOutput::Failed(failure) = missing_cursor else {
-        panic!("unexpected factory output");
-    };
-    assert_eq!(failure.kind, FactoryFailureKind::StaleToolCall);
-}
-
-#[tokio::test]
-async fn create_child_task_keeps_durable_child_when_runtime_spawn_fails() {
-    let db = open_memory_db();
-    create_root(&db, "parent");
-    let function_call_node_id = append_fork_call(&db, "parent", "fork-1");
-
-    let (router_tx, _router_rx) = tokio::sync::mpsc::unbounded_channel();
-    let envelope = run_factory_effect(FactoryEffectArgs {
-        effect_id: FactoryEffectId("factory-child".to_owned()),
-        command: FactoryCommand::CreateChildTaskAndRuntime {
-            parent_task_id: TaskId("parent".to_owned()),
-            function_call_node_id,
-            function_call_id: FunctionCallId("fork-1".to_owned()),
-            tool_name: ToolName("fork_task".to_owned()),
-            child_prompt: "child prompt".to_owned(),
-        },
-        db: db.clone(),
-        router_tx: router_tx.downgrade(),
-        core_spawn_deps: TaskRuntimeSpawnDeps::with_spawner(
-            TaskRuntimeConfig {
-                mailbox_capacity: 8,
-                model_profiles: model_profiles(),
-            },
-            Arc::new(FailingSpawner),
-        ),
-        runtime_inventory: empty_inventory(),
-    });
-
-    let output = envelope.output;
-    let FactoryOutput::Failed(failure) = output else {
-        panic!("unexpected factory output");
-    };
-    assert_eq!(failure.kind, FactoryFailureKind::CoreSpawnFailed);
-    let child_task_id = failure.task_id.expect("child task id");
-    let child = load_active_task(&db, &child_task_id).expect("child remains durable");
-    assert!(matches!(
-        child.cursor_node,
-        HistoryNode::Message {
-            message_role: MessageRole::User,
-            ref message_text,
-            ..
-        } if message_text == "child prompt"
-    ));
-}
-
 fn create_root(db: &DbPool, task_id: &str) {
     create_root_task_with_user_message(db, task_id, "hello", UnixTs(1));
-}
-
-fn create_message_node(
-    db: &DbPool,
-    parent_node_id: Option<selvedge_db::HistoryNodeId>,
-    message_role: MessageRole,
-    message_text: &str,
-) -> selvedge_db::HistoryNodeId {
-    create_test_message_node(db, parent_node_id, message_role, message_text, UnixTs(1))
 }
 
 fn model_profiles() -> HashMap<ModelProfileKey, ModelProviderProfile> {
@@ -370,71 +189,9 @@ async fn run_ensure_task_runtime_with_inventory(
     .output
 }
 
-async fn run_create_child(
-    db: DbPool,
-    parent_task_id: &str,
-    function_call_node_id: HistoryNodeId,
-    function_call_id: &str,
-) -> FactoryOutput {
-    let (router_tx, _router_rx) = tokio::sync::mpsc::unbounded_channel();
-    run_factory_effect(FactoryEffectArgs {
-        effect_id: FactoryEffectId("factory-child".to_owned()),
-        command: FactoryCommand::CreateChildTaskAndRuntime {
-            parent_task_id: TaskId(parent_task_id.to_owned()),
-            function_call_node_id,
-            function_call_id: FunctionCallId(function_call_id.to_owned()),
-            tool_name: ToolName("fork_task".to_owned()),
-            child_prompt: "child prompt".to_owned(),
-        },
-        db,
-        router_tx: router_tx.downgrade(),
-        core_spawn_deps: TaskRuntimeSpawnDeps::new(TaskRuntimeConfig {
-            mailbox_capacity: 8,
-            model_profiles: model_profiles(),
-        }),
-        runtime_inventory: empty_inventory(),
-    })
-    .output
-}
-
-fn append_fork_call(db: &DbPool, task_id: &str, function_call_id: &str) -> HistoryNodeId {
-    register_tool(
-        db,
-        ToolSpec {
-            name: "fork_task".to_owned(),
-            description: "fork".to_owned(),
-            input_schema: JsonObject::new(),
-        },
-    )
-    .expect("register fork tool");
-    append_model_reply_with_tool_calls_and_move_cursor(
-        db,
-        &TaskId(task_id.to_owned()),
-        None,
-        vec![NewFunctionCallNodeContent {
-            function_call_id: FunctionCallId(function_call_id.to_owned()),
-            tool_name: ToolName("fork_task".to_owned()),
-            arguments: JsonObject::new(),
-        }],
-        UnixTs(2),
-    )
-    .expect("append fork call")[0]
-}
-
 fn empty_inventory() -> FactoryRuntimeInventory {
     FactoryRuntimeInventory {
         live_task_runtimes: Vec::new(),
         pending_task_runtime_effects: Vec::new(),
-    }
-}
-
-struct FailingSpawner;
-
-impl TaskRuntimeSpawner for FailingSpawner {
-    fn spawn_task_runtime(
-        &self,
-        _args: SpawnTaskRuntimeArgs,
-    ) -> Result<SpawnedTaskRuntime, SpawnTaskRuntimeError> {
-        Err(SpawnTaskRuntimeError::TokioSpawnFailed)
     }
 }

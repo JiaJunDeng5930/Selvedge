@@ -11,6 +11,7 @@ selvedge-db = { path = "../db" }
 selvedge-domain-model = { path = "../domain-model" }
 selvedge-events = { path = "../events" }
 selvedge-task-runtime-factory = { path = "../task-runtime-factory" }
+serde_json = "1.0.145"
 tokio = { version = "1.42.0", features = ["rt", "sync"] }
 
 [dev-dependencies]

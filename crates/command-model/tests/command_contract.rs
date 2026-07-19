@@ -1,21 +1,22 @@
 use selvedge_command_model::{
     ApiCallCorrelation, ApiEffectId, ApiOutputEnvelope, BeginClientHydration, ClientCommandId,
     ClientEvent, ClientEventFrame, ClientFrame, ClientId, ClientSnapshot, ClientSnapshotFrame,
-    ClientSubscription, CreatedRuntimeKind, DeliverySeq, DetailLevel, EventControlMessage,
-    EventIngress, FactoryEffectId, FactoryFailure, FactoryFailureKind, FactoryOutput,
-    FactoryOutputEnvelope, FactoryScanOutput, FactorySkipReason, FactorySkippedTask,
-    FactoryTaskFailure, ForkTaskError, HistoryAppendedEvent, HistoryAppendedRawEvent,
-    ModelCallDispatchRequest, ModelCallError, ModelCallErrorKind, ModelRunId, RouterCommand,
-    RouterCommandEnvelope, RouterCommandValidationError, RouterIngressApiMessage,
-    RouterIngressMessage, SnapshotTaskVersion, TaskCommandError, TaskId, TaskProjection,
-    TaskProjectionStatus, TaskRuntimeControl, TaskRuntimeCreated, TaskScope,
-    archive_task_response_channel, fork_task_response_channel, send_user_input_response_channel,
-    validate_api_output_envelope, validate_dispatch_request, validate_router_command,
+    ClientSubscription, DeliverySeq, DetailLevel, EventControlMessage, EventIngress,
+    FactoryEffectId, FactoryFailure, FactoryFailureKind, FactoryOutput, FactoryOutputEnvelope,
+    FactoryScanOutput, FactorySkipReason, FactorySkippedTask, FactoryTaskFailure,
+    HistoryAppendedEvent, HistoryAppendedRawEvent, ModelCallDispatchRequest, ModelCallError,
+    ModelCallErrorKind, ModelRunId, RouterCommand, RouterCommandEnvelope,
+    RouterCommandValidationError, RouterIngressApiMessage, RouterIngressMessage,
+    SnapshotTaskVersion, TaskCommandError, TaskId, TaskProjection, TaskProjectionStatus,
+    TaskRuntimeControl, TaskRuntimeCreated, TaskScope, ToolExecutionBranch,
+    ToolExecutionBranchTarget, ToolExecutionResult, ToolExecutionRunId,
+    archive_task_response_channel, send_user_input_response_channel, validate_api_output_envelope,
+    validate_dispatch_request, validate_router_command,
 };
 use selvedge_domain_model::{
-    ConversationMessage, ConversationPath, FunctionCallId, HistoryNodeId, MessageContent,
-    MessageRole, ModelFinishReason, ModelProfileKey, ModelProviderProfile, ModelReply,
-    ReasoningEffort, ResponsePreference, ToolName, UnixTs,
+    Conversation, ConversationMessage, FunctionCallId, HistoryNodeId, MessageRole,
+    ModelFinishReason, ModelProfileKey, ModelProviderProfile, ModelReply, ReasoningEffort,
+    ResponsePreference, ToolName, UnixTs,
 };
 
 #[test]
@@ -178,7 +179,6 @@ fn factory_output_envelope_exposes_runtime_created_scan_and_failure_contract() {
         task_id: TaskId("task-1".to_owned()),
         task_runtime_tx,
         task_runtime_control: TaskRuntimeControl::new(),
-        created_runtime_kind: CreatedRuntimeKind::ExistingTaskRuntime,
     };
     let created = FactoryOutputEnvelope {
         effect_id: FactoryEffectId("factory-1".to_owned()),
@@ -188,10 +188,6 @@ fn factory_output_envelope_exposes_runtime_created_scan_and_failure_contract() {
     match created.output {
         FactoryOutput::RuntimeCreated(created) => {
             assert_eq!(created.task_id, TaskId("task-1".to_owned()));
-            assert!(matches!(
-                created.created_runtime_kind,
-                CreatedRuntimeKind::ExistingTaskRuntime
-            ));
         }
         _ => panic!("unexpected factory output"),
     }
@@ -346,23 +342,6 @@ fn router_command_validation_enforces_envelope_and_task_payload_contract() {
         validate_router_command(&empty_message),
         Err(RouterCommandValidationError::EmptyMessageText)
     );
-
-    let empty_fork_prompt = RouterCommandEnvelope {
-        client_id: None,
-        client_command_id: None,
-        command: RouterCommand::CreateChildTaskAndRuntime {
-            parent_task_id: TaskId("task-1".to_owned()),
-            function_call_node_id: HistoryNodeId(1),
-            function_call_id: FunctionCallId("call-1".to_owned()),
-            tool_name: ToolName("fork_task".to_owned()),
-            child_prompt: " ".to_owned(),
-            responder: fork_task_response_channel().0,
-        },
-    };
-    assert_eq!(
-        validate_router_command(&empty_fork_prompt),
-        Err(RouterCommandValidationError::EmptyChildPrompt)
-    );
 }
 
 #[test]
@@ -380,13 +359,44 @@ fn dropped_task_command_responders_settle_as_runtime_unavailable() {
         archive_response.try_recv().expect("archive response"),
         Err(TaskCommandError::RuntimeUnavailable)
     );
+}
 
-    let (fork_responder, mut fork_response) = fork_task_response_channel();
-    drop(fork_responder);
+#[test]
+fn tool_execution_result_exposes_ordered_branch_outputs() {
+    let result = ToolExecutionResult {
+        task_id: TaskId("task-1".to_owned()),
+        tool_execution_run_id: ToolExecutionRunId("tool-1".to_owned()),
+        function_call_node_id: HistoryNodeId(1),
+        function_call_id: FunctionCallId("call-1".to_owned()),
+        tool_name: ToolName("fork_task".to_owned()),
+        branches: vec![
+            ToolExecutionBranch {
+                target: ToolExecutionBranchTarget::CallingTask,
+                output: serde_json::json!(0),
+                is_error: false,
+                messages: Vec::new(),
+            },
+            ToolExecutionBranch {
+                target: ToolExecutionBranchTarget::NewChildTask {
+                    task_id: TaskId("child-1".to_owned()),
+                },
+                output: serde_json::json!(1),
+                is_error: false,
+                messages: vec!["investigate".to_owned()],
+            },
+        ],
+    };
+
     assert_eq!(
-        fork_response.try_recv().expect("fork response"),
-        Err(ForkTaskError::RuntimeUnavailable)
+        result.branches[0].target,
+        ToolExecutionBranchTarget::CallingTask
     );
+    assert_eq!(result.branches[0].output, serde_json::json!(0));
+    assert!(matches!(
+        result.branches[1].target,
+        ToolExecutionBranchTarget::NewChildTask { .. }
+    ));
+    assert_eq!(result.branches[1].messages, vec!["investigate"]);
 }
 
 fn valid_dispatch_request() -> ModelCallDispatchRequest {
@@ -398,12 +408,8 @@ fn valid_dispatch_request() -> ModelCallDispatchRequest {
             temperature: None,
             max_output_tokens: None,
         },
-        conversation: ConversationPath {
-            messages: vec![ConversationMessage {
-                role: MessageRole::User,
-                content: MessageContent::Text("hello".to_owned()),
-                source_node_id: None,
-            }],
+        conversation: Conversation {
+            messages: vec![ConversationMessage::text(MessageRole::User, "hello", None)],
         },
         tool_manifest: None,
         response_preference: ResponsePreference::PlainTextOrToolCalls,

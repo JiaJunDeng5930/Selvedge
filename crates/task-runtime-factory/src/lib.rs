@@ -1,34 +1,19 @@
 #![doc = include_str!("../README.md")]
 
 use std::collections::HashSet;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use selvedge_command_model::{
-    CreatedRuntimeKind, FactoryEffectId, FactoryFailure, FactoryFailureKind, FactoryOutput,
-    FactoryOutputEnvelope, FactoryScanOutput, FactorySkipReason, FactorySkippedTask,
-    FactoryTaskFailure, RouterIngressWeakSender, TaskRuntimeCreated,
+    FactoryEffectId, FactoryFailure, FactoryFailureKind, FactoryOutput, FactoryOutputEnvelope,
+    FactoryScanOutput, FactorySkipReason, FactorySkippedTask, FactoryTaskFailure,
+    RouterIngressWeakSender, TaskRuntimeCreated,
 };
 use selvedge_core::{SpawnTaskRuntimeArgs, SpawnTaskRuntimeError, TaskRuntimeSpawnDeps};
-use selvedge_db::{
-    DbError, DbPool, ForkTaskInput, TaskId, UnixTs, fork_task_from_function_call,
-    list_active_tasks, load_active_task,
-};
-use selvedge_domain_model::{FunctionCallId, HistoryNodeId, ToolName};
-use uuid::Uuid;
+use selvedge_db::{DbError, DbPool, TaskId, list_active_tasks, load_active_task};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum FactoryCommand {
-    EnsureTaskRuntime {
-        task_id: TaskId,
-    },
+    EnsureTaskRuntime { task_id: TaskId },
     EnsureMissingTaskRuntimes,
-    CreateChildTaskAndRuntime {
-        parent_task_id: TaskId,
-        function_call_node_id: HistoryNodeId,
-        function_call_id: FunctionCallId,
-        tool_name: ToolName,
-        child_prompt: String,
-    },
 }
 
 #[derive(Clone)]
@@ -55,7 +40,6 @@ pub fn run_factory_effect(args: FactoryEffectArgs) -> FactoryOutputEnvelope {
             &args.core_spawn_deps,
             &args.runtime_inventory,
             task_id,
-            CreatedRuntimeKind::ExistingTaskRuntime,
         ),
         FactoryCommand::EnsureMissingTaskRuntimes => ensure_missing_task_runtimes(
             &args.db,
@@ -63,80 +47,11 @@ pub fn run_factory_effect(args: FactoryEffectArgs) -> FactoryOutputEnvelope {
             &args.core_spawn_deps,
             &args.runtime_inventory,
         ),
-        FactoryCommand::CreateChildTaskAndRuntime {
-            parent_task_id,
-            function_call_node_id,
-            function_call_id,
-            tool_name,
-            child_prompt,
-        } => create_child_task_and_runtime(
-            &args.db,
-            &args.router_tx,
-            &args.core_spawn_deps,
-            ChildForkInput {
-                parent_task_id,
-                function_call_node_id,
-                function_call_id,
-                tool_name,
-                child_prompt,
-            },
-        ),
     };
     FactoryOutputEnvelope {
         effect_id: args.effect_id,
         output,
     }
-}
-
-struct ChildForkInput {
-    parent_task_id: TaskId,
-    function_call_node_id: HistoryNodeId,
-    function_call_id: FunctionCallId,
-    tool_name: ToolName,
-    child_prompt: String,
-}
-
-fn create_child_task_and_runtime(
-    db: &DbPool,
-    router_tx: &RouterIngressWeakSender,
-    core_spawn_deps: &TaskRuntimeSpawnDeps,
-    input: ChildForkInput,
-) -> FactoryOutput {
-    let child_task_id = TaskId(format!("child-{}", Uuid::new_v4()));
-    let child = match fork_task_from_function_call(
-        db,
-        ForkTaskInput {
-            parent_task_id: input.parent_task_id.clone(),
-            child_task_id,
-            function_call_node_id: input.function_call_node_id,
-            function_call_id: input.function_call_id,
-            tool_name: input.tool_name,
-            child_user_prompt: input.child_prompt,
-            now: now(),
-        },
-    ) {
-        Ok(child) => child,
-        Err(error) => {
-            return FactoryOutput::Failed(map_create_child_failure(input.parent_task_id, error));
-        }
-    };
-    let child_task_id = child.task_id;
-    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        spawn_task_runtime(
-            db,
-            router_tx,
-            core_spawn_deps,
-            child_task_id.clone(),
-            CreatedRuntimeKind::ChildTaskRuntime,
-        )
-    }))
-    .unwrap_or_else(|_| {
-        FactoryOutput::Failed(FactoryFailure {
-            task_id: Some(child_task_id),
-            kind: FactoryFailureKind::CoreSpawnFailed,
-            message: "task runtime spawner panicked".to_owned(),
-        })
-    })
 }
 
 fn ensure_missing_task_runtimes(
@@ -186,13 +101,7 @@ fn ensure_missing_task_runtimes(
         }
         let task_id = task.task_id;
         let failure_task_id = task_id.clone();
-        match spawn_task_runtime_created(
-            db,
-            router_tx,
-            core_spawn_deps,
-            task_id,
-            CreatedRuntimeKind::ExistingTaskRuntime,
-        ) {
+        match spawn_task_runtime_created(db, router_tx, core_spawn_deps, task_id) {
             Ok(runtime) => created.push(runtime),
             Err(failure) => {
                 failed.push(FactoryTaskFailure {
@@ -217,7 +126,6 @@ fn ensure_task_runtime(
     core_spawn_deps: &TaskRuntimeSpawnDeps,
     runtime_inventory: &FactoryRuntimeInventory,
     task_id: TaskId,
-    created_runtime_kind: CreatedRuntimeKind,
 ) -> FactoryOutput {
     match load_active_task(db, &task_id) {
         Ok(_) => {
@@ -238,13 +146,7 @@ fn ensure_task_runtime(
                     message: "task runtime creation is already pending".to_owned(),
                 });
             }
-            spawn_task_runtime(
-                db,
-                router_tx,
-                core_spawn_deps,
-                task_id,
-                created_runtime_kind,
-            )
+            spawn_task_runtime(db, router_tx, core_spawn_deps, task_id)
         }
         Err(error) => FactoryOutput::Failed(map_load_task_failure(Some(task_id), error)),
     }
@@ -255,15 +157,8 @@ fn spawn_task_runtime(
     router_tx: &RouterIngressWeakSender,
     core_spawn_deps: &TaskRuntimeSpawnDeps,
     task_id: TaskId,
-    created_runtime_kind: CreatedRuntimeKind,
 ) -> FactoryOutput {
-    match spawn_task_runtime_created(
-        db,
-        router_tx,
-        core_spawn_deps,
-        task_id,
-        created_runtime_kind,
-    ) {
+    match spawn_task_runtime_created(db, router_tx, core_spawn_deps, task_id) {
         Ok(created) => FactoryOutput::RuntimeCreated(created),
         Err(failure) => FactoryOutput::Failed(failure),
     }
@@ -274,7 +169,6 @@ fn spawn_task_runtime_created(
     router_tx: &RouterIngressWeakSender,
     core_spawn_deps: &TaskRuntimeSpawnDeps,
     task_id: TaskId,
-    created_runtime_kind: CreatedRuntimeKind,
 ) -> Result<TaskRuntimeCreated, FactoryFailure> {
     match core_spawn_deps
         .spawner
@@ -288,7 +182,6 @@ fn spawn_task_runtime_created(
             task_id: spawned.task_id,
             task_runtime_tx: spawned.task_runtime_tx,
             task_runtime_control: spawned.task_runtime_control,
-            created_runtime_kind,
         }),
         Err(error) => Err(FactoryFailure {
             task_id: Some(task_id),
@@ -323,44 +216,10 @@ fn map_load_task_failure(task_id: Option<TaskId>, error: DbError) -> FactoryFail
     }
 }
 
-fn map_create_child_failure(parent_task_id: TaskId, error: DbError) -> FactoryFailure {
-    match error {
-        DbError::NotFound => FactoryFailure {
-            task_id: Some(parent_task_id),
-            kind: FactoryFailureKind::ParentTaskMissing,
-            message: "parent task is missing".to_owned(),
-        },
-        DbError::TaskNotActive => FactoryFailure {
-            task_id: Some(parent_task_id),
-            kind: FactoryFailureKind::ParentTaskArchived,
-            message: "parent task is archived".to_owned(),
-        },
-        DbError::StaleFunctionCall => FactoryFailure {
-            task_id: Some(parent_task_id),
-            kind: FactoryFailureKind::StaleToolCall,
-            message: "fork tool call is stale".to_owned(),
-        },
-        error => FactoryFailure {
-            task_id: Some(parent_task_id),
-            kind: FactoryFailureKind::DbWriteFailed,
-            message: error.to_string(),
-        },
-    }
-}
-
 fn spawn_error_message(error: SpawnTaskRuntimeError) -> String {
     match error {
         SpawnTaskRuntimeError::MailboxCreateFailed => "task runtime mailbox create failed",
         SpawnTaskRuntimeError::TokioSpawnFailed => "task runtime tokio spawn failed",
     }
     .to_owned()
-}
-
-fn now() -> UnixTs {
-    UnixTs(
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|duration| duration.as_secs() as i64)
-            .unwrap_or(0),
-    )
 }

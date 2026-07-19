@@ -10,11 +10,11 @@ use std::{error::Error, fmt};
 use rustix::io::Errno;
 use rustix::process::{Pid, Signal, kill_process_group};
 use selvedge_command_model::{
-    ArchiveTaskOutcome, ForkTaskError, ForkTaskOutcome, HistoryNodeProjection,
-    HistoryNodeProjectionBody, RouterCommand, RouterCommandEnvelope, RouterIngressMessage,
-    RouterIngressWeakSender, SendUserInputOutcome, TaskCommandError, TaskProjectionStatus,
+    ArchiveTaskOutcome, HistoryNodeProjection, HistoryNodeProjectionBody, RouterCommand,
+    RouterCommandEnvelope, RouterIngressMessage, RouterIngressWeakSender, SendUserInputOutcome,
+    TaskCommandError, TaskProjectionStatus, ToolExecutionBranch, ToolExecutionBranchTarget,
     ToolExecutionRequest, ToolExecutionResult, archive_task_response_channel,
-    fork_task_response_channel, send_user_input_response_channel,
+    send_user_input_response_channel,
 };
 use selvedge_db::{
     DbError, DbPool, HistoryNode, ReadTaskInput, TaskRead, TaskStatusRow, read_task,
@@ -26,6 +26,7 @@ use serde_json::{Number, Value};
 use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::process::Command;
 use tokio::task::JoinHandle;
+use uuid::Uuid;
 
 use selvedge_router::{ToolExecutionSpawnError, ToolExecutionSpawner};
 
@@ -47,14 +48,23 @@ pub fn tool_manifest() -> ToolManifest {
         tools: vec![
             ToolSpec {
                 name: FORK_TASK_TOOL_NAME.to_owned(),
-                description: "Create an active child task from the calling task and give it an initial prompt."
-                    .to_owned(),
+                description:
+                    "Create parallel child task branches with optional aligned initial messages."
+                        .to_owned(),
                 input_schema: input_schema(
-                    [(
-                        "prompt",
-                        string_property("Initial prompt for the child task."),
-                    )],
-                    &["prompt"],
+                    [
+                        (
+                            "child_count",
+                            integer_property("Number of child task branches to create."),
+                        ),
+                        (
+                            "messages",
+                            string_array_property(
+                                "Optional initial messages aligned by child branch number.",
+                            ),
+                        ),
+                    ],
+                    &["child_count"],
                 ),
             },
             ToolSpec {
@@ -175,6 +185,23 @@ fn integer_property(description: &str) -> Value {
     ]))
 }
 
+fn string_array_property(description: &str) -> Value {
+    Value::Object(JsonObject::from_iter([
+        ("type".to_owned(), Value::String("array".to_owned())),
+        (
+            "items".to_owned(),
+            Value::Object(JsonObject::from_iter([(
+                "type".to_owned(),
+                Value::String("string".to_owned()),
+            )])),
+        ),
+        (
+            "description".to_owned(),
+            Value::String(description.to_owned()),
+        ),
+    ]))
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum HarnessInvocation {
     ForkTask(ForkTaskInvocation),
@@ -186,7 +213,8 @@ pub enum HarnessInvocation {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ForkTaskInvocation {
-    pub prompt: String,
+    pub child_count: usize,
+    pub messages: Option<Vec<String>>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -245,9 +273,27 @@ fn parse_bash(arguments: &JsonObject) -> Result<HarnessInvocation, HarnessError>
 }
 
 fn parse_fork_task(arguments: &JsonObject) -> Result<HarnessInvocation, HarnessError> {
-    let arguments = Arguments::new(arguments, &["prompt"])?;
-    let prompt = arguments.required_nonempty_string("prompt")?;
-    Ok(HarnessInvocation::ForkTask(ForkTaskInvocation { prompt }))
+    let arguments = Arguments::new(arguments, &["child_count", "messages"])?;
+    let child_count = arguments.required_integer("child_count")?;
+    let child_count = usize::try_from(child_count)
+        .ok()
+        .filter(|child_count| *child_count > 0)
+        .ok_or_else(|| {
+            HarnessError::invalid_arguments("argument 'child_count' must be a positive integer")
+        })?;
+    let messages = arguments.optional_nonempty_string_array("messages")?;
+    if messages
+        .as_ref()
+        .is_some_and(|messages| messages.len() != child_count)
+    {
+        return Err(HarnessError::invalid_arguments(
+            "argument 'messages' length must equal 'child_count'",
+        ));
+    }
+    Ok(HarnessInvocation::ForkTask(ForkTaskInvocation {
+        child_count,
+        messages,
+    }))
 }
 
 fn parse_read_task(arguments: &JsonObject) -> Result<HarnessInvocation, HarnessError> {
@@ -352,6 +398,41 @@ impl<'a> Arguments<'a> {
             HarnessError::invalid_arguments(format!("argument '{name}' must be an integer"))
         })
     }
+
+    fn required_integer(&self, name: &str) -> Result<i64, HarnessError> {
+        self.optional_integer(name)?.ok_or_else(|| {
+            HarnessError::invalid_arguments(format!("missing required argument '{name}'"))
+        })
+    }
+
+    fn optional_nonempty_string_array(
+        &self,
+        name: &str,
+    ) -> Result<Option<Vec<String>>, HarnessError> {
+        let Some(value) = self.values.get(name) else {
+            return Ok(None);
+        };
+        let Value::Array(values) = value else {
+            return Err(HarnessError::invalid_arguments(format!(
+                "argument '{name}' must be an array of strings"
+            )));
+        };
+        let mut strings = Vec::with_capacity(values.len());
+        for value in values {
+            let Value::String(value) = value else {
+                return Err(HarnessError::invalid_arguments(format!(
+                    "argument '{name}' must be an array of strings"
+                )));
+            };
+            if value.trim().is_empty() {
+                return Err(HarnessError::invalid_arguments(format!(
+                    "argument '{name}' entries must not be empty"
+                )));
+            }
+            strings.push(value.clone());
+        }
+        Ok(Some(strings))
+    }
 }
 
 // JSON Schema integer semantics are mathematical, so decimal and exponent
@@ -436,16 +517,10 @@ fn exact_json_integer(number: &Number) -> Option<i64> {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum HarnessSuccess {
-    ForkTask(ForkTaskSuccess),
     ReadTask(ReadTaskSuccess),
     SendMessageToTask(SendMessageToTaskSuccess),
     ArchiveTask(ArchiveTaskSuccess),
     Bash(BashSuccess),
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ForkTaskSuccess {
-    pub task_id: TaskId,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -504,12 +579,10 @@ pub enum HarnessErrorCode {
     UnknownTool,
     TaskNotFound,
     TaskArchived,
-    StaleToolCall,
     HistoryCursorNotOnTask,
     CannotArchiveCurrentTask,
     OperationCancelled,
     RouterUnavailable,
-    RuntimeStartFailed,
     StorageError,
     ExecutorPanicked,
     CommandSpawnFailed,
@@ -525,12 +598,10 @@ impl HarnessErrorCode {
             HarnessErrorCode::UnknownTool => "unknown_tool",
             HarnessErrorCode::TaskNotFound => "task_not_found",
             HarnessErrorCode::TaskArchived => "task_archived",
-            HarnessErrorCode::StaleToolCall => "stale_tool_call",
             HarnessErrorCode::HistoryCursorNotOnTask => "history_cursor_not_on_task",
             HarnessErrorCode::CannotArchiveCurrentTask => "cannot_archive_current_task",
             HarnessErrorCode::OperationCancelled => "operation_cancelled",
             HarnessErrorCode::RouterUnavailable => "router_unavailable",
-            HarnessErrorCode::RuntimeStartFailed => "runtime_start_failed",
             HarnessErrorCode::StorageError => "storage_error",
             HarnessErrorCode::ExecutorPanicked => "executor_panicked",
             HarnessErrorCode::CommandSpawnFailed => "command_spawn_failed",
@@ -542,31 +613,15 @@ impl HarnessErrorCode {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum HarnessError {
-    General {
-        code: HarnessErrorCode,
-        message: String,
-    },
-    RuntimeStartFailedAfterChildCreated {
-        task_id: TaskId,
-        message: String,
-    },
+pub struct HarnessError {
+    code: HarnessErrorCode,
+    message: String,
 }
 
 impl HarnessError {
     pub fn new(code: HarnessErrorCode, message: impl Into<String>) -> Self {
-        Self::General {
+        Self {
             code,
-            message: message.into(),
-        }
-    }
-
-    pub fn runtime_start_failed_after_child_created(
-        task_id: TaskId,
-        message: impl Into<String>,
-    ) -> Self {
-        Self::RuntimeStartFailedAfterChildCreated {
-            task_id,
             message: message.into(),
         }
     }
@@ -576,26 +631,11 @@ impl HarnessError {
     }
 
     pub const fn code(&self) -> HarnessErrorCode {
-        match self {
-            HarnessError::General { code, .. } => *code,
-            HarnessError::RuntimeStartFailedAfterChildCreated { .. } => {
-                HarnessErrorCode::RuntimeStartFailed
-            }
-        }
+        self.code
     }
 
     pub fn message(&self) -> &str {
-        match self {
-            HarnessError::General { message, .. }
-            | HarnessError::RuntimeStartFailedAfterChildCreated { message, .. } => message,
-        }
-    }
-
-    pub fn created_child_task_id(&self) -> Option<&TaskId> {
-        match self {
-            HarnessError::General { .. } => None,
-            HarnessError::RuntimeStartFailedAfterChildCreated { task_id, .. } => Some(task_id),
-        }
+        &self.message
     }
 
     pub fn to_stable_json(&self) -> String {
@@ -615,18 +655,33 @@ pub fn encode_tool_execution_result(
     request: &ToolExecutionRequest,
     outcome: Result<HarnessSuccess, HarnessError>,
 ) -> ToolExecutionResult {
-    let (output_text, is_error) = match outcome {
-        Ok(success) => (success.to_stable_json(), false),
-        Err(error) => (error.to_stable_json(), true),
+    let branch = match outcome {
+        Ok(success) => calling_task_branch(success_json(&success), false),
+        Err(error) => calling_task_branch(error_json(&error), true),
     };
+    correlated_tool_execution_result(request, vec![branch])
+}
+
+fn correlated_tool_execution_result(
+    request: &ToolExecutionRequest,
+    branches: Vec<ToolExecutionBranch>,
+) -> ToolExecutionResult {
     ToolExecutionResult {
         task_id: request.task_id.clone(),
         tool_execution_run_id: request.tool_execution_run_id.clone(),
         function_call_node_id: request.function_call_node_id,
         function_call_id: request.function_call_id.clone(),
         tool_name: request.tool_name.clone(),
-        output_text,
+        branches,
+    }
+}
+
+fn calling_task_branch(output: Value, is_error: bool) -> ToolExecutionBranch {
+    ToolExecutionBranch {
+        target: ToolExecutionBranchTarget::CallingTask,
+        output,
         is_error,
+        messages: Vec::new(),
     }
 }
 
@@ -662,23 +717,30 @@ fn spawn_supervised_execution<F>(
     execution: F,
 ) -> Result<JoinHandle<()>, ToolExecutionSpawnError>
 where
-    F: Future<Output = Result<HarnessSuccess, HarnessError>> + Send + 'static,
+    F: Future<Output = Result<Vec<ToolExecutionBranch>, HarnessError>> + Send + 'static,
 {
     let runtime = tokio::runtime::Handle::try_current()
         .map_err(|_| ToolExecutionSpawnError::TokioSpawnFailed)?;
     Ok(runtime.spawn(async move {
-        let outcome = match tokio::spawn(execution).await {
-            Ok(outcome) => outcome,
-            Err(error) if error.is_panic() => Err(HarnessError::new(
-                HarnessErrorCode::ExecutorPanicked,
-                "tool executor panicked",
-            )),
-            Err(_) => Err(HarnessError::new(
-                HarnessErrorCode::OperationCancelled,
-                "tool execution was cancelled",
-            )),
+        let branches = match tokio::spawn(execution).await {
+            Ok(Ok(branches)) => branches,
+            Ok(Err(error)) => vec![calling_task_branch(error_json(&error), true)],
+            Err(error) if error.is_panic() => vec![calling_task_branch(
+                error_json(&HarnessError::new(
+                    HarnessErrorCode::ExecutorPanicked,
+                    "tool executor panicked",
+                )),
+                true,
+            )],
+            Err(_) => vec![calling_task_branch(
+                error_json(&HarnessError::new(
+                    HarnessErrorCode::OperationCancelled,
+                    "tool execution was cancelled",
+                )),
+                true,
+            )],
         };
-        let result = encode_tool_execution_result(&request, outcome);
+        let result = correlated_tool_execution_result(&request, branches);
         if let Some(router_tx) = router_tx.upgrade() {
             let _ = router_tx.send(RouterIngressMessage::Tool(result));
         }
@@ -689,51 +751,50 @@ async fn execute_request(
     db: DbPool,
     request: ToolExecutionRequest,
     router_tx: RouterIngressWeakSender,
-) -> Result<HarnessSuccess, HarnessError> {
+) -> Result<Vec<ToolExecutionBranch>, HarnessError> {
     match parse_invocation(&request)? {
-        HarnessInvocation::ForkTask(invocation) => {
-            execute_fork_task(request, invocation, router_tx).await
-        }
+        HarnessInvocation::ForkTask(invocation) => Ok(execute_fork_task(invocation)),
         HarnessInvocation::ReadTask(invocation) => {
-            execute_read_task(db, request.task_id, invocation).await
+            execute_read_task(db, request.task_id, invocation)
+                .await
+                .map(single_success_branch)
         }
         HarnessInvocation::SendMessageToTask(invocation) => {
-            execute_send_message_to_task(invocation, router_tx).await
+            execute_send_message_to_task(invocation, router_tx)
+                .await
+                .map(single_success_branch)
         }
-        HarnessInvocation::ArchiveTask(invocation) => {
-            execute_archive_task(invocation, router_tx).await
+        HarnessInvocation::ArchiveTask(invocation) => execute_archive_task(invocation, router_tx)
+            .await
+            .map(single_success_branch),
+        HarnessInvocation::Bash(invocation) => {
+            execute_bash(invocation).await.map(single_success_branch)
         }
-        HarnessInvocation::Bash(invocation) => execute_bash(invocation).await,
     }
 }
 
-async fn execute_fork_task(
-    request: ToolExecutionRequest,
-    invocation: ForkTaskInvocation,
-    router_tx: RouterIngressWeakSender,
-) -> Result<HarnessSuccess, HarnessError> {
-    let (responder, response) = fork_task_response_channel();
-    send_router_command(
-        &router_tx,
-        RouterCommand::CreateChildTaskAndRuntime {
-            parent_task_id: request.task_id,
-            function_call_node_id: request.function_call_node_id,
-            function_call_id: request.function_call_id,
-            tool_name: request.tool_name,
-            child_prompt: invocation.prompt,
-            responder,
-        },
-    )?;
-    match response.await {
-        Ok(Ok(ForkTaskOutcome::RuntimeStarted { task_id })) => {
-            Ok(HarnessSuccess::ForkTask(ForkTaskSuccess { task_id }))
-        }
-        Ok(Err(error)) => Err(map_fork_task_error(error)),
-        Err(_) => Err(HarnessError::new(
-            HarnessErrorCode::OperationCancelled,
-            "fork task response was cancelled",
-        )),
+fn single_success_branch(success: HarnessSuccess) -> Vec<ToolExecutionBranch> {
+    vec![calling_task_branch(success_json(&success), false)]
+}
+
+fn execute_fork_task(invocation: ForkTaskInvocation) -> Vec<ToolExecutionBranch> {
+    let mut branches = Vec::with_capacity(invocation.child_count + 1);
+    branches.push(calling_task_branch(Value::from(0), false));
+    for index in 1..=invocation.child_count {
+        let messages = invocation
+            .messages
+            .as_ref()
+            .map_or_else(Vec::new, |messages| vec![messages[index - 1].clone()]);
+        branches.push(ToolExecutionBranch {
+            target: ToolExecutionBranchTarget::NewChildTask {
+                task_id: TaskId(format!("child-{}", Uuid::new_v4())),
+            },
+            output: Value::from(index),
+            is_error: false,
+            messages,
+        });
     }
+    branches
 }
 
 async fn execute_read_task(
@@ -1020,38 +1081,6 @@ fn send_router_command(
         })
 }
 
-fn map_fork_task_error(error: ForkTaskError) -> HarnessError {
-    match error {
-        ForkTaskError::InvalidCommand => HarnessError::new(
-            HarnessErrorCode::InvalidArguments,
-            "fork task command was invalid",
-        ),
-        ForkTaskError::ParentTaskMissing => {
-            HarnessError::new(HarnessErrorCode::TaskNotFound, "parent task was not found")
-        }
-        ForkTaskError::ParentTaskArchived => {
-            HarnessError::new(HarnessErrorCode::TaskArchived, "parent task is archived")
-        }
-        ForkTaskError::StaleToolCall => {
-            HarnessError::new(HarnessErrorCode::StaleToolCall, "fork tool call is stale")
-        }
-        ForkTaskError::PersistenceFailed => HarnessError::new(
-            HarnessErrorCode::StorageError,
-            "fork task persistence failed",
-        ),
-        ForkTaskError::RuntimeUnavailable => HarnessError::new(
-            HarnessErrorCode::RouterUnavailable,
-            "child task runtime is unavailable",
-        ),
-        ForkTaskError::RuntimeStartFailedAfterChildCreated { task_id } => {
-            HarnessError::runtime_start_failed_after_child_created(
-                task_id,
-                "child task was created but its runtime did not start",
-            )
-        }
-    }
-}
-
 fn map_task_command_error(error: TaskCommandError) -> HarnessError {
     match error {
         TaskCommandError::TaskMissing => {
@@ -1188,7 +1217,7 @@ fn history_node_projection(node: HistoryNode) -> HistoryNodeProjection {
             function_call_node_id,
             function_call_id,
             tool_name,
-            output_text,
+            output,
             is_error,
         } => HistoryNodeProjection {
             node_id,
@@ -1198,7 +1227,7 @@ fn history_node_projection(node: HistoryNode) -> HistoryNodeProjection {
                 function_call_node_id,
                 function_call_id,
                 tool_name,
-                output_text,
+                output_text: output.to_string(),
                 is_error,
             },
         },
@@ -1207,10 +1236,6 @@ fn history_node_projection(node: HistoryNode) -> HistoryNodeProjection {
 
 fn success_json(success: &HarnessSuccess) -> Value {
     match success {
-        HarnessSuccess::ForkTask(success) => object([
-            ("task_id", task_id_json(&success.task_id)),
-            ("status", Value::String("active".to_owned())),
-        ]),
         HarnessSuccess::ReadTask(success) => object([
             ("task_id", task_id_json(&success.task_id)),
             ("status", task_status_json(&success.status)),
@@ -1261,7 +1286,7 @@ fn success_json(success: &HarnessSuccess) -> Value {
 }
 
 fn error_json(error: &HarnessError) -> Value {
-    let mut fields = BTreeMap::from([
+    let fields = BTreeMap::from([
         (
             "code".to_owned(),
             Value::String(error.code().as_str().to_owned()),
@@ -1271,10 +1296,6 @@ fn error_json(error: &HarnessError) -> Value {
             Value::String(error.message().to_owned()),
         ),
     ]);
-    if let Some(task_id) = error.created_child_task_id() {
-        fields.insert("task_created".to_owned(), Value::Bool(true));
-        fields.insert("task_id".to_owned(), task_id_json(task_id));
-    }
     object([("error", Value::Object(fields.into_iter().collect()))])
 }
 
@@ -1395,10 +1416,12 @@ fn object<const N: usize>(entries: [(&str, Value); N]) -> Value {
 
 #[cfg(test)]
 mod tests {
-    use selvedge_command_model::{RouterIngressMessage, ToolExecutionRunId};
+    use selvedge_command_model::{
+        RouterIngressMessage, ToolExecutionBranch, ToolExecutionBranchTarget, ToolExecutionRunId,
+    };
     use selvedge_domain_model::{FunctionCallId, HistoryNodeId, JsonObject, TaskId, ToolName};
 
-    use super::{HarnessSuccess, spawn_supervised_execution};
+    use super::spawn_supervised_execution;
     use crate::ToolExecutionRequest;
 
     #[tokio::test]
@@ -1416,7 +1439,7 @@ mod tests {
             spawn_supervised_execution(request.clone(), router_tx.downgrade(), async move {
                 panic!("executor panic");
                 #[allow(unreachable_code)]
-                Ok::<HarnessSuccess, super::HarnessError>(unreachable!())
+                Ok::<Vec<ToolExecutionBranch>, super::HarnessError>(unreachable!())
             })
             .expect("spawn supervisor");
 
@@ -1431,10 +1454,19 @@ mod tests {
         assert_eq!(result.function_call_node_id, request.function_call_node_id);
         assert_eq!(result.function_call_id, request.function_call_id);
         assert_eq!(result.tool_name, request.tool_name);
-        assert!(result.is_error);
+        assert_eq!(result.branches.len(), 1);
+        let branch = &result.branches[0];
+        assert_eq!(branch.target, ToolExecutionBranchTarget::CallingTask);
+        assert!(branch.is_error);
+        assert!(branch.messages.is_empty());
         assert_eq!(
-            result.output_text,
-            r#"{"error":{"code":"executor_panicked","message":"tool executor panicked"}}"#
+            branch.output,
+            serde_json::json!({
+                "error": {
+                    "code": "executor_panicked",
+                    "message": "tool executor panicked"
+                }
+            })
         );
         assert!(matches!(
             router_rx.try_recv(),

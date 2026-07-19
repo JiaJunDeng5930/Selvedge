@@ -10,9 +10,9 @@ use selvedge_command_model::{
     EventIngress, ModelCallError, ModelCallErrorKind, ModelRunId, RawEvent,
     RouterAttachAdmissionResult, RouterCommand, RouterCommandEnvelope, RouterIngressMessage,
     SendUserInputOutcome, TaskCommandError, TaskRuntimeCommand, TaskRuntimeControl,
-    TaskRuntimeExitNotice, TaskRuntimeExitReason, TaskScope, ToolExecutionRequest,
-    ToolExecutionResult, ToolExecutionRunId, archive_task_response_channel,
-    send_user_input_response_channel,
+    TaskRuntimeExitNotice, TaskRuntimeExitReason, TaskScope, ToolExecutionBranch,
+    ToolExecutionBranchTarget, ToolExecutionRequest, ToolExecutionResult, ToolExecutionRunId,
+    archive_task_response_channel, send_user_input_response_channel,
 };
 use selvedge_core::{
     SpawnTaskRuntimeArgs, SpawnTaskRuntimeError, SpawnedTaskRuntime, TaskRuntimeConfig,
@@ -1099,6 +1099,67 @@ async fn mismatched_core_tool_task_id_is_ignored() {
 }
 
 #[tokio::test]
+async fn core_ensure_task_runtimes_starts_each_committed_task() {
+    let db = open_memory_db();
+    create_root(&db, "child-1");
+    create_root(&db, "child-2");
+    let spawner = Arc::new(CapturingRuntimeSpawner::default());
+    let (events_tx, _events_rx) = tokio::sync::mpsc::channel(8);
+
+    let handle = spawn_router(RouterStartArgs {
+        db,
+        events_tx,
+        api_config: ApiExecutorConfig {
+            request_timeout: Duration::from_secs(1),
+            max_response_bytes: None,
+        },
+        tool_executor: Arc::new(NoopToolSpawner),
+        core_spawn_deps: TaskRuntimeSpawnDeps::with_spawner(
+            TaskRuntimeConfig {
+                mailbox_capacity: 8,
+                model_profiles: model_profiles(),
+            },
+            spawner.clone(),
+        ),
+    })
+    .expect("spawn router");
+
+    handle
+        .ingress_tx
+        .send(RouterIngressMessage::Core(CoreOutputEnvelope {
+            task_id: TaskId("parent".to_owned()),
+            message: CoreOutputMessage::EnsureTaskRuntimes {
+                task_ids: vec![TaskId("child-1".to_owned()), TaskId("child-2".to_owned())],
+            },
+        }))
+        .expect("ensure committed child runtimes");
+
+    let mut child_1_rx = spawner.wait_receiver("child-1").await;
+    let mut child_2_rx = spawner.wait_receiver("child-2").await;
+    assert!(matches!(
+        child_1_rx.recv().await.expect("child 1 start"),
+        TaskRuntimeCommand::Start
+    ));
+    assert!(matches!(
+        child_2_rx.recv().await.expect("child 2 start"),
+        TaskRuntimeCommand::Start
+    ));
+
+    handle
+        .ingress_tx
+        .send(RouterIngressMessage::StopRouter)
+        .expect("stop router");
+    tokio::join!(
+        spawner.finish_stop("child-1"),
+        spawner.finish_stop("child-2")
+    );
+    assert_eq!(
+        handle.join_handle.await.expect("join router"),
+        RouterExitStatus::Stopped
+    );
+}
+
+#[tokio::test]
 async fn core_tool_execution_spawn_failure_returns_error_tool_result() {
     let db = open_memory_db();
     create_root(&db, "task-1");
@@ -1152,8 +1213,12 @@ async fn core_tool_execution_spawn_failure_returns_error_tool_result() {
     else {
         panic!("unexpected task runtime command");
     };
-    assert!(result.is_error);
-    assert!(result.output_text.contains("tool execution spawn failed"));
+    assert_eq!(result.branches.len(), 1);
+    assert!(result.branches[0].is_error);
+    assert_eq!(
+        result.branches[0].output,
+        serde_json::json!("tool execution spawn failed")
+    );
 
     handle
         .ingress_tx
@@ -1291,8 +1356,12 @@ fn tool_result(task_id: &str) -> ToolExecutionResult {
         function_call_node_id: HistoryNodeId(1),
         function_call_id: FunctionCallId("call-1".to_owned()),
         tool_name: ToolName("tool".to_owned()),
-        output_text: "done".to_owned(),
-        is_error: false,
+        branches: vec![ToolExecutionBranch {
+            target: ToolExecutionBranchTarget::CallingTask,
+            output: serde_json::json!("done"),
+            is_error: false,
+            messages: Vec::new(),
+        }],
     }
 }
 
