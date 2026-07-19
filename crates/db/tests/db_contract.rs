@@ -1,16 +1,16 @@
 use selvedge_db::{
-    CreateRootTaskInput, DbError, DbPool, ForkTaskInput, FunctionCallId, HistoryNode,
-    HistoryNodeId, JsonObject, MessageRole, ModelProfileKey, NewFunctionCallNodeContent,
-    NewFunctionOutputNodeContent, NewHistoryNode, NewHistoryNodeContent, NewMessageNodeContent,
-    OpenDbOptions, ReadTaskInput, ReasoningEffort, TaskId, TaskStatusRow, ToolExecutionSource,
-    ToolManifest, ToolName, ToolSpec, UnixTs, append_function_output_and_drain_queue,
-    append_model_reply_with_tool_calls_and_move_cursor, append_user_message_and_move_cursor,
-    archive_task, create_history_node, create_root_task, fork_task_from_function_call,
-    load_active_task, open_db, queue_user_input, read_conversation_for_task, read_task,
-    read_tool_execution_source, read_tool_manifest_for_task, register_global_tool, register_tool,
-    unpublish_global_tool,
+    CommitToolResultBranchesInput, CreateRootTaskInput, DbError, DbPool, FunctionCallId,
+    HistoryNode, HistoryNodeId, JsonObject, MessageRole, ModelProfileKey,
+    NewFunctionCallNodeContent, NewFunctionOutputNodeContent, NewHistoryNode,
+    NewHistoryNodeContent, NewMessageNodeContent, OpenDbOptions, ReadTaskInput, ReasoningEffort,
+    TaskId, TaskStatusRow, ToolExecutionSource, ToolManifest, ToolName, ToolResultBranch,
+    ToolResultBranchTarget, ToolSpec, UnixTs, append_model_reply_with_tool_calls_and_move_cursor,
+    append_user_message_and_move_cursor, archive_task, commit_tool_result_branches,
+    create_history_node, create_root_task, load_active_task, open_db, queue_user_input,
+    read_conversation_for_task, read_task, read_task_parent_edges, read_tool_execution_source,
+    read_tool_manifest_for_task, register_global_tool, register_tool, unpublish_global_tool,
 };
-use selvedge_domain_model::ConversationItem;
+use serde_json::Value;
 
 fn json_object(value: serde_json::Value) -> JsonObject {
     match value {
@@ -194,18 +194,15 @@ fn append_history_uses_database_cursor_as_parent() {
     let conversation =
         read_conversation_for_task(&db, &TaskId("task-1".to_owned())).expect("conversation");
     let messages = conversation
-        .items
+        .messages
         .into_iter()
-        .filter_map(|item| match item {
-            ConversationItem::Message { text, .. } => Some(text),
-            _ => None,
-        })
+        .filter_map(|message| message.content.as_str().map(str::to_owned))
         .collect::<Vec<_>>();
     assert_eq!(messages, vec!["hello", "first append", "stale append"]);
 }
 
 #[test]
-fn fork_from_open_batched_call_uses_safe_history_base_and_copies_parent_settings() {
+fn tool_result_commit_creates_sibling_branches_with_independent_cursors() {
     let db = open_db(OpenDbOptions {
         sqlite_path: ":memory:".to_owned(),
     })
@@ -239,21 +236,75 @@ fn fork_from_open_batched_call_uses_safe_history_base_and_copies_parent_settings
         UnixTs(11),
     )
     .expect("append batched calls");
-
-    let child = fork_task_from_function_call(
+    let branch_parent_node_id = call_node_ids[2];
+    let sibling_task = create_root_task(
         &db,
-        ForkTaskInput {
-            parent_task_id: TaskId("parent".to_owned()),
-            child_task_id: TaskId("child".to_owned()),
+        CreateRootTaskInput {
+            task_id: TaskId("sibling".to_owned()),
+            cursor_node_id: branch_parent_node_id,
+            model_profile_key: ModelProfileKey("sibling-profile".to_owned()),
+            reasoning_effort: ReasoningEffort::Low,
+            enabled_tools: Vec::new(),
+            now: UnixTs(11),
+        },
+    )
+    .expect("create task on the still-open sibling path");
+    queue_user_input(
+        &db,
+        &parent.task_id,
+        "queued caller message".to_owned(),
+        UnixTs(12),
+    )
+    .expect("queue caller input");
+
+    let commit = commit_tool_result_branches(
+        &db,
+        CommitToolResultBranchesInput {
+            calling_task_id: parent.task_id.clone(),
             function_call_node_id: call_node_ids[1],
             function_call_id: FunctionCallId("fork-1".to_owned()),
             tool_name: ToolName("fork_task".to_owned()),
-            child_user_prompt: "Investigate the persistence slice.".to_owned(),
+            branches: vec![
+                ToolResultBranch {
+                    target: ToolResultBranchTarget::CallingTask,
+                    output: serde_json::json!({
+                        "task_ids": ["child-with-message", "child-output-only"]
+                    }),
+                    is_error: false,
+                    user_messages: vec!["caller branch message".to_owned()],
+                },
+                ToolResultBranch {
+                    target: ToolResultBranchTarget::NewChildTask(TaskId(
+                        "child-with-message".to_owned(),
+                    )),
+                    output: serde_json::json!({"task_id": "child-with-message"}),
+                    is_error: false,
+                    user_messages: vec!["Investigate the persistence slice.".to_owned()],
+                },
+                ToolResultBranch {
+                    target: ToolResultBranchTarget::NewChildTask(TaskId(
+                        "child-output-only".to_owned(),
+                    )),
+                    output: Value::Array(Vec::new()),
+                    is_error: true,
+                    user_messages: Vec::new(),
+                },
+            ],
             now: UnixTs(12),
         },
     )
-    .expect("fork child task");
+    .expect("commit tool result branches");
+    assert_eq!(
+        commit.created_child_task_ids,
+        vec![
+            TaskId("child-with-message".to_owned()),
+            TaskId("child-output-only".to_owned())
+        ]
+    );
 
+    let child = load_active_task(&db, &TaskId("child-with-message".to_owned()))
+        .expect("load child")
+        .task;
     assert_eq!(child.model_profile_key, parent.model_profile_key);
     assert_eq!(child.reasoning_effort, ReasoningEffort::High);
     assert_eq!(child.state_version, 0);
@@ -285,18 +336,145 @@ fn fork_from_open_batched_call_uses_safe_history_base_and_copies_parent_settings
             "Investigate the persistence slice."
         ]
     );
-    assert!(
-        child_read
-            .history_nodes
-            .iter()
-            .all(|node| !matches!(node, HistoryNode::FunctionCall { .. }))
+    let child_output_index = child_read
+        .history_nodes
+        .iter()
+        .position(|node| matches!(node, HistoryNode::FunctionOutput { .. }))
+        .expect("child output node");
+    assert_eq!(
+        child_read.history_nodes[child_output_index - 1].node_id(),
+        branch_parent_node_id
     );
     assert_eq!(
-        load_active_task(&db, &parent.task_id)
-            .expect("load parent")
-            .task
-            .cursor_node_id,
-        call_node_ids[2]
+        child_read.history_nodes[child_output_index + 1].node_id(),
+        child_read.cursor_node_id
+    );
+
+    let output_only = read_task(
+        &db,
+        ReadTaskInput {
+            task_id: TaskId("child-output-only".to_owned()),
+            after_node_id: None,
+            limit: 100,
+        },
+    )
+    .expect("read output-only child");
+    assert!(matches!(
+        output_only.history_nodes.last(),
+        Some(HistoryNode::FunctionOutput {
+            output: Value::Array(values),
+            is_error: true,
+            ..
+        }) if values.is_empty()
+    ));
+    assert_eq!(
+        output_only.cursor_node_id,
+        output_only
+            .history_nodes
+            .last()
+            .expect("output-only cursor node")
+            .node_id()
+    );
+    let output_only_conversation =
+        read_conversation_for_task(&db, &TaskId("child-output-only".to_owned()))
+            .expect("read output-only conversation");
+    let projected_output = output_only_conversation
+        .messages
+        .last()
+        .expect("projected output");
+    assert_eq!(projected_output.role, MessageRole::Tool);
+    assert_eq!(
+        projected_output.content,
+        serde_json::json!({
+            "type": "function_output",
+            "function_call_id": "fork-1",
+            "tool_name": "fork_task",
+            "output": [],
+            "is_error": true
+        })
+    );
+    assert_eq!(
+        projected_output
+            .source_node_id
+            .as_ref()
+            .map(|id| id.0.clone()),
+        Some(output_only.cursor_node_id.0.to_string())
+    );
+
+    let parent_read = read_task(
+        &db,
+        ReadTaskInput {
+            task_id: parent.task_id.clone(),
+            after_node_id: None,
+            limit: 100,
+        },
+    )
+    .expect("read caller");
+    assert_eq!(
+        history_message_texts(&parent_read.history_nodes),
+        vec![
+            "parent",
+            "I will split this work.",
+            "caller branch message",
+            "queued caller message"
+        ]
+    );
+    assert_eq!(parent_read.queued_input_count, 0);
+    assert_eq!(
+        parent_read.cursor_node_id,
+        parent_read
+            .history_nodes
+            .last()
+            .expect("caller cursor node")
+            .node_id()
+    );
+
+    let edges = read_task_parent_edges(&db).expect("read parent edges");
+    assert_eq!(edges.len(), 2);
+    assert!(
+        edges
+            .iter()
+            .all(|edge| edge.parent_task_id == parent.task_id)
+    );
+
+    let sibling_commit = commit_tool_result_branches(
+        &db,
+        CommitToolResultBranchesInput {
+            calling_task_id: sibling_task.task_id.clone(),
+            function_call_node_id: call_node_ids[1],
+            function_call_id: FunctionCallId("fork-1".to_owned()),
+            tool_name: ToolName("fork_task".to_owned()),
+            branches: vec![ToolResultBranch {
+                target: ToolResultBranchTarget::CallingTask,
+                output: Value::from(0),
+                is_error: false,
+                user_messages: Vec::new(),
+            }],
+            now: UnixTs(13),
+        },
+    );
+    assert!(
+        sibling_commit.is_ok(),
+        "an output on another sibling path must not close this task's call"
+    );
+
+    let duplicate_on_caller_path = create_history_node(
+        &db,
+        NewHistoryNode {
+            parent_node_id: Some(parent_read.cursor_node_id),
+            content: NewHistoryNodeContent::FunctionOutput(NewFunctionOutputNodeContent {
+                function_call_node_id: call_node_ids[1],
+                function_call_id: FunctionCallId("fork-1".to_owned()),
+                tool_name: ToolName("fork_task".to_owned()),
+                output: Value::from(1),
+                is_error: false,
+            }),
+            created_at: UnixTs(14),
+        },
+    );
+    assert!(
+        matches!(duplicate_on_caller_path, Err(DbError::Constraint(_))),
+        "the schema must reject a second output on the same history path"
     );
 }
 
@@ -344,7 +522,7 @@ fn create_history_node_accepts_strategy_parent_and_root_task_uses_existing_curso
     let conversation =
         read_conversation_for_task(&db, &TaskId("root".to_owned())).expect("conversation");
     assert_eq!(root.task_id, TaskId("root".to_owned()));
-    assert_eq!(conversation.items.len(), 2);
+    assert_eq!(conversation.messages.len(), 2);
 }
 
 #[test]
@@ -546,9 +724,9 @@ fn read_task_pages_active_and_archived_cursor_paths_and_rejects_invalid_bounds()
 }
 
 #[test]
-fn fork_failures_leave_no_child_or_orphan_history() {
+fn tool_result_branch_failure_rolls_back_tasks_edges_history_and_queue_drain() {
     let directory = tempfile::tempdir().expect("temp directory");
-    let sqlite_path = directory.path().join("fork-atomicity.sqlite");
+    let sqlite_path = directory.path().join("branch-atomicity.sqlite");
     let sqlite_path_text = sqlite_path.to_string_lossy().into_owned();
     let db = open_db(OpenDbOptions {
         sqlite_path: sqlite_path_text.clone(),
@@ -557,35 +735,52 @@ fn fork_failures_leave_no_child_or_orphan_history() {
     register_global_tool(&db, tool_spec("fork_task", "Fork a child task"))
         .expect("register fork tool");
 
-    let create_parent_with_open_call = |task_id: &str, call_id: &str, timestamp: i64| {
-        let task = create_root_task(
-            &db,
-            CreateRootTaskInput {
-                task_id: TaskId(task_id.to_owned()),
-                cursor_node_id: create_message_node(
-                    &db,
-                    None,
-                    MessageRole::User,
-                    task_id,
-                    UnixTs(timestamp),
-                ),
-                model_profile_key: ModelProfileKey("default".to_owned()),
-                reasoning_effort: ReasoningEffort::Medium,
-                enabled_tools: Vec::new(),
-                now: UnixTs(timestamp),
-            },
-        )
-        .expect("create parent");
-        let call_node_id = append_model_reply_with_tool_calls_and_move_cursor(
-            &db,
-            &task.task_id,
-            None,
-            vec![function_call(call_id, "fork_task")],
-            UnixTs(timestamp + 1),
-        )
-        .expect("append open fork call")[0];
-        (task.task_id, call_node_id)
-    };
+    let parent = create_root_task(
+        &db,
+        CreateRootTaskInput {
+            task_id: TaskId("parent".to_owned()),
+            cursor_node_id: create_message_node(&db, None, MessageRole::User, "parent", UnixTs(10)),
+            model_profile_key: ModelProfileKey("default".to_owned()),
+            reasoning_effort: ReasoningEffort::Medium,
+            enabled_tools: Vec::new(),
+            now: UnixTs(10),
+        },
+    )
+    .expect("create parent");
+    let call_node_id = append_model_reply_with_tool_calls_and_move_cursor(
+        &db,
+        &parent.task_id,
+        None,
+        vec![function_call("fork", "fork_task")],
+        UnixTs(11),
+    )
+    .expect("append open fork call")[0];
+    queue_user_input(
+        &db,
+        &parent.task_id,
+        "must remain queued".to_owned(),
+        UnixTs(12),
+    )
+    .expect("queue caller input");
+    create_root_task(
+        &db,
+        CreateRootTaskInput {
+            task_id: TaskId("occupied-child".to_owned()),
+            cursor_node_id: create_message_node(
+                &db,
+                None,
+                MessageRole::User,
+                "occupied",
+                UnixTs(12),
+            ),
+            model_profile_key: ModelProfileKey("default".to_owned()),
+            reasoning_effort: ReasoningEffort::Medium,
+            enabled_tools: Vec::new(),
+            now: UnixTs(12),
+        },
+    )
+    .expect("create occupied child id");
+
     let durable_counts = || {
         let connection = rusqlite::Connection::open(&sqlite_path_text).expect("open raw database");
         let tasks = connection
@@ -596,134 +791,76 @@ fn fork_failures_leave_no_child_or_orphan_history() {
                 row.get::<_, i64>(0)
             })
             .expect("count history");
-        (tasks, history)
+        let edges = connection
+            .query_row("SELECT COUNT(*) FROM task_parent_edges", [], |row| {
+                row.get::<_, i64>(0)
+            })
+            .expect("count parent edges");
+        let queued = connection
+            .query_row("SELECT COUNT(*) FROM queued_user_inputs", [], |row| {
+                row.get::<_, i64>(0)
+            })
+            .expect("count queued inputs");
+        (tasks, history, edges, queued)
     };
-    let assert_child_missing = |task_id: &str| {
-        assert!(matches!(
-            read_task(
-                &db,
-                ReadTaskInput {
-                    task_id: TaskId(task_id.to_owned()),
-                    after_node_id: None,
-                    limit: 1,
-                },
-            ),
-            Err(DbError::NotFound)
-        ));
-    };
-
-    let (missing_parent, _) = create_parent_with_open_call("missing-parent", "missing", 10);
-    let before_missing = durable_counts();
+    let before_failure = durable_counts();
+    let cursor_before_failure = call_node_id;
     assert!(matches!(
-        fork_task_from_function_call(
+        commit_tool_result_branches(
             &db,
-            ForkTaskInput {
-                parent_task_id: missing_parent,
-                child_task_id: TaskId("missing-child".to_owned()),
-                function_call_node_id: HistoryNodeId(999_999),
-                function_call_id: FunctionCallId("missing".to_owned()),
+            CommitToolResultBranchesInput {
+                calling_task_id: parent.task_id.clone(),
+                function_call_node_id: call_node_id,
+                function_call_id: FunctionCallId("fork".to_owned()),
                 tool_name: ToolName("fork_task".to_owned()),
-                child_user_prompt: "missing".to_owned(),
-                now: UnixTs(12),
-            },
-        ),
-        Err(DbError::StaleFunctionCall)
-    ));
-    assert_eq!(durable_counts(), before_missing);
-    assert_child_missing("missing-child");
-
-    let (archived_parent, archived_call) =
-        create_parent_with_open_call("archived-parent", "archived", 20);
-    archive_task(&db, &archived_parent, UnixTs(22)).expect("archive parent");
-    let before_archived = durable_counts();
-    assert_eq!(
-        fork_task_from_function_call(
-            &db,
-            ForkTaskInput {
-                parent_task_id: archived_parent,
-                child_task_id: TaskId("archived-child".to_owned()),
-                function_call_node_id: archived_call,
-                function_call_id: FunctionCallId("archived".to_owned()),
-                tool_name: ToolName("fork_task".to_owned()),
-                child_user_prompt: "archived".to_owned(),
-                now: UnixTs(23),
-            },
-        ),
-        Err(DbError::TaskNotActive)
-    );
-    assert_eq!(durable_counts(), before_archived);
-    assert_child_missing("archived-child");
-
-    let (stale_parent, stale_call) = create_parent_with_open_call("stale-parent", "stale", 30);
-    append_function_output_and_drain_queue(
-        &db,
-        &stale_parent,
-        NewFunctionOutputNodeContent {
-            function_call_node_id: stale_call,
-            function_call_id: FunctionCallId("stale".to_owned()),
-            tool_name: ToolName("fork_task".to_owned()),
-            output_text: "already completed".to_owned(),
-            is_error: false,
-        },
-        UnixTs(32),
-    )
-    .expect("close stale call");
-    let before_stale = durable_counts();
-    assert!(matches!(
-        fork_task_from_function_call(
-            &db,
-            ForkTaskInput {
-                parent_task_id: stale_parent,
-                child_task_id: TaskId("stale-child".to_owned()),
-                function_call_node_id: stale_call,
-                function_call_id: FunctionCallId("stale".to_owned()),
-                tool_name: ToolName("fork_task".to_owned()),
-                child_user_prompt: "stale".to_owned(),
-                now: UnixTs(33),
-            },
-        ),
-        Err(DbError::StaleFunctionCall)
-    ));
-    assert_eq!(durable_counts(), before_stale);
-    assert_child_missing("stale-child");
-
-    let (collision_parent, collision_call) =
-        create_parent_with_open_call("collision-parent", "collision", 40);
-    create_root_task(
-        &db,
-        CreateRootTaskInput {
-            task_id: TaskId("occupied-child".to_owned()),
-            cursor_node_id: create_message_node(
-                &db,
-                None,
-                MessageRole::User,
-                "occupied",
-                UnixTs(42),
-            ),
-            model_profile_key: ModelProfileKey("default".to_owned()),
-            reasoning_effort: ReasoningEffort::Medium,
-            enabled_tools: Vec::new(),
-            now: UnixTs(42),
-        },
-    )
-    .expect("create occupied child id");
-    let before_collision = durable_counts();
-    assert!(matches!(
-        fork_task_from_function_call(
-            &db,
-            ForkTaskInput {
-                parent_task_id: collision_parent,
-                child_task_id: TaskId("occupied-child".to_owned()),
-                function_call_node_id: collision_call,
-                function_call_id: FunctionCallId("collision".to_owned()),
-                tool_name: ToolName("fork_task".to_owned()),
-                child_user_prompt: "must roll back".to_owned(),
-                now: UnixTs(43),
+                branches: vec![
+                    ToolResultBranch {
+                        target: ToolResultBranchTarget::CallingTask,
+                        output: Value::Null,
+                        is_error: false,
+                        user_messages: Vec::new(),
+                    },
+                    ToolResultBranch {
+                        target: ToolResultBranchTarget::NewChildTask(TaskId(
+                            "new-child".to_owned(),
+                        )),
+                        output: Value::Bool(true),
+                        is_error: false,
+                        user_messages: vec!["new child".to_owned()],
+                    },
+                    ToolResultBranch {
+                        target: ToolResultBranchTarget::NewChildTask(TaskId(
+                            "occupied-child".to_owned(),
+                        )),
+                        output: Value::Bool(false),
+                        is_error: true,
+                        user_messages: Vec::new(),
+                    },
+                ],
+                now: UnixTs(13),
             },
         ),
         Err(DbError::Constraint(_))
     ));
-    assert_eq!(durable_counts(), before_collision);
+    assert_eq!(durable_counts(), before_failure);
+    assert_eq!(
+        load_active_task(&db, &parent.task_id)
+            .expect("reload parent")
+            .task
+            .cursor_node_id,
+        cursor_before_failure
+    );
+    assert!(matches!(
+        read_task(
+            &db,
+            ReadTaskInput {
+                task_id: TaskId("new-child".to_owned()),
+                after_node_id: None,
+                limit: 1,
+            },
+        ),
+        Err(DbError::NotFound)
+    ));
 }
 
 #[test]
@@ -868,7 +1005,7 @@ fn execution_source_is_closed_and_harness_registration_cannot_claim_an_mcp_route
 }
 
 #[test]
-fn open_db_migrates_v5_schemas_and_arguments_to_v6_json_storage() {
+fn open_db_migrates_v5_schemas_and_arguments_to_v7_json_storage() {
     let directory = tempfile::tempdir().expect("temp directory");
     let sqlite_path = directory.path().join("migration.sqlite");
     let legacy = rusqlite::Connection::open(&sqlite_path).expect("open v5 database");
@@ -891,7 +1028,8 @@ fn open_db_migrates_v5_schemas_and_arguments_to_v6_json_storage() {
              VALUES
                (1, NULL, 'message', 10),
                (2, 1, 'function_call', 11),
-               (3, 2, 'function_call', 12);
+               (3, 2, 'function_call', 12),
+               (4, 3, 'function_output', 13);
              INSERT INTO history_message_nodes (node_id, message_role, message_text)
              VALUES (1, 'user', 'migrate');
              INSERT INTO history_function_call_nodes
@@ -907,10 +1045,13 @@ fn open_db_migrates_v5_schemas_and_arguments_to_v6_json_storage() {
                (2, 'legacy', 'query', 'string', 'hello', NULL, NULL, NULL),
                (2, 'legacy', 'enabled', 'boolean', NULL, NULL, NULL, 1),
                (2, 'legacy', 'count', 'integer', NULL, 9007199254740993, NULL, NULL);
+             INSERT INTO history_function_output_nodes
+             (node_id, function_call_node_id, function_call_id, tool_name, output_text, is_error)
+             VALUES (4, 2, 'populated', 'legacy', 'legacy output', 0);
              INSERT INTO tasks
              (task_id, task_status, cursor_node_id, model_profile_key, reasoning_effort,
               state_version, created_at, updated_at)
-             VALUES ('task', 'active', 3, 'default', 'medium', 0, 10, 12);",
+             VALUES ('task', 'active', 4, 'default', 'medium', 0, 10, 13);",
         )
         .expect("seed v5 rows");
     drop(legacy);
@@ -960,15 +1101,22 @@ fn open_db_migrates_v5_schemas_and_arguments_to_v6_json_storage() {
 
     let calls = read_conversation_for_task(&db, &TaskId("task".to_owned()))
         .expect("read migrated conversation")
-        .items
+        .messages
         .into_iter()
-        .filter_map(|item| match item {
-            ConversationItem::FunctionCall {
-                function_call_id,
-                arguments,
-                ..
-            } => Some((function_call_id, arguments)),
-            _ => None,
+        .filter_map(|message| {
+            if message.content.get("type")?.as_str()? != "function_call" {
+                return None;
+            }
+            Some((
+                FunctionCallId(
+                    message
+                        .content
+                        .get("function_call_id")?
+                        .as_str()?
+                        .to_owned(),
+                ),
+                message.content.get("arguments")?.as_object()?.clone(),
+            ))
         })
         .collect::<Vec<_>>();
     assert_eq!(
@@ -986,6 +1134,13 @@ fn open_db_migrates_v5_schemas_and_arguments_to_v6_json_storage() {
             (FunctionCallId("empty".to_owned()), JsonObject::new())
         ]
     );
+    let migrated_output = read_conversation_for_task(&db, &TaskId("task".to_owned()))
+        .expect("read migrated output")
+        .messages
+        .into_iter()
+        .find_map(|message| message.function_output_value().cloned())
+        .expect("migrated function output");
+    assert_eq!(migrated_output, Value::String("legacy output".to_owned()));
 
     let raw = rusqlite::Connection::open(&sqlite_path).expect("open migrated database");
     let legacy_table_count = raw
@@ -1008,6 +1163,6 @@ fn open_db_migrates_v5_schemas_and_arguments_to_v6_json_storage() {
             |row| row.get::<_, String>(0),
         )
         .expect("read schema version"),
-        "json-tool-foundation-v6"
+        "tool-result-branches-v7"
     );
 }

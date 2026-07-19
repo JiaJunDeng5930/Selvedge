@@ -5,12 +5,15 @@ use std::{error::Error, fmt};
 
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 pub use selvedge_domain_model::{
-    Conversation, ConversationItem, FunctionCallId, HistoryNodeId, JsonObject, MessageRole,
-    ModelProfileKey, ReasoningEffort, TaskId, ToolManifest, ToolName, ToolSpec, UnixTs,
+    Conversation, ConversationMessage, FunctionCallId, HistoryNodeId, HistoryNodeIdRef, JsonObject,
+    MessageRole, ModelProfileKey, ReasoningEffort, TaskId, ToolManifest, ToolName, ToolSpec,
+    UnixTs,
 };
+use serde_json::Value;
 
-const SCHEMA_VERSION: &str = "json-tool-foundation-v6";
-const PREVIOUS_SCHEMA_VERSION: &str = "harness-persistence-v5";
+const SCHEMA_VERSION: &str = "tool-result-branches-v7";
+const JSON_TOOL_SCHEMA_VERSION: &str = "json-tool-foundation-v6";
+const HARNESS_SCHEMA_VERSION: &str = "harness-persistence-v5";
 pub const MAX_TASK_HISTORY_PAGE_SIZE: u32 = 100;
 
 #[derive(Clone)]
@@ -41,7 +44,7 @@ impl fmt::Display for DbError {
             DbError::NotFound => write!(formatter, "row was not found"),
             DbError::TaskNotActive => write!(formatter, "task is not active"),
             DbError::StaleFunctionCall => {
-                write!(formatter, "fork function call is not open on the task path")
+                write!(formatter, "function call is not open on the task path")
             }
             DbError::HistoryCursorNotOnTask => {
                 write!(formatter, "history cursor is not on the task path")
@@ -155,7 +158,7 @@ pub struct HistoryFunctionOutputNodeRow {
     pub function_call_node_id: HistoryNodeId,
     pub function_call_id: FunctionCallId,
     pub tool_name: ToolName,
-    pub output_text: String,
+    pub output: Value,
     pub is_error: bool,
 }
 
@@ -197,7 +200,7 @@ pub enum HistoryNode {
         function_call_node_id: HistoryNodeId,
         function_call_id: FunctionCallId,
         tool_name: ToolName,
-        output_text: String,
+        output: Value,
         is_error: bool,
     },
 }
@@ -224,14 +227,32 @@ pub struct CreateRootTaskInput {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct ForkTaskInput {
-    pub parent_task_id: TaskId,
-    pub child_task_id: TaskId,
+pub struct CommitToolResultBranchesInput {
+    pub calling_task_id: TaskId,
     pub function_call_node_id: HistoryNodeId,
     pub function_call_id: FunctionCallId,
     pub tool_name: ToolName,
-    pub child_user_prompt: String,
+    pub branches: Vec<ToolResultBranch>,
     pub now: UnixTs,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ToolResultBranch {
+    pub target: ToolResultBranchTarget,
+    pub output: Value,
+    pub is_error: bool,
+    pub user_messages: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ToolResultBranchTarget {
+    CallingTask,
+    NewChildTask(TaskId),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CommitToolResultBranchesResult {
+    pub created_child_task_ids: Vec<TaskId>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -299,7 +320,7 @@ pub struct NewFunctionOutputNodeContent {
     pub function_call_node_id: HistoryNodeId,
     pub function_call_id: FunctionCallId,
     pub tool_name: ToolName,
-    pub output_text: String,
+    pub output: Value,
     pub is_error: bool,
 }
 
@@ -453,10 +474,45 @@ pub fn create_root_task(db: &DbPool, input: CreateRootTaskInput) -> Result<TaskR
     read_task_row(db, &task_id)
 }
 
-pub fn fork_task_from_function_call(db: &DbPool, input: ForkTaskInput) -> Result<TaskRow, DbError> {
-    if input.child_user_prompt.is_empty() {
+pub fn commit_tool_result_branches(
+    db: &DbPool,
+    input: CommitToolResultBranchesInput,
+) -> Result<CommitToolResultBranchesResult, DbError> {
+    let calling_branch_count = input
+        .branches
+        .iter()
+        .filter(|branch| branch.target == ToolResultBranchTarget::CallingTask)
+        .count();
+    if calling_branch_count != 1 {
         return Err(DbError::Constraint(
-            "forked task user prompt cannot be empty".to_owned(),
+            "tool result commit requires exactly one calling-task branch".to_owned(),
+        ));
+    }
+    let child_task_ids = input
+        .branches
+        .iter()
+        .filter_map(|branch| match &branch.target {
+            ToolResultBranchTarget::CallingTask => None,
+            ToolResultBranchTarget::NewChildTask(task_id) => Some(task_id),
+        })
+        .collect::<Vec<_>>();
+    for (index, child_task_id) in child_task_ids.iter().enumerate() {
+        if **child_task_id == input.calling_task_id
+            || child_task_ids[..index].contains(child_task_id)
+        {
+            return Err(DbError::Constraint(
+                "new child task ids must be unique and differ from the calling task".to_owned(),
+            ));
+        }
+    }
+    if input
+        .branches
+        .iter()
+        .flat_map(|branch| &branch.user_messages)
+        .any(String::is_empty)
+    {
+        return Err(DbError::Constraint(
+            "tool result branch user messages cannot be empty".to_owned(),
         ));
     }
 
@@ -464,50 +520,81 @@ pub fn fork_task_from_function_call(db: &DbPool, input: ForkTaskInput) -> Result
     let tx = connection
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(map_error)?;
-    let parent = read_task_in_tx(&tx, &input.parent_task_id)?;
-    if parent.task_status != TaskStatusRow::Active {
+    let calling_task = read_task_in_tx(&tx, &input.calling_task_id)?;
+    if calling_task.task_status != TaskStatusRow::Active {
         return Err(DbError::TaskNotActive);
     }
-    let safe_parent_node_id = safe_fork_parent_for_open_call_in_tx(&tx, &parent, &input)?;
-    let child_prompt_node_id = insert_history_node(
+    let branch_parent_node_id = calling_task.cursor_node_id;
+    let output_identity = NewFunctionOutputNodeContent {
+        function_call_node_id: input.function_call_node_id,
+        function_call_id: input.function_call_id,
+        tool_name: input.tool_name,
+        output: Value::Null,
+        is_error: false,
+    };
+    ensure_current_path_contains_open_function_call(
         &tx,
-        NewHistoryNode {
-            parent_node_id: safe_parent_node_id,
-            content: NewHistoryNodeContent::Message(NewMessageNodeContent {
-                message_role: MessageRole::User,
-                message_text: input.child_user_prompt,
-            }),
-            created_at: input.now,
-        },
+        branch_parent_node_id.0,
+        &output_identity,
     )?;
-    tx.execute(
-        "INSERT INTO tasks
-         (task_id, task_status, cursor_node_id, model_profile_key, reasoning_effort, state_version, created_at, updated_at)
-         VALUES (?1, 'active', ?2, ?3, ?4, 0, ?5, ?5)",
-        params![
-            input.child_task_id.0,
-            child_prompt_node_id.0,
-            parent.model_profile_key.0,
-            reasoning_effort_to_db(&parent.reasoning_effort),
-            input.now.0
-        ],
-    )
-    .map_err(map_error)?;
-    tx.execute(
-        "INSERT INTO task_tools (task_id, tool_name)
-         SELECT ?1, tool_name FROM task_tools WHERE task_id = ?2",
-        params![input.child_task_id.0, input.parent_task_id.0],
-    )
-    .map_err(map_error)?;
-    tx.execute(
-        "INSERT INTO task_parent_edges (parent_task_id, child_task_id, created_at)
-         VALUES (?1, ?2, ?3)",
-        params![input.parent_task_id.0, input.child_task_id.0, input.now.0],
-    )
-    .map_err(map_error)?;
-    let child = read_task_in_tx(&tx, &input.child_task_id)?;
+
+    let mut created_child_task_ids = Vec::with_capacity(child_task_ids.len());
+    for branch in input.branches {
+        let branch_cursor_node_id = insert_tool_result_branch_in_tx(
+            &tx,
+            branch_parent_node_id,
+            &output_identity,
+            branch.output,
+            branch.is_error,
+            branch.user_messages,
+            input.now,
+        )?;
+        match branch.target {
+            ToolResultBranchTarget::CallingTask => {
+                update_task_cursor_in_tx(
+                    &tx,
+                    &input.calling_task_id,
+                    branch_cursor_node_id,
+                    input.now,
+                )?;
+                append_all_queued_user_inputs_in_tx(&tx, &input.calling_task_id, input.now)?;
+            }
+            ToolResultBranchTarget::NewChildTask(child_task_id) => {
+                tx.execute(
+                    "INSERT INTO tasks
+                     (task_id, task_status, cursor_node_id, model_profile_key, reasoning_effort,
+                      state_version, created_at, updated_at)
+                     VALUES (?1, 'active', ?2, ?3, ?4, 0, ?5, ?5)",
+                    params![
+                        child_task_id.0,
+                        branch_cursor_node_id.0,
+                        calling_task.model_profile_key.0,
+                        reasoning_effort_to_db(&calling_task.reasoning_effort),
+                        input.now.0
+                    ],
+                )
+                .map_err(map_error)?;
+                tx.execute(
+                    "INSERT INTO task_tools (task_id, tool_name)
+                     SELECT ?1, tool_name FROM task_tools WHERE task_id = ?2",
+                    params![child_task_id.0, input.calling_task_id.0],
+                )
+                .map_err(map_error)?;
+                tx.execute(
+                    "INSERT INTO task_parent_edges (parent_task_id, child_task_id, created_at)
+                     VALUES (?1, ?2, ?3)",
+                    params![input.calling_task_id.0, child_task_id.0, input.now.0],
+                )
+                .map_err(map_error)?;
+                created_child_task_ids.push(child_task_id);
+            }
+        }
+    }
+
     tx.commit().map_err(map_error)?;
-    Ok(child)
+    Ok(CommitToolResultBranchesResult {
+        created_child_task_ids,
+    })
 }
 
 pub fn load_active_task(db: &DbPool, task_id: &TaskId) -> Result<LoadedActiveTask, DbError> {
@@ -602,30 +689,6 @@ pub fn append_assistant_message_and_drain_queue(
             message_role: MessageRole::Assistant,
             message_text,
         }),
-        created_at,
-    )?;
-    if let Some(node_id) = append_all_queued_user_inputs_in_tx(&tx, task_id, created_at)? {
-        last_node_id = node_id;
-    }
-    tx.commit().map_err(map_error)?;
-    Ok(last_node_id)
-}
-
-pub fn append_function_output_and_drain_queue(
-    db: &DbPool,
-    task_id: &TaskId,
-    output: NewFunctionOutputNodeContent,
-    created_at: UnixTs,
-) -> Result<HistoryNodeId, DbError> {
-    let mut connection = db.connection()?;
-    let tx = connection.transaction().map_err(map_error)?;
-    ensure_active_task_in_tx(&tx, task_id)?;
-    let current_cursor_node_id = current_cursor_node_id_in_tx(&tx, task_id)?;
-    ensure_current_path_contains_open_function_call(&tx, current_cursor_node_id, &output)?;
-    let mut last_node_id = append_node_to_current_cursor_in_tx(
-        &tx,
-        task_id,
-        NewHistoryNodeContent::FunctionOutput(output),
         created_at,
     )?;
     if let Some(node_id) = append_all_queued_user_inputs_in_tx(&tx, task_id, created_at)? {
@@ -775,6 +838,45 @@ fn append_node_to_current_cursor_in_tx(
     )?;
     update_task_cursor_in_tx(tx, task_id, node_id, created_at)?;
     Ok(node_id)
+}
+
+fn insert_tool_result_branch_in_tx(
+    tx: &rusqlite::Transaction<'_>,
+    branch_parent_node_id: HistoryNodeId,
+    output_identity: &NewFunctionOutputNodeContent,
+    output: Value,
+    is_error: bool,
+    user_messages: Vec<String>,
+    created_at: UnixTs,
+) -> Result<HistoryNodeId, DbError> {
+    let mut last_node_id = insert_history_node(
+        tx,
+        NewHistoryNode {
+            parent_node_id: Some(branch_parent_node_id),
+            content: NewHistoryNodeContent::FunctionOutput(NewFunctionOutputNodeContent {
+                function_call_node_id: output_identity.function_call_node_id,
+                function_call_id: output_identity.function_call_id.clone(),
+                tool_name: output_identity.tool_name.clone(),
+                output,
+                is_error,
+            }),
+            created_at,
+        },
+    )?;
+    for message_text in user_messages {
+        last_node_id = insert_history_node(
+            tx,
+            NewHistoryNode {
+                parent_node_id: Some(last_node_id),
+                content: NewHistoryNodeContent::Message(NewMessageNodeContent {
+                    message_role: MessageRole::User,
+                    message_text,
+                }),
+                created_at,
+            },
+        )?;
+    }
+    Ok(last_node_id)
 }
 
 fn append_all_queued_user_inputs_in_tx(
@@ -1137,38 +1239,42 @@ pub fn read_conversation_for_task(db: &DbPool, task_id: &TaskId) -> Result<Conve
     }
     nodes.reverse();
 
-    let mut items = Vec::with_capacity(nodes.len());
+    let mut messages = Vec::with_capacity(nodes.len());
     for node in nodes {
+        let source_node_id = Some(HistoryNodeIdRef(node.node_id.0.to_string()));
         match node.content_kind {
             HistoryContentKindRow::Message => {
                 let row = read_message_node(&connection, &node.node_id)?;
-                items.push(ConversationItem::Message {
-                    role: row.message_role,
-                    text: row.message_text,
-                });
+                messages.push(ConversationMessage::text(
+                    row.message_role,
+                    row.message_text,
+                    source_node_id,
+                ));
             }
             HistoryContentKindRow::FunctionCall => {
                 let row = read_function_call_node(&connection, &node.node_id)?;
-                items.push(ConversationItem::FunctionCall {
-                    function_call_id: row.function_call_id,
-                    tool_name: row.tool_name,
-                    arguments: read_function_call_arguments(&connection, &node.node_id)?,
-                });
+                messages.push(ConversationMessage::function_call(
+                    row.function_call_id,
+                    row.tool_name,
+                    read_function_call_arguments(&connection, &node.node_id)?,
+                    source_node_id,
+                ));
             }
             HistoryContentKindRow::FunctionOutput => {
                 let row = read_function_output_node(&connection, &node.node_id)?;
-                items.push(ConversationItem::FunctionOutput {
-                    function_call_id: row.function_call_id,
-                    tool_name: row.tool_name,
-                    output_text: row.output_text,
-                    is_error: row.is_error,
-                });
+                messages.push(ConversationMessage::function_output(
+                    row.function_call_id,
+                    row.tool_name,
+                    row.output,
+                    row.is_error,
+                    source_node_id,
+                ));
             }
             HistoryContentKindRow::Reasoning => {}
         }
     }
 
-    Ok(Conversation { items })
+    Ok(Conversation { messages })
 }
 
 impl DbPool {
@@ -1193,13 +1299,18 @@ fn migrate_schema(connection: &mut Connection) -> Result<(), DbError> {
         )
         .optional()
         .map_err(map_error)?;
-    if actual.as_deref() != Some(PREVIOUS_SCHEMA_VERSION) {
-        tx.rollback().map_err(map_error)?;
-        return Ok(());
-    }
+    let migrate_harness_schema = match actual.as_deref() {
+        Some(HARNESS_SCHEMA_VERSION) => true,
+        Some(JSON_TOOL_SCHEMA_VERSION) => false,
+        _ => {
+            tx.rollback().map_err(map_error)?;
+            return Ok(());
+        }
+    };
 
-    tx.execute_batch(
-        "ALTER TABLE tools
+    if migrate_harness_schema {
+        tx.execute_batch(
+            "ALTER TABLE tools
              ADD COLUMN input_schema_json TEXT NOT NULL DEFAULT '{}'
              CHECK (json_valid(input_schema_json) AND json_type(input_schema_json) = 'object');
          ALTER TABLE tools ADD COLUMN mcp_server_id TEXT;
@@ -1224,99 +1335,155 @@ fn migrate_schema(connection: &mut Connection) -> Result<(), DbError> {
          ALTER TABLE history_function_call_nodes
              ADD COLUMN arguments_json TEXT NOT NULL DEFAULT '{}'
              CHECK (json_valid(arguments_json) AND json_type(arguments_json) = 'object');",
-    )
-    .map_err(map_error)?;
-
-    let tool_names = {
-        let mut statement = tx
-            .prepare("SELECT tool_name FROM tools ORDER BY tool_name ASC")
-            .map_err(map_error)?;
-        statement
-            .query_map([], |row| row.get::<_, String>(0))
-            .map_err(map_error)?
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(map_error)?
-    };
-    for tool_name in tool_names {
-        let parameters = {
-            let mut statement = tx
-                .prepare(
-                    "SELECT parameter_name, parameter_type, description_text, is_required
-                     FROM tool_parameters
-                     WHERE tool_name = ?1
-                     ORDER BY parameter_name ASC",
-                )
-                .map_err(map_error)?;
-            statement
-                .query_map(params![tool_name], |row| {
-                    Ok(LegacyToolParameter {
-                        name: row.get(0)?,
-                        parameter_type: row.get(1)?,
-                        description: row.get(2)?,
-                        required: row.get::<_, i64>(3)? == 1,
-                    })
-                })
-                .map_err(map_error)?
-                .collect::<Result<Vec<_>, _>>()
-                .map_err(map_error)?
-        };
-        let input_schema_json = encode_json_object(&legacy_input_schema(parameters)?)?;
-        tx.execute(
-            "UPDATE tools SET input_schema_json = ?1 WHERE tool_name = ?2",
-            params![input_schema_json, tool_name],
         )
         .map_err(map_error)?;
-    }
 
-    let function_call_node_ids = {
-        let mut statement = tx
-            .prepare("SELECT node_id FROM history_function_call_nodes ORDER BY node_id ASC")
-            .map_err(map_error)?;
-        statement
-            .query_map([], |row| row.get::<_, i64>(0))
-            .map_err(map_error)?
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(map_error)?
-    };
-    for node_id in function_call_node_ids {
-        let arguments = {
+        let tool_names = {
             let mut statement = tx
-                .prepare(
-                    "SELECT argument_name, value_type, string_value, integer_value,
-                            number_value, boolean_value
-                     FROM history_function_call_arguments
-                     WHERE function_call_node_id = ?1
-                     ORDER BY argument_name ASC",
-                )
+                .prepare("SELECT tool_name FROM tools ORDER BY tool_name ASC")
                 .map_err(map_error)?;
-            let rows = statement
-                .query_map(params![node_id], |row| {
-                    Ok(LegacyArgument {
-                        name: row.get(0)?,
-                        value_type: row.get(1)?,
-                        string_value: row.get(2)?,
-                        integer_value: row.get(3)?,
-                        number_value: row.get(4)?,
-                        boolean_value: row.get(5)?,
-                    })
-                })
+            statement
+                .query_map([], |row| row.get::<_, String>(0))
                 .map_err(map_error)?
                 .collect::<Result<Vec<_>, _>>()
-                .map_err(map_error)?;
-            legacy_arguments(rows)?
+                .map_err(map_error)?
         };
-        tx.execute(
-            "UPDATE history_function_call_nodes
-             SET arguments_json = ?1
-             WHERE node_id = ?2",
-            params![encode_json_object(&arguments)?, node_id],
+        for tool_name in tool_names {
+            let parameters = {
+                let mut statement = tx
+                    .prepare(
+                        "SELECT parameter_name, parameter_type, description_text, is_required
+                         FROM tool_parameters
+                         WHERE tool_name = ?1
+                         ORDER BY parameter_name ASC",
+                    )
+                    .map_err(map_error)?;
+                statement
+                    .query_map(params![tool_name], |row| {
+                        Ok(LegacyToolParameter {
+                            name: row.get(0)?,
+                            parameter_type: row.get(1)?,
+                            description: row.get(2)?,
+                            required: row.get::<_, i64>(3)? == 1,
+                        })
+                    })
+                    .map_err(map_error)?
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(map_error)?
+            };
+            let input_schema_json = encode_json_object(&legacy_input_schema(parameters)?)?;
+            tx.execute(
+                "UPDATE tools SET input_schema_json = ?1 WHERE tool_name = ?2",
+                params![input_schema_json, tool_name],
+            )
+            .map_err(map_error)?;
+        }
+
+        let function_call_node_ids = {
+            let mut statement = tx
+                .prepare("SELECT node_id FROM history_function_call_nodes ORDER BY node_id ASC")
+                .map_err(map_error)?;
+            statement
+                .query_map([], |row| row.get::<_, i64>(0))
+                .map_err(map_error)?
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(map_error)?
+        };
+        for node_id in function_call_node_ids {
+            let arguments = {
+                let mut statement = tx
+                    .prepare(
+                        "SELECT argument_name, value_type, string_value, integer_value,
+                                number_value, boolean_value
+                         FROM history_function_call_arguments
+                         WHERE function_call_node_id = ?1
+                         ORDER BY argument_name ASC",
+                    )
+                    .map_err(map_error)?;
+                let rows = statement
+                    .query_map(params![node_id], |row| {
+                        Ok(LegacyArgument {
+                            name: row.get(0)?,
+                            value_type: row.get(1)?,
+                            string_value: row.get(2)?,
+                            integer_value: row.get(3)?,
+                            number_value: row.get(4)?,
+                            boolean_value: row.get(5)?,
+                        })
+                    })
+                    .map_err(map_error)?
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(map_error)?;
+                legacy_arguments(rows)?
+            };
+            tx.execute(
+                "UPDATE history_function_call_nodes
+                 SET arguments_json = ?1
+                 WHERE node_id = ?2",
+                params![encode_json_object(&arguments)?, node_id],
+            )
+            .map_err(map_error)?;
+        }
+
+        tx.execute_batch(
+            "DROP TABLE history_function_call_arguments;
+             DROP TABLE tool_parameters;",
         )
         .map_err(map_error)?;
     }
 
     tx.execute_batch(
-        "DROP TABLE history_function_call_arguments;
-         DROP TABLE tool_parameters;",
+        "ALTER TABLE history_function_output_nodes
+             RENAME TO history_function_output_nodes_v6;
+         CREATE TABLE history_function_output_nodes (
+             node_id INTEGER PRIMARY KEY,
+             node_content_kind TEXT NOT NULL DEFAULT 'function_output'
+                 CHECK (node_content_kind = 'function_output'),
+             function_call_node_id INTEGER NOT NULL,
+             function_call_id TEXT NOT NULL CHECK (length(function_call_id) > 0),
+             tool_name TEXT NOT NULL CHECK (length(tool_name) > 0),
+             output_json TEXT NOT NULL CHECK (json_valid(output_json)),
+             is_error INTEGER NOT NULL CHECK (is_error IN (0, 1)),
+             FOREIGN KEY (node_id, node_content_kind)
+                 REFERENCES history_nodes(node_id, content_kind)
+                 ON UPDATE RESTRICT ON DELETE CASCADE,
+             FOREIGN KEY (function_call_node_id, function_call_id, tool_name)
+                 REFERENCES history_function_call_nodes(node_id, function_call_id, tool_name)
+                 ON UPDATE RESTRICT ON DELETE RESTRICT
+         );
+         INSERT INTO history_function_output_nodes
+             (node_id, node_content_kind, function_call_node_id, function_call_id,
+              tool_name, output_json, is_error)
+         SELECT node_id, node_content_kind, function_call_node_id, function_call_id,
+                tool_name, json_quote(output_text), is_error
+         FROM history_function_output_nodes_v6;
+         DROP TABLE history_function_output_nodes_v6;
+         CREATE INDEX idx_history_function_output_call
+             ON history_function_output_nodes(function_call_node_id);
+         CREATE TRIGGER history_function_output_open_path
+         BEFORE INSERT ON history_function_output_nodes
+         WHEN EXISTS (
+             WITH RECURSIVE ancestors(node_id, parent_node_id) AS (
+                 SELECT node_id, parent_node_id
+                 FROM history_nodes
+                 WHERE node_id = NEW.node_id
+                 UNION ALL
+                 SELECT parent.node_id, parent.parent_node_id
+                 FROM history_nodes parent
+                 JOIN ancestors child ON parent.node_id = child.parent_node_id
+             )
+             SELECT 1
+             FROM ancestors
+             JOIN history_function_output_nodes existing
+               ON existing.node_id = ancestors.node_id
+             WHERE existing.function_call_node_id = NEW.function_call_node_id
+         )
+         BEGIN
+             SELECT RAISE(
+                 ABORT,
+                 'function call already has an output on this history path'
+             );
+         END;",
     )
     .map_err(map_error)?;
     tx.execute(
@@ -1366,62 +1533,6 @@ fn read_task_in_tx(tx: &rusqlite::Transaction<'_>, task_id: &TaskId) -> Result<T
     .optional()
     .map_err(map_error)?
     .ok_or(DbError::NotFound)
-}
-
-fn safe_fork_parent_for_open_call_in_tx(
-    tx: &rusqlite::Transaction<'_>,
-    parent: &TaskRow,
-    input: &ForkTaskInput,
-) -> Result<Option<HistoryNodeId>, DbError> {
-    let safe_parent_node_id = tx
-        .query_row(
-            "WITH RECURSIVE current_path(node_id, parent_node_id) AS (
-                SELECT node_id, parent_node_id
-                FROM history_nodes
-                WHERE node_id = ?1
-                UNION ALL
-                SELECT parent.node_id, parent.parent_node_id
-                FROM history_nodes parent
-                JOIN current_path child ON parent.node_id = child.parent_node_id
-             ),
-             target_call(node_id, parent_node_id) AS (
-                SELECT path.node_id, path.parent_node_id
-                FROM current_path path
-                JOIN history_function_call_nodes calls ON calls.node_id = path.node_id
-                LEFT JOIN history_function_output_nodes outputs
-                  ON outputs.function_call_node_id = calls.node_id
-                WHERE calls.node_id = ?2
-                  AND calls.function_call_id = ?3
-                  AND calls.tool_name = ?4
-                  AND outputs.node_id IS NULL
-             ),
-             call_batch(node_id, parent_node_id, depth) AS (
-                SELECT node_id, parent_node_id, 0
-                FROM target_call
-                UNION ALL
-                SELECT parent.node_id, parent.parent_node_id, batch.depth + 1
-                FROM history_nodes parent
-                JOIN call_batch batch ON parent.node_id = batch.parent_node_id
-                WHERE parent.content_kind = 'function_call'
-             )
-             SELECT parent_node_id
-             FROM call_batch
-             ORDER BY depth DESC
-             LIMIT 1",
-            params![
-                parent.cursor_node_id.0,
-                input.function_call_node_id.0,
-                input.function_call_id.0,
-                input.tool_name.0
-            ],
-            |row| row.get::<_, Option<i64>>(0),
-        )
-        .optional()
-        .map_err(map_error)?;
-
-    safe_parent_node_id
-        .map(|node_id| node_id.map(HistoryNodeId))
-        .ok_or(DbError::StaleFunctionCall)
 }
 
 fn ensure_task_path_contains_node_in_tx(
@@ -1500,11 +1611,9 @@ fn ensure_current_path_contains_open_function_call(
     current_cursor_node_id: i64,
     output: &NewFunctionOutputNodeContent,
 ) -> Result<(), DbError> {
-    // Provider APIs pair tool results with prior tool calls by call id. A
-    // model turn may contain several tool calls, so the matching call can be
-    // earlier in the current conversation path while later sibling calls are
-    // still waiting for results. The DB checks that the output references a
-    // real call on the active path and that this call has a single output.
+    // Calls and outputs may have sibling branches. A call is open only when the
+    // exact call is an ancestor of this cursor and no matching output is an
+    // ancestor of the same cursor.
     let exists: bool = tx
         .query_row(
             "WITH RECURSIVE current_path(node_id, parent_node_id) AS (
@@ -1523,6 +1632,13 @@ fn ensure_current_path_contains_open_function_call(
                 WHERE calls.node_id = ?2
                   AND calls.function_call_id = ?3
                   AND calls.tool_name = ?4
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM current_path output_path
+                      JOIN history_function_output_nodes outputs
+                        ON outputs.node_id = output_path.node_id
+                      WHERE outputs.function_call_node_id = calls.node_id
+                  )
              )",
             params![
                 current_cursor_node_id,
@@ -1535,38 +1651,9 @@ fn ensure_current_path_contains_open_function_call(
         .map_err(map_error)?;
 
     if !exists {
-        return Err(DbError::Constraint(
-            "function output must reference an open function call id and tool".to_owned(),
-        ));
+        return Err(DbError::StaleFunctionCall);
     }
-
-    let output_exists: bool = tx
-        .query_row(
-            "SELECT EXISTS(
-                SELECT 1
-                FROM history_function_call_nodes
-                JOIN history_function_output_nodes
-                  ON history_function_output_nodes.function_call_node_id = history_function_call_nodes.node_id
-                WHERE history_function_call_nodes.node_id = ?1
-                  AND history_function_call_nodes.function_call_id = ?2
-                  AND history_function_call_nodes.tool_name = ?3
-             )",
-            params![
-                output.function_call_node_id.0,
-                output.function_call_id.0,
-                output.tool_name.0
-            ],
-            |row| row.get(0),
-        )
-        .map_err(map_error)?;
-
-    if output_exists {
-        Err(DbError::Constraint(
-            "function output already exists for function call id and tool".to_owned(),
-        ))
-    } else {
-        Ok(())
-    }
+    Ok(())
 }
 
 fn read_history_node(db: &DbPool, node_id: &HistoryNodeId) -> Result<HistoryNode, DbError> {
@@ -1619,7 +1706,7 @@ fn read_history_node_concrete_in_connection(
                 function_call_node_id: row.function_call_node_id,
                 function_call_id: row.function_call_id,
                 tool_name: row.tool_name,
-                output_text: row.output_text,
+                output: row.output,
                 is_error: row.is_error,
             })
         }
@@ -1817,14 +1904,14 @@ fn insert_function_output_node(
 ) -> Result<(), DbError> {
     tx.execute(
         "INSERT INTO history_function_output_nodes
-         (node_id, function_call_node_id, function_call_id, tool_name, output_text, is_error)
+         (node_id, function_call_node_id, function_call_id, tool_name, output_json, is_error)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
         params![
             node_id.0,
             content.function_call_node_id.0,
             content.function_call_id.0,
             content.tool_name.0,
-            content.output_text,
+            encode_json_value(&content.output)?,
             bool_to_i64(content.is_error)
         ],
     )
@@ -1945,7 +2032,7 @@ fn read_function_output_node(
 ) -> Result<HistoryFunctionOutputNodeRow, DbError> {
     connection
         .query_row(
-            "SELECT node_id, function_call_node_id, function_call_id, tool_name, output_text, is_error
+            "SELECT node_id, function_call_node_id, function_call_id, tool_name, output_json, is_error
              FROM history_function_output_nodes
              WHERE node_id = ?1",
             params![node_id.0],
@@ -1955,7 +2042,9 @@ fn read_function_output_node(
                     function_call_node_id: HistoryNodeId(row.get(1)?),
                     function_call_id: FunctionCallId(row.get(2)?),
                     tool_name: ToolName(row.get(3)?),
-                    output_text: row.get(4)?,
+                    output: decode_json_value(&row.get::<_, String>(4)?).map_err(|error| {
+                        rusqlite::Error::ToSqlConversionFailure(Box::new(error))
+                    })?,
                     is_error: row.get::<_, i64>(5)? == 1,
                 })
             },
@@ -2186,6 +2275,16 @@ fn encode_json_object(object: &JsonObject) -> Result<String, DbError> {
 fn decode_json_object(json: &str) -> Result<JsonObject, DbError> {
     serde_json::from_str(json)
         .map_err(|error| DbError::Storage(format!("stored JSON object is invalid: {error}")))
+}
+
+fn encode_json_value(value: &Value) -> Result<String, DbError> {
+    serde_json::to_string(value)
+        .map_err(|error| DbError::Storage(format!("could not encode JSON value: {error}")))
+}
+
+fn decode_json_value(json: &str) -> Result<Value, DbError> {
+    serde_json::from_str(json)
+        .map_err(|error| DbError::Storage(format!("stored JSON value is invalid: {error}")))
 }
 
 fn encode_tool_execution_source(
