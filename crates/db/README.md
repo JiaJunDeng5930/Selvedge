@@ -2,7 +2,7 @@
 
 <!-- selvedge-package-readme
 package: selvedge-db
-freshness_fingerprint: 09a0eff427ce68db5c0f39ab1e621f19b279ea67
+freshness_fingerprint: 03df8c8894b8981c2b0e2073c3bc917b08064d43
 -->
 
 This crate owns SQLite persistence for router-mediated Selvedge tasks.
@@ -20,7 +20,7 @@ Resource boundaries:
 - `replace_global_mcp_tools` treats its input as the complete discovered MCP catalog. One immediate transaction unpublishes every prior MCP route, inserts new routes, refreshes definitions for matching routes, and republishes the supplied set; duplicate local names, empty remote identities, and route conflicts roll back the whole refresh without changing harness rows.
 - `unpublish_global_tool` changes only publication. The definition, execution route, task-specific references, and function-call history remain durable.
 - `read_tool_manifest_for_task` merges database-marked global tools with that task's `task_tools` rows for active or archived tasks.
-- `commit_tool_result_branches` requires one calling-task branch and accepts zero or more new-child branches for an exact open function call on the calling task's current cursor path. Every output is a sibling under that cursor. The calling branch then appends its supplied user messages and drains queued inputs; each child branch appends its own supplied user messages. Child task rows, parent edges, inherited task-specific tools, all history nodes, and every cursor are committed in one transaction.
+- `commit_tool_result_branches` requires one calling-task branch and accepts zero or more new-child branches for an exact open function call on the calling task's current cursor path. Before writing, the same immediate transaction verifies that adding those children keeps the calling task and every ancestor within `OpenDbOptions::max_task_descendants`; archived descendants still count. Every output is a sibling under that cursor. The calling branch then appends its supplied user messages and drains queued inputs; each child branch appends its own supplied user messages. Child task rows, parent edges, inherited task-specific tools, all history nodes, and every cursor are committed in one transaction.
 - Function outputs store arbitrary JSON values. The schema permits outputs for the same call on sibling paths while rejecting a second output on one history path.
 - `read_task` returns task identity, durable status, state version, cursor, optional parent, queued-input count, an exclusive `after_node_id` history page, and an exact `has_more` flag from one SQLite read transaction. Page limits are `1..=100`, and the after node must be on that task's cursor path.
 - `read_task_parent_edges` returns durable task-layer parent edges for router snapshots and factory verification.
@@ -77,7 +77,7 @@ flowchart TD
   Read -->|query fails or stored enum, JSON, id, or argument value is invalid| ReadError
   WriteTx -->|transaction begins| Validate
   WriteTx -->|transaction begin fails| CommitError
-  Validate -->|task, cursor, queue, history parent, harness registration, complete MCP catalog reconciliation, publication, and path-local open-call preconditions hold| Commit
+  Validate -->|task, cursor, queue, history parent, descendant capacity, harness registration, complete MCP catalog reconciliation, publication, and path-local open-call preconditions hold| Commit
   Validate -->|requested transition conflicts with durable state| ValidationError
   Validate -->|read inside transaction fails| ReadError
   Commit -->|SQLite commit succeeds| Return

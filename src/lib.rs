@@ -89,6 +89,7 @@ pub struct CliResolvedConfig {
     pub systemd_config: SystemdConfig,
     pub ready_timeout: Duration,
     pub ready_poll_interval: Duration,
+    pub harness_config: selvedge_config_model::HarnessConfig,
     pub mcp_servers: BTreeMap<String, selvedge_config_model::McpServerConfig>,
 }
 
@@ -108,6 +109,7 @@ impl Default for CliResolvedConfig {
             },
             ready_timeout: DEFAULT_REQUEST_TIMEOUT,
             ready_poll_interval: DEFAULT_READY_POLL_INTERVAL,
+            harness_config: selvedge_config_model::HarnessConfig::default(),
             mcp_servers: BTreeMap::new(),
         }
     }
@@ -166,6 +168,7 @@ fn build_server_start_args(resolved_config: &CliResolvedConfig) -> ServerStartAr
         web_binding: Some(selvedge_server::WebBindingConfig {
             bind_target: local_bind_target,
         }),
+        harness_config: resolved_config.harness_config.clone(),
         mcp_servers: resolved_config.mcp_servers.clone(),
     }
 }
@@ -279,6 +282,7 @@ fn cli_resolved_config_from_app_config(
         },
         ready_timeout: request_timeout,
         ready_poll_interval: DEFAULT_READY_POLL_INTERVAL,
+        harness_config: config.harness.clone(),
         mcp_servers: config.mcp.servers.clone(),
     })
 }
@@ -953,8 +957,12 @@ mod tests {
     };
 
     #[test]
-    fn server_start_args_carry_effective_mcp_servers() {
+    fn server_start_args_carry_effective_harness_and_mcp_config() {
         let app_config = selvedge_config_model::AppConfig::try_from(toml::toml! {
+            [harness]
+            max_children_per_fork = 3
+            max_descendants_per_task = 12
+
             [mcp.servers.filesystem]
             command = "mcp-filesystem"
         })
@@ -965,6 +973,7 @@ mod tests {
 
         let server_args = build_server_start_args(&resolved_config);
 
+        assert_eq!(server_args.harness_config, app_config.harness);
         assert_eq!(server_args.mcp_servers, app_config.mcp.servers);
     }
 

@@ -134,10 +134,14 @@ async fn execute(executor: &ToolExecutor, request: ToolExecutionRequest) -> Tool
 }
 
 fn executor(db: DbPool) -> ToolExecutor {
-    for tool in tool_manifest().tools {
+    for tool in tool_manifest(&selvedge_config_model::HarnessConfig::default()).tools {
         register_global_tool(&db, tool).expect("register harness tool");
     }
-    ToolExecutor::new(db, McpConnectionSet::default())
+    ToolExecutor::new(
+        db,
+        McpConnectionSet::default(),
+        selvedge_config_model::HarnessConfig::default(),
+    )
 }
 
 fn request(tool_name: &str, arguments: Vec<(String, Value)>) -> ToolExecutionRequest {

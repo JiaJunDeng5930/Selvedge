@@ -2,7 +2,7 @@
 
 <!-- selvedge-package-readme
 package: selvedge-test-support
-freshness_fingerprint: d14c129185d1e3568d1f690ecf831f608dcaee25
+freshness_fingerprint: 4aeff5922354c9891fb634df01f145c44eecfc95
 -->
 
 This crate provides shared fixtures for Selvedge integration tests.

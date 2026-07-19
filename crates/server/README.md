@@ -2,14 +2,14 @@
 
 <!-- selvedge-package-readme
 package: selvedge-server
-freshness_fingerprint: 447bd97d0da3a2dda4591bf335087f6b77a825f9
+freshness_fingerprint: c84391948c596454859584049473e1c4de963c0f
 -->
 
 This crate owns the process-local Selvedge server lifecycle.
 
 Use it to start the server runtime, hold the singleton lock, initialize config and logging, open the SQLite database at `<selvedge_home>/selvedge.sqlite`, install the five built-in harness tools, discover configured stdio MCP tools, start events, client-sync, router, and optional web surface tasks, recover active task runtimes, and expose the in-process `ServerControl` used by local clients and UI surfaces.
 
-`ServerStartArgs` uses the current `selvedge-api` boundary: server passes `ApiExecutorConfig` into the router, and provider selection remains inside each model-call request. It also receives the effective MCP server map from the configuration boundary. This crate does not own a provider registry.
+`ServerStartArgs` uses the current `selvedge-api` boundary: server passes `ApiExecutorConfig` into the router, and provider selection remains inside each model-call request. It also receives the effective harness limits and MCP server map from the configuration boundary; the descendant limit is installed at database open and the per-fork limit is shared by tool schemas and parsing. This crate does not own a provider registry.
 
 After opening SQLite, startup registers the exact harness manifests idempotently as global tools with durable Harness execution routes. It then connects configured MCP servers, discovers their complete tool catalogs, and atomically replaces the published global MCP set before constructing the unified executor. Discovery and catalog conflicts fail startup before task recovery. The shared MCP connections stay alive for concurrent calls and close after the supervised services stop.
 

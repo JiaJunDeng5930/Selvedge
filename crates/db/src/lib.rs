@@ -20,6 +20,7 @@ pub const MAX_TASK_HISTORY_PAGE_SIZE: u32 = 100;
 #[derive(Clone)]
 pub struct DbPool {
     connection: Arc<Mutex<Connection>>,
+    max_task_descendants: u32,
 }
 
 pub struct DbConnection;
@@ -31,6 +32,10 @@ pub enum DbError {
     TaskNotActive,
     StaleFunctionCall,
     HistoryCursorNotOnTask,
+    TaskDescendantLimitExceeded {
+        task_id: TaskId,
+        limit: u32,
+    },
     Constraint(String),
     Storage(String),
     SchemaMismatch {
@@ -49,6 +54,13 @@ impl fmt::Display for DbError {
             }
             DbError::HistoryCursorNotOnTask => {
                 write!(formatter, "history cursor is not on the task path")
+            }
+            DbError::TaskDescendantLimitExceeded { task_id, limit } => {
+                write!(
+                    formatter,
+                    "task '{}' cannot exceed {limit} descendants",
+                    task_id.0
+                )
             }
             DbError::Constraint(message) => write!(formatter, "constraint failed: {message}"),
             DbError::Storage(message) => write!(formatter, "storage failed: {message}"),
@@ -81,6 +93,7 @@ pub enum HistoryContentKindRow {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OpenDbOptions {
     pub sqlite_path: String,
+    pub max_task_descendants: u32,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -333,6 +346,11 @@ pub struct NewFunctionOutputNodeContent {
 }
 
 pub fn open_db(options: OpenDbOptions) -> Result<DbPool, DbError> {
+    if options.max_task_descendants == 0 {
+        return Err(DbError::Constraint(
+            "max task descendants must be greater than zero".to_owned(),
+        ));
+    }
     let mut connection = Connection::open(&options.sqlite_path).map_err(map_error)?;
     connection
         .pragma_update(None, "foreign_keys", "ON")
@@ -348,6 +366,7 @@ pub fn open_db(options: OpenDbOptions) -> Result<DbPool, DbError> {
 
     let db = DbPool {
         connection: Arc::new(Mutex::new(connection)),
+        max_task_descendants: options.max_task_descendants,
     };
     verify_schema(&db)?;
     Ok(db)
@@ -609,6 +628,14 @@ pub fn commit_tool_result_branches(
         branch_parent_node_id.0,
         &output_identity,
     )?;
+    if !child_task_ids.is_empty() {
+        ensure_task_descendant_capacity_in_tx(
+            &tx,
+            &input.calling_task_id,
+            child_task_ids.len(),
+            db.max_task_descendants,
+        )?;
+    }
 
     let mut created_child_task_ids = Vec::with_capacity(child_task_ids.len());
     for branch in input.branches {
@@ -667,6 +694,61 @@ pub fn commit_tool_result_branches(
     Ok(CommitToolResultBranchesResult {
         created_child_task_ids,
     })
+}
+
+fn ensure_task_descendant_capacity_in_tx(
+    tx: &rusqlite::Transaction<'_>,
+    calling_task_id: &TaskId,
+    new_child_count: usize,
+    limit: u32,
+) -> Result<(), DbError> {
+    let violating_task_id = tx
+        .query_row(
+            "WITH RECURSIVE
+                 ancestors(task_id) AS (
+                     SELECT ?1
+                     UNION ALL
+                     SELECT edge.parent_task_id
+                     FROM task_parent_edges AS edge
+                     JOIN ancestors ON edge.child_task_id = ancestors.task_id
+                 ),
+                 descendants(ancestor_task_id, descendant_task_id) AS (
+                     SELECT ancestors.task_id, edge.child_task_id
+                     FROM ancestors
+                     JOIN task_parent_edges AS edge
+                       ON edge.parent_task_id = ancestors.task_id
+                     UNION ALL
+                     SELECT descendants.ancestor_task_id, edge.child_task_id
+                     FROM descendants
+                     JOIN task_parent_edges AS edge
+                       ON edge.parent_task_id = descendants.descendant_task_id
+                 )
+             SELECT ancestors.task_id
+             FROM ancestors
+             LEFT JOIN descendants
+               ON descendants.ancestor_task_id = ancestors.task_id
+             GROUP BY ancestors.task_id
+             HAVING COUNT(descendants.descendant_task_id) + ?2 > ?3
+             LIMIT 1",
+            params![
+                calling_task_id.0,
+                i64::try_from(new_child_count).map_err(|_| {
+                    DbError::Constraint("new child task count exceeds database range".to_owned())
+                })?,
+                i64::from(limit)
+            ],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .map_err(map_error)?;
+
+    match violating_task_id {
+        Some(task_id) => Err(DbError::TaskDescendantLimitExceeded {
+            task_id: TaskId(task_id),
+            limit,
+        }),
+        None => Ok(()),
+    }
 }
 
 pub fn load_active_task(db: &DbPool, task_id: &TaskId) -> Result<LoadedActiveTask, DbError> {

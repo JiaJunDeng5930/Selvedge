@@ -2,7 +2,7 @@
 
 <!-- selvedge-package-readme
 package: selvedge-config-model
-freshness_fingerprint: e7afea11b758ab494be35798af2f75e9059401d9
+freshness_fingerprint: 20c082e89b2dbd7a48dbfd93630e583c0e60f77f
 -->
 
 ## This crate is for
@@ -17,6 +17,7 @@ Use it to:
 - materialize `AppConfig` from raw TOML input
 - expose strongly typed logging levels and module-level log overrides
 - expose strongly typed network settings consumed by transport crates
+- expose validated harness fan-out limits
 - expose validated stdio MCP server process settings
 
 ## This crate is not for
@@ -94,6 +95,10 @@ Configured MCP clients read complete stdio process definitions from
 `config.mcp.servers`. Missing `[mcp]` configuration produces an empty map, and
 each configured server defaults to a 60-second call timeout.
 
+Harness limits read from `[harness]`. `max_children_per_fork` defaults to `5`,
+`max_descendants_per_task` defaults to `20`, and the per-call limit cannot
+exceed the per-task descendant limit.
+
 ## Validation
 
 Each config type validates its own invariants.
@@ -153,9 +158,9 @@ flowchart TD
   Start -->|AppConfig::try_from receives TOML table| Decode
   Decode -->|all provided fields decode to known types| Defaults
   Decode -->|a field has wrong type or unknown structured shape| DecodeError
-  Defaults -->|all missing fields receive defaults and the LLM provider and MCP server maps default to empty| Validate
-  Validate -->|server, network, logging, feature, LLM provider, and MCP stdio process invariants hold| Ready
-  Validate -->|a scalar, provider definition, or MCP server definition violates its invariant| ValidationError
+  Defaults -->|all missing fields receive defaults, including harness limits, and the LLM provider and MCP server maps default to empty| Validate
+  Validate -->|server, network, logging, feature, LLM provider, harness, and MCP stdio process invariants hold| Ready
+  Validate -->|a scalar, provider definition, harness limit, or MCP server definition violates its invariant| ValidationError
   Start -->|caller decodes update value for a config path| PatchInput
   PatchInput -->|path and value decode for target field| PatchValidate
   PatchInput -->|path is unknown or value type is invalid| DecodeError

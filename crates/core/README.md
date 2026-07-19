@@ -2,7 +2,7 @@
 
 <!-- selvedge-package-readme
 package: selvedge-core
-freshness_fingerprint: 20d64f6bca407e4e960683ad0213770bd6272f6c
+freshness_fingerprint: 491484c651251ad10bf18f0e04a97b8c3906dce5
 -->
 
 This crate runs one task runtime actor per active task.
@@ -17,7 +17,7 @@ Before dispatching a model call, the actor reads the conversation, tool manifest
 
 Durable history is projected into one provider-neutral conversation model whose message content is JSON. Function calls and outputs use the shared discriminated JSON contract from `selvedge-domain-model`; core validates call/output pairing through that contract without introducing a second conversation representation.
 
-A matching tool execution result contains one or more history branches. Core commits all branch outputs, child tasks, optional child messages, and cursor changes through one database transaction. The calling task always has exactly one branch; any committed child task ids are then sent to the router's ordinary runtime-ensure path. Runtime creation is derived from committed task state and is not part of the history transaction.
+A matching tool execution result contains one or more history branches. Core commits all branch outputs, child tasks, optional child messages, and cursor changes through one database transaction. The calling task always has exactly one branch; any committed child task ids are then sent to the router's ordinary runtime-ensure path. If that transaction rejects a fork because an ancestor reached its configured descendant limit, core commits one ordinary error output for the same call and continues the model loop. Runtime creation is derived from committed task state and is not part of the history transaction.
 
 When a matching model reply arrives, the actor validates it against the exact manifest stored for that model run rather than reading the current publication state again. A tool unpublished after request dispatch can therefore finish the already-issued turn. Core rejects duplicate call ids and tools absent from that snapshot, but leaves JSON Schema interpretation to the selected executor.
 
@@ -45,6 +45,7 @@ flowchart TD
   RequestTool[Send tool execution request to router]
   AwaitTool[Await matching tool output]
   CommitToolBranches[Atomically commit tool-result branches]
+  CommitLimitOutput[Commit one calling-task limit error output]
   EnsureChildRuntimes[Ask router to ensure committed child runtimes]
   QueueInput[Queue or append user input]
   InputSettled[Settle input responder]
@@ -77,6 +78,9 @@ flowchart TD
   AwaitTool -->|matching tool result arrives| CommitToolBranches
   CommitToolBranches -->|single calling branch commits| ClassifyTail
   CommitToolBranches -->|calling and child branches commit| EnsureChildRuntimes
+  CommitToolBranches -->|an ancestor would exceed its descendant limit| CommitLimitOutput
+  CommitLimitOutput -->|error output commits| ClassifyTail
+  CommitLimitOutput -->|database transition fails| DbError
   CommitToolBranches -->|database transition fails| DbError
   EnsureChildRuntimes -->|router ingress send succeeds| ClassifyTail
   EnsureChildRuntimes -->|router ingress send fails| RouterClosed

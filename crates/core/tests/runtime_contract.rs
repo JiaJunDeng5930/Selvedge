@@ -22,7 +22,9 @@ use selvedge_domain_model::{
     FUNCTION_CALL_CONTENT_TYPE, FUNCTION_OUTPUT_CONTENT_TYPE, JsonObject, ModelFinishReason,
     ModelReply, ToolCallProposal, ToolSpec,
 };
-use selvedge_test_support::db::{default_model_profiles, open_memory_db};
+use selvedge_test_support::db::{
+    default_model_profiles, open_memory_db, open_memory_db_with_max_task_descendants,
+};
 use serde_json::{Value, json};
 
 #[tokio::test]
@@ -498,6 +500,81 @@ async fn task_runtime_ensures_child_runtimes_after_branch_commit() {
             )
     ));
     let _next_model_request = recv_model_request(&mut router_rx).await;
+}
+
+#[tokio::test]
+async fn task_runtime_commits_descendant_limit_as_a_model_visible_tool_error() {
+    let (runtime, mut router_rx, _router_tx) =
+        spawn_runtime_with_task_and_descendant_limit(vec![tool_spec("fork_task")], 1).await;
+    let correlation = start_and_request_model(&runtime, &mut router_rx).await;
+    runtime
+        .task_runtime_tx
+        .send(TaskRuntimeCommand::ApiModelReply(
+            ApiOutputEnvelope::Success {
+                correlation,
+                reply: ModelReply {
+                    content: None,
+                    tool_calls: vec![ToolCallProposal {
+                        call_id: "fork-call".to_owned(),
+                        tool_name: "fork_task".to_owned(),
+                        arguments: JsonObject::new(),
+                    }],
+                    usage: None,
+                    finish_reason: ModelFinishReason::ToolCalls,
+                },
+            },
+        ))
+        .await
+        .expect("send fork call");
+    let request = recv_tool_request(&mut router_rx).await;
+
+    runtime
+        .task_runtime_tx
+        .send(TaskRuntimeCommand::ToolResult(ToolExecutionResult {
+            task_id: TaskId("task-1".to_owned()),
+            tool_execution_run_id: request.tool_execution_run_id,
+            function_call_node_id: request.function_call_node_id,
+            function_call_id: request.function_call_id,
+            tool_name: request.tool_name,
+            branches: vec![
+                ToolExecutionBranch {
+                    target: ToolExecutionBranchTarget::CallingTask,
+                    output: json!(0),
+                    is_error: false,
+                    messages: Vec::new(),
+                },
+                ToolExecutionBranch {
+                    target: ToolExecutionBranchTarget::NewChildTask {
+                        task_id: TaskId("child-1".to_owned()),
+                    },
+                    output: json!(1),
+                    is_error: false,
+                    messages: Vec::new(),
+                },
+                ToolExecutionBranch {
+                    target: ToolExecutionBranchTarget::NewChildTask {
+                        task_id: TaskId("child-2".to_owned()),
+                    },
+                    output: json!(2),
+                    is_error: false,
+                    messages: Vec::new(),
+                },
+            ],
+        }))
+        .await
+        .expect("send oversized fork result");
+
+    let next_model_request = recv_model_request(&mut router_rx).await;
+    let output = next_model_request
+        .conversation
+        .messages
+        .last()
+        .expect("tool output");
+    assert_eq!(output.function_output_is_error(), Some(true));
+    assert_eq!(
+        output.function_output_value().expect("output")["error"]["code"],
+        "task_descendant_limit_exceeded"
+    );
 }
 
 #[tokio::test]
@@ -1582,7 +1659,18 @@ async fn spawn_runtime_with_task(
     tokio::sync::mpsc::UnboundedReceiver<RouterIngressMessage>,
     RouterIngressSender,
 ) {
-    let db = open_memory_db();
+    spawn_runtime_with_task_and_descendant_limit(tools, 20).await
+}
+
+async fn spawn_runtime_with_task_and_descendant_limit(
+    tools: Vec<ToolSpec>,
+    max_task_descendants: u32,
+) -> (
+    selvedge_core::SpawnedTaskRuntime,
+    tokio::sync::mpsc::UnboundedReceiver<RouterIngressMessage>,
+    RouterIngressSender,
+) {
+    let db = open_memory_db_with_max_task_descendants(max_task_descendants);
     let enabled_tools = tools
         .iter()
         .map(|tool| selvedge_db::ToolName(tool.name.clone()))

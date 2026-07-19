@@ -118,6 +118,25 @@ async fn discovery_rejects_colliding_normalized_names() {
 }
 
 #[tokio::test]
+async fn discovery_rejects_a_catalog_over_the_cumulative_byte_limit() {
+    let error = match McpConnectionSet::connect(&configs("catalog-overflow", 5_000)).await {
+        Err(error) => error,
+        Ok((connections, _)) => {
+            connections.close().await;
+            panic!("oversized catalog must fail");
+        }
+    };
+    assert!(matches!(
+        error,
+        McpStartupError::CatalogLimitExceeded {
+            server_id,
+            max_tools: 1_024,
+            max_bytes: 4_194_304,
+        } if server_id == "alpha.beta"
+    ));
+}
+
+#[tokio::test]
 async fn executor_routes_from_the_durable_catalog_and_preserves_full_error_json() {
     let db = open_memory_db();
     let marker = temp_marker("request");
@@ -134,7 +153,11 @@ async fn executor_routes_from_the_durable_catalog_and_preserves_full_error_json(
         .await
         .expect("connect fixture");
     replace_global_mcp_tools(&db, registrations).expect("publish MCP catalog");
-    let executor = ToolExecutor::new(db, connections.clone());
+    let executor = ToolExecutor::new(
+        db,
+        connections.clone(),
+        selvedge_config_model::HarnessConfig::default(),
+    );
 
     let branch = execute(
         &executor,
@@ -185,7 +208,11 @@ async fn executor_maps_mcp_timeouts_to_one_correlated_error_branch() {
         .await
         .expect("connect fixture");
     replace_global_mcp_tools(&db, registrations).expect("publish MCP catalog");
-    let executor = ToolExecutor::new(db, connections.clone());
+    let executor = ToolExecutor::new(
+        db,
+        connections.clone(),
+        selvedge_config_model::HarnessConfig::default(),
+    );
 
     let branch = execute(
         &executor,
@@ -223,7 +250,35 @@ async fn executor_maps_transport_close_to_one_correlated_error_branch() {
         .await
         .expect("connect fixture");
     replace_global_mcp_tools(&db, registrations).expect("publish MCP catalog");
-    let executor = ToolExecutor::new(db, connections.clone());
+    let executor = ToolExecutor::new(
+        db,
+        connections.clone(),
+        selvedge_config_model::HarnessConfig::default(),
+    );
+
+    let branch = execute(
+        &executor,
+        request("mcp__alpha_beta__echo_value", JsonObject::new()),
+    )
+    .await;
+
+    assert!(branch.is_error);
+    assert_eq!(branch.output["error"]["code"], "mcp_call_failed");
+    connections.close().await;
+}
+
+#[tokio::test]
+async fn executor_closes_an_mcp_connection_that_exceeds_the_frame_limit() {
+    let db = open_memory_db();
+    let (connections, registrations) = McpConnectionSet::connect(&configs("oversize-call", 5_000))
+        .await
+        .expect("connect fixture");
+    replace_global_mcp_tools(&db, registrations).expect("publish MCP catalog");
+    let executor = ToolExecutor::new(
+        db,
+        connections.clone(),
+        selvedge_config_model::HarnessConfig::default(),
+    );
 
     let branch = execute(
         &executor,
@@ -238,7 +293,11 @@ async fn executor_maps_transport_close_to_one_correlated_error_branch() {
 
 #[tokio::test]
 async fn executor_maps_missing_durable_route_to_one_correlated_error_branch() {
-    let executor = ToolExecutor::new(open_memory_db(), McpConnectionSet::default());
+    let executor = ToolExecutor::new(
+        open_memory_db(),
+        McpConnectionSet::default(),
+        selvedge_config_model::HarnessConfig::default(),
+    );
 
     let branch = execute(&executor, request("missing", JsonObject::new())).await;
 

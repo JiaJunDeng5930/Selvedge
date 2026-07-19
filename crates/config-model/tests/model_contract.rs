@@ -12,7 +12,33 @@ fn empty_table_materializes_to_valid_defaults() {
     assert_eq!(config.network.request_timeout_ms, None);
     assert_eq!(config.network.stream_idle_timeout_ms, None);
     assert!(config.llm.providers.is_empty());
+    assert_eq!(config.harness.max_children_per_fork, 5);
+    assert_eq!(config.harness.max_descendants_per_task, 20);
     assert!(config.mcp.servers.is_empty());
+}
+
+#[test]
+fn harness_limits_are_configurable_and_ordered() {
+    let table = toml::toml! {
+        [harness]
+        max_children_per_fork = 8
+        max_descendants_per_task = 30
+    };
+    let config = AppConfig::try_from(table).expect("materialize harness limits");
+
+    assert_eq!(config.harness.max_children_per_fork, 8);
+    assert_eq!(config.harness.max_descendants_per_task, 30);
+
+    let invalid = toml::toml! {
+        [harness]
+        max_children_per_fork = 21
+        max_descendants_per_task = 20
+    };
+    let error = AppConfig::try_from(invalid).expect_err("fork limit must fit descendant limit");
+    assert_eq!(
+        error.to_string(),
+        "harness.max_children_per_fork must not exceed harness.max_descendants_per_task"
+    );
 }
 
 #[test]

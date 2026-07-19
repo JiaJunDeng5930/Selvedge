@@ -96,10 +96,52 @@ fn history_message_texts(nodes: &[HistoryNode]) -> Vec<&str> {
         .collect()
 }
 
+fn fork_one_child(
+    db: &DbPool,
+    parent_task_id: &TaskId,
+    call_id: &str,
+    child_task_id: &str,
+    now: i64,
+) -> Result<(), DbError> {
+    let call_node_id = append_model_reply_with_tool_calls_and_move_cursor(
+        db,
+        parent_task_id,
+        None,
+        vec![function_call(call_id, "fork_task")],
+        UnixTs(now),
+    )?[0];
+    commit_tool_result_branches(
+        db,
+        CommitToolResultBranchesInput {
+            calling_task_id: parent_task_id.clone(),
+            function_call_node_id: call_node_id,
+            function_call_id: FunctionCallId(call_id.to_owned()),
+            tool_name: ToolName("fork_task".to_owned()),
+            branches: vec![
+                ToolResultBranch {
+                    target: ToolResultBranchTarget::CallingTask,
+                    output: Value::from(0),
+                    is_error: false,
+                    user_messages: Vec::new(),
+                },
+                ToolResultBranch {
+                    target: ToolResultBranchTarget::NewChildTask(TaskId(child_task_id.to_owned())),
+                    output: Value::from(1),
+                    is_error: false,
+                    user_messages: Vec::new(),
+                },
+            ],
+            now: UnixTs(now + 1),
+        },
+    )?;
+    Ok(())
+}
+
 #[test]
 fn open_db_creates_schema_and_root_task_transaction_moves_cursor() {
     let db = open_db(OpenDbOptions {
         sqlite_path: ":memory:".to_owned(),
+        max_task_descendants: 20,
     })
     .expect("open db");
 
@@ -125,9 +167,57 @@ fn open_db_creates_schema_and_root_task_transaction_moves_cursor() {
 }
 
 #[test]
+fn descendant_limit_is_enforced_for_every_ancestor_in_the_commit_transaction() {
+    let db = open_db(OpenDbOptions {
+        sqlite_path: ":memory:".to_owned(),
+        max_task_descendants: 2,
+    })
+    .expect("open db");
+    register_global_tool(&db, tool_spec("fork_task", "Fork tasks")).expect("register fork tool");
+    let root = create_root_task(
+        &db,
+        CreateRootTaskInput {
+            task_id: TaskId("root".to_owned()),
+            cursor_node_id: create_message_node(&db, None, MessageRole::User, "root", UnixTs(10)),
+            model_profile_key: ModelProfileKey("default".to_owned()),
+            reasoning_effort: ReasoningEffort::Medium,
+            enabled_tools: Vec::new(),
+            now: UnixTs(10),
+        },
+    )
+    .expect("create root");
+
+    fork_one_child(&db, &root.task_id, "fork-root", "child", 11).expect("create child");
+    let child = TaskId("child".to_owned());
+    fork_one_child(&db, &child, "fork-child-1", "grandchild", 13)
+        .expect("fill root descendant capacity");
+    let edges_before = read_task_parent_edges(&db).expect("read edges");
+
+    let error = fork_one_child(&db, &child, "fork-child-2", "rejected", 15)
+        .expect_err("root limit must reject a nested fork");
+
+    assert_eq!(
+        error,
+        DbError::TaskDescendantLimitExceeded {
+            task_id: root.task_id,
+            limit: 2,
+        }
+    );
+    assert_eq!(
+        read_task_parent_edges(&db).expect("read unchanged edges"),
+        edges_before
+    );
+    assert!(matches!(
+        load_active_task(&db, &TaskId("rejected".to_owned())),
+        Err(DbError::NotFound)
+    ));
+}
+
+#[test]
 fn archive_task_clears_queued_inputs_before_status_update() {
     let db = open_db(OpenDbOptions {
         sqlite_path: ":memory:".to_owned(),
+        max_task_descendants: 20,
     })
     .expect("open db");
     create_root_task(
@@ -157,6 +247,7 @@ fn archive_task_clears_queued_inputs_before_status_update() {
 fn append_history_uses_new_node_timestamp_for_task_updated_at() {
     let db = open_db(OpenDbOptions {
         sqlite_path: ":memory:".to_owned(),
+        max_task_descendants: 20,
     })
     .expect("open db");
     create_root_task(
@@ -191,6 +282,7 @@ fn append_history_uses_new_node_timestamp_for_task_updated_at() {
 fn append_history_uses_database_cursor_as_parent() {
     let db = open_db(OpenDbOptions {
         sqlite_path: ":memory:".to_owned(),
+        max_task_descendants: 20,
     })
     .expect("open db");
     create_root_task(
@@ -235,6 +327,7 @@ fn append_history_uses_database_cursor_as_parent() {
 fn tool_result_commit_creates_sibling_branches_with_independent_cursors() {
     let db = open_db(OpenDbOptions {
         sqlite_path: ":memory:".to_owned(),
+        max_task_descendants: 20,
     })
     .expect("open db");
     let global_fork_tool = tool_spec("fork_task", "Fork a child task");
@@ -512,6 +605,7 @@ fn tool_result_commit_creates_sibling_branches_with_independent_cursors() {
 fn create_history_node_accepts_strategy_parent_and_root_task_uses_existing_cursor() {
     let db = open_db(OpenDbOptions {
         sqlite_path: ":memory:".to_owned(),
+        max_task_descendants: 20,
     })
     .expect("open db");
     let existing_node_id =
@@ -559,6 +653,7 @@ fn create_history_node_accepts_strategy_parent_and_root_task_uses_existing_curso
 fn global_tool_registration_is_exactly_idempotent_and_merges_with_task_tools() {
     let db = open_db(OpenDbOptions {
         sqlite_path: ":memory:".to_owned(),
+        max_task_descendants: 20,
     })
     .expect("open db");
     let task_tool = tool_spec("local_search", "Search this task");
@@ -641,6 +736,7 @@ fn global_tool_registration_is_exactly_idempotent_and_merges_with_task_tools() {
 fn read_task_pages_active_and_archived_cursor_paths_and_rejects_invalid_bounds() {
     let db = open_db(OpenDbOptions {
         sqlite_path: ":memory:".to_owned(),
+        max_task_descendants: 20,
     })
     .expect("open db");
     let root_node_id = create_message_node(&db, None, MessageRole::User, "root", UnixTs(10));
@@ -760,6 +856,7 @@ fn tool_result_branch_failure_rolls_back_tasks_edges_history_and_queue_drain() {
     let sqlite_path_text = sqlite_path.to_string_lossy().into_owned();
     let db = open_db(OpenDbOptions {
         sqlite_path: sqlite_path_text.clone(),
+        max_task_descendants: 20,
     })
     .expect("open db");
     register_global_tool(&db, tool_spec("fork_task", "Fork a child task"))
@@ -897,6 +994,7 @@ fn tool_result_branch_failure_rolls_back_tasks_edges_history_and_queue_drain() {
 fn global_unpublish_preserves_history_definition_and_harness_route() {
     let db = open_db(OpenDbOptions {
         sqlite_path: ":memory:".to_owned(),
+        max_task_descendants: 20,
     })
     .expect("open db");
     let tool = ToolSpec {
@@ -991,6 +1089,7 @@ fn execution_source_is_closed_and_harness_registration_cannot_claim_an_mcp_route
     let sqlite_path = directory.path().join("routes.sqlite");
     let db = open_db(OpenDbOptions {
         sqlite_path: sqlite_path.to_string_lossy().into_owned(),
+        max_task_descendants: 20,
     })
     .expect("open db");
     let raw = rusqlite::Connection::open(&sqlite_path).expect("open raw database");
@@ -1038,6 +1137,7 @@ fn execution_source_is_closed_and_harness_registration_cannot_claim_an_mcp_route
 fn mcp_catalog_refreshes_definitions_and_unpublishes_stale_routes() {
     let db = open_db(OpenDbOptions {
         sqlite_path: ":memory:".to_owned(),
+        max_task_descendants: 20,
     })
     .expect("open db");
     let harness = tool_spec("bash", "Run a command");
@@ -1083,6 +1183,7 @@ fn mcp_catalog_refreshes_definitions_and_unpublishes_stale_routes() {
 fn duplicate_mcp_names_roll_back_the_complete_catalog_refresh() {
     let db = open_db(OpenDbOptions {
         sqlite_path: ":memory:".to_owned(),
+        max_task_descendants: 20,
     })
     .expect("open db");
     let original = mcp_registration("mcp__alpha__lookup", "Original", "alpha", "lookup");
@@ -1112,6 +1213,7 @@ fn duplicate_mcp_names_roll_back_the_complete_catalog_refresh() {
 fn mcp_route_conflicts_roll_back_prior_catalog_writes() {
     let db = open_db(OpenDbOptions {
         sqlite_path: ":memory:".to_owned(),
+        max_task_descendants: 20,
     })
     .expect("open db");
     let harness = tool_spec("bash", "Run a command");
@@ -1156,6 +1258,7 @@ fn mcp_route_conflicts_roll_back_prior_catalog_writes() {
 fn empty_mcp_route_names_fail_without_changing_publication() {
     let db = open_db(OpenDbOptions {
         sqlite_path: ":memory:".to_owned(),
+        max_task_descendants: 20,
     })
     .expect("open db");
     let original = mcp_registration("mcp__alpha__lookup", "Original", "alpha", "lookup");
@@ -1233,6 +1336,7 @@ fn open_db_migrates_v5_schemas_and_arguments_to_v7_json_storage() {
 
     let db = open_db(OpenDbOptions {
         sqlite_path: sqlite_path.to_string_lossy().into_owned(),
+        max_task_descendants: 20,
     })
     .expect("migrate database");
     let expected_tool = ToolSpec {

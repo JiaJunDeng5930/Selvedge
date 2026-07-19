@@ -2,6 +2,7 @@ use selvedge_command_model::{
     HistoryNodeProjection, HistoryNodeProjectionBody, TaskProjectionStatus,
     ToolExecutionBranchTarget, ToolExecutionRequest, ToolExecutionRunId,
 };
+use selvedge_config_model::HarnessConfig;
 use selvedge_domain_model::{
     FunctionCallId, HistoryNodeId, JsonObject, MessageRole, TaskId, ToolName, ToolSpec, UnixTs,
 };
@@ -19,23 +20,28 @@ use serde_json::Value;
 #[test]
 fn manifest_defines_exactly_the_five_harness_tools() {
     assert_eq!(
-        tool_manifest().tools,
+        tool_manifest(&HarnessConfig::default()).tools,
         vec![
             ToolSpec {
                 name: "fork_task".to_owned(),
                 description:
-                    "Create parallel child task branches with optional aligned initial messages."
+                    "Create up to 5 parallel child task branches with optional aligned initial messages."
                         .to_owned(),
                 input_schema: input_schema(
                     [
                         (
                             "child_count",
-                            integer_property("Number of child task branches to create."),
+                            bounded_integer_property(
+                                "Number of child task branches to create.",
+                                1,
+                                5,
+                            ),
                         ),
                         (
                             "messages",
                             string_array_property(
                                 "Optional initial messages aligned by child branch number.",
+                                5,
                             ),
                         ),
                     ],
@@ -61,8 +67,10 @@ fn manifest_defines_exactly_the_five_harness_tools() {
                         ),
                         (
                             "limit",
-                            integer_property(
+                            bounded_integer_property(
                                 "Maximum history nodes to return, from 1 through 100.",
+                                1,
+                                100,
                             ),
                         ),
                     ],
@@ -103,8 +111,10 @@ fn manifest_defines_exactly_the_five_harness_tools() {
                         ("command", string_property("Bash command to run.")),
                         (
                             "timeout_ms",
-                            integer_property(
+                            bounded_integer_property(
                                 "Timeout in milliseconds; defaults to 30000, from 100 through 120000.",
+                                100,
+                                120_000,
                             ),
                         ),
                     ],
@@ -260,7 +270,10 @@ fn valid_requests_parse_to_typed_invocations() {
     ];
 
     for (request, expected) in cases {
-        assert_eq!(parse_invocation(&request), Ok(expected));
+        assert_eq!(
+            parse_invocation(&request, &HarnessConfig::default()),
+            Ok(expected)
+        );
     }
 }
 
@@ -296,7 +309,15 @@ fn invalid_requests_are_rejected_without_backend_state() {
                 vec![integer_argument("child_count", 0)],
             ),
             HarnessErrorCode::InvalidArguments,
-            "argument 'child_count' must be a positive integer",
+            "argument 'child_count' must be between 1 and 5",
+        ),
+        (
+            request(
+                FORK_TASK_TOOL_NAME,
+                vec![integer_argument("child_count", 6)],
+            ),
+            HarnessErrorCode::InvalidArguments,
+            "argument 'child_count' must be between 1 and 5",
         ),
         (
             request(
@@ -430,7 +451,7 @@ fn invalid_requests_are_rejected_without_backend_state() {
 
     for (request, code, message) in cases {
         assert_eq!(
-            parse_invocation(&request),
+            parse_invocation(&request, &HarnessConfig::default()),
             Err(HarnessError::new(code, message))
         );
     }
@@ -711,7 +732,19 @@ fn integer_property(description: &str) -> Value {
     ]))
 }
 
-fn string_array_property(description: &str) -> Value {
+fn bounded_integer_property(description: &str, minimum: i64, maximum: i64) -> Value {
+    Value::Object(JsonObject::from_iter([
+        ("type".to_owned(), Value::String("integer".to_owned())),
+        (
+            "description".to_owned(),
+            Value::String(description.to_owned()),
+        ),
+        ("minimum".to_owned(), Value::from(minimum)),
+        ("maximum".to_owned(), Value::from(maximum)),
+    ]))
+}
+
+fn string_array_property(description: &str, max_items: u32) -> Value {
     Value::Object(JsonObject::from_iter([
         ("type".to_owned(), Value::String("array".to_owned())),
         (
@@ -725,6 +758,8 @@ fn string_array_property(description: &str) -> Value {
             "description".to_owned(),
             Value::String(description.to_owned()),
         ),
+        ("minItems".to_owned(), Value::from(1)),
+        ("maxItems".to_owned(), Value::from(max_items)),
     ]))
 }
 

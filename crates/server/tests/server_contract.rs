@@ -66,6 +66,7 @@ async fn startup_registers_the_five_global_harness_tools() {
         .expect("spawn server");
     let db = open_db(OpenDbOptions {
         sqlite_path: home.join("selvedge.sqlite").to_string_lossy().to_string(),
+        max_task_descendants: 20,
     })
     .expect("open server database");
     let cursor_node_id = create_history_node(
@@ -601,6 +602,7 @@ fn test_args_with_local_operation_executor(
 ) -> ServerStartArgs {
     ServerStartArgs {
         explicit_home: Some(home),
+        harness_config: selvedge_config_model::HarnessConfig::default(),
         mcp_servers: BTreeMap::new(),
         api_config: ApiExecutorConfig {
             request_timeout: Duration::from_secs(1),
