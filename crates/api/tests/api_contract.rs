@@ -15,8 +15,8 @@ use selvedge_command_model::{
     ModelCallErrorKind, ModelRunId, RouterIngressApiMessage, TaskId, validate_api_output_envelope,
 };
 use selvedge_domain_model::{
-    Conversation, ConversationMessage, FunctionCallId, JsonObject, MessageRole, ModelFinishReason,
-    ModelProviderProfile, ResponsePreference, ToolManifest, ToolName, ToolSpec,
+    Conversation, ConversationMessage, FunctionCallId, HistoryNodeIdRef, JsonObject, MessageRole,
+    ModelFinishReason, ModelProviderProfile, ResponsePreference, ToolManifest, ToolName, ToolSpec,
 };
 use selvedge_test_support::{
     chatgpt_auth::{auth_file_json, build_unsigned_jwt as build_jwt, write_auth_file},
@@ -255,7 +255,7 @@ base_url = "{}"
         .push(ConversationMessage::text(
             MessageRole::Assistant,
             "previous answer",
-            None,
+            Some(HistoryNodeIdRef("local-history-node".to_owned())),
         ));
     let input_schema = serde_json::from_value::<JsonObject>(serde_json::json!({
         "type": "object",
@@ -336,6 +336,7 @@ base_url = "{}"
         captured_body.pointer("/input/3/content/0/type"),
         Some(&serde_json::json!("output_text"))
     );
+    assert!(captured_body.pointer("/input/3/id").is_none());
     assert_eq!(
         captured_body.pointer("/tools/0/name"),
         Some(&serde_json::json!("search"))

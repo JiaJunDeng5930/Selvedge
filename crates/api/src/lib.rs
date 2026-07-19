@@ -431,10 +431,7 @@ fn chatgpt_item_from_message(
             }
         };
         return Ok(ResponseItem::Message(MessageItem {
-            id: message
-                .source_node_id
-                .as_ref()
-                .map(|node_id| node_id.0.clone()),
+            id: None,
             status: Some("completed".to_owned()),
             role: chatgpt_role(&message.role).to_owned(),
             content: vec![content],

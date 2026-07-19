@@ -434,6 +434,73 @@ async fn task_runtime_dispatches_all_tool_calls_before_next_model_call() {
 }
 
 #[tokio::test]
+async fn task_runtime_ensures_child_runtimes_after_branch_commit() {
+    let (runtime, mut router_rx, _router_tx) =
+        spawn_runtime_with_task(vec![tool_spec("fork_task")]).await;
+    let correlation = start_and_request_model(&runtime, &mut router_rx).await;
+    runtime
+        .task_runtime_tx
+        .send(TaskRuntimeCommand::ApiModelReply(
+            ApiOutputEnvelope::Success {
+                correlation,
+                reply: ModelReply {
+                    content: None,
+                    tool_calls: vec![ToolCallProposal {
+                        call_id: "fork-call".to_owned(),
+                        tool_name: "fork_task".to_owned(),
+                        arguments: JsonObject::new(),
+                    }],
+                    usage: None,
+                    finish_reason: ModelFinishReason::ToolCalls,
+                },
+            },
+        ))
+        .await
+        .expect("send fork call");
+    let request = recv_tool_request(&mut router_rx).await;
+    let child_task_id = TaskId("child-1".to_owned());
+
+    runtime
+        .task_runtime_tx
+        .send(TaskRuntimeCommand::ToolResult(ToolExecutionResult {
+            task_id: TaskId("task-1".to_owned()),
+            tool_execution_run_id: request.tool_execution_run_id,
+            function_call_node_id: request.function_call_node_id,
+            function_call_id: request.function_call_id,
+            tool_name: request.tool_name,
+            branches: vec![
+                ToolExecutionBranch {
+                    target: ToolExecutionBranchTarget::CallingTask,
+                    output: json!(0),
+                    is_error: false,
+                    messages: Vec::new(),
+                },
+                ToolExecutionBranch {
+                    target: ToolExecutionBranchTarget::NewChildTask {
+                        task_id: child_task_id.clone(),
+                    },
+                    output: json!(1),
+                    is_error: false,
+                    messages: vec!["child work".to_owned()],
+                },
+            ],
+        }))
+        .await
+        .expect("send fork result");
+
+    assert!(matches!(
+        router_rx.recv().await.expect("ensure child runtimes"),
+        RouterIngressMessage::Core(envelope)
+            if matches!(
+                &envelope.message,
+                CoreOutputMessage::EnsureTaskRuntimes { task_ids }
+                    if task_ids.as_slice() == std::slice::from_ref(&child_task_id)
+            )
+    ));
+    let _next_model_request = recv_model_request(&mut router_rx).await;
+}
+
+#[tokio::test]
 async fn task_runtime_stop_returns_after_archive_exit() {
     let (runtime, mut router_rx, _router_tx) = spawn_runtime_with_task(Vec::new()).await;
 

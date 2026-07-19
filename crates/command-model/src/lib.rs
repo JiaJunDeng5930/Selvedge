@@ -503,7 +503,7 @@ pub enum HistoryNodeProjectionBody {
         function_call_node_id: HistoryNodeId,
         function_call_id: FunctionCallId,
         tool_name: ToolName,
-        output_text: String,
+        output: serde_json::Value,
         is_error: bool,
     },
 }

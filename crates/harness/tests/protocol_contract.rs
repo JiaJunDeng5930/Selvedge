@@ -520,7 +520,7 @@ fn read_history_encodes_each_existing_history_body_shape() {
                         function_call_node_id: HistoryNodeId(2),
                         function_call_id: FunctionCallId("call-1".to_owned()),
                         tool_name: ToolName("read_task".to_owned()),
-                        output_text: "{}".to_owned(),
+                        output: serde_json::json!({"ok": true}),
                         is_error: false,
                     },
                 ),
@@ -533,7 +533,7 @@ fn read_history_encodes_each_existing_history_body_shape() {
 
     assert_eq!(
         success.to_stable_json(),
-        r#"{"cursor_node_id":4,"history":{"has_more":false,"next_after_node_id":null,"nodes":[{"created_at":10,"kind":"reasoning","node_id":1,"parent_node_id":null,"text":"thinking"},{"arguments":{"limit":10,"options":{"include":["reasoning",null]},"task_id":"task-2"},"created_at":10,"function_call_id":"call-1","kind":"function_call","node_id":2,"parent_node_id":null,"tool_name":"read_task"},{"created_at":10,"function_call_id":"call-1","function_call_node_id":2,"is_error":false,"kind":"function_output","node_id":3,"output_text":"{}","parent_node_id":null,"tool_name":"read_task"}]},"parent_task_id":"parent","queued_message_count":2,"state_version":7,"status":"archived","task_id":"task-1"}"#
+        r#"{"cursor_node_id":4,"history":{"has_more":false,"next_after_node_id":null,"nodes":[{"created_at":10,"kind":"reasoning","node_id":1,"parent_node_id":null,"text":"thinking"},{"arguments":{"limit":10,"options":{"include":["reasoning",null]},"task_id":"task-2"},"created_at":10,"function_call_id":"call-1","kind":"function_call","node_id":2,"parent_node_id":null,"tool_name":"read_task"},{"created_at":10,"function_call_id":"call-1","function_call_node_id":2,"is_error":false,"kind":"function_output","node_id":3,"output":{"ok":true},"parent_node_id":null,"tool_name":"read_task"}]},"parent_task_id":"parent","queued_message_count":2,"state_version":7,"status":"archived","task_id":"task-1"}"#
     );
 }
 

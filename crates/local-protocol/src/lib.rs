@@ -208,7 +208,7 @@ pub enum LocalHistoryNodeProjectionBody {
         function_call_node_id: i64,
         function_call_id: String,
         tool_name: String,
-        output_text: String,
+        output: JsonValue,
         is_error: bool,
     },
 }
