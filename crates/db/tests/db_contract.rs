@@ -1,6 +1,6 @@
 use selvedge_db::{
     CommitToolResultBranchesInput, CreateRootTaskInput, DbError, DbPool, FunctionCallId,
-    HistoryNode, HistoryNodeId, JsonObject, MessageRole, ModelProfileKey,
+    HistoryNode, HistoryNodeId, JsonObject, McpToolRegistration, MessageRole, ModelProfileKey,
     NewFunctionCallNodeContent, NewFunctionOutputNodeContent, NewHistoryNode,
     NewHistoryNodeContent, NewMessageNodeContent, OpenDbOptions, ReadTaskInput, ReasoningEffort,
     TaskId, TaskStatusRow, ToolExecutionSource, ToolManifest, ToolName, ToolResultBranch,
@@ -8,7 +8,8 @@ use selvedge_db::{
     append_user_message_and_move_cursor, archive_task, commit_tool_result_branches,
     create_history_node, create_root_task, load_active_task, open_db, queue_user_input,
     read_conversation_for_task, read_task, read_task_parent_edges, read_tool_execution_source,
-    read_tool_manifest_for_task, register_global_tool, register_tool, unpublish_global_tool,
+    read_tool_manifest_for_task, register_global_tool, register_tool, replace_global_mcp_tools,
+    unpublish_global_tool,
 };
 use serde_json::Value;
 
@@ -40,11 +41,40 @@ fn create_message_node(
     .expect("create history node")
 }
 
+fn create_task_without_tools(db: &DbPool, task_id: &str) -> TaskId {
+    create_root_task(
+        db,
+        CreateRootTaskInput {
+            task_id: TaskId(task_id.to_owned()),
+            cursor_node_id: create_message_node(db, None, MessageRole::User, "run", UnixTs(10)),
+            model_profile_key: ModelProfileKey("default".to_owned()),
+            reasoning_effort: ReasoningEffort::Medium,
+            enabled_tools: Vec::new(),
+            now: UnixTs(10),
+        },
+    )
+    .expect("create task")
+    .task_id
+}
+
 fn tool_spec(name: &str, description: &str) -> ToolSpec {
     ToolSpec {
         name: name.to_owned(),
         description: description.to_owned(),
         input_schema: JsonObject::new(),
+    }
+}
+
+fn mcp_registration(
+    name: &str,
+    description: &str,
+    server_id: &str,
+    remote_tool_name: &str,
+) -> McpToolRegistration {
+    McpToolRegistration {
+        tool: tool_spec(name, description),
+        server_id: server_id.to_owned(),
+        remote_tool_name: remote_tool_name.to_owned(),
     }
 }
 
@@ -1002,6 +1032,151 @@ fn execution_source_is_closed_and_harness_registration_cannot_claim_an_mcp_route
             remote_tool_name: "lookup".to_owned(),
         }
     );
+}
+
+#[test]
+fn mcp_catalog_refreshes_definitions_and_unpublishes_stale_routes() {
+    let db = open_db(OpenDbOptions {
+        sqlite_path: ":memory:".to_owned(),
+    })
+    .expect("open db");
+    let harness = tool_spec("bash", "Run a command");
+    register_global_tool(&db, harness.clone()).expect("register harness tool");
+    let active = mcp_registration("mcp__alpha__lookup", "Old lookup", "alpha", "lookup");
+    let stale = mcp_registration("mcp__beta__search", "Search", "beta", "search");
+    replace_global_mcp_tools(&db, vec![active, stale.clone()]).expect("publish MCP catalog");
+    let task_id = create_task_without_tools(&db, "task");
+
+    let mut refreshed = mcp_registration("mcp__alpha__lookup", "New lookup", "alpha", "lookup");
+    refreshed.tool.input_schema = json_object(serde_json::json!({
+        "type": "object",
+        "properties": {
+            "query": { "type": "string" }
+        },
+        "required": ["query"]
+    }));
+    let refreshed_tool = refreshed.tool.clone();
+    replace_global_mcp_tools(&db, vec![refreshed]).expect("refresh MCP catalog");
+
+    assert_eq!(
+        read_tool_manifest_for_task(&db, &task_id)
+            .expect("read refreshed manifest")
+            .tools,
+        vec![harness.clone(), refreshed_tool]
+    );
+    assert_eq!(
+        read_tool_execution_source(&db, &ToolName(stale.tool.name.clone()))
+            .expect("read stale durable route"),
+        ToolExecutionSource::Mcp {
+            server_id: stale.server_id,
+            remote_tool_name: stale.remote_tool_name,
+        }
+    );
+    assert_eq!(
+        read_tool_execution_source(&db, &ToolName(harness.name))
+            .expect("read unchanged harness route"),
+        ToolExecutionSource::Harness
+    );
+}
+
+#[test]
+fn duplicate_mcp_names_roll_back_the_complete_catalog_refresh() {
+    let db = open_db(OpenDbOptions {
+        sqlite_path: ":memory:".to_owned(),
+    })
+    .expect("open db");
+    let original = mcp_registration("mcp__alpha__lookup", "Original", "alpha", "lookup");
+    replace_global_mcp_tools(&db, vec![original.clone()]).expect("publish original catalog");
+    let task_id = create_task_without_tools(&db, "task");
+
+    let duplicate_name = original.tool.name.clone();
+    assert!(matches!(
+        replace_global_mcp_tools(
+            &db,
+            vec![
+                mcp_registration(&duplicate_name, "Changed", "alpha", "lookup"),
+                mcp_registration(&duplicate_name, "Duplicate", "other", "lookup"),
+            ],
+        ),
+        Err(DbError::Constraint(_))
+    ));
+    assert_eq!(
+        read_tool_manifest_for_task(&db, &task_id)
+            .expect("read manifest after duplicate")
+            .tools,
+        vec![original.tool]
+    );
+}
+
+#[test]
+fn mcp_route_conflicts_roll_back_prior_catalog_writes() {
+    let db = open_db(OpenDbOptions {
+        sqlite_path: ":memory:".to_owned(),
+    })
+    .expect("open db");
+    let harness = tool_spec("bash", "Run a command");
+    register_global_tool(&db, harness.clone()).expect("register harness tool");
+    let original = mcp_registration("mcp__alpha__lookup", "Original", "alpha", "lookup");
+    replace_global_mcp_tools(&db, vec![original.clone()]).expect("publish original catalog");
+    let task_id = create_task_without_tools(&db, "task");
+
+    let fresh_name = "mcp__beta__search";
+    assert!(matches!(
+        replace_global_mcp_tools(
+            &db,
+            vec![
+                mcp_registration(fresh_name, "Search", "beta", "search"),
+                mcp_registration(&original.tool.name, "Changed route", "alpha", "different",),
+            ],
+        ),
+        Err(DbError::Constraint(_))
+    ));
+
+    assert_eq!(
+        read_tool_execution_source(&db, &ToolName(fresh_name.to_owned())),
+        Err(DbError::NotFound)
+    );
+    assert_eq!(
+        read_tool_execution_source(&db, &ToolName(original.tool.name.clone()))
+            .expect("read original route"),
+        ToolExecutionSource::Mcp {
+            server_id: original.server_id,
+            remote_tool_name: original.remote_tool_name,
+        }
+    );
+    assert_eq!(
+        read_tool_manifest_for_task(&db, &task_id)
+            .expect("read manifest after route conflict")
+            .tools,
+        vec![harness, original.tool]
+    );
+}
+
+#[test]
+fn empty_mcp_route_names_fail_without_changing_publication() {
+    let db = open_db(OpenDbOptions {
+        sqlite_path: ":memory:".to_owned(),
+    })
+    .expect("open db");
+    let original = mcp_registration("mcp__alpha__lookup", "Original", "alpha", "lookup");
+    replace_global_mcp_tools(&db, vec![original.clone()]).expect("publish original catalog");
+    let task_id = create_task_without_tools(&db, "task");
+
+    for invalid in [
+        mcp_registration("mcp__invalid__server", "Invalid", "", "lookup"),
+        mcp_registration("mcp__invalid__tool", "Invalid", "alpha", ""),
+    ] {
+        assert!(matches!(
+            replace_global_mcp_tools(&db, vec![invalid]),
+            Err(DbError::Constraint(_))
+        ));
+        assert_eq!(
+            read_tool_manifest_for_task(&db, &task_id)
+                .expect("read unchanged manifest")
+                .tools,
+            vec![original.tool.clone()]
+        );
+    }
 }
 
 #[test]
