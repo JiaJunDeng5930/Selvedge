@@ -2,7 +2,7 @@
 
 <!-- selvedge-package-readme
 package: selvedge-config-model
-freshness_fingerprint: b6ab3444b53701c75de7bcb8ffbf0f3f35aa4963
+freshness_fingerprint: e7afea11b758ab494be35798af2f75e9059401d9
 -->
 
 ## This crate is for
@@ -17,6 +17,7 @@ Use it to:
 - materialize `AppConfig` from raw TOML input
 - expose strongly typed logging levels and module-level log overrides
 - expose strongly typed network settings consumed by transport crates
+- expose validated stdio MCP server process settings
 
 ## This crate is not for
 
@@ -89,6 +90,10 @@ let connect_timeout = config.network.connect_timeout_ms;
 - downstream transport crates decide whether `None` means "do not set this option" or "treat this as an error"
 - this is different from fields such as `server.request_timeout_ms`, which materialize to a concrete default value inside the config model
 
+Configured MCP clients read complete stdio process definitions from
+`config.mcp.servers`. Missing `[mcp]` configuration produces an empty map, and
+each configured server defaults to a 60-second call timeout.
+
 ## Validation
 
 Each config type validates its own invariants.
@@ -148,9 +153,9 @@ flowchart TD
   Start -->|AppConfig::try_from receives TOML table| Decode
   Decode -->|all provided fields decode to known types| Defaults
   Decode -->|a field has wrong type or unknown structured shape| DecodeError
-  Defaults -->|all missing fields receive defaults and the LLM provider map defaults to empty| Validate
-  Validate -->|server, network, logging, feature, provider id, provider base URL, provider timeout, and explicit model invariants hold| Ready
-  Validate -->|port, timeout, URL, log filter, percentage, provider id, explicit model, or provider setting violates invariant| ValidationError
+  Defaults -->|all missing fields receive defaults and the LLM provider and MCP server maps default to empty| Validate
+  Validate -->|server, network, logging, feature, LLM provider, and MCP stdio process invariants hold| Ready
+  Validate -->|a scalar, provider definition, or MCP server definition violates its invariant| ValidationError
   Start -->|caller decodes update value for a config path| PatchInput
   PatchInput -->|path and value decode for target field| PatchValidate
   PatchInput -->|path is unknown or value type is invalid| DecodeError
