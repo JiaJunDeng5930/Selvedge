@@ -14,6 +14,7 @@ pub struct AppConfig {
     pub logging: LoggingConfig,
     pub feature: FeatureConfig,
     pub llm: LlmConfig,
+    pub mcp: McpConfig,
 }
 
 impl AppConfig {
@@ -23,6 +24,7 @@ impl AppConfig {
         self.logging.validate()?;
         self.feature.validate()?;
         self.llm.validate()?;
+        self.mcp.validate()?;
 
         Ok(())
     }
@@ -219,6 +221,78 @@ impl LlmProviderConfig {
     }
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+pub struct McpConfig {
+    pub servers: BTreeMap<String, McpServerConfig>,
+}
+
+impl McpConfig {
+    pub fn validate(&self) -> Result<(), ValidationError> {
+        for (server_id, server) in &self.servers {
+            validate_mcp_server_id(server_id)?;
+            server.validate_for_server(server_id)?;
+        }
+
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct McpServerConfig {
+    pub command: String,
+    pub args: Vec<String>,
+    pub env: BTreeMap<String, String>,
+    pub timeout_ms: u64,
+}
+
+impl McpServerConfig {
+    const DEFAULT_TIMEOUT_MS: u64 = 60_000;
+
+    pub fn validate(&self) -> Result<(), ValidationError> {
+        self.validate_for_server("<server>")
+    }
+
+    fn validate_for_server(&self, server_id: &str) -> Result<(), ValidationError> {
+        if self.command.trim().is_empty() {
+            return Err(ValidationError::BlankMcpServerCommand {
+                server_id: server_id.to_owned(),
+            });
+        }
+
+        if self.timeout_ms == 0 {
+            return Err(ValidationError::InvalidMcpServerTimeout {
+                server_id: server_id.to_owned(),
+            });
+        }
+
+        for (index, argument) in self.args.iter().enumerate() {
+            if argument.contains('\0') {
+                return Err(ValidationError::InvalidMcpServerArgument {
+                    server_id: server_id.to_owned(),
+                    index,
+                });
+            }
+        }
+
+        for (key, value) in &self.env {
+            if key.is_empty() || key.contains('\0') {
+                return Err(ValidationError::InvalidMcpServerEnvKey {
+                    server_id: server_id.to_owned(),
+                    key: key.clone(),
+                });
+            }
+            if value.contains('\0') {
+                return Err(ValidationError::InvalidMcpServerEnvValue {
+                    server_id: server_id.to_owned(),
+                    key: key.clone(),
+                });
+            }
+        }
+
+        Ok(())
+    }
+}
+
 fn validate_provider_id(provider_id: &str) -> Result<(), ValidationError> {
     if provider_id.trim().is_empty() {
         return Err(ValidationError::InvalidProviderId {
@@ -313,6 +387,20 @@ fn validate_setting_value(provider_id: &str, value: &toml::Value) -> Result<(), 
         | toml::Value::Boolean(_)
         | toml::Value::Datetime(_) => {}
     }
+    Ok(())
+}
+
+fn validate_mcp_server_id(server_id: &str) -> Result<(), ValidationError> {
+    if server_id.is_empty()
+        || !server_id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b'_'))
+    {
+        return Err(ValidationError::InvalidMcpServerId {
+            server_id: server_id.to_owned(),
+        });
+    }
+
     Ok(())
 }
 
@@ -417,6 +505,18 @@ pub enum ValidationError {
         provider_id: String,
         setting: String,
     },
+    #[error("mcp.servers contains invalid server id {server_id:?}")]
+    InvalidMcpServerId { server_id: String },
+    #[error("mcp.servers.{server_id}.command must not be blank")]
+    BlankMcpServerCommand { server_id: String },
+    #[error("mcp.servers.{server_id}.timeout_ms must be greater than zero")]
+    InvalidMcpServerTimeout { server_id: String },
+    #[error("mcp.servers.{server_id}.args[{index}] must not contain NUL")]
+    InvalidMcpServerArgument { server_id: String, index: usize },
+    #[error("mcp.servers.{server_id}.env contains invalid key {key:?}")]
+    InvalidMcpServerEnvKey { server_id: String, key: String },
+    #[error("mcp.servers.{server_id}.env.{key} must not contain NUL")]
+    InvalidMcpServerEnvValue { server_id: String, key: String },
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -427,6 +527,7 @@ struct AppConfigInput {
     logging: LoggingConfigInput,
     feature: FeatureConfigInput,
     llm: LlmConfigInput,
+    mcp: McpConfigInput,
 }
 
 impl AppConfigInput {
@@ -437,6 +538,7 @@ impl AppConfigInput {
             logging: self.logging.materialize(),
             feature: self.feature.materialize(),
             llm: self.llm.materialize(),
+            mcp: self.mcp.materialize(),
         }
     }
 }
@@ -547,6 +649,46 @@ struct LlmProviderConfigInput {
     stream_completion_timeout_ms: Option<u64>,
     models: Vec<String>,
     settings: BTreeMap<String, toml::Value>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct McpConfigInput {
+    servers: BTreeMap<String, McpServerConfigInput>,
+}
+
+impl McpConfigInput {
+    fn materialize(self) -> McpConfig {
+        McpConfig {
+            servers: self
+                .servers
+                .into_iter()
+                .map(|(server_id, server)| (server_id, server.materialize()))
+                .collect(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct McpServerConfigInput {
+    command: String,
+    args: Vec<String>,
+    env: BTreeMap<String, String>,
+    timeout_ms: Option<u64>,
+}
+
+impl McpServerConfigInput {
+    fn materialize(self) -> McpServerConfig {
+        McpServerConfig {
+            command: self.command,
+            args: self.args,
+            env: self.env,
+            timeout_ms: self
+                .timeout_ms
+                .unwrap_or(McpServerConfig::DEFAULT_TIMEOUT_MS),
+        }
+    }
 }
 
 impl LlmProviderConfigInput {

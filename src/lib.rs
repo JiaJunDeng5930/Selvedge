@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::future::Future;
 use std::process::Stdio;
 use std::sync::Arc;
@@ -89,6 +89,7 @@ pub struct CliResolvedConfig {
     pub systemd_config: SystemdConfig,
     pub ready_timeout: Duration,
     pub ready_poll_interval: Duration,
+    pub mcp_servers: BTreeMap<String, selvedge_config_model::McpServerConfig>,
 }
 
 impl Default for CliResolvedConfig {
@@ -107,6 +108,7 @@ impl Default for CliResolvedConfig {
             },
             ready_timeout: DEFAULT_REQUEST_TIMEOUT,
             ready_poll_interval: DEFAULT_READY_POLL_INTERVAL,
+            mcp_servers: BTreeMap::new(),
         }
     }
 }
@@ -164,6 +166,7 @@ fn build_server_start_args(resolved_config: &CliResolvedConfig) -> ServerStartAr
         web_binding: Some(selvedge_server::WebBindingConfig {
             bind_target: local_bind_target,
         }),
+        mcp_servers: resolved_config.mcp_servers.clone(),
     }
 }
 
@@ -276,6 +279,7 @@ fn cli_resolved_config_from_app_config(
         },
         ready_timeout: request_timeout,
         ready_poll_interval: DEFAULT_READY_POLL_INTERVAL,
+        mcp_servers: config.mcp.servers.clone(),
     })
 }
 
@@ -947,6 +951,22 @@ mod tests {
         LocalClientSubscription, LocalDetailLevel, LocalNotice, LocalNoticeKind, LocalNoticeLevel,
         LocalTaskScope,
     };
+
+    #[test]
+    fn server_start_args_carry_effective_mcp_servers() {
+        let app_config = selvedge_config_model::AppConfig::try_from(toml::toml! {
+            [mcp.servers.filesystem]
+            command = "mcp-filesystem"
+        })
+        .expect("MCP config");
+        let Ok(resolved_config) = cli_resolved_config_from_app_config(&app_config) else {
+            panic!("resolve CLI config");
+        };
+
+        let server_args = build_server_start_args(&resolved_config);
+
+        assert_eq!(server_args.mcp_servers, app_config.mcp.servers);
+    }
 
     #[tokio::test]
     async fn command_uses_ready_client_without_systemd_start() {

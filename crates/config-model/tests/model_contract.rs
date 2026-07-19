@@ -12,6 +12,7 @@ fn empty_table_materializes_to_valid_defaults() {
     assert_eq!(config.network.request_timeout_ms, None);
     assert_eq!(config.network.stream_idle_timeout_ms, None);
     assert!(config.llm.providers.is_empty());
+    assert!(config.mcp.servers.is_empty());
 }
 
 #[test]
@@ -267,5 +268,132 @@ fn provider_rejects_invalid_provider_id() {
     assert_eq!(
         error.to_string(),
         "llm.providers contains invalid provider id \"bad/id\""
+    );
+}
+
+#[test]
+fn mcp_servers_materialize_with_defaults_and_explicit_process_settings() {
+    let table = toml::toml! {
+        [mcp.servers.filesystem]
+        command = "npx"
+        args = ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
+
+        [mcp.servers.filesystem.env]
+        LOG_LEVEL = "warn"
+
+        [mcp.servers."acme.tools"]
+        command = "/opt/acme/mcp"
+        timeout_ms = 2_500
+    };
+
+    let config = AppConfig::try_from(table).expect("materialize mcp config");
+    let filesystem = config
+        .mcp
+        .servers
+        .get("filesystem")
+        .expect("filesystem server");
+    let acme = config.mcp.servers.get("acme.tools").expect("acme server");
+
+    assert_eq!(filesystem.command, "npx");
+    assert_eq!(
+        filesystem.args,
+        ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
+    );
+    assert_eq!(
+        filesystem.env.get("LOG_LEVEL").map(String::as_str),
+        Some("warn")
+    );
+    assert_eq!(filesystem.timeout_ms, 60_000);
+    assert_eq!(acme.timeout_ms, 2_500);
+}
+
+#[test]
+fn mcp_server_rejects_invalid_id_blank_command_and_zero_timeout() {
+    let invalid_id = toml::toml! {
+        [mcp.servers."bad/id"]
+        command = "mcp-server"
+    };
+    let blank_command = toml::toml! {
+        [mcp.servers.valid]
+        command = " \t "
+    };
+    let zero_timeout = toml::toml! {
+        [mcp.servers.valid]
+        command = "mcp-server"
+        timeout_ms = 0
+    };
+
+    assert_eq!(
+        AppConfig::try_from(invalid_id)
+            .expect_err("invalid server id must fail")
+            .to_string(),
+        "mcp.servers contains invalid server id \"bad/id\""
+    );
+    assert_eq!(
+        AppConfig::try_from(blank_command)
+            .expect_err("blank command must fail")
+            .to_string(),
+        "mcp.servers.valid.command must not be blank"
+    );
+    assert_eq!(
+        AppConfig::try_from(zero_timeout)
+            .expect_err("zero timeout must fail")
+            .to_string(),
+        "mcp.servers.valid.timeout_ms must be greater than zero"
+    );
+}
+
+#[test]
+fn mcp_server_rejects_nul_in_arguments_and_environment() {
+    let nul_argument = toml::toml! {
+        [mcp.servers.valid]
+        command = "mcp-server"
+        args = ["ok", "bad\u{0}argument"]
+    };
+    let empty_env_key = toml::toml! {
+        [mcp.servers.valid]
+        command = "mcp-server"
+
+        [mcp.servers.valid.env]
+        "" = "value"
+    };
+    let nul_env_key = toml::toml! {
+        [mcp.servers.valid]
+        command = "mcp-server"
+
+        [mcp.servers.valid.env]
+        "BAD\u{0}KEY" = "value"
+    };
+    let nul_env_value = toml::toml! {
+        [mcp.servers.valid]
+        command = "mcp-server"
+
+        [mcp.servers.valid.env]
+        KEY = "bad\u{0}value"
+    };
+
+    assert_eq!(
+        AppConfig::try_from(nul_argument)
+            .expect_err("NUL argument must fail")
+            .to_string(),
+        "mcp.servers.valid.args[1] must not contain NUL"
+    );
+    assert_eq!(
+        AppConfig::try_from(empty_env_key)
+            .expect_err("empty environment key must fail")
+            .to_string(),
+        "mcp.servers.valid.env contains invalid key \"\""
+    );
+    assert_eq!(
+        AppConfig::try_from(nul_env_key)
+            .expect_err("NUL environment key must fail")
+            .to_string(),
+        "mcp.servers.valid.env contains invalid key \"BAD\\0KEY\""
+    );
+    assert_eq!(
+        AppConfig::try_from(nul_env_value)
+            .expect_err("NUL environment value must fail")
+            .to_string(),
+        "mcp.servers.valid.env.KEY must not contain NUL"
     );
 }
