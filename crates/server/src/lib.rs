@@ -31,7 +31,10 @@ use selvedge_command_model::{
 };
 use selvedge_config_model::{HarnessConfig, McpServerConfig};
 use selvedge_core::TaskRuntimeSpawnDeps;
-use selvedge_db::{OpenDbOptions, open_db, register_global_tool, replace_global_mcp_tools};
+use selvedge_db::{
+    DbPool, McpToolRegistration, OpenDbOptions, open_db, register_global_tool,
+    replace_global_mcp_tools,
+};
 use selvedge_domain_model::{MessageRole, ReasoningEffort, TaskId};
 use selvedge_events::{EventsHandle, EventsStartArgs, SpawnEventsError, spawn_events_task};
 use selvedge_harness::{McpConnectionSet, ToolExecutor, tool_manifest};
@@ -347,10 +350,7 @@ pub async fn spawn_server(args: ServerStartArgs) -> Result<ServerHandle, ServerS
     let singleton_lock = acquire_singleton_lock(&home)?;
     let web_bind = match reserve_web_binding(args.web_binding.as_ref()) {
         Ok(web_bind) => web_bind,
-        Err(error) => {
-            cleanup_startup_lock(&home);
-            return Err(error);
-        }
+        Err(error) => return fail_locked_startup(&home, singleton_lock, error),
     };
 
     let startup_result = start_server_after_lock(args, home, singleton_lock, web_bind).await;
@@ -671,6 +671,215 @@ impl ServerControl {
 struct ServerContext {
     inner: Arc<ServerInner>,
     join_handle: JoinHandle<ServerExitStatus>,
+}
+
+struct StartupResources {
+    home: PathBuf,
+    singleton_lock: Option<File>,
+    mcp_connections: McpConnectionSet,
+    events: Option<EventsHandle>,
+    client_sync: Option<ClientSyncHandle>,
+    router: Option<RouterHandle>,
+    web: Option<WebHandle>,
+    inner: Option<Arc<ServerInner>>,
+}
+
+impl StartupResources {
+    fn new(home: PathBuf, singleton_lock: File, mcp_connections: McpConnectionSet) -> Self {
+        Self {
+            home,
+            singleton_lock: Some(singleton_lock),
+            mcp_connections,
+            events: None,
+            client_sync: None,
+            router: None,
+            web: None,
+            inner: None,
+        }
+    }
+
+    async fn prepare(
+        &mut self,
+        args: ServerStartArgs,
+        db: DbPool,
+        mcp_tools: Vec<McpToolRegistration>,
+        web_bind: Option<WebBindReservation>,
+    ) -> Result<(), ServerStartupError> {
+        replace_global_mcp_tools(&db, mcp_tools)
+            .map_err(|error| ServerStartupError::McpCatalogRegistrationFailed(error.to_string()))?;
+
+        self.events = Some(
+            spawn_events_task(EventsStartArgs {
+                ingress_capacity: DEFAULT_EVENTS_INGRESS_CAPACITY,
+                client_registry_capacity: DEFAULT_CLIENT_REGISTRY_CAPACITY,
+                hydration_buffer_capacity: DEFAULT_HYDRATION_BUFFER_CAPACITY,
+            })
+            .map_err(map_events_start_error)?,
+        );
+        let events_tx = self
+            .events
+            .as_ref()
+            .expect("startup events")
+            .ingress_tx
+            .clone();
+        self.client_sync = Some(
+            spawn_client_sync(ClientSyncStartArgs {
+                events_tx: events_tx.clone(),
+                snapshot_builder: args.snapshot_builder,
+                ingress_capacity: DEFAULT_CLIENT_SYNC_INGRESS_CAPACITY,
+            })
+            .map_err(map_client_sync_start_error)?,
+        );
+        self.router = Some(
+            selvedge_router::spawn_router(RouterStartArgs {
+                db: db.clone(),
+                events_tx,
+                api_config: args.api_config,
+                tool_executor: Arc::new(ToolExecutor::new(
+                    db,
+                    self.mcp_connections.clone(),
+                    args.harness_config,
+                )),
+                core_spawn_deps: args.core_spawn_deps,
+            })
+            .map_err(map_router_start_error)?,
+        );
+        let router = self.router.as_ref().expect("startup router");
+        if router
+            .ingress_tx
+            .send(RouterIngressMessage::Command(RouterCommandEnvelope {
+                client_id: None,
+                client_command_id: None,
+                command: RouterCommand::EnsureMissingTaskRuntimes,
+            }))
+            .is_err()
+        {
+            return Err(ServerStartupError::RouterStartFailed(
+                "router closed before active runtime recovery".to_owned(),
+            ));
+        }
+
+        let inner = Arc::new(ServerInner {
+            state: RwLock::new(ServerRuntimeState::Ready),
+            closing: AtomicBool::new(false),
+            request_gate: Mutex::new(()),
+            stop_notify: Notify::new(),
+            lock_path: lock_path_for_home(&self.home),
+            _singleton_lock: self.singleton_lock.take().expect("startup singleton lock"),
+            router_tx: router.ingress_tx.clone(),
+            events_tx: Mutex::new(Some(
+                self.events
+                    .as_ref()
+                    .expect("startup events")
+                    .ingress_tx
+                    .clone(),
+            )),
+            client_sync_tx: Mutex::new(
+                self.client_sync
+                    .as_ref()
+                    .expect("startup client sync")
+                    .ingress_tx
+                    .clone(),
+            ),
+            attach_state: Arc::new(StdMutex::new(AttachState::default())),
+            frame_channel_factory: Arc::new(TokioAttachFrameChannelFactory),
+            local_operation_executor: args.local_operation_executor,
+            login_gate: Arc::new(Semaphore::new(1)),
+            local_operation_tasks: StdMutex::new(Vec::new()),
+            web_control: StdMutex::new(None),
+        });
+        self.inner = Some(inner.clone());
+        self.web = start_web(
+            web_bind,
+            ServerControl {
+                inner: inner.clone(),
+            },
+        )?;
+        *inner.web_control.lock().expect("server web control lock") =
+            self.web.as_ref().map(|handle| handle.control.clone());
+        Ok(())
+    }
+
+    async fn rollback(
+        mut self,
+        error: ServerStartupError,
+    ) -> Result<ServerContext, ServerStartupError> {
+        let inner = self.inner.take();
+        if let Some(inner) = inner.as_ref() {
+            inner.closing.store(true, Ordering::SeqCst);
+            *inner.state.write().await = ServerRuntimeState::Closing;
+            inner.abort_local_operation_tasks();
+            let _ = inner.events_tx.lock().await.take();
+            inner
+                .web_control
+                .lock()
+                .expect("server web control lock")
+                .take();
+        }
+        if let Some(router) = self.router.as_ref() {
+            let _ = router.ingress_tx.send(RouterIngressMessage::StopRouter);
+        }
+        if let Some(client_sync) = self.client_sync.as_ref() {
+            let _ = client_sync
+                .ingress_tx
+                .send(ClientSyncIngress::Shutdown)
+                .await;
+        }
+        if let Some(web) = self.web.as_ref() {
+            web.control.stop().await;
+        }
+
+        if let Some(RouterHandle {
+            ingress_tx,
+            join_handle,
+        }) = self.router.take()
+        {
+            drop(ingress_tx);
+            let _ = join_handle.await;
+        }
+        if let Some(ClientSyncHandle {
+            ingress_tx,
+            join_handle,
+        }) = self.client_sync.take()
+        {
+            drop(ingress_tx);
+            let _ = join_handle.await;
+        }
+        if let Some(WebHandle {
+            control,
+            join_handle,
+        }) = self.web.take()
+        {
+            drop(control);
+            let _ = join_handle.await;
+        }
+        if let Some(EventsHandle {
+            ingress_tx,
+            join_handle,
+        }) = self.events.take()
+        {
+            drop(ingress_tx);
+            let _ = join_handle.await;
+        }
+        self.mcp_connections.close().await;
+        drop(inner);
+        drop(self.singleton_lock.take());
+        cleanup_startup_lock(&self.home);
+        Err(error)
+    }
+
+    fn finish(mut self) -> ServerContext {
+        let inner = self.inner.take().expect("startup server state");
+        let join_handle = spawn_server_join_task(
+            inner.clone(),
+            self.router.take().expect("startup router"),
+            self.events.take().expect("startup events"),
+            self.client_sync.take().expect("startup client sync"),
+            self.web.take(),
+            self.mcp_connections,
+        );
+        ServerContext { inner, join_handle }
+    }
 }
 
 struct ServerInner {
@@ -1031,8 +1240,7 @@ async fn start_server_after_lock(
     web_bind: Option<WebBindReservation>,
 ) -> Result<ServerContext, ServerStartupError> {
     if let Err(error) = init_logging() {
-        cleanup_startup_lock(&home);
-        return Err(error);
+        return fail_locked_startup(&home, singleton_lock, error);
     }
 
     let db = match open_db(OpenDbOptions {
@@ -1041,129 +1249,47 @@ async fn start_server_after_lock(
     }) {
         Ok(db) => db,
         Err(error) => {
-            cleanup_startup_lock(&home);
-            return Err(ServerStartupError::DbOpenFailed(error.to_string()));
+            return fail_locked_startup(
+                &home,
+                singleton_lock,
+                ServerStartupError::DbOpenFailed(error.to_string()),
+            );
         }
     };
     for tool in tool_manifest(&args.harness_config).tools {
         if let Err(error) = register_global_tool(&db, tool) {
-            cleanup_startup_lock(&home);
-            return Err(ServerStartupError::ToolRegistrationFailed(
-                error.to_string(),
-            ));
+            return fail_locked_startup(
+                &home,
+                singleton_lock,
+                ServerStartupError::ToolRegistrationFailed(error.to_string()),
+            );
         }
     }
     let (mcp_connections, mcp_tools) = match McpConnectionSet::connect(&args.mcp_servers).await {
         Ok(discovery) => discovery,
         Err(error) => {
-            cleanup_startup_lock(&home);
-            return Err(ServerStartupError::McpStartFailed(error.to_string()));
+            return fail_locked_startup(
+                &home,
+                singleton_lock,
+                ServerStartupError::McpStartFailed(error.to_string()),
+            );
         }
     };
-    if let Err(error) = replace_global_mcp_tools(&db, mcp_tools) {
-        cleanup_startup_lock(&home);
-        return Err(ServerStartupError::McpCatalogRegistrationFailed(
-            error.to_string(),
-        ));
+    let mut resources = StartupResources::new(home, singleton_lock, mcp_connections);
+    if let Err(error) = resources.prepare(args, db, mcp_tools, web_bind).await {
+        return resources.rollback(error).await;
     }
+    Ok(resources.finish())
+}
 
-    let events = match spawn_events_task(EventsStartArgs {
-        ingress_capacity: DEFAULT_EVENTS_INGRESS_CAPACITY,
-        client_registry_capacity: DEFAULT_CLIENT_REGISTRY_CAPACITY,
-        hydration_buffer_capacity: DEFAULT_HYDRATION_BUFFER_CAPACITY,
-    }) {
-        Ok(events) => events,
-        Err(error) => {
-            cleanup_startup_lock(&home);
-            return Err(map_events_start_error(error));
-        }
-    };
-
-    let client_sync = match spawn_client_sync(ClientSyncStartArgs {
-        events_tx: events.ingress_tx.clone(),
-        snapshot_builder: args.snapshot_builder,
-        ingress_capacity: DEFAULT_CLIENT_SYNC_INGRESS_CAPACITY,
-    }) {
-        Ok(client_sync) => client_sync,
-        Err(error) => {
-            cleanup_startup_lock(&home);
-            return Err(map_client_sync_start_error(error));
-        }
-    };
-
-    let router = match selvedge_router::spawn_router(RouterStartArgs {
-        db: db.clone(),
-        events_tx: events.ingress_tx.clone(),
-        api_config: args.api_config,
-        tool_executor: Arc::new(ToolExecutor::new(
-            db,
-            mcp_connections.clone(),
-            args.harness_config,
-        )),
-        core_spawn_deps: args.core_spawn_deps,
-    }) {
-        Ok(router) => router,
-        Err(error) => {
-            cleanup_startup_lock(&home);
-            return Err(map_router_start_error(error));
-        }
-    };
-    if router
-        .ingress_tx
-        .send(RouterIngressMessage::Command(RouterCommandEnvelope {
-            client_id: None,
-            client_command_id: None,
-            command: RouterCommand::EnsureMissingTaskRuntimes,
-        }))
-        .is_err()
-    {
-        cleanup_startup_lock(&home);
-        return Err(ServerStartupError::RouterStartFailed(
-            "router closed before active runtime recovery".to_owned(),
-        ));
-    }
-
-    let inner = Arc::new(ServerInner {
-        state: RwLock::new(ServerRuntimeState::Ready),
-        closing: AtomicBool::new(false),
-        request_gate: Mutex::new(()),
-        stop_notify: Notify::new(),
-        lock_path: lock_path_for_home(&home),
-        _singleton_lock: singleton_lock,
-        router_tx: router.ingress_tx.clone(),
-        events_tx: Mutex::new(Some(events.ingress_tx.clone())),
-        client_sync_tx: Mutex::new(client_sync.ingress_tx.clone()),
-        attach_state: Arc::new(StdMutex::new(AttachState::default())),
-        frame_channel_factory: Arc::new(TokioAttachFrameChannelFactory),
-        local_operation_executor: args.local_operation_executor,
-        login_gate: Arc::new(Semaphore::new(1)),
-        local_operation_tasks: StdMutex::new(Vec::new()),
-        web_control: StdMutex::new(None),
-    });
-    let web = match start_web(
-        web_bind,
-        ServerControl {
-            inner: inner.clone(),
-        },
-    ) {
-        Ok(web) => web,
-        Err(error) => {
-            cleanup_startup_lock(&home);
-            return Err(error);
-        }
-    };
-    *inner.web_control.lock().expect("server web control lock") =
-        web.as_ref().map(|handle| handle.control.clone());
-    let join_handle = spawn_server_join_task(
-        inner.clone(),
-        router,
-        events,
-        client_sync,
-        web,
-        mcp_connections,
-    );
-
-    Ok(ServerContext { inner, join_handle })
+fn fail_locked_startup<T>(
+    home: &Path,
+    singleton_lock: File,
+    error: ServerStartupError,
+) -> Result<T, ServerStartupError> {
+    drop(singleton_lock);
+    cleanup_startup_lock(home);
+    Err(error)
 }
 
 fn cleanup_startup_lock(home: &Path) {

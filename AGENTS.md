@@ -25,6 +25,11 @@ This file is for coding agents working in this repository.
 - `cargo xtask readme check-freshness` compares the recorded fingerprint with the current Git index and reports stale packages.
 - After reviewing affected state machines, run `cargo xtask readme update-freshness` to refresh every package fingerprint.
 
+## Persistent Data Formats
+
+- Persisted data has one current format. Do not add migrations, fallback parsers, dual reads or writes, version bridges, or compatibility shims for obsolete formats unless the user explicitly requests compatibility.
+- When a persisted format changes, remove the superseded schema, fixtures, adapters, and tests. Existing data in any other format must fail current-format validation instead of being converted.
+
 ## Branch Protection
 
 - `main` is a protected branch.
@@ -120,8 +125,7 @@ This file is for coding agents working in this repository.
 |crates/core/tests:{runtime_contract.rs}
 |crates/db:{src/,tests/,Cargo.toml,README.md}
 |crates/db/src:{lib.rs,schema.sql}
-|crates/db/tests:{fixtures/,db_contract.rs}
-|crates/db/tests/fixtures:{schema_v5.sql}
+|crates/db/tests:{db_contract.rs}
 |crates/domain-model:{src/,tests/,Cargo.toml,README.md}
 |crates/domain-model/src:{lib.rs}
 |crates/domain-model/tests:{domain_contract.rs}

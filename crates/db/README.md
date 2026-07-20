@@ -2,12 +2,12 @@
 
 <!-- selvedge-package-readme
 package: selvedge-db
-freshness_fingerprint: 03df8c8894b8981c2b0e2073c3bc917b08064d43
+freshness_fingerprint: 548d8d2d251648e17e4ba02cd925977e89c19289
 -->
 
 This crate owns SQLite persistence for router-mediated Selvedge tasks.
 
-Use it to open a schema-v7 SQLite database, migrate schema-v5 or schema-v6 databases, register harness tools, atomically reconcile the global MCP tool catalog, create root tasks, atomically commit tool-result branches, commit other task-runtime state transitions, queue user inputs, archive tasks, and read bounded task snapshots.
+Use it to create and open schema-v7 SQLite databases, register harness tools, atomically reconcile the global MCP tool catalog, create root tasks, atomically commit tool-result branches, commit other task-runtime state transitions, queue user inputs, archive tasks, and read bounded task snapshots. Nonempty databases must match schema v7 exactly.
 
 This crate is for SQLite persistence only. Runtime wait state, provider calls, tool execution, router registries, and event delivery live in other crates.
 
@@ -39,7 +39,6 @@ flowchart TD
   Open[Open SQLite database]
   Schema{stored schema state}
   Initialize[Create schema v7]
-  Migrate[Migrate schema v5 or v6 to v7]
   SnapshotTx[Start read_task transaction]
   SnapshotValidate[Validate task, limit, and after node]
   SnapshotPage[Read metadata and cursor-path page]
@@ -48,7 +47,7 @@ flowchart TD
   Validate[Validate durable preconditions]
   Commit[Commit transaction]
   Return[Return caller-visible result]
-  OpenError[Return open or migration error]
+  OpenError[Return open or schema error]
   ReadError[Return read or decode error]
   ValidationError[Return invalid task, cursor, tool, publication, or state error]
   CommitError[Return commit database error]
@@ -57,13 +56,10 @@ flowchart TD
   Open -->|database has no application tables| Initialize
   Open -->|database has application tables and schema metadata is readable| Schema
   Open -->|SQLite open or schema metadata read fails| OpenError
-  Schema -->|stored version is harness-persistence-v5 or json-tool-foundation-v6| Migrate
   Schema -->|stored version is tool-result-branches-v7| Return
   Schema -->|stored version is missing or unsupported| OpenError
   Initialize -->|schema-v7 batch succeeds| Return
   Initialize -->|schema creation fails| OpenError
-  Migrate -->|legacy tool JSON is normalized, output storage is rebuilt for JSON sibling branches, and the version update commits| Return
-  Migrate -->|migration transaction fails| OpenError
   Start -->|read_task is called with open connection| SnapshotTx
   SnapshotTx -->|transaction begins| SnapshotValidate
   SnapshotTx -->|transaction begin fails| ReadError

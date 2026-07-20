@@ -13,8 +13,6 @@ pub use selvedge_domain_model::{
 use serde_json::Value;
 
 const SCHEMA_VERSION: &str = "tool-result-branches-v7";
-const JSON_TOOL_SCHEMA_VERSION: &str = "json-tool-foundation-v6";
-const HARNESS_SCHEMA_VERSION: &str = "harness-persistence-v5";
 pub const MAX_TASK_HISTORY_PAGE_SIZE: u32 = 100;
 
 #[derive(Clone)]
@@ -351,7 +349,7 @@ pub fn open_db(options: OpenDbOptions) -> Result<DbPool, DbError> {
             "max task descendants must be greater than zero".to_owned(),
         ));
     }
-    let mut connection = Connection::open(&options.sqlite_path).map_err(map_error)?;
+    let connection = Connection::open(&options.sqlite_path).map_err(map_error)?;
     connection
         .pragma_update(None, "foreign_keys", "ON")
         .map_err(map_error)?;
@@ -360,8 +358,6 @@ pub fn open_db(options: OpenDbOptions) -> Result<DbPool, DbError> {
         connection
             .execute_batch(include_str!("schema.sql"))
             .map_err(map_error)?;
-    } else {
-        migrate_schema(&mut connection)?;
     }
 
     let db = DbPool {
@@ -1439,217 +1435,6 @@ impl DbPool {
     }
 }
 
-fn migrate_schema(connection: &mut Connection) -> Result<(), DbError> {
-    let tx = connection
-        .transaction_with_behavior(TransactionBehavior::Immediate)
-        .map_err(map_error)?;
-    let actual: Option<String> = tx
-        .query_row(
-            "SELECT schema_value
-             FROM schema_metadata
-             WHERE schema_key = 'selvedge_schema_version'",
-            [],
-            |row| row.get(0),
-        )
-        .optional()
-        .map_err(map_error)?;
-    let migrate_harness_schema = match actual.as_deref() {
-        Some(HARNESS_SCHEMA_VERSION) => true,
-        Some(JSON_TOOL_SCHEMA_VERSION) => false,
-        _ => {
-            tx.rollback().map_err(map_error)?;
-            return Ok(());
-        }
-    };
-
-    if migrate_harness_schema {
-        tx.execute_batch(
-            "ALTER TABLE tools
-             ADD COLUMN input_schema_json TEXT NOT NULL DEFAULT '{}'
-             CHECK (json_valid(input_schema_json) AND json_type(input_schema_json) = 'object');
-         ALTER TABLE tools ADD COLUMN mcp_server_id TEXT;
-         ALTER TABLE tools ADD COLUMN remote_tool_name TEXT;
-         ALTER TABLE tools
-             ADD COLUMN execution_source_kind TEXT NOT NULL DEFAULT 'harness'
-             CHECK (
-                 (
-                     execution_source_kind = 'harness'
-                     AND mcp_server_id IS NULL
-                     AND remote_tool_name IS NULL
-                 )
-                 OR
-                 (
-                     execution_source_kind = 'mcp'
-                     AND mcp_server_id IS NOT NULL
-                     AND remote_tool_name IS NOT NULL
-                     AND length(mcp_server_id) > 0
-                     AND length(remote_tool_name) > 0
-                 )
-             );
-         ALTER TABLE history_function_call_nodes
-             ADD COLUMN arguments_json TEXT NOT NULL DEFAULT '{}'
-             CHECK (json_valid(arguments_json) AND json_type(arguments_json) = 'object');",
-        )
-        .map_err(map_error)?;
-
-        let tool_names = {
-            let mut statement = tx
-                .prepare("SELECT tool_name FROM tools ORDER BY tool_name ASC")
-                .map_err(map_error)?;
-            statement
-                .query_map([], |row| row.get::<_, String>(0))
-                .map_err(map_error)?
-                .collect::<Result<Vec<_>, _>>()
-                .map_err(map_error)?
-        };
-        for tool_name in tool_names {
-            let parameters = {
-                let mut statement = tx
-                    .prepare(
-                        "SELECT parameter_name, parameter_type, description_text, is_required
-                         FROM tool_parameters
-                         WHERE tool_name = ?1
-                         ORDER BY parameter_name ASC",
-                    )
-                    .map_err(map_error)?;
-                statement
-                    .query_map(params![tool_name], |row| {
-                        Ok(LegacyToolParameter {
-                            name: row.get(0)?,
-                            parameter_type: row.get(1)?,
-                            description: row.get(2)?,
-                            required: row.get::<_, i64>(3)? == 1,
-                        })
-                    })
-                    .map_err(map_error)?
-                    .collect::<Result<Vec<_>, _>>()
-                    .map_err(map_error)?
-            };
-            let input_schema_json = encode_json_object(&legacy_input_schema(parameters)?)?;
-            tx.execute(
-                "UPDATE tools SET input_schema_json = ?1 WHERE tool_name = ?2",
-                params![input_schema_json, tool_name],
-            )
-            .map_err(map_error)?;
-        }
-
-        let function_call_node_ids = {
-            let mut statement = tx
-                .prepare("SELECT node_id FROM history_function_call_nodes ORDER BY node_id ASC")
-                .map_err(map_error)?;
-            statement
-                .query_map([], |row| row.get::<_, i64>(0))
-                .map_err(map_error)?
-                .collect::<Result<Vec<_>, _>>()
-                .map_err(map_error)?
-        };
-        for node_id in function_call_node_ids {
-            let arguments = {
-                let mut statement = tx
-                    .prepare(
-                        "SELECT argument_name, value_type, string_value, integer_value,
-                                number_value, boolean_value
-                         FROM history_function_call_arguments
-                         WHERE function_call_node_id = ?1
-                         ORDER BY argument_name ASC",
-                    )
-                    .map_err(map_error)?;
-                let rows = statement
-                    .query_map(params![node_id], |row| {
-                        Ok(LegacyArgument {
-                            name: row.get(0)?,
-                            value_type: row.get(1)?,
-                            string_value: row.get(2)?,
-                            integer_value: row.get(3)?,
-                            number_value: row.get(4)?,
-                            boolean_value: row.get(5)?,
-                        })
-                    })
-                    .map_err(map_error)?
-                    .collect::<Result<Vec<_>, _>>()
-                    .map_err(map_error)?;
-                legacy_arguments(rows)?
-            };
-            tx.execute(
-                "UPDATE history_function_call_nodes
-                 SET arguments_json = ?1
-                 WHERE node_id = ?2",
-                params![encode_json_object(&arguments)?, node_id],
-            )
-            .map_err(map_error)?;
-        }
-
-        tx.execute_batch(
-            "DROP TABLE history_function_call_arguments;
-             DROP TABLE tool_parameters;",
-        )
-        .map_err(map_error)?;
-    }
-
-    tx.execute_batch(
-        "ALTER TABLE history_function_output_nodes
-             RENAME TO history_function_output_nodes_v6;
-         CREATE TABLE history_function_output_nodes (
-             node_id INTEGER PRIMARY KEY,
-             node_content_kind TEXT NOT NULL DEFAULT 'function_output'
-                 CHECK (node_content_kind = 'function_output'),
-             function_call_node_id INTEGER NOT NULL,
-             function_call_id TEXT NOT NULL CHECK (length(function_call_id) > 0),
-             tool_name TEXT NOT NULL CHECK (length(tool_name) > 0),
-             output_json TEXT NOT NULL CHECK (json_valid(output_json)),
-             is_error INTEGER NOT NULL CHECK (is_error IN (0, 1)),
-             FOREIGN KEY (node_id, node_content_kind)
-                 REFERENCES history_nodes(node_id, content_kind)
-                 ON UPDATE RESTRICT ON DELETE CASCADE,
-             FOREIGN KEY (function_call_node_id, function_call_id, tool_name)
-                 REFERENCES history_function_call_nodes(node_id, function_call_id, tool_name)
-                 ON UPDATE RESTRICT ON DELETE RESTRICT
-         );
-         INSERT INTO history_function_output_nodes
-             (node_id, node_content_kind, function_call_node_id, function_call_id,
-              tool_name, output_json, is_error)
-         SELECT node_id, node_content_kind, function_call_node_id, function_call_id,
-                tool_name, json_quote(output_text), is_error
-         FROM history_function_output_nodes_v6;
-         DROP TABLE history_function_output_nodes_v6;
-         CREATE INDEX idx_history_function_output_call
-             ON history_function_output_nodes(function_call_node_id);
-         CREATE TRIGGER history_function_output_open_path
-         BEFORE INSERT ON history_function_output_nodes
-         WHEN EXISTS (
-             WITH RECURSIVE ancestors(node_id, parent_node_id) AS (
-                 SELECT node_id, parent_node_id
-                 FROM history_nodes
-                 WHERE node_id = NEW.node_id
-                 UNION ALL
-                 SELECT parent.node_id, parent.parent_node_id
-                 FROM history_nodes parent
-                 JOIN ancestors child ON parent.node_id = child.parent_node_id
-             )
-             SELECT 1
-             FROM ancestors
-             JOIN history_function_output_nodes existing
-               ON existing.node_id = ancestors.node_id
-             WHERE existing.function_call_node_id = NEW.function_call_node_id
-         )
-         BEGIN
-             SELECT RAISE(
-                 ABORT,
-                 'function call already has an output on this history path'
-             );
-         END;",
-    )
-    .map_err(map_error)?;
-    tx.execute(
-        "UPDATE schema_metadata
-         SET schema_value = ?1
-         WHERE schema_key = 'selvedge_schema_version'",
-        params![SCHEMA_VERSION],
-    )
-    .map_err(map_error)?;
-    tx.commit().map_err(map_error)
-}
-
 fn database_is_empty(connection: &Connection) -> Result<bool, DbError> {
     let count: i64 = connection
         .query_row(
@@ -2311,114 +2096,6 @@ fn reasoning_effort_from_db(value: &str) -> Result<ReasoningEffort, DbError> {
             "unknown reasoning effort: {other}"
         ))),
     }
-}
-
-struct LegacyToolParameter {
-    name: String,
-    parameter_type: String,
-    description: String,
-    required: bool,
-}
-
-struct LegacyArgument {
-    name: String,
-    value_type: String,
-    string_value: Option<String>,
-    integer_value: Option<i64>,
-    number_value: Option<f64>,
-    boolean_value: Option<i64>,
-}
-
-fn legacy_input_schema(parameters: Vec<LegacyToolParameter>) -> Result<JsonObject, DbError> {
-    let mut properties = JsonObject::new();
-    let mut required = Vec::new();
-    for parameter in parameters {
-        if !matches!(
-            parameter.parameter_type.as_str(),
-            "string" | "integer" | "number" | "boolean"
-        ) {
-            return Err(DbError::Storage(format!(
-                "unknown tool parameter type: {}",
-                parameter.parameter_type
-            )));
-        }
-        properties.insert(
-            parameter.name.clone(),
-            serde_json::Value::Object(JsonObject::from_iter([
-                (
-                    "type".to_owned(),
-                    serde_json::Value::String(parameter.parameter_type),
-                ),
-                (
-                    "description".to_owned(),
-                    serde_json::Value::String(parameter.description),
-                ),
-            ])),
-        );
-        if parameter.required {
-            required.push(serde_json::Value::String(parameter.name));
-        }
-    }
-
-    Ok(JsonObject::from_iter([
-        (
-            "type".to_owned(),
-            serde_json::Value::String("object".to_owned()),
-        ),
-        (
-            "properties".to_owned(),
-            serde_json::Value::Object(properties),
-        ),
-        ("required".to_owned(), serde_json::Value::Array(required)),
-        (
-            "additionalProperties".to_owned(),
-            serde_json::Value::Bool(false),
-        ),
-    ]))
-}
-
-fn legacy_arguments(arguments: Vec<LegacyArgument>) -> Result<JsonObject, DbError> {
-    arguments
-        .into_iter()
-        .map(|argument| {
-            let value = match argument.value_type.as_str() {
-                "string" => argument
-                    .string_value
-                    .map(serde_json::Value::String)
-                    .ok_or_else(|| {
-                        DbError::Storage("string argument value is missing".to_owned())
-                    })?,
-                "integer" => argument
-                    .integer_value
-                    .map(|value| serde_json::Value::Number(value.into()))
-                    .ok_or_else(|| {
-                        DbError::Storage("integer argument value is missing".to_owned())
-                    })?,
-                "number" => argument
-                    .number_value
-                    .and_then(serde_json::Number::from_f64)
-                    .map(serde_json::Value::Number)
-                    .ok_or_else(|| {
-                        DbError::Storage("number argument value is missing or invalid".to_owned())
-                    })?,
-                "boolean" => match argument.boolean_value {
-                    Some(0) => serde_json::Value::Bool(false),
-                    Some(1) => serde_json::Value::Bool(true),
-                    _ => {
-                        return Err(DbError::Storage(
-                            "boolean argument value is missing or invalid".to_owned(),
-                        ));
-                    }
-                },
-                other => {
-                    return Err(DbError::Storage(format!(
-                        "unknown argument value type: {other}"
-                    )));
-                }
-            };
-            Ok((argument.name, value))
-        })
-        .collect()
 }
 
 fn encode_json_object(object: &JsonObject) -> Result<String, DbError> {
