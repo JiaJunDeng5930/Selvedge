@@ -3,16 +3,17 @@
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 
-use selvedge_api::{ApiExecutorConfig, spawn_model_call_tokio_task};
+use selvedge_api::{ApiCallTerminalStatus, ApiExecutorConfig, spawn_model_call_tokio_task};
 use selvedge_command_model::{
-    ApiOutputEnvelope, CoreOutputEnvelope, CoreOutputMessage, DebugRawEvent, DetachReason,
-    DomainEvent, DomainEventPublishRequest, EventClientReservationResult, EventControlMessage,
-    EventIngress, EventIngressSender, FactoryEffectId, FactoryFailureKind, FactoryOutput,
-    FactoryOutputEnvelope, FactoryScanOutput, FactoryTaskFailure, RawEvent, ReserveClientSession,
-    RouterAttachAdmissionResult, RouterCommand, RouterCommandEnvelope, RouterIngressMessage,
-    RouterIngressSender, RouterIngressWeakSender, TaskCommandError, TaskRuntimeCommand,
-    TaskRuntimeControl, TaskRuntimeExitNotice, TaskRuntimeSender, ToolExecutionBranch,
-    ToolExecutionBranchTarget, ToolExecutionRequest, ToolExecutionResult, validate_router_command,
+    ApiEffectId, ApiOutputEnvelope, CoreOutputEnvelope, CoreOutputMessage, DebugRawEvent,
+    DetachReason, DomainEvent, DomainEventPublishRequest, EventClientReservationResult,
+    EventControlMessage, EventIngress, EventIngressSender, FactoryEffectId, FactoryFailureKind,
+    FactoryOutput, FactoryOutputEnvelope, FactoryScanOutput, FactoryTaskFailure, RawEvent,
+    ReserveClientSession, RouterAttachAdmissionResult, RouterCommand, RouterCommandEnvelope,
+    RouterIngressMessage, RouterIngressSender, RouterIngressWeakSender, TaskCommandError,
+    TaskRuntimeCommand, TaskRuntimeControl, TaskRuntimeExitNotice, TaskRuntimeSender,
+    ToolExecutionBranch, ToolExecutionBranchTarget, ToolExecutionRequest, ToolExecutionResult,
+    ToolExecutionRunId, validate_router_command,
 };
 use selvedge_core::TaskRuntimeSpawnDeps;
 use selvedge_db::DbPool;
@@ -76,6 +77,8 @@ pub fn spawn_router(args: RouterStartArgs) -> Result<RouterHandle, SpawnRouterEr
         pending_effects: HashMap::new(),
         pending_effects_by_task: HashMap::new(),
         deferred_commands: HashMap::new(),
+        model_call_tasks: HashMap::new(),
+        tool_execution_tasks: HashMap::new(),
         next_effect_seq: 1,
     };
     let join_handle = tokio::spawn(actor.run());
@@ -98,11 +101,23 @@ struct RouterActor {
     pending_effects: HashMap<FactoryEffectId, PendingRuntimeEffect>,
     pending_effects_by_task: HashMap<TaskId, FactoryEffectId>,
     deferred_commands: HashMap<TaskId, VecDeque<TaskRuntimeCommand>>,
+    model_call_tasks: HashMap<ApiEffectId, ActiveModelCall>,
+    tool_execution_tasks: HashMap<ToolExecutionRunId, ActiveToolExecution>,
     next_effect_seq: u64,
 }
 
 struct PendingRuntimeEffect {
     task_id: Option<TaskId>,
+}
+
+struct ActiveModelCall {
+    task_id: TaskId,
+    join_handle: JoinHandle<ApiCallTerminalStatus>,
+}
+
+struct ActiveToolExecution {
+    task_id: TaskId,
+    join_handle: JoinHandle<()>,
 }
 
 #[derive(Clone, Debug)]
@@ -227,10 +242,26 @@ impl RouterActor {
                 if request.correlation.task_id != task_id {
                     return Ok(());
                 }
-                let _join_handle = spawn_model_call_tokio_task(
+                let effect_id = request.correlation.api_effect_id.clone();
+                let join_handle = spawn_model_call_tokio_task(
                     request,
                     self.router_tx.clone(),
                     self.api_config.clone(),
+                );
+                if self.model_call_tasks.contains_key(&effect_id) {
+                    join_handle.abort();
+                    let _ = join_handle.await;
+                    return Err(RouterExitStatus::FatalError(format!(
+                        "duplicate API effect id '{}'",
+                        effect_id.0
+                    )));
+                }
+                self.model_call_tasks.insert(
+                    effect_id,
+                    ActiveModelCall {
+                        task_id,
+                        join_handle,
+                    },
                 );
                 Ok(())
             }
@@ -239,11 +270,32 @@ impl RouterActor {
                     return Ok(());
                 }
                 let fallback_request = request.clone();
+                let tool_execution_run_id = request.tool_execution_run_id.clone();
                 match self
                     .tool_executor
                     .spawn_tool_execution(request, self.router_tx.clone())
                 {
-                    Ok(_join_handle) => Ok(()),
+                    Ok(join_handle) => {
+                        if self
+                            .tool_execution_tasks
+                            .contains_key(&tool_execution_run_id)
+                        {
+                            join_handle.abort();
+                            let _ = join_handle.await;
+                            return Err(RouterExitStatus::FatalError(format!(
+                                "duplicate tool execution run id '{}'",
+                                tool_execution_run_id.0
+                            )));
+                        }
+                        self.tool_execution_tasks.insert(
+                            tool_execution_run_id,
+                            ActiveToolExecution {
+                                task_id,
+                                join_handle,
+                            },
+                        );
+                        Ok(())
+                    }
                     Err(_) => {
                         self.handle_tool_output(tool_spawn_failed_result(fallback_request))
                             .await
@@ -327,10 +379,16 @@ impl RouterActor {
         &mut self,
         envelope: ApiOutputEnvelope,
     ) -> Result<(), RouterExitStatus> {
-        let task_id = match &envelope {
+        let (task_id, effect_id) = match &envelope {
             ApiOutputEnvelope::Success { correlation, .. }
-            | ApiOutputEnvelope::Failure { correlation, .. } => correlation.task_id.clone(),
+            | ApiOutputEnvelope::Failure { correlation, .. } => (
+                correlation.task_id.clone(),
+                correlation.api_effect_id.clone(),
+            ),
         };
+        if let Some(active) = self.model_call_tasks.remove(&effect_id) {
+            let _ = active.join_handle.await;
+        }
 
         if let Some(sender) = self
             .task_runtime_registry
@@ -355,6 +413,12 @@ impl RouterActor {
         result: ToolExecutionResult,
     ) -> Result<(), RouterExitStatus> {
         let task_id = result.task_id.clone();
+        if let Some(active) = self
+            .tool_execution_tasks
+            .remove(&result.tool_execution_run_id)
+        {
+            let _ = active.join_handle.await;
+        }
         if let Some(sender) = self
             .task_runtime_registry
             .get(&task_id)
@@ -383,6 +447,7 @@ impl RouterActor {
             .is_some_and(|entry| entry.control.same_control(&notice.task_runtime_control));
         if removed {
             self.task_runtime_registry.remove(&notice.task_id);
+            self.cancel_task_effects(&notice.task_id).await;
         }
         let message = if removed {
             format!("task runtime exited: {:?}", notice.reason)
@@ -685,6 +750,7 @@ impl RouterActor {
     }
 
     async fn stop_task_runtime(&mut self, task_id: TaskId) -> Result<(), RouterExitStatus> {
+        self.cancel_task_effects(&task_id).await;
         if let Some(entry) = self.task_runtime_registry.get(&task_id).cloned() {
             if self.stop_runtime_entry(entry.clone()).await.is_err() {
                 return self
@@ -707,6 +773,7 @@ impl RouterActor {
 
     async fn shutdown(&mut self) {
         self.ingress_rx.close();
+        self.cancel_all_effects().await;
         let deferred = std::mem::take(&mut self.deferred_commands);
         for commands in deferred.into_values() {
             settle_task_runtime_commands(commands, TaskCommandError::RuntimeUnavailable);
@@ -716,6 +783,59 @@ impl RouterActor {
         self.stop_runtimes().await;
         while let Some(ingress) = self.ingress_rx.recv().await {
             settle_router_ingress(ingress, TaskCommandError::RuntimeUnavailable);
+        }
+    }
+
+    async fn cancel_task_effects(&mut self, task_id: &TaskId) {
+        let model_effect_ids = self
+            .model_call_tasks
+            .iter()
+            .filter(|(_, active)| &active.task_id == task_id)
+            .map(|(effect_id, _)| effect_id.clone())
+            .collect::<Vec<_>>();
+        let tool_run_ids = self
+            .tool_execution_tasks
+            .iter()
+            .filter(|(_, active)| &active.task_id == task_id)
+            .map(|(run_id, _)| run_id.clone())
+            .collect::<Vec<_>>();
+        let model_calls = model_effect_ids
+            .into_iter()
+            .filter_map(|effect_id| self.model_call_tasks.remove(&effect_id))
+            .collect::<Vec<_>>();
+        let tool_executions = tool_run_ids
+            .into_iter()
+            .filter_map(|run_id| self.tool_execution_tasks.remove(&run_id))
+            .collect::<Vec<_>>();
+
+        for active in &model_calls {
+            active.join_handle.abort();
+        }
+        for active in &tool_executions {
+            active.join_handle.abort();
+        }
+        for active in model_calls {
+            let _ = active.join_handle.await;
+        }
+        for active in tool_executions {
+            let _ = active.join_handle.await;
+        }
+    }
+
+    async fn cancel_all_effects(&mut self) {
+        let model_calls = std::mem::take(&mut self.model_call_tasks);
+        let tool_executions = std::mem::take(&mut self.tool_execution_tasks);
+        for active in model_calls.values() {
+            active.join_handle.abort();
+        }
+        for active in tool_executions.values() {
+            active.join_handle.abort();
+        }
+        for active in model_calls.into_values() {
+            let _ = active.join_handle.await;
+        }
+        for active in tool_executions.into_values() {
+            let _ = active.join_handle.await;
         }
     }
 

@@ -5,10 +5,12 @@ mod mcp;
 use std::collections::BTreeMap;
 use std::future::Future;
 use std::io;
+use std::panic::AssertUnwindSafe;
 use std::process::Stdio;
 use std::time::Duration;
 use std::{error::Error, fmt};
 
+use futures_util::FutureExt;
 use rustix::io::Errno;
 use rustix::process::{Pid, Signal, kill_process_group};
 use selvedge_command_model::{
@@ -773,20 +775,13 @@ where
     let runtime = tokio::runtime::Handle::try_current()
         .map_err(|_| ToolExecutionSpawnError::TokioSpawnFailed)?;
     Ok(runtime.spawn(async move {
-        let branches = match tokio::spawn(execution).await {
+        let branches = match AssertUnwindSafe(execution).catch_unwind().await {
             Ok(Ok(branches)) => branches,
             Ok(Err(error)) => vec![calling_task_branch(error_json(&error), true)],
-            Err(error) if error.is_panic() => vec![calling_task_branch(
+            Err(_) => vec![calling_task_branch(
                 error_json(&HarnessError::new(
                     HarnessErrorCode::ExecutorPanicked,
                     "tool executor panicked",
-                )),
-                true,
-            )],
-            Err(_) => vec![calling_task_branch(
-                error_json(&HarnessError::new(
-                    HarnessErrorCode::OperationCancelled,
-                    "tool execution was cancelled",
                 )),
                 true,
             )],
