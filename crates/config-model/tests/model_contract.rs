@@ -370,7 +370,7 @@ fn mcp_server_rejects_invalid_id_blank_command_and_zero_timeout() {
 }
 
 #[test]
-fn mcp_server_rejects_nul_in_arguments_and_environment() {
+fn mcp_server_rejects_invalid_process_arguments_and_environment() {
     let nul_argument = toml::toml! {
         [mcp.servers.valid]
         command = "mcp-server"
@@ -389,6 +389,13 @@ fn mcp_server_rejects_nul_in_arguments_and_environment() {
 
         [mcp.servers.valid.env]
         "BAD\u{0}KEY" = "value"
+    };
+    let equals_env_key = toml::toml! {
+        [mcp.servers.valid]
+        command = "mcp-server"
+
+        [mcp.servers.valid.env]
+        "API=KEY" = "value"
     };
     let nul_env_value = toml::toml! {
         [mcp.servers.valid]
@@ -415,6 +422,12 @@ fn mcp_server_rejects_nul_in_arguments_and_environment() {
             .expect_err("NUL environment key must fail")
             .to_string(),
         "mcp.servers.valid.env contains invalid key \"BAD\\0KEY\""
+    );
+    assert_eq!(
+        AppConfig::try_from(equals_env_key)
+            .expect_err("environment key containing equals must fail")
+            .to_string(),
+        "mcp.servers.valid.env contains invalid key \"API=KEY\""
     );
     assert_eq!(
         AppConfig::try_from(nul_env_value)

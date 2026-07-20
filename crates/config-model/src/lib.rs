@@ -310,7 +310,7 @@ impl McpServerConfig {
         }
 
         for (key, value) in &self.env {
-            if key.is_empty() || key.contains('\0') {
+            if key.is_empty() || key.contains(['\0', '=']) {
                 return Err(ValidationError::InvalidMcpServerEnvKey {
                     server_id: server_id.to_owned(),
                     key: key.clone(),

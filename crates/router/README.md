@@ -2,12 +2,12 @@
 
 <!-- selvedge-package-readme
 package: selvedge-router
-freshness_fingerprint: aa96309419420fdd9b5e21b1feb29fd4e1712fdf
+freshness_fingerprint: 25d1186e7dd224cf8a15074e0a1be71b75751ed7
 -->
 
 This crate owns the Selvedge router actor.
 
-Use it to spawn the process-local mailbox that routes client commands, task runtime output, API output, tool output, factory-created task runtimes, and events ingress. The router owns the live task runtime registry, pending runtime effects, and deferred task-local commands.
+Use it to spawn the process-local mailbox that routes client commands, task runtime output, API output, tool output, factory-created task runtimes, and events ingress. The router owns the live task runtime registry, pending runtime effects, deferred task-local commands, and the join handles for in-flight model calls and tool executions.
 
 This crate does not execute provider calls, tool calls, task-local state transitions, database writes, or client delivery directly. It delegates those effects to the API, configured tool executor, task-runtime factory, core runtime, database, and events crates.
 
@@ -21,6 +21,8 @@ Core output with an embedded task id must match the envelope task id before the 
 User input and archive remain pending business operations while the router creates a missing runtime, flushes deferred commands, or replaces a closed mailbox. The router never settles them successfully: only the task runtime can do that after SQLite commits. Factory failures are mapped to task missing, task archived, persistence failure, or runtime unavailable, and router shutdown fails deferred and unread task commands before releasing their responders.
 
 Core commits tool-result branches before requesting runtime startup. `CoreOutputMessage::EnsureTaskRuntimes` sends the committed new task ids to the router, and each id enters the same missing, pending, live, and stopping runtime lifecycle as every other task.
+
+Model calls and tool executions are task-owned router effects. Their terminal output removes and joins the matching handle before delivery to the task runtime. Stopping one task cancels and joins its remaining effects; router shutdown closes ingress, cancels and joins every remaining effect, then stops runtimes. `RouterExitStatus::Stopped` therefore cannot leave a router-started model or tool task running.
 
 Attach routing is an admission boundary. `RouterCommand::AttachClient` sends `ReserveClientSession` to events and answers the command's admission responder with the reservation result; snapshot hydration starts later through client-sync after server observes the accepted admission.
 
@@ -50,10 +52,13 @@ flowchart TD
   RuntimeLive[Runtime registered live]
   RuntimePending[Runtime creation pending]
   RuntimeStopping[Runtime stop barrier in progress]
+  EffectLive[Model call or tool execution handle owned by router]
+  EffectStopping[Cancel and join task-owned effects]
   TaskResponseSettled[Task command response failed]
   Events[Forward event control]
   ErrorNotice[Publish diagnostic notice]
-  Shutdown[Exit when ingress closes]
+  Shutdown[Begin shutdown after ingress closes]
+  ShutdownRuntimes[Stop runtimes and drain unread ingress]
 
   Start -->|router handle is created| Loop
   Loop -->|RouterCommand arrives| Command
@@ -65,7 +70,7 @@ flowchart TD
   Command -->|Start or recovery scan needs a runtime effect| RuntimePending
   CoreOutput -->|committed branch task ids need runtimes| RuntimePending
   Command -->|task command targets live runtime| RuntimeLive
-  Command -->|StopTaskRuntime targets live runtime| RuntimeStopping
+  Command -->|StopTaskRuntime is received| EffectStopping
   Command -->|validation, missing runtime, events, database, or factory dispatch fails| ErrorNotice
   RuntimePending -->|factory effect is started for task| Loop
   FactoryOutput -->|runtime created for pending task| RuntimeLive
@@ -74,16 +79,22 @@ flowchart TD
   RuntimeLive -->|runtime send succeeds| Loop
   RuntimeLive -->|runtime send fails and recreation cannot accept the command| TaskResponseSettled
   RuntimeStopping -->|TaskRuntimeControl stop result resolves| Loop
-  CoreOutput -->|task id matches envelope and action is model call, tool call, or event publish| Events
+  CoreOutput -->|task id matches an event publication| Events
+  CoreOutput -->|task id matches a model or tool request and effect id is unique| EffectLive
   CoreOutput -->|task id mismatch or downstream send fails| ErrorNotice
-  ApiOutput -->|correlation matches waiting runtime| RuntimeLive
+  ApiOutput -->|correlation matches an owned model effect| EffectLive
+  EffectLive -->|terminal API or tool output arrives and its handle joins| RuntimeLive
   ApiOutput -->|correlation is unknown or runtime send fails| ErrorNotice
-  ToolOutput -->|run id matches waiting runtime| RuntimeLive
+  ToolOutput -->|run id matches an owned tool effect| EffectLive
   ToolOutput -->|run id is unknown or runtime send fails| ErrorNotice
   Events -->|event ingress send succeeds| Loop
   Events -->|event ingress send fails| ErrorNotice
   ErrorNotice -->|diagnostic handling completes| Loop
   Loop -->|all router ingress senders are dropped| Shutdown
   Loop -->|StopRouter is received| Shutdown
-  Shutdown -->|deferred and unread task commands are failed| TaskResponseSettled
+  Shutdown -->|in-flight effects remain| EffectStopping
+  Shutdown -->|no in-flight effects remain| ShutdownRuntimes
+  EffectStopping -->|task-scoped handles are cancelled and joined| RuntimeStopping
+  EffectStopping -->|all handles are cancelled and joined during shutdown| ShutdownRuntimes
+  ShutdownRuntimes -->|deferred and unread task commands are failed| TaskResponseSettled
 ```

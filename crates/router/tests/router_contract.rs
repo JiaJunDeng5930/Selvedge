@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -1057,6 +1058,53 @@ async fn core_tool_execution_request_uses_configured_tool_spawner() {
 }
 
 #[tokio::test]
+async fn router_shutdown_cancels_and_joins_in_flight_tool_execution() {
+    let db = open_memory_db();
+    let (events_tx, _events_rx) = tokio::sync::mpsc::channel(8);
+    let tool_spawner = Arc::new(BlockingToolSpawner::default());
+
+    let handle = spawn_router(RouterStartArgs {
+        db,
+        events_tx,
+        api_config: ApiExecutorConfig {
+            request_timeout: Duration::from_secs(1),
+            max_response_bytes: None,
+        },
+        tool_executor: tool_spawner.clone(),
+        core_spawn_deps: TaskRuntimeSpawnDeps::new(TaskRuntimeConfig {
+            mailbox_capacity: 8,
+            model_profiles: model_profiles(),
+        }),
+    })
+    .expect("spawn router");
+
+    handle
+        .ingress_tx
+        .send(RouterIngressMessage::Core(CoreOutputEnvelope {
+            task_id: TaskId("task-1".to_owned()),
+            message: CoreOutputMessage::RequestToolExecution(tool_request("task-1")),
+        }))
+        .expect("send core tool request");
+    tool_spawner.wait_started().await;
+    handle
+        .ingress_tx
+        .send(RouterIngressMessage::StopRouter)
+        .expect("stop router");
+
+    assert_eq!(
+        tokio::time::timeout(Duration::from_secs(1), handle.join_handle)
+            .await
+            .expect("router shutdown timeout")
+            .expect("join router"),
+        RouterExitStatus::Stopped
+    );
+    assert!(
+        tool_spawner.dropped.load(Ordering::SeqCst),
+        "router reported stopped before the execution future was dropped"
+    );
+}
+
+#[tokio::test]
 async fn mismatched_core_tool_task_id_is_ignored() {
     let db = open_memory_db();
     let (events_tx, _events_rx) = tokio::sync::mpsc::channel(8);
@@ -1416,6 +1464,49 @@ impl ToolExecutionSpawner for FailingToolSpawner {
         _router_tx: selvedge_command_model::RouterIngressWeakSender,
     ) -> Result<tokio::task::JoinHandle<()>, ToolExecutionSpawnError> {
         Err(ToolExecutionSpawnError::TokioSpawnFailed)
+    }
+}
+
+#[derive(Default)]
+struct BlockingToolSpawner {
+    started: Arc<AtomicBool>,
+    dropped: Arc<AtomicBool>,
+}
+
+impl BlockingToolSpawner {
+    async fn wait_started(&self) {
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(1);
+        while !self.started.load(Ordering::SeqCst) {
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "tool execution did not start"
+            );
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    }
+}
+
+struct ExecutionDropMarker(Arc<AtomicBool>);
+
+impl Drop for ExecutionDropMarker {
+    fn drop(&mut self) {
+        self.0.store(true, Ordering::SeqCst);
+    }
+}
+
+impl ToolExecutionSpawner for BlockingToolSpawner {
+    fn spawn_tool_execution(
+        &self,
+        _request: ToolExecutionRequest,
+        _router_tx: selvedge_command_model::RouterIngressWeakSender,
+    ) -> Result<tokio::task::JoinHandle<()>, ToolExecutionSpawnError> {
+        let started = self.started.clone();
+        let dropped = self.dropped.clone();
+        Ok(tokio::spawn(async move {
+            let _drop_marker = ExecutionDropMarker(dropped);
+            started.store(true, Ordering::SeqCst);
+            std::future::pending::<()>().await;
+        }))
     }
 }
 

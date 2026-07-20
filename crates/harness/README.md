@@ -2,7 +2,7 @@
 
 <!-- selvedge-package-readme
 package: selvedge-harness
-freshness_fingerprint: 162ccf0e500a500cfdb85e6eed4c579fc1709553
+freshness_fingerprint: 5b5f8a50166e58941ec5fcb787f1ad4f53bb0b80
 -->
 
 This crate implements Selvedge task self-orchestration, bounded Bash command execution, and stdio MCP client execution for model tool calls.
@@ -23,7 +23,7 @@ Every built-in schema is a closed object with typed, described properties and an
 
 Each Bash invocation owns a process group. A timeout sends `SIGKILL` to that group, waits for the shell and pipe readers to settle, and returns `command_timed_out`; the same group guard prevents a cancelled or panicking invocation from leaving command processes behind. Background sessions, PTYs, stdin writes, policy, approval, and sandboxing are outside this crate.
 
-The executor supervises each request in an inner Tokio task and attempts exactly one terminal `ToolExecutionResult` delivery. The result copies the request's task, run, function-call node, function-call id, and tool name unchanged. Ordinary tools and terminal executor failures produce one calling-task branch. A panic or cancelled inner task becomes a correlated error branch instead of leaving the calling runtime waiting forever. This crate does not implement MCP resources, prompts, sampling, elicitation, HTTP transports, or task-mode calls.
+The executor supervises each request in the single Tokio task returned to the router and attempts exactly one terminal `ToolExecutionResult` delivery. The result copies the request's task, run, function-call node, function-call id, and tool name unchanged. Ordinary tools and terminal executor failures produce one calling-task branch, and a panic becomes a correlated error branch instead of leaving the calling runtime waiting forever. Cancelling and joining the returned handle drops the execution future itself, so Bash process cleanup and MCP request cancellation remain inside the router's shutdown barrier. This crate does not implement MCP resources, prompts, sampling, elicitation, HTTP transports, or task-mode calls.
 
 ## Package State Machine
 

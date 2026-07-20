@@ -157,24 +157,66 @@ async fn bash_timeout_terminates_the_process_group_and_returns_one_terminal_erro
     assert_eq!(test_kill_process(child_pid), Err(Errno::SRCH));
 }
 
-async fn execute(arguments: Vec<(String, Value)>) -> ToolExecutionBranch {
-    let db = open_memory_db();
-    for tool in tool_manifest(&selvedge_config_model::HarnessConfig::default()).tools {
-        selvedge_db::register_global_tool(&db, tool).expect("register harness tool");
-    }
-    let executor = ToolExecutor::new(
-        db,
-        McpConnectionSet::default(),
-        selvedge_config_model::HarnessConfig::default(),
+#[tokio::test]
+async fn cancelling_the_execution_handle_terminates_the_bash_process_group() {
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("clock after epoch")
+        .as_nanos();
+    let pid_path =
+        std::env::temp_dir().join(format!("selvedge-harness-cancel-{}-{nonce}", process::id()));
+    let command = format!(
+        "sleep 30 & child=$!; printf '%s %s' \"$$\" \"$child\" > '{}'; wait",
+        pid_path.display()
     );
-    let request = ToolExecutionRequest {
-        task_id: TaskId("task-1".to_owned()),
-        tool_execution_run_id: ToolExecutionRunId("run-1".to_owned()),
-        function_call_node_id: HistoryNodeId(7),
-        function_call_id: FunctionCallId("call-1".to_owned()),
-        tool_name: ToolName(BASH_TOOL_NAME.to_owned()),
-        arguments: arguments.into_iter().collect(),
-    };
+    let executor = bash_executor();
+    let request = bash_request(vec![
+        string_argument("command", &command),
+        integer_argument("timeout_ms", 120_000),
+    ]);
+    let (router_tx, mut router_rx) = mpsc::unbounded_channel();
+    let execution = executor
+        .spawn_tool_execution(request, router_tx.downgrade())
+        .expect("spawn bash execution");
+    for _ in 0..100 {
+        if pid_path.exists() {
+            break;
+        }
+        sleep(Duration::from_millis(10)).await;
+    }
+    let pids = fs::read_to_string(&pid_path).expect("bash wrote pids before cancellation");
+    fs::remove_file(&pid_path).expect("remove pid file");
+
+    execution.abort();
+    assert!(
+        execution
+            .await
+            .expect_err("execution must be cancelled")
+            .is_cancelled()
+    );
+
+    let mut pids = pids.split_whitespace();
+    let process_group_id = parse_pid(pids.next().expect("process group id"));
+    let child_pid = parse_pid(pids.next().expect("child pid"));
+    for _ in 0..50 {
+        if test_kill_process_group(process_group_id) == Err(Errno::SRCH)
+            && test_kill_process(child_pid) == Err(Errno::SRCH)
+        {
+            assert!(matches!(
+                router_rx.try_recv(),
+                Err(mpsc::error::TryRecvError::Empty)
+            ));
+            return;
+        }
+        sleep(Duration::from_millis(20)).await;
+    }
+    assert_eq!(test_kill_process_group(process_group_id), Err(Errno::SRCH));
+    assert_eq!(test_kill_process(child_pid), Err(Errno::SRCH));
+}
+
+async fn execute(arguments: Vec<(String, Value)>) -> ToolExecutionBranch {
+    let executor = bash_executor();
+    let request = bash_request(arguments);
     let (router_tx, mut router_rx) = mpsc::unbounded_channel();
     executor
         .spawn_tool_execution(request.clone(), router_tx.downgrade())
@@ -202,6 +244,29 @@ async fn execute(arguments: Vec<(String, Value)>) -> ToolExecutionBranch {
     assert_eq!(branch.target, ToolExecutionBranchTarget::CallingTask);
     assert!(branch.messages.is_empty());
     branch
+}
+
+fn bash_executor() -> ToolExecutor {
+    let db = open_memory_db();
+    for tool in tool_manifest(&selvedge_config_model::HarnessConfig::default()).tools {
+        selvedge_db::register_global_tool(&db, tool).expect("register harness tool");
+    }
+    ToolExecutor::new(
+        db,
+        McpConnectionSet::default(),
+        selvedge_config_model::HarnessConfig::default(),
+    )
+}
+
+fn bash_request(arguments: Vec<(String, Value)>) -> ToolExecutionRequest {
+    ToolExecutionRequest {
+        task_id: TaskId("task-1".to_owned()),
+        tool_execution_run_id: ToolExecutionRunId("run-1".to_owned()),
+        function_call_node_id: HistoryNodeId(7),
+        function_call_id: FunctionCallId("call-1".to_owned()),
+        tool_name: ToolName(BASH_TOOL_NAME.to_owned()),
+        arguments: arguments.into_iter().collect(),
+    }
 }
 
 fn string_argument(name: &str, value: &str) -> (String, Value) {
