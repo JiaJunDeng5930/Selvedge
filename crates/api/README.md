@@ -2,7 +2,7 @@
 
 <!-- selvedge-package-readme
 package: selvedge-api
-freshness_fingerprint: 684e8cf9e3421ff3254121ac8d5cbbec0f239075
+freshness_fingerprint: 9f6d1fd70e4b7afc92747e75b240e70f0deeb524
 -->
 
 This crate executes one Selvedge model call and returns the completed result to the router mailbox.
@@ -15,8 +15,11 @@ For ChatGPT adapter dispatch, `request.provider.model_name` becomes the ChatGPT 
 
 Spawned calls supervise provider panics and convert them into a correlated failure envelope. ChatGPT text `done` events must extend the accumulated UTF-8 delta exactly; mismatches become `ProviderResponse` failures. Every spawned call therefore reaches one terminal router outcome while router ingress remains available.
 
-The ChatGPT adapter copies each tool's complete JSON input schema into the
-provider descriptor. It maps the shared conversation JSON protocol into
+The ChatGPT adapter always copies the frozen manifest's complete JSON input
+schemas into the provider descriptors. It maps the provider-neutral callable
+subset to ChatGPT `tool_choice.allowed_tools`; an empty subset becomes
+`tool_choice: "none"` without removing descriptors, so task history and prompt
+prefixes keep the same tool definitions. It maps the shared conversation JSON protocol into
 provider items: strings become text messages, `function_call` objects retain
 object-shaped arguments without numeric conversion, and `function_output`
 objects serialize non-string output as provider text. Local history
@@ -54,8 +57,8 @@ flowchart TD
   ResolveProvider -->|registry accepts chatgpt and selected model| Chatgpt
   ResolveProvider -->|provider id is absent from registry| UnknownProvider
   ResolveProvider -->|credential or model-source rule is unsatisfied| IncompleteProvider
-  Chatgpt -->|conversation JSON maps to provider items and the stream opens| Accumulate
-  Chatgpt -->|conversation content is malformed or unsupported| StreamError
+  Chatgpt -->|conversation, full manifest, and callable subset map to provider fields and the stream opens| Accumulate
+  Chatgpt -->|conversation content or callable-tool selection is malformed or unsupported| StreamError
   Chatgpt -->|chatgpt-api returns endpoint, auth, transport, timeout, or validation error| StreamError
   Accumulate -->|stream yields completed event or closes after terminal response| Complete
   Accumulate -->|stream yields an error before completion| StreamError

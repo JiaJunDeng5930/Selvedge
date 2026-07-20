@@ -22,8 +22,8 @@ use selvedge_command_model::{
 };
 use selvedge_config_model::HarnessConfig;
 use selvedge_db::{
-    DbError, DbPool, HistoryNode, ReadTaskInput, TaskRead, TaskStatusRow, ToolExecutionSource,
-    read_task, read_tool_execution_source,
+    DbError, DbPool, HistoryNode, ReadTaskInput, TaskRead, TaskStatusRow, TaskToolSpec,
+    ToolExecutionSource, read_task, read_tool_execution_source,
 };
 use selvedge_domain_model::{
     HistoryNodeId, JsonObject, MessageRole, TaskId, ToolManifest, ToolSpec,
@@ -156,6 +156,17 @@ pub fn tool_manifest(config: &HarnessConfig) -> ToolManifest {
             },
         ],
     }
+}
+
+pub fn harness_tool_catalog(config: &HarnessConfig) -> Vec<TaskToolSpec> {
+    tool_manifest(config)
+        .tools
+        .into_iter()
+        .map(|tool| TaskToolSpec {
+            tool,
+            execution_source: ToolExecutionSource::Harness,
+        })
+        .collect()
 }
 
 fn input_schema<const N: usize>(properties: [(&str, Value); N], required: &[&str]) -> JsonObject {
@@ -631,6 +642,7 @@ pub enum HarnessErrorCode {
     CommandWaitFailed,
     CommandTimedOut,
     McpRouteUnavailable,
+    ToolUnavailable,
     McpCallFailed,
     McpCallTimedOut,
     McpResultEncodingFailed,
@@ -654,6 +666,7 @@ impl HarnessErrorCode {
             HarnessErrorCode::CommandWaitFailed => "command_wait_failed",
             HarnessErrorCode::CommandTimedOut => "command_timed_out",
             HarnessErrorCode::McpRouteUnavailable => "mcp_route_unavailable",
+            HarnessErrorCode::ToolUnavailable => "tool_unavailable",
             HarnessErrorCode::McpCallFailed => "mcp_call_failed",
             HarnessErrorCode::McpCallTimedOut => "mcp_call_timed_out",
             HarnessErrorCode::McpResultEncodingFailed => "mcp_result_encoding_failed",
@@ -738,12 +751,11 @@ fn calling_task_branch(output: Value, is_error: bool) -> ToolExecutionBranch {
 pub struct ToolExecutor {
     db: DbPool,
     mcp: McpConnectionSet,
-    config: HarnessConfig,
 }
 
 impl ToolExecutor {
-    pub fn new(db: DbPool, mcp: McpConnectionSet, config: HarnessConfig) -> Self {
-        Self { db, mcp, config }
+    pub fn new(db: DbPool, mcp: McpConnectionSet) -> Self {
+        Self { db, mcp }
     }
 }
 
@@ -755,11 +767,10 @@ impl ToolExecutionSpawner for ToolExecutor {
     ) -> Result<JoinHandle<()>, ToolExecutionSpawnError> {
         let db = self.db.clone();
         let mcp = self.mcp.clone();
-        let config = self.config.clone();
         let execution_request = request.clone();
         let execution_router_tx = router_tx.clone();
         spawn_supervised_execution(request, router_tx, async move {
-            execute_routed_request(db, mcp, config, execution_request, execution_router_tx).await
+            execute_routed_request(db, mcp, execution_request, execution_router_tx).await
         })
     }
 }
@@ -796,19 +807,24 @@ where
 async fn execute_routed_request(
     db: DbPool,
     mcp: McpConnectionSet,
-    config: HarnessConfig,
     request: ToolExecutionRequest,
     router_tx: RouterIngressWeakSender,
 ) -> Result<Vec<ToolExecutionBranch>, HarnessError> {
     let route_db = db.clone();
+    let task_id = request.task_id.clone();
     let tool_name = request.tool_name.clone();
-    let source =
-        tokio::task::spawn_blocking(move || read_tool_execution_source(&route_db, &tool_name))
-            .await
-            .map_err(map_join_error)?
-            .map_err(map_tool_route_error)?;
-    match source {
+    let execution = tokio::task::spawn_blocking(move || {
+        read_tool_execution_source(&route_db, &task_id, &tool_name)
+    })
+    .await
+    .map_err(map_join_error)?
+    .map_err(map_tool_route_error)?;
+    match execution.source {
         ToolExecutionSource::Harness => {
+            let config = HarnessConfig {
+                max_children_per_fork: execution.max_children_per_fork,
+                max_descendants_per_task: execution.max_task_descendants,
+            };
             execute_harness_request(db, config, request, router_tx).await
         }
         ToolExecutionSource::Mcp {
@@ -855,6 +871,10 @@ fn map_tool_route_error(error: DbError) -> HarnessError {
         DbError::NotFound => HarnessError::new(
             HarnessErrorCode::UnknownTool,
             "tool does not have a durable execution route",
+        ),
+        DbError::ToolUnavailable => HarnessError::new(
+            HarnessErrorCode::ToolUnavailable,
+            "tool is unavailable for this task",
         ),
         error => HarnessError::new(
             HarnessErrorCode::StorageError,
@@ -1117,13 +1137,13 @@ fn capture_result(
     })
 }
 
-struct ProcessGroupGuard {
+pub(crate) struct ProcessGroupGuard {
     process_group_id: Pid,
     armed: bool,
 }
 
 impl ProcessGroupGuard {
-    fn new(process_group_id: Pid) -> Self {
+    pub(crate) fn new(process_group_id: Pid) -> Self {
         Self {
             process_group_id,
             armed: true,
@@ -1131,16 +1151,22 @@ impl ProcessGroupGuard {
     }
 
     fn terminate(&self) -> Result<(), HarnessError> {
-        match kill_process_group(self.process_group_id, Signal::KILL) {
-            Ok(()) | Err(Errno::SRCH) => Ok(()),
-            Err(error) => Err(HarnessError::new(
+        self.terminate_raw().map_err(|error| {
+            HarnessError::new(
                 HarnessErrorCode::CommandWaitFailed,
                 format!("failed to terminate bash process group: {error}"),
-            )),
+            )
+        })
+    }
+
+    pub(crate) fn terminate_raw(&self) -> Result<(), Errno> {
+        match kill_process_group(self.process_group_id, Signal::KILL) {
+            Ok(()) | Err(Errno::SRCH) => Ok(()),
+            Err(error) => Err(error),
         }
     }
 
-    fn disarm(&mut self) {
+    pub(crate) fn disarm(&mut self) {
         self.armed = false;
     }
 }
@@ -1206,6 +1232,7 @@ fn map_read_error(error: DbError) -> HarnessError {
             HarnessError::new(HarnessErrorCode::TaskArchived, "task is archived")
         }
         DbError::StaleFunctionCall
+        | DbError::ToolUnavailable
         | DbError::TaskDescendantLimitExceeded { .. }
         | DbError::Constraint(_)
         | DbError::Storage(_)

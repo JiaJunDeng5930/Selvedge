@@ -41,6 +41,7 @@ fn public_api_exposes_chatgpt_response_stream_types() {
             }],
         })],
         tools: vec![ToolDescriptor(JsonObject::new())],
+        allowed_tools: None,
         parallel_tool_calls: true,
         reasoning: ChatgptReasoningOptions {
             effort: Some("high".to_owned()),

@@ -4,7 +4,7 @@ use selvedge_command_model::{ClientSnapshot, DetailLevel, SnapshotMode, TaskScop
 use selvedge_db::{
     CreateRootTaskInput, DbPool, HistoryNodeId, MessageRole, ModelProfileKey, NewHistoryNode,
     NewHistoryNodeContent, NewMessageNodeContent, OpenDbOptions, ReasoningEffort, TaskId, TaskRow,
-    UnixTs, create_history_node, create_root_task, open_db,
+    TaskToolSpec, UnixTs, create_history_node, create_root_task, open_db,
 };
 use selvedge_domain_model::ModelProviderProfile;
 
@@ -15,6 +15,7 @@ pub fn open_memory_db() -> DbPool {
 pub fn open_memory_db_with_max_task_descendants(max_task_descendants: u32) -> DbPool {
     open_db(OpenDbOptions {
         sqlite_path: ":memory:".to_owned(),
+        max_children_per_fork: 5.min(max_task_descendants),
         max_task_descendants,
     })
     .expect("open db")
@@ -47,6 +48,16 @@ pub fn create_root_task_fixture(
     cursor_node_id: HistoryNodeId,
     now: UnixTs,
 ) -> TaskRow {
+    create_root_task_fixture_with_tools(db, task_id, cursor_node_id, Vec::new(), now)
+}
+
+pub fn create_root_task_fixture_with_tools(
+    db: &DbPool,
+    task_id: &str,
+    cursor_node_id: HistoryNodeId,
+    tools: Vec<TaskToolSpec>,
+    now: UnixTs,
+) -> TaskRow {
     create_root_task(
         db,
         CreateRootTaskInput {
@@ -54,7 +65,7 @@ pub fn create_root_task_fixture(
             cursor_node_id,
             model_profile_key: ModelProfileKey("default".to_owned()),
             reasoning_effort: ReasoningEffort::Medium,
-            enabled_tools: Vec::new(),
+            tools,
             now,
         },
     )
@@ -69,6 +80,17 @@ pub fn create_root_task_with_user_message(
 ) -> TaskRow {
     let cursor_node_id = create_message_node(db, None, MessageRole::User, message_text, now);
     create_root_task_fixture(db, task_id, cursor_node_id, now)
+}
+
+pub fn create_root_task_with_user_message_and_tools(
+    db: &DbPool,
+    task_id: &str,
+    message_text: &str,
+    tools: Vec<TaskToolSpec>,
+    now: UnixTs,
+) -> TaskRow {
+    let cursor_node_id = create_message_node(db, None, MessageRole::User, message_text, now);
+    create_root_task_fixture_with_tools(db, task_id, cursor_node_id, tools, now)
 }
 
 pub fn default_model_profiles() -> HashMap<ModelProfileKey, ModelProviderProfile> {

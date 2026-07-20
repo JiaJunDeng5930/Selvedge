@@ -2,7 +2,7 @@
 
 <!-- selvedge-package-readme
 package: chatgpt-api
-freshness_fingerprint: 9240484cef84fc942a48e687da0674620163f3f3
+freshness_fingerprint: 9677715812a5919b4228f4bc77dcd07947c30215
 -->
 
 ## This crate is for
@@ -32,6 +32,10 @@ Callers build a `ChatgptResponsesRequest` and pass it to `stream(...)`.
 The returned `ChatgptResponseStream` yields `Result<ChatgptResponseEvent, ChatgptApiError>`.
 Callers are responsible for preserving the full `input` history and the
 `effective_turn_state()` value they want to replay on the next call.
+`tools` carries the complete function descriptor set. Optional `allowed_tools`
+selects a duplicate-free subset by name and is encoded as
+`tool_choice.allowed_tools`; an empty subset encodes `tool_choice: "none"`
+without deleting the descriptors.
 `FunctionCallItem.arguments` is a `JsonObject`: this crate decodes the
 provider's string-valued wire field at ingress and encodes it again only when
 building a replay request. Arbitrary-precision JSON numbers therefore remain
@@ -98,8 +102,8 @@ flowchart TD
   SizeError[Return response-too-large endpoint error]
 
   Start -->|caller provides request| Validate
-  Validate -->|model and input fields satisfy request rules| ResolveAuth
-  Validate -->|required field is empty or inconsistent| ValidationError
+  Validate -->|model, input, tools, and allowed-tool subset satisfy request rules| ResolveAuth
+  Validate -->|required field is empty, inconsistent, or names an unknown allowed tool| ValidationError
   ResolveAuth -->|auth resolution returns credentials| OpenStream
   ResolveAuth -->|auth resolution returns ChatgptAuthError| AuthError
   OpenStream -->|HTTP status is 2xx and body is streamable| Decode

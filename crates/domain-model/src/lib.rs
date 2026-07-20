@@ -144,6 +144,12 @@ pub struct ToolManifest {
     pub tools: Vec<ToolSpec>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub enum CallableTools {
+    All,
+    Only(Vec<ToolName>),
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct ToolSpec {
     pub name: String,

@@ -2,16 +2,16 @@
 
 <!-- selvedge-package-readme
 package: selvedge-server
-freshness_fingerprint: bb9e088f11935f34ae622ff38e1350949d2f2094
+freshness_fingerprint: 7696e01593f4473b4a4ea9945eb71731548a47fd
 -->
 
 This crate owns the process-local Selvedge server lifecycle.
 
-Use it to start the server runtime, hold the singleton lock, initialize config and logging, open the SQLite database at `<selvedge_home>/selvedge.sqlite`, install the five built-in harness tools, discover configured stdio MCP tools, start events, client-sync, router, and optional web surface tasks, recover active task runtimes, and expose the in-process `ServerControl` used by local clients and UI surfaces.
+Use it to start the server runtime, hold the singleton lock, initialize config and logging, open the SQLite database at `<selvedge_home>/selvedge.sqlite`, build the current harness and stdio MCP runtime catalog, reconcile existing tasks' tool availability, start events, client-sync, router, and optional web surface tasks, recover active task runtimes, and expose the in-process `ServerControl` used by local clients and UI surfaces.
 
-`ServerStartArgs` uses the current `selvedge-api` boundary: server passes `ApiExecutorConfig` into the router, and provider selection remains inside each model-call request. It also receives the effective harness limits and MCP server map from the configuration boundary; the descendant limit is installed at database open and the per-fork limit is shared by tool schemas and parsing. This crate does not own a provider registry.
+`ServerStartArgs` uses the current `selvedge-api` boundary: server passes `ApiExecutorConfig` into the router, and provider selection remains inside each model-call request. It also receives the default harness limits for newly created tasks and the current MCP server map from the configuration boundary. Existing tasks execute with their stored limits and tool contracts. This crate does not own a provider registry.
 
-After opening SQLite, startup registers the exact harness manifests idempotently as global tools with durable Harness execution routes. It then connects configured MCP servers, discovers their complete tool catalogs, and atomically replaces the published global MCP set before constructing the unified executor. Discovery and catalog conflicts fail startup before task recovery. The shared MCP connections stay alive for concurrent calls and close after the supervised services stop.
+After opening SQLite, startup builds the current harness catalog and connects configured MCP servers to discover their complete tool catalogs. It then reconciles active and archived tasks by changing only their unavailable-tool exceptions; stored definitions, routes, and task limits are never rewritten. Duplicate runtime names or reconciliation failures stop startup before task recovery. The shared MCP connections stay alive for concurrent calls and close their process groups after the supervised services stop.
 
 Startup owns every acquired service until the complete runtime is handed off. Any failure stops and joins the router, client-sync, web, and events tasks that were started, closes discovered MCP connections, and only then releases and removes the singleton lock.
 
@@ -46,9 +46,9 @@ flowchart TD
   Lock[Acquire singleton lock]
   InitConfig[Initialize config and logging]
   OpenDb[Open selvedge.sqlite]
-  RegisterTools[Register five global tools with Harness execution routes]
+  BuildHarness[Build current harness runtime catalog]
   DiscoverMcp[Connect MCP servers and discover complete tool catalogs]
-  PublishMcp[Atomically replace published global MCP tools]
+  ReconcileTools[Atomically reconcile task-local unavailable-tool sets]
   SpawnServices[Start events, client-sync, router, and web surface]
   Recover[Request active task runtime recovery]
   Ready[ServerControl ready]
@@ -72,14 +72,13 @@ flowchart TD
   Lock -->|lock path, open, or exclusive lock fails| StartupFailure
   InitConfig -->|config and logging initialize or report typed AlreadyInitialized| OpenDb
   InitConfig -->|config or logging fails| StartupFailure
-  OpenDb -->|SQLite opens at selected home| RegisterTools
+  OpenDb -->|SQLite opens at selected home| BuildHarness
   OpenDb -->|database open or schema setup fails| StartupFailure
-  RegisterTools -->|all five definitions and Harness routes are new or exact repeats| DiscoverMcp
-  RegisterTools -->|a definition conflicts or SQLite write fails| StartupFailure
-  DiscoverMcp -->|all configured servers initialize and list supported tools| PublishMcp
+  BuildHarness -->|five runtime definitions and routes are valid| DiscoverMcp
+  DiscoverMcp -->|all configured servers initialize and list supported tools| ReconcileTools
   DiscoverMcp -->|transport, protocol, discovery, or definition validation fails| StartupFailure
-  PublishMcp -->|complete MCP catalog commits atomically| SpawnServices
-  PublishMcp -->|catalog route conflict or SQLite write fails| StartupFailure
+  ReconcileTools -->|all task availability sets commit atomically| SpawnServices
+  ReconcileTools -->|runtime names conflict or SQLite write fails| StartupFailure
   SpawnServices -->|events, client-sync, router, and optional web tasks start| Recover
   SpawnServices -->|any required task setup fails| StartupFailure
   Recover -->|router accepts the recovery scan| Ready

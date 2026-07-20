@@ -1,6 +1,6 @@
 #![doc = include_str!("../README.md")]
 
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -19,11 +19,12 @@ use selvedge_db::{
     append_model_reply_with_tool_calls_and_move_cursor, append_user_message_and_move_cursor,
     archive_task, commit_tool_result_branches, drain_queued_user_inputs_and_move_cursor,
     load_active_task, queue_user_input, read_conversation_for_task,
-    read_open_function_calls_for_task, read_tool_manifest_for_task,
+    read_open_function_calls_for_task, read_task_tool_state,
 };
 use selvedge_domain_model::{
-    Conversation, FUNCTION_CALL_CONTENT_TYPE, FUNCTION_OUTPUT_CONTENT_TYPE, JsonObject,
-    ModelProfileKey, ModelProviderProfile, ResponsePreference, ToolCallProposal, ToolManifest,
+    CallableTools, Conversation, FUNCTION_CALL_CONTENT_TYPE, FUNCTION_OUTPUT_CONTENT_TYPE,
+    JsonObject, ModelProfileKey, ModelProviderProfile, ResponsePreference, ToolCallProposal,
+    ToolManifest,
 };
 use serde_json::Value;
 use uuid::Uuid;
@@ -139,6 +140,7 @@ enum WaitState {
     WaitingModelReply {
         model_run_id: ModelRunId,
         tool_manifest: ToolManifest,
+        callable_tools: CallableTools,
     },
     WaitingToolResult {
         tool_run_id: ToolExecutionRunId,
@@ -350,11 +352,16 @@ impl TaskRuntimeActor {
     }
 
     async fn handle_model_reply(&mut self, envelope: ApiOutputEnvelope) -> bool {
-        let (expected_model_run_id, tool_manifest) = match &self.wait_state {
+        let (expected_model_run_id, tool_manifest, callable_tools) = match &self.wait_state {
             WaitState::WaitingModelReply {
                 model_run_id,
                 tool_manifest,
-            } => (model_run_id.clone(), tool_manifest.clone()),
+                callable_tools,
+            } => (
+                model_run_id.clone(),
+                tool_manifest.clone(),
+                callable_tools.clone(),
+            ),
             WaitState::AwaitingUserInput | WaitState::WaitingToolResult { .. } => return false,
         };
 
@@ -368,7 +375,7 @@ impl TaskRuntimeActor {
                 let validated_tool_calls = if reply.tool_calls.is_empty() {
                     VecDeque::new()
                 } else {
-                    match validate_tool_calls(reply.tool_calls, &tool_manifest) {
+                    match validate_tool_calls(reply.tool_calls, &tool_manifest, &callable_tools) {
                         Ok(tool_calls) => tool_calls,
                         Err(message) => return self.stop_with_internal_error(&message).await,
                     }
@@ -570,12 +577,12 @@ impl TaskRuntimeActor {
         let task_id = self.task_id.clone();
         let context = tokio::task::spawn_blocking(move || {
             let conversation = read_conversation_for_task(&db, &task_id)?;
-            let tool_manifest = read_tool_manifest_for_task(&db, &task_id)?;
+            let tool_state = read_task_tool_state(&db, &task_id)?;
             let loaded = load_active_task(&db, &task_id)?;
-            Ok::<_, DbError>((conversation, tool_manifest, loaded.task.model_profile_key))
+            Ok::<_, DbError>((conversation, tool_state, loaded.task.model_profile_key))
         })
         .await;
-        let (conversation, tool_manifest, model_profile_key) = match context {
+        let (conversation, tool_state, model_profile_key) = match context {
             Ok(Ok(context)) => context,
             Ok(Err(error)) => return self.stop_with_db_error(error).await,
             Err(error) => {
@@ -593,6 +600,9 @@ impl TaskRuntimeActor {
                 .stop_with_internal_error("model profile key is not configured")
                 .await;
         };
+        let tool_manifest = tool_state.manifest;
+        let callable_tools =
+            callable_tools_for_manifest(&tool_manifest, tool_state.unavailable_tools);
         let request = ModelCallDispatchRequest {
             correlation: selvedge_command_model::ApiCallCorrelation {
                 api_effect_id: ApiEffectId(format!("{}-api-{}", self.task_id.0, Uuid::new_v4())),
@@ -602,11 +612,13 @@ impl TaskRuntimeActor {
             provider,
             conversation,
             tool_manifest: Some(tool_manifest.clone()),
+            callable_tools: callable_tools.clone(),
             response_preference: ResponsePreference::PlainTextOrToolCalls,
         };
         self.wait_state = WaitState::WaitingModelReply {
             model_run_id,
             tool_manifest,
+            callable_tools,
         };
         self.send_core(CoreOutputMessage::RequestModelCall(request))
             .await
@@ -728,6 +740,7 @@ fn task_command_db_error(error: &DbError) -> TaskCommandError {
         DbError::TaskNotActive => TaskCommandError::TaskArchived,
         DbError::StaleFunctionCall
         | DbError::HistoryCursorNotOnTask
+        | DbError::ToolUnavailable
         | DbError::TaskDescendantLimitExceeded { .. }
         | DbError::Constraint(_)
         | DbError::Storage(_)
@@ -816,6 +829,7 @@ fn validate_conversation_tool_pairs(conversation: &Conversation) -> Result<(), S
 fn validate_tool_calls(
     tool_calls: Vec<ToolCallProposal>,
     tool_manifest: &ToolManifest,
+    callable_tools: &CallableTools,
 ) -> Result<VecDeque<ValidatedToolCall>, String> {
     // A provider reply is accepted as one unit. Validate and normalize every
     // requested tool call before persisting the first function_call node or
@@ -835,6 +849,14 @@ fn validate_tool_calls(
         {
             return Err(format!("tool is not enabled for task: {}", tool_name.0));
         }
+        if let CallableTools::Only(callable_tools) = callable_tools
+            && !callable_tools.contains(&tool_name)
+        {
+            return Err(format!(
+                "tool was unavailable for model run: {}",
+                tool_name.0
+            ));
+        }
         validated.push_back(ValidatedToolCall {
             function_call_id: FunctionCallId(tool_call.call_id),
             tool_name,
@@ -842,6 +864,24 @@ fn validate_tool_calls(
         });
     }
     Ok(validated)
+}
+
+fn callable_tools_for_manifest(
+    tool_manifest: &ToolManifest,
+    unavailable_tools: Vec<ToolName>,
+) -> CallableTools {
+    if unavailable_tools.is_empty() {
+        return CallableTools::All;
+    }
+    let unavailable_tools = unavailable_tools.into_iter().collect::<BTreeSet<_>>();
+    CallableTools::Only(
+        tool_manifest
+            .tools
+            .iter()
+            .filter(|tool| !unavailable_tools.contains(&ToolName(tool.name.clone())))
+            .map(|tool| ToolName(tool.name.clone()))
+            .collect(),
+    )
 }
 
 fn now() -> UnixTs {

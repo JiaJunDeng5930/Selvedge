@@ -8,10 +8,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::{Mutex, Notify, mpsc, oneshot};
 
 use selvedge_domain_model::{
-    ApiDomainValidationError, Conversation, FunctionCallId, HistoryNodeId, JsonObject, MessageRole,
-    ModelProfileKey, ModelProviderProfile, ModelReply, ReasoningEffort, ResponsePreference,
-    ToolManifest, ToolName, UnixTs, validate_conversation, validate_model_provider_profile,
-    validate_model_reply, validate_tool_manifest,
+    ApiDomainValidationError, CallableTools, Conversation, FunctionCallId, HistoryNodeId,
+    JsonObject, MessageRole, ModelProfileKey, ModelProviderProfile, ModelReply, ReasoningEffort,
+    ResponsePreference, ToolManifest, ToolName, UnixTs, validate_conversation,
+    validate_model_provider_profile, validate_model_reply, validate_tool_manifest,
 };
 
 pub use selvedge_domain_model::TaskId;
@@ -37,6 +37,7 @@ pub struct ModelCallDispatchRequest {
     pub provider: ModelProviderProfile,
     pub conversation: Conversation,
     pub tool_manifest: Option<ToolManifest>,
+    pub callable_tools: CallableTools,
     pub response_preference: ResponsePreference,
 }
 
@@ -851,7 +852,32 @@ pub fn validate_dispatch_request(request: &ModelCallDispatchRequest) -> Result<(
         validate_tool_manifest(tool_manifest)
             .map_err(|error| validation_error("tool_manifest", error))?;
     }
+    validate_callable_tools(request)?;
 
+    Ok(())
+}
+
+fn validate_callable_tools(request: &ModelCallDispatchRequest) -> Result<(), ModelCallError> {
+    let CallableTools::Only(callable_tools) = &request.callable_tools else {
+        return Ok(());
+    };
+    let mut names = BTreeSet::new();
+    for tool_name in callable_tools {
+        if !names.insert(tool_name) {
+            return Err(validation_message(
+                "callable_tools contains a duplicate tool name",
+            ));
+        }
+        if request
+            .tool_manifest
+            .as_ref()
+            .is_none_or(|manifest| !manifest.tools.iter().any(|tool| tool.name == tool_name.0))
+        {
+            return Err(validation_message(
+                "callable_tools contains a tool absent from tool_manifest",
+            ));
+        }
+    }
     Ok(())
 }
 

@@ -31,13 +31,10 @@ use selvedge_command_model::{
 };
 use selvedge_config_model::{HarnessConfig, McpServerConfig};
 use selvedge_core::TaskRuntimeSpawnDeps;
-use selvedge_db::{
-    DbPool, McpToolRegistration, OpenDbOptions, open_db, register_global_tool,
-    replace_global_mcp_tools,
-};
+use selvedge_db::{DbPool, OpenDbOptions, TaskToolSpec, open_db, reconcile_task_tool_availability};
 use selvedge_domain_model::{MessageRole, ReasoningEffort, TaskId};
 use selvedge_events::{EventsHandle, EventsStartArgs, SpawnEventsError, spawn_events_task};
-use selvedge_harness::{McpConnectionSet, ToolExecutor, tool_manifest};
+use selvedge_harness::{McpConnectionSet, ToolExecutor, harness_tool_catalog};
 use selvedge_local_protocol::{
     AttachAccepted, AttachRejectReason, AttachRejected, AttachRequest, CommandOutcome,
     CommandRejectReason, CommandRequest, CommandResponse, LocalClientCommandId, LocalClientEvent,
@@ -276,9 +273,8 @@ pub enum ServerStartupError {
     ConfigInitFailed(String),
     LoggingInitFailed(String),
     DbOpenFailed(String),
-    ToolRegistrationFailed(String),
     McpStartFailed(String),
-    McpCatalogRegistrationFailed(String),
+    ToolAvailabilityReconciliationFailed(String),
     EventsStartFailed(String),
     ClientSyncStartFailed(String),
     RouterStartFailed(String),
@@ -702,11 +698,14 @@ impl StartupResources {
         &mut self,
         args: ServerStartArgs,
         db: DbPool,
-        mcp_tools: Vec<McpToolRegistration>,
+        mcp_tools: Vec<TaskToolSpec>,
         web_bind: Option<WebBindReservation>,
     ) -> Result<(), ServerStartupError> {
-        replace_global_mcp_tools(&db, mcp_tools)
-            .map_err(|error| ServerStartupError::McpCatalogRegistrationFailed(error.to_string()))?;
+        let mut available_tools = harness_tool_catalog(&args.harness_config);
+        available_tools.extend(mcp_tools);
+        reconcile_task_tool_availability(&db, available_tools).map_err(|error| {
+            ServerStartupError::ToolAvailabilityReconciliationFailed(error.to_string())
+        })?;
 
         self.events = Some(
             spawn_events_task(EventsStartArgs {
@@ -735,11 +734,7 @@ impl StartupResources {
                 db: db.clone(),
                 events_tx,
                 api_config: args.api_config,
-                tool_executor: Arc::new(ToolExecutor::new(
-                    db,
-                    self.mcp_connections.clone(),
-                    args.harness_config,
-                )),
+                tool_executor: Arc::new(ToolExecutor::new(db, self.mcp_connections.clone())),
                 core_spawn_deps: args.core_spawn_deps,
             })
             .map_err(map_router_start_error)?,
@@ -1245,6 +1240,7 @@ async fn start_server_after_lock(
 
     let db = match open_db(OpenDbOptions {
         sqlite_path: sqlite_path_for_home(&home).to_string_lossy().to_string(),
+        max_children_per_fork: args.harness_config.max_children_per_fork,
         max_task_descendants: args.harness_config.max_descendants_per_task,
     }) {
         Ok(db) => db,
@@ -1256,15 +1252,6 @@ async fn start_server_after_lock(
             );
         }
     };
-    for tool in tool_manifest(&args.harness_config).tools {
-        if let Err(error) = register_global_tool(&db, tool) {
-            return fail_locked_startup(
-                &home,
-                singleton_lock,
-                ServerStartupError::ToolRegistrationFailed(error.to_string()),
-            );
-        }
-    }
     let (mcp_connections, mcp_tools) = match McpConnectionSet::connect(&args.mcp_servers).await {
         Ok(discovery) => discovery,
         Err(error) => {

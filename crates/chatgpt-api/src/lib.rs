@@ -1200,7 +1200,21 @@ fn build_request_body(request: &ChatgptResponsesRequest) -> Value {
                 .collect::<Vec<_>>(),
         ),
     );
-    body.insert("tool_choice".to_owned(), Value::String("auto".to_owned()));
+    body.insert(
+        "tool_choice".to_owned(),
+        match &request.allowed_tools {
+            None => Value::String("auto".to_owned()),
+            Some(allowed_tools) if allowed_tools.is_empty() => Value::String("none".to_owned()),
+            Some(allowed_tools) => serde_json::json!({
+                "type": "allowed_tools",
+                "mode": "auto",
+                "tools": allowed_tools
+                    .iter()
+                    .map(|name| serde_json::json!({"type": "function", "name": name}))
+                    .collect::<Vec<_>>()
+            }),
+        },
+    );
     body.insert(
         "parallel_tool_calls".to_owned(),
         Value::Bool(request.parallel_tool_calls),
@@ -1518,6 +1532,7 @@ pub struct ChatgptResponsesRequest {
     pub instructions: Option<String>,
     pub input: Vec<ResponseItem>,
     pub tools: Vec<ToolDescriptor>,
+    pub allowed_tools: Option<Vec<String>>,
     pub parallel_tool_calls: bool,
     pub reasoning: ChatgptReasoningOptions,
     pub text: ChatgptTextOptions,
@@ -1578,6 +1593,27 @@ impl ChatgptResponsesRequest {
         }
 
         validate_json_objects("tools", &self.tools)?;
+        if let Some(allowed_tools) = &self.allowed_tools {
+            let mut unique_names = std::collections::BTreeSet::new();
+            for allowed_tool in allowed_tools {
+                validate_non_blank("allowed_tools", allowed_tool)?;
+                if !unique_names.insert(allowed_tool) {
+                    return Err(RequestValidationError::new(
+                        "allowed_tools",
+                        "must not contain duplicate names",
+                    ));
+                }
+                if !self.tools.iter().any(|tool| {
+                    tool.0.get("type").and_then(Value::as_str) == Some("function")
+                        && tool.0.get("name").and_then(Value::as_str) == Some(allowed_tool.as_str())
+                }) {
+                    return Err(RequestValidationError::new(
+                        "allowed_tools",
+                        "must reference function tools present in tools",
+                    ));
+                }
+            }
+        }
 
         Ok(())
     }
@@ -1973,6 +2009,7 @@ mod tests {
                 }],
             })],
             tools: vec![ToolDescriptor(JsonObject::new())],
+            allowed_tools: None,
             parallel_tool_calls: true,
             reasoning: ChatgptReasoningOptions {
                 effort: Some("high".to_owned()),
@@ -2096,6 +2133,46 @@ mod tests {
             body.pointer("/text/format/name"),
             Some(&serde_json::json!("codex_output_schema"))
         );
+    }
+
+    #[test]
+    fn build_http_request_keeps_full_tools_while_restricting_callable_subset() {
+        let mut request = base_request();
+        request.tools = ["search", "bash"]
+            .into_iter()
+            .map(|name| {
+                ToolDescriptor(JsonObject::from_iter([
+                    ("type".to_owned(), serde_json::json!("function")),
+                    ("name".to_owned(), serde_json::json!(name)),
+                    ("parameters".to_owned(), serde_json::json!({})),
+                ]))
+            })
+            .collect();
+        request.allowed_tools = Some(vec!["search".to_owned()]);
+
+        let http_request =
+            build_http_request(&request, &base_auth(), &base_api_config()).expect("http request");
+        let HttpRequestBody::Json(body) = http_request.body else {
+            panic!("expected json body");
+        };
+        assert_eq!(body["tools"].as_array().map(Vec::len), Some(2));
+        assert_eq!(
+            body["tool_choice"],
+            serde_json::json!({
+                "type": "allowed_tools",
+                "mode": "auto",
+                "tools": [{"type": "function", "name": "search"}]
+            })
+        );
+
+        request.allowed_tools = Some(Vec::new());
+        let http_request =
+            build_http_request(&request, &base_auth(), &base_api_config()).expect("http request");
+        let HttpRequestBody::Json(body) = http_request.body else {
+            panic!("expected json body");
+        };
+        assert_eq!(body["tools"].as_array().map(Vec::len), Some(2));
+        assert_eq!(body["tool_choice"], serde_json::json!("none"));
     }
 
     #[test]

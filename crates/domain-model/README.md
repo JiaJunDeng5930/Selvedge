@@ -2,7 +2,7 @@
 
 <!-- selvedge-package-readme
 package: selvedge-domain-model
-freshness_fingerprint: 6ac0cc761263cf3773460bde97bed532b13eb7f9
+freshness_fingerprint: 4234a074a7f44af4b53fe3d7c42b76df913df22d
 -->
 
 This crate defines the Selvedge domain model API slice used by model-call packages.
@@ -15,6 +15,9 @@ ordered list of `ConversationMessage` values whose content is arbitrary JSON.
 Text content is a JSON string. Function calls and outputs use typed JSON objects;
 the message constructors and readers define their shared field contract without
 adding another persisted content model.
+`CallableTools` expresses either the complete manifest or an explicit
+duplicate-free subset. It is provider-neutral selection state, not another tool
+definition model.
 
 This crate is not for network access, database access, filesystem access, provider execution, or task runtime mutation.
 
@@ -33,7 +36,7 @@ flowchart TD
   Serialize[Serialize or clone for caller]
 
   Start -->|caller constructs conversation, JSON message, node id, or task id| Conversation
-  Start -->|caller constructs tool name, full input schema, manifest, call id, or object arguments| Tool
+  Start -->|caller constructs tool name, full input schema, manifest, callable selection, call id, or object arguments| Tool
   Start -->|caller constructs provider profile or reasoning effort| Provider
   Start -->|caller constructs model reply content, tool call, usage, or finish reason| Reply
   Conversation -->|Rust type construction succeeds| Ready

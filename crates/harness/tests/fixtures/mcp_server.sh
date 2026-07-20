@@ -6,6 +6,15 @@ if [ -n "${MCP_CLOSE_MARKER:-}" ]; then
   trap 'printf closed > "$MCP_CLOSE_MARKER"' EXIT
 fi
 
+if [ -n "${MCP_DESCENDANT_PID_MARKER:-}" ]; then
+  (
+    while :; do
+      sleep 60
+    done
+  ) &
+  printf '%s' "$!" > "$MCP_DESCENDANT_PID_MARKER"
+fi
+
 request_id() {
   printf '%s\n' "$1" | sed -n 's/.*"id":\([0-9][0-9]*\).*/\1/p'
 }

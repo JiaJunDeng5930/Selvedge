@@ -8,12 +8,12 @@ use selvedge_command_model::{
     RouterIngressMessage, ToolExecutionBranch, ToolExecutionBranchTarget, ToolExecutionRequest,
     ToolExecutionRunId,
 };
-use selvedge_domain_model::{FunctionCallId, HistoryNodeId, TaskId, ToolName};
+use selvedge_domain_model::{FunctionCallId, HistoryNodeId, TaskId, ToolName, UnixTs};
 use selvedge_harness::{
-    BASH_OUTPUT_LIMIT_BYTES, BASH_TOOL_NAME, McpConnectionSet, ToolExecutor, tool_manifest,
+    BASH_OUTPUT_LIMIT_BYTES, BASH_TOOL_NAME, McpConnectionSet, ToolExecutor, harness_tool_catalog,
 };
 use selvedge_router::ToolExecutionSpawner;
-use selvedge_test_support::db::open_memory_db;
+use selvedge_test_support::db::{create_root_task_with_user_message_and_tools, open_memory_db};
 use serde_json::Value;
 use tokio::sync::mpsc;
 use tokio::time::{sleep, timeout};
@@ -248,14 +248,14 @@ async fn execute(arguments: Vec<(String, Value)>) -> ToolExecutionBranch {
 
 fn bash_executor() -> ToolExecutor {
     let db = open_memory_db();
-    for tool in tool_manifest(&selvedge_config_model::HarnessConfig::default()).tools {
-        selvedge_db::register_global_tool(&db, tool).expect("register harness tool");
-    }
-    ToolExecutor::new(
-        db,
-        McpConnectionSet::default(),
-        selvedge_config_model::HarnessConfig::default(),
-    )
+    create_root_task_with_user_message_and_tools(
+        &db,
+        "task-1",
+        "hello",
+        harness_tool_catalog(&selvedge_config_model::HarnessConfig::default()),
+        UnixTs(1),
+    );
+    ToolExecutor::new(db, McpConnectionSet::default())
 }
 
 fn bash_request(arguments: Vec<(String, Value)>) -> ToolExecutionRequest {

@@ -2,12 +2,12 @@
 
 <!-- selvedge-package-readme
 package: selvedge-db
-freshness_fingerprint: 548d8d2d251648e17e4ba02cd925977e89c19289
+freshness_fingerprint: 36cc6cc2187a656dc1660180ef751bdd1df75e19
 -->
 
 This crate owns SQLite persistence for router-mediated Selvedge tasks.
 
-Use it to create and open schema-v7 SQLite databases, register harness tools, atomically reconcile the global MCP tool catalog, create root tasks, atomically commit tool-result branches, commit other task-runtime state transitions, queue user inputs, archive tasks, and read bounded task snapshots. Nonempty databases must match schema v7 exactly.
+Use it to create and open schema-v8 SQLite databases, create tasks with frozen tool contracts, reconcile task-local tool availability, atomically commit tool-result branches, commit other task-runtime state transitions, queue user inputs, archive tasks, and read bounded task snapshots. Nonempty databases must match schema v8 exactly.
 
 This crate is for SQLite persistence only. Runtime wait state, provider calls, tool execution, router registries, and event delivery live in other crates.
 
@@ -15,12 +15,10 @@ Resource boundaries:
 
 - `create_history_node` inserts one history node. History parent links are a standalone graph.
 - `create_root_task` inserts one task row at a caller-provided existing `cursor_node_id`. Task parent links and history parent links are separate graphs.
-- Tool definitions store the complete input JSON Schema separately from a closed execution route. The current registration APIs create harness routes; a route can also represent one remote tool on a named MCP server.
-- `register_global_tool` accepts a new harness definition, an exact harness repeat, or an exact non-global harness definition promoted to global. A conflicting schema, description, or route fails without changing the catalog.
-- `replace_global_mcp_tools` treats its input as the complete discovered MCP catalog. One immediate transaction unpublishes every prior MCP route, inserts new routes, refreshes definitions for matching routes, and republishes the supplied set; duplicate local names, empty remote identities, and route conflicts roll back the whole refresh without changing harness rows.
-- `unpublish_global_tool` changes only publication. The definition, execution route, task-specific references, and function-call history remain durable.
-- `read_tool_manifest_for_task` merges database-marked global tools with that task's `task_tools` rows for active or archived tasks.
-- `commit_tool_result_branches` requires one calling-task branch and accepts zero or more new-child branches for an exact open function call on the calling task's current cursor path. Before writing, the same immediate transaction verifies that adding those children keeps the calling task and every ancestor within `OpenDbOptions::max_task_descendants`; archived descendants still count. Every output is a sibling under that cursor. The calling branch then appends its supplied user messages and drains queued inputs; each child branch appends its own supplied user messages. Child task rows, parent edges, inherited task-specific tools, all history nodes, and every cursor are committed in one transaction.
+- `create_root_task` stores one ordered `TaskToolSpec` set and the current fork and descendant limits with the new task. These values are immutable task contract data rather than references to a mutable catalog.
+- `reconcile_task_tool_availability` compares stored task routes with the current runtime catalog and replaces only each task's unavailable-tool set. An empty set permits the complete frozen manifest; duplicate runtime names reject the transaction.
+- `read_task_tool_state` returns the complete frozen manifest and its unavailable exceptions. `read_tool_manifest_for_task` therefore remains stable when runtime tools disappear.
+- `commit_tool_result_branches` requires one calling-task branch and accepts zero or more new-child branches for an exact open function call on the calling task's current cursor path. Before writing, the same immediate transaction verifies that adding those children keeps the calling task and every ancestor within that ancestor's stored descendant limit; archived descendants still count. Every output is a sibling under that cursor. The calling branch then appends its supplied user messages and drains queued inputs; each child branch appends its own supplied user messages. Child task rows, parent edges, inherited tool contracts and unavailable exceptions, all history nodes, and every cursor are committed in one transaction.
 - Function outputs store arbitrary JSON values. The schema permits outputs for the same call on sibling paths while rejecting a second output on one history path.
 - `read_task` returns task identity, durable status, state version, cursor, optional parent, queued-input count, an exclusive `after_node_id` history page, and an exact `has_more` flag from one SQLite read transaction. Page limits are `1..=100`, and the after node must be on that task's cursor path.
 - `read_task_parent_edges` returns durable task-layer parent edges for router snapshots and factory verification.
@@ -38,7 +36,7 @@ flowchart TD
   Start([database API call])
   Open[Open SQLite database]
   Schema{stored schema state}
-  Initialize[Create schema v7]
+  Initialize[Create schema v8]
   SnapshotTx[Start read_task transaction]
   SnapshotValidate[Validate task, limit, and after node]
   SnapshotPage[Read metadata and cursor-path page]
@@ -49,16 +47,16 @@ flowchart TD
   Return[Return caller-visible result]
   OpenError[Return open or schema error]
   ReadError[Return read or decode error]
-  ValidationError[Return invalid task, cursor, tool, publication, or state error]
+  ValidationError[Return invalid task, cursor, tool contract, availability, or state error]
   CommitError[Return commit database error]
 
   Start -->|open_db is called| Open
   Open -->|database has no application tables| Initialize
   Open -->|database has application tables and schema metadata is readable| Schema
   Open -->|SQLite open or schema metadata read fails| OpenError
-  Schema -->|stored version is tool-result-branches-v7| Return
+  Schema -->|stored version is task-tool-snapshots-v8| Return
   Schema -->|stored version is missing or unsupported| OpenError
-  Initialize -->|schema-v7 batch succeeds| Return
+  Initialize -->|schema-v8 batch succeeds| Return
   Initialize -->|schema creation fails| OpenError
   Start -->|read_task is called with open connection| SnapshotTx
   SnapshotTx -->|transaction begins| SnapshotValidate
@@ -73,7 +71,7 @@ flowchart TD
   Read -->|query fails or stored enum, JSON, id, or argument value is invalid| ReadError
   WriteTx -->|transaction begins| Validate
   WriteTx -->|transaction begin fails| CommitError
-  Validate -->|task, cursor, queue, history parent, descendant capacity, harness registration, complete MCP catalog reconciliation, publication, and path-local open-call preconditions hold| Commit
+  Validate -->|task, cursor, queue, history parent, stored descendant capacity, tool contract, availability reconciliation, and path-local open-call preconditions hold| Commit
   Validate -->|requested transition conflicts with durable state| ValidationError
   Validate -->|read inside transaction fails| ReadError
   Commit -->|SQLite commit succeeds| Return

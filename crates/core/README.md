@@ -2,7 +2,7 @@
 
 <!-- selvedge-package-readme
 package: selvedge-core
-freshness_fingerprint: 491484c651251ad10bf18f0e04a97b8c3906dce5
+freshness_fingerprint: 9d6a2831ebfae16026818facf4491e645b1cc72a
 -->
 
 This crate runs one task runtime actor per active task.
@@ -11,15 +11,15 @@ Use it to spawn a task-local runtime that loads SQLite state through `selvedge-d
 
 This crate only talks to the router mailbox and the database package. Provider calls, tool execution, event fanout, runtime registry ownership, and direct client delivery live in other crates.
 
-On `Start`, the runtime reads the active task snapshot and classifies the concrete cursor tail. User/system/function-output tails request a model call; function-call tails request tool execution; assistant/developer tails await user input with an empty queue. The runtime keeps only in-flight correlation ids, the manifest sent with an active model request, and pending tool-call identity in memory; the task cursor lives in SQLite.
+On `Start`, the runtime reads the active task snapshot and classifies the concrete cursor tail. User/system/function-output tails request a model call; function-call tails request tool execution; assistant/developer tails await user input with an empty queue. The runtime keeps only in-flight correlation ids, the complete manifest and callable subset sent with an active model request, and pending tool-call identity in memory; the task cursor lives in SQLite.
 
-Before dispatching a model call, the actor reads the conversation, tool manifest, and active model profile together on Tokio's blocking thread pool. SQLite work therefore leaves async runtime workers available for other actors.
+Before dispatching a model call, the actor reads the conversation, frozen tool manifest, unavailable-tool exceptions, and active model profile together on Tokio's blocking thread pool. The complete manifest remains stable while the exceptions produce the callable subset for that turn. SQLite work therefore leaves async runtime workers available for other actors.
 
 Durable history is projected into one provider-neutral conversation model whose message content is JSON. Function calls and outputs use the shared discriminated JSON contract from `selvedge-domain-model`; core validates call/output pairing through that contract without introducing a second conversation representation.
 
 A matching tool execution result contains one or more history branches. Core commits all branch outputs, child tasks, optional child messages, and cursor changes through one database transaction. The calling task always has exactly one branch; any committed child task ids are then sent to the router's ordinary runtime-ensure path. If that transaction rejects a fork because an ancestor reached its configured descendant limit, core commits one ordinary error output for the same call and continues the model loop. Runtime creation is derived from committed task state and is not part of the history transaction.
 
-When a matching model reply arrives, the actor validates it against the exact manifest stored for that model run rather than reading the current publication state again. A tool unpublished after request dispatch can therefore finish the already-issued turn. Core rejects duplicate call ids and tools absent from that snapshot, but leaves JSON Schema interpretation to the selected executor.
+When a matching model reply arrives, the actor validates it against the exact manifest and callable subset stored for that model run rather than reading current availability again. A tool marked unavailable after request dispatch can therefore finish the already-issued turn. Core rejects duplicate call ids, tools absent from the frozen manifest, and tools excluded from that turn, but leaves JSON Schema interpretation to the selected executor.
 
 The actor checks `TaskRuntimeControl` before receiving each business mailbox command. A stop request makes the actor return from its loop at that safety point. The mailbox receive branch is behind the control branch and the actor rechecks stop after receiving a command, so a stop bit observed at the event boundary prevents the next business command from starting. The runtime writes `TaskRuntimeStopResult` from the actor's unified exit path, so a later stop call also completes after archive, database error, router shutdown, or dropped runtime mailbox.
 
@@ -41,7 +41,7 @@ flowchart TD
   AwaitInput[Await user input]
   RequestModel[Load model context on blocking pool and send request]
   AwaitModel[Await matching API output]
-  ValidateModelReply[Validate reply against sent manifest snapshot]
+  ValidateModelReply[Validate reply against sent manifest and callable snapshots]
   RequestTool[Send tool execution request to router]
   AwaitTool[Await matching tool output]
   CommitToolBranches[Atomically commit tool-result branches]
@@ -69,8 +69,8 @@ flowchart TD
   RequestModel -->|database read fails| DbError
   RequestModel -->|router ingress send fails| RouterClosed
   AwaitModel -->|matching completed API output arrives| ValidateModelReply
-  ValidateModelReply -->|call ids are unique and every tool belongs to the sent manifest| ClassifyTail
-  ValidateModelReply -->|a call id is duplicated or a tool was absent from the sent manifest| InternalError
+  ValidateModelReply -->|call ids are unique and every tool belongs to both sent snapshots| ClassifyTail
+  ValidateModelReply -->|a call id is duplicated or a tool was absent or unavailable for that turn| InternalError
   AwaitModel -->|matching failed API output arrives| AwaitInput
   AwaitModel -->|user input arrives while model is in flight| QueueInput
   RequestTool -->|router ingress send succeeds| AwaitTool

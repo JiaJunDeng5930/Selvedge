@@ -4,13 +4,13 @@ use selvedge_command_model::{
     RouterIngressMessage, ToolExecutionBranchTarget, ToolExecutionRequest, ToolExecutionResult,
     ToolExecutionRunId,
 };
-use selvedge_db::{DbPool, register_global_tool};
+use selvedge_db::DbPool;
 use selvedge_domain_model::{FunctionCallId, HistoryNodeId, JsonObject, TaskId, ToolName, UnixTs};
 use selvedge_harness::{
-    FORK_TASK_TOOL_NAME, McpConnectionSet, READ_TASK_TOOL_NAME, ToolExecutor, tool_manifest,
+    FORK_TASK_TOOL_NAME, McpConnectionSet, READ_TASK_TOOL_NAME, ToolExecutor, harness_tool_catalog,
 };
 use selvedge_router::ToolExecutionSpawner;
-use selvedge_test_support::db::{create_root_task_with_user_message, open_memory_db};
+use selvedge_test_support::db::{create_root_task_with_user_message_and_tools, open_memory_db};
 use serde_json::Value;
 use tokio::sync::mpsc;
 
@@ -61,11 +61,9 @@ async fn fork_executor_returns_numbered_branches_and_aligned_messages() {
     child_ids.sort();
     child_ids.dedup();
     assert_eq!(child_ids.len(), 3);
-    assert!(
-        selvedge_db::list_active_tasks(&db)
-            .expect("list active tasks")
-            .is_empty()
-    );
+    let active_tasks = selvedge_db::list_active_tasks(&db).expect("list active tasks");
+    assert_eq!(active_tasks.len(), 1);
+    assert_eq!(active_tasks[0].task_id, TaskId("task-1".to_owned()));
 }
 
 #[tokio::test]
@@ -92,7 +90,6 @@ async fn fork_without_messages_leaves_child_follow_up_messages_empty() {
 #[tokio::test]
 async fn ordinary_tool_returns_one_calling_task_branch() {
     let db = open_memory_db();
-    create_root_task_with_user_message(&db, "task-1", "hello", UnixTs(1));
     let executor = executor(db);
     let result = execute(&executor, request(READ_TASK_TOOL_NAME, Vec::new())).await;
 
@@ -134,14 +131,14 @@ async fn execute(executor: &ToolExecutor, request: ToolExecutionRequest) -> Tool
 }
 
 fn executor(db: DbPool) -> ToolExecutor {
-    for tool in tool_manifest(&selvedge_config_model::HarnessConfig::default()).tools {
-        register_global_tool(&db, tool).expect("register harness tool");
-    }
-    ToolExecutor::new(
-        db,
-        McpConnectionSet::default(),
-        selvedge_config_model::HarnessConfig::default(),
-    )
+    create_root_task_with_user_message_and_tools(
+        &db,
+        "task-1",
+        "hello",
+        harness_tool_catalog(&selvedge_config_model::HarnessConfig::default()),
+        UnixTs(1),
+    );
+    ToolExecutor::new(db, McpConnectionSet::default())
 }
 
 fn request(tool_name: &str, arguments: Vec<(String, Value)>) -> ToolExecutionRequest {

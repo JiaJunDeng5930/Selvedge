@@ -1,15 +1,15 @@
 use selvedge_db::{
     CommitToolResultBranchesInput, CreateRootTaskInput, DbError, DbPool, FunctionCallId,
-    HistoryNode, HistoryNodeId, JsonObject, McpToolRegistration, MessageRole, ModelProfileKey,
+    HistoryNode, HistoryNodeId, JsonObject, MessageRole, ModelProfileKey,
     NewFunctionCallNodeContent, NewFunctionOutputNodeContent, NewHistoryNode,
     NewHistoryNodeContent, NewMessageNodeContent, OpenDbOptions, ReadTaskInput, ReasoningEffort,
-    TaskId, TaskStatusRow, ToolExecutionSource, ToolManifest, ToolName, ToolResultBranch,
-    ToolResultBranchTarget, ToolSpec, UnixTs, append_model_reply_with_tool_calls_and_move_cursor,
-    append_user_message_and_move_cursor, archive_task, commit_tool_result_branches,
-    create_history_node, create_root_task, load_active_task, open_db, queue_user_input,
-    read_conversation_for_task, read_task, read_task_parent_edges, read_tool_execution_source,
-    read_tool_manifest_for_task, register_global_tool, register_tool, replace_global_mcp_tools,
-    unpublish_global_tool,
+    TaskId, TaskStatusRow, TaskToolSpec, ToolExecutionSource, ToolManifest, ToolName,
+    ToolResultBranch, ToolResultBranchTarget, ToolSpec, UnixTs,
+    append_model_reply_with_tool_calls_and_move_cursor, append_user_message_and_move_cursor,
+    archive_task, commit_tool_result_branches, create_history_node, create_root_task,
+    load_active_task, open_db, queue_user_input, read_conversation_for_task, read_task,
+    read_task_parent_edges, read_task_tool_state, read_tool_execution_source,
+    read_tool_manifest_for_task, reconcile_task_tool_availability,
 };
 use serde_json::Value;
 
@@ -49,7 +49,7 @@ fn create_task_without_tools(db: &DbPool, task_id: &str) -> TaskId {
             cursor_node_id: create_message_node(db, None, MessageRole::User, "run", UnixTs(10)),
             model_profile_key: ModelProfileKey("default".to_owned()),
             reasoning_effort: ReasoningEffort::Medium,
-            enabled_tools: Vec::new(),
+            tools: Vec::new(),
             now: UnixTs(10),
         },
     )
@@ -65,16 +65,25 @@ fn tool_spec(name: &str, description: &str) -> ToolSpec {
     }
 }
 
-fn mcp_registration(
+fn mcp_tool(
     name: &str,
     description: &str,
     server_id: &str,
     remote_tool_name: &str,
-) -> McpToolRegistration {
-    McpToolRegistration {
+) -> TaskToolSpec {
+    TaskToolSpec {
         tool: tool_spec(name, description),
-        server_id: server_id.to_owned(),
-        remote_tool_name: remote_tool_name.to_owned(),
+        execution_source: ToolExecutionSource::Mcp {
+            server_id: server_id.to_owned(),
+            remote_tool_name: remote_tool_name.to_owned(),
+        },
+    }
+}
+
+fn harness_tool(tool: ToolSpec) -> TaskToolSpec {
+    TaskToolSpec {
+        tool,
+        execution_source: ToolExecutionSource::Harness,
     }
 }
 
@@ -141,6 +150,7 @@ fn fork_one_child(
 fn open_db_creates_schema_and_root_task_transaction_moves_cursor() {
     let db = open_db(OpenDbOptions {
         sqlite_path: ":memory:".to_owned(),
+        max_children_per_fork: 5,
         max_task_descendants: 20,
     })
     .expect("open db");
@@ -152,7 +162,7 @@ fn open_db_creates_schema_and_root_task_transaction_moves_cursor() {
             cursor_node_id: create_message_node(&db, None, MessageRole::User, "hello", UnixTs(10)),
             model_profile_key: selvedge_db::ModelProfileKey("default".to_owned()),
             reasoning_effort: ReasoningEffort::Medium,
-            enabled_tools: Vec::new(),
+            tools: Vec::new(),
             now: UnixTs(10),
         },
     )
@@ -170,10 +180,10 @@ fn open_db_creates_schema_and_root_task_transaction_moves_cursor() {
 fn descendant_limit_is_enforced_for_every_ancestor_in_the_commit_transaction() {
     let db = open_db(OpenDbOptions {
         sqlite_path: ":memory:".to_owned(),
+        max_children_per_fork: 2,
         max_task_descendants: 2,
     })
     .expect("open db");
-    register_global_tool(&db, tool_spec("fork_task", "Fork tasks")).expect("register fork tool");
     let root = create_root_task(
         &db,
         CreateRootTaskInput {
@@ -181,7 +191,7 @@ fn descendant_limit_is_enforced_for_every_ancestor_in_the_commit_transaction() {
             cursor_node_id: create_message_node(&db, None, MessageRole::User, "root", UnixTs(10)),
             model_profile_key: ModelProfileKey("default".to_owned()),
             reasoning_effort: ReasoningEffort::Medium,
-            enabled_tools: Vec::new(),
+            tools: vec![harness_tool(tool_spec("fork_task", "Fork tasks"))],
             now: UnixTs(10),
         },
     )
@@ -217,6 +227,7 @@ fn descendant_limit_is_enforced_for_every_ancestor_in_the_commit_transaction() {
 fn archive_task_clears_queued_inputs_before_status_update() {
     let db = open_db(OpenDbOptions {
         sqlite_path: ":memory:".to_owned(),
+        max_children_per_fork: 5,
         max_task_descendants: 20,
     })
     .expect("open db");
@@ -227,7 +238,7 @@ fn archive_task_clears_queued_inputs_before_status_update() {
             cursor_node_id: create_message_node(&db, None, MessageRole::User, "hello", UnixTs(10)),
             model_profile_key: selvedge_db::ModelProfileKey("default".to_owned()),
             reasoning_effort: ReasoningEffort::Medium,
-            enabled_tools: Vec::new(),
+            tools: Vec::new(),
             now: UnixTs(10),
         },
     )
@@ -247,6 +258,7 @@ fn archive_task_clears_queued_inputs_before_status_update() {
 fn append_history_uses_new_node_timestamp_for_task_updated_at() {
     let db = open_db(OpenDbOptions {
         sqlite_path: ":memory:".to_owned(),
+        max_children_per_fork: 5,
         max_task_descendants: 20,
     })
     .expect("open db");
@@ -263,7 +275,7 @@ fn append_history_uses_new_node_timestamp_for_task_updated_at() {
             ),
             model_profile_key: selvedge_db::ModelProfileKey("default".to_owned()),
             reasoning_effort: ReasoningEffort::Medium,
-            enabled_tools: Vec::new(),
+            tools: Vec::new(),
             now: UnixTs(4_102_444_800),
         },
     )
@@ -282,6 +294,7 @@ fn append_history_uses_new_node_timestamp_for_task_updated_at() {
 fn append_history_uses_database_cursor_as_parent() {
     let db = open_db(OpenDbOptions {
         sqlite_path: ":memory:".to_owned(),
+        max_children_per_fork: 5,
         max_task_descendants: 20,
     })
     .expect("open db");
@@ -292,7 +305,7 @@ fn append_history_uses_database_cursor_as_parent() {
             cursor_node_id: create_message_node(&db, None, MessageRole::User, "hello", UnixTs(10)),
             model_profile_key: selvedge_db::ModelProfileKey("default".to_owned()),
             reasoning_effort: ReasoningEffort::Medium,
-            enabled_tools: Vec::new(),
+            tools: Vec::new(),
             now: UnixTs(10),
         },
     )
@@ -327,13 +340,12 @@ fn append_history_uses_database_cursor_as_parent() {
 fn tool_result_commit_creates_sibling_branches_with_independent_cursors() {
     let db = open_db(OpenDbOptions {
         sqlite_path: ":memory:".to_owned(),
+        max_children_per_fork: 5,
         max_task_descendants: 20,
     })
     .expect("open db");
-    let global_fork_tool = tool_spec("fork_task", "Fork a child task");
+    let fork_tool = tool_spec("fork_task", "Fork a child task");
     let task_tool = tool_spec("search", "Search local state");
-    register_global_tool(&db, global_fork_tool.clone()).expect("register global tool");
-    register_tool(&db, task_tool.clone()).expect("register task tool");
 
     let parent = create_root_task(
         &db,
@@ -342,7 +354,10 @@ fn tool_result_commit_creates_sibling_branches_with_independent_cursors() {
             cursor_node_id: create_message_node(&db, None, MessageRole::User, "parent", UnixTs(10)),
             model_profile_key: ModelProfileKey("parent-profile".to_owned()),
             reasoning_effort: ReasoningEffort::High,
-            enabled_tools: vec![ToolName("search".to_owned())],
+            tools: vec![
+                harness_tool(fork_tool.clone()),
+                harness_tool(task_tool.clone()),
+            ],
             now: UnixTs(10),
         },
     )
@@ -367,7 +382,7 @@ fn tool_result_commit_creates_sibling_branches_with_independent_cursors() {
             cursor_node_id: branch_parent_node_id,
             model_profile_key: ModelProfileKey("sibling-profile".to_owned()),
             reasoning_effort: ReasoningEffort::Low,
-            enabled_tools: Vec::new(),
+            tools: Vec::new(),
             now: UnixTs(11),
         },
     )
@@ -436,7 +451,7 @@ fn tool_result_commit_creates_sibling_branches_with_independent_cursors() {
     assert_eq!(
         child_manifest,
         ToolManifest {
-            tools: vec![global_fork_tool, task_tool],
+            tools: vec![fork_tool, task_tool],
         }
     );
 
@@ -605,6 +620,7 @@ fn tool_result_commit_creates_sibling_branches_with_independent_cursors() {
 fn create_history_node_accepts_strategy_parent_and_root_task_uses_existing_cursor() {
     let db = open_db(OpenDbOptions {
         sqlite_path: ":memory:".to_owned(),
+        max_children_per_fork: 5,
         max_task_descendants: 20,
     })
     .expect("open db");
@@ -617,7 +633,7 @@ fn create_history_node_accepts_strategy_parent_and_root_task_uses_existing_curso
             cursor_node_id: existing_node_id,
             model_profile_key: selvedge_db::ModelProfileKey("default".to_owned()),
             reasoning_effort: ReasoningEffort::Medium,
-            enabled_tools: Vec::new(),
+            tools: Vec::new(),
             now: UnixTs(10),
         },
     )
@@ -637,7 +653,7 @@ fn create_history_node_accepts_strategy_parent_and_root_task_uses_existing_curso
             cursor_node_id: root_node_id,
             model_profile_key: selvedge_db::ModelProfileKey("default".to_owned()),
             reasoning_effort: ReasoningEffort::Medium,
-            enabled_tools: Vec::new(),
+            tools: Vec::new(),
             now: UnixTs(11),
         },
     )
@@ -650,85 +666,52 @@ fn create_history_node_accepts_strategy_parent_and_root_task_uses_existing_curso
 }
 
 #[test]
-fn global_tool_registration_is_exactly_idempotent_and_merges_with_task_tools() {
+fn tool_snapshots_are_owned_and_ordered_per_task() {
     let db = open_db(OpenDbOptions {
         sqlite_path: ":memory:".to_owned(),
+        max_children_per_fork: 5,
         max_task_descendants: 20,
     })
     .expect("open db");
-    let task_tool = tool_spec("local_search", "Search this task");
-    register_tool(&db, task_tool.clone()).expect("register task tool");
-    let task = create_root_task(
+    let first_tools = vec![
+        tool_spec("local_search", "Search this task"),
+        tool_spec("read_task", "Read durable task state"),
+    ];
+    let first = create_root_task(
         &db,
         CreateRootTaskInput {
-            task_id: TaskId("task".to_owned()),
+            task_id: TaskId("first".to_owned()),
             cursor_node_id: create_message_node(&db, None, MessageRole::User, "hello", UnixTs(10)),
             model_profile_key: ModelProfileKey("default".to_owned()),
             reasoning_effort: ReasoningEffort::Medium,
-            enabled_tools: vec![ToolName("local_search".to_owned())],
+            tools: first_tools.iter().cloned().map(harness_tool).collect(),
             now: UnixTs(10),
         },
     )
-    .expect("create task before global registration");
-
-    let global_tool = ToolSpec {
-        name: "read_task".to_owned(),
-        description: "Read durable task state".to_owned(),
-        input_schema: serde_json::json!({
-            "type": "object",
-            "properties": {
-                "task_id": {
-                    "type": "string",
-                    "description": "Task identifier"
-                }
-            },
-            "required": ["task_id"],
-            "additionalProperties": false
-        })
-        .as_object()
-        .expect("object schema")
-        .clone(),
-    };
-    register_global_tool(&db, global_tool.clone()).expect("register global tool");
-    register_global_tool(&db, global_tool.clone()).expect("repeat exact registration");
-
-    assert_eq!(
-        read_tool_manifest_for_task(&db, &task.task_id).expect("read merged manifest"),
-        ToolManifest {
-            tools: vec![task_tool, global_tool.clone()],
-        }
-    );
-
-    let mut conflicting = global_tool.clone();
-    conflicting.description = "Different durable semantics".to_owned();
-    assert!(matches!(
-        register_global_tool(&db, conflicting),
-        Err(DbError::Constraint(_))
-    ));
-    assert_eq!(
-        read_tool_manifest_for_task(&db, &task.task_id)
-            .expect("conflict leaves original manifest")
-            .tools[1],
-        global_tool
-    );
-
-    let no_specific_tools = create_root_task(
+    .expect("create first task");
+    let second_tool = tool_spec("read_task", "A later definition");
+    let second = create_root_task(
         &db,
         CreateRootTaskInput {
-            task_id: TaskId("other".to_owned()),
+            task_id: TaskId("second".to_owned()),
             cursor_node_id: create_message_node(&db, None, MessageRole::User, "other", UnixTs(11)),
             model_profile_key: ModelProfileKey("default".to_owned()),
             reasoning_effort: ReasoningEffort::Medium,
-            enabled_tools: Vec::new(),
+            tools: vec![harness_tool(second_tool.clone())],
             now: UnixTs(11),
         },
     )
-    .expect("create task after global registration");
+    .expect("create second task");
+
     assert_eq!(
-        read_tool_manifest_for_task(&db, &no_specific_tools.task_id)
-            .expect("read global-only manifest")
-            .tools,
-        vec![global_tool]
+        read_tool_manifest_for_task(&db, &first.task_id).expect("read first manifest"),
+        ToolManifest { tools: first_tools }
+    );
+    assert_eq!(
+        read_tool_manifest_for_task(&db, &second.task_id).expect("read second manifest"),
+        ToolManifest {
+            tools: vec![second_tool],
+        }
     );
 }
 
@@ -736,6 +719,7 @@ fn global_tool_registration_is_exactly_idempotent_and_merges_with_task_tools() {
 fn read_task_pages_active_and_archived_cursor_paths_and_rejects_invalid_bounds() {
     let db = open_db(OpenDbOptions {
         sqlite_path: ":memory:".to_owned(),
+        max_children_per_fork: 5,
         max_task_descendants: 20,
     })
     .expect("open db");
@@ -747,7 +731,7 @@ fn read_task_pages_active_and_archived_cursor_paths_and_rejects_invalid_bounds()
             cursor_node_id: root_node_id,
             model_profile_key: ModelProfileKey("default".to_owned()),
             reasoning_effort: ReasoningEffort::Medium,
-            enabled_tools: Vec::new(),
+            tools: Vec::new(),
             now: UnixTs(10),
         },
     )
@@ -856,11 +840,10 @@ fn tool_result_branch_failure_rolls_back_tasks_edges_history_and_queue_drain() {
     let sqlite_path_text = sqlite_path.to_string_lossy().into_owned();
     let db = open_db(OpenDbOptions {
         sqlite_path: sqlite_path_text.clone(),
+        max_children_per_fork: 5,
         max_task_descendants: 20,
     })
     .expect("open db");
-    register_global_tool(&db, tool_spec("fork_task", "Fork a child task"))
-        .expect("register fork tool");
 
     let parent = create_root_task(
         &db,
@@ -869,7 +852,7 @@ fn tool_result_branch_failure_rolls_back_tasks_edges_history_and_queue_drain() {
             cursor_node_id: create_message_node(&db, None, MessageRole::User, "parent", UnixTs(10)),
             model_profile_key: ModelProfileKey("default".to_owned()),
             reasoning_effort: ReasoningEffort::Medium,
-            enabled_tools: Vec::new(),
+            tools: vec![harness_tool(tool_spec("fork_task", "Fork a child task"))],
             now: UnixTs(10),
         },
     )
@@ -902,7 +885,7 @@ fn tool_result_branch_failure_rolls_back_tasks_edges_history_and_queue_drain() {
             ),
             model_profile_key: ModelProfileKey("default".to_owned()),
             reasoning_effort: ReasoningEffort::Medium,
-            enabled_tools: Vec::new(),
+            tools: Vec::new(),
             now: UnixTs(12),
         },
     )
@@ -991,9 +974,10 @@ fn tool_result_branch_failure_rolls_back_tasks_edges_history_and_queue_drain() {
 }
 
 #[test]
-fn global_unpublish_preserves_history_definition_and_harness_route() {
+fn task_tool_unavailability_preserves_manifest_and_history() {
     let db = open_db(OpenDbOptions {
         sqlite_path: ":memory:".to_owned(),
+        max_children_per_fork: 5,
         max_task_descendants: 20,
     })
     .expect("open db");
@@ -1012,7 +996,6 @@ fn global_unpublish_preserves_history_definition_and_harness_route() {
             }
         })),
     };
-    register_global_tool(&db, tool.clone()).expect("register global tool");
     let task = create_root_task(
         &db,
         CreateRootTaskInput {
@@ -1020,7 +1003,7 @@ fn global_unpublish_preserves_history_definition_and_harness_route() {
             cursor_node_id: create_message_node(&db, None, MessageRole::User, "run", UnixTs(10)),
             model_profile_key: ModelProfileKey("default".to_owned()),
             reasoning_effort: ReasoningEffort::Medium,
-            enabled_tools: Vec::new(),
+            tools: vec![harness_tool(tool.clone())],
             now: UnixTs(10),
         },
     )
@@ -1044,17 +1027,13 @@ fn global_unpublish_preserves_history_definition_and_harness_route() {
     )
     .expect("persist function call");
 
-    unpublish_global_tool(&db, &ToolName(tool.name.clone())).expect("unpublish tool");
-
-    assert!(
-        read_tool_manifest_for_task(&db, &task.task_id)
-            .expect("read manifest after unpublish")
-            .tools
-            .is_empty()
-    );
+    reconcile_task_tool_availability(&db, Vec::new()).expect("mark tool unavailable");
+    let state = read_task_tool_state(&db, &task.task_id).expect("read unavailable state");
+    assert_eq!(state.manifest.tools, vec![tool.clone()]);
+    assert_eq!(state.unavailable_tools, vec![ToolName(tool.name.clone())]);
     assert_eq!(
-        read_tool_execution_source(&db, &ToolName(tool.name.clone())).expect("read durable route"),
-        ToolExecutionSource::Harness
+        read_tool_execution_source(&db, &task.task_id, &ToolName(tool.name.clone())),
+        Err(DbError::ToolUnavailable)
     );
     let persisted_arguments = read_task(
         &db,
@@ -1074,210 +1053,134 @@ fn global_unpublish_preserves_history_definition_and_harness_route() {
     .expect("persisted function call");
     assert_eq!(persisted_arguments, arguments);
 
-    register_global_tool(&db, tool.clone()).expect("republish exact durable definition");
+    reconcile_task_tool_availability(&db, vec![harness_tool(tool.clone())])
+        .expect("restore tool availability");
     assert_eq!(
-        read_tool_manifest_for_task(&db, &TaskId("task".to_owned()))
-            .expect("read republished manifest")
-            .tools,
-        vec![tool]
-    );
-}
-
-#[test]
-fn execution_source_is_closed_and_harness_registration_cannot_claim_an_mcp_route() {
-    let directory = tempfile::tempdir().expect("temp directory");
-    let sqlite_path = directory.path().join("routes.sqlite");
-    let db = open_db(OpenDbOptions {
-        sqlite_path: sqlite_path.to_string_lossy().into_owned(),
-        max_task_descendants: 20,
-    })
-    .expect("open db");
-    let raw = rusqlite::Connection::open(&sqlite_path).expect("open raw database");
-    assert!(
-        raw.execute(
-            "INSERT INTO tools
-             (tool_name, description_text, input_schema_json, execution_source_kind,
-              mcp_server_id, remote_tool_name, is_global)
-             VALUES ('broken', 'Broken route', '{}', 'mcp', 'server', NULL, 0)",
-            [],
-        )
-        .is_err()
-    );
-    raw.execute(
-        "INSERT INTO tools
-         (tool_name, description_text, input_schema_json, execution_source_kind,
-          mcp_server_id, remote_tool_name, is_global)
-         VALUES ('remote', 'Remote route', '{}', 'mcp', 'server', 'lookup', 0)",
-        [],
-    )
-    .expect("insert complete MCP route");
-
-    let tool_name = ToolName("remote".to_owned());
-    assert_eq!(
-        read_tool_execution_source(&db, &tool_name).expect("read MCP route"),
-        ToolExecutionSource::Mcp {
-            server_id: "server".to_owned(),
-            remote_tool_name: "lookup".to_owned(),
-        }
-    );
-    assert!(matches!(
-        register_global_tool(&db, tool_spec("remote", "Remote route")),
-        Err(DbError::Constraint(_))
-    ));
-    assert_eq!(
-        read_tool_execution_source(&db, &tool_name).expect("route survives failed registration"),
-        ToolExecutionSource::Mcp {
-            server_id: "server".to_owned(),
-            remote_tool_name: "lookup".to_owned(),
-        }
-    );
-}
-
-#[test]
-fn mcp_catalog_refreshes_definitions_and_unpublishes_stale_routes() {
-    let db = open_db(OpenDbOptions {
-        sqlite_path: ":memory:".to_owned(),
-        max_task_descendants: 20,
-    })
-    .expect("open db");
-    let harness = tool_spec("bash", "Run a command");
-    register_global_tool(&db, harness.clone()).expect("register harness tool");
-    let active = mcp_registration("mcp__alpha__lookup", "Old lookup", "alpha", "lookup");
-    let stale = mcp_registration("mcp__beta__search", "Search", "beta", "search");
-    replace_global_mcp_tools(&db, vec![active, stale.clone()]).expect("publish MCP catalog");
-    let task_id = create_task_without_tools(&db, "task");
-
-    let mut refreshed = mcp_registration("mcp__alpha__lookup", "New lookup", "alpha", "lookup");
-    refreshed.tool.input_schema = json_object(serde_json::json!({
-        "type": "object",
-        "properties": {
-            "query": { "type": "string" }
-        },
-        "required": ["query"]
-    }));
-    let refreshed_tool = refreshed.tool.clone();
-    replace_global_mcp_tools(&db, vec![refreshed]).expect("refresh MCP catalog");
-
-    assert_eq!(
-        read_tool_manifest_for_task(&db, &task_id)
-            .expect("read refreshed manifest")
-            .tools,
-        vec![harness.clone(), refreshed_tool]
-    );
-    assert_eq!(
-        read_tool_execution_source(&db, &ToolName(stale.tool.name.clone()))
-            .expect("read stale durable route"),
-        ToolExecutionSource::Mcp {
-            server_id: stale.server_id,
-            remote_tool_name: stale.remote_tool_name,
-        }
-    );
-    assert_eq!(
-        read_tool_execution_source(&db, &ToolName(harness.name))
-            .expect("read unchanged harness route"),
+        read_tool_execution_source(&db, &TaskId("task".to_owned()), &ToolName(tool.name))
+            .expect("read restored route")
+            .source,
         ToolExecutionSource::Harness
     );
 }
 
 #[test]
-fn duplicate_mcp_names_roll_back_the_complete_catalog_refresh() {
+fn mcp_contract_changes_only_change_task_availability() {
     let db = open_db(OpenDbOptions {
         sqlite_path: ":memory:".to_owned(),
+        max_children_per_fork: 5,
         max_task_descendants: 20,
     })
     .expect("open db");
-    let original = mcp_registration("mcp__alpha__lookup", "Original", "alpha", "lookup");
-    replace_global_mcp_tools(&db, vec![original.clone()]).expect("publish original catalog");
-    let task_id = create_task_without_tools(&db, "task");
+    let original = mcp_tool("mcp__alpha__lookup", "Original", "alpha", "lookup");
+    let stale = mcp_tool("mcp__beta__search", "Search", "beta", "search");
+    let harness = harness_tool(tool_spec("bash", "Run a command"));
+    let task = create_root_task(
+        &db,
+        CreateRootTaskInput {
+            task_id: TaskId("task".to_owned()),
+            cursor_node_id: create_message_node(&db, None, MessageRole::User, "run", UnixTs(10)),
+            model_profile_key: ModelProfileKey("default".to_owned()),
+            reasoning_effort: ReasoningEffort::Medium,
+            tools: vec![harness.clone(), original.clone(), stale.clone()],
+            now: UnixTs(10),
+        },
+    )
+    .expect("create task");
+    let frozen_manifest =
+        read_tool_manifest_for_task(&db, &task.task_id).expect("read frozen manifest");
 
+    let mut changed = original.clone();
+    changed.tool.description = "Changed".to_owned();
+    reconcile_task_tool_availability(&db, vec![harness.clone(), changed])
+        .expect("reconcile changed catalog");
+
+    let state = read_task_tool_state(&db, &task.task_id).expect("read reconciled state");
+    assert_eq!(state.manifest, frozen_manifest);
+    assert_eq!(
+        state.unavailable_tools,
+        vec![
+            ToolName(original.tool.name.clone()),
+            ToolName(stale.tool.name.clone())
+        ]
+    );
+    assert_eq!(
+        read_tool_execution_source(&db, &task.task_id, &ToolName(harness.tool.name.clone()))
+            .expect("harness remains executable")
+            .source,
+        ToolExecutionSource::Harness
+    );
+
+    reconcile_task_tool_availability(&db, vec![harness, original, stale])
+        .expect("restore exact catalog");
+    assert!(
+        read_task_tool_state(&db, &task.task_id)
+            .expect("read restored state")
+            .unavailable_tools
+            .is_empty()
+    );
+}
+
+#[test]
+fn execution_source_schema_rejects_incomplete_mcp_routes() {
+    let directory = tempfile::tempdir().expect("temp directory");
+    let sqlite_path = directory.path().join("routes.sqlite");
+    let db = open_db(OpenDbOptions {
+        sqlite_path: sqlite_path.to_string_lossy().into_owned(),
+        max_children_per_fork: 5,
+        max_task_descendants: 20,
+    })
+    .expect("open db");
+    let task_id = create_task_without_tools(&db, "task");
+    let raw = rusqlite::Connection::open(&sqlite_path).expect("open raw database");
+    assert!(
+        raw.execute(
+            "INSERT INTO task_tools
+             (task_id, tool_ordinal, tool_name, description_text, input_schema_json,
+              execution_source_kind, mcp_server_id, remote_tool_name)
+             VALUES (?1, 0, 'broken', 'Broken route', '{}', 'mcp', 'server', NULL)",
+            [task_id.0],
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn duplicate_available_names_leave_availability_unchanged() {
+    let db = open_db(OpenDbOptions {
+        sqlite_path: ":memory:".to_owned(),
+        max_children_per_fork: 5,
+        max_task_descendants: 20,
+    })
+    .expect("open db");
+    let original = mcp_tool("mcp__alpha__lookup", "Original", "alpha", "lookup");
+    let task = create_root_task(
+        &db,
+        CreateRootTaskInput {
+            task_id: TaskId("task".to_owned()),
+            cursor_node_id: create_message_node(&db, None, MessageRole::User, "run", UnixTs(10)),
+            model_profile_key: ModelProfileKey("default".to_owned()),
+            reasoning_effort: ReasoningEffort::Medium,
+            tools: vec![original.clone()],
+            now: UnixTs(10),
+        },
+    )
+    .expect("create task");
+    reconcile_task_tool_availability(&db, Vec::new()).expect("mark unavailable");
     let duplicate_name = original.tool.name.clone();
     assert!(matches!(
-        replace_global_mcp_tools(
+        reconcile_task_tool_availability(
             &db,
             vec![
-                mcp_registration(&duplicate_name, "Changed", "alpha", "lookup"),
-                mcp_registration(&duplicate_name, "Duplicate", "other", "lookup"),
+                mcp_tool(&duplicate_name, "Changed", "alpha", "lookup"),
+                mcp_tool(&duplicate_name, "Duplicate", "other", "lookup"),
             ],
         ),
         Err(DbError::Constraint(_))
     ));
     assert_eq!(
-        read_tool_manifest_for_task(&db, &task_id)
-            .expect("read manifest after duplicate")
-            .tools,
-        vec![original.tool]
+        read_task_tool_state(&db, &task.task_id)
+            .expect("read state after rejected reconcile")
+            .unavailable_tools,
+        vec![ToolName(original.tool.name)]
     );
-}
-
-#[test]
-fn mcp_route_conflicts_roll_back_prior_catalog_writes() {
-    let db = open_db(OpenDbOptions {
-        sqlite_path: ":memory:".to_owned(),
-        max_task_descendants: 20,
-    })
-    .expect("open db");
-    let harness = tool_spec("bash", "Run a command");
-    register_global_tool(&db, harness.clone()).expect("register harness tool");
-    let original = mcp_registration("mcp__alpha__lookup", "Original", "alpha", "lookup");
-    replace_global_mcp_tools(&db, vec![original.clone()]).expect("publish original catalog");
-    let task_id = create_task_without_tools(&db, "task");
-
-    let fresh_name = "mcp__beta__search";
-    assert!(matches!(
-        replace_global_mcp_tools(
-            &db,
-            vec![
-                mcp_registration(fresh_name, "Search", "beta", "search"),
-                mcp_registration(&original.tool.name, "Changed route", "alpha", "different",),
-            ],
-        ),
-        Err(DbError::Constraint(_))
-    ));
-
-    assert_eq!(
-        read_tool_execution_source(&db, &ToolName(fresh_name.to_owned())),
-        Err(DbError::NotFound)
-    );
-    assert_eq!(
-        read_tool_execution_source(&db, &ToolName(original.tool.name.clone()))
-            .expect("read original route"),
-        ToolExecutionSource::Mcp {
-            server_id: original.server_id,
-            remote_tool_name: original.remote_tool_name,
-        }
-    );
-    assert_eq!(
-        read_tool_manifest_for_task(&db, &task_id)
-            .expect("read manifest after route conflict")
-            .tools,
-        vec![harness, original.tool]
-    );
-}
-
-#[test]
-fn empty_mcp_route_names_fail_without_changing_publication() {
-    let db = open_db(OpenDbOptions {
-        sqlite_path: ":memory:".to_owned(),
-        max_task_descendants: 20,
-    })
-    .expect("open db");
-    let original = mcp_registration("mcp__alpha__lookup", "Original", "alpha", "lookup");
-    replace_global_mcp_tools(&db, vec![original.clone()]).expect("publish original catalog");
-    let task_id = create_task_without_tools(&db, "task");
-
-    for invalid in [
-        mcp_registration("mcp__invalid__server", "Invalid", "", "lookup"),
-        mcp_registration("mcp__invalid__tool", "Invalid", "alpha", ""),
-    ] {
-        assert!(matches!(
-            replace_global_mcp_tools(&db, vec![invalid]),
-            Err(DbError::Constraint(_))
-        ));
-        assert_eq!(
-            read_tool_manifest_for_task(&db, &task_id)
-                .expect("read unchanged manifest")
-                .tools,
-            vec![original.tool.clone()]
-        );
-    }
 }
