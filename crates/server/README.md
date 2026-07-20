@@ -2,7 +2,7 @@
 
 <!-- selvedge-package-readme
 package: selvedge-server
-freshness_fingerprint: c84391948c596454859584049473e1c4de963c0f
+freshness_fingerprint: bb9e088f11935f34ae622ff38e1350949d2f2094
 -->
 
 This crate owns the process-local Selvedge server lifecycle.
@@ -12,6 +12,8 @@ Use it to start the server runtime, hold the singleton lock, initialize config a
 `ServerStartArgs` uses the current `selvedge-api` boundary: server passes `ApiExecutorConfig` into the router, and provider selection remains inside each model-call request. It also receives the effective harness limits and MCP server map from the configuration boundary; the descendant limit is installed at database open and the per-fork limit is shared by tool schemas and parsing. This crate does not own a provider registry.
 
 After opening SQLite, startup registers the exact harness manifests idempotently as global tools with durable Harness execution routes. It then connects configured MCP servers, discovers their complete tool catalogs, and atomically replaces the published global MCP set before constructing the unified executor. Discovery and catalog conflicts fail startup before task recovery. The shared MCP connections stay alive for concurrent calls and close after the supervised services stop.
+
+Startup owns every acquired service until the complete runtime is handed off. Any failure stops and joins the router, client-sync, web, and events tasks that were started, closes discovered MCP connections, and only then releases and removes the singleton lock.
 
 Function-call history projections carry one JSON object and function outputs carry one JSON value unchanged across the command-model and local-protocol boundary. The server does not flatten arguments or stringify outputs.
 
@@ -58,7 +60,9 @@ flowchart TD
   Attach[Handle attach request]
   Hydrate[Start client hydration]
   Stop[Stop server]
+  RollbackServices[Stop and join acquired services]
   CloseMcp[Close MCP server connections]
+  ReleaseLock[Release and remove singleton lock]
   StartupFailure[Return startup error and cleanup]
   RequestFailure[Return control-surface error]
   Stopped[Server stopped]
@@ -97,6 +101,8 @@ flowchart TD
   Hydrate -->|client-sync send fails| RequestFailure
   Ready -->|shutdown is requested or control is dropped| Stop
   Stop -->|supervised services have stopped| CloseMcp
-  CloseMcp -->|connections close and lock file is removed| Stopped
-  StartupFailure -->|normal cleanup removes lock file when owned| Stopped
+  StartupFailure -->|startup acquired services or MCP connections| RollbackServices
+  RollbackServices -->|all acquired services have stopped| CloseMcp
+  CloseMcp -->|all MCP connections have closed| ReleaseLock
+  ReleaseLock -->|file lock is released and lock path is removed| Stopped
 ```

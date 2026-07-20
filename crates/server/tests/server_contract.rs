@@ -14,8 +14,9 @@ use selvedge_db::{
     CreateRootTaskInput, NewHistoryNode, NewHistoryNodeContent, NewMessageNodeContent,
     OpenDbOptions, ReasoningEffort, TaskId, ToolExecutionSource, create_history_node,
     create_root_task, open_db, read_tool_execution_source, read_tool_manifest_for_task,
+    register_global_tool, unpublish_global_tool,
 };
-use selvedge_domain_model::{ModelProfileKey, ToolName, UnixTs};
+use selvedge_domain_model::{ModelProfileKey, ToolName, ToolSpec, UnixTs};
 use selvedge_local_protocol::{
     AttachRejectReason, AttachRequest, CommandOutcome, CommandRejectReason, CommandRequest,
     LocalClientCommandId, LocalClientFrame, LocalClientId, LocalClientSubscription,
@@ -33,6 +34,10 @@ use tokio::time::timeout;
 
 static SERVER_TEST_LOCK: LazyLock<AsyncMutex<()>> = LazyLock::new(|| AsyncMutex::new(()));
 static SERVER_TEST_HOME: LazyLock<TempDir> = LazyLock::new(|| TempDir::new().expect("temp home"));
+const MCP_FIXTURE: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../harness/tests/fixtures/mcp_server.sh"
+);
 
 #[tokio::test]
 async fn spawn_server_initializes_ready_control_and_creates_durable_paths() {
@@ -235,6 +240,68 @@ async fn mcp_start_failure_removes_recoverable_lock_file() {
     let restarted = spawn_server(test_args(home.to_path_buf()))
         .await
         .expect("MCP startup failure should leave the server restartable");
+    restarted.control.stop().await;
+    restarted.join_handle.await.expect("join restarted server");
+}
+
+#[tokio::test]
+async fn post_discovery_startup_failure_closes_mcp_before_releasing_lock() {
+    let _guard = SERVER_TEST_LOCK.lock().await;
+    let home = SERVER_TEST_HOME.path();
+    let lock_path = home.join("server.lock");
+    let close_marker = home.join("mcp-close-marker");
+    let _ = std::fs::remove_file(&lock_path);
+    let _ = std::fs::remove_file(&close_marker);
+    let db = open_db(OpenDbOptions {
+        sqlite_path: home.join("selvedge.sqlite").to_string_lossy().to_string(),
+        max_task_descendants: 20,
+    })
+    .expect("open server database");
+    let conflicting_tool_name = ToolName("mcp__alpha_beta__echo_value".to_owned());
+    register_global_tool(
+        &db,
+        ToolSpec {
+            name: conflicting_tool_name.0.clone(),
+            description: "conflicting harness route".to_owned(),
+            input_schema: serde_json::json!({"type": "object"})
+                .as_object()
+                .expect("object schema")
+                .clone(),
+        },
+    )
+    .expect("register conflicting harness tool");
+
+    let mut args = test_args(home.to_path_buf());
+    args.mcp_servers.insert(
+        "alpha.beta".to_owned(),
+        McpServerConfig {
+            command: "/bin/sh".to_owned(),
+            args: vec![MCP_FIXTURE.to_owned(), "catalog".to_owned()],
+            env: BTreeMap::from([(
+                "MCP_CLOSE_MARKER".to_owned(),
+                close_marker.to_string_lossy().into_owned(),
+            )]),
+            timeout_ms: 1_000,
+        },
+    );
+
+    let failed = spawn_server(args).await;
+
+    assert!(matches!(
+        failed,
+        Err(ServerStartupError::McpCatalogRegistrationFailed(_))
+    ));
+    assert_eq!(
+        std::fs::read_to_string(&close_marker).expect("MCP close marker"),
+        "closed"
+    );
+    assert!(!lock_path.exists());
+
+    unpublish_global_tool(&db, &conflicting_tool_name).expect("unpublish conflicting tool");
+    std::fs::remove_file(&close_marker).expect("remove MCP close marker");
+    let restarted = spawn_server(test_args(home.to_path_buf()))
+        .await
+        .expect("post-discovery failure should leave the server restartable");
     restarted.control.stop().await;
     restarted.join_handle.await.expect("join restarted server");
 }
