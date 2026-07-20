@@ -2,7 +2,7 @@
 
 <!-- selvedge-package-readme
 package: selvedge-harness
-freshness_fingerprint: 5b5f8a50166e58941ec5fcb787f1ad4f53bb0b80
+freshness_fingerprint: 0b591246f2b97d8ab9c6a565c938f5d0b266dce8
 -->
 
 This crate implements Selvedge task self-orchestration, bounded Bash command execution, and stdio MCP client execution for model tool calls.
@@ -11,9 +11,9 @@ Use it for the five harness tool manifests, complete JSON input schemas, typed i
 
 Calling task identity and complete function-call correlation come from `ToolExecutionRequest`, not model arguments. SQLite reads run on Tokio's blocking pool. Send and archive wait for typed router responders, so enqueueing a command is never reported as business success.
 
-`McpConnectionSet` starts each configured command directly with its configured arguments and environment, completes MCP initialization, and consumes every page from `tools/list`. Each incoming JSON-RPC frame is limited to 4 MiB, and discovery rejects a complete catalog above 1024 tools or 4 MiB of serialized tool definitions. A discovered tool is published as `mcp__<normalized server id>__<normalized remote name>` only when that name is valid and unique and the tool does not require MCP task-mode execution. Missing descriptions receive a stable route-derived description so every definition satisfies the durable catalog contract.
+`McpConnectionSet` starts each configured command in its own process group, completes MCP initialization, and consumes every page from `tools/list`. Each incoming JSON-RPC frame is limited to 4 MiB, and discovery rejects a complete catalog above 1024 tools or 4 MiB of serialized tool definitions. A discovered tool becomes `mcp__<normalized server id>__<normalized remote name>` only when that name is valid and unique and the tool does not require MCP task-mode execution. Missing descriptions receive a stable route-derived description so every definition satisfies the durable task contract.
 
-The production `ToolExecutor` reads each call's durable execution source before dispatch. Harness routes use the five built-in implementations; MCP routes use the discovered server connection and stored remote tool name under that server's timeout. Connections are shared across concurrent calls and retained separately from their cloneable peers so shutdown can close each child service exactly once. A complete MCP `CallToolResult` remains arbitrary JSON in the ordinary calling-task branch, and `isError: true` marks that branch as an error without rewriting the remote result.
+The production `ToolExecutor` reads each call's task-owned execution source and limits before dispatch. An unavailable tool fails before execution. Harness routes use the five built-in implementations; MCP routes use the discovered server connection and stored remote tool name under that server's timeout. Connections are shared across concurrent calls and retained separately from their cloneable peers so shutdown can close each child service exactly once. Shutdown terminates the server process group and reaps the direct child, so descendants cannot survive a normal close or a dropped connection future. A complete MCP `CallToolResult` remains arbitrary JSON in the ordinary calling-task branch, and `isError: true` marks that branch as an error without rewriting the remote result.
 
 `fork_task` accepts `child_count` from 1 through `HarnessConfig::max_children_per_fork` and an optional `messages` string array of the same length. It creates one calling-task branch with JSON number `0` and one new-child branch per requested child with JSON numbers `1` through `child_count`; each aligned initial message is attached to its child branch and is not part of the branch output. The executor generates child task ids only. Core owns the later transactional branch commit and runtime startup, while the database enforces the configured complete-descendant limit.
 
@@ -56,8 +56,9 @@ flowchart TD
   Start -->|Tokio runtime accepts the supervisor| Supervise
   Supervise -->|inner execution starts| Route
   Supervise -->|inner execution panics or is cancelled| Panic
-  Route -->|stored route is available| Source
+  Route -->|stored task route is available| Source
   Route -->|route is missing| Unknown
+  Route -->|tool is marked unavailable| Failure
   Route -->|route storage read fails| Failure
   Source -->|route kind is Harness| Select
   Source -->|route kind is MCP| McpRoute

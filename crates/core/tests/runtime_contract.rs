@@ -12,15 +12,15 @@ use selvedge_core::{SpawnTaskRuntimeArgs, TaskRuntimeConfig, spawn_task_runtime}
 use selvedge_db::{
     CommitToolResultBranchesInput, CreateRootTaskInput, FunctionCallId, NewFunctionCallNodeContent,
     NewHistoryNode, NewHistoryNodeContent, NewMessageNodeContent, ReasoningEffort, TaskId,
-    ToolName, ToolResultBranch, ToolResultBranchTarget, UnixTs,
+    TaskToolSpec, ToolExecutionSource, ToolName, ToolResultBranch, ToolResultBranchTarget, UnixTs,
     append_assistant_message_and_drain_queue, append_model_reply_with_tool_calls_and_move_cursor,
     append_user_message_and_move_cursor, commit_tool_result_branches, create_history_node,
     create_root_task, load_active_task, queue_user_input, read_conversation_for_task,
-    read_tool_manifest_for_task, register_global_tool, register_tool, unpublish_global_tool,
+    read_task_tool_state, reconcile_task_tool_availability,
 };
 use selvedge_domain_model::{
-    FUNCTION_CALL_CONTENT_TYPE, FUNCTION_OUTPUT_CONTENT_TYPE, JsonObject, ModelFinishReason,
-    ModelReply, ToolCallProposal, ToolSpec,
+    CallableTools, FUNCTION_CALL_CONTENT_TYPE, FUNCTION_OUTPUT_CONTENT_TYPE, JsonObject,
+    ModelFinishReason, ModelReply, ToolCallProposal, ToolSpec,
 };
 use selvedge_test_support::db::{
     default_model_profiles, open_memory_db, open_memory_db_with_max_task_descendants,
@@ -48,7 +48,7 @@ async fn task_runtime_starts_and_requests_model_call_from_system_cursor() {
             .expect("create cursor node"),
             model_profile_key: selvedge_db::ModelProfileKey("default".to_owned()),
             reasoning_effort: ReasoningEffort::Medium,
-            enabled_tools: Vec::new(),
+            tools: Vec::new(),
             now: UnixTs(1),
         },
     )
@@ -107,7 +107,7 @@ async fn task_runtime_start_requests_model_from_user_cursor_without_draining_que
             .expect("create cursor node"),
             model_profile_key: selvedge_db::ModelProfileKey("default".to_owned()),
             reasoning_effort: ReasoningEffort::Medium,
-            enabled_tools: Vec::new(),
+            tools: Vec::new(),
             now: UnixTs(1),
         },
     )
@@ -188,7 +188,7 @@ async fn task_runtime_start_promotes_queue_before_awaiting_user_input() {
             .expect("create cursor node"),
             model_profile_key: selvedge_db::ModelProfileKey("default".to_owned()),
             reasoning_effort: ReasoningEffort::Medium,
-            enabled_tools: Vec::new(),
+            tools: Vec::new(),
             now: UnixTs(1),
         },
     )
@@ -238,7 +238,6 @@ async fn task_runtime_start_promotes_queue_before_awaiting_user_input() {
 #[tokio::test]
 async fn task_runtime_start_dispatches_tool_from_function_call_cursor() {
     let db = open_memory_db();
-    register_tool(&db, tool_spec("search")).expect("register tool");
     create_root_task(
         &db,
         CreateRootTaskInput {
@@ -257,7 +256,7 @@ async fn task_runtime_start_dispatches_tool_from_function_call_cursor() {
             .expect("create cursor node"),
             model_profile_key: selvedge_db::ModelProfileKey("default".to_owned()),
             reasoning_effort: ReasoningEffort::Medium,
-            enabled_tools: vec![ToolName("search".to_owned())],
+            tools: vec![task_tool(tool_spec("search"))],
             now: UnixTs(1),
         },
     )
@@ -305,7 +304,6 @@ async fn task_runtime_start_dispatches_tool_from_function_call_cursor() {
 #[tokio::test]
 async fn task_runtime_start_reconstructs_open_batched_tool_calls_from_history() {
     let db = open_memory_db();
-    register_tool(&db, tool_spec("search")).expect("register tool");
     create_root_task(
         &db,
         CreateRootTaskInput {
@@ -324,7 +322,7 @@ async fn task_runtime_start_reconstructs_open_batched_tool_calls_from_history() 
             .expect("create cursor node"),
             model_profile_key: selvedge_db::ModelProfileKey("default".to_owned()),
             reasoning_effort: ReasoningEffort::Medium,
-            enabled_tools: vec![ToolName("search".to_owned())],
+            tools: vec![task_tool(tool_spec("search"))],
             now: UnixTs(1),
         },
     )
@@ -737,7 +735,6 @@ async fn task_runtime_preserves_batched_tool_call_order_in_next_model_request() 
 #[tokio::test]
 async fn task_runtime_ignores_tool_result_with_mismatched_call_identity() {
     let db = open_memory_db();
-    register_tool(&db, tool_spec("search")).expect("register tool");
     create_root_task(
         &db,
         CreateRootTaskInput {
@@ -756,7 +753,7 @@ async fn task_runtime_ignores_tool_result_with_mismatched_call_identity() {
             .expect("create cursor node"),
             model_profile_key: selvedge_db::ModelProfileKey("default".to_owned()),
             reasoning_effort: ReasoningEffort::Medium,
-            enabled_tools: vec![ToolName("search".to_owned())],
+            tools: vec![task_tool(tool_spec("search"))],
             now: UnixTs(1),
         },
     )
@@ -880,9 +877,8 @@ async fn task_runtime_rejects_duplicate_tool_call_ids_in_one_model_reply() {
 }
 
 #[tokio::test]
-async fn task_runtime_validates_tool_reply_against_sent_manifest_snapshot() {
+async fn task_runtime_validates_tool_reply_against_sent_callable_snapshot() {
     let db = open_memory_db();
-    register_global_tool(&db, required_integer_tool_spec("repeat")).expect("register global tool");
     create_root_task(
         &db,
         CreateRootTaskInput {
@@ -901,7 +897,7 @@ async fn task_runtime_validates_tool_reply_against_sent_manifest_snapshot() {
             .expect("create cursor node"),
             model_profile_key: selvedge_db::ModelProfileKey("default".to_owned()),
             reasoning_effort: ReasoningEffort::Medium,
-            enabled_tools: Vec::new(),
+            tools: vec![task_tool(required_integer_tool_spec("repeat"))],
             now: UnixTs(1),
         },
     )
@@ -929,12 +925,13 @@ async fn task_runtime_validates_tool_reply_against_sent_manifest_snapshot() {
         1
     );
 
-    unpublish_global_tool(&db, &ToolName("repeat".to_owned())).expect("unpublish tool");
-    assert!(
-        read_tool_manifest_for_task(&db, &TaskId("task-1".to_owned()))
-            .expect("read current manifest")
-            .tools
-            .is_empty()
+    reconcile_task_tool_availability(&db, Vec::new()).expect("mark tool unavailable");
+    let current_tools =
+        read_task_tool_state(&db, &TaskId("task-1".to_owned())).expect("read current tools");
+    assert_eq!(current_tools.manifest.tools.len(), 1);
+    assert_eq!(
+        current_tools.unavailable_tools,
+        vec![ToolName("repeat".to_owned())]
     );
 
     let arguments = json_object(json!({
@@ -973,12 +970,27 @@ async fn task_runtime_validates_tool_reply_against_sent_manifest_snapshot() {
     assert_eq!(persisted.function_call_id(), Some("call-1"));
     assert_eq!(persisted.tool_name(), Some("repeat"));
     assert_eq!(persisted.function_call_arguments(), Some(&arguments));
+
+    runtime
+        .task_runtime_tx
+        .send(TaskRuntimeCommand::ToolResult(ToolExecutionResult {
+            task_id: tool_request.task_id,
+            tool_execution_run_id: tool_request.tool_execution_run_id,
+            function_call_node_id: tool_request.function_call_node_id,
+            function_call_id: tool_request.function_call_id,
+            tool_name: tool_request.tool_name,
+            branches: calling_tool_result_branches(json!("done"), false),
+        }))
+        .await
+        .expect("send tool result");
+
+    let next_request = recv_model_request(&mut router_rx).await;
+    assert_eq!(next_request.callable_tools, CallableTools::Only(Vec::new()));
 }
 
 #[tokio::test]
 async fn task_runtime_rejects_tool_calls_outside_enabled_manifest() {
     let db = open_memory_db();
-    register_tool(&db, tool_spec("disabled")).expect("register disabled tool");
     create_root_task(
         &db,
         CreateRootTaskInput {
@@ -997,7 +1009,7 @@ async fn task_runtime_rejects_tool_calls_outside_enabled_manifest() {
             .expect("create cursor node"),
             model_profile_key: selvedge_db::ModelProfileKey("default".to_owned()),
             reasoning_effort: ReasoningEffort::Medium,
-            enabled_tools: Vec::new(),
+            tools: Vec::new(),
             now: UnixTs(1),
         },
     )
@@ -1290,7 +1302,7 @@ async fn task_runtime_rejects_empty_idle_user_input_before_append() {
             .expect("create cursor node"),
             model_profile_key: selvedge_db::ModelProfileKey("default".to_owned()),
             reasoning_effort: ReasoningEffort::Medium,
-            enabled_tools: Vec::new(),
+            tools: Vec::new(),
             now: UnixTs(1),
         },
     )
@@ -1417,7 +1429,7 @@ async fn task_runtime_uses_fresh_model_run_ids_after_respawn() {
             .expect("create cursor node"),
             model_profile_key: selvedge_db::ModelProfileKey("default".to_owned()),
             reasoning_effort: ReasoningEffort::Medium,
-            enabled_tools: Vec::new(),
+            tools: Vec::new(),
             now: UnixTs(1),
         },
     )
@@ -1450,7 +1462,7 @@ async fn task_runtime_preserves_queued_input_when_append_fails() {
             .expect("create cursor node"),
             model_profile_key: selvedge_db::ModelProfileKey("default".to_owned()),
             reasoning_effort: ReasoningEffort::Medium,
-            enabled_tools: Vec::new(),
+            tools: Vec::new(),
             now: UnixTs(4_102_444_800),
         },
     )
@@ -1489,7 +1501,6 @@ async fn task_runtime_preserves_queued_input_when_append_fails() {
 #[tokio::test]
 async fn task_runtime_recovers_open_tool_call_before_model_dispatch() {
     let db = open_memory_db();
-    register_tool(&db, required_integer_tool_spec("repeat")).expect("register tool");
     create_root_task(
         &db,
         CreateRootTaskInput {
@@ -1508,7 +1519,7 @@ async fn task_runtime_recovers_open_tool_call_before_model_dispatch() {
             .expect("create cursor node"),
             model_profile_key: selvedge_db::ModelProfileKey("default".to_owned()),
             reasoning_effort: ReasoningEffort::Medium,
-            enabled_tools: vec![ToolName("repeat".to_owned())],
+            tools: vec![task_tool(required_integer_tool_spec("repeat"))],
             now: UnixTs(1),
         },
     )
@@ -1558,7 +1569,6 @@ async fn task_runtime_recovers_open_tool_call_before_model_dispatch() {
 #[tokio::test]
 async fn task_runtime_allows_messages_between_tool_call_and_matching_output() {
     let db = open_memory_db();
-    register_tool(&db, required_integer_tool_spec("repeat")).expect("register tool");
     create_root_task(
         &db,
         CreateRootTaskInput {
@@ -1577,7 +1587,7 @@ async fn task_runtime_allows_messages_between_tool_call_and_matching_output() {
             .expect("create cursor node"),
             model_profile_key: selvedge_db::ModelProfileKey("default".to_owned()),
             reasoning_effort: ReasoningEffort::Medium,
-            enabled_tools: vec![ToolName("repeat".to_owned())],
+            tools: vec![task_tool(required_integer_tool_spec("repeat"))],
             now: UnixTs(1),
         },
     )
@@ -1671,13 +1681,7 @@ async fn spawn_runtime_with_task_and_descendant_limit(
     RouterIngressSender,
 ) {
     let db = open_memory_db_with_max_task_descendants(max_task_descendants);
-    let enabled_tools = tools
-        .iter()
-        .map(|tool| selvedge_db::ToolName(tool.name.clone()))
-        .collect();
-    for tool in tools {
-        register_tool(&db, tool).expect("register tool");
-    }
+    let tools = tools.into_iter().map(task_tool).collect();
     create_root_task(
         &db,
         CreateRootTaskInput {
@@ -1696,7 +1700,7 @@ async fn spawn_runtime_with_task_and_descendant_limit(
             .expect("create cursor node"),
             model_profile_key: selvedge_db::ModelProfileKey("default".to_owned()),
             reasoning_effort: ReasoningEffort::Medium,
-            enabled_tools,
+            tools,
             now: UnixTs(1),
         },
     )
@@ -1839,6 +1843,13 @@ fn tool_spec(name: &str) -> ToolSpec {
         name: name.to_owned(),
         description: name.to_owned(),
         input_schema: JsonObject::new(),
+    }
+}
+
+fn task_tool(tool: ToolSpec) -> TaskToolSpec {
+    TaskToolSpec {
+        tool,
+        execution_source: ToolExecutionSource::Harness,
     }
 }
 

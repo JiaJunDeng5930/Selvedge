@@ -14,9 +14,9 @@ use selvedge_command_model::{
     validate_dispatch_request, validate_router_command,
 };
 use selvedge_domain_model::{
-    Conversation, ConversationMessage, FunctionCallId, HistoryNodeId, MessageRole,
+    CallableTools, Conversation, ConversationMessage, FunctionCallId, HistoryNodeId, MessageRole,
     ModelFinishReason, ModelProfileKey, ModelProviderProfile, ModelReply, ReasoningEffort,
-    ResponsePreference, ToolName, UnixTs,
+    ResponsePreference, ToolManifest, ToolName, ToolSpec, UnixTs,
 };
 
 #[test]
@@ -48,6 +48,23 @@ fn dispatch_request_accepts_valid_optional_empty_tool_manifest() {
     let request = valid_dispatch_request();
 
     validate_dispatch_request(&request).expect("valid dispatch request");
+}
+
+#[test]
+fn dispatch_request_rejects_callable_tools_absent_from_manifest() {
+    let mut request = valid_dispatch_request();
+    request.tool_manifest = Some(ToolManifest {
+        tools: vec![ToolSpec {
+            name: "search".to_owned(),
+            description: "Search".to_owned(),
+            input_schema: serde_json::Map::new(),
+        }],
+    });
+    request.callable_tools = CallableTools::Only(vec![ToolName("bash".to_owned())]);
+
+    let error = validate_dispatch_request(&request).expect_err("unknown callable tool");
+    assert_eq!(error.kind, ModelCallErrorKind::Validation);
+    assert!(error.message.contains("absent from tool_manifest"));
 }
 
 #[test]
@@ -412,6 +429,7 @@ fn valid_dispatch_request() -> ModelCallDispatchRequest {
             messages: vec![ConversationMessage::text(MessageRole::User, "hello", None)],
         },
         tool_manifest: None,
+        callable_tools: CallableTools::All,
         response_preference: ResponsePreference::PlainTextOrToolCalls,
     }
 }

@@ -83,7 +83,7 @@ This file is for coding agents working in this repository.
 [Project Index]|root:.
 |source:git-tracked-files-only
 |excluded:{git-ignored,git-untracked}
-|.:{.cargo/,.github/,crates/,scripts/,src/,tests/,xtask/,.editorconfig,.gitignore,.pre-commit-config.yaml,AGENTS.md,CONTRIBUTING.md,Cargo.lock,Cargo.toml,Justfile,README.md,rust-toolchain.toml}
+|.:{.cargo/,.github/,crates/,docs/,scripts/,src/,tests/,xtask/,.editorconfig,.gitignore,.pre-commit-config.yaml,AGENTS.md,CONTRIBUTING.md,Cargo.lock,Cargo.toml,Justfile,README.md,rust-toolchain.toml}
 |.cargo:{config.toml}
 |.github:{workflows/}
 |.github/workflows:{ci.yml}
@@ -169,6 +169,8 @@ This file is for coding agents working in this repository.
 |crates/web:{src/,tests/,Cargo.toml,README.md}
 |crates/web/src:{lib.rs}
 |crates/web/tests:{web_contract.rs}
+|docs:{adr/}
+|docs/adr:{0001-task-owned-tool-contracts.md}
 |scripts:{bootstrap.sh,create-worktree.sh}
 |src:{lib.rs,main.rs}
 |tests:{config_integration.rs,stdout_stderr_integration.rs,worktree_tool_integration.rs}

@@ -6,31 +6,7 @@ CREATE TABLE schema_metadata (
 );
 
 INSERT INTO schema_metadata (schema_key, schema_value)
-VALUES ('selvedge_schema_version', 'tool-result-branches-v7');
-
-CREATE TABLE tools (
-    tool_name TEXT PRIMARY KEY CHECK (length(tool_name) > 0),
-    description_text TEXT NOT NULL CHECK (length(description_text) > 0),
-    input_schema_json TEXT NOT NULL DEFAULT '{}'
-        CHECK (json_valid(input_schema_json) AND json_type(input_schema_json) = 'object'),
-    mcp_server_id TEXT,
-    remote_tool_name TEXT,
-    execution_source_kind TEXT NOT NULL DEFAULT 'harness' CHECK (
-        (execution_source_kind = 'harness' AND mcp_server_id IS NULL AND remote_tool_name IS NULL)
-        OR
-        (
-            execution_source_kind = 'mcp'
-            AND mcp_server_id IS NOT NULL
-            AND remote_tool_name IS NOT NULL
-            AND length(mcp_server_id) > 0
-            AND length(remote_tool_name) > 0
-        )
-    ),
-    is_global INTEGER NOT NULL DEFAULT 0 CHECK (is_global IN (0, 1))
-);
-
-CREATE INDEX idx_tools_global_name
-    ON tools(is_global, tool_name);
+VALUES ('selvedge_schema_version', 'task-tool-snapshots-v8');
 
 CREATE TABLE history_nodes (
     node_id INTEGER PRIMARY KEY,
@@ -69,7 +45,6 @@ CREATE TABLE history_function_call_nodes (
     arguments_json TEXT NOT NULL DEFAULT '{}'
         CHECK (json_valid(arguments_json) AND json_type(arguments_json) = 'object'),
     FOREIGN KEY (node_id, node_content_kind) REFERENCES history_nodes(node_id, content_kind) ON UPDATE RESTRICT ON DELETE CASCADE,
-    FOREIGN KEY (tool_name) REFERENCES tools(tool_name) ON UPDATE CASCADE ON DELETE RESTRICT,
     UNIQUE (node_id, tool_name),
     UNIQUE (node_id, function_call_id, tool_name)
 );
@@ -123,6 +98,10 @@ CREATE TABLE tasks (
     cursor_node_id INTEGER NOT NULL,
     model_profile_key TEXT NOT NULL CHECK (length(model_profile_key) > 0),
     reasoning_effort TEXT NOT NULL CHECK (reasoning_effort IN ('minimal', 'low', 'medium', 'high')),
+    max_children_per_fork INTEGER NOT NULL CHECK (max_children_per_fork > 0),
+    max_task_descendants INTEGER NOT NULL CHECK (
+        max_task_descendants > 0 AND max_children_per_fork <= max_task_descendants
+    ),
     state_version INTEGER NOT NULL DEFAULT 0 CHECK (state_version >= 0),
     created_at INTEGER NOT NULL CHECK (created_at >= 0),
     updated_at INTEGER NOT NULL CHECK (updated_at >= created_at),
@@ -138,14 +117,38 @@ CREATE INDEX idx_tasks_cursor
 
 CREATE TABLE task_tools (
     task_id TEXT NOT NULL,
+    tool_ordinal INTEGER NOT NULL CHECK (tool_ordinal >= 0),
     tool_name TEXT NOT NULL CHECK (length(tool_name) > 0),
+    description_text TEXT NOT NULL CHECK (length(description_text) > 0),
+    input_schema_json TEXT NOT NULL DEFAULT '{}'
+        CHECK (json_valid(input_schema_json) AND json_type(input_schema_json) = 'object'),
+    mcp_server_id TEXT,
+    remote_tool_name TEXT,
+    execution_source_kind TEXT NOT NULL CHECK (
+        (execution_source_kind = 'harness' AND mcp_server_id IS NULL AND remote_tool_name IS NULL)
+        OR
+        (
+            execution_source_kind = 'mcp'
+            AND mcp_server_id IS NOT NULL
+            AND remote_tool_name IS NOT NULL
+            AND length(mcp_server_id) > 0
+            AND length(remote_tool_name) > 0
+        )
+    ),
     PRIMARY KEY (task_id, tool_name),
-    FOREIGN KEY (task_id) REFERENCES tasks(task_id) ON UPDATE RESTRICT ON DELETE CASCADE,
-    FOREIGN KEY (tool_name) REFERENCES tools(tool_name) ON UPDATE CASCADE ON DELETE RESTRICT
+    UNIQUE (task_id, tool_ordinal),
+    FOREIGN KEY (task_id) REFERENCES tasks(task_id) ON UPDATE RESTRICT ON DELETE CASCADE
 );
 
 CREATE INDEX idx_task_tools_tool
     ON task_tools(tool_name, task_id);
+
+CREATE TABLE task_unavailable_tools (
+    task_id TEXT NOT NULL,
+    tool_name TEXT NOT NULL CHECK (length(tool_name) > 0),
+    PRIMARY KEY (task_id, tool_name),
+    FOREIGN KEY (task_id, tool_name) REFERENCES task_tools(task_id, tool_name) ON UPDATE RESTRICT ON DELETE CASCADE
+);
 
 CREATE TABLE task_parent_edges (
     parent_task_id TEXT NOT NULL,

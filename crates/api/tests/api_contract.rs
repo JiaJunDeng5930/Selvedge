@@ -15,8 +15,9 @@ use selvedge_command_model::{
     ModelCallErrorKind, ModelRunId, RouterIngressApiMessage, TaskId, validate_api_output_envelope,
 };
 use selvedge_domain_model::{
-    Conversation, ConversationMessage, FunctionCallId, HistoryNodeIdRef, JsonObject, MessageRole,
-    ModelFinishReason, ModelProviderProfile, ResponsePreference, ToolManifest, ToolName, ToolSpec,
+    CallableTools, Conversation, ConversationMessage, FunctionCallId, HistoryNodeIdRef, JsonObject,
+    MessageRole, ModelFinishReason, ModelProviderProfile, ResponsePreference, ToolManifest,
+    ToolName, ToolSpec,
 };
 use selvedge_test_support::{
     chatgpt_auth::{auth_file_json, build_unsigned_jwt as build_jwt, write_auth_file},
@@ -284,6 +285,7 @@ base_url = "{}"
             input_schema: input_schema.clone(),
         }],
     });
+    request.callable_tools = CallableTools::Only(vec![ToolName("search".to_owned())]);
     let (router_tx, mut router_rx) = mpsc::unbounded_channel();
 
     let status = execute_model_call(
@@ -344,6 +346,14 @@ base_url = "{}"
     assert_eq!(
         captured_body.pointer("/tools/0/parameters"),
         Some(&serde_json::Value::Object(input_schema))
+    );
+    assert_eq!(
+        captured_body.pointer("/tool_choice"),
+        Some(&serde_json::json!({
+            "type": "allowed_tools",
+            "mode": "auto",
+            "tools": [{"type": "function", "name": "search"}]
+        }))
     );
 }
 
@@ -829,6 +839,7 @@ fn valid_dispatch_request() -> ModelCallDispatchRequest {
             messages: vec![ConversationMessage::text(MessageRole::User, "hello", None)],
         },
         tool_manifest: None,
+        callable_tools: CallableTools::All,
         response_preference: ResponsePreference::PlainTextOrToolCalls,
     }
 }

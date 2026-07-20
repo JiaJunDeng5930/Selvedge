@@ -2,7 +2,7 @@
 
 <!-- selvedge-package-readme
 package: selvedge-command-model
-freshness_fingerprint: c98896d5dbe043d1e237b7c2a29840e3c1decc87
+freshness_fingerprint: 04c5b6d90a00a254016231ae70c7e604a179b5d8
 -->
 
 This crate defines the Selvedge command model API slice used to dispatch model calls, return completed API and branched tool outputs to the router, and describe router-mediated client event ingress.
@@ -20,6 +20,7 @@ This crate is not for network access, database access, filesystem access, provid
 `RouterIngressWeakSender` is for internal router producers. Internal producers upgrade it only while an external ingress owner keeps the router mailbox open.
 `CoreOutputEnvelope` carries `task_id` for task-based router routing.
 Function-call history projections and tool execution requests carry their arguments as one `JsonObject`; function-output projections carry one JSON value. Nested values, arrays, nulls, and exact JSON numbers therefore cross router and client boundaries without flat primitive or string conversion.
+`ModelCallDispatchRequest` carries the complete frozen manifest and a provider-neutral `CallableTools` selection for the current turn. Validation requires every explicitly callable name to be unique and present in that manifest.
 
 `EventIngressSender` is owned by the router. `ClientFrameSender` is supplied by the router for a single client session. Delivery sequencing and hydration buffering live in `selvedge-events`.
 `RouterCommand::AttachClient` carries an admission responder. The router must answer it after events reserves the client session slot; server uses that response as the attach accepted boundary before starting client-sync hydration.
@@ -53,7 +54,7 @@ flowchart TD
   Start -->|caller creates TaskRuntimeControl| ControlReady
   Start -->|caller creates a user-input or archive response channel| TaskResponsePending
   Start -->|caller constructs a completed tool result| ToolResult
-  ValidateDispatch -->|correlation, task, provider, profile, and input fields satisfy contract| Valid
+  ValidateDispatch -->|correlation, task, provider, profile, input, manifest, and callable subset satisfy contract| Valid
   ValidateDispatch -->|required dispatch field is empty or inconsistent| Invalid
   ValidateApiOutput -->|output envelope correlation and payload are consistent| Valid
   ValidateApiOutput -->|output envelope correlation or payload is inconsistent| Invalid

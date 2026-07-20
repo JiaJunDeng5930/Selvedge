@@ -53,6 +53,7 @@ fn base_request() -> ChatgptResponsesRequest {
             }],
         })],
         tools: vec![],
+        allowed_tools: None,
         parallel_tool_calls: true,
         reasoning: ChatgptReasoningOptions {
             effort: Some("high".to_owned()),

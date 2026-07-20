@@ -21,9 +21,9 @@ use selvedge_command_model::{
     RouterIngressApiMessage, RouterIngressWeakSender, validate_dispatch_request,
 };
 use selvedge_domain_model::{
-    ConversationMessage, FUNCTION_CALL_CONTENT_TYPE, FUNCTION_OUTPUT_CONTENT_TYPE, MessageRole,
-    ModelFinishReason, ModelReply, ResponsePreference, TokenUsage, ToolCallProposal, ToolManifest,
-    validate_model_reply,
+    CallableTools, ConversationMessage, FUNCTION_CALL_CONTENT_TYPE, FUNCTION_OUTPUT_CONTENT_TYPE,
+    MessageRole, ModelFinishReason, ModelReply, ResponsePreference, TokenUsage, ToolCallProposal,
+    ToolManifest, validate_model_reply,
 };
 use selvedge_model_providers::{ProviderRegistryError, default_registry};
 
@@ -408,7 +408,8 @@ fn chatgpt_request_from_dispatch(
             .iter()
             .map(chatgpt_item_from_message)
             .collect::<Result<Vec<_>, _>>()?,
-        tools: chatgpt_tools(request.tool_manifest.as_ref(), &request.response_preference),
+        tools: chatgpt_tools(request.tool_manifest.as_ref()),
+        allowed_tools: chatgpt_allowed_tools(request),
         parallel_tool_calls: true,
         reasoning: ChatgptReasoningOptions::default(),
         text: ChatgptTextOptions::default(),
@@ -539,13 +540,7 @@ fn chatgpt_role(role: &MessageRole) -> &'static str {
     }
 }
 
-fn chatgpt_tools(
-    tool_manifest: Option<&ToolManifest>,
-    response_preference: &ResponsePreference,
-) -> Vec<ToolDescriptor> {
-    if *response_preference == ResponsePreference::PlainTextOnly {
-        return Vec::new();
-    }
+fn chatgpt_tools(tool_manifest: Option<&ToolManifest>) -> Vec<ToolDescriptor> {
     let Some(tool_manifest) = tool_manifest else {
         return Vec::new();
     };
@@ -568,6 +563,21 @@ fn chatgpt_tools(
             ]))
         })
         .collect()
+}
+
+fn chatgpt_allowed_tools(request: &ModelCallDispatchRequest) -> Option<Vec<String>> {
+    if request.response_preference == ResponsePreference::PlainTextOnly {
+        return Some(Vec::new());
+    }
+    match &request.callable_tools {
+        CallableTools::All => None,
+        CallableTools::Only(tool_names) => Some(
+            tool_names
+                .iter()
+                .map(|tool_name| tool_name.0.clone())
+                .collect(),
+        ),
+    }
 }
 
 fn append_message_content(

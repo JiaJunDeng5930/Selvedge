@@ -1,6 +1,6 @@
 #![doc = include_str!("../README.md")]
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::{error::Error, fmt};
 
@@ -12,13 +12,14 @@ pub use selvedge_domain_model::{
 };
 use serde_json::Value;
 
-const SCHEMA_VERSION: &str = "tool-result-branches-v7";
+const SCHEMA_VERSION: &str = "task-tool-snapshots-v8";
 pub const MAX_TASK_HISTORY_PAGE_SIZE: u32 = 100;
 
 #[derive(Clone)]
 pub struct DbPool {
     connection: Arc<Mutex<Connection>>,
-    max_task_descendants: u32,
+    new_task_max_children_per_fork: u32,
+    new_task_max_descendants: u32,
 }
 
 pub struct DbConnection;
@@ -30,6 +31,7 @@ pub enum DbError {
     TaskNotActive,
     StaleFunctionCall,
     HistoryCursorNotOnTask,
+    ToolUnavailable,
     TaskDescendantLimitExceeded {
         task_id: TaskId,
         limit: u32,
@@ -53,6 +55,7 @@ impl fmt::Display for DbError {
             DbError::HistoryCursorNotOnTask => {
                 write!(formatter, "history cursor is not on the task path")
             }
+            DbError::ToolUnavailable => write!(formatter, "tool is unavailable for task"),
             DbError::TaskDescendantLimitExceeded { task_id, limit } => {
                 write!(
                     formatter,
@@ -91,6 +94,7 @@ pub enum HistoryContentKindRow {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OpenDbOptions {
     pub sqlite_path: String,
+    pub max_children_per_fork: u32,
     pub max_task_descendants: u32,
 }
 
@@ -103,11 +107,23 @@ pub enum ToolExecutionSource {
     },
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TaskToolExecution {
+    pub source: ToolExecutionSource,
+    pub max_children_per_fork: u32,
+    pub max_task_descendants: u32,
+}
+
 #[derive(Clone, Debug, PartialEq)]
-pub struct McpToolRegistration {
+pub struct TaskToolSpec {
     pub tool: ToolSpec,
-    pub server_id: String,
-    pub remote_tool_name: String,
+    pub execution_source: ToolExecutionSource,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct TaskToolState {
+    pub manifest: ToolManifest,
+    pub unavailable_tools: Vec<ToolName>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -117,6 +133,8 @@ pub struct TaskRow {
     pub cursor_node_id: HistoryNodeId,
     pub model_profile_key: ModelProfileKey,
     pub reasoning_effort: ReasoningEffort,
+    pub max_children_per_fork: u32,
+    pub max_task_descendants: u32,
     pub state_version: u64,
     pub created_at: UnixTs,
     pub updated_at: UnixTs,
@@ -125,6 +143,7 @@ pub struct TaskRow {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TaskToolRow {
     pub task_id: TaskId,
+    pub tool_ordinal: u32,
     pub tool_name: ToolName,
 }
 
@@ -241,7 +260,7 @@ pub struct CreateRootTaskInput {
     pub cursor_node_id: HistoryNodeId,
     pub model_profile_key: ModelProfileKey,
     pub reasoning_effort: ReasoningEffort,
-    pub enabled_tools: Vec<ToolName>,
+    pub tools: Vec<TaskToolSpec>,
     pub now: UnixTs,
 }
 
@@ -344,9 +363,19 @@ pub struct NewFunctionOutputNodeContent {
 }
 
 pub fn open_db(options: OpenDbOptions) -> Result<DbPool, DbError> {
+    if options.max_children_per_fork == 0 {
+        return Err(DbError::Constraint(
+            "max children per fork must be greater than zero".to_owned(),
+        ));
+    }
     if options.max_task_descendants == 0 {
         return Err(DbError::Constraint(
             "max task descendants must be greater than zero".to_owned(),
+        ));
+    }
+    if options.max_children_per_fork > options.max_task_descendants {
+        return Err(DbError::Constraint(
+            "max children per fork must not exceed max task descendants".to_owned(),
         ));
     }
     let connection = Connection::open(&options.sqlite_path).map_err(map_error)?;
@@ -362,7 +391,8 @@ pub fn open_db(options: OpenDbOptions) -> Result<DbPool, DbError> {
 
     let db = DbPool {
         connection: Arc::new(Mutex::new(connection)),
-        max_task_descendants: options.max_task_descendants,
+        new_task_max_children_per_fork: options.max_children_per_fork,
+        new_task_max_descendants: options.max_task_descendants,
     };
     verify_schema(&db)?;
     Ok(db)
@@ -389,138 +419,110 @@ pub fn verify_schema(db: &DbPool) -> Result<(), DbError> {
     }
 }
 
-pub fn register_tool(db: &DbPool, tool: ToolSpec) -> Result<(), DbError> {
-    let mut connection = db.connection()?;
-    let tx = connection.transaction().map_err(map_error)?;
-    insert_tool_in_tx(&tx, tool, ToolExecutionSource::Harness, false)?;
-    tx.commit().map_err(map_error)
-}
-
-pub fn register_global_tool(db: &DbPool, tool: ToolSpec) -> Result<(), DbError> {
-    let mut connection = db.connection()?;
-    let tx = connection
-        .transaction_with_behavior(TransactionBehavior::Immediate)
-        .map_err(map_error)?;
-    match read_tool_definition_in_connection(&tx, &tool.name)? {
-        Some((stored, source, _)) if stored != tool || source != ToolExecutionSource::Harness => {
-            return Err(DbError::Constraint(format!(
-                "global harness tool conflicts with stored tool: {}",
-                tool.name
-            )));
-        }
-        Some((_, _, true)) => {}
-        Some((_, _, false)) => {
-            tx.execute(
-                "UPDATE tools SET is_global = 1 WHERE tool_name = ?1",
-                params![tool.name],
-            )
-            .map_err(map_error)?;
-        }
-        None => insert_tool_in_tx(&tx, tool, ToolExecutionSource::Harness, true)?,
-    }
-    tx.commit().map_err(map_error)
-}
-
-pub fn replace_global_mcp_tools(
+pub fn reconcile_task_tool_availability(
     db: &DbPool,
-    registrations: Vec<McpToolRegistration>,
+    available_tools: Vec<TaskToolSpec>,
 ) -> Result<(), DbError> {
-    let mut connection = db.connection()?;
-    let tx = connection
-        .transaction_with_behavior(TransactionBehavior::Immediate)
-        .map_err(map_error)?;
-    tx.execute(
-        "UPDATE tools SET is_global = 0 WHERE execution_source_kind = 'mcp'",
-        [],
-    )
-    .map_err(map_error)?;
-
-    let mut supplied_names = HashSet::with_capacity(registrations.len());
-    for registration in registrations {
-        let McpToolRegistration {
-            tool,
-            server_id,
-            remote_tool_name,
-        } = registration;
-        if server_id.is_empty() || remote_tool_name.is_empty() {
+    let mut available_by_name = BTreeMap::new();
+    for available_tool in available_tools {
+        validate_task_tool_spec(&available_tool)?;
+        if available_by_name
+            .insert(available_tool.tool.name.clone(), available_tool)
+            .is_some()
+        {
             return Err(DbError::Constraint(
-                "MCP server and remote tool names must be non-empty".to_owned(),
+                "available tool names must be unique".to_owned(),
             ));
         }
-        if !supplied_names.insert(tool.name.clone()) {
-            return Err(DbError::Constraint(format!(
-                "duplicate MCP tool name: {}",
-                tool.name
-            )));
-        }
-
-        let execution_source = ToolExecutionSource::Mcp {
-            server_id,
-            remote_tool_name,
-        };
-        match read_tool_definition_in_connection(&tx, &tool.name)? {
-            Some((_, stored_source, _)) if stored_source == execution_source => {
-                tx.execute(
-                    "UPDATE tools
-                     SET description_text = ?2, input_schema_json = ?3, is_global = 1
-                     WHERE tool_name = ?1",
-                    params![
-                        tool.name,
-                        tool.description,
-                        encode_json_object(&tool.input_schema)?
-                    ],
-                )
-                .map_err(map_error)?;
-            }
-            Some(_) => {
-                return Err(DbError::Constraint(format!(
-                    "MCP tool route conflicts with stored tool: {}",
-                    tool.name
-                )));
-            }
-            None => insert_tool_in_tx(&tx, tool, execution_source, true)?,
-        }
     }
 
-    tx.commit().map_err(map_error)
-}
-
-pub fn unpublish_global_tool(db: &DbPool, tool_name: &ToolName) -> Result<(), DbError> {
     let mut connection = db.connection()?;
     let tx = connection
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(map_error)?;
-    let changed = tx
-        .execute(
-            "UPDATE tools SET is_global = 0 WHERE tool_name = ?1",
-            params![tool_name.0],
+    let stored_tools = read_all_task_tools_in_connection(&tx)?;
+    let desired_unavailable = stored_tools
+        .into_iter()
+        .filter_map(|(task_id, stored_tool)| {
+            let available =
+                available_by_name
+                    .get(&stored_tool.tool.name)
+                    .is_some_and(|available_tool| {
+                        stored_tool.execution_source == available_tool.execution_source
+                            && match stored_tool.execution_source {
+                                ToolExecutionSource::Harness => true,
+                                ToolExecutionSource::Mcp { .. } => {
+                                    stored_tool.tool == available_tool.tool
+                                }
+                            }
+                    });
+            (!available).then_some((task_id, ToolName(stored_tool.tool.name)))
+        })
+        .collect::<BTreeSet<_>>();
+    let current_unavailable = read_all_unavailable_tools_in_connection(&tx)?;
+
+    for (task_id, tool_name) in current_unavailable.difference(&desired_unavailable) {
+        tx.execute(
+            "DELETE FROM task_unavailable_tools WHERE task_id = ?1 AND tool_name = ?2",
+            params![task_id.0, tool_name.0],
         )
         .map_err(map_error)?;
-    if changed == 0 {
-        return Err(DbError::NotFound);
     }
+    for (task_id, tool_name) in desired_unavailable.difference(&current_unavailable) {
+        tx.execute(
+            "INSERT INTO task_unavailable_tools (task_id, tool_name) VALUES (?1, ?2)",
+            params![task_id.0, tool_name.0],
+        )
+        .map_err(map_error)?;
+    }
+
     tx.commit().map_err(map_error)
 }
 
 pub fn read_tool_execution_source(
     db: &DbPool,
+    task_id: &TaskId,
     tool_name: &ToolName,
-) -> Result<ToolExecutionSource, DbError> {
+) -> Result<TaskToolExecution, DbError> {
     let connection = db.connection()?;
-    connection
+    let stored = connection
         .query_row(
-            "SELECT execution_source_kind, mcp_server_id, remote_tool_name
-             FROM tools
-             WHERE tool_name = ?1",
-            params![tool_name.0],
+            "SELECT tt.execution_source_kind, tt.mcp_server_id, tt.remote_tool_name,
+                    unavailable.tool_name IS NOT NULL, tasks.max_children_per_fork,
+                    tasks.max_task_descendants
+             FROM task_tools tt
+             JOIN tasks ON tasks.task_id = tt.task_id
+             LEFT JOIN task_unavailable_tools unavailable
+               ON unavailable.task_id = tt.task_id
+              AND unavailable.tool_name = tt.tool_name
+             WHERE tt.task_id = ?1 AND tt.tool_name = ?2",
+            params![task_id.0, tool_name.0],
             |row| {
-                decode_tool_execution_source(&row.get::<_, String>(0)?, row.get(1)?, row.get(2)?)
-                    .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))
+                Ok((
+                    decode_tool_execution_source(
+                        &row.get::<_, String>(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                    )
+                    .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?,
+                    row.get::<_, bool>(3)?,
+                    row.get::<_, u32>(4)?,
+                    row.get::<_, u32>(5)?,
+                ))
             },
         )
         .optional()
         .map_err(map_error)?
-        .ok_or(DbError::NotFound)
+        .ok_or(DbError::NotFound)?;
+    if stored.1 {
+        Err(DbError::ToolUnavailable)
+    } else {
+        Ok(TaskToolExecution {
+            source: stored.0,
+            max_children_per_fork: stored.2,
+            max_task_descendants: stored.3,
+        })
+    }
 }
 
 pub fn create_history_node(db: &DbPool, node: NewHistoryNode) -> Result<HistoryNodeId, DbError> {
@@ -533,28 +535,28 @@ pub fn create_history_node(db: &DbPool, node: NewHistoryNode) -> Result<HistoryN
 
 pub fn create_root_task(db: &DbPool, input: CreateRootTaskInput) -> Result<TaskRow, DbError> {
     let task_id = input.task_id.clone();
+    validate_task_tool_snapshot(&input.tools)?;
     {
         let mut connection = db.connection()?;
         let tx = connection.transaction().map_err(map_error)?;
         tx.execute(
             "INSERT INTO tasks
-             (task_id, task_status, cursor_node_id, model_profile_key, reasoning_effort, state_version, created_at, updated_at)
-             VALUES (?1, 'active', ?2, ?3, ?4, 0, ?5, ?5)",
+             (task_id, task_status, cursor_node_id, model_profile_key, reasoning_effort,
+              max_children_per_fork, max_task_descendants, state_version, created_at, updated_at)
+             VALUES (?1, 'active', ?2, ?3, ?4, ?5, ?6, 0, ?7, ?7)",
             params![
                 input.task_id.0,
                 input.cursor_node_id.0,
                 input.model_profile_key.0,
                 reasoning_effort_to_db(&input.reasoning_effort),
+                i64::from(db.new_task_max_children_per_fork),
+                i64::from(db.new_task_max_descendants),
                 input.now.0
             ],
         )
         .map_err(map_error)?;
-        for tool_name in input.enabled_tools {
-            tx.execute(
-                "INSERT INTO task_tools (task_id, tool_name) VALUES (?1, ?2)",
-                params![task_id.0, tool_name.0],
-            )
-            .map_err(map_error)?;
+        for (ordinal, tool) in input.tools.into_iter().enumerate() {
+            insert_task_tool_in_tx(&tx, &task_id, ordinal, tool)?;
         }
         tx.commit().map_err(map_error)?;
     }
@@ -625,12 +627,7 @@ pub fn commit_tool_result_branches(
         &output_identity,
     )?;
     if !child_task_ids.is_empty() {
-        ensure_task_descendant_capacity_in_tx(
-            &tx,
-            &input.calling_task_id,
-            child_task_ids.len(),
-            db.max_task_descendants,
-        )?;
+        ensure_task_descendant_capacity_in_tx(&tx, &input.calling_task_id, child_task_ids.len())?;
     }
 
     let mut created_child_task_ids = Vec::with_capacity(child_task_ids.len());
@@ -658,20 +655,36 @@ pub fn commit_tool_result_branches(
                 tx.execute(
                     "INSERT INTO tasks
                      (task_id, task_status, cursor_node_id, model_profile_key, reasoning_effort,
-                      state_version, created_at, updated_at)
-                     VALUES (?1, 'active', ?2, ?3, ?4, 0, ?5, ?5)",
+                      max_children_per_fork, max_task_descendants, state_version, created_at,
+                      updated_at)
+                     VALUES (?1, 'active', ?2, ?3, ?4, ?5, ?6, 0, ?7, ?7)",
                     params![
                         child_task_id.0,
                         branch_cursor_node_id.0,
                         calling_task.model_profile_key.0,
                         reasoning_effort_to_db(&calling_task.reasoning_effort),
+                        i64::from(calling_task.max_children_per_fork),
+                        i64::from(calling_task.max_task_descendants),
                         input.now.0
                     ],
                 )
                 .map_err(map_error)?;
                 tx.execute(
-                    "INSERT INTO task_tools (task_id, tool_name)
-                     SELECT ?1, tool_name FROM task_tools WHERE task_id = ?2",
+                    "INSERT INTO task_tools
+                     (task_id, tool_ordinal, tool_name, description_text, input_schema_json,
+                      mcp_server_id, remote_tool_name, execution_source_kind)
+                     SELECT ?1, tool_ordinal, tool_name, description_text, input_schema_json,
+                            mcp_server_id, remote_tool_name, execution_source_kind
+                     FROM task_tools
+                     WHERE task_id = ?2",
+                    params![child_task_id.0, input.calling_task_id.0],
+                )
+                .map_err(map_error)?;
+                tx.execute(
+                    "INSERT INTO task_unavailable_tools (task_id, tool_name)
+                     SELECT ?1, tool_name
+                     FROM task_unavailable_tools
+                     WHERE task_id = ?2",
                     params![child_task_id.0, input.calling_task_id.0],
                 )
                 .map_err(map_error)?;
@@ -696,9 +709,8 @@ fn ensure_task_descendant_capacity_in_tx(
     tx: &rusqlite::Transaction<'_>,
     calling_task_id: &TaskId,
     new_child_count: usize,
-    limit: u32,
 ) -> Result<(), DbError> {
-    let violating_task_id = tx
+    let violating_task = tx
         .query_row(
             "WITH RECURSIVE
                  ancestors(task_id) AS (
@@ -719,27 +731,27 @@ fn ensure_task_descendant_capacity_in_tx(
                      JOIN task_parent_edges AS edge
                        ON edge.parent_task_id = descendants.descendant_task_id
                  )
-             SELECT ancestors.task_id
+             SELECT ancestors.task_id, tasks.max_task_descendants
              FROM ancestors
+             JOIN tasks ON tasks.task_id = ancestors.task_id
              LEFT JOIN descendants
                ON descendants.ancestor_task_id = ancestors.task_id
-             GROUP BY ancestors.task_id
-             HAVING COUNT(descendants.descendant_task_id) + ?2 > ?3
+             GROUP BY ancestors.task_id, tasks.max_task_descendants
+             HAVING COUNT(descendants.descendant_task_id) + ?2 > tasks.max_task_descendants
              LIMIT 1",
             params![
                 calling_task_id.0,
                 i64::try_from(new_child_count).map_err(|_| {
                     DbError::Constraint("new child task count exceeds database range".to_owned())
-                })?,
-                i64::from(limit)
+                })?
             ],
-            |row| row.get::<_, String>(0),
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, u32>(1)?)),
         )
         .optional()
         .map_err(map_error)?;
 
-    match violating_task_id {
-        Some(task_id) => Err(DbError::TaskDescendantLimitExceeded {
+    match violating_task {
+        Some((task_id, limit)) => Err(DbError::TaskDescendantLimitExceeded {
             task_id: TaskId(task_id),
             limit,
         }),
@@ -798,6 +810,23 @@ pub fn append_model_reply_with_tool_calls_and_move_cursor(
     let mut connection = db.connection()?;
     let tx = connection.transaction().map_err(map_error)?;
     ensure_active_task_in_tx(&tx, task_id)?;
+    for tool_call in &tool_calls {
+        let belongs_to_task = tx
+            .query_row(
+                "SELECT 1 FROM task_tools WHERE task_id = ?1 AND tool_name = ?2",
+                params![task_id.0, tool_call.tool_name.0],
+                |_| Ok(()),
+            )
+            .optional()
+            .map_err(map_error)?
+            .is_some();
+        if !belongs_to_task {
+            return Err(DbError::Constraint(format!(
+                "tool is not defined for task: {}",
+                tool_call.tool_name.0
+            )));
+        }
+    }
     if let Some(message_text) = assistant_message_text {
         append_node_to_current_cursor_in_tx(
             &tx,
@@ -1246,7 +1275,8 @@ pub fn list_active_tasks(db: &DbPool) -> Result<Vec<TaskRow>, DbError> {
     let connection = db.connection()?;
     let mut statement = connection
         .prepare(
-            "SELECT task_id, task_status, cursor_node_id, model_profile_key, reasoning_effort, state_version, created_at, updated_at
+            "SELECT task_id, task_status, cursor_node_id, model_profile_key, reasoning_effort,
+                    max_children_per_fork, max_task_descendants, state_version, created_at, updated_at
              FROM tasks
              WHERE task_status = 'active'
              ORDER BY updated_at DESC, task_id ASC",
@@ -1339,17 +1369,22 @@ pub fn read_task(db: &DbPool, input: ReadTaskInput) -> Result<TaskRead, DbError>
 }
 
 pub fn read_tool_manifest_for_task(db: &DbPool, task_id: &TaskId) -> Result<ToolManifest, DbError> {
+    Ok(read_task_tool_state(db, task_id)?.manifest)
+}
+
+pub fn read_task_tool_state(db: &DbPool, task_id: &TaskId) -> Result<TaskToolState, DbError> {
     let connection = db.connection()?;
     ensure_task_exists(&connection, task_id)?;
     let mut statement = connection
         .prepare(
-            "SELECT t.tool_name, t.description_text, t.input_schema_json
-             FROM tools t
-             LEFT JOIN task_tools tt
-               ON tt.tool_name = t.tool_name
-              AND tt.task_id = ?1
-             WHERE t.is_global = 1 OR tt.task_id IS NOT NULL
-             ORDER BY t.tool_name ASC",
+            "SELECT tools.tool_name, tools.description_text, tools.input_schema_json,
+                    unavailable.tool_name IS NOT NULL
+             FROM task_tools tools
+             LEFT JOIN task_unavailable_tools unavailable
+               ON unavailable.task_id = tools.task_id
+              AND unavailable.tool_name = tools.tool_name
+             WHERE tools.task_id = ?1
+             ORDER BY tools.tool_ordinal ASC",
         )
         .map_err(map_error)?;
     let tools = statement
@@ -1358,6 +1393,7 @@ pub fn read_tool_manifest_for_task(db: &DbPool, task_id: &TaskId) -> Result<Tool
                 row.get::<_, String>(0)?,
                 row.get::<_, String>(1)?,
                 row.get::<_, String>(2)?,
+                row.get::<_, bool>(3)?,
             ))
         })
         .map_err(map_error)?
@@ -1365,15 +1401,22 @@ pub fn read_tool_manifest_for_task(db: &DbPool, task_id: &TaskId) -> Result<Tool
         .map_err(map_error)?;
 
     let mut manifest_tools = Vec::with_capacity(tools.len());
-    for (name, description, input_schema_json) in tools {
+    let mut unavailable_tools = Vec::new();
+    for (name, description, input_schema_json, unavailable) in tools {
+        if unavailable {
+            unavailable_tools.push(ToolName(name.clone()));
+        }
         manifest_tools.push(ToolSpec {
             name,
             description,
             input_schema: decode_json_object(&input_schema_json)?,
         });
     }
-    Ok(ToolManifest {
-        tools: manifest_tools,
+    Ok(TaskToolState {
+        manifest: ToolManifest {
+            tools: manifest_tools,
+        },
+        unavailable_tools,
     })
 }
 
@@ -1450,7 +1493,8 @@ fn read_task_row(db: &DbPool, task_id: &TaskId) -> Result<TaskRow, DbError> {
     let connection = db.connection()?;
     connection
         .query_row(
-            "SELECT task_id, task_status, cursor_node_id, model_profile_key, reasoning_effort, state_version, created_at, updated_at
+            "SELECT task_id, task_status, cursor_node_id, model_profile_key, reasoning_effort,
+                    max_children_per_fork, max_task_descendants, state_version, created_at, updated_at
              FROM tasks
              WHERE task_id = ?1",
             params![task_id.0],
@@ -1463,7 +1507,8 @@ fn read_task_row(db: &DbPool, task_id: &TaskId) -> Result<TaskRow, DbError> {
 
 fn read_task_in_tx(tx: &rusqlite::Transaction<'_>, task_id: &TaskId) -> Result<TaskRow, DbError> {
     tx.query_row(
-        "SELECT task_id, task_status, cursor_node_id, model_profile_key, reasoning_effort, state_version, created_at, updated_at
+        "SELECT task_id, task_status, cursor_node_id, model_profile_key, reasoning_effort,
+                max_children_per_fork, max_task_descendants, state_version, created_at, updated_at
          FROM tasks
          WHERE task_id = ?1",
         params![task_id.0],
@@ -1686,72 +1731,127 @@ fn list_queued_inputs(db: &DbPool, task_id: &TaskId) -> Result<Vec<QueuedUserInp
         .map_err(map_error)
 }
 
-fn insert_tool_in_tx(
+fn validate_task_tool_snapshot(tools: &[TaskToolSpec]) -> Result<(), DbError> {
+    let mut names = BTreeSet::new();
+    for tool in tools {
+        validate_task_tool_spec(tool)?;
+        if !names.insert(tool.tool.name.as_str()) {
+            return Err(DbError::Constraint(
+                "task tool names must be unique".to_owned(),
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn validate_task_tool_spec(tool: &TaskToolSpec) -> Result<(), DbError> {
+    if tool.tool.name.trim().is_empty() || tool.tool.description.trim().is_empty() {
+        return Err(DbError::Constraint(
+            "task tool name and description must be non-empty".to_owned(),
+        ));
+    }
+    if let ToolExecutionSource::Mcp {
+        server_id,
+        remote_tool_name,
+    } = &tool.execution_source
+        && (server_id.is_empty() || remote_tool_name.is_empty())
+    {
+        return Err(DbError::Constraint(
+            "MCP server and remote tool names must be non-empty".to_owned(),
+        ));
+    }
+    Ok(())
+}
+
+fn insert_task_tool_in_tx(
     tx: &rusqlite::Transaction<'_>,
-    tool: ToolSpec,
-    execution_source: ToolExecutionSource,
-    is_global: bool,
+    task_id: &TaskId,
+    ordinal: usize,
+    tool: TaskToolSpec,
 ) -> Result<(), DbError> {
     let (execution_source_kind, mcp_server_id, remote_tool_name) =
-        encode_tool_execution_source(execution_source);
+        encode_tool_execution_source(tool.execution_source);
     tx.execute(
-        "INSERT INTO tools
-         (tool_name, description_text, input_schema_json, execution_source_kind,
-          mcp_server_id, remote_tool_name, is_global)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        "INSERT INTO task_tools
+         (task_id, tool_ordinal, tool_name, description_text, input_schema_json,
+          execution_source_kind, mcp_server_id, remote_tool_name)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
         params![
-            tool.name,
-            tool.description,
-            encode_json_object(&tool.input_schema)?,
+            task_id.0,
+            i64::try_from(ordinal).map_err(|_| DbError::Constraint(
+                "tool ordinal exceeds database range".to_owned()
+            ))?,
+            tool.tool.name,
+            tool.tool.description,
+            encode_json_object(&tool.tool.input_schema)?,
             execution_source_kind,
             mcp_server_id,
-            remote_tool_name,
-            bool_to_i64(is_global)
+            remote_tool_name
         ],
     )
     .map_err(map_error)?;
     Ok(())
 }
 
-fn read_tool_definition_in_connection(
+fn read_all_task_tools_in_connection(
     connection: &Connection,
-    tool_name: &str,
-) -> Result<Option<(ToolSpec, ToolExecutionSource, bool)>, DbError> {
-    let stored = connection
-        .query_row(
-            "SELECT description_text, input_schema_json, execution_source_kind,
-                    mcp_server_id, remote_tool_name, is_global
-             FROM tools
-             WHERE tool_name = ?1",
-            params![tool_name],
-            |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    decode_tool_execution_source(
-                        &row.get::<_, String>(2)?,
-                        row.get(3)?,
-                        row.get(4)?,
-                    )
+) -> Result<Vec<(TaskId, TaskToolSpec)>, DbError> {
+    let mut statement = connection
+        .prepare(
+            "SELECT task_id, tool_name, description_text, input_schema_json,
+                    execution_source_kind, mcp_server_id, remote_tool_name
+             FROM task_tools
+             ORDER BY task_id, tool_ordinal",
+        )
+        .map_err(map_error)?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                decode_tool_execution_source(&row.get::<_, String>(4)?, row.get(5)?, row.get(6)?)
                     .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?,
-                    row.get::<_, i64>(5)? == 1,
+            ))
+        })
+        .map_err(map_error)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(map_error)?;
+    rows.into_iter()
+        .map(
+            |(task_id, name, description, input_schema_json, execution_source)| {
+                Ok((
+                    TaskId(task_id),
+                    TaskToolSpec {
+                        tool: ToolSpec {
+                            name,
+                            description,
+                            input_schema: decode_json_object(&input_schema_json)?,
+                        },
+                        execution_source,
+                    },
                 ))
             },
         )
-        .optional()
+        .collect()
+}
+
+fn read_all_unavailable_tools_in_connection(
+    connection: &Connection,
+) -> Result<BTreeSet<(TaskId, ToolName)>, DbError> {
+    let mut statement = connection
+        .prepare(
+            "SELECT task_id, tool_name
+             FROM task_unavailable_tools
+             ORDER BY task_id, tool_name",
+        )
         .map_err(map_error)?;
-    let Some((description, input_schema_json, execution_source, is_global)) = stored else {
-        return Ok(None);
-    };
-    Ok(Some((
-        ToolSpec {
-            name: tool_name.to_owned(),
-            description,
-            input_schema: decode_json_object(&input_schema_json)?,
-        },
-        execution_source,
-        is_global,
-    )))
+    statement
+        .query_map([], |row| Ok((TaskId(row.get(0)?), ToolName(row.get(1)?))))
+        .map_err(map_error)?
+        .collect::<Result<BTreeSet<_>, _>>()
+        .map_err(map_error)
 }
 
 fn insert_history_node(
@@ -2000,10 +2100,12 @@ fn map_task_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<TaskRow> {
         model_profile_key: ModelProfileKey(row.get(3)?),
         reasoning_effort: reasoning_effort_from_db(&row.get::<_, String>(4)?)
             .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?,
-        state_version: i64_to_u64(row.get(5)?)
+        max_children_per_fork: row.get(5)?,
+        max_task_descendants: row.get(6)?,
+        state_version: i64_to_u64(row.get(7)?)
             .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?,
-        created_at: UnixTs(row.get(6)?),
-        updated_at: UnixTs(row.get(7)?),
+        created_at: UnixTs(row.get(8)?),
+        updated_at: UnixTs(row.get(9)?),
     })
 }
 

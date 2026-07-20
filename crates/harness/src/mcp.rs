@@ -15,15 +15,16 @@ use rmcp::model::{
 use rmcp::service::{PeerRequestOptions, RunningService, RxJsonRpcMessage, TxJsonRpcMessage};
 use rmcp::transport::{Transport, async_rw::JsonRpcMessageCodec};
 use rmcp::{Peer, RoleClient, ServiceError, ServiceExt};
+use rustix::process::Pid;
 use selvedge_config_model::McpServerConfig;
-use selvedge_db::McpToolRegistration;
+use selvedge_db::{TaskToolSpec, ToolExecutionSource};
 use selvedge_domain_model::{JsonObject, ToolSpec};
 use serde_json::Value;
 use tokio::process::{Child, ChildStdin, ChildStdout, Command};
 use tokio::sync::Mutex;
 use tokio_util::codec::{FramedRead, FramedWrite};
 
-use crate::{HarnessError, HarnessErrorCode};
+use crate::{HarnessError, HarnessErrorCode, ProcessGroupGuard};
 
 type McpService = RunningService<RoleClient, ()>;
 
@@ -46,7 +47,7 @@ struct McpConnection {
 impl McpConnectionSet {
     pub async fn connect(
         configs: &BTreeMap<String, McpServerConfig>,
-    ) -> Result<(Self, Vec<McpToolRegistration>), McpStartupError> {
+    ) -> Result<(Self, Vec<TaskToolSpec>), McpStartupError> {
         let mut connections = BTreeMap::new();
         let mut registrations = Vec::new();
         let mut routes = BTreeMap::<String, (String, String)>::new();
@@ -72,8 +73,8 @@ impl McpConnectionSet {
                     }
                 };
                 let route = (
-                    registration.server_id.clone(),
-                    registration.remote_tool_name.clone(),
+                    server_id.clone(),
+                    remote_tool_name(&registration).to_owned(),
                 );
                 if let Some(previous) = routes.insert(registration.tool.name.clone(), route.clone())
                 {
@@ -294,6 +295,7 @@ type McpWriter = FramedWrite<ChildStdin, JsonRpcMessageCodec<TxJsonRpcMessage<Ro
 
 struct BoundedChildProcess {
     child: Option<Child>,
+    process_group: ProcessGroupGuard,
     reader: FramedRead<ChildStdout, JsonRpcMessageCodec<RxJsonRpcMessage<RoleClient>>>,
     writer: Arc<Mutex<Option<McpWriter>>>,
 }
@@ -304,8 +306,15 @@ impl BoundedChildProcess {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
-            .kill_on_drop(true);
+            .kill_on_drop(true)
+            .process_group(0);
         let mut child = command.spawn()?;
+        let process_group_id = child
+            .id()
+            .and_then(|id| i32::try_from(id).ok())
+            .and_then(Pid::from_raw)
+            .ok_or_else(|| io::Error::other("spawned MCP server did not have a process ID"))?;
+        let process_group = ProcessGroupGuard::new(process_group_id);
         let stdout = child
             .stdout
             .take()
@@ -316,6 +325,7 @@ impl BoundedChildProcess {
             .ok_or_else(|| io::Error::other("MCP child stdin was not piped"))?;
         Ok(Self {
             child: Some(child),
+            process_group,
             reader: FramedRead::new(
                 stdout,
                 JsonRpcMessageCodec::new_with_max_length(MAX_MCP_FRAME_BYTES),
@@ -358,16 +368,37 @@ impl Transport<RoleClient> for BoundedChildProcess {
     async fn close(&mut self) -> Result<(), Self::Error> {
         self.writer.lock().await.take();
         let Some(mut child) = self.child.take() else {
+            self.process_group
+                .terminate_raw()
+                .map_err(|error| io::Error::other(error.to_string()))?;
+            self.process_group.disarm();
             return Ok(());
         };
-        match tokio::time::timeout(MCP_CHILD_SHUTDOWN_TIMEOUT, child.wait()).await {
-            Ok(result) => result.map(|_| ()),
-            Err(_) => child.kill().await,
+        let wait_result = match tokio::time::timeout(MCP_CHILD_SHUTDOWN_TIMEOUT, child.wait()).await
+        {
+            Ok(result) => result,
+            Err(_) => {
+                self.process_group
+                    .terminate_raw()
+                    .map_err(|error| io::Error::other(error.to_string()))?;
+                tokio::time::timeout(MCP_CHILD_SHUTDOWN_TIMEOUT, child.wait())
+                    .await
+                    .map_err(|_| io::Error::other("MCP process group could not be reaped"))?
+            }
+        };
+        let termination = self
+            .process_group
+            .terminate_raw()
+            .map_err(|error| io::Error::other(error.to_string()));
+        if termination.is_ok() {
+            self.process_group.disarm();
         }
+        wait_result.map(|_| ())?;
+        termination
     }
 }
 
-fn convert_tool(server_id: &str, tool: Tool) -> Result<McpToolRegistration, McpStartupError> {
+fn convert_tool(server_id: &str, tool: Tool) -> Result<TaskToolSpec, McpStartupError> {
     if tool.task_support() == TaskSupport::Required {
         return Err(McpStartupError::TaskModeRequired {
             server_id: server_id.to_owned(),
@@ -381,15 +412,26 @@ fn convert_tool(server_id: &str, tool: Tool) -> Result<McpToolRegistration, McpS
         .map(|value| value.into_owned())
         .filter(|description| !description.trim().is_empty())
         .unwrap_or_else(|| format!("MCP tool '{remote_tool_name}' from server '{server_id}'."));
-    Ok(McpToolRegistration {
+    Ok(TaskToolSpec {
         tool: ToolSpec {
             name: local_name,
             description,
             input_schema: tool.input_schema.as_ref().clone(),
         },
-        server_id: server_id.to_owned(),
-        remote_tool_name,
+        execution_source: ToolExecutionSource::Mcp {
+            server_id: server_id.to_owned(),
+            remote_tool_name,
+        },
     })
+}
+
+fn remote_tool_name(tool: &TaskToolSpec) -> &str {
+    match &tool.execution_source {
+        ToolExecutionSource::Mcp {
+            remote_tool_name, ..
+        } => remote_tool_name,
+        ToolExecutionSource::Harness => unreachable!("MCP discovery only creates MCP routes"),
+    }
 }
 
 fn model_tool_name(server_id: &str, remote_tool_name: &str) -> Result<String, McpStartupError> {

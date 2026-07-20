@@ -32,6 +32,7 @@ fn base_request() -> ChatgptResponsesRequest {
             }],
         })],
         tools: vec![ToolDescriptor(JsonObject::new())],
+        allowed_tools: None,
         parallel_tool_calls: true,
         reasoning: ChatgptReasoningOptions {
             effort: Some("high".to_owned()),
