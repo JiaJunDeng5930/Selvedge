@@ -344,17 +344,11 @@ pub async fn spawn_server(args: ServerStartArgs) -> Result<ServerHandle, ServerS
     init_config(args.explicit_home.as_ref())?;
     let home = resolve_home()?;
     let singleton_lock = acquire_singleton_lock(&home)?;
-    let web_bind = match reserve_web_binding(args.web_binding.as_ref()) {
-        Ok(web_bind) => web_bind,
-        Err(error) => return fail_locked_startup(&home, singleton_lock, error),
-    };
+    let web_bind = reserve_web_binding(args.web_binding.as_ref())?;
 
-    let startup_result = start_server_after_lock(args, home, singleton_lock, web_bind).await;
-    if let Err(error) = &startup_result {
-        return Err(error.clone());
-    }
-
-    startup_result.map(ServerContext::into_handle)
+    start_server_after_lock(args, home, singleton_lock, web_bind)
+        .await
+        .map(ServerContext::into_handle)
 }
 
 impl ServerControl {
@@ -670,8 +664,7 @@ struct ServerContext {
 }
 
 struct StartupResources {
-    home: PathBuf,
-    singleton_lock: Option<File>,
+    singleton_lock: Option<SingletonLock>,
     mcp_connections: McpConnectionSet,
     events: Option<EventsHandle>,
     client_sync: Option<ClientSyncHandle>,
@@ -681,9 +674,8 @@ struct StartupResources {
 }
 
 impl StartupResources {
-    fn new(home: PathBuf, singleton_lock: File, mcp_connections: McpConnectionSet) -> Self {
+    fn new(singleton_lock: SingletonLock, mcp_connections: McpConnectionSet) -> Self {
         Self {
-            home,
             singleton_lock: Some(singleton_lock),
             mcp_connections,
             events: None,
@@ -759,8 +751,6 @@ impl StartupResources {
             closing: AtomicBool::new(false),
             request_gate: Mutex::new(()),
             stop_notify: Notify::new(),
-            lock_path: lock_path_for_home(&self.home),
-            _singleton_lock: self.singleton_lock.take().expect("startup singleton lock"),
             router_tx: router.ingress_tx.clone(),
             events_tx: Mutex::new(Some(
                 self.events
@@ -859,12 +849,12 @@ impl StartupResources {
         self.mcp_connections.close().await;
         drop(inner);
         drop(self.singleton_lock.take());
-        cleanup_startup_lock(&self.home);
         Err(error)
     }
 
     fn finish(mut self) -> ServerContext {
         let inner = self.inner.take().expect("startup server state");
+        let singleton_lock = self.singleton_lock.take().expect("startup singleton lock");
         let join_handle = spawn_server_join_task(
             inner.clone(),
             self.router.take().expect("startup router"),
@@ -872,6 +862,7 @@ impl StartupResources {
             self.client_sync.take().expect("startup client sync"),
             self.web.take(),
             self.mcp_connections,
+            singleton_lock,
         );
         ServerContext { inner, join_handle }
     }
@@ -882,8 +873,6 @@ struct ServerInner {
     closing: AtomicBool,
     request_gate: Mutex<()>,
     stop_notify: Notify,
-    lock_path: PathBuf,
-    _singleton_lock: File,
     router_tx: RouterIngressSender,
     events_tx: Mutex<Option<EventIngressSender>>,
     client_sync_tx: Mutex<selvedge_client_sync::ClientSyncSender>,
@@ -1231,56 +1220,25 @@ impl ServerContext {
 async fn start_server_after_lock(
     args: ServerStartArgs,
     home: PathBuf,
-    singleton_lock: File,
+    singleton_lock: SingletonLock,
     web_bind: Option<WebBindReservation>,
 ) -> Result<ServerContext, ServerStartupError> {
-    if let Err(error) = init_logging() {
-        return fail_locked_startup(&home, singleton_lock, error);
-    }
+    init_logging()?;
 
-    let db = match open_db(OpenDbOptions {
+    let db = open_db(OpenDbOptions {
         sqlite_path: sqlite_path_for_home(&home).to_string_lossy().to_string(),
         max_children_per_fork: args.harness_config.max_children_per_fork,
         max_task_descendants: args.harness_config.max_descendants_per_task,
-    }) {
-        Ok(db) => db,
-        Err(error) => {
-            return fail_locked_startup(
-                &home,
-                singleton_lock,
-                ServerStartupError::DbOpenFailed(error.to_string()),
-            );
-        }
-    };
-    let (mcp_connections, mcp_tools) = match McpConnectionSet::connect(&args.mcp_servers).await {
-        Ok(discovery) => discovery,
-        Err(error) => {
-            return fail_locked_startup(
-                &home,
-                singleton_lock,
-                ServerStartupError::McpStartFailed(error.to_string()),
-            );
-        }
-    };
-    let mut resources = StartupResources::new(home, singleton_lock, mcp_connections);
+    })
+    .map_err(|error| ServerStartupError::DbOpenFailed(error.to_string()))?;
+    let (mcp_connections, mcp_tools) = McpConnectionSet::connect(&args.mcp_servers)
+        .await
+        .map_err(|error| ServerStartupError::McpStartFailed(error.to_string()))?;
+    let mut resources = StartupResources::new(singleton_lock, mcp_connections);
     if let Err(error) = resources.prepare(args, db, mcp_tools, web_bind).await {
         return resources.rollback(error).await;
     }
     Ok(resources.finish())
-}
-
-fn fail_locked_startup<T>(
-    home: &Path,
-    singleton_lock: File,
-    error: ServerStartupError,
-) -> Result<T, ServerStartupError> {
-    drop(singleton_lock);
-    cleanup_startup_lock(home);
-    Err(error)
-}
-
-fn cleanup_startup_lock(home: &Path) {
-    let _ = std::fs::remove_file(lock_path_for_home(home));
 }
 
 fn spawn_server_join_task(
@@ -1290,6 +1248,7 @@ fn spawn_server_join_task(
     client_sync: ClientSyncHandle,
     web: Option<WebHandle>,
     mcp_connections: McpConnectionSet,
+    singleton_lock: SingletonLock,
 ) -> JoinHandle<ServerExitStatus> {
     tokio::spawn(async move {
         let router_tx = router.ingress_tx;
@@ -1338,8 +1297,7 @@ fn spawn_server_join_task(
         )
         .await;
         mcp_connections.close().await;
-
-        let _ = std::fs::remove_file(&inner.lock_path);
+        drop(singleton_lock);
         *inner.state.write().await = match status {
             ServerExitStatus::Stopped => ServerRuntimeState::Stopped,
             ServerExitStatus::StartupFailed(_)
@@ -2168,20 +2126,36 @@ fn init_logging() -> Result<(), ServerStartupError> {
     }
 }
 
-fn acquire_singleton_lock(home: &Path) -> Result<File, ServerStartupError> {
+struct SingletonLock {
+    file: Option<File>,
+    path: PathBuf,
+}
+
+impl Drop for SingletonLock {
+    fn drop(&mut self) {
+        drop(self.file.take());
+        let _ = std::fs::remove_file(&self.path);
+    }
+}
+
+fn acquire_singleton_lock(home: &Path) -> Result<SingletonLock, ServerStartupError> {
     std::fs::create_dir_all(home).map_err(|error| {
         ServerStartupError::ConfigInitFailed(format!("failed to create home directory: {error}"))
     })?;
 
+    let path = lock_path_for_home(home);
     match OpenOptions::new()
         .create(true)
         .truncate(false)
         .write(true)
         .read(true)
-        .open(lock_path_for_home(home))
+        .open(&path)
     {
         Ok(file) => match file.try_lock_exclusive() {
-            Ok(()) => Ok(file),
+            Ok(()) => Ok(SingletonLock {
+                file: Some(file),
+                path,
+            }),
             Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
                 Err(ServerStartupError::SingletonAlreadyRunning)
             }
@@ -2747,6 +2721,7 @@ mod tests {
             },
             None,
             empty_mcp_connection_set().await,
+            singleton_lock_for_test(),
         );
 
         let status = timeout(Duration::from_millis(100), join_handle)
@@ -2784,6 +2759,7 @@ mod tests {
             },
             None,
             empty_mcp_connection_set().await,
+            singleton_lock_for_test(),
         );
 
         control.stop().await;
@@ -3620,8 +3596,6 @@ mod tests {
                 closing: AtomicBool::new(false),
                 request_gate: Mutex::new(()),
                 stop_notify: Notify::new(),
-                lock_path: std::env::temp_dir().join("selvedge-server-unit-test.lock"),
-                _singleton_lock: tempfile::tempfile().expect("temp singleton lock"),
                 router_tx,
                 events_tx: Mutex::new(Some(events_tx)),
                 client_sync_tx: Mutex::new(client_sync_tx),
@@ -3632,6 +3606,13 @@ mod tests {
                 local_operation_tasks: StdMutex::new(Vec::new()),
                 web_control: StdMutex::new(None),
             }),
+        }
+    }
+
+    fn singleton_lock_for_test() -> SingletonLock {
+        SingletonLock {
+            file: Some(tempfile::tempfile().expect("temp singleton lock")),
+            path: std::env::temp_dir().join("selvedge-server-unit-test.lock"),
         }
     }
 

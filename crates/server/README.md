@@ -2,7 +2,7 @@
 
 <!-- selvedge-package-readme
 package: selvedge-server
-freshness_fingerprint: 7696e01593f4473b4a4ea9945eb71731548a47fd
+freshness_fingerprint: 8ef7fdb807c4c0a9885517aba3436e2f89ed7ac3
 -->
 
 This crate owns the process-local Selvedge server lifecycle.
@@ -13,11 +13,11 @@ Use it to start the server runtime, hold the singleton lock, initialize config a
 
 After opening SQLite, startup builds the current harness catalog and connects configured MCP servers to discover their complete tool catalogs. It then reconciles active and archived tasks by changing only their unavailable-tool exceptions; stored definitions, routes, and task limits are never rewritten. Duplicate runtime names or reconciliation failures stop startup before task recovery. The shared MCP connections stay alive for concurrent calls and close their process groups after the supervised services stop.
 
-Startup owns every acquired service until the complete runtime is handed off. Any failure stops and joins the router, client-sync, web, and events tasks that were started, closes discovered MCP connections, and only then releases and removes the singleton lock.
+Startup owns every acquired service until the complete runtime is handed off. Any failure stops and joins the router, client-sync, web, and events tasks that were started, closes discovered MCP connections, and only then releases the singleton lock. The lock has one RAII owner from acquisition through handoff to the server join task, so cancelling startup also releases the file lock and removes its path.
 
 Function-call history projections carry one JSON object and function outputs carry one JSON value unchanged across the command-model and local-protocol boundary. The server does not flatten arguments or stringify outputs.
 
-The singleton lock is `<selvedge_home>/server.lock`. The lock file is removed during normal shutdown and startup-failure cleanup.
+The singleton lock is `<selvedge_home>/server.lock`. The lock file is removed during normal shutdown, startup-failure cleanup, and startup cancellation.
 
 Config and logging initialization recognize repeated initialization through their typed `AlreadyInitialized` variants. Every other initialization error remains a startup failure.
 
@@ -48,6 +48,7 @@ flowchart TD
   OpenDb[Open selvedge.sqlite]
   BuildHarness[Build current harness runtime catalog]
   DiscoverMcp[Connect MCP servers and discover complete tool catalogs]
+  CancelStartup[Cancel startup and drop MCP transports]
   ReconcileTools[Atomically reconcile task-local unavailable-tool sets]
   SpawnServices[Start events, client-sync, router, and web surface]
   Recover[Request active task runtime recovery]
@@ -77,6 +78,7 @@ flowchart TD
   BuildHarness -->|five runtime definitions and routes are valid| DiscoverMcp
   DiscoverMcp -->|all configured servers initialize and list supported tools| ReconcileTools
   DiscoverMcp -->|transport, protocol, discovery, or definition validation fails| StartupFailure
+  DiscoverMcp -->|startup future is cancelled| CancelStartup
   ReconcileTools -->|all task availability sets commit atomically| SpawnServices
   ReconcileTools -->|runtime names conflict or SQLite write fails| StartupFailure
   SpawnServices -->|events, client-sync, router, and optional web tasks start| Recover
@@ -101,6 +103,7 @@ flowchart TD
   Ready -->|shutdown is requested or control is dropped| Stop
   Stop -->|supervised services have stopped| CloseMcp
   StartupFailure -->|startup acquired services or MCP connections| RollbackServices
+  CancelStartup -->|MCP transports and lock owner are dropped| ReleaseLock
   RollbackServices -->|all acquired services have stopped| CloseMcp
   CloseMcp -->|all MCP connections have closed| ReleaseLock
   ReleaseLock -->|file lock is released and lock path is removed| Stopped
