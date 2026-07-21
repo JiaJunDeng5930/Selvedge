@@ -2,12 +2,12 @@
 
 <!-- selvedge-package-readme
 package: selvedge-harness
-freshness_fingerprint: 138b995482527a72f1a705c038c14a647f78ac52
+freshness_fingerprint: 61ca50a89b8d9d667bae6984323b0b066a8cb06c
 -->
 
 This crate implements Selvedge task self-orchestration, bounded Bash command execution, and stdio MCP client execution for model tool calls.
 
-Use it for the five harness tool manifests, complete JSON input schemas, typed invocation parsing from JSON objects, argument validation, SQLite-backed task reads, router-mediated task mutations, non-interactive Bash commands, MCP discovery and calls, stable JSON output, and the production `ToolExecutionSpawner`.
+Use it for the five harness tool manifests, complete JSON input schemas, typed invocation parsing from JSON objects, argument validation, SQLite-backed task reads with active, frozen, stopped, or archived status, router-mediated task mutations, non-interactive Bash commands, MCP discovery and calls, stable JSON output, and the production `ToolExecutionSpawner`.
 
 Calling task identity and complete function-call correlation come from `ToolExecutionRequest`, not model arguments. SQLite reads run on Tokio's blocking pool. Send and archive wait for typed router responders, so enqueueing a command is never reported as business success.
 

@@ -27,7 +27,7 @@ use selvedge_command_model::{
     EventIngressSender, HistoryNodeProjection, HistoryNodeProjectionBody, ModelCallStatusPhase,
     RouterAttachAdmissionResult, RouterCommand, RouterCommandEnvelope, RouterIngressMessage,
     RouterIngressSender, SnapshotMode, SnapshotTaskVersion, TaskParentProjection, TaskProjection,
-    TaskProjectionStatus, TaskScope, ToolExecutionStatusPhase,
+    TaskScope, TaskStatus, ToolExecutionStatusPhase,
 };
 use selvedge_config_model::{HarnessConfig, McpServerConfig};
 use selvedge_core::TaskRuntimeSpawnDeps;
@@ -1770,8 +1770,10 @@ fn task_to_local(task: TaskProjection) -> LocalTaskProjection {
     LocalTaskProjection {
         task_id: task.task_id.0,
         status: match task.status {
-            TaskProjectionStatus::Active => LocalTaskProjectionStatus::Active,
-            TaskProjectionStatus::Archived => LocalTaskProjectionStatus::Archived,
+            TaskStatus::Active => LocalTaskProjectionStatus::Active,
+            TaskStatus::Frozen => LocalTaskProjectionStatus::Frozen,
+            TaskStatus::Stopped => LocalTaskProjectionStatus::Stopped,
+            TaskStatus::Archived => LocalTaskProjectionStatus::Archived,
         },
         cursor_node_id: task.cursor_node_id.0,
         model_profile_key: task.model_profile_key.0,
@@ -2189,7 +2191,10 @@ mod tests {
     use super::*;
     use futures_util::StreamExt;
     use selvedge_command_model::ClientSnapshotFrame;
-    use selvedge_domain_model::{FunctionCallId, ToolName, UnixTs};
+    use selvedge_domain_model::{
+        FunctionCallId, HistoryNodeId, ModelProfileKey, ReasoningEffort, TaskStatus, ToolName,
+        UnixTs,
+    };
     use std::time::Duration;
     use tokio::sync::oneshot;
     use tokio::time::timeout;
@@ -2207,6 +2212,28 @@ mod tests {
                     message_text: "noop".to_owned(),
                 })
             })
+        }
+    }
+
+    #[test]
+    fn task_projection_preserves_all_durable_statuses() {
+        for (status, expected) in [
+            (TaskStatus::Active, LocalTaskProjectionStatus::Active),
+            (TaskStatus::Frozen, LocalTaskProjectionStatus::Frozen),
+            (TaskStatus::Stopped, LocalTaskProjectionStatus::Stopped),
+            (TaskStatus::Archived, LocalTaskProjectionStatus::Archived),
+        ] {
+            let local = task_to_local(TaskProjection {
+                task_id: TaskId("task-1".to_owned()),
+                status,
+                cursor_node_id: HistoryNodeId(1),
+                model_profile_key: ModelProfileKey("default".to_owned()),
+                reasoning_effort: ReasoningEffort::Medium,
+                state_version: 2,
+                created_at: UnixTs(1),
+                updated_at: UnixTs(2),
+            });
+            assert_eq!(local.status, expected);
         }
     }
 

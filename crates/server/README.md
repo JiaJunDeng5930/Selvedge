@@ -2,16 +2,16 @@
 
 <!-- selvedge-package-readme
 package: selvedge-server
-freshness_fingerprint: 4ec8c81d9fa8d8288decb2ab5ffddb526f7ef173
+freshness_fingerprint: 991d60a7aaa4b28f52d001a3f462cc034218f943
 -->
 
 This crate owns the process-local Selvedge server lifecycle.
 
-Use it to start the server runtime, hold the singleton lock, initialize config and logging, open the SQLite database at `<selvedge_home>/selvedge.sqlite`, build the current harness and stdio MCP runtime catalog, reconcile existing tasks' tool availability, start events, client-sync, router, and optional web surface tasks, recover active task runtimes, and expose the in-process `ServerControl` used by local clients and UI surfaces.
+Use it to start the server runtime, hold the singleton lock, initialize config and logging, open the SQLite database at `<selvedge_home>/selvedge.sqlite`, build the current harness and stdio MCP runtime catalog, reconcile existing tasks' tool availability, start events, client-sync, router, and optional web surface tasks, recover active, frozen, and stopped task runtimes, and expose the in-process `ServerControl` used by local clients and UI surfaces.
 
 `ServerStartArgs` uses the current `selvedge-api` boundary: server passes `ApiExecutorConfig` into the router, and provider selection remains inside each model-call request. It also receives the default harness limits for newly created tasks and the current MCP server map from the configuration boundary. Existing tasks execute with their stored limits and tool contracts. This crate does not own a provider registry.
 
-After opening SQLite, startup builds the current harness catalog and connects configured MCP servers to discover their complete tool catalogs. It then reconciles active and archived tasks by changing only their unavailable-tool exceptions; stored definitions, routes, and task limits are never rewritten. Duplicate runtime names or reconciliation failures stop startup before task recovery. The shared MCP connections stay alive for concurrent calls and close their process groups after the supervised services stop.
+After opening SQLite, startup builds the current harness catalog and connects configured MCP servers to discover their complete tool catalogs. It then reconciles every task by changing only its unavailable-tool exceptions; stored definitions, routes, and task limits are never rewritten. Duplicate runtime names or reconciliation failures stop startup before task recovery. The shared MCP connections stay alive for concurrent calls and close their process groups after the supervised services stop.
 
 Startup owns every acquired service until the complete runtime is handed off. Any failure stops and joins the router, client-sync, web, and events tasks that were started, closes discovered MCP connections, and only then releases the singleton lock. The lock has one RAII owner from acquisition through handoff to the server join task, so cancelling startup also releases it.
 
@@ -51,7 +51,7 @@ flowchart TD
   CancelStartup[Cancel startup and drop MCP transports]
   ReconcileTools[Atomically reconcile task-local unavailable-tool sets]
   SpawnServices[Start events, client-sync, router, and web surface]
-  Recover[Request active task runtime recovery]
+  Recover[Request non-archived task runtime recovery]
   Ready[ServerControl ready]
   Probe[Handle ready probe]
   Submit[Validate local command request]

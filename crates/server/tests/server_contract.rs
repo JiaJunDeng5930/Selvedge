@@ -13,7 +13,7 @@ use selvedge_core::{TaskRuntimeConfig, TaskRuntimeSpawnDeps};
 use selvedge_db::{
     CreateRootTaskInput, NewHistoryNode, NewHistoryNodeContent, NewMessageNodeContent,
     OpenDbOptions, ReasoningEffort, TaskId, ToolExecutionSource, create_history_node,
-    create_root_task, load_active_task, open_db, read_tool_execution_source,
+    create_root_task, load_runtime_task, open_db, read_tool_execution_source,
     read_tool_manifest_for_task,
 };
 use selvedge_domain_model::{ModelProfileKey, ToolName, UnixTs};
@@ -114,7 +114,7 @@ async fn startup_preserves_existing_task_tool_snapshot_and_limits() {
     assert_eq!(execution.source, ToolExecutionSource::Harness);
     assert_eq!(execution.max_children_per_fork, 5);
     assert_eq!(
-        load_active_task(&db, &task_id)
+        load_runtime_task(&db, &task_id)
             .expect("load preserved task")
             .task
             .max_task_descendants,
@@ -615,7 +615,6 @@ fn test_args_with_local_operation_executor(
             max_response_bytes: None,
         },
         core_spawn_deps: TaskRuntimeSpawnDeps::new(TaskRuntimeConfig {
-            mailbox_capacity: 4,
             model_profiles: HashMap::<ModelProfileKey, _>::new(),
         }),
         snapshot_builder: Arc::new(EmptySnapshotBuilder),
