@@ -5,21 +5,21 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use selvedge_command_model::{
-    ApiEffectId, ApiOutputEnvelope, ArchiveTaskOutcome, ArchiveTaskResponder, CoreOutputEnvelope,
-    CoreOutputMessage, DomainEvent, DomainEventPublishRequest, ModelCallDispatchRequest,
-    ModelRunId, RouterIngressMessage, RouterIngressWeakSender, SendUserInputOutcome,
-    SendUserInputResponder, TaskCommandError, TaskRuntimeCommand, TaskRuntimeControl,
-    TaskRuntimeExitNotice, TaskRuntimeExitReason, TaskRuntimeSender, TaskRuntimeStopResult,
-    ToolExecutionBranchTarget, ToolExecutionRequest, ToolExecutionResult, ToolExecutionRunId,
+    ApiEffectId, ApiOutputEnvelope, CoreOutputEnvelope, CoreOutputMessage, DomainEvent,
+    DomainEventPublishRequest, ModelCallDispatchRequest, ModelRunId, RouterIngressMessage,
+    RouterIngressWeakSender, SendUserInputOutcome, SendUserInputResponder, TaskCommandError,
+    TaskRuntimeCommand, TaskRuntimeControl, TaskRuntimeExitNotice, TaskRuntimeExitReason,
+    TaskRuntimeSender, TaskRuntimeShutdownResult, TaskStatus, ToolExecutionBranchTarget,
+    ToolExecutionRequest, ToolExecutionResult, ToolExecutionRunId,
 };
 use selvedge_db::{
     CommitToolResultBranchesInput, DbError, DbPool, FunctionCallId, HistoryNode, HistoryNodeId,
     MessageRole, NewFunctionCallNodeContent, TaskId, ToolName, ToolRecoveryPolicy,
     ToolResultBranch, ToolResultBranchTarget, UnixTs, append_assistant_message_and_drain_queue,
     append_model_reply_with_tool_calls_and_move_cursor, append_user_message_and_move_cursor,
-    archive_task, commit_tool_result_branches, drain_queued_user_inputs_and_move_cursor,
-    load_active_task, queue_user_input, read_conversation_for_task,
-    read_open_function_calls_for_task, read_task_tool_state,
+    commit_tool_result_branches, drain_queued_user_inputs_and_move_cursor, load_runtime_task,
+    queue_user_input, read_conversation_for_task, read_open_function_calls_for_task,
+    read_task_status, read_task_tool_state,
 };
 use selvedge_domain_model::{
     CallableTools, Conversation, FUNCTION_CALL_CONTENT_TYPE, FUNCTION_OUTPUT_CONTENT_TYPE,
@@ -31,7 +31,6 @@ use uuid::Uuid;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct TaskRuntimeConfig {
-    pub mailbox_capacity: usize,
     pub model_profiles: HashMap<ModelProfileKey, ModelProviderProfile>,
 }
 
@@ -90,15 +89,13 @@ pub struct SpawnedTaskRuntime {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SpawnTaskRuntimeError {
-    MailboxCreateFailed,
     TokioSpawnFailed,
 }
 
 pub fn spawn_task_runtime(
     args: SpawnTaskRuntimeArgs,
 ) -> Result<SpawnedTaskRuntime, SpawnTaskRuntimeError> {
-    let capacity = args.config.mailbox_capacity.max(1);
-    let (task_runtime_tx, task_runtime_rx) = tokio::sync::mpsc::channel(capacity);
+    let (task_runtime_tx, task_runtime_rx) = tokio::sync::mpsc::unbounded_channel();
     let task_runtime_control = TaskRuntimeControl::new();
     let spawned = SpawnedTaskRuntime {
         task_id: args.task_id.clone(),
@@ -113,6 +110,9 @@ pub fn spawn_task_runtime(
         router_tx: args.router_tx,
         rx: task_runtime_rx,
         started: false,
+        cursor_started: false,
+        task_status: None,
+        deferred_model_call: false,
         model_profiles: args.config.model_profiles,
         wait_state: WaitState::AwaitingUserInput,
         terminal_task_error: None,
@@ -127,8 +127,11 @@ struct TaskRuntimeActor {
     task_runtime_control: TaskRuntimeControl,
     db: DbPool,
     router_tx: RouterIngressWeakSender,
-    rx: tokio::sync::mpsc::Receiver<TaskRuntimeCommand>,
+    rx: tokio::sync::mpsc::UnboundedReceiver<TaskRuntimeCommand>,
     started: bool,
+    cursor_started: bool,
+    task_status: Option<TaskStatus>,
+    deferred_model_call: bool,
     model_profiles: HashMap<ModelProfileKey, ModelProviderProfile>,
     wait_state: WaitState,
     terminal_task_error: Option<TaskCommandError>,
@@ -166,26 +169,46 @@ struct PendingToolCall {
 
 impl TaskRuntimeActor {
     async fn run(mut self) {
+        let mut shutdown_exit = false;
         loop {
-            if self.task_runtime_control.is_stopping() {
+            if self.task_runtime_control.is_shutdown_requested() {
+                shutdown_exit = true;
                 break;
             }
-            let command = if self.task_runtime_control.is_frozen() {
+            let command = if self.started && self.task_status == Some(TaskStatus::Frozen) {
                 self.task_runtime_control.wait_for_control_change().await;
+                if self.task_runtime_control.is_shutdown_requested() {
+                    shutdown_exit = true;
+                    break;
+                }
+                if self.handle_status_changed().await {
+                    break;
+                }
                 continue;
             } else {
                 tokio::select! {
                     biased;
-                    _ = self.task_runtime_control.wait_for_control_change() => continue,
+                    _ = self.task_runtime_control.wait_for_control_change() => {
+                        if self.task_runtime_control.is_shutdown_requested() {
+                            shutdown_exit = true;
+                            break;
+                        }
+                        if self.handle_status_changed().await {
+                            break;
+                        }
+                        continue;
+                    },
                     command = self.rx.recv() => {
                         let Some(command) = command else {
+                            shutdown_exit = true;
                             break;
                         };
                         command
                     }
                 }
             };
-            if self.task_runtime_control.is_stopping() {
+            if self.task_runtime_control.is_shutdown_requested() {
+                shutdown_exit = true;
                 break;
             }
             let should_stop = match command {
@@ -198,12 +221,14 @@ impl TaskRuntimeActor {
                     self.handle_model_reply(envelope).await
                 }
                 TaskRuntimeCommand::ToolResult(result) => self.handle_tool_result(result).await,
-                TaskRuntimeCommand::Archive { responder } => self.handle_archive(responder).await,
             };
 
             if should_stop {
                 break;
             }
+        }
+        if shutdown_exit {
+            self.send_exit(TaskRuntimeExitReason::Shutdown).await;
         }
         self.rx.close();
         let terminal_error = self
@@ -213,7 +238,7 @@ impl TaskRuntimeActor {
             settle_task_runtime_command(command, terminal_error);
         }
         self.task_runtime_control
-            .finish_stop(TaskRuntimeStopResult)
+            .finish_shutdown(TaskRuntimeShutdownResult)
             .await;
     }
 
@@ -221,9 +246,10 @@ impl TaskRuntimeActor {
         if self.started {
             return false;
         }
-        match load_active_task(&self.db, &self.task_id) {
+        match load_runtime_task(&self.db, &self.task_id) {
             Ok(loaded) => {
                 self.started = true;
+                self.task_status = Some(loaded.task.task_status);
                 if self
                     .send_core(CoreOutputMessage::RuntimeReady)
                     .await
@@ -231,13 +257,43 @@ impl TaskRuntimeActor {
                 {
                     return true;
                 }
-                self.start_from_cursor_tail(loaded).await
+                if loaded.task.task_status == TaskStatus::Frozen {
+                    false
+                } else {
+                    self.cursor_started = true;
+                    self.start_from_cursor_tail(loaded).await
+                }
             }
             Err(error) => self.stop_with_db_error(error).await,
         }
     }
 
-    async fn start_from_cursor_tail(&mut self, loaded: selvedge_db::LoadedActiveTask) -> bool {
+    async fn handle_status_changed(&mut self) -> bool {
+        let status = match read_task_status(&self.db, &self.task_id) {
+            Ok(status) => status,
+            Err(error) => return self.stop_with_db_error(error).await,
+        };
+        self.task_status = Some(status);
+        if status == TaskStatus::Archived {
+            self.terminal_task_error = Some(TaskCommandError::TaskArchived);
+            self.send_exit(TaskRuntimeExitReason::Archived).await;
+            return true;
+        }
+        if self.started && !self.cursor_started && status != TaskStatus::Frozen {
+            let loaded = match load_runtime_task(&self.db, &self.task_id) {
+                Ok(loaded) => loaded,
+                Err(error) => return self.stop_with_db_error(error).await,
+            };
+            self.cursor_started = true;
+            return self.start_from_cursor_tail(loaded).await;
+        }
+        if status == TaskStatus::Active && self.deferred_model_call {
+            return self.request_model_call().await;
+        }
+        false
+    }
+
+    async fn start_from_cursor_tail(&mut self, loaded: selvedge_db::LoadedRuntimeTask) -> bool {
         match read_open_function_calls_for_task(&self.db, &self.task_id) {
             Ok(open_calls) if !open_calls.is_empty() => {
                 return self.recover_open_tool_calls(open_calls).await;
@@ -411,7 +467,7 @@ impl TaskRuntimeActor {
                             .stop_with_internal_error("model reply has no terminal history node")
                             .await;
                     };
-                    let had_queued_inputs = match load_active_task(&self.db, &self.task_id) {
+                    let had_queued_inputs = match load_runtime_task(&self.db, &self.task_id) {
                         Ok(loaded) => !loaded.queued_inputs.is_empty(),
                         Err(error) => return self.stop_with_db_error(error).await,
                     };
@@ -576,32 +632,21 @@ impl TaskRuntimeActor {
         }
     }
 
-    async fn handle_archive(&mut self, responder: ArchiveTaskResponder) -> bool {
-        match archive_task(&self.db, &self.task_id, now()) {
-            Ok(()) => {
-                responder.settle(Ok(ArchiveTaskOutcome::Archived));
-                self.terminal_task_error = Some(TaskCommandError::TaskArchived);
-                self.send_exit(TaskRuntimeExitReason::Archived).await;
-                true
-            }
-            Err(error) => {
-                responder.settle(Err(task_command_db_error(&error)));
-                self.stop_with_db_error(error).await
-            }
-        }
-    }
-
     fn append_user_message(&mut self, message_text: String) -> Result<HistoryNodeId, DbError> {
         append_user_message_and_move_cursor(&self.db, &self.task_id, message_text, now())
     }
 
     async fn request_model_call(&mut self) -> bool {
+        if let Some(should_stop) = self.stop_or_defer_model_call_if_inactive().await {
+            return should_stop;
+        }
+
         let db = self.db.clone();
         let task_id = self.task_id.clone();
         let context = tokio::task::spawn_blocking(move || {
             let conversation = read_conversation_for_task(&db, &task_id)?;
             let tool_state = read_task_tool_state(&db, &task_id)?;
-            let loaded = load_active_task(&db, &task_id)?;
+            let loaded = load_runtime_task(&db, &task_id)?;
             Ok::<_, DbError>((conversation, tool_state, loaded.task.model_profile_key))
         })
         .await;
@@ -614,6 +659,9 @@ impl TaskRuntimeActor {
                     .await;
             }
         };
+        if let Some(should_stop) = self.stop_or_defer_model_call_if_inactive().await {
+            return should_stop;
+        }
         if let Err(message) = validate_conversation_tool_pairs(&conversation) {
             return self.stop_with_internal_error(&message).await;
         }
@@ -646,6 +694,35 @@ impl TaskRuntimeActor {
         self.send_core(CoreOutputMessage::RequestModelCall(request))
             .await
             .is_err()
+    }
+
+    async fn stop_or_defer_model_call_if_inactive(&mut self) -> Option<bool> {
+        let status = match read_task_status(&self.db, &self.task_id) {
+            Ok(status) => status,
+            Err(error) => return Some(self.stop_with_db_error(error).await),
+        };
+        self.task_status = Some(status);
+        match status {
+            TaskStatus::Active => {
+                self.deferred_model_call = false;
+                None
+            }
+            TaskStatus::Frozen => {
+                self.deferred_model_call = true;
+                self.wait_state = WaitState::AwaitingUserInput;
+                Some(false)
+            }
+            TaskStatus::Stopped => {
+                self.deferred_model_call = false;
+                self.wait_state = WaitState::AwaitingUserInput;
+                Some(false)
+            }
+            TaskStatus::Archived => {
+                self.terminal_task_error = Some(TaskCommandError::TaskArchived);
+                self.send_exit(TaskRuntimeExitReason::Archived).await;
+                Some(true)
+            }
+        }
     }
 
     fn append_tool_calls(
@@ -760,7 +837,12 @@ impl TaskRuntimeActor {
 fn task_command_db_error(error: &DbError) -> TaskCommandError {
     match error {
         DbError::NotFound => TaskCommandError::TaskMissing,
-        DbError::TaskNotActive => TaskCommandError::TaskArchived,
+        DbError::InvalidTaskStatus {
+            status: TaskStatus::Archived,
+        } => TaskCommandError::TaskArchived,
+        DbError::InvalidTaskStatus { status } => {
+            TaskCommandError::InvalidTaskStatus { status: *status }
+        }
         DbError::StaleFunctionCall
         | DbError::HistoryCursorNotOnTask
         | DbError::ToolUnavailable
@@ -792,7 +874,6 @@ fn interrupted_tool_call_output() -> Value {
 fn settle_task_runtime_command(command: TaskRuntimeCommand, error: TaskCommandError) {
     match command {
         TaskRuntimeCommand::UserInput { responder, .. } => responder.settle(Err(error)),
-        TaskRuntimeCommand::Archive { responder } => responder.settle(Err(error)),
         TaskRuntimeCommand::Start
         | TaskRuntimeCommand::ApiModelReply(_)
         | TaskRuntimeCommand::ToolResult(_) => {}

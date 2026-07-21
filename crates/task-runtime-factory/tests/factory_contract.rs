@@ -4,8 +4,8 @@ use selvedge_command_model::{
     FactoryEffectId, FactoryFailureKind, FactoryOutput, FactorySkipReason,
 };
 use selvedge_core::{TaskRuntimeConfig, TaskRuntimeSpawnDeps};
-use selvedge_db::{DbPool, ModelProfileKey, TaskId, UnixTs, archive_task};
-use selvedge_domain_model::ModelProviderProfile;
+use selvedge_db::{DbPool, ModelProfileKey, TaskId, UnixTs, transition_task_status};
+use selvedge_domain_model::{ModelProviderProfile, TaskLifecycleEvent};
 use selvedge_task_runtime_factory::{
     FactoryCommand, FactoryEffectArgs, FactoryRuntimeInventory, run_factory_effect,
 };
@@ -27,7 +27,6 @@ async fn ensure_task_runtime_creates_runtime_for_existing_active_task() {
         db,
         router_tx: router_tx.downgrade(),
         core_spawn_deps: TaskRuntimeSpawnDeps::new(TaskRuntimeConfig {
-            mailbox_capacity: 8,
             model_profiles: model_profiles(),
         }),
         runtime_inventory: empty_inventory(),
@@ -83,7 +82,13 @@ async fn ensure_task_runtime_reports_missing_and_archived_tasks() {
 
     let db = open_memory_db();
     create_root(&db, "archived");
-    archive_task(&db, &TaskId("archived".to_owned()), UnixTs(2)).expect("archive task");
+    transition_task_status(
+        &db,
+        &TaskId("archived".to_owned()),
+        TaskLifecycleEvent::Archive,
+        UnixTs(2),
+    )
+    .expect("archive task");
 
     let archived = run_ensure_task_runtime(db, "archived").await;
     let FactoryOutput::Failed(failure) = archived else {
@@ -99,6 +104,22 @@ async fn ensure_missing_task_runtimes_skips_live_and_pending_inventory() {
     create_root(&db, "live");
     create_root(&db, "pending");
     create_root(&db, "missing");
+    create_root(&db, "frozen");
+    create_root(&db, "stopped");
+    transition_task_status(
+        &db,
+        &TaskId("frozen".to_owned()),
+        TaskLifecycleEvent::Freeze,
+        UnixTs(2),
+    )
+    .expect("freeze task");
+    transition_task_status(
+        &db,
+        &TaskId("stopped".to_owned()),
+        TaskLifecycleEvent::Stop,
+        UnixTs(2),
+    )
+    .expect("stop task");
 
     let (router_tx, _router_rx) = tokio::sync::mpsc::unbounded_channel();
     let envelope = run_factory_effect(FactoryEffectArgs {
@@ -107,7 +128,6 @@ async fn ensure_missing_task_runtimes_skips_live_and_pending_inventory() {
         db,
         router_tx: router_tx.downgrade(),
         core_spawn_deps: TaskRuntimeSpawnDeps::new(TaskRuntimeConfig {
-            mailbox_capacity: 8,
             model_profiles: model_profiles(),
         }),
         runtime_inventory: FactoryRuntimeInventory {
@@ -123,8 +143,22 @@ async fn ensure_missing_task_runtimes_skips_live_and_pending_inventory() {
         panic!("unexpected factory output");
     };
 
-    assert_eq!(scan.created.len(), 1);
-    assert_eq!(scan.created[0].task_id, TaskId("missing".to_owned()));
+    assert_eq!(scan.created.len(), 3);
+    assert!(
+        scan.created
+            .iter()
+            .any(|created| created.task_id == TaskId("missing".to_owned()))
+    );
+    assert!(
+        scan.created
+            .iter()
+            .any(|created| created.task_id == TaskId("frozen".to_owned()))
+    );
+    assert!(
+        scan.created
+            .iter()
+            .any(|created| created.task_id == TaskId("stopped".to_owned()))
+    );
     assert_eq!(scan.failed, Vec::new());
     assert_eq!(scan.skipped.len(), 2);
     assert!(scan.skipped.iter().any(|skipped| {
@@ -155,7 +189,6 @@ async fn run_ensure_task_runtime(db: DbPool, task_id: &str) -> FactoryOutput {
         db,
         router_tx: router_tx.downgrade(),
         core_spawn_deps: TaskRuntimeSpawnDeps::new(TaskRuntimeConfig {
-            mailbox_capacity: 8,
             model_profiles: model_profiles(),
         }),
         runtime_inventory: empty_inventory(),
@@ -178,7 +211,6 @@ async fn run_ensure_task_runtime_with_inventory(
         db,
         router_tx: router_tx.downgrade(),
         core_spawn_deps: TaskRuntimeSpawnDeps::new(TaskRuntimeConfig {
-            mailbox_capacity: 8,
             model_profiles: model_profiles(),
         }),
         runtime_inventory: FactoryRuntimeInventory {
