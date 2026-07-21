@@ -14,8 +14,8 @@ use selvedge_command_model::{
 };
 use selvedge_db::{
     CommitToolResultBranchesInput, DbError, DbPool, FunctionCallId, HistoryNode, HistoryNodeId,
-    MessageRole, NewFunctionCallNodeContent, TaskId, ToolName, ToolResultBranch,
-    ToolResultBranchTarget, UnixTs, append_assistant_message_and_drain_queue,
+    MessageRole, NewFunctionCallNodeContent, TaskId, ToolName, ToolRecoveryPolicy,
+    ToolResultBranch, ToolResultBranchTarget, UnixTs, append_assistant_message_and_drain_queue,
     append_model_reply_with_tool_calls_and_move_cursor, append_user_message_and_move_cursor,
     archive_task, commit_tool_result_branches, drain_queued_user_inputs_and_move_cursor,
     load_active_task, queue_user_input, read_conversation_for_task,
@@ -240,7 +240,7 @@ impl TaskRuntimeActor {
     async fn start_from_cursor_tail(&mut self, loaded: selvedge_db::LoadedActiveTask) -> bool {
         match read_open_function_calls_for_task(&self.db, &self.task_id) {
             Ok(open_calls) if !open_calls.is_empty() => {
-                return self.dispatch_open_tool_calls(open_calls).await;
+                return self.recover_open_tool_calls(open_calls).await;
             }
             Ok(_) => {}
             Err(error) => return self.stop_with_db_error(error).await,
@@ -283,21 +283,44 @@ impl TaskRuntimeActor {
         }
     }
 
-    async fn dispatch_open_tool_calls(
+    async fn recover_open_tool_calls(
         &mut self,
         open_calls: Vec<selvedge_db::OpenFunctionCall>,
     ) -> bool {
-        let mut pending_tool_calls = open_calls
-            .into_iter()
-            .map(|call| PendingToolCall {
+        let mut pending_tool_calls = VecDeque::new();
+        for call in open_calls {
+            let tool_call = PendingToolCall {
                 function_call_node_id: call.function_call_node_id,
                 function_call_id: call.function_call_id,
                 tool_name: call.tool_name,
                 arguments: call.arguments,
-            })
-            .collect::<VecDeque<_>>();
+            };
+            match call.recovery_policy {
+                ToolRecoveryPolicy::RetrySafe => pending_tool_calls.push_back(tool_call),
+                ToolRecoveryPolicy::OutcomeUnknown => {
+                    if let Err(error) = commit_tool_result_branches(
+                        &self.db,
+                        CommitToolResultBranchesInput {
+                            calling_task_id: self.task_id.clone(),
+                            function_call_node_id: tool_call.function_call_node_id,
+                            function_call_id: tool_call.function_call_id,
+                            tool_name: tool_call.tool_name,
+                            branches: vec![ToolResultBranch {
+                                target: ToolResultBranchTarget::CallingTask,
+                                output: interrupted_tool_call_output(),
+                                is_error: true,
+                                user_messages: Vec::new(),
+                            }],
+                            now: now(),
+                        },
+                    ) {
+                        return self.stop_with_db_error(error).await;
+                    }
+                }
+            }
+        }
         let Some(tool_call) = pending_tool_calls.pop_front() else {
-            return false;
+            return self.request_model_call().await;
         };
         self.dispatch_tool_call(tool_call, pending_tool_calls).await
     }
@@ -753,6 +776,15 @@ fn task_descendant_limit_output(task_id: &TaskId, limit: u32) -> Value {
         "error": {
             "code": "task_descendant_limit_exceeded",
             "message": format!("task '{}' cannot exceed {limit} descendants", task_id.0),
+        }
+    })
+}
+
+fn interrupted_tool_call_output() -> Value {
+    serde_json::json!({
+        "error": {
+            "code": "tool_outcome_unknown_after_interruption",
+            "message": "The tool call was interrupted before a result was committed for this task branch. Whether it took effect is unknown. Inspect the relevant state and invoke the tool again only if needed. Do not report this internal recovery notice unless unresolved uncertainty prevents completing the task; continue the task."
         }
     })
 }

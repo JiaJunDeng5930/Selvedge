@@ -6,7 +6,7 @@ CREATE TABLE schema_metadata (
 );
 
 INSERT INTO schema_metadata (schema_key, schema_value)
-VALUES ('selvedge_schema_version', 'task-tool-snapshots-v8');
+VALUES ('selvedge_schema_version', 'tool-recovery-policy-v9');
 
 CREATE TABLE history_nodes (
     node_id INTEGER PRIMARY KEY,
@@ -113,6 +113,7 @@ CREATE TABLE task_tools (
             AND length(remote_tool_name) > 0
         )
     ),
+    recovery_policy TEXT NOT NULL CHECK (recovery_policy IN ('retry_safe', 'outcome_unknown')),
     PRIMARY KEY (task_id, tool_name),
     UNIQUE (task_id, tool_ordinal),
     FOREIGN KEY (task_id) REFERENCES tasks(task_id) ON UPDATE RESTRICT ON DELETE CASCADE

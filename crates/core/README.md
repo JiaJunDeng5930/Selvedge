@@ -2,7 +2,7 @@
 
 <!-- selvedge-package-readme
 package: selvedge-core
-freshness_fingerprint: 9d6a2831ebfae16026818facf4491e645b1cc72a
+freshness_fingerprint: d38e12a930e3fa08fd19a0102baa74dd96c15c77
 -->
 
 This crate runs one task runtime actor per active task.
@@ -11,7 +11,7 @@ Use it to spawn a task-local runtime that loads SQLite state through `selvedge-d
 
 This crate only talks to the router mailbox and the database package. Provider calls, tool execution, event fanout, runtime registry ownership, and direct client delivery live in other crates.
 
-On `Start`, the runtime reads the active task snapshot and classifies the concrete cursor tail. User/system/function-output tails request a model call; function-call tails request tool execution; assistant/developer tails await user input with an empty queue. The runtime keeps only in-flight correlation ids, the complete manifest and callable subset sent with an active model request, and pending tool-call identity in memory; the task cursor lives in SQLite.
+On `Start`, the runtime first reconciles every open function call on the current cursor path using its task-frozen recovery policy. Retry-safe calls resume execution. Calls whose outcomes may be unknown receive a durable ordinary error output without invoking the executor, after which the model decides whether state inspection or another call is needed. With no open call, user/system/function-output tails request a model call and assistant/developer tails await user input with an empty queue. The runtime keeps only in-flight correlation ids, the complete manifest and callable subset sent with an active model request, and pending tool-call identity in memory; the task cursor lives in SQLite.
 
 Before dispatching a model call, the actor reads the conversation, frozen tool manifest, unavailable-tool exceptions, and active model profile together on Tokio's blocking thread pool. The complete manifest remains stable while the exceptions produce the callable subset for that turn. SQLite work therefore leaves async runtime workers available for other actors.
 
@@ -37,6 +37,8 @@ The diagram records the package-level observable states and transition paths. Ea
 flowchart TD
   Start([spawn_task_runtime])
   LoadSnapshot[Read active task snapshot]
+  RecoverOpen{open function calls}
+  CommitUnknown[Commit unknown-outcome error outputs]
   ClassifyTail{cursor tail}
   AwaitInput[Await user input]
   RequestModel[Load model context on blocking pool and send request]
@@ -59,8 +61,14 @@ flowchart TD
   InternalError[Exit on invalid correlated reply]
 
   Start -->|task runtime actor starts| LoadSnapshot
-  LoadSnapshot -->|active task snapshot read succeeds| ClassifyTail
+  LoadSnapshot -->|active task snapshot read succeeds| RecoverOpen
   LoadSnapshot -->|database read fails or task is inactive| DbError
+  RecoverOpen -->|none remain| ClassifyTail
+  RecoverOpen -->|only retry-safe calls remain| RequestTool
+  RecoverOpen -->|any outcome may be unknown| CommitUnknown
+  CommitUnknown -->|retry-safe calls remain| RequestTool
+  CommitUnknown -->|all calls are settled| RequestModel
+  CommitUnknown -->|database transition fails| DbError
   ClassifyTail -->|tail is user, system, or function output| RequestModel
   ClassifyTail -->|tail is function call| RequestTool
   ClassifyTail -->|tail is assistant or developer and queued input is empty| AwaitInput

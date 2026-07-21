@@ -3,6 +3,7 @@ use selvedge_command_model::{
     ToolExecutionBranchTarget, ToolExecutionRequest, ToolExecutionRunId,
 };
 use selvedge_config_model::HarnessConfig;
+use selvedge_db::ToolRecoveryPolicy;
 use selvedge_domain_model::{
     FunctionCallId, HistoryNodeId, JsonObject, MessageRole, TaskId, ToolName, ToolSpec, UnixTs,
 };
@@ -13,7 +14,7 @@ use selvedge_harness::{
     MAX_BASH_TIMEOUT_MS, MIN_BASH_TIMEOUT_MS, MessageDisposition, READ_TASK_TOOL_NAME,
     ReadTaskInvocation, ReadTaskSuccess, SEND_MESSAGE_TO_TASK_TOOL_NAME,
     SendMessageToTaskInvocation, SendMessageToTaskSuccess, encode_tool_execution_result,
-    parse_invocation, tool_manifest,
+    harness_tool_catalog, parse_invocation, tool_manifest,
 };
 use serde_json::Value;
 
@@ -122,6 +123,40 @@ fn manifest_defines_exactly_the_five_harness_tools() {
                 ),
             },
         ]
+    );
+}
+
+#[test]
+fn catalog_freezes_builtin_recovery_policies() {
+    let policies = harness_tool_catalog(&HarnessConfig::default())
+        .into_iter()
+        .map(|tool| (tool.tool.name, tool.recovery_policy))
+        .collect::<std::collections::BTreeMap<_, _>>();
+
+    assert_eq!(
+        policies,
+        std::collections::BTreeMap::from([
+            (
+                ARCHIVE_TASK_TOOL_NAME.to_owned(),
+                ToolRecoveryPolicy::OutcomeUnknown
+            ),
+            (
+                BASH_TOOL_NAME.to_owned(),
+                ToolRecoveryPolicy::OutcomeUnknown
+            ),
+            (
+                FORK_TASK_TOOL_NAME.to_owned(),
+                ToolRecoveryPolicy::RetrySafe
+            ),
+            (
+                READ_TASK_TOOL_NAME.to_owned(),
+                ToolRecoveryPolicy::RetrySafe
+            ),
+            (
+                SEND_MESSAGE_TO_TASK_TOOL_NAME.to_owned(),
+                ToolRecoveryPolicy::OutcomeUnknown,
+            ),
+        ])
     );
 }
 
