@@ -2127,15 +2127,7 @@ fn init_logging() -> Result<(), ServerStartupError> {
 }
 
 struct SingletonLock {
-    file: Option<File>,
-    path: PathBuf,
-}
-
-impl Drop for SingletonLock {
-    fn drop(&mut self) {
-        drop(self.file.take());
-        let _ = std::fs::remove_file(&self.path);
-    }
+    _file: File,
 }
 
 fn acquire_singleton_lock(home: &Path) -> Result<SingletonLock, ServerStartupError> {
@@ -2152,10 +2144,7 @@ fn acquire_singleton_lock(home: &Path) -> Result<SingletonLock, ServerStartupErr
         .open(&path)
     {
         Ok(file) => match file.try_lock_exclusive() {
-            Ok(()) => Ok(SingletonLock {
-                file: Some(file),
-                path,
-            }),
+            Ok(()) => Ok(SingletonLock { _file: file }),
             Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
                 Err(ServerStartupError::SingletonAlreadyRunning)
             }
@@ -3611,8 +3600,7 @@ mod tests {
 
     fn singleton_lock_for_test() -> SingletonLock {
         SingletonLock {
-            file: Some(tempfile::tempfile().expect("temp singleton lock")),
-            path: std::env::temp_dir().join("selvedge-server-unit-test.lock"),
+            _file: tempfile::tempfile().expect("temp singleton lock"),
         }
     }
 
