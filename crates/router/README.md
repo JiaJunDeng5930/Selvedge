@@ -2,7 +2,7 @@
 
 <!-- selvedge-package-readme
 package: selvedge-router
-freshness_fingerprint: adb0ac31eeec0878bb6d1ebd9d7903879b982c5f
+freshness_fingerprint: 01637836571b3b617f371ce985a1716b40c5d1a5
 -->
 
 This crate owns the Selvedge router actor.
@@ -15,14 +15,14 @@ This crate commits task lifecycle transitions through the database boundary. It 
 
 Router ingress is unbounded. The router is the lifecycle coordinator for task runtimes, and runtime-to-router output must enqueue without waiting for router mailbox capacity while the router is synchronously stopping a runtime. The router handle owns the strong ingress sender; runtime, API, tool, and factory producers receive weak ingress senders so dropping external ingress owners closes the router mailbox.
 
-Core output routing is task-id based. A runtime that enqueued core output before a synchronous stop still has that output routed normally; stop controls runtime registry ownership and future task command delivery.
+Core output routing is task-id based. Router ingress order is the lifecycle linearization point: effects registered before archive are cancelled by archive, while model or tool requests handled after archive are rejected by the durable status gate.
 Core output with an embedded task id must match the envelope task id before the router starts model calls, tool executions, or event publication.
 
 User input remains pending while the router creates a missing runtime, flushes deferred commands, or replaces a closed mailbox. Only the task runtime settles it after SQLite commits. Freeze, unfreeze, stop, and archive commit directly through the database boundary and return the persisted status. Factory failures are mapped to task missing, task archived, persistence failure, or runtime unavailable, and router shutdown fails deferred and unread task commands before releasing their responders.
 
 Core commits tool-result branches before requesting runtime startup. `CoreOutputMessage::EnsureTaskRuntimes` sends the committed new task ids to the router, and each id enters the same missing, pending, live, and stopping runtime lifecycle as every other task.
 
-Model calls and tool executions are task-owned router effects. Their terminal output removes and joins the matching handle before delivery to the task runtime. Stopping one task cancels and joins its remaining effects; router shutdown closes ingress, cancels and joins every remaining effect, then stops runtimes. `RouterExitStatus::Stopped` therefore cannot leave a router-started model or tool task running.
+Model calls and tool executions are task-owned router effects. Their terminal output removes and joins the matching handle before delivery to the task runtime. Archiving one task cancels and joins its remaining effects; router shutdown closes ingress, cancels and joins every remaining effect, then shuts down runtimes. `RouterExitStatus::Stopped` therefore cannot leave a router-started model or tool task running.
 
 Attach routing is an admission boundary. `RouterCommand::AttachClient` sends `ReserveClientSession` to events and answers the command's admission responder with the reservation result; snapshot hydration starts later through client-sync after server observes the accepted admission.
 
@@ -30,7 +30,7 @@ Attach routing is an admission boundary. `RouterCommand::AttachClient` sends `Re
 
 The router's runtime uniqueness invariant is route ownership: for one `TaskId`, at most one `TaskRuntimeSender` in `task_runtime_registry` may receive router task commands at a time. Creation is also single-owned through `pending_effects_by_task`.
 
-`TaskRuntimeControl` contains no task status. A lifecycle transition notifies the live actor so it reloads durable status. Archive and router shutdown use the control's shutdown barrier, which completes only after the actor reaches its unified exit path.
+`TaskRuntimeControl` contains no task status. A lifecycle transition notifies the live actor so it reloads durable status. Archive waits for the actor to exit after observing `archived`; process shutdown requests an immediate shutdown. Both paths use the same actor-exit barrier.
 
 Runtime ownership flows as missing, pending create, live, shutting down, then released. During shutdown, the router actor waits on the control barrier. After `TaskRuntimeShutdownResult` returns, the router removes the registry entry only if it is still the same control block.
 
@@ -55,6 +55,8 @@ flowchart TD
   StatusCommit[Commit task lifecycle transition]
   EffectLive[Model call or tool execution handle owned by router]
   EffectStopping[Cancel and join task-owned effects]
+  ModelSuppressed[Return ModelCallNotStarted]
+  ToolRejected[Reject archived tool request]
   TaskResponseSettled[Task command response failed]
   Events[Forward event control]
   ErrorNotice[Publish diagnostic notice]
@@ -85,6 +87,10 @@ flowchart TD
   RuntimeStopping -->|TaskRuntimeControl shutdown result resolves| Loop
   CoreOutput -->|task id matches an event publication| Events
   CoreOutput -->|task id matches a model or tool request and effect id is unique| EffectLive
+  CoreOutput -->|model status gate observes frozen or stopped| ModelSuppressed
+  CoreOutput -->|tool status gate observes archived| ToolRejected
+  ModelSuppressed -->|typed result is delivered to the live runtime| RuntimeLive
+  ToolRejected -->|diagnostic is published without starting an effect| ErrorNotice
   CoreOutput -->|task id mismatch or downstream send fails| ErrorNotice
   ApiOutput -->|correlation matches an owned model effect| EffectLive
   EffectLive -->|terminal API or tool output arrives and its handle joins| RuntimeLive

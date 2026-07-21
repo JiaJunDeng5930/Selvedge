@@ -565,6 +565,13 @@ async fn task_runtime_commits_descendant_limit_as_a_model_visible_tool_error() {
 async fn task_runtime_exits_after_archived_status_notification() {
     let db = open_memory_db();
     create_root_task_with_user_message(&db, "task-1", "hello", UnixTs(1));
+    transition_task_status(
+        &db,
+        &TaskId("task-1".to_owned()),
+        TaskLifecycleEvent::Freeze,
+        UnixTs(2),
+    )
+    .expect("freeze task");
     let (router_tx, mut router_rx) = tokio::sync::mpsc::unbounded_channel();
     let runtime = spawn_task_runtime(SpawnTaskRuntimeArgs {
         task_id: TaskId("task-1".to_owned()),
@@ -575,13 +582,30 @@ async fn task_runtime_exits_after_archived_status_notification() {
         },
     })
     .expect("spawn runtime");
-    let _correlation = start_and_request_model(&runtime, &mut router_rx).await;
+    runtime
+        .task_runtime_tx
+        .send(TaskRuntimeCommand::Start)
+        .expect("send start");
+    assert!(matches!(
+        router_rx.recv().await,
+        Some(RouterIngressMessage::Core(envelope))
+            if matches!(envelope.message, CoreOutputMessage::RuntimeReady)
+    ));
+
+    let (responder, response) = send_user_input_response_channel();
+    runtime
+        .task_runtime_tx
+        .send(TaskRuntimeCommand::UserInput {
+            message_text: "pending while frozen".to_owned(),
+            responder,
+        })
+        .expect("send frozen input");
 
     transition_task_status(
         &db,
         &TaskId("task-1".to_owned()),
         TaskLifecycleEvent::Archive,
-        UnixTs(2),
+        UnixTs(3),
     )
     .expect("archive task");
     runtime.task_runtime_control.notify_status_changed();
@@ -592,13 +616,77 @@ async fn task_runtime_exits_after_archived_status_notification() {
         RouterIngressMessage::RuntimeExit(notice)
             if matches!(notice.reason, TaskRuntimeExitReason::Archived)
     ));
+    assert_eq!(
+        response.await.expect("archived input response"),
+        Err(TaskCommandError::TaskArchived)
+    );
 
     tokio::time::timeout(
         Duration::from_millis(50),
-        runtime.task_runtime_control.shutdown(),
+        runtime.task_runtime_control.wait_for_shutdown(),
     )
     .await
     .expect("stop completed");
+}
+
+#[tokio::test]
+async fn model_call_not_started_during_freeze_resumes_after_unfreeze() {
+    let db = open_memory_db();
+    create_root_task_with_user_message(&db, "task-1", "current", UnixTs(1));
+    let (router_tx, mut router_rx) = tokio::sync::mpsc::unbounded_channel();
+    let runtime = spawn_task_runtime(SpawnTaskRuntimeArgs {
+        task_id: TaskId("task-1".to_owned()),
+        db: db.clone(),
+        router_tx: router_tx.downgrade(),
+        config: TaskRuntimeConfig {
+            model_profiles: model_profiles(),
+        },
+    })
+    .expect("spawn runtime");
+    let first_correlation = start_and_request_model(&runtime, &mut router_rx).await;
+
+    transition_task_status(
+        &db,
+        &TaskId("task-1".to_owned()),
+        TaskLifecycleEvent::Freeze,
+        UnixTs(2),
+    )
+    .expect("freeze task");
+    runtime.task_runtime_control.notify_status_changed();
+    runtime
+        .task_runtime_tx
+        .send(TaskRuntimeCommand::ModelCallNotStarted {
+            correlation: first_correlation.clone(),
+        })
+        .expect("return undispatched model call");
+    assert!(
+        tokio::time::timeout(Duration::from_millis(25), router_rx.recv())
+            .await
+            .is_err()
+    );
+
+    transition_task_status(
+        &db,
+        &TaskId("task-1".to_owned()),
+        TaskLifecycleEvent::Unfreeze,
+        UnixTs(3),
+    )
+    .expect("unfreeze task");
+    runtime.task_runtime_control.notify_status_changed();
+
+    let resumed = recv_model_request(&mut router_rx).await;
+    assert_ne!(
+        resumed.correlation.model_run_id,
+        first_correlation.model_run_id
+    );
+    assert_eq!(
+        resumed
+            .conversation
+            .messages
+            .last()
+            .and_then(|message| message.content.as_str()),
+        Some("current")
+    );
 }
 
 #[tokio::test]
@@ -794,6 +882,74 @@ async fn stopped_runtime_commits_tool_result_without_calling_model_until_user_in
         tool_transcript_events(&request),
         vec!["call:call-1", "output:call-1"]
     );
+}
+
+#[tokio::test]
+async fn stopped_runtime_promotes_existing_queue_before_new_input() {
+    let db = open_memory_db();
+    create_root_task_with_user_message(&db, "task-1", "current", UnixTs(1));
+    queue_user_input(
+        &db,
+        &TaskId("task-1".to_owned()),
+        "old queued".to_owned(),
+        UnixTs(2),
+    )
+    .expect("queue old input");
+    transition_task_status(
+        &db,
+        &TaskId("task-1".to_owned()),
+        TaskLifecycleEvent::Stop,
+        UnixTs(3),
+    )
+    .expect("stop task");
+
+    let (router_tx, mut router_rx) = tokio::sync::mpsc::unbounded_channel();
+    let runtime = spawn_task_runtime(SpawnTaskRuntimeArgs {
+        task_id: TaskId("task-1".to_owned()),
+        db: db.clone(),
+        router_tx: router_tx.downgrade(),
+        config: TaskRuntimeConfig {
+            model_profiles: model_profiles(),
+        },
+    })
+    .expect("spawn runtime");
+    runtime
+        .task_runtime_tx
+        .send(TaskRuntimeCommand::Start)
+        .expect("send start");
+    assert!(matches!(
+        router_rx.recv().await,
+        Some(RouterIngressMessage::Core(envelope))
+            if matches!(envelope.message, CoreOutputMessage::RuntimeReady)
+    ));
+    assert!(
+        tokio::time::timeout(Duration::from_millis(25), router_rx.recv())
+            .await
+            .is_err()
+    );
+
+    let (responder, response) = send_user_input_response_channel();
+    runtime
+        .task_runtime_tx
+        .send(TaskRuntimeCommand::UserInput {
+            message_text: "new input".to_owned(),
+            responder,
+        })
+        .expect("send new input");
+    assert!(matches!(
+        response.await.expect("input response"),
+        Ok(SendUserInputOutcome::Committed { .. })
+    ));
+
+    let request = recv_model_request(&mut router_rx).await;
+    let user_messages = request
+        .conversation
+        .messages
+        .iter()
+        .filter(|message| message.role == selvedge_db::MessageRole::User)
+        .filter_map(|message| message.content.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(user_messages, vec!["current", "old queued", "new input"]);
 }
 
 #[tokio::test]

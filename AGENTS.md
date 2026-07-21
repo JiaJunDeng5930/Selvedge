@@ -170,7 +170,7 @@ This file is for coding agents working in this repository.
 |crates/web/src:{lib.rs}
 |crates/web/tests:{web_contract.rs}
 |docs:{adr/}
-|docs/adr:{0001-task-owned-tool-contracts.md,0002-interrupted-tool-call-recovery.md}
+|docs/adr:{0001-task-owned-tool-contracts.md,0002-interrupted-tool-call-recovery.md,0003-persisted-task-lifecycle.md}
 |scripts:{bootstrap.sh,create-worktree.sh}
 |src:{lib.rs,main.rs}
 |tests:{config_integration.rs,stdout_stderr_integration.rs,worktree_tool_integration.rs}

@@ -259,13 +259,9 @@ impl RouterActor {
                         .await;
                 match status {
                     Ok(Ok(status)) if status.can_call_model() => {}
-                    Ok(Ok(status)) => {
+                    Ok(Ok(_)) => {
                         return self
-                            .return_model_call_failure(
-                                task_id,
-                                correlation,
-                                format!("task status does not permit model calls: {status:?}"),
-                            )
+                            .return_model_call_not_started(task_id, correlation)
                             .await;
                     }
                     Ok(Err(error)) => {
@@ -315,6 +311,27 @@ impl RouterActor {
                     return Ok(());
                 }
                 let fallback_request = request.clone();
+                let db = self.db.clone();
+                let status_task_id = task_id.clone();
+                let status =
+                    tokio::task::spawn_blocking(move || read_task_status(&db, &status_task_id))
+                        .await;
+                match status {
+                    Ok(Ok(selvedge_domain_model::TaskStatus::Archived)) => {
+                        return self
+                            .publish_debug(
+                                Some(task_id),
+                                "tool execution rejected because task is archived",
+                            )
+                            .await;
+                    }
+                    Ok(Ok(_)) => {}
+                    Ok(Err(_)) | Err(_) => {
+                        return self
+                            .handle_tool_output(tool_spawn_failed_result(fallback_request))
+                            .await;
+                    }
+                }
                 let tool_execution_run_id = request.tool_execution_run_id.clone();
                 match self
                     .tool_executor
@@ -450,6 +467,32 @@ impl RouterActor {
         self.publish_debug(
             Some(task_id),
             "model call rejected without a live task runtime",
+        )
+        .await
+    }
+
+    async fn return_model_call_not_started(
+        &mut self,
+        task_id: TaskId,
+        correlation: ApiCallCorrelation,
+    ) -> Result<(), RouterExitStatus> {
+        if let Some(sender) = self
+            .task_runtime_registry
+            .get(&task_id)
+            .map(|entry| entry.sender.clone())
+        {
+            return self
+                .send_to_task_runtime(
+                    task_id,
+                    sender,
+                    TaskRuntimeCommand::ModelCallNotStarted { correlation },
+                    false,
+                )
+                .await;
+        }
+        self.publish_debug(
+            Some(task_id),
+            "model call was not started because task runtime is not live",
         )
         .await
     }
@@ -621,7 +664,8 @@ impl RouterActor {
             self.pending_effects.remove(&effect_id);
         }
         if let Some(entry) = self.task_runtime_registry.get(&task_id).cloned() {
-            self.shutdown_runtime_entry(entry.clone()).await;
+            entry.control.notify_status_changed();
+            let _ = entry.control.wait_for_shutdown().await;
             self.remove_runtime_if_current(&task_id, &entry);
         }
         Ok(())
@@ -1073,6 +1117,7 @@ fn settle_task_runtime_command(command: TaskRuntimeCommand, error: TaskCommandEr
     match command {
         TaskRuntimeCommand::UserInput { responder, .. } => responder.settle(Err(error)),
         TaskRuntimeCommand::Start
+        | TaskRuntimeCommand::ModelCallNotStarted { .. }
         | TaskRuntimeCommand::ApiModelReply(_)
         | TaskRuntimeCommand::ToolResult(_) => {}
     }

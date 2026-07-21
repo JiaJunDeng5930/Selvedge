@@ -683,6 +683,10 @@ impl TaskRuntimeControl {
     pub async fn shutdown(&self) -> TaskRuntimeShutdownResult {
         self.inner.shutdown_requested.store(true, Ordering::SeqCst);
         self.inner.actor_notify.notify_one();
+        self.wait_for_shutdown().await
+    }
+
+    pub async fn wait_for_shutdown(&self) -> TaskRuntimeShutdownResult {
         loop {
             let notified = self.inner.shutdown_notify.notified();
             if let Some(result) = self.inner.shutdown_result.lock().await.clone() {
@@ -741,6 +745,9 @@ pub enum TaskRuntimeCommand {
     UserInput {
         message_text: String,
         responder: SendUserInputResponder,
+    },
+    ModelCallNotStarted {
+        correlation: ApiCallCorrelation,
     },
     ApiModelReply(ApiOutputEnvelope),
     ToolResult(ToolExecutionResult),

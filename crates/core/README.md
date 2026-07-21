@@ -2,7 +2,7 @@
 
 <!-- selvedge-package-readme
 package: selvedge-core
-freshness_fingerprint: c18055b54c58ba65ecaecf5ab3625663141d5bac
+freshness_fingerprint: 3369d0f918c2e19040784c484ed51c1c6a90fc08
 -->
 
 This crate runs one task runtime actor per non-archived task.
@@ -20,6 +20,8 @@ Durable history is projected into one provider-neutral conversation model whose 
 A matching tool execution result contains one or more history branches. Core commits all branch outputs, child tasks, optional child messages, and cursor changes through one database transaction. The calling task always has exactly one branch; any committed child task ids are then sent to the router's ordinary runtime-ensure path. If that transaction rejects a fork because an ancestor reached its configured descendant limit, core commits one ordinary error output for the same call and continues the model loop. Runtime creation is derived from committed task state and is not part of the history transaction.
 
 When a matching model reply arrives, the actor validates it against the exact manifest and callable subset stored for that model run rather than reading current availability again. A tool marked unavailable after request dispatch can therefore finish the already-issued turn. Core rejects duplicate call ids, tools absent from the frozen manifest, and tools excluded from that turn, but leaves JSON Schema interpretation to the selected executor.
+
+The router can return `ModelCallNotStarted` when task status changes after core's final active check but before API dispatch. Core correlates that result separately from provider failure, reloads durable status, and either retries the continuation when active, defers it while frozen, or waits for new user input while stopped. Before a stopped actor waits, it promotes existing queued inputs to the cursor without calling the model, so a later activating input cannot overtake the durable FIFO.
 
 `TaskRuntimeControl` carries only high-priority notifications and the process shutdown barrier. A status notification makes the actor read the database again. `frozen` pauses mailbox consumption, `archived` exits the actor, and `active` or `stopped` resumes mailbox processing. A shutdown request prevents the next mailbox command from starting and completes only after the actor's unified exit path runs.
 
@@ -47,6 +49,8 @@ flowchart TD
   AwaitInput[Await user input]
   RequestModel[Load model context on blocking pool and send request]
   AwaitModel[Await matching API output]
+  ModelNotStarted[Correlate model call not started]
+  PromoteStoppedQueue[Promote durable input queue without model call]
   ValidateModelReply[Validate reply against sent manifest and callable snapshots]
   RequestTool[Send tool execution request to router]
   AwaitTool[Await matching tool output]
@@ -87,12 +91,18 @@ flowchart TD
   ClassifyTail -->|tail is function call| RequestTool
   ClassifyTail -->|tail is assistant or developer and queued input is empty| AwaitInput
   ClassifyTail -->|tail is assistant or developer and queued input exists| QueueInput
-  RequestModel -->|status is stopped| AwaitInput
+  RequestModel -->|status is stopped| PromoteStoppedQueue
   RequestModel -->|status is frozen| Frozen
   RequestModel -->|status is active and database reads and router ingress send succeed| AwaitModel
   RequestModel -->|database read fails| DbError
   RequestModel -->|router ingress send fails| RouterClosed
   AwaitModel -->|matching completed API output arrives| ValidateModelReply
+  AwaitModel -->|router rejects dispatch after status changes| ModelNotStarted
+  ModelNotStarted -->|status is active| RequestModel
+  ModelNotStarted -->|status is frozen| Frozen
+  ModelNotStarted -->|status is stopped| PromoteStoppedQueue
+  ModelNotStarted -->|status is archived| Archived
+  PromoteStoppedQueue -->|FIFO is empty after promotion| AwaitInput
   ValidateModelReply -->|call ids are unique and every tool belongs to both sent snapshots| ClassifyTail
   ValidateModelReply -->|a call id is duplicated or a tool was absent or unavailable for that turn| InternalError
   AwaitModel -->|matching failed API output arrives| AwaitInput

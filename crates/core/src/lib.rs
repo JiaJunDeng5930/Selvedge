@@ -5,12 +5,12 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use selvedge_command_model::{
-    ApiEffectId, ApiOutputEnvelope, CoreOutputEnvelope, CoreOutputMessage, DomainEvent,
-    DomainEventPublishRequest, ModelCallDispatchRequest, ModelRunId, RouterIngressMessage,
-    RouterIngressWeakSender, SendUserInputOutcome, SendUserInputResponder, TaskCommandError,
-    TaskRuntimeCommand, TaskRuntimeControl, TaskRuntimeExitNotice, TaskRuntimeExitReason,
-    TaskRuntimeSender, TaskRuntimeShutdownResult, TaskStatus, ToolExecutionBranchTarget,
-    ToolExecutionRequest, ToolExecutionResult, ToolExecutionRunId,
+    ApiCallCorrelation, ApiEffectId, ApiOutputEnvelope, CoreOutputEnvelope, CoreOutputMessage,
+    DomainEvent, DomainEventPublishRequest, ModelCallDispatchRequest, ModelRunId,
+    RouterIngressMessage, RouterIngressWeakSender, SendUserInputOutcome, SendUserInputResponder,
+    TaskCommandError, TaskRuntimeCommand, TaskRuntimeControl, TaskRuntimeExitNotice,
+    TaskRuntimeExitReason, TaskRuntimeSender, TaskRuntimeShutdownResult, TaskStatus,
+    ToolExecutionBranchTarget, ToolExecutionRequest, ToolExecutionResult, ToolExecutionRunId,
 };
 use selvedge_db::{
     CommitToolResultBranchesInput, DbError, DbPool, FunctionCallId, HistoryNode, HistoryNodeId,
@@ -217,6 +217,9 @@ impl TaskRuntimeActor {
                     message_text,
                     responder,
                 } => self.handle_user_input(message_text, responder).await,
+                TaskRuntimeCommand::ModelCallNotStarted { correlation } => {
+                    self.handle_model_call_not_started(correlation).await
+                }
                 TaskRuntimeCommand::ApiModelReply(envelope) => {
                     self.handle_model_reply(envelope).await
                 }
@@ -536,6 +539,33 @@ impl TaskRuntimeActor {
         }
     }
 
+    async fn handle_model_call_not_started(&mut self, correlation: ApiCallCorrelation) -> bool {
+        let WaitState::WaitingModelReply { model_run_id, .. } = &self.wait_state else {
+            return false;
+        };
+        if correlation.task_id != self.task_id || correlation.model_run_id != *model_run_id {
+            return false;
+        }
+
+        self.wait_state = WaitState::AwaitingUserInput;
+        match read_task_status(&self.db, &self.task_id) {
+            Ok(TaskStatus::Active) => self.request_model_call().await,
+            Ok(TaskStatus::Frozen) => {
+                self.task_status = Some(TaskStatus::Frozen);
+                self.deferred_model_call = true;
+                false
+            }
+            Ok(TaskStatus::Stopped) => self.enter_stopped_without_model_call().await,
+            Ok(TaskStatus::Archived) => {
+                self.task_status = Some(TaskStatus::Archived);
+                self.terminal_task_error = Some(TaskCommandError::TaskArchived);
+                self.send_exit(TaskRuntimeExitReason::Archived).await;
+                true
+            }
+            Err(error) => self.stop_with_db_error(error).await,
+        }
+    }
+
     async fn handle_tool_result(&mut self, result: ToolExecutionResult) -> bool {
         let pending_tool_calls =
             match std::mem::replace(&mut self.wait_state, WaitState::AwaitingUserInput) {
@@ -712,16 +742,22 @@ impl TaskRuntimeActor {
                 self.wait_state = WaitState::AwaitingUserInput;
                 Some(false)
             }
-            TaskStatus::Stopped => {
-                self.deferred_model_call = false;
-                self.wait_state = WaitState::AwaitingUserInput;
-                Some(false)
-            }
+            TaskStatus::Stopped => Some(self.enter_stopped_without_model_call().await),
             TaskStatus::Archived => {
                 self.terminal_task_error = Some(TaskCommandError::TaskArchived);
                 self.send_exit(TaskRuntimeExitReason::Archived).await;
                 Some(true)
             }
+        }
+    }
+
+    async fn enter_stopped_without_model_call(&mut self) -> bool {
+        self.task_status = Some(TaskStatus::Stopped);
+        self.deferred_model_call = false;
+        self.wait_state = WaitState::AwaitingUserInput;
+        match drain_queued_user_inputs_and_move_cursor(&self.db, &self.task_id, now()) {
+            Ok(_) => false,
+            Err(error) => self.stop_with_db_error(error).await,
         }
     }
 
@@ -875,6 +911,7 @@ fn settle_task_runtime_command(command: TaskRuntimeCommand, error: TaskCommandEr
     match command {
         TaskRuntimeCommand::UserInput { responder, .. } => responder.settle(Err(error)),
         TaskRuntimeCommand::Start
+        | TaskRuntimeCommand::ModelCallNotStarted { .. }
         | TaskRuntimeCommand::ApiModelReply(_)
         | TaskRuntimeCommand::ToolResult(_) => {}
     }

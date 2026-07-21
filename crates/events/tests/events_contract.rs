@@ -5,7 +5,7 @@ use selvedge_command_model::{
     ClientNoticeLevel, ClientSnapshot, ClientSubscription, DebugRawEvent, DeliverNotice,
     DeliverSnapshot, DetachClient, DetachReason, DetailLevel, EventClientReservationResult,
     EventControlMessage, EventIngress, HistoryAppendedRawEvent, RawEvent, ReserveClientSession,
-    SnapshotTaskVersion, TaskChangedRawEvent, TaskProjection, TaskProjectionStatus, TaskScope,
+    SnapshotTaskVersion, TaskChangedRawEvent, TaskProjection, TaskScope, TaskStatus,
     UpdateSubscription,
 };
 use selvedge_domain_model::{HistoryNodeId, ModelProfileKey, ReasoningEffort, TaskId, UnixTs};
@@ -1331,7 +1331,7 @@ fn empty_snapshot() -> ClientSnapshot {
 fn task_projection(task_id: &str, state_version: u64) -> TaskProjection {
     TaskProjection {
         task_id: TaskId(task_id.to_owned()),
-        status: TaskProjectionStatus::Active,
+        status: TaskStatus::Active,
         cursor_node_id: HistoryNodeId(1),
         model_profile_key: ModelProfileKey("default".to_owned()),
         reasoning_effort: ReasoningEffort::Medium,
