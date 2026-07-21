@@ -621,11 +621,6 @@ pub fn commit_tool_result_branches(
         output: Value::Null,
         is_error: false,
     };
-    ensure_current_path_contains_open_function_call(
-        &tx,
-        branch_parent_node_id.0,
-        &output_identity,
-    )?;
     if !child_task_ids.is_empty() {
         ensure_task_descendant_capacity_in_tx(&tx, &input.calling_task_id, child_task_ids.len())?;
     }
@@ -966,10 +961,6 @@ fn append_history_node_and_move_cursor(
     // and moves the task cursor in one transaction. Runtime cursor caches are
     // hints for request building, not a second source of truth.
     node.parent_node_id = Some(HistoryNodeId(current_cursor_node_id));
-
-    if let NewHistoryNodeContent::FunctionOutput(content) = &node.content {
-        ensure_current_path_contains_open_function_call(&tx, current_cursor_node_id, content)?;
-    }
 
     let updated_at = node.created_at;
     let node_id = insert_history_node(&tx, node)?;
@@ -1858,6 +1849,7 @@ fn insert_history_node(
     tx: &rusqlite::Transaction<'_>,
     node: NewHistoryNode,
 ) -> Result<HistoryNodeId, DbError> {
+    let parent_node_id = node.parent_node_id;
     let content_kind = content_kind_to_db(&node.content);
     tx.execute(
         "INSERT INTO history_nodes (parent_node_id, content_kind, created_at)
@@ -1877,7 +1869,7 @@ fn insert_history_node(
             insert_function_call_node(tx, node_id, content)?
         }
         NewHistoryNodeContent::FunctionOutput(content) => {
-            insert_function_output_node(tx, node_id, content)?
+            insert_function_output_node(tx, node_id, parent_node_id, content)?
         }
     }
     Ok(node_id)
@@ -1939,8 +1931,13 @@ fn insert_function_call_node(
 fn insert_function_output_node(
     tx: &rusqlite::Transaction<'_>,
     node_id: HistoryNodeId,
+    parent_node_id: Option<HistoryNodeId>,
     content: NewFunctionOutputNodeContent,
 ) -> Result<(), DbError> {
+    let Some(parent_node_id) = parent_node_id else {
+        return Err(DbError::StaleFunctionCall);
+    };
+    ensure_current_path_contains_open_function_call(tx, parent_node_id.0, &content)?;
     tx.execute(
         "INSERT INTO history_function_output_nodes
          (node_id, function_call_node_id, function_call_id, tool_name, output_json, is_error)

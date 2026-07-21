@@ -611,9 +611,48 @@ fn tool_result_commit_creates_sibling_branches_with_independent_cursors() {
         },
     );
     assert!(
-        matches!(duplicate_on_caller_path, Err(DbError::Constraint(_))),
-        "the schema must reject a second output on the same history path"
+        matches!(duplicate_on_caller_path, Err(DbError::StaleFunctionCall)),
+        "the shared output insertion path must reject a second output on the same history path"
     );
+}
+
+#[test]
+fn function_output_requires_its_exact_call_on_the_parent_path() {
+    let db = open_db(OpenDbOptions {
+        sqlite_path: ":memory:".to_owned(),
+        max_children_per_fork: 5,
+        max_task_descendants: 20,
+    })
+    .expect("open db");
+    let root = create_message_node(&db, None, MessageRole::User, "root", UnixTs(1));
+    let call = create_history_node(
+        &db,
+        NewHistoryNode {
+            parent_node_id: Some(root),
+            content: NewHistoryNodeContent::FunctionCall(function_call("call-1", "search")),
+            created_at: UnixTs(2),
+        },
+    )
+    .expect("create call branch");
+    let unrelated_branch =
+        create_message_node(&db, Some(root), MessageRole::User, "other", UnixTs(2));
+    let output = |parent_node_id| NewHistoryNode {
+        parent_node_id: Some(parent_node_id),
+        content: NewHistoryNodeContent::FunctionOutput(NewFunctionOutputNodeContent {
+            function_call_node_id: call,
+            function_call_id: FunctionCallId("call-1".to_owned()),
+            tool_name: ToolName("search".to_owned()),
+            output: Value::String("done".to_owned()),
+            is_error: false,
+        }),
+        created_at: UnixTs(3),
+    };
+
+    assert!(matches!(
+        create_history_node(&db, output(unrelated_branch)),
+        Err(DbError::StaleFunctionCall)
+    ));
+    create_history_node(&db, output(call)).expect("create output below its exact call");
 }
 
 #[test]

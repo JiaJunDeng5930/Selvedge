@@ -70,28 +70,6 @@ CREATE TABLE history_function_output_nodes (
 CREATE INDEX idx_history_function_output_call
     ON history_function_output_nodes(function_call_node_id);
 
-CREATE TRIGGER history_function_output_open_path
-BEFORE INSERT ON history_function_output_nodes
-WHEN EXISTS (
-    WITH RECURSIVE ancestors(node_id, parent_node_id) AS (
-        SELECT node_id, parent_node_id
-        FROM history_nodes
-        WHERE node_id = NEW.node_id
-        UNION ALL
-        SELECT parent.node_id, parent.parent_node_id
-        FROM history_nodes parent
-        JOIN ancestors child ON parent.node_id = child.parent_node_id
-    )
-    SELECT 1
-    FROM ancestors
-    JOIN history_function_output_nodes existing
-      ON existing.node_id = ancestors.node_id
-    WHERE existing.function_call_node_id = NEW.function_call_node_id
-)
-BEGIN
-    SELECT RAISE(ABORT, 'function call already has an output on this history path');
-END;
-
 CREATE TABLE tasks (
     task_id TEXT PRIMARY KEY CHECK (length(task_id) > 0),
     task_status TEXT NOT NULL CHECK (task_status IN ('active', 'archived')),
