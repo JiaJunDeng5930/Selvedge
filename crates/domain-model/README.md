@@ -2,10 +2,10 @@
 
 <!-- selvedge-package-readme
 package: selvedge-domain-model
-freshness_fingerprint: 4234a074a7f44af4b53fe3d7c42b76df913df22d
+freshness_fingerprint: ac25435e2d627b5cfbe10c5336897088147bcbf7
 -->
 
-This crate defines the Selvedge domain model API slice used by model-call packages.
+This crate defines Selvedge's shared task lifecycle and model-call domain values.
 
 Use it to define conversation, tool, provider, and normalized model reply data structures.
 
@@ -18,6 +18,8 @@ adding another persisted content model.
 `CallableTools` expresses either the complete manifest or an explicit
 duplicate-free subset. It is provider-neutral selection state, not another tool
 definition model.
+
+`TaskStatus` is the durable task lifecycle. `TaskLifecycleEvent` defines its complete transition table. New tasks start active; archived tasks have no outgoing transition.
 
 This crate is not for network access, database access, filesystem access, provider execution, or task runtime mutation.
 
@@ -32,6 +34,10 @@ flowchart TD
   Tool[Tool manifest and argument value]
   Provider[Model provider profile]
   Reply[Normalized model reply]
+  TaskActive[Task active]
+  TaskFrozen[Task frozen]
+  TaskStopped[Task stopped]
+  TaskArchived[Task archived]
   Ready[Value ready for package boundary]
   Serialize[Serialize or clone for caller]
 
@@ -39,10 +45,18 @@ flowchart TD
   Start -->|caller constructs tool name, full input schema, manifest, callable selection, call id, or object arguments| Tool
   Start -->|caller constructs provider profile or reasoning effort| Provider
   Start -->|caller constructs model reply content, tool call, usage, or finish reason| Reply
+  Start -->|caller constructs task status| TaskActive
   Conversation -->|Rust type construction succeeds| Ready
   Tool -->|Rust type construction succeeds| Ready
   Provider -->|Rust type construction succeeds| Ready
   Reply -->|Rust type construction succeeds| Ready
+  TaskActive -->|Freeze| TaskFrozen
+  TaskFrozen -->|Unfreeze| TaskActive
+  TaskActive -->|Stop| TaskStopped
+  TaskStopped -->|UserInput| TaskActive
+  TaskActive -->|Archive| TaskArchived
+  TaskFrozen -->|Archive| TaskArchived
+  TaskStopped -->|Archive| TaskArchived
   Ready -->|serde caller requests serialization| Serialize
   Serialize -->|serde succeeds for contained values| Ready
 ```

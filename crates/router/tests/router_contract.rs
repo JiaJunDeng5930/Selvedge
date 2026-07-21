@@ -1012,7 +1012,9 @@ async fn archive_persists_status_and_shuts_down_the_runtime() {
         read_task_status(&db, &TaskId("task-1".to_owned())).expect("read status"),
         TaskStatus::Archived
     );
-    finish_shutdown(runtime_control).await;
+    runtime_control
+        .finish_shutdown(selvedge_command_model::TaskRuntimeShutdownResult)
+        .await;
 
     handle
         .ingress_tx
@@ -1078,12 +1080,12 @@ async fn stopped_task_model_request_is_returned_without_api_dispatch() {
             message: CoreOutputMessage::RequestModelCall(model_request("task-1")),
         }))
         .expect("send model request");
-    let TaskRuntimeCommand::ApiModelReply(ApiOutputEnvelope::Failure { error, .. }) =
-        runtime_rx.recv().await.expect("cancelled model reply")
+    let TaskRuntimeCommand::ModelCallNotStarted { correlation } =
+        runtime_rx.recv().await.expect("undispatched model reply")
     else {
         panic!("unexpected task runtime command");
     };
-    assert_eq!(error.kind, ModelCallErrorKind::Cancelled);
+    assert_eq!(correlation.task_id, TaskId("task-1".to_owned()));
 
     handle
         .ingress_tx
@@ -1210,6 +1212,7 @@ async fn data_domain_events_are_not_published_to_events() {
 #[tokio::test]
 async fn core_tool_execution_request_uses_configured_tool_spawner() {
     let db = open_memory_db();
+    create_root(&db, "task-1");
     let (events_tx, _events_rx) = tokio::sync::mpsc::channel(8);
     let tool_spawner = Arc::new(CapturingToolSpawner::default());
 
@@ -1252,6 +1255,7 @@ async fn core_tool_execution_request_uses_configured_tool_spawner() {
 #[tokio::test]
 async fn router_shutdown_cancels_and_joins_in_flight_tool_execution() {
     let db = open_memory_db();
+    create_root(&db, "task-1");
     let (events_tx, _events_rx) = tokio::sync::mpsc::channel(8);
     let tool_spawner = Arc::new(BlockingToolSpawner::default());
 
@@ -1292,6 +1296,58 @@ async fn router_shutdown_cancels_and_joins_in_flight_tool_execution() {
     assert!(
         tool_spawner.dropped.load(Ordering::SeqCst),
         "router reported stopped before the execution future was dropped"
+    );
+}
+
+#[tokio::test]
+async fn archived_task_rejects_new_tool_execution() {
+    let db = open_memory_db();
+    create_root(&db, "task-1");
+    transition_task_status(
+        &db,
+        &TaskId("task-1".to_owned()),
+        TaskLifecycleEvent::Archive,
+        UnixTs(2),
+    )
+    .expect("archive task");
+    let (events_tx, mut events_rx) = tokio::sync::mpsc::channel(8);
+    let tool_spawner = Arc::new(CapturingToolSpawner::default());
+
+    let handle = spawn_router(RouterStartArgs {
+        db,
+        events_tx,
+        api_config: ApiExecutorConfig {
+            request_timeout: Duration::from_secs(1),
+            max_response_bytes: None,
+        },
+        tool_executor: tool_spawner.clone(),
+        core_spawn_deps: TaskRuntimeSpawnDeps::new(TaskRuntimeConfig {
+            model_profiles: model_profiles(),
+        }),
+    })
+    .expect("spawn router");
+
+    handle
+        .ingress_tx
+        .send(RouterIngressMessage::Core(CoreOutputEnvelope {
+            task_id: TaskId("task-1".to_owned()),
+            message: CoreOutputMessage::RequestToolExecution(tool_request("task-1")),
+        }))
+        .expect("send core tool request");
+    assert_debug_contains(
+        events_rx.recv().await.expect("tool rejection debug"),
+        Some(TaskId("task-1".to_owned())),
+        "task is archived",
+    );
+    assert_eq!(tool_spawner.request_count(), 0);
+
+    handle
+        .ingress_tx
+        .send(RouterIngressMessage::StopRouter)
+        .expect("stop router");
+    assert_eq!(
+        handle.join_handle.await.expect("join router"),
+        RouterExitStatus::Stopped
     );
 }
 

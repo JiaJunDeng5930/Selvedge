@@ -2,7 +2,7 @@
 
 <!-- selvedge-package-readme
 package: selvedge-command-model
-freshness_fingerprint: 04c5b6d90a00a254016231ae70c7e604a179b5d8
+freshness_fingerprint: 1836384ffaf49eaa40b440ad0fd585805a2df7b9
 -->
 
 This crate defines the Selvedge command model API slice used to dispatch model calls, return completed API and branched tool outputs to the router, and describe router-mediated client event ingress.
@@ -12,11 +12,11 @@ Use it to define model-call request correlation, dispatch request, output envelo
 This crate is not for network access, database access, filesystem access, provider execution, or task runtime mutation.
 
 `RuntimeReady` is only a readiness signal. The task runtime sender is returned by `selvedge-core::spawn_task_runtime` to the creator that owns router registration.
-`TaskRuntimeControl` is the shared control block for one runtime. Freeze is a state bit on that control block. `TaskRuntimeControl::stop` is an async function with synchronous barrier semantics: it sets the stop bit and resolves only after the runtime actor writes `TaskRuntimeStopResult`.
-`TaskRuntimeCommand` carries business input only. Stop is outside the business mailbox.
-`RouterCommand::SendUserInput` and `RouterCommand::ArchiveTask` carry typed responders through the router and task runtime. Input succeeds as `Committed` with its persisted history node id or as `Queued`; archive succeeds as `Archived`. Dropping an unsettled responder returns `RuntimeUnavailable`, so mailbox replacement, cancellation, and shutdown cannot be mistaken for a committed SQLite transition.
+`TaskRuntimeControl` is the shared control block for one runtime. It notifies the actor after a durable status change and provides a synchronous actor-exit barrier. Process shutdown sets the shutdown request before waiting on that barrier; archive only notifies the actor and waits for the same barrier. The control block does not store task status.
+`TaskRuntimeCommand` carries ordered actor work. `ModelCallNotStarted` is the typed result of a router dispatch gate rejecting a model request after the durable status stopped permitting model calls; it is distinct from a provider API failure. Lifecycle transitions remain outside the task mailbox so a frozen actor can still unfreeze or archive.
+`RouterCommand::SendUserInput` and each lifecycle command carry typed responders. Input succeeds as `Committed` with its persisted history node id or as `Queued`; a lifecycle command succeeds with its committed `TaskStatus`. Dropping an unsettled responder returns `RuntimeUnavailable`, so mailbox replacement, cancellation, and shutdown cannot be mistaken for a committed SQLite transition.
 `ToolExecutionResult` contains one or more ordered branches. A branch targets the calling task or a newly identified child task and carries JSON output, an error bit, and ordinary user messages to append after the output. `CoreOutputMessage::EnsureTaskRuntimes` asks the router to start runtimes for task ids that core has already committed.
-`RouterIngressSender` is unbounded. Runtime, API, and tool outputs must be able to enqueue router ingress without awaiting router mailbox capacity, because router stop waits synchronously for runtime actors to finish.
+`RouterIngressSender` is unbounded. Runtime, API, and tool outputs must be able to enqueue router ingress without awaiting router mailbox capacity, because archive and process shutdown can synchronously wait for runtime actors to finish.
 `RouterIngressWeakSender` is for internal router producers. Internal producers upgrade it only while an external ingress owner keeps the router mailbox open.
 `CoreOutputEnvelope` carries `task_id` for task-based router routing.
 Function-call history projections and tool execution requests carry their arguments as one `JsonObject`; function-output projections carry one JSON value. Nested values, arrays, nulls, and exact JSON numbers therefore cross router and client boundaries without flat primitive or string conversion.
@@ -38,10 +38,11 @@ flowchart TD
   ValidateDispatch[Validate ModelCallDispatchRequest]
   ValidateApiOutput[Validate ApiOutputEnvelope]
   ValidateRouterCommand[Validate RouterCommandEnvelope]
-  ControlReady[TaskRuntimeControl active]
-  Frozen[TaskRuntimeControl frozen]
-  Stopping[TaskRuntimeControl stopping]
-  StopFinished[Stop result published]
+  ControlReady[TaskRuntimeControl ready]
+  StatusChanged[Durable task status changed]
+  ModelNotStarted[Model call not started]
+  ShuttingDown[Runtime shutdown requested]
+  ShutdownFinished[Shutdown result published]
   TaskResponsePending[Task command response pending]
   TaskResponseSettled[Task command response settled]
   ToolResult[Construct branched tool result]
@@ -53,6 +54,7 @@ flowchart TD
   Start -->|caller validates router command envelope| ValidateRouterCommand
   Start -->|caller creates TaskRuntimeControl| ControlReady
   Start -->|caller creates a user-input or archive response channel| TaskResponsePending
+  Start -->|router status gate suppresses a model dispatch| ModelNotStarted
   Start -->|caller constructs a completed tool result| ToolResult
   ValidateDispatch -->|correlation, task, provider, profile, input, manifest, and callable subset satisfy contract| Valid
   ValidateDispatch -->|required dispatch field is empty or inconsistent| Invalid
@@ -60,12 +62,13 @@ flowchart TD
   ValidateApiOutput -->|output envelope correlation or payload is inconsistent| Invalid
   ValidateRouterCommand -->|command name, payload, and admission fields satisfy command contract| Valid
   ValidateRouterCommand -->|command has unsupported name, malformed payload, or invalid admission fields| Invalid
-  ControlReady -->|freeze is called| Frozen
-  Frozen -->|unfreeze is called while stop bit is clear| ControlReady
-  ControlReady -->|stop is called| Stopping
-  Frozen -->|stop is called| Stopping
-  Stopping -->|finish_stop stores result and notifies waiters| StopFinished
-  StopFinished -->|later stop call observes stored result| StopFinished
+  ControlReady -->|notify_status_changed is called| StatusChanged
+  StatusChanged -->|actor wakes and reloads durable status| ControlReady
+  ModelNotStarted -->|runtime correlates the undispatched model run| Valid
+  ControlReady -->|shutdown is called| ShuttingDown
+  StatusChanged -->|shutdown is called| ShuttingDown
+  ShuttingDown -->|finish_shutdown stores result and notifies waiters| ShutdownFinished
+  ShutdownFinished -->|later shutdown call observes stored result| ShutdownFinished
   TaskResponsePending -->|runtime reports a committed SQLite outcome or classified failure| TaskResponseSettled
   TaskResponsePending -->|unsettled responder is dropped| TaskResponseSettled
   ToolResult -->|every branch has a target, JSON output, error bit, and user messages| Valid
