@@ -1,11 +1,12 @@
 use selvedge_command_model::{
-    HistoryNodeProjection, HistoryNodeProjectionBody, TaskProjectionStatus,
-    ToolExecutionBranchTarget, ToolExecutionRequest, ToolExecutionRunId,
+    HistoryNodeProjection, HistoryNodeProjectionBody, ToolExecutionBranchTarget,
+    ToolExecutionRequest, ToolExecutionRunId,
 };
 use selvedge_config_model::HarnessConfig;
 use selvedge_db::ToolRecoveryPolicy;
 use selvedge_domain_model::{
-    FunctionCallId, HistoryNodeId, JsonObject, MessageRole, TaskId, ToolName, ToolSpec, UnixTs,
+    FunctionCallId, HistoryNodeId, JsonObject, MessageRole, TaskId, TaskStatus, ToolName, ToolSpec,
+    UnixTs,
 };
 use selvedge_harness::{
     ARCHIVE_TASK_TOOL_NAME, ArchiveTaskInvocation, ArchiveTaskSuccess, BASH_TOOL_NAME,
@@ -496,7 +497,7 @@ fn invalid_requests_are_rejected_without_backend_state() {
 fn every_success_projection_has_stable_json() {
     let cases = [
         (
-            HarnessSuccess::ReadTask(read_success(TaskProjectionStatus::Active)),
+            HarnessSuccess::ReadTask(read_success(TaskStatus::Active)),
             r#"{"cursor_node_id":4,"history":{"has_more":true,"next_after_node_id":4,"nodes":[{"created_at":10,"kind":"message","node_id":4,"parent_node_id":null,"role":"user","text":"hello"}]},"parent_task_id":"parent","queued_message_count":2,"state_version":7,"status":"active","task_id":"task-1"}"#,
         ),
         (
@@ -535,6 +536,24 @@ fn every_success_projection_has_stable_json() {
 
     for (success, expected) in cases {
         assert_eq!(success.to_stable_json(), expected);
+    }
+}
+
+#[test]
+fn read_task_encodes_each_durable_status() {
+    for (status, expected) in [
+        (TaskStatus::Active, "active"),
+        (TaskStatus::Frozen, "frozen"),
+        (TaskStatus::Stopped, "stopped"),
+        (TaskStatus::Archived, "archived"),
+    ] {
+        let json = HarnessSuccess::ReadTask(read_success(status)).to_stable_json();
+        assert_eq!(
+            serde_json::from_str::<Value>(&json)
+                .expect("valid success JSON")
+                .get("status"),
+            Some(&Value::String(expected.to_owned()))
+        );
     }
 }
 
@@ -584,7 +603,7 @@ fn read_history_encodes_each_existing_history_body_shape() {
             next_after_node_id: None,
             has_more: false,
         },
-        ..read_success(TaskProjectionStatus::Archived)
+        ..read_success(TaskStatus::Archived)
     });
 
     assert_eq!(
@@ -798,7 +817,7 @@ fn string_array_property(description: &str, max_items: u32) -> Value {
     ]))
 }
 
-fn read_success(status: TaskProjectionStatus) -> ReadTaskSuccess {
+fn read_success(status: TaskStatus) -> ReadTaskSuccess {
     ReadTaskSuccess {
         task_id: TaskId("task-1".to_owned()),
         status,

@@ -155,7 +155,6 @@ fn build_server_start_args(resolved_config: &CliResolvedConfig) -> ServerStartAr
             max_response_bytes: None,
         },
         core_spawn_deps: TaskRuntimeSpawnDeps::new(TaskRuntimeConfig {
-            mailbox_capacity: 64,
             model_profiles: HashMap::new(),
         }),
         // NOTE: Skeleton startup wires an explicit placeholder for snapshot

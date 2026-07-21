@@ -173,6 +173,8 @@ pub struct LocalTaskProjection {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum LocalTaskProjectionStatus {
     Active,
+    Frozen,
+    Stopped,
     Archived,
 }
 

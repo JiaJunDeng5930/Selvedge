@@ -14,19 +14,18 @@ use futures_util::FutureExt;
 use rustix::io::Errno;
 use rustix::process::{Pid, Signal, kill_process_group};
 use selvedge_command_model::{
-    ArchiveTaskOutcome, HistoryNodeProjection, HistoryNodeProjectionBody, RouterCommand,
-    RouterCommandEnvelope, RouterIngressMessage, RouterIngressWeakSender, SendUserInputOutcome,
-    TaskCommandError, TaskProjectionStatus, ToolExecutionBranch, ToolExecutionBranchTarget,
-    ToolExecutionRequest, ToolExecutionResult, archive_task_response_channel,
-    send_user_input_response_channel,
+    HistoryNodeProjection, HistoryNodeProjectionBody, RouterCommand, RouterCommandEnvelope,
+    RouterIngressMessage, RouterIngressWeakSender, SendUserInputOutcome, TaskCommandError,
+    ToolExecutionBranch, ToolExecutionBranchTarget, ToolExecutionRequest, ToolExecutionResult,
+    send_user_input_response_channel, task_status_change_response_channel,
 };
 use selvedge_config_model::HarnessConfig;
 use selvedge_db::{
-    DbError, DbPool, HistoryNode, ReadTaskInput, TaskRead, TaskStatusRow, TaskToolSpec,
-    ToolExecutionSource, ToolRecoveryPolicy, read_task, read_tool_execution_source,
+    DbError, DbPool, HistoryNode, ReadTaskInput, TaskRead, TaskToolSpec, ToolExecutionSource,
+    ToolRecoveryPolicy, read_task, read_tool_execution_source,
 };
 use selvedge_domain_model::{
-    HistoryNodeId, JsonObject, MessageRole, TaskId, ToolManifest, ToolSpec,
+    HistoryNodeId, JsonObject, MessageRole, TaskId, TaskStatus, ToolManifest, ToolSpec,
 };
 use serde_json::{Number, Value};
 use tokio::io::{AsyncRead, AsyncReadExt};
@@ -585,7 +584,7 @@ pub enum HarnessSuccess {
 #[derive(Clone, Debug, PartialEq)]
 pub struct ReadTaskSuccess {
     pub task_id: TaskId,
-    pub status: TaskProjectionStatus,
+    pub status: TaskStatus,
     pub state_version: u64,
     pub cursor_node_id: HistoryNodeId,
     pub parent_task_id: Option<TaskId>,
@@ -977,7 +976,7 @@ async fn execute_archive_task(
     router_tx: RouterIngressWeakSender,
 ) -> Result<HarnessSuccess, HarnessError> {
     let task_id = invocation.task_id;
-    let (responder, response) = archive_task_response_channel();
+    let (responder, response) = task_status_change_response_channel();
     send_router_command(
         &router_tx,
         RouterCommand::ArchiveTask {
@@ -986,9 +985,16 @@ async fn execute_archive_task(
         },
     )?;
     match response.await {
-        Ok(Ok(ArchiveTaskOutcome::Archived)) => {
+        Ok(Ok(outcome)) if outcome.status == TaskStatus::Archived => {
             Ok(HarnessSuccess::ArchiveTask(ArchiveTaskSuccess { task_id }))
         }
+        Ok(Ok(outcome)) => Err(HarnessError::new(
+            HarnessErrorCode::StorageError,
+            format!(
+                "archive returned unexpected task status: {:?}",
+                outcome.status
+            ),
+        )),
         Ok(Err(error)) => Err(map_task_command_error(error)),
         Err(_) => Err(HarnessError::new(
             HarnessErrorCode::OperationCancelled,
@@ -1215,6 +1221,13 @@ fn map_task_command_error(error: TaskCommandError) -> HarnessError {
         TaskCommandError::PersistenceFailed => {
             HarnessError::new(HarnessErrorCode::StorageError, "task persistence failed")
         }
+        TaskCommandError::InvalidTaskStatus {
+            status: TaskStatus::Archived,
+        } => HarnessError::new(HarnessErrorCode::TaskArchived, "task is archived"),
+        TaskCommandError::InvalidTaskStatus { status } => HarnessError::new(
+            HarnessErrorCode::StorageError,
+            format!("task status does not allow the command: {status:?}"),
+        ),
         TaskCommandError::InvalidCommand => HarnessError::new(
             HarnessErrorCode::InvalidArguments,
             "task command was invalid",
@@ -1235,10 +1248,11 @@ fn map_read_error(error: DbError) -> HarnessError {
             HarnessErrorCode::HistoryCursorNotOnTask,
             "history cursor is not on the task path",
         ),
-        DbError::TaskNotActive => {
-            HarnessError::new(HarnessErrorCode::TaskArchived, "task is archived")
-        }
-        DbError::StaleFunctionCall
+        DbError::InvalidTaskStatus {
+            status: TaskStatus::Archived,
+        } => HarnessError::new(HarnessErrorCode::TaskArchived, "task is archived"),
+        DbError::InvalidTaskStatus { .. }
+        | DbError::StaleFunctionCall
         | DbError::ToolUnavailable
         | DbError::TaskDescendantLimitExceeded { .. }
         | DbError::Constraint(_)
@@ -1272,10 +1286,7 @@ fn task_read_success(read: TaskRead) -> ReadTaskSuccess {
         .flatten();
     ReadTaskSuccess {
         task_id: read.task_id,
-        status: match read.task_status {
-            TaskStatusRow::Active => TaskProjectionStatus::Active,
-            TaskStatusRow::Archived => TaskProjectionStatus::Archived,
-        },
+        status: read.task_status,
         state_version: read.state_version,
         cursor_node_id: read.cursor_node_id,
         parent_task_id: read.parent_task_id,
@@ -1508,11 +1519,13 @@ fn optional_task_id_json(task_id: Option<&TaskId>) -> Value {
     task_id.map_or(Value::Null, task_id_json)
 }
 
-fn task_status_json(status: &TaskProjectionStatus) -> Value {
+fn task_status_json(status: &TaskStatus) -> Value {
     Value::String(
         match status {
-            TaskProjectionStatus::Active => "active",
-            TaskProjectionStatus::Archived => "archived",
+            TaskStatus::Active => "active",
+            TaskStatus::Frozen => "frozen",
+            TaskStatus::Stopped => "stopped",
+            TaskStatus::Archived => "archived",
         }
         .to_owned(),
     )

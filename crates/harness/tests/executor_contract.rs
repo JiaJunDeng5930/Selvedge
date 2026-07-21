@@ -61,9 +61,9 @@ async fn fork_executor_returns_numbered_branches_and_aligned_messages() {
     child_ids.sort();
     child_ids.dedup();
     assert_eq!(child_ids.len(), 3);
-    let active_tasks = selvedge_db::list_active_tasks(&db).expect("list active tasks");
-    assert_eq!(active_tasks.len(), 1);
-    assert_eq!(active_tasks[0].task_id, TaskId("task-1".to_owned()));
+    let runtime_tasks = selvedge_db::list_runtime_tasks(&db).expect("list runtime tasks");
+    assert_eq!(runtime_tasks.len(), 1);
+    assert_eq!(runtime_tasks[0].task_id, TaskId("task-1".to_owned()));
 }
 
 #[tokio::test]
