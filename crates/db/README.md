@@ -7,7 +7,7 @@ freshness_fingerprint: 043e430ad37f8d30fbb1afbe60c31b76f0e51268
 
 This crate owns SQLite persistence for router-mediated Selvedge tasks.
 
-Use it to create and open schema-v9 SQLite databases, create tasks with frozen tool contracts, reconcile task-local tool availability, atomically commit tool-result branches, commit other task-runtime state transitions, queue user inputs, archive tasks, and read bounded task snapshots. Nonempty databases must match schema v9 exactly.
+Use it to create and open schema-v10 SQLite databases, create tasks with frozen tool contracts, reconcile task-local tool availability, atomically commit tool-result branches, persist task lifecycle transitions, queue user inputs, and read bounded task snapshots. Nonempty databases must match schema v10 exactly.
 
 This crate is for SQLite persistence only. Runtime wait state, provider calls, tool execution, router registries, and event delivery live in other crates.
 
@@ -20,6 +20,8 @@ Resource boundaries:
 - `read_task_tool_state` returns the complete frozen manifest and its unavailable exceptions. `read_tool_manifest_for_task` therefore remains stable when runtime tools disappear.
 - `commit_tool_result_branches` requires one calling-task branch and accepts zero or more new-child branches for an exact open function call on the calling task's current cursor path. Before writing, the same immediate transaction verifies that adding those children keeps the calling task and every ancestor within that ancestor's stored descendant limit; archived descendants still count. Every output is a sibling under that cursor. The calling branch then appends its supplied user messages and drains queued inputs; each child branch appends its own supplied user messages. Child task rows, parent edges, inherited tool contracts, recovery policies and unavailable exceptions, all history nodes, and every cursor are committed in one transaction.
 - `read_open_function_calls_for_task` returns every call without an output on the current cursor path together with the recovery policy frozen for that task.
+- `transition_task_status` applies the strict `active`, `frozen`, `stopped`, and `archived` lifecycle. Archived tasks reject runtime writes. A user input atomically reactivates a stopped task as part of the input commit.
+- `list_runtime_tasks` and `load_runtime_task` select every non-archived task. Queued inputs remain attached when a task is archived.
 - Function outputs store arbitrary JSON values. The schema permits outputs for the same call on sibling paths while rejecting a second output on one history path.
 - `read_task` returns task identity, durable status, state version, cursor, optional parent, queued-input count, an exclusive `after_node_id` history page, and an exact `has_more` flag from one SQLite read transaction. Page limits are `1..=100`, and the after node must be on that task's cursor path.
 - `read_task_parent_edges` returns durable task-layer parent edges for router snapshots and factory verification.
@@ -37,7 +39,7 @@ flowchart TD
   Start([database API call])
   Open[Open SQLite database]
   Schema{stored schema state}
-  Initialize[Create schema v9]
+  Initialize[Create schema v10]
   SnapshotTx[Start read_task transaction]
   SnapshotValidate[Validate task, limit, and after node]
   SnapshotPage[Read metadata and cursor-path page]
@@ -55,9 +57,9 @@ flowchart TD
   Open -->|database has no application tables| Initialize
   Open -->|database has application tables and schema metadata is readable| Schema
   Open -->|SQLite open or schema metadata read fails| OpenError
-  Schema -->|stored version is tool-recovery-policy-v9| Return
+  Schema -->|stored version is task-lifecycle-v10| Return
   Schema -->|stored version is missing or unsupported| OpenError
-  Initialize -->|schema-v9 batch succeeds| Return
+  Initialize -->|schema-v10 batch succeeds| Return
   Initialize -->|schema creation fails| OpenError
   Start -->|read_task is called with open connection| SnapshotTx
   SnapshotTx -->|transaction begins| SnapshotValidate
@@ -72,8 +74,8 @@ flowchart TD
   Read -->|query fails or stored enum, JSON, id, or argument value is invalid| ReadError
   WriteTx -->|transaction begins| Validate
   WriteTx -->|transaction begin fails| CommitError
-  Validate -->|task, cursor, queue, history parent, stored descendant capacity, tool contract, availability reconciliation, and path-local open-call preconditions hold| Commit
-  Validate -->|requested transition conflicts with durable state| ValidationError
+  Validate -->|task lifecycle, cursor, queue, history parent, stored descendant capacity, tool contract, availability reconciliation, and path-local open-call preconditions hold| Commit
+  Validate -->|requested lifecycle event or runtime write conflicts with durable task status| ValidationError
   Validate -->|read inside transaction fails| ReadError
   Commit -->|SQLite commit succeeds| Return
   Commit -->|SQLite commit fails| CommitError

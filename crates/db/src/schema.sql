@@ -6,7 +6,7 @@ CREATE TABLE schema_metadata (
 );
 
 INSERT INTO schema_metadata (schema_key, schema_value)
-VALUES ('selvedge_schema_version', 'tool-recovery-policy-v9');
+VALUES ('selvedge_schema_version', 'task-lifecycle-v10');
 
 CREATE TABLE history_nodes (
     node_id INTEGER PRIMARY KEY,
@@ -72,7 +72,7 @@ CREATE INDEX idx_history_function_output_call
 
 CREATE TABLE tasks (
     task_id TEXT PRIMARY KEY CHECK (length(task_id) > 0),
-    task_status TEXT NOT NULL CHECK (task_status IN ('active', 'archived')),
+    task_status TEXT NOT NULL CHECK (task_status IN ('active', 'frozen', 'stopped', 'archived')),
     cursor_node_id INTEGER NOT NULL,
     model_profile_key TEXT NOT NULL CHECK (length(model_profile_key) > 0),
     reasoning_effort TEXT NOT NULL CHECK (reasoning_effort IN ('minimal', 'low', 'medium', 'high')),
@@ -83,7 +83,6 @@ CREATE TABLE tasks (
     state_version INTEGER NOT NULL DEFAULT 0 CHECK (state_version >= 0),
     created_at INTEGER NOT NULL CHECK (created_at >= 0),
     updated_at INTEGER NOT NULL CHECK (updated_at >= created_at),
-    UNIQUE (task_id, task_status),
     FOREIGN KEY (cursor_node_id) REFERENCES history_nodes(node_id) ON UPDATE RESTRICT ON DELETE RESTRICT
 );
 
@@ -146,11 +145,10 @@ CREATE INDEX idx_task_parent_edges_parent_created
 CREATE TABLE queued_user_inputs (
     task_id TEXT NOT NULL,
     seq_no INTEGER NOT NULL CHECK (seq_no >= 1),
-    task_status TEXT NOT NULL DEFAULT 'active' CHECK (task_status = 'active'),
     message_text TEXT NOT NULL CHECK (length(message_text) > 0),
     queued_at INTEGER NOT NULL CHECK (queued_at >= 0),
     PRIMARY KEY (task_id, seq_no),
-    FOREIGN KEY (task_id, task_status) REFERENCES tasks(task_id, task_status) ON UPDATE RESTRICT ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED
+    FOREIGN KEY (task_id) REFERENCES tasks(task_id) ON UPDATE RESTRICT ON DELETE CASCADE
 );
 
 CREATE INDEX idx_queued_user_inputs_task_order

@@ -7,12 +7,12 @@ use std::{error::Error, fmt};
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 pub use selvedge_domain_model::{
     Conversation, ConversationMessage, FunctionCallId, HistoryNodeId, HistoryNodeIdRef, JsonObject,
-    MessageRole, ModelProfileKey, ReasoningEffort, TaskId, ToolManifest, ToolName, ToolSpec,
-    UnixTs,
+    MessageRole, ModelProfileKey, ReasoningEffort, TaskId, TaskLifecycleEvent, TaskStatus,
+    ToolManifest, ToolName, ToolSpec, UnixTs,
 };
 use serde_json::Value;
 
-const SCHEMA_VERSION: &str = "tool-recovery-policy-v9";
+const SCHEMA_VERSION: &str = "task-lifecycle-v10";
 pub const MAX_TASK_HISTORY_PAGE_SIZE: u32 = 100;
 
 #[derive(Clone)]
@@ -28,7 +28,9 @@ pub struct DbTransaction;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum DbError {
     NotFound,
-    TaskNotActive,
+    InvalidTaskStatus {
+        status: TaskStatus,
+    },
     StaleFunctionCall,
     HistoryCursorNotOnTask,
     ToolUnavailable,
@@ -48,7 +50,12 @@ impl fmt::Display for DbError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             DbError::NotFound => write!(formatter, "row was not found"),
-            DbError::TaskNotActive => write!(formatter, "task is not active"),
+            DbError::InvalidTaskStatus { status } => {
+                write!(
+                    formatter,
+                    "task status does not permit the operation: {status:?}"
+                )
+            }
             DbError::StaleFunctionCall => {
                 write!(formatter, "function call is not open on the task path")
             }
@@ -76,12 +83,6 @@ impl fmt::Display for DbError {
 }
 
 impl Error for DbError {}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum TaskStatusRow {
-    Active,
-    Archived,
-}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum HistoryContentKindRow {
@@ -136,7 +137,7 @@ pub struct TaskToolState {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TaskRow {
     pub task_id: TaskId,
-    pub task_status: TaskStatusRow,
+    pub task_status: TaskStatus,
     pub cursor_node_id: HistoryNodeId,
     pub model_profile_key: ModelProfileKey,
     pub reasoning_effort: ReasoningEffort,
@@ -311,7 +312,7 @@ pub struct ReadTaskInput {
 #[derive(Clone, Debug, PartialEq)]
 pub struct TaskRead {
     pub task_id: TaskId,
-    pub task_status: TaskStatusRow,
+    pub task_status: TaskStatus,
     pub state_version: u64,
     pub cursor_node_id: HistoryNodeId,
     pub parent_task_id: Option<TaskId>,
@@ -321,7 +322,7 @@ pub struct TaskRead {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct LoadedActiveTask {
+pub struct LoadedRuntimeTask {
     pub task: TaskRow,
     pub cursor_node: HistoryNode,
     pub tool_manifest: ToolManifest,
@@ -618,8 +619,10 @@ pub fn commit_tool_result_branches(
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(map_error)?;
     let calling_task = read_task_in_tx(&tx, &input.calling_task_id)?;
-    if calling_task.task_status != TaskStatusRow::Active {
-        return Err(DbError::TaskNotActive);
+    if !calling_task.task_status.accepts_history_writes() {
+        return Err(DbError::InvalidTaskStatus {
+            status: calling_task.task_status,
+        });
     }
     let branch_parent_node_id = calling_task.cursor_node_id;
     let output_identity = NewFunctionOutputNodeContent {
@@ -762,15 +765,17 @@ fn ensure_task_descendant_capacity_in_tx(
     }
 }
 
-pub fn load_active_task(db: &DbPool, task_id: &TaskId) -> Result<LoadedActiveTask, DbError> {
+pub fn load_runtime_task(db: &DbPool, task_id: &TaskId) -> Result<LoadedRuntimeTask, DbError> {
     let task = read_task_row(db, task_id)?;
-    if task.task_status != TaskStatusRow::Active {
-        return Err(DbError::TaskNotActive);
+    if !task.task_status.has_runtime() {
+        return Err(DbError::InvalidTaskStatus {
+            status: task.task_status,
+        });
     }
     let cursor_node = read_history_node(db, &task.cursor_node_id)?;
     let tool_manifest = read_tool_manifest_for_task(db, task_id)?;
     let queued_inputs = list_queued_inputs(db, task_id)?;
-    Ok(LoadedActiveTask {
+    Ok(LoadedRuntimeTask {
         task,
         cursor_node,
         tool_manifest,
@@ -784,18 +789,49 @@ pub fn append_user_message_and_move_cursor(
     message_text: String,
     created_at: UnixTs,
 ) -> Result<HistoryNodeId, DbError> {
-    append_history_node_and_move_cursor(
-        db,
-        task_id,
+    let mut connection = db.connection()?;
+    let tx = connection.transaction().map_err(map_error)?;
+    let task = read_task_in_tx(&tx, task_id)?;
+    let next_status = task
+        .task_status
+        .transition(TaskLifecycleEvent::UserInput)
+        .ok_or(DbError::InvalidTaskStatus {
+            status: task.task_status,
+        })?;
+    let node_id = insert_history_node(
+        &tx,
         NewHistoryNode {
-            parent_node_id: None,
+            parent_node_id: Some(task.cursor_node_id),
             content: NewHistoryNodeContent::Message(NewMessageNodeContent {
                 message_role: MessageRole::User,
                 message_text,
             }),
             created_at,
         },
-    )
+    )?;
+    let changed = tx
+        .execute(
+            "UPDATE tasks
+             SET task_status = ?1, cursor_node_id = ?2, updated_at = ?3,
+                 state_version = state_version + 1
+             WHERE task_id = ?4 AND task_status = ?5 AND cursor_node_id = ?6",
+            params![
+                task_status_to_db(next_status),
+                node_id.0,
+                created_at.0,
+                task_id.0,
+                task_status_to_db(task.task_status),
+                task.cursor_node_id.0
+            ],
+        )
+        .map_err(map_error)?;
+    if changed == 0 {
+        return Err(DbError::Constraint(
+            "user input task state changed before commit".to_owned(),
+        ));
+    }
+    tx.commit().map_err(map_error)?;
+    Ok(node_id)
 }
 
 pub fn append_model_reply_with_tool_calls_and_move_cursor(
@@ -812,7 +848,7 @@ pub fn append_model_reply_with_tool_calls_and_move_cursor(
     }
     let mut connection = db.connection()?;
     let tx = connection.transaction().map_err(map_error)?;
-    ensure_active_task_in_tx(&tx, task_id)?;
+    ensure_history_writable_task_in_tx(&tx, task_id)?;
     for tool_call in &tool_calls {
         let belongs_to_task = tx
             .query_row(
@@ -863,7 +899,7 @@ pub fn append_assistant_message_and_drain_queue(
 ) -> Result<HistoryNodeId, DbError> {
     let mut connection = db.connection()?;
     let tx = connection.transaction().map_err(map_error)?;
-    ensure_active_task_in_tx(&tx, task_id)?;
+    ensure_history_writable_task_in_tx(&tx, task_id)?;
     let mut last_node_id = append_node_to_current_cursor_in_tx(
         &tx,
         task_id,
@@ -887,7 +923,7 @@ pub fn drain_queued_user_inputs_and_move_cursor(
 ) -> Result<Option<HistoryNodeId>, DbError> {
     let mut connection = db.connection()?;
     let tx = connection.transaction().map_err(map_error)?;
-    ensure_active_task_in_tx(&tx, task_id)?;
+    ensure_history_writable_task_in_tx(&tx, task_id)?;
     let last_node_id = append_all_queued_user_inputs_in_tx(&tx, task_id, created_at)?;
     tx.commit().map_err(map_error)?;
     Ok(last_node_id)
@@ -897,7 +933,7 @@ pub fn read_open_function_calls_for_task(
     db: &DbPool,
     task_id: &TaskId,
 ) -> Result<Vec<OpenFunctionCall>, DbError> {
-    let task = load_active_task(db, task_id)?.task;
+    let task = load_runtime_task(db, task_id)?.task;
     let connection = db.connection()?;
     let recovery_policies = read_task_tool_recovery_policies_in_connection(&connection, task_id)?;
     let mut nodes = Vec::new();
@@ -966,49 +1002,18 @@ pub fn read_open_function_calls_for_task(
     Ok(open_calls)
 }
 
-fn append_history_node_and_move_cursor(
-    db: &DbPool,
-    task_id: &TaskId,
-    mut node: NewHistoryNode,
-) -> Result<HistoryNodeId, DbError> {
-    let mut connection = db.connection()?;
-    let tx = connection.transaction().map_err(map_error)?;
-    ensure_active_task_in_tx(&tx, task_id)?;
-    let current_cursor_node_id = current_cursor_node_id_in_tx(&tx, task_id)?;
-
-    // Task edges and history edges are separate models. Append means the DB
-    // reads the task cursor, creates a child history node under that cursor,
-    // and moves the task cursor in one transaction. Runtime cursor caches are
-    // hints for request building, not a second source of truth.
-    node.parent_node_id = Some(HistoryNodeId(current_cursor_node_id));
-
-    let updated_at = node.created_at;
-    let node_id = insert_history_node(&tx, node)?;
-    let changed = tx
-        .execute(
-            "UPDATE tasks
-             SET cursor_node_id = ?1, updated_at = ?2, state_version = state_version + 1
-             WHERE task_id = ?3 AND task_status = 'active'",
-            params![node_id.0, updated_at.0, task_id.0],
-        )
-        .map_err(map_error)?;
-    if changed == 0 {
-        return Err(DbError::TaskNotActive);
-    }
-    tx.commit().map_err(map_error)?;
-    Ok(node_id)
-}
-
 fn current_cursor_node_id_in_tx(
     tx: &rusqlite::Transaction<'_>,
     task_id: &TaskId,
 ) -> Result<i64, DbError> {
-    tx.query_row(
-        "SELECT cursor_node_id FROM tasks WHERE task_id = ?1 AND task_status = 'active'",
-        params![task_id.0],
-        |row| row.get(0),
-    )
-    .map_err(map_error)
+    let task = read_task_in_tx(tx, task_id)?;
+    if task.task_status.accepts_history_writes() {
+        Ok(task.cursor_node_id.0)
+    } else {
+        Err(DbError::InvalidTaskStatus {
+            status: task.task_status,
+        })
+    }
 }
 
 fn append_node_to_current_cursor_in_tx(
@@ -1121,12 +1126,13 @@ fn update_task_cursor_in_tx(
         .execute(
             "UPDATE tasks
              SET cursor_node_id = ?1, updated_at = ?2, state_version = state_version + 1
-             WHERE task_id = ?3 AND task_status = 'active'",
+             WHERE task_id = ?3 AND task_status <> 'archived'",
             params![node_id.0, updated_at.0, task_id.0],
         )
         .map_err(map_error)?;
     if changed == 0 {
-        Err(DbError::TaskNotActive)
+        let status = task_status_in_tx(tx, task_id)?;
+        Err(DbError::InvalidTaskStatus { status })
     } else {
         Ok(())
     }
@@ -1140,7 +1146,13 @@ pub fn queue_user_input(
 ) -> Result<QueuedUserInputRow, DbError> {
     let mut connection = db.connection()?;
     let tx = connection.transaction().map_err(map_error)?;
-    ensure_active_task_in_tx(&tx, task_id)?;
+    let task = read_task_in_tx(&tx, task_id)?;
+    let next_status = task
+        .task_status
+        .transition(TaskLifecycleEvent::UserInput)
+        .ok_or(DbError::InvalidTaskStatus {
+            status: task.task_status,
+        })?;
     let next_seq_no: i64 = tx
         .query_row(
             "SELECT COALESCE(MAX(seq_no), 0) + 1 FROM queued_user_inputs WHERE task_id = ?1",
@@ -1154,6 +1166,20 @@ pub fn queue_user_input(
         params![task_id.0, next_seq_no, message_text, queued_at.0],
     )
     .map_err(map_error)?;
+    if next_status != task.task_status {
+        tx.execute(
+            "UPDATE tasks
+             SET task_status = ?1, updated_at = ?2, state_version = state_version + 1
+             WHERE task_id = ?3 AND task_status = ?4",
+            params![
+                task_status_to_db(next_status),
+                queued_at.0,
+                task_id.0,
+                task_status_to_db(task.task_status)
+            ],
+        )
+        .map_err(map_error)?;
+    }
     tx.commit().map_err(map_error)?;
     Ok(QueuedUserInputRow {
         task_id: task_id.clone(),
@@ -1169,7 +1195,7 @@ pub fn consume_next_queued_user_input(
 ) -> Result<Option<QueuedUserInputRow>, DbError> {
     let mut connection = db.connection()?;
     let tx = connection.transaction().map_err(map_error)?;
-    ensure_active_task_in_tx(&tx, task_id)?;
+    ensure_history_writable_task_in_tx(&tx, task_id)?;
     let queued = tx
         .query_row(
             "SELECT task_id, seq_no, message_text, queued_at
@@ -1200,7 +1226,7 @@ pub fn append_next_queued_user_input_and_move_cursor(
 ) -> Result<Option<HistoryNodeId>, DbError> {
     let mut connection = db.connection()?;
     let tx = connection.transaction().map_err(map_error)?;
-    ensure_active_task_in_tx(&tx, task_id)?;
+    ensure_history_writable_task_in_tx(&tx, task_id)?;
     let queued = tx
         .query_row(
             "SELECT task_id, seq_no, message_text, queued_at
@@ -1217,13 +1243,7 @@ pub fn append_next_queued_user_input_and_move_cursor(
         tx.commit().map_err(map_error)?;
         return Ok(None);
     };
-    let current_cursor_node_id: i64 = tx
-        .query_row(
-            "SELECT cursor_node_id FROM tasks WHERE task_id = ?1 AND task_status = 'active'",
-            params![task_id.0],
-            |row| row.get(0),
-        )
-        .map_err(map_error)?;
+    let current_cursor_node_id = current_cursor_node_id_in_tx(&tx, task_id)?;
     let node_id = insert_history_node(
         &tx,
         NewHistoryNode {
@@ -1239,7 +1259,7 @@ pub fn append_next_queued_user_input_and_move_cursor(
         .execute(
             "UPDATE tasks
          SET cursor_node_id = ?1, updated_at = ?2, state_version = state_version + 1
-         WHERE task_id = ?3 AND task_status = 'active' AND cursor_node_id = ?4",
+         WHERE task_id = ?3 AND task_status <> 'archived' AND cursor_node_id = ?4",
             params![node_id.0, created_at.0, task_id.0, current_cursor_node_id],
         )
         .map_err(map_error)?;
@@ -1257,39 +1277,61 @@ pub fn append_next_queued_user_input_and_move_cursor(
     Ok(Some(node_id))
 }
 
-pub fn archive_task(db: &DbPool, task_id: &TaskId, now: UnixTs) -> Result<(), DbError> {
+pub fn read_task_status(db: &DbPool, task_id: &TaskId) -> Result<TaskStatus, DbError> {
+    Ok(read_task_row(db, task_id)?.task_status)
+}
+
+pub fn transition_task_status(
+    db: &DbPool,
+    task_id: &TaskId,
+    event: TaskLifecycleEvent,
+    now: UnixTs,
+) -> Result<TaskRow, DbError> {
+    if event == TaskLifecycleEvent::UserInput {
+        return Err(DbError::Constraint(
+            "user input status transition must be committed with the input".to_owned(),
+        ));
+    }
     let mut connection = db.connection()?;
     let tx = connection.transaction().map_err(map_error)?;
-    ensure_active_task_in_tx(&tx, task_id)?;
-    tx.execute(
-        "DELETE FROM queued_user_inputs WHERE task_id = ?1",
-        params![task_id.0],
-    )
-    .map_err(map_error)?;
+    let task = read_task_in_tx(&tx, task_id)?;
+    let next_status = task
+        .task_status
+        .transition(event)
+        .ok_or(DbError::InvalidTaskStatus {
+            status: task.task_status,
+        })?;
     let changed = tx
         .execute(
             "UPDATE tasks
-             SET task_status = 'archived', updated_at = ?1, state_version = state_version + 1
-             WHERE task_id = ?2 AND task_status = 'active'",
-            params![now.0, task_id.0],
+             SET task_status = ?1, updated_at = ?2, state_version = state_version + 1
+             WHERE task_id = ?3 AND task_status = ?4",
+            params![
+                task_status_to_db(next_status),
+                now.0,
+                task_id.0,
+                task_status_to_db(task.task_status)
+            ],
         )
         .map_err(map_error)?;
     if changed == 0 {
-        Err(DbError::TaskNotActive)
-    } else {
-        tx.commit().map_err(map_error)?;
-        Ok(())
+        return Err(DbError::Constraint(
+            "task status changed before transition commit".to_owned(),
+        ));
     }
+    let transitioned = read_task_in_tx(&tx, task_id)?;
+    tx.commit().map_err(map_error)?;
+    Ok(transitioned)
 }
 
-pub fn list_active_tasks(db: &DbPool) -> Result<Vec<TaskRow>, DbError> {
+pub fn list_runtime_tasks(db: &DbPool) -> Result<Vec<TaskRow>, DbError> {
     let connection = db.connection()?;
     let mut statement = connection
         .prepare(
             "SELECT task_id, task_status, cursor_node_id, model_profile_key, reasoning_effort,
                     max_children_per_fork, max_task_descendants, state_version, created_at, updated_at
              FROM tasks
-             WHERE task_status = 'active'
+             WHERE task_status <> 'archived'
              ORDER BY updated_at DESC, task_id ASC",
         )
         .map_err(map_error)?;
@@ -1432,7 +1474,7 @@ pub fn read_task_tool_state(db: &DbPool, task_id: &TaskId) -> Result<TaskToolSta
 }
 
 pub fn read_conversation_for_task(db: &DbPool, task_id: &TaskId) -> Result<Conversation, DbError> {
-    let task = load_active_task(db, task_id)?.task;
+    let task = read_task_row(db, task_id)?;
     let connection = db.connection()?;
     let mut nodes = Vec::new();
     let mut next_node_id = Some(task.cursor_node_id);
@@ -2018,10 +2060,10 @@ fn ensure_task_exists(connection: &Connection, task_id: &TaskId) -> Result<(), D
     }
 }
 
-fn ensure_active_task_in_tx(
+fn task_status_in_tx(
     tx: &rusqlite::Transaction<'_>,
     task_id: &TaskId,
-) -> Result<(), DbError> {
+) -> Result<TaskStatus, DbError> {
     let status: Option<String> = tx
         .query_row(
             "SELECT task_status FROM tasks WHERE task_id = ?1",
@@ -2030,10 +2072,22 @@ fn ensure_active_task_in_tx(
         )
         .optional()
         .map_err(map_error)?;
-    match status.as_deref() {
-        Some("active") => Ok(()),
-        Some(_) => Err(DbError::TaskNotActive),
-        None => Err(DbError::NotFound),
+    status
+        .as_deref()
+        .map(task_status_from_db)
+        .transpose()?
+        .ok_or(DbError::NotFound)
+}
+
+fn ensure_history_writable_task_in_tx(
+    tx: &rusqlite::Transaction<'_>,
+    task_id: &TaskId,
+) -> Result<TaskStatus, DbError> {
+    let status = task_status_in_tx(tx, task_id)?;
+    if status.accepts_history_writes() {
+        Ok(status)
+    } else {
+        Err(DbError::InvalidTaskStatus { status })
     }
 }
 
@@ -2196,11 +2250,22 @@ fn content_kind_from_db(value: &str) -> Result<HistoryContentKindRow, DbError> {
     }
 }
 
-fn task_status_from_db(value: &str) -> Result<TaskStatusRow, DbError> {
+fn task_status_from_db(value: &str) -> Result<TaskStatus, DbError> {
     match value {
-        "active" => Ok(TaskStatusRow::Active),
-        "archived" => Ok(TaskStatusRow::Archived),
+        "active" => Ok(TaskStatus::Active),
+        "frozen" => Ok(TaskStatus::Frozen),
+        "stopped" => Ok(TaskStatus::Stopped),
+        "archived" => Ok(TaskStatus::Archived),
         other => Err(DbError::Storage(format!("unknown task status: {other}"))),
+    }
+}
+
+fn task_status_to_db(status: TaskStatus) -> &'static str {
+    match status {
+        TaskStatus::Active => "active",
+        TaskStatus::Frozen => "frozen",
+        TaskStatus::Stopped => "stopped",
+        TaskStatus::Archived => "archived",
     }
 }
 
