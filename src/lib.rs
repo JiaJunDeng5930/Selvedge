@@ -751,20 +751,24 @@ impl CliServerRunner for DefaultCliServerRunner {
     async fn run_server(&self, args: ServerStartArgs) -> CliExitStatus {
         let interrupt = tokio::signal::ctrl_c();
         tokio::pin!(interrupt);
-        tokio::select! {
+        let startup = selvedge_server::spawn_server(args);
+        tokio::pin!(startup);
+        let handle = tokio::select! {
             biased;
             result = &mut interrupt => {
                 return result
                     .map(|()| CliExitStatus::Interrupted)
                     .unwrap_or_else(|error| CliExitStatus::ServerRunFailed(error.to_string()));
             }
-            _ = tokio::task::yield_now() => {}
-        }
-
-        let handle = match selvedge_server::spawn_server(args).await {
-            Ok(handle) => handle,
-            Err(error) => {
-                return server_exit_status(selvedge_server::ServerExitStatus::StartupFailed(error));
+            result = &mut startup => {
+                match result {
+                    Ok(handle) => handle,
+                    Err(error) => {
+                        return server_exit_status(
+                            selvedge_server::ServerExitStatus::StartupFailed(error)
+                        );
+                    }
+                }
             }
         };
         let control = handle.control;

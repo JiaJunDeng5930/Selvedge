@@ -2,7 +2,7 @@
 
 <!-- selvedge-package-readme
 package: selvedge
-freshness_fingerprint: 8f96a2518c1a3d3108ed55ac75a8129839ef317c
+freshness_fingerprint: 843cf7eadfd7740dddf6e8089cdecc22066c08fe
 -->
 
 Selvedge is a Rust repository scaffold with a clean local development flow, pre-commit hooks, and GitHub Actions CI.
@@ -25,7 +25,7 @@ just run
 just test
 ```
 
-`just run` starts the local server. `Ctrl-C` requests supervised shutdown and exits with status 130 after server tasks and the singleton lock are cleaned up.
+`just run` starts the local server. `Ctrl-C` exits with status 130 after cancelling an in-progress startup or supervising a running server to shutdown, including singleton-lock cleanup in either phase.
 
 Server startup builds the current harness and MCP runtime catalog, reconciles existing tasks' unavailable-tool sets without changing their frozen tool definitions, and requests recovery for every active durable task. The current CLI still supplies no model profiles and does not provision a root task, so those remain separate prerequisites for a model-driven production session.
 
@@ -85,7 +85,8 @@ flowchart TD
   Command -->|parsed command is SubmitCommand| Submit
   RunServer -->|server startup and run complete successfully| Success
   RunServer -->|server startup, runtime, or dependency fails| Failure
-  RunServer -->|SIGINT is received| StopServer
+  RunServer -->|SIGINT is received during startup| Interrupted
+  RunServer -->|SIGINT is received after startup| StopServer
   StopServer -->|server tasks stop and lock cleanup completes| Interrupted
   Submit -->|server accepts typed login-chatgpt or list-models command| WaitTerminal
   Submit -->|local client connection, readiness, command rejection, or server wait fails| Failure

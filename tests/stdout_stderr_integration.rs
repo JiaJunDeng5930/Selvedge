@@ -227,6 +227,77 @@ fn server_sigint_runs_supervised_shutdown_and_exits_130() {
     assert!(!lock_path.exists(), "supervised shutdown must remove lock");
 }
 
+#[cfg(unix)]
+#[test]
+fn server_sigint_cancels_stalled_mcp_startup_and_removes_lock() {
+    use std::fs;
+    use std::os::unix::fs::PermissionsExt;
+
+    let tempdir = TempDir::new().expect("tempdir");
+    let port = released_loopback_port();
+    let lock_path = tempdir.path().join("server.lock");
+    let startup_marker = tempdir.path().join("mcp-started");
+    let mcp_script = tempdir.path().join("stall-mcp.sh");
+    fs::write(&mcp_script, "#!/bin/sh\ntouch \"$1\"\nexec sleep 60\n")
+        .expect("write stalled MCP script");
+    fs::set_permissions(&mcp_script, fs::Permissions::from_mode(0o755))
+        .expect("make MCP script executable");
+    fs::write(
+        tempdir.path().join("config.toml"),
+        format!(
+            "[mcp.servers.stalled]\ncommand = {:?}\nargs = [{:?}]\ntimeout_ms = 60000\n",
+            mcp_script.to_string_lossy(),
+            startup_marker.to_string_lossy(),
+        ),
+    )
+    .expect("write MCP config");
+
+    let mut command = Command::new(env!("CARGO_BIN_EXE_selvedge"));
+    command
+        .arg("server")
+        .env("SELVEDGE_HOME", tempdir.path())
+        .env("SELVEDGE_APP_SERVER__PORT", port.to_string())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped());
+    let mut child = command.spawn().expect("spawn server");
+    let startup_deadline = Instant::now() + Duration::from_secs(5);
+    while !(lock_path.exists() && startup_marker.exists()) {
+        if child.try_wait().expect("poll server").is_some() || Instant::now() >= startup_deadline {
+            let _ = child.kill();
+            let output = child.wait_with_output().expect("collect failed server");
+            panic!(
+                "server did not enter MCP startup: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+
+    let signal_status = Command::new("kill")
+        .args(["-INT", &child.id().to_string()])
+        .status()
+        .expect("send SIGINT");
+    assert!(signal_status.success(), "kill must deliver SIGINT");
+    let exit_deadline = Instant::now() + Duration::from_secs(5);
+    while child.try_wait().expect("poll interrupted server").is_none() {
+        if Instant::now() >= exit_deadline {
+            let _ = child.kill();
+            let output = child.wait_with_output().expect("collect stalled server");
+            panic!(
+                "SIGINT did not cancel MCP startup: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let output = child
+        .wait_with_output()
+        .expect("collect interrupted server");
+
+    assert_eq!(output.status.code(), Some(130));
+    assert!(!lock_path.exists(), "cancelled startup must remove lock");
+}
+
 fn released_loopback_port() -> u16 {
     let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).expect("bind test port");
     listener.local_addr().expect("test port address").port()
