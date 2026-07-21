@@ -2,7 +2,7 @@
 
 <!-- selvedge-package-readme
 package: selvedge-harness
-freshness_fingerprint: 90be17ae6d021480b6764f637e9be9620d174cb4
+freshness_fingerprint: 138b995482527a72f1a705c038c14a647f78ac52
 -->
 
 This crate implements Selvedge task self-orchestration, bounded Bash command execution, and stdio MCP client execution for model tool calls.
