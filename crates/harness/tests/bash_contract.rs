@@ -111,6 +111,8 @@ async fn bash_drains_large_stdout_and_stderr_concurrently_and_marks_each_prefix(
 
 #[tokio::test]
 async fn bash_timeout_terminates_the_process_group_and_returns_one_terminal_error() {
+    const COMMAND_TIMEOUT_MS: i64 = 5_000;
+
     let nonce = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("clock after epoch")
@@ -123,25 +125,39 @@ async fn bash_timeout_terminates_the_process_group_and_returns_one_terminal_erro
         "sleep 30 & child=$!; printf '%s %s' \"$$\" \"$child\" > '{}'; wait",
         pid_path.display()
     );
-
-    let result = execute(vec![
+    let executor = bash_executor();
+    let request = bash_request(vec![
         string_argument("command", &command),
-        integer_argument("timeout_ms", 300),
-    ])
-    .await;
+        integer_argument("timeout_ms", COMMAND_TIMEOUT_MS),
+    ]);
+    let (router_tx, mut router_rx) = mpsc::unbounded_channel();
+    let execution = executor
+        .spawn_tool_execution(request.clone(), router_tx.downgrade())
+        .expect("spawn bash execution");
+
+    timeout(Duration::from_secs(2), async {
+        while !pid_path.exists() {
+            sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("bash wrote pids before its command timeout");
+    let pids = fs::read_to_string(&pid_path).expect("timeout command wrote pids");
+    fs::remove_file(&pid_path).expect("remove pid file");
+
+    execution.await.expect("bash execution supervisor");
+    let result = receive_result(&request, &mut router_rx).await;
     assert!(result.is_error);
     assert_eq!(
         result.output,
         serde_json::json!({
             "error": {
                 "code": "command_timed_out",
-                "message": "bash command timed out after 300 ms"
+                "message": "bash command timed out after 5000 ms"
             }
         })
     );
 
-    let pids = fs::read_to_string(&pid_path).expect("timeout command wrote pids");
-    fs::remove_file(&pid_path).expect("remove pid file");
     let mut pids = pids.split_whitespace();
     let process_group_id = parse_pid(pids.next().expect("process group id"));
     let child_pid = parse_pid(pids.next().expect("child pid"));
@@ -223,6 +239,13 @@ async fn execute(arguments: Vec<(String, Value)>) -> ToolExecutionBranch {
         .expect("spawn bash execution")
         .await
         .expect("bash execution supervisor");
+    receive_result(&request, &mut router_rx).await
+}
+
+async fn receive_result(
+    request: &ToolExecutionRequest,
+    router_rx: &mut mpsc::UnboundedReceiver<RouterIngressMessage>,
+) -> ToolExecutionBranch {
     let RouterIngressMessage::Tool(result) = timeout(Duration::from_secs(10), router_rx.recv())
         .await
         .expect("tool result timeout")
