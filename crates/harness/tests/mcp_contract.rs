@@ -66,7 +66,7 @@ async fn discovery_paginates_and_converts_complete_catalog_routes() {
 }
 
 #[tokio::test]
-async fn closing_connections_terminates_mcp_process_group_descendants() {
+async fn closing_connections_terminates_mcp_descendants_remaining_in_process_group() {
     let marker = temp_marker("descendant-pid");
     let mut configs = configs("catalog", 1_000);
     configs
@@ -96,7 +96,7 @@ async fn closing_connections_terminates_mcp_process_group_descendants() {
         }
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
-    panic!("MCP process group descendant survived connection shutdown");
+    panic!("MCP descendant remained in the server process group after shutdown");
 }
 
 #[tokio::test]
