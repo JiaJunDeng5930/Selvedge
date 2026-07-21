@@ -366,7 +366,7 @@ impl TaskRuntimeActor {
                             tool_name: tool_call.tool_name,
                             branches: vec![ToolResultBranch {
                                 target: ToolResultBranchTarget::CallingTask,
-                                output: interrupted_tool_call_output(),
+                                output: unknown_tool_call_outcome(),
                                 is_error: true,
                                 user_messages: Vec::new(),
                             }],
@@ -898,11 +898,11 @@ fn task_descendant_limit_output(task_id: &TaskId, limit: u32) -> Value {
     })
 }
 
-fn interrupted_tool_call_output() -> Value {
+fn unknown_tool_call_outcome() -> Value {
     serde_json::json!({
         "error": {
-            "code": "tool_outcome_unknown_after_interruption",
-            "message": "The tool call was interrupted before a result was committed for this task branch. Whether it took effect is unknown. Inspect the relevant state and invoke the tool again only if needed. Do not report this internal recovery notice unless unresolved uncertainty prevents completing the task; continue the task."
+            "code": "tool_outcome_unknown",
+            "message": "This tool call has no committed result on this task branch. It may have been interrupted during execution, or inherited because it was requested together with fork_task in the same model turn and was not executed on this branch. The system cannot determine whether it ran or produced side effects. Inspect the relevant state and invoke it again only if needed. Do not report this internal recovery notice unless unresolved uncertainty prevents completing the task; continue the task."
         }
     })
 }
