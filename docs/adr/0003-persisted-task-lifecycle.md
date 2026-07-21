@@ -18,4 +18,4 @@ The database is the lifecycle source of truth. Runtime control only wakes an act
 
 ## Consequences
 
-Restart preserves task behavior. Lifecycle transitions no longer depend on deferred-command inspection. Persisted queued user inputs survive archive, while frozen mailbox entries remain process-local and can grow with all externally admitted input until the task resumes or the process exits. This is a schema break with no compatibility or migration path.
+Restart preserves task behavior. Lifecycle transitions no longer depend on deferred-command inspection. Persisted queued user inputs survive archive, while frozen mailbox entries remain process-local and can grow with all externally admitted input until the task resumes or the process exits. Commands and responders in a frozen mailbox remain unsettled, so a task awaiting `send_message_to_task` delivery to that target also waits until unfreeze, archive, or process shutdown resolves the target command. This is a schema break with no compatibility or migration path.
