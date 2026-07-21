@@ -1946,13 +1946,13 @@ async fn child_runtime_synthesizes_unknown_outcome_for_inherited_open_call() {
     assert_eq!(recovered_output.function_output_is_error(), Some(true));
     assert_eq!(
         recovered_output.function_output_value().expect("output")["error"]["code"],
-        "tool_outcome_unknown_after_interruption"
+        "tool_outcome_unknown"
     );
     assert!(
         recovered_output.function_output_value().expect("output")["error"]["message"]
             .as_str()
             .expect("message")
-            .contains("Whether it took effect is unknown")
+            .contains("requested together with fork_task")
     );
     let _ = runtime.task_runtime_control.shutdown().await;
 }

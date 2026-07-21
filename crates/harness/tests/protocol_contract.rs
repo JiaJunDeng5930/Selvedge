@@ -624,6 +624,7 @@ fn every_error_code_uses_the_unified_stable_envelope() {
         HarnessErrorCode::OperationCancelled,
         HarnessErrorCode::RouterUnavailable,
         HarnessErrorCode::StorageError,
+        HarnessErrorCode::ResourceExhausted,
         HarnessErrorCode::ExecutorPanicked,
         HarnessErrorCode::CommandSpawnFailed,
         HarnessErrorCode::CommandIoFailed,

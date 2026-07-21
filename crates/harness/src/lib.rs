@@ -642,6 +642,7 @@ pub enum HarnessErrorCode {
     OperationCancelled,
     RouterUnavailable,
     StorageError,
+    ResourceExhausted,
     ExecutorPanicked,
     CommandSpawnFailed,
     CommandIoFailed,
@@ -666,6 +667,7 @@ impl HarnessErrorCode {
             HarnessErrorCode::OperationCancelled => "operation_cancelled",
             HarnessErrorCode::RouterUnavailable => "router_unavailable",
             HarnessErrorCode::StorageError => "storage_error",
+            HarnessErrorCode::ResourceExhausted => "resource_exhausted",
             HarnessErrorCode::ExecutorPanicked => "executor_panicked",
             HarnessErrorCode::CommandSpawnFailed => "command_spawn_failed",
             HarnessErrorCode::CommandIoFailed => "command_io_failed",
@@ -852,7 +854,7 @@ async fn execute_harness_request(
     router_tx: RouterIngressWeakSender,
 ) -> Result<Vec<ToolExecutionBranch>, HarnessError> {
     match parse_invocation(&request, &config)? {
-        HarnessInvocation::ForkTask(invocation) => Ok(execute_fork_task(invocation)),
+        HarnessInvocation::ForkTask(invocation) => execute_fork_task(invocation),
         HarnessInvocation::ReadTask(invocation) => {
             execute_read_task(db, request.task_id, invocation)
                 .await
@@ -893,8 +895,22 @@ fn single_success_branch(success: HarnessSuccess) -> Vec<ToolExecutionBranch> {
     vec![calling_task_branch(success_json(&success), false)]
 }
 
-fn execute_fork_task(invocation: ForkTaskInvocation) -> Vec<ToolExecutionBranch> {
-    let mut branches = Vec::with_capacity(invocation.child_count + 1);
+fn execute_fork_task(
+    invocation: ForkTaskInvocation,
+) -> Result<Vec<ToolExecutionBranch>, HarnessError> {
+    let branch_count = invocation.child_count.checked_add(1).ok_or_else(|| {
+        HarnessError::new(
+            HarnessErrorCode::ResourceExhausted,
+            "fork result branch count exceeds this platform's capacity",
+        )
+    })?;
+    let mut branches = Vec::new();
+    branches.try_reserve_exact(branch_count).map_err(|_| {
+        HarnessError::new(
+            HarnessErrorCode::ResourceExhausted,
+            "fork result branches could not be allocated",
+        )
+    })?;
     branches.push(calling_task_branch(Value::from(0), false));
     for index in 1..=invocation.child_count {
         let messages = invocation
@@ -910,7 +926,7 @@ fn execute_fork_task(invocation: ForkTaskInvocation) -> Vec<ToolExecutionBranch>
             messages,
         });
     }
-    branches
+    Ok(branches)
 }
 
 async fn execute_read_task(
@@ -1559,8 +1575,21 @@ mod tests {
     };
     use selvedge_domain_model::{FunctionCallId, HistoryNodeId, JsonObject, TaskId, ToolName};
 
-    use super::spawn_supervised_execution;
-    use crate::ToolExecutionRequest;
+    use super::{execute_fork_task, spawn_supervised_execution};
+    use crate::{ForkTaskInvocation, HarnessErrorCode, ToolExecutionRequest};
+
+    #[test]
+    fn fork_branch_allocation_failure_is_a_typed_error() {
+        for child_count in [usize::MAX, usize::MAX - 1] {
+            let error = execute_fork_task(ForkTaskInvocation {
+                child_count,
+                messages: None,
+            })
+            .expect_err("capacity must be rejected");
+
+            assert_eq!(error.code(), HarnessErrorCode::ResourceExhausted);
+        }
+    }
 
     #[tokio::test]
     async fn panicking_execution_still_emits_one_correlated_terminal_result() {
