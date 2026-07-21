@@ -7,11 +7,11 @@ use selvedge_command_model::{
     HistoryAppendedEvent, HistoryAppendedRawEvent, ModelCallDispatchRequest, ModelCallError,
     ModelCallErrorKind, ModelRunId, RouterCommand, RouterCommandEnvelope,
     RouterCommandValidationError, RouterIngressApiMessage, RouterIngressMessage,
-    SnapshotTaskVersion, TaskCommandError, TaskId, TaskProjection, TaskProjectionStatus,
-    TaskRuntimeControl, TaskRuntimeCreated, TaskScope, ToolExecutionBranch,
-    ToolExecutionBranchTarget, ToolExecutionResult, ToolExecutionRunId,
-    archive_task_response_channel, send_user_input_response_channel, validate_api_output_envelope,
-    validate_dispatch_request, validate_router_command,
+    SnapshotTaskVersion, TaskCommandError, TaskId, TaskProjection, TaskRuntimeControl,
+    TaskRuntimeCreated, TaskScope, TaskStatus, ToolExecutionBranch, ToolExecutionBranchTarget,
+    ToolExecutionResult, ToolExecutionRunId, send_user_input_response_channel,
+    task_status_change_response_channel, validate_api_output_envelope, validate_dispatch_request,
+    validate_router_command,
 };
 use selvedge_domain_model::{
     CallableTools, Conversation, ConversationMessage, FunctionCallId, HistoryNodeId, MessageRole,
@@ -190,7 +190,7 @@ fn event_ingress_and_client_frames_expose_router_events_contract() {
 
 #[test]
 fn factory_output_envelope_exposes_runtime_created_scan_and_failure_contract() {
-    let (task_runtime_tx, _task_runtime_rx) = tokio::sync::mpsc::channel(4);
+    let (task_runtime_tx, _task_runtime_rx) = tokio::sync::mpsc::unbounded_channel();
 
     let runtime_created = TaskRuntimeCreated {
         task_id: TaskId("task-1".to_owned()),
@@ -370,7 +370,7 @@ fn dropped_task_command_responders_settle_as_runtime_unavailable() {
         Err(TaskCommandError::RuntimeUnavailable)
     );
 
-    let (archive_responder, mut archive_response) = archive_task_response_channel();
+    let (archive_responder, mut archive_response) = task_status_change_response_channel();
     drop(archive_responder);
     assert_eq!(
         archive_response.try_recv().expect("archive response"),
@@ -445,7 +445,7 @@ fn valid_correlation() -> ApiCallCorrelation {
 fn task_projection(task_id: &str, state_version: u64) -> TaskProjection {
     TaskProjection {
         task_id: TaskId(task_id.to_owned()),
-        status: TaskProjectionStatus::Active,
+        status: TaskStatus::Active,
         cursor_node_id: HistoryNodeId(1),
         model_profile_key: ModelProfileKey("default".to_owned()),
         reasoning_effort: ReasoningEffort::Medium,
