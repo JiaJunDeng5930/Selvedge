@@ -2,16 +2,16 @@
 
 <!-- selvedge-package-readme
 package: selvedge-core
-freshness_fingerprint: d38e12a930e3fa08fd19a0102baa74dd96c15c77
+freshness_fingerprint: c18055b54c58ba65ecaecf5ab3625663141d5bac
 -->
 
-This crate runs one task runtime actor per active task.
+This crate runs one task runtime actor per non-archived task.
 
 Use it to spawn a task-local runtime that loads SQLite state through `selvedge-db`, queues input while busy, requests model calls through the router, requests tool execution through the router, and exits on archive or database errors.
 
 This crate only talks to the router mailbox and the database package. Provider calls, tool execution, event fanout, runtime registry ownership, and direct client delivery live in other crates.
 
-On `Start`, the runtime first reconciles every open function call on the current cursor path using its task-frozen recovery policy. Retry-safe calls resume execution. Calls whose outcomes may be unknown receive a durable ordinary error output without invoking the executor, after which the model decides whether state inspection or another call is needed. With no open call, user/system/function-output tails request a model call and assistant/developer tails await user input with an empty queue. The runtime keeps only in-flight correlation ids, the complete manifest and callable subset sent with an active model request, and pending tool-call identity in memory; the task cursor lives in SQLite.
+On `Start`, the runtime reads the persisted task status. An `active` task starts normal cursor processing. A `stopped` task still reconciles open tool calls and commits their results, but it does not request another model call. A `frozen` task publishes readiness and does not consume its mailbox until a status notification confirms that it is active. The runtime keeps only in-flight correlation ids, the complete manifest and callable subset sent with an active model request, pending tool-call identity, and a deferred model-call continuation in memory; the task status and cursor live in SQLite.
 
 Before dispatching a model call, the actor reads the conversation, frozen tool manifest, unavailable-tool exceptions, and active model profile together on Tokio's blocking thread pool. The complete manifest remains stable while the exceptions produce the callable subset for that turn. SQLite work therefore leaves async runtime workers available for other actors.
 
@@ -21,9 +21,9 @@ A matching tool execution result contains one or more history branches. Core com
 
 When a matching model reply arrives, the actor validates it against the exact manifest and callable subset stored for that model run rather than reading current availability again. A tool marked unavailable after request dispatch can therefore finish the already-issued turn. Core rejects duplicate call ids, tools absent from the frozen manifest, and tools excluded from that turn, but leaves JSON Schema interpretation to the selected executor.
 
-The actor checks `TaskRuntimeControl` before receiving each business mailbox command. A stop request makes the actor return from its loop at that safety point. The mailbox receive branch is behind the control branch and the actor rechecks stop after receiving a command, so a stop bit observed at the event boundary prevents the next business command from starting. The runtime writes `TaskRuntimeStopResult` from the actor's unified exit path, so a later stop call also completes after archive, database error, router shutdown, or dropped runtime mailbox.
+`TaskRuntimeControl` carries only high-priority notifications and the process shutdown barrier. A status notification makes the actor read the database again. `frozen` pauses mailbox consumption, `archived` exits the actor, and `active` or `stopped` resumes mailbox processing. A shutdown request prevents the next mailbox command from starting and completes only after the actor's unified exit path runs.
 
-User-input responders return `Committed` with the persisted history node id only after the history append and cursor transaction commits, or `Queued` only after the FIFO queue transaction commits. Archive returns `Archived` only after its transaction commits. On archive, database failure, internal failure, or stop, the runtime drains its business mailbox and settles every remaining task responder with the terminal task error.
+User-input responders return `Committed` with the persisted history node id only after the history append and cursor transaction commits, or `Queued` only after the FIFO queue transaction commits. A user input received while stopped activates the task in the same database transaction. On archive, database failure, internal failure, or shutdown, the runtime drains its mailbox and settles every remaining task responder with the terminal task error.
 
 Runtime output to the router uses the unbounded router ingress sender. Event handlers can enqueue router output synchronously and return to the control check without waiting for router mailbox capacity.
 
@@ -36,7 +36,11 @@ The diagram records the package-level observable states and transition paths. Ea
 ```mermaid
 flowchart TD
   Start([spawn_task_runtime])
-  LoadSnapshot[Read active task snapshot]
+  LoadSnapshot[Read non-archived task snapshot]
+  Status{persisted task status}
+  Frozen[Pause mailbox consumption]
+  ReloadStatus[Read status after control notification]
+  ResumeWork[Resume saved runtime state]
   RecoverOpen{open function calls}
   CommitUnknown[Commit unknown-outcome error outputs]
   ClassifyTail{cursor tail}
@@ -51,18 +55,28 @@ flowchart TD
   EnsureChildRuntimes[Ask router to ensure committed child runtimes]
   QueueInput[Queue or append user input]
   InputSettled[Settle input responder]
-  Archive[Archive task]
-  ArchiveSettled[Settle archive responder]
   FailPending[Fail remaining task responders]
-  Stop[Exit after stop control]
+  Shutdown[Exit after shutdown control]
+  Archived[Exit after archived status notification]
   Exit[Publish TaskRuntimeExitNotice]
   DbError[Exit on database error]
   RouterClosed[Exit on router ingress closure]
   InternalError[Exit on invalid correlated reply]
 
   Start -->|task runtime actor starts| LoadSnapshot
-  LoadSnapshot -->|active task snapshot read succeeds| RecoverOpen
-  LoadSnapshot -->|database read fails or task is inactive| DbError
+  LoadSnapshot -->|runtime task snapshot read succeeds| Status
+  LoadSnapshot -->|database read fails or task is archived| DbError
+  Status -->|status is frozen| Frozen
+  Status -->|status is active or stopped| RecoverOpen
+  Frozen -->|status control is notified| ReloadStatus
+  ReloadStatus -->|status is still frozen| Frozen
+  ReloadStatus -->|status is active| ResumeWork
+  ReloadStatus -->|status is archived| Archived
+  ResumeWork -->|cursor processing has not started| RecoverOpen
+  ResumeWork -->|a model call was deferred by freeze| RequestModel
+  ResumeWork -->|an API result is pending| AwaitModel
+  ResumeWork -->|a tool result is pending| AwaitTool
+  ResumeWork -->|user input is pending| AwaitInput
   RecoverOpen -->|none remain| ClassifyTail
   RecoverOpen -->|only retry-safe calls remain| RequestTool
   RecoverOpen -->|any outcome may be unknown| CommitUnknown
@@ -73,7 +87,9 @@ flowchart TD
   ClassifyTail -->|tail is function call| RequestTool
   ClassifyTail -->|tail is assistant or developer and queued input is empty| AwaitInput
   ClassifyTail -->|tail is assistant or developer and queued input exists| QueueInput
-  RequestModel -->|database reads and router ingress send succeed| AwaitModel
+  RequestModel -->|status is stopped| AwaitInput
+  RequestModel -->|status is frozen| Frozen
+  RequestModel -->|status is active and database reads and router ingress send succeed| AwaitModel
   RequestModel -->|database read fails| DbError
   RequestModel -->|router ingress send fails| RouterClosed
   AwaitModel -->|matching completed API output arrives| ValidateModelReply
@@ -97,14 +113,14 @@ flowchart TD
   QueueInput -->|database transition succeeds| InputSettled
   InputSettled -->|committed or queued outcome is sent| ClassifyTail
   QueueInput -->|database transition fails and responder is failed| DbError
-  AwaitInput -->|archive command arrives| Archive
-  Archive -->|database archive succeeds| ArchiveSettled
-  ArchiveSettled -->|archived outcome is sent| FailPending
-  Archive -->|database archive fails and responder is failed| DbError
-  AwaitInput -->|stop control observed before business command starts| Stop
-  AwaitModel -->|stop control observed at command boundary| Stop
-  AwaitTool -->|stop control observed at command boundary| Stop
-  Stop -->|runtime unavailable is selected| FailPending
+  AwaitInput -->|archived status notification arrives| Archived
+  AwaitModel -->|archived status notification arrives| Archived
+  AwaitTool -->|archived status notification arrives| Archived
+  AwaitInput -->|shutdown control is observed| Shutdown
+  AwaitModel -->|shutdown control is observed| Shutdown
+  AwaitTool -->|shutdown control is observed| Shutdown
+  Shutdown -->|runtime unavailable is selected| FailPending
+  Archived -->|task archived is selected| FailPending
   DbError -->|database error is classified| FailPending
   RouterClosed -->|runtime unavailable is selected| FailPending
   InternalError -->|runtime unavailable is selected| FailPending

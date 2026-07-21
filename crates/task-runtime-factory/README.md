@@ -2,12 +2,12 @@
 
 <!-- selvedge-package-readme
 package: selvedge-task-runtime-factory
-freshness_fingerprint: 0d580985b63c4d6245b4ea756b68ec5ecd41ac1b
+freshness_fingerprint: 879fe073fbd4553873694b20da0c916c45586922
 -->
 
 This crate runs one-shot factory effects for router-mediated task runtimes.
 
-Use it to create a runtime for an existing active task or scan active tasks and create missing runtimes. The router runs `run_factory_effect` on Tokio's blocking pool and receives exactly one factory output envelope.
+Use it to create a runtime for an existing non-archived task or scan all non-archived tasks and create missing runtimes. Active, frozen, and stopped tasks have runtimes. Archived tasks return a typed factory failure. The router runs `run_factory_effect` on Tokio's blocking pool and receives exactly one factory output envelope.
 
 `FactoryRuntimeInventory` is supplied by the router from its current in-memory registry and pending-effect state. The factory uses it only to skip already live or pending task runtimes.
 
@@ -21,20 +21,20 @@ The diagram records the package-level observable states and transition paths. Ea
 flowchart TD
   Start([run_factory_effect])
   InspectInventory[Inspect router-supplied runtime inventory]
-  CreateRuntime[Create runtime for active task]
-  ScanTasks[Read active tasks]
+  CreateRuntime[Create runtime for non-archived task]
+  ScanTasks[Read non-archived tasks]
   Spawn[Call selvedge-core spawn_task_runtime]
   OutputCreated[Return TaskRuntimeCreated]
   OutputSkipped[Return FactorySkippedTask]
   OutputFailure[Return FactoryFailure or FactoryTaskFailure]
 
   Start -->|effect is create runtime for existing task| InspectInventory
-  Start -->|effect is scan active tasks| ScanTasks
+  Start -->|effect is scan non-archived tasks| ScanTasks
   InspectInventory -->|task is already live or pending| OutputSkipped
   InspectInventory -->|task is absent from live and pending inventory| CreateRuntime
-  CreateRuntime -->|database confirms task is active| Spawn
-  CreateRuntime -->|database read fails or task is inactive| OutputFailure
-  ScanTasks -->|active task list read succeeds| InspectInventory
+  CreateRuntime -->|database confirms task is active, frozen, or stopped| Spawn
+  CreateRuntime -->|database read fails or task is archived| OutputFailure
+  ScanTasks -->|non-archived task list read succeeds| InspectInventory
   ScanTasks -->|database read fails| OutputFailure
   Spawn -->|core runtime spawn returns sender and control| OutputCreated
   Spawn -->|core runtime spawn fails| OutputFailure

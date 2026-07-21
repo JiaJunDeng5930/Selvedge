@@ -8,7 +8,7 @@ use selvedge_command_model::{
     RouterIngressWeakSender, TaskRuntimeCreated,
 };
 use selvedge_core::{SpawnTaskRuntimeArgs, SpawnTaskRuntimeError, TaskRuntimeSpawnDeps};
-use selvedge_db::{DbError, DbPool, TaskId, list_active_tasks, load_active_task};
+use selvedge_db::{DbError, DbPool, TaskId, list_runtime_tasks, load_runtime_task};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum FactoryCommand {
@@ -70,8 +70,8 @@ fn ensure_missing_task_runtimes(
         .iter()
         .cloned()
         .collect::<HashSet<_>>();
-    let active_tasks = match list_active_tasks(db) {
-        Ok(active_tasks) => active_tasks,
+    let runtime_tasks = match list_runtime_tasks(db) {
+        Ok(runtime_tasks) => runtime_tasks,
         Err(error) => {
             return FactoryOutput::Failed(FactoryFailure {
                 task_id: None,
@@ -84,7 +84,7 @@ fn ensure_missing_task_runtimes(
     let mut created = Vec::new();
     let mut skipped = Vec::new();
     let mut failed = Vec::new();
-    for task in active_tasks {
+    for task in runtime_tasks {
         if live_task_runtimes.contains(&task.task_id) {
             skipped.push(FactorySkippedTask {
                 task_id: task.task_id,
@@ -127,7 +127,7 @@ fn ensure_task_runtime(
     runtime_inventory: &FactoryRuntimeInventory,
     task_id: TaskId,
 ) -> FactoryOutput {
-    match load_active_task(db, &task_id) {
+    match load_runtime_task(db, &task_id) {
         Ok(_) => {
             if runtime_inventory.live_task_runtimes.contains(&task_id) {
                 return FactoryOutput::Failed(FactoryFailure {
@@ -198,10 +198,17 @@ fn map_load_task_failure(task_id: Option<TaskId>, error: DbError) -> FactoryFail
             kind: FactoryFailureKind::TaskMissing,
             message: "task is missing".to_owned(),
         },
-        DbError::TaskNotActive => FactoryFailure {
+        DbError::InvalidTaskStatus {
+            status: selvedge_command_model::TaskStatus::Archived,
+        } => FactoryFailure {
             task_id,
             kind: FactoryFailureKind::TaskArchived,
             message: "task is archived".to_owned(),
+        },
+        error @ DbError::InvalidTaskStatus { .. } => FactoryFailure {
+            task_id,
+            kind: FactoryFailureKind::DbReadFailed,
+            message: error.to_string(),
         },
         DbError::StaleFunctionCall | DbError::HistoryCursorNotOnTask => FactoryFailure {
             task_id,
@@ -218,7 +225,6 @@ fn map_load_task_failure(task_id: Option<TaskId>, error: DbError) -> FactoryFail
 
 fn spawn_error_message(error: SpawnTaskRuntimeError) -> String {
     match error {
-        SpawnTaskRuntimeError::MailboxCreateFailed => "task runtime mailbox create failed",
         SpawnTaskRuntimeError::TokioSpawnFailed => "task runtime tokio spawn failed",
     }
     .to_owned()

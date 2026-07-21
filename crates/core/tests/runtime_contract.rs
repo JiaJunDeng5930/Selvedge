@@ -2,11 +2,11 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 use selvedge_command_model::{
-    ApiCallCorrelation, ApiOutputEnvelope, ArchiveTaskOutcome, CoreOutputMessage, DomainEvent,
+    ApiCallCorrelation, ApiOutputEnvelope, CoreOutputMessage, DomainEvent,
     ModelCallDispatchRequest, ModelCallError, ModelCallErrorKind, ModelRunId, RouterIngressMessage,
     RouterIngressSender, SendUserInputOutcome, TaskCommandError, TaskRuntimeCommand,
     TaskRuntimeExitReason, ToolExecutionBranch, ToolExecutionBranchTarget, ToolExecutionResult,
-    archive_task_response_channel, send_user_input_response_channel,
+    send_user_input_response_channel,
 };
 use selvedge_core::{SpawnTaskRuntimeArgs, TaskRuntimeConfig, spawn_task_runtime};
 use selvedge_db::{
@@ -15,16 +15,17 @@ use selvedge_db::{
     TaskToolSpec, ToolExecutionSource, ToolName, ToolRecoveryPolicy, ToolResultBranch,
     ToolResultBranchTarget, UnixTs, append_assistant_message_and_drain_queue,
     append_model_reply_with_tool_calls_and_move_cursor, append_user_message_and_move_cursor,
-    commit_tool_result_branches, create_history_node, create_root_task, load_active_task,
-    queue_user_input, read_conversation_for_task, read_task_tool_state,
-    reconcile_task_tool_availability,
+    commit_tool_result_branches, create_history_node, create_root_task, load_runtime_task,
+    queue_user_input, read_conversation_for_task, read_open_function_calls_for_task,
+    read_task_tool_state, reconcile_task_tool_availability, transition_task_status,
 };
 use selvedge_domain_model::{
     CallableTools, FUNCTION_CALL_CONTENT_TYPE, FUNCTION_OUTPUT_CONTENT_TYPE, JsonObject,
-    ModelFinishReason, ModelReply, ToolCallProposal, ToolSpec,
+    ModelFinishReason, ModelReply, TaskLifecycleEvent, TaskStatus, ToolCallProposal, ToolSpec,
 };
 use selvedge_test_support::db::{
-    default_model_profiles, open_memory_db, open_memory_db_with_max_task_descendants,
+    create_root_task_with_user_message, default_model_profiles, open_memory_db,
+    open_memory_db_with_max_task_descendants,
 };
 use serde_json::{Value, json};
 
@@ -61,7 +62,6 @@ async fn task_runtime_starts_and_requests_model_call_from_system_cursor() {
         db,
         router_tx: router_tx.downgrade(),
         config: TaskRuntimeConfig {
-            mailbox_capacity: 8,
             model_profiles: model_profiles(),
         },
     })
@@ -70,7 +70,6 @@ async fn task_runtime_starts_and_requests_model_call_from_system_cursor() {
     runtime
         .task_runtime_tx
         .send(TaskRuntimeCommand::Start)
-        .await
         .expect("send start");
     let ready = router_rx.recv().await.expect("ready");
     assert!(matches!(
@@ -134,7 +133,6 @@ async fn task_runtime_start_requests_model_from_user_cursor_without_draining_que
         db: db.clone(),
         router_tx: router_tx.downgrade(),
         config: TaskRuntimeConfig {
-            mailbox_capacity: 16,
             model_profiles: model_profiles(),
         },
     })
@@ -143,7 +141,6 @@ async fn task_runtime_start_requests_model_from_user_cursor_without_draining_que
     runtime
         .task_runtime_tx
         .send(TaskRuntimeCommand::Start)
-        .await
         .expect("send start");
     let _ready = router_rx.recv().await.expect("ready");
     let request = tokio::time::timeout(
@@ -160,7 +157,7 @@ async fn task_runtime_start_requests_model_from_user_cursor_without_draining_que
         .and_then(|message| message.content.as_str());
     assert_eq!(last_text, Some("current"));
     assert_eq!(
-        load_active_task(&db, &TaskId("task-1".to_owned()))
+        load_runtime_task(&db, &TaskId("task-1".to_owned()))
             .expect("load task")
             .queued_inputs
             .len(),
@@ -208,7 +205,6 @@ async fn task_runtime_start_promotes_queue_before_awaiting_user_input() {
         db: db.clone(),
         router_tx: router_tx.downgrade(),
         config: TaskRuntimeConfig {
-            mailbox_capacity: 16,
             model_profiles: model_profiles(),
         },
     })
@@ -217,7 +213,6 @@ async fn task_runtime_start_promotes_queue_before_awaiting_user_input() {
     runtime
         .task_runtime_tx
         .send(TaskRuntimeCommand::Start)
-        .await
         .expect("send start");
     let _ready = router_rx.recv().await.expect("ready");
     let request = recv_model_request(&mut router_rx).await;
@@ -229,7 +224,7 @@ async fn task_runtime_start_promotes_queue_before_awaiting_user_input() {
 
     assert_eq!(last_text, Some("queued"));
     assert!(
-        load_active_task(&db, &TaskId("task-1".to_owned()))
+        load_runtime_task(&db, &TaskId("task-1".to_owned()))
             .expect("load task")
             .queued_inputs
             .is_empty()
@@ -281,7 +276,6 @@ async fn task_runtime_start_dispatches_tool_from_function_call_cursor() {
         db,
         router_tx: router_tx.downgrade(),
         config: TaskRuntimeConfig {
-            mailbox_capacity: 16,
             model_profiles: model_profiles(),
         },
     })
@@ -290,7 +284,6 @@ async fn task_runtime_start_dispatches_tool_from_function_call_cursor() {
     runtime
         .task_runtime_tx
         .send(TaskRuntimeCommand::Start)
-        .await
         .expect("send start");
     let _ready = router_rx.recv().await.expect("ready");
     let request =
@@ -354,7 +347,6 @@ async fn task_runtime_start_reconstructs_open_batched_tool_calls_from_history() 
         db,
         router_tx: router_tx.downgrade(),
         config: TaskRuntimeConfig {
-            mailbox_capacity: 16,
             model_profiles: model_profiles(),
         },
     })
@@ -363,7 +355,6 @@ async fn task_runtime_start_reconstructs_open_batched_tool_calls_from_history() 
     runtime
         .task_runtime_tx
         .send(TaskRuntimeCommand::Start)
-        .await
         .expect("send start");
     let _ready = router_rx.recv().await.expect("ready");
     let first_tool_request = recv_tool_request(&mut router_rx).await;
@@ -411,7 +402,6 @@ async fn task_runtime_dispatches_all_tool_calls_before_next_model_call() {
                 },
             },
         ))
-        .await
         .expect("send model reply");
 
     let first_tool_request = recv_tool_request(&mut router_rx).await;
@@ -427,7 +417,6 @@ async fn task_runtime_dispatches_all_tool_calls_before_next_model_call() {
             tool_name: first_tool_request.tool_name,
             branches: calling_tool_result_branches(json!("first"), false),
         }))
-        .await
         .expect("send first tool result");
 
     let second_tool_request = recv_tool_request(&mut router_rx).await;
@@ -456,7 +445,6 @@ async fn task_runtime_ensures_child_runtimes_after_branch_commit() {
                 },
             },
         ))
-        .await
         .expect("send fork call");
     let request = recv_tool_request(&mut router_rx).await;
     let child_task_id = TaskId("child-1".to_owned());
@@ -486,7 +474,6 @@ async fn task_runtime_ensures_child_runtimes_after_branch_commit() {
                 },
             ],
         }))
-        .await
         .expect("send fork result");
 
     assert!(matches!(
@@ -523,7 +510,6 @@ async fn task_runtime_commits_descendant_limit_as_a_model_visible_tool_error() {
                 },
             },
         ))
-        .await
         .expect("send fork call");
     let request = recv_tool_request(&mut router_rx).await;
 
@@ -560,7 +546,6 @@ async fn task_runtime_commits_descendant_limit_as_a_model_visible_tool_error() {
                 },
             ],
         }))
-        .await
         .expect("send oversized fork result");
 
     let next_model_request = recv_model_request(&mut router_rx).await;
@@ -577,50 +562,30 @@ async fn task_runtime_commits_descendant_limit_as_a_model_visible_tool_error() {
 }
 
 #[tokio::test]
-async fn task_runtime_stop_returns_after_archive_exit() {
-    let (runtime, mut router_rx, _router_tx) = spawn_runtime_with_task(Vec::new()).await;
+async fn task_runtime_exits_after_archived_status_notification() {
+    let db = open_memory_db();
+    create_root_task_with_user_message(&db, "task-1", "hello", UnixTs(1));
+    let (router_tx, mut router_rx) = tokio::sync::mpsc::unbounded_channel();
+    let runtime = spawn_task_runtime(SpawnTaskRuntimeArgs {
+        task_id: TaskId("task-1".to_owned()),
+        db: db.clone(),
+        router_tx: router_tx.downgrade(),
+        config: TaskRuntimeConfig {
+            model_profiles: model_profiles(),
+        },
+    })
+    .expect("spawn runtime");
+    let _correlation = start_and_request_model(&runtime, &mut router_rx).await;
 
-    runtime.task_runtime_control.freeze();
-    let (archive_responder, archive_response) = archive_task_response_channel();
-    let (late_input_responder, late_input_response) = send_user_input_response_channel();
-    let (racing_archive_responder, racing_archive_response) = archive_task_response_channel();
-    runtime
-        .task_runtime_tx
-        .send(TaskRuntimeCommand::Archive {
-            responder: archive_responder,
-        })
-        .await
-        .expect("send archive");
-    runtime
-        .task_runtime_tx
-        .send(TaskRuntimeCommand::UserInput {
-            message_text: "after archive".to_owned(),
-            responder: late_input_responder,
-        })
-        .await
-        .expect("send late input");
-    runtime
-        .task_runtime_tx
-        .send(TaskRuntimeCommand::Archive {
-            responder: racing_archive_responder,
-        })
-        .await
-        .expect("send racing archive");
-    runtime.task_runtime_control.unfreeze();
-    assert_eq!(
-        archive_response.await.expect("archive response"),
-        Ok(ArchiveTaskOutcome::Archived)
-    );
-    assert_eq!(
-        late_input_response.await.expect("late input response"),
-        Err(TaskCommandError::TaskArchived)
-    );
-    assert_eq!(
-        racing_archive_response
-            .await
-            .expect("racing archive response"),
-        Err(TaskCommandError::TaskArchived)
-    );
+    transition_task_status(
+        &db,
+        &TaskId("task-1".to_owned()),
+        TaskLifecycleEvent::Archive,
+        UnixTs(2),
+    )
+    .expect("archive task");
+    runtime.task_runtime_control.notify_status_changed();
+
     let message = router_rx.recv().await.expect("runtime exit");
     assert!(matches!(
         message,
@@ -630,26 +595,220 @@ async fn task_runtime_stop_returns_after_archive_exit() {
 
     tokio::time::timeout(
         Duration::from_millis(50),
-        runtime.task_runtime_control.stop(),
+        runtime.task_runtime_control.shutdown(),
     )
     .await
     .expect("stop completed");
 }
 
 #[tokio::test]
-async fn task_runtime_stop_completes_when_router_ingress_is_not_drained() {
+async fn frozen_runtime_leaves_mailbox_untouched_until_unfreeze() {
+    let db = open_memory_db();
+    create_root_task_with_user_message(&db, "task-1", "current", UnixTs(1));
+    transition_task_status(
+        &db,
+        &TaskId("task-1".to_owned()),
+        TaskLifecycleEvent::Freeze,
+        UnixTs(2),
+    )
+    .expect("freeze task");
+    let (router_tx, mut router_rx) = tokio::sync::mpsc::unbounded_channel();
+    let runtime = spawn_task_runtime(SpawnTaskRuntimeArgs {
+        task_id: TaskId("task-1".to_owned()),
+        db: db.clone(),
+        router_tx: router_tx.downgrade(),
+        config: TaskRuntimeConfig {
+            model_profiles: model_profiles(),
+        },
+    })
+    .expect("spawn runtime");
+    runtime
+        .task_runtime_tx
+        .send(TaskRuntimeCommand::Start)
+        .expect("send start");
+    assert!(matches!(
+        router_rx.recv().await,
+        Some(RouterIngressMessage::Core(envelope))
+            if matches!(envelope.message, CoreOutputMessage::RuntimeReady)
+    ));
+
+    let (responder, mut response) = send_user_input_response_channel();
+    runtime
+        .task_runtime_tx
+        .send(TaskRuntimeCommand::UserInput {
+            message_text: "queued in mailbox".to_owned(),
+            responder,
+        })
+        .expect("send input");
+    assert!(
+        tokio::time::timeout(Duration::from_millis(25), &mut response)
+            .await
+            .is_err()
+    );
+    assert!(
+        tokio::time::timeout(Duration::from_millis(25), router_rx.recv())
+            .await
+            .is_err()
+    );
+
+    transition_task_status(
+        &db,
+        &TaskId("task-1".to_owned()),
+        TaskLifecycleEvent::Unfreeze,
+        UnixTs(3),
+    )
+    .expect("unfreeze task");
+    runtime.task_runtime_control.notify_status_changed();
+
+    let request = recv_model_request(&mut router_rx).await;
+    assert_eq!(
+        request
+            .conversation
+            .messages
+            .last()
+            .and_then(|message| message.content.as_str()),
+        Some("current")
+    );
+    assert_eq!(
+        response.await.expect("input response after unfreeze"),
+        Ok(SendUserInputOutcome::Queued)
+    );
+}
+
+#[tokio::test]
+async fn stopped_runtime_commits_tool_result_without_calling_model_until_user_input() {
+    let db = open_memory_db();
+    create_root_task(
+        &db,
+        CreateRootTaskInput {
+            task_id: TaskId("task-1".to_owned()),
+            cursor_node_id: create_history_node(
+                &db,
+                NewHistoryNode {
+                    parent_node_id: None,
+                    content: NewHistoryNodeContent::Message(NewMessageNodeContent {
+                        message_role: selvedge_db::MessageRole::System,
+                        message_text: "system".to_owned(),
+                    }),
+                    created_at: UnixTs(1),
+                },
+            )
+            .expect("create cursor node"),
+            model_profile_key: selvedge_db::ModelProfileKey("default".to_owned()),
+            reasoning_effort: ReasoningEffort::Medium,
+            tools: vec![task_tool(tool_spec("search"))],
+            now: UnixTs(1),
+        },
+    )
+    .expect("create task");
+    let (router_tx, mut router_rx) = tokio::sync::mpsc::unbounded_channel();
+    let runtime = spawn_task_runtime(SpawnTaskRuntimeArgs {
+        task_id: TaskId("task-1".to_owned()),
+        db: db.clone(),
+        router_tx: router_tx.downgrade(),
+        config: TaskRuntimeConfig {
+            model_profiles: model_profiles(),
+        },
+    })
+    .expect("spawn runtime");
+    let correlation = start_and_request_model(&runtime, &mut router_rx).await;
+    runtime
+        .task_runtime_tx
+        .send(TaskRuntimeCommand::ApiModelReply(
+            ApiOutputEnvelope::Success {
+                correlation,
+                reply: ModelReply {
+                    content: None,
+                    tool_calls: vec![ToolCallProposal {
+                        call_id: "call-1".to_owned(),
+                        tool_name: "search".to_owned(),
+                        arguments: JsonObject::new(),
+                    }],
+                    usage: None,
+                    finish_reason: ModelFinishReason::ToolCalls,
+                },
+            },
+        ))
+        .expect("send model reply");
+    let tool_request = recv_tool_request(&mut router_rx).await;
+
+    transition_task_status(
+        &db,
+        &TaskId("task-1".to_owned()),
+        TaskLifecycleEvent::Stop,
+        UnixTs(2),
+    )
+    .expect("stop task");
+    runtime.task_runtime_control.notify_status_changed();
+    runtime
+        .task_runtime_tx
+        .send(TaskRuntimeCommand::ToolResult(ToolExecutionResult {
+            task_id: TaskId("task-1".to_owned()),
+            tool_execution_run_id: tool_request.tool_execution_run_id,
+            function_call_node_id: tool_request.function_call_node_id,
+            function_call_id: tool_request.function_call_id,
+            tool_name: tool_request.tool_name,
+            branches: calling_tool_result_branches(json!("done"), false),
+        }))
+        .expect("send tool result");
+    tokio::time::timeout(Duration::from_millis(50), async {
+        loop {
+            if read_open_function_calls_for_task(&db, &TaskId("task-1".to_owned()))
+                .expect("read open calls")
+                .is_empty()
+            {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("tool result committed");
+    assert!(
+        tokio::time::timeout(Duration::from_millis(25), router_rx.recv())
+            .await
+            .is_err()
+    );
+
+    let (responder, response) = send_user_input_response_channel();
+    runtime
+        .task_runtime_tx
+        .send(TaskRuntimeCommand::UserInput {
+            message_text: "continue".to_owned(),
+            responder,
+        })
+        .expect("send user input");
+    assert!(matches!(
+        response.await.expect("user input response"),
+        Ok(SendUserInputOutcome::Committed { .. })
+    ));
+    assert_eq!(
+        load_runtime_task(&db, &TaskId("task-1".to_owned()))
+            .expect("load active task")
+            .task
+            .task_status,
+        TaskStatus::Active
+    );
+    let request = recv_model_request(&mut router_rx).await;
+    assert_eq!(
+        tool_transcript_events(&request),
+        vec!["call:call-1", "output:call-1"]
+    );
+}
+
+#[tokio::test]
+async fn task_runtime_shutdown_completes_when_router_ingress_is_not_drained() {
     let (runtime, _router_rx, _router_tx) = spawn_runtime_with_task(Vec::new()).await;
 
     runtime
         .task_runtime_tx
         .send(TaskRuntimeCommand::Start)
-        .await
         .expect("send start");
     tokio::task::yield_now().await;
 
     tokio::time::timeout(
         Duration::from_millis(50),
-        runtime.task_runtime_control.stop(),
+        runtime.task_runtime_control.shutdown(),
     )
     .await
     .expect("stop completed");
@@ -685,7 +844,6 @@ async fn task_runtime_preserves_batched_tool_call_order_in_next_model_request() 
                 },
             },
         ))
-        .await
         .expect("send model reply");
 
     let first_tool_request = recv_tool_request(&mut router_rx).await;
@@ -699,7 +857,6 @@ async fn task_runtime_preserves_batched_tool_call_order_in_next_model_request() 
             tool_name: first_tool_request.tool_name,
             branches: calling_tool_result_branches(json!("first"), false),
         }))
-        .await
         .expect("send first tool result");
 
     let second_tool_request = recv_tool_request(&mut router_rx).await;
@@ -713,7 +870,6 @@ async fn task_runtime_preserves_batched_tool_call_order_in_next_model_request() 
             tool_name: second_tool_request.tool_name,
             branches: calling_tool_result_branches(json!("second"), false),
         }))
-        .await
         .expect("send second tool result");
 
     let request = tokio::time::timeout(
@@ -765,7 +921,6 @@ async fn task_runtime_ignores_tool_result_with_mismatched_call_identity() {
         db: db.clone(),
         router_tx: router_tx.downgrade(),
         config: TaskRuntimeConfig {
-            mailbox_capacity: 16,
             model_profiles: model_profiles(),
         },
     })
@@ -796,11 +951,10 @@ async fn task_runtime_ignores_tool_result_with_mismatched_call_identity() {
                 },
             },
         ))
-        .await
         .expect("send model reply");
 
     let first_tool_request = recv_tool_request(&mut router_rx).await;
-    let call_2_node_id = load_active_task(&db, &TaskId("task-1".to_owned()))
+    let call_2_node_id = load_runtime_task(&db, &TaskId("task-1".to_owned()))
         .expect("load task")
         .task
         .cursor_node_id;
@@ -815,7 +969,6 @@ async fn task_runtime_ignores_tool_result_with_mismatched_call_identity() {
             tool_name: first_tool_request.tool_name.clone(),
             branches: calling_tool_result_branches(json!("wrong"), false),
         }))
-        .await
         .expect("send mismatched tool result");
 
     assert!(
@@ -834,7 +987,6 @@ async fn task_runtime_ignores_tool_result_with_mismatched_call_identity() {
             tool_name: first_tool_request.tool_name,
             branches: calling_tool_result_branches(json!("first"), false),
         }))
-        .await
         .expect("send correct tool result");
 
     let second_tool_request = recv_tool_request(&mut router_rx).await;
@@ -871,7 +1023,6 @@ async fn task_runtime_rejects_duplicate_tool_call_ids_in_one_model_reply() {
                 },
             },
         ))
-        .await
         .expect("send model reply");
 
     assert_internal_exit(&mut router_rx).await;
@@ -910,7 +1061,6 @@ async fn task_runtime_validates_tool_reply_against_sent_callable_snapshot() {
         db: db.clone(),
         router_tx: router_tx.downgrade(),
         config: TaskRuntimeConfig {
-            mailbox_capacity: 16,
             model_profiles: model_profiles(),
         },
     })
@@ -958,7 +1108,6 @@ async fn task_runtime_validates_tool_reply_against_sent_callable_snapshot() {
                 },
             },
         ))
-        .await
         .expect("send model reply");
 
     let tool_request = recv_tool_request(&mut router_rx).await;
@@ -982,7 +1131,6 @@ async fn task_runtime_validates_tool_reply_against_sent_callable_snapshot() {
             tool_name: tool_request.tool_name,
             branches: calling_tool_result_branches(json!("done"), false),
         }))
-        .await
         .expect("send tool result");
 
     let next_request = recv_model_request(&mut router_rx).await;
@@ -1021,7 +1169,6 @@ async fn task_runtime_rejects_tool_calls_outside_enabled_manifest() {
         db,
         router_tx: router_tx.downgrade(),
         config: TaskRuntimeConfig {
-            mailbox_capacity: 16,
             model_profiles: model_profiles(),
         },
     })
@@ -1045,7 +1192,6 @@ async fn task_runtime_rejects_tool_calls_outside_enabled_manifest() {
                 },
             },
         ))
-        .await
         .expect("send model reply");
 
     assert_internal_exit(&mut router_rx).await;
@@ -1081,7 +1227,6 @@ async fn task_runtime_validates_all_tool_calls_before_dispatching_any() {
                 },
             },
         ))
-        .await
         .expect("send model reply");
 
     assert_internal_exit(&mut router_rx).await;
@@ -1097,7 +1242,6 @@ async fn task_runtime_ignores_unrelated_validation_failure_while_waiting() {
             message_text: "queued".to_owned(),
             responder: send_user_input_response_channel().0,
         })
-        .await
         .expect("queue while waiting");
 
     runtime
@@ -1115,7 +1259,6 @@ async fn task_runtime_ignores_unrelated_validation_failure_while_waiting() {
                 },
             },
         ))
-        .await
         .expect("send unrelated failure");
 
     assert!(
@@ -1137,7 +1280,6 @@ async fn task_runtime_ignores_unrelated_validation_failure_while_waiting() {
                 },
             },
         ))
-        .await
         .expect("send current reply");
 
     let next_model_request = router_rx.recv().await.expect("queued model request");
@@ -1164,7 +1306,6 @@ async fn task_runtime_reports_current_model_call_failure() {
                 },
             },
         ))
-        .await
         .expect("send failure");
 
     let event = tokio::time::timeout(std::time::Duration::from_millis(25), router_rx.recv())
@@ -1192,7 +1333,6 @@ async fn task_runtime_promotes_queued_input_after_model_failure() {
             message_text: "queued".to_owned(),
             responder: send_user_input_response_channel().0,
         })
-        .await
         .expect("queue input");
 
     runtime
@@ -1206,7 +1346,6 @@ async fn task_runtime_promotes_queued_input_after_model_failure() {
                 },
             },
         ))
-        .await
         .expect("send model failure");
 
     let event = router_rx.recv().await.expect("error event");
@@ -1239,7 +1378,6 @@ async fn user_input_response_distinguishes_committed_and_queued_transitions() {
                 },
             },
         ))
-        .await
         .expect("send model failure");
     let _error_event = router_rx.recv().await.expect("error event");
 
@@ -1250,7 +1388,6 @@ async fn user_input_response_distinguishes_committed_and_queued_transitions() {
             message_text: "committed".to_owned(),
             responder: committed_responder,
         })
-        .await
         .expect("send committed input");
     let Ok(SendUserInputOutcome::Committed { node_id }) =
         committed_response.await.expect("committed response")
@@ -1274,7 +1411,6 @@ async fn user_input_response_distinguishes_committed_and_queued_transitions() {
             message_text: "queued".to_owned(),
             responder: queued_responder,
         })
-        .await
         .expect("send queued input");
     assert_eq!(
         queued_response.await.expect("queued response"),
@@ -1314,7 +1450,6 @@ async fn task_runtime_rejects_empty_idle_user_input_before_append() {
         db,
         router_tx: router_tx.downgrade(),
         config: TaskRuntimeConfig {
-            mailbox_capacity: 16,
             model_profiles: model_profiles(),
         },
     })
@@ -1322,11 +1457,9 @@ async fn task_runtime_rejects_empty_idle_user_input_before_append() {
     runtime
         .task_runtime_tx
         .send(TaskRuntimeCommand::Start)
-        .await
         .expect("send start");
     let _ready = router_rx.recv().await.expect("ready");
 
-    runtime.task_runtime_control.freeze();
     let (responder, response) = send_user_input_response_channel();
     let (late_responder, late_response) = send_user_input_response_channel();
     runtime
@@ -1335,7 +1468,6 @@ async fn task_runtime_rejects_empty_idle_user_input_before_append() {
             message_text: String::new(),
             responder,
         })
-        .await
         .expect("send empty input");
     runtime
         .task_runtime_tx
@@ -1343,9 +1475,7 @@ async fn task_runtime_rejects_empty_idle_user_input_before_append() {
             message_text: "after runtime failure".to_owned(),
             responder: late_responder,
         })
-        .await
         .expect("send late input");
-    runtime.task_runtime_control.unfreeze();
     assert_eq!(
         response.await.expect("input response"),
         Err(TaskCommandError::InvalidCommand)
@@ -1366,7 +1496,6 @@ async fn task_runtime_ignores_replayed_start_after_model_request() {
     runtime
         .task_runtime_tx
         .send(TaskRuntimeCommand::Start)
-        .await
         .expect("send replayed start");
 
     assert!(
@@ -1391,7 +1520,6 @@ async fn task_runtime_preserves_model_wait_state_for_stray_tool_result() {
             tool_name: selvedge_db::ToolName("tool".to_owned()),
             branches: calling_tool_result_branches(json!("stray"), false),
         }))
-        .await
         .expect("send stray tool result");
     runtime
         .task_runtime_tx
@@ -1399,7 +1527,6 @@ async fn task_runtime_preserves_model_wait_state_for_stray_tool_result() {
             message_text: "queued".to_owned(),
             responder: send_user_input_response_channel().0,
         })
-        .await
         .expect("queue input");
 
     assert!(
@@ -1482,7 +1609,6 @@ async fn task_runtime_preserves_queued_input_when_append_fails() {
         db: db.clone(),
         router_tx: router_tx.downgrade(),
         config: TaskRuntimeConfig {
-            mailbox_capacity: 16,
             model_profiles: model_profiles(),
         },
     })
@@ -1490,12 +1616,11 @@ async fn task_runtime_preserves_queued_input_when_append_fails() {
     runtime
         .task_runtime_tx
         .send(TaskRuntimeCommand::Start)
-        .await
         .expect("send start");
     let _ready = router_rx.recv().await.expect("ready");
     let _exit = router_rx.recv().await.expect("db error exit");
 
-    let loaded = load_active_task(&db, &TaskId("task-1".to_owned())).expect("load task");
+    let loaded = load_runtime_task(&db, &TaskId("task-1".to_owned())).expect("load task");
     assert_eq!(loaded.queued_inputs.len(), 1);
 }
 
@@ -1550,7 +1675,6 @@ async fn task_runtime_recovers_open_tool_call_before_model_dispatch() {
         db,
         router_tx: router_tx.downgrade(),
         config: TaskRuntimeConfig {
-            mailbox_capacity: 16,
             model_profiles: model_profiles(),
         },
     })
@@ -1559,7 +1683,6 @@ async fn task_runtime_recovers_open_tool_call_before_model_dispatch() {
     runtime
         .task_runtime_tx
         .send(TaskRuntimeCommand::Start)
-        .await
         .expect("send start");
     let _ready = router_rx.recv().await.expect("ready");
     let request = recv_tool_request(&mut router_rx).await;
@@ -1649,7 +1772,6 @@ async fn child_runtime_synthesizes_unknown_outcome_for_inherited_open_call() {
         db,
         router_tx: router_tx.downgrade(),
         config: TaskRuntimeConfig {
-            mailbox_capacity: 16,
             model_profiles: model_profiles(),
         },
     })
@@ -1676,7 +1798,7 @@ async fn child_runtime_synthesizes_unknown_outcome_for_inherited_open_call() {
             .expect("message")
             .contains("Whether it took effect is unknown")
     );
-    let _ = runtime.task_runtime_control.stop().await;
+    let _ = runtime.task_runtime_control.shutdown().await;
 }
 
 #[tokio::test]
@@ -1747,7 +1869,6 @@ async fn task_runtime_allows_messages_between_tool_call_and_matching_output() {
         db,
         router_tx: router_tx.downgrade(),
         config: TaskRuntimeConfig {
-            mailbox_capacity: 16,
             model_profiles: model_profiles(),
         },
     })
@@ -1756,7 +1877,6 @@ async fn task_runtime_allows_messages_between_tool_call_and_matching_output() {
     runtime
         .task_runtime_tx
         .send(TaskRuntimeCommand::Start)
-        .await
         .expect("send start");
     let _ready = router_rx.recv().await.expect("ready");
     runtime
@@ -1765,7 +1885,6 @@ async fn task_runtime_allows_messages_between_tool_call_and_matching_output() {
             message_text: "hello".to_owned(),
             responder: send_user_input_response_channel().0,
         })
-        .await
         .expect("send input");
 
     let request = recv_model_request(&mut router_rx).await;
@@ -1825,7 +1944,6 @@ async fn spawn_runtime_with_task_and_descendant_limit(
         db,
         router_tx: router_tx.downgrade(),
         config: TaskRuntimeConfig {
-            mailbox_capacity: 16,
             model_profiles: model_profiles(),
         },
     })
@@ -1849,7 +1967,6 @@ async fn start_and_recv_model_request(
     runtime
         .task_runtime_tx
         .send(TaskRuntimeCommand::Start)
-        .await
         .expect("send start");
     let ready = router_rx.recv().await.expect("ready");
     assert!(matches!(
@@ -1941,13 +2058,12 @@ async fn spawn_runtime_and_start_one_model_call(db: selvedge_db::DbPool) -> Mode
         db,
         router_tx: router_tx.downgrade(),
         config: TaskRuntimeConfig {
-            mailbox_capacity: 16,
             model_profiles: model_profiles(),
         },
     })
     .expect("spawn runtime");
     let request = start_and_recv_model_request(&runtime, &mut router_rx).await;
-    let _ = runtime.task_runtime_control.stop().await;
+    let _ = runtime.task_runtime_control.shutdown().await;
     request.correlation.model_run_id
 }
 
