@@ -3,13 +3,14 @@ use selvedge_db::{
     HistoryNode, HistoryNodeId, JsonObject, MessageRole, ModelProfileKey,
     NewFunctionCallNodeContent, NewFunctionOutputNodeContent, NewHistoryNode,
     NewHistoryNodeContent, NewMessageNodeContent, OpenDbOptions, ReadTaskInput, ReasoningEffort,
-    TaskId, TaskStatusRow, TaskToolSpec, ToolExecutionSource, ToolManifest, ToolName,
-    ToolRecoveryPolicy, ToolResultBranch, ToolResultBranchTarget, ToolSpec, UnixTs,
-    append_model_reply_with_tool_calls_and_move_cursor, append_user_message_and_move_cursor,
-    archive_task, commit_tool_result_branches, create_history_node, create_root_task,
-    load_active_task, open_db, queue_user_input, read_conversation_for_task, read_task,
-    read_task_parent_edges, read_task_tool_state, read_tool_execution_source,
-    read_tool_manifest_for_task, reconcile_task_tool_availability,
+    TaskId, TaskLifecycleEvent, TaskStatus, TaskToolSpec, ToolExecutionSource, ToolManifest,
+    ToolName, ToolRecoveryPolicy, ToolResultBranch, ToolResultBranchTarget, ToolSpec, UnixTs,
+    append_assistant_message_and_drain_queue, append_model_reply_with_tool_calls_and_move_cursor,
+    append_user_message_and_move_cursor, commit_tool_result_branches, create_history_node,
+    create_root_task, list_runtime_tasks, load_runtime_task, open_db, queue_user_input,
+    read_conversation_for_task, read_task, read_task_parent_edges, read_task_status,
+    read_task_tool_state, read_tool_execution_source, read_tool_manifest_for_task,
+    reconcile_task_tool_availability, transition_task_status,
 };
 use serde_json::Value;
 
@@ -55,6 +56,18 @@ fn create_task_without_tools(db: &DbPool, task_id: &str) -> TaskId {
     )
     .expect("create task")
     .task_id
+}
+
+fn create_task_with_status(db: &DbPool, task_id: &str, status: TaskStatus) -> TaskId {
+    let task_id = create_task_without_tools(db, task_id);
+    let event = match status {
+        TaskStatus::Active => return task_id,
+        TaskStatus::Frozen => TaskLifecycleEvent::Freeze,
+        TaskStatus::Stopped => TaskLifecycleEvent::Stop,
+        TaskStatus::Archived => TaskLifecycleEvent::Archive,
+    };
+    transition_task_status(db, &task_id, event, UnixTs(11)).expect("prepare task status");
+    task_id
 }
 
 fn tool_spec(name: &str, description: &str) -> ToolSpec {
@@ -170,10 +183,10 @@ fn open_db_creates_schema_and_root_task_transaction_moves_cursor() {
     )
     .expect("create root task");
 
-    assert_eq!(task.task_status, TaskStatusRow::Active);
+    assert_eq!(task.task_status, TaskStatus::Active);
     assert_eq!(task.state_version, 0);
 
-    let loaded = load_active_task(&db, &TaskId("task-1".to_owned())).expect("load active task");
+    let loaded = load_runtime_task(&db, &TaskId("task-1".to_owned())).expect("load runtime task");
     assert_eq!(loaded.task.cursor_node_id, task.cursor_node_id);
     assert!(matches!(loaded.cursor_node, HistoryNode::Message { .. }));
 }
@@ -220,13 +233,13 @@ fn descendant_limit_is_enforced_for_every_ancestor_in_the_commit_transaction() {
         edges_before
     );
     assert!(matches!(
-        load_active_task(&db, &TaskId("rejected".to_owned())),
+        load_runtime_task(&db, &TaskId("rejected".to_owned())),
         Err(DbError::NotFound)
     ));
 }
 
 #[test]
-fn archive_task_clears_queued_inputs_before_status_update() {
+fn archive_task_preserves_queued_inputs() {
     let db = open_db(OpenDbOptions {
         sqlite_path: ":memory:".to_owned(),
         max_children_per_fork: 5,
@@ -253,7 +266,244 @@ fn archive_task_clears_queued_inputs_before_status_update() {
     )
     .expect("queue input");
 
-    archive_task(&db, &TaskId("task-1".to_owned()), UnixTs(12)).expect("archive task");
+    transition_task_status(
+        &db,
+        &TaskId("task-1".to_owned()),
+        TaskLifecycleEvent::Archive,
+        UnixTs(12),
+    )
+    .expect("archive task");
+    let archived = read_task(
+        &db,
+        ReadTaskInput {
+            task_id: TaskId("task-1".to_owned()),
+            after_node_id: None,
+            limit: 10,
+        },
+    )
+    .expect("read archived task");
+    assert_eq!(archived.task_status, TaskStatus::Archived);
+    assert_eq!(archived.queued_input_count, 1);
+}
+
+#[test]
+fn task_status_transitions_are_strict_and_runtime_queries_exclude_archived_tasks() {
+    let cases = [
+        (
+            TaskStatus::Active,
+            TaskLifecycleEvent::Freeze,
+            Some(TaskStatus::Frozen),
+        ),
+        (TaskStatus::Active, TaskLifecycleEvent::Unfreeze, None),
+        (
+            TaskStatus::Active,
+            TaskLifecycleEvent::Stop,
+            Some(TaskStatus::Stopped),
+        ),
+        (
+            TaskStatus::Active,
+            TaskLifecycleEvent::Archive,
+            Some(TaskStatus::Archived),
+        ),
+        (TaskStatus::Frozen, TaskLifecycleEvent::Freeze, None),
+        (
+            TaskStatus::Frozen,
+            TaskLifecycleEvent::Unfreeze,
+            Some(TaskStatus::Active),
+        ),
+        (TaskStatus::Frozen, TaskLifecycleEvent::Stop, None),
+        (
+            TaskStatus::Frozen,
+            TaskLifecycleEvent::Archive,
+            Some(TaskStatus::Archived),
+        ),
+        (TaskStatus::Stopped, TaskLifecycleEvent::Freeze, None),
+        (TaskStatus::Stopped, TaskLifecycleEvent::Unfreeze, None),
+        (TaskStatus::Stopped, TaskLifecycleEvent::Stop, None),
+        (
+            TaskStatus::Stopped,
+            TaskLifecycleEvent::Archive,
+            Some(TaskStatus::Archived),
+        ),
+        (TaskStatus::Archived, TaskLifecycleEvent::Freeze, None),
+        (TaskStatus::Archived, TaskLifecycleEvent::Unfreeze, None),
+        (TaskStatus::Archived, TaskLifecycleEvent::Stop, None),
+        (TaskStatus::Archived, TaskLifecycleEvent::Archive, None),
+    ];
+
+    let db = open_db(OpenDbOptions {
+        sqlite_path: ":memory:".to_owned(),
+        max_children_per_fork: 5,
+        max_task_descendants: 20,
+    })
+    .expect("open db");
+
+    for (index, (initial, event, expected)) in cases.into_iter().enumerate() {
+        let task_id = create_task_with_status(&db, &format!("case-{index}"), initial);
+        let version_before = read_task(
+            &db,
+            ReadTaskInput {
+                task_id: task_id.clone(),
+                after_node_id: None,
+                limit: 1,
+            },
+        )
+        .expect("read task before transition")
+        .state_version;
+        let result = transition_task_status(&db, &task_id, event, UnixTs(12));
+        match expected {
+            Some(status) => {
+                let transitioned = result.expect("valid transition");
+                assert_eq!(transitioned.task_status, status);
+                assert_eq!(transitioned.state_version, version_before + 1);
+            }
+            None => assert_eq!(result, Err(DbError::InvalidTaskStatus { status: initial })),
+        }
+    }
+
+    let runtime_statuses = list_runtime_tasks(&db)
+        .expect("list runtime tasks")
+        .into_iter()
+        .map(|task| task.task_status)
+        .collect::<Vec<_>>();
+    assert!(runtime_statuses.contains(&TaskStatus::Active));
+    assert!(runtime_statuses.contains(&TaskStatus::Frozen));
+    assert!(runtime_statuses.contains(&TaskStatus::Stopped));
+    assert!(!runtime_statuses.contains(&TaskStatus::Archived));
+
+    let archived_task_id = TaskId("case-12".to_owned());
+    assert_eq!(
+        load_runtime_task(&db, &archived_task_id),
+        Err(DbError::InvalidTaskStatus {
+            status: TaskStatus::Archived,
+        })
+    );
+    assert_eq!(
+        read_task_status(&db, &archived_task_id),
+        Ok(TaskStatus::Archived)
+    );
+}
+
+#[test]
+fn stopped_user_input_reactivates_in_the_input_transaction() {
+    let db = open_db(OpenDbOptions {
+        sqlite_path: ":memory:".to_owned(),
+        max_children_per_fork: 5,
+        max_task_descendants: 20,
+    })
+    .expect("open db");
+    let direct = create_task_with_status(&db, "direct", TaskStatus::Stopped);
+    assert!(matches!(
+        transition_task_status(&db, &direct, TaskLifecycleEvent::UserInput, UnixTs(12),),
+        Err(DbError::Constraint(_))
+    ));
+    assert_eq!(read_task_status(&db, &direct), Ok(TaskStatus::Stopped));
+    let node_id =
+        append_user_message_and_move_cursor(&db, &direct, "resume directly".to_owned(), UnixTs(12))
+            .expect("append user input");
+    let direct_read = read_task(
+        &db,
+        ReadTaskInput {
+            task_id: direct,
+            after_node_id: None,
+            limit: 10,
+        },
+    )
+    .expect("read directly resumed task");
+    assert_eq!(direct_read.task_status, TaskStatus::Active);
+    assert_eq!(direct_read.state_version, 2);
+    assert_eq!(direct_read.cursor_node_id, node_id);
+    assert_eq!(
+        history_message_texts(&direct_read.history_nodes),
+        vec!["run", "resume directly"]
+    );
+
+    let queued = create_task_with_status(&db, "queued", TaskStatus::Stopped);
+    queue_user_input(&db, &queued, "resume queued".to_owned(), UnixTs(12))
+        .expect("queue user input");
+    let queued_read = read_task(
+        &db,
+        ReadTaskInput {
+            task_id: queued,
+            after_node_id: None,
+            limit: 10,
+        },
+    )
+    .expect("read queued resumed task");
+    assert_eq!(queued_read.task_status, TaskStatus::Active);
+    assert_eq!(queued_read.state_version, 2);
+    assert_eq!(queued_read.queued_input_count, 1);
+}
+
+#[test]
+fn non_archived_tasks_accept_runtime_commits_and_archived_tasks_reject_them() {
+    let db = open_db(OpenDbOptions {
+        sqlite_path: ":memory:".to_owned(),
+        max_children_per_fork: 5,
+        max_task_descendants: 20,
+    })
+    .expect("open db");
+    let frozen = create_task_with_status(&db, "frozen", TaskStatus::Frozen);
+    append_assistant_message_and_drain_queue(
+        &db,
+        &frozen,
+        "completed while frozen".to_owned(),
+        UnixTs(12),
+    )
+    .expect("commit frozen history");
+    assert_eq!(read_task_status(&db, &frozen), Ok(TaskStatus::Frozen));
+
+    let stopped = create_root_task(
+        &db,
+        CreateRootTaskInput {
+            task_id: TaskId("stopped".to_owned()),
+            cursor_node_id: create_message_node(&db, None, MessageRole::User, "run", UnixTs(10)),
+            model_profile_key: ModelProfileKey("default".to_owned()),
+            reasoning_effort: ReasoningEffort::Medium,
+            tools: vec![harness_tool(tool_spec("search", "Search"))],
+            now: UnixTs(10),
+        },
+    )
+    .expect("create stopped task");
+    let call_node_id = append_model_reply_with_tool_calls_and_move_cursor(
+        &db,
+        &stopped.task_id,
+        None,
+        vec![function_call("search-1", "search")],
+        UnixTs(11),
+    )
+    .expect("append function call")[0];
+    transition_task_status(&db, &stopped.task_id, TaskLifecycleEvent::Stop, UnixTs(12))
+        .expect("stop task");
+    commit_tool_result_branches(
+        &db,
+        CommitToolResultBranchesInput {
+            calling_task_id: stopped.task_id.clone(),
+            function_call_node_id: call_node_id,
+            function_call_id: FunctionCallId("search-1".to_owned()),
+            tool_name: ToolName("search".to_owned()),
+            branches: vec![ToolResultBranch {
+                target: ToolResultBranchTarget::CallingTask,
+                output: Value::String("done".to_owned()),
+                is_error: false,
+                user_messages: Vec::new(),
+            }],
+            now: UnixTs(13),
+        },
+    )
+    .expect("commit stopped tool result");
+    assert_eq!(
+        read_task_status(&db, &stopped.task_id),
+        Ok(TaskStatus::Stopped)
+    );
+
+    let archived = create_task_with_status(&db, "archived", TaskStatus::Archived);
+    assert_eq!(
+        append_assistant_message_and_drain_queue(&db, &archived, "rejected".to_owned(), UnixTs(12),),
+        Err(DbError::InvalidTaskStatus {
+            status: TaskStatus::Archived,
+        })
+    );
 }
 
 #[test]
@@ -442,7 +692,7 @@ fn tool_result_commit_creates_sibling_branches_with_independent_cursors() {
         ]
     );
 
-    let child = load_active_task(&db, &TaskId("child-with-message".to_owned()))
+    let child = load_runtime_task(&db, &TaskId("child-with-message".to_owned()))
         .expect("load child")
         .task;
     assert_eq!(child.model_profile_key, parent.model_profile_key);
@@ -794,7 +1044,7 @@ fn read_task_pages_active_and_archived_cursor_paths_and_rejects_invalid_bounds()
         },
     )
     .expect("read first page");
-    assert_eq!(first_page.task_status, TaskStatusRow::Active);
+    assert_eq!(first_page.task_status, TaskStatus::Active);
     assert_eq!(first_page.state_version, 2);
     assert_eq!(first_page.cursor_node_id, second);
     assert_eq!(first_page.parent_task_id, None);
@@ -855,7 +1105,8 @@ fn read_task_pages_active_and_archived_cursor_paths_and_rejects_invalid_bounds()
         Err(DbError::Constraint(_))
     ));
 
-    archive_task(&db, &task.task_id, UnixTs(14)).expect("archive task");
+    transition_task_status(&db, &task.task_id, TaskLifecycleEvent::Archive, UnixTs(14))
+        .expect("archive task");
     let archived = read_task(
         &db,
         ReadTaskInput {
@@ -865,9 +1116,9 @@ fn read_task_pages_active_and_archived_cursor_paths_and_rejects_invalid_bounds()
         },
     )
     .expect("read archived task");
-    assert_eq!(archived.task_status, TaskStatusRow::Archived);
+    assert_eq!(archived.task_status, TaskStatus::Archived);
     assert_eq!(archived.state_version, 3);
-    assert_eq!(archived.queued_input_count, 0);
+    assert_eq!(archived.queued_input_count, 1);
     assert_eq!(
         history_message_texts(&archived.history_nodes),
         vec!["first", "second"]
@@ -995,7 +1246,7 @@ fn tool_result_branch_failure_rolls_back_tasks_edges_history_and_queue_drain() {
     ));
     assert_eq!(durable_counts(), before_failure);
     assert_eq!(
-        load_active_task(&db, &parent.task_id)
+        load_runtime_task(&db, &parent.task_id)
             .expect("reload parent")
             .task
             .cursor_node_id,
