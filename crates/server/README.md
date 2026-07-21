@@ -2,7 +2,7 @@
 
 <!-- selvedge-package-readme
 package: selvedge-server
-freshness_fingerprint: 8ef7fdb807c4c0a9885517aba3436e2f89ed7ac3
+freshness_fingerprint: 4ec8c81d9fa8d8288decb2ab5ffddb526f7ef173
 -->
 
 This crate owns the process-local Selvedge server lifecycle.
@@ -13,11 +13,11 @@ Use it to start the server runtime, hold the singleton lock, initialize config a
 
 After opening SQLite, startup builds the current harness catalog and connects configured MCP servers to discover their complete tool catalogs. It then reconciles active and archived tasks by changing only their unavailable-tool exceptions; stored definitions, routes, and task limits are never rewritten. Duplicate runtime names or reconciliation failures stop startup before task recovery. The shared MCP connections stay alive for concurrent calls and close their process groups after the supervised services stop.
 
-Startup owns every acquired service until the complete runtime is handed off. Any failure stops and joins the router, client-sync, web, and events tasks that were started, closes discovered MCP connections, and only then releases the singleton lock. The lock has one RAII owner from acquisition through handoff to the server join task, so cancelling startup also releases the file lock and removes its path.
+Startup owns every acquired service until the complete runtime is handed off. Any failure stops and joins the router, client-sync, web, and events tasks that were started, closes discovered MCP connections, and only then releases the singleton lock. The lock has one RAII owner from acquisition through handoff to the server join task, so cancelling startup also releases it.
 
 Function-call history projections carry one JSON object and function outputs carry one JSON value unchanged across the command-model and local-protocol boundary. The server does not flatten arguments or stringify outputs.
 
-The singleton lock is `<selvedge_home>/server.lock`. The lock file is removed during normal shutdown, startup-failure cleanup, and startup cancellation.
+The singleton lock is `<selvedge_home>/server.lock`. Its path is persistent because every contender must lock the same inode; file presence does not indicate whether a server is running. Normal shutdown, startup failure, and startup cancellation release the OS lock while retaining the file.
 
 Config and logging initialization recognize repeated initialization through their typed `AlreadyInitialized` variants. Every other initialization error remains a startup failure.
 
@@ -63,7 +63,7 @@ flowchart TD
   Stop[Stop server]
   RollbackServices[Stop and join acquired services]
   CloseMcp[Close MCP server connections]
-  ReleaseLock[Release and remove singleton lock]
+  ReleaseLock[Release singleton file lock]
   StartupFailure[Return startup error and cleanup]
   RequestFailure[Return control-surface error]
   Stopped[Server stopped]
@@ -106,5 +106,5 @@ flowchart TD
   CancelStartup -->|MCP transports and lock owner are dropped| ReleaseLock
   RollbackServices -->|all acquired services have stopped| CloseMcp
   CloseMcp -->|all MCP connections have closed| ReleaseLock
-  ReleaseLock -->|file lock is released and lock path is removed| Stopped
+  ReleaseLock -->|file lock is released and fixed path remains| Stopped
 ```

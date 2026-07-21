@@ -224,12 +224,15 @@ fn server_sigint_runs_supervised_shutdown_and_exits_130() {
         .expect("wait for graceful shutdown");
 
     assert_eq!(output.status.code(), Some(130));
-    assert!(!lock_path.exists(), "supervised shutdown must remove lock");
+    assert!(
+        lock_path.exists(),
+        "supervised shutdown must retain the stable lock inode"
+    );
 }
 
 #[cfg(unix)]
 #[test]
-fn server_sigint_cancels_stalled_mcp_startup_and_removes_lock() {
+fn server_sigint_cancels_stalled_mcp_startup_and_releases_lock() {
     use std::fs;
     use std::os::unix::fs::PermissionsExt;
 
@@ -295,7 +298,10 @@ fn server_sigint_cancels_stalled_mcp_startup_and_removes_lock() {
         .expect("collect interrupted server");
 
     assert_eq!(output.status.code(), Some(130));
-    assert!(!lock_path.exists(), "cancelled startup must remove lock");
+    assert!(
+        lock_path.exists(),
+        "cancelled startup must retain the stable lock inode"
+    );
 }
 
 fn released_loopback_port() -> u16 {

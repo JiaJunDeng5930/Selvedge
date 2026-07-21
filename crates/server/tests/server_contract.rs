@@ -55,7 +55,13 @@ async fn spawn_server_initializes_ready_control_and_creates_durable_paths() {
     handle.control.stop().await;
     handle.join_handle.await.expect("join server");
     assert_eq!(handle.control.state().await, ServerRuntimeState::Stopped);
-    assert!(!home.join("server.lock").exists());
+    assert!(home.join("server.lock").exists());
+
+    let restarted = spawn_server(test_args(home.to_path_buf()))
+        .await
+        .expect("persistent lock file must be reusable after shutdown");
+    restarted.control.stop().await;
+    restarted.join_handle.await.expect("join restarted server");
 }
 
 #[tokio::test]
@@ -165,7 +171,7 @@ async fn singleton_lock_rejects_second_web_enabled_server_before_port_bind() {
 }
 
 #[tokio::test]
-async fn stale_lock_file_does_not_block_server_restart() {
+async fn persistent_lock_file_does_not_block_server_restart() {
     let _guard = SERVER_TEST_LOCK.lock().await;
     let home = SERVER_TEST_HOME.path();
     std::fs::write(home.join("server.lock"), "stale").expect("write stale lock");
@@ -179,7 +185,7 @@ async fn stale_lock_file_does_not_block_server_restart() {
 }
 
 #[tokio::test]
-async fn startup_failure_after_lock_removes_recoverable_lock_file() {
+async fn startup_failure_releases_persistent_lock() {
     let _guard = SERVER_TEST_LOCK.lock().await;
     let home = SERVER_TEST_HOME.path();
     let sqlite_path = home.join("selvedge.sqlite");
@@ -192,18 +198,18 @@ async fn startup_failure_after_lock_removes_recoverable_lock_file() {
     let failed = spawn_server(test_args(home.to_path_buf())).await;
 
     assert!(matches!(failed, Err(ServerStartupError::DbOpenFailed(_))));
-    assert!(!lock_path.exists());
+    assert!(lock_path.exists());
 
     std::fs::remove_dir(&sqlite_path).expect("remove sqlite path directory");
     let restarted = spawn_server(test_args(home.to_path_buf()))
         .await
-        .expect("stale lock file should remain recoverable");
+        .expect("persistent lock file should be reusable");
     restarted.control.stop().await;
     restarted.join_handle.await.expect("join restarted server");
 }
 
 #[tokio::test]
-async fn mcp_start_failure_removes_recoverable_lock_file() {
+async fn mcp_start_failure_releases_persistent_lock() {
     let _guard = SERVER_TEST_LOCK.lock().await;
     let home = SERVER_TEST_HOME.path();
     let lock_path = home.join("server.lock");
@@ -225,7 +231,7 @@ async fn mcp_start_failure_removes_recoverable_lock_file() {
     let failed = spawn_server(args).await;
 
     assert!(matches!(failed, Err(ServerStartupError::McpStartFailed(_))));
-    assert!(!lock_path.exists());
+    assert!(lock_path.exists());
 
     let restarted = spawn_server(test_args(home.to_path_buf()))
         .await
@@ -278,7 +284,7 @@ async fn occupied_web_bind_target_is_rejected_before_runtime_tasks_start() {
         Err(ServerStartupError::LocalhostBindFailed(_))
     ));
     assert!(!sqlite_path.exists());
-    assert!(!lock_path.exists());
+    assert!(lock_path.exists());
 }
 
 #[tokio::test]
@@ -507,7 +513,7 @@ async fn initialized_config_rejects_mismatched_explicit_home() {
 }
 
 #[tokio::test]
-async fn relative_explicit_home_cleans_lock_after_working_directory_changes() {
+async fn relative_explicit_home_releases_lock_after_working_directory_changes() {
     let _guard = SERVER_TEST_LOCK.lock().await;
     let home = SERVER_TEST_HOME.path();
     let parent = home.parent().expect("temp home parent").to_path_buf();
@@ -527,7 +533,12 @@ async fn relative_explicit_home_cleans_lock_after_working_directory_changes() {
     handle.join_handle.await.expect("join server");
     std::env::set_current_dir(original_cwd).expect("restore cwd");
 
-    assert!(!home.join("server.lock").exists());
+    assert!(home.join("server.lock").exists());
+    let restarted = spawn_server(test_args(home.to_path_buf()))
+        .await
+        .expect("relative-home lock should be reusable after shutdown");
+    restarted.control.stop().await;
+    restarted.join_handle.await.expect("join restarted server");
 }
 
 struct BlockingLocalOperationExecutor {
