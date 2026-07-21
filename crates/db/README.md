@@ -2,12 +2,12 @@
 
 <!-- selvedge-package-readme
 package: selvedge-db
-freshness_fingerprint: 58e1a4b41caaced3ac89b0287d32f58526d700be
+freshness_fingerprint: 043e430ad37f8d30fbb1afbe60c31b76f0e51268
 -->
 
 This crate owns SQLite persistence for router-mediated Selvedge tasks.
 
-Use it to create and open schema-v8 SQLite databases, create tasks with frozen tool contracts, reconcile task-local tool availability, atomically commit tool-result branches, commit other task-runtime state transitions, queue user inputs, archive tasks, and read bounded task snapshots. Nonempty databases must match schema v8 exactly.
+Use it to create and open schema-v9 SQLite databases, create tasks with frozen tool contracts, reconcile task-local tool availability, atomically commit tool-result branches, commit other task-runtime state transitions, queue user inputs, archive tasks, and read bounded task snapshots. Nonempty databases must match schema v9 exactly.
 
 This crate is for SQLite persistence only. Runtime wait state, provider calls, tool execution, router registries, and event delivery live in other crates.
 
@@ -15,10 +15,11 @@ Resource boundaries:
 
 - `create_history_node` inserts one history node. History parent links are a standalone graph.
 - `create_root_task` inserts one task row at a caller-provided existing `cursor_node_id`. Task parent links and history parent links are separate graphs.
-- `create_root_task` stores one ordered `TaskToolSpec` set and the current fork and descendant limits with the new task. These values are immutable task contract data rather than references to a mutable catalog.
+- `create_root_task` stores one ordered `TaskToolSpec` set, including each tool's recovery policy, and the current fork and descendant limits with the new task. These values are immutable task contract data rather than references to a mutable catalog.
 - `reconcile_task_tool_availability` compares stored task routes with the current runtime catalog and replaces only each task's unavailable-tool set. An empty set permits the complete frozen manifest; duplicate runtime names reject the transaction.
 - `read_task_tool_state` returns the complete frozen manifest and its unavailable exceptions. `read_tool_manifest_for_task` therefore remains stable when runtime tools disappear.
-- `commit_tool_result_branches` requires one calling-task branch and accepts zero or more new-child branches for an exact open function call on the calling task's current cursor path. Before writing, the same immediate transaction verifies that adding those children keeps the calling task and every ancestor within that ancestor's stored descendant limit; archived descendants still count. Every output is a sibling under that cursor. The calling branch then appends its supplied user messages and drains queued inputs; each child branch appends its own supplied user messages. Child task rows, parent edges, inherited tool contracts and unavailable exceptions, all history nodes, and every cursor are committed in one transaction.
+- `commit_tool_result_branches` requires one calling-task branch and accepts zero or more new-child branches for an exact open function call on the calling task's current cursor path. Before writing, the same immediate transaction verifies that adding those children keeps the calling task and every ancestor within that ancestor's stored descendant limit; archived descendants still count. Every output is a sibling under that cursor. The calling branch then appends its supplied user messages and drains queued inputs; each child branch appends its own supplied user messages. Child task rows, parent edges, inherited tool contracts, recovery policies and unavailable exceptions, all history nodes, and every cursor are committed in one transaction.
+- `read_open_function_calls_for_task` returns every call without an output on the current cursor path together with the recovery policy frozen for that task.
 - Function outputs store arbitrary JSON values. The schema permits outputs for the same call on sibling paths while rejecting a second output on one history path.
 - `read_task` returns task identity, durable status, state version, cursor, optional parent, queued-input count, an exclusive `after_node_id` history page, and an exact `has_more` flag from one SQLite read transaction. Page limits are `1..=100`, and the after node must be on that task's cursor path.
 - `read_task_parent_edges` returns durable task-layer parent edges for router snapshots and factory verification.
@@ -36,7 +37,7 @@ flowchart TD
   Start([database API call])
   Open[Open SQLite database]
   Schema{stored schema state}
-  Initialize[Create schema v8]
+  Initialize[Create schema v9]
   SnapshotTx[Start read_task transaction]
   SnapshotValidate[Validate task, limit, and after node]
   SnapshotPage[Read metadata and cursor-path page]
@@ -54,9 +55,9 @@ flowchart TD
   Open -->|database has no application tables| Initialize
   Open -->|database has application tables and schema metadata is readable| Schema
   Open -->|SQLite open or schema metadata read fails| OpenError
-  Schema -->|stored version is task-tool-snapshots-v8| Return
+  Schema -->|stored version is tool-recovery-policy-v9| Return
   Schema -->|stored version is missing or unsupported| OpenError
-  Initialize -->|schema-v8 batch succeeds| Return
+  Initialize -->|schema-v9 batch succeeds| Return
   Initialize -->|schema creation fails| OpenError
   Start -->|read_task is called with open connection| SnapshotTx
   SnapshotTx -->|transaction begins| SnapshotValidate

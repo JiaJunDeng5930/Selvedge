@@ -23,7 +23,7 @@ use selvedge_command_model::{
 use selvedge_config_model::HarnessConfig;
 use selvedge_db::{
     DbError, DbPool, HistoryNode, ReadTaskInput, TaskRead, TaskStatusRow, TaskToolSpec,
-    ToolExecutionSource, read_task, read_tool_execution_source,
+    ToolExecutionSource, ToolRecoveryPolicy, read_task, read_tool_execution_source,
 };
 use selvedge_domain_model::{
     HistoryNodeId, JsonObject, MessageRole, TaskId, ToolManifest, ToolSpec,
@@ -163,6 +163,13 @@ pub fn harness_tool_catalog(config: &HarnessConfig) -> Vec<TaskToolSpec> {
         .tools
         .into_iter()
         .map(|tool| TaskToolSpec {
+            recovery_policy: match tool.name.as_str() {
+                FORK_TASK_TOOL_NAME | READ_TASK_TOOL_NAME => ToolRecoveryPolicy::RetrySafe,
+                SEND_MESSAGE_TO_TASK_TOOL_NAME | ARCHIVE_TASK_TOOL_NAME | BASH_TOOL_NAME => {
+                    ToolRecoveryPolicy::OutcomeUnknown
+                }
+                _ => unreachable!("tool_manifest returned an unknown harness tool"),
+            },
             tool,
             execution_source: ToolExecutionSource::Harness,
         })

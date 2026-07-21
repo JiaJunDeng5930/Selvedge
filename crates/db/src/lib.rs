@@ -12,7 +12,7 @@ pub use selvedge_domain_model::{
 };
 use serde_json::Value;
 
-const SCHEMA_VERSION: &str = "task-tool-snapshots-v8";
+const SCHEMA_VERSION: &str = "tool-recovery-policy-v9";
 pub const MAX_TASK_HISTORY_PAGE_SIZE: u32 = 100;
 
 #[derive(Clone)]
@@ -107,6 +107,12 @@ pub enum ToolExecutionSource {
     },
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ToolRecoveryPolicy {
+    RetrySafe,
+    OutcomeUnknown,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TaskToolExecution {
     pub source: ToolExecutionSource,
@@ -118,6 +124,7 @@ pub struct TaskToolExecution {
 pub struct TaskToolSpec {
     pub tool: ToolSpec,
     pub execution_source: ToolExecutionSource,
+    pub recovery_policy: ToolRecoveryPolicy,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -206,6 +213,7 @@ pub struct OpenFunctionCall {
     pub function_call_id: FunctionCallId,
     pub tool_name: ToolName,
     pub arguments: JsonObject,
+    pub recovery_policy: ToolRecoveryPolicy,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -667,9 +675,9 @@ pub fn commit_tool_result_branches(
                 tx.execute(
                     "INSERT INTO task_tools
                      (task_id, tool_ordinal, tool_name, description_text, input_schema_json,
-                      mcp_server_id, remote_tool_name, execution_source_kind)
+                      mcp_server_id, remote_tool_name, execution_source_kind, recovery_policy)
                      SELECT ?1, tool_ordinal, tool_name, description_text, input_schema_json,
-                            mcp_server_id, remote_tool_name, execution_source_kind
+                            mcp_server_id, remote_tool_name, execution_source_kind, recovery_policy
                      FROM task_tools
                      WHERE task_id = ?2",
                     params![child_task_id.0, input.calling_task_id.0],
@@ -891,6 +899,7 @@ pub fn read_open_function_calls_for_task(
 ) -> Result<Vec<OpenFunctionCall>, DbError> {
     let task = load_active_task(db, task_id)?.task;
     let connection = db.connection()?;
+    let recovery_policies = read_task_tool_recovery_policies_in_connection(&connection, task_id)?;
     let mut nodes = Vec::new();
     let mut next_node_id = Some(task.cursor_node_id);
     while let Some(node_id) = next_node_id {
@@ -915,11 +924,22 @@ pub fn read_open_function_calls_for_task(
                 arguments,
                 ..
             } => {
+                let recovery_policy =
+                    recovery_policies
+                        .get(&tool_name.0)
+                        .copied()
+                        .ok_or_else(|| {
+                            DbError::Storage(format!(
+                                "history references tool '{}' outside the task tool snapshot",
+                                tool_name.0
+                            ))
+                        })?;
                 open_calls.push(OpenFunctionCall {
                     function_call_node_id: node_id,
                     function_call_id,
                     tool_name,
                     arguments,
+                    recovery_policy,
                 });
             }
             HistoryNode::FunctionOutput {
@@ -1765,8 +1785,8 @@ fn insert_task_tool_in_tx(
     tx.execute(
         "INSERT INTO task_tools
          (task_id, tool_ordinal, tool_name, description_text, input_schema_json,
-          execution_source_kind, mcp_server_id, remote_tool_name)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+          execution_source_kind, mcp_server_id, remote_tool_name, recovery_policy)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
         params![
             task_id.0,
             i64::try_from(ordinal).map_err(|_| DbError::Constraint(
@@ -1777,7 +1797,8 @@ fn insert_task_tool_in_tx(
             encode_json_object(&tool.tool.input_schema)?,
             execution_source_kind,
             mcp_server_id,
-            remote_tool_name
+            remote_tool_name,
+            encode_tool_recovery_policy(tool.recovery_policy)
         ],
     )
     .map_err(map_error)?;
@@ -1790,7 +1811,7 @@ fn read_all_task_tools_in_connection(
     let mut statement = connection
         .prepare(
             "SELECT task_id, tool_name, description_text, input_schema_json,
-                    execution_source_kind, mcp_server_id, remote_tool_name
+                    execution_source_kind, mcp_server_id, remote_tool_name, recovery_policy
              FROM task_tools
              ORDER BY task_id, tool_ordinal",
         )
@@ -1804,6 +1825,8 @@ fn read_all_task_tools_in_connection(
                 row.get::<_, String>(3)?,
                 decode_tool_execution_source(&row.get::<_, String>(4)?, row.get(5)?, row.get(6)?)
                     .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?,
+                decode_tool_recovery_policy(&row.get::<_, String>(7)?)
+                    .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?,
             ))
         })
         .map_err(map_error)?
@@ -1811,7 +1834,7 @@ fn read_all_task_tools_in_connection(
         .map_err(map_error)?;
     rows.into_iter()
         .map(
-            |(task_id, name, description, input_schema_json, execution_source)| {
+            |(task_id, name, description, input_schema_json, execution_source, recovery_policy)| {
                 Ok((
                     TaskId(task_id),
                     TaskToolSpec {
@@ -1821,11 +1844,36 @@ fn read_all_task_tools_in_connection(
                             input_schema: decode_json_object(&input_schema_json)?,
                         },
                         execution_source,
+                        recovery_policy,
                     },
                 ))
             },
         )
         .collect()
+}
+
+fn read_task_tool_recovery_policies_in_connection(
+    connection: &Connection,
+    task_id: &TaskId,
+) -> Result<BTreeMap<String, ToolRecoveryPolicy>, DbError> {
+    let mut statement = connection
+        .prepare(
+            "SELECT tool_name, recovery_policy
+             FROM task_tools
+             WHERE task_id = ?1",
+        )
+        .map_err(map_error)?;
+    statement
+        .query_map(params![task_id.0], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                decode_tool_recovery_policy(&row.get::<_, String>(1)?)
+                    .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?,
+            ))
+        })
+        .map_err(map_error)?
+        .collect::<Result<BTreeMap<_, _>, _>>()
+        .map_err(map_error)
 }
 
 fn read_all_unavailable_tools_in_connection(
@@ -2246,6 +2294,23 @@ fn decode_tool_execution_source(
         }
         (other, _, _) => Err(DbError::Storage(format!(
             "invalid tool execution source: {other}"
+        ))),
+    }
+}
+
+fn encode_tool_recovery_policy(policy: ToolRecoveryPolicy) -> &'static str {
+    match policy {
+        ToolRecoveryPolicy::RetrySafe => "retry_safe",
+        ToolRecoveryPolicy::OutcomeUnknown => "outcome_unknown",
+    }
+}
+
+fn decode_tool_recovery_policy(policy: &str) -> Result<ToolRecoveryPolicy, DbError> {
+    match policy {
+        "retry_safe" => Ok(ToolRecoveryPolicy::RetrySafe),
+        "outcome_unknown" => Ok(ToolRecoveryPolicy::OutcomeUnknown),
+        other => Err(DbError::Storage(format!(
+            "invalid tool recovery policy: {other}"
         ))),
     }
 }

@@ -4,7 +4,7 @@ use selvedge_db::{
     NewFunctionCallNodeContent, NewFunctionOutputNodeContent, NewHistoryNode,
     NewHistoryNodeContent, NewMessageNodeContent, OpenDbOptions, ReadTaskInput, ReasoningEffort,
     TaskId, TaskStatusRow, TaskToolSpec, ToolExecutionSource, ToolManifest, ToolName,
-    ToolResultBranch, ToolResultBranchTarget, ToolSpec, UnixTs,
+    ToolRecoveryPolicy, ToolResultBranch, ToolResultBranchTarget, ToolSpec, UnixTs,
     append_model_reply_with_tool_calls_and_move_cursor, append_user_message_and_move_cursor,
     archive_task, commit_tool_result_branches, create_history_node, create_root_task,
     load_active_task, open_db, queue_user_input, read_conversation_for_task, read_task,
@@ -77,6 +77,7 @@ fn mcp_tool(
             server_id: server_id.to_owned(),
             remote_tool_name: remote_tool_name.to_owned(),
         },
+        recovery_policy: ToolRecoveryPolicy::OutcomeUnknown,
     }
 }
 
@@ -84,6 +85,7 @@ fn harness_tool(tool: ToolSpec) -> TaskToolSpec {
     TaskToolSpec {
         tool,
         execution_source: ToolExecutionSource::Harness,
+        recovery_policy: ToolRecoveryPolicy::RetrySafe,
     }
 }
 
@@ -1175,8 +1177,9 @@ fn execution_source_schema_rejects_incomplete_mcp_routes() {
         raw.execute(
             "INSERT INTO task_tools
              (task_id, tool_ordinal, tool_name, description_text, input_schema_json,
-              execution_source_kind, mcp_server_id, remote_tool_name)
-             VALUES (?1, 0, 'broken', 'Broken route', '{}', 'mcp', 'server', NULL)",
+              execution_source_kind, mcp_server_id, remote_tool_name, recovery_policy)
+             VALUES (?1, 0, 'broken', 'Broken route', '{}', 'mcp', 'server', NULL,
+                     'outcome_unknown')",
             [task_id.0],
         )
         .is_err()

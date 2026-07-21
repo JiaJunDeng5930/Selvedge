@@ -17,7 +17,7 @@ use rmcp::transport::{Transport, async_rw::JsonRpcMessageCodec};
 use rmcp::{Peer, RoleClient, ServiceError, ServiceExt};
 use rustix::process::Pid;
 use selvedge_config_model::McpServerConfig;
-use selvedge_db::{TaskToolSpec, ToolExecutionSource};
+use selvedge_db::{TaskToolSpec, ToolExecutionSource, ToolRecoveryPolicy};
 use selvedge_domain_model::{JsonObject, ToolSpec};
 use serde_json::Value;
 use tokio::process::{Child, ChildStdin, ChildStdout, Command};
@@ -422,6 +422,7 @@ fn convert_tool(server_id: &str, tool: Tool) -> Result<TaskToolSpec, McpStartupE
             server_id: server_id.to_owned(),
             remote_tool_name,
         },
+        recovery_policy: ToolRecoveryPolicy::OutcomeUnknown,
     })
 }
 

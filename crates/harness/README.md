@@ -2,7 +2,7 @@
 
 <!-- selvedge-package-readme
 package: selvedge-harness
-freshness_fingerprint: 1b67d4917a66d0c5c27ecf800df0087706b57bc0
+freshness_fingerprint: 90be17ae6d021480b6764f637e9be9620d174cb4
 -->
 
 This crate implements Selvedge task self-orchestration, bounded Bash command execution, and stdio MCP client execution for model tool calls.
@@ -10,6 +10,8 @@ This crate implements Selvedge task self-orchestration, bounded Bash command exe
 Use it for the five harness tool manifests, complete JSON input schemas, typed invocation parsing from JSON objects, argument validation, SQLite-backed task reads, router-mediated task mutations, non-interactive Bash commands, MCP discovery and calls, stable JSON output, and the production `ToolExecutionSpawner`.
 
 Calling task identity and complete function-call correlation come from `ToolExecutionRequest`, not model arguments. SQLite reads run on Tokio's blocking pool. Send and archive wait for typed router responders, so enqueueing a command is never reported as business success.
+
+Each catalog entry carries a recovery policy that is frozen into the task tool contract. `fork_task` and `read_task` are retry-safe because they are side-effect free or commit their effects atomically with their output. `send_message_to_task`, `archive_task`, and `bash` may have taken effect before their output is committed, so they are not automatically retried after interruption. Discovered MCP tools use the same conservative policy because their effect semantics are not known locally.
 
 `McpConnectionSet` starts each configured command in its own process group, completes MCP initialization, and consumes every page from `tools/list`. Each incoming JSON-RPC frame is limited to 4 MiB, and discovery rejects a complete catalog above 1024 tools or 4 MiB of serialized tool definitions. A discovered tool becomes `mcp__<normalized server id>__<normalized remote name>` only when that name is valid and unique and the tool does not require MCP task-mode execution. Missing descriptions receive a stable route-derived description so every definition satisfies the durable task contract.
 

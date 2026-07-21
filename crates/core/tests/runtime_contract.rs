@@ -12,11 +12,12 @@ use selvedge_core::{SpawnTaskRuntimeArgs, TaskRuntimeConfig, spawn_task_runtime}
 use selvedge_db::{
     CommitToolResultBranchesInput, CreateRootTaskInput, FunctionCallId, NewFunctionCallNodeContent,
     NewHistoryNode, NewHistoryNodeContent, NewMessageNodeContent, ReasoningEffort, TaskId,
-    TaskToolSpec, ToolExecutionSource, ToolName, ToolResultBranch, ToolResultBranchTarget, UnixTs,
-    append_assistant_message_and_drain_queue, append_model_reply_with_tool_calls_and_move_cursor,
-    append_user_message_and_move_cursor, commit_tool_result_branches, create_history_node,
-    create_root_task, load_active_task, queue_user_input, read_conversation_for_task,
-    read_task_tool_state, reconcile_task_tool_availability,
+    TaskToolSpec, ToolExecutionSource, ToolName, ToolRecoveryPolicy, ToolResultBranch,
+    ToolResultBranchTarget, UnixTs, append_assistant_message_and_drain_queue,
+    append_model_reply_with_tool_calls_and_move_cursor, append_user_message_and_move_cursor,
+    commit_tool_result_branches, create_history_node, create_root_task, load_active_task,
+    queue_user_input, read_conversation_for_task, read_task_tool_state,
+    reconcile_task_tool_availability,
 };
 use selvedge_domain_model::{
     CallableTools, FUNCTION_CALL_CONTENT_TYPE, FUNCTION_OUTPUT_CONTENT_TYPE, JsonObject,
@@ -1567,6 +1568,118 @@ async fn task_runtime_recovers_open_tool_call_before_model_dispatch() {
 }
 
 #[tokio::test]
+async fn child_runtime_synthesizes_unknown_outcome_for_inherited_open_call() {
+    let db = open_memory_db();
+    let root_task_id = TaskId("task-1".to_owned());
+    create_root_task(
+        &db,
+        CreateRootTaskInput {
+            task_id: root_task_id.clone(),
+            cursor_node_id: create_history_node(
+                &db,
+                NewHistoryNode {
+                    parent_node_id: None,
+                    content: NewHistoryNodeContent::Message(NewMessageNodeContent {
+                        message_role: selvedge_db::MessageRole::System,
+                        message_text: "system".to_owned(),
+                    }),
+                    created_at: UnixTs(1),
+                },
+            )
+            .expect("create cursor node"),
+            model_profile_key: selvedge_db::ModelProfileKey("default".to_owned()),
+            reasoning_effort: ReasoningEffort::Medium,
+            tools: vec![
+                task_tool_with_recovery(tool_spec("fork_task"), ToolRecoveryPolicy::RetrySafe),
+                task_tool_with_recovery(tool_spec("bash"), ToolRecoveryPolicy::OutcomeUnknown),
+            ],
+            now: UnixTs(1),
+        },
+    )
+    .expect("create task");
+    let call_node_ids = append_model_reply_with_tool_calls_and_move_cursor(
+        &db,
+        &root_task_id,
+        None,
+        vec![
+            NewFunctionCallNodeContent {
+                function_call_id: FunctionCallId("fork-call".to_owned()),
+                tool_name: ToolName("fork_task".to_owned()),
+                arguments: JsonObject::new(),
+            },
+            NewFunctionCallNodeContent {
+                function_call_id: FunctionCallId("bash-call".to_owned()),
+                tool_name: ToolName("bash".to_owned()),
+                arguments: json_object(json!({"command": "touch marker"})),
+            },
+        ],
+        UnixTs(2),
+    )
+    .expect("append tool-call batch");
+    let child_task_id = TaskId("child-1".to_owned());
+    commit_tool_result_branches(
+        &db,
+        CommitToolResultBranchesInput {
+            calling_task_id: root_task_id,
+            function_call_node_id: call_node_ids[0],
+            function_call_id: FunctionCallId("fork-call".to_owned()),
+            tool_name: ToolName("fork_task".to_owned()),
+            branches: vec![
+                ToolResultBranch {
+                    target: ToolResultBranchTarget::CallingTask,
+                    output: json!(0),
+                    is_error: false,
+                    user_messages: Vec::new(),
+                },
+                ToolResultBranch {
+                    target: ToolResultBranchTarget::NewChildTask(child_task_id.clone()),
+                    output: json!(1),
+                    is_error: false,
+                    user_messages: vec!["continue child work".to_owned()],
+                },
+            ],
+            now: UnixTs(3),
+        },
+    )
+    .expect("commit fork branches");
+
+    let (router_tx, mut router_rx) = tokio::sync::mpsc::unbounded_channel();
+    let runtime = spawn_task_runtime(SpawnTaskRuntimeArgs {
+        task_id: child_task_id,
+        db,
+        router_tx: router_tx.downgrade(),
+        config: TaskRuntimeConfig {
+            mailbox_capacity: 16,
+            model_profiles: model_profiles(),
+        },
+    })
+    .expect("spawn child runtime");
+    let request = start_and_recv_model_request(&runtime, &mut router_rx).await;
+    let recovered_output = request
+        .conversation
+        .messages
+        .iter()
+        .find(|message| {
+            message.content_type() == Some(FUNCTION_OUTPUT_CONTENT_TYPE)
+                && message.function_call_id() == Some("bash-call")
+        })
+        .expect("synthetic bash output");
+
+    assert_eq!(recovered_output.function_output_is_error(), Some(true));
+    assert_eq!(
+        recovered_output.function_output_value().expect("output")["error"]["code"],
+        "tool_outcome_unknown_after_interruption"
+    );
+    assert!(
+        recovered_output.function_output_value().expect("output")["error"]["message"]
+            .as_str()
+            .expect("message")
+            .contains("Whether it took effect is unknown")
+    );
+    let _ = runtime.task_runtime_control.stop().await;
+}
+
+#[tokio::test]
 async fn task_runtime_allows_messages_between_tool_call_and_matching_output() {
     let db = open_memory_db();
     create_root_task(
@@ -1847,9 +1960,14 @@ fn tool_spec(name: &str) -> ToolSpec {
 }
 
 fn task_tool(tool: ToolSpec) -> TaskToolSpec {
+    task_tool_with_recovery(tool, ToolRecoveryPolicy::RetrySafe)
+}
+
+fn task_tool_with_recovery(tool: ToolSpec, recovery_policy: ToolRecoveryPolicy) -> TaskToolSpec {
     TaskToolSpec {
         tool,
         execution_source: ToolExecutionSource::Harness,
+        recovery_policy,
     }
 }
 
