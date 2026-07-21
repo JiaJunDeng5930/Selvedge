@@ -1,9 +1,38 @@
 use selvedge_domain_model::{
     ApiDomainValidationError, Conversation, ConversationMessage, FunctionCallId, JsonObject,
-    MessageRole, ModelFinishReason, ModelProviderProfile, ModelReply, ToolCallProposal,
-    ToolManifest, ToolName, ToolSpec, validate_conversation, validate_model_provider_profile,
-    validate_model_reply, validate_tool_manifest,
+    MessageRole, ModelFinishReason, ModelProviderProfile, ModelReply, TaskLifecycleEvent,
+    TaskStatus, ToolCallProposal, ToolManifest, ToolName, ToolSpec, validate_conversation,
+    validate_model_provider_profile, validate_model_reply, validate_tool_manifest,
 };
+
+#[test]
+fn task_lifecycle_transition_table_is_exhaustive() {
+    use TaskLifecycleEvent::{Archive, Freeze, Stop, Unfreeze, UserInput};
+    use TaskStatus::{Active, Archived, Frozen, Stopped};
+
+    let statuses = [Active, Frozen, Stopped, Archived];
+    let events = [Freeze, Unfreeze, Stop, Archive, UserInput];
+    let valid = [
+        (Active, Freeze, Frozen),
+        (Frozen, Unfreeze, Active),
+        (Active, Stop, Stopped),
+        (Active, Archive, Archived),
+        (Frozen, Archive, Archived),
+        (Stopped, Archive, Archived),
+        (Active, UserInput, Active),
+        (Frozen, UserInput, Frozen),
+        (Stopped, UserInput, Active),
+    ];
+
+    for status in statuses {
+        for event in events {
+            let expected = valid
+                .iter()
+                .find_map(|(from, cause, to)| (*from == status && *cause == event).then_some(*to));
+            assert_eq!(status.transition(event), expected, "{status:?} + {event:?}");
+        }
+    }
+}
 
 #[test]
 fn conversation_requires_at_least_one_message_and_preserves_text_json() {

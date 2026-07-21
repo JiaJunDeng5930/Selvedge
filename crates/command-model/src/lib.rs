@@ -14,7 +14,7 @@ use selvedge_domain_model::{
     validate_model_provider_profile, validate_model_reply, validate_tool_manifest,
 };
 
-pub use selvedge_domain_model::TaskId;
+pub use selvedge_domain_model::{TaskId, TaskStatus};
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ApiEffectId(pub String);
@@ -83,18 +83,18 @@ pub enum RouterIngressMessage {
 pub type RouterIngressApiMessage = RouterIngressMessage;
 pub type RouterIngressSender = mpsc::UnboundedSender<RouterIngressMessage>;
 pub type RouterIngressWeakSender = mpsc::WeakUnboundedSender<RouterIngressMessage>;
-pub type TaskRuntimeSender = mpsc::Sender<TaskRuntimeCommand>;
+pub type TaskRuntimeSender = mpsc::UnboundedSender<TaskRuntimeCommand>;
 pub type ModelCallRequest = ModelCallDispatchRequest;
 pub type EventIngressSender = mpsc::Sender<EventIngress>;
 pub type ClientFrameSender = mpsc::Sender<ClientFrame>;
 pub type RouterAttachAdmissionSender = oneshot::Sender<RouterAttachAdmissionResult>;
 pub type EventClientReservationSender = oneshot::Sender<EventClientReservationResult>;
 pub type SendUserInputResult = Result<SendUserInputOutcome, TaskCommandError>;
-pub type ArchiveTaskResult = Result<ArchiveTaskOutcome, TaskCommandError>;
+pub type TaskStatusChangeResult = Result<TaskStatusChangeOutcome, TaskCommandError>;
 pub type SendUserInputResponseReceiver = oneshot::Receiver<SendUserInputResult>;
-pub type ArchiveTaskResponseReceiver = oneshot::Receiver<ArchiveTaskResult>;
+pub type TaskStatusChangeResponseReceiver = oneshot::Receiver<TaskStatusChangeResult>;
 pub type SendUserInputResponder = TaskCommandResponder<SendUserInputOutcome>;
-pub type ArchiveTaskResponder = TaskCommandResponder<ArchiveTaskOutcome>;
+pub type TaskStatusChangeResponder = TaskCommandResponder<TaskStatusChangeOutcome>;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SendUserInputOutcome {
@@ -103,13 +103,14 @@ pub enum SendUserInputOutcome {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ArchiveTaskOutcome {
-    Archived,
+pub struct TaskStatusChangeOutcome {
+    pub status: TaskStatus,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TaskCommandError {
     InvalidCommand,
+    InvalidTaskStatus { status: TaskStatus },
     TaskMissing,
     TaskArchived,
     RuntimeUnavailable,
@@ -156,7 +157,8 @@ pub fn send_user_input_response_channel() -> (SendUserInputResponder, SendUserIn
     )
 }
 
-pub fn archive_task_response_channel() -> (ArchiveTaskResponder, ArchiveTaskResponseReceiver) {
+pub fn task_status_change_response_channel()
+-> (TaskStatusChangeResponder, TaskStatusChangeResponseReceiver) {
     let (result_tx, result_rx) = oneshot::channel();
     (
         TaskCommandResponder {
@@ -201,10 +203,19 @@ pub enum RouterCommand {
     },
     ArchiveTask {
         task_id: TaskId,
-        responder: ArchiveTaskResponder,
+        responder: TaskStatusChangeResponder,
     },
-    StopTaskRuntime {
+    FreezeTask {
         task_id: TaskId,
+        responder: TaskStatusChangeResponder,
+    },
+    UnfreezeTask {
+        task_id: TaskId,
+        responder: TaskStatusChangeResponder,
+    },
+    StopTask {
+        task_id: TaskId,
+        responder: TaskStatusChangeResponder,
     },
     EnsureTaskRuntime {
         task_id: TaskId,
@@ -457,19 +468,13 @@ pub struct SnapshotTaskVersion {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TaskProjection {
     pub task_id: TaskId,
-    pub status: TaskProjectionStatus,
+    pub status: TaskStatus,
     pub cursor_node_id: HistoryNodeId,
     pub model_profile_key: ModelProfileKey,
     pub reasoning_effort: ReasoningEffort,
     pub state_version: u64,
     pub created_at: UnixTs,
     pub updated_at: UnixTs,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum TaskProjectionStatus {
-    Active,
-    Archived,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -646,53 +651,41 @@ pub struct TaskRuntimeControl {
 }
 
 struct TaskRuntimeControlInner {
-    frozen: AtomicBool,
-    stopping: AtomicBool,
-    stop_result: Mutex<Option<TaskRuntimeStopResult>>,
+    shutdown_requested: AtomicBool,
+    shutdown_result: Mutex<Option<TaskRuntimeShutdownResult>>,
     actor_notify: Notify,
-    stop_notify: Notify,
+    shutdown_notify: Notify,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct TaskRuntimeStopResult;
+pub struct TaskRuntimeShutdownResult;
 
 impl TaskRuntimeControl {
     pub fn new() -> Self {
         Self {
             inner: Arc::new(TaskRuntimeControlInner {
-                frozen: AtomicBool::new(false),
-                stopping: AtomicBool::new(false),
-                stop_result: Mutex::new(None),
+                shutdown_requested: AtomicBool::new(false),
+                shutdown_result: Mutex::new(None),
                 actor_notify: Notify::new(),
-                stop_notify: Notify::new(),
+                shutdown_notify: Notify::new(),
             }),
         }
     }
 
-    pub fn freeze(&self) {
-        self.inner.frozen.store(true, Ordering::SeqCst);
+    pub fn notify_status_changed(&self) {
         self.inner.actor_notify.notify_one();
     }
 
-    pub fn unfreeze(&self) {
-        self.inner.frozen.store(false, Ordering::SeqCst);
-        self.inner.actor_notify.notify_one();
+    pub fn is_shutdown_requested(&self) -> bool {
+        self.inner.shutdown_requested.load(Ordering::SeqCst)
     }
 
-    pub fn is_frozen(&self) -> bool {
-        self.inner.frozen.load(Ordering::SeqCst)
-    }
-
-    pub fn is_stopping(&self) -> bool {
-        self.inner.stopping.load(Ordering::SeqCst)
-    }
-
-    pub async fn stop(&self) -> TaskRuntimeStopResult {
-        self.inner.stopping.store(true, Ordering::SeqCst);
+    pub async fn shutdown(&self) -> TaskRuntimeShutdownResult {
+        self.inner.shutdown_requested.store(true, Ordering::SeqCst);
         self.inner.actor_notify.notify_one();
         loop {
-            let notified = self.inner.stop_notify.notified();
-            if let Some(result) = self.inner.stop_result.lock().await.clone() {
+            let notified = self.inner.shutdown_notify.notified();
+            if let Some(result) = self.inner.shutdown_result.lock().await.clone() {
                 return result;
             }
             notified.await;
@@ -703,11 +696,11 @@ impl TaskRuntimeControl {
         self.inner.actor_notify.notified().await;
     }
 
-    pub async fn finish_stop(&self, result: TaskRuntimeStopResult) {
-        let mut stop_result = self.inner.stop_result.lock().await;
-        if stop_result.is_none() {
-            *stop_result = Some(result);
-            self.inner.stop_notify.notify_waiters();
+    pub async fn finish_shutdown(&self, result: TaskRuntimeShutdownResult) {
+        let mut shutdown_result = self.inner.shutdown_result.lock().await;
+        if shutdown_result.is_none() {
+            *shutdown_result = Some(result);
+            self.inner.shutdown_notify.notify_waiters();
         }
     }
 
@@ -726,8 +719,7 @@ impl fmt::Debug for TaskRuntimeControl {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("TaskRuntimeControl")
-            .field("frozen", &self.is_frozen())
-            .field("stopping", &self.is_stopping())
+            .field("shutdown_requested", &self.is_shutdown_requested())
             .finish_non_exhaustive()
     }
 }
@@ -752,9 +744,6 @@ pub enum TaskRuntimeCommand {
     },
     ApiModelReply(ApiOutputEnvelope),
     ToolResult(ToolExecutionResult),
-    Archive {
-        responder: ArchiveTaskResponder,
-    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -766,7 +755,7 @@ pub struct TaskRuntimeExitNotice {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TaskRuntimeExitReason {
-    Stopped,
+    Shutdown,
     Archived,
     DbError(String),
     InternalError(String),
@@ -937,7 +926,9 @@ pub fn validate_router_command(
             }
         }
         RouterCommand::ArchiveTask { task_id, .. }
-        | RouterCommand::StopTaskRuntime { task_id }
+        | RouterCommand::FreezeTask { task_id, .. }
+        | RouterCommand::UnfreezeTask { task_id, .. }
+        | RouterCommand::StopTask { task_id, .. }
         | RouterCommand::EnsureTaskRuntime { task_id } => validate_task_id(task_id)?,
         RouterCommand::EnsureMissingTaskRuntimes => {}
     }

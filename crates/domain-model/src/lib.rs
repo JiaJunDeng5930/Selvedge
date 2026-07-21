@@ -16,6 +16,52 @@ pub struct HistoryNodeIdRef(pub String);
 pub struct TaskId(pub String);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize)]
+pub enum TaskStatus {
+    Active,
+    Frozen,
+    Stopped,
+    Archived,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum TaskLifecycleEvent {
+    Freeze,
+    Unfreeze,
+    Stop,
+    Archive,
+    UserInput,
+}
+
+impl TaskStatus {
+    pub const fn transition(self, event: TaskLifecycleEvent) -> Option<Self> {
+        match (self, event) {
+            (Self::Active, TaskLifecycleEvent::Freeze) => Some(Self::Frozen),
+            (Self::Frozen, TaskLifecycleEvent::Unfreeze) => Some(Self::Active),
+            (Self::Active, TaskLifecycleEvent::Stop) => Some(Self::Stopped),
+            (Self::Active | Self::Frozen | Self::Stopped, TaskLifecycleEvent::Archive) => {
+                Some(Self::Archived)
+            }
+            (Self::Active, TaskLifecycleEvent::UserInput) => Some(Self::Active),
+            (Self::Frozen, TaskLifecycleEvent::UserInput) => Some(Self::Frozen),
+            (Self::Stopped, TaskLifecycleEvent::UserInput) => Some(Self::Active),
+            _ => None,
+        }
+    }
+
+    pub const fn has_runtime(self) -> bool {
+        !matches!(self, Self::Archived)
+    }
+
+    pub const fn accepts_history_writes(self) -> bool {
+        !matches!(self, Self::Archived)
+    }
+
+    pub const fn can_call_model(self) -> bool {
+        matches!(self, Self::Active)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize)]
 pub struct HistoryNodeId(pub i64);
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize)]
