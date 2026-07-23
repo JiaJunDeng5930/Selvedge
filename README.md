@@ -2,7 +2,7 @@
 
 <!-- selvedge-package-readme
 package: selvedge
-freshness_fingerprint: be9614d90c1a009ea5adddcaefd9aa74e2b5a6b9
+freshness_fingerprint: 4d07dce83adb167ae3fc03d1cf51c6cf2aab7694
 -->
 
 Selvedge is a Rust repository scaffold with a clean local development flow, pre-commit hooks, and GitHub Actions CI.
@@ -45,7 +45,6 @@ just check
 just hooks
 just agents-index
 just readme-freshness
-just worktree feature/my-change
 ```
 
 Use `just agents-index` after adding, removing, or renaming tracked files so the project index in `AGENTS.md` stays current. Use `just agents-index-check` to verify that the index is up to date without rewriting the file. The index is built from Git-tracked files, so ignored and untracked files stay out automatically. Both commands warn when an indexed directory has an unusually large number of direct filesystem entries.
@@ -93,19 +92,5 @@ flowchart TD
   WaitTerminal -->|matching CommandCompleted notice arrives| Success
   WaitTerminal -->|matching CommandFailed notice, stream close, or protocol error arrives| Failure
 ```
-
-## Parallel development with worktrees
-
-By default, create or switch branches in the repository root and work there. Only use worktrees when you explicitly want multi-branch parallel development.
-
-In that parallel mode, keep the repository root on `main` and create one worktree per focused task:
-
-```bash
-just worktree feature/config-layering
-```
-
-The helper script creates a new branch from the current branch and a matching checkout under the current checkout's `.worktrees` namespace, using a stable hashed directory name derived from the branch name. `.worktrees/` is Git-ignored on purpose, so worktree contents stay out of the tracked checkout.
-
-Run the command from the branch you want to branch off from. If you run it in the repository root on `main`, the new worktree is created under the root `.worktrees/`. If you run it inside an existing helper-managed worktree, the child worktree is created in that worktree's adjacent `.worktrees` storage instead of inside the parent checkout, so removing the parent worktree does not delete the child. The helper refuses to run from worktrees outside the repository root `.worktrees/` hierarchy. It also fails fast if `.worktrees/` is not ignored, if the branch already exists, or if the target worktree path already exists.
 
 See [CONTRIBUTING.md](./CONTRIBUTING.md) for the contribution workflow and pull request expectations.
