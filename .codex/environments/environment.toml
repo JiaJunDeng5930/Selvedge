@@ -1,0 +1,20 @@
+version = 1
+name = "Selvedge"
+
+[setup]
+script = "bash scripts/setup-worktree.sh"
+
+[[actions]]
+name = "Run server"
+icon = "run"
+command = "cargo run --locked -- server"
+
+[[actions]]
+name = "Test"
+icon = "test"
+command = "cargo test --locked --workspace --all-targets --all-features"
+
+[[actions]]
+name = "Check"
+icon = "tool"
+command = "cargo check --locked --workspace --all-targets --all-features"

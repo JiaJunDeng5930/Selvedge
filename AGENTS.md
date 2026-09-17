@@ -73,8 +73,10 @@ This file is for coding agents working in this repository.
 [Project Index]|root:.
 |source:git-tracked-files-only
 |excluded:{git-ignored,git-untracked}
-|.:{.cargo/,.github/,crates/,docs/,scripts/,src/,tests/,xtask/,.editorconfig,.gitignore,.pre-commit-config.yaml,AGENTS.md,CONTRIBUTING.md,Cargo.lock,Cargo.toml,Justfile,README.md,rust-toolchain.toml}
+|.:{.cargo/,.codex/,.github/,crates/,docs/,scripts/,src/,tests/,xtask/,.editorconfig,.gitignore,.pre-commit-config.yaml,AGENTS.md,CONTRIBUTING.md,Cargo.lock,Cargo.toml,Justfile,README.md,rust-toolchain.toml}
 |.cargo:{config.toml}
+|.codex:{environments/}
+|.codex/environments:{environment.toml}
 |.github:{workflows/}
 |.github/workflows:{ci.yml}
 |crates:{api/,chatgpt-api/,chatgpt-auth/,chatgpt-login/,client-sync/,client/,command-model/,config-model/,config/,core/,db/,domain-model/,events/,harness/,local-client/,local-protocol/,logging/,model-credentials/,model-providers/,router/,server/,task-runtime-factory/,test-support/,tui/,web/}
@@ -158,7 +160,7 @@ This file is for coding agents working in this repository.
 |crates/web/tests:{web_contract.rs}
 |docs:{adr/}
 |docs/adr:{0001-task-owned-tool-contracts.md,0002-open-tool-call-recovery.md,0003-persisted-task-lifecycle.md,0004-semantic-ownership-at-runtime-boundaries.md,0005-single-source-configuration-and-transport.md}
-|scripts:{bootstrap.sh}
+|scripts:{bootstrap.sh,setup-worktree.sh}
 |src:{lib.rs,main.rs}
 |tests:{stdout_stderr_integration.rs}
 |xtask:{src/,Cargo.toml,README.md}
