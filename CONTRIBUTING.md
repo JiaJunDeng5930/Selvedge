@@ -14,6 +14,14 @@ The script installs the Rust toolchain, `just`, `pre-commit`, and the repository
 
 The installed hooks enforce the checks documented in [AGENTS.md](AGENTS.md#git-hooks). [`.pre-commit-config.yaml`](.pre-commit-config.yaml) defines their commands and stages.
 
+## Worktree build cache
+
+Codex local environment setup runs `bash scripts/setup-worktree.sh` when creating a worktree. For a manually created worktree, run the same command from its repository root.
+
+Setup links the worktree's `target` directory to the main checkout's existing `target` directory. Cargo's downloaded dependencies already share the user's Cargo home; the link also shares compiled artifacts and incremental caches without downloading dependencies, building, or testing during setup. An existing worktree-local `target` is preserved and setup reports that it must be moved aside first.
+
+Concurrent Cargo builds may wait for the shared build directory lock. Different source changes, compiler options, or toolchains can still require rebuilding. Final binaries are shared too, so use `cargo run` for the current checkout instead of relying on a previously built `target/debug` executable. `cargo clean` affects all worktrees sharing this directory. Keep the main checkout in place while its worktrees use the cache.
+
 ## Development workflow
 
 1. Start from an up-to-date branch based on `main`.

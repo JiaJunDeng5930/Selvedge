@@ -160,7 +160,7 @@ This file is for coding agents working in this repository.
 |crates/web/tests:{web_contract.rs}
 |docs:{adr/}
 |docs/adr:{0001-task-owned-tool-contracts.md,0002-open-tool-call-recovery.md,0003-persisted-task-lifecycle.md,0004-semantic-ownership-at-runtime-boundaries.md,0005-single-source-configuration-and-transport.md}
-|scripts:{bootstrap.sh}
+|scripts:{bootstrap.sh,setup-worktree.sh}
 |src:{lib.rs,main.rs}
 |tests:{stdout_stderr_integration.rs}
 |xtask:{src/,Cargo.toml,README.md}

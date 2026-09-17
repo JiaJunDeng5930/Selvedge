@@ -2,7 +2,7 @@ version = 1
 name = "Selvedge"
 
 [setup]
-script = "cargo fetch --locked"
+script = "bash scripts/setup-worktree.sh"
 
 [[actions]]
 name = "Run server"
