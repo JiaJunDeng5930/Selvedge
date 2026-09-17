@@ -12,6 +12,7 @@ fn parse_auth_file_reads_valid_contract() {
             "provider": "chatgpt",
             "credential_kind": "login",
             "payload": {
+                "last_refresh": "2026-09-17T00:00:00Z",
                 "tokens": {
                     "id_token": "id-token",
                     "access_token": "access-token",
@@ -33,6 +34,7 @@ fn parse_auth_file_rejects_missing_required_token_field() {
             "provider": "chatgpt",
             "credential_kind": "login",
             "payload": {
+                "last_refresh": "2026-09-17T00:00:00Z",
                 "tokens": {
                     "id_token": "id-token",
                     "access_token": "access-token"
@@ -58,6 +60,7 @@ fn parse_auth_file_rejects_unsupported_schema_version() {
             "provider": "chatgpt",
             "credential_kind": "login",
             "payload": {
+                "last_refresh": "2026-09-17T00:00:00Z",
                 "tokens": {
                     "id_token": "id-token",
                     "access_token": "access-token",
@@ -166,4 +169,36 @@ fn build_jwt(header_json: &str, payload_json: &str) -> String {
     let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(payload_json);
 
     format!("{header}.{payload}.signature")
+}
+
+#[test]
+fn parse_auth_file_rejects_missing_or_invalid_last_refresh() {
+    let mut record: serde_json::Value = serde_json::from_str(
+        &selvedge_test_support::chatgpt_auth::auth_file_json("id", "access", "refresh"),
+    )
+    .expect("fixture JSON");
+    record["payload"]
+        .as_object_mut()
+        .expect("payload")
+        .remove("last_refresh");
+    assert!(matches!(
+        parse_auth_file(&serde_json::to_vec(&record).expect("encode")),
+        Err(ChatgptAuthParseError::MissingField {
+            field: "payload.last_refresh"
+        })
+    ));
+    for value in [
+        serde_json::json!("not-a-timestamp"),
+        serde_json::json!(123),
+        serde_json::Value::Null,
+    ] {
+        record["payload"]["last_refresh"] = value;
+        assert!(matches!(
+            parse_auth_file(&serde_json::to_vec(&record).expect("encode")),
+            Err(ChatgptAuthParseError::InvalidField {
+                field: "payload.last_refresh",
+                ..
+            })
+        ));
+    }
 }

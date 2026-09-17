@@ -537,12 +537,12 @@ issuer = "{}"
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn resolve_for_request_sends_refresh_request_as_form_data() {
-    const FLAG: &str = "CHATGPT_AUTH_REFRESH_FORM_CHILD";
+async fn resolve_for_request_sends_refresh_request_as_json() {
+    const FLAG: &str = "CHATGPT_AUTH_REFRESH_JSON_CHILD";
 
     if !child_mode(FLAG) {
         assert_child_success(&run_child(
-            "resolve_for_request_sends_refresh_request_as_form_data",
+            "resolve_for_request_sends_refresh_request_as_json",
             FLAG,
         ));
         return;
@@ -551,14 +551,16 @@ async fn resolve_for_request_sends_refresh_request_as_form_data() {
     let server = spawn_http_server(Router::new().route(
         "/oauth/token",
         post(|headers: HeaderMap, body: String| async move {
-            let expected_content_type =
-                HeaderValue::from_static("application/x-www-form-urlencoded");
+            let expected_content_type = HeaderValue::from_static("application/json");
             let has_expected_content_type = headers
                 .get(http::header::CONTENT_TYPE)
                 .is_some_and(|value| value == expected_content_type);
-            let has_expected_body = body.contains("grant_type=refresh_token")
-                && body.contains("client_id=app_EMoamEEZ73f0CkXaXp7hrann")
-                && body.contains("refresh_token=refresh-token");
+            let has_expected_body = serde_json::from_str::<serde_json::Value>(&body).ok()
+                == Some(json!({
+                    "grant_type": "refresh_token",
+                    "client_id": "app_EMoamEEZ73f0CkXaXp7hrann",
+                    "refresh_token": "refresh-token"
+                }));
 
             if has_expected_content_type && has_expected_body {
                 (
@@ -606,7 +608,7 @@ issuer = "{}"
         ),
     );
 
-    let resolved = resolve_for_request().await.expect("refresh with form body");
+    let resolved = resolve_for_request().await.expect("refresh with JSON body");
 
     assert_eq!(resolved.access_token, "new-access-token");
 }
@@ -917,10 +919,9 @@ async fn resolve_for_request_maps_unauthorized_refresh_to_reauthentication_requi
         "/oauth/token",
         post(|| async {
             (
-                StatusCode::UNAUTHORIZED,
+                StatusCode::BAD_REQUEST,
                 Json(json!({
-                    "error": "refresh_token_expired",
-                    "message": "token expired"
+                    "error": {"code": "Refresh_Token_Expired", "message": "token expired"}
                 })),
             )
         }),
@@ -951,7 +952,7 @@ issuer = "{}"
         ChatgptAuthError::ReauthenticationRequired {
             provider_code,
             provider_message
-        } if provider_code.as_deref() == Some("refresh_token_expired")
+        } if provider_code.as_deref() == Some("Refresh_Token_Expired")
             && provider_message.as_deref() == Some("token expired")
     ));
 }
@@ -1064,12 +1065,12 @@ issuer = "{}"
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn resolve_for_request_maps_plain_unauthorized_refresh_to_refresh_failed() {
+async fn resolve_for_request_maps_plain_unauthorized_refresh_to_reauthentication_required() {
     const FLAG: &str = "CHATGPT_AUTH_PLAIN_401_CHILD";
 
     if !child_mode(FLAG) {
         assert_child_success(&run_child(
-            "resolve_for_request_maps_plain_unauthorized_refresh_to_refresh_failed",
+            "resolve_for_request_maps_plain_unauthorized_refresh_to_reauthentication_required",
             FLAG,
         ));
         return;
@@ -1105,12 +1106,11 @@ issuer = "{}"
 
     let error = resolve_for_request()
         .await
-        .expect_err("plain unauthorized must stay refresh failed");
+        .expect_err("plain unauthorized requires reauthentication");
 
     assert!(matches!(
         error,
-        ChatgptAuthError::RefreshFailed {
-            status: Some(401),
+        ChatgptAuthError::ReauthenticationRequired {
             provider_code: None,
             provider_message
         } if provider_message.as_deref() == Some("unauthorized client")
@@ -1847,4 +1847,70 @@ issuer = "{}"
             ["refresh_token"],
         "new-refresh-token"
     );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn resolve_for_request_refreshes_by_expiry_or_opaque_token_age() {
+    const FLAG: &str = "CHATGPT_AUTH_PROACTIVE_REFRESH_CHILD";
+    if !child_mode(FLAG) {
+        assert_child_success(&run_child(
+            "resolve_for_request_refreshes_by_expiry_or_opaque_token_age",
+            FLAG,
+        ));
+        return;
+    }
+    let hits = Arc::new(AtomicUsize::new(0));
+    let server = spawn_http_server(Router::new().route(
+        "/oauth/token",
+        post(|State(hits): State<Arc<AtomicUsize>>| async move {
+            hits.fetch_add(1, Ordering::SeqCst);
+            Json(json!({ "access_token": "refreshed-access", "refresh_token": "rotated-refresh" }))
+        }),
+    ).with_state(Arc::clone(&hits))).await;
+    let tempdir = init_auth_test(&format!(
+        "[llm.providers.chatgpt.settings]\nissuer = \"{}\"\n",
+        server.url(""),
+    ));
+    let now = chrono::Utc::now();
+    let id_token =
+        build_jwt(json!({"https://api.openai.com/auth": {"chatgpt_account_id": "workspace"}}));
+    let near_expiry = build_jwt(json!({"exp": (now + chrono::Duration::minutes(4)).timestamp()}));
+    let far_expiry = build_jwt(json!({"exp": (now + chrono::Duration::minutes(6)).timestamp()}));
+    for (access_token, days_old, should_refresh) in [
+        ("opaque-access", 0, false),
+        ("opaque-access", 9, true),
+        (near_expiry.as_str(), 0, true),
+        (far_expiry.as_str(), 9, false),
+    ] {
+        let mut record: serde_json::Value =
+            serde_json::from_str(&auth_file_json(&id_token, access_token, "original-refresh"))
+                .expect("fixture JSON");
+        record["payload"]["last_refresh"] =
+            json!((now - chrono::Duration::days(days_old)).to_rfc3339());
+        let path = write_auth_file(&tempdir, &record.to_string());
+        let before = hits.load(Ordering::SeqCst);
+        let resolved = resolve_for_request().await.expect("resolve proactive auth");
+        assert_eq!(
+            hits.load(Ordering::SeqCst) - before,
+            usize::from(should_refresh)
+        );
+        if should_refresh {
+            assert_eq!(resolved.access_token, "refreshed-access");
+            let persisted: serde_json::Value =
+                serde_json::from_slice(&std::fs::read(path).expect("read auth")).expect("JSON");
+            let refreshed_at = chrono::DateTime::parse_from_rfc3339(
+                persisted["payload"]["last_refresh"]
+                    .as_str()
+                    .expect("timestamp"),
+            )
+            .expect("RFC3339");
+            assert!(refreshed_at >= now);
+            assert_eq!(
+                persisted["payload"]["tokens"]["refresh_token"],
+                "rotated-refresh"
+            );
+        } else {
+            assert_eq!(resolved.access_token, access_token);
+        }
+    }
 }

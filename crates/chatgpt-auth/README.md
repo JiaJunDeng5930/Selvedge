@@ -2,7 +2,7 @@
 
 <!-- selvedge-package-readme
 package: chatgpt-auth
-freshness_fingerprint: 7ebd1c0e7f9d18059b325c191183689e6f0e5927
+freshness_fingerprint: 6f755cdbf6cbcae521f2f453e555414671fa49fc
 -->
 
 This crate resolves ChatGPT auth state for request execution.
@@ -27,6 +27,18 @@ or atomically updates the `chatgpt` login credential record at
 The token writer requires a `CredentialLockGuard`; callers retain that guard
 across refresh so another writer cannot replace the credential mid-refresh.
 Invalid tokens leave the existing file unchanged.
+
+The current ChatGPT credential payload requires `tokens` and an RFC3339
+`last_refresh` timestamp. Login and successful refresh writes record the current
+UTC time. Records without a valid timestamp fail validation and require a new
+login; the reader does not migrate older records.
+
+Access tokens with a readable JWT expiry refresh within five minutes of expiry.
+Tokens without an expiry, including opaque tokens, refresh when `last_refresh`
+is more than eight days old. JWT expiry takes precedence over that age fallback.
+Refresh uses a JSON request body. A refresh HTTP 401 response or a recognized
+terminal provider code requires reauthentication; diagnostics support both OAuth
+string errors and nested `error.code` / `error.message` responses.
 
 ## Package State Machine
 
@@ -59,12 +71,12 @@ flowchart TD
   LoadHint -->|call is resolve_for_request| Lock
   Lock -->|exclusive path lock acquired| LoadFile
   Lock -->|lock directory, open, or exclusive lock fails| LockError
-  LoadFile -->|credential JSON exists and required fields parse| ParseClaims
+  LoadFile -->|credential JSON exists and required tokens and last_refresh parse| ParseClaims
   LoadFile -->|file missing, malformed JSON, unsupported schema, or required token field invalid| FileError
   ParseClaims -->|workspace claim conflicts with expected_workspace_id| WorkspaceError
   ParseClaims -->|claims parse and workspace is accepted| Decide
-  Decide -->|access token is unexpired, id token has account id, and force refresh is absent| ReturnLocal
-  Decide -->|access token expired, id token lacks account id, or forced refresh still requires new tokens| Refresh
+  Decide -->|tokens are usable, proactive refresh is not due, and force refresh is absent| ReturnLocal
+  Decide -->|access token is unusable, id token is malformed, proactive refresh is due, or forced refresh still requires new tokens| Refresh
   Decide -->|forced refresh sees another writer already changed usable tokens| ReturnLocal
   Refresh -->|provider returns 2xx JSON token response| Merge
   Refresh -->|provider returns reauthentication code, non-2xx response, invalid success body, unusable token, or transport error| RefreshError

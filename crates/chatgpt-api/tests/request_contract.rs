@@ -24,6 +24,8 @@ fn base_request() -> ChatgptResponsesRequest {
         },
         instructions: Some("follow instructions".to_owned()),
         input: vec![ResponseItem::Message(MessageItem {
+            internal_chat_message_metadata_passthrough: None,
+            phase: None,
             id: Some("msg-1".to_owned()),
             status: Some("completed".to_owned()),
             role: "user".to_owned(),
@@ -54,27 +56,13 @@ fn request_validation_accepts_a_complete_request() {
 }
 
 #[test]
-fn request_validation_rejects_reasoning_summary_for_unsupported_models() {
+fn request_validation_accepts_controls_omitted_for_unsupported_models() {
     let mut request = base_request();
     request.model_capabilities.supports_reasoning_summaries = false;
-
-    let error = request
-        .validate()
-        .expect_err("reasoning summary should be rejected");
-
-    assert_eq!(error.field, "reasoning.summary");
-}
-
-#[test]
-fn request_validation_rejects_verbosity_for_unsupported_models() {
-    let mut request = base_request();
     request.model_capabilities.supports_text_verbosity = false;
-
-    let error = request
+    request
         .validate()
-        .expect_err("verbosity should be rejected");
-
-    assert_eq!(error.field, "text.verbosity");
+        .expect("unsupported optional controls are omitted at encoding");
 }
 
 #[test]

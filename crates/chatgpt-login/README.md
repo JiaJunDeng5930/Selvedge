@@ -2,7 +2,7 @@
 
 <!-- selvedge-package-readme
 package: chatgpt-login
-freshness_fingerprint: 6d13438b9faae7e5df87ae49fa2fa2c3fe07cc2b
+freshness_fingerprint: 41c2c79095dc0cbc02fad4aa1c79c41b87b28689
 -->
 
 ## This crate is for
@@ -48,12 +48,14 @@ primitives through `chatgpt-auth`. It executes every HTTP request through
 ## Runtime behavior
 
 - `start_device_code_login()` reads the current `issuer` and `client_id`, then
-  requests a new device-code challenge
+  requests a new device-code challenge; polling intervals accept trimmed strings
+  or numbers, with a one-second minimum for zero or omitted values
 - `poll_device_code_login(...)` performs exactly one poll and never loops
   internally
 - `complete_device_code_login(...)` exchanges the authorization grant, parses
   claims from `id_token`, checks `expected_workspace_id` when configured, and
-  writes the `chatgpt` login credential record atomically before returning
+  writes the `chatgpt` login credential record with the current UTC `last_refresh`
+  timestamp atomically before returning
 - `run_chatgpt_login(...)` serializes concurrent login operations in the current
   process and returns `LoginAlreadyRunning` when another login is active
 
@@ -112,7 +114,7 @@ flowchart TD
   ReadConfig -->|config read succeeds for poll call| Poll
   ReadConfig -->|config read succeeds for complete call| Exchange
   ReadConfig -->|config read fails| ConfigError
-  StartChallenge -->|provider returns device_code, user_code, verification_uri, and interval data| Challenge
+  StartChallenge -->|provider returns device_auth_id and user_code with an optional valid interval| Challenge
   StartChallenge -->|HTTP transport fails or provider response is non-2xx or malformed| TransportError
   Poll -->|provider says authorization is pending| Pending
   Poll -->|provider returns authorization grant| Authorized

@@ -45,6 +45,8 @@ fn base_request() -> ChatgptResponsesRequest {
         },
         instructions: Some("follow instructions".to_owned()),
         input: vec![ResponseItem::Message(MessageItem {
+            internal_chat_message_metadata_passthrough: None,
+            phase: None,
             id: Some("msg-1".to_owned()),
             status: Some("completed".to_owned()),
             role: "user".to_owned(),
@@ -93,7 +95,7 @@ async fn stream_yields_events_and_updates_effective_turn_state() {
                     "data: {\"type\":\"response.output_text.done\",\"item_id\":\"item-1\",\"output_index\":0,\"content_index\":0,\"text\":\"hello\"}\n\n",
                 ));
                 yield Ok::<_, std::convert::Infallible>(bytes::Bytes::from(
-                    "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp-1\",\"model\":\"gpt-5\",\"service_tier\":\"default\",\"usage\":{\"output_tokens\":2,\"output_token_details\":{\"reasoning_tokens\":3}}}}\n\n",
+                    "data: {\"type\":\"codex.response.metadata\",\"metadata\":{}}\n\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp-1\",\"model\":\"gpt-5\",\"service_tier\":\"default\",\"usage\":{\"output_tokens\":2,\"output_token_details\":{\"reasoning_tokens\":3}}}}\n\n",
                 ));
             });
 

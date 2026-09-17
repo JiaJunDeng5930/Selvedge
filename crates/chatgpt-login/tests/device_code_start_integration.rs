@@ -26,7 +26,7 @@ async fn start_device_code_login_returns_challenge_from_provider_response() {
             Json(json!({
                 "device_auth_id": "device-auth-id",
                 "user_code": "ABCD-EFGH",
-                "interval": "5"
+                "interval": " 5 "
             }))
         }),
     ))
@@ -254,7 +254,8 @@ async fn start_device_code_login_rejects_invalid_success_body() {
         post(|| async {
             Json(json!({
                 "device_auth_id": "device-auth-id",
-                "user_code": "ABCD-EFGH"
+                "user_code": "ABCD-EFGH",
+                "interval": "invalid"
             }))
         }),
     ))
@@ -369,25 +370,36 @@ issuer = "{}/"
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn start_device_code_login_rejects_zero_second_interval() {
+async fn start_device_code_login_normalizes_zero_second_interval() {
     const FLAG: &str = "CHATGPT_LOGIN_START_ZERO_INTERVAL_CHILD";
 
     if !child_mode(FLAG) {
         assert_child_success(&run_child(
-            "start_device_code_login_rejects_zero_second_interval",
+            "start_device_code_login_normalizes_zero_second_interval",
             FLAG,
         ));
         return;
     }
 
+    let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let server = spawn_http_server(Router::new().route(
         "/api/accounts/deviceauth/usercode",
-        post(|| async {
-            Json(json!({
-                "device_auth_id": "device-auth-id",
-                "user_code": "ABCD-EFGH",
-                "interval": "0"
-            }))
+        post(move || {
+            let call = calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            async move {
+                let mut response = json!({
+                    "device_auth_id": "device-auth-id",
+                    "user_code": "ABCD-EFGH",
+                    "interval": "0"
+                });
+                if call > 0 {
+                    response
+                        .as_object_mut()
+                        .expect("response object")
+                        .remove("interval");
+                }
+                Json(response)
+            }
         }),
     ))
     .await;
@@ -403,14 +415,14 @@ issuer = "{}"
         server.url("")
     ));
 
-    let error = start_device_code_login()
+    let challenge = start_device_code_login()
         .await
-        .expect_err("zero interval must be rejected");
-
-    assert!(matches!(
-        error,
-        ChatgptLoginError::DeviceCodeStartInvalidResponse { .. }
-    ));
+        .expect("zero interval is accepted");
+    assert_eq!(challenge.poll_interval, std::time::Duration::from_secs(1));
+    let challenge = start_device_code_login()
+        .await
+        .expect("missing interval is accepted");
+    assert_eq!(challenge.poll_interval, std::time::Duration::from_secs(1));
 }
 
 #[tokio::test(flavor = "multi_thread")]

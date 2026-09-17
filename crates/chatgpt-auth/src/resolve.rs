@@ -19,11 +19,17 @@ async fn resolve(force_refresh: bool) -> Result<ResolvedChatgptAuth, ChatgptAuth
         .then(|| auth_file::load_refresh_hint(&selvedge_home))
         .flatten();
     let guard = lock::lock_chatgpt_credential(&selvedge_home).await?;
-    let tokens = auth_file::load(&guard)?;
-    let access_token_expired =
-        !jwt::access_token_is_usable(&tokens.access_token, chrono::Utc::now());
+    let stored = auth_file::load(&guard)?;
+    let tokens = stored.tokens;
+    let now = chrono::Utc::now();
+    let access_token_expired = !jwt::access_token_is_usable(&tokens.access_token, now);
     let id_token_requires_refresh = parse_chatgpt_jwt_claims(&tokens.id_token).is_err();
-    let needs_refresh = access_token_expired || id_token_requires_refresh;
+    let proactive_refresh = should_refresh_proactively(
+        access_token_expiration(&tokens.access_token),
+        stored.last_refresh,
+        now,
+    );
+    let needs_refresh = access_token_expired || id_token_requires_refresh || proactive_refresh;
     let auth_became_usable_while_waiting = refresh_hint.as_ref().is_some_and(|previous_tokens| {
         previous_tokens.access_token != tokens.access_token && !needs_refresh
     });
@@ -39,7 +45,7 @@ async fn resolve(force_refresh: bool) -> Result<ResolvedChatgptAuth, ChatgptAuth
     let refreshed_tokens = refresh::refresh(
         &config,
         &tokens,
-        force_refresh || access_token_expired,
+        force_refresh || access_token_expired || proactive_refresh,
         id_token_requires_refresh,
     )
     .await?;
@@ -56,6 +62,19 @@ async fn resolve(force_refresh: bool) -> Result<ResolvedChatgptAuth, ChatgptAuth
     })?;
 
     Ok(resolved)
+}
+
+fn should_refresh_proactively(
+    expires_at: Option<chrono::DateTime<chrono::Utc>>,
+    last_refresh: chrono::DateTime<chrono::Utc>,
+    now: chrono::DateTime<chrono::Utc>,
+) -> bool {
+    // NOTE: A readable JWT expiry takes precedence over the age fallback,
+    // which is needed for opaque access tokens and JWTs without an expiry.
+    match expires_at {
+        Some(expires_at) => expires_at <= now + chrono::Duration::minutes(5),
+        None => last_refresh < now - chrono::Duration::days(8),
+    }
 }
 
 fn build_resolved_auth_from_existing(

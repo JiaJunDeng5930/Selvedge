@@ -41,12 +41,14 @@ pub(crate) async fn start(
             });
         }
     };
+    // NOTE: Codex permits a missing or zero interval; retain a polling floor
+    // so such responses cannot trigger a tight retry loop.
     let interval_seconds = payload
         .interval
-        .ok_or_else(|| ChatgptLoginError::DeviceCodeStartInvalidResponse {
-            reason: "start response missing interval".to_owned(),
-        })?
-        .into_u64()?;
+        .map(IntervalValue::into_u64)
+        .transpose()?
+        .unwrap_or(0)
+        .max(1);
     let issued_at = Utc::now();
 
     Ok(DeviceCodeChallenge {
@@ -182,24 +184,12 @@ enum IntervalValue {
 impl IntervalValue {
     fn into_u64(self) -> Result<u64, ChatgptLoginError> {
         match self {
-            Self::String(value) => {
-                validate_interval_seconds(value.parse::<u64>().map_err(|error| {
-                    ChatgptLoginError::DeviceCodeStartInvalidResponse {
-                        reason: format!("start response interval is invalid: {error}"),
-                    }
-                })?)
-            }
-            Self::Number(value) => validate_interval_seconds(value),
+            Self::String(value) => value.trim().parse::<u64>().map_err(|error| {
+                ChatgptLoginError::DeviceCodeStartInvalidResponse {
+                    reason: format!("start response interval is invalid: {error}"),
+                }
+            }),
+            Self::Number(value) => Ok(value),
         }
     }
-}
-
-fn validate_interval_seconds(value: u64) -> Result<u64, ChatgptLoginError> {
-    if value == 0 {
-        return Err(ChatgptLoginError::DeviceCodeStartInvalidResponse {
-            reason: "start response interval must be greater than zero".to_owned(),
-        });
-    }
-
-    Ok(value)
 }

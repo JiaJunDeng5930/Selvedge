@@ -2,7 +2,7 @@
 
 <!-- selvedge-package-readme
 package: chatgpt-api
-freshness_fingerprint: 792421944167d11abfac4adad4b712922a900eaa
+freshness_fingerprint: eacc9d918c20427e31e50f7513d6c3802eda230f
 -->
 
 ## This crate is for
@@ -40,6 +40,33 @@ without deleting the descriptors.
 provider's string-valued wire field at ingress and encodes it again only when
 building a replay request. Arbitrary-precision JSON numbers therefore remain
 lossless across provider normalization and replay.
+
+Request encoding follows Codex commit `e269f2164cbb9f499e4f22301c393500e2a831f3`:
+`session-id`, `thread-id`, and `x-client-request-id` use the caller's conversation
+identity; `client_metadata` includes available session, thread, window,
+installation, subagent, parent, and turn metadata. This API currently has one
+conversation identity, so its session and thread identifiers are equal.
+Reasoning effort and encrypted-content inclusion are independent of summary
+support. Unsupported summary and verbosity controls are omitted; output schemas
+remain available when verbosity is unsupported. A summary setting of `none`
+omits the summary parameter.
+
+Typed replay preserves message `phase`,
+`internal_chat_message_metadata_passthrough`, function `encrypted_function_args`,
+and input-image URL or file references with their `detail`. Callers must retain
+these response items themselves. Unknown item and content types remain opaque;
+that preservation does not add tool execution support. The provider-neutral
+`selvedge-api` history does not persist phase, reasoning/encrypted metadata, or
+the effective turn state, so these replay guarantees apply to direct callers of
+this crate, not to the full durable Selvedge conversation path.
+
+Informational SSE events with unknown types are yielded as `Other` and do not
+terminate the stream. Explicit `error`, `response.failed`, and
+`response.incomplete` events do terminate it; `response.completed` is the success
+terminal, and EOF without it remains an error. Failure categories distinguish
+current policy, overload, and rate-limit codes while retaining raw provider
+details and retry delays. Usage exposes cache-write tokens and preserves
+fractional `codex_rollout_budget_units` without rounding.
 
 ## Config
 
@@ -112,8 +139,9 @@ flowchart TD
   OpenStream -->|selvedge-client returns transport status, build, config, or timeout error| TransportError
   RetryAfterUnauthorized -->|forced auth refresh succeeds| OpenStream
   RetryAfterUnauthorized -->|forced auth refresh fails| AuthError
-  Decode -->|valid SSE event, including object-shaped function arguments, maps to response event| YieldEvent
-  Decode -->|provider sends terminal completion event| Complete
+  Decode -->|valid SSE event including informational unknown types and replay metadata maps to response event| YieldEvent
+  Decode -->|provider sends response.completed| Complete
+  Decode -->|provider sends error, response.failed, or response.incomplete| EndpointError
   Decode -->|overall stream lifetime exceeds configured stream_completion_timeout_ms| TimeoutError
   Decode -->|body chunk read fails| TransportError
   Decode -->|SSE, JSON event payload, or function arguments cannot be decoded| DecodeError

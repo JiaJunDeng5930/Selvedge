@@ -22,6 +22,7 @@ pub fn auth_file_json(id_token: &str, access_token: &str, refresh_token: &str) -
         "provider": "chatgpt",
         "credential_kind": "login",
         "payload": {
+            "last_refresh": chrono::Utc::now().to_rfc3339(),
             "tokens": {
                 "id_token": id_token,
                 "access_token": access_token,
