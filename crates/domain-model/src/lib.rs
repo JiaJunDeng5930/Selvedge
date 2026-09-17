@@ -211,6 +211,34 @@ pub enum ReasoningEffort {
     High,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TaskModelConfig {
+    profile_key: ModelProfileKey,
+    reasoning_effort: ReasoningEffort,
+}
+
+impl TaskModelConfig {
+    pub fn new(
+        profile_key: ModelProfileKey,
+        reasoning_effort: ReasoningEffort,
+    ) -> Result<Self, ApiDomainValidationError> {
+        if profile_key.0.trim().is_empty() {
+            return Err(ApiDomainValidationError::EmptyModelProfileKey);
+        }
+        Ok(Self {
+            profile_key,
+            reasoning_effort,
+        })
+    }
+
+    pub fn profile_key(&self) -> &ModelProfileKey {
+        &self.profile_key
+    }
+    pub fn reasoning_effort(&self) -> &ReasoningEffort {
+        &self.reasoning_effort
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct ModelProviderProfile {
     pub provider_name: String,
@@ -259,6 +287,7 @@ pub enum ModelFinishReason {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ApiDomainValidationError {
+    EmptyModelProfileKey,
     EmptyConversation,
     EmptyToolName,
     DuplicateToolName,

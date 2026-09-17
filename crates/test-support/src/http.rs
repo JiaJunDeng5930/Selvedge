@@ -32,7 +32,7 @@ impl Drop for HttpTestServer {
     }
 }
 
-pub async fn spawn_axum_server(router: Router) -> HttpTestServer {
+pub async fn spawn_http_server(router: Router) -> HttpTestServer {
     let listener = TcpListener::bind("127.0.0.1:0")
         .await
         .expect("bind test server");
@@ -44,37 +44,21 @@ pub async fn spawn_axum_server(router: Router) -> HttpTestServer {
     HttpTestServer { addr, handle }
 }
 
-pub async fn spawn_http_server(router: Router) -> HttpTestServer {
-    spawn_axum_server(router).await
-}
-
 pub struct HeldLoopbackPort {
     listener: std::net::TcpListener,
-    addr: SocketAddr,
 }
 
 impl HeldLoopbackPort {
     pub fn addr(&self) -> SocketAddr {
-        self.addr
+        self.listener.local_addr().expect("held loopback addr")
     }
 
     pub fn port(&self) -> u16 {
-        self.listener
-            .local_addr()
-            .expect("held loopback addr")
-            .port()
+        self.addr().port()
     }
 }
 
 pub fn hold_loopback_port() -> HeldLoopbackPort {
     let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).expect("bind held loopback port");
-    let addr = listener.local_addr().expect("held loopback addr");
-    HeldLoopbackPort { listener, addr }
-}
-
-pub fn released_loopback_port() -> u16 {
-    let held = hold_loopback_port();
-    let port = held.port();
-    drop(held);
-    port
+    HeldLoopbackPort { listener }
 }

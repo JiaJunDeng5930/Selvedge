@@ -5,16 +5,15 @@ use std::time::Duration;
 
 use selvedge_api::ApiExecutorConfig;
 use selvedge_command_model::{
-    ApiCallCorrelation, ApiEffectId, ApiOutputEnvelope, ClientCommandId, ClientId,
-    ClientSubscription, CoreOutputEnvelope, CoreOutputMessage, DetachReason, DetailLevel,
-    DomainEvent, DomainEventPublishRequest, EventClientReservationResult, EventControlMessage,
-    EventIngress, ModelCallDispatchRequest, ModelCallError, ModelCallErrorKind, ModelRunId,
-    RawEvent, RouterAttachAdmissionResult, RouterCommand, RouterCommandEnvelope,
-    RouterIngressMessage, SendUserInputOutcome, TaskCommandError, TaskRuntimeCommand,
-    TaskRuntimeControl, TaskRuntimeExitNotice, TaskRuntimeExitReason, TaskScope,
-    TaskStatusChangeOutcome, ToolExecutionBranch, ToolExecutionBranchTarget, ToolExecutionRequest,
-    ToolExecutionResult, ToolExecutionRunId, send_user_input_response_channel,
-    task_status_change_response_channel,
+    ApiCallCorrelation, ApiEffectId, ApiOutputEnvelope, ClientCommandId, ClientEvent, ClientId,
+    ClientSessionIdentity, CoreOutputEnvelope, CoreOutputMessage, DetachReason, DomainEvent,
+    DomainEventPublishRequest, EventClientReservationResult, EventControlMessage, EventIngress,
+    ModelCallDispatchRequest, ModelCallError, ModelCallErrorKind, ModelRunId,
+    RouterAttachAdmissionResult, RouterCommand, RouterIngressMessage, SendUserInputOutcome,
+    TaskCommandError, TaskRuntimeCommand, TaskRuntimeControl, TaskRuntimeExitNotice,
+    TaskRuntimeExitReason, TaskStatusChangeOutcome, ToolExecutionBranch, ToolExecutionBranchTarget,
+    ToolExecutionRequest, ToolExecutionResult, ToolExecutionRunId,
+    send_user_input_response_channel, task_status_change_response_channel,
 };
 use selvedge_core::{
     SpawnTaskRuntimeArgs, SpawnTaskRuntimeError, SpawnedTaskRuntime, TaskRuntimeConfig,
@@ -51,31 +50,18 @@ async fn attach_client_command_is_forwarded_to_events() {
         core_spawn_deps: TaskRuntimeSpawnDeps::new(TaskRuntimeConfig {
             model_profiles: HashMap::new(),
         }),
-    })
-    .expect("spawn router");
+    });
 
-    let (outbound, _outbound_rx) = tokio::sync::mpsc::channel(4);
     let (admission_tx, admission_rx) = tokio::sync::oneshot::channel();
-    let subscription = ClientSubscription {
-        task_scope: TaskScope::AllTasks,
-        detail_level: DetailLevel::Verbose,
-        snapshot_mode: selvedge_command_model::SnapshotMode::CurrentState,
-        include_model_call_status: true,
-        include_tool_execution_status: true,
-        include_debug_notices: true,
-    };
     handle
         .ingress_tx
-        .send(RouterIngressMessage::Command(RouterCommandEnvelope {
-            client_id: Some(ClientId("client-1".to_owned())),
-            client_command_id: Some(ClientCommandId("attach-1".to_owned())),
-            command: RouterCommand::AttachClient {
-                client_id: ClientId("client-1".to_owned()),
-                client_command_id: ClientCommandId("attach-1".to_owned()),
-                outbound,
-                subscription: subscription.clone(),
-                admission_tx,
-            },
+        .send(RouterIngressMessage::Command(RouterCommand::AttachClient {
+            session: ClientSessionIdentity::new(
+                ClientId("client-1".to_owned()),
+                ClientCommandId("attach-1".to_owned()),
+            ),
+
+            admission_tx,
         }))
         .expect("send command");
 
@@ -84,9 +70,12 @@ async fn attach_client_command_is_forwarded_to_events() {
     else {
         panic!("unexpected events ingress");
     };
-    assert_eq!(reservation.client_id, ClientId("client-1".to_owned()));
     assert_eq!(
-        reservation.client_command_id,
+        *reservation.session.client_id(),
+        ClientId("client-1".to_owned())
+    );
+    assert_eq!(
+        *reservation.session.attach_command_id(),
         ClientCommandId("attach-1".to_owned())
     );
     reservation
@@ -124,24 +113,19 @@ async fn cancelled_attach_admission_detaches_reserved_events_session() {
         core_spawn_deps: TaskRuntimeSpawnDeps::new(TaskRuntimeConfig {
             model_profiles: HashMap::new(),
         }),
-    })
-    .expect("spawn router");
+    });
 
-    let (outbound, _outbound_rx) = tokio::sync::mpsc::channel(4);
     let (admission_tx, admission_rx) = tokio::sync::oneshot::channel();
     drop(admission_rx);
     handle
         .ingress_tx
-        .send(RouterIngressMessage::Command(RouterCommandEnvelope {
-            client_id: Some(ClientId("client-1".to_owned())),
-            client_command_id: Some(ClientCommandId("attach-1".to_owned())),
-            command: RouterCommand::AttachClient {
-                client_id: ClientId("client-1".to_owned()),
-                client_command_id: ClientCommandId("attach-1".to_owned()),
-                outbound,
-                subscription: verbose_subscription(),
-                admission_tx,
-            },
+        .send(RouterIngressMessage::Command(RouterCommand::AttachClient {
+            session: ClientSessionIdentity::new(
+                ClientId("client-1".to_owned()),
+                ClientCommandId("attach-1".to_owned()),
+            ),
+
+            admission_tx,
         }))
         .expect("send command");
 
@@ -159,9 +143,9 @@ async fn cancelled_attach_admission_detaches_reserved_events_session() {
     else {
         panic!("unexpected events ingress");
     };
-    assert_eq!(detach.client_id, ClientId("client-1".to_owned()));
+    assert_eq!(*detach.session.client_id(), ClientId("client-1".to_owned()));
     assert_eq!(
-        detach.client_command_id,
+        *detach.session.attach_command_id(),
         ClientCommandId("attach-1".to_owned())
     );
     assert_eq!(detach.reason, DetachReason::ClientDisconnected);
@@ -177,7 +161,7 @@ async fn cancelled_attach_admission_detaches_reserved_events_session() {
 }
 
 #[tokio::test]
-async fn task_local_command_creates_runtime_and_flushes_deferred_user_input() {
+async fn task_local_command_creates_runtime_before_delivering_user_input() {
     let db = open_memory_db();
     create_root(&db, "task-1");
     let spawner = Arc::new(CapturingRuntimeSpawner::default());
@@ -197,20 +181,17 @@ async fn task_local_command_creates_runtime_and_flushes_deferred_user_input() {
             },
             spawner.clone(),
         ),
-    })
-    .expect("spawn router");
+    });
 
     handle
         .ingress_tx
-        .send(RouterIngressMessage::Command(RouterCommandEnvelope {
-            client_id: None,
-            client_command_id: None,
-            command: RouterCommand::SendUserInput {
+        .send(RouterIngressMessage::Command(
+            RouterCommand::SendUserInput {
                 task_id: TaskId("task-1".to_owned()),
                 message_text: "hello".to_owned(),
                 responder: send_user_input_response_channel().0,
             },
-        }))
+        ))
         .expect("send command");
 
     let mut runtime_rx = spawner.wait_receiver("task-1").await;
@@ -234,12 +215,12 @@ async fn task_local_command_creates_runtime_and_flushes_deferred_user_input() {
 }
 
 #[tokio::test]
-async fn deferred_user_input_settles_after_the_runtime_sqlite_transition() {
+async fn missing_runtime_user_input_settles_after_the_runtime_sqlite_transition() {
     let db = open_memory_db();
     create_root(&db, "task-1");
     let (events_tx, _events_rx) = tokio::sync::mpsc::channel(8);
     let handle = spawn_router(RouterStartArgs {
-        db,
+        db: db.clone(),
         events_tx,
         api_config: ApiExecutorConfig {
             request_timeout: Duration::from_secs(1),
@@ -249,25 +230,29 @@ async fn deferred_user_input_settles_after_the_runtime_sqlite_transition() {
         core_spawn_deps: TaskRuntimeSpawnDeps::new(TaskRuntimeConfig {
             model_profiles: model_profiles(),
         }),
-    })
-    .expect("spawn router");
+    });
 
     let (responder, response) = send_user_input_response_channel();
     handle
         .ingress_tx
-        .send(RouterIngressMessage::Command(RouterCommandEnvelope {
-            client_id: None,
-            client_command_id: None,
-            command: RouterCommand::SendUserInput {
+        .send(RouterIngressMessage::Command(
+            RouterCommand::SendUserInput {
                 task_id: TaskId("task-1".to_owned()),
-                message_text: "deferred".to_owned(),
+                message_text: "input for missing runtime".to_owned(),
                 responder,
             },
-        }))
+        ))
         .expect("send input");
     assert_eq!(
         response.await.expect("input response"),
         Ok(SendUserInputOutcome::Queued)
+    );
+
+    assert_eq!(
+        selvedge_db::load_runtime_task(&db, &TaskId("task-1".to_owned()))
+            .expect("committed queue")
+            .queued_input_count,
+        1
     );
 
     handle
@@ -281,7 +266,7 @@ async fn deferred_user_input_settles_after_the_runtime_sqlite_transition() {
 }
 
 #[tokio::test]
-async fn missing_and_archived_tasks_settle_deferred_commands() {
+async fn missing_and_archived_tasks_reject_user_input() {
     let db = open_memory_db();
     create_root(&db, "archived");
     transition_task_status(
@@ -303,21 +288,18 @@ async fn missing_and_archived_tasks_settle_deferred_commands() {
         core_spawn_deps: TaskRuntimeSpawnDeps::new(TaskRuntimeConfig {
             model_profiles: model_profiles(),
         }),
-    })
-    .expect("spawn router");
+    });
 
     let (invalid_responder, invalid_response) = send_user_input_response_channel();
     handle
         .ingress_tx
-        .send(RouterIngressMessage::Command(RouterCommandEnvelope {
-            client_id: None,
-            client_command_id: None,
-            command: RouterCommand::SendUserInput {
+        .send(RouterIngressMessage::Command(
+            RouterCommand::SendUserInput {
                 task_id: TaskId("missing".to_owned()),
                 message_text: " ".to_owned(),
                 responder: invalid_responder,
             },
-        }))
+        ))
         .expect("send invalid input");
     assert_eq!(
         invalid_response.await.expect("invalid response"),
@@ -327,15 +309,13 @@ async fn missing_and_archived_tasks_settle_deferred_commands() {
     let (missing_responder, missing_response) = send_user_input_response_channel();
     handle
         .ingress_tx
-        .send(RouterIngressMessage::Command(RouterCommandEnvelope {
-            client_id: None,
-            client_command_id: None,
-            command: RouterCommand::SendUserInput {
+        .send(RouterIngressMessage::Command(
+            RouterCommand::SendUserInput {
                 task_id: TaskId("missing".to_owned()),
                 message_text: "hello".to_owned(),
                 responder: missing_responder,
             },
-        }))
+        ))
         .expect("send missing input");
     assert_eq!(
         missing_response.await.expect("missing response"),
@@ -345,15 +325,13 @@ async fn missing_and_archived_tasks_settle_deferred_commands() {
     let (archived_responder, archived_response) = send_user_input_response_channel();
     handle
         .ingress_tx
-        .send(RouterIngressMessage::Command(RouterCommandEnvelope {
-            client_id: None,
-            client_command_id: None,
-            command: RouterCommand::SendUserInput {
+        .send(RouterIngressMessage::Command(
+            RouterCommand::SendUserInput {
                 task_id: TaskId("archived".to_owned()),
                 message_text: "hello".to_owned(),
                 responder: archived_responder,
             },
-        }))
+        ))
         .expect("send archived input");
     assert_eq!(
         archived_response.await.expect("archived response"),
@@ -393,21 +371,18 @@ async fn factory_and_runtime_mailbox_failures_settle_commands() {
                 },
                 spawner,
             ),
-        })
-        .expect("spawn router");
+        });
 
         let (responder, response) = send_user_input_response_channel();
         handle
             .ingress_tx
-            .send(RouterIngressMessage::Command(RouterCommandEnvelope {
-                client_id: None,
-                client_command_id: None,
-                command: RouterCommand::SendUserInput {
+            .send(RouterIngressMessage::Command(
+                RouterCommand::SendUserInput {
                     task_id: TaskId("task-1".to_owned()),
                     message_text: "hello".to_owned(),
                     responder,
                 },
-            }))
+            ))
             .expect("send input");
         assert_eq!(
             response.await.expect("input response"),
@@ -440,25 +415,20 @@ async fn router_shutdown_settles_commands_queued_behind_stop() {
         core_spawn_deps: TaskRuntimeSpawnDeps::new(TaskRuntimeConfig {
             model_profiles: model_profiles(),
         }),
-    })
-    .expect("spawn router");
+    });
     let (responder, response) = send_user_input_response_channel();
 
     handle
         .ingress_tx
         .send(RouterIngressMessage::StopRouter)
         .expect("stop router");
-    let _ = handle
-        .ingress_tx
-        .send(RouterIngressMessage::Command(RouterCommandEnvelope {
-            client_id: None,
-            client_command_id: None,
-            command: RouterCommand::SendUserInput {
-                task_id: TaskId("task-1".to_owned()),
-                message_text: "after stop".to_owned(),
-                responder,
-            },
-        }));
+    let _ = handle.ingress_tx.send(RouterIngressMessage::Command(
+        RouterCommand::SendUserInput {
+            task_id: TaskId("task-1".to_owned()),
+            message_text: "after stop".to_owned(),
+            responder,
+        },
+    ));
     assert_eq!(
         response.await.expect("shutdown response"),
         Err(TaskCommandError::RuntimeUnavailable)
@@ -490,18 +460,15 @@ async fn api_and_tool_outputs_are_routed_to_live_runtime() {
             },
             spawner.clone(),
         ),
-    })
-    .expect("spawn router");
+    });
 
     handle
         .ingress_tx
-        .send(RouterIngressMessage::Command(RouterCommandEnvelope {
-            client_id: None,
-            client_command_id: None,
-            command: RouterCommand::EnsureTaskRuntime {
+        .send(RouterIngressMessage::Command(
+            RouterCommand::EnsureTaskRuntime {
                 task_id: TaskId("task-1".to_owned()),
             },
-        }))
+        ))
         .expect("send ensure");
     let mut runtime_rx = spawner.wait_receiver("task-1").await;
     assert!(matches!(
@@ -562,18 +529,15 @@ async fn stop_task_persists_status_and_keeps_the_runtime_live() {
             },
             spawner.clone(),
         ),
-    })
-    .expect("spawn router");
+    });
 
     handle
         .ingress_tx
-        .send(RouterIngressMessage::Command(RouterCommandEnvelope {
-            client_id: None,
-            client_command_id: None,
-            command: RouterCommand::EnsureTaskRuntime {
+        .send(RouterIngressMessage::Command(
+            RouterCommand::EnsureTaskRuntime {
                 task_id: TaskId("task-1".to_owned()),
             },
-        }))
+        ))
         .expect("send ensure");
     let mut runtime_rx = spawner.wait_receiver("task-1").await;
     assert!(matches!(
@@ -584,13 +548,9 @@ async fn stop_task_persists_status_and_keeps_the_runtime_live() {
     let (responder, response) = task_status_change_response_channel();
     handle
         .ingress_tx
-        .send(RouterIngressMessage::Command(RouterCommandEnvelope {
-            client_id: None,
-            client_command_id: None,
-            command: RouterCommand::StopTask {
-                task_id: TaskId("task-1".to_owned()),
-                responder,
-            },
+        .send(RouterIngressMessage::Command(RouterCommand::StopTask {
+            task_id: TaskId("task-1".to_owned()),
+            responder,
         }))
         .expect("send stop");
     assert_eq!(
@@ -606,15 +566,13 @@ async fn stop_task_persists_status_and_keeps_the_runtime_live() {
 
     handle
         .ingress_tx
-        .send(RouterIngressMessage::Command(RouterCommandEnvelope {
-            client_id: None,
-            client_command_id: None,
-            command: RouterCommand::SendUserInput {
+        .send(RouterIngressMessage::Command(
+            RouterCommand::SendUserInput {
                 task_id: TaskId("task-1".to_owned()),
                 message_text: "after stop".to_owned(),
                 responder: send_user_input_response_channel().0,
             },
-        }))
+        ))
         .expect("send user input");
     let TaskRuntimeCommand::UserInput { message_text, .. } =
         runtime_rx.recv().await.expect("user input")
@@ -654,18 +612,15 @@ async fn freeze_and_unfreeze_notify_the_same_runtime() {
             },
             spawner.clone(),
         ),
-    })
-    .expect("spawn router");
+    });
 
     handle
         .ingress_tx
-        .send(RouterIngressMessage::Command(RouterCommandEnvelope {
-            client_id: None,
-            client_command_id: None,
-            command: RouterCommand::EnsureTaskRuntime {
+        .send(RouterIngressMessage::Command(
+            RouterCommand::EnsureTaskRuntime {
                 task_id: TaskId("task-1".to_owned()),
             },
-        }))
+        ))
         .expect("send ensure");
     let mut runtime_rx = spawner.wait_receiver("task-1").await;
     let runtime_control = spawner.wait_control("task-1").await;
@@ -696,11 +651,7 @@ async fn freeze_and_unfreeze_notify_the_same_runtime() {
         });
         handle
             .ingress_tx
-            .send(RouterIngressMessage::Command(RouterCommandEnvelope {
-                client_id: None,
-                client_command_id: None,
-                command,
-            }))
+            .send(RouterIngressMessage::Command(command))
             .expect("send status command");
         assert_eq!(
             response.await.expect("status response"),
@@ -721,13 +672,9 @@ async fn freeze_and_unfreeze_notify_the_same_runtime() {
     let (responder, response) = task_status_change_response_channel();
     handle
         .ingress_tx
-        .send(RouterIngressMessage::Command(RouterCommandEnvelope {
-            client_id: None,
-            client_command_id: None,
-            command: RouterCommand::UnfreezeTask {
-                task_id: TaskId("task-1".to_owned()),
-                responder,
-            },
+        .send(RouterIngressMessage::Command(RouterCommand::UnfreezeTask {
+            task_id: TaskId("task-1".to_owned()),
+            responder,
         }))
         .expect("send invalid unfreeze");
     assert_eq!(
@@ -769,18 +716,15 @@ async fn stale_runtime_exit_preserves_replacement_runtime() {
             },
             spawner.clone(),
         ),
-    })
-    .expect("spawn router");
+    });
 
     handle
         .ingress_tx
-        .send(RouterIngressMessage::Command(RouterCommandEnvelope {
-            client_id: None,
-            client_command_id: None,
-            command: RouterCommand::EnsureTaskRuntime {
+        .send(RouterIngressMessage::Command(
+            RouterCommand::EnsureTaskRuntime {
                 task_id: TaskId("task-1".to_owned()),
             },
-        }))
+        ))
         .expect("send ensure");
     let mut first_runtime_rx = spawner.wait_receiver("task-1").await;
     let first_runtime_control = spawner.wait_control("task-1").await;
@@ -800,15 +744,13 @@ async fn stale_runtime_exit_preserves_replacement_runtime() {
 
     handle
         .ingress_tx
-        .send(RouterIngressMessage::Command(RouterCommandEnvelope {
-            client_id: None,
-            client_command_id: None,
-            command: RouterCommand::SendUserInput {
+        .send(RouterIngressMessage::Command(
+            RouterCommand::SendUserInput {
                 task_id: TaskId("task-1".to_owned()),
                 message_text: "after stop".to_owned(),
                 responder: send_user_input_response_channel().0,
             },
-        }))
+        ))
         .expect("send user input");
     let mut replacement_runtime_rx = spawner.wait_receiver("task-1").await;
     assert!(matches!(
@@ -884,18 +826,15 @@ async fn current_runtime_exit_removes_registry_entry() {
             },
             spawner.clone(),
         ),
-    })
-    .expect("spawn router");
+    });
 
     handle
         .ingress_tx
-        .send(RouterIngressMessage::Command(RouterCommandEnvelope {
-            client_id: None,
-            client_command_id: None,
-            command: RouterCommand::EnsureTaskRuntime {
+        .send(RouterIngressMessage::Command(
+            RouterCommand::EnsureTaskRuntime {
                 task_id: TaskId("task-1".to_owned()),
             },
-        }))
+        ))
         .expect("send ensure");
     let mut first_runtime_rx = spawner.wait_receiver("task-1").await;
     let first_runtime_control = spawner.wait_control("task-1").await;
@@ -921,13 +860,11 @@ async fn current_runtime_exit_removes_registry_entry() {
 
     handle
         .ingress_tx
-        .send(RouterIngressMessage::Command(RouterCommandEnvelope {
-            client_id: None,
-            client_command_id: None,
-            command: RouterCommand::EnsureTaskRuntime {
+        .send(RouterIngressMessage::Command(
+            RouterCommand::EnsureTaskRuntime {
                 task_id: TaskId("task-1".to_owned()),
             },
-        }))
+        ))
         .expect("send replacement ensure");
     let mut replacement_runtime_rx = spawner.wait_receiver("task-1").await;
     assert!(matches!(
@@ -970,18 +907,15 @@ async fn archive_persists_status_and_shuts_down_the_runtime() {
             },
             spawner.clone(),
         ),
-    })
-    .expect("spawn router");
+    });
 
     handle
         .ingress_tx
-        .send(RouterIngressMessage::Command(RouterCommandEnvelope {
-            client_id: None,
-            client_command_id: None,
-            command: RouterCommand::EnsureTaskRuntime {
+        .send(RouterIngressMessage::Command(
+            RouterCommand::EnsureTaskRuntime {
                 task_id: TaskId("task-1".to_owned()),
             },
-        }))
+        ))
         .expect("send ensure");
     let mut runtime_rx = spawner.wait_receiver("task-1").await;
     let runtime_control = spawner.wait_control("task-1").await;
@@ -993,13 +927,9 @@ async fn archive_persists_status_and_shuts_down_the_runtime() {
     let (responder, response) = task_status_change_response_channel();
     handle
         .ingress_tx
-        .send(RouterIngressMessage::Command(RouterCommandEnvelope {
-            client_id: None,
-            client_command_id: None,
-            command: RouterCommand::ArchiveTask {
-                task_id: TaskId("task-1".to_owned()),
-                responder,
-            },
+        .send(RouterIngressMessage::Command(RouterCommand::ArchiveTask {
+            task_id: TaskId("task-1".to_owned()),
+            responder,
         }))
         .expect("send archive");
     assert_eq!(
@@ -1054,18 +984,15 @@ async fn stopped_task_model_request_is_returned_without_api_dispatch() {
             },
             spawner.clone(),
         ),
-    })
-    .expect("spawn router");
+    });
 
     handle
         .ingress_tx
-        .send(RouterIngressMessage::Command(RouterCommandEnvelope {
-            client_id: None,
-            client_command_id: None,
-            command: RouterCommand::EnsureTaskRuntime {
+        .send(RouterIngressMessage::Command(
+            RouterCommand::EnsureTaskRuntime {
                 task_id: TaskId("task-1".to_owned()),
             },
-        }))
+        ))
         .expect("send ensure");
     let mut runtime_rx = spawner.wait_receiver("task-1").await;
     assert!(matches!(
@@ -1114,8 +1041,7 @@ async fn stale_outputs_and_runtime_ready_are_published_to_events() {
         core_spawn_deps: TaskRuntimeSpawnDeps::new(TaskRuntimeConfig {
             model_profiles: model_profiles(),
         }),
-    })
-    .expect("spawn router");
+    });
 
     handle
         .ingress_tx
@@ -1179,8 +1105,7 @@ async fn data_domain_events_are_not_published_to_events() {
         core_spawn_deps: TaskRuntimeSpawnDeps::new(TaskRuntimeConfig {
             model_profiles: model_profiles(),
         }),
-    })
-    .expect("spawn router");
+    });
 
     handle
         .ingress_tx
@@ -1227,8 +1152,7 @@ async fn core_tool_execution_request_uses_configured_tool_spawner() {
         core_spawn_deps: TaskRuntimeSpawnDeps::new(TaskRuntimeConfig {
             model_profiles: model_profiles(),
         }),
-    })
-    .expect("spawn router");
+    });
 
     handle
         .ingress_tx
@@ -1270,8 +1194,7 @@ async fn router_shutdown_cancels_and_joins_in_flight_tool_execution() {
         core_spawn_deps: TaskRuntimeSpawnDeps::new(TaskRuntimeConfig {
             model_profiles: model_profiles(),
         }),
-    })
-    .expect("spawn router");
+    });
 
     handle
         .ingress_tx
@@ -1324,8 +1247,7 @@ async fn archived_task_rejects_new_tool_execution() {
         core_spawn_deps: TaskRuntimeSpawnDeps::new(TaskRuntimeConfig {
             model_profiles: model_profiles(),
         }),
-    })
-    .expect("spawn router");
+    });
 
     handle
         .ingress_tx
@@ -1354,6 +1276,8 @@ async fn archived_task_rejects_new_tool_execution() {
 #[tokio::test]
 async fn mismatched_core_tool_task_id_is_ignored() {
     let db = open_memory_db();
+    create_root(&db, "task-1");
+    create_root(&db, "task-2");
     let (events_tx, _events_rx) = tokio::sync::mpsc::channel(8);
     let tool_spawner = Arc::new(CapturingToolSpawner::default());
 
@@ -1368,8 +1292,7 @@ async fn mismatched_core_tool_task_id_is_ignored() {
         core_spawn_deps: TaskRuntimeSpawnDeps::new(TaskRuntimeConfig {
             model_profiles: model_profiles(),
         }),
-    })
-    .expect("spawn router");
+    });
 
     handle
         .ingress_tx
@@ -1379,9 +1302,6 @@ async fn mismatched_core_tool_task_id_is_ignored() {
         }))
         .expect("send core tool request");
 
-    tokio::time::sleep(Duration::from_millis(20)).await;
-    assert_eq!(tool_spawner.request_count(), 0);
-
     handle
         .ingress_tx
         .send(RouterIngressMessage::StopRouter)
@@ -1390,6 +1310,7 @@ async fn mismatched_core_tool_task_id_is_ignored() {
         handle.join_handle.await.expect("join router"),
         RouterExitStatus::Stopped
     );
+    assert_eq!(tool_spawner.request_count(), 0);
 }
 
 #[tokio::test]
@@ -1414,8 +1335,7 @@ async fn core_ensure_task_runtimes_starts_each_committed_task() {
             },
             spawner.clone(),
         ),
-    })
-    .expect("spawn router");
+    });
 
     handle
         .ingress_tx
@@ -1473,18 +1393,15 @@ async fn core_tool_execution_spawn_failure_returns_error_tool_result() {
             },
             spawner.clone(),
         ),
-    })
-    .expect("spawn router");
+    });
 
     handle
         .ingress_tx
-        .send(RouterIngressMessage::Command(RouterCommandEnvelope {
-            client_id: None,
-            client_command_id: None,
-            command: RouterCommand::EnsureTaskRuntime {
+        .send(RouterIngressMessage::Command(
+            RouterCommand::EnsureTaskRuntime {
                 task_id: TaskId("task-1".to_owned()),
             },
-        }))
+        ))
         .expect("send ensure");
     let mut runtime_rx = spawner.wait_receiver("task-1").await;
     assert!(matches!(
@@ -1524,33 +1441,6 @@ async fn core_tool_execution_spawn_failure_returns_error_tool_result() {
 }
 
 #[tokio::test]
-async fn spawn_router_uses_unbounded_ingress() {
-    let db = open_memory_db();
-    let (events_tx, _events_rx) = tokio::sync::mpsc::channel(8);
-    let handle = spawn_router(RouterStartArgs {
-        db,
-        events_tx,
-        api_config: ApiExecutorConfig {
-            request_timeout: Duration::from_secs(1),
-            max_response_bytes: None,
-        },
-        tool_executor: Arc::new(NoopToolSpawner),
-        core_spawn_deps: TaskRuntimeSpawnDeps::new(TaskRuntimeConfig {
-            model_profiles: model_profiles(),
-        }),
-    })
-    .expect("spawn router");
-    handle
-        .ingress_tx
-        .send(RouterIngressMessage::StopRouter)
-        .expect("stop router");
-    assert_eq!(
-        handle.join_handle.await.expect("join router"),
-        RouterExitStatus::Stopped
-    );
-}
-
-#[tokio::test]
 async fn router_exits_when_ingress_sender_is_dropped() {
     let db = open_memory_db();
     let (events_tx, _events_rx) = tokio::sync::mpsc::channel(8);
@@ -1565,8 +1455,7 @@ async fn router_exits_when_ingress_sender_is_dropped() {
         core_spawn_deps: TaskRuntimeSpawnDeps::new(TaskRuntimeConfig {
             model_profiles: model_profiles(),
         }),
-    })
-    .expect("spawn router");
+    });
 
     drop(handle.ingress_tx);
 
@@ -1593,18 +1482,15 @@ async fn router_exits_when_ingress_sender_is_dropped_with_live_runtime() {
         core_spawn_deps: TaskRuntimeSpawnDeps::new(TaskRuntimeConfig {
             model_profiles: model_profiles(),
         }),
-    })
-    .expect("spawn router");
+    });
 
     handle
         .ingress_tx
-        .send(RouterIngressMessage::Command(RouterCommandEnvelope {
-            client_id: None,
-            client_command_id: None,
-            command: RouterCommand::EnsureTaskRuntime {
+        .send(RouterIngressMessage::Command(
+            RouterCommand::EnsureTaskRuntime {
                 task_id: TaskId("task-1".to_owned()),
             },
-        }))
+        ))
         .expect("send ensure");
     let ready = events_rx.recv().await.expect("runtime ready");
     assert_debug_contains(
@@ -1640,6 +1526,13 @@ fn correlation(task_id: &str) -> ApiCallCorrelation {
 
 fn model_request(task_id: &str) -> ModelCallDispatchRequest {
     ModelCallDispatchRequest {
+        model_config: Arc::new(
+            selvedge_domain_model::TaskModelConfig::new(
+                ModelProfileKey("default".to_owned()),
+                selvedge_domain_model::ReasoningEffort::Medium,
+            )
+            .expect("model config"),
+        ),
         correlation: correlation(task_id),
         provider: ModelProviderProfile {
             provider_name: "provider".to_owned(),
@@ -1684,7 +1577,7 @@ fn tool_request(task_id: &str) -> ToolExecutionRequest {
 }
 
 fn assert_debug_contains(event: EventIngress, task_id: Option<TaskId>, message: &str) {
-    let EventIngress::Raw(RawEvent::Debug(debug)) = event else {
+    let EventIngress::Publish(ClientEvent::DebugNotice(debug)) = event else {
         panic!("unexpected event ingress");
     };
     assert_eq!(debug.task_id, task_id);
@@ -1809,17 +1702,6 @@ impl ToolExecutionSpawner for CapturingToolSpawner {
             .map_err(|_| ToolExecutionSpawnError::ToolExecutorUnavailable)?;
         requests.push(request);
         Ok(tokio::spawn(async {}))
-    }
-}
-
-fn verbose_subscription() -> ClientSubscription {
-    ClientSubscription {
-        task_scope: TaskScope::AllTasks,
-        detail_level: DetailLevel::Verbose,
-        snapshot_mode: selvedge_command_model::SnapshotMode::CurrentState,
-        include_model_call_status: true,
-        include_tool_execution_status: true,
-        include_debug_notices: true,
     }
 }
 

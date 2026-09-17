@@ -2,7 +2,7 @@
 
 <!-- selvedge-package-readme
 package: selvedge-test-support
-freshness_fingerprint: 65df2fe54656e9770575d3770fee909cd276510d
+freshness_fingerprint: a3130a01adfdb51ca4358e12f82e8ee3bd7659df
 -->
 
 This crate provides shared fixtures for Selvedge integration tests.
@@ -10,9 +10,9 @@ This crate provides shared fixtures for Selvedge integration tests.
 Use narrow feature flags so each test crate imports only the fixture layer it needs:
 
 - `config` initializes a temporary Selvedge home and global config/logging state.
-- `http` owns loopback server and port helpers with abort-on-drop server tasks.
+- `http` owns bound loopback servers and held-port helpers with abort-on-drop server tasks.
 - `chatgpt-auth` writes ChatGPT auth fixture files and unsigned JWT strings.
-- `local-transport` provides a scripted local protocol transport for client and TUI tests.
+- `local-transport` provides a scripted local protocol transport for client and TUI tests. Each `FakeLocalConnector` owns its connection plan, so tests do not share a global plan or require a connection lock.
 - `db-fixtures` provides downstream database setup helpers.
 
 The helpers are test infrastructure only. Protocol-specific mock behavior stays in the test that owns the behavior contract.
@@ -27,7 +27,7 @@ flowchart TD
   Feature{Feature selected}
   Process[Child process fixture]
   Config[Temporary config home]
-  Http[Loopback HTTP server or port]
+  Http[Bound loopback HTTP server or held port]
   Auth[ChatGPT auth file or JWT]
   Db[In-memory database fixture]
   LocalTransport[Scripted local transport]
@@ -41,13 +41,13 @@ flowchart TD
   Feature -->|chatgpt-auth| Auth
   Feature -->|db-fixtures| Db
   Feature -->|local-transport| LocalTransport
-  Process -->|current test binary is spawned or inspected| Ready
+  Process -->|expected child test acknowledges entry and exits successfully| Ready
   Config -->|temp home, config file, config state, and logging initialize| Ready
   Http -->|loopback listener binds and server task starts| Ready
   Auth -->|auth JSON or unsigned JWT is created| Ready
   Db -->|database schema and fixture rows are created| Ready
-  LocalTransport -->|scripted state and response queues are installed| Ready
-  Process -->|child process cannot spawn or exits unsuccessfully| FixturePanic
+  LocalTransport -->|connector owns scripted state and response queues| Ready
+  Process -->|child cannot spawn, target never acknowledges entry, or child fails| FixturePanic
   Config -->|tempdir, file, config, or logging setup fails| FixturePanic
   Http -->|loopback bind or server setup fails| FixturePanic
   Auth -->|auth fixture write fails| FixturePanic

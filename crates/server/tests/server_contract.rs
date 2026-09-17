@@ -16,19 +16,18 @@ use selvedge_db::{
     create_root_task, load_runtime_task, open_db, read_tool_execution_source,
     read_tool_manifest_for_task,
 };
-use selvedge_domain_model::{ModelProfileKey, ToolName, UnixTs};
+use selvedge_domain_model::{ModelProfileKey, TaskModelConfig, ToolName, UnixTs};
 use selvedge_harness::harness_tool_catalog;
 use selvedge_local_protocol::{
     AttachRejectReason, AttachRequest, CommandOutcome, CommandRejectReason, CommandRequest,
     LocalClientCommandId, LocalClientFrame, LocalClientId, LocalClientSubscription,
-    LocalDetailLevel, LocalTaskScope, ReadyRequest, ReadyState,
+    LocalCommandKind, LocalDetailLevel, LocalTaskScope, ReadyRequest, ReadyState,
 };
 use selvedge_server::{
-    LocalBindingConfig, LocalOperationCommand, LocalOperationExecutor, LocalOperationFuture,
-    LocalOperationProgressSender, LocalOperationSuccess, LocalhostBindTarget, ServerRuntimeState,
-    ServerStartArgs, ServerStartupError, WebBindingConfig, spawn_server,
+    LocalOperationExecutor, LocalOperationFuture, LocalOperationProgressSender,
+    LocalOperationSuccess, LocalhostBindTarget, ServerRuntimeState, ServerStartArgs,
+    ServerStartupError, WebBindingConfig, spawn_server,
 };
-use selvedge_test_support::http::released_loopback_port;
 use tempfile::TempDir;
 use tokio::sync::Mutex as AsyncMutex;
 use tokio::time::timeout;
@@ -92,8 +91,13 @@ async fn startup_preserves_existing_task_tool_snapshot_and_limits() {
         CreateRootTaskInput {
             task_id: task_id.clone(),
             cursor_node_id,
-            model_profile_key: ModelProfileKey("default".to_owned()),
-            reasoning_effort: ReasoningEffort::Medium,
+            model_config: Arc::new(
+                TaskModelConfig::new(
+                    ModelProfileKey("default".to_owned()),
+                    ReasoningEffort::Medium,
+                )
+                .expect("valid model config"),
+            ),
             tools: harness_tool_catalog(&HarnessConfig::default()),
             now: UnixTs(1),
         },
@@ -148,16 +152,15 @@ async fn singleton_lock_rejects_second_server_for_same_home() {
 async fn singleton_lock_rejects_second_web_enabled_server_before_port_bind() {
     let _guard = SERVER_TEST_LOCK.lock().await;
     let home = SERVER_TEST_HOME.path();
-    let port = unused_tcp_v4_port();
     let mut first_args = test_args(home.to_path_buf());
     first_args.web_binding = Some(WebBindingConfig {
-        bind_target: LocalhostBindTarget::Ipv4 { port },
+        bind_target: LocalhostBindTarget::Ipv4 { port: 0 },
     });
     let first = spawn_server(first_args).await.expect("spawn first server");
 
     let mut second_args = test_args(home.to_path_buf());
     second_args.web_binding = Some(WebBindingConfig {
-        bind_target: LocalhostBindTarget::Ipv4 { port },
+        bind_target: LocalhostBindTarget::Ipv4 { port: 0 },
     });
     let second = spawn_server(second_args).await;
 
@@ -241,27 +244,6 @@ async fn mcp_start_failure_releases_persistent_lock() {
 }
 
 #[tokio::test]
-async fn invalid_web_bind_target_is_rejected_before_durable_startup_side_effects() {
-    let _guard = SERVER_TEST_LOCK.lock().await;
-    let home = SERVER_TEST_HOME.path();
-    let sqlite_path = home.join("selvedge.sqlite");
-    let lock_path = home.join("server.lock");
-    let _ = std::fs::remove_file(&lock_path);
-    let _ = std::fs::remove_file(&sqlite_path);
-
-    let mut args = test_args(home.to_path_buf());
-    args.web_binding = Some(WebBindingConfig {
-        bind_target: LocalhostBindTarget::Ipv4 { port: 0 },
-    });
-
-    let failed = spawn_server(args).await;
-
-    assert!(matches!(failed, Err(ServerStartupError::InvalidBindTarget)));
-    assert!(!sqlite_path.exists());
-    assert!(!lock_path.exists());
-}
-
-#[tokio::test]
 async fn occupied_web_bind_target_is_rejected_before_runtime_tasks_start() {
     let _guard = SERVER_TEST_LOCK.lock().await;
     let home = SERVER_TEST_HOME.path();
@@ -285,6 +267,27 @@ async fn occupied_web_bind_target_is_rejected_before_runtime_tasks_start() {
     ));
     assert!(!sqlite_path.exists());
     assert!(lock_path.exists());
+}
+
+#[tokio::test]
+async fn web_port_zero_binds_and_exposes_actual_address() {
+    let _guard = SERVER_TEST_LOCK.lock().await;
+    let home = SERVER_TEST_HOME.path();
+    let mut args = test_args(home.to_path_buf());
+    args.web_binding = Some(WebBindingConfig {
+        bind_target: LocalhostBindTarget::Ipv4 { port: 0 },
+    });
+
+    let handle = spawn_server(args).await.expect("spawn server");
+    let address = handle
+        .control
+        .web_local_addr()
+        .expect("web address should be exposed");
+    assert!(address.ip().is_loopback());
+    assert_ne!(address.port(), 0);
+
+    handle.control.stop().await;
+    handle.join_handle.await.expect("join server");
 }
 
 #[tokio::test]
@@ -549,7 +552,7 @@ struct BlockingLocalOperationExecutor {
 impl LocalOperationExecutor for BlockingLocalOperationExecutor {
     fn execute(
         &self,
-        _command: LocalOperationCommand,
+        _command: LocalCommandKind,
         _progress_tx: LocalOperationProgressSender,
     ) -> LocalOperationFuture {
         self.entered_tx.send(()).expect("send executor entry");
@@ -587,7 +590,7 @@ struct NoopLocalOperationExecutor;
 impl LocalOperationExecutor for NoopLocalOperationExecutor {
     fn execute(
         &self,
-        _command: LocalOperationCommand,
+        _command: LocalCommandKind,
         _progress_tx: LocalOperationProgressSender,
     ) -> LocalOperationFuture {
         Box::pin(async {
@@ -619,15 +622,8 @@ fn test_args_with_local_operation_executor(
         }),
         snapshot_builder: Arc::new(EmptySnapshotBuilder),
         local_operation_executor,
-        local_binding: LocalBindingConfig {
-            bind_target: LocalhostBindTarget::Ipv4 { port: 0 },
-        },
         web_binding: None,
     }
-}
-
-fn unused_tcp_v4_port() -> u16 {
-    released_loopback_port()
 }
 
 fn unsupported_command(command_id: &str) -> CommandRequest {

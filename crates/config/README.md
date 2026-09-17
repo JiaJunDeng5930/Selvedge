@@ -2,7 +2,7 @@
 
 <!-- selvedge-package-readme
 package: selvedge-config
-freshness_fingerprint: 01185b6bb674ca85e8d2c54311fbdb16223218af
+freshness_fingerprint: 032599d9f11ee3d79395a4a4fda2c4df9e940353
 -->
 
 ## This crate is for
@@ -97,7 +97,7 @@ Use `read(...)`.
 Semantics:
 
 - callers see the current effective config
-- effective config = loaded base config + runtime-only patch
+- the effective config is an immutable snapshot, validated at initialization and update boundaries; reads share that snapshot without re-parsing or re-validating it
 - callers never touch internal merge state or path selection state
 
 ```no_run
@@ -130,8 +130,7 @@ Semantics:
 ```no_run
 # use selvedge_config::{init, update_runtime};
 # init()?;
-update_runtime("feature.rollout_percentage", 100_u8)?;
-update_runtime("feature.enabled", true)?;
+update_runtime("harness.max_children_per_fork", 10_u32)?;
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
@@ -193,8 +192,8 @@ flowchart TD
   Validate[Materialize and validate AppConfig]
   Ready[Runtime config ready]
   Read[Return selected home or effective config view]
-  RuntimePatch[Apply runtime patch]
-  PersistPatch[Apply runtime patch and persist file]
+  RuntimePatch[Validate and publish updated snapshot]
+  PersistPatch[Validate candidate and persist file then publish snapshot]
   Failure[Return ConfigError with state unchanged]
 
   Uninitialized -->|init is called with no explicit home| SelectHome
@@ -217,3 +216,11 @@ flowchart TD
   PersistPatch -->|durable read, merge, validation, write, or rename fails| Failure
   Failure -->|caller starts a new operation against existing ready service| Ready
 ```
+
+Override paths use TOML dotted-key syntax. Quote dynamic names containing dots,
+for example `mcp.servers."acme.tools".timeout_ms`. Environment overrides separate
+path segments with `__`: schema field names are case-insensitive, while provider
+IDs, MCP server IDs, process environment keys, logging module names, and provider
+settings keys preserve their spelling. For example,
+`SELVEDGE_APP_MCP__SERVERS__acme.tools__ENV__LOG_LEVEL` updates the existing
+`LOG_LEVEL` variable of the `acme.tools` server.

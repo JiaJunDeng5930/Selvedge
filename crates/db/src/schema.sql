@@ -6,7 +6,7 @@ CREATE TABLE schema_metadata (
 );
 
 INSERT INTO schema_metadata (schema_key, schema_value)
-VALUES ('selvedge_schema_version', 'task-lifecycle-v10');
+VALUES ('selvedge_schema_version', 'task-lifecycle-v11');
 
 CREATE TABLE history_nodes (
     node_id INTEGER PRIMARY KEY,
@@ -14,7 +14,6 @@ CREATE TABLE history_nodes (
     content_kind TEXT NOT NULL CHECK (content_kind IN ('message', 'reasoning', 'function_call', 'function_output')),
     created_at INTEGER NOT NULL CHECK (created_at >= 0),
     UNIQUE (node_id, content_kind),
-    UNIQUE (node_id, parent_node_id),
     FOREIGN KEY (parent_node_id) REFERENCES history_nodes(node_id) ON UPDATE RESTRICT ON DELETE RESTRICT,
     CHECK (parent_node_id IS NULL OR parent_node_id <> node_id)
 );
@@ -45,7 +44,6 @@ CREATE TABLE history_function_call_nodes (
     arguments_json TEXT NOT NULL DEFAULT '{}'
         CHECK (json_valid(arguments_json) AND json_type(arguments_json) = 'object'),
     FOREIGN KEY (node_id, node_content_kind) REFERENCES history_nodes(node_id, content_kind) ON UPDATE RESTRICT ON DELETE CASCADE,
-    UNIQUE (node_id, tool_name),
     UNIQUE (node_id, function_call_id, tool_name)
 );
 
@@ -150,6 +148,3 @@ CREATE TABLE queued_user_inputs (
     PRIMARY KEY (task_id, seq_no),
     FOREIGN KEY (task_id) REFERENCES tasks(task_id) ON UPDATE RESTRICT ON DELETE CASCADE
 );
-
-CREATE INDEX idx_queued_user_inputs_task_order
-    ON queued_user_inputs(task_id, seq_no);

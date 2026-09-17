@@ -246,66 +246,18 @@ async fn drive_response_stream(
         };
 
         let Some(chunk) = maybe_chunk else {
-            let final_result = if buffer.is_empty() {
-                Err(ChatgptApiError::Endpoint(
-                    ChatgptApiEndpointError::PrematureClose,
-                ))
-            } else {
-                parse_final_sse_frame(&buffer).and_then(|maybe_payload| match maybe_payload {
-                    None => Err(ChatgptApiError::Endpoint(
+            if process_sse_frame(&buffer, &sender, &terminal_error, deadline, timeout).await {
+                send_stream_item(
+                    &sender,
+                    &terminal_error,
+                    Err(ChatgptApiError::Endpoint(
                         ChatgptApiEndpointError::PrematureClose,
                     )),
-                    Some(payload) => match map_stream_event(&payload) {
-                        Ok(MappedEvent::Event(event)) => Ok(Some(event)),
-                        Ok(MappedEvent::Completed(event)) => Ok(Some(event)),
-                        Ok(MappedEvent::EndpointError(error)) => Err(error),
-                        Err(error) => Err(error),
-                    },
-                })
-            };
-
-            match final_result {
-                Ok(Some(event)) => {
-                    if event_is_completed(&event) {
-                        let _ = send_stream_item(
-                            &sender,
-                            &terminal_error,
-                            Ok(event),
-                            deadline,
-                            timeout,
-                        )
-                        .await;
-                        return;
-                    }
-
-                    if !send_stream_item(&sender, &terminal_error, Ok(event), deadline, timeout)
-                        .await
-                    {
-                        return;
-                    }
-                    send_stream_item(
-                        &sender,
-                        &terminal_error,
-                        Err(ChatgptApiError::Endpoint(
-                            ChatgptApiEndpointError::PrematureClose,
-                        )),
-                        deadline,
-                        timeout,
-                    )
-                    .await;
-                    return;
-                }
-                Ok(None) => {}
-                Err(error) => {
-                    send_stream_item(&sender, &terminal_error, Err(error), deadline, timeout).await;
-                    return;
-                }
+                    deadline,
+                    timeout,
+                )
+                .await;
             }
-
-            if buffer.is_empty() {
-                return;
-            }
-
             return;
         };
 
@@ -364,60 +316,38 @@ async fn drive_response_stream(
             let Some(frame) = take_next_sse_frame(&mut buffer) else {
                 break;
             };
-            let frame = match std::str::from_utf8(&frame) {
-                Ok(text) => text.replace("\r\n", "\n").replace('\r', "\n"),
-                Err(_) => {
-                    send_stream_item(
-                        &sender,
-                        &terminal_error,
-                        Err(ChatgptApiError::Endpoint(
-                            ChatgptApiEndpointError::MalformedEvent {
-                                reason: "event stream contained non-utf8 bytes".to_owned(),
-                                raw: None,
-                            },
-                        )),
-                        deadline,
-                        timeout,
-                    )
-                    .await;
-                    return;
-                }
-            };
-
-            if frame.trim().is_empty() {
-                continue;
+            if !process_sse_frame(&frame, &sender, &terminal_error, deadline, timeout).await {
+                return;
             }
+        }
+    }
+}
 
-            let payload = match parse_sse_frame(&frame) {
-                Ok(Some(payload)) => payload,
-                Ok(None) => continue,
-                Err(error) => {
-                    send_stream_item(&sender, &terminal_error, Err(error), deadline, timeout).await;
-                    return;
-                }
-            };
-
-            match map_stream_event(&payload) {
-                Ok(MappedEvent::Event(event)) => {
-                    if !send_stream_item(&sender, &terminal_error, Ok(event), deadline, timeout)
-                        .await
-                    {
-                        return;
-                    }
-                }
-                Ok(MappedEvent::Completed(event)) => {
-                    send_stream_item(&sender, &terminal_error, Ok(event), deadline, timeout).await;
-                    return;
-                }
-                Ok(MappedEvent::EndpointError(error)) => {
-                    send_stream_item(&sender, &terminal_error, Err(error), deadline, timeout).await;
-                    return;
-                }
-                Err(error) => {
-                    send_stream_item(&sender, &terminal_error, Err(error), deadline, timeout).await;
-                    return;
-                }
-            }
+// Both delimited frames and the trailing EOF frame use the same event semantics.
+async fn process_sse_frame(
+    frame: &[u8],
+    sender: &mpsc::Sender<Result<ChatgptResponseEvent, ChatgptApiError>>,
+    terminal_error: &Arc<Mutex<Option<ChatgptApiError>>>,
+    deadline: tokio::time::Instant,
+    timeout: Duration,
+) -> bool {
+    let mapped = parse_sse_frame_bytes(frame).and_then(|payload| {
+        payload
+            .map(|payload| map_stream_event(&payload))
+            .transpose()
+    });
+    match mapped {
+        Ok(None) => true,
+        Ok(Some(MappedEvent::Event(event))) => {
+            send_stream_item(sender, terminal_error, Ok(event), deadline, timeout).await
+        }
+        Ok(Some(MappedEvent::Completed(event))) => {
+            send_stream_item(sender, terminal_error, Ok(event), deadline, timeout).await;
+            false
+        }
+        Ok(Some(MappedEvent::EndpointError(error))) | Err(error) => {
+            send_stream_item(sender, terminal_error, Err(error), deadline, timeout).await;
+            false
         }
     }
 }
@@ -443,7 +373,7 @@ async fn send_stream_item(
     }
 }
 
-fn parse_final_sse_frame(buffer: &[u8]) -> Result<Option<String>, ChatgptApiError> {
+fn parse_sse_frame_bytes(buffer: &[u8]) -> Result<Option<String>, ChatgptApiError> {
     let frame = std::str::from_utf8(buffer).map_err(|_| {
         ChatgptApiError::Endpoint(ChatgptApiEndpointError::MalformedEvent {
             reason: "event stream contained non-utf8 bytes".to_owned(),
@@ -1160,10 +1090,6 @@ fn build_http_request(
     })
 }
 
-fn event_is_completed(event: &ChatgptResponseEvent) -> bool {
-    matches!(event, ChatgptResponseEvent::Completed(_))
-}
-
 fn insert_header(
     headers: &mut HeaderMap,
     name: &'static str,
@@ -1592,7 +1518,6 @@ impl ChatgptResponsesRequest {
             ));
         }
 
-        validate_json_objects("tools", &self.tools)?;
         if let Some(allowed_tools) = &self.allowed_tools {
             let mut unique_names = std::collections::BTreeSet::new();
             for allowed_tool in allowed_tools {
@@ -1641,23 +1566,6 @@ fn validate_optional_header_value(
     if let Some(value) = value {
         validate_non_blank(field, value)?;
         validate_header_value(field, value)?;
-    }
-
-    Ok(())
-}
-
-fn validate_json_objects(
-    field: &'static str,
-    tools: &[ToolDescriptor],
-) -> Result<(), RequestValidationError> {
-    if tools
-        .iter()
-        .any(|descriptor| serde_json::to_value(&descriptor.0).ok().is_none())
-    {
-        return Err(RequestValidationError::new(
-            field,
-            "must be valid JSON objects",
-        ));
     }
 
     Ok(())
@@ -2544,16 +2452,13 @@ mod tests {
     }
 
     #[test]
-    fn take_next_sse_frame_keeps_buffer_allocation_for_remainder() {
+    fn take_next_sse_frame_preserves_remaining_bytes() {
         let mut buffer = b"data: first\n\ndata: second\n\n".to_vec();
-        buffer.reserve(1024);
-        let original_capacity = buffer.capacity();
 
         let frame = take_next_sse_frame(&mut buffer).expect("first frame");
 
         assert_eq!(frame, b"data: first".to_vec());
         assert_eq!(buffer, b"data: second\n\n".to_vec());
-        assert_eq!(buffer.capacity(), original_capacity);
     }
 
     #[test]

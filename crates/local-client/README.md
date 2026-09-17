@@ -2,18 +2,20 @@
 
 <!-- selvedge-package-readme
 package: selvedge-local-client
-freshness_fingerprint: 46ea6022c5c6c8a3036764c703e38630a71bdc43
+freshness_fingerprint: ef4bcd3943cf8ad8d303c7cdce48a09c027a019d
 -->
 
 This crate owns the process-local client handle for talking to an existing Selvedge localhost server.
 
-Use it to validate localhost endpoint configuration, connect through a caller-provided `LocalTransport`, run ready probes, submit local protocol commands, open one attach stream, and close the underlying transport.
+Use it to validate localhost endpoint configuration, connect through an instance-owned `LocalConnector` and its `LocalTransport`, run ready probes, submit local protocol commands, open one attach stream, and close the underlying transport.
 
 `LocalEndpoint` is structured as loopback TCP by construction: `TcpIpv4 { port }` means `127.0.0.1:<port>`, and `TcpIpv6 { port }` means `[::1]:<port>`. Port `0` is invalid.
 
 An active attach stream has one client-owned frame reader. `close()` and request failures close the active stream, drop the inner transport stream, and wake a pending reader so its next poll completes.
 
-HTTP response headers are capped at 16 KiB. Buffered JSON bodies and individual NDJSON lines are capped at 4 MiB. These boundaries return `LocalClientError::ResponseTooLarge`.
+`connect_http` uses Hyper for HTTP framing, including content lengths and chunked bodies. The response reader owns the connection driver; cancelling a request or dropping an attach reader cancels that driver. Connect and request operations use the configured timeout.
+
+HTTP response headers are capped at 16 KiB and buffered JSON bodies at 4 MiB. NDJSON items use the protocol-owned `MAX_LOCAL_FRAME_BYTES` budget (4 MiB, excluding the newline). Locally detected violations return `LocalClientError::ResponseTooLarge`. The server reports a frame that cannot fit, including an oversized snapshot, as a terminal `LocalClientError::StreamError` with `FrameTooLarge`; callers do not receive a partial snapshot. `HttpProblem` and `StreamError` preserve the original typed protocol payload.
 
 This crate does not start the server, call systemd, select an IPC transport, inspect command payload schemas, cache snapshots, or access router/events/client-sync mailboxes directly.
 
@@ -58,6 +60,6 @@ flowchart TD
   Attach -->|headers, rejection body, or first NDJSON item exceed their limit| TooLarge
   ActiveAttach -->|caller polls next frame and transport yields frame| ActiveAttach
   ActiveAttach -->|reader reaches EOF, request failure occurs, or close is called| Close
-  ActiveAttach -->|one NDJSON frame exceeds 4 MiB| TooLarge
+  ActiveAttach -->|one NDJSON item exceeds the shared protocol frame budget| TooLarge
   Close -->|transport close completes| Success
 ```

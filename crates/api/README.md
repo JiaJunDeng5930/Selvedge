@@ -2,16 +2,16 @@
 
 <!-- selvedge-package-readme
 package: selvedge-api
-freshness_fingerprint: 9f6d1fd70e4b7afc92747e75b240e70f0deeb524
+freshness_fingerprint: 856bf412912d26ac57079fbdf5ed90c95500f17a
 -->
 
 This crate executes one Selvedge model call and returns the completed result to the router mailbox.
 
 Use it to dispatch a single provider call, normalize the provider response into a model reply, classify execution failures, and spawn short-lived Tokio tasks for model calls.
 
-The public entry point is `execute_model_call(request, router_tx, config)`. Provider selection comes from `request.provider.provider_name`; the provider registry validates the configured provider and selected model before the ChatGPT adapter executes ChatGPT requests.
+The public entry point is `execute_model_call(request, router_tx, config)`. Provider selection comes from `request.provider.provider_name`; the provider registry validates the configured provider and selected model and returns an `ExecutableProvider`. An exhaustive match dispatches that identity to its adapter without a second registry.
 
-For ChatGPT adapter dispatch, `request.provider.model_name` becomes the ChatGPT model. `request.provider.max_output_tokens` is accepted by the Selvedge request contract and ignored by this path because `chatgpt-api` exposes no request field for that control; ChatGPT `response.incomplete` with reason `max_output_tokens` returns `ModelFinishReason::Length` with accumulated output. ChatGPT dispatch pins ChatGPT capabilities to reasoning summaries enabled, text verbosity enabled, and default reasoning effort `medium` until Selvedge has a capability source.
+For ChatGPT adapter dispatch, `request.provider.model_name` becomes the ChatGPT model. `request.provider.max_output_tokens` is accepted by the Selvedge request contract and ignored by this path because `chatgpt-api` exposes no request field for that control; ChatGPT `response.incomplete` with reason `max_output_tokens` returns `ModelFinishReason::Length` with accumulated output. ChatGPT dispatch pins ChatGPT capabilities to reasoning summaries enabled, text verbosity enabled, until Selvedge has a capability source. The adapter maps the explicit `request.model_config.reasoning_effort()` into ChatGPT reasoning options; task effort takes precedence over capability defaults.
 
 Spawned calls supervise provider panics and convert them into a correlated failure envelope. ChatGPT text `done` events must extend the accumulated UTF-8 delta exactly; mismatches become `ProviderResponse` failures. Every spawned call therefore reaches one terminal router outcome while router ingress remains available.
 

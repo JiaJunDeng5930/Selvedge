@@ -24,7 +24,6 @@ request_timeout_ms = 5000
 
 [logging]
 level = "info"
-format = "text"
 "#,
     )
     .expect("write config file");
@@ -41,22 +40,21 @@ format = "text"
     let before = read(|config| {
         (
             config.server.port,
-            config.feature.enabled,
+            config.harness.max_children_per_fork,
             config.logging.level,
         )
     })
     .expect("read before update");
 
-    assert_eq!(before, (9100, false, LogFilter::Info));
+    assert_eq!(before, (9100, 5, LogFilter::Info));
 
-    update_runtime("feature.rollout_percentage", 100_u8).expect("set rollout");
-    update_runtime("feature.enabled", true).expect("enable feature");
+    update_runtime("harness.max_children_per_fork", 10_u32).expect("set fork limit");
     update_runtime_and_persist("logging.level", "debug").expect("persist logging level");
 
     let after = read(|config| {
         (
             config.server.port,
-            config.feature.enabled,
+            config.harness.max_children_per_fork,
             config.logging.level,
         )
     })
@@ -64,13 +62,13 @@ format = "text"
     let persisted = fs::read_to_string(config_path).expect("read persisted file");
     let selected_home = selvedge_home().expect("read selected home");
 
-    assert_eq!(after, (9100, true, LogFilter::Debug));
+    assert_eq!(after, (9100, 10, LogFilter::Debug));
     assert_eq!(
         selected_home,
         fs::canonicalize(config_home).expect("canonicalize config home")
     );
     assert!(persisted.contains("level = \"debug\""));
-    assert!(!persisted.contains("enabled = true"));
+    assert!(!persisted.contains("max_children_per_fork = 10"));
     let loaded = read(|config| (config.server.port, config.server.request_timeout_ms))
         .expect("read config with cli overrides");
 

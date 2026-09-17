@@ -5,23 +5,18 @@ use selvedge_local_protocol::{
     LocalAttachStreamOrderError, LocalAttachStreamValidationState, LocalAttachStreamValidator,
     LocalClientCommandId, LocalClientEvent, LocalClientEventFrame, LocalClientFrame, LocalClientId,
     LocalClientNoticeFrame, LocalClientSnapshot, LocalClientSnapshotFrame, LocalClientSubscription,
-    LocalDebugNoticeEvent, LocalDetailLevel, LocalHistoryNodeProjection,
-    LocalHistoryNodeProjectionBody, LocalHttpProblemCode, LocalMessageRole,
-    LocalModelCallStatusEvent, LocalModelCallStatusPhase, LocalNotice, LocalNoticeLevel,
-    LocalProtocolValidationError, LocalReasoningEffort, LocalSnapshotTaskVersion, LocalStreamError,
-    LocalStreamErrorReason, LocalTaskParentProjection, LocalTaskProjection,
-    LocalTaskProjectionStatus, LocalTaskScope, LocalToolExecutionStatusEvent,
-    LocalToolExecutionStatusPhase, ReadyRequest, ReadyResponse, ReadyState, http_problem,
-    validate_attach_request, validate_attach_stream_item, validate_client_frame,
-    validate_command_request, validate_ready_request, validate_snapshot, validate_subscription,
+    LocalDetailLevel, LocalHistoryNodeProjection, LocalHistoryNodeProjectionBody, LocalMessageRole,
+    LocalNotice, LocalNoticeLevel, LocalProtocolValidationError, LocalReasoningEffort,
+    LocalSnapshotTaskVersion, LocalStreamError, LocalStreamErrorReason, LocalTaskParentProjection,
+    LocalTaskProjection, LocalTaskProjectionStatus, LocalTaskScope, LocalToolExecutionStatusEvent,
+    LocalToolExecutionStatusPhase, ReadyResponse, ReadyState, validate_attach_request,
+    validate_attach_stream_item, validate_client_frame, validate_command_request,
+    validate_snapshot, validate_subscription,
 };
 use serde_json::json;
 
 #[test]
 fn request_validation_enforces_required_client_fields() {
-    let ready = ReadyRequest {};
-    validate_ready_request(&ready).expect("ready request is valid");
-
     assert_eq!(
         LocalClientId::new(" "),
         Err(LocalProtocolValidationError::EmptyClientId)
@@ -279,31 +274,6 @@ fn protocol_messages_round_trip_through_json() {
         event_frame
     );
 
-    let model_event = LocalClientEvent::ModelCallStatus(LocalModelCallStatusEvent {
-        task_id: "task-1".to_owned(),
-        model_call_id: "model-call-1".to_owned(),
-        phase: LocalModelCallStatusPhase::Requested,
-    });
-    assert!(matches!(
-        model_event,
-        LocalClientEvent::ModelCallStatus(LocalModelCallStatusEvent {
-            phase: LocalModelCallStatusPhase::Requested,
-            ..
-        })
-    ));
-
-    let debug_event = LocalClientEvent::DebugNotice(LocalDebugNoticeEvent {
-        task_id: Some("task-1".to_owned()),
-        message_text: "debug".to_owned(),
-    });
-    assert!(matches!(debug_event, LocalClientEvent::DebugNotice(_)));
-
-    let parent_edge = LocalTaskParentProjection {
-        parent_task_id: "parent".to_owned(),
-        child_task_id: "child".to_owned(),
-    };
-    assert_eq!(parent_edge.child_task_id, "child");
-
     let error_json = serde_json::to_string(&LocalProtocolValidationError::EmptyTaskId)
         .expect("serialize validation error");
     assert_eq!(
@@ -386,14 +356,6 @@ fn function_output_round_trip_preserves_json_value() {
             .expect("deserialize function output"),
         history_node
     );
-}
-
-#[test]
-fn http_problem_uses_payload_text() {
-    let problem = http_problem(LocalHttpProblemCode::MalformedJson, "invalid json");
-
-    assert_eq!(problem.code, LocalHttpProblemCode::MalformedJson);
-    assert_eq!(problem.message_text, "invalid json");
 }
 
 #[test]
@@ -569,4 +531,19 @@ fn valid_history_message() -> LocalHistoryNodeProjection {
             text: String::new(),
         },
     }
+}
+
+#[test]
+fn correlation_identifiers_bound_terminal_error_metadata() {
+    use selvedge_local_protocol::MAX_LOCAL_IDENTIFIER_BYTES;
+    assert!(LocalClientCommandId::new("a".repeat(MAX_LOCAL_IDENTIFIER_BYTES)).is_ok());
+    assert_eq!(
+        LocalClientCommandId::new("界".repeat(MAX_LOCAL_IDENTIFIER_BYTES)),
+        Err(LocalProtocolValidationError::IdentifierTooLong)
+    );
+    let request: CommandRequest = serde_json::from_value(json!({ "client_id": "client-1", "client_command_id": "a".repeat(MAX_LOCAL_IDENTIFIER_BYTES + 1), "command_name": "list-models", "payload": {} })).expect("JSON shape decodes");
+    assert_eq!(
+        validate_command_request(&request),
+        Err(LocalProtocolValidationError::IdentifierTooLong)
+    );
 }

@@ -77,13 +77,13 @@ This file is for coding agents working in this repository.
 |.cargo:{config.toml}
 |.github:{workflows/}
 |.github/workflows:{ci.yml}
-|crates:{api/,chatgpt-api/,chatgpt-auth/,chatgpt-login/,client-sync/,client/,command-model/,config-model/,config/,core/,db/,domain-model/,events/,harness/,local-client/,local-protocol/,logging/,model-credentials/,model-providers/,router/,server/,systemd/,task-runtime-factory/,test-support/,tui/,web/}
+|crates:{api/,chatgpt-api/,chatgpt-auth/,chatgpt-login/,client-sync/,client/,command-model/,config-model/,config/,core/,db/,domain-model/,events/,harness/,local-client/,local-protocol/,logging/,model-credentials/,model-providers/,router/,server/,task-runtime-factory/,test-support/,tui/,web/}
 |crates/api:{src/,tests/,Cargo.toml,README.md}
 |crates/api/src:{lib.rs}
 |crates/api/tests:{api_contract.rs}
 |crates/chatgpt-api:{src/,tests/,Cargo.toml,README.md}
 |crates/chatgpt-api/src:{lib.rs}
-|crates/chatgpt-api/tests:{support/,public_api.rs,request_contract.rs,stream_integration.rs}
+|crates/chatgpt-api/tests:{support/,request_contract.rs,stream_integration.rs}
 |crates/chatgpt-api/tests/support:{mod.rs}
 |crates/chatgpt-auth:{src/,tests/,Cargo.toml,README.md}
 |crates/chatgpt-auth/src:{auth_file.rs,config.rs,jwt.rs,lib.rs,lock.rs,refresh.rs,resolve.rs}
@@ -91,13 +91,13 @@ This file is for coding agents working in this repository.
 |crates/chatgpt-auth/tests/support:{mod.rs}
 |crates/chatgpt-login:{src/,tests/,Cargo.toml,README.md}
 |crates/chatgpt-login/src:{auth_file.rs,device_code.rs,lib.rs,token_exchange.rs}
-|crates/chatgpt-login/tests:{support/,complete_login_integration.rs,device_code_start_integration.rs,public_api.rs}
+|crates/chatgpt-login/tests:{support/,complete_login_integration.rs,device_code_start_integration.rs}
 |crates/chatgpt-login/tests/support:{mod.rs}
 |crates/client:{src/,tests/,Cargo.toml,README.md}
 |crates/client-sync:{src/,tests/,Cargo.toml,README.md}
 |crates/client-sync/src:{lib.rs}
 |crates/client-sync/tests:{client_sync_contract.rs}
-|crates/client/src:{config_resolution.rs,lib.rs,redaction.rs,redirect_runtime.rs,request_prep.rs,runtime.rs,single_hop.rs}
+|crates/client/src:{config_resolution.rs,lib.rs,redaction.rs,redirect_runtime.rs,request_prep.rs,runtime.rs,transport.rs}
 |crates/client/tests:{support/,http_integration.rs}
 |crates/client/tests/support:{mod.rs}
 |crates/command-model:{src/,tests/,Cargo.toml,README.md}
@@ -123,8 +123,8 @@ This file is for coding agents working in this repository.
 |crates/events/src:{lib.rs}
 |crates/events/tests:{events_contract.rs}
 |crates/harness:{src/,tests/,Cargo.toml,README.md}
-|crates/harness/src:{lib.rs,mcp.rs}
-|crates/harness/tests:{fixtures/,bash_contract.rs,executor_contract.rs,mcp_contract.rs,protocol_contract.rs}
+|crates/harness/src:{lib.rs,mcp.rs,projection_tests.rs,protocol_tests.rs}
+|crates/harness/tests:{fixtures/,bash_contract.rs,executor_contract.rs,mcp_contract.rs}
 |crates/harness/tests/fixtures:{mcp_server.sh}
 |crates/local-client:{src/,tests/,Cargo.toml,README.md}
 |crates/local-client/src:{lib.rs}
@@ -146,9 +146,6 @@ This file is for coding agents working in this repository.
 |crates/server:{src/,tests/,Cargo.toml,README.md}
 |crates/server/src:{command.rs,lib.rs}
 |crates/server/tests:{server_contract.rs}
-|crates/systemd:{src/,tests/,Cargo.toml,README.md}
-|crates/systemd/src:{lib.rs}
-|crates/systemd/tests:{systemd_contract.rs}
 |crates/task-runtime-factory:{src/,tests/,Cargo.toml,README.md}
 |crates/task-runtime-factory/src:{lib.rs}
 |crates/task-runtime-factory/tests:{factory_contract.rs}
@@ -160,11 +157,11 @@ This file is for coding agents working in this repository.
 |crates/web/src:{lib.rs}
 |crates/web/tests:{web_contract.rs}
 |docs:{adr/}
-|docs/adr:{0001-task-owned-tool-contracts.md,0002-open-tool-call-recovery.md,0003-persisted-task-lifecycle.md}
+|docs/adr:{0001-task-owned-tool-contracts.md,0002-open-tool-call-recovery.md,0003-persisted-task-lifecycle.md,0004-semantic-ownership-at-runtime-boundaries.md,0005-single-source-configuration-and-transport.md}
 |scripts:{bootstrap.sh}
 |src:{lib.rs,main.rs}
-|tests:{config_integration.rs,stdout_stderr_integration.rs}
+|tests:{stdout_stderr_integration.rs}
 |xtask:{src/,Cargo.toml,README.md}
-|xtask/src:{agents_index.rs,lib.rs,main.rs,readme_gate.rs}
+|xtask/src:{agents_index.rs,lib.rs,main.rs,readme_gate.rs,test_repo.rs}
 ```
 <!-- END AGENTS_MD_PROJECT_INDEX -->

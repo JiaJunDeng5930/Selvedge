@@ -2,7 +2,7 @@
 
 <!-- selvedge-package-readme
 package: selvedge-model-credentials
-freshness_fingerprint: 0e8bfb0e956ed8da7b35c82442fb68a8557974e1
+freshness_fingerprint: 36e99eebd811163f1339883984d9b1881a0c22a5
 -->
 
 This crate owns persisted model-provider credentials under the selected Selvedge Home.
@@ -10,6 +10,11 @@ This crate owns persisted model-provider credentials under the selected Selvedge
 Use it to read, check, list, and atomically write provider credential records at `<selvedge_home>/auth/model-providers/<provider_id>.json`.
 
 This crate validates only the shared credential envelope: schema version, provider id, credential kind, and minimum payload shape. Provider-specific payload semantics belong to each provider adapter.
+
+`CredentialLockGuard` exposes reads and writes for its locked provider only.
+Use it when a refresh operation must hold the lock across a network request.
+`read_credential_snapshot_from_home` reads an atomic pre-lock refresh hint;
+callers must lock and reread before deciding whether to refresh or write.
 
 ## Package State Machine
 

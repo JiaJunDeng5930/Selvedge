@@ -119,3 +119,11 @@ fn read_expiration(
 
     Ok(Some(timestamp))
 }
+
+/// Opaque tokens are usable; tokens advertising JWT structure must parse and be unexpired.
+pub(crate) fn access_token_is_usable(token: &str, now: chrono::DateTime<chrono::Utc>) -> bool {
+    match parse(token) {
+        Ok(claims) => claims.expires_at.is_none_or(|expires_at| expires_at > now),
+        Err(_) => !header_indicates_jwt(token),
+    }
+}

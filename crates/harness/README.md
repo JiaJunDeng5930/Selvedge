@@ -2,7 +2,7 @@
 
 <!-- selvedge-package-readme
 package: selvedge-harness
-freshness_fingerprint: 8da748b588f7bd036743556274118a36d441cd1a
+freshness_fingerprint: d7061b41b9e65459c8a6f4a1440704c450b2b742
 -->
 
 This crate implements Selvedge task self-orchestration, bounded Bash command execution, and stdio MCP client execution for model tool calls.
@@ -11,7 +11,7 @@ Use it for the five harness tool manifests, complete JSON input schemas, typed i
 
 Calling task identity and complete function-call correlation come from `ToolExecutionRequest`, not model arguments. SQLite reads run on Tokio's blocking pool. Send and archive wait for typed router responders, so enqueueing a command is never reported as business success.
 
-Each catalog entry carries a recovery policy that is frozen into the task tool contract. `fork_task` and `read_task` are retry-safe because they are side-effect free or commit their effects atomically with their output. `send_message_to_task`, `archive_task`, and `bash` are not automatically retried when an open call has no committed output, because the call may have been interrupted after taking effect or inherited into a fork branch without being executed there. Discovered MCP tools use the same conservative policy because their effect semantics are not known locally.
+One finite built-in tool definition supplies the wire name, schema, argument parser, and recovery policy through exhaustive enum dispatch. Each catalog entry carries a recovery policy that is frozen into the task tool contract. `fork_task` and `read_task` are retry-safe because they are side-effect free or commit their effects atomically with their output. `send_message_to_task`, `archive_task`, and `bash` are not automatically retried when an open call has no committed output, because the call may have been interrupted after taking effect or inherited into a fork branch without being executed there. Discovered MCP tools use the same conservative policy because their effect semantics are not known locally.
 
 `McpConnectionSet` starts each configured command in its own process group, completes MCP initialization, and consumes every page from `tools/list`. Each incoming JSON-RPC frame is limited to 4 MiB, and discovery rejects a complete catalog above 1024 tools or 4 MiB of serialized tool definitions. A discovered tool becomes `mcp__<normalized server id>__<normalized remote name>` only when that name is valid and unique and the tool does not require MCP task-mode execution. Missing descriptions receive a stable route-derived description so every definition satisfies the durable task contract.
 
@@ -23,9 +23,9 @@ Every built-in schema is a closed object with typed, described properties and an
 
 `bash` runs `/bin/bash -lc` with null stdin and inherits the server process working directory and environment. Its timeout defaults to 30 seconds and accepts 100 through 120000 milliseconds. Stdout and stderr are drained concurrently, each retains at most 65536 bytes, and the result reports truncation separately. Zero and nonzero exits are successful tool executions; signal termination is represented by a null `exit_code`.
 
-Each Bash invocation owns a process group. A timeout sends `SIGKILL` to that group, waits for the shell and pipe readers to settle, and returns `command_timed_out`; the same group guard cleans up processes that remain in the group when an invocation is cancelled or panics. Descendants that deliberately change their session or process group require containment from the external execution environment. Background sessions, PTYs, stdin writes, policy, approval, and sandboxing are outside this crate.
+Each Bash invocation owns a process group. The execution future directly owns both pipe readers and joins them with the child wait; it retains completed results across the command deadline. A timeout sends `SIGKILL` to that group, resumes the same completion future until the shell and pipe readers settle, and returns `command_timed_out`; the same group guard cleans up processes that remain in the group when an invocation is cancelled or panics. Descendants that deliberately change their session or process group require containment from the external execution environment. Background sessions, PTYs, stdin writes, policy, approval, and sandboxing are outside this crate.
 
-The executor supervises each request in the single Tokio task returned to the router and attempts exactly one terminal `ToolExecutionResult` delivery. The result copies the request's task, run, function-call node, function-call id, and tool name unchanged. Ordinary tools and terminal executor failures produce one calling-task branch, and a panic becomes a correlated error branch instead of leaving the calling runtime waiting forever. Cancelling and joining the returned handle drops the execution future itself, so Bash process cleanup and MCP request cancellation remain inside the router's shutdown barrier. This crate does not implement MCP resources, prompts, sampling, elicitation, HTTP transports, or task-mode calls.
+The executor supervises each request in the single Tokio task returned to the router and attempts exactly one terminal `ToolExecutionResult` delivery. The result copies the request's task, run, function-call node, function-call id, and tool name unchanged. Ordinary tools and terminal executor failures produce one calling-task branch, and a panic becomes a correlated error branch instead of leaving the calling runtime waiting forever. Cancelling and joining the returned handle drops the execution future and its pipe readers, so Bash process cleanup and MCP request cancellation remain inside the router's shutdown barrier. This crate does not implement MCP resources, prompts, sampling, elicitation, HTTP transports, or task-mode calls.
 
 ## Package State Machine
 
@@ -44,12 +44,12 @@ flowchart TD
   Read[Read SQLite snapshot on blocking pool]
   Mutate[Send router mutation and wait for responder]
   Bash[Run Bash login command in a process group and drain both output pipes]
-  BashTimeout[Kill the process group and reap the shell]
+  BashTimeout[Kill the process group and resume child and pipe completion]
   McpRoute[Find shared MCP server connection and stored remote name]
   McpCall[Call remote tool under configured timeout]
   Invalid[Return invalid_arguments]
   Unknown[Return unknown_tool]
-  Panic[Map panic or cancellation]
+  Panic[Map executor panic]
   Outcome{execution outcome}
   Success[Encode stable success JSON]
   Failure[Encode stable error envelope]
@@ -57,7 +57,7 @@ flowchart TD
 
   Start -->|Tokio runtime accepts the supervisor| Supervise
   Supervise -->|inner execution starts| Route
-  Supervise -->|inner execution panics or is cancelled| Panic
+  Supervise -->|inner execution panics| Panic
   Route -->|stored task route is available| Source
   Route -->|route is missing| Unknown
   Route -->|tool is marked unavailable| Failure
@@ -77,13 +77,13 @@ flowchart TD
   Bash -->|shell and both pipes reach a terminal state| Outcome
   Bash -->|deadline expires| BashTimeout
   Bash -->|spawn, pipe read, or wait fails| Failure
-  BashTimeout -->|process group termination and shell reap complete| Failure
+  BashTimeout -->|process group termination and child and pipe completion succeed| Failure
   BashTimeout -->|termination or reap fails| Failure
   McpRoute -->|configured connection is present| McpCall
   McpRoute -->|configured connection is absent| Failure
   McpCall -->|remote CallToolResult arrives| Result
   McpCall -->|protocol, transport, or timeout fails| Failure
-  Panic -->|supervisor classifies the JoinError| Failure
+  Panic -->|supervisor catches the unwind| Failure
   Fork -->|calling branch and all requested child branches are built| Result
   Invalid -->|validation error is terminal| Failure
   Unknown -->|unknown tool error is terminal| Failure

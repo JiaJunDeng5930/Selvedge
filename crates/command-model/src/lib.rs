@@ -3,15 +3,15 @@
 use std::collections::BTreeSet;
 use std::fmt;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use tokio::sync::{Mutex, Notify, mpsc, oneshot};
 
 use selvedge_domain_model::{
     ApiDomainValidationError, CallableTools, Conversation, FunctionCallId, HistoryNodeId,
-    JsonObject, MessageRole, ModelProfileKey, ModelProviderProfile, ModelReply, ReasoningEffort,
-    ResponsePreference, ToolManifest, ToolName, UnixTs, validate_conversation,
-    validate_model_provider_profile, validate_model_reply, validate_tool_manifest,
+    JsonObject, MessageRole, ModelProviderProfile, ModelReply, ResponsePreference, TaskModelConfig,
+    ToolManifest, ToolName, UnixTs, validate_conversation, validate_model_provider_profile,
+    validate_model_reply, validate_tool_manifest,
 };
 
 pub use selvedge_domain_model::{TaskId, TaskStatus};
@@ -35,6 +35,7 @@ pub struct ApiCallCorrelation {
 pub struct ModelCallDispatchRequest {
     pub correlation: ApiCallCorrelation,
     pub provider: ModelProviderProfile,
+    pub model_config: Arc<TaskModelConfig>,
     pub conversation: Conversation,
     pub tool_manifest: Option<ToolManifest>,
     pub callable_tools: CallableTools,
@@ -71,7 +72,7 @@ pub enum ModelCallErrorKind {
 
 #[derive(Debug)]
 pub enum RouterIngressMessage {
-    Command(RouterCommandEnvelope),
+    Command(RouterCommand),
     ApiOutput(ApiOutputEnvelope),
     Core(CoreOutputEnvelope),
     Tool(ToolExecutionResult),
@@ -168,32 +169,17 @@ pub fn task_status_change_response_channel()
     )
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct FactoryEffectId(pub String);
-
-#[derive(Debug)]
-pub struct RouterCommandEnvelope {
-    pub client_id: Option<ClientId>,
-    pub client_command_id: Option<ClientCommandId>,
-    pub command: RouterCommand,
-}
-
 #[derive(Debug)]
 pub enum RouterCommand {
     AttachClient {
-        client_id: ClientId,
-        client_command_id: ClientCommandId,
-        outbound: ClientFrameSender,
-        subscription: ClientSubscription,
+        session: ClientSessionIdentity,
         admission_tx: RouterAttachAdmissionSender,
     },
     DetachClient {
-        client_id: ClientId,
-        client_command_id: ClientCommandId,
+        session: ClientSessionIdentity,
     },
     UpdateSubscription {
-        client_id: ClientId,
-        client_command_id: ClientCommandId,
+        session: ClientSessionIdentity,
         subscription: ClientSubscription,
     },
     SendUserInput {
@@ -235,73 +221,8 @@ pub enum RouterAttachAdmissionResult {
 pub enum RouterCommandValidationError {
     MissingClientId,
     MissingClientCommandId,
-    MismatchedClientId,
-    MismatchedClientCommandId,
     EmptyTaskId,
     EmptyMessageText,
-}
-
-#[derive(Debug)]
-pub struct FactoryOutputEnvelope {
-    pub effect_id: FactoryEffectId,
-    pub output: FactoryOutput,
-}
-
-#[derive(Debug)]
-pub enum FactoryOutput {
-    RuntimeCreated(TaskRuntimeCreated),
-    ScanFinished(FactoryScanOutput),
-    Failed(FactoryFailure),
-}
-
-#[derive(Debug)]
-pub struct TaskRuntimeCreated {
-    pub task_id: TaskId,
-    pub task_runtime_tx: TaskRuntimeSender,
-    pub task_runtime_control: TaskRuntimeControl,
-}
-
-#[derive(Debug)]
-pub struct FactoryScanOutput {
-    pub created: Vec<TaskRuntimeCreated>,
-    pub skipped: Vec<FactorySkippedTask>,
-    pub failed: Vec<FactoryTaskFailure>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct FactorySkippedTask {
-    pub task_id: TaskId,
-    pub reason: FactorySkipReason,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum FactorySkipReason {
-    RuntimeAlreadyLive,
-    RuntimeCreationPending,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct FactoryTaskFailure {
-    pub task_id: TaskId,
-    pub kind: FactoryFailureKind,
-    pub message: String,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct FactoryFailure {
-    pub task_id: Option<TaskId>,
-    pub kind: FactoryFailureKind,
-    pub message: String,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum FactoryFailureKind {
-    DbReadFailed,
-    TaskMissing,
-    TaskArchived,
-    RuntimeAlreadyLive,
-    RuntimeCreationPending,
-    CoreSpawnFailed,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -311,12 +232,47 @@ pub struct ClientId(pub String);
 pub struct ClientCommandId(pub String);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct ClientSessionId(u64);
+
+/// Owns attach resources independently of client-supplied command correlation.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct ClientSessionIdentity {
+    client_id: ClientId,
+    session_id: ClientSessionId,
+    attach_command_id: ClientCommandId,
+}
+
+impl ClientSessionIdentity {
+    pub fn new(client_id: ClientId, attach_command_id: ClientCommandId) -> Self {
+        static NEXT_SESSION_ID: AtomicU64 = AtomicU64::new(1);
+        let generation = NEXT_SESSION_ID
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
+            .expect("client session identity space exhausted");
+        Self {
+            client_id,
+            session_id: ClientSessionId(generation),
+            attach_command_id,
+        }
+    }
+
+    pub fn client_id(&self) -> &ClientId {
+        &self.client_id
+    }
+    pub fn session_id(&self) -> ClientSessionId {
+        self.session_id
+    }
+    pub fn attach_command_id(&self) -> &ClientCommandId {
+        &self.attach_command_id
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct DeliverySeq(pub u64);
 
 #[derive(Debug)]
 pub enum EventIngress {
     Control(EventControlMessage),
-    Raw(RawEvent),
+    Publish(ClientEvent),
 }
 
 #[derive(Debug)]
@@ -331,8 +287,7 @@ pub enum EventControlMessage {
 
 #[derive(Debug)]
 pub struct ReserveClientSession {
-    pub client_id: ClientId,
-    pub client_command_id: ClientCommandId,
+    pub session: ClientSessionIdentity,
     pub result_tx: EventClientReservationSender,
 }
 
@@ -345,37 +300,33 @@ pub enum EventClientReservationResult {
 
 #[derive(Debug)]
 pub struct BeginClientHydration {
-    pub client_id: ClientId,
-    pub client_command_id: ClientCommandId,
+    pub session: ClientSessionIdentity,
     pub outbound: ClientFrameSender,
     pub subscription: ClientSubscription,
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct DeliverSnapshot {
-    pub client_id: ClientId,
-    pub client_command_id: ClientCommandId,
+    pub session: ClientSessionIdentity,
     pub snapshot: ClientSnapshot,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DeliverNotice {
-    pub client_id: ClientId,
+    pub session: ClientSessionIdentity,
     pub client_command_id: ClientCommandId,
     pub notice: ClientNotice,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct UpdateSubscription {
-    pub client_id: ClientId,
-    pub client_command_id: ClientCommandId,
+    pub session: ClientSessionIdentity,
     pub subscription: ClientSubscription,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DetachClient {
-    pub client_id: ClientId,
-    pub client_command_id: ClientCommandId,
+    pub session: ClientSessionIdentity,
     pub reason: DetachReason,
 }
 
@@ -408,49 +359,6 @@ pub enum SnapshotMode {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub enum RawEvent {
-    TaskChanged(TaskChangedRawEvent),
-    HistoryAppended(HistoryAppendedRawEvent),
-    ModelCallStatus(ModelCallStatusRawEvent),
-    ToolExecutionStatus(ToolExecutionStatusRawEvent),
-    Debug(DebugRawEvent),
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct TaskChangedRawEvent {
-    pub task: TaskProjection,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct HistoryAppendedRawEvent {
-    pub task_id: TaskId,
-    pub task_state_version: u64,
-    pub appended_nodes: Vec<HistoryNodeProjection>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ModelCallStatusRawEvent {
-    pub task_id: TaskId,
-    pub model_call_id: ModelCallId,
-    pub phase: ModelCallStatusPhase,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ToolExecutionStatusRawEvent {
-    pub task_id: TaskId,
-    pub tool_execution_run_id: ToolExecutionRunId,
-    pub function_call_node_id: HistoryNodeId,
-    pub tool_name: ToolName,
-    pub phase: ToolExecutionStatusPhase,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct DebugRawEvent {
-    pub task_id: Option<TaskId>,
-    pub message_text: String,
-}
-
-#[derive(Clone, Debug, PartialEq)]
 pub struct ClientSnapshot {
     pub generated_at: UnixTs,
     pub tasks: Vec<TaskProjection>,
@@ -470,8 +378,7 @@ pub struct TaskProjection {
     pub task_id: TaskId,
     pub status: TaskStatus,
     pub cursor_node_id: HistoryNodeId,
-    pub model_profile_key: ModelProfileKey,
-    pub reasoning_effort: ReasoningEffort,
+    pub model_config: Arc<TaskModelConfig>,
     pub state_version: u64,
     pub created_at: UnixTs,
     pub updated_at: UnixTs,
@@ -894,33 +801,14 @@ pub fn validate_api_output_envelope(envelope: &ApiOutputEnvelope) -> Result<(), 
 }
 
 pub fn validate_router_command(
-    command: &RouterCommandEnvelope,
+    command: &RouterCommand,
 ) -> Result<(), RouterCommandValidationError> {
-    match &command.command {
-        RouterCommand::AttachClient {
-            client_id,
-            client_command_id,
-            ..
-        }
-        | RouterCommand::DetachClient {
-            client_id,
-            client_command_id,
-        }
-        | RouterCommand::UpdateSubscription {
-            client_id,
-            client_command_id,
-            ..
-        } => {
-            validate_client_id(command.client_id.as_ref())?;
-            validate_client_command_id(command.client_command_id.as_ref())?;
-            validate_client_id(Some(client_id))?;
-            validate_client_command_id(Some(client_command_id))?;
-            if command.client_id.as_ref() != Some(client_id) {
-                return Err(RouterCommandValidationError::MismatchedClientId);
-            }
-            if command.client_command_id.as_ref() != Some(client_command_id) {
-                return Err(RouterCommandValidationError::MismatchedClientCommandId);
-            }
+    match command {
+        RouterCommand::AttachClient { session, .. }
+        | RouterCommand::DetachClient { session }
+        | RouterCommand::UpdateSubscription { session, .. } => {
+            validate_client_id(Some(session.client_id()))?;
+            validate_client_command_id(Some(session.attach_command_id()))?;
         }
         RouterCommand::SendUserInput {
             task_id,

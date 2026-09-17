@@ -4,37 +4,32 @@ edition = "2024"
 publish = false
 
 [dependencies]
-bytes = "1.10.1"
-futures-core = "0.3.31"
-futures-util = "0.3.31"
-http = "1.3.1"
+bytes = { workspace = true }
+futures-core = { workspace = true }
+futures-util = { workspace = true }
+http = { workspace = true }
 httpdate = "1.0.3"
-serde = { version = "1.0.228", features = ["derive"] }
-serde_json = { version = "1.0.145", features = ["arbitrary_precision"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true, features = ["arbitrary_precision"] }
 selvedge-client = { path = "../client" }
 selvedge-config = { path = "../config" }
 selvedge-config-model = { path = "../config-model" }
 selvedge-domain-model = { path = "../domain-model" }
-thiserror = "2.0.18"
-tokio = { version = "1.48.0", features = ["rt", "sync", "time"] }
-url = "2.5.7"
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["rt", "sync", "time"] }
+url = { workspace = true }
 
 [dependencies.chatgpt-auth]
 path = "../chatgpt-auth"
 package = "chatgpt-auth"
 
 [dev-dependencies]
-async-stream = "0.3.6"
-axum = "0.8.6"
+async-stream = { workspace = true }
+axum = { workspace = true }
 selvedge-logging = { path = "../logging" }
 selvedge-test-support = { path = "../test-support", features = ["chatgpt-auth", "config", "http"] }
-tempfile = "3.23.0"
-tokio = { version = "1.48.0", features = ["macros", "net", "rt-multi-thread", "sync", "time"] }
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["macros", "net", "rt-multi-thread", "sync", "time"] }
 
-[lints.rust]
-unsafe_code = "forbid"
-
-[lints.clippy]
-dbg_macro = "deny"
-todo = "deny"
-unwrap_used = "deny"
+[lints]
+workspace = true

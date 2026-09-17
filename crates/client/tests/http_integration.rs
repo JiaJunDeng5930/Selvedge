@@ -255,28 +255,55 @@ async fn execute_logs_redirect_hops() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn execute_redirect_drops_origin_bound_headers_on_cross_origin_redirect() {
-    const FLAG: &str = "SELVEDGE_CLIENT_REDIRECT_HEADER_STRIP_CHILD";
-
+async fn execute_redirect_filters_headers_by_origin() {
+    const FLAG: &str = "SELVEDGE_CLIENT_REDIRECT_HEADERS_CHILD";
     if !child_mode(FLAG) {
         assert_child_success(&run_child(
-            "execute_redirect_drops_origin_bound_headers_on_cross_origin_redirect",
+            "execute_redirect_filters_headers_by_origin",
             FLAG,
         ));
         return;
     }
 
     let _tempdir = init_client_test().await;
-    let target = spawn_http_server(Router::new().route(
-        "/final",
-        get(|headers: HeaderMap| async move {
-            headers
-                .get("authorization")
-                .and_then(|value| value.to_str().ok())
-                .unwrap_or_default()
-                .to_owned()
-        }),
-    ))
+    let cases = [
+        ("authorization", "Bearer secret", false),
+        ("x-api-key", "secret-key", false),
+        ("x-apikey", "secret-key", false),
+        ("x-feature-key", "feature-a", false),
+        ("x-session-token", "session-secret", false),
+        ("proxy-authorization", "Basic c2VjcmV0", false),
+        ("x-api-token", "api-secret", false),
+        ("accept", "application/json", true),
+        ("accept-encoding", "identity", true),
+        ("accept-language", "en-US", true),
+        ("cache-control", "no-cache", true),
+        ("pragma", "no-cache", true),
+        ("user-agent", "redirect-test", true),
+    ];
+    let target = spawn_http_server(
+        Router::new()
+            .route(
+                "/final",
+                get(|headers: HeaderMap| async move {
+                    Json(
+                        headers
+                            .iter()
+                            .map(|(name, value)| {
+                                (
+                                    name.to_string(),
+                                    value.to_str().expect("ASCII header value").to_owned(),
+                                )
+                            })
+                            .collect::<std::collections::BTreeMap<_, _>>(),
+                    )
+                }),
+            )
+            .route(
+                "/same-origin",
+                get(|| async { Redirect::temporary("/final") }),
+            ),
+    )
     .await;
     let redirect_target = target.url("/final");
     let redirect = spawn_http_server(Router::new().route(
@@ -287,377 +314,206 @@ async fn execute_redirect_drops_origin_bound_headers_on_cross_origin_redirect() 
         }),
     ))
     .await;
-    let mut headers = HeaderMap::new();
-    headers.insert("authorization", HeaderValue::from_static("Bearer secret"));
 
-    let response = execute(HttpRequest {
-        method: HttpMethod::Get,
-        url: redirect.url("/redirect"),
-        headers,
-        body: HttpRequestBody::Empty,
-        timeout: Some(Duration::from_secs(2)),
-        compression: RequestCompression::None,
-    })
-    .await
-    .expect("cross-origin redirect request");
-
-    assert_eq!(response.body, Bytes::new());
+    for (url, cross_origin) in [
+        (redirect.url("/redirect"), true),
+        (target.url("/same-origin"), false),
+    ] {
+        let headers = cases
+            .iter()
+            .map(|(name, value, _)| {
+                (
+                    http::HeaderName::from_static(name),
+                    HeaderValue::from_static(value),
+                )
+            })
+            .collect();
+        let response = execute(HttpRequest {
+            method: HttpMethod::Get,
+            url,
+            headers,
+            body: HttpRequestBody::Empty,
+            timeout: Some(Duration::from_secs(2)),
+            compression: RequestCompression::None,
+        })
+        .await
+        .expect("redirect request");
+        let received: std::collections::BTreeMap<String, String> =
+            serde_json::from_slice(&response.body).expect("JSON echo response");
+        for (name, value, allowed) in cases {
+            assert_eq!(
+                received.get(name).map(String::as_str),
+                (!cross_origin || allowed).then_some(value),
+                "header {name}, cross_origin={cross_origin}"
+            );
+        }
+    }
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn execute_redirect_drops_custom_credential_headers_on_cross_origin_redirect() {
-    const FLAG: &str = "SELVEDGE_CLIENT_REDIRECT_CUSTOM_CREDENTIAL_STRIP_CHILD";
-
+async fn execute_reuses_transport_without_caching_call_config() {
+    const FLAG: &str = "SELVEDGE_CLIENT_TRANSPORT_REUSE_CHILD";
     if !child_mode(FLAG) {
         assert_child_success(&run_child(
-            "execute_redirect_drops_custom_credential_headers_on_cross_origin_redirect",
+            "execute_reuses_transport_without_caching_call_config",
             FLAG,
         ));
         return;
     }
-
     let _tempdir = init_client_test().await;
-    let target = spawn_http_server(Router::new().route(
-        "/final",
-        get(|headers: HeaderMap| async move {
-            headers
-                .get("x-api-key")
-                .and_then(|value| value.to_str().ok())
-                .unwrap_or_default()
-                .to_owned()
-        }),
-    ))
-    .await;
-    let redirect_target = target.url("/final");
-    let redirect = spawn_http_server(Router::new().route(
-        "/redirect",
-        get(move || {
-            let redirect_target = redirect_target.clone();
-            async move { Redirect::temporary(&redirect_target) }
-        }),
-    ))
-    .await;
-    let mut headers = HeaderMap::new();
-    headers.insert("x-api-key", HeaderValue::from_static("secret-key"));
-
-    let response = execute(HttpRequest {
-        method: HttpMethod::Get,
-        url: redirect.url("/redirect"),
-        headers,
-        body: HttpRequestBody::Empty,
-        timeout: Some(Duration::from_secs(2)),
-        compression: RequestCompression::None,
-    })
-    .await
-    .expect("cross-origin redirect request");
-
-    assert_eq!(response.body, Bytes::new());
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn execute_redirect_drops_compact_custom_credential_headers_on_cross_origin_redirect() {
-    const FLAG: &str = "SELVEDGE_CLIENT_REDIRECT_COMPACT_CREDENTIAL_STRIP_CHILD";
-
-    if !child_mode(FLAG) {
-        assert_child_success(&run_child(
-            "execute_redirect_drops_compact_custom_credential_headers_on_cross_origin_redirect",
-            FLAG,
-        ));
-        return;
-    }
-
-    let _tempdir = init_client_test().await;
-    let target = spawn_http_server(Router::new().route(
-        "/final",
-        get(|headers: HeaderMap| async move {
-            headers
-                .get("x-apikey")
-                .and_then(|value| value.to_str().ok())
-                .unwrap_or_default()
-                .to_owned()
-        }),
-    ))
-    .await;
-    let redirect_target = target.url("/final");
-    let redirect = spawn_http_server(Router::new().route(
-        "/redirect",
-        get(move || {
-            let redirect_target = redirect_target.clone();
-            async move { Redirect::temporary(&redirect_target) }
-        }),
-    ))
-    .await;
-    let mut headers = HeaderMap::new();
-    headers.insert("x-apikey", HeaderValue::from_static("secret-key"));
-
-    let response = execute(HttpRequest {
-        method: HttpMethod::Get,
-        url: redirect.url("/redirect"),
-        headers,
-        body: HttpRequestBody::Empty,
-        timeout: Some(Duration::from_secs(2)),
-        compression: RequestCompression::None,
-    })
-    .await
-    .expect("cross-origin redirect request");
-
-    assert_eq!(response.body, Bytes::new());
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn execute_redirect_drops_non_whitelisted_headers_on_cross_origin_redirect() {
-    const FLAG: &str = "SELVEDGE_CLIENT_REDIRECT_METADATA_HEADER_CHILD";
-
-    if !child_mode(FLAG) {
-        assert_child_success(&run_child(
-            "execute_redirect_drops_non_whitelisted_headers_on_cross_origin_redirect",
-            FLAG,
-        ));
-        return;
-    }
-
-    let _tempdir = init_client_test().await;
-    let target = spawn_http_server(Router::new().route(
-        "/final",
-        get(|headers: HeaderMap| async move {
-            headers
-                .get("x-feature-key")
-                .and_then(|value| value.to_str().ok())
-                .unwrap_or_default()
-                .to_owned()
-        }),
-    ))
-    .await;
-    let redirect_target = target.url("/final");
-    let redirect = spawn_http_server(Router::new().route(
-        "/redirect",
-        get(move || {
-            let redirect_target = redirect_target.clone();
-            async move { Redirect::temporary(&redirect_target) }
-        }),
-    ))
-    .await;
-    let mut headers = HeaderMap::new();
-    headers.insert("x-feature-key", HeaderValue::from_static("feature-a"));
-
-    let response = execute(HttpRequest {
-        method: HttpMethod::Get,
-        url: redirect.url("/redirect"),
-        headers,
-        body: HttpRequestBody::Empty,
-        timeout: Some(Duration::from_secs(2)),
-        compression: RequestCompression::None,
-    })
-    .await
-    .expect("cross-origin redirect request");
-
-    assert_eq!(response.body, Bytes::new());
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn execute_redirect_preserves_whitelisted_headers_on_cross_origin_redirect() {
-    const FLAG: &str = "SELVEDGE_CLIENT_REDIRECT_WHITELIST_HEADER_CHILD";
-
-    if !child_mode(FLAG) {
-        assert_child_success(&run_child(
-            "execute_redirect_preserves_whitelisted_headers_on_cross_origin_redirect",
-            FLAG,
-        ));
-        return;
-    }
-
-    let _tempdir = init_client_test().await;
-    let target = spawn_http_server(Router::new().route(
-        "/final",
-        get(|headers: HeaderMap| async move {
-            headers
-                .get("accept-language")
-                .and_then(|value| value.to_str().ok())
-                .unwrap_or_default()
-                .to_owned()
-        }),
-    ))
-    .await;
-    let redirect_target = target.url("/final");
-    let redirect = spawn_http_server(Router::new().route(
-        "/redirect",
-        get(move || {
-            let redirect_target = redirect_target.clone();
-            async move { Redirect::temporary(&redirect_target) }
-        }),
-    ))
-    .await;
-    let mut headers = HeaderMap::new();
-    headers.insert("accept-language", HeaderValue::from_static("en-US"));
-
-    let response = execute(HttpRequest {
-        method: HttpMethod::Get,
-        url: redirect.url("/redirect"),
-        headers,
-        body: HttpRequestBody::Empty,
-        timeout: Some(Duration::from_secs(2)),
-        compression: RequestCompression::None,
-    })
-    .await
-    .expect("cross-origin redirect request");
-
-    assert_eq!(response.body, Bytes::from_static(b"en-US"));
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn execute_redirect_drops_session_token_headers_on_cross_origin_redirect() {
-    const FLAG: &str = "SELVEDGE_CLIENT_REDIRECT_SESSION_TOKEN_STRIP_CHILD";
-
-    if !child_mode(FLAG) {
-        assert_child_success(&run_child(
-            "execute_redirect_drops_session_token_headers_on_cross_origin_redirect",
-            FLAG,
-        ));
-        return;
-    }
-
-    let _tempdir = init_client_test().await;
-    let target = spawn_http_server(Router::new().route(
-        "/final",
-        get(|headers: HeaderMap| async move {
-            headers
-                .get("x-session-token")
-                .and_then(|value| value.to_str().ok())
-                .unwrap_or_default()
-                .to_owned()
-        }),
-    ))
-    .await;
-    let redirect_target = target.url("/final");
-    let redirect = spawn_http_server(Router::new().route(
-        "/redirect",
-        get(move || {
-            let redirect_target = redirect_target.clone();
-            async move { Redirect::temporary(&redirect_target) }
-        }),
-    ))
-    .await;
-    let mut headers = HeaderMap::new();
-    headers.insert(
-        "x-session-token",
-        HeaderValue::from_static("session-secret"),
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind test server");
+    let address = listener.local_addr().expect("server address");
+    let app = Router::new().route(
+        "/",
+        get(
+            |axum::extract::ConnectInfo(peer): axum::extract::ConnectInfo<std::net::SocketAddr>,
+             headers: HeaderMap| async move {
+                Json((
+                    peer.to_string(),
+                    headers
+                        .get("user-agent")
+                        .expect("configured User-Agent")
+                        .to_str()
+                        .expect("ASCII header value")
+                        .to_owned(),
+                ))
+            },
+        ),
     );
-
-    let response = execute(HttpRequest {
+    let server = tokio::spawn(async move {
+        axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+        )
+        .await
+        .expect("serve test HTTP requests");
+    });
+    let request = HttpRequest {
         method: HttpMethod::Get,
-        url: redirect.url("/redirect"),
-        headers,
+        url: format!("http://{address}/"),
+        headers: HeaderMap::new(),
         body: HttpRequestBody::Empty,
         timeout: Some(Duration::from_secs(2)),
         compression: RequestCompression::None,
-    })
-    .await
-    .expect("cross-origin redirect request");
-
-    assert_eq!(response.body, Bytes::new());
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn execute_redirect_drops_proxy_authorization_on_cross_origin_redirect() {
-    const FLAG: &str = "SELVEDGE_CLIENT_REDIRECT_PROXY_AUTH_STRIP_CHILD";
-
-    if !child_mode(FLAG) {
-        assert_child_success(&run_child(
-            "execute_redirect_drops_proxy_authorization_on_cross_origin_redirect",
-            FLAG,
-        ));
-        return;
+    };
+    let mut observations = Vec::new();
+    for (user_agent, connect_timeout) in [("first", 1000_u64), ("second", 1000), ("third", 2000)] {
+        selvedge_config::update_runtime("network.user_agent", user_agent)
+            .expect("update User-Agent");
+        selvedge_config::update_runtime("network.connect_timeout_ms", connect_timeout)
+            .expect("update connect timeout");
+        let response = execute(request.clone()).await.expect("execute request");
+        let (peer, received_agent): (String, String) =
+            serde_json::from_slice(&response.body).expect("JSON echo response");
+        assert_eq!(received_agent, user_agent);
+        observations.push(peer);
     }
-
-    let _tempdir = init_client_test().await;
-    let target = spawn_http_server(Router::new().route(
-        "/final",
-        get(|headers: HeaderMap| async move {
-            headers
-                .get("proxy-authorization")
-                .and_then(|value| value.to_str().ok())
-                .unwrap_or_default()
-                .to_owned()
-        }),
-    ))
-    .await;
-    let redirect_target = target.url("/final");
-    let redirect = spawn_http_server(Router::new().route(
-        "/redirect",
-        get(move || {
-            let redirect_target = redirect_target.clone();
-            async move { Redirect::temporary(&redirect_target) }
-        }),
-    ))
-    .await;
-    let mut headers = HeaderMap::new();
-    headers.insert(
-        "proxy-authorization",
-        HeaderValue::from_static("Basic c2VjcmV0"),
+    assert_eq!(
+        observations[0], observations[1],
+        "unchanged transport settings reuse a connection"
     );
-
-    let response = execute(HttpRequest {
-        method: HttpMethod::Get,
-        url: redirect.url("/redirect"),
-        headers,
-        body: HttpRequestBody::Empty,
-        timeout: Some(Duration::from_secs(2)),
-        compression: RequestCompression::None,
-    })
-    .await
-    .expect("cross-origin redirect request");
-
-    assert_eq!(response.body, Bytes::new());
+    assert_ne!(
+        observations[1], observations[2],
+        "changed connect timeout selects a new transport"
+    );
+    server.abort();
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn execute_redirect_drops_api_token_headers_on_cross_origin_redirect() {
-    const FLAG: &str = "SELVEDGE_CLIENT_REDIRECT_API_TOKEN_STRIP_CHILD";
-
+async fn execute_redirect_preserves_encoded_body() {
+    const FLAG: &str = "SELVEDGE_CLIENT_REDIRECT_BODY_CHILD";
     if !child_mode(FLAG) {
-        assert_child_success(&run_child(
-            "execute_redirect_drops_api_token_headers_on_cross_origin_redirect",
-            FLAG,
-        ));
+        assert_child_success(&run_child("execute_redirect_preserves_encoded_body", FLAG));
         return;
     }
-
     let _tempdir = init_client_test().await;
     let target = spawn_http_server(Router::new().route(
         "/final",
-        get(|headers: HeaderMap| async move {
-            headers
-                .get("x-api-token")
-                .and_then(|value| value.to_str().ok())
-                .unwrap_or_default()
-                .to_owned()
+        get(|headers: HeaderMap, body: Bytes| async move {
+            Json((
+                headers
+                    .get("content-type")
+                    .expect("JSON content type")
+                    .to_str()
+                    .expect("ASCII header value")
+                    .to_owned(),
+                headers
+                    .get("content-encoding")
+                    .expect("compression encoding")
+                    .to_str()
+                    .expect("ASCII header value")
+                    .to_owned(),
+                body.to_vec(),
+            ))
         }),
     ))
     .await;
-    let redirect_target = target.url("/final");
-    let redirect = spawn_http_server(Router::new().route(
-        "/redirect",
-        get(move || {
-            let redirect_target = redirect_target.clone();
-            async move { Redirect::temporary(&redirect_target) }
-        }),
-    ))
-    .await;
-    let mut headers = HeaderMap::new();
-    headers.insert("x-api-token", HeaderValue::from_static("api-secret"));
-
-    let response = execute(HttpRequest {
-        method: HttpMethod::Get,
-        url: redirect.url("/redirect"),
-        headers,
-        body: HttpRequestBody::Empty,
-        timeout: Some(Duration::from_secs(2)),
-        compression: RequestCompression::None,
-    })
-    .await
-    .expect("cross-origin redirect request");
-
-    assert_eq!(response.body, Bytes::new());
+    for status in [
+        StatusCode::MOVED_PERMANENTLY,
+        StatusCode::FOUND,
+        StatusCode::SEE_OTHER,
+        StatusCode::TEMPORARY_REDIRECT,
+        StatusCode::PERMANENT_REDIRECT,
+    ] {
+        let first_body = Arc::new(std::sync::Mutex::new(None));
+        let captured = first_body.clone();
+        let location = target.url("/final");
+        let redirect = spawn_http_server(Router::new().route(
+            "/redirect",
+            get(move |headers: HeaderMap, body: Bytes| {
+                let captured = captured.clone();
+                let location = location.clone();
+                async move {
+                    assert_eq!(
+                        headers
+                            .get("content-length")
+                            .expect("content length")
+                            .to_str()
+                            .expect("ASCII header value"),
+                        body.len().to_string()
+                    );
+                    *captured.lock().expect("capture lock") = Some(body);
+                    (status, [("location", location)])
+                }
+            }),
+        ))
+        .await;
+        let response = execute(HttpRequest {
+            method: HttpMethod::Get,
+            url: redirect.url("/redirect"),
+            headers: [(
+                http::header::CONTENT_LENGTH,
+                HeaderValue::from_static("999"),
+            )]
+            .into_iter()
+            .collect(),
+            body: HttpRequestBody::Json(serde_json::json!({"payload": "redirected"})),
+            timeout: Some(Duration::from_secs(2)),
+            compression: RequestCompression::Zstd,
+        })
+        .await
+        .expect("redirect compressed body");
+        let (content_type, encoding, body): (String, String, Vec<u8>) =
+            serde_json::from_slice(&response.body).expect("JSON echo response");
+        assert_eq!(content_type, "application/json");
+        assert_eq!(encoding, "zstd");
+        assert_eq!(
+            body.as_slice(),
+            first_body
+                .lock()
+                .expect("capture lock")
+                .as_ref()
+                .expect("first hop received body")
+                .as_ref()
+        );
+        let decoded = zstd::stream::decode_all(body.as_slice()).expect("decode compressed body");
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&decoded).expect("decode JSON body"),
+            serde_json::json!({"payload": "redirected"})
+        );
+    }
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -1022,19 +878,40 @@ async fn execute_accepts_custom_ca_bundle() {
     )
     .expect("set ca bundle");
 
-    let response = execute(HttpRequest {
+    let request = HttpRequest {
         method: HttpMethod::Get,
         url: server.url.clone(),
         headers: HeaderMap::new(),
         body: HttpRequestBody::Empty,
         timeout: Some(Duration::from_secs(2)),
         compression: RequestCompression::None,
-    })
-    .await
-    .expect("custom ca should succeed");
+    };
+    let response = execute(request.clone())
+        .await
+        .expect("custom ca should succeed");
 
     assert_eq!(response.status, StatusCode::OK);
     assert_eq!(response.body, Bytes::from_static(b"secure"));
+    std::fs::write(&bundle_path, b"not a certificate").expect("replace CA bundle");
+    assert!(
+        matches!(execute(request.clone()).await, Err(HttpError::Build { .. })),
+        "same-path CA changes must not reuse previous roots"
+    );
+    let replacement = spawn_https_server(StatusCode::OK, Bytes::from_static(b"rotated")).await;
+    std::fs::write(&bundle_path, replacement.ca_cert_pem.as_bytes()).expect("rotate CA bundle");
+    let mut rotated_request = request.clone();
+    rotated_request.url = replacement.url.clone();
+    assert_eq!(
+        execute(rotated_request)
+            .await
+            .expect("use rotated CA bundle")
+            .body,
+        Bytes::from_static(b"rotated")
+    );
+    assert!(
+        matches!(execute(request).await, Err(HttpError::Tls { .. })),
+        "replaced bundle must no longer trust the original certificate"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]

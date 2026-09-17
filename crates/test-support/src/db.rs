@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use selvedge_command_model::{ClientSnapshot, DetailLevel, SnapshotMode, TaskScope};
 use selvedge_db::{
@@ -6,7 +7,7 @@ use selvedge_db::{
     NewHistoryNodeContent, NewMessageNodeContent, OpenDbOptions, ReasoningEffort, TaskId, TaskRow,
     TaskToolSpec, UnixTs, create_history_node, create_root_task, open_db,
 };
-use selvedge_domain_model::ModelProviderProfile;
+use selvedge_domain_model::{ModelProviderProfile, TaskModelConfig};
 
 pub fn open_memory_db() -> DbPool {
     open_memory_db_with_max_task_descendants(20)
@@ -63,8 +64,13 @@ pub fn create_root_task_fixture_with_tools(
         CreateRootTaskInput {
             task_id: TaskId(task_id.to_owned()),
             cursor_node_id,
-            model_profile_key: ModelProfileKey("default".to_owned()),
-            reasoning_effort: ReasoningEffort::Medium,
+            model_config: Arc::new(
+                TaskModelConfig::new(
+                    ModelProfileKey("default".to_owned()),
+                    ReasoningEffort::Medium,
+                )
+                .expect("default task model config"),
+            ),
             tools,
             now,
         },

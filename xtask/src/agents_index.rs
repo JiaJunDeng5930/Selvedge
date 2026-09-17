@@ -329,10 +329,7 @@ fn find_section_end(content: &str, section_start: usize) -> usize {
 #[cfg(test)]
 mod tests {
     use super::{CheckStatus, check_agents_md, update_agents_md};
-    use std::fs;
-    use std::path::Path;
-    use std::process::Command;
-    use tempfile::TempDir;
+    use crate::test_repo::TestRepo;
 
     #[test]
     fn update_creates_index_from_tracked_files_and_skips_git_ignored_files() {
@@ -385,95 +382,5 @@ mod tests {
         assert_eq!(warnings.len(), 1, "warnings: {warnings:?}");
         assert_eq!(warnings[0].path, "bulk");
         assert_eq!(warnings[0].entry_count, 202);
-    }
-
-    struct TestRepo {
-        tempdir: TempDir,
-    }
-
-    impl TestRepo {
-        fn new() -> Self {
-            let tempdir = TempDir::new().expect("tempdir should exist");
-            run_git(tempdir.path(), &["init"]);
-            run_git(tempdir.path(), &["config", "user.name", "Test User"]);
-            run_git(
-                tempdir.path(),
-                &["config", "user.email", "test@example.com"],
-            );
-            Self { tempdir }
-        }
-
-        fn path(&self) -> &Path {
-            self.tempdir.path()
-        }
-
-        fn write(&self, relative_path: &str, content: &str) {
-            let full_path = self.path().join(relative_path);
-            if let Some(parent) = full_path.parent() {
-                fs::create_dir_all(parent).expect("parent directory should exist");
-            }
-            fs::write(full_path, content).expect("file should be written");
-        }
-
-        fn read(&self, relative_path: &str) -> String {
-            fs::read_to_string(self.path().join(relative_path)).expect("file should exist")
-        }
-
-        fn git_add(&self, paths: &[&str]) {
-            let mut command = isolated_git_command();
-            command.current_dir(self.path());
-            command.arg("add");
-            for path in paths {
-                command.arg(path);
-            }
-            let output = command.output().expect("git add should run");
-            assert!(
-                output.status.success(),
-                "git add failed: {}",
-                String::from_utf8_lossy(&output.stderr)
-            );
-        }
-    }
-
-    fn run_git(root: &Path, args: &[&str]) {
-        let output = isolated_git_command()
-            .current_dir(root)
-            .args(args)
-            .output()
-            .expect("git command should run");
-        assert!(
-            output.status.success(),
-            "git {:?} failed: {}",
-            args,
-            String::from_utf8_lossy(&output.stderr)
-        );
-    }
-
-    fn isolated_git_command() -> Command {
-        let mut command = Command::new("git");
-
-        for (key, _) in std::env::vars_os() {
-            if key.to_string_lossy().starts_with("GIT_") {
-                command.env_remove(&key);
-            }
-        }
-
-        let isolated_home = std::env::temp_dir().join(format!(
-            "xtask-git-home-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("clock should be valid")
-                .as_nanos()
-        ));
-        let isolated_git_config = isolated_home.join("gitconfig");
-
-        fs::create_dir_all(isolated_home.join(".config")).expect("isolated git home should exist");
-        fs::write(&isolated_git_config, "").expect("isolated git config should exist");
-        command.env("HOME", &isolated_home);
-        command.env("XDG_CONFIG_HOME", isolated_home.join(".config"));
-        command.env("GIT_CONFIG_GLOBAL", &isolated_git_config);
-
-        command
     }
 }

@@ -2,12 +2,12 @@
 
 <!-- selvedge-package-readme
 package: selvedge-tui
-freshness_fingerprint: 5ab0f6ba660843676bfcbe7154c8712bd27ef9ed
+freshness_fingerprint: f3b6a94e7b1cb11ea0cb806a477142379322639e
 -->
 
 This crate owns the TUI startup boundary for attaching to an existing Selvedge local server.
 
-Use it to connect through `selvedge-local-client`, probe readiness, open an attach stream, wait for the first snapshot, submit an optional initial command, and return a typed exit status.
+Use it to connect through `selvedge-local-client`, probe readiness, open an attach stream, wait for the first snapshot, submit an optional initial command, close the client, and return a typed exit status. This entry point performs startup and an optional one-shot submission; it does not run an interactive terminal loop.
 
 `run_tui` connects through the concrete HTTP localhost transport exposed by
 `selvedge-local-client`. Transport injection stays private to state-machine
@@ -26,7 +26,7 @@ flowchart TD
   Attach[Open attach stream]
   WaitSnapshot[Wait for first snapshot frame]
   SubmitInitial[Submit optional initial command]
-  Running[Return running exit status]
+  Exited[Close client and return Exited]
   ConnectError[Return connect error]
   ReadyError[Return server-unready error]
   AttachError[Return attach error]
@@ -34,15 +34,16 @@ flowchart TD
   SubmitError[Return initial command submit error]
 
   Start -->|startup function is called| Connect
-  Connect -->|LocalTransport connect succeeds| ReadyProbe
+  Connect -->|LocalConnector connect succeeds| ReadyProbe
   Connect -->|connect fails| ConnectError
   ReadyProbe -->|ready response says server ready| Attach
   ReadyProbe -->|ready request fails or server reports unready| ReadyError
   Attach -->|attach accepted and frame stream opens| WaitSnapshot
   Attach -->|attach rejected or stream open fails| AttachError
-  WaitSnapshot -->|first frame is snapshot| SubmitInitial
-  WaitSnapshot -->|stream ends, yields notice, yields event, or transport fails before snapshot| SnapshotError
-  SubmitInitial -->|no initial command configured| Running
-  SubmitInitial -->|initial command submit succeeds| Running
+  WaitSnapshot -->|snapshot frame arrives| SubmitInitial
+  WaitSnapshot -->|event or notice arrives before snapshot| WaitSnapshot
+  WaitSnapshot -->|stream ends, deadline expires, or transport fails before snapshot| SnapshotError
+  SubmitInitial -->|no initial command configured| Exited
+  SubmitInitial -->|initial command submit succeeds| Exited
   SubmitInitial -->|initial command submit fails| SubmitError
 ```

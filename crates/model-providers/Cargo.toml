@@ -6,17 +6,12 @@ publish = false
 [dependencies]
 selvedge-config-model = { path = "../config-model" }
 selvedge-model-credentials = { path = "../model-credentials" }
-thiserror = "2.0.18"
+thiserror = { workspace = true }
 
 [dev-dependencies]
-serde_json = "1.0.145"
-tempfile = "3.23.0"
-tokio = { version = "1.48.0", features = ["macros", "rt-multi-thread"] }
+serde_json = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 
-[lints.rust]
-unsafe_code = "forbid"
-
-[lints.clippy]
-dbg_macro = "deny"
-todo = "deny"
-unwrap_used = "deny"
+[lints]
+workspace = true

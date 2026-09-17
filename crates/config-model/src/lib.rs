@@ -5,14 +5,13 @@ use std::{collections::BTreeMap, fmt::Display};
 use http::HeaderValue;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use toml::{Table, Value};
+use toml::Table;
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
 pub struct AppConfig {
     pub server: ServerConfig,
     pub network: NetworkConfig,
     pub logging: LoggingConfig,
-    pub feature: FeatureConfig,
     pub llm: LlmConfig,
     pub harness: HarnessConfig,
     pub mcp: McpConfig,
@@ -23,7 +22,6 @@ impl AppConfig {
         self.server.validate()?;
         self.network.validate()?;
         self.logging.validate()?;
-        self.feature.validate()?;
         self.llm.validate()?;
         self.harness.validate()?;
         self.mcp.validate()?;
@@ -36,16 +34,30 @@ impl TryFrom<Table> for AppConfig {
     type Error = AppConfigError;
 
     fn try_from(table: Table) -> Result<Self, Self::Error> {
-        let input: AppConfigInput = Value::Table(table).try_into()?;
-        let config = input.materialize();
-
+        let mut config = Self::default();
+        for (key, value) in table {
+            match key.as_str() {
+                "server" => config.server = value.try_into()?,
+                "network" => config.network = value.try_into()?,
+                "logging" => config.logging = value.try_into()?,
+                "llm" => config.llm = value.try_into()?,
+                "harness" => config.harness = value.try_into()?,
+                "mcp" => config.mcp = value.try_into()?,
+                _ => {
+                    return Err(AppConfigError::Deserialize(serde::de::Error::custom(
+                        format!("unknown field `{key}`"),
+                    )));
+                }
+            }
+        }
         config.validate()?;
 
         Ok(config)
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
 pub struct HarnessConfig {
     pub max_children_per_fork: u32,
     pub max_descendants_per_task: u32,
@@ -78,7 +90,8 @@ impl Default for HarnessConfig {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
 pub struct ServerConfig {
     pub host: String,
     pub port: u16,
@@ -103,7 +116,8 @@ impl ServerConfig {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
 pub struct NetworkConfig {
     pub connect_timeout_ms: Option<u64>,
     pub request_timeout_ms: Option<u64>,
@@ -135,7 +149,8 @@ impl NetworkConfig {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
 pub struct LoggingConfig {
     pub level: LogFilter,
     pub module_levels: BTreeMap<String, LogFilter>,
@@ -173,32 +188,8 @@ impl Display for LogFilter {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct FeatureConfig {
-    pub enabled: bool,
-    pub rollout_percentage: u8,
-}
-
-impl FeatureConfig {
-    const DEFAULT_ENABLED: bool = false;
-    const DEFAULT_ROLLOUT_PERCENTAGE: u8 = 0;
-
-    pub fn validate(&self) -> Result<(), ValidationError> {
-        if self.rollout_percentage > 100 {
-            return Err(ValidationError::InvalidRolloutPercentage(
-                self.rollout_percentage,
-            ));
-        }
-
-        if self.enabled && self.rollout_percentage == 0 {
-            return Err(ValidationError::EnabledFeatureRequiresRollout);
-        }
-
-        Ok(())
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
 pub struct LlmConfig {
     pub providers: BTreeMap<String, LlmProviderConfig>,
 }
@@ -213,7 +204,8 @@ impl LlmConfig {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
 pub struct LlmProviderConfig {
     pub base_url: Option<String>,
     pub stream_completion_timeout_ms: Option<u64>,
@@ -256,7 +248,8 @@ impl LlmProviderConfig {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
 pub struct McpConfig {
     pub servers: BTreeMap<String, McpServerConfig>,
 }
@@ -272,7 +265,8 @@ impl McpConfig {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
 pub struct McpServerConfig {
     pub command: String,
     pub args: Vec<String>,
@@ -328,23 +322,22 @@ impl McpServerConfig {
     }
 }
 
+/// Whether a provider identifier is a nonempty ASCII name accepted by configuration and credentials.
+pub fn is_valid_provider_id(provider_id: &str) -> bool {
+    !provider_id.is_empty()
+        && provider_id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b'_'))
+}
+
 fn validate_provider_id(provider_id: &str) -> Result<(), ValidationError> {
-    if provider_id.trim().is_empty() {
-        return Err(ValidationError::InvalidProviderId {
+    if is_valid_provider_id(provider_id) {
+        Ok(())
+    } else {
+        Err(ValidationError::InvalidProviderId {
             provider_id: provider_id.to_owned(),
-        });
+        })
     }
-
-    for byte in provider_id.bytes() {
-        let allowed = byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b'_');
-        if !allowed {
-            return Err(ValidationError::InvalidProviderId {
-                provider_id: provider_id.to_owned(),
-            });
-        }
-    }
-
-    Ok(())
 }
 
 fn validate_provider_base_url(provider_id: &str, raw_url: &str) -> Result<(), ValidationError> {
@@ -513,10 +506,6 @@ pub enum ValidationError {
     InvalidStreamIdleTimeout,
     #[error("network.user_agent must be a valid HTTP header value, got {0}")]
     InvalidUserAgent(String),
-    #[error("feature.rollout_percentage must be between 0 and 100, got {0}")]
-    InvalidRolloutPercentage(u8),
-    #[error("feature.rollout_percentage must be greater than zero when feature.enabled is true")]
-    EnabledFeatureRequiresRollout,
     #[error("llm.providers contains invalid provider id {provider_id:?}")]
     InvalidProviderId { provider_id: String },
     #[error("llm.providers.{provider_id}.base_url must be an absolute http or https URL")]
@@ -560,207 +549,35 @@ pub enum ValidationError {
     InvalidMcpServerEnvValue { server_id: String, key: String },
 }
 
-#[derive(Debug, Clone, Default, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-struct AppConfigInput {
-    server: ServerConfigInput,
-    network: NetworkConfigInput,
-    logging: LoggingConfigInput,
-    feature: FeatureConfigInput,
-    llm: LlmConfigInput,
-    harness: HarnessConfigInput,
-    mcp: McpConfigInput,
+impl<'de> Deserialize<'de> for AppConfig {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        Self::try_from(Table::deserialize(deserializer)?).map_err(serde::de::Error::custom)
+    }
 }
-
-impl AppConfigInput {
-    fn materialize(self) -> AppConfig {
-        AppConfig {
-            server: self.server.materialize(),
-            network: self.network.materialize(),
-            logging: self.logging.materialize(),
-            feature: self.feature.materialize(),
-            llm: self.llm.materialize(),
-            harness: self.harness.materialize(),
-            mcp: self.mcp.materialize(),
+impl Default for ServerConfig {
+    fn default() -> Self {
+        Self {
+            host: Self::DEFAULT_HOST.to_owned(),
+            port: Self::DEFAULT_PORT,
+            request_timeout_ms: Self::DEFAULT_REQUEST_TIMEOUT_MS,
         }
     }
 }
-
-#[derive(Debug, Clone, Default, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-struct ServerConfigInput {
-    host: Option<String>,
-    port: Option<u16>,
-    request_timeout_ms: Option<u64>,
-}
-
-impl ServerConfigInput {
-    fn materialize(self) -> ServerConfig {
-        ServerConfig {
-            host: self
-                .host
-                .unwrap_or_else(|| ServerConfig::DEFAULT_HOST.to_owned()),
-            port: self.port.unwrap_or(ServerConfig::DEFAULT_PORT),
-            request_timeout_ms: self
-                .request_timeout_ms
-                .unwrap_or(ServerConfig::DEFAULT_REQUEST_TIMEOUT_MS),
+impl Default for LoggingConfig {
+    fn default() -> Self {
+        Self {
+            level: Self::DEFAULT_LEVEL,
+            module_levels: BTreeMap::new(),
         }
     }
 }
-
-#[derive(Debug, Clone, Default, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-struct NetworkConfigInput {
-    connect_timeout_ms: Option<u64>,
-    request_timeout_ms: Option<u64>,
-    stream_idle_timeout_ms: Option<u64>,
-    ca_bundle_path: Option<std::path::PathBuf>,
-    user_agent: Option<String>,
-}
-
-impl NetworkConfigInput {
-    fn materialize(self) -> NetworkConfig {
-        NetworkConfig {
-            connect_timeout_ms: self.connect_timeout_ms,
-            request_timeout_ms: self.request_timeout_ms,
-            stream_idle_timeout_ms: self.stream_idle_timeout_ms,
-            ca_bundle_path: self.ca_bundle_path,
-            user_agent: self.user_agent,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Default, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-struct LoggingConfigInput {
-    level: Option<LogFilter>,
-    module_levels: BTreeMap<String, LogFilter>,
-    format: Option<String>,
-}
-
-impl LoggingConfigInput {
-    fn materialize(self) -> LoggingConfig {
-        let _ = self.format;
-
-        LoggingConfig {
-            level: self.level.unwrap_or(LoggingConfig::DEFAULT_LEVEL),
-            module_levels: self.module_levels,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Default, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-struct FeatureConfigInput {
-    enabled: Option<bool>,
-    rollout_percentage: Option<u8>,
-}
-
-impl FeatureConfigInput {
-    fn materialize(self) -> FeatureConfig {
-        FeatureConfig {
-            enabled: self.enabled.unwrap_or(FeatureConfig::DEFAULT_ENABLED),
-            rollout_percentage: self
-                .rollout_percentage
-                .unwrap_or(FeatureConfig::DEFAULT_ROLLOUT_PERCENTAGE),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Default, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-struct LlmConfigInput {
-    providers: BTreeMap<String, LlmProviderConfigInput>,
-}
-
-impl LlmConfigInput {
-    fn materialize(self) -> LlmConfig {
-        LlmConfig {
-            providers: self
-                .providers
-                .into_iter()
-                .map(|(provider_id, provider)| (provider_id, provider.materialize()))
-                .collect(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Default, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-struct LlmProviderConfigInput {
-    base_url: Option<String>,
-    stream_completion_timeout_ms: Option<u64>,
-    models: Vec<String>,
-    settings: BTreeMap<String, toml::Value>,
-}
-
-#[derive(Debug, Clone, Default, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-struct McpConfigInput {
-    servers: BTreeMap<String, McpServerConfigInput>,
-}
-
-#[derive(Debug, Clone, Default, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-struct HarnessConfigInput {
-    max_children_per_fork: Option<u32>,
-    max_descendants_per_task: Option<u32>,
-}
-
-impl HarnessConfigInput {
-    fn materialize(self) -> HarnessConfig {
-        HarnessConfig {
-            max_children_per_fork: self
-                .max_children_per_fork
-                .unwrap_or(HarnessConfig::DEFAULT_MAX_CHILDREN_PER_FORK),
-            max_descendants_per_task: self
-                .max_descendants_per_task
-                .unwrap_or(HarnessConfig::DEFAULT_MAX_DESCENDANTS_PER_TASK),
-        }
-    }
-}
-
-impl McpConfigInput {
-    fn materialize(self) -> McpConfig {
-        McpConfig {
-            servers: self
-                .servers
-                .into_iter()
-                .map(|(server_id, server)| (server_id, server.materialize()))
-                .collect(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Default, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-struct McpServerConfigInput {
-    command: String,
-    args: Vec<String>,
-    env: BTreeMap<String, String>,
-    timeout_ms: Option<u64>,
-}
-
-impl McpServerConfigInput {
-    fn materialize(self) -> McpServerConfig {
-        McpServerConfig {
-            command: self.command,
-            args: self.args,
-            env: self.env,
-            timeout_ms: self
-                .timeout_ms
-                .unwrap_or(McpServerConfig::DEFAULT_TIMEOUT_MS),
-        }
-    }
-}
-
-impl LlmProviderConfigInput {
-    fn materialize(self) -> LlmProviderConfig {
-        LlmProviderConfig {
-            base_url: self.base_url,
-            stream_completion_timeout_ms: self.stream_completion_timeout_ms,
-            models: self.models,
-            settings: self.settings,
+impl Default for McpServerConfig {
+    fn default() -> Self {
+        Self {
+            command: String::new(),
+            args: Vec::new(),
+            env: BTreeMap::new(),
+            timeout_ms: Self::DEFAULT_TIMEOUT_MS,
         }
     }
 }
@@ -807,17 +624,14 @@ mod tests {
     }
 
     #[test]
-    fn logging_accepts_legacy_format_field_without_using_it() {
+    fn logging_rejects_legacy_format_field() {
         let table = toml::toml! {
             [logging]
             level = "info"
             format = "text"
         };
 
-        let config = AppConfig::try_from(table).expect("config with legacy format field");
-
-        assert_eq!(config.logging.level, LogFilter::Info);
-        assert!(config.logging.module_levels.is_empty());
+        assert!(AppConfig::try_from(table).is_err());
     }
 
     #[test]

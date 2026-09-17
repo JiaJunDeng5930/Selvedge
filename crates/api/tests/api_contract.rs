@@ -16,8 +16,8 @@ use selvedge_command_model::{
 };
 use selvedge_domain_model::{
     CallableTools, Conversation, ConversationMessage, FunctionCallId, HistoryNodeIdRef, JsonObject,
-    MessageRole, ModelFinishReason, ModelProviderProfile, ResponsePreference, ToolManifest,
-    ToolName, ToolSpec,
+    MessageRole, ModelFinishReason, ModelProfileKey, ModelProviderProfile, ReasoningEffort,
+    ResponsePreference, TaskModelConfig, ToolManifest, ToolName, ToolSpec,
 };
 use selvedge_test_support::{
     chatgpt_auth::{auth_file_json, build_unsigned_jwt as build_jwt, write_auth_file},
@@ -147,7 +147,7 @@ base_url = "{}"
     );
     assert_eq!(
         captured_body.pointer("/reasoning/effort"),
-        Some(&serde_json::json!("medium"))
+        Some(&serde_json::json!("high"))
     );
     assert!(captured_body.get("max_output_tokens").is_none());
 }
@@ -625,6 +625,16 @@ base_url = "{}"
 
 #[tokio::test]
 async fn unsupported_provider_name_sends_provider_request_failure_without_external_registry() {
+    const FLAG: &str = "SELVEDGE_API_UNKNOWN_PROVIDER_CHILD";
+    if !child_mode(FLAG) {
+        assert_child_success(&run_child(
+            "unsupported_provider_name_sends_provider_request_failure_without_external_registry",
+            FLAG,
+        ));
+        return;
+    }
+    let _tempdir = init_api_test("");
+
     let mut request = valid_dispatch_request();
     request.provider.provider_name = "unknown".to_owned();
     let (router_tx, mut router_rx) = mpsc::unbounded_channel();
@@ -642,11 +652,14 @@ async fn unsupported_provider_name_sends_provider_request_failure_without_extern
     assert_eq!(status, ApiCallTerminalStatus::OutputSent);
     let message = router_rx.recv().await.expect("router message");
 
-    assert_failure(
-        message,
-        request.correlation,
-        ModelCallErrorKind::ProviderRequest,
-    );
+    match message {
+        RouterIngressApiMessage::ApiOutput(ApiOutputEnvelope::Failure { correlation, error }) => {
+            assert_eq!(correlation, request.correlation);
+            assert_eq!(error.kind, ModelCallErrorKind::ProviderRequest);
+            assert_eq!(error.message, "provider is not supported");
+        }
+        other => panic!("expected unknown-provider failure, got {other:?}"),
+    }
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -829,6 +842,10 @@ fn valid_dispatch_request() -> ModelCallDispatchRequest {
             task_id: TaskId("task-1".to_owned()),
             model_run_id: ModelRunId("run-1".to_owned()),
         },
+        model_config: std::sync::Arc::new(
+            TaskModelConfig::new(ModelProfileKey("default".to_owned()), ReasoningEffort::High)
+                .expect("model config"),
+        ),
         provider: ModelProviderProfile {
             provider_name: "chatgpt".to_owned(),
             model_name: "gpt-5".to_owned(),

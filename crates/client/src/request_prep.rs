@@ -8,18 +8,49 @@ use http::{
 use reqwest::Url;
 use url::form_urlencoded;
 
+use crate::config_resolution::ResolvedCallConfig;
 use crate::{
     HttpError, HttpMethod, HttpRequest, HttpRequestBody, RequestCompression, build_error,
     run_blocking,
 };
-use crate::{config_resolution::ResolvedCallConfig, redaction::sanitize_url};
 
 #[derive(Debug)]
 pub(crate) struct PreparedRequest {
-    pub(crate) request: reqwest::Request,
     pub(crate) method: HttpMethod,
-    pub(crate) request_url: String,
-    pub(crate) body_len: usize,
+    pub(crate) url: Url,
+    pub(crate) headers: HeaderMap,
+    body: PreparedBody,
+}
+
+impl PreparedRequest {
+    pub(crate) fn body_len(&self) -> usize {
+        self.body.len()
+    }
+
+    pub(crate) fn to_request(&self) -> reqwest::Request {
+        let mut request = reqwest::Request::new(self.method.clone().into(), self.url.clone());
+        *request.headers_mut() = self.headers.clone();
+        if let PreparedBody::Buffered {
+            bytes,
+            content_type_if_missing,
+            content_encoding,
+        } = &self.body
+        {
+            if let Some(content_type) = content_type_if_missing {
+                request
+                    .headers_mut()
+                    .entry(CONTENT_TYPE)
+                    .or_insert(content_type.clone());
+            }
+            if let Some(content_encoding) = content_encoding {
+                request
+                    .headers_mut()
+                    .insert(CONTENT_ENCODING, content_encoding.clone());
+            }
+            *request.body_mut() = Some(bytes.clone().into());
+        }
+        request
+    }
 }
 
 #[derive(Debug)]
@@ -28,17 +59,11 @@ pub(crate) enum PreparedBody {
     Buffered {
         bytes: Bytes,
         content_type_if_missing: Option<HeaderValue>,
+        content_encoding: Option<HeaderValue>,
     },
 }
 
 impl PreparedBody {
-    pub(crate) fn into_bytes(self) -> Option<Bytes> {
-        match self {
-            Self::Empty => None,
-            Self::Buffered { bytes, .. } => Some(bytes),
-        }
-    }
-
     pub(crate) fn len(&self) -> usize {
         match self {
             Self::Empty => 0,
@@ -63,23 +88,14 @@ pub(crate) async fn prepare_request(
         headers.insert(USER_AGENT, user_agent);
     }
 
-    finalize_headers(&mut headers, &body);
     body = maybe_compress_body(body, request.compression, &mut headers).await?;
 
-    let body_len = body.len();
     reconcile_content_length(&body, &mut headers)?;
-    let mut reqwest_request = reqwest::Request::new(request.method.clone().into(), url);
-    *reqwest_request.headers_mut() = headers;
-
-    if let Some(bytes) = body.into_bytes() {
-        *reqwest_request.body_mut() = Some(bytes.into());
-    }
-
     Ok(PreparedRequest {
-        request: reqwest_request,
         method: request.method,
-        request_url: sanitize_url(&request.url).into_string(),
-        body_len,
+        url,
+        headers,
+        body,
     })
 }
 
@@ -110,6 +126,7 @@ pub(crate) fn encode_body(body: HttpRequestBody) -> Result<PreparedBody, HttpErr
             Ok(PreparedBody::Buffered {
                 bytes,
                 content_type_if_missing: Some(HeaderValue::from_static("application/json")),
+                content_encoding: None,
             })
         }
         HttpRequestBody::FormUrlEncoded(pairs) => {
@@ -126,23 +143,14 @@ pub(crate) fn encode_body(body: HttpRequestBody) -> Result<PreparedBody, HttpErr
                 content_type_if_missing: Some(HeaderValue::from_static(
                     "application/x-www-form-urlencoded",
                 )),
+                content_encoding: None,
             })
         }
         HttpRequestBody::Bytes(bytes) => Ok(PreparedBody::Buffered {
             bytes,
             content_type_if_missing: None,
+            content_encoding: None,
         }),
-    }
-}
-
-fn finalize_headers(headers: &mut HeaderMap, body: &PreparedBody) {
-    if let PreparedBody::Buffered {
-        content_type_if_missing: Some(content_type),
-        ..
-    } = body
-        && !headers.contains_key(CONTENT_TYPE)
-    {
-        headers.insert(CONTENT_TYPE, content_type.clone());
     }
 }
 
@@ -158,6 +166,7 @@ pub(crate) async fn maybe_compress_body(
             PreparedBody::Buffered {
                 bytes,
                 content_type_if_missing,
+                ..
             },
             RequestCompression::Zstd,
         ) => {
@@ -174,11 +183,11 @@ pub(crate) async fn maybe_compress_body(
             }
 
             let compressed = run_blocking(move || compress_bytes(bytes)).await?;
-            headers.insert(CONTENT_ENCODING, HeaderValue::from_static("zstd"));
 
             Ok(PreparedBody::Buffered {
                 bytes: compressed,
                 content_type_if_missing,
+                content_encoding: Some(HeaderValue::from_static("zstd")),
             })
         }
     }

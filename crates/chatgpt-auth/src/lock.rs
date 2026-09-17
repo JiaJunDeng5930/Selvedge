@@ -6,17 +6,13 @@ use crate::{ChatgptAuthError, auth_file};
 
 pub(crate) async fn lock_chatgpt_credential(
     selvedge_home: &Path,
-) -> Result<PathLockGuard, ChatgptAuthError> {
+) -> Result<CredentialLockGuard, ChatgptAuthError> {
     let auth_file_path = auth_file::auth_file_path(selvedge_home);
     let guard = selvedge_model_credentials::lock_credential_from_home(selvedge_home, "chatgpt")
         .await
         .map_err(|error| map_lock_error(error, auth_file_path))?;
 
-    Ok(PathLockGuard { _guard: guard })
-}
-
-pub(crate) struct PathLockGuard {
-    _guard: CredentialLockGuard,
+    Ok(guard)
 }
 
 fn map_lock_error(
@@ -24,6 +20,12 @@ fn map_lock_error(
     auth_file_path: std::path::PathBuf,
 ) -> ChatgptAuthError {
     match error {
+        ModelCredentialError::UnsupportedSchemaVersion { version } => {
+            ChatgptAuthError::AuthFileReadFailed {
+                path: auth_file_path,
+                reason: format!("unsupported schema_version {version}"),
+            }
+        }
         ModelCredentialError::InvalidProviderId { provider_id } => {
             ChatgptAuthError::AuthFileReadFailed {
                 path: auth_file_path,

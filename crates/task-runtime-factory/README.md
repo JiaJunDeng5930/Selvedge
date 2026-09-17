@@ -2,40 +2,35 @@
 
 <!-- selvedge-package-readme
 package: selvedge-task-runtime-factory
-freshness_fingerprint: 879fe073fbd4553873694b20da0c916c45586922
+freshness_fingerprint: 2dbbdfb4367b202c0d4fd0b7e02a57f53fe14ee9
 -->
 
-This crate runs one-shot factory effects for router-mediated task runtimes.
+This crate creates task runtimes for the router through synchronous operations.
 
-Use it to create a runtime for an existing non-archived task or scan all non-archived tasks and create missing runtimes. Active, frozen, and stopped tasks have runtimes. Archived tasks return a typed factory failure. The router runs `run_factory_effect` on Tokio's blocking pool and receives exactly one factory output envelope.
+`create_task_runtime` checks task metadata and returns the core runtime handles or a typed missing, archived, database, or spawner failure. `recover_task_runtimes` scans non-archived tasks, skips the supplied live task IDs, and returns created runtimes and individual creation failures. Active, frozen, and stopped tasks are eligible. The router calls these operations on Tokio's blocking pool and awaits their direct results before processing another command.
 
-`FactoryRuntimeInventory` is supplied by the router from its current in-memory registry and pending-effect state. The factory uses it only to skip already live or pending task runtimes.
-
-This crate is not for runtime registry ownership, task-local commands, provider calls, tool execution, direct event delivery, root task creation, or filesystem access.
+Runtime uniqueness, registration, the initial `Start` command, and shutdown belong to the router. This package does not introduce factory effect IDs, pending inventories, or output envelopes.
 
 ## Package State Machine
 
-The diagram records the package-level observable states and transition paths. Each edge label names the concrete condition checked at this package boundary.
-
 ```mermaid
 flowchart TD
-  Start([run_factory_effect])
-  InspectInventory[Inspect router-supplied runtime inventory]
-  CreateRuntime[Create runtime for non-archived task]
-  ScanTasks[Read non-archived tasks]
-  Spawn[Call selvedge-core spawn_task_runtime]
-  OutputCreated[Return TaskRuntimeCreated]
-  OutputSkipped[Return FactorySkippedTask]
-  OutputFailure[Return FactoryFailure or FactoryTaskFailure]
+  Start([Factory call])
+  Create[Read task metadata]
+  Scan[Read non-archived tasks]
+  Spawn[Invoke configured runtime spawner]
+  Result[Return runtime handles]
+  Recovery[Return created runtimes and individual failures]
+  Failure[Return typed failure]
 
-  Start -->|effect is create runtime for existing task| InspectInventory
-  Start -->|effect is scan non-archived tasks| ScanTasks
-  InspectInventory -->|task is already live or pending| OutputSkipped
-  InspectInventory -->|task is absent from live and pending inventory| CreateRuntime
-  CreateRuntime -->|database confirms task is active, frozen, or stopped| Spawn
-  CreateRuntime -->|database read fails or task is archived| OutputFailure
-  ScanTasks -->|non-archived task list read succeeds| InspectInventory
-  ScanTasks -->|database read fails| OutputFailure
-  Spawn -->|core runtime spawn returns sender and control| OutputCreated
-  Spawn -->|core runtime spawn fails| OutputFailure
+  Start -->|create_task_runtime is called| Create
+  Start -->|recover_task_runtimes is called| Scan
+  Create -->|task exists and is non-archived| Spawn
+  Create -->|task is missing, archived, or database read fails| Failure
+  Scan -->|database read fails| Failure
+  Scan -->|task ID is already live| Recovery
+  Scan -->|task ID is missing from live inventory| Spawn
+  Spawn -->|single creation succeeds| Result
+  Spawn -->|single creation fails| Failure
+  Spawn -->|recovery creation succeeds or fails| Recovery
 ```

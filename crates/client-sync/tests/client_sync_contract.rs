@@ -1,6 +1,6 @@
 use std::collections::{BTreeSet, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, LazyLock, Mutex};
+use std::sync::{Arc, Mutex};
 
 use selvedge_client_sync::{
     CancelHydration, ClientSnapshotBuildFuture, ClientSnapshotBuildRequest, ClientSnapshotBuilder,
@@ -9,18 +9,16 @@ use selvedge_client_sync::{
 };
 use selvedge_command_model::{
     BeginClientHydration, ClientCommandId, ClientFrame, ClientId, ClientNoticeLevel,
-    ClientSnapshot, ClientSubscription, DetachReason, DetailLevel, EventControlMessage,
-    EventIngress, TaskScope,
+    ClientSessionIdentity, ClientSnapshot, ClientSubscription, DetachReason, DetailLevel,
+    EventControlMessage, EventIngress, TaskScope,
 };
 use selvedge_domain_model::UnixTs;
-use tokio::sync::{Mutex as AsyncMutex, mpsc, oneshot};
+use tokio::sync::{mpsc, oneshot};
 use tokio::time::{Duration, timeout};
-
-static TEST_LOCK: LazyLock<AsyncMutex<()>> = LazyLock::new(|| AsyncMutex::new(()));
 
 #[tokio::test]
 async fn successful_hydration_sends_begin_before_snapshot() {
-    let _guard = TEST_LOCK.lock().await;
+    let session_1 = session("client-1", "attach-1");
     let (events_tx, mut events_rx) = mpsc::channel(8);
     let builder = Arc::new(RecordingBuilder::new(vec![BuildAction::Ready(Ok(
         empty_snapshot(),
@@ -34,24 +32,22 @@ async fn successful_hydration_sends_begin_before_snapshot() {
 
     handle
         .ingress_tx
-        .send(ClientSyncIngress::StartHydration(begin(
-            "client-1", "attach-1",
-        )))
+        .send(ClientSyncIngress::StartHydration(begin(&session_1)))
         .await
         .expect("send start");
 
     let begin = recv_control(&mut events_rx).await;
-    assert_begin(&begin, "client-1", "attach-1");
+    assert_begin(&begin, &session_1);
     let snapshot = recv_control(&mut events_rx).await;
-    assert_snapshot(&snapshot, "client-1", "attach-1");
-    assert_eq!(builder.requests(), vec![request("client-1", "attach-1")]);
+    assert_snapshot(&snapshot, &session_1);
+    assert_eq!(builder.requests(), vec![request(&session_1)]);
 
     shutdown(handle).await;
 }
 
 #[tokio::test]
 async fn builder_failure_sends_error_notice_then_detach() {
-    let _guard = TEST_LOCK.lock().await;
+    let session_1 = session("client-1", "attach-1");
     let (events_tx, mut events_rx) = mpsc::channel(8);
     let builder = Arc::new(RecordingBuilder::new(vec![BuildAction::Ready(Err(
         ClientSyncError::SnapshotBuildFailed("db unavailable".to_owned()),
@@ -65,17 +61,15 @@ async fn builder_failure_sends_error_notice_then_detach() {
 
     handle
         .ingress_tx
-        .send(ClientSyncIngress::StartHydration(begin(
-            "client-1", "attach-1",
-        )))
+        .send(ClientSyncIngress::StartHydration(begin(&session_1)))
         .await
         .expect("send start");
 
-    assert_begin(&recv_control(&mut events_rx).await, "client-1", "attach-1");
+    assert_begin(&recv_control(&mut events_rx).await, &session_1);
     let notice = recv_control(&mut events_rx).await;
     match notice {
         EventControlMessage::DeliverNotice(notice) => {
-            assert_eq!(notice.client_id, ClientId("client-1".to_owned()));
+            assert_eq!(*notice.session.client_id(), ClientId("client-1".to_owned()));
             assert_eq!(
                 notice.client_command_id,
                 ClientCommandId("attach-1".to_owned())
@@ -88,9 +82,9 @@ async fn builder_failure_sends_error_notice_then_detach() {
     let detach = recv_control(&mut events_rx).await;
     match detach {
         EventControlMessage::DetachClient(detach) => {
-            assert_eq!(detach.client_id, ClientId("client-1".to_owned()));
+            assert_eq!(*detach.session.client_id(), ClientId("client-1".to_owned()));
             assert_eq!(
-                detach.client_command_id,
+                *detach.session.attach_command_id(),
                 ClientCommandId("attach-1".to_owned())
             );
             assert_eq!(detach.reason, DetachReason::DeliveryFailed);
@@ -103,7 +97,7 @@ async fn builder_failure_sends_error_notice_then_detach() {
 
 #[tokio::test]
 async fn begin_send_failure_does_not_call_builder() {
-    let _guard = TEST_LOCK.lock().await;
+    let session_1 = session("client-1", "attach-1");
     let (events_tx, events_rx) = mpsc::channel(1);
     drop(events_rx);
     let builder = Arc::new(RecordingBuilder::new(vec![BuildAction::Ready(Ok(
@@ -118,9 +112,7 @@ async fn begin_send_failure_does_not_call_builder() {
 
     handle
         .ingress_tx
-        .send(ClientSyncIngress::StartHydration(begin(
-            "client-1", "attach-1",
-        )))
+        .send(ClientSyncIngress::StartHydration(begin(&session_1)))
         .await
         .expect("send start");
 
@@ -135,7 +127,7 @@ async fn begin_send_failure_does_not_call_builder() {
 
 #[tokio::test]
 async fn snapshot_delivery_send_failure_is_fatal() {
-    let _guard = TEST_LOCK.lock().await;
+    let session_1 = session("client-1", "attach-1");
     let (events_tx, mut events_rx) = mpsc::channel(8);
     let (release_tx, release_rx) = oneshot::channel();
     let builder = Arc::new(RecordingBuilder::new(vec![BuildAction::Wait(release_rx)]));
@@ -148,12 +140,10 @@ async fn snapshot_delivery_send_failure_is_fatal() {
 
     handle
         .ingress_tx
-        .send(ClientSyncIngress::StartHydration(begin(
-            "client-1", "attach-1",
-        )))
+        .send(ClientSyncIngress::StartHydration(begin(&session_1)))
         .await
         .expect("send start");
-    assert_begin(&recv_control(&mut events_rx).await, "client-1", "attach-1");
+    assert_begin(&recv_control(&mut events_rx).await, &session_1);
     drop(events_rx);
 
     release_tx
@@ -165,7 +155,7 @@ async fn snapshot_delivery_send_failure_is_fatal() {
 
 #[tokio::test]
 async fn builder_failure_notice_send_failure_is_fatal() {
-    let _guard = TEST_LOCK.lock().await;
+    let session_1 = session("client-1", "attach-1");
     let (events_tx, mut events_rx) = mpsc::channel(8);
     let (release_tx, release_rx) = oneshot::channel();
     let builder = Arc::new(RecordingBuilder::new(vec![BuildAction::Wait(release_rx)]));
@@ -178,12 +168,10 @@ async fn builder_failure_notice_send_failure_is_fatal() {
 
     handle
         .ingress_tx
-        .send(ClientSyncIngress::StartHydration(begin(
-            "client-1", "attach-1",
-        )))
+        .send(ClientSyncIngress::StartHydration(begin(&session_1)))
         .await
         .expect("send start");
-    assert_begin(&recv_control(&mut events_rx).await, "client-1", "attach-1");
+    assert_begin(&recv_control(&mut events_rx).await, &session_1);
     drop(events_rx);
 
     release_tx
@@ -197,7 +185,7 @@ async fn builder_failure_notice_send_failure_is_fatal() {
 
 #[tokio::test]
 async fn duplicate_same_command_does_not_start_second_builder() {
-    let _guard = TEST_LOCK.lock().await;
+    let session_1 = session("client-1", "attach-1");
     let (events_tx, mut events_rx) = mpsc::channel(8);
     let (_release_tx, release_rx) = oneshot::channel();
     let builder = Arc::new(RecordingBuilder::new(vec![BuildAction::Wait(release_rx)]));
@@ -210,20 +198,16 @@ async fn duplicate_same_command_does_not_start_second_builder() {
 
     handle
         .ingress_tx
-        .send(ClientSyncIngress::StartHydration(begin(
-            "client-1", "attach-1",
-        )))
+        .send(ClientSyncIngress::StartHydration(begin(&session_1)))
         .await
         .expect("send first start");
     handle
         .ingress_tx
-        .send(ClientSyncIngress::StartHydration(begin(
-            "client-1", "attach-1",
-        )))
+        .send(ClientSyncIngress::StartHydration(begin(&session_1)))
         .await
         .expect("send duplicate start");
 
-    assert_begin(&recv_control(&mut events_rx).await, "client-1", "attach-1");
+    assert_begin(&recv_control(&mut events_rx).await, &session_1);
     tokio::time::sleep(Duration::from_millis(10)).await;
     assert_eq!(builder.requests().len(), 1);
     assert!(recv_control_timeout(&mut events_rx).await.is_none());
@@ -233,9 +217,9 @@ async fn duplicate_same_command_does_not_start_second_builder() {
 
 #[tokio::test]
 async fn completed_hydration_remains_schedulable_during_sustained_ingress() {
+    let session_1 = session("client-1", "attach-1");
     const FLOOD_COUNT: usize = 64;
 
-    let _guard = TEST_LOCK.lock().await;
     let (events_tx, mut events_rx) = mpsc::channel(FLOOD_COUNT * 4);
     let builder = Arc::new(FloodingBuilder::new(FLOOD_COUNT));
     let handle = spawn_client_sync(ClientSyncStartArgs {
@@ -248,9 +232,7 @@ async fn completed_hydration_remains_schedulable_during_sustained_ingress() {
 
     handle
         .ingress_tx
-        .send(ClientSyncIngress::StartHydration(begin(
-            "client-1", "attach-1",
-        )))
+        .send(ClientSyncIngress::StartHydration(begin(&session_1)))
         .await
         .expect("send start");
 
@@ -259,7 +241,10 @@ async fn completed_hydration_remains_schedulable_during_sustained_ingress() {
         match recv_control(&mut events_rx).await {
             EventControlMessage::BeginClientHydration(_) => begins_before_snapshot += 1,
             EventControlMessage::DeliverSnapshot(snapshot) => {
-                assert_eq!(snapshot.client_id, ClientId("client-1".to_owned()));
+                assert_eq!(
+                    *snapshot.session.client_id(),
+                    ClientId("client-1".to_owned())
+                );
                 break;
             }
             other => panic!("unexpected hydration event: {other:?}"),
@@ -275,7 +260,8 @@ async fn completed_hydration_remains_schedulable_during_sustained_ingress() {
 
 #[tokio::test]
 async fn new_command_aborts_old_builder() {
-    let _guard = TEST_LOCK.lock().await;
+    let session_1 = session("client-1", "attach-1");
+    let session_2 = session("client-1", "attach-2");
     let (events_tx, mut events_rx) = mpsc::channel(8);
     let (mut old_tx, old_rx) = oneshot::channel();
     let (new_tx, new_rx) = oneshot::channel();
@@ -292,21 +278,17 @@ async fn new_command_aborts_old_builder() {
 
     handle
         .ingress_tx
-        .send(ClientSyncIngress::StartHydration(begin(
-            "client-1", "attach-1",
-        )))
+        .send(ClientSyncIngress::StartHydration(begin(&session_1)))
         .await
         .expect("send old start");
-    assert_begin(&recv_control(&mut events_rx).await, "client-1", "attach-1");
+    assert_begin(&recv_control(&mut events_rx).await, &session_1);
 
     handle
         .ingress_tx
-        .send(ClientSyncIngress::StartHydration(begin(
-            "client-1", "attach-2",
-        )))
+        .send(ClientSyncIngress::StartHydration(begin(&session_2)))
         .await
         .expect("send new start");
-    assert_begin(&recv_control(&mut events_rx).await, "client-1", "attach-2");
+    assert_begin(&recv_control(&mut events_rx).await, &session_2);
 
     timeout(Duration::from_secs(1), old_tx.closed())
         .await
@@ -314,14 +296,14 @@ async fn new_command_aborts_old_builder() {
     assert!(recv_control_timeout(&mut events_rx).await.is_none());
 
     new_tx.send(Ok(empty_snapshot())).expect("release new");
-    assert_snapshot(&recv_control(&mut events_rx).await, "client-1", "attach-2");
+    assert_snapshot(&recv_control(&mut events_rx).await, &session_2);
 
     shutdown(handle).await;
 }
 
 #[tokio::test]
 async fn cancel_aborts_builder() {
-    let _guard = TEST_LOCK.lock().await;
+    let session_1 = session("client-1", "attach-1");
     let (events_tx, mut events_rx) = mpsc::channel(8);
     let (mut release_tx, release_rx) = oneshot::channel();
     let builder = Arc::new(RecordingBuilder::new(vec![BuildAction::Wait(release_rx)]));
@@ -334,17 +316,14 @@ async fn cancel_aborts_builder() {
 
     handle
         .ingress_tx
-        .send(ClientSyncIngress::StartHydration(begin(
-            "client-1", "attach-1",
-        )))
+        .send(ClientSyncIngress::StartHydration(begin(&session_1)))
         .await
         .expect("send start");
-    assert_begin(&recv_control(&mut events_rx).await, "client-1", "attach-1");
+    assert_begin(&recv_control(&mut events_rx).await, &session_1);
     handle
         .ingress_tx
         .send(ClientSyncIngress::CancelHydration(CancelHydration {
-            client_id: ClientId("client-1".to_owned()),
-            client_command_id: ClientCommandId("attach-1".to_owned()),
+            session: session_1.clone(),
         }))
         .await
         .expect("send cancel");
@@ -359,9 +338,10 @@ async fn cancel_aborts_builder() {
 
 #[tokio::test]
 async fn queued_cancel_precedes_a_completed_builder_result() {
-    let _guard = TEST_LOCK.lock().await;
-
     for trial in 0..16 {
+        let session_1 = session("client-1", "attach-1");
+        let session_2 = session("gate", "gate");
+        let session_3 = session("blocker", "blocker");
         let (events_tx, mut events_rx) = mpsc::channel(1);
         let gate_tx = events_tx.clone();
         let (release_tx, release_rx) = oneshot::channel();
@@ -379,24 +359,20 @@ async fn queued_cancel_precedes_a_completed_builder_result() {
 
         handle
             .ingress_tx
-            .send(ClientSyncIngress::StartHydration(begin(
-                "client-1", "attach-1",
-            )))
+            .send(ClientSyncIngress::StartHydration(begin(&session_1)))
             .await
             .expect("send target start");
-        assert_begin(&recv_control(&mut events_rx).await, "client-1", "attach-1");
+        assert_begin(&recv_control(&mut events_rx).await, &session_1);
 
         gate_tx
             .send(EventIngress::Control(
-                EventControlMessage::BeginClientHydration(begin("gate", "gate")),
+                EventControlMessage::BeginClientHydration(begin(&session_2)),
             ))
             .await
             .expect("fill events mailbox");
         handle
             .ingress_tx
-            .send(ClientSyncIngress::StartHydration(begin(
-                "blocker", "blocker",
-            )))
+            .send(ClientSyncIngress::StartHydration(begin(&session_3)))
             .await
             .expect("send blocker start");
         drop(
@@ -414,13 +390,12 @@ async fn queued_cancel_precedes_a_completed_builder_result() {
         handle
             .ingress_tx
             .try_send(ClientSyncIngress::CancelHydration(CancelHydration {
-                client_id: ClientId("client-1".to_owned()),
-                client_command_id: ClientCommandId("attach-1".to_owned()),
+                session: session_1.clone(),
             }))
             .expect("queue cancel");
 
-        assert_begin(&recv_control(&mut events_rx).await, "gate", "gate");
-        assert_begin(&recv_control(&mut events_rx).await, "blocker", "blocker");
+        assert_begin(&recv_control(&mut events_rx).await, &session_2);
+        assert_begin(&recv_control(&mut events_rx).await, &session_3);
         assert!(
             recv_control_timeout(&mut events_rx).await.is_none(),
             "trial {trial} delivered a snapshot after its cancellation was queued"
@@ -432,7 +407,7 @@ async fn queued_cancel_precedes_a_completed_builder_result() {
 
 #[tokio::test]
 async fn shutdown_aborts_builder_before_task_stops() {
-    let _guard = TEST_LOCK.lock().await;
+    let session_1 = session("client-1", "attach-1");
     let (events_tx, mut events_rx) = mpsc::channel(8);
     let (mut release_tx, release_rx) = oneshot::channel();
     let builder = Arc::new(RecordingBuilder::new(vec![BuildAction::Wait(release_rx)]));
@@ -445,12 +420,10 @@ async fn shutdown_aborts_builder_before_task_stops() {
 
     handle
         .ingress_tx
-        .send(ClientSyncIngress::StartHydration(begin(
-            "client-1", "attach-1",
-        )))
+        .send(ClientSyncIngress::StartHydration(begin(&session_1)))
         .await
         .expect("send start");
-    assert_begin(&recv_control(&mut events_rx).await, "client-1", "attach-1");
+    assert_begin(&recv_control(&mut events_rx).await, &session_1);
     handle
         .ingress_tx
         .send(ClientSyncIngress::Shutdown)
@@ -469,7 +442,6 @@ async fn shutdown_aborts_builder_before_task_stops() {
 
 #[tokio::test]
 async fn invalid_ingress_capacity_is_rejected() {
-    let _guard = TEST_LOCK.lock().await;
     let (events_tx, _events_rx) = mpsc::channel(8);
     let builder = Arc::new(RecordingBuilder::new(Vec::new()));
 
@@ -530,10 +502,10 @@ impl ClientSnapshotBuilder for FloodingBuilder {
             if should_flood {
                 for index in 0..flood_count {
                     ingress_tx
-                        .try_send(ClientSyncIngress::StartHydration(begin(
+                        .try_send(ClientSyncIngress::StartHydration(begin(&session(
                             &format!("flood-client-{index}"),
                             &format!("flood-attach-{index}"),
-                        )))
+                        ))))
                         .expect("fill ingress");
                 }
             }
@@ -574,20 +546,18 @@ impl ClientSnapshotBuilder for RecordingBuilder {
     }
 }
 
-fn begin(client_id: &str, command_id: &str) -> BeginClientHydration {
+fn begin(session: &ClientSessionIdentity) -> BeginClientHydration {
     let (outbound, _rx) = mpsc::channel::<ClientFrame>(8);
     BeginClientHydration {
-        client_id: ClientId(client_id.to_owned()),
-        client_command_id: ClientCommandId(command_id.to_owned()),
+        session: session.clone(),
         outbound,
         subscription: subscription(),
     }
 }
 
-fn request(client_id: &str, command_id: &str) -> ClientSnapshotBuildRequest {
+fn request(session: &ClientSessionIdentity) -> ClientSnapshotBuildRequest {
     ClientSnapshotBuildRequest {
-        client_id: ClientId(client_id.to_owned()),
-        client_command_id: ClientCommandId(command_id.to_owned()),
+        session: session.clone(),
         subscription: subscription(),
     }
 }
@@ -620,7 +590,7 @@ async fn recv_control(rx: &mut mpsc::Receiver<EventIngress>) -> EventControlMess
         .expect("event")
     {
         EventIngress::Control(control) => control,
-        EventIngress::Raw(_) => panic!("expected control event"),
+        EventIngress::Publish(_) => panic!("expected control event"),
     }
 }
 
@@ -629,33 +599,21 @@ async fn recv_control_timeout(
 ) -> Option<EventControlMessage> {
     match timeout(Duration::from_millis(10), rx.recv()).await {
         Ok(Some(EventIngress::Control(control))) => Some(control),
-        Ok(Some(EventIngress::Raw(_))) => panic!("expected control event"),
+        Ok(Some(EventIngress::Publish(_))) => panic!("expected control event"),
         Ok(None) | Err(_) => None,
     }
 }
 
-fn assert_begin(control: &EventControlMessage, client_id: &str, command_id: &str) {
+fn assert_begin(control: &EventControlMessage, session: &ClientSessionIdentity) {
     match control {
-        EventControlMessage::BeginClientHydration(begin) => {
-            assert_eq!(begin.client_id, ClientId(client_id.to_owned()));
-            assert_eq!(
-                begin.client_command_id,
-                ClientCommandId(command_id.to_owned())
-            );
-        }
+        EventControlMessage::BeginClientHydration(begin) => assert_eq!(&begin.session, session),
         other => panic!("expected begin, got {other:?}"),
     }
 }
 
-fn assert_snapshot(control: &EventControlMessage, client_id: &str, command_id: &str) {
+fn assert_snapshot(control: &EventControlMessage, session: &ClientSessionIdentity) {
     match control {
-        EventControlMessage::DeliverSnapshot(snapshot) => {
-            assert_eq!(snapshot.client_id, ClientId(client_id.to_owned()));
-            assert_eq!(
-                snapshot.client_command_id,
-                ClientCommandId(command_id.to_owned())
-            );
-        }
+        EventControlMessage::DeliverSnapshot(snapshot) => assert_eq!(&snapshot.session, session),
         other => panic!("expected snapshot, got {other:?}"),
     }
 }
@@ -678,4 +636,64 @@ async fn expect_fatal_contains(handle: selvedge_client_sync::ClientSyncHandle, e
         status,
         ClientSyncExitStatus::Fatal(message) if message.contains(expected)
     ));
+}
+
+fn session(client_id: &str, command_id: &str) -> ClientSessionIdentity {
+    ClientSessionIdentity::new(
+        ClientId(client_id.to_owned()),
+        ClientCommandId(command_id.to_owned()),
+    )
+}
+
+#[tokio::test]
+async fn stale_cancel_does_not_abort_reused_attach_command_generation() {
+    let old_a = session("client-1", "a");
+    let b = session("client-1", "b");
+    let new_a = session("client-1", "a");
+    let (events_tx, mut events_rx) = mpsc::channel(8);
+    let (mut old_tx, old_rx) = oneshot::channel();
+    let (mut b_tx, b_rx) = oneshot::channel();
+    let (new_tx, new_rx) = oneshot::channel();
+    let builder = Arc::new(RecordingBuilder::new(vec![
+        BuildAction::Wait(old_rx),
+        BuildAction::Wait(b_rx),
+        BuildAction::Wait(new_rx),
+    ]));
+    let handle = spawn_client_sync(ClientSyncStartArgs {
+        events_tx,
+        snapshot_builder: builder.clone(),
+        ingress_capacity: 8,
+    })
+    .expect("client sync");
+    for identity in [&old_a, &b, &new_a] {
+        handle
+            .ingress_tx
+            .send(ClientSyncIngress::StartHydration(begin(identity)))
+            .await
+            .expect("start generation");
+        assert_begin(&recv_control(&mut events_rx).await, identity);
+    }
+    timeout(Duration::from_secs(1), old_tx.closed())
+        .await
+        .expect("old A builder aborted");
+    timeout(Duration::from_secs(1), b_tx.closed())
+        .await
+        .expect("B builder aborted");
+    for identity in [&old_a, &b] {
+        handle
+            .ingress_tx
+            .send(ClientSyncIngress::CancelHydration(CancelHydration {
+                session: identity.clone(),
+            }))
+            .await
+            .expect("stale cancellation");
+    }
+    new_tx.send(Ok(empty_snapshot())).expect("finish newest A");
+    assert_snapshot(&recv_control(&mut events_rx).await, &new_a);
+    assert_eq!(
+        builder.requests(),
+        vec![request(&old_a), request(&b), request(&new_a)]
+    );
+    assert!(recv_control_timeout(&mut events_rx).await.is_none());
+    shutdown(handle).await;
 }

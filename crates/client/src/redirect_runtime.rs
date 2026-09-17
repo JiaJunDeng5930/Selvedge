@@ -1,26 +1,25 @@
 use http::{StatusCode, header::LOCATION};
 
-use crate::{HttpError, HttpMethod, HttpRequest, HttpResponse, HttpStreamResponse, build_error};
+use crate::{HttpError, HttpMethod, HttpResponse, HttpStreamResponse, build_error};
 use crate::{
     config_resolution::ResolvedCallConfig,
-    request_prep::{PreparedRequest, prepare_request},
+    request_prep::PreparedRequest,
     runtime::{
-        RequestBudget, collect_status_error, collect_success_body, same_origin,
+        RequestBudget, collect_status_error, collect_success_body, same_origin, send_with_budget,
         strip_origin_bound_headers, wrap_stream,
     },
-    single_hop::send_single_hop,
+    transport::RequestTransport,
 };
 
 const MAX_REDIRECT_HOPS: usize = 10;
 
 pub(crate) async fn execute_inner(
     call_config: &ResolvedCallConfig,
-    request: HttpRequest,
     initial_prepared: PreparedRequest,
     mut request_budget: RequestBudget,
 ) -> Result<HttpResponse, HttpError> {
     let (response, request_url) =
-        send_request(call_config, request, initial_prepared, &mut request_budget).await?;
+        send_request(call_config, initial_prepared, &mut request_budget).await?;
 
     if !response.status().is_success() {
         return Err(collect_status_error(response, &mut request_budget, &request_url).await?);
@@ -39,13 +38,12 @@ pub(crate) async fn execute_inner(
 
 pub(crate) async fn stream_inner(
     call_config: &ResolvedCallConfig,
-    request: HttpRequest,
     initial_prepared: PreparedRequest,
     mut request_budget: RequestBudget,
     idle_timeout: Option<std::time::Duration>,
 ) -> Result<HttpStreamResponse, HttpError> {
     let (response, request_url) =
-        send_request(call_config, request, initial_prepared, &mut request_budget).await?;
+        send_request(call_config, initial_prepared, &mut request_budget).await?;
 
     if !response.status().is_success() {
         return Err(collect_status_error(response, &mut request_budget, &request_url).await?);
@@ -69,21 +67,25 @@ pub(crate) async fn stream_inner(
 
 async fn send_request(
     call_config: &ResolvedCallConfig,
-    request: HttpRequest,
     initial_prepared: PreparedRequest,
     request_budget: &mut RequestBudget,
 ) -> Result<(reqwest::Response, String), HttpError> {
-    let mut current_request = request;
-    let mut next_prepared = Some(initial_prepared);
+    let mut current_request = initial_prepared;
+    let mut transport = RequestTransport::new(call_config);
     let mut hop = 0_usize;
 
     loop {
-        let prepared = match next_prepared.take() {
-            Some(prepared) => prepared,
-            None => prepare_request(current_request.clone(), call_config).await?,
-        };
-        let request_url = prepared.request_url.clone();
-        let response = send_single_hop(call_config, prepared, request_budget).await?;
+        let request_url = crate::redaction::sanitize_parsed_url(&current_request.url).into_string();
+        let client = transport
+            .client(current_request.url.scheme() == "https")
+            .await?;
+        let response = send_with_budget(
+            client,
+            current_request.to_request(),
+            &request_url,
+            request_budget,
+        )
+        .await?;
 
         if should_follow_redirect(&current_request.method, response.status()) {
             let next_request = build_redirect_request(current_request, &response, hop)?;
@@ -109,10 +111,10 @@ fn should_follow_redirect(method: &HttpMethod, status: StatusCode) -> bool {
 }
 
 fn build_redirect_request(
-    mut current_request: HttpRequest,
+    mut current_request: PreparedRequest,
     response: &reqwest::Response,
     hop: usize,
-) -> Result<HttpRequest, HttpError> {
+) -> Result<PreparedRequest, HttpError> {
     if hop >= MAX_REDIRECT_HOPS {
         return Err(build_error("too many redirects"));
     }
@@ -145,7 +147,7 @@ fn build_redirect_request(
         hop = hop + 1
     );
 
-    current_request.url = next_url.into();
+    current_request.url = crate::request_prep::parse_absolute_http_url(next_url.as_str())?;
 
     Ok(current_request)
 }

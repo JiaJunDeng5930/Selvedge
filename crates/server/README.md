@@ -2,7 +2,7 @@
 
 <!-- selvedge-package-readme
 package: selvedge-server
-freshness_fingerprint: 991d60a7aaa4b28f52d001a3f462cc034218f943
+freshness_fingerprint: 98a480831188fe13a1e7f15d3446de30692f74a8
 -->
 
 This crate owns the process-local Selvedge server lifecycle.
@@ -21,17 +21,17 @@ The singleton lock is `<selvedge_home>/server.lock`. Its path is persistent beca
 
 Config and logging initialization recognize repeated initialization through their typed `AlreadyInitialized` variants. Every other initialization error remains a startup failure.
 
-This crate exposes the in-process control surface, validates localhost bind targets, and accepts attach requests after router-mediated events reservation succeeds.
+This crate exposes the in-process control surface, binds the optional localhost web surface, and accepts attach requests after router-mediated events reservation succeeds.
 
 `ServerControl::attach_client` creates an internal client frame channel, sends router attach admission, sends `StartHydration` to client-sync after admission succeeds, and returns a local-protocol frame stream. Frames from `selvedge-events` are converted from command-model client frames into local-protocol frames without reordering.
 
-Active, hydrated, closing, and cancellable-operation attach data shares one
-process-local state lock. Admission and cancellation decisions therefore observe
-one atomic attach state.
+Each attach attempt receives a fresh internal `ClientSessionIdentity`. One session record owns its hydration lifecycle and cancellable operations; the active-client index only selects the current record. A reused wire command ID therefore cannot make an old stream detach a newer session. Operation replacements receive independent private identities, so an old task can neither remove a replacement cancellation sender nor deliver stale notices.
+
+The optional web binding accepts port zero for an OS-assigned port. `ServerControl::web_local_addr` reports the owned listener's actual address. Explicit stop and worker supervision use the same shutdown sequence, and stream closure and drop use the same detach transition.
 
 ## Package State Machine
 
-Client command requests decode through the private, closed `ClientCommand` enum.
+Client command requests decode through the shared `selvedge-local-protocol::LocalCommandKind` enum.
 The exact `login-chatgpt` and `list-models` names both require an empty JSON object
 payload; malformed payloads and unsupported names remain distinct rejection
 paths. An exhaustive match dispatches both variants through the injected
@@ -55,8 +55,8 @@ flowchart TD
   Ready[ServerControl ready]
   Probe[Handle ready probe]
   Submit[Validate local command request]
-  Decode[Decode closed ClientCommand]
-  Dispatch{Match ClientCommand variant}
+  Decode[Decode LocalCommandKind]
+  Dispatch{Match LocalCommandKind variant}
   LocalOperation[Run server-owned local operation]
   Attach[Handle attach request]
   Hydrate[Start client hydration]
@@ -90,14 +90,14 @@ flowchart TD
   Ready -->|command request arrives| Submit
   Submit -->|server is ready and protocol fields are valid| Decode
   Submit -->|server is not ready or protocol fields are invalid| RequestFailure
-  Decode -->|exact supported name has an empty object payload| Dispatch
+  Decode -->|supported LocalCommandKind has an empty object payload| Dispatch
   Decode -->|payload is malformed or command name is unsupported| RequestFailure
   Dispatch -->|LoginChatgpt or ListModels passes operation admission| LocalOperation
   Dispatch -->|operation admission fails| RequestFailure
   LocalOperation -->|operation task starts and terminal notice will be delivered| Ready
   Ready -->|attach request arrives| Attach
   Attach -->|router reserves event session| Hydrate
-  Attach -->|router admission rejects or channel creation fails| RequestFailure
+  Attach -->|router admission rejects| RequestFailure
   Hydrate -->|client-sync StartHydration send succeeds| Ready
   Hydrate -->|client-sync send fails| RequestFailure
   Ready -->|shutdown is requested or control is dropped| Stop

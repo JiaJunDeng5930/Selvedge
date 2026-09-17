@@ -2,12 +2,12 @@
 
 <!-- selvedge-package-readme
 package: selvedge-db
-freshness_fingerprint: e8ae5889ab638d94ec625237e6ac2d894e32743f
+freshness_fingerprint: ce9e99021a56647fd338a83211547be36dc17193
 -->
 
 This crate owns SQLite persistence for router-mediated Selvedge tasks.
 
-Use it to create and open schema-v10 SQLite databases, create tasks with frozen tool contracts, reconcile task-local tool availability, atomically commit tool-result branches, persist task lifecycle transitions, queue user inputs, and read bounded task snapshots. Nonempty databases must match schema v10 exactly.
+Use it to create and open schema-v11 SQLite databases, create tasks with frozen tool contracts, reconcile task-local tool availability, atomically commit tool-result branches, persist task lifecycle transitions, queue user inputs, and read bounded task snapshots. Nonempty databases must match schema v11 exactly.
 
 This crate is for SQLite persistence only. Runtime wait state, provider calls, tool execution, router registries, and event delivery live in other crates.
 
@@ -21,8 +21,10 @@ Resource boundaries:
 - `commit_tool_result_branches` requires one calling-task branch and accepts zero or more new-child branches for an exact open function call on the calling task's current cursor path. Before writing, the same immediate transaction verifies that adding those children keeps the calling task and every ancestor within that ancestor's stored descendant limit; archived descendants still count. Every output is a sibling under that cursor. The calling branch then appends its supplied user messages and drains queued inputs; each child branch appends its own supplied user messages. Child task rows, parent edges, inherited tool contracts, recovery policies and unavailable exceptions, all history nodes, and every cursor are committed in one transaction.
 - `read_open_function_calls_for_task` returns every call without an output on the current cursor path together with the recovery policy frozen for that task.
 - `transition_task_status` applies the strict `active`, `frozen`, `stopped`, and `archived` lifecycle. Archived tasks reject runtime writes. A user input atomically reactivates a stopped task as part of the input commit.
-- `list_runtime_tasks` and `load_runtime_task` select every non-archived task. Queued inputs remain attached when a task is archived.
+- `list_runtime_tasks` and `load_runtime_task` select every non-archived task. Runtime loading reads task data, cursor content, and the queued-input count in one transaction without loading tool definitions or queue contents. Queued inputs remain attached when a task is archived.
 - Function outputs store arbitrary JSON values. The schema permits outputs for the same call on sibling paths while rejecting a second output on one history path.
+- `read_task_metadata` reads only the task row, including its immutable shared `TaskModelConfig`.
+- `append_assistant_message_and_drain_queue` reports whether its transaction promoted queued inputs so callers decide whether to continue the model loop from the committed outcome.
 - `read_task` returns task identity, durable status, state version, cursor, optional parent, queued-input count, an exclusive `after_node_id` history page, and an exact `has_more` flag from one SQLite read transaction. Page limits are `1..=100`, and the after node must be on that task's cursor path.
 - `read_task_parent_edges` returns durable task-layer parent edges for router snapshots and factory verification.
 - `read_conversation_for_task` projects the cursor path into `Conversation.messages`: ordinary messages contain JSON strings, calls and outputs contain the shared JSON tool protocol, and every projected message records its source history node.
@@ -39,7 +41,7 @@ flowchart TD
   Start([database API call])
   Open[Open SQLite database]
   Schema{stored schema state}
-  Initialize[Create schema v10]
+  Initialize[Create schema v11]
   SnapshotTx[Start read_task transaction]
   SnapshotValidate[Validate task, limit, and after node]
   SnapshotPage[Read metadata and cursor-path page]
@@ -57,9 +59,9 @@ flowchart TD
   Open -->|database has no application tables| Initialize
   Open -->|database has application tables and schema metadata is readable| Schema
   Open -->|SQLite open or schema metadata read fails| OpenError
-  Schema -->|stored version is task-lifecycle-v10| Return
-  Schema -->|stored version is missing or unsupported| OpenError
-  Initialize -->|schema-v10 batch succeeds| Return
+  Schema -->|stored version and all schema objects match task-lifecycle-v11| Return
+  Schema -->|stored version or schema objects differ| OpenError
+  Initialize -->|schema-v11 transaction commits| Return
   Initialize -->|schema creation fails| OpenError
   Start -->|read_task is called with open connection| SnapshotTx
   SnapshotTx -->|transaction begins| SnapshotValidate

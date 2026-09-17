@@ -2,7 +2,7 @@
 
 <!-- selvedge-package-readme
 package: selvedge-config-model
-freshness_fingerprint: 53c3c8825da7c097809afc17656c37169b080ac4
+freshness_fingerprint: 304af8ab7b25ae4fd7b95c98e5045242468e4f9f
 -->
 
 ## This crate is for
@@ -55,8 +55,7 @@ When your module needs a new config field:
 
 1. add the field to the module config struct
 2. add the default value next to that struct
-3. add the matching input/patch field
-4. add module-local validation if needed
+3. add module-local validation if needed
 
 If the module is a new top-level config section, also plug it into `AppConfig`.
 
@@ -159,7 +158,7 @@ flowchart TD
   Decode -->|all provided fields decode to known types| Defaults
   Decode -->|a field has wrong type or unknown structured shape| DecodeError
   Defaults -->|all missing fields receive defaults, including harness limits, and the LLM provider and MCP server maps default to empty| Validate
-  Validate -->|server, network, logging, feature, LLM provider, harness, and MCP stdio process invariants hold| Ready
+  Validate -->|server, network, LLM provider, harness, and MCP stdio process invariants hold| Ready
   Validate -->|a scalar, provider definition, harness limit, or MCP server definition violates its invariant| ValidationError
   Start -->|caller decodes update value for a config path| PatchInput
   PatchInput -->|path and value decode for target field| PatchValidate
@@ -167,3 +166,8 @@ flowchart TD
   PatchValidate -->|updated section invariant holds| PatchReady
   PatchValidate -->|updated section invariant fails| ValidationError
 ```
+
+The configuration structs define their own Serde defaults and reject unknown
+fields. `AppConfig` validates both direct deserialization and `TryFrom<Table>`;
+there is no separate input schema. Provider ID lexical validation is shared through
+`is_valid_provider_id` so configuration and credential boundaries accept the same names.

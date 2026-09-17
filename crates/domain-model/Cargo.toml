@@ -4,13 +4,8 @@ edition = "2024"
 publish = false
 
 [dependencies]
-serde = { version = "1.0.215", features = ["derive"] }
-serde_json = { version = "1.0.149", features = ["arbitrary_precision"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true, features = ["arbitrary_precision"] }
 
-[lints.rust]
-unsafe_code = "forbid"
-
-[lints.clippy]
-dbg_macro = "deny"
-todo = "deny"
-unwrap_used = "deny"
+[lints]
+workspace = true

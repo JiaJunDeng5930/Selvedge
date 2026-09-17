@@ -11,12 +11,7 @@ selvedge-db = { path = "../db" }
 [dev-dependencies]
 selvedge-domain-model = { path = "../domain-model" }
 selvedge-test-support = { path = "../test-support", features = ["db-fixtures"] }
-tokio = { version = "1.42.0", features = ["macros", "rt", "sync", "time"] }
+tokio = { workspace = true, features = ["macros", "rt", "sync", "time"] }
 
-[lints.rust]
-unsafe_code = "forbid"
-
-[lints.clippy]
-dbg_macro = "deny"
-todo = "deny"
-unwrap_used = "deny"
+[lints]
+workspace = true

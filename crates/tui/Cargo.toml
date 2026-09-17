@@ -4,20 +4,15 @@ edition = "2024"
 publish = false
 
 [dependencies]
-futures-util = "0.3.31"
+futures-util = { workspace = true }
 selvedge-local-client = { path = "../local-client" }
 selvedge-local-protocol = { path = "../local-protocol" }
-tokio = { version = "1.42.0", features = ["time"] }
+tokio = { workspace = true, features = ["time"] }
 
 [dev-dependencies]
-serde_json = "1.0.135"
+serde_json = { workspace = true }
 selvedge-test-support = { path = "../test-support", features = ["local-transport"] }
-tokio = { version = "1.42.0", features = ["macros", "rt", "sync"] }
+tokio = { workspace = true, features = ["macros", "rt", "sync"] }
 
-[lints.rust]
-unsafe_code = "forbid"
-
-[lints.clippy]
-dbg_macro = "deny"
-todo = "deny"
-unwrap_used = "deny"
+[lints]
+workspace = true

@@ -2,7 +2,7 @@
 
 <!-- selvedge-package-readme
 package: selvedge-logging
-freshness_fingerprint: 8630ae4094ab736698cec4efea7162cf1ba534ec
+freshness_fingerprint: 763ca18ceeaf13e832491c8d55a199a1357ec135
 -->
 
 ## This crate is for

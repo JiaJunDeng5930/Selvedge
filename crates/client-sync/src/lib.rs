@@ -7,8 +7,8 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use selvedge_command_model::{
-    BeginClientHydration, ClientCommandId, ClientId, ClientNotice, ClientNoticeKind,
-    ClientNoticeLevel, ClientSnapshot, ClientSubscription, DeliverNotice, DeliverSnapshot,
+    BeginClientHydration, ClientId, ClientNotice, ClientNoticeKind, ClientNoticeLevel,
+    ClientSessionIdentity, ClientSnapshot, ClientSubscription, DeliverNotice, DeliverSnapshot,
     DetachClient, DetachReason, EventControlMessage, EventIngress, EventIngressSender,
     SnapshotMode,
 };
@@ -40,8 +40,7 @@ pub enum ClientSyncIngress {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CancelHydration {
-    pub client_id: ClientId,
-    pub client_command_id: ClientCommandId,
+    pub session: ClientSessionIdentity,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -67,8 +66,7 @@ pub enum ClientSyncError {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ClientSnapshotBuildRequest {
-    pub client_id: ClientId,
-    pub client_command_id: ClientCommandId,
+    pub session: ClientSessionIdentity,
     pub subscription: ClientSubscription,
 }
 
@@ -85,7 +83,7 @@ struct HydrationBuildResult {
 }
 
 struct ActiveHydration {
-    client_command_id: ClientCommandId,
+    session: ClientSessionIdentity,
     abort_handle: AbortHandle,
 }
 
@@ -205,13 +203,13 @@ pub fn spawn_client_sync(
 
                     // NOTE: This loop owns the current hydration map. Builder results deliver only
                     // while their client command is still current after replacement or cancellation.
-                    if current.get(&build_result.request.client_id)
-                        .map(|hydration| &hydration.client_command_id)
-                        != Some(&build_result.request.client_command_id)
+                    if current.get(build_result.request.session.client_id())
+                        .map(|hydration| &hydration.session)
+                        != Some(&build_result.request.session)
                     {
                         continue;
                     }
-                    let result_client_id = build_result.request.client_id.clone();
+                    let result_client_id = build_result.request.session.client_id().clone();
 
                     let stage = deliver_build_result(
                         &events_tx,
@@ -245,11 +243,10 @@ fn ingress_can_invalidate(
     request: &ClientSnapshotBuildRequest,
 ) -> bool {
     match message {
-        ClientSyncIngress::StartHydration(begin) => begin.client_id == request.client_id,
-        ClientSyncIngress::CancelHydration(cancel) => {
-            cancel.client_id == request.client_id
-                && cancel.client_command_id == request.client_command_id
+        ClientSyncIngress::StartHydration(begin) => {
+            begin.session.client_id() == request.session.client_id()
         }
+        ClientSyncIngress::CancelHydration(cancel) => cancel.session == request.session,
         ClientSyncIngress::Shutdown => true,
     }
 }
@@ -263,20 +260,15 @@ async fn apply_ingress(
 ) -> ControlFlow<ClientSyncExitStatus> {
     match message {
         ClientSyncIngress::StartHydration(begin) => {
-            let client_id = begin.client_id.clone();
-            let client_command_id = begin.client_command_id.clone();
+            let client_id = begin.session.client_id().clone();
+            let session = begin.session.clone();
 
-            if current
-                .get(&client_id)
-                .map(|hydration| &hydration.client_command_id)
-                == Some(&client_command_id)
-            {
+            if current.get(&client_id).map(|hydration| &hydration.session) == Some(&session) {
                 return ControlFlow::Continue(());
             }
 
             let request = ClientSnapshotBuildRequest {
-                client_id: client_id.clone(),
-                client_command_id: client_command_id.clone(),
+                session: session.clone(),
                 subscription: begin.subscription.clone(),
             };
 
@@ -298,7 +290,7 @@ async fn apply_ingress(
             if let Some(previous) = current.insert(
                 client_id,
                 ActiveHydration {
-                    client_command_id,
+                    session,
                     abort_handle,
                 },
             ) {
@@ -308,10 +300,10 @@ async fn apply_ingress(
         }
         ClientSyncIngress::CancelHydration(cancel) => {
             if current
-                .get(&cancel.client_id)
-                .map(|hydration| &hydration.client_command_id)
-                == Some(&cancel.client_command_id)
-                && let Some(cancelled) = current.remove(&cancel.client_id)
+                .get(cancel.session.client_id())
+                .map(|hydration| &hydration.session)
+                == Some(&cancel.session)
+                && let Some(cancelled) = current.remove(cancel.session.client_id())
             {
                 cancelled.abort_handle.abort();
             }
@@ -358,8 +350,7 @@ async fn deliver_build_result(
             let delivery = send_control(
                 events_tx,
                 EventControlMessage::DeliverSnapshot(DeliverSnapshot {
-                    client_id: build_result.request.client_id,
-                    client_command_id: build_result.request.client_command_id,
+                    session: build_result.request.session,
                     snapshot,
                 }),
             )
@@ -368,8 +359,8 @@ async fn deliver_build_result(
         }
         Err(error) => {
             let notice = DeliverNotice {
-                client_id: build_result.request.client_id.clone(),
-                client_command_id: build_result.request.client_command_id.clone(),
+                session: build_result.request.session.clone(),
+                client_command_id: build_result.request.session.attach_command_id().clone(),
                 notice: ClientNotice {
                     level: ClientNoticeLevel::Error,
                     kind: ClientNoticeKind::Text,
@@ -383,8 +374,7 @@ async fn deliver_build_result(
             send_control(
                 events_tx,
                 EventControlMessage::DetachClient(DetachClient {
-                    client_id: build_result.request.client_id,
-                    client_command_id: build_result.request.client_command_id,
+                    session: build_result.request.session,
                     reason: DetachReason::DeliveryFailed,
                 }),
             )

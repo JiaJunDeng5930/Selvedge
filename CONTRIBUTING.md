@@ -12,7 +12,7 @@ Run the bootstrap script from the repository root in a clean Ubuntu environment:
 
 The script installs the Rust toolchain, `just`, `pre-commit`, and the repository Git hooks.
 
-The installed `pre-commit` hooks check formatting, linting, and whether the project index in `AGENTS.md` is current. The installed `pre-push` hook runs the test suite.
+The installed hooks enforce the checks documented in [AGENTS.md](AGENTS.md#git-hooks). [`.pre-commit-config.yaml`](.pre-commit-config.yaml) defines their commands and stages.
 
 ## Development workflow
 
@@ -31,17 +31,9 @@ Before opening a pull request, make sure these commands pass:
 just check
 ```
 
-Use these shortcuts during development:
+`just check` runs all local validation gates defined in [Justfile](Justfile), including package README Mermaid rendering and freshness checks. `just hooks` runs both configured Git hook stages manually. Use `just --list` to find individual commands.
 
-```bash
-just fmt
-just lint
-just test
-just hooks
-just agents-index
-```
-
-`just fmt` rewrites formatting. `just agents-index` refreshes the project index stored in `AGENTS.md` after tracked files move. `just agents-index-check` verifies the index without rewriting it. Both index commands warn when an indexed directory has an unusually large number of direct filesystem entries. The underlying repository commands are `cargo xtask agents-index update` and `cargo xtask agents-index check`. `just check` runs the read-only formatting, lint, test, and project-index checks used for local validation. `just hooks` runs both configured Git hook stages manually.
+After adding, removing, or renaming files, stage them and run `just agents-index` to refresh the tracked-file index. After reviewing affected package state machines, stage package changes and run `just readme-freshness`, then stage the updated READMEs. Freshness compares against the Git index, so working-tree changes alone are not its input. See [xtask's README](xtask/README.md) for the maintenance commands and [AGENTS.md](AGENTS.md#package-readme-state-machines) for the review policy.
 
 ## Pull requests
 
@@ -52,4 +44,4 @@ just agents-index
 
 ## Commit messages
 
-Use short, imperative commit messages that describe the change clearly.
+Use Conventional Commits: `type(scope): description`, with an English imperative description starting in lowercase. Allowed types are `feat`, `fix`, `docs`, `refactor`, `test`, and `chore`. Mark breaking changes with `!` and a `BREAKING CHANGE:` footer.

@@ -21,7 +21,6 @@ members = [
     "crates/model-providers",
     "crates/router",
     "crates/server",
-    "crates/systemd",
     "crates/task-runtime-factory",
     "crates/test-support",
     "crates/tui",
@@ -38,7 +37,7 @@ description = "Rust project foundation for Selvedge"
 
 [dependencies]
 chatgpt-login = { path = "crates/chatgpt-login" }
-futures-util = "0.3.31"
+futures-util = { workspace = true }
 selvedge-api = { path = "crates/api" }
 selvedge-client-sync = { path = "crates/client-sync" }
 selvedge-command-model = { path = "crates/command-model" }
@@ -52,21 +51,47 @@ selvedge-logging = { path = "crates/logging" }
 selvedge-model-providers = { path = "crates/model-providers" }
 selvedge-router = { path = "crates/router" }
 selvedge-server = { path = "crates/server" }
-selvedge-systemd = { path = "crates/systemd" }
-serde_json = "1.0.145"
-tokio = { version = "1.42.0", features = ["net", "rt-multi-thread", "signal", "time"] }
+serde_json = { workspace = true }
+tokio = { workspace = true, features = ["net", "rt-multi-thread", "signal", "time"] }
 
 [dev-dependencies]
 selvedge-config = { path = "crates/config" }
 selvedge-logging = { path = "crates/logging" }
-tempfile = "3.14.0"
-tokio = { version = "1.42.0", features = ["macros", "rt", "sync", "time"] }
-toml = "0.8.23"
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt", "sync", "time"] }
+toml = { workspace = true }
 
-[lints.rust]
+[lints]
+workspace = true
+
+[workspace.dependencies]
+async-stream = { version = "0.3.6" }
+axum = { version = "0.8.6" }
+base64 = { version = "0.22.1" }
+bytes = { version = "1.10.1" }
+chrono = { version = "0.4.42", default-features = false }
+fs2 = { version = "0.4.3" }
+futures-core = { version = "0.3.31" }
+futures-util = { version = "0.3.31" }
+http = { version = "1.3.1" }
+http-body-util = { version = "0.1" }
+hyper = { version = "1" }
+hyper-util = { version = "0.1" }
+rusqlite = { version = "0.32.1" }
+serde = { version = "1.0.228" }
+serde_json = { version = "1.0.149" }
+tempfile = { version = "3.23.0" }
+thiserror = { version = "2.0.18" }
+tokio = { version = "1.48.0" }
+tokio-stream = { version = "0.1.17" }
+toml = { version = "0.8.23" }
+url = { version = "2.5.8" }
+uuid = { version = "1.11.0" }
+
+[workspace.lints.rust]
 unsafe_code = "forbid"
 
-[lints.clippy]
+[workspace.lints.clippy]
 dbg_macro = "deny"
 todo = "deny"
 unwrap_used = "deny"

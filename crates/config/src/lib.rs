@@ -6,7 +6,7 @@ use std::{
     fs,
     io::Write,
     path::{Path, PathBuf},
-    sync::{LazyLock, RwLock},
+    sync::{Arc, LazyLock, RwLock},
 };
 
 use selvedge_config_model::{AppConfig, AppConfigError};
@@ -98,7 +98,7 @@ pub fn read<R, F>(reader: F) -> Result<R, ConfigError>
 where
     F: FnOnce(&AppConfig) -> R,
 {
-    let config = materialize_current_config()?;
+    let config = current_config()?;
 
     Ok(reader(&config))
 }
@@ -142,49 +142,29 @@ where
 
 #[derive(Debug)]
 struct ConfigService {
-    base_config: AppConfig,
+    effective_config: Arc<AppConfig>,
     selvedge_home: PathBuf,
-    runtime_patch: Table,
 }
 
 impl ConfigService {
-    fn new(base_config: AppConfig, selvedge_home: PathBuf) -> Self {
+    fn new(config: AppConfig, selvedge_home: PathBuf) -> Self {
         Self {
-            base_config,
+            effective_config: Arc::new(config),
             selvedge_home,
-            runtime_patch: Table::new(),
         }
-    }
-
-    fn materialize_config(&self) -> Result<AppConfig, ConfigError> {
-        let mut merged_table = serialize_app_config(&self.base_config)?;
-
-        merge_tables(&mut merged_table, &self.runtime_patch);
-
-        AppConfig::try_from(merged_table).map_err(map_model_error)
     }
 
     fn apply_update(&mut self, path: &str, value: Value, persist: bool) -> Result<(), ConfigError> {
-        let mut candidate_patch = self.runtime_patch.clone();
-
-        apply_override(&mut candidate_patch, path, value.clone())?;
-        self.materialize_candidate(&candidate_patch)?;
-
+        let mut candidate = serialize_app_config(&self.effective_config)?;
+        let mut patch = Table::new();
+        apply_override(&mut patch, path, value.clone())?;
+        merge_tables(&mut candidate, &patch);
+        let candidate = AppConfig::try_from(candidate).map_err(map_model_error)?;
         if persist {
             self.persist_update(path, value)?;
         }
-
-        self.runtime_patch = candidate_patch;
-
+        self.effective_config = Arc::new(candidate);
         Ok(())
-    }
-
-    fn materialize_candidate(&self, runtime_patch: &Table) -> Result<AppConfig, ConfigError> {
-        let mut merged_table = serialize_app_config(&self.base_config)?;
-
-        merge_tables(&mut merged_table, runtime_patch);
-
-        AppConfig::try_from(merged_table).map_err(map_model_error)
     }
 
     fn persist_update(&self, path: &str, value: Value) -> Result<(), ConfigError> {
@@ -229,13 +209,13 @@ fn resolve_explicit_home(home: PathBuf) -> Result<PathBuf, ConfigError> {
     resolve_home(home, ConfigHomeSource::Explicit)
 }
 
-fn materialize_current_config() -> Result<AppConfig, ConfigError> {
+fn current_config() -> Result<Arc<AppConfig>, ConfigError> {
     let global = CONFIG_SERVICE
         .read()
         .map_err(|_| ConfigError::LoadFailed("config service lock poisoned".to_owned()))?;
     let service = global.as_ref().ok_or(ConfigError::NotInitialized)?;
 
-    service.materialize_config()
+    Ok(Arc::clone(&service.effective_config))
 }
 
 fn resolve_env_home(home: PathBuf) -> Result<PathBuf, ConfigError> {
@@ -436,9 +416,32 @@ where
             continue;
         }
 
-        let path = suffix
-            .split("__")
-            .map(str::to_ascii_lowercase)
+        let mut segments = suffix.split("__").map(str::to_owned).collect::<Vec<_>>();
+        for index in 0..segments.len() {
+            let dynamic = match segments.first().map(String::as_str) {
+                Some("llm") => {
+                    index == 2
+                        || (index >= 4 && segments.get(3).is_some_and(|field| field == "settings"))
+                }
+                Some("mcp") => {
+                    index == 2
+                        || (index >= 4 && segments.get(3).is_some_and(|field| field == "env"))
+                }
+                Some("logging") => {
+                    index >= 2
+                        && segments
+                            .get(1)
+                            .is_some_and(|field| field == "module_levels")
+                }
+                _ => false,
+            };
+            if !dynamic {
+                segments[index].make_ascii_lowercase();
+            }
+        }
+        let path = segments
+            .into_iter()
+            .map(|key| Value::String(key).to_string())
             .collect::<Vec<_>>()
             .join(".");
         let value = parse_toml_like_value(&raw_value)
@@ -481,16 +484,12 @@ fn parse_toml_like_value(raw: &str) -> Result<Value, toml::de::Error> {
 }
 
 fn apply_override(table: &mut Table, path: &str, value: Value) -> Result<(), ConfigError> {
-    let segments = path.split('.').collect::<Vec<_>>();
-
-    if segments.is_empty() || segments.iter().any(|segment| segment.is_empty()) {
-        return Err(ConfigError::InvalidUpdatePath(path.to_owned()));
-    }
-
+    let segments =
+        toml_edit::Key::parse(path).map_err(|_| ConfigError::InvalidUpdatePath(path.to_owned()))?;
     let mut current = table;
     for segment in &segments[..segments.len() - 1] {
         let entry = current
-            .entry((*segment).to_owned())
+            .entry(segment.get().to_owned())
             .or_insert_with(|| Value::Table(Table::new()));
 
         current = match entry {
@@ -505,7 +504,7 @@ fn apply_override(table: &mut Table, path: &str, value: Value) -> Result<(), Con
         };
     }
 
-    current.insert(segments[segments.len() - 1].to_owned(), value);
+    current.insert(segments[segments.len() - 1].get().to_owned(), value);
 
     Ok(())
 }
@@ -586,8 +585,8 @@ mod tests {
     use std::sync::{LazyLock, Mutex};
 
     use super::{
-        CONFIG_SERVICE, ConfigError, Value, config_path_for_home, load_env_table_from_entries,
-        materialize_current_config, persistence_directory, reset_for_test,
+        CONFIG_SERVICE, ConfigError, Value, config_path_for_home, current_config,
+        load_env_table_from_entries, persistence_directory, reset_for_test,
     };
 
     static TEST_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
@@ -615,6 +614,69 @@ mod tests {
         assert_eq!(
             server.get("host"),
             Some(&Value::String("api.internal".to_owned()))
+        );
+    }
+
+    #[test]
+    fn dynamic_keys_preserve_dots_and_case_across_updates_and_environment() {
+        let config = selvedge_config_model::AppConfig::try_from(toml::toml! {
+            [mcp.servers."acme.tools"]
+            command = "mcp-server"
+            [mcp.servers."acme.tools".env]
+            LOG_LEVEL = "info"
+            [llm.providers."Acme.API".settings]
+            ReasoningMode = "fast"
+        })
+        .expect("config with dynamic keys");
+        let directory = tempfile::TempDir::new().expect("tempdir");
+        let mut service = super::ConfigService::new(config, directory.path().to_owned());
+        let previous = service.effective_config.clone();
+        service
+            .apply_update(
+                r#"mcp.servers."acme.tools".timeout_ms"#,
+                Value::Integer(1234),
+                false,
+            )
+            .expect("quoted server path");
+        assert_eq!(
+            service.effective_config.mcp.servers["acme.tools"].timeout_ms,
+            1234
+        );
+        assert_eq!(previous.mcp.servers["acme.tools"].timeout_ms, 60_000);
+        assert!(
+            service
+                .apply_update(
+                    r#"mcp.servers."acme.tools".timeout_ms"#,
+                    Value::Integer(0),
+                    false
+                )
+                .is_err()
+        );
+        assert_eq!(
+            service.effective_config.mcp.servers["acme.tools"].timeout_ms,
+            1234
+        );
+        let patch = load_env_table_from_entries([
+            (
+                OsString::from("SELVEDGE_APP_MCP__SERVERS__acme.tools__ENV__LOG_LEVEL"),
+                OsString::from("debug"),
+            ),
+            (
+                OsString::from("SELVEDGE_APP_LLM__PROVIDERS__Acme.API__SETTINGS__ReasoningMode"),
+                OsString::from("deep"),
+            ),
+        ])
+        .expect("environment patch");
+        let mut table =
+            super::serialize_app_config(&service.effective_config).expect("current table");
+        super::merge_tables(&mut table, &patch);
+        let updated = selvedge_config_model::AppConfig::try_from(table).expect("merged config");
+        assert_eq!(updated.mcp.servers["acme.tools"].env.len(), 1);
+        assert_eq!(updated.mcp.servers["acme.tools"].env["LOG_LEVEL"], "debug");
+        assert_eq!(updated.llm.providers["Acme.API"].settings.len(), 1);
+        assert_eq!(
+            updated.llm.providers["Acme.API"].settings["ReasoningMode"].as_str(),
+            Some("deep")
         );
     }
 
@@ -646,7 +708,9 @@ mod tests {
 
     #[test]
     fn read_requires_initialization() {
-        let _guard = TEST_LOCK.lock().expect("test lock");
+        let _guard = TEST_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         reset_for_test();
 
         let error = crate::read(|config| config.server.port).expect_err("must fail before init");
@@ -656,7 +720,9 @@ mod tests {
 
     #[test]
     fn init_with_explicit_home_accepts_missing_config_file() {
-        let _guard = TEST_LOCK.lock().expect("test lock");
+        let _guard = TEST_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         reset_for_test();
         let tempdir = tempfile::TempDir::new().expect("tempdir");
         let config_home = tempdir.path().join("config-home");
@@ -679,7 +745,9 @@ mod tests {
 
     #[test]
     fn update_runtime_rejects_empty_path_segments() {
-        let _guard = TEST_LOCK.lock().expect("test lock");
+        let _guard = TEST_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         reset_for_test();
         let tempdir = tempfile::TempDir::new().expect("tempdir");
         let config_home = tempdir.path().join("config-home");
@@ -699,18 +767,20 @@ request_timeout_ms = 5000
         .expect("write config");
 
         crate::init_with_home(config_home).expect("init config service");
-        let error = crate::update_runtime("feature..enabled", true)
+        let error = crate::update_runtime("harness..max_children_per_fork", true)
             .expect_err("malformed path should fail");
 
         assert_eq!(
             error,
-            ConfigError::InvalidUpdatePath("feature..enabled".to_owned())
+            ConfigError::InvalidUpdatePath("harness..max_children_per_fork".to_owned())
         );
     }
 
     #[test]
-    fn materialize_current_config_releases_global_lock_before_returning() {
-        let _guard = TEST_LOCK.lock().expect("test lock");
+    fn current_config_releases_global_lock_before_returning() {
+        let _guard = TEST_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         reset_for_test();
         let tempdir = tempfile::TempDir::new().expect("tempdir");
         let config_home = tempdir.path().join("config-home");
@@ -731,7 +801,7 @@ request_timeout_ms = 5000
 
         crate::init_with_home(config_home).expect("init config service");
 
-        let config = materialize_current_config().expect("materialize current config");
+        let config = current_config().expect("materialize current config");
         let write_guard = CONFIG_SERVICE
             .try_write()
             .expect("global config lock should be released after materializing");
@@ -742,7 +812,9 @@ request_timeout_ms = 5000
 
     #[test]
     fn explicit_relative_path_is_canonicalized_for_persistence() {
-        let _guard = TEST_LOCK.lock().expect("test lock");
+        let _guard = TEST_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         reset_for_test();
         let original_dir = env::current_dir().expect("current dir");
         let tempdir = tempfile::TempDir::new().expect("tempdir");
@@ -764,7 +836,6 @@ request_timeout_ms = 5000
 
 [logging]
 level = "info"
-format = "text"
 "#,
         )
         .expect("write config");
@@ -816,7 +887,9 @@ format = "text"
 
     #[test]
     fn init_finds_current_directory_home_for_persistence() {
-        let _guard = TEST_LOCK.lock().expect("test lock");
+        let _guard = TEST_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         reset_for_test();
         let original_dir = env::current_dir().expect("current dir");
         let tempdir = tempfile::TempDir::new().expect("tempdir");
@@ -856,7 +929,9 @@ request_timeout_ms = 5000
 
     #[test]
     fn cli_only_init_creates_default_home_immediately() {
-        let _guard = TEST_LOCK.lock().expect("test lock");
+        let _guard = TEST_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         reset_for_test();
         if env::var_os("SELVEDGE_CONFIG_CLI_ONLY_CHILD").is_some() {
             let selected_home = crate::init_with_cli(
@@ -901,8 +976,6 @@ request_timeout_ms = 5000
 
     #[test]
     fn cli_only_persist_uses_reported_home() {
-        let _guard = TEST_LOCK.lock().expect("test lock");
-        reset_for_test();
         if env::var_os("SELVEDGE_CONFIG_CLI_ONLY_PERSIST_CHILD").is_some() {
             let original_home = crate::init_with_cli(
                 None::<PathBuf>,
@@ -956,8 +1029,6 @@ request_timeout_ms = 5000
         use std::fs;
         use std::os::unix::fs::PermissionsExt;
 
-        let _guard = TEST_LOCK.lock().expect("test lock");
-        reset_for_test();
         if env::var_os("SELVEDGE_CONFIG_WRITABLE_FALLBACK_CHILD").is_some() {
             let selected_home = crate::init_with_cli(
                 None::<PathBuf>,
@@ -971,7 +1042,9 @@ request_timeout_ms = 5000
             let expected_home_home =
                 PathBuf::from(env::var_os("HOME").expect("home")).join(".selvedge");
             assert!(
-                selected_home == expected_xdg_home || selected_home == expected_home_home,
+                std::fs::canonicalize(&expected_xdg_home).is_ok_and(|path| selected_home == path)
+                    || std::fs::canonicalize(&expected_home_home)
+                        .is_ok_and(|path| selected_home == path),
                 "selected home should be xdg fallback ({}) or home ({}) when elevated privileges bypass readonly bits; got {}",
                 expected_xdg_home.display(),
                 expected_home_home.display(),
@@ -1008,7 +1081,9 @@ request_timeout_ms = 5000
 
     #[test]
     fn persist_recreates_missing_file_in_initialized_home() {
-        let _guard = TEST_LOCK.lock().expect("test lock");
+        let _guard = TEST_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         reset_for_test();
         let tempdir = tempfile::TempDir::new().expect("tempdir");
         let config_home = tempdir.path().join("config-home");
@@ -1045,7 +1120,9 @@ level = "info"
 
     #[test]
     fn bootstrapped_relative_home_is_canonicalized() {
-        let _guard = TEST_LOCK.lock().expect("test lock");
+        let _guard = TEST_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let original_dir = env::current_dir().expect("current dir");
         let tempdir = tempfile::TempDir::new().expect("tempdir");
         let work_dir = tempdir.path().join("workspace");
@@ -1072,7 +1149,9 @@ level = "info"
 
     #[test]
     fn selvedge_home_requires_initialization() {
-        let _guard = TEST_LOCK.lock().expect("test lock");
+        let _guard = TEST_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         reset_for_test();
 
         let error = crate::selvedge_home().expect_err("must fail before init");
@@ -1082,7 +1161,9 @@ level = "info"
 
     #[test]
     fn selvedge_home_returns_selected_home_directory() {
-        let _guard = TEST_LOCK.lock().expect("test lock");
+        let _guard = TEST_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         reset_for_test();
         let tempdir = tempfile::TempDir::new().expect("tempdir");
         let config_home = tempdir.path().join("config-home");
