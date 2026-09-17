@@ -1,4 +1,4 @@
-use std::{error::Error as StdError, future::Future, path::Path, time::Duration};
+use std::{error::Error as StdError, future::Future, time::Duration};
 
 use bytes::{Bytes, BytesMut};
 use futures_core::Stream;
@@ -7,19 +7,13 @@ use http::{
     HeaderMap, HeaderName,
     header::{ACCEPT, ACCEPT_ENCODING, ACCEPT_LANGUAGE, CACHE_CONTROL, PRAGMA, USER_AGENT},
 };
-use reqwest::{Certificate, Client, Url};
-use tokio::{fs as tokio_fs, time::Instant};
+use reqwest::{Client, Url};
+use tokio::time::Instant;
 
-use crate::{
-    ByteStream, HttpError, HttpMethod, HttpStatusError, HttpStreamResponse, build_error,
-    run_blocking,
-};
+use crate::{ByteStream, HttpError, HttpMethod, HttpStatusError, HttpStreamResponse};
 
 const MAX_BUFFERED_RESPONSE_BYTES: usize = 4 * 1024 * 1024;
-use crate::{
-    config_resolution::ResolvedCallConfig,
-    redaction::{sanitize_error_text, sanitize_parsed_url},
-};
+use crate::redaction::{sanitize_error_text, sanitize_parsed_url};
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct RequestBudget {
@@ -80,33 +74,15 @@ enum TimeoutReason {
 }
 
 #[derive(Clone, Copy, Debug)]
-struct WaitBudget {
-    timeout: Option<Duration>,
-    timeout_reason: Option<TimeoutReason>,
-}
+struct WaitBudget(Option<(Duration, TimeoutReason)>);
 
 impl WaitBudget {
-    fn new(
-        request_remaining: Option<Duration>,
-        idle_remaining: Option<Duration>,
-    ) -> Result<Self, TimeoutReason> {
-        let timeout_reason = match (request_remaining, idle_remaining) {
-            (Some(request_remaining), Some(idle_remaining)) => {
-                if idle_remaining <= request_remaining {
-                    Some(TimeoutReason::Idle)
-                } else {
-                    Some(TimeoutReason::Request)
-                }
-            }
-            (Some(_), None) => Some(TimeoutReason::Request),
-            (None, Some(_)) => Some(TimeoutReason::Idle),
+    fn new(request: Option<Duration>, idle: Option<Duration>) -> Self {
+        Self(match (request, idle) {
+            (Some(request), Some(idle)) if idle <= request => Some((idle, TimeoutReason::Idle)),
+            (Some(request), _) => Some((request, TimeoutReason::Request)),
+            (None, Some(idle)) => Some((idle, TimeoutReason::Idle)),
             (None, None) => None,
-        };
-        let timeout = min_duration(request_remaining, idle_remaining);
-
-        Ok(Self {
-            timeout,
-            timeout_reason,
         })
     }
 }
@@ -117,8 +93,7 @@ pub(crate) async fn send_with_budget(
     request_url: &str,
     request_budget: &mut RequestBudget,
 ) -> Result<reqwest::Response, HttpError> {
-    let wait_budget =
-        WaitBudget::new(request_budget.remaining(), None).map_err(timeout_reason_to_error)?;
+    let wait_budget = WaitBudget::new(request_budget.remaining(), None);
     let (response, elapsed) = run_wait(wait_budget, client.execute(request))
         .await
         .map_err(timeout_reason_to_error)?;
@@ -139,10 +114,7 @@ pub(crate) async fn collect_status_error(
     let mut stream = Box::pin(response.bytes_stream());
 
     loop {
-        let wait_budget = match WaitBudget::new(request_budget.remaining(), None) {
-            Ok(wait_budget) => wait_budget,
-            Err(_) => unreachable!("status body collection does not use idle timeout"),
-        };
+        let wait_budget = WaitBudget::new(request_budget.remaining(), None);
         let (next_chunk, elapsed) = match run_wait(wait_budget, stream.next()).await {
             Ok(result) => result,
             Err(_) => {
@@ -191,8 +163,7 @@ pub(crate) async fn collect_success_body(
     let mut stream = Box::pin(response.bytes_stream());
 
     loop {
-        let wait_budget =
-            WaitBudget::new(request_budget.remaining(), None).map_err(timeout_reason_to_error)?;
+        let wait_budget = WaitBudget::new(request_budget.remaining(), None);
         let (next_chunk, elapsed) = run_wait(wait_budget, stream.next())
             .await
             .map_err(timeout_reason_to_error)?;
@@ -227,22 +198,10 @@ pub(crate) fn wrap_stream(
         let mut idle_budget = IdleBudget::new(idle_timeout);
 
         loop {
-            let wait_budget = match WaitBudget::new(
+            let wait_budget = WaitBudget::new(
                 request_budget.remaining(),
                 idle_budget.remaining(),
-            ) {
-                Ok(wait_budget) => wait_budget,
-                Err(reason) => {
-                    crate::log_event!(
-                        selvedge_logging::LogLevel::Warn,
-                        timeout_message(reason);
-                        mode = "stream",
-                        url = request_url.as_str()
-                    );
-                    yield Err(HttpError::Timeout);
-                    break;
-                }
-            };
+            );
 
             let (next_item, elapsed) = match run_wait(wait_budget, stream.next()).await {
                 Ok(result) => result,
@@ -403,72 +362,6 @@ pub(crate) fn log_transport_error(mode: &str, request_url: &str, error: &HttpErr
     );
 }
 
-pub(crate) async fn build_client(
-    call_config: &ResolvedCallConfig,
-    uses_tls: bool,
-) -> Result<Client, HttpError> {
-    let mut builder = Client::builder()
-        .retry(reqwest::retry::never())
-        .redirect(reqwest::redirect::Policy::none());
-
-    if let Some(connect_timeout) = call_config.connect_timeout {
-        builder = builder.connect_timeout(connect_timeout);
-    }
-    builder = builder.no_proxy();
-
-    if let Some(path) = &call_config.ca_bundle_path
-        && uses_tls
-    {
-        let certificates = load_ca_bundle(path).await?;
-
-        for certificate in certificates {
-            builder = builder.add_root_certificate(certificate);
-        }
-    }
-    builder
-        .build()
-        .map_err(|error| build_error(format!("failed to build http client: {error}")))
-}
-
-async fn load_ca_bundle(path: &Path) -> Result<Vec<Certificate>, HttpError> {
-    let bundle = tokio_fs::read(path).await.map_err(|error| {
-        build_error(format!(
-            "failed to read network.ca_bundle_path {}: {error}",
-            path.display()
-        ))
-    })?;
-    let path = path.to_path_buf();
-
-    run_blocking(move || {
-        parse_certificates(&bundle).map_err(|error| {
-            build_error(format!(
-                "failed to parse network.ca_bundle_path {}: {error}",
-                path.display()
-            ))
-        })
-    })
-    .await
-}
-
-fn parse_certificates(bundle: &[u8]) -> Result<Vec<Certificate>, HttpError> {
-    let mut reader = bundle;
-    let mut certificates = Vec::new();
-
-    for parsed in rustls_pemfile::certs(&mut reader) {
-        let parsed = parsed
-            .map_err(|error| build_error(format!("failed to parse pem certificate: {error}")))?;
-        let certificate = Certificate::from_der(parsed.as_ref())
-            .map_err(|error| build_error(format!("failed to load pem certificate: {error}")))?;
-        certificates.push(certificate);
-    }
-
-    if certificates.is_empty() {
-        return Err(build_error("ca bundle did not contain any certificates"));
-    }
-
-    Ok(certificates)
-}
-
 pub(crate) fn same_origin(left: &Url, right: &Url) -> bool {
     left.scheme() == right.scheme()
         && left.host_str() == right.host_str()
@@ -541,23 +434,14 @@ where
     F: Future<Output = T>,
 {
     let started = Instant::now();
-    let output = match wait_budget.timeout {
-        Some(timeout) => tokio::time::timeout(timeout, future)
+    let output = match wait_budget.0 {
+        Some((timeout, reason)) => tokio::time::timeout(timeout, future)
             .await
-            .map_err(|_| wait_budget.timeout_reason.unwrap_or(TimeoutReason::Request))?,
+            .map_err(|_| reason)?,
         None => future.await,
     };
 
     Ok((output, started.elapsed()))
-}
-
-fn min_duration(left: Option<Duration>, right: Option<Duration>) -> Option<Duration> {
-    match (left, right) {
-        (Some(left), Some(right)) => Some(left.min(right)),
-        (Some(left), None) => Some(left),
-        (None, Some(right)) => Some(right),
-        (None, None) => None,
-    }
 }
 
 fn timeout_reason_to_error(_: TimeoutReason) -> HttpError {
@@ -579,8 +463,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn zero_request_budget_allows_ready_poll() {
-        let wait_budget =
-            WaitBudget::new(Some(Duration::ZERO), None).expect("wait budget must exist");
+        let wait_budget = WaitBudget::new(Some(Duration::ZERO), None);
         let (value, _) = run_wait(wait_budget, std::future::ready(7_u8))
             .await
             .expect("ready future must succeed");
@@ -590,8 +473,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn zero_idle_budget_allows_ready_poll() {
-        let wait_budget =
-            WaitBudget::new(None, Some(Duration::ZERO)).expect("wait budget must exist");
+        let wait_budget = WaitBudget::new(None, Some(Duration::ZERO));
         let (value, _) = run_wait(wait_budget, std::future::ready(9_u8))
             .await
             .expect("ready future must succeed");
@@ -601,8 +483,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn zero_budget_still_times_out_pending_poll() {
-        let wait_budget =
-            WaitBudget::new(Some(Duration::ZERO), None).expect("wait budget must exist");
+        let wait_budget = WaitBudget::new(Some(Duration::ZERO), None);
         let error = run_wait(wait_budget, std::future::pending::<()>())
             .await
             .expect_err("pending future must time out");

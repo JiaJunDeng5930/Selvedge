@@ -12,4 +12,6 @@ pub fn init_auth_test(config_body: &str) -> TempDir {
 
 pub fn write_auth_file(tempdir: &TempDir, auth_file_body: &str) -> std::path::PathBuf {
     selvedge_test_support::chatgpt_auth::write_auth_file(tempdir, auth_file_body)
+        .canonicalize()
+        .expect("canonical auth file")
 }

@@ -7,7 +7,6 @@ use chatgpt_login::{
 };
 use serde_json::json;
 use support::{assert_child_success, child_mode, init_login_test, run_child, spawn_http_server};
-use tokio::time::sleep;
 
 #[tokio::test(flavor = "multi_thread")]
 async fn complete_device_code_login_persists_auth_file_and_returns_claims() {
@@ -75,6 +74,8 @@ issuer = "{}"
         .expect("complete device code login");
     let persisted_path = tempdir
         .path()
+        .canonicalize()
+        .expect("canonical fixture root")
         .join(".selvedge/auth/model-providers/chatgpt.json");
     let persisted = std::fs::read_to_string(&persisted_path).expect("read persisted auth file");
 
@@ -83,12 +84,29 @@ issuer = "{}"
     assert_eq!(result.user_id.as_deref(), Some("user-456"));
     assert_eq!(result.email.as_deref(), Some("user@example.com"));
     assert_eq!(result.plan_type.as_deref(), Some("plus"));
-    assert!(persisted.contains("\"schema_version\":1"));
-    assert!(persisted.contains("\"provider\":\"chatgpt\""));
-    assert!(persisted.contains("\"credential_kind\":\"login\""));
-    assert!(persisted.contains("\"id_token\":\""));
-    assert!(persisted.contains("\"access_token\":\"access-token\""));
-    assert!(persisted.contains("\"refresh_token\":\"refresh-token\""));
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&persisted).expect("stored JSON")["schema_version"],
+        1
+    );
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&persisted).expect("stored JSON")["provider"],
+        "chatgpt"
+    );
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&persisted).expect("stored JSON")["credential_kind"],
+        "login"
+    );
+    assert!(serde_json::from_str::<serde_json::Value>(&persisted).expect("stored JSON")["payload"]["tokens"]["id_token"].as_str().is_some_and(|token| !token.is_empty()));
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&persisted).expect("stored JSON")["payload"]["tokens"]
+            ["access_token"],
+        "access-token"
+    );
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&persisted).expect("stored JSON")["payload"]["tokens"]
+            ["refresh_token"],
+        "refresh-token"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -134,9 +152,15 @@ issuer = "{}"
     ));
     let persisted_path = tempdir
         .path()
+        .canonicalize()
+        .expect("canonical fixture root")
         .join(".selvedge/auth/model-providers/chatgpt.json");
     let credential_lock = selvedge_model_credentials::lock_credential_from_home(
-        &tempdir.path().join(".selvedge"),
+        &tempdir
+            .path()
+            .canonicalize()
+            .expect("canonical fixture root")
+            .join(".selvedge"),
         "chatgpt",
     )
     .await
@@ -155,13 +179,17 @@ issuer = "{}"
         code_verifier: "code-verifier".to_owned(),
     };
 
-    let login_task = tokio::spawn(async move {
+    let mut login_task = tokio::spawn(async move {
         complete_device_code_login(&challenge, authorization)
             .await
             .expect("complete device code login")
     });
 
-    sleep(std::time::Duration::from_millis(50)).await;
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_millis(50), &mut login_task)
+            .await
+            .is_err()
+    );
     assert!(!persisted_path.exists());
 
     drop(credential_lock);
@@ -170,7 +198,11 @@ issuer = "{}"
     let persisted = std::fs::read_to_string(&persisted_path).expect("read persisted auth file");
 
     assert_eq!(result.auth_file_path, persisted_path);
-    assert!(persisted.contains("\"access_token\":\"access-token\""));
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&persisted).expect("stored JSON")["payload"]["tokens"]
+            ["access_token"],
+        "access-token"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -214,7 +246,11 @@ issuer = "{}"
 "#,
         server.url("")
     ));
-    let selvedge_home = tempdir.path().join(".selvedge");
+    let selvedge_home = tempdir
+        .path()
+        .canonicalize()
+        .expect("canonical fixture root")
+        .join(".selvedge");
     std::fs::remove_dir_all(&selvedge_home).expect("remove selvedge home");
 
     let challenge = DeviceCodeChallenge {
@@ -235,11 +271,17 @@ issuer = "{}"
         .expect("complete device code login");
     let persisted_path = tempdir
         .path()
+        .canonicalize()
+        .expect("canonical fixture root")
         .join(".selvedge/auth/model-providers/chatgpt.json");
     let persisted = std::fs::read_to_string(&persisted_path).expect("read persisted auth file");
 
     assert_eq!(result.auth_file_path, persisted_path);
-    assert!(persisted.contains("\"refresh_token\":\"refresh-token\""));
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&persisted).expect("stored JSON")["payload"]["tokens"]
+            ["refresh_token"],
+        "refresh-token"
+    );
 }
 
 fn build_test_jwt(payload: serde_json::Value) -> String {
@@ -296,6 +338,8 @@ level = "debug"
     assert!(
         !tempdir
             .path()
+            .canonicalize()
+            .expect("canonical fixture root")
             .join(".selvedge/auth/model-providers/chatgpt.json")
             .exists()
     );
@@ -345,6 +389,8 @@ expected_workspace_id = "workspace-expected"
     ));
     let persisted_path = tempdir
         .path()
+        .canonicalize()
+        .expect("canonical fixture root")
         .join(".selvedge/auth/model-providers/chatgpt.json");
     std::fs::create_dir_all(
         persisted_path
@@ -443,6 +489,8 @@ issuer = "{}"
         .expect("missing account_id can complete");
     let persisted_path = tempdir
         .path()
+        .canonicalize()
+        .expect("canonical fixture root")
         .join(".selvedge/auth/model-providers/chatgpt.json");
 
     assert_eq!(result.account_id, None);
@@ -511,6 +559,8 @@ issuer = "{}"
         .expect("blank account_id can complete as missing");
     let persisted_path = tempdir
         .path()
+        .canonicalize()
+        .expect("canonical fixture root")
         .join(".selvedge/auth/model-providers/chatgpt.json");
 
     assert_eq!(result.account_id, None);
@@ -582,6 +632,8 @@ issuer = "{}"
     assert!(
         !tempdir
             .path()
+            .canonicalize()
+            .expect("canonical fixture root")
             .join(".selvedge/auth/model-providers/chatgpt.json")
             .exists()
     );
@@ -659,11 +711,17 @@ issuer = "{}"
     let persisted = std::fs::read_to_string(
         tempdir
             .path()
+            .canonicalize()
+            .expect("canonical fixture root")
             .join(".selvedge/auth/model-providers/chatgpt.json"),
     )
     .expect("read persisted auth file");
 
     assert_eq!(result.account_id.as_deref(), Some("workspace-new"));
     assert_eq!(result.user_id.as_deref(), Some("user-new"));
-    assert!(persisted.contains("\"access_token\":\"access-new\""));
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&persisted).expect("stored JSON")["payload"]["tokens"]
+            ["access_token"],
+        "access-new"
+    );
 }

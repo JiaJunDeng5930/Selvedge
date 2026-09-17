@@ -118,7 +118,11 @@ level = "debug"
 issuer = "http://127.0.0.1:1"
 "#,
     );
-    let old_auth_path = tempdir.path().join(".selvedge/auth/chatgpt-auth.json");
+    let old_auth_path = tempdir
+        .path()
+        .canonicalize()
+        .expect("canonical fixture root")
+        .join(".selvedge/auth/chatgpt-auth.json");
     std::fs::create_dir_all(old_auth_path.parent().expect("old auth parent"))
         .expect("create old auth dir");
     std::fs::write(
@@ -143,7 +147,7 @@ issuer = "http://127.0.0.1:1"
     assert!(matches!(
         error,
         ChatgptAuthError::AuthFileMissing { path }
-            if path == tempdir.path().join(".selvedge/auth/model-providers/chatgpt.json")
+            if path == tempdir.path().canonicalize().expect("canonical fixture root").join(".selvedge/auth/model-providers/chatgpt.json")
     ));
 }
 
@@ -319,8 +323,16 @@ issuer = "{}"
     assert_eq!(refresh_hits.load(Ordering::SeqCst), 1);
     assert_eq!(resolved.access_token, "new-access-token");
     assert_eq!(resolved.account_id.as_deref(), Some("workspace-123"));
-    assert!(persisted.contains("\"access_token\":\"new-access-token\""));
-    assert!(persisted.contains("\"refresh_token\":\"refresh-token\""));
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&persisted).expect("stored JSON")["payload"]["tokens"]
+            ["access_token"],
+        "new-access-token"
+    );
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&persisted).expect("stored JSON")["payload"]["tokens"]
+            ["refresh_token"],
+        "refresh-token"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -622,6 +634,8 @@ issuer = "http://127.0.0.1:1"
     );
     let auth_file_path = tempdir
         .path()
+        .canonicalize()
+        .expect("canonical fixture root")
         .join(".selvedge/auth/model-providers/chatgpt.json");
     std::fs::create_dir_all(&auth_file_path).expect("create directory at auth file path");
 
@@ -658,6 +672,8 @@ issuer = "http://127.0.0.1:1"
     );
     let expected_path = tempdir
         .path()
+        .canonicalize()
+        .expect("canonical fixture root")
         .join(".selvedge/auth/model-providers/chatgpt.json");
 
     let error = resolve_for_request()
@@ -691,7 +707,11 @@ level = "debug"
 issuer = "http://127.0.0.1:1"
 "#,
     );
-    let selvedge_home = tempdir.path().join(".selvedge");
+    let selvedge_home = tempdir
+        .path()
+        .canonicalize()
+        .expect("canonical fixture root")
+        .join(".selvedge");
     std::fs::remove_dir_all(&selvedge_home).expect("remove selvedge home");
     let expected_path = selvedge_home.join("auth/model-providers/chatgpt.json");
 
@@ -1379,7 +1399,11 @@ issuer = "http://127.0.0.1:1"
             "refresh-token",
         ),
     );
-    let credential_dir = tempdir.path().join(".selvedge/auth/model-providers");
+    let credential_dir = tempdir
+        .path()
+        .canonicalize()
+        .expect("canonical fixture root")
+        .join(".selvedge/auth/model-providers");
     let lock_file_path = credential_dir.join("chatgpt.lock");
     let mut readonly_permissions = fs::metadata(&credential_dir)
         .expect("credential dir metadata")
@@ -1564,7 +1588,11 @@ issuer = "{}"
     assert_eq!(first.access_token, "new-access-token");
     assert_eq!(second.access_token, "new-access-token");
     assert_eq!(third.access_token, "new-access-token");
-    assert!(persisted.contains("\"refresh_token\":\"new-refresh-token\""));
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&persisted).expect("stored JSON")["payload"]["tokens"]
+            ["refresh_token"],
+        "new-refresh-token"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -1636,8 +1664,12 @@ issuer = "{}"
     assert_eq!(nonforced.account_id.as_deref(), Some("workspace-123"));
     assert_eq!(forced.account_id.as_deref(), Some("workspace-123"));
     assert_eq!(forced.access_token, "replacement-access-token");
-    assert!(persisted.contains("\"id_token\":\""));
-    assert!(persisted.contains("\"access_token\":\"replacement-access-token\""));
+    assert!(serde_json::from_str::<serde_json::Value>(&persisted).expect("stored JSON")["payload"]["tokens"]["id_token"].as_str().is_some_and(|token| !token.is_empty()));
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&persisted).expect("stored JSON")["payload"]["tokens"]
+            ["access_token"],
+        "replacement-access-token"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -1716,7 +1748,11 @@ issuer = "{}"
     assert_eq!(first.access_token, "new-access-token");
     assert_eq!(second.access_token, "new-access-token");
     assert_eq!(third.access_token, "new-access-token");
-    assert!(persisted.contains("\"refresh_token\":\"new-refresh-token\""));
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&persisted).expect("stored JSON")["payload"]["tokens"]
+            ["refresh_token"],
+        "new-refresh-token"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -1773,7 +1809,11 @@ issuer = "{}"
 "#,
         server.url("")
     ));
-    let config_home = tempdir.path().join(".selvedge");
+    let config_home = tempdir
+        .path()
+        .canonicalize()
+        .expect("canonical fixture root")
+        .join(".selvedge");
     let auth_file_path = write_auth_file(
         &tempdir,
         &auth_file_json(
@@ -1802,5 +1842,9 @@ issuer = "{}"
     assert_child_success(&child_output);
     assert_eq!(refresh_hits.load(Ordering::SeqCst), 1);
     assert_eq!(resolved.access_token, "new-access-token");
-    assert!(persisted.contains("\"refresh_token\":\"new-refresh-token\""));
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&persisted).expect("stored JSON")["payload"]["tokens"]
+            ["refresh_token"],
+        "new-refresh-token"
+    );
 }

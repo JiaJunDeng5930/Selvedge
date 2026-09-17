@@ -1,12 +1,12 @@
 #![doc = include_str!("../README.md")]
 
 use futures_util::StreamExt;
-#[cfg(test)]
-use selvedge_local_client::connect;
 use selvedge_local_client::{
     AttachRejectedOrClientError, LocalClient, LocalClientConfig, LocalClientError, LocalTransport,
     connect_http,
 };
+#[cfg(test)]
+use selvedge_local_client::{LocalConnector, connect_with};
 use selvedge_local_protocol::{
     AttachRequest, CommandOutcome, CommandRequest, LocalClientCommandId, LocalClientFrame,
     LocalClientId, LocalClientSubscription, ReadyRequest, ReadyState,
@@ -22,79 +22,48 @@ pub struct TuiStartArgs {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum TuiRuntimeState {
-    Starting,
-    ConnectingServer,
-    Attaching,
-    WaitingSnapshot,
-    Interactive,
-    Disconnecting,
-    Exited,
-    Failed,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TuiExitStatus {
     Exited,
     ServerUnavailable,
     ServerNotReady,
-    AttachRejected(String),
-    CommandRejected(String),
+    AttachRejected(selvedge_local_protocol::AttachRejectReason),
+    CommandRejected(selvedge_local_protocol::CommandRejectReason),
     Disconnected,
     SnapshotTimeout,
-    TerminalFailed(String),
     LocalClientFailed(LocalClientError),
     InvalidArgs(String),
 }
 
-#[derive(Clone, Debug, PartialEq)]
-pub enum TuiInputAction {
-    SubmitCommand(CommandRequest),
-    Exit,
-    Noop,
-}
-
-pub trait TuiCommandMapper: Send + Sync + 'static {
-    fn map_input(&self, input_text: &str) -> Result<TuiInputAction, String>;
-}
-
-pub async fn run_tui<M>(args: TuiStartArgs, mapper: M) -> TuiExitStatus
-where
-    M: TuiCommandMapper,
-{
+pub async fn run_tui(args: TuiStartArgs) -> TuiExitStatus {
     let identifiers = match validate_identifiers(&args) {
         Ok(identifiers) => identifiers,
         Err(status) => return status,
     };
     let config = args.client_config.clone();
-    run_tui_with_client(args, mapper, identifiers, connect_http(config).await).await
+    run_tui_with_client(args, identifiers, connect_http(config).await).await
 }
 
 #[cfg(test)]
-async fn run_tui_with_transport<T, M>(args: TuiStartArgs, mapper: M) -> TuiExitStatus
-where
-    T: LocalTransport,
-    M: TuiCommandMapper,
-{
+async fn run_tui_with_transport<C: LocalConnector>(
+    args: TuiStartArgs,
+    connector: C,
+) -> TuiExitStatus {
     let identifiers = match validate_identifiers(&args) {
         Ok(identifiers) => identifiers,
         Err(status) => return status,
     };
     let config = args.client_config.clone();
-    run_tui_with_client(args, mapper, identifiers, connect::<T>(config).await).await
+    run_tui_with_client(args, identifiers, connect_with(config, connector).await).await
 }
 
-async fn run_tui_with_client<T, M>(
+async fn run_tui_with_client<T>(
     args: TuiStartArgs,
-    mapper: M,
     identifiers: (LocalClientId, LocalClientCommandId),
     client: Result<LocalClient<T>, LocalClientError>,
 ) -> TuiExitStatus
 where
     T: LocalTransport,
-    M: TuiCommandMapper,
 {
-    let _mapper = mapper;
     let (client_id, attach_command_id) = identifiers;
 
     let snapshot_timeout = args.client_config.request_timeout;
@@ -125,11 +94,8 @@ where
     let (_accepted, mut frames) = match attach {
         Ok(attach) => attach,
         Err(AttachRejectedOrClientError::Rejected(rejected)) => {
-            return close_after_error(
-                &client,
-                TuiExitStatus::AttachRejected(format!("{:?}", rejected.reason)),
-            )
-            .await;
+            return close_after_error(&client, TuiExitStatus::AttachRejected(rejected.reason))
+                .await;
         }
         Err(AttachRejectedOrClientError::Client(error)) => {
             return close_after_error(&client, TuiExitStatus::LocalClientFailed(error)).await;
@@ -160,11 +126,7 @@ where
             CommandOutcome::Accepted => {}
             CommandOutcome::Rejected(reason) => {
                 drop(frames);
-                return close_after_error(
-                    &client,
-                    TuiExitStatus::CommandRejected(format!("{reason:?}")),
-                )
-                .await;
+                return close_after_error(&client, TuiExitStatus::CommandRejected(reason)).await;
             }
         }
     }
@@ -194,7 +156,9 @@ async fn wait_for_initial_snapshot(
         match frames.next().await {
             Some(Ok(LocalClientFrame::Snapshot(_))) => return Ok(()),
             Some(Ok(LocalClientFrame::Notice(_))) | Some(Ok(LocalClientFrame::Event(_))) => {}
-            Some(Err(_)) | None => return Err(TuiExitStatus::Disconnected),
+            Some(Err(LocalClientError::StreamClosed)) => return Err(TuiExitStatus::Disconnected),
+            Some(Err(error)) => return Err(TuiExitStatus::LocalClientFailed(error)),
+            None => return Err(TuiExitStatus::Disconnected),
         }
     }
 }

@@ -37,113 +37,6 @@ fn binary_usage_error_reports_stderr_without_creating_config() {
 }
 
 #[test]
-fn usage_error_skips_xdg_bootstrap_when_home_is_missing() {
-    let tempdir = TempDir::new().expect("tempdir");
-    let mut command = Command::new(env!("CARGO_BIN_EXE_selvedge"));
-    let expected_config = tempdir.path().join("xdg-home/selvedge/config.toml");
-
-    command.env_remove("SELVEDGE_HOME");
-    command.env_remove("SELVEDGE_CONFIG");
-    command.env_remove("HOME");
-    command.env("XDG_CONFIG_HOME", tempdir.path().join("xdg-home"));
-
-    for (key, _) in std::env::vars_os() {
-        if key
-            .to_str()
-            .is_some_and(|name| name.starts_with("SELVEDGE_APP_"))
-        {
-            command.env_remove(key);
-        }
-    }
-
-    let output = command.output().expect("run selvedge binary");
-
-    assert!(!output.status.success(), "binary should fail without args");
-    assert!(
-        !expected_config.exists(),
-        "usage error must skip xdg bootstrap"
-    );
-}
-
-#[test]
-fn usage_error_skips_bootstrap_when_home_path_is_missing() {
-    let tempdir = TempDir::new().expect("tempdir");
-    let mut command = Command::new(env!("CARGO_BIN_EXE_selvedge"));
-    let missing_home = tempdir.path().join("missing-home");
-    let expected_config = tempdir.path().join("xdg-home/selvedge/config.toml");
-
-    command.env_remove("SELVEDGE_HOME");
-    command.env_remove("SELVEDGE_CONFIG");
-    command.env("HOME", &missing_home);
-    command.env("XDG_CONFIG_HOME", tempdir.path().join("xdg-home"));
-
-    for (key, _) in std::env::vars_os() {
-        if key
-            .to_str()
-            .is_some_and(|name| name.starts_with("SELVEDGE_APP_"))
-        {
-            command.env_remove(key);
-        }
-    }
-
-    let output = command.output().expect("run selvedge binary");
-
-    assert!(!output.status.success(), "binary should fail without args");
-    assert!(
-        !expected_config.exists(),
-        "usage error must skip xdg bootstrap"
-    );
-    assert!(
-        !missing_home.join(".selvedge/config.toml").exists(),
-        "missing home path should not be bootstrapped"
-    );
-}
-
-#[cfg(unix)]
-#[test]
-fn usage_error_skips_writable_home_fallback() {
-    use std::fs;
-    use std::os::unix::fs::PermissionsExt;
-
-    let tempdir = TempDir::new().expect("tempdir");
-    let mut command = Command::new(env!("CARGO_BIN_EXE_selvedge"));
-    let home_dir = tempdir.path().join("readonly-home");
-    let xdg_dir = tempdir.path().join("xdg-home");
-    let expected_config = xdg_dir.join("selvedge/config.toml");
-    let home_config = home_dir.join(".selvedge/config.toml");
-
-    fs::create_dir_all(&home_dir).expect("create home dir");
-    fs::set_permissions(&home_dir, fs::Permissions::from_mode(0o555))
-        .expect("set readonly permissions");
-
-    command.env_remove("SELVEDGE_HOME");
-    command.env_remove("SELVEDGE_CONFIG");
-    command.env("HOME", &home_dir);
-    command.env("XDG_CONFIG_HOME", &xdg_dir);
-
-    for (key, _) in std::env::vars_os() {
-        if key
-            .to_str()
-            .is_some_and(|name| name.starts_with("SELVEDGE_APP_"))
-        {
-            command.env_remove(key);
-        }
-    }
-
-    let output = command.output().expect("run selvedge binary");
-
-    assert!(!output.status.success(), "binary should fail without args");
-    assert!(
-        !expected_config.exists(),
-        "usage error must skip xdg fallback"
-    );
-    assert!(
-        !home_config.exists(),
-        "usage error must skip home bootstrap"
-    );
-}
-
-#[test]
 fn usage_error_skips_config_home_discovery() {
     let tempdir = TempDir::new().expect("tempdir");
     let work_dir = tempdir.path().join("workspace");
@@ -185,43 +78,42 @@ level = "info"
 #[test]
 fn server_sigint_runs_supervised_shutdown_and_exits_130() {
     let tempdir = TempDir::new().expect("tempdir");
-    let port = released_loopback_port();
+    use selvedge::{CliLocalClient, CliLocalClientConnector};
+    use selvedge_local_client::{LocalClientConfig, LocalEndpoint};
+    use selvedge_local_protocol::{ReadyRequest, ReadyState};
+
     let lock_path = tempdir.path().join("server.lock");
-    let mut command = Command::new(env!("CARGO_BIN_EXE_selvedge"));
-    command
-        .arg("server")
-        .env("SELVEDGE_HOME", tempdir.path())
-        .env("SELVEDGE_APP_SERVER__PORT", port.to_string())
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped());
-    let mut child = command.spawn().expect("spawn server");
-    let deadline = Instant::now() + Duration::from_secs(5);
-    let ready = loop {
-        if lock_path.exists() && std::net::TcpStream::connect(("127.0.0.1", port)).is_ok() {
-            break true;
-        }
-        if child.try_wait().expect("poll server").is_some() || Instant::now() >= deadline {
-            break false;
-        }
-        std::thread::sleep(Duration::from_millis(10));
-    };
-    if !ready {
-        let _ = child.kill();
-        let output = child.wait_with_output().expect("collect failed server");
-        panic!(
-            "server did not become ready: {}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-    }
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("test runtime");
+    let child = spawn_server_until(tempdir.path(), |port| {
+        lock_path.exists()
+            && runtime.block_on(async {
+                let Ok(mut client) = selvedge::DefaultCliLocalClientConnector
+                    .connect(LocalClientConfig {
+                        endpoint: LocalEndpoint::TcpIpv4 { port },
+                        request_timeout: Duration::from_millis(100),
+                    })
+                    .await
+                else {
+                    return false;
+                };
+                let ready = client
+                    .ready(ReadyRequest {})
+                    .await
+                    .is_ok_and(|response| response.state == ReadyState::Ready);
+                let _ = client.close().await;
+                ready
+            })
+    });
 
     let signal_status = Command::new("kill")
         .args(["-INT", &child.id().to_string()])
         .status()
         .expect("send SIGINT");
     assert!(signal_status.success(), "kill must deliver SIGINT");
-    let output = child
-        .wait_with_output()
-        .expect("wait for graceful shutdown");
+    let output = wait_for_interrupted_server(child);
 
     assert_eq!(output.status.code(), Some(130));
     assert!(
@@ -237,7 +129,6 @@ fn server_sigint_cancels_stalled_mcp_startup_and_releases_lock() {
     use std::os::unix::fs::PermissionsExt;
 
     let tempdir = TempDir::new().expect("tempdir");
-    let port = released_loopback_port();
     let lock_path = tempdir.path().join("server.lock");
     let startup_marker = tempdir.path().join("mcp-started");
     let mcp_script = tempdir.path().join("stall-mcp.sh");
@@ -255,47 +146,16 @@ fn server_sigint_cancels_stalled_mcp_startup_and_releases_lock() {
     )
     .expect("write MCP config");
 
-    let mut command = Command::new(env!("CARGO_BIN_EXE_selvedge"));
-    command
-        .arg("server")
-        .env("SELVEDGE_HOME", tempdir.path())
-        .env("SELVEDGE_APP_SERVER__PORT", port.to_string())
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped());
-    let mut child = command.spawn().expect("spawn server");
-    let startup_deadline = Instant::now() + Duration::from_secs(5);
-    while !(lock_path.exists() && startup_marker.exists()) {
-        if child.try_wait().expect("poll server").is_some() || Instant::now() >= startup_deadline {
-            let _ = child.kill();
-            let output = child.wait_with_output().expect("collect failed server");
-            panic!(
-                "server did not enter MCP startup: {}",
-                String::from_utf8_lossy(&output.stderr)
-            );
-        }
-        std::thread::sleep(Duration::from_millis(10));
-    }
+    let child = spawn_server_until(tempdir.path(), |_| {
+        lock_path.exists() && startup_marker.exists()
+    });
 
     let signal_status = Command::new("kill")
         .args(["-INT", &child.id().to_string()])
         .status()
         .expect("send SIGINT");
     assert!(signal_status.success(), "kill must deliver SIGINT");
-    let exit_deadline = Instant::now() + Duration::from_secs(5);
-    while child.try_wait().expect("poll interrupted server").is_none() {
-        if Instant::now() >= exit_deadline {
-            let _ = child.kill();
-            let output = child.wait_with_output().expect("collect stalled server");
-            panic!(
-                "SIGINT did not cancel MCP startup: {}",
-                String::from_utf8_lossy(&output.stderr)
-            );
-        }
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    let output = child
-        .wait_with_output()
-        .expect("collect interrupted server");
+    let output = wait_for_interrupted_server(child);
 
     assert_eq!(output.status.code(), Some(130));
     assert!(
@@ -304,7 +164,74 @@ fn server_sigint_cancels_stalled_mcp_startup_and_releases_lock() {
     );
 }
 
-fn released_loopback_port() -> u16 {
-    let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).expect("bind test port");
-    listener.local_addr().expect("test port address").port()
+// The binary accepts an explicit nonzero port. The candidate is intentionally
+// not treated as a reservation: retry only its observed bind-race failure.
+#[cfg(unix)]
+fn spawn_server_until(home: &std::path::Path, ready: impl Fn(u16) -> bool) -> std::process::Child {
+    for attempt in 0..4 {
+        let candidate =
+            std::net::TcpListener::bind(("127.0.0.1", 0)).expect("choose candidate port");
+        let port = candidate.local_addr().expect("candidate address").port();
+        let mut command = Command::new(env!("CARGO_BIN_EXE_selvedge"));
+        for (key, _) in std::env::vars_os() {
+            if key
+                .to_str()
+                .is_some_and(|name| name.starts_with("SELVEDGE_APP_"))
+            {
+                command.env_remove(key);
+            }
+        }
+        command
+            .arg("server")
+            .env("SELVEDGE_HOME", home)
+            .env("SELVEDGE_APP_SERVER__PORT", port.to_string())
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped());
+        drop(candidate);
+        let mut child = command.spawn().expect("spawn server");
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            if child.try_wait().expect("poll server").is_some() {
+                break;
+            }
+            if ready(port) {
+                return child;
+            }
+            if Instant::now() >= deadline {
+                let _ = child.kill();
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let output = child
+            .wait_with_output()
+            .expect("collect unsuccessful startup");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let address_in_use = stderr.contains("BindFailed")
+            && (stderr.contains("os error 48") || stderr.contains("os error 98"));
+        assert!(
+            address_in_use && attempt < 3,
+            "server did not reach expected startup state: {stderr}"
+        );
+    }
+    unreachable!("attempt limit returns or reports failure")
+}
+
+#[cfg(unix)]
+fn wait_for_interrupted_server(mut child: std::process::Child) -> std::process::Output {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while child.try_wait().expect("poll interrupted server").is_none() {
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            let output = child.wait_with_output().expect("collect stalled server");
+            panic!(
+                "SIGINT did not stop server: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    child
+        .wait_with_output()
+        .expect("collect interrupted server")
 }

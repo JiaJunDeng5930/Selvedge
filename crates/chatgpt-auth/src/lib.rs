@@ -13,14 +13,6 @@ use std::path::{Path, PathBuf};
 pub use config::ChatgptAuthConfig;
 
 #[derive(Clone, Debug)]
-pub struct ChatgptAuthFile {
-    pub schema_version: u32,
-    pub provider: String,
-    pub credential_kind: String,
-    pub tokens: ChatgptStoredTokens,
-}
-
-#[derive(Clone, Debug)]
 pub struct ChatgptStoredTokens {
     pub id_token: String,
     pub access_token: String,
@@ -112,7 +104,7 @@ pub async fn resolve_after_unauthorized() -> Result<ResolvedChatgptAuth, Chatgpt
     resolve::resolve_after_unauthorized().await
 }
 
-pub fn parse_auth_file(bytes: &[u8]) -> Result<ChatgptAuthFile, ChatgptAuthParseError> {
+pub fn parse_auth_file(bytes: &[u8]) -> Result<ChatgptStoredTokens, ChatgptAuthParseError> {
     auth_file::parse(bytes)
 }
 
@@ -129,8 +121,8 @@ pub fn chatgpt_auth_file_path(selvedge_home: &Path) -> PathBuf {
 }
 
 pub fn persist_chatgpt_auth_file(
-    path: &Path,
+    guard: &selvedge_model_credentials::CredentialLockGuard,
     tokens: &ChatgptStoredTokens,
 ) -> Result<(), ChatgptAuthFileWriteError> {
-    auth_file::persist(path, tokens)
+    auth_file::persist(guard, tokens)
 }

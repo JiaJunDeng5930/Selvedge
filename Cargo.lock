@@ -1557,7 +1557,6 @@ dependencies = [
  "selvedge-model-providers",
  "selvedge-router",
  "selvedge-server",
- "selvedge-systemd",
  "serde_json",
  "tempfile",
  "tokio",
@@ -1640,6 +1639,7 @@ dependencies = [
  "tempfile",
  "thiserror",
  "toml",
+ "toml_edit",
 ]
 
 [[package]]
@@ -1657,11 +1657,13 @@ dependencies = [
 name = "selvedge-core"
 version = "0.0.0"
 dependencies = [
+ "rusqlite",
  "selvedge-command-model",
  "selvedge-db",
  "selvedge-domain-model",
  "selvedge-test-support",
  "serde_json",
+ "tempfile",
  "tokio",
  "uuid",
 ]
@@ -1718,8 +1720,12 @@ dependencies = [
 name = "selvedge-local-client"
 version = "0.0.0"
 dependencies = [
+ "bytes",
  "futures-core",
  "futures-util",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
  "selvedge-local-protocol",
  "selvedge-test-support",
  "serde",
@@ -1752,6 +1758,7 @@ version = "0.0.0"
 dependencies = [
  "fs2",
  "selvedge-config",
+ "selvedge-config-model",
  "serde",
  "serde_json",
  "tempfile",
@@ -1780,7 +1787,6 @@ dependencies = [
  "selvedge-core",
  "selvedge-db",
  "selvedge-domain-model",
- "selvedge-events",
  "selvedge-task-runtime-factory",
  "selvedge-test-support",
  "serde_json",
@@ -1811,13 +1817,6 @@ dependencies = [
  "selvedge-web",
  "serde_json",
  "tempfile",
- "tokio",
-]
-
-[[package]]
-name = "selvedge-systemd"
-version = "0.0.0"
-dependencies = [
  "tokio",
 ]
 
@@ -1869,8 +1868,13 @@ dependencies = [
 name = "selvedge-web"
 version = "0.0.0"
 dependencies = [
+ "bytes",
  "futures-core",
  "futures-util",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "selvedge-local-client",
  "selvedge-local-protocol",
  "selvedge-test-support",
  "serde",

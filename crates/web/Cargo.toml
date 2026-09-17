@@ -4,22 +4,22 @@ edition = "2024"
 publish = false
 
 [dependencies]
-futures-core = "0.3.31"
+futures-util = { workspace = true }
+bytes = { workspace = true }
+http-body-util = { workspace = true }
+hyper = { workspace = true, features = ["http1", "server"] }
+hyper-util = { workspace = true, features = ["tokio"] }
+futures-core = { workspace = true }
 selvedge-local-protocol = { path = "../local-protocol" }
-serde = { version = "1.0.228", features = ["derive"] }
-serde_json = "1.0.145"
-tokio = { version = "1.42.0", features = ["io-util", "net", "rt", "sync", "time"] }
-tokio-stream = { version = "0.1.17", features = ["sync"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+tokio = { workspace = true, features = ["io-util", "macros", "net", "rt", "sync", "time"] }
+tokio-stream = { workspace = true, features = ["sync"] }
 
 [dev-dependencies]
-futures-util = "0.3.31"
+selvedge-local-client = { path = "../local-client" }
 selvedge-test-support = { path = "../test-support", features = ["http"] }
-tokio = { version = "1.42.0", features = ["io-util", "macros", "net", "rt", "sync", "time"] }
+tokio = { workspace = true, features = ["io-util", "macros", "net", "rt", "sync", "time"] }
 
-[lints.rust]
-unsafe_code = "forbid"
-
-[lints.clippy]
-dbg_macro = "deny"
-todo = "deny"
-unwrap_used = "deny"
+[lints]
+workspace = true

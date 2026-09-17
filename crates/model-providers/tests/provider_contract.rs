@@ -1,7 +1,7 @@
 use selvedge_config_model::{LlmConfig, LlmProviderConfig};
 use selvedge_model_credentials::{CredentialKind, ModelCredentialRecord, write_credential_to_home};
 use selvedge_model_providers::{
-    ModelSource, ProviderDescriptor, ProviderRegistry, default_registry,
+    ExecutableProvider, ModelSource, ProviderDescriptor, ProviderRegistry, default_registry,
 };
 use std::collections::BTreeMap;
 
@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 async fn built_in_provider_is_configured_when_matching_credential_exists() {
     let tempdir = tempfile::TempDir::new().expect("tempdir");
     let registry = ProviderRegistry::new(vec![ProviderDescriptor {
-        provider_id: "chatgpt".to_owned(),
+        provider: ExecutableProvider::Chatgpt,
         credential_kind: CredentialKind::Login,
         model_source: ModelSource::BuiltIn(vec!["gpt-5".to_owned(), "gpt-5-codex".to_owned()]),
     }])
@@ -40,8 +40,8 @@ async fn built_in_provider_is_configured_when_matching_credential_exists() {
 async fn configured_provider_requires_matching_credential_and_config_models() {
     let tempdir = tempfile::TempDir::new().expect("tempdir");
     let registry = ProviderRegistry::new(vec![ProviderDescriptor {
-        provider_id: "anthropic".to_owned(),
-        credential_kind: CredentialKind::ApiKey,
+        provider: ExecutableProvider::Chatgpt,
+        credential_kind: CredentialKind::Login,
         model_source: ModelSource::Configured,
     }])
     .expect("registry");
@@ -49,8 +49,8 @@ async fn configured_provider_requires_matching_credential_and_config_models() {
         tempdir.path(),
         &ModelCredentialRecord {
             schema_version: 1,
-            provider: "anthropic".to_owned(),
-            credential_kind: CredentialKind::ApiKey,
+            provider: "chatgpt".to_owned(),
+            credential_kind: CredentialKind::Login,
             payload: serde_json::json!({ "api_key": "key" }),
         },
     )
@@ -58,11 +58,11 @@ async fn configured_provider_requires_matching_credential_and_config_models() {
     .expect("write credential");
     let llm_config = LlmConfig {
         providers: BTreeMap::from([(
-            "anthropic".to_owned(),
+            "chatgpt".to_owned(),
             LlmProviderConfig {
                 base_url: None,
                 stream_completion_timeout_ms: None,
-                models: vec!["claude-sonnet-4".to_owned()],
+                models: vec!["gpt-5".to_owned()],
                 settings: BTreeMap::new(),
             },
         )]),
@@ -74,8 +74,8 @@ async fn configured_provider_requires_matching_credential_and_config_models() {
         .expect("list models");
 
     assert_eq!(listings.len(), 1);
-    assert_eq!(listings[0].provider_id, "anthropic");
-    assert_eq!(listings[0].models, vec!["claude-sonnet-4"]);
+    assert_eq!(listings[0].provider_id, "chatgpt");
+    assert_eq!(listings[0].models, vec!["gpt-5"]);
 }
 
 #[test]

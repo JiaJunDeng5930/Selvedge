@@ -20,20 +20,18 @@ request_timeout_ms = 5000
 
 [logging]
 level = "info"
-format = "text"
 "#,
     )?;
 
     init_with_home(config_home)?;
 
-    update_runtime("feature.rollout_percentage", 100_u8)?;
-    update_runtime("feature.enabled", true)?;
+    update_runtime("harness.max_children_per_fork", 10_u32)?;
     update_runtime_and_persist("logging.level", "debug")?;
 
     let current = read(|config| {
         format!(
-            "feature_enabled={} rollout={} log_level={}",
-            config.feature.enabled, config.feature.rollout_percentage, config.logging.level,
+            "max_children_per_fork={} log_level={}",
+            config.harness.max_children_per_fork, config.logging.level,
         )
     })?;
     let persisted = fs::read_to_string(config_path)?;

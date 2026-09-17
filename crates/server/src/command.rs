@@ -1,10 +1,4 @@
-use selvedge_local_protocol::CommandRequest;
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum ClientCommand {
-    LoginChatgpt,
-    ListModels,
-}
+use selvedge_local_protocol::{CommandRequest, LocalCommandKind};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ClientCommandDecodeError {
@@ -12,24 +6,19 @@ pub(crate) enum ClientCommandDecodeError {
     UnsupportedCommand,
 }
 
-impl TryFrom<&CommandRequest> for ClientCommand {
-    type Error = ClientCommandDecodeError;
-
-    fn try_from(request: &CommandRequest) -> Result<Self, Self::Error> {
-        let command = match request.command_name.as_str() {
-            "login-chatgpt" => Self::LoginChatgpt,
-            "list-models" => Self::ListModels,
-            _ => return Err(ClientCommandDecodeError::UnsupportedCommand),
-        };
-        if !request
-            .payload
-            .as_object()
-            .is_some_and(|object| object.is_empty())
-        {
-            return Err(ClientCommandDecodeError::MalformedPayload);
-        }
-        Ok(command)
+pub(crate) fn decode_command(
+    request: &CommandRequest,
+) -> Result<LocalCommandKind, ClientCommandDecodeError> {
+    let command = LocalCommandKind::parse(&request.command_name)
+        .ok_or(ClientCommandDecodeError::UnsupportedCommand)?;
+    if !request
+        .payload
+        .as_object()
+        .is_some_and(|object| object.is_empty())
+    {
+        return Err(ClientCommandDecodeError::MalformedPayload);
     }
+    Ok(command)
 }
 
 #[cfg(test)]
@@ -40,11 +29,11 @@ mod tests {
     #[test]
     fn decodes_supported_commands_with_empty_payloads() {
         for (command_name, expected) in [
-            ("login-chatgpt", ClientCommand::LoginChatgpt),
-            ("list-models", ClientCommand::ListModels),
+            ("login-chatgpt", LocalCommandKind::LoginChatgpt),
+            ("list-models", LocalCommandKind::ListModels),
         ] {
             assert_eq!(
-                ClientCommand::try_from(&request(command_name, serde_json::json!({}))),
+                decode_command(&request(command_name, serde_json::json!({}))),
                 Ok(expected)
             );
         }
@@ -53,7 +42,7 @@ mod tests {
     #[test]
     fn rejects_malformed_payload_for_supported_command() {
         assert_eq!(
-            ClientCommand::try_from(&request(
+            decode_command(&request(
                 "login-chatgpt",
                 serde_json::json!({"unexpected": true}),
             )),
@@ -64,7 +53,7 @@ mod tests {
     #[test]
     fn rejects_unknown_command() {
         assert_eq!(
-            ClientCommand::try_from(&request("send-user-input", serde_json::json!({}))),
+            decode_command(&request("send-user-input", serde_json::json!({}))),
             Err(ClientCommandDecodeError::UnsupportedCommand)
         );
     }

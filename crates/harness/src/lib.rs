@@ -14,9 +14,9 @@ use futures_util::FutureExt;
 use rustix::io::Errno;
 use rustix::process::{Pid, Signal, kill_process_group};
 use selvedge_command_model::{
-    HistoryNodeProjection, HistoryNodeProjectionBody, RouterCommand, RouterCommandEnvelope,
-    RouterIngressMessage, RouterIngressWeakSender, SendUserInputOutcome, TaskCommandError,
-    ToolExecutionBranch, ToolExecutionBranchTarget, ToolExecutionRequest, ToolExecutionResult,
+    HistoryNodeProjection, HistoryNodeProjectionBody, RouterCommand, RouterIngressMessage,
+    RouterIngressWeakSender, SendUserInputOutcome, TaskCommandError, ToolExecutionBranch,
+    ToolExecutionBranchTarget, ToolExecutionRequest, ToolExecutionResult,
     send_user_input_response_channel, task_status_change_response_channel,
 };
 use selvedge_config_model::HarnessConfig;
@@ -24,9 +24,7 @@ use selvedge_db::{
     DbError, DbPool, HistoryNode, ReadTaskInput, TaskRead, TaskToolSpec, ToolExecutionSource,
     ToolRecoveryPolicy, read_task, read_tool_execution_source,
 };
-use selvedge_domain_model::{
-    HistoryNodeId, JsonObject, MessageRole, TaskId, TaskStatus, ToolManifest, ToolSpec,
-};
+use selvedge_domain_model::{HistoryNodeId, JsonObject, MessageRole, TaskId, TaskStatus, ToolSpec};
 use serde_json::{Number, Value};
 use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::process::Command;
@@ -37,11 +35,29 @@ use selvedge_router::{ToolExecutionSpawnError, ToolExecutionSpawner};
 
 pub use mcp::{McpConnectionSet, McpStartupError, McpStartupOperation};
 
-pub const FORK_TASK_TOOL_NAME: &str = "fork_task";
-pub const READ_TASK_TOOL_NAME: &str = "read_task";
-pub const SEND_MESSAGE_TO_TASK_TOOL_NAME: &str = "send_message_to_task";
-pub const ARCHIVE_TASK_TOOL_NAME: &str = "archive_task";
-pub const BASH_TOOL_NAME: &str = "bash";
+// Keep the finite identifier set, exported wire names and enumeration in one declaration.
+macro_rules! builtin_tools {
+    ($($variant:ident => $constant:ident = $name:literal),+ $(,)?) => {
+        $(pub const $constant: &str = $name;)+
+        #[derive(Clone, Copy)]
+        enum BuiltinTool { $($variant),+ }
+        impl BuiltinTool {
+            const ALL: &[Self] = &[$(Self::$variant),+];
+            const fn name(self) -> &'static str {
+                match self { $(Self::$variant => $constant),+ }
+            }
+        }
+    };
+}
+
+builtin_tools! {
+    ForkTask => FORK_TASK_TOOL_NAME = "fork_task",
+    ReadTask => READ_TASK_TOOL_NAME = "read_task",
+    SendMessageToTask => SEND_MESSAGE_TO_TASK_TOOL_NAME = "send_message_to_task",
+    ArchiveTask => ARCHIVE_TASK_TOOL_NAME = "archive_task",
+    Bash => BASH_TOOL_NAME = "bash",
+}
+
 pub const DEFAULT_BASH_TIMEOUT_MS: i64 = 30_000;
 pub const MIN_BASH_TIMEOUT_MS: i64 = 100;
 pub const MAX_BASH_TIMEOUT_MS: i64 = 120_000;
@@ -50,11 +66,18 @@ pub const BASH_OUTPUT_LIMIT_BYTES: usize = 64 * 1024;
 const MAX_READ_LIMIT: i64 = 100;
 const BASH_REAP_TIMEOUT: Duration = Duration::from_secs(5);
 
-pub fn tool_manifest(config: &HarnessConfig) -> ToolManifest {
-    ToolManifest {
-        tools: vec![
-            ToolSpec {
-                name: FORK_TASK_TOOL_NAME.to_owned(),
+pub fn harness_tool_catalog(config: &HarnessConfig) -> Vec<TaskToolSpec> {
+    BuiltinTool::ALL
+        .iter()
+        .map(|tool| tool.registration(config))
+        .collect()
+}
+
+impl BuiltinTool {
+    fn registration(self, config: &HarnessConfig) -> TaskToolSpec {
+        let tool = match self {
+            Self::ForkTask => ToolSpec {
+                name: self.name().to_owned(),
                 description: format!(
                     "Create up to {} parallel child task branches with optional aligned initial messages.",
                     config.max_children_per_fork
@@ -80,8 +103,8 @@ pub fn tool_manifest(config: &HarnessConfig) -> ToolManifest {
                     &["child_count"],
                 ),
             },
-            ToolSpec {
-                name: READ_TASK_TOOL_NAME.to_owned(),
+            Self::ReadTask => ToolSpec {
+                name: self.name().to_owned(),
                 description:
                     "Read task state and a page of history. Omit task_id to read the calling task."
                         .to_owned(),
@@ -109,8 +132,8 @@ pub fn tool_manifest(config: &HarnessConfig) -> ToolManifest {
                     &[],
                 ),
             },
-            ToolSpec {
-                name: SEND_MESSAGE_TO_TASK_TOOL_NAME.to_owned(),
+            Self::SendMessageToTask => ToolSpec {
+                name: self.name().to_owned(),
                 description:
                     "Send a message to an active task and report whether it was committed or queued."
                         .to_owned(),
@@ -125,16 +148,16 @@ pub fn tool_manifest(config: &HarnessConfig) -> ToolManifest {
                     &["message", "task_id"],
                 ),
             },
-            ToolSpec {
-                name: ARCHIVE_TASK_TOOL_NAME.to_owned(),
+            Self::ArchiveTask => ToolSpec {
+                name: self.name().to_owned(),
                 description: "Archive another active task.".to_owned(),
                 input_schema: input_schema(
                     [("task_id", string_property("Task to archive."))],
                     &["task_id"],
                 ),
             },
-            ToolSpec {
-                name: BASH_TOOL_NAME.to_owned(),
+            Self::Bash => ToolSpec {
+                name: self.name().to_owned(),
                 description:
                     "Run a non-interactive Bash login command in the server process environment and working directory. Stdout and stderr are each capped at 65536 bytes."
                         .to_owned(),
@@ -153,26 +176,19 @@ pub fn tool_manifest(config: &HarnessConfig) -> ToolManifest {
                     &["command"],
                 ),
             },
-        ],
-    }
-}
-
-pub fn harness_tool_catalog(config: &HarnessConfig) -> Vec<TaskToolSpec> {
-    tool_manifest(config)
-        .tools
-        .into_iter()
-        .map(|tool| TaskToolSpec {
-            recovery_policy: match tool.name.as_str() {
-                FORK_TASK_TOOL_NAME | READ_TASK_TOOL_NAME => ToolRecoveryPolicy::RetrySafe,
-                SEND_MESSAGE_TO_TASK_TOOL_NAME | ARCHIVE_TASK_TOOL_NAME | BASH_TOOL_NAME => {
-                    ToolRecoveryPolicy::OutcomeUnknown
-                }
-                _ => unreachable!("tool_manifest returned an unknown harness tool"),
-            },
+        };
+        let recovery_policy = match self {
+            Self::ForkTask | Self::ReadTask => ToolRecoveryPolicy::RetrySafe,
+            Self::SendMessageToTask | Self::ArchiveTask | Self::Bash => {
+                ToolRecoveryPolicy::OutcomeUnknown
+            }
+        };
+        TaskToolSpec {
             tool,
+            recovery_policy,
             execution_source: ToolExecutionSource::Harness,
-        })
-        .collect()
+        }
+    }
 }
 
 fn input_schema<const N: usize>(properties: [(&str, Value); N], required: &[&str]) -> JsonObject {
@@ -252,7 +268,7 @@ fn string_array_property(description: &str, max_items: u32) -> Value {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum HarnessInvocation {
+enum HarnessInvocation {
     ForkTask(ForkTaskInvocation),
     ReadTask(ReadTaskInvocation),
     SendMessageToTask(SendMessageToTaskInvocation),
@@ -261,49 +277,55 @@ pub enum HarnessInvocation {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ForkTaskInvocation {
-    pub child_count: usize,
-    pub messages: Option<Vec<String>>,
+struct ForkTaskInvocation {
+    child_count: usize,
+    messages: Option<Vec<String>>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ReadTaskInvocation {
-    pub task_id: Option<TaskId>,
-    pub after_node_id: Option<HistoryNodeId>,
-    pub limit: Option<u8>,
+struct ReadTaskInvocation {
+    task_id: Option<TaskId>,
+    after_node_id: Option<HistoryNodeId>,
+    limit: Option<u8>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct SendMessageToTaskInvocation {
-    pub task_id: TaskId,
-    pub message: String,
+struct SendMessageToTaskInvocation {
+    task_id: TaskId,
+    message: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ArchiveTaskInvocation {
-    pub task_id: TaskId,
+struct ArchiveTaskInvocation {
+    task_id: TaskId,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct BashInvocation {
-    pub command: String,
-    pub timeout_ms: u64,
+struct BashInvocation {
+    command: String,
+    timeout_ms: u64,
 }
 
-pub fn parse_invocation(
+fn parse_invocation(
     request: &ToolExecutionRequest,
     config: &HarnessConfig,
 ) -> Result<HarnessInvocation, HarnessError> {
-    match request.tool_name.0.as_str() {
-        FORK_TASK_TOOL_NAME => parse_fork_task(&request.arguments, config),
-        READ_TASK_TOOL_NAME => parse_read_task(&request.arguments),
-        SEND_MESSAGE_TO_TASK_TOOL_NAME => parse_send_message_to_task(&request.arguments),
-        ARCHIVE_TASK_TOOL_NAME => parse_archive_task(&request.task_id, &request.arguments),
-        BASH_TOOL_NAME => parse_bash(&request.arguments),
-        unknown => Err(HarnessError::new(
-            HarnessErrorCode::UnknownTool,
-            format!("unknown tool '{unknown}'"),
-        )),
+    let tool = BuiltinTool::ALL
+        .iter()
+        .copied()
+        .find(|tool| tool.name() == request.tool_name.0)
+        .ok_or_else(|| {
+            HarnessError::new(
+                HarnessErrorCode::UnknownTool,
+                format!("unknown tool '{}'", request.tool_name.0),
+            )
+        })?;
+    match tool {
+        BuiltinTool::ForkTask => parse_fork_task(&request.arguments, config),
+        BuiltinTool::ReadTask => parse_read_task(&request.arguments),
+        BuiltinTool::SendMessageToTask => parse_send_message_to_task(&request.arguments),
+        BuiltinTool::ArchiveTask => parse_archive_task(&request.task_id, &request.arguments),
+        BuiltinTool::Bash => parse_bash(&request.arguments),
     }
 }
 
@@ -574,7 +596,7 @@ fn exact_json_integer(number: &Number) -> Option<i64> {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub enum HarnessSuccess {
+enum HarnessSuccess {
     ReadTask(ReadTaskSuccess),
     SendMessageToTask(SendMessageToTaskSuccess),
     ArchiveTask(ArchiveTaskSuccess),
@@ -582,57 +604,51 @@ pub enum HarnessSuccess {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct ReadTaskSuccess {
-    pub task_id: TaskId,
-    pub status: TaskStatus,
-    pub state_version: u64,
-    pub cursor_node_id: HistoryNodeId,
-    pub parent_task_id: Option<TaskId>,
-    pub queued_message_count: u64,
-    pub history: HistoryPage,
+struct ReadTaskSuccess {
+    task_id: TaskId,
+    status: TaskStatus,
+    state_version: u64,
+    cursor_node_id: HistoryNodeId,
+    parent_task_id: Option<TaskId>,
+    queued_message_count: u64,
+    history: HistoryPage,
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct HistoryPage {
-    pub nodes: Vec<HistoryNodeProjection>,
-    pub next_after_node_id: Option<HistoryNodeId>,
-    pub has_more: bool,
+struct HistoryPage {
+    nodes: Vec<HistoryNodeProjection>,
+    next_after_node_id: Option<HistoryNodeId>,
+    has_more: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum MessageDisposition {
+enum MessageDisposition {
     Committed { node_id: HistoryNodeId },
     Queued,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct SendMessageToTaskSuccess {
-    pub task_id: TaskId,
-    pub disposition: MessageDisposition,
+struct SendMessageToTaskSuccess {
+    task_id: TaskId,
+    disposition: MessageDisposition,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ArchiveTaskSuccess {
-    pub task_id: TaskId,
+struct ArchiveTaskSuccess {
+    task_id: TaskId,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct BashSuccess {
-    pub exit_code: Option<i32>,
-    pub stdout: String,
-    pub stderr: String,
-    pub stdout_truncated: bool,
-    pub stderr_truncated: bool,
-}
-
-impl HarnessSuccess {
-    pub fn to_stable_json(&self) -> String {
-        success_json(self).to_string()
-    }
+struct BashSuccess {
+    exit_code: Option<i32>,
+    stdout: String,
+    stderr: String,
+    stdout_truncated: bool,
+    stderr_truncated: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum HarnessErrorCode {
+enum HarnessErrorCode {
     InvalidArguments,
     UnknownTool,
     TaskNotFound,
@@ -656,7 +672,7 @@ pub enum HarnessErrorCode {
 }
 
 impl HarnessErrorCode {
-    pub const fn as_str(self) -> &'static str {
+    const fn as_str(self) -> &'static str {
         match self {
             HarnessErrorCode::InvalidArguments => "invalid_arguments",
             HarnessErrorCode::UnknownTool => "unknown_tool",
@@ -683,33 +699,29 @@ impl HarnessErrorCode {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct HarnessError {
+struct HarnessError {
     code: HarnessErrorCode,
     message: String,
 }
 
 impl HarnessError {
-    pub fn new(code: HarnessErrorCode, message: impl Into<String>) -> Self {
+    fn new(code: HarnessErrorCode, message: impl Into<String>) -> Self {
         Self {
             code,
             message: message.into(),
         }
     }
 
-    pub fn invalid_arguments(message: impl Into<String>) -> Self {
+    fn invalid_arguments(message: impl Into<String>) -> Self {
         Self::new(HarnessErrorCode::InvalidArguments, message)
     }
 
-    pub const fn code(&self) -> HarnessErrorCode {
+    const fn code(&self) -> HarnessErrorCode {
         self.code
     }
 
-    pub fn message(&self) -> &str {
+    fn message(&self) -> &str {
         &self.message
-    }
-
-    pub fn to_stable_json(&self) -> String {
-        error_json(self).to_string()
     }
 }
 
@@ -720,17 +732,6 @@ impl fmt::Display for HarnessError {
 }
 
 impl Error for HarnessError {}
-
-pub fn encode_tool_execution_result(
-    request: &ToolExecutionRequest,
-    outcome: Result<HarnessSuccess, HarnessError>,
-) -> ToolExecutionResult {
-    let branch = match outcome {
-        Ok(success) => calling_task_branch(success_json(&success), false),
-        Err(error) => calling_task_branch(error_json(&error), true),
-    };
-    correlated_tool_execution_result(request, vec![branch])
-}
 
 fn correlated_tool_execution_result(
     request: &ToolExecutionRequest,
@@ -1059,15 +1060,15 @@ async fn execute_bash(invocation: BashInvocation) -> Result<HarnessSuccess, Harn
         )
     })?;
 
-    // The readers keep draining after their prefixes fill so neither child pipe can block.
-    let mut stdout_reader = tokio::spawn(capture_output(stdout));
-    let mut stderr_reader = tokio::spawn(capture_output(stderr));
-    let completed = tokio::time::timeout(Duration::from_millis(invocation.timeout_ms), async {
-        let status = child.wait().await;
-        let stdout = (&mut stdout_reader).await;
-        let stderr = (&mut stderr_reader).await;
-        (status, stdout, stderr)
-    })
+    // Keep completed outputs inside the same join future when the deadline expires.
+    // Cancelling execution drops both pipe readers along with the child owner.
+    let completion =
+        async { tokio::join!(child.wait(), capture_output(stdout), capture_output(stderr)) };
+    tokio::pin!(completion);
+    let completed = tokio::time::timeout(
+        Duration::from_millis(invocation.timeout_ms),
+        completion.as_mut(),
+    )
     .await;
 
     let (status, stdout, stderr) = match completed {
@@ -1079,18 +1080,10 @@ async fn execute_bash(invocation: BashInvocation) -> Result<HarnessSuccess, Harn
         }
         Err(_) => {
             let termination = process_group.terminate();
-            let cleanup = tokio::time::timeout(BASH_REAP_TIMEOUT, async {
-                let status = child.wait().await;
-                let stdout = (&mut stdout_reader).await;
-                let stderr = (&mut stderr_reader).await;
-                (status, stdout, stderr)
-            })
-            .await;
+            let cleanup = tokio::time::timeout(BASH_REAP_TIMEOUT, completion.as_mut()).await;
             let (status, _, _) = match cleanup {
                 Ok(cleanup) => cleanup,
                 Err(_) => {
-                    stdout_reader.abort();
-                    stderr_reader.abort();
                     return Err(HarnessError::new(
                         HarnessErrorCode::CommandWaitFailed,
                         "timed-out bash command could not be reaped",
@@ -1156,9 +1149,9 @@ async fn capture_output(mut reader: impl AsyncRead + Unpin) -> Result<CapturedOu
 
 fn capture_result(
     stream: &str,
-    result: Result<Result<CapturedOutput, io::Error>, tokio::task::JoinError>,
+    result: Result<CapturedOutput, io::Error>,
 ) -> Result<CapturedOutput, HarnessError> {
-    result.map_err(map_join_error)?.map_err(|error| {
+    result.map_err(|error| {
         HarnessError::new(
             HarnessErrorCode::CommandIoFailed,
             format!("failed to read bash {stream}: {error}"),
@@ -1216,11 +1209,7 @@ fn send_router_command(
         HarnessError::new(HarnessErrorCode::RouterUnavailable, "router is unavailable")
     })?;
     router_tx
-        .send(RouterIngressMessage::Command(RouterCommandEnvelope {
-            client_id: None,
-            client_command_id: None,
-            command,
-        }))
+        .send(RouterIngressMessage::Command(command))
         .map_err(|_| {
             HarnessError::new(HarnessErrorCode::RouterUnavailable, "router is unavailable")
         })
@@ -1641,3 +1630,9 @@ mod tests {
         ));
     }
 }
+
+#[cfg(test)]
+mod projection_tests;
+
+#[cfg(test)]
+mod protocol_tests;

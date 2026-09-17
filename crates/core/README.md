@@ -2,7 +2,7 @@
 
 <!-- selvedge-package-readme
 package: selvedge-core
-freshness_fingerprint: 878635c1dd43c8b9495206bb31199ad86c40f77d
+freshness_fingerprint: 5241fa891dc4b912ec93b0cf3e419ee05aee0f24
 -->
 
 This crate runs one task runtime actor per non-archived task.
@@ -13,7 +13,9 @@ This crate only talks to the router mailbox and the database package. Provider c
 
 On `Start`, the runtime reads the persisted task status. An `active` task starts normal cursor processing. A `stopped` task still reconciles open tool calls and commits their results, but it does not request another model call. A `frozen` task publishes readiness and does not consume its mailbox until a status notification confirms that it is active. The runtime keeps only in-flight correlation ids, the complete manifest and callable subset sent with an active model request, pending tool-call identity, and a deferred model-call continuation in memory; the task status and cursor live in SQLite.
 
-Before dispatching a model call, the actor reads the conversation, frozen tool manifest, unavailable-tool exceptions, and active model profile together on Tokio's blocking thread pool. The complete manifest remains stable while the exceptions produce the callable subset for that turn. SQLite work therefore leaves async runtime workers available for other actors.
+Each admitted mailbox command or status notification moves the actor into one Tokio blocking-pool job for the complete state transition. All SQLite reads and writes run within that boundary; only mailbox, control, and shutdown-barrier waiting runs on async workers. The actor cannot process another input until the transition returns, and shutdown waits for any admitted transition. A failed blocking job reports a runtime exit and completes the shutdown barrier; responder ownership settles commands even if the actor unwinds.
+
+Before dispatching a model call, core reads the conversation, frozen tool state, and task metadata. It carries the task's immutable model configuration unchanged into dispatch, using its profile key only to resolve the configured provider. The complete manifest remains stable while unavailable-tool exceptions produce the callable subset for that turn.
 
 Durable history is projected into one provider-neutral conversation model whose message content is JSON. Function calls and outputs use the shared discriminated JSON contract from `selvedge-domain-model`; core validates call/output pairing through that contract without introducing a second conversation representation.
 
@@ -29,7 +31,7 @@ User-input responders return `Committed` with the persisted history node id only
 
 Runtime output to the router uses the unbounded router ingress sender. Event handlers can enqueue router output synchronously and return to the control check without waiting for router mailbox capacity.
 
-`TaskRuntimeSpawnDeps` wraps the runtime config and a `TaskRuntimeSpawner` implementation. Use `TaskRuntimeSpawnDeps::new` for the default Tokio-backed spawner and `with_spawner` for boundary tests.
+`TaskRuntimeSpawnDeps` wraps the runtime config and a `TaskRuntimeSpawner` implementation. Use `TaskRuntimeSpawnDeps::new` for the default Tokio-backed spawner and `with_spawner` for boundary tests. Direct `spawn_task_runtime` requires a Tokio runtime context and returns the runtime handles; the injectable spawner trait retains its genuine implementation-specific failure boundary.
 
 ## Package State Machine
 
@@ -47,7 +49,7 @@ flowchart TD
   CommitUnknown[Commit unknown-outcome error outputs]
   ClassifyTail{cursor tail}
   AwaitInput[Await user input]
-  RequestModel[Load model context on blocking pool and send request]
+  RequestModel[Load model context and send request]
   AwaitModel[Await matching API output]
   ModelNotStarted[Correlate model call not started]
   PromoteStoppedQueue[Promote durable input queue without model call]

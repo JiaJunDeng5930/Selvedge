@@ -8,22 +8,23 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::Duration;
 
+use bytes::Bytes;
 use futures_core::Stream;
+use futures_util::StreamExt;
+use http_body_util::BodyExt;
+use hyper::body::Body;
 use selvedge_local_protocol::{
     AttachAccepted, AttachRejectReason, AttachRejected, AttachRequest, CommandOutcome,
     CommandRejectReason, CommandRequest, CommandResponse, LocalAttachStreamItem,
     LocalClientCommandId, LocalClientFrame, LocalHttpProblemCode, LocalStreamError,
-    LocalStreamErrorReason, ReadyRequest, ReadyResponse, ReadyState, http_problem,
-    validate_attach_request, validate_command_request, validate_ready_request,
+    LocalStreamErrorReason, MAX_LOCAL_FRAME_BYTES, ReadyRequest, ReadyResponse, ReadyState,
+    http_problem, validate_attach_request, validate_command_request,
 };
 use serde::Serialize;
-use serde::de::DeserializeOwned;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::watch;
-use tokio::task::JoinHandle;
+use tokio::task::{JoinHandle, JoinSet};
 use tokio::time::timeout;
-use tokio_stream::StreamExt;
 use tokio_stream::wrappers::WatchStream;
 
 const JSON_CONTENT_TYPE: &str = "application/json";
@@ -55,7 +56,6 @@ pub enum WebLocalhostHost {
 }
 
 pub struct WebBindReservation {
-    bind: WebLocalhostBind,
     listener: StdTcpListener,
 }
 
@@ -70,6 +70,7 @@ pub struct WebControl {
 }
 
 struct WebControlInner {
+    local_addr: std::net::SocketAddr,
     state_tx: watch::Sender<WebRuntimeState>,
     bridge: Arc<dyn WebBridge>,
 }
@@ -86,7 +87,6 @@ pub type WebAttachFuture = Pin<
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum WebRuntimeState {
-    Binding,
     Listening,
     Closing,
     Stopped,
@@ -101,7 +101,6 @@ pub enum WebExitStatus {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum WebStartError {
-    InvalidBindTarget,
     BindFailed(String),
     TokioSpawnFailed,
 }
@@ -137,54 +136,49 @@ pub fn spawn_web_surface(args: WebStartArgs) -> Result<WebHandle, WebStartError>
 }
 
 pub fn reserve_web_bind(bind: WebLocalhostBind) -> Result<WebBindReservation, WebStartError> {
-    if bind.port == 0 {
-        return Err(WebStartError::InvalidBindTarget);
-    }
     let listener = bind_localhost(&bind)?;
-    Ok(WebBindReservation { bind, listener })
+    Ok(WebBindReservation { listener })
 }
 
 pub fn spawn_reserved_web_surface(args: ReservedWebStartArgs) -> Result<WebHandle, WebStartError> {
-    if args.bind.bind.port == 0 {
-        return Err(WebStartError::InvalidBindTarget);
-    }
-
     let handle =
         tokio::runtime::Handle::try_current().map_err(|_| WebStartError::TokioSpawnFailed)?;
     let listener =
         TcpListener::from_std(args.bind.listener).map_err(|_| WebStartError::TokioSpawnFailed)?;
+    let local_addr = listener
+        .local_addr()
+        .map_err(|error| WebStartError::BindFailed(error.to_string()))?;
     let (state_tx, mut state_rx) = watch::channel(WebRuntimeState::Listening);
     let control = WebControl {
         inner: Arc::new(WebControlInner {
+            local_addr,
             state_tx,
             bridge: args.bridge,
         }),
     };
     let task_control = control.clone();
     let join_handle = handle.spawn(async move {
+        let mut connections = JoinSet::new();
+        let mut failure = None;
         loop {
             tokio::select! {
+                biased;
                 state_change = state_rx.changed() => {
-                    if state_change.is_err() || *state_rx.borrow() == WebRuntimeState::Closing {
-                        break;
-                    }
+                    if state_change.is_err() || *state_rx.borrow() == WebRuntimeState::Closing { break; }
                 }
-                accepted = listener.accept() => {
-                    match accepted {
-                        Ok((stream, _addr)) => {
-                            let connection_control = task_control.clone();
-                            tokio::spawn(async move {
-                                let _ = handle_http_connection(connection_control, stream).await;
-                            });
-                        }
-                        // NOTE: The web surface owns a long-lived localhost listener. The package
-                        // state machine classifies listener accept errors as surface failures so
-                        // callers observe the failed state and restart through server lifecycle.
-                        Err(error) => return fail_web_surface(&task_control, error),
+                _ = connections.join_next(), if !connections.is_empty() => {}
+                accepted = listener.accept() => match accepted {
+                    Ok((stream, _)) => {
+                        connections.spawn(handle_http_connection(task_control.clone(), stream));
                     }
+                    Err(error) => { failure = Some(error); break; }
                 }
             }
         }
+        drop(listener);
+        connections.abort_all();
+        while connections.join_next().await.is_some() {}
+        if let Some(error) = failure { return fail_web_surface(&task_control, error); }
         let _ = task_control.inner.state_tx.send(WebRuntimeState::Stopped);
         WebExitStatus::Stopped
     });
@@ -201,15 +195,16 @@ fn fail_web_surface(control: &WebControl, error: io::Error) -> WebExitStatus {
 }
 
 impl WebControl {
+    pub fn local_addr(&self) -> std::net::SocketAddr {
+        self.inner.local_addr
+    }
+
     pub async fn state(&self) -> WebRuntimeState {
         self.inner.state_tx.borrow().clone()
     }
 
     pub async fn ready(&self, request: ReadyRequest) -> Result<ReadyResponse, WebBridgeError> {
         self.ensure_listening()?;
-        if validate_ready_request(&request).is_err() {
-            return Ok(not_ready_response());
-        }
 
         match self.inner.bridge.ready(request).await {
             Ok(response) => Ok(response),
@@ -354,269 +349,267 @@ fn not_ready_response() -> ReadyResponse {
     }
 }
 
-#[derive(Debug)]
-struct HttpRequest {
-    method: String,
-    path: String,
-    host: Option<String>,
-    origin_allowed: bool,
-    content_type: Option<String>,
-    body: Vec<u8>,
+type ResponseBody = http_body_util::combinators::UnsyncBoxBody<Bytes, io::Error>;
+type HttpResponse = hyper::Response<ResponseBody>;
+
+async fn handle_http_connection(control: WebControl, stream: TcpStream) {
+    let service = hyper::service::service_fn(move |request| {
+        let control = control.clone();
+        async move { Ok::<_, std::convert::Infallible>(handle_http_request(control, request).await) }
+    });
+    let _ = hyper::server::conn::http1::Builder::new()
+        .keep_alive(false)
+        .half_close(true)
+        .max_buf_size(MAX_HTTP_HEADER_BYTES)
+        .timer(hyper_util::rt::TokioTimer::new())
+        .header_read_timeout(HTTP_REQUEST_READ_TIMEOUT)
+        .serve_connection(hyper_util::rt::TokioIo::new(stream), service)
+        .await;
 }
 
-enum JsonRequestParseError {
-    UnsupportedContentType,
-    MalformedJson,
-}
-
-async fn handle_http_connection(mut control: WebControl, mut stream: TcpStream) -> io::Result<()> {
-    let request = match read_http_request(&mut stream).await? {
-        Ok(request) => request,
-        Err(HttpRequestReadError::BodyTooLarge) => {
-            return write_problem_response(
-                &mut stream,
-                413,
-                LocalHttpProblemCode::BodyTooLarge,
-                "request body too large",
-            )
-            .await;
-        }
-    };
-    if !request.host.as_deref().is_some_and(is_loopback_authority) || !request.origin_allowed {
-        return write_problem_response(
-            &mut stream,
+async fn handle_http_request(
+    control: WebControl,
+    request: hyper::Request<hyper::body::Incoming>,
+) -> HttpResponse {
+    let headers = request.headers();
+    let header_bytes = headers
+        .iter()
+        .map(|(name, value)| name.as_str().len() + value.as_bytes().len() + 4)
+        .sum::<usize>()
+        + request.method().as_str().len()
+        + request.uri().to_string().len()
+        + 12;
+    if header_bytes > MAX_HTTP_HEADER_BYTES {
+        return problem_response(
+            431,
+            LocalHttpProblemCode::BodyTooLarge,
+            "request headers too large",
+        );
+    }
+    let host_allowed = headers.get_all("host").iter().count() == 1
+        && headers
+            .get("host")
+            .and_then(|value| value.to_str().ok())
+            .is_some_and(is_loopback_authority);
+    let origin_allowed = headers.get_all("origin").iter().count() <= 1
+        && headers
+            .get("origin")
+            .is_none_or(|value| value.to_str().is_ok_and(is_loopback_origin));
+    if !host_allowed || !origin_allowed {
+        return problem_response(
             403,
             LocalHttpProblemCode::RouteNotFound,
             "request target not allowed",
-        )
-        .await;
+        );
     }
-    match request.path.as_str() {
-        "/selvedge/local/v1/ready" => handle_ready_route(&control, &mut stream, request).await,
-        "/selvedge/local/v1/command" => handle_command_route(&control, &mut stream, request).await,
-        "/selvedge/local/v1/attach" => {
-            handle_attach_route(&mut control, &mut stream, request).await
+    let path = request.uri().path().to_owned();
+    if !matches!(
+        path.as_str(),
+        "/selvedge/local/v1/ready" | "/selvedge/local/v1/command" | "/selvedge/local/v1/attach"
+    ) {
+        return problem_response(404, LocalHttpProblemCode::RouteNotFound, "route not found");
+    }
+    if request.method() != hyper::Method::POST {
+        return problem_response(
+            405,
+            LocalHttpProblemCode::MethodNotAllowed,
+            "method not allowed",
+        );
+    }
+    if !headers
+        .get("content-type")
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| {
+            value
+                .split(';')
+                .next()
+                .is_some_and(|media| media.trim().eq_ignore_ascii_case(JSON_CONTENT_TYPE))
+        })
+    {
+        return problem_response(
+            415,
+            LocalHttpProblemCode::UnsupportedContentType,
+            "unsupported content type",
+        );
+    }
+    if request
+        .body()
+        .size_hint()
+        .upper()
+        .is_some_and(|size| size > MAX_HTTP_BODY_BYTES as u64)
+    {
+        return problem_response(
+            413,
+            LocalHttpProblemCode::BodyTooLarge,
+            "request body too large",
+        );
+    }
+    let body = match timeout(
+        HTTP_REQUEST_READ_TIMEOUT,
+        http_body_util::Limited::new(request.into_body(), MAX_HTTP_BODY_BYTES).collect(),
+    )
+    .await
+    {
+        Ok(Ok(body)) => body.to_bytes(),
+        Ok(Err(error)) if error.is::<http_body_util::LengthLimitError>() => {
+            return problem_response(
+                413,
+                LocalHttpProblemCode::BodyTooLarge,
+                "request body too large",
+            );
         }
+        Ok(Err(_)) => {
+            return problem_response(
+                400,
+                LocalHttpProblemCode::MalformedJson,
+                "invalid request body framing",
+            );
+        }
+        Err(_) => {
+            return problem_response(
+                408,
+                LocalHttpProblemCode::MalformedJson,
+                "request body read timed out",
+            );
+        }
+    };
+    match path.as_str() {
+        "/selvedge/local/v1/ready" => match serde_json::from_slice::<ReadyRequest>(&body) {
+            Ok(request) => match control.ready(request).await {
+                Ok(response) => json_response(200, &response),
+                Err(error) => bridge_problem(error),
+            },
+            Err(_) => malformed_request(),
+        },
+        "/selvedge/local/v1/command" => match serde_json::from_slice::<CommandRequest>(&body) {
+            Ok(request) => match control.submit_command(request).await {
+                Ok(response) => json_response(200, &response),
+                Err(error) => bridge_problem(error),
+            },
+            Err(_) => malformed_request(),
+        },
         _ => {
-            write_problem_response(
-                &mut stream,
-                404,
-                LocalHttpProblemCode::RouteNotFound,
-                "route not found",
-            )
-            .await
-        }
-    }
-}
-
-async fn handle_ready_route(
-    control: &WebControl,
-    stream: &mut TcpStream,
-    request: HttpRequest,
-) -> io::Result<()> {
-    if request.method != "POST" {
-        return write_problem_response(
-            stream,
-            405,
-            LocalHttpProblemCode::MethodNotAllowed,
-            "method not allowed",
-        )
-        .await;
-    }
-    let ready_request = match parse_json_request::<ReadyRequest>(&request) {
-        Ok(request) => request,
-        Err(error) => return write_json_parse_error(stream, error, "ready").await,
-    };
-    match control.ready(ready_request).await {
-        Ok(response) => write_json_response(stream, 200, &response).await,
-        Err(error) => {
-            write_problem_response(
-                stream,
-                500,
-                LocalHttpProblemCode::InternalFailure,
-                format!("{error:?}"),
-            )
-            .await
-        }
-    }
-}
-
-async fn handle_command_route(
-    control: &WebControl,
-    stream: &mut TcpStream,
-    request: HttpRequest,
-) -> io::Result<()> {
-    if request.method != "POST" {
-        return write_problem_response(
-            stream,
-            405,
-            LocalHttpProblemCode::MethodNotAllowed,
-            "method not allowed",
-        )
-        .await;
-    }
-    let command_request = match parse_json_request::<CommandRequest>(&request) {
-        Ok(request) => request,
-        Err(error) => return write_json_parse_error(stream, error, "command").await,
-    };
-    match control.submit_command(command_request).await {
-        Ok(response) => write_json_response(stream, 200, &response).await,
-        Err(error) => {
-            write_problem_response(
-                stream,
-                500,
-                LocalHttpProblemCode::InternalFailure,
-                format!("{error:?}"),
-            )
-            .await
-        }
-    }
-}
-
-async fn handle_attach_route(
-    control: &mut WebControl,
-    stream: &mut TcpStream,
-    request: HttpRequest,
-) -> io::Result<()> {
-    if request.method != "POST" {
-        return write_problem_response(
-            stream,
-            405,
-            LocalHttpProblemCode::MethodNotAllowed,
-            "method not allowed",
-        )
-        .await;
-    }
-    let attach_request = match parse_json_request::<AttachRequest>(&request) {
-        Ok(request) => request,
-        Err(error) => return write_json_parse_error(stream, error, "attach").await,
-    };
-    let client_command_id = attach_request.client_command_id.clone();
-    match control.attach(attach_request).await {
-        Ok((accepted, mut frames)) => {
-            write_stream_headers(stream).await?;
-            write_attach_stream_item(stream, &LocalAttachStreamItem::Accepted(accepted)).await?;
-            while let Some(frame) = next_web_frame(&mut frames, &client_command_id).await {
-                write_attach_stream_item(stream, &frame).await?;
-                if matches!(frame, LocalAttachStreamItem::StreamError(_)) {
-                    break;
+            let request = match serde_json::from_slice::<AttachRequest>(&body) {
+                Ok(request) => request,
+                Err(_) => return malformed_request(),
+            };
+            let command_id = request.client_command_id.clone();
+            match control.attach(request).await {
+                Ok((accepted, frames)) => {
+                    let stream_command_id = command_id.clone();
+                    let items = futures_util::stream::once(async move {
+                        LocalAttachStreamItem::Accepted(accepted)
+                    })
+                    .chain(frames.map(move |frame| match frame {
+                        Ok(frame) => LocalAttachStreamItem::Frame(frame),
+                        Err(error) => LocalAttachStreamItem::StreamError(LocalStreamError {
+                            client_command_id: command_id.clone(),
+                            reason: LocalStreamErrorReason::InternalFailure,
+                            message_text: format!("{error:?}"),
+                        }),
+                    }));
+                    let items = items.scan(false, move |ended, item| {
+                        let next = if *ended {
+                            None
+                        } else {
+                            let (bytes, terminal) = encode_stream_item(item, &stream_command_id);
+                            *ended = terminal;
+                            Some(Ok::<_, io::Error>(hyper::body::Frame::data(Bytes::from(
+                                bytes,
+                            ))))
+                        };
+                        std::future::ready(next)
+                    });
+                    response(
+                        200,
+                        NDJSON_CONTENT_TYPE,
+                        http_body_util::StreamBody::new(items).boxed_unsync(),
+                    )
                 }
-            }
-            Ok(())
-        }
-        Err(AttachRejectedOrBridgeError::Rejected(rejected)) => {
-            write_json_response(stream, 409, &rejected).await
-        }
-        Err(AttachRejectedOrBridgeError::Bridge(error)) => {
-            write_problem_response(
-                stream,
-                500,
-                LocalHttpProblemCode::InternalFailure,
-                format!("{error:?}"),
-            )
-            .await
-        }
-    }
-}
-
-async fn next_web_frame(
-    frames: &mut WebFrameStream,
-    client_command_id: &LocalClientCommandId,
-) -> Option<LocalAttachStreamItem> {
-    frames.as_mut().next().await.map(|frame| match frame {
-        Ok(frame) => LocalAttachStreamItem::Frame(frame),
-        Err(error) => LocalAttachStreamItem::StreamError(LocalStreamError {
-            client_command_id: client_command_id.clone(),
-            reason: LocalStreamErrorReason::InternalFailure,
-            message_text: format!("{error:?}"),
-        }),
-    })
-}
-
-#[derive(Debug)]
-enum HttpRequestReadError {
-    BodyTooLarge,
-}
-
-async fn read_http_request(
-    stream: &mut TcpStream,
-) -> io::Result<Result<HttpRequest, HttpRequestReadError>> {
-    read_http_request_with_timeout(stream, HTTP_REQUEST_READ_TIMEOUT).await
-}
-
-async fn read_http_request_with_timeout(
-    stream: &mut TcpStream,
-    read_timeout: Duration,
-) -> io::Result<Result<HttpRequest, HttpRequestReadError>> {
-    match timeout(read_timeout, read_http_request_inner(stream)).await {
-        Ok(result) => result,
-        Err(_) => Err(io::Error::new(
-            io::ErrorKind::TimedOut,
-            "HTTP request read timed out",
-        )),
-    }
-}
-
-async fn read_http_request_inner(
-    stream: &mut TcpStream,
-) -> io::Result<Result<HttpRequest, HttpRequestReadError>> {
-    let mut raw_headers = Vec::new();
-    let mut byte = [0_u8; 1];
-    while !raw_headers.ends_with(b"\r\n\r\n") {
-        let read = stream.read(&mut byte).await?;
-        if read == 0 {
-            return Err(io::Error::new(
-                io::ErrorKind::UnexpectedEof,
-                "connection closed before headers",
-            ));
-        }
-        raw_headers.push(byte[0]);
-        if raw_headers.len() > MAX_HTTP_HEADER_BYTES {
-            return Ok(Err(HttpRequestReadError::BodyTooLarge));
-        }
-    }
-    let header_text = String::from_utf8(raw_headers)
-        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error.to_string()))?;
-    let mut lines = header_text.split("\r\n");
-    let request_line = lines.next().unwrap_or_default();
-    let mut request_parts = request_line.split_whitespace();
-    let method = request_parts.next().unwrap_or_default().to_owned();
-    let path = request_parts.next().unwrap_or_default().to_owned();
-    let mut host = None;
-    let mut duplicate_host = false;
-    let mut origin = None;
-    let mut duplicate_origin = false;
-    let mut content_type = None;
-    let mut content_length = 0_usize;
-    for line in lines {
-        if line.is_empty() {
-            continue;
-        }
-        if let Some((name, value)) = line.split_once(':') {
-            if name.eq_ignore_ascii_case("host") {
-                duplicate_host |= host.replace(value.trim().to_owned()).is_some();
-            } else if name.eq_ignore_ascii_case("origin") {
-                duplicate_origin |= origin.replace(value.trim().to_owned()).is_some();
-            } else if name.eq_ignore_ascii_case("content-type") {
-                content_type = Some(value.trim().to_ascii_lowercase());
-            } else if name.eq_ignore_ascii_case("content-length") {
-                content_length = value.trim().parse().unwrap_or_default();
+                Err(AttachRejectedOrBridgeError::Rejected(rejected)) => {
+                    json_response(409, &rejected)
+                }
+                Err(AttachRejectedOrBridgeError::Bridge(error)) => bridge_problem(error),
             }
         }
     }
-    if content_length > MAX_HTTP_BODY_BYTES {
-        return Ok(Err(HttpRequestReadError::BodyTooLarge));
+}
+
+// Stop serialization at the wire budget rather than allocating an unbounded snapshot.
+struct BoundedFrame(Vec<u8>);
+impl io::Write for BoundedFrame {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        if bytes.len() > MAX_LOCAL_FRAME_BYTES.saturating_sub(self.0.len()) {
+            return Err(io::Error::other("local frame exceeds wire budget"));
+        }
+        self.0.extend_from_slice(bytes);
+        Ok(bytes.len())
     }
-    let mut body = vec![0_u8; content_length];
-    stream.read_exact(&mut body).await?;
-    Ok(Ok(HttpRequest {
-        method,
-        path,
-        host: if duplicate_host { None } else { host },
-        origin_allowed: !duplicate_origin && origin.as_deref().is_none_or(is_loopback_origin),
-        content_type,
-        body,
-    }))
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+fn encode_stream_item(
+    item: LocalAttachStreamItem,
+    command_id: &LocalClientCommandId,
+) -> (Vec<u8>, bool) {
+    let mut body = BoundedFrame(Vec::new());
+    let terminal = matches!(item, LocalAttachStreamItem::StreamError(_));
+    if serde_json::to_writer(&mut body, &item).is_err() {
+        let error = LocalAttachStreamItem::StreamError(LocalStreamError {
+            client_command_id: command_id.clone(),
+            reason: LocalStreamErrorReason::FrameTooLarge,
+            message_text: format!("encoded frame exceeds {MAX_LOCAL_FRAME_BYTES} bytes"),
+        });
+        let mut bytes = serde_json::to_vec(&error).expect("stream error serializes");
+        bytes.push(b'\n');
+        return (bytes, true);
+    }
+    body.0.push(b'\n');
+    (body.0, terminal)
+}
+
+fn response(status: u16, content_type: &'static str, body: ResponseBody) -> HttpResponse {
+    let mut response = hyper::Response::new(body);
+    *response.status_mut() = hyper::StatusCode::from_u16(status).expect("HTTP status constant");
+    response.headers_mut().insert(
+        "content-type",
+        hyper::header::HeaderValue::from_static(content_type),
+    );
+    response
+}
+
+fn json_response<T: Serialize>(status: u16, value: &T) -> HttpResponse {
+    let bytes = serde_json::to_vec(value).expect("local protocol JSON value serializes");
+    response(
+        status,
+        JSON_CONTENT_TYPE,
+        http_body_util::Full::new(Bytes::from(bytes))
+            .map_err(|never| match never {})
+            .boxed_unsync(),
+    )
+}
+fn problem_response(
+    status: u16,
+    code: LocalHttpProblemCode,
+    message: impl Into<String>,
+) -> HttpResponse {
+    json_response(status, &http_problem(code, message))
+}
+fn malformed_request() -> HttpResponse {
+    problem_response(
+        400,
+        LocalHttpProblemCode::MalformedJson,
+        "malformed JSON request",
+    )
+}
+fn bridge_problem(error: WebBridgeError) -> HttpResponse {
+    problem_response(
+        500,
+        LocalHttpProblemCode::InternalFailure,
+        format!("{error:?}"),
+    )
 }
 
 fn is_loopback_origin(origin: &str) -> bool {
@@ -655,118 +648,6 @@ fn is_loopback_authority(authority: &str) -> bool {
 
     host.parse::<IpAddr>()
         .is_ok_and(|address| address.is_loopback())
-}
-
-fn parse_json_request<T: DeserializeOwned>(
-    request: &HttpRequest,
-) -> Result<T, JsonRequestParseError> {
-    let content_type = request
-        .content_type
-        .as_ref()
-        .ok_or(JsonRequestParseError::UnsupportedContentType)?;
-    if content_type
-        .split(';')
-        .next()
-        .ok_or(JsonRequestParseError::UnsupportedContentType)?
-        .trim()
-        != JSON_CONTENT_TYPE
-    {
-        return Err(JsonRequestParseError::UnsupportedContentType);
-    }
-    serde_json::from_slice(&request.body).map_err(|_| JsonRequestParseError::MalformedJson)
-}
-
-async fn write_json_parse_error(
-    stream: &mut TcpStream,
-    error: JsonRequestParseError,
-    request_kind: &str,
-) -> io::Result<()> {
-    match error {
-        JsonRequestParseError::UnsupportedContentType => {
-            write_problem_response(
-                stream,
-                415,
-                LocalHttpProblemCode::UnsupportedContentType,
-                "unsupported content type",
-            )
-            .await
-        }
-        JsonRequestParseError::MalformedJson => {
-            write_problem_response(
-                stream,
-                400,
-                LocalHttpProblemCode::MalformedJson,
-                format!("malformed {request_kind} request"),
-            )
-            .await
-        }
-    }
-}
-
-async fn write_json_response<T: Serialize>(
-    stream: &mut TcpStream,
-    status_code: u16,
-    response: &T,
-) -> io::Result<()> {
-    let body = serde_json::to_vec(response).map_err(|error| io::Error::other(error.to_string()))?;
-    write_raw_response(stream, status_code, JSON_CONTENT_TYPE, &body).await
-}
-
-async fn write_problem_response(
-    stream: &mut TcpStream,
-    status_code: u16,
-    code: LocalHttpProblemCode,
-    message_text: impl Into<String>,
-) -> io::Result<()> {
-    write_json_response(stream, status_code, &http_problem(code, message_text)).await
-}
-
-async fn write_raw_response(
-    stream: &mut TcpStream,
-    status_code: u16,
-    content_type: &str,
-    body: &[u8],
-) -> io::Result<()> {
-    let headers = format!(
-        "HTTP/1.1 {} {}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-        status_code,
-        status_text(status_code),
-        body.len()
-    );
-    stream.write_all(headers.as_bytes()).await?;
-    stream.write_all(body).await?;
-    stream.flush().await
-}
-
-async fn write_stream_headers(stream: &mut TcpStream) -> io::Result<()> {
-    let headers = format!(
-        "HTTP/1.1 200 OK\r\nContent-Type: {NDJSON_CONTENT_TYPE}\r\nConnection: close\r\n\r\n"
-    );
-    stream.write_all(headers.as_bytes()).await
-}
-
-async fn write_attach_stream_item(
-    stream: &mut TcpStream,
-    item: &LocalAttachStreamItem,
-) -> io::Result<()> {
-    let mut body = serde_json::to_vec(item).map_err(|error| io::Error::other(error.to_string()))?;
-    body.push(b'\n');
-    stream.write_all(&body).await?;
-    stream.flush().await
-}
-
-fn status_text(status_code: u16) -> &'static str {
-    match status_code {
-        200 => "OK",
-        400 => "Bad Request",
-        403 => "Forbidden",
-        404 => "Not Found",
-        405 => "Method Not Allowed",
-        409 => "Conflict",
-        413 => "Content Too Large",
-        415 => "Unsupported Media Type",
-        _ => "Internal Server Error",
-    }
 }
 
 fn bind_localhost(bind: &WebLocalhostBind) -> Result<StdTcpListener, WebStartError> {
@@ -819,6 +700,7 @@ mod tests {
         let (state_tx, _state_rx) = watch::channel(WebRuntimeState::Listening);
         let control = WebControl {
             inner: Arc::new(WebControlInner {
+                local_addr: "127.0.0.1:1".parse().expect("address"),
                 state_tx,
                 bridge: Arc::new(TestBridge),
             }),
@@ -831,31 +713,5 @@ mod tests {
 
         assert!(matches!(status, WebExitStatus::Fatal(_)));
         assert_eq!(control.state().await, WebRuntimeState::Failed);
-    }
-
-    #[tokio::test]
-    async fn request_read_times_out_when_headers_stall() {
-        let listener = TcpListener::bind(("127.0.0.1", 0))
-            .await
-            .expect("bind test listener");
-        let addr = listener.local_addr().expect("listener addr");
-        let client = tokio::spawn(async move {
-            let mut stream = TcpStream::connect(addr).await.expect("connect listener");
-            stream
-                .write_all(b"POST /")
-                .await
-                .expect("write partial request");
-            stream
-        });
-        let (mut server_stream, _addr) = listener.accept().await.expect("accept client");
-
-        let result =
-            read_http_request_with_timeout(&mut server_stream, Duration::from_millis(1)).await;
-
-        assert_eq!(
-            result.expect_err("stalled headers should time out").kind(),
-            io::ErrorKind::TimedOut
-        );
-        let _ = client.await.expect("client task");
     }
 }

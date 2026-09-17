@@ -22,10 +22,7 @@ fn parse_auth_file_reads_valid_contract() {
     )
     .expect("parse auth file");
 
-    assert_eq!(parsed.schema_version, 1);
-    assert_eq!(parsed.provider, "chatgpt");
-    assert_eq!(parsed.credential_kind, "login");
-    assert_eq!(parsed.tokens.id_token, "id-token");
+    assert_eq!(parsed.id_token, "id-token");
 }
 
 #[test]

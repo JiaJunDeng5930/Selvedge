@@ -2,12 +2,12 @@
 
 <!-- selvedge-package-readme
 package: selvedge-router
-freshness_fingerprint: 01637836571b3b617f371ce985a1716b40c5d1a5
+freshness_fingerprint: 431a09c80aadba1f9dca08fd483d54db6f6758be
 -->
 
 This crate owns the Selvedge router actor.
 
-Use it to spawn the process-local mailbox that routes client commands, task runtime output, API output, tool output, factory-created task runtimes, and events ingress. The router owns the live task runtime registry, pending runtime effects, deferred task-local commands, and the join handles for in-flight model calls and tool executions.
+Use it to spawn the process-local mailbox that routes client commands, task runtime output, API output, tool output, factory-created task runtimes, and events ingress. The router owns the live task runtime registry, the join handles for in-flight model calls and tool executions.
 
 This crate commits task lifecycle transitions through the database boundary. It does not execute provider calls, tool calls, history transitions, or client delivery directly. It delegates those effects to the API, configured tool executor, task-runtime factory, core runtime, database, and events crates.
 
@@ -18,9 +18,9 @@ Router ingress is unbounded. The router is the lifecycle coordinator for task ru
 Core output routing is task-id based. Router ingress order is the lifecycle linearization point: effects registered before archive are cancelled by archive, while model or tool requests handled after archive are rejected by the durable status gate.
 Core output with an embedded task id must match the envelope task id before the router starts model calls, tool executions, or event publication.
 
-User input remains pending while the router creates a missing runtime, flushes deferred commands, or replaces a closed mailbox. Only the task runtime settles it after SQLite commits. Freeze, unfreeze, stop, and archive commit directly through the database boundary and return the persisted status. Factory failures are mapped to task missing, task archived, persistence failure, or runtime unavailable, and router shutdown fails deferred and unread task commands before releasing their responders.
+The current user-input command remains owned by the router while it awaits missing-runtime creation or replaces a closed mailbox. Only the task runtime settles it after SQLite commits. Freeze, unfreeze, stop, and archive commit directly through the database boundary and return the persisted status. Factory failures are mapped to task missing, task archived, persistence failure, or runtime unavailable, and router shutdown fails unread task commands before releasing their responders.
 
-Core commits tool-result branches before requesting runtime startup. `CoreOutputMessage::EnsureTaskRuntimes` sends the committed new task ids to the router, and each id enters the same missing, pending, live, and stopping runtime lifecycle as every other task.
+Core commits tool-result branches before requesting runtime startup. `CoreOutputMessage::EnsureTaskRuntimes` sends the committed new task ids to the router, and each id enters the same missing, live, and stopping runtime lifecycle as every other task.
 
 Model calls and tool executions are task-owned router effects. Their terminal output removes and joins the matching handle before delivery to the task runtime. Archiving one task cancels and joins its remaining effects; router shutdown closes ingress, cancels and joins every remaining effect, then shuts down runtimes. `RouterExitStatus::Stopped` therefore cannot leave a router-started model or tool task running.
 
@@ -28,11 +28,11 @@ Attach routing is an admission boundary. `RouterCommand::AttachClient` sends `Re
 
 ## Runtime Ownership Decision
 
-The router's runtime uniqueness invariant is route ownership: for one `TaskId`, at most one `TaskRuntimeSender` in `task_runtime_registry` may receive router task commands at a time. Creation is also single-owned through `pending_effects_by_task`.
+The router's runtime uniqueness invariant is route ownership: for one `TaskId`, at most one `TaskRuntimeSender` in `task_runtime_registry` may receive router task commands at a time. Runtime creation and recovery are awaited within the serial router command handler, so their direct return values need no effect-correlation or deferred-command protocol.
 
 `TaskRuntimeControl` contains no task status. A lifecycle transition notifies the live actor so it reloads durable status. Archive waits for the actor to exit after observing `archived`; process shutdown requests an immediate shutdown. Both paths use the same actor-exit barrier.
 
-Runtime ownership flows as missing, pending create, live, shutting down, then released. During shutdown, the router actor waits on the control barrier. After `TaskRuntimeShutdownResult` returns, the router removes the registry entry only if it is still the same control block.
+Runtime ownership flows as missing, live, shutting down, then released. A successful creation must enqueue `Start` before the router routes the current command to that runtime. During shutdown, the router actor waits on the control barrier. After `TaskRuntimeShutdownResult` returns, the router removes the registry entry only if it is still the same control block.
 
 TODO: Define client data synchronization outside this crate. The router forwards client session controls and runtime diagnostics; it does not produce client-visible task, history, parent-edge, snapshot, or subscription-filtered data views.
 
@@ -48,9 +48,8 @@ flowchart TD
   CoreOutput[Handle CoreOutputEnvelope]
   ApiOutput[Handle ApiOutputEnvelope]
   ToolOutput[Handle ToolExecutionResult]
-  FactoryOutput[Handle FactoryOutputEnvelope]
   RuntimeLive[Runtime registered live]
-  RuntimePending[Runtime creation pending]
+  CreateRuntime[Await runtime creation or recovery]
   RuntimeStopping[Runtime shutdown barrier in progress]
   StatusCommit[Commit task lifecycle transition]
   EffectLive[Model call or tool execution handle owned by router]
@@ -68,19 +67,17 @@ flowchart TD
   Loop -->|CoreOutputEnvelope arrives| CoreOutput
   Loop -->|ApiOutputEnvelope arrives| ApiOutput
   Loop -->|ToolExecutionResult arrives| ToolOutput
-  Loop -->|FactoryOutputEnvelope arrives| FactoryOutput
   Command -->|AttachClient reservation send succeeds| Events
-  Command -->|Start or recovery scan needs a runtime effect| RuntimePending
-  CoreOutput -->|committed branch task ids need runtimes| RuntimePending
+  Command -->|ensure or recovery requires missing runtime creation| CreateRuntime
+  CoreOutput -->|committed branch task ids need runtimes| CreateRuntime
   Command -->|user input targets live runtime| RuntimeLive
   Command -->|freeze, unfreeze, stop, or archive is received| StatusCommit
   StatusCommit -->|non-archive status commits| RuntimeLive
   StatusCommit -->|archive commits| EffectStopping
   StatusCommit -->|transition is invalid or persistence fails| TaskResponseSettled
   Command -->|validation, missing runtime, events, database, or factory dispatch fails| ErrorNotice
-  RuntimePending -->|factory effect is started for task| Loop
-  FactoryOutput -->|runtime created for pending task| RuntimeLive
-  FactoryOutput -->|factory failed for a deferred task command| TaskResponseSettled
+  CreateRuntime -->|creation returns handles and Start enqueues| RuntimeLive
+  CreateRuntime -->|creation fails or Start cannot enqueue| TaskResponseSettled
   TaskResponseSettled -->|typed failure is sent exactly once| ErrorNotice
   RuntimeLive -->|runtime send succeeds| Loop
   RuntimeLive -->|runtime send fails and recreation cannot accept the command| TaskResponseSettled
@@ -106,5 +103,5 @@ flowchart TD
   Shutdown -->|no in-flight effects remain| ShutdownRuntimes
   EffectStopping -->|task-scoped handles are cancelled and joined| RuntimeStopping
   EffectStopping -->|all handles are cancelled and joined during shutdown| ShutdownRuntimes
-  ShutdownRuntimes -->|deferred and unread task commands are failed| TaskResponseSettled
+  ShutdownRuntimes -->|unread task commands are failed| TaskResponseSettled
 ```

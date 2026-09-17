@@ -20,30 +20,17 @@ use selvedge_domain_model::UnixTs;
 use selvedge_local_client::{LocalClientConfig, LocalClientError, LocalEndpoint, LocalFrameStream};
 use selvedge_local_protocol::{
     AttachAccepted, AttachRequest, CommandOutcome, CommandRequest, CommandResponse,
-    LocalClientCommandId, LocalClientFrame, LocalClientId, LocalNoticeKind, LocalSnapshotMode,
-    ReadyRequest, ReadyResponse, ReadyState,
+    LocalClientCommandId, LocalClientFrame, LocalClientId, LocalCommandKind, LocalNoticeKind,
+    LocalSnapshotMode, ReadyRequest, ReadyResponse, ReadyState,
 };
 use selvedge_server::{
-    LocalBindingConfig, LocalOperationCommand, LocalOperationExecutor, LocalOperationFailure,
-    LocalOperationFuture, LocalOperationProgress, LocalOperationProgressSender,
-    LocalOperationSuccess, LocalhostBindTarget, ServerStartArgs, ServerStartupError,
+    LocalOperationExecutor, LocalOperationFailure, LocalOperationFuture, LocalOperationProgress,
+    LocalOperationProgressSender, LocalOperationSuccess, LocalhostBindTarget, ServerStartArgs,
 };
-use selvedge_systemd::SystemdConfig;
 
-const DEFAULT_LOCAL_PORT: u16 = 8080;
-const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
 const DEFAULT_READY_POLL_INTERVAL: Duration = Duration::from_millis(10);
-const DEFAULT_SYSTEMD_UNIT: &str = "selvedge-server.service";
 
 static COMMAND_ID_COUNTER: AtomicU64 = AtomicU64::new(1);
-
-pub fn app_name() -> &'static str {
-    env!("CARGO_PKG_NAME")
-}
-
-pub fn startup_message() -> String {
-    format!("{} is ready.", app_name())
-}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CliRunArgs {
@@ -54,7 +41,7 @@ pub struct CliRunArgs {
 pub enum CliCommand {
     RunServer,
     SubmitCommand {
-        command_name: String,
+        command: LocalCommandKind,
         payload: serde_json::Value,
         client_id: Option<String>,
     },
@@ -66,10 +53,8 @@ pub enum CliExitStatus {
     InvalidArgs(String),
     ConfigFailed(String),
     LoggingFailed(String),
-    ServerDependencyFailed(String),
     ServerStartFailed(String),
     ServerReadyTimeout,
-    ServerNotReady,
     CommandRejected(String),
     CommandFailed(String),
     LocalClientFailed(String),
@@ -86,33 +71,10 @@ pub enum CliError {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CliResolvedConfig {
     pub local_client_config: LocalClientConfig,
-    pub systemd_config: SystemdConfig,
     pub ready_timeout: Duration,
     pub ready_poll_interval: Duration,
     pub harness_config: selvedge_config_model::HarnessConfig,
     pub mcp_servers: BTreeMap<String, selvedge_config_model::McpServerConfig>,
-}
-
-impl Default for CliResolvedConfig {
-    fn default() -> Self {
-        Self {
-            local_client_config: LocalClientConfig {
-                endpoint: LocalEndpoint::TcpIpv4 {
-                    port: DEFAULT_LOCAL_PORT,
-                },
-                request_timeout: DEFAULT_REQUEST_TIMEOUT,
-            },
-            systemd_config: SystemdConfig {
-                unit_name: DEFAULT_SYSTEMD_UNIT.to_owned(),
-                operation_timeout: DEFAULT_REQUEST_TIMEOUT,
-                poll_interval: DEFAULT_READY_POLL_INTERVAL,
-            },
-            ready_timeout: DEFAULT_REQUEST_TIMEOUT,
-            ready_poll_interval: DEFAULT_READY_POLL_INTERVAL,
-            harness_config: selvedge_config_model::HarnessConfig::default(),
-            mcp_servers: BTreeMap::new(),
-        }
-    }
 }
 
 pub trait CliLocalClient {
@@ -151,7 +113,7 @@ fn build_server_start_args(resolved_config: &CliResolvedConfig) -> ServerStartAr
     ServerStartArgs {
         explicit_home: selvedge_config::selvedge_home().ok(),
         api_config: ApiExecutorConfig {
-            request_timeout: resolved_config.systemd_config.operation_timeout,
+            request_timeout: resolved_config.local_client_config.request_timeout,
             max_response_bytes: None,
         },
         core_spawn_deps: TaskRuntimeSpawnDeps::new(TaskRuntimeConfig {
@@ -161,9 +123,6 @@ fn build_server_start_args(resolved_config: &CliResolvedConfig) -> ServerStartAr
         // hydration until the database-backed builder is implemented.
         snapshot_builder: Arc::new(EmptySnapshotBuilder),
         local_operation_executor: Arc::new(DefaultLocalOperationExecutor),
-        local_binding: LocalBindingConfig {
-            bind_target: local_bind_target.clone(),
-        },
         web_binding: Some(selvedge_server::WebBindingConfig {
             bind_target: local_bind_target,
         }),
@@ -184,17 +143,24 @@ pub trait CliServerStarter: Send + Sync + 'static {
 }
 
 pub async fn run_cli(args: CliRunArgs) -> CliExitStatus {
-    if let Err(error) = parse_cli_args(&args.argv) {
-        return CliExitStatus::InvalidArgs(error);
-    }
+    let command = match parse_cli_args(&args.argv) {
+        Ok(command) => command,
+        Err(error) => return CliExitStatus::InvalidArgs(error),
+    };
     if let Err(error) = selvedge_config::init() {
         return CliExitStatus::ConfigFailed(error.to_string());
     }
     if let Err(error) = selvedge_logging::init() {
         return CliExitStatus::LoggingFailed(error.to_string());
     }
+    let resolved_config = match selvedge_config::read(cli_resolved_config_from_app_config) {
+        Ok(Ok(config)) => config,
+        Ok(Err(error)) => return CliExitStatus::ConfigFailed(error),
+        Err(error) => return CliExitStatus::ConfigFailed(error.to_string()),
+    };
     run_cli_with_deps(
-        args.argv,
+        command,
+        resolved_config,
         DefaultCliServerStarter,
         DefaultCliServerRunner,
         DefaultCliLocalClientConnector,
@@ -202,27 +168,21 @@ pub async fn run_cli(args: CliRunArgs) -> CliExitStatus {
     .await
 }
 
-#[rustfmt::skip]
 pub async fn run_cli_with_deps<
-    S: CliServerStarter, R: CliServerRunner, C: CliLocalClientConnector,
+    S: CliServerStarter,
+    R: CliServerRunner,
+    C: CliLocalClientConnector,
 >(
-    args: Vec<String>, server_starter: S, server_runner: R,
+    command: CliCommand,
+    resolved_config: CliResolvedConfig,
+    server_starter: S,
+    server_runner: R,
     local_client_connector: C,
 ) -> CliExitStatus {
-    let command = match parse_cli_args(&args) {
-        Ok(command) => command,
-        Err(error) => return CliExitStatus::InvalidArgs(error),
-    };
-    let resolved_config = match resolve_cli_config() {
-        Ok(config) => config,
-        Err(CliConfigResolution::NotInitialized) => CliResolvedConfig::default(),
-        Err(CliConfigResolution::Failed(error)) => return CliExitStatus::ConfigFailed(error),
-    };
-
     match command {
         CliCommand::RunServer => run_server_subcommand(server_runner, &resolved_config).await,
         CliCommand::SubmitCommand {
-            command_name,
+            command,
             payload,
             client_id,
         } => {
@@ -230,7 +190,7 @@ pub async fn run_cli_with_deps<
                 server_starter,
                 local_client_connector,
                 resolved_config,
-                command_name,
+                command,
                 payload,
                 client_id,
             )
@@ -239,21 +199,9 @@ pub async fn run_cli_with_deps<
     }
 }
 
-enum CliConfigResolution {
-    NotInitialized,
-    Failed(String),
-}
-
-fn resolve_cli_config() -> Result<CliResolvedConfig, CliConfigResolution> {
-    selvedge_config::read(cli_resolved_config_from_app_config).map_err(|error| match error {
-        selvedge_config::ConfigError::NotInitialized => CliConfigResolution::NotInitialized,
-        error => CliConfigResolution::Failed(error.to_string()),
-    })?
-}
-
 fn cli_resolved_config_from_app_config(
     config: &selvedge_config_model::AppConfig,
-) -> Result<CliResolvedConfig, CliConfigResolution> {
+) -> Result<CliResolvedConfig, String> {
     let endpoint = match config.server.host.as_str() {
         "127.0.0.1" | "localhost" => LocalEndpoint::TcpIpv4 {
             port: config.server.port,
@@ -262,9 +210,7 @@ fn cli_resolved_config_from_app_config(
             port: config.server.port,
         },
         host => {
-            return Err(CliConfigResolution::Failed(format!(
-                "server.host must be loopback, got {host}"
-            )));
+            return Err(format!("server.host must be loopback, got {host}"));
         }
     };
     let request_timeout = Duration::from_millis(config.server.request_timeout_ms);
@@ -273,11 +219,6 @@ fn cli_resolved_config_from_app_config(
         local_client_config: LocalClientConfig {
             endpoint,
             request_timeout,
-        },
-        systemd_config: SystemdConfig {
-            unit_name: DEFAULT_SYSTEMD_UNIT.to_owned(),
-            operation_timeout: request_timeout,
-            poll_interval: DEFAULT_READY_POLL_INTERVAL,
         },
         ready_timeout: request_timeout,
         ready_poll_interval: DEFAULT_READY_POLL_INTERVAL,
@@ -303,14 +244,10 @@ where
         CliExitStatus::InvalidArgs(error) => writeln!(writer, "Invalid arguments: {error}"),
         CliExitStatus::ConfigFailed(error) => writeln!(writer, "Configuration failed: {error}"),
         CliExitStatus::LoggingFailed(error) => writeln!(writer, "Logging failed: {error}"),
-        CliExitStatus::ServerDependencyFailed(error) => {
-            writeln!(writer, "Server dependency failed: {error}")
-        }
         CliExitStatus::ServerStartFailed(error) => {
             writeln!(writer, "Server start failed: {error}")
         }
         CliExitStatus::ServerReadyTimeout => writeln!(writer, "Server readiness timed out."),
-        CliExitStatus::ServerNotReady => writeln!(writer, "Server is not ready."),
         CliExitStatus::CommandRejected(error) => {
             writeln!(writer, "Command rejected: {error}")
         }
@@ -331,7 +268,7 @@ fn parse_cli_args(args: &[String]) -> Result<CliCommand, String> {
     }
     if tokens == ["list-models"] {
         return Ok(CliCommand::SubmitCommand {
-            command_name: "list-models".to_owned(),
+            command: LocalCommandKind::ListModels,
             payload: serde_json::json!({}),
             client_id: None,
         });
@@ -373,13 +310,8 @@ fn parse_cli_args(args: &[String]) -> Result<CliCommand, String> {
 
     let client_id = client_id.ok_or_else(|| "missing --client-id".to_owned())?;
     let command_name = command_name.ok_or_else(|| "expected command name".to_owned())?;
-    if command_name.trim().is_empty()
-        || command_name == "server"
-        || command_name == "list-models"
-        || command_name.starts_with('-')
-    {
-        return Err("invalid command name".to_owned());
-    }
+    let command = LocalCommandKind::parse(&command_name)
+        .ok_or_else(|| format!("unsupported command {command_name}"))?;
     let json_payload = json_payload.ok_or_else(|| "expected json payload".to_owned())?;
     if json_payload.is_empty() {
         return Err("empty json payload".to_owned());
@@ -388,7 +320,7 @@ fn parse_cli_args(args: &[String]) -> Result<CliCommand, String> {
         .map_err(|error| format!("invalid json payload: {error}"))?;
 
     Ok(CliCommand::SubmitCommand {
-        command_name,
+        command,
         payload,
         client_id: Some(client_id),
     })
@@ -423,7 +355,7 @@ async fn run_submit_command<S, C>(
     server_starter: S,
     local_client_connector: C,
     resolved_config: CliResolvedConfig,
-    command_name: String,
+    command: LocalCommandKind,
     payload: serde_json::Value,
     client_id: Option<String>,
 ) -> CliExitStatus
@@ -431,6 +363,7 @@ where
     S: CliServerStarter,
     C: CliLocalClientConnector,
 {
+    let command_name = command.as_str();
     let client_id = match LocalClientId::new(
         client_id.unwrap_or_else(|| format!("cli-{}", std::process::id())),
     ) {
@@ -448,7 +381,7 @@ where
     let request = CommandRequest {
         client_id: client_id.clone(),
         client_command_id: submit_command_id.clone(),
-        command_name: command_name.clone(),
+        command_name: command_name.to_owned(),
         payload,
     };
 
@@ -466,8 +399,7 @@ where
         }
     };
 
-    let waits_for_terminal_notice = command_waits_for_terminal_notice(&command_name);
-    let mut stream = if waits_for_terminal_notice {
+    let mut stream = {
         let attach_request = AttachRequest {
             client_id: client_id.clone(),
             client_command_id: attach_command_id.clone(),
@@ -484,9 +416,7 @@ where
             let _ = client.close().await;
             return status;
         }
-        Some(stream)
-    } else {
-        None
+        stream
     };
 
     let status = match client.submit_command(request).await {
@@ -495,15 +425,12 @@ where
             client_command_id,
             ..
         }) => {
-            if waits_for_terminal_notice {
-                let Some(stream) = stream.as_mut() else {
-                    return CliExitStatus::LocalClientFailed(
-                        "terminal notice stream missing".to_owned(),
-                    );
-                };
-                wait_for_terminal_frame(stream, &client_command_id, &command_name).await
+            if client_command_id != submit_command_id {
+                CliExitStatus::LocalClientFailed(
+                    "command response ID does not match request".to_owned(),
+                )
             } else {
-                CliExitStatus::Success
+                wait_for_terminal_frame(&mut stream, &submit_command_id, command_name).await
             }
         }
         Ok(CommandResponse {
@@ -515,10 +442,6 @@ where
 
     let _ = client.close().await;
     status
-}
-
-fn command_waits_for_terminal_notice(command_name: &str) -> bool {
-    command_name == "list-models" || command_name == "login-chatgpt"
 }
 
 async fn poll_ready_client<C>(
@@ -819,12 +742,12 @@ struct DefaultLocalOperationExecutor;
 impl LocalOperationExecutor for DefaultLocalOperationExecutor {
     fn execute(
         &self,
-        command: LocalOperationCommand,
+        command: LocalCommandKind,
         progress_tx: LocalOperationProgressSender,
     ) -> LocalOperationFuture {
         Box::pin(async move {
             match command {
-                LocalOperationCommand::LoginChatgpt => {
+                LocalCommandKind::LoginChatgpt => {
                     let sink = ServerLoginProgressSink { progress_tx };
                     match run_chatgpt_login(sink).await {
                         Ok(result) => Ok(LocalOperationSuccess {
@@ -838,7 +761,7 @@ impl LocalOperationExecutor for DefaultLocalOperationExecutor {
                         }),
                     }
                 }
-                LocalOperationCommand::ListModels => list_models_operation().await,
+                LocalCommandKind::ListModels => list_models_operation().await,
             }
         })
     }
@@ -941,12 +864,6 @@ impl ClientSnapshotBuilder for EmptySnapshotBuilder {
     }
 }
 
-impl From<ServerStartupError> for CliError {
-    fn from(error: ServerStartupError) -> Self {
-        Self::ServerDependencyFailed(format!("{error:?}"))
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::collections::VecDeque;
@@ -958,6 +875,22 @@ mod tests {
         LocalClientSubscription, LocalDetailLevel, LocalNotice, LocalNoticeKind, LocalNoticeLevel,
         LocalTaskScope,
     };
+
+    async fn run_test_cli<S: CliServerStarter, R: CliServerRunner, C: CliLocalClientConnector>(
+        args: Vec<String>,
+        starter: S,
+        runner: R,
+        connector: C,
+    ) -> CliExitStatus {
+        let command = match parse_cli_args(&args) {
+            Ok(command) => command,
+            Err(error) => return CliExitStatus::InvalidArgs(error),
+        };
+        let config =
+            cli_resolved_config_from_app_config(&selvedge_config_model::AppConfig::default())
+                .expect("resolve model defaults");
+        run_cli_with_deps(command, config, starter, runner, connector).await
+    }
 
     #[test]
     fn server_start_args_carry_effective_harness_and_mcp_config() {
@@ -981,12 +914,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn command_uses_ready_client_without_systemd_start() {
-        let connector = FakeConnector::new(vec![Ok(FakeClientPlan::ready_accepted())]);
+    async fn command_uses_ready_client_without_server_start() {
+        let connector = FakeConnector::new(vec![Ok(FakeClientPlan::list_models_complete())]);
         let connector_state = connector.state.clone();
         let starter = FakeServerStarter::new();
 
-        let status = run_cli_with_deps(
+        let status = run_test_cli(
             command_argv(),
             starter.clone(),
             FakeServerRunner::stopped(),
@@ -997,18 +930,27 @@ mod tests {
         assert_eq!(status, CliExitStatus::Success);
         assert_eq!(connector_state.lock().expect("connector").connect_calls, 1);
         assert_eq!(starter.start_calls(), 0);
+        let state = connector_state.lock().expect("connector");
+        assert_eq!(state.submitted.len(), 1);
+        let request = &state.submitted[0];
+        assert_eq!(request.command_name, "list-models");
+        assert_eq!(request.payload, serde_json::json!({}));
+        assert_eq!(
+            request.client_id,
+            LocalClientId::new("client-1").expect("client ID")
+        );
     }
 
     #[tokio::test]
     async fn command_auto_starts_server_then_reconnects_and_submits() {
         let connector = FakeConnector::new(vec![
             Ok(FakeClientPlan::not_ready()),
-            Ok(FakeClientPlan::ready_accepted()),
+            Ok(FakeClientPlan::list_models_complete()),
         ]);
         let connector_state = connector.state.clone();
         let starter = FakeServerStarter::new();
 
-        let status = run_cli_with_deps(
+        let status = run_test_cli(
             command_argv(),
             starter.clone(),
             FakeServerRunner::stopped(),
@@ -1022,18 +964,15 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn command_ready_failure_returns_local_client_failure_without_systemd_start() {
+    async fn command_ready_failure_returns_local_client_failure_without_server_start() {
         let connector = FakeConnector::new(vec![Ok(FakeClientPlan {
             ready: Err(CliError::LocalClientFailed("protocol mismatch".to_owned())),
-            submit: Ok(CommandResponse {
-                client_command_id: LocalClientCommandId::new("response-1").expect("command id"),
-                outcome: CommandOutcome::Accepted,
-            }),
+            submit: Ok(CommandOutcome::Accepted),
             attach_frames: Vec::new(),
         })]);
         let starter = FakeServerStarter::new();
 
-        let status = run_cli_with_deps(
+        let status = run_test_cli(
             command_argv(),
             starter.clone(),
             FakeServerRunner::stopped(),
@@ -1052,14 +991,13 @@ mod tests {
     async fn command_rejection_is_not_success() {
         let connector = FakeConnector::new(vec![Ok(FakeClientPlan {
             ready: Ok(ready_response(ReadyState::Ready)),
-            submit: Ok(CommandResponse {
-                client_command_id: LocalClientCommandId::new("response-1").expect("command id"),
-                outcome: CommandOutcome::Rejected(CommandRejectReason::UnsupportedCommand),
-            }),
+            submit: Ok(CommandOutcome::Rejected(
+                CommandRejectReason::UnsupportedCommand,
+            )),
             attach_frames: vec![Ok(empty_snapshot_frame("cli-attach"))],
         })]);
 
-        let status = run_cli_with_deps(
+        let status = run_test_cli(
             command_argv(),
             FakeServerStarter::new(),
             FakeServerRunner::stopped(),
@@ -1117,10 +1055,6 @@ mod tests {
                 "Logging failed: bad logging\n",
             ),
             (
-                CliExitStatus::ServerDependencyFailed("missing dependency".to_owned()),
-                "Server dependency failed: missing dependency\n",
-            ),
-            (
                 CliExitStatus::ServerStartFailed("start failed".to_owned()),
                 "Server start failed: start failed\n",
             ),
@@ -1128,7 +1062,6 @@ mod tests {
                 CliExitStatus::ServerReadyTimeout,
                 "Server readiness timed out.\n",
             ),
-            (CliExitStatus::ServerNotReady, "Server is not ready.\n"),
             (
                 CliExitStatus::CommandRejected("UnsupportedCommand".to_owned()),
                 "Command rejected: UnsupportedCommand\n",
@@ -1162,7 +1095,7 @@ mod tests {
         let runner = FakeServerRunner::stopped();
         let runner_state = runner.state.clone();
 
-        let status = run_cli_with_deps(
+        let status = run_test_cli(
             vec!["selvedge".to_owned(), "--unknown".to_owned()],
             starter.clone(),
             runner,
@@ -1182,7 +1115,7 @@ mod tests {
             "selvedge".to_owned(),
             "--client-id".to_owned(),
             "client-1".to_owned(),
-            "set-number".to_owned(),
+            "login-chatgpt".to_owned(),
             "-1".to_owned(),
         ])
         .expect("negative JSON number should parse as payload");
@@ -1190,10 +1123,24 @@ mod tests {
         assert_eq!(
             command,
             CliCommand::SubmitCommand {
-                command_name: "set-number".to_owned(),
+                command: LocalCommandKind::LoginChatgpt,
                 payload: serde_json::json!(-1),
                 client_id: Some("client-1".to_owned()),
             }
+        );
+    }
+
+    #[test]
+    fn parser_rejects_unsupported_commands() {
+        assert!(
+            parse_cli_args(&[
+                "selvedge".to_owned(),
+                "--client-id".to_owned(),
+                "client-1".to_owned(),
+                "send-user-input".to_owned(),
+                "{}".to_owned()
+            ])
+            .is_err()
         );
     }
 
@@ -1205,7 +1152,7 @@ mod tests {
         assert_eq!(
             command,
             CliCommand::SubmitCommand {
-                command_name: "list-models".to_owned(),
+                command: LocalCommandKind::ListModels,
                 payload: serde_json::json!({}),
                 client_id: None,
             }
@@ -1213,14 +1160,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn server_subcommand_uses_runner_without_systemd_or_local_client() {
+    async fn server_subcommand_uses_runner_without_starter_or_local_client() {
         let connector = FakeConnector::new(Vec::new());
         let connector_state = connector.state.clone();
         let starter = FakeServerStarter::new();
         let runner = FakeServerRunner::stopped();
         let runner_state = runner.state.clone();
 
-        let status = run_cli_with_deps(
+        let status = run_test_cli(
             vec!["selvedge".to_owned(), "server".to_owned()],
             starter.clone(),
             runner,
@@ -1242,7 +1189,7 @@ mod tests {
         let server_runner = FakeServerRunner::stopped();
         let server_runner_state = server_runner.state.clone();
 
-        let status = run_cli_with_deps(
+        let status = run_test_cli(
             vec!["selvedge".to_owned(), "list-models".to_owned()],
             starter.clone(),
             server_runner,
@@ -1258,7 +1205,7 @@ mod tests {
 
     #[tokio::test]
     async fn list_models_command_reports_terminal_failure() {
-        let status = run_cli_with_deps(
+        let status = run_test_cli(
             vec!["selvedge".to_owned(), "list-models".to_owned()],
             FakeServerStarter::new(),
             FakeServerRunner::stopped(),
@@ -1274,7 +1221,7 @@ mod tests {
 
     #[tokio::test]
     async fn login_chatgpt_command_reports_terminal_failure() {
-        let status = run_cli_with_deps(
+        let status = run_test_cli(
             vec![
                 "selvedge".to_owned(),
                 "--client-id".to_owned(),
@@ -1294,25 +1241,6 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn router_backed_command_submits_without_attaching_requested_client() {
-        let status = run_cli_with_deps(
-            vec![
-                "selvedge".to_owned(),
-                "--client-id".to_owned(),
-                "client-1".to_owned(),
-                "send-user-input".to_owned(),
-                r#"{"message":"hello"}"#.to_owned(),
-            ],
-            FakeServerStarter::new(),
-            FakeServerRunner::stopped(),
-            FakeConnector::new(vec![Ok(FakeClientPlan::router_command_without_attach())]),
-        )
-        .await;
-
-        assert_eq!(status, CliExitStatus::Success);
-    }
-
     #[derive(Clone)]
     struct FakeConnector {
         state: Arc<Mutex<FakeConnectorState>>,
@@ -1321,6 +1249,7 @@ mod tests {
     struct FakeConnectorState {
         connect_calls: usize,
         plans: VecDeque<Result<FakeClientPlan, CliError>>,
+        submitted: Vec<CommandRequest>,
     }
 
     impl FakeConnector {
@@ -1329,6 +1258,7 @@ mod tests {
                 state: Arc::new(Mutex::new(FakeConnectorState {
                     connect_calls: 0,
                     plans: plans.into(),
+                    submitted: Vec::new(),
                 })),
             }
         }
@@ -1344,35 +1274,25 @@ mod tests {
                 .plans
                 .pop_front()
                 .unwrap_or_else(|| Err(CliError::LocalClientFailed("no plan".to_owned())))
-                .map(|plan| FakeClient { plan })
+                .map(|plan| FakeClient {
+                    plan,
+                    state: self.state.clone(),
+                })
         }
     }
 
     struct FakeClient {
         plan: FakeClientPlan,
+        state: Arc<Mutex<FakeConnectorState>>,
     }
 
     struct FakeClientPlan {
         ready: Result<ReadyResponse, CliError>,
-        submit: Result<CommandResponse, CliError>,
+        submit: Result<CommandOutcome, CliError>,
         attach_frames: Vec<Result<LocalClientFrame, LocalClientError>>,
     }
 
     impl FakeClientPlan {
-        fn ready_accepted() -> Self {
-            Self {
-                ready: Ok(ready_response(ReadyState::Ready)),
-                submit: Ok(CommandResponse {
-                    client_command_id: LocalClientCommandId::new("response-1").expect("command id"),
-                    outcome: CommandOutcome::Accepted,
-                }),
-                attach_frames: vec![
-                    Ok(empty_snapshot_frame("cli-attach")),
-                    Ok(command_completed_notice("response-1", "send-user-input")),
-                ],
-            }
-        }
-
         fn not_ready() -> Self {
             Self {
                 ready: Ok(ready_response(ReadyState::NotReady)),
@@ -1386,10 +1306,7 @@ mod tests {
         fn list_models_complete() -> Self {
             Self {
                 ready: Ok(ready_response(ReadyState::Ready)),
-                submit: Ok(CommandResponse {
-                    client_command_id: LocalClientCommandId::new("response-1").expect("command id"),
-                    outcome: CommandOutcome::Accepted,
-                }),
+                submit: Ok(CommandOutcome::Accepted),
                 attach_frames: vec![
                     Ok(empty_snapshot_frame("cli-attach")),
                     Ok(command_completed_notice("response-1", "list-models")),
@@ -1400,10 +1317,7 @@ mod tests {
         fn list_models_failed() -> Self {
             Self {
                 ready: Ok(ready_response(ReadyState::Ready)),
-                submit: Ok(CommandResponse {
-                    client_command_id: LocalClientCommandId::new("response-1").expect("command id"),
-                    outcome: CommandOutcome::Accepted,
-                }),
+                submit: Ok(CommandOutcome::Accepted),
                 attach_frames: vec![
                     Ok(empty_snapshot_frame("cli-attach")),
                     Ok(command_failed_notice("response-1", "list-models")),
@@ -1414,10 +1328,7 @@ mod tests {
         fn login_chatgpt_failed() -> Self {
             Self {
                 ready: Ok(ready_response(ReadyState::Ready)),
-                submit: Ok(CommandResponse {
-                    client_command_id: LocalClientCommandId::new("response-1").expect("command id"),
-                    outcome: CommandOutcome::Accepted,
-                }),
+                submit: Ok(CommandOutcome::Accepted),
                 attach_frames: vec![
                     Ok(empty_snapshot_frame("cli-attach")),
                     Ok(command_failed_notice_with_message(
@@ -1426,17 +1337,6 @@ mod tests {
                         "login failed",
                     )),
                 ],
-            }
-        }
-
-        fn router_command_without_attach() -> Self {
-            Self {
-                ready: Ok(ready_response(ReadyState::Ready)),
-                submit: Ok(CommandResponse {
-                    client_command_id: LocalClientCommandId::new("response-1").expect("command id"),
-                    outcome: CommandOutcome::Accepted,
-                }),
-                attach_frames: Vec::new(),
             }
         }
     }
@@ -1448,9 +1348,17 @@ mod tests {
 
         async fn submit_command(
             &mut self,
-            _request: CommandRequest,
+            request: CommandRequest,
         ) -> Result<CommandResponse, CliError> {
-            self.plan.submit.clone()
+            self.state
+                .lock()
+                .expect("connector")
+                .submitted
+                .push(request.clone());
+            self.plan.submit.clone().map(|outcome| CommandResponse {
+                client_command_id: request.client_command_id,
+                outcome,
+            })
         }
 
         async fn attach(
@@ -1462,9 +1370,10 @@ mod tests {
                 client_id: request.client_id,
                 client_command_id: request.client_command_id,
             };
+            let state = self.state.clone();
             let frames = std::mem::take(&mut self.plan.attach_frames)
                 .into_iter()
-                .map(|frame| {
+                .map(move |frame| {
                     frame.map(|frame| match frame {
                         LocalClientFrame::Snapshot(mut frame) => {
                             frame.client_command_id = attach_command_id.clone();
@@ -1472,12 +1381,30 @@ mod tests {
                         }
                         LocalClientFrame::Notice(mut frame) => {
                             frame.client_command_id = attach_command_id.clone();
+                            let state = state.lock().expect("connector");
+                            let submitted = state
+                                .submitted
+                                .last()
+                                .expect("command submitted before terminal notice");
+                            match &mut frame.notice.kind {
+                                LocalNoticeKind::CommandCompleted {
+                                    client_command_id,
+                                    command_name,
+                                }
+                                | LocalNoticeKind::CommandFailed {
+                                    client_command_id,
+                                    command_name,
+                                } => {
+                                    assert_eq!(*command_name, submitted.command_name);
+                                    *client_command_id = submitted.client_command_id.clone();
+                                }
+                                _ => panic!("unexpected fake notice"),
+                            }
                             LocalClientFrame::Notice(frame)
                         }
                         other => other,
                     })
-                })
-                .collect::<Vec<_>>();
+                });
             Ok((accepted, Box::pin(futures_util::stream::iter(frames))))
         }
 
@@ -1600,8 +1527,8 @@ mod tests {
             "selvedge".to_owned(),
             "--client-id".to_owned(),
             "client-1".to_owned(),
-            "send-user-input".to_owned(),
-            serde_json::json!({"message":"hello"}).to_string(),
+            "list-models".to_owned(),
+            serde_json::json!({}).to_string(),
         ]
     }
 

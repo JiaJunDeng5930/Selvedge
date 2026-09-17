@@ -2,54 +2,40 @@
 
 <!-- selvedge-package-readme
 package: selvedge-model-providers
-freshness_fingerprint: a940db27c74baf63d754324ff1c9b52825f733f7
+freshness_fingerprint: eea2ad559099655a32cf5f56a9f56ad2c648749e
 -->
 
 This crate owns the model provider registry and the shared configured-provider rules.
 
 Use it to resolve provider descriptors, check whether a provider is configured, validate dispatch targets, and build the configured provider/model listing for local operations.
 
-Provider adapters own provider-specific request execution and discovery. This crate keeps provider id, credential kind, model source, and completion rules in one place.
+`ExecutableProvider` is the authoritative executable identity and supplies its canonical provider id. A descriptor selects an executable provider, its credential requirement, and either configured or built-in model names. Successful dispatch validation returns the executable identity for the API adapter's exhaustive match. Adding an enum variant requires adding its adapter branch.
 
-The default registry exposes descriptors for executable adapters in this build; custom registries can model additional providers in tests and future adapters.
+The default registry exposes ChatGPT. Its fixed descriptors must validate; invalid built-in descriptors fail loudly rather than silently producing an empty registry.
 
 ## Package State Machine
 
 ```mermaid
 flowchart TD
   Start([list or dispatch validation request])
-  LoadConfig[Load provider config]
-  LoadCredential[Load credential state]
-  Descriptor[Resolve descriptor]
-  Check[Check configured state]
-  Configured[Use configured models]
-  BuiltIn[Use built-in models]
-  Discover[Discover provider models]
-  Validate[Validate dispatch target]
-  Success[Return listing or accepted target]
-  ConfigError[Return config error]
-  CredentialError[Return credential error]
-  UnknownProvider[Return unknown provider]
-  Incomplete[Return incomplete provider]
-  DiscoveryError[Return discovery error]
-  ValidationError[Return validation error]
+  Descriptor[Resolve executable provider descriptor]
+  Credential[Read credential state]
+  Source[Check model source]
+  Success[Return configured listing or executable provider]
+  Unknown[Return unknown provider]
+  Missing[Omit from listing or reject incomplete dispatch]
+  Failure[Return credential error]
+  Invalid[Return model validation error]
 
-  Start -->|caller supplies config or a model request| LoadConfig
-  LoadConfig -->|config model is valid| LoadCredential
-  LoadConfig -->|config load fails| ConfigError
-  LoadCredential -->|credential store read succeeds| Descriptor
-  LoadCredential -->|credential store fails| CredentialError
-  Descriptor -->|provider id exists in registry| Check
-  Descriptor -->|provider id is absent from registry| UnknownProvider
-  Check -->|credential is missing or wrong kind| Incomplete
-  Check -->|configured-source list request has models| Configured
-  Check -->|built-in-source list request has models| BuiltIn
-  Check -->|discoverable-source list request has credentials| Discover
-  Check -->|dispatch request has configured provider| Validate
-  Configured -->|model names validate| Success
-  BuiltIn -->|built-in names validate| Success
-  Discover -->|discovery returns models| Success
-  Discover -->|discovery fails| DiscoveryError
-  Validate -->|model name satisfies source rule| Success
-  Validate -->|model name violates source rule| ValidationError
+  Start -->|dispatch model name is empty| Invalid
+  Start -->|dispatch model name is nonempty or caller requests a listing| Descriptor
+  Descriptor -->|dispatch provider id is absent| Unknown
+  Descriptor -->|dispatch descriptor exists or listing visits next descriptor| Credential
+  Credential -->|credential read fails| Failure
+  Credential -->|credential is absent or wrong kind| Missing
+  Credential -->|credential kind matches| Source
+  Source -->|configured source has no config or listing models are empty| Missing
+  Source -->|listing has configured or built-in models| Success
+  Source -->|dispatch model belongs to configured or built-in model list| Success
+  Source -->|dispatch model is absent from the model list| Invalid
 ```

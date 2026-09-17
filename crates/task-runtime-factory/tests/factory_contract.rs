@@ -1,229 +1,128 @@
-use std::collections::HashMap;
+use std::collections::HashSet;
+use std::sync::Arc;
 
-use selvedge_command_model::{
-    FactoryEffectId, FactoryFailureKind, FactoryOutput, FactorySkipReason,
+use selvedge_core::{
+    SpawnTaskRuntimeArgs, SpawnTaskRuntimeError, SpawnedTaskRuntime, TaskRuntimeConfig,
+    TaskRuntimeSpawnDeps, TaskRuntimeSpawner,
 };
-use selvedge_core::{TaskRuntimeConfig, TaskRuntimeSpawnDeps};
-use selvedge_db::{DbPool, ModelProfileKey, TaskId, UnixTs, transition_task_status};
-use selvedge_domain_model::{ModelProviderProfile, TaskLifecycleEvent};
+use selvedge_db::{TaskId, UnixTs, transition_task_status};
+use selvedge_domain_model::TaskLifecycleEvent;
 use selvedge_task_runtime_factory::{
-    FactoryCommand, FactoryEffectArgs, FactoryRuntimeInventory, run_factory_effect,
+    RuntimeCreationError, create_task_runtime, recover_task_runtimes,
 };
 use selvedge_test_support::db::{
     create_root_task_with_user_message, default_model_profiles, open_memory_db,
 };
 
 #[tokio::test]
-async fn ensure_task_runtime_creates_runtime_for_existing_active_task() {
+async fn create_runtime_returns_typed_missing_and_archived_failures() {
     let db = open_memory_db();
-    create_root(&db, "task-1");
-
-    let (router_tx, mut router_rx) = tokio::sync::mpsc::unbounded_channel();
-    let envelope = run_factory_effect(FactoryEffectArgs {
-        effect_id: FactoryEffectId("factory-1".to_owned()),
-        command: FactoryCommand::EnsureTaskRuntime {
-            task_id: TaskId("task-1".to_owned()),
-        },
-        db,
-        router_tx: router_tx.downgrade(),
-        core_spawn_deps: TaskRuntimeSpawnDeps::new(TaskRuntimeConfig {
-            model_profiles: model_profiles(),
-        }),
-        runtime_inventory: empty_inventory(),
+    let (router_tx, _router_rx) = tokio::sync::mpsc::unbounded_channel();
+    let deps = TaskRuntimeSpawnDeps::new(TaskRuntimeConfig {
+        model_profiles: default_model_profiles(),
     });
-    assert_eq!(envelope.effect_id, FactoryEffectId("factory-1".to_owned()));
-    let FactoryOutput::RuntimeCreated(created) = envelope.output else {
-        panic!("unexpected factory output");
-    };
-    assert_eq!(created.task_id, TaskId("task-1".to_owned()));
-
-    assert!(router_rx.try_recv().is_err());
-}
-
-#[tokio::test]
-async fn ensure_task_runtime_reports_live_and_pending_inventory() {
-    let db = open_memory_db();
-    create_root(&db, "live");
-    let live = run_ensure_task_runtime_with_inventory(
-        db,
-        "live",
-        vec![TaskId("live".to_owned())],
-        Vec::new(),
-    )
-    .await;
-    let FactoryOutput::Failed(failure) = live else {
-        panic!("unexpected factory output");
-    };
-    assert_eq!(failure.kind, FactoryFailureKind::RuntimeAlreadyLive);
-
-    let db = open_memory_db();
-    create_root(&db, "pending");
-    let pending = run_ensure_task_runtime_with_inventory(
-        db,
-        "pending",
-        Vec::new(),
-        vec![TaskId("pending".to_owned())],
-    )
-    .await;
-    let FactoryOutput::Failed(failure) = pending else {
-        panic!("unexpected factory output");
-    };
-    assert_eq!(failure.kind, FactoryFailureKind::RuntimeCreationPending);
-}
-
-#[tokio::test]
-async fn ensure_task_runtime_reports_missing_and_archived_tasks() {
-    let missing = run_ensure_task_runtime(open_memory_db(), "missing").await;
-    let FactoryOutput::Failed(failure) = missing else {
-        panic!("unexpected factory output");
-    };
-    assert_eq!(failure.task_id, Some(TaskId("missing".to_owned())));
-    assert_eq!(failure.kind, FactoryFailureKind::TaskMissing);
-
-    let db = open_memory_db();
-    create_root(&db, "archived");
+    let missing = create_task_runtime(
+        &db,
+        &router_tx.downgrade(),
+        &deps,
+        TaskId("missing".to_owned()),
+    );
+    assert_eq!(
+        missing.expect_err("missing task"),
+        RuntimeCreationError::TaskMissing
+    );
+    create_root_task_with_user_message(&db, "archived", "hello", UnixTs(1));
     transition_task_status(
         &db,
         &TaskId("archived".to_owned()),
         TaskLifecycleEvent::Archive,
         UnixTs(2),
     )
-    .expect("archive task");
-
-    let archived = run_ensure_task_runtime(db, "archived").await;
-    let FactoryOutput::Failed(failure) = archived else {
-        panic!("unexpected factory output");
-    };
-    assert_eq!(failure.task_id, Some(TaskId("archived".to_owned())));
-    assert_eq!(failure.kind, FactoryFailureKind::TaskArchived);
+    .expect("archive");
+    let archived = create_task_runtime(
+        &db,
+        &router_tx.downgrade(),
+        &deps,
+        TaskId("archived".to_owned()),
+    );
+    assert_eq!(
+        archived.expect_err("archived task"),
+        RuntimeCreationError::TaskArchived
+    );
 }
 
 #[tokio::test]
-async fn ensure_missing_task_runtimes_skips_live_and_pending_inventory() {
+async fn recovery_starts_non_archived_tasks_except_live_inventory() {
     let db = open_memory_db();
-    create_root(&db, "live");
-    create_root(&db, "pending");
-    create_root(&db, "missing");
-    create_root(&db, "frozen");
-    create_root(&db, "stopped");
-    transition_task_status(
-        &db,
-        &TaskId("frozen".to_owned()),
-        TaskLifecycleEvent::Freeze,
-        UnixTs(2),
-    )
-    .expect("freeze task");
-    transition_task_status(
-        &db,
-        &TaskId("stopped".to_owned()),
-        TaskLifecycleEvent::Stop,
-        UnixTs(2),
-    )
-    .expect("stop task");
-
+    for id in ["live", "active", "frozen", "stopped", "archived"] {
+        create_root_task_with_user_message(&db, id, "hello", UnixTs(1));
+    }
+    for (id, event) in [
+        ("frozen", TaskLifecycleEvent::Freeze),
+        ("stopped", TaskLifecycleEvent::Stop),
+        ("archived", TaskLifecycleEvent::Archive),
+    ] {
+        transition_task_status(&db, &TaskId(id.to_owned()), event, UnixTs(2)).expect("transition");
+    }
     let (router_tx, _router_rx) = tokio::sync::mpsc::unbounded_channel();
-    let envelope = run_factory_effect(FactoryEffectArgs {
-        effect_id: FactoryEffectId("factory-scan".to_owned()),
-        command: FactoryCommand::EnsureMissingTaskRuntimes,
-        db,
-        router_tx: router_tx.downgrade(),
-        core_spawn_deps: TaskRuntimeSpawnDeps::new(TaskRuntimeConfig {
-            model_profiles: model_profiles(),
-        }),
-        runtime_inventory: FactoryRuntimeInventory {
-            live_task_runtimes: vec![TaskId("live".to_owned())],
-            pending_task_runtime_effects: vec![TaskId("pending".to_owned())],
-        },
+    let deps = TaskRuntimeSpawnDeps::new(TaskRuntimeConfig {
+        model_profiles: default_model_profiles(),
     });
+    let recovered = recover_task_runtimes(
+        &db,
+        &router_tx.downgrade(),
+        &deps,
+        &HashSet::from([TaskId("live".to_owned())]),
+    )
+    .expect("recover");
+    assert!(recovered.failed.is_empty());
     assert_eq!(
-        envelope.effect_id,
-        FactoryEffectId("factory-scan".to_owned())
-    );
-    let FactoryOutput::ScanFinished(scan) = envelope.output else {
-        panic!("unexpected factory output");
-    };
-
-    assert_eq!(scan.created.len(), 3);
-    assert!(
-        scan.created
+        recovered
+            .created
             .iter()
-            .any(|created| created.task_id == TaskId("missing".to_owned()))
+            .map(|runtime| runtime.task_id.0.as_str())
+            .collect::<HashSet<_>>(),
+        HashSet::from(["active", "frozen", "stopped"])
     );
-    assert!(
-        scan.created
-            .iter()
-            .any(|created| created.task_id == TaskId("frozen".to_owned()))
-    );
-    assert!(
-        scan.created
-            .iter()
-            .any(|created| created.task_id == TaskId("stopped".to_owned()))
-    );
-    assert_eq!(scan.failed, Vec::new());
-    assert_eq!(scan.skipped.len(), 2);
-    assert!(scan.skipped.iter().any(|skipped| {
-        skipped.task_id == TaskId("live".to_owned())
-            && skipped.reason == FactorySkipReason::RuntimeAlreadyLive
-    }));
-    assert!(scan.skipped.iter().any(|skipped| {
-        skipped.task_id == TaskId("pending".to_owned())
-            && skipped.reason == FactorySkipReason::RuntimeCreationPending
-    }));
+    for runtime in recovered.created {
+        runtime.task_runtime_control.shutdown().await;
+    }
 }
 
-fn create_root(db: &DbPool, task_id: &str) {
-    create_root_task_with_user_message(db, task_id, "hello", UnixTs(1));
-}
-
-fn model_profiles() -> HashMap<ModelProfileKey, ModelProviderProfile> {
-    default_model_profiles()
-}
-
-async fn run_ensure_task_runtime(db: DbPool, task_id: &str) -> FactoryOutput {
+#[tokio::test]
+async fn injected_spawner_failure_is_reported_by_create_and_recovery() {
+    let db = open_memory_db();
+    create_root_task_with_user_message(&db, "task", "hello", UnixTs(1));
     let (router_tx, _router_rx) = tokio::sync::mpsc::unbounded_channel();
-    run_factory_effect(FactoryEffectArgs {
-        effect_id: FactoryEffectId("factory-1".to_owned()),
-        command: FactoryCommand::EnsureTaskRuntime {
-            task_id: TaskId(task_id.to_owned()),
+    let deps = TaskRuntimeSpawnDeps::with_spawner(
+        TaskRuntimeConfig {
+            model_profiles: default_model_profiles(),
         },
-        db,
-        router_tx: router_tx.downgrade(),
-        core_spawn_deps: TaskRuntimeSpawnDeps::new(TaskRuntimeConfig {
-            model_profiles: model_profiles(),
-        }),
-        runtime_inventory: empty_inventory(),
-    })
-    .output
+        Arc::new(FailingSpawner),
+    );
+    assert!(matches!(
+        create_task_runtime(
+            &db,
+            &router_tx.downgrade(),
+            &deps,
+            TaskId("task".to_owned())
+        ),
+        Err(RuntimeCreationError::CoreSpawnFailed(_))
+    ));
+    let recovered = recover_task_runtimes(&db, &router_tx.downgrade(), &deps, &HashSet::new())
+        .expect("recover");
+    assert!(recovered.created.is_empty());
+    assert!(
+        matches!(recovered.failed.as_slice(), [(TaskId(id), RuntimeCreationError::CoreSpawnFailed(_))] if id == "task")
+    );
 }
 
-async fn run_ensure_task_runtime_with_inventory(
-    db: DbPool,
-    task_id: &str,
-    live_task_runtimes: Vec<TaskId>,
-    pending_task_runtime_effects: Vec<TaskId>,
-) -> FactoryOutput {
-    let (router_tx, _router_rx) = tokio::sync::mpsc::unbounded_channel();
-    run_factory_effect(FactoryEffectArgs {
-        effect_id: FactoryEffectId("factory-1".to_owned()),
-        command: FactoryCommand::EnsureTaskRuntime {
-            task_id: TaskId(task_id.to_owned()),
-        },
-        db,
-        router_tx: router_tx.downgrade(),
-        core_spawn_deps: TaskRuntimeSpawnDeps::new(TaskRuntimeConfig {
-            model_profiles: model_profiles(),
-        }),
-        runtime_inventory: FactoryRuntimeInventory {
-            live_task_runtimes,
-            pending_task_runtime_effects,
-        },
-    })
-    .output
-}
-
-fn empty_inventory() -> FactoryRuntimeInventory {
-    FactoryRuntimeInventory {
-        live_task_runtimes: Vec::new(),
-        pending_task_runtime_effects: Vec::new(),
+struct FailingSpawner;
+impl TaskRuntimeSpawner for FailingSpawner {
+    fn spawn_task_runtime(
+        &self,
+        _: SpawnTaskRuntimeArgs,
+    ) -> Result<SpawnedTaskRuntime, SpawnTaskRuntimeError> {
+        Err(SpawnTaskRuntimeError::TokioSpawnFailed)
     }
 }

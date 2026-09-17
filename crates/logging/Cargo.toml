@@ -8,12 +8,7 @@ selvedge-config = { path = "../config" }
 selvedge-config-model = { path = "../config-model" }
 
 [dev-dependencies]
-tempfile = "3.14.0"
+tempfile = { workspace = true }
 
-[lints.rust]
-unsafe_code = "forbid"
-
-[lints.clippy]
-dbg_macro = "deny"
-todo = "deny"
-unwrap_used = "deny"
+[lints]
+workspace = true

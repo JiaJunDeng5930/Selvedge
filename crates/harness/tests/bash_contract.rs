@@ -110,6 +110,22 @@ async fn bash_drains_large_stdout_and_stderr_concurrently_and_marks_each_prefix(
 }
 
 #[tokio::test]
+async fn bash_timeout_resumes_when_one_pipe_has_already_completed() {
+    for closed_stream in [1, 2] {
+        let result = execute(vec![
+            string_argument(
+                "command",
+                &format!("(exec {closed_stream}>&-; sleep 30) & exit 0"),
+            ),
+            integer_argument("timeout_ms", 300),
+        ])
+        .await;
+        assert!(result.is_error);
+        assert_eq!(result.output["error"]["code"], "command_timed_out");
+    }
+}
+
+#[tokio::test]
 async fn bash_timeout_terminates_the_process_group_and_returns_one_terminal_error() {
     const COMMAND_TIMEOUT_MS: i64 = 5_000;
 

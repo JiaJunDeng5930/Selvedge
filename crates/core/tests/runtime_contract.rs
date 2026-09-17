@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::Duration;
 
 use selvedge_command_model::{
@@ -48,8 +49,13 @@ async fn task_runtime_starts_and_requests_model_call_from_system_cursor() {
                 },
             )
             .expect("create cursor node"),
-            model_profile_key: selvedge_db::ModelProfileKey("default".to_owned()),
-            reasoning_effort: ReasoningEffort::Medium,
+            model_config: Arc::new(
+                selvedge_domain_model::TaskModelConfig::new(
+                    selvedge_db::ModelProfileKey("default".to_owned()),
+                    ReasoningEffort::Medium,
+                )
+                .expect("model config"),
+            ),
             tools: Vec::new(),
             now: UnixTs(1),
         },
@@ -64,8 +70,7 @@ async fn task_runtime_starts_and_requests_model_call_from_system_cursor() {
         config: TaskRuntimeConfig {
             model_profiles: model_profiles(),
         },
-    })
-    .expect("spawn runtime");
+    });
 
     runtime
         .task_runtime_tx
@@ -105,8 +110,13 @@ async fn task_runtime_start_requests_model_from_user_cursor_without_draining_que
                 },
             )
             .expect("create cursor node"),
-            model_profile_key: selvedge_db::ModelProfileKey("default".to_owned()),
-            reasoning_effort: ReasoningEffort::Medium,
+            model_config: Arc::new(
+                selvedge_domain_model::TaskModelConfig::new(
+                    selvedge_db::ModelProfileKey("default".to_owned()),
+                    ReasoningEffort::Medium,
+                )
+                .expect("model config"),
+            ),
             tools: Vec::new(),
             now: UnixTs(1),
         },
@@ -135,8 +145,7 @@ async fn task_runtime_start_requests_model_from_user_cursor_without_draining_que
         config: TaskRuntimeConfig {
             model_profiles: model_profiles(),
         },
-    })
-    .expect("spawn runtime");
+    });
 
     runtime
         .task_runtime_tx
@@ -159,8 +168,7 @@ async fn task_runtime_start_requests_model_from_user_cursor_without_draining_que
     assert_eq!(
         load_runtime_task(&db, &TaskId("task-1".to_owned()))
             .expect("load task")
-            .queued_inputs
-            .len(),
+            .queued_input_count,
         1
     );
 }
@@ -184,8 +192,13 @@ async fn task_runtime_start_promotes_queue_before_awaiting_user_input() {
                 },
             )
             .expect("create cursor node"),
-            model_profile_key: selvedge_db::ModelProfileKey("default".to_owned()),
-            reasoning_effort: ReasoningEffort::Medium,
+            model_config: Arc::new(
+                selvedge_domain_model::TaskModelConfig::new(
+                    selvedge_db::ModelProfileKey("default".to_owned()),
+                    ReasoningEffort::Medium,
+                )
+                .expect("model config"),
+            ),
             tools: Vec::new(),
             now: UnixTs(1),
         },
@@ -207,8 +220,7 @@ async fn task_runtime_start_promotes_queue_before_awaiting_user_input() {
         config: TaskRuntimeConfig {
             model_profiles: model_profiles(),
         },
-    })
-    .expect("spawn runtime");
+    });
 
     runtime
         .task_runtime_tx
@@ -226,8 +238,8 @@ async fn task_runtime_start_promotes_queue_before_awaiting_user_input() {
     assert!(
         load_runtime_task(&db, &TaskId("task-1".to_owned()))
             .expect("load task")
-            .queued_inputs
-            .is_empty()
+            .queued_input_count
+            == 0
     );
 }
 
@@ -250,8 +262,13 @@ async fn task_runtime_start_dispatches_tool_from_function_call_cursor() {
                 },
             )
             .expect("create cursor node"),
-            model_profile_key: selvedge_db::ModelProfileKey("default".to_owned()),
-            reasoning_effort: ReasoningEffort::Medium,
+            model_config: Arc::new(
+                selvedge_domain_model::TaskModelConfig::new(
+                    selvedge_db::ModelProfileKey("default".to_owned()),
+                    ReasoningEffort::Medium,
+                )
+                .expect("model config"),
+            ),
             tools: vec![task_tool(tool_spec("search"))],
             now: UnixTs(1),
         },
@@ -278,8 +295,7 @@ async fn task_runtime_start_dispatches_tool_from_function_call_cursor() {
         config: TaskRuntimeConfig {
             model_profiles: model_profiles(),
         },
-    })
-    .expect("spawn runtime");
+    });
 
     runtime
         .task_runtime_tx
@@ -314,8 +330,13 @@ async fn task_runtime_start_reconstructs_open_batched_tool_calls_from_history() 
                 },
             )
             .expect("create cursor node"),
-            model_profile_key: selvedge_db::ModelProfileKey("default".to_owned()),
-            reasoning_effort: ReasoningEffort::Medium,
+            model_config: Arc::new(
+                selvedge_domain_model::TaskModelConfig::new(
+                    selvedge_db::ModelProfileKey("default".to_owned()),
+                    ReasoningEffort::Medium,
+                )
+                .expect("model config"),
+            ),
             tools: vec![task_tool(tool_spec("search"))],
             now: UnixTs(1),
         },
@@ -349,8 +370,7 @@ async fn task_runtime_start_reconstructs_open_batched_tool_calls_from_history() 
         config: TaskRuntimeConfig {
             model_profiles: model_profiles(),
         },
-    })
-    .expect("spawn runtime");
+    });
 
     runtime
         .task_runtime_tx
@@ -370,57 +390,6 @@ async fn task_runtime_resolves_model_profile_key_into_provider_and_model() {
 
     assert_eq!(request.provider.provider_name, "provider");
     assert_eq!(request.provider.model_name, "model");
-}
-
-#[tokio::test]
-async fn task_runtime_dispatches_all_tool_calls_before_next_model_call() {
-    let (runtime, mut router_rx, _router_tx) =
-        spawn_runtime_with_task(vec![tool_spec("search")]).await;
-    let correlation = start_and_request_model(&runtime, &mut router_rx).await;
-
-    runtime
-        .task_runtime_tx
-        .send(TaskRuntimeCommand::ApiModelReply(
-            ApiOutputEnvelope::Success {
-                correlation,
-                reply: ModelReply {
-                    content: None,
-                    tool_calls: vec![
-                        ToolCallProposal {
-                            call_id: "call-1".to_owned(),
-                            tool_name: "search".to_owned(),
-                            arguments: JsonObject::new(),
-                        },
-                        ToolCallProposal {
-                            call_id: "call-2".to_owned(),
-                            tool_name: "search".to_owned(),
-                            arguments: JsonObject::new(),
-                        },
-                    ],
-                    usage: None,
-                    finish_reason: ModelFinishReason::ToolCalls,
-                },
-            },
-        ))
-        .expect("send model reply");
-
-    let first_tool_request = recv_tool_request(&mut router_rx).await;
-    assert_eq!(first_tool_request.function_call_id.0, "call-1");
-
-    runtime
-        .task_runtime_tx
-        .send(TaskRuntimeCommand::ToolResult(ToolExecutionResult {
-            task_id: TaskId("task-1".to_owned()),
-            tool_execution_run_id: first_tool_request.tool_execution_run_id,
-            function_call_node_id: first_tool_request.function_call_node_id,
-            function_call_id: first_tool_request.function_call_id,
-            tool_name: first_tool_request.tool_name,
-            branches: calling_tool_result_branches(json!("first"), false),
-        }))
-        .expect("send first tool result");
-
-    let second_tool_request = recv_tool_request(&mut router_rx).await;
-    assert_eq!(second_tool_request.function_call_id.0, "call-2");
 }
 
 #[tokio::test]
@@ -580,8 +549,7 @@ async fn task_runtime_exits_after_archived_status_notification() {
         config: TaskRuntimeConfig {
             model_profiles: model_profiles(),
         },
-    })
-    .expect("spawn runtime");
+    });
     runtime
         .task_runtime_tx
         .send(TaskRuntimeCommand::Start)
@@ -641,8 +609,7 @@ async fn model_call_not_started_during_freeze_resumes_after_unfreeze() {
         config: TaskRuntimeConfig {
             model_profiles: model_profiles(),
         },
-    })
-    .expect("spawn runtime");
+    });
     let first_correlation = start_and_request_model(&runtime, &mut router_rx).await;
 
     transition_task_status(
@@ -708,8 +675,7 @@ async fn frozen_runtime_leaves_mailbox_untouched_until_unfreeze() {
         config: TaskRuntimeConfig {
             model_profiles: model_profiles(),
         },
-    })
-    .expect("spawn runtime");
+    });
     runtime
         .task_runtime_tx
         .send(TaskRuntimeCommand::Start)
@@ -782,8 +748,13 @@ async fn stopped_runtime_commits_tool_result_without_calling_model_until_user_in
                 },
             )
             .expect("create cursor node"),
-            model_profile_key: selvedge_db::ModelProfileKey("default".to_owned()),
-            reasoning_effort: ReasoningEffort::Medium,
+            model_config: Arc::new(
+                selvedge_domain_model::TaskModelConfig::new(
+                    selvedge_db::ModelProfileKey("default".to_owned()),
+                    ReasoningEffort::Medium,
+                )
+                .expect("model config"),
+            ),
             tools: vec![task_tool(tool_spec("search"))],
             now: UnixTs(1),
         },
@@ -797,8 +768,7 @@ async fn stopped_runtime_commits_tool_result_without_calling_model_until_user_in
         config: TaskRuntimeConfig {
             model_profiles: model_profiles(),
         },
-    })
-    .expect("spawn runtime");
+    });
     let correlation = start_and_request_model(&runtime, &mut router_rx).await;
     runtime
         .task_runtime_tx
@@ -911,8 +881,7 @@ async fn stopped_runtime_promotes_existing_queue_before_new_input() {
         config: TaskRuntimeConfig {
             model_profiles: model_profiles(),
         },
-    })
-    .expect("spawn runtime");
+    });
     runtime
         .task_runtime_tx
         .send(TaskRuntimeCommand::Start)
@@ -1003,6 +972,10 @@ async fn task_runtime_preserves_batched_tool_call_order_in_next_model_request() 
         .expect("send model reply");
 
     let first_tool_request = recv_tool_request(&mut router_rx).await;
+    assert_eq!(
+        first_tool_request.function_call_id,
+        FunctionCallId("call-1".to_owned())
+    );
     runtime
         .task_runtime_tx
         .send(TaskRuntimeCommand::ToolResult(ToolExecutionResult {
@@ -1016,6 +989,10 @@ async fn task_runtime_preserves_batched_tool_call_order_in_next_model_request() 
         .expect("send first tool result");
 
     let second_tool_request = recv_tool_request(&mut router_rx).await;
+    assert_eq!(
+        second_tool_request.function_call_id,
+        FunctionCallId("call-2".to_owned())
+    );
     runtime
         .task_runtime_tx
         .send(TaskRuntimeCommand::ToolResult(ToolExecutionResult {
@@ -1064,8 +1041,13 @@ async fn task_runtime_ignores_tool_result_with_mismatched_call_identity() {
                 },
             )
             .expect("create cursor node"),
-            model_profile_key: selvedge_db::ModelProfileKey("default".to_owned()),
-            reasoning_effort: ReasoningEffort::Medium,
+            model_config: Arc::new(
+                selvedge_domain_model::TaskModelConfig::new(
+                    selvedge_db::ModelProfileKey("default".to_owned()),
+                    ReasoningEffort::Medium,
+                )
+                .expect("model config"),
+            ),
             tools: vec![task_tool(tool_spec("search"))],
             now: UnixTs(1),
         },
@@ -1079,8 +1061,7 @@ async fn task_runtime_ignores_tool_result_with_mismatched_call_identity() {
         config: TaskRuntimeConfig {
             model_profiles: model_profiles(),
         },
-    })
-    .expect("spawn runtime");
+    });
     let correlation = start_and_request_model(&runtime, &mut router_rx).await;
 
     runtime
@@ -1203,8 +1184,13 @@ async fn task_runtime_validates_tool_reply_against_sent_callable_snapshot() {
                 },
             )
             .expect("create cursor node"),
-            model_profile_key: selvedge_db::ModelProfileKey("default".to_owned()),
-            reasoning_effort: ReasoningEffort::Medium,
+            model_config: Arc::new(
+                selvedge_domain_model::TaskModelConfig::new(
+                    selvedge_db::ModelProfileKey("default".to_owned()),
+                    ReasoningEffort::Medium,
+                )
+                .expect("model config"),
+            ),
             tools: vec![task_tool(required_integer_tool_spec("repeat"))],
             now: UnixTs(1),
         },
@@ -1219,8 +1205,7 @@ async fn task_runtime_validates_tool_reply_against_sent_callable_snapshot() {
         config: TaskRuntimeConfig {
             model_profiles: model_profiles(),
         },
-    })
-    .expect("spawn runtime");
+    });
     let request = start_and_recv_model_request(&runtime, &mut router_rx).await;
     assert_eq!(
         request
@@ -1312,8 +1297,13 @@ async fn task_runtime_rejects_tool_calls_outside_enabled_manifest() {
                 },
             )
             .expect("create cursor node"),
-            model_profile_key: selvedge_db::ModelProfileKey("default".to_owned()),
-            reasoning_effort: ReasoningEffort::Medium,
+            model_config: Arc::new(
+                selvedge_domain_model::TaskModelConfig::new(
+                    selvedge_db::ModelProfileKey("default".to_owned()),
+                    ReasoningEffort::Medium,
+                )
+                .expect("model config"),
+            ),
             tools: Vec::new(),
             now: UnixTs(1),
         },
@@ -1327,8 +1317,7 @@ async fn task_runtime_rejects_tool_calls_outside_enabled_manifest() {
         config: TaskRuntimeConfig {
             model_profiles: model_profiles(),
         },
-    })
-    .expect("spawn runtime");
+    });
     let correlation = start_and_request_model(&runtime, &mut router_rx).await;
 
     runtime
@@ -1593,8 +1582,13 @@ async fn task_runtime_rejects_empty_idle_user_input_before_append() {
                 },
             )
             .expect("create cursor node"),
-            model_profile_key: selvedge_db::ModelProfileKey("default".to_owned()),
-            reasoning_effort: ReasoningEffort::Medium,
+            model_config: Arc::new(
+                selvedge_domain_model::TaskModelConfig::new(
+                    selvedge_db::ModelProfileKey("default".to_owned()),
+                    ReasoningEffort::Medium,
+                )
+                .expect("model config"),
+            ),
             tools: Vec::new(),
             now: UnixTs(1),
         },
@@ -1608,8 +1602,7 @@ async fn task_runtime_rejects_empty_idle_user_input_before_append() {
         config: TaskRuntimeConfig {
             model_profiles: model_profiles(),
         },
-    })
-    .expect("spawn runtime");
+    });
     runtime
         .task_runtime_tx
         .send(TaskRuntimeCommand::Start)
@@ -1711,8 +1704,13 @@ async fn task_runtime_uses_fresh_model_run_ids_after_respawn() {
                 },
             )
             .expect("create cursor node"),
-            model_profile_key: selvedge_db::ModelProfileKey("default".to_owned()),
-            reasoning_effort: ReasoningEffort::Medium,
+            model_config: Arc::new(
+                selvedge_domain_model::TaskModelConfig::new(
+                    selvedge_db::ModelProfileKey("default".to_owned()),
+                    ReasoningEffort::Medium,
+                )
+                .expect("model config"),
+            ),
             tools: Vec::new(),
             now: UnixTs(1),
         },
@@ -1744,8 +1742,13 @@ async fn task_runtime_preserves_queued_input_when_append_fails() {
                 },
             )
             .expect("create cursor node"),
-            model_profile_key: selvedge_db::ModelProfileKey("default".to_owned()),
-            reasoning_effort: ReasoningEffort::Medium,
+            model_config: Arc::new(
+                selvedge_domain_model::TaskModelConfig::new(
+                    selvedge_db::ModelProfileKey("default".to_owned()),
+                    ReasoningEffort::Medium,
+                )
+                .expect("model config"),
+            ),
             tools: Vec::new(),
             now: UnixTs(4_102_444_800),
         },
@@ -1759,6 +1762,7 @@ async fn task_runtime_preserves_queued_input_when_append_fails() {
     )
     .expect("queue input");
 
+    let before = load_runtime_task(&db, &TaskId("task-1".to_owned())).expect("before append");
     let (router_tx, mut router_rx) = tokio::sync::mpsc::unbounded_channel();
     let runtime = spawn_task_runtime(SpawnTaskRuntimeArgs {
         task_id: TaskId("task-1".to_owned()),
@@ -1767,17 +1771,40 @@ async fn task_runtime_preserves_queued_input_when_append_fails() {
         config: TaskRuntimeConfig {
             model_profiles: model_profiles(),
         },
-    })
-    .expect("spawn runtime");
+    });
     runtime
         .task_runtime_tx
         .send(TaskRuntimeCommand::Start)
         .expect("send start");
     let _ready = router_rx.recv().await.expect("ready");
-    let _exit = router_rx.recv().await.expect("db error exit");
+    let request = recv_model_request(&mut router_rx).await;
+    runtime
+        .task_runtime_tx
+        .send(TaskRuntimeCommand::ApiModelReply(
+            ApiOutputEnvelope::Success {
+                correlation: request.correlation,
+                reply: ModelReply {
+                    content: Some("answer".to_owned()),
+                    tool_calls: Vec::new(),
+                    usage: None,
+                    finish_reason: ModelFinishReason::Stop,
+                },
+            },
+        ))
+        .expect("send reply that fails timestamp constraint");
+    let exit = router_rx.recv().await.expect("db error exit");
+    assert!(matches!(
+        exit,
+        RouterIngressMessage::RuntimeExit(selvedge_command_model::TaskRuntimeExitNotice {
+            reason: TaskRuntimeExitReason::DbError(_),
+            ..
+        })
+    ));
+    runtime.task_runtime_control.wait_for_shutdown().await;
 
     let loaded = load_runtime_task(&db, &TaskId("task-1".to_owned())).expect("load task");
-    assert_eq!(loaded.queued_inputs.len(), 1);
+    assert_eq!(loaded.queued_input_count, before.queued_input_count);
+    assert_eq!(loaded.task.cursor_node_id, before.task.cursor_node_id);
 }
 
 #[tokio::test]
@@ -1799,8 +1826,13 @@ async fn task_runtime_recovers_open_tool_call_before_model_dispatch() {
                 },
             )
             .expect("create cursor node"),
-            model_profile_key: selvedge_db::ModelProfileKey("default".to_owned()),
-            reasoning_effort: ReasoningEffort::Medium,
+            model_config: Arc::new(
+                selvedge_domain_model::TaskModelConfig::new(
+                    selvedge_db::ModelProfileKey("default".to_owned()),
+                    ReasoningEffort::Medium,
+                )
+                .expect("model config"),
+            ),
             tools: vec![task_tool(required_integer_tool_spec("repeat"))],
             now: UnixTs(1),
         },
@@ -1833,8 +1865,7 @@ async fn task_runtime_recovers_open_tool_call_before_model_dispatch() {
         config: TaskRuntimeConfig {
             model_profiles: model_profiles(),
         },
-    })
-    .expect("spawn runtime");
+    });
 
     runtime
         .task_runtime_tx
@@ -1866,8 +1897,13 @@ async fn child_runtime_synthesizes_unknown_outcome_for_inherited_open_call() {
                 },
             )
             .expect("create cursor node"),
-            model_profile_key: selvedge_db::ModelProfileKey("default".to_owned()),
-            reasoning_effort: ReasoningEffort::Medium,
+            model_config: Arc::new(
+                selvedge_domain_model::TaskModelConfig::new(
+                    selvedge_db::ModelProfileKey("default".to_owned()),
+                    ReasoningEffort::Medium,
+                )
+                .expect("model config"),
+            ),
             tools: vec![
                 task_tool_with_recovery(tool_spec("fork_task"), ToolRecoveryPolicy::RetrySafe),
                 task_tool_with_recovery(tool_spec("bash"), ToolRecoveryPolicy::OutcomeUnknown),
@@ -1930,8 +1966,7 @@ async fn child_runtime_synthesizes_unknown_outcome_for_inherited_open_call() {
         config: TaskRuntimeConfig {
             model_profiles: model_profiles(),
         },
-    })
-    .expect("spawn child runtime");
+    });
     let request = start_and_recv_model_request(&runtime, &mut router_rx).await;
     let recovered_output = request
         .conversation
@@ -1976,8 +2011,13 @@ async fn task_runtime_allows_messages_between_tool_call_and_matching_output() {
                 },
             )
             .expect("create cursor node"),
-            model_profile_key: selvedge_db::ModelProfileKey("default".to_owned()),
-            reasoning_effort: ReasoningEffort::Medium,
+            model_config: Arc::new(
+                selvedge_domain_model::TaskModelConfig::new(
+                    selvedge_db::ModelProfileKey("default".to_owned()),
+                    ReasoningEffort::Medium,
+                )
+                .expect("model config"),
+            ),
             tools: vec![task_tool(required_integer_tool_spec("repeat"))],
             now: UnixTs(1),
         },
@@ -2027,8 +2067,7 @@ async fn task_runtime_allows_messages_between_tool_call_and_matching_output() {
         config: TaskRuntimeConfig {
             model_profiles: model_profiles(),
         },
-    })
-    .expect("spawn runtime");
+    });
 
     runtime
         .task_runtime_tx
@@ -2086,8 +2125,13 @@ async fn spawn_runtime_with_task_and_descendant_limit(
                 },
             )
             .expect("create cursor node"),
-            model_profile_key: selvedge_db::ModelProfileKey("default".to_owned()),
-            reasoning_effort: ReasoningEffort::Medium,
+            model_config: Arc::new(
+                selvedge_domain_model::TaskModelConfig::new(
+                    selvedge_db::ModelProfileKey("default".to_owned()),
+                    ReasoningEffort::Medium,
+                )
+                .expect("model config"),
+            ),
             tools,
             now: UnixTs(1),
         },
@@ -2102,8 +2146,7 @@ async fn spawn_runtime_with_task_and_descendant_limit(
         config: TaskRuntimeConfig {
             model_profiles: model_profiles(),
         },
-    })
-    .expect("spawn runtime");
+    });
     (runtime, router_rx, router_tx)
 }
 
@@ -2216,8 +2259,7 @@ async fn spawn_runtime_and_start_one_model_call(db: selvedge_db::DbPool) -> Mode
         config: TaskRuntimeConfig {
             model_profiles: model_profiles(),
         },
-    })
-    .expect("spawn runtime");
+    });
     let request = start_and_recv_model_request(&runtime, &mut router_rx).await;
     let _ = runtime.task_runtime_control.shutdown().await;
     request.correlation.model_run_id
@@ -2267,4 +2309,72 @@ fn json_object(value: Value) -> JsonObject {
 fn model_profiles()
 -> HashMap<selvedge_db::ModelProfileKey, selvedge_domain_model::ModelProviderProfile> {
     default_model_profiles()
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn sqlite_write_contention_leaves_async_worker_available() {
+    let directory = tempfile::tempdir().expect("temporary database directory");
+    let path = directory.path().join("runtime.sqlite");
+    let db = selvedge_db::open_db(selvedge_db::OpenDbOptions {
+        sqlite_path: path.to_string_lossy().into_owned(),
+        max_children_per_fork: 5,
+        max_task_descendants: 20,
+    })
+    .expect("open file database");
+    create_root_task_with_user_message(&db, "task-1", "hello", UnixTs(1));
+    let (router_tx, mut router_rx) = tokio::sync::mpsc::unbounded_channel();
+    let runtime = spawn_task_runtime(SpawnTaskRuntimeArgs {
+        task_id: TaskId("task-1".to_owned()),
+        db: db.clone(),
+        router_tx: router_tx.downgrade(),
+        config: TaskRuntimeConfig {
+            model_profiles: model_profiles(),
+        },
+    });
+
+    let (locked_tx, locked_rx) = std::sync::mpsc::channel();
+    let (release_tx, release_rx) = std::sync::mpsc::channel();
+    let released_by_timeout = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let timed_out = released_by_timeout.clone();
+    let lock_thread = std::thread::spawn(move || {
+        let connection = rusqlite::Connection::open(path).expect("external SQLite writer");
+        connection
+            .execute_batch("BEGIN EXCLUSIVE")
+            .expect("hold SQLite write lock");
+        locked_tx.send(()).expect("lock acquired");
+        // A separate OS thread releases the lock even if a regression blocks the
+        // only Tokio worker, so the failure is an assertion rather than a hang.
+        if release_rx.recv_timeout(Duration::from_secs(2)).is_err() {
+            timed_out.store(true, std::sync::atomic::Ordering::SeqCst);
+        }
+        connection
+            .execute_batch("ROLLBACK")
+            .expect("release write lock");
+    });
+    locked_rx.recv().expect("SQLite writer holds lock");
+    runtime
+        .task_runtime_tx
+        .send(TaskRuntimeCommand::Start)
+        .expect("start runtime under SQLite contention");
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    let worker_progressed = !released_by_timeout.load(std::sync::atomic::Ordering::SeqCst);
+    let _ = release_tx.send(());
+    lock_thread.join().expect("lock thread");
+    assert!(matches!(
+        router_rx
+            .recv()
+            .await
+            .expect("runtime ready after lock released"),
+        RouterIngressMessage::Core(selvedge_command_model::CoreOutputEnvelope {
+            message: CoreOutputMessage::RuntimeReady,
+            ..
+        })
+    ));
+    recv_model_request(&mut router_rx).await;
+    runtime.task_runtime_control.shutdown().await;
+    drop(db);
+    assert!(
+        worker_progressed,
+        "SQLite contention blocked the async worker until the OS-thread fallback released the lock"
+    );
 }

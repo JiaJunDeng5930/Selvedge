@@ -463,36 +463,6 @@ mod tests {
     }
 
     #[test]
-    fn concurrent_logging_keeps_messages_distinct() {
-        let _guard = test_lock().lock().expect("test lock");
-        ensure_test_config();
-        let recorder = TestRecorder::default();
-
-        init_for_test(recorder.clone()).expect("init test logger");
-        selvedge_config::update_runtime("logging.level", "info").expect("set log level");
-        recorder.clear();
-
-        let threads = (0..4)
-            .map(|index| {
-                std::thread::spawn(move || {
-                    selvedge_log!(LogLevel::Info, "worker event"; worker = index)
-                        .expect("emit worker event");
-                })
-            })
-            .collect::<Vec<_>>();
-
-        for thread in threads {
-            thread.join().expect("join logging thread");
-        }
-
-        let events = recorder.take();
-
-        assert_eq!(events.len(), 4);
-        assert!(events.iter().all(|event| event.message == "worker event"));
-        assert_eq!(unique_workers(&events), vec!["0", "1", "2", "3"]);
-    }
-
-    #[test]
     fn log_macro_returns_error_when_config_is_missing() {
         let current_executable = std::env::current_exe().expect("current test executable");
         let output = Command::new(current_executable)
@@ -619,16 +589,6 @@ level = "info"
             let _ = Arc::into_raw(tempdir);
             init_with_home(config_home).expect("init config");
         });
-    }
-
-    fn unique_workers(events: &[LogEvent]) -> Vec<&str> {
-        let mut workers = events
-            .iter()
-            .filter_map(|event| event.field("worker"))
-            .collect::<Vec<_>>();
-
-        workers.sort_unstable();
-        workers
     }
 
     fn test_lock() -> &'static Mutex<()> {

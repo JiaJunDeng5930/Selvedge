@@ -2,21 +2,23 @@
 
 <!-- selvedge-package-readme
 package: selvedge
-freshness_fingerprint: 4d07dce83adb167ae3fc03d1cf51c6cf2aab7694
+freshness_fingerprint: cb74caa5b30d33c2deadd7470b3e1a087ac7c495
 -->
 
-Selvedge is a Rust repository scaffold with a clean local development flow, pre-commit hooks, and GitHub Actions CI.
+Selvedge runs a local server for persistent AI tasks. It stores task history in SQLite, routes commands and streamed updates to local clients, and executes model calls and tools through a task-owned runtime.
 
-## What is included
+## Repository navigation
 
-- Cargo binary crate with a small library surface for testing
-- `Justfile` shortcuts for bootstrap, formatting, lint, test, and hook execution
-- A dedicated `cargo xtask` command for AGENTS.md project-index maintenance
-- Root `AGENTS.md` guidance for coding agents, including a repository file index
-- `rust-toolchain.toml` to keep the repository on the stable toolchain
-- `.pre-commit-config.yaml` for formatting, lint, project-index, and test checks
-- GitHub Actions CI for `fmt`, `clippy`, and `test`
-- Basic repository hygiene files such as `.gitignore` and `.editorconfig`
+Read each package README before changing its behavior. Start with the boundary relevant to your change:
+
+- [server](crates/server/README.md) and [web](crates/web/README.md): startup, local commands, and HTTP delivery.
+- [core](crates/core/README.md), [db](crates/db/README.md), and [harness](crates/harness/README.md): durable task execution, persistence, and tools.
+- [model-providers](crates/model-providers/README.md): model request adapters and provider selection.
+- [local-client](crates/local-client/README.md) and [tui](crates/tui/README.md): local protocol access and terminal interaction.
+- [config](crates/config/README.md): runtime configuration and storage paths.
+- [xtask](xtask/README.md): repository checks and documentation maintenance.
+
+[AGENTS.md](AGENTS.md) contains the complete tracked-file index and repository policies. Architectural decisions are recorded in [docs/adr](docs/adr).
 
 ## Quickstart
 

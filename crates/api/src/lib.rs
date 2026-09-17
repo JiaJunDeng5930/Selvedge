@@ -4,8 +4,6 @@ use std::collections::BTreeMap;
 use std::future::Future;
 use std::io::Write;
 use std::panic::AssertUnwindSafe;
-use std::pin::Pin;
-use std::sync::Arc;
 use std::time::Duration;
 
 use chatgpt_api::{
@@ -22,53 +20,10 @@ use selvedge_command_model::{
 };
 use selvedge_domain_model::{
     CallableTools, ConversationMessage, FUNCTION_CALL_CONTENT_TYPE, FUNCTION_OUTPUT_CONTENT_TYPE,
-    MessageRole, ModelFinishReason, ModelReply, ResponsePreference, TokenUsage, ToolCallProposal,
-    ToolManifest, validate_model_reply,
+    MessageRole, ModelFinishReason, ModelReply, ReasoningEffort, ResponsePreference, TokenUsage,
+    ToolCallProposal, ToolManifest, validate_model_reply,
 };
-use selvedge_model_providers::{ProviderRegistryError, default_registry};
-
-type ProviderAdapterFuture<'a> =
-    Pin<Box<dyn Future<Output = Result<ModelReply, ModelCallError>> + Send + 'a>>;
-
-trait ProviderAdapter: Send + Sync {
-    fn execute<'a>(
-        &'a self,
-        request: &'a ModelCallDispatchRequest,
-        config: &'a ApiExecutorConfig,
-    ) -> ProviderAdapterFuture<'a>;
-}
-
-struct ProviderAdapterRegistry {
-    adapters: BTreeMap<&'static str, Arc<dyn ProviderAdapter>>,
-}
-
-impl ProviderAdapterRegistry {
-    fn new(adapters: Vec<(&'static str, Arc<dyn ProviderAdapter>)>) -> Self {
-        Self {
-            adapters: adapters.into_iter().collect(),
-        }
-    }
-
-    fn adapter(&self, provider_id: &str) -> Option<Arc<dyn ProviderAdapter>> {
-        self.adapters.get(provider_id).cloned()
-    }
-}
-
-struct ChatgptProviderAdapter;
-
-impl ProviderAdapter for ChatgptProviderAdapter {
-    fn execute<'a>(
-        &'a self,
-        request: &'a ModelCallDispatchRequest,
-        config: &'a ApiExecutorConfig,
-    ) -> ProviderAdapterFuture<'a> {
-        Box::pin(async move { call_chatgpt(request, config).await })
-    }
-}
-
-fn default_provider_adapter_registry() -> ProviderAdapterRegistry {
-    ProviderAdapterRegistry::new(vec![("chatgpt", Arc::new(ChatgptProviderAdapter))])
-}
+use selvedge_model_providers::{ExecutableProvider, ProviderRegistryError, default_registry};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ApiExecutorConfig {
@@ -174,23 +129,17 @@ async fn execute_validated_provider_call(
     request: &ModelCallDispatchRequest,
     config: &ApiExecutorConfig,
 ) -> Result<ModelReply, ModelCallError> {
-    validate_provider_dispatch_target(request)
+    match validate_provider_dispatch_target(request)
         .await
-        .map_err(map_provider_registry_error)?;
-    let adapter_registry = default_provider_adapter_registry();
-    let Some(adapter) = adapter_registry.adapter(&request.provider.provider_name) else {
-        return Err(model_call_error(
-            ModelCallErrorKind::ProviderRequest,
-            "provider adapter is not available",
-        ));
-    };
-
-    adapter.execute(request, config).await
+        .map_err(map_provider_registry_error)?
+    {
+        ExecutableProvider::Chatgpt => call_chatgpt(request, config).await,
+    }
 }
 
 async fn validate_provider_dispatch_target(
     request: &ModelCallDispatchRequest,
-) -> Result<(), ProviderRegistryError> {
+) -> Result<ExecutableProvider, ProviderRegistryError> {
     let llm_config = selvedge_config::read(|config| config.llm.clone())
         .map_err(|error| ProviderRegistryError::Credential(error.to_string()))?;
     let selvedge_home = selvedge_config::selvedge_home()
@@ -226,15 +175,7 @@ fn map_provider_registry_error(error: ProviderRegistryError) -> ModelCallError {
             ModelCallErrorKind::ProviderRequest,
             format!("provider credential lookup failed: {error}"),
         ),
-        ProviderRegistryError::DiscoveryError {
-            provider_id,
-            reason,
-        } => model_call_error(
-            ModelCallErrorKind::ProviderRequest,
-            format!("provider {provider_id} discovery failed: {reason}"),
-        ),
-        ProviderRegistryError::InvalidProviderDescriptor { provider_id }
-        | ProviderRegistryError::DuplicateProviderDescriptor { provider_id } => model_call_error(
+        ProviderRegistryError::DuplicateProviderDescriptor { provider_id } => model_call_error(
             ModelCallErrorKind::ProviderRequest,
             format!("provider registry descriptor {provider_id} is invalid"),
         ),
@@ -411,7 +352,18 @@ fn chatgpt_request_from_dispatch(
         tools: chatgpt_tools(request.tool_manifest.as_ref()),
         allowed_tools: chatgpt_allowed_tools(request),
         parallel_tool_calls: true,
-        reasoning: ChatgptReasoningOptions::default(),
+        reasoning: ChatgptReasoningOptions {
+            effort: Some(
+                match request.model_config.reasoning_effort() {
+                    ReasoningEffort::Minimal => "minimal",
+                    ReasoningEffort::Low => "low",
+                    ReasoningEffort::Medium => "medium",
+                    ReasoningEffort::High => "high",
+                }
+                .to_owned(),
+            ),
+            ..ChatgptReasoningOptions::default()
+        },
         text: ChatgptTextOptions::default(),
         service_tier: None,
     })
@@ -778,7 +730,6 @@ impl std::io::Write for BoundedByteCounter {
 #[cfg(test)]
 mod tests {
     use std::io::Write;
-    use std::sync::Arc;
 
     use selvedge_command_model::{
         ApiCallCorrelation, ApiEffectId, ApiOutputEnvelope, ModelCallErrorKind, ModelRunId,
@@ -786,28 +737,7 @@ mod tests {
     };
     use tokio::sync::mpsc;
 
-    use super::{
-        ApiCallTerminalStatus, BoundedByteCounter, ProviderAdapterRegistry, supervise_model_call,
-    };
-
-    struct TestProviderAdapter;
-
-    impl super::ProviderAdapter for TestProviderAdapter {
-        fn execute<'a>(
-            &'a self,
-            _request: &'a selvedge_command_model::ModelCallDispatchRequest,
-            _config: &'a super::ApiExecutorConfig,
-        ) -> super::ProviderAdapterFuture<'a> {
-            Box::pin(async {
-                Ok(selvedge_domain_model::ModelReply {
-                    content: Some("ok".to_owned()),
-                    tool_calls: Vec::new(),
-                    usage: None,
-                    finish_reason: selvedge_domain_model::ModelFinishReason::Stop,
-                })
-            })
-        }
-    }
+    use super::{ApiCallTerminalStatus, BoundedByteCounter, supervise_model_call};
 
     #[test]
     fn bounded_byte_counter_errors_when_limit_is_exceeded() {
@@ -818,15 +748,6 @@ mod tests {
 
         assert!(counter.limit_exceeded());
         assert_eq!(error.kind(), std::io::ErrorKind::Other);
-    }
-
-    #[test]
-    fn provider_adapter_registry_resolves_registered_provider_id() {
-        let registry =
-            ProviderAdapterRegistry::new(vec![("test-provider", Arc::new(TestProviderAdapter))]);
-
-        assert!(registry.adapter("test-provider").is_some());
-        assert!(registry.adapter("missing-provider").is_none());
     }
 
     #[tokio::test]

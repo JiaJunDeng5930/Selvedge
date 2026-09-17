@@ -7,12 +7,11 @@ use std::{error::Error, fmt};
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 pub use selvedge_domain_model::{
     Conversation, ConversationMessage, FunctionCallId, HistoryNodeId, HistoryNodeIdRef, JsonObject,
-    MessageRole, ModelProfileKey, ReasoningEffort, TaskId, TaskLifecycleEvent, TaskStatus,
-    ToolManifest, ToolName, ToolSpec, UnixTs,
+    MessageRole, ModelProfileKey, ReasoningEffort, TaskId, TaskLifecycleEvent, TaskModelConfig,
+    TaskStatus, ToolManifest, ToolName, ToolSpec, UnixTs,
 };
 use serde_json::Value;
 
-const SCHEMA_VERSION: &str = "task-lifecycle-v10";
 pub const MAX_TASK_HISTORY_PAGE_SIZE: u32 = 100;
 
 #[derive(Clone)]
@@ -21,9 +20,6 @@ pub struct DbPool {
     new_task_max_children_per_fork: u32,
     new_task_max_descendants: u32,
 }
-
-pub struct DbConnection;
-pub struct DbTransaction;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum DbError {
@@ -75,7 +71,7 @@ impl fmt::Display for DbError {
             DbError::SchemaMismatch { expected, actual } => {
                 write!(
                     formatter,
-                    "schema mismatch: expected {expected}, actual {actual:?}"
+                    "schema mismatch: expected {expected} version and structure, recorded version {actual:?}"
                 )
             }
         }
@@ -85,7 +81,7 @@ impl fmt::Display for DbError {
 impl Error for DbError {}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum HistoryContentKindRow {
+enum HistoryContentKindRow {
     Message,
     Reasoning,
     FunctionCall,
@@ -139,20 +135,12 @@ pub struct TaskRow {
     pub task_id: TaskId,
     pub task_status: TaskStatus,
     pub cursor_node_id: HistoryNodeId,
-    pub model_profile_key: ModelProfileKey,
-    pub reasoning_effort: ReasoningEffort,
+    pub model_config: Arc<TaskModelConfig>,
     pub max_children_per_fork: u32,
     pub max_task_descendants: u32,
     pub state_version: u64,
     pub created_at: UnixTs,
     pub updated_at: UnixTs,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct TaskToolRow {
-    pub task_id: TaskId,
-    pub tool_ordinal: u32,
-    pub tool_name: ToolName,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -171,41 +159,38 @@ pub struct QueuedUserInputRow {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct HistoryNodeRow {
-    pub node_id: HistoryNodeId,
-    pub parent_node_id: Option<HistoryNodeId>,
-    pub content_kind: HistoryContentKindRow,
-    pub created_at: UnixTs,
+struct HistoryNodeRow {
+    node_id: HistoryNodeId,
+    parent_node_id: Option<HistoryNodeId>,
+    content_kind: HistoryContentKindRow,
+    created_at: UnixTs,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct HistoryMessageNodeRow {
-    pub node_id: HistoryNodeId,
-    pub message_role: MessageRole,
-    pub message_text: String,
+struct HistoryMessageNodeRow {
+    message_role: MessageRole,
+    message_text: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct HistoryReasoningNodeRow {
-    pub node_id: HistoryNodeId,
-    pub reasoning_text: String,
+struct HistoryReasoningNodeRow {
+    reasoning_text: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct HistoryFunctionCallNodeRow {
-    pub node_id: HistoryNodeId,
-    pub function_call_id: FunctionCallId,
-    pub tool_name: ToolName,
+struct HistoryFunctionCallNodeRow {
+    function_call_id: FunctionCallId,
+    tool_name: ToolName,
+    arguments: JsonObject,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct HistoryFunctionOutputNodeRow {
-    pub node_id: HistoryNodeId,
-    pub function_call_node_id: HistoryNodeId,
-    pub function_call_id: FunctionCallId,
-    pub tool_name: ToolName,
-    pub output: Value,
-    pub is_error: bool,
+struct HistoryFunctionOutputNodeRow {
+    function_call_node_id: HistoryNodeId,
+    function_call_id: FunctionCallId,
+    tool_name: ToolName,
+    output: Value,
+    is_error: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -267,8 +252,7 @@ impl HistoryNode {
 pub struct CreateRootTaskInput {
     pub task_id: TaskId,
     pub cursor_node_id: HistoryNodeId,
-    pub model_profile_key: ModelProfileKey,
-    pub reasoning_effort: ReasoningEffort,
+    pub model_config: Arc<TaskModelConfig>,
     pub tools: Vec<TaskToolSpec>,
     pub now: UnixTs,
 }
@@ -325,8 +309,7 @@ pub struct TaskRead {
 pub struct LoadedRuntimeTask {
     pub task: TaskRow,
     pub cursor_node: HistoryNode,
-    pub tool_manifest: ToolManifest,
-    pub queued_inputs: Vec<QueuedUserInputRow>,
+    pub queued_input_count: u64,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -387,16 +370,12 @@ pub fn open_db(options: OpenDbOptions) -> Result<DbPool, DbError> {
             "max children per fork must not exceed max task descendants".to_owned(),
         ));
     }
-    let connection = Connection::open(&options.sqlite_path).map_err(map_error)?;
+    let mut connection = Connection::open(&options.sqlite_path).map_err(map_error)?;
     connection
         .pragma_update(None, "foreign_keys", "ON")
         .map_err(map_error)?;
 
-    if database_is_empty(&connection)? {
-        connection
-            .execute_batch(include_str!("schema.sql"))
-            .map_err(map_error)?;
-    }
+    initialize_schema(&mut connection)?;
 
     let db = DbPool {
         connection: Arc::new(Mutex::new(connection)),
@@ -407,25 +386,66 @@ pub fn open_db(options: OpenDbOptions) -> Result<DbPool, DbError> {
     Ok(db)
 }
 
+fn initialize_schema(connection: &mut Connection) -> Result<(), DbError> {
+    let tx = connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(map_error)?;
+    if database_is_empty(&tx)? {
+        tx.execute_batch(include_str!("schema.sql"))
+            .map_err(map_error)?;
+    }
+    tx.commit().map_err(map_error)
+}
+
 pub fn verify_schema(db: &DbPool) -> Result<(), DbError> {
-    let connection = db.connection()?;
-    let actual: Option<String> = connection
+    let mut connection = db.connection()?;
+    let tx = connection.transaction().map_err(map_error)?;
+    // Derive the complete structural contract from the only schema definition.
+    // Checking its version marker alone would accept partially initialized databases.
+    let expected = Connection::open_in_memory().map_err(map_error)?;
+    expected
+        .execute_batch(include_str!("schema.sql"))
+        .map_err(map_error)?;
+    let objects = schema_objects(&tx)?;
+    let metadata_exists = objects
+        .iter()
+        .any(|(kind, name, _)| kind == "table" && name == "schema_metadata");
+    let expected_version = schema_version(&expected)?
+        .ok_or_else(|| DbError::Storage("current schema definition has no version".to_owned()))?;
+    let actual = if metadata_exists {
+        schema_version(&tx)?
+    } else {
+        None
+    };
+    if actual.as_ref() != Some(&expected_version) || objects != schema_objects(&expected)? {
+        return Err(DbError::SchemaMismatch {
+            expected: expected_version,
+            actual,
+        });
+    }
+    tx.commit().map_err(map_error)
+}
+
+fn schema_version(connection: &Connection) -> Result<Option<String>, DbError> {
+    connection
         .query_row(
             "SELECT schema_value FROM schema_metadata WHERE schema_key = 'selvedge_schema_version'",
             [],
             |row| row.get(0),
         )
         .optional()
-        .map_err(map_error)?;
+        .map_err(map_error)
+}
 
-    if actual.as_deref() == Some(SCHEMA_VERSION) {
-        Ok(())
-    } else {
-        Err(DbError::SchemaMismatch {
-            expected: SCHEMA_VERSION.to_owned(),
-            actual,
-        })
-    }
+fn schema_objects(connection: &Connection) -> Result<Vec<(String, String, String)>, DbError> {
+    let mut statement = connection.prepare(
+        "SELECT type, name, sql FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%' ORDER BY type, name"
+    ).map_err(map_error)?;
+    statement
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+        .map_err(map_error)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(map_error)
 }
 
 pub fn reconcile_task_tool_availability(
@@ -556,8 +576,8 @@ pub fn create_root_task(db: &DbPool, input: CreateRootTaskInput) -> Result<TaskR
             params![
                 input.task_id.0,
                 input.cursor_node_id.0,
-                input.model_profile_key.0,
-                reasoning_effort_to_db(&input.reasoning_effort),
+                input.model_config.profile_key().0,
+                reasoning_effort_to_db(input.model_config.reasoning_effort()),
                 i64::from(db.new_task_max_children_per_fork),
                 i64::from(db.new_task_max_descendants),
                 input.now.0
@@ -569,7 +589,7 @@ pub fn create_root_task(db: &DbPool, input: CreateRootTaskInput) -> Result<TaskR
         }
         tx.commit().map_err(map_error)?;
     }
-    read_task_row(db, &task_id)
+    read_task_metadata(db, &task_id)
 }
 
 pub fn commit_tool_result_branches(
@@ -618,7 +638,7 @@ pub fn commit_tool_result_branches(
     let tx = connection
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(map_error)?;
-    let calling_task = read_task_in_tx(&tx, &input.calling_task_id)?;
+    let calling_task = read_task_in_connection(&tx, &input.calling_task_id)?;
     if !calling_task.task_status.accepts_history_writes() {
         return Err(DbError::InvalidTaskStatus {
             status: calling_task.task_status,
@@ -667,8 +687,8 @@ pub fn commit_tool_result_branches(
                     params![
                         child_task_id.0,
                         branch_cursor_node_id.0,
-                        calling_task.model_profile_key.0,
-                        reasoning_effort_to_db(&calling_task.reasoning_effort),
+                        calling_task.model_config.profile_key().0,
+                        reasoning_effort_to_db(calling_task.model_config.reasoning_effort()),
                         i64::from(calling_task.max_children_per_fork),
                         i64::from(calling_task.max_task_descendants),
                         input.now.0
@@ -766,21 +786,42 @@ fn ensure_task_descendant_capacity_in_tx(
 }
 
 pub fn load_runtime_task(db: &DbPool, task_id: &TaskId) -> Result<LoadedRuntimeTask, DbError> {
-    let task = read_task_row(db, task_id)?;
-    if !task.task_status.has_runtime() {
-        return Err(DbError::InvalidTaskStatus {
-            status: task.task_status,
-        });
-    }
-    let cursor_node = read_history_node(db, &task.cursor_node_id)?;
-    let tool_manifest = read_tool_manifest_for_task(db, task_id)?;
-    let queued_inputs = list_queued_inputs(db, task_id)?;
+    let mut connection = db.connection()?;
+    let tx = connection.transaction().map_err(map_error)?;
+    let task = read_task_in_connection(&tx, task_id)?;
+    ensure_runtime_task(&task)?;
+    let cursor_node = read_history_node_concrete_in_connection(&tx, &task.cursor_node_id)?;
+    let queued_input_count = queued_input_count_in_connection(&tx, task_id)?;
+    tx.commit().map_err(map_error)?;
     Ok(LoadedRuntimeTask {
         task,
         cursor_node,
-        tool_manifest,
-        queued_inputs,
+        queued_input_count,
     })
+}
+
+fn ensure_runtime_task(task: &TaskRow) -> Result<(), DbError> {
+    if task.task_status.has_runtime() {
+        Ok(())
+    } else {
+        Err(DbError::InvalidTaskStatus {
+            status: task.task_status,
+        })
+    }
+}
+
+fn queued_input_count_in_connection(
+    connection: &Connection,
+    task_id: &TaskId,
+) -> Result<u64, DbError> {
+    let count = connection
+        .query_row(
+            "SELECT COUNT(*) FROM queued_user_inputs WHERE task_id = ?1",
+            params![task_id.0],
+            |row| row.get(0),
+        )
+        .map_err(map_error)?;
+    i64_to_u64(count)
 }
 
 pub fn append_user_message_and_move_cursor(
@@ -791,7 +832,7 @@ pub fn append_user_message_and_move_cursor(
 ) -> Result<HistoryNodeId, DbError> {
     let mut connection = db.connection()?;
     let tx = connection.transaction().map_err(map_error)?;
-    let task = read_task_in_tx(&tx, task_id)?;
+    let task = read_task_in_connection(&tx, task_id)?;
     let next_status = task
         .task_status
         .transition(TaskLifecycleEvent::UserInput)
@@ -891,16 +932,22 @@ pub fn append_model_reply_with_tool_calls_and_move_cursor(
     Ok(function_call_node_ids)
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AssistantMessageCommit {
+    pub last_node_id: HistoryNodeId,
+    pub drained_inputs: bool,
+}
+
 pub fn append_assistant_message_and_drain_queue(
     db: &DbPool,
     task_id: &TaskId,
     message_text: String,
     created_at: UnixTs,
-) -> Result<HistoryNodeId, DbError> {
+) -> Result<AssistantMessageCommit, DbError> {
     let mut connection = db.connection()?;
     let tx = connection.transaction().map_err(map_error)?;
     ensure_history_writable_task_in_tx(&tx, task_id)?;
-    let mut last_node_id = append_node_to_current_cursor_in_tx(
+    let assistant_node_id = append_node_to_current_cursor_in_tx(
         &tx,
         task_id,
         NewHistoryNodeContent::Message(NewMessageNodeContent {
@@ -909,11 +956,12 @@ pub fn append_assistant_message_and_drain_queue(
         }),
         created_at,
     )?;
-    if let Some(node_id) = append_all_queued_user_inputs_in_tx(&tx, task_id, created_at)? {
-        last_node_id = node_id;
-    }
+    let last_queued_node_id = append_all_queued_user_inputs_in_tx(&tx, task_id, created_at)?;
     tx.commit().map_err(map_error)?;
-    Ok(last_node_id)
+    Ok(AssistantMessageCommit {
+        last_node_id: last_queued_node_id.unwrap_or(assistant_node_id),
+        drained_inputs: last_queued_node_id.is_some(),
+    })
 }
 
 pub fn drain_queued_user_inputs_and_move_cursor(
@@ -933,22 +981,13 @@ pub fn read_open_function_calls_for_task(
     db: &DbPool,
     task_id: &TaskId,
 ) -> Result<Vec<OpenFunctionCall>, DbError> {
-    let task = load_runtime_task(db, task_id)?.task;
-    let connection = db.connection()?;
-    let recovery_policies = read_task_tool_recovery_policies_in_connection(&connection, task_id)?;
-    let mut nodes = Vec::new();
-    let mut next_node_id = Some(task.cursor_node_id);
-    while let Some(node_id) = next_node_id {
-        let node = read_history_node_concrete_in_connection(&connection, &node_id)?;
-        next_node_id = match &node {
-            HistoryNode::Message { parent_node_id, .. }
-            | HistoryNode::Reasoning { parent_node_id, .. }
-            | HistoryNode::FunctionCall { parent_node_id, .. }
-            | HistoryNode::FunctionOutput { parent_node_id, .. } => *parent_node_id,
-        };
-        nodes.push(node);
-    }
-    nodes.reverse();
+    let mut connection = db.connection()?;
+    let tx = connection.transaction().map_err(map_error)?;
+    let task = read_task_in_connection(&tx, task_id)?;
+    ensure_runtime_task(&task)?;
+    let recovery_policies = read_task_tool_recovery_policies_in_connection(&tx, task_id)?;
+    let nodes = read_history_path(&tx, task.cursor_node_id)?;
+    tx.commit().map_err(map_error)?;
 
     let mut open_calls = Vec::<OpenFunctionCall>::new();
     for node in nodes {
@@ -1006,7 +1045,7 @@ fn current_cursor_node_id_in_tx(
     tx: &rusqlite::Transaction<'_>,
     task_id: &TaskId,
 ) -> Result<i64, DbError> {
-    let task = read_task_in_tx(tx, task_id)?;
+    let task = read_task_in_connection(tx, task_id)?;
     if task.task_status.accepts_history_writes() {
         Ok(task.cursor_node_id.0)
     } else {
@@ -1146,7 +1185,7 @@ pub fn queue_user_input(
 ) -> Result<QueuedUserInputRow, DbError> {
     let mut connection = db.connection()?;
     let tx = connection.transaction().map_err(map_error)?;
-    let task = read_task_in_tx(&tx, task_id)?;
+    let task = read_task_in_connection(&tx, task_id)?;
     let next_status = task
         .task_status
         .transition(TaskLifecycleEvent::UserInput)
@@ -1189,96 +1228,8 @@ pub fn queue_user_input(
     })
 }
 
-pub fn consume_next_queued_user_input(
-    db: &DbPool,
-    task_id: &TaskId,
-) -> Result<Option<QueuedUserInputRow>, DbError> {
-    let mut connection = db.connection()?;
-    let tx = connection.transaction().map_err(map_error)?;
-    ensure_history_writable_task_in_tx(&tx, task_id)?;
-    let queued = tx
-        .query_row(
-            "SELECT task_id, seq_no, message_text, queued_at
-             FROM queued_user_inputs
-             WHERE task_id = ?1
-             ORDER BY seq_no ASC
-             LIMIT 1",
-            params![task_id.0],
-            map_queued_user_input_row,
-        )
-        .optional()
-        .map_err(map_error)?;
-    if let Some(queued) = &queued {
-        tx.execute(
-            "DELETE FROM queued_user_inputs WHERE task_id = ?1 AND seq_no = ?2",
-            params![queued.task_id.0, u64_to_i64(queued.seq_no)?],
-        )
-        .map_err(map_error)?;
-    }
-    tx.commit().map_err(map_error)?;
-    Ok(queued)
-}
-
-pub fn append_next_queued_user_input_and_move_cursor(
-    db: &DbPool,
-    task_id: &TaskId,
-    created_at: UnixTs,
-) -> Result<Option<HistoryNodeId>, DbError> {
-    let mut connection = db.connection()?;
-    let tx = connection.transaction().map_err(map_error)?;
-    ensure_history_writable_task_in_tx(&tx, task_id)?;
-    let queued = tx
-        .query_row(
-            "SELECT task_id, seq_no, message_text, queued_at
-             FROM queued_user_inputs
-             WHERE task_id = ?1
-             ORDER BY seq_no ASC
-             LIMIT 1",
-            params![task_id.0],
-            map_queued_user_input_row,
-        )
-        .optional()
-        .map_err(map_error)?;
-    let Some(queued) = queued else {
-        tx.commit().map_err(map_error)?;
-        return Ok(None);
-    };
-    let current_cursor_node_id = current_cursor_node_id_in_tx(&tx, task_id)?;
-    let node_id = insert_history_node(
-        &tx,
-        NewHistoryNode {
-            parent_node_id: Some(HistoryNodeId(current_cursor_node_id)),
-            content: NewHistoryNodeContent::Message(NewMessageNodeContent {
-                message_role: MessageRole::User,
-                message_text: queued.message_text,
-            }),
-            created_at,
-        },
-    )?;
-    let changed = tx
-        .execute(
-            "UPDATE tasks
-         SET cursor_node_id = ?1, updated_at = ?2, state_version = state_version + 1
-         WHERE task_id = ?3 AND task_status <> 'archived' AND cursor_node_id = ?4",
-            params![node_id.0, created_at.0, task_id.0, current_cursor_node_id],
-        )
-        .map_err(map_error)?;
-    if changed == 0 {
-        return Err(DbError::Constraint(
-            "queued input append cursor changed before update".to_owned(),
-        ));
-    }
-    tx.execute(
-        "DELETE FROM queued_user_inputs WHERE task_id = ?1 AND seq_no = ?2",
-        params![queued.task_id.0, u64_to_i64(queued.seq_no)?],
-    )
-    .map_err(map_error)?;
-    tx.commit().map_err(map_error)?;
-    Ok(Some(node_id))
-}
-
 pub fn read_task_status(db: &DbPool, task_id: &TaskId) -> Result<TaskStatus, DbError> {
-    Ok(read_task_row(db, task_id)?.task_status)
+    Ok(read_task_metadata(db, task_id)?.task_status)
 }
 
 pub fn transition_task_status(
@@ -1294,7 +1245,7 @@ pub fn transition_task_status(
     }
     let mut connection = db.connection()?;
     let tx = connection.transaction().map_err(map_error)?;
-    let task = read_task_in_tx(&tx, task_id)?;
+    let task = read_task_in_connection(&tx, task_id)?;
     let next_status = task
         .task_status
         .transition(event)
@@ -1319,7 +1270,7 @@ pub fn transition_task_status(
             "task status changed before transition commit".to_owned(),
         ));
     }
-    let transitioned = read_task_in_tx(&tx, task_id)?;
+    let transitioned = read_task_in_connection(&tx, task_id)?;
     tx.commit().map_err(map_error)?;
     Ok(transitioned)
 }
@@ -1374,15 +1325,15 @@ pub fn read_task(db: &DbPool, input: ReadTaskInput) -> Result<TaskRead, DbError>
 
     let mut connection = db.connection()?;
     let tx = connection.transaction().map_err(map_error)?;
-    let task = read_task_in_tx(&tx, &input.task_id)?;
+    let task = read_task_in_connection(&tx, &input.task_id)?;
     if let Some(after_node_id) = input.after_node_id {
         ensure_task_path_contains_node_in_tx(&tx, task.cursor_node_id, after_node_id)?;
     }
-    let mut node_ids = read_history_page_node_ids_in_tx(
+    let mut node_ids = read_history_path_node_ids(
         &tx,
         task.cursor_node_id,
         input.after_node_id,
-        input.limit + 1,
+        i64::from(input.limit) + 1,
     )?;
     let has_more = node_ids.len() > input.limit as usize;
     node_ids.truncate(input.limit as usize);
@@ -1400,20 +1351,14 @@ pub fn read_task(db: &DbPool, input: ReadTaskInput) -> Result<TaskRead, DbError>
         )
         .optional()
         .map_err(map_error)?;
-    let queued_input_count: i64 = tx
-        .query_row(
-            "SELECT COUNT(*) FROM queued_user_inputs WHERE task_id = ?1",
-            params![input.task_id.0],
-            |row| row.get(0),
-        )
-        .map_err(map_error)?;
+    let queued_input_count = queued_input_count_in_connection(&tx, &input.task_id)?;
     let result = TaskRead {
         task_id: task.task_id,
         task_status: task.task_status,
         state_version: task.state_version,
         cursor_node_id: task.cursor_node_id,
         parent_task_id,
-        queued_input_count: i64_to_u64(queued_input_count)?,
+        queued_input_count,
         history_nodes,
         has_more,
     };
@@ -1474,53 +1419,64 @@ pub fn read_task_tool_state(db: &DbPool, task_id: &TaskId) -> Result<TaskToolSta
 }
 
 pub fn read_conversation_for_task(db: &DbPool, task_id: &TaskId) -> Result<Conversation, DbError> {
-    let task = read_task_row(db, task_id)?;
-    let connection = db.connection()?;
-    let mut nodes = Vec::new();
-    let mut next_node_id = Some(task.cursor_node_id);
-    while let Some(node_id) = next_node_id {
-        let node = read_history_node_in_connection(&connection, &node_id)?;
-        next_node_id = node.parent_node_id;
-        nodes.push(node);
-    }
-    nodes.reverse();
-
-    let mut messages = Vec::with_capacity(nodes.len());
-    for node in nodes {
-        let source_node_id = Some(HistoryNodeIdRef(node.node_id.0.to_string()));
-        match node.content_kind {
-            HistoryContentKindRow::Message => {
-                let row = read_message_node(&connection, &node.node_id)?;
-                messages.push(ConversationMessage::text(
-                    row.message_role,
-                    row.message_text,
-                    source_node_id,
-                ));
-            }
-            HistoryContentKindRow::FunctionCall => {
-                let row = read_function_call_node(&connection, &node.node_id)?;
-                messages.push(ConversationMessage::function_call(
-                    row.function_call_id,
-                    row.tool_name,
-                    read_function_call_arguments(&connection, &node.node_id)?,
-                    source_node_id,
-                ));
-            }
-            HistoryContentKindRow::FunctionOutput => {
-                let row = read_function_output_node(&connection, &node.node_id)?;
-                messages.push(ConversationMessage::function_output(
-                    row.function_call_id,
-                    row.tool_name,
-                    row.output,
-                    row.is_error,
-                    source_node_id,
-                ));
-            }
-            HistoryContentKindRow::Reasoning => {}
-        }
-    }
-
+    let mut connection = db.connection()?;
+    let tx = connection.transaction().map_err(map_error)?;
+    let task = read_task_in_connection(&tx, task_id)?;
+    let nodes = read_history_path(&tx, task.cursor_node_id)?;
+    tx.commit().map_err(map_error)?;
+    let messages = nodes
+        .into_iter()
+        .filter_map(|node| match node {
+            HistoryNode::Message {
+                node_id,
+                message_role,
+                message_text,
+                ..
+            } => Some(ConversationMessage::text(
+                message_role,
+                message_text,
+                Some(HistoryNodeIdRef(node_id.0.to_string())),
+            )),
+            HistoryNode::FunctionCall {
+                node_id,
+                function_call_id,
+                tool_name,
+                arguments,
+                ..
+            } => Some(ConversationMessage::function_call(
+                function_call_id,
+                tool_name,
+                arguments,
+                Some(HistoryNodeIdRef(node_id.0.to_string())),
+            )),
+            HistoryNode::FunctionOutput {
+                node_id,
+                function_call_id,
+                tool_name,
+                output,
+                is_error,
+                ..
+            } => Some(ConversationMessage::function_output(
+                function_call_id,
+                tool_name,
+                output,
+                is_error,
+                Some(HistoryNodeIdRef(node_id.0.to_string())),
+            )),
+            HistoryNode::Reasoning { .. } => None,
+        })
+        .collect();
     Ok(Conversation { messages })
+}
+
+fn read_history_path(
+    connection: &Connection,
+    cursor: HistoryNodeId,
+) -> Result<Vec<HistoryNode>, DbError> {
+    read_history_path_node_ids(connection, cursor, None, -1)?
+        .into_iter()
+        .map(|id| read_history_node_concrete_in_connection(connection, &id))
+        .collect()
 }
 
 impl DbPool {
@@ -1542,23 +1498,11 @@ fn database_is_empty(connection: &Connection) -> Result<bool, DbError> {
     Ok(count == 0)
 }
 
-fn read_task_row(db: &DbPool, task_id: &TaskId) -> Result<TaskRow, DbError> {
-    let connection = db.connection()?;
-    connection
-        .query_row(
-            "SELECT task_id, task_status, cursor_node_id, model_profile_key, reasoning_effort,
-                    max_children_per_fork, max_task_descendants, state_version, created_at, updated_at
-             FROM tasks
-             WHERE task_id = ?1",
-            params![task_id.0],
-            map_task_row,
-        )
-        .optional()
-        .map_err(map_error)?
-        .ok_or(DbError::NotFound)
+pub fn read_task_metadata(db: &DbPool, task_id: &TaskId) -> Result<TaskRow, DbError> {
+    read_task_in_connection(&*db.connection()?, task_id)
 }
 
-fn read_task_in_tx(tx: &rusqlite::Transaction<'_>, task_id: &TaskId) -> Result<TaskRow, DbError> {
+fn read_task_in_connection(tx: &Connection, task_id: &TaskId) -> Result<TaskRow, DbError> {
     tx.query_row(
         "SELECT task_id, task_status, cursor_node_id, model_profile_key, reasoning_effort,
                 max_children_per_fork, max_task_descendants, state_version, created_at, updated_at
@@ -1602,11 +1546,11 @@ fn ensure_task_path_contains_node_in_tx(
     }
 }
 
-fn read_history_page_node_ids_in_tx(
-    tx: &rusqlite::Transaction<'_>,
+fn read_history_path_node_ids(
+    tx: &Connection,
     cursor_node_id: HistoryNodeId,
     after_node_id: Option<HistoryNodeId>,
-    limit: u32,
+    limit: i64,
 ) -> Result<Vec<HistoryNodeId>, DbError> {
     let mut statement = tx
         .prepare(
@@ -1634,7 +1578,7 @@ fn read_history_page_node_ids_in_tx(
             params![
                 cursor_node_id.0,
                 after_node_id.map(|node_id| node_id.0),
-                i64::from(limit)
+                limit
             ],
             |row| row.get::<_, i64>(0).map(HistoryNodeId),
         )
@@ -1693,11 +1637,6 @@ fn ensure_current_path_contains_open_function_call(
     Ok(())
 }
 
-fn read_history_node(db: &DbPool, node_id: &HistoryNodeId) -> Result<HistoryNode, DbError> {
-    let connection = db.connection()?;
-    read_history_node_concrete_in_connection(&connection, node_id)
-}
-
 fn read_history_node_concrete_in_connection(
     connection: &Connection,
     node_id: &HistoryNodeId,
@@ -1731,7 +1670,7 @@ fn read_history_node_concrete_in_connection(
                 created_at: base.created_at,
                 function_call_id: row.function_call_id,
                 tool_name: row.tool_name,
-                arguments: read_function_call_arguments(connection, &base.node_id)?,
+                arguments: row.arguments,
             })
         }
         HistoryContentKindRow::FunctionOutput => {
@@ -1765,23 +1704,6 @@ fn read_history_node_in_connection(
         .optional()
         .map_err(map_error)?
         .ok_or(DbError::NotFound)
-}
-
-fn list_queued_inputs(db: &DbPool, task_id: &TaskId) -> Result<Vec<QueuedUserInputRow>, DbError> {
-    let connection = db.connection()?;
-    let mut statement = connection
-        .prepare(
-            "SELECT task_id, seq_no, message_text, queued_at
-             FROM queued_user_inputs
-             WHERE task_id = ?1
-             ORDER BY seq_no ASC",
-        )
-        .map_err(map_error)?;
-    statement
-        .query_map(params![task_id.0], map_queued_user_input_row)
-        .map_err(map_error)?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(map_error)
 }
 
 fn validate_task_tool_snapshot(tools: &[TaskToolSpec]) -> Result<(), DbError> {
@@ -2097,14 +2019,14 @@ fn read_message_node(
 ) -> Result<HistoryMessageNodeRow, DbError> {
     connection
         .query_row(
-            "SELECT node_id, message_role, message_text FROM history_message_nodes WHERE node_id = ?1",
+            "SELECT message_role, message_text FROM history_message_nodes WHERE node_id = ?1",
             params![node_id.0],
             |row| {
                 Ok(HistoryMessageNodeRow {
-                    node_id: HistoryNodeId(row.get(0)?),
-                    message_role: message_role_from_db(&row.get::<_, String>(1)?)
-                        .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?,
-                    message_text: row.get(2)?,
+                    message_role: message_role_from_db(&row.get::<_, String>(0)?).map_err(
+                        |error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)),
+                    )?,
+                    message_text: row.get(1)?,
                 })
             },
         )
@@ -2117,12 +2039,11 @@ fn read_reasoning_node(
 ) -> Result<HistoryReasoningNodeRow, DbError> {
     connection
         .query_row(
-            "SELECT node_id, reasoning_text FROM history_reasoning_nodes WHERE node_id = ?1",
+            "SELECT reasoning_text FROM history_reasoning_nodes WHERE node_id = ?1",
             params![node_id.0],
             |row| {
                 Ok(HistoryReasoningNodeRow {
-                    node_id: HistoryNodeId(row.get(0)?),
-                    reasoning_text: row.get(1)?,
+                    reasoning_text: row.get(0)?,
                 })
             },
         )
@@ -2135,33 +2056,17 @@ fn read_function_call_node(
 ) -> Result<HistoryFunctionCallNodeRow, DbError> {
     connection
         .query_row(
-            "SELECT node_id, function_call_id, tool_name FROM history_function_call_nodes WHERE node_id = ?1",
+            "SELECT function_call_id, tool_name, arguments_json FROM history_function_call_nodes WHERE node_id = ?1",
             params![node_id.0],
             |row| {
                 Ok(HistoryFunctionCallNodeRow {
-                    node_id: HistoryNodeId(row.get(0)?),
-                    function_call_id: FunctionCallId(row.get(1)?),
-                    tool_name: ToolName(row.get(2)?),
+                    function_call_id: FunctionCallId(row.get(0)?),
+                    tool_name: ToolName(row.get(1)?),
+                    arguments: decode_json_object(&row.get::<_, String>(2)?).map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?,
                 })
             },
         )
         .map_err(map_error)
-}
-
-fn read_function_call_arguments(
-    connection: &Connection,
-    node_id: &HistoryNodeId,
-) -> Result<JsonObject, DbError> {
-    let arguments_json = connection
-        .query_row(
-            "SELECT arguments_json
-             FROM history_function_call_nodes
-             WHERE node_id = ?1",
-            params![node_id.0],
-            |row| row.get::<_, String>(0),
-        )
-        .map_err(map_error)?;
-    decode_json_object(&arguments_json)
 }
 
 fn read_function_output_node(
@@ -2170,20 +2075,19 @@ fn read_function_output_node(
 ) -> Result<HistoryFunctionOutputNodeRow, DbError> {
     connection
         .query_row(
-            "SELECT node_id, function_call_node_id, function_call_id, tool_name, output_json, is_error
+            "SELECT function_call_node_id, function_call_id, tool_name, output_json, is_error
              FROM history_function_output_nodes
              WHERE node_id = ?1",
             params![node_id.0],
             |row| {
                 Ok(HistoryFunctionOutputNodeRow {
-                    node_id: HistoryNodeId(row.get(0)?),
-                    function_call_node_id: HistoryNodeId(row.get(1)?),
-                    function_call_id: FunctionCallId(row.get(2)?),
-                    tool_name: ToolName(row.get(3)?),
-                    output: decode_json_value(&row.get::<_, String>(4)?).map_err(|error| {
+                    function_call_node_id: HistoryNodeId(row.get(0)?),
+                    function_call_id: FunctionCallId(row.get(1)?),
+                    tool_name: ToolName(row.get(2)?),
+                    output: decode_json_value(&row.get::<_, String>(3)?).map_err(|error| {
                         rusqlite::Error::ToSqlConversionFailure(Box::new(error))
                     })?,
-                    is_error: row.get::<_, i64>(5)? == 1,
+                    is_error: row.get::<_, i64>(4)? == 1,
                 })
             },
         )
@@ -2196,9 +2100,18 @@ fn map_task_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<TaskRow> {
         task_status: task_status_from_db(&row.get::<_, String>(1)?)
             .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?,
         cursor_node_id: HistoryNodeId(row.get(2)?),
-        model_profile_key: ModelProfileKey(row.get(3)?),
-        reasoning_effort: reasoning_effort_from_db(&row.get::<_, String>(4)?)
-            .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?,
+        model_config: Arc::new(
+            TaskModelConfig::new(
+                ModelProfileKey(row.get(3)?),
+                reasoning_effort_from_db(&row.get::<_, String>(4)?)
+                    .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?,
+            )
+            .map_err(|error| {
+                rusqlite::Error::ToSqlConversionFailure(Box::new(DbError::Storage(format!(
+                    "invalid task model configuration: {error:?}"
+                ))))
+            })?,
+        ),
         max_children_per_fork: row.get(5)?,
         max_task_descendants: row.get(6)?,
         state_version: i64_to_u64(row.get(7)?)
@@ -2408,5 +2321,30 @@ fn map_error(error: rusqlite::Error) -> DbError {
             }
         }
         other => DbError::Storage(other.to_string()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn failed_schema_initialization_rolls_back_and_can_retry() {
+        let mut connection = Connection::open_in_memory().expect("open SQLite");
+        connection
+            .pragma_update(None, "max_page_count", 3)
+            .expect("limit pages");
+        assert!(initialize_schema(&mut connection).is_err());
+        assert!(database_is_empty(&connection).expect("check rollback"));
+        connection
+            .pragma_update(None, "max_page_count", 1000)
+            .expect("restore pages");
+        initialize_schema(&mut connection).expect("retry initialization");
+        let db = DbPool {
+            connection: Arc::new(Mutex::new(connection)),
+            new_task_max_children_per_fork: 5,
+            new_task_max_descendants: 20,
+        };
+        verify_schema(&db).expect("complete current schema");
     }
 }

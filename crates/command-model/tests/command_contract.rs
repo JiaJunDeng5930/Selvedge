@@ -1,23 +1,16 @@
 use selvedge_command_model::{
-    ApiCallCorrelation, ApiEffectId, ApiOutputEnvelope, BeginClientHydration, ClientCommandId,
-    ClientEvent, ClientEventFrame, ClientFrame, ClientId, ClientSnapshot, ClientSnapshotFrame,
-    ClientSubscription, DeliverySeq, DetailLevel, EventControlMessage, EventIngress,
-    FactoryEffectId, FactoryFailure, FactoryFailureKind, FactoryOutput, FactoryOutputEnvelope,
-    FactoryScanOutput, FactorySkipReason, FactorySkippedTask, FactoryTaskFailure,
-    HistoryAppendedEvent, HistoryAppendedRawEvent, ModelCallDispatchRequest, ModelCallError,
-    ModelCallErrorKind, ModelRunId, RouterCommand, RouterCommandEnvelope,
-    RouterCommandValidationError, RouterIngressApiMessage, RouterIngressMessage,
-    SnapshotTaskVersion, TaskCommandError, TaskId, TaskProjection, TaskRuntimeControl,
-    TaskRuntimeCreated, TaskScope, TaskStatus, ToolExecutionBranch, ToolExecutionBranchTarget,
-    ToolExecutionResult, ToolExecutionRunId, send_user_input_response_channel,
-    task_status_change_response_channel, validate_api_output_envelope, validate_dispatch_request,
-    validate_router_command,
+    ApiCallCorrelation, ApiEffectId, ApiOutputEnvelope, ClientCommandId, ClientId,
+    ClientSessionIdentity, ModelCallDispatchRequest, ModelCallError, ModelCallErrorKind,
+    ModelRunId, RouterCommand, RouterCommandValidationError, TaskCommandError, TaskId,
+    send_user_input_response_channel, task_status_change_response_channel,
+    validate_api_output_envelope, validate_dispatch_request, validate_router_command,
 };
 use selvedge_domain_model::{
-    CallableTools, Conversation, ConversationMessage, FunctionCallId, HistoryNodeId, MessageRole,
-    ModelFinishReason, ModelProfileKey, ModelProviderProfile, ModelReply, ReasoningEffort,
-    ResponsePreference, ToolManifest, ToolName, ToolSpec, UnixTs,
+    CallableTools, Conversation, ConversationMessage, MessageRole, ModelFinishReason,
+    ModelProfileKey, ModelProviderProfile, ModelReply, ReasoningEffort, ResponsePreference,
+    TaskModelConfig, ToolManifest, ToolName, ToolSpec,
 };
+use std::sync::Arc;
 
 #[test]
 fn dispatch_request_requires_complete_correlation_provider_and_conversation() {
@@ -94,271 +87,49 @@ fn api_output_envelope_carries_exactly_success_or_failure_payload() {
 }
 
 #[test]
-fn router_ingress_api_message_wraps_output_envelope() {
-    let message = RouterIngressApiMessage::ApiOutput(ApiOutputEnvelope::Failure {
-        correlation: valid_correlation(),
-        error: ModelCallError {
-            kind: ModelCallErrorKind::Cancelled,
-            message: "cancelled".to_owned(),
-        },
-    });
-
-    match message {
-        RouterIngressApiMessage::ApiOutput(ApiOutputEnvelope::Failure { error, .. }) => {
-            assert_eq!(error.kind, ModelCallErrorKind::Cancelled);
-        }
-        _ => panic!("unexpected message"),
+fn router_command_validation_rejects_invalid_session_and_task_payloads() {
+    for (client_id, command_id, error) in [
+        (" ", "attach", RouterCommandValidationError::MissingClientId),
+        (
+            "client",
+            " ",
+            RouterCommandValidationError::MissingClientCommandId,
+        ),
+    ] {
+        let command = RouterCommand::DetachClient {
+            session: ClientSessionIdentity::new(
+                ClientId(client_id.to_owned()),
+                ClientCommandId(command_id.to_owned()),
+            ),
+        };
+        assert_eq!(validate_router_command(&command), Err(error));
     }
-}
-
-#[test]
-fn event_ingress_and_client_frames_expose_router_events_contract() {
-    let (outbound, _rx) = tokio::sync::mpsc::channel(4);
-    let task = task_projection("task-1", 7);
-
-    let ingress = EventIngress::Control(EventControlMessage::BeginClientHydration(
-        BeginClientHydration {
-            client_id: ClientId("client-1".to_owned()),
-            client_command_id: ClientCommandId("attach-1".to_owned()),
-            outbound,
-            subscription: ClientSubscription {
-                task_scope: TaskScope::AllTasks,
-                detail_level: DetailLevel::Verbose,
-                snapshot_mode: selvedge_command_model::SnapshotMode::CurrentState,
-                include_model_call_status: true,
-                include_tool_execution_status: true,
-                include_debug_notices: true,
-            },
-        },
-    ));
-
-    match ingress {
-        EventIngress::Control(EventControlMessage::BeginClientHydration(begin)) => {
-            assert_eq!(begin.client_id, ClientId("client-1".to_owned()));
-            assert_eq!(
-                begin.client_command_id,
-                ClientCommandId("attach-1".to_owned())
-            );
-            assert_eq!(begin.subscription.detail_level, DetailLevel::Verbose);
-        }
-        _ => panic!("unexpected event ingress"),
-    }
-
-    let raw = EventIngress::Raw(selvedge_command_model::RawEvent::HistoryAppended(
-        HistoryAppendedRawEvent {
-            task_id: TaskId("task-1".to_owned()),
-            task_state_version: 8,
-            appended_nodes: Vec::new(),
-        },
-    ));
-
-    match raw {
-        EventIngress::Raw(selvedge_command_model::RawEvent::HistoryAppended(event)) => {
-            assert_eq!(event.task_id, TaskId("task-1".to_owned()));
-            assert_eq!(event.task_state_version, 8);
-        }
-        _ => panic!("unexpected raw event"),
-    }
-
-    let snapshot_frame = ClientFrame::Snapshot(ClientSnapshotFrame {
-        delivery_seq: DeliverySeq(1),
-        client_command_id: ClientCommandId("attach-1".to_owned()),
-        snapshot: ClientSnapshot {
-            generated_at: UnixTs(100),
-            tasks: vec![task.clone()],
-            task_parent_edges: Vec::new(),
-            history_nodes: Vec::new(),
-            task_versions: vec![SnapshotTaskVersion {
-                task_id: task.task_id.clone(),
-                state_version: task.state_version,
-            }],
-        },
-    });
-
-    let event_frame = ClientFrame::Event(ClientEventFrame {
-        delivery_seq: DeliverySeq(2),
-        event: ClientEvent::HistoryAppended(HistoryAppendedEvent {
-            task_id: TaskId("task-1".to_owned()),
-            task_state_version: 8,
-            appended_nodes: Vec::new(),
+    assert_eq!(
+        validate_router_command(&RouterCommand::EnsureTaskRuntime {
+            task_id: TaskId(" ".to_owned())
         }),
-    });
-
-    assert!(matches!(snapshot_frame, ClientFrame::Snapshot(_)));
-    assert!(matches!(event_frame, ClientFrame::Event(_)));
-}
-
-#[test]
-fn factory_output_envelope_exposes_runtime_created_scan_and_failure_contract() {
-    let (task_runtime_tx, _task_runtime_rx) = tokio::sync::mpsc::unbounded_channel();
-
-    let runtime_created = TaskRuntimeCreated {
-        task_id: TaskId("task-1".to_owned()),
-        task_runtime_tx,
-        task_runtime_control: TaskRuntimeControl::new(),
-    };
-    let created = FactoryOutputEnvelope {
-        effect_id: FactoryEffectId("factory-1".to_owned()),
-        output: FactoryOutput::RuntimeCreated(runtime_created),
-    };
-
-    match created.output {
-        FactoryOutput::RuntimeCreated(created) => {
-            assert_eq!(created.task_id, TaskId("task-1".to_owned()));
-        }
-        _ => panic!("unexpected factory output"),
-    }
-
-    let scan = FactoryOutput::ScanFinished(FactoryScanOutput {
-        created: Vec::new(),
-        skipped: vec![FactorySkippedTask {
-            task_id: TaskId("task-live".to_owned()),
-            reason: FactorySkipReason::RuntimeAlreadyLive,
-        }],
-        failed: vec![FactoryTaskFailure {
-            task_id: TaskId("task-failed".to_owned()),
-            kind: FactoryFailureKind::CoreSpawnFailed,
-            message: "spawn failed".to_owned(),
-        }],
-    });
-
-    match scan {
-        FactoryOutput::ScanFinished(scan) => {
-            assert_eq!(scan.skipped[0].task_id, TaskId("task-live".to_owned()));
-            assert!(matches!(
-                scan.skipped[0].reason,
-                FactorySkipReason::RuntimeAlreadyLive
-            ));
-            assert_eq!(scan.failed[0].kind, FactoryFailureKind::CoreSpawnFailed);
-        }
-        _ => panic!("unexpected factory output"),
-    }
-
-    let failed = FactoryOutput::Failed(FactoryFailure {
-        task_id: Some(TaskId("task-archived".to_owned())),
-        kind: FactoryFailureKind::TaskArchived,
-        message: "task is archived".to_owned(),
-    });
-
-    match failed {
-        FactoryOutput::Failed(failure) => {
-            assert_eq!(failure.task_id, Some(TaskId("task-archived".to_owned())));
-            assert_eq!(failure.kind, FactoryFailureKind::TaskArchived);
-
-            let duplicate = FactoryFailure {
-                task_id: Some(TaskId("task-live".to_owned())),
-                kind: FactoryFailureKind::RuntimeAlreadyLive,
-                message: "task runtime is already live".to_owned(),
-            };
-            assert_eq!(duplicate.kind, FactoryFailureKind::RuntimeAlreadyLive);
-        }
-        _ => panic!("unexpected factory output"),
-    }
-}
-
-#[test]
-fn router_ingress_exposes_factory_output_and_runtime_inventory_query() {
-    let command = RouterIngressMessage::Command(RouterCommandEnvelope {
-        client_id: None,
-        client_command_id: None,
-        command: RouterCommand::EnsureMissingTaskRuntimes,
-    });
-    assert!(matches!(command, RouterIngressMessage::Command(_)));
-
-    let stop = RouterIngressMessage::StopRouter;
-    assert!(matches!(stop, RouterIngressMessage::StopRouter));
-}
-
-#[test]
-fn router_command_validation_enforces_envelope_and_task_payload_contract() {
-    let (outbound, _outbound_rx) = tokio::sync::mpsc::channel(4);
-    let subscription = ClientSubscription {
-        task_scope: TaskScope::AllTasks,
-        detail_level: DetailLevel::Verbose,
-        snapshot_mode: selvedge_command_model::SnapshotMode::CurrentState,
-        include_model_call_status: true,
-        include_tool_execution_status: true,
-        include_debug_notices: true,
-    };
-    let (admission_tx, _admission_rx) = tokio::sync::oneshot::channel();
-
-    let attach = RouterCommandEnvelope {
-        client_id: Some(ClientId("client-1".to_owned())),
-        client_command_id: Some(ClientCommandId("attach-1".to_owned())),
-        command: RouterCommand::AttachClient {
-            client_id: ClientId("client-1".to_owned()),
-            client_command_id: ClientCommandId("attach-1".to_owned()),
-            outbound,
-            subscription,
-            admission_tx,
-        },
-    };
-    validate_router_command(&attach).expect("valid attach command");
-
-    let missing_client_id = RouterCommandEnvelope {
-        client_id: None,
-        client_command_id: Some(ClientCommandId("detach-1".to_owned())),
-        command: RouterCommand::DetachClient {
-            client_id: ClientId("client-1".to_owned()),
-            client_command_id: ClientCommandId("detach-1".to_owned()),
-        },
-    };
-    assert_eq!(
-        validate_router_command(&missing_client_id),
-        Err(RouterCommandValidationError::MissingClientId)
-    );
-
-    let mismatched_client_id = RouterCommandEnvelope {
-        client_id: Some(ClientId("client-1".to_owned())),
-        client_command_id: Some(ClientCommandId("detach-1".to_owned())),
-        command: RouterCommand::DetachClient {
-            client_id: ClientId("client-2".to_owned()),
-            client_command_id: ClientCommandId("detach-1".to_owned()),
-        },
-    };
-    assert_eq!(
-        validate_router_command(&mismatched_client_id),
-        Err(RouterCommandValidationError::MismatchedClientId)
-    );
-
-    let mismatched_client_command_id = RouterCommandEnvelope {
-        client_id: Some(ClientId("client-1".to_owned())),
-        client_command_id: Some(ClientCommandId("detach-1".to_owned())),
-        command: RouterCommand::DetachClient {
-            client_id: ClientId("client-1".to_owned()),
-            client_command_id: ClientCommandId("detach-2".to_owned()),
-        },
-    };
-    assert_eq!(
-        validate_router_command(&mismatched_client_command_id),
-        Err(RouterCommandValidationError::MismatchedClientCommandId)
-    );
-
-    let empty_task_id = RouterCommandEnvelope {
-        client_id: None,
-        client_command_id: None,
-        command: RouterCommand::EnsureTaskRuntime {
-            task_id: TaskId(" ".to_owned()),
-        },
-    };
-    assert_eq!(
-        validate_router_command(&empty_task_id),
         Err(RouterCommandValidationError::EmptyTaskId)
     );
-
-    let empty_message = RouterCommandEnvelope {
-        client_id: None,
-        client_command_id: None,
-        command: RouterCommand::SendUserInput {
+    assert_eq!(
+        validate_router_command(&RouterCommand::SendUserInput {
             task_id: TaskId("task-1".to_owned()),
             message_text: " ".to_owned(),
             responder: send_user_input_response_channel().0,
-        },
-    };
-    assert_eq!(
-        validate_router_command(&empty_message),
+        }),
         Err(RouterCommandValidationError::EmptyMessageText)
     );
+}
+
+#[test]
+fn repeated_attach_correlation_allocates_distinct_session_ownership() {
+    let first = ClientSessionIdentity::new(
+        ClientId("client".to_owned()),
+        ClientCommandId("attach".to_owned()),
+    );
+    let second =
+        ClientSessionIdentity::new(first.client_id().clone(), first.attach_command_id().clone());
+    assert_ne!(first.session_id(), second.session_id());
+    assert_eq!(first.clone().session_id(), first.session_id());
 }
 
 #[test]
@@ -378,47 +149,16 @@ fn dropped_task_command_responders_settle_as_runtime_unavailable() {
     );
 }
 
-#[test]
-fn tool_execution_result_exposes_ordered_branch_outputs() {
-    let result = ToolExecutionResult {
-        task_id: TaskId("task-1".to_owned()),
-        tool_execution_run_id: ToolExecutionRunId("tool-1".to_owned()),
-        function_call_node_id: HistoryNodeId(1),
-        function_call_id: FunctionCallId("call-1".to_owned()),
-        tool_name: ToolName("fork_task".to_owned()),
-        branches: vec![
-            ToolExecutionBranch {
-                target: ToolExecutionBranchTarget::CallingTask,
-                output: serde_json::json!(0),
-                is_error: false,
-                messages: Vec::new(),
-            },
-            ToolExecutionBranch {
-                target: ToolExecutionBranchTarget::NewChildTask {
-                    task_id: TaskId("child-1".to_owned()),
-                },
-                output: serde_json::json!(1),
-                is_error: false,
-                messages: vec!["investigate".to_owned()],
-            },
-        ],
-    };
-
-    assert_eq!(
-        result.branches[0].target,
-        ToolExecutionBranchTarget::CallingTask
-    );
-    assert_eq!(result.branches[0].output, serde_json::json!(0));
-    assert!(matches!(
-        result.branches[1].target,
-        ToolExecutionBranchTarget::NewChildTask { .. }
-    ));
-    assert_eq!(result.branches[1].messages, vec!["investigate"]);
-}
-
 fn valid_dispatch_request() -> ModelCallDispatchRequest {
     ModelCallDispatchRequest {
         correlation: valid_correlation(),
+        model_config: Arc::new(
+            TaskModelConfig::new(
+                ModelProfileKey("default".to_owned()),
+                ReasoningEffort::Medium,
+            )
+            .expect("model config"),
+        ),
         provider: ModelProviderProfile {
             provider_name: "provider".to_owned(),
             model_name: "model".to_owned(),
@@ -439,18 +179,5 @@ fn valid_correlation() -> ApiCallCorrelation {
         api_effect_id: ApiEffectId("api-1".to_owned()),
         task_id: TaskId("task-1".to_owned()),
         model_run_id: ModelRunId("run-1".to_owned()),
-    }
-}
-
-fn task_projection(task_id: &str, state_version: u64) -> TaskProjection {
-    TaskProjection {
-        task_id: TaskId(task_id.to_owned()),
-        status: TaskStatus::Active,
-        cursor_node_id: HistoryNodeId(1),
-        model_profile_key: ModelProfileKey("default".to_owned()),
-        reasoning_effort: ReasoningEffort::Medium,
-        state_version,
-        created_at: UnixTs(10),
-        updated_at: UnixTs(20),
     }
 }

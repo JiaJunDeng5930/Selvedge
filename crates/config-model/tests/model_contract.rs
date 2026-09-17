@@ -69,12 +69,11 @@ fn invalid_scalar_value_is_rejected() {
 #[test]
 fn cross_field_constraint_is_rejected() {
     let mut config = AppConfig::try_from(Table::new()).expect("materialize config");
-    config.feature.enabled = true;
-    config.feature.rollout_percentage = 0;
+    config.harness.max_children_per_fork = 21;
 
     assert_eq!(
         config.validate(),
-        Err(ValidationError::EnabledFeatureRequiresRollout)
+        Err(ValidationError::ForkLimitExceedsDescendantLimit)
     );
 }
 
@@ -435,4 +434,13 @@ fn mcp_server_rejects_invalid_process_arguments_and_environment() {
             .to_string(),
         "mcp.servers.valid.env.KEY must not contain NUL"
     );
+}
+
+#[test]
+fn direct_deserialization_validates_the_current_schema() {
+    let valid: AppConfig = toml::from_str("[server]\nport = 9001").expect("valid config");
+    assert_eq!(valid.server.port, 9001);
+    assert!(toml::from_str::<AppConfig>("[server]\nport = 0").is_err());
+    assert!(toml::from_str::<AppConfig>("[logging]\nformat = 'text'").is_err());
+    assert!(toml::from_str::<AppConfig>("[feature]\nenabled = true").is_err());
 }

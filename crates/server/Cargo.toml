@@ -4,8 +4,8 @@ edition = "2024"
 publish = false
 
 [dependencies]
-fs2 = "0.4.3"
-futures-core = "0.3.31"
+fs2 = { workspace = true }
+futures-core = { workspace = true }
 selvedge-api = { path = "../api" }
 selvedge-client-sync = { path = "../client-sync" }
 selvedge-command-model = { path = "../command-model" }
@@ -20,19 +20,14 @@ selvedge-local-protocol = { path = "../local-protocol" }
 selvedge-logging = { path = "../logging" }
 selvedge-router = { path = "../router" }
 selvedge-web = { path = "../web" }
-tokio = { version = "1.42.0", features = ["fs", "macros", "rt", "sync"] }
+tokio = { workspace = true, features = ["fs", "macros", "rt", "sync"] }
 
 [dev-dependencies]
-futures-util = "0.3.31"
-serde_json = "1.0.145"
+futures-util = { workspace = true }
+serde_json = { workspace = true }
 selvedge-test-support = { path = "../test-support", features = ["http"] }
-tempfile = "3.14.0"
-tokio = { version = "1.42.0", features = ["macros", "rt", "sync", "time"] }
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt", "sync", "time"] }
 
-[lints.rust]
-unsafe_code = "forbid"
-
-[lints.clippy]
-dbg_macro = "deny"
-todo = "deny"
-unwrap_used = "deny"
+[lints]
+workspace = true

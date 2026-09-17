@@ -1,3 +1,4 @@
+use selvedge_db::TaskModelConfig;
 use selvedge_db::{
     CommitToolResultBranchesInput, CreateRootTaskInput, DbError, DbPool, FunctionCallId,
     HistoryNode, HistoryNodeId, JsonObject, MessageRole, ModelProfileKey,
@@ -13,6 +14,7 @@ use selvedge_db::{
     reconcile_task_tool_availability, transition_task_status,
 };
 use serde_json::Value;
+use std::sync::Arc;
 
 fn json_object(value: serde_json::Value) -> JsonObject {
     match value {
@@ -48,8 +50,13 @@ fn create_task_without_tools(db: &DbPool, task_id: &str) -> TaskId {
         CreateRootTaskInput {
             task_id: TaskId(task_id.to_owned()),
             cursor_node_id: create_message_node(db, None, MessageRole::User, "run", UnixTs(10)),
-            model_profile_key: ModelProfileKey("default".to_owned()),
-            reasoning_effort: ReasoningEffort::Medium,
+            model_config: Arc::new(
+                TaskModelConfig::new(
+                    ModelProfileKey("default".to_owned()),
+                    ReasoningEffort::Medium,
+                )
+                .expect("valid model config"),
+            ),
             tools: Vec::new(),
             now: UnixTs(10),
         },
@@ -175,8 +182,13 @@ fn open_db_creates_schema_and_root_task_transaction_moves_cursor() {
         CreateRootTaskInput {
             task_id: TaskId("task-1".to_owned()),
             cursor_node_id: create_message_node(&db, None, MessageRole::User, "hello", UnixTs(10)),
-            model_profile_key: selvedge_db::ModelProfileKey("default".to_owned()),
-            reasoning_effort: ReasoningEffort::Medium,
+            model_config: Arc::new(
+                TaskModelConfig::new(
+                    selvedge_db::ModelProfileKey("default".to_owned()),
+                    ReasoningEffort::Medium,
+                )
+                .expect("valid model config"),
+            ),
             tools: Vec::new(),
             now: UnixTs(10),
         },
@@ -204,8 +216,13 @@ fn descendant_limit_is_enforced_for_every_ancestor_in_the_commit_transaction() {
         CreateRootTaskInput {
             task_id: TaskId("root".to_owned()),
             cursor_node_id: create_message_node(&db, None, MessageRole::User, "root", UnixTs(10)),
-            model_profile_key: ModelProfileKey("default".to_owned()),
-            reasoning_effort: ReasoningEffort::Medium,
+            model_config: Arc::new(
+                TaskModelConfig::new(
+                    ModelProfileKey("default".to_owned()),
+                    ReasoningEffort::Medium,
+                )
+                .expect("valid model config"),
+            ),
             tools: vec![harness_tool(tool_spec("fork_task", "Fork tasks"))],
             now: UnixTs(10),
         },
@@ -251,8 +268,13 @@ fn archive_task_preserves_queued_inputs() {
         CreateRootTaskInput {
             task_id: TaskId("task-1".to_owned()),
             cursor_node_id: create_message_node(&db, None, MessageRole::User, "hello", UnixTs(10)),
-            model_profile_key: selvedge_db::ModelProfileKey("default".to_owned()),
-            reasoning_effort: ReasoningEffort::Medium,
+            model_config: Arc::new(
+                TaskModelConfig::new(
+                    selvedge_db::ModelProfileKey("default".to_owned()),
+                    ReasoningEffort::Medium,
+                )
+                .expect("valid model config"),
+            ),
             tools: Vec::new(),
             now: UnixTs(10),
         },
@@ -444,13 +466,35 @@ fn non_archived_tasks_accept_runtime_commits_and_archived_tasks_reject_them() {
     })
     .expect("open db");
     let frozen = create_task_with_status(&db, "frozen", TaskStatus::Frozen);
-    append_assistant_message_and_drain_queue(
+    let empty_commit = append_assistant_message_and_drain_queue(
         &db,
         &frozen,
         "completed while frozen".to_owned(),
         UnixTs(12),
     )
     .expect("commit frozen history");
+    assert!(!empty_commit.drained_inputs);
+    queue_user_input(&db, &frozen, "first queued".to_owned(), UnixTs(13)).expect("queue first");
+    queue_user_input(&db, &frozen, "second queued".to_owned(), UnixTs(14)).expect("queue second");
+    let drained_commit =
+        append_assistant_message_and_drain_queue(&db, &frozen, "next reply".to_owned(), UnixTs(15))
+            .expect("commit reply with queue");
+    assert!(drained_commit.drained_inputs);
+    let snapshot = read_task(
+        &db,
+        ReadTaskInput {
+            task_id: frozen.clone(),
+            after_node_id: Some(empty_commit.last_node_id),
+            limit: 100,
+        },
+    )
+    .expect("read drained history");
+    assert_eq!(snapshot.cursor_node_id, drained_commit.last_node_id);
+    assert_eq!(snapshot.queued_input_count, 0);
+    assert_eq!(
+        history_message_texts(&snapshot.history_nodes),
+        vec!["next reply", "first queued", "second queued"]
+    );
     assert_eq!(read_task_status(&db, &frozen), Ok(TaskStatus::Frozen));
 
     let stopped = create_root_task(
@@ -458,8 +502,13 @@ fn non_archived_tasks_accept_runtime_commits_and_archived_tasks_reject_them() {
         CreateRootTaskInput {
             task_id: TaskId("stopped".to_owned()),
             cursor_node_id: create_message_node(&db, None, MessageRole::User, "run", UnixTs(10)),
-            model_profile_key: ModelProfileKey("default".to_owned()),
-            reasoning_effort: ReasoningEffort::Medium,
+            model_config: Arc::new(
+                TaskModelConfig::new(
+                    ModelProfileKey("default".to_owned()),
+                    ReasoningEffort::Medium,
+                )
+                .expect("valid model config"),
+            ),
             tools: vec![harness_tool(tool_spec("search", "Search"))],
             now: UnixTs(10),
         },
@@ -525,8 +574,13 @@ fn append_history_uses_new_node_timestamp_for_task_updated_at() {
                 "hello",
                 UnixTs(4_102_444_800),
             ),
-            model_profile_key: selvedge_db::ModelProfileKey("default".to_owned()),
-            reasoning_effort: ReasoningEffort::Medium,
+            model_config: Arc::new(
+                TaskModelConfig::new(
+                    selvedge_db::ModelProfileKey("default".to_owned()),
+                    ReasoningEffort::Medium,
+                )
+                .expect("valid model config"),
+            ),
             tools: Vec::new(),
             now: UnixTs(4_102_444_800),
         },
@@ -540,6 +594,13 @@ fn append_history_uses_new_node_timestamp_for_task_updated_at() {
         UnixTs(4_102_444_801),
     )
     .expect("append history");
+    assert_eq!(
+        load_runtime_task(&db, &TaskId("task-1".to_owned()))
+            .expect("load task")
+            .task
+            .updated_at,
+        UnixTs(4_102_444_801)
+    );
 }
 
 #[test]
@@ -555,8 +616,13 @@ fn append_history_uses_database_cursor_as_parent() {
         CreateRootTaskInput {
             task_id: TaskId("task-1".to_owned()),
             cursor_node_id: create_message_node(&db, None, MessageRole::User, "hello", UnixTs(10)),
-            model_profile_key: selvedge_db::ModelProfileKey("default".to_owned()),
-            reasoning_effort: ReasoningEffort::Medium,
+            model_config: Arc::new(
+                TaskModelConfig::new(
+                    selvedge_db::ModelProfileKey("default".to_owned()),
+                    ReasoningEffort::Medium,
+                )
+                .expect("valid model config"),
+            ),
             tools: Vec::new(),
             now: UnixTs(10),
         },
@@ -604,8 +670,13 @@ fn tool_result_commit_creates_sibling_branches_with_independent_cursors() {
         CreateRootTaskInput {
             task_id: TaskId("parent".to_owned()),
             cursor_node_id: create_message_node(&db, None, MessageRole::User, "parent", UnixTs(10)),
-            model_profile_key: ModelProfileKey("parent-profile".to_owned()),
-            reasoning_effort: ReasoningEffort::High,
+            model_config: Arc::new(
+                TaskModelConfig::new(
+                    ModelProfileKey("parent-profile".to_owned()),
+                    ReasoningEffort::High,
+                )
+                .expect("valid model config"),
+            ),
             tools: vec![
                 harness_tool(fork_tool.clone()),
                 harness_tool(task_tool.clone()),
@@ -632,8 +703,13 @@ fn tool_result_commit_creates_sibling_branches_with_independent_cursors() {
         CreateRootTaskInput {
             task_id: TaskId("sibling".to_owned()),
             cursor_node_id: branch_parent_node_id,
-            model_profile_key: ModelProfileKey("sibling-profile".to_owned()),
-            reasoning_effort: ReasoningEffort::Low,
+            model_config: Arc::new(
+                TaskModelConfig::new(
+                    ModelProfileKey("sibling-profile".to_owned()),
+                    ReasoningEffort::Low,
+                )
+                .expect("valid model config"),
+            ),
             tools: Vec::new(),
             now: UnixTs(11),
         },
@@ -695,8 +771,11 @@ fn tool_result_commit_creates_sibling_branches_with_independent_cursors() {
     let child = load_runtime_task(&db, &TaskId("child-with-message".to_owned()))
         .expect("load child")
         .task;
-    assert_eq!(child.model_profile_key, parent.model_profile_key);
-    assert_eq!(child.reasoning_effort, ReasoningEffort::High);
+    assert_eq!(child.model_config, parent.model_config);
+    assert_eq!(
+        child.model_config.reasoning_effort(),
+        &ReasoningEffort::High
+    );
     assert_eq!(child.state_version, 0);
     let child_manifest =
         read_tool_manifest_for_task(&db, &child.task_id).expect("read child manifest");
@@ -922,8 +1001,13 @@ fn create_history_node_accepts_strategy_parent_and_root_task_uses_existing_curso
         CreateRootTaskInput {
             task_id: TaskId("existing".to_owned()),
             cursor_node_id: existing_node_id,
-            model_profile_key: selvedge_db::ModelProfileKey("default".to_owned()),
-            reasoning_effort: ReasoningEffort::Medium,
+            model_config: Arc::new(
+                TaskModelConfig::new(
+                    selvedge_db::ModelProfileKey("default".to_owned()),
+                    ReasoningEffort::Medium,
+                )
+                .expect("valid model config"),
+            ),
             tools: Vec::new(),
             now: UnixTs(10),
         },
@@ -942,8 +1026,13 @@ fn create_history_node_accepts_strategy_parent_and_root_task_uses_existing_curso
         CreateRootTaskInput {
             task_id: TaskId("root".to_owned()),
             cursor_node_id: root_node_id,
-            model_profile_key: selvedge_db::ModelProfileKey("default".to_owned()),
-            reasoning_effort: ReasoningEffort::Medium,
+            model_config: Arc::new(
+                TaskModelConfig::new(
+                    selvedge_db::ModelProfileKey("default".to_owned()),
+                    ReasoningEffort::Medium,
+                )
+                .expect("valid model config"),
+            ),
             tools: Vec::new(),
             now: UnixTs(11),
         },
@@ -973,8 +1062,13 @@ fn tool_snapshots_are_owned_and_ordered_per_task() {
         CreateRootTaskInput {
             task_id: TaskId("first".to_owned()),
             cursor_node_id: create_message_node(&db, None, MessageRole::User, "hello", UnixTs(10)),
-            model_profile_key: ModelProfileKey("default".to_owned()),
-            reasoning_effort: ReasoningEffort::Medium,
+            model_config: Arc::new(
+                TaskModelConfig::new(
+                    ModelProfileKey("default".to_owned()),
+                    ReasoningEffort::Medium,
+                )
+                .expect("valid model config"),
+            ),
             tools: first_tools.iter().cloned().map(harness_tool).collect(),
             now: UnixTs(10),
         },
@@ -986,8 +1080,13 @@ fn tool_snapshots_are_owned_and_ordered_per_task() {
         CreateRootTaskInput {
             task_id: TaskId("second".to_owned()),
             cursor_node_id: create_message_node(&db, None, MessageRole::User, "other", UnixTs(11)),
-            model_profile_key: ModelProfileKey("default".to_owned()),
-            reasoning_effort: ReasoningEffort::Medium,
+            model_config: Arc::new(
+                TaskModelConfig::new(
+                    ModelProfileKey("default".to_owned()),
+                    ReasoningEffort::Medium,
+                )
+                .expect("valid model config"),
+            ),
             tools: vec![harness_tool(second_tool.clone())],
             now: UnixTs(11),
         },
@@ -1020,8 +1119,13 @@ fn read_task_pages_active_and_archived_cursor_paths_and_rejects_invalid_bounds()
         CreateRootTaskInput {
             task_id: TaskId("task".to_owned()),
             cursor_node_id: root_node_id,
-            model_profile_key: ModelProfileKey("default".to_owned()),
-            reasoning_effort: ReasoningEffort::Medium,
+            model_config: Arc::new(
+                TaskModelConfig::new(
+                    ModelProfileKey("default".to_owned()),
+                    ReasoningEffort::Medium,
+                )
+                .expect("valid model config"),
+            ),
             tools: Vec::new(),
             now: UnixTs(10),
         },
@@ -1044,6 +1148,7 @@ fn read_task_pages_active_and_archived_cursor_paths_and_rejects_invalid_bounds()
         },
     )
     .expect("read first page");
+    assert!(first_page.has_more);
     assert_eq!(first_page.task_status, TaskStatus::Active);
     assert_eq!(first_page.state_version, 2);
     assert_eq!(first_page.cursor_node_id, second);
@@ -1063,6 +1168,7 @@ fn read_task_pages_active_and_archived_cursor_paths_and_rejects_invalid_bounds()
         },
     )
     .expect("read second page");
+    assert!(!second_page.has_more);
     assert_eq!(
         history_message_texts(&second_page.history_nodes),
         vec!["second"]
@@ -1142,8 +1248,13 @@ fn tool_result_branch_failure_rolls_back_tasks_edges_history_and_queue_drain() {
         CreateRootTaskInput {
             task_id: TaskId("parent".to_owned()),
             cursor_node_id: create_message_node(&db, None, MessageRole::User, "parent", UnixTs(10)),
-            model_profile_key: ModelProfileKey("default".to_owned()),
-            reasoning_effort: ReasoningEffort::Medium,
+            model_config: Arc::new(
+                TaskModelConfig::new(
+                    ModelProfileKey("default".to_owned()),
+                    ReasoningEffort::Medium,
+                )
+                .expect("valid model config"),
+            ),
             tools: vec![harness_tool(tool_spec("fork_task", "Fork a child task"))],
             now: UnixTs(10),
         },
@@ -1175,8 +1286,13 @@ fn tool_result_branch_failure_rolls_back_tasks_edges_history_and_queue_drain() {
                 "occupied",
                 UnixTs(12),
             ),
-            model_profile_key: ModelProfileKey("default".to_owned()),
-            reasoning_effort: ReasoningEffort::Medium,
+            model_config: Arc::new(
+                TaskModelConfig::new(
+                    ModelProfileKey("default".to_owned()),
+                    ReasoningEffort::Medium,
+                )
+                .expect("valid model config"),
+            ),
             tools: Vec::new(),
             now: UnixTs(12),
         },
@@ -1293,8 +1409,13 @@ fn task_tool_unavailability_preserves_manifest_and_history() {
         CreateRootTaskInput {
             task_id: TaskId("task".to_owned()),
             cursor_node_id: create_message_node(&db, None, MessageRole::User, "run", UnixTs(10)),
-            model_profile_key: ModelProfileKey("default".to_owned()),
-            reasoning_effort: ReasoningEffort::Medium,
+            model_config: Arc::new(
+                TaskModelConfig::new(
+                    ModelProfileKey("default".to_owned()),
+                    ReasoningEffort::Medium,
+                )
+                .expect("valid model config"),
+            ),
             tools: vec![harness_tool(tool.clone())],
             now: UnixTs(10),
         },
@@ -1371,8 +1492,13 @@ fn mcp_contract_changes_only_change_task_availability() {
         CreateRootTaskInput {
             task_id: TaskId("task".to_owned()),
             cursor_node_id: create_message_node(&db, None, MessageRole::User, "run", UnixTs(10)),
-            model_profile_key: ModelProfileKey("default".to_owned()),
-            reasoning_effort: ReasoningEffort::Medium,
+            model_config: Arc::new(
+                TaskModelConfig::new(
+                    ModelProfileKey("default".to_owned()),
+                    ReasoningEffort::Medium,
+                )
+                .expect("valid model config"),
+            ),
             tools: vec![harness.clone(), original.clone(), stale.clone()],
             now: UnixTs(10),
         },
@@ -1451,8 +1577,13 @@ fn duplicate_available_names_leave_availability_unchanged() {
         CreateRootTaskInput {
             task_id: TaskId("task".to_owned()),
             cursor_node_id: create_message_node(&db, None, MessageRole::User, "run", UnixTs(10)),
-            model_profile_key: ModelProfileKey("default".to_owned()),
-            reasoning_effort: ReasoningEffort::Medium,
+            model_config: Arc::new(
+                TaskModelConfig::new(
+                    ModelProfileKey("default".to_owned()),
+                    ReasoningEffort::Medium,
+                )
+                .expect("valid model config"),
+            ),
             tools: vec![original.clone()],
             now: UnixTs(10),
         },
@@ -1476,4 +1607,38 @@ fn duplicate_available_names_leave_availability_unchanged() {
             .unavailable_tools,
         vec![ToolName(original.tool.name)]
     );
+}
+
+#[test]
+fn opening_requires_the_complete_current_schema() {
+    for damage in [
+        "UPDATE schema_metadata SET schema_value = 'obsolete'",
+        "DROP TABLE queued_user_inputs",
+        "DROP TABLE schema_metadata",
+        "ALTER TABLE tasks ADD COLUMN obsolete_setting TEXT",
+        "DROP INDEX idx_history_nodes_parent",
+    ] {
+        let directory = tempfile::tempdir().expect("temporary directory");
+        let path = directory.path().join("schema.sqlite");
+        let options = || OpenDbOptions {
+            sqlite_path: path.to_string_lossy().into_owned(),
+            max_children_per_fork: 5,
+            max_task_descendants: 20,
+        };
+        let db = open_db(options()).expect("initialize current schema");
+        create_task_without_tools(&db, "persisted-task");
+        drop(db);
+        let db = open_db(options()).expect("reopen current schema");
+        assert_eq!(list_runtime_tasks(&db).expect("read stored task").len(), 1);
+        drop(db);
+        let connection = rusqlite::Connection::open(&path).expect("open for corruption");
+        connection
+            .execute_batch(damage)
+            .expect("damage stored schema");
+        drop(connection);
+        assert!(
+            matches!(open_db(options()), Err(DbError::SchemaMismatch { .. })),
+            "accepted damage: {damage}"
+        );
+    }
 }

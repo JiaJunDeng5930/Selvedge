@@ -1,5 +1,34 @@
 #![doc = include_str!("../README.md")]
 
+/// Maximum encoded NDJSON item bytes, excluding the newline delimiter.
+/// Oversized frames terminate the stream with `FrameTooLarge`.
+pub const MAX_LOCAL_FRAME_BYTES: usize = 4 * 1024 * 1024;
+/// Bounds correlation metadata so a terminal error always fits the frame budget.
+pub const MAX_LOCAL_IDENTIFIER_BYTES: usize = 1024;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LocalCommandKind {
+    LoginChatgpt,
+    ListModels,
+}
+
+impl LocalCommandKind {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::LoginChatgpt => "login-chatgpt",
+            Self::ListModels => "list-models",
+        }
+    }
+
+    pub fn parse(name: &str) -> Option<Self> {
+        match name {
+            "login-chatgpt" => Some(Self::LoginChatgpt),
+            "list-models" => Some(Self::ListModels),
+            _ => None,
+        }
+    }
+}
+
 use std::collections::BTreeSet;
 
 use selvedge_domain_model::JsonObject;
@@ -330,6 +359,7 @@ pub enum LocalReasoningEffort {
 pub enum LocalProtocolValidationError {
     EmptyClientId,
     EmptyClientCommandId,
+    IdentifierTooLong,
     EmptyCommandName,
     EmptyTaskId,
     DuplicateTaskId,
@@ -380,6 +410,7 @@ pub enum LocalStreamErrorReason {
     StreamClosed,
     ServerShuttingDown,
     EncodeFailed,
+    FrameTooLarge,
     InternalFailure,
 }
 
@@ -394,7 +425,6 @@ pub enum LocalAttachStreamValidationState {
 pub enum LocalAttachStreamOrderError {
     ExpectedAcceptedFirst,
     DuplicateAccepted,
-    RejectedInsideStream,
     FrameBeforeAccepted,
     ItemAfterEnded,
 }
@@ -406,30 +436,18 @@ pub struct LocalAttachStreamValidator {
 
 impl LocalClientId {
     pub fn new(value: impl Into<String>) -> Result<Self, LocalProtocolValidationError> {
-        let value = value.into();
-        if value.trim().is_empty() {
-            return Err(LocalProtocolValidationError::EmptyClientId);
-        }
-
-        Ok(Self(value))
+        let id = Self(value.into());
+        validate_client_id(&id)?;
+        Ok(id)
     }
 }
 
 impl LocalClientCommandId {
     pub fn new(value: impl Into<String>) -> Result<Self, LocalProtocolValidationError> {
-        let value = value.into();
-        if value.trim().is_empty() {
-            return Err(LocalProtocolValidationError::EmptyClientCommandId);
-        }
-
-        Ok(Self(value))
+        let id = Self(value.into());
+        validate_client_command_id(&id)?;
+        Ok(id)
     }
-}
-
-pub fn validate_ready_request(request: &ReadyRequest) -> Result<(), LocalProtocolValidationError> {
-    let _ = request;
-
-    Ok(())
 }
 
 pub fn validate_command_request(
@@ -605,7 +623,15 @@ impl Default for LocalAttachStreamValidator {
     }
 }
 
+fn validate_identifier_length(value: &str) -> Result<(), LocalProtocolValidationError> {
+    if value.len() > MAX_LOCAL_IDENTIFIER_BYTES {
+        return Err(LocalProtocolValidationError::IdentifierTooLong);
+    }
+    Ok(())
+}
+
 fn validate_client_id(client_id: &LocalClientId) -> Result<(), LocalProtocolValidationError> {
+    validate_identifier_length(&client_id.0)?;
     if client_id.0.trim().is_empty() {
         return Err(LocalProtocolValidationError::EmptyClientId);
     }
@@ -616,6 +642,7 @@ fn validate_client_id(client_id: &LocalClientId) -> Result<(), LocalProtocolVali
 fn validate_client_command_id(
     client_command_id: &LocalClientCommandId,
 ) -> Result<(), LocalProtocolValidationError> {
+    validate_identifier_length(&client_command_id.0)?;
     if client_command_id.0.trim().is_empty() {
         return Err(LocalProtocolValidationError::EmptyClientCommandId);
     }

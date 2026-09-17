@@ -2,20 +2,32 @@
 
 use std::{collections::BTreeMap, path::Path};
 
-use selvedge_config_model::{LlmConfig, LlmProviderConfig};
+use selvedge_config_model::LlmConfig;
 use selvedge_model_credentials::{CredentialKind, ModelCredentialError, read_credential_from_home};
 use thiserror::Error;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ExecutableProvider {
+    Chatgpt,
+}
+
+impl ExecutableProvider {
+    pub fn provider_id(self) -> &'static str {
+        match self {
+            Self::Chatgpt => "chatgpt",
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ProviderDescriptor {
-    pub provider_id: String,
+    pub provider: ExecutableProvider,
     pub credential_kind: CredentialKind,
     pub model_source: ModelSource,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ModelSource {
-    Discoverable,
     BuiltIn(Vec<String>),
     Configured,
 }
@@ -24,13 +36,10 @@ pub enum ModelSource {
 pub struct ConfiguredModelListing {
     pub provider_id: String,
     pub models: Vec<String>,
-    pub diagnostics: Vec<String>,
 }
 
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum ProviderRegistryError {
-    #[error("provider descriptor id {provider_id:?} is invalid")]
-    InvalidProviderDescriptor { provider_id: String },
     #[error("provider descriptor id {provider_id:?} is duplicated")]
     DuplicateProviderDescriptor { provider_id: String },
     #[error("credential store failed: {0}")]
@@ -39,8 +48,6 @@ pub enum ProviderRegistryError {
     UnknownProvider { provider_id: String },
     #[error("provider {provider_id:?} is incomplete")]
     IncompleteProvider { provider_id: String },
-    #[error("provider {provider_id:?} discovery failed: {reason}")]
-    DiscoveryError { provider_id: String, reason: String },
     #[error("provider {provider_id:?} model {model_name:?} is invalid")]
     ValidationError {
         provider_id: String,
@@ -56,13 +63,8 @@ impl ProviderRegistry {
     pub fn new(descriptors: Vec<ProviderDescriptor>) -> Result<Self, ProviderRegistryError> {
         let mut registry = BTreeMap::new();
         for descriptor in descriptors {
-            if validate_provider_id(&descriptor.provider_id).is_err() {
-                return Err(ProviderRegistryError::InvalidProviderDescriptor {
-                    provider_id: descriptor.provider_id.clone(),
-                });
-            }
             validate_model_source(&descriptor)?;
-            let provider_id = descriptor.provider_id.clone();
+            let provider_id = descriptor.provider.provider_id().to_owned();
             if registry.insert(provider_id.clone(), descriptor).is_some() {
                 return Err(ProviderRegistryError::DuplicateProviderDescriptor { provider_id });
             }
@@ -85,16 +87,17 @@ impl ProviderRegistry {
         let mut listings = Vec::new();
 
         for descriptor in self.descriptors.values() {
-            let credential = read_credential_from_home(selvedge_home, &descriptor.provider_id)
-                .await
-                .map_err(map_credential_error)?;
+            let credential =
+                read_credential_from_home(selvedge_home, descriptor.provider.provider_id())
+                    .await
+                    .map_err(map_credential_error)?;
             let Some(credential) = credential else {
                 continue;
             };
             if credential.credential_kind != descriptor.credential_kind {
                 continue;
             }
-            let provider_config = llm_config.providers.get(&descriptor.provider_id);
+            let provider_config = llm_config.providers.get(descriptor.provider.provider_id());
             match &descriptor.model_source {
                 ModelSource::Configured => {
                     let Some(provider_config) = provider_config else {
@@ -104,25 +107,14 @@ impl ProviderRegistry {
                         continue;
                     }
                     listings.push(ConfiguredModelListing {
-                        provider_id: descriptor.provider_id.clone(),
+                        provider_id: descriptor.provider.provider_id().to_owned(),
                         models: provider_config.models.clone(),
-                        diagnostics: Vec::new(),
                     });
                 }
                 ModelSource::BuiltIn(models) => {
                     listings.push(ConfiguredModelListing {
-                        provider_id: descriptor.provider_id.clone(),
+                        provider_id: descriptor.provider.provider_id().to_owned(),
                         models: models.clone(),
-                        diagnostics: Vec::new(),
-                    });
-                }
-                ModelSource::Discoverable => {
-                    listings.push(ConfiguredModelListing {
-                        provider_id: descriptor.provider_id.clone(),
-                        models: Vec::new(),
-                        diagnostics: vec![
-                            "model discovery is unavailable in this adapter".to_owned(),
-                        ],
                     });
                 }
             }
@@ -137,7 +129,7 @@ impl ProviderRegistry {
         llm_config: &LlmConfig,
         provider_id: &str,
         model_name: &str,
-    ) -> Result<(), ProviderRegistryError> {
+    ) -> Result<ExecutableProvider, ProviderRegistryError> {
         if model_name.trim().is_empty() {
             return Err(ProviderRegistryError::ValidationError {
                 provider_id: provider_id.to_owned(),
@@ -175,7 +167,7 @@ impl ProviderRegistry {
                     .iter()
                     .any(|model| model == model_name)
                 {
-                    Ok(())
+                    Ok(descriptor.provider)
                 } else {
                     Err(ProviderRegistryError::ValidationError {
                         provider_id: provider_id.to_owned(),
@@ -185,7 +177,7 @@ impl ProviderRegistry {
             }
             ModelSource::BuiltIn(models) => {
                 if models.iter().any(|model| model == model_name) {
-                    Ok(())
+                    Ok(descriptor.provider)
                 } else {
                     Err(ProviderRegistryError::ValidationError {
                         provider_id: provider_id.to_owned(),
@@ -193,7 +185,6 @@ impl ProviderRegistry {
                     })
                 }
             }
-            ModelSource::Discoverable => Ok(()),
         }
     }
 }
@@ -206,20 +197,11 @@ impl Default for ProviderRegistry {
 
 pub fn default_registry() -> ProviderRegistry {
     ProviderRegistry::new(vec![ProviderDescriptor {
-        provider_id: "chatgpt".to_owned(),
+        provider: ExecutableProvider::Chatgpt,
         credential_kind: CredentialKind::Login,
         model_source: ModelSource::BuiltIn(vec!["gpt-5".to_owned(), "gpt-5-codex".to_owned()]),
     }])
-    .unwrap_or_else(|_| ProviderRegistry {
-        descriptors: BTreeMap::new(),
-    })
-}
-
-pub fn provider_config<'a>(
-    llm_config: &'a LlmConfig,
-    provider_id: &str,
-) -> Option<&'a LlmProviderConfig> {
-    llm_config.providers.get(provider_id)
+    .expect("built-in provider descriptors must be valid")
 }
 
 fn validate_model_source(descriptor: &ProviderDescriptor) -> Result<(), ProviderRegistryError> {
@@ -227,22 +209,9 @@ fn validate_model_source(descriptor: &ProviderDescriptor) -> Result<(), Provider
         && (models.is_empty() || models.iter().any(|model| model.trim().is_empty()))
     {
         return Err(ProviderRegistryError::ValidationError {
-            provider_id: descriptor.provider_id.clone(),
+            provider_id: descriptor.provider.provider_id().to_owned(),
             model_name: String::new(),
         });
-    }
-    Ok(())
-}
-
-fn validate_provider_id(provider_id: &str) -> Result<(), ()> {
-    if provider_id.trim().is_empty() {
-        return Err(());
-    }
-    for byte in provider_id.bytes() {
-        let allowed = byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b'_');
-        if !allowed {
-            return Err(());
-        }
     }
     Ok(())
 }

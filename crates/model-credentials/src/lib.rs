@@ -43,6 +43,8 @@ pub enum ModelCredentialError {
     ReadFailed { path: PathBuf, reason: String },
     #[error("credential write failed for {path}: {reason}")]
     WriteFailed { path: PathBuf, reason: String },
+    #[error("unsupported schema_version {version}")]
+    UnsupportedSchemaVersion { version: u32 },
     #[error("credential record is invalid: {reason}")]
     InvalidRecord { reason: String },
 }
@@ -54,6 +56,28 @@ struct PathLockGuard {
 
 pub struct CredentialLockGuard {
     _guard: PathLockGuard,
+    path: PathBuf,
+    provider_id: String,
+}
+
+impl CredentialLockGuard {
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    pub fn read(&self) -> Result<Option<ModelCredentialRecord>, ModelCredentialError> {
+        read_record_at(&self.path, &self.provider_id)
+    }
+
+    pub fn write(&self, record: &ModelCredentialRecord) -> Result<(), ModelCredentialError> {
+        validate_record(record)?;
+        validate_record_provider(record, &self.provider_id)?;
+        let payload =
+            serde_json::to_vec(record).map_err(|error| ModelCredentialError::InvalidRecord {
+                reason: error.to_string(),
+            })?;
+        persist_record(&self.path, &payload)
+    }
 }
 
 impl Drop for PathLockGuard {
@@ -100,19 +124,43 @@ pub async fn read_credential_from_home(
     selvedge_home: &Path,
     provider_id: &str,
 ) -> Result<Option<ModelCredentialRecord>, ModelCredentialError> {
-    let path = credential_path(selvedge_home, provider_id)?;
-    let _guard = lock_path(&path).await?;
-    let bytes = match fs::read(&path) {
+    lock_credential_from_home(selvedge_home, provider_id)
+        .await?
+        .read()
+}
+
+/// Reads an atomic snapshot without waiting for a writer. Only use this as a
+/// refresh hint; acquire a credential guard and reread before making decisions.
+pub fn read_credential_snapshot_from_home(
+    selvedge_home: &Path,
+    provider_id: &str,
+) -> Result<Option<ModelCredentialRecord>, ModelCredentialError> {
+    read_record_at(&credential_path(selvedge_home, provider_id)?, provider_id)
+}
+
+fn read_record_at(
+    path: &Path,
+    provider_id: &str,
+) -> Result<Option<ModelCredentialRecord>, ModelCredentialError> {
+    let bytes = match fs::read(path) {
         Ok(bytes) => bytes,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(error) => {
             return Err(ModelCredentialError::ReadFailed {
-                path,
+                path: path.to_owned(),
                 reason: error.to_string(),
             });
         }
     };
     let record = decode_record(&bytes)?;
+    validate_record_provider(&record, provider_id)?;
+    Ok(Some(record))
+}
+
+fn validate_record_provider(
+    record: &ModelCredentialRecord,
+    provider_id: &str,
+) -> Result<(), ModelCredentialError> {
     if record.provider != provider_id {
         return Err(ModelCredentialError::InvalidRecord {
             reason: format!(
@@ -121,8 +169,7 @@ pub async fn read_credential_from_home(
             ),
         });
     }
-
-    Ok(Some(record))
+    Ok(())
 }
 
 pub async fn write_credential_to_home(
@@ -130,15 +177,9 @@ pub async fn write_credential_to_home(
     record: &ModelCredentialRecord,
 ) -> Result<PathBuf, ModelCredentialError> {
     validate_record(record)?;
-    let path = credential_path(selvedge_home, &record.provider)?;
-    let _guard = lock_path(&path).await?;
-    let payload =
-        serde_json::to_vec(record).map_err(|error| ModelCredentialError::InvalidRecord {
-            reason: error.to_string(),
-        })?;
-    persist_record(&path, &payload)?;
-
-    Ok(path)
+    let guard = lock_credential_from_home(selvedge_home, &record.provider).await?;
+    guard.write(record)?;
+    Ok(guard.path().to_owned())
 }
 
 pub async fn lock_credential_from_home(
@@ -148,7 +189,11 @@ pub async fn lock_credential_from_home(
     let path = credential_path(selvedge_home, provider_id)?;
     let guard = lock_path(&path).await?;
 
-    Ok(CredentialLockGuard { _guard: guard })
+    Ok(CredentialLockGuard {
+        _guard: guard,
+        path,
+        provider_id: provider_id.to_owned(),
+    })
 }
 
 pub async fn list_credentials_from_home(
@@ -201,7 +246,7 @@ pub fn credential_directory(selvedge_home: &Path) -> PathBuf {
     selvedge_home.join("auth/model-providers")
 }
 
-fn decode_record(bytes: &[u8]) -> Result<ModelCredentialRecord, ModelCredentialError> {
+pub fn decode_record(bytes: &[u8]) -> Result<ModelCredentialRecord, ModelCredentialError> {
     let record = serde_json::from_slice::<ModelCredentialRecord>(bytes).map_err(|error| {
         ModelCredentialError::InvalidRecord {
             reason: error.to_string(),
@@ -214,8 +259,8 @@ fn decode_record(bytes: &[u8]) -> Result<ModelCredentialRecord, ModelCredentialE
 
 pub fn validate_record(record: &ModelCredentialRecord) -> Result<(), ModelCredentialError> {
     if record.schema_version != 1 {
-        return Err(ModelCredentialError::InvalidRecord {
-            reason: format!("unsupported schema_version {}", record.schema_version),
+        return Err(ModelCredentialError::UnsupportedSchemaVersion {
+            version: record.schema_version,
         });
     }
     validate_provider_id(&record.provider)?;
@@ -244,20 +289,13 @@ pub fn validate_record(record: &ModelCredentialRecord) -> Result<(), ModelCreden
 }
 
 fn validate_provider_id(provider_id: &str) -> Result<(), ModelCredentialError> {
-    if provider_id.trim().is_empty() {
-        return Err(ModelCredentialError::InvalidProviderId {
+    if selvedge_config_model::is_valid_provider_id(provider_id) {
+        Ok(())
+    } else {
+        Err(ModelCredentialError::InvalidProviderId {
             provider_id: provider_id.to_owned(),
-        });
+        })
     }
-    for byte in provider_id.bytes() {
-        let allowed = byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b'_');
-        if !allowed {
-            return Err(ModelCredentialError::InvalidProviderId {
-                provider_id: provider_id.to_owned(),
-            });
-        }
-    }
-    Ok(())
 }
 
 async fn lock_path(path: &Path) -> Result<PathLockGuard, ModelCredentialError> {

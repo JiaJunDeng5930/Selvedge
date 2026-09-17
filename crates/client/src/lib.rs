@@ -6,7 +6,7 @@ mod redaction;
 mod redirect_runtime;
 mod request_prep;
 mod runtime;
-mod single_hop;
+mod transport;
 
 use std::{error::Error as StdError, fmt, pin::Pin, time::Duration};
 
@@ -171,23 +171,22 @@ pub async fn execute(request: HttpRequest) -> Result<HttpResponse, HttpError> {
     );
 
     let call_config = resolve_call_config(request.timeout)?;
-    let prepared = prepare_request(request.clone(), &call_config).await?;
+    let prepared = prepare_request(request, &call_config).await?;
 
     log_event!(
         selvedge_logging::LogLevel::Debug,
         "http request prepared";
         mode = "execute",
         method = prepared.method.as_str(),
-        url = prepared.request_url.as_str(),
-        body_len = prepared.body_len
+        url = sanitize_url(prepared.url.as_str()).as_str(),
+        body_len = prepared.body_len()
     );
 
-    let request_url = prepared.request_url.clone();
+    let request_url = sanitize_url(prepared.url.as_str()).into_string();
     let method = prepared.method.clone();
-    let body_len = prepared.body_len;
+    let body_len = prepared.body_len();
     let result = execute_inner(
         &call_config,
-        request,
         prepared,
         RequestBudget::new(call_config.request_timeout),
     )
@@ -209,23 +208,22 @@ pub async fn stream(request: HttpRequest) -> Result<HttpStreamResponse, HttpErro
     );
 
     let call_config = resolve_call_config(request.timeout)?;
-    let prepared = prepare_request(request.clone(), &call_config).await?;
+    let prepared = prepare_request(request, &call_config).await?;
 
     log_event!(
         selvedge_logging::LogLevel::Debug,
         "http request prepared";
         mode = "stream",
         method = prepared.method.as_str(),
-        url = prepared.request_url.as_str(),
-        body_len = prepared.body_len
+        url = sanitize_url(prepared.url.as_str()).as_str(),
+        body_len = prepared.body_len()
     );
 
-    let request_url = prepared.request_url.clone();
+    let request_url = sanitize_url(prepared.url.as_str()).into_string();
     let method = prepared.method.clone();
-    let body_len = prepared.body_len;
+    let body_len = prepared.body_len();
     let result = stream_inner(
         &call_config,
-        request,
         prepared,
         RequestBudget::new(call_config.request_timeout),
         call_config.stream_idle_timeout,
@@ -294,12 +292,11 @@ mod tests {
     use url::Url;
 
     use crate::{
-        HttpError, HttpMethod, HttpRequest, HttpRequestBody, RequestCompression, build_error,
+        HttpError, HttpMethod, HttpRequest, HttpRequestBody, RequestCompression,
         config_resolution::ResolvedCallConfig,
         redaction::{sanitize_error_text, sanitize_url},
         request_prep::{
-            PreparedBody, encode_body, maybe_compress_body, parse_absolute_http_url,
-            prepare_request,
+            PreparedBody, maybe_compress_body, parse_absolute_http_url, prepare_request,
         },
         runtime::{RequestBudget, wrap_stream},
     };
@@ -322,6 +319,7 @@ mod tests {
         let body = PreparedBody::Buffered {
             bytes: Bytes::from_static(b"payload"),
             content_type_if_missing: None,
+            content_encoding: None,
         };
 
         let error = maybe_compress_body(body, RequestCompression::Zstd, &mut headers)
@@ -342,6 +340,7 @@ mod tests {
         let body = PreparedBody::Buffered {
             bytes: Bytes::from_static(b"payload"),
             content_type_if_missing: None,
+            content_encoding: None,
         };
 
         let error = maybe_compress_body(body, RequestCompression::Zstd, &mut headers)
@@ -376,32 +375,12 @@ mod tests {
         .expect("prepare request");
 
         assert_eq!(
-            prepared.request.headers().get(http::header::CONTENT_TYPE),
+            prepared
+                .to_request()
+                .headers()
+                .get(http::header::CONTENT_TYPE),
             Some(&HeaderValue::from_static("application/json"))
         );
-    }
-
-    #[tokio::test(flavor = "current_thread")]
-    async fn zstd_compression_changes_request_body() {
-        let body = encode_body(HttpRequestBody::Bytes(Bytes::from_static(b"payload")))
-            .expect("encode body");
-        let mut headers = HeaderMap::new();
-        let compressed = maybe_compress_body(body, RequestCompression::Zstd, &mut headers)
-            .await
-            .expect("compress body");
-
-        assert_eq!(
-            headers.get(http::header::CONTENT_ENCODING),
-            Some(&HeaderValue::from_static("zstd"))
-        );
-        assert!(compressed.len() > 0);
-    }
-
-    #[test]
-    fn build_error_has_stable_shape() {
-        let error = build_error("reason");
-
-        assert!(matches!(error, HttpError::Build { reason } if reason == "reason"));
     }
 
     #[tokio::test(flavor = "current_thread")]

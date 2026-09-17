@@ -4,16 +4,12 @@ edition = "2024"
 publish = false
 
 [dependencies]
-serde = { version = "1.0.215", features = ["derive"] }
+serde = { workspace = true, features = ["derive"] }
 selvedge-config-model = { path = "../config-model" }
-tempfile = "3.14.0"
-thiserror = "2.0.3"
-toml = "0.8.19"
+tempfile = { workspace = true }
+thiserror = { workspace = true }
+toml = { workspace = true }
+toml_edit = { version = "0.22.27", default-features = false, features = ["parse"] }
 
-[lints.rust]
-unsafe_code = "forbid"
-
-[lints.clippy]
-dbg_macro = "deny"
-todo = "deny"
-unwrap_used = "deny"
+[lints]
+workspace = true

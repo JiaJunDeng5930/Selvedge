@@ -1,13 +1,12 @@
-use std::fs;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 
 use futures_util::StreamExt;
 use futures_util::stream;
 use selvedge_local_client::{
     AttachRejectedOrClientError, LocalClientConfig, LocalClientError, LocalClientState,
-    LocalEndpoint, connect, connect_http,
+    LocalEndpoint, connect_http, connect_with,
 };
 use selvedge_local_protocol::{
     AttachAccepted, AttachRejectReason, AttachRejected, AttachRequest, CommandOutcome,
@@ -15,42 +14,50 @@ use selvedge_local_protocol::{
     LocalClientSubscription, LocalTaskScope, ReadyRequest, ReadyResponse, ReadyState,
 };
 use selvedge_test_support::local_transport::{
-    AttachAction, CloseAction, CommandAction, DropNotifyingStream,
-    FakeLocalTransport as FakeTransport, FakeTransportState, PollNotifyingStream, ReadyAction,
-    connect_plan_is_some, connected_client, connected_client_with_timeout, install_connect_plan,
-    next_seq, notice_frame, valid_attach, valid_command, valid_config,
+    AttachAction, CloseAction, CommandAction, DropNotifyingStream, FakeLocalConnector,
+    FakeTransportState, PollNotifyingStream, ReadyAction, connected_client,
+    connected_client_with_timeout, next_seq, notice_frame, valid_attach, valid_command,
+    valid_local_config,
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::{Mutex as AsyncMutex, oneshot};
+use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 use tokio::time::timeout;
 
-static TEST_LOCK: LazyLock<AsyncMutex<()>> = LazyLock::new(|| AsyncMutex::new(()));
-
 #[tokio::test]
 async fn connect_validates_structured_localhost_endpoint_before_transport_connect() {
-    let _guard = TEST_LOCK.lock().await;
-    install_connect_plan(Ok(FakeTransportState::new_handle()));
+    let invalid_state = FakeTransportState::new_handle();
 
-    let invalid = connect::<FakeTransport>(LocalClientConfig {
-        endpoint: LocalEndpoint::TcpIpv4 { port: 0 },
-        request_timeout: Duration::from_secs(1),
-    })
+    let invalid = connect_with(
+        LocalClientConfig {
+            endpoint: LocalEndpoint::TcpIpv4 { port: 0 },
+            request_timeout: Duration::from_secs(1),
+        },
+        FakeLocalConnector::new(Ok(invalid_state.clone())),
+    )
     .await;
 
     assert!(matches!(
         invalid,
         Err(LocalClientError::ProtocolValidationFailed(_))
     ));
-    assert!(connect_plan_is_some());
+    assert!(
+        invalid_state
+            .lock()
+            .expect("fake state")
+            .connected_configs
+            .is_empty()
+    );
 
     let state = FakeTransportState::new_handle();
-    install_connect_plan(Ok(state.clone()));
-    let client = connect::<FakeTransport>(LocalClientConfig {
-        endpoint: LocalEndpoint::TcpIpv6 { port: 17691 },
-        request_timeout: Duration::from_secs(1),
-    })
+    let client = connect_with(
+        LocalClientConfig {
+            endpoint: LocalEndpoint::TcpIpv6 { port: 17691 },
+            request_timeout: Duration::from_secs(1),
+        },
+        FakeLocalConnector::new(Ok(state.clone())),
+    )
     .await
     .expect("connect client");
 
@@ -66,10 +73,12 @@ async fn connect_validates_structured_localhost_endpoint_before_transport_connec
 
 #[tokio::test]
 async fn connect_failure_returns_transport_connect_error() {
-    let _guard = TEST_LOCK.lock().await;
-    install_connect_plan(Err(LocalClientError::ConnectFailed("refused".to_owned())));
-
-    let error = match connect::<FakeTransport>(valid_config()).await {
+    let error = match connect_with(
+        valid_local_config(),
+        FakeLocalConnector::new(Err(LocalClientError::ConnectFailed("refused".to_owned()))),
+    )
+    .await
+    {
         Ok(_) => panic!("connect should fail"),
         Err(error) => error,
     };
@@ -79,7 +88,6 @@ async fn connect_failure_returns_transport_connect_error() {
 
 #[tokio::test]
 async fn ready_returns_server_state_and_restores_idle_state() {
-    let _guard = TEST_LOCK.lock().await;
     let state = FakeTransportState::new_handle();
     state
         .lock()
@@ -99,7 +107,6 @@ async fn ready_returns_server_state_and_restores_idle_state() {
 
 #[tokio::test]
 async fn command_submit_validates_request_before_transport_and_preserves_server_rejection() {
-    let _guard = TEST_LOCK.lock().await;
     let state = FakeTransportState::new_handle();
     state
         .lock()
@@ -137,7 +144,6 @@ async fn command_submit_validates_request_before_transport_and_preserves_server_
 
 #[tokio::test]
 async fn transport_closed_error_moves_client_to_failed_state() {
-    let _guard = TEST_LOCK.lock().await;
     let state = FakeTransportState::new_handle();
     state
         .lock()
@@ -160,7 +166,6 @@ async fn transport_closed_error_moves_client_to_failed_state() {
 
 #[tokio::test]
 async fn cancelling_pending_command_restores_ready_state() {
-    let _guard = TEST_LOCK.lock().await;
     let state = FakeTransportState::new_handle();
     state
         .lock()
@@ -187,7 +192,6 @@ async fn cancelling_pending_command_restores_ready_state() {
 
 #[tokio::test]
 async fn cancelling_pending_attach_restores_ready_state() {
-    let _guard = TEST_LOCK.lock().await;
     let state = FakeTransportState::new_handle();
     state
         .lock()
@@ -214,7 +218,6 @@ async fn cancelling_pending_attach_restores_ready_state() {
 
 #[tokio::test]
 async fn request_timeout_sets_failed_state_and_recent_error() {
-    let _guard = TEST_LOCK.lock().await;
     let state = FakeTransportState::new_handle();
     state
         .lock()
@@ -238,7 +241,6 @@ async fn request_timeout_sets_failed_state_and_recent_error() {
 
 #[tokio::test]
 async fn attach_allows_one_active_stream_and_reports_stream_closed_after_ordered_frames() {
-    let _guard = TEST_LOCK.lock().await;
     let state = FakeTransportState::new_handle();
     state
         .lock()
@@ -278,7 +280,6 @@ async fn attach_allows_one_active_stream_and_reports_stream_closed_after_ordered
 
 #[tokio::test]
 async fn attach_closure_during_pending_command_restores_ready_after_command_cancel() {
-    let _guard = TEST_LOCK.lock().await;
     let state = FakeTransportState::new_handle();
     {
         let mut state = state.lock().expect("fake state");
@@ -325,7 +326,6 @@ async fn attach_closure_during_pending_command_restores_ready_after_command_canc
 
 #[tokio::test]
 async fn attach_closure_during_pending_command_restores_ready_after_command_success() {
-    let _guard = TEST_LOCK.lock().await;
     let state = FakeTransportState::new_handle();
     let (release_tx, release_rx) = oneshot::channel();
     {
@@ -380,7 +380,6 @@ async fn attach_closure_during_pending_command_restores_ready_after_command_succ
 
 #[tokio::test]
 async fn dropping_exhausted_old_stream_does_not_clear_newer_attach_stream() {
-    let _guard = TEST_LOCK.lock().await;
     let state = FakeTransportState::new_handle();
     {
         let mut state = state.lock().expect("fake state");
@@ -435,7 +434,6 @@ async fn dropping_exhausted_old_stream_does_not_clear_newer_attach_stream() {
 
 #[tokio::test]
 async fn attach_stream_error_clears_attached_state_before_returning_error() {
-    let _guard = TEST_LOCK.lock().await;
     let state = FakeTransportState::new_handle();
     {
         let mut state = state.lock().expect("fake state");
@@ -475,7 +473,6 @@ async fn attach_stream_error_clears_attached_state_before_returning_error() {
 
 #[tokio::test]
 async fn request_failure_drops_active_attach_inner_stream() {
-    let _guard = TEST_LOCK.lock().await;
     let state = FakeTransportState::new_handle();
     let drops = Arc::new(AtomicUsize::new(0));
     {
@@ -513,7 +510,6 @@ async fn request_failure_drops_active_attach_inner_stream() {
 
 #[tokio::test]
 async fn close_returns_busy_while_request_is_pending() {
-    let _guard = TEST_LOCK.lock().await;
     let state = FakeTransportState::new_handle();
     state
         .lock()
@@ -537,7 +533,6 @@ async fn close_returns_busy_while_request_is_pending() {
 
 #[tokio::test]
 async fn cancelling_close_after_stream_drop_restores_ready_state() {
-    let _guard = TEST_LOCK.lock().await;
     let state = FakeTransportState::new_handle();
     {
         let mut state = state.lock().expect("fake state");
@@ -582,7 +577,6 @@ async fn cancelling_close_after_stream_drop_restores_ready_state() {
 
 #[tokio::test]
 async fn cancelling_close_with_live_stream_restores_attached_state() {
-    let _guard = TEST_LOCK.lock().await;
     let state = FakeTransportState::new_handle();
     {
         let mut state = state.lock().expect("fake state");
@@ -628,7 +622,6 @@ async fn cancelling_close_with_live_stream_restores_attached_state() {
 
 #[tokio::test]
 async fn attach_stream_error_terminates_old_stream() {
-    let _guard = TEST_LOCK.lock().await;
     let state = FakeTransportState::new_handle();
     {
         let mut state = state.lock().expect("fake state");
@@ -670,7 +663,6 @@ async fn attach_stream_error_terminates_old_stream() {
 
 #[tokio::test]
 async fn attach_stream_error_fuses_even_when_inner_stream_stays_pending() {
-    let _guard = TEST_LOCK.lock().await;
     let state = FakeTransportState::new_handle();
     state
         .lock()
@@ -703,7 +695,6 @@ async fn attach_stream_error_fuses_even_when_inner_stream_stays_pending() {
 
 #[tokio::test]
 async fn cancelled_close_from_failed_state_preserves_recent_error() {
-    let _guard = TEST_LOCK.lock().await;
     let state = FakeTransportState::new_handle();
     {
         let mut state = state.lock().expect("fake state");
@@ -735,7 +726,6 @@ async fn cancelled_close_from_failed_state_preserves_recent_error() {
 
 #[tokio::test]
 async fn attach_validates_request_before_transport() {
-    let _guard = TEST_LOCK.lock().await;
     let state = FakeTransportState::new_handle();
     let client = connected_client(state.clone()).await;
 
@@ -761,7 +751,6 @@ async fn attach_validates_request_before_transport() {
 
 #[tokio::test]
 async fn attach_rejection_restores_idle_state() {
-    let _guard = TEST_LOCK.lock().await;
     let state = FakeTransportState::new_handle();
     state
         .lock()
@@ -792,7 +781,6 @@ async fn attach_rejection_restores_idle_state() {
 
 #[tokio::test]
 async fn close_closes_transport_and_later_methods_return_closed() {
-    let _guard = TEST_LOCK.lock().await;
     let state = FakeTransportState::new_handle();
     let client = connected_client(state.clone()).await;
 
@@ -808,7 +796,6 @@ async fn close_closes_transport_and_later_methods_return_closed() {
 
 #[tokio::test]
 async fn close_fuses_existing_attach_stream() {
-    let _guard = TEST_LOCK.lock().await;
     let state = FakeTransportState::new_handle();
     state
         .lock()
@@ -835,7 +822,6 @@ async fn close_fuses_existing_attach_stream() {
 
 #[tokio::test]
 async fn close_drops_active_attach_inner_stream() {
-    let _guard = TEST_LOCK.lock().await;
     let state = FakeTransportState::new_handle();
     let drops = Arc::new(AtomicUsize::new(0));
     state
@@ -868,7 +854,6 @@ async fn close_drops_active_attach_inner_stream() {
 
 #[tokio::test]
 async fn close_wakes_pending_attach_reader() {
-    let _guard = TEST_LOCK.lock().await;
     let state = FakeTransportState::new_handle();
     let (polled_tx, polled_rx) = oneshot::channel();
     state
@@ -903,7 +888,6 @@ async fn close_wakes_pending_attach_reader() {
 
 #[tokio::test]
 async fn cancelling_pending_close_restores_previous_state() {
-    let _guard = TEST_LOCK.lock().await;
     let state = FakeTransportState::new_handle();
     state.lock().expect("fake state").close_action = CloseAction::Hang;
     let client = connected_client(state).await;
@@ -931,7 +915,6 @@ async fn cancelling_pending_close_restores_previous_state() {
 
 #[tokio::test]
 async fn http_transport_posts_ready_to_local_protocol_route() {
-    let _guard = TEST_LOCK.lock().await;
     let body = serde_json::to_vec(&ReadyResponse {
         state: ReadyState::Ready,
     })
@@ -963,7 +946,6 @@ async fn http_transport_posts_ready_to_local_protocol_route() {
 
 #[tokio::test]
 async fn http_transport_rejects_oversized_response_headers() {
-    let _guard = TEST_LOCK.lock().await;
     let body = serde_json::to_vec(&ReadyResponse {
         state: ReadyState::Ready,
     })
@@ -991,7 +973,6 @@ async fn http_transport_rejects_oversized_response_headers() {
 
 #[tokio::test]
 async fn http_transport_rejects_oversized_json_body() {
-    let _guard = TEST_LOCK.lock().await;
     let response = HttpContractResponse::json(200, vec![b'x'; 4 * 1024 * 1024 + 1]);
     let (port, server) = spawn_http_contract_server(vec![None, Some(response)]).await;
     let client = connect_http(http_config(port))
@@ -1014,7 +995,6 @@ async fn http_transport_rejects_oversized_json_body() {
 
 #[tokio::test]
 async fn http_transport_posts_command_to_local_protocol_route() {
-    let _guard = TEST_LOCK.lock().await;
     let body = serde_json::to_vec(&CommandResponse {
         client_command_id: LocalClientCommandId::new("command-1").expect("command id"),
         outcome: CommandOutcome::Accepted,
@@ -1047,7 +1027,6 @@ async fn http_transport_posts_command_to_local_protocol_route() {
 
 #[tokio::test]
 async fn http_transport_rejects_mismatched_command_response_id() {
-    let _guard = TEST_LOCK.lock().await;
     let body = serde_json::to_vec(&CommandResponse {
         client_command_id: LocalClientCommandId::new("other-command").expect("command id"),
         outcome: CommandOutcome::Accepted,
@@ -1078,7 +1057,6 @@ async fn http_transport_rejects_mismatched_command_response_id() {
 
 #[tokio::test]
 async fn http_transport_reads_attach_accepted_ndjson_stream() {
-    let _guard = TEST_LOCK.lock().await;
     let accepted = AttachAccepted {
         client_id: LocalClientId::new("client-1").expect("client id"),
         client_command_id: LocalClientCommandId::new("attach-1").expect("command id"),
@@ -1125,7 +1103,6 @@ async fn http_transport_reads_attach_accepted_ndjson_stream() {
 
 #[tokio::test]
 async fn http_transport_rejects_oversized_ndjson_line() {
-    let _guard = TEST_LOCK.lock().await;
     let accepted = AttachAccepted {
         client_id: LocalClientId::new("client-1").expect("client id"),
         client_command_id: LocalClientCommandId::new("attach-1").expect("command id"),
@@ -1165,7 +1142,6 @@ async fn http_transport_rejects_oversized_ndjson_line() {
 
 #[tokio::test]
 async fn http_transport_rejects_mismatched_attach_accepted_identity() {
-    let _guard = TEST_LOCK.lock().await;
     let accepted = AttachAccepted {
         client_id: LocalClientId::new("other-client").expect("client id"),
         client_command_id: LocalClientCommandId::new("attach-1").expect("command id"),
@@ -1204,7 +1180,6 @@ async fn http_transport_rejects_mismatched_attach_accepted_identity() {
 
 #[tokio::test]
 async fn http_transport_preserves_attach_rejection_response() {
-    let _guard = TEST_LOCK.lock().await;
     let rejected = AttachRejected {
         client_command_id: LocalClientCommandId::new("attach-1").expect("command id"),
         reason: AttachRejectReason::ServerNotReady,
@@ -1233,7 +1208,6 @@ async fn http_transport_preserves_attach_rejection_response() {
 
 #[tokio::test]
 async fn http_transport_rejects_oversized_attach_rejection_body() {
-    let _guard = TEST_LOCK.lock().await;
     let response = HttpContractResponse::json(409, vec![b'x'; 4 * 1024 * 1024 + 1]);
     let (port, server) = spawn_http_contract_server(vec![None, Some(response)]).await;
     let client = connect_http(http_config(port))
@@ -1256,7 +1230,6 @@ async fn http_transport_rejects_oversized_attach_rejection_body() {
 
 #[tokio::test]
 async fn http_transport_rejects_mismatched_attach_rejection_identity() {
-    let _guard = TEST_LOCK.lock().await;
     let rejected = AttachRejected {
         client_command_id: LocalClientCommandId::new("other-attach").expect("command id"),
         reason: AttachRejectReason::ServerNotReady,
@@ -1283,14 +1256,6 @@ async fn http_transport_rejects_mismatched_attach_rejection_identity() {
             .iter()
             .any(|capture| capture.path == "/selvedge/local/v1/attach")
     );
-}
-
-#[test]
-fn crate_has_no_systemd_dependency() {
-    let manifest = fs::read_to_string(format!("{}/Cargo.toml", env!("CARGO_MANIFEST_DIR")))
-        .expect("read manifest");
-
-    assert!(!manifest.contains("systemd"));
 }
 
 struct HttpContractResponse {
@@ -1447,4 +1412,34 @@ fn http_config(port: u16) -> LocalClientConfig {
         endpoint: LocalEndpoint::TcpIpv4 { port },
         request_timeout: Duration::from_secs(1),
     }
+}
+
+#[tokio::test]
+async fn http_response_content_length_finishes_without_waiting_for_socket_eof() {
+    let listener = TcpListener::bind(("127.0.0.1", 0)).await.expect("bind");
+    let port = listener.local_addr().expect("address").port();
+    let (release_tx, release_rx) = oneshot::channel();
+    let server = tokio::spawn(async move {
+        let (probe, _) = listener.accept().await.expect("accept connect probe");
+        drop(probe);
+        let (mut socket, _) = listener.accept().await.expect("accept request");
+        read_captured_http_request(&mut socket)
+            .await
+            .expect("read request");
+        let body = br#"{"state":"Ready"}"#;
+        socket.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n", body.len()).as_bytes()).await.expect("write headers");
+        socket.write_all(body).await.expect("write body");
+        let _ = release_rx.await;
+    });
+    let client = connect_http(http_config(port)).await.expect("connect");
+    assert_eq!(
+        client
+            .ready(ReadyRequest {})
+            .await
+            .expect("content length completes while socket stays open")
+            .state,
+        ReadyState::Ready
+    );
+    release_tx.send(()).expect("release peer");
+    server.await.expect("join peer");
 }

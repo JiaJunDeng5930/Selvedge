@@ -244,3 +244,12 @@ fn model_reply_requires_text_or_valid_tool_calls() {
 
     validate_model_reply(&text_reply).expect("valid text reply");
 }
+
+#[test]
+fn task_model_config_rejects_empty_profile_selection() {
+    use selvedge_domain_model::{ModelProfileKey, ReasoningEffort, TaskModelConfig};
+    assert_eq!(
+        TaskModelConfig::new(ModelProfileKey(" ".to_owned()), ReasoningEffort::High),
+        Err(ApiDomainValidationError::EmptyModelProfileKey),
+    );
+}

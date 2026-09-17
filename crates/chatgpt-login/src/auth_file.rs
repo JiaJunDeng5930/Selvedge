@@ -11,23 +11,12 @@ pub(crate) async fn persist(
 ) -> Result<(), ChatgptLoginError> {
     let target_path = chatgpt_auth_file_path(selvedge_home);
     let lock_guard = acquire_auth_lock(selvedge_home, &target_path).await?;
-    let tokens = tokens.clone();
-    let persist_path = target_path.clone();
-
-    tokio::task::spawn_blocking(move || {
-        let _lock_guard = lock_guard;
-        persist_chatgpt_auth_file(&persist_path, &tokens).map_err(|error| {
-            ChatgptLoginError::PersistFailed {
-                path: error.path,
-                reason: error.reason,
-            }
-        })
+    persist_chatgpt_auth_file(&lock_guard, tokens).map_err(|error| {
+        ChatgptLoginError::PersistFailed {
+            path: error.path,
+            reason: error.reason,
+        }
     })
-    .await
-    .map_err(|error| ChatgptLoginError::PersistFailed {
-        path: target_path,
-        reason: format!("persist task failed: {error}"),
-    })?
 }
 
 async fn acquire_auth_lock(
@@ -46,6 +35,9 @@ fn map_lock_error(error: ModelCredentialError, target_path: &Path) -> ChatgptLog
         | ModelCredentialError::ReadFailed { reason, .. }
         | ModelCredentialError::WriteFailed { reason, .. }
         | ModelCredentialError::InvalidRecord { reason } => reason,
+        ModelCredentialError::UnsupportedSchemaVersion { version } => {
+            format!("unsupported schema_version {version}")
+        }
         ModelCredentialError::InvalidProviderId { provider_id } => {
             format!("invalid credential provider id {provider_id:?}")
         }
@@ -54,5 +46,40 @@ fn map_lock_error(error: ModelCredentialError, target_path: &Path) -> ChatgptLog
     ChatgptLoginError::PersistFailed {
         path: target_path.to_path_buf(),
         reason,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::{future::Future, task::Poll};
+
+    #[tokio::test]
+    async fn persistence_waits_for_credential_lock() {
+        let home = tempfile::tempdir().expect("temporary home");
+        let first = selvedge_model_credentials::lock_credential_from_home(home.path(), "chatgpt")
+            .await
+            .expect("hold credential lock");
+        let tokens = ChatgptStoredTokens {
+            id_token: "id-token".to_owned(),
+            access_token: "access-token".to_owned(),
+            refresh_token: "refresh-token".to_owned(),
+        };
+        let mut pending = Box::pin(persist(home.path(), &tokens));
+        // Poll the actual login persistence boundary, so no scheduler delay can
+        // masquerade as waiting for the already-held credential lock.
+        std::future::poll_fn(|context| {
+            assert!(pending.as_mut().poll(context).is_pending());
+            Poll::Ready(())
+        })
+        .await;
+        assert!(!first.path().exists());
+        drop(first);
+        pending.await.expect("persist after releasing lock");
+        let stored: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(chatgpt_auth_file_path(home.path())).expect("stored credentials"),
+        )
+        .expect("credential JSON");
+        assert_eq!(stored["payload"]["tokens"]["access_token"], "access-token");
     }
 }

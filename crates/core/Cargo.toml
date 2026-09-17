@@ -7,18 +7,15 @@ publish = false
 selvedge-command-model = { path = "../command-model" }
 selvedge-db = { path = "../db" }
 selvedge-domain-model = { path = "../domain-model" }
-serde_json = { version = "1.0.149", features = ["arbitrary_precision"] }
-tokio = { version = "1.42.0", features = ["macros", "rt", "sync"] }
-uuid = { version = "1.11.0", features = ["v4"] }
+serde_json = { workspace = true, features = ["arbitrary_precision"] }
+tokio = { workspace = true, features = ["macros", "rt", "sync"] }
+uuid = { workspace = true, features = ["v4"] }
 
 [dev-dependencies]
+rusqlite = { workspace = true, features = ["bundled"] }
+tempfile = { workspace = true }
 selvedge-test-support = { path = "../test-support", features = ["db-fixtures"] }
-tokio = { version = "1.42.0", features = ["macros", "rt", "sync", "time"] }
+tokio = { workspace = true, features = ["macros", "rt", "sync", "time"] }
 
-[lints.rust]
-unsafe_code = "forbid"
-
-[lints.clippy]
-dbg_macro = "deny"
-todo = "deny"
-unwrap_used = "deny"
+[lints]
+workspace = true

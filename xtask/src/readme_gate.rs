@@ -531,14 +531,11 @@ mod tests {
         ReadmeFreshnessStatus, check_package_readme_mermaid, check_package_readmes_freshness,
         update_package_readmes_freshness,
     };
-    use std::fs;
-    use std::path::Path;
-    use std::process::Command;
-    use tempfile::TempDir;
+    use crate::test_repo::TestRepo;
 
     #[test]
     fn update_freshness_writes_current_content_fingerprint() {
-        let repo = TestRepo::new();
+        let repo = TestRepo::workspace();
         repo.write(
             "crates/demo/Cargo.toml",
             "[package]\nname = \"demo\"\nedition = \"2024\"\n",
@@ -556,8 +553,7 @@ mod tests {
 
         update_package_readmes_freshness(repo.path()).expect("update should succeed");
 
-        let updated = fs::read_to_string(repo.path().join("crates/demo/README.md"))
-            .expect("README should be readable");
+        let updated = repo.read("crates/demo/README.md");
         assert!(!updated.contains(&format!("freshness_fingerprint: {}", "0".repeat(40))));
         assert!(updated.contains("freshness_fingerprint: "));
         assert_eq!(
@@ -568,7 +564,7 @@ mod tests {
 
     #[test]
     fn freshness_reports_staged_package_content_changes() {
-        let repo = TestRepo::new();
+        let repo = TestRepo::workspace();
         repo.write(
             "crates/demo/Cargo.toml",
             "[package]\nname = \"demo\"\nedition = \"2024\"\n",
@@ -597,7 +593,7 @@ mod tests {
 
     #[test]
     fn freshness_ignores_readme_only_changes() {
-        let repo = TestRepo::new();
+        let repo = TestRepo::workspace();
         repo.write(
             "crates/demo/Cargo.toml",
             "[package]\nname = \"demo\"\nedition = \"2024\"\n",
@@ -627,7 +623,7 @@ mod tests {
 
     #[test]
     fn mermaid_check_renders_package_readme_diagrams() {
-        let repo = TestRepo::new();
+        let repo = TestRepo::workspace();
         repo.write(
             "crates/demo/Cargo.toml",
             "[package]\nname = \"demo\"\nedition = \"2024\"\n",
@@ -648,7 +644,7 @@ mod tests {
 
     #[test]
     fn workspace_excludes_are_skipped_by_readme_gates() {
-        let repo = TestRepo::new();
+        let repo = TestRepo::workspace();
         repo.write(
             "Cargo.toml",
             "[workspace]\nmembers = [\"crates/*\"]\nexclude = [\"crates/template\"]\n",
@@ -683,7 +679,7 @@ mod tests {
 
     #[test]
     fn workspace_member_globs_skip_nested_manifests() {
-        let repo = TestRepo::new();
+        let repo = TestRepo::workspace();
         repo.write("Cargo.toml", "[workspace]\nmembers = [\"crates/*\"]\n");
         repo.write(
             "crates/demo/Cargo.toml",
@@ -712,7 +708,7 @@ mod tests {
 
     #[test]
     fn root_package_freshness_tracks_metadata_targets() {
-        let repo = TestRepo::new();
+        let repo = TestRepo::workspace();
         repo.write(
             "Cargo.toml",
             "[package]\nname = \"root-demo\"\nedition = \"2024\"\n\n[workspace]\nmembers = []\n",
@@ -744,7 +740,7 @@ mod tests {
 
     #[test]
     fn root_package_freshness_tracks_deleted_default_targets() {
-        let repo = TestRepo::new();
+        let repo = TestRepo::workspace();
         repo.write(
             "Cargo.toml",
             "[package]\nname = \"root-demo\"\nedition = \"2024\"\n\n[workspace]\nmembers = []\n",
@@ -776,7 +772,7 @@ mod tests {
 
     #[test]
     fn freshness_accepts_equivalent_content_after_history_rewrite() {
-        let repo = TestRepo::new();
+        let repo = TestRepo::workspace();
         repo.write(
             "crates/demo/Cargo.toml",
             "[package]\nname = \"demo\"\nedition = \"2024\"\n",
@@ -807,99 +803,5 @@ mod tests {
         format!(
             "# {package}\n\n<!-- selvedge-package-readme\npackage: {package}\nfreshness_fingerprint: {fingerprint}\n-->\n\n```mermaid\nflowchart TD\n  {diagram_body}\n```\n"
         )
-    }
-
-    struct TestRepo {
-        tempdir: TempDir,
-    }
-
-    impl TestRepo {
-        fn new() -> Self {
-            let tempdir = TempDir::new().expect("tempdir should exist");
-            run_git(tempdir.path(), &["init"]);
-            run_git(tempdir.path(), &["config", "user.name", "Test User"]);
-            run_git(
-                tempdir.path(),
-                &["config", "user.email", "test@example.com"],
-            );
-            fs::write(tempdir.path().join("README.md"), "# repo\n").expect("root readme");
-            fs::write(
-                tempdir.path().join("Cargo.toml"),
-                "[workspace]\nmembers = [\"crates/demo\"]\n",
-            )
-            .expect("root manifest");
-            run_git(tempdir.path(), &["add", "Cargo.toml", "README.md"]);
-            run_git(
-                tempdir.path(),
-                &["-c", "commit.gpgsign=false", "commit", "-m", "initial"],
-            );
-            Self { tempdir }
-        }
-
-        fn path(&self) -> &Path {
-            self.tempdir.path()
-        }
-
-        fn write(&self, relative_path: &str, content: &str) {
-            let full_path = self.path().join(relative_path);
-            if let Some(parent) = full_path.parent() {
-                fs::create_dir_all(parent).expect("parent directory should exist");
-            }
-            fs::write(full_path, content).expect("file should be written");
-        }
-
-        fn read(&self, relative_path: &str) -> String {
-            fs::read_to_string(self.path().join(relative_path)).expect("file should be readable")
-        }
-
-        fn git_add(&self, paths: &[&str]) {
-            let mut args = vec!["add"];
-            args.extend_from_slice(paths);
-            run_git(self.path(), &args);
-        }
-
-        fn git_commit(&self, message: &str) {
-            run_git(
-                self.path(),
-                &["-c", "commit.gpgsign=false", "commit", "-m", message],
-            );
-        }
-
-        fn git_rm(&self, paths: &[&str]) {
-            let mut args = vec!["rm"];
-            args.extend_from_slice(paths);
-            run_git(self.path(), &args);
-        }
-
-        fn commit_tree(&self, message: &str) -> String {
-            run_git(self.path(), &["commit-tree", "HEAD^{tree}", "-m", message])
-        }
-
-        fn git_reset_hard(&self, commit: &str) {
-            run_git(self.path(), &["reset", "--hard", commit]);
-        }
-    }
-
-    fn run_git(path: &Path, args: &[&str]) -> String {
-        let mut command = Command::new("git");
-        command
-            .current_dir(path)
-            .env("PRE_COMMIT_ALLOW_NO_CONFIG", "1")
-            .args(args);
-
-        for (key, _) in std::env::vars_os() {
-            if key.to_string_lossy().starts_with("GIT_") {
-                command.env_remove(&key);
-            }
-        }
-
-        let output = command.output().expect("git command should run");
-        assert!(
-            output.status.success(),
-            "git {:?} failed: {}",
-            args,
-            String::from_utf8_lossy(&output.stderr)
-        );
-        String::from_utf8_lossy(&output.stdout).trim().to_owned()
     }
 }

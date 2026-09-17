@@ -2,7 +2,7 @@
 
 <!-- selvedge-package-readme
 package: chatgpt-auth
-freshness_fingerprint: 50eaec519a0688cda2b696bcc1083f49204ce83e
+freshness_fingerprint: 7ebd1c0e7f9d18059b325c191183689e6f0e5927
 -->
 
 This crate resolves ChatGPT auth state for request execution.
@@ -22,10 +22,11 @@ The crate reads ChatGPT provider settings fresh for every call through
 or atomically updates the `chatgpt` login credential record at
 `<selvedge_home>/auth/model-providers/chatgpt.json`.
 
-`chatgpt-login` reuses the config, claims, path, and atomic-write APIs so both
-ChatGPT flows use one credential format implementation.
-The shared writer validates all token fields before replacing the credential
-file and leaves the existing file unchanged when validation fails.
+`chatgpt-login` reuses the config, claims, and token validation APIs.
+`model-credentials` owns envelope decoding, paths, locking, and atomic writes.
+The token writer requires a `CredentialLockGuard`; callers retain that guard
+across refresh so another writer cannot replace the credential mid-refresh.
+Invalid tokens leave the existing file unchanged.
 
 ## Package State Machine
 

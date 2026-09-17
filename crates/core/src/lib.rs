@@ -68,7 +68,7 @@ impl TaskRuntimeSpawner for DefaultTaskRuntimeSpawner {
         &self,
         args: SpawnTaskRuntimeArgs,
     ) -> Result<SpawnedTaskRuntime, SpawnTaskRuntimeError> {
-        spawn_task_runtime(args)
+        Ok(spawn_task_runtime(args))
     }
 }
 
@@ -92,9 +92,7 @@ pub enum SpawnTaskRuntimeError {
     TokioSpawnFailed,
 }
 
-pub fn spawn_task_runtime(
-    args: SpawnTaskRuntimeArgs,
-) -> Result<SpawnedTaskRuntime, SpawnTaskRuntimeError> {
+pub fn spawn_task_runtime(args: SpawnTaskRuntimeArgs) -> SpawnedTaskRuntime {
     let (task_runtime_tx, task_runtime_rx) = tokio::sync::mpsc::unbounded_channel();
     let task_runtime_control = TaskRuntimeControl::new();
     let spawned = SpawnedTaskRuntime {
@@ -119,7 +117,7 @@ pub fn spawn_task_runtime(
     };
     tokio::spawn(actor.run());
 
-    Ok(spawned)
+    spawned
 }
 
 struct TaskRuntimeActor {
@@ -167,71 +165,91 @@ struct PendingToolCall {
     arguments: JsonObject,
 }
 
+enum RuntimeInput {
+    StatusChanged,
+    Command(TaskRuntimeCommand),
+}
+
 impl TaskRuntimeActor {
     async fn run(mut self) {
-        let mut shutdown_exit = false;
         loop {
             if self.task_runtime_control.is_shutdown_requested() {
-                shutdown_exit = true;
+                self.send_exit(TaskRuntimeExitReason::Shutdown);
                 break;
             }
-            let command = if self.started && self.task_status == Some(TaskStatus::Frozen) {
+            let input = if self.started && self.task_status == Some(TaskStatus::Frozen) {
                 self.task_runtime_control.wait_for_control_change().await;
-                if self.task_runtime_control.is_shutdown_requested() {
-                    shutdown_exit = true;
-                    break;
-                }
-                if self.handle_status_changed().await {
-                    break;
-                }
-                continue;
+                RuntimeInput::StatusChanged
             } else {
                 tokio::select! {
                     biased;
-                    _ = self.task_runtime_control.wait_for_control_change() => {
-                        if self.task_runtime_control.is_shutdown_requested() {
-                            shutdown_exit = true;
-                            break;
-                        }
-                        if self.handle_status_changed().await {
-                            break;
-                        }
-                        continue;
-                    },
+                    _ = self.task_runtime_control.wait_for_control_change() => RuntimeInput::StatusChanged,
                     command = self.rx.recv() => {
                         let Some(command) = command else {
-                            shutdown_exit = true;
+                            self.send_exit(TaskRuntimeExitReason::Shutdown);
                             break;
                         };
-                        command
+                        RuntimeInput::Command(command)
                     }
                 }
             };
             if self.task_runtime_control.is_shutdown_requested() {
-                shutdown_exit = true;
+                if let RuntimeInput::Command(command) = input {
+                    settle_task_runtime_command(command, TaskCommandError::RuntimeUnavailable);
+                }
+                self.send_exit(TaskRuntimeExitReason::Shutdown);
                 break;
             }
-            let should_stop = match command {
-                TaskRuntimeCommand::Start => self.handle_start().await,
-                TaskRuntimeCommand::UserInput {
-                    message_text,
-                    responder,
-                } => self.handle_user_input(message_text, responder).await,
-                TaskRuntimeCommand::ModelCallNotStarted { correlation } => {
-                    self.handle_model_call_not_started(correlation).await
+            // A whole actor transition owns its synchronous database work. Moving
+            // the actor prevents overlapping commands while SQLite waits off the
+            // async workers; shutdown still waits for the admitted transition.
+            let control = self.task_runtime_control.clone();
+            let router_tx = self.router_tx.clone();
+            let task_id = self.task_id.clone();
+            match tokio::task::spawn_blocking(move || {
+                let should_stop = match input {
+                    RuntimeInput::StatusChanged => self.handle_status_changed(),
+                    RuntimeInput::Command(command) => match command {
+                        TaskRuntimeCommand::Start => self.handle_start(),
+                        TaskRuntimeCommand::UserInput {
+                            message_text,
+                            responder,
+                        } => self.handle_user_input(message_text, responder),
+                        TaskRuntimeCommand::ModelCallNotStarted { correlation } => {
+                            self.handle_model_call_not_started(correlation)
+                        }
+                        TaskRuntimeCommand::ApiModelReply(envelope) => {
+                            self.handle_model_reply(envelope)
+                        }
+                        TaskRuntimeCommand::ToolResult(result) => self.handle_tool_result(result),
+                    },
+                };
+                (self, should_stop)
+            })
+            .await
+            {
+                Ok((actor, should_stop)) => {
+                    self = actor;
+                    if should_stop {
+                        break;
+                    }
                 }
-                TaskRuntimeCommand::ApiModelReply(envelope) => {
-                    self.handle_model_reply(envelope).await
+                Err(error) => {
+                    if let Some(router_tx) = router_tx.upgrade() {
+                        let _ = router_tx.send(RouterIngressMessage::RuntimeExit(
+                            TaskRuntimeExitNotice {
+                                task_id,
+                                task_runtime_control: control.clone(),
+                                reason: TaskRuntimeExitReason::InternalError(format!(
+                                    "task runtime transition failed: {error}"
+                                )),
+                            },
+                        ));
+                    }
+                    control.finish_shutdown(TaskRuntimeShutdownResult).await;
+                    return;
                 }
-                TaskRuntimeCommand::ToolResult(result) => self.handle_tool_result(result).await,
-            };
-
-            if should_stop {
-                break;
             }
-        }
-        if shutdown_exit {
-            self.send_exit(TaskRuntimeExitReason::Shutdown).await;
         }
         self.rx.close();
         let terminal_error = self
@@ -245,7 +263,7 @@ impl TaskRuntimeActor {
             .await;
     }
 
-    async fn handle_start(&mut self) -> bool {
+    fn handle_start(&mut self) -> bool {
         if self.started {
             return false;
         }
@@ -253,99 +271,87 @@ impl TaskRuntimeActor {
             Ok(loaded) => {
                 self.started = true;
                 self.task_status = Some(loaded.task.task_status);
-                if self
-                    .send_core(CoreOutputMessage::RuntimeReady)
-                    .await
-                    .is_err()
-                {
+                if self.send_core(CoreOutputMessage::RuntimeReady).is_err() {
                     return true;
                 }
                 if loaded.task.task_status == TaskStatus::Frozen {
                     false
                 } else {
                     self.cursor_started = true;
-                    self.start_from_cursor_tail(loaded).await
+                    self.start_from_cursor_tail(loaded)
                 }
             }
-            Err(error) => self.stop_with_db_error(error).await,
+            Err(error) => self.stop_with_db_error(error),
         }
     }
 
-    async fn handle_status_changed(&mut self) -> bool {
+    fn handle_status_changed(&mut self) -> bool {
         let status = match read_task_status(&self.db, &self.task_id) {
             Ok(status) => status,
-            Err(error) => return self.stop_with_db_error(error).await,
+            Err(error) => return self.stop_with_db_error(error),
         };
         self.task_status = Some(status);
         if status == TaskStatus::Archived {
             self.terminal_task_error = Some(TaskCommandError::TaskArchived);
-            self.send_exit(TaskRuntimeExitReason::Archived).await;
+            self.send_exit(TaskRuntimeExitReason::Archived);
             return true;
         }
         if self.started && !self.cursor_started && status != TaskStatus::Frozen {
             let loaded = match load_runtime_task(&self.db, &self.task_id) {
                 Ok(loaded) => loaded,
-                Err(error) => return self.stop_with_db_error(error).await,
+                Err(error) => return self.stop_with_db_error(error),
             };
             self.cursor_started = true;
-            return self.start_from_cursor_tail(loaded).await;
+            return self.start_from_cursor_tail(loaded);
         }
         if status == TaskStatus::Active && self.deferred_model_call {
-            return self.request_model_call().await;
+            return self.request_model_call();
         }
         false
     }
 
-    async fn start_from_cursor_tail(&mut self, loaded: selvedge_db::LoadedRuntimeTask) -> bool {
+    fn start_from_cursor_tail(&mut self, loaded: selvedge_db::LoadedRuntimeTask) -> bool {
         match read_open_function_calls_for_task(&self.db, &self.task_id) {
             Ok(open_calls) if !open_calls.is_empty() => {
-                return self.recover_open_tool_calls(open_calls).await;
+                return self.recover_open_tool_calls(open_calls);
             }
             Ok(_) => {}
-            Err(error) => return self.stop_with_db_error(error).await,
+            Err(error) => return self.stop_with_db_error(error),
         }
 
         match loaded.cursor_node {
             HistoryNode::Message { message_role, .. } => match message_role {
-                MessageRole::System | MessageRole::User => self.request_model_call().await,
+                MessageRole::System | MessageRole::User => self.request_model_call(),
                 MessageRole::Assistant | MessageRole::Developer => {
-                    self.enter_awaiting_user_input_or_promote_queue().await
+                    self.enter_awaiting_user_input_or_promote_queue()
                 }
                 MessageRole::Tool => {
                     self.stop_with_internal_error("tool message cannot be a task cursor tail")
-                        .await
                 }
             },
-            HistoryNode::FunctionOutput { .. } => self.request_model_call().await,
+            HistoryNode::FunctionOutput { .. } => self.request_model_call(),
             HistoryNode::FunctionCall {
                 node_id,
                 function_call_id,
                 tool_name,
                 arguments,
                 ..
-            } => {
-                self.dispatch_tool_call(
-                    PendingToolCall {
-                        function_call_node_id: node_id,
-                        function_call_id,
-                        tool_name,
-                        arguments,
-                    },
-                    VecDeque::new(),
-                )
-                .await
-            }
+            } => self.dispatch_tool_call(
+                PendingToolCall {
+                    function_call_node_id: node_id,
+                    function_call_id,
+                    tool_name,
+                    arguments,
+                },
+                VecDeque::new(),
+            ),
             HistoryNode::Reasoning { .. } => {
                 self.stop_with_internal_error("reasoning cannot be a task cursor tail")
-                    .await
             }
         }
     }
 
-    async fn recover_open_tool_calls(
-        &mut self,
-        open_calls: Vec<selvedge_db::OpenFunctionCall>,
-    ) -> bool {
+    fn recover_open_tool_calls(&mut self, open_calls: Vec<selvedge_db::OpenFunctionCall>) -> bool {
         let mut pending_tool_calls = VecDeque::new();
         for call in open_calls {
             let tool_call = PendingToolCall {
@@ -373,49 +379,47 @@ impl TaskRuntimeActor {
                             now: now(),
                         },
                     ) {
-                        return self.stop_with_db_error(error).await;
+                        return self.stop_with_db_error(error);
                     }
                 }
             }
         }
         let Some(tool_call) = pending_tool_calls.pop_front() else {
-            return self.request_model_call().await;
+            return self.request_model_call();
         };
-        self.dispatch_tool_call(tool_call, pending_tool_calls).await
+        self.dispatch_tool_call(tool_call, pending_tool_calls)
     }
 
-    async fn enter_awaiting_user_input_or_promote_queue(&mut self) -> bool {
+    fn enter_awaiting_user_input_or_promote_queue(&mut self) -> bool {
         match drain_queued_user_inputs_and_move_cursor(&self.db, &self.task_id, now()) {
-            Ok(Some(_)) => self.request_model_call().await,
+            Ok(Some(_)) => self.request_model_call(),
             Ok(None) => {
                 self.wait_state = WaitState::AwaitingUserInput;
                 false
             }
-            Err(error) => self.stop_with_db_error(error).await,
+            Err(error) => self.stop_with_db_error(error),
         }
     }
 
-    async fn handle_user_input(
+    fn handle_user_input(
         &mut self,
         message_text: String,
         responder: SendUserInputResponder,
     ) -> bool {
         if message_text.is_empty() {
             responder.settle(Err(TaskCommandError::InvalidCommand));
-            return self
-                .stop_with_internal_error("user input must not be empty")
-                .await;
+            return self.stop_with_internal_error("user input must not be empty");
         }
 
         match self.wait_state {
             WaitState::AwaitingUserInput => match self.append_user_message(message_text) {
                 Ok(node_id) => {
                     responder.settle(Ok(SendUserInputOutcome::Committed { node_id }));
-                    self.request_model_call().await
+                    self.request_model_call()
                 }
                 Err(error) => {
                     responder.settle(Err(task_command_db_error(&error)));
-                    self.stop_with_db_error(error).await
+                    self.stop_with_db_error(error)
                 }
             },
             WaitState::WaitingModelReply { .. } | WaitState::WaitingToolResult { .. } => {
@@ -426,14 +430,14 @@ impl TaskRuntimeActor {
                     }
                     Err(error) => {
                         responder.settle(Err(task_command_db_error(&error)));
-                        self.stop_with_db_error(error).await
+                        self.stop_with_db_error(error)
                     }
                 }
             }
         }
     }
 
-    async fn handle_model_reply(&mut self, envelope: ApiOutputEnvelope) -> bool {
+    fn handle_model_reply(&mut self, envelope: ApiOutputEnvelope) -> bool {
         let (expected_model_run_id, tool_manifest, callable_tools) = match &self.wait_state {
             WaitState::WaitingModelReply {
                 model_run_id,
@@ -459,7 +463,7 @@ impl TaskRuntimeActor {
                 } else {
                     match validate_tool_calls(reply.tool_calls, &tool_manifest, &callable_tools) {
                         Ok(tool_calls) => tool_calls,
-                        Err(message) => return self.stop_with_internal_error(&message).await,
+                        Err(message) => return self.stop_with_internal_error(&message),
                     }
                 };
 
@@ -467,12 +471,7 @@ impl TaskRuntimeActor {
                     let Some(content) = reply.content.filter(|content| !content.trim().is_empty())
                     else {
                         return self
-                            .stop_with_internal_error("model reply has no terminal history node")
-                            .await;
-                    };
-                    let had_queued_inputs = match load_runtime_task(&self.db, &self.task_id) {
-                        Ok(loaded) => !loaded.queued_inputs.is_empty(),
-                        Err(error) => return self.stop_with_db_error(error).await,
+                            .stop_with_internal_error("model reply has no terminal history node");
                     };
                     match append_assistant_message_and_drain_queue(
                         &self.db,
@@ -480,9 +479,12 @@ impl TaskRuntimeActor {
                         content,
                         now(),
                     ) {
-                        Ok(_) if had_queued_inputs => self.request_model_call().await,
-                        Ok(_) => self.enter_awaiting_user_input_or_promote_queue().await,
-                        Err(error) => self.stop_with_db_error(error).await,
+                        Ok(commit) if commit.drained_inputs => self.request_model_call(),
+                        Ok(_) => {
+                            self.wait_state = WaitState::AwaitingUserInput;
+                            false
+                        }
+                        Err(error) => self.stop_with_db_error(error),
                     }
                 } else {
                     let assistant_message_text =
@@ -492,9 +494,9 @@ impl TaskRuntimeActor {
                             let tool_call = pending_tool_calls
                                 .pop_front()
                                 .expect("validated tool calls cannot be empty here");
-                            self.dispatch_tool_call(tool_call, pending_tool_calls).await
+                            self.dispatch_tool_call(tool_call, pending_tool_calls)
                         }
-                        Err(error) => self.stop_with_db_error(error).await,
+                        Err(error) => self.stop_with_db_error(error),
                     }
                 }
             }
@@ -511,7 +513,7 @@ impl TaskRuntimeActor {
                     now(),
                 ) {
                     Ok(node_id) => node_id.is_some(),
-                    Err(error) => return self.stop_with_db_error(error).await,
+                    Err(error) => return self.stop_with_db_error(error),
                 };
                 if self
                     .send_core(CoreOutputMessage::PublishDomainEvent(
@@ -525,21 +527,20 @@ impl TaskRuntimeActor {
                             },
                         },
                     ))
-                    .await
                     .is_err()
                 {
                     return true;
                 }
                 if promoted_queued_input {
-                    self.request_model_call().await
+                    self.request_model_call()
                 } else {
-                    self.enter_awaiting_user_input_or_promote_queue().await
+                    false
                 }
             }
         }
     }
 
-    async fn handle_model_call_not_started(&mut self, correlation: ApiCallCorrelation) -> bool {
+    fn handle_model_call_not_started(&mut self, correlation: ApiCallCorrelation) -> bool {
         let WaitState::WaitingModelReply { model_run_id, .. } = &self.wait_state else {
             return false;
         };
@@ -549,24 +550,24 @@ impl TaskRuntimeActor {
 
         self.wait_state = WaitState::AwaitingUserInput;
         match read_task_status(&self.db, &self.task_id) {
-            Ok(TaskStatus::Active) => self.request_model_call().await,
+            Ok(TaskStatus::Active) => self.request_model_call(),
             Ok(TaskStatus::Frozen) => {
                 self.task_status = Some(TaskStatus::Frozen);
                 self.deferred_model_call = true;
                 false
             }
-            Ok(TaskStatus::Stopped) => self.enter_stopped_without_model_call().await,
+            Ok(TaskStatus::Stopped) => self.enter_stopped_without_model_call(),
             Ok(TaskStatus::Archived) => {
                 self.task_status = Some(TaskStatus::Archived);
                 self.terminal_task_error = Some(TaskCommandError::TaskArchived);
-                self.send_exit(TaskRuntimeExitReason::Archived).await;
+                self.send_exit(TaskRuntimeExitReason::Archived);
                 true
             }
-            Err(error) => self.stop_with_db_error(error).await,
+            Err(error) => self.stop_with_db_error(error),
         }
     }
 
-    async fn handle_tool_result(&mut self, result: ToolExecutionResult) -> bool {
+    fn handle_tool_result(&mut self, result: ToolExecutionResult) -> bool {
         let pending_tool_calls =
             match std::mem::replace(&mut self.wait_state, WaitState::AwaitingUserInput) {
                 WaitState::WaitingToolResult {
@@ -650,15 +651,13 @@ impl TaskRuntimeActor {
                         .send_core(CoreOutputMessage::EnsureTaskRuntimes {
                             task_ids: committed.created_child_task_ids,
                         })
-                        .await
                         .is_err()
                 {
                     return true;
                 }
                 self.dispatch_next_tool_or_request_model(pending_tool_calls)
-                    .await
             }
-            Err(error) => self.stop_with_db_error(error).await,
+            Err(error) => self.stop_with_db_error(error),
         }
     }
 
@@ -666,40 +665,30 @@ impl TaskRuntimeActor {
         append_user_message_and_move_cursor(&self.db, &self.task_id, message_text, now())
     }
 
-    async fn request_model_call(&mut self) -> bool {
-        if let Some(should_stop) = self.stop_or_defer_model_call_if_inactive().await {
+    fn request_model_call(&mut self) -> bool {
+        if let Some(should_stop) = self.stop_or_defer_model_call_if_inactive() {
             return should_stop;
         }
 
-        let db = self.db.clone();
-        let task_id = self.task_id.clone();
-        let context = tokio::task::spawn_blocking(move || {
-            let conversation = read_conversation_for_task(&db, &task_id)?;
-            let tool_state = read_task_tool_state(&db, &task_id)?;
-            let loaded = load_runtime_task(&db, &task_id)?;
-            Ok::<_, DbError>((conversation, tool_state, loaded.task.model_profile_key))
-        })
-        .await;
-        let (conversation, tool_state, model_profile_key) = match context {
-            Ok(Ok(context)) => context,
-            Ok(Err(error)) => return self.stop_with_db_error(error).await,
-            Err(error) => {
-                return self
-                    .stop_with_internal_error(&format!("database worker failed: {error}"))
-                    .await;
-            }
+        let context = (|| {
+            let conversation = read_conversation_for_task(&self.db, &self.task_id)?;
+            let tool_state = read_task_tool_state(&self.db, &self.task_id)?;
+            let task = selvedge_db::read_task_metadata(&self.db, &self.task_id)?;
+            Ok::<_, DbError>((conversation, tool_state, task.model_config))
+        })();
+        let (conversation, tool_state, model_config) = match context {
+            Ok(context) => context,
+            Err(error) => return self.stop_with_db_error(error),
         };
-        if let Some(should_stop) = self.stop_or_defer_model_call_if_inactive().await {
+        if let Some(should_stop) = self.stop_or_defer_model_call_if_inactive() {
             return should_stop;
         }
         if let Err(message) = validate_conversation_tool_pairs(&conversation) {
-            return self.stop_with_internal_error(&message).await;
+            return self.stop_with_internal_error(&message);
         }
         let model_run_id = ModelRunId(format!("{}-model-{}", self.task_id.0, Uuid::new_v4()));
-        let Some(provider) = self.model_profiles.get(&model_profile_key).cloned() else {
-            return self
-                .stop_with_internal_error("model profile key is not configured")
-                .await;
+        let Some(provider) = self.model_profiles.get(model_config.profile_key()).cloned() else {
+            return self.stop_with_internal_error("model profile key is not configured");
         };
         let tool_manifest = tool_state.manifest;
         let callable_tools =
@@ -711,6 +700,7 @@ impl TaskRuntimeActor {
                 model_run_id: model_run_id.clone(),
             },
             provider,
+            model_config,
             conversation,
             tool_manifest: Some(tool_manifest.clone()),
             callable_tools: callable_tools.clone(),
@@ -722,14 +712,13 @@ impl TaskRuntimeActor {
             callable_tools,
         };
         self.send_core(CoreOutputMessage::RequestModelCall(request))
-            .await
             .is_err()
     }
 
-    async fn stop_or_defer_model_call_if_inactive(&mut self) -> Option<bool> {
+    fn stop_or_defer_model_call_if_inactive(&mut self) -> Option<bool> {
         let status = match read_task_status(&self.db, &self.task_id) {
             Ok(status) => status,
-            Err(error) => return Some(self.stop_with_db_error(error).await),
+            Err(error) => return Some(self.stop_with_db_error(error)),
         };
         self.task_status = Some(status);
         match status {
@@ -742,22 +731,22 @@ impl TaskRuntimeActor {
                 self.wait_state = WaitState::AwaitingUserInput;
                 Some(false)
             }
-            TaskStatus::Stopped => Some(self.enter_stopped_without_model_call().await),
+            TaskStatus::Stopped => Some(self.enter_stopped_without_model_call()),
             TaskStatus::Archived => {
                 self.terminal_task_error = Some(TaskCommandError::TaskArchived);
-                self.send_exit(TaskRuntimeExitReason::Archived).await;
+                self.send_exit(TaskRuntimeExitReason::Archived);
                 Some(true)
             }
         }
     }
 
-    async fn enter_stopped_without_model_call(&mut self) -> bool {
+    fn enter_stopped_without_model_call(&mut self) -> bool {
         self.task_status = Some(TaskStatus::Stopped);
         self.deferred_model_call = false;
         self.wait_state = WaitState::AwaitingUserInput;
         match drain_queued_user_inputs_and_move_cursor(&self.db, &self.task_id, now()) {
             Ok(_) => false,
-            Err(error) => self.stop_with_db_error(error).await,
+            Err(error) => self.stop_with_db_error(error),
         }
     }
 
@@ -797,7 +786,7 @@ impl TaskRuntimeActor {
         Ok(pending_tool_calls)
     }
 
-    async fn dispatch_tool_call(
+    fn dispatch_tool_call(
         &mut self,
         tool_call: PendingToolCall,
         pending_tool_calls: VecDeque<PendingToolCall>,
@@ -817,22 +806,21 @@ impl TaskRuntimeActor {
             pending_tool_calls,
         };
         self.send_core(CoreOutputMessage::RequestToolExecution(request))
-            .await
             .is_err()
     }
 
-    async fn dispatch_next_tool_or_request_model(
+    fn dispatch_next_tool_or_request_model(
         &mut self,
         mut pending_tool_calls: VecDeque<PendingToolCall>,
     ) -> bool {
         if let Some(tool_call) = pending_tool_calls.pop_front() {
-            self.dispatch_tool_call(tool_call, pending_tool_calls).await
+            self.dispatch_tool_call(tool_call, pending_tool_calls)
         } else {
-            self.request_model_call().await
+            self.request_model_call()
         }
     }
 
-    async fn send_core(&self, message: CoreOutputMessage) -> Result<(), ()> {
+    fn send_core(&self, message: CoreOutputMessage) -> Result<(), ()> {
         let Some(router_tx) = self.router_tx.upgrade() else {
             return Err(());
         };
@@ -844,7 +832,7 @@ impl TaskRuntimeActor {
             .map_err(|_| ())
     }
 
-    async fn send_exit(&self, reason: TaskRuntimeExitReason) {
+    fn send_exit(&self, reason: TaskRuntimeExitReason) {
         let Some(router_tx) = self.router_tx.upgrade() else {
             return;
         };
@@ -855,17 +843,15 @@ impl TaskRuntimeActor {
         }));
     }
 
-    async fn stop_with_db_error(&mut self, error: DbError) -> bool {
+    fn stop_with_db_error(&mut self, error: DbError) -> bool {
         self.terminal_task_error = Some(task_command_db_error(&error));
-        self.send_exit(TaskRuntimeExitReason::DbError(error.to_string()))
-            .await;
+        self.send_exit(TaskRuntimeExitReason::DbError(error.to_string()));
         true
     }
 
-    async fn stop_with_internal_error(&mut self, message: &str) -> bool {
+    fn stop_with_internal_error(&mut self, message: &str) -> bool {
         self.terminal_task_error = Some(TaskCommandError::RuntimeUnavailable);
-        self.send_exit(TaskRuntimeExitReason::InternalError(message.to_owned()))
-            .await;
+        self.send_exit(TaskRuntimeExitReason::InternalError(message.to_owned()));
         true
     }
 }

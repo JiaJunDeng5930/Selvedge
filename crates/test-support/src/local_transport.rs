@@ -2,7 +2,7 @@ use std::collections::VecDeque;
 use std::future;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, LazyLock, Mutex};
+use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 use std::time::Duration;
 
@@ -10,8 +10,8 @@ use futures_core::Stream;
 use futures_util::StreamExt;
 use futures_util::stream;
 use selvedge_local_client::{
-    AttachRejectedOrClientError, LocalClient, LocalClientConfig, LocalClientError, LocalEndpoint,
-    LocalFrameStream, LocalTransport, connect,
+    AttachRejectedOrClientError, LocalClient, LocalClientConfig, LocalClientError, LocalConnector,
+    LocalEndpoint, LocalFrameStream, LocalTransport, connect_with,
 };
 use selvedge_local_protocol::{
     AttachAccepted, AttachRejected, AttachRequest, CommandOutcome, CommandRequest, CommandResponse,
@@ -20,9 +20,6 @@ use selvedge_local_protocol::{
     LocalSnapshotMode, LocalTaskScope, ReadyResponse, ReadyState,
 };
 use tokio::sync::oneshot;
-
-static CONNECT_PLAN: LazyLock<Mutex<Option<Result<FakeTransportStateHandle, LocalClientError>>>> =
-    LazyLock::new(|| Mutex::new(None));
 
 pub type FakeTransportStateHandle = Arc<Mutex<FakeTransportState>>;
 
@@ -120,28 +117,31 @@ impl FakeTransportState {
     }
 }
 
-impl LocalTransport for FakeLocalTransport {
-    async fn connect(config: LocalClientConfig) -> Result<Self, LocalClientError>
-    where
-        Self: Sized,
-    {
-        let state = match CONNECT_PLAN.lock().expect("connect plan lock").take() {
-            Some(Ok(state)) => state,
-            Some(Err(error)) => return Err(error),
-            None => {
-                return Err(LocalClientError::ConnectFailed(
-                    "missing connect plan".to_owned(),
-                ));
-            }
-        };
+pub struct FakeLocalConnector {
+    plan: Result<FakeTransportStateHandle, LocalClientError>,
+}
+
+impl FakeLocalConnector {
+    pub fn new(plan: Result<FakeTransportStateHandle, LocalClientError>) -> Self {
+        Self { plan }
+    }
+}
+
+impl LocalConnector for FakeLocalConnector {
+    type Transport = FakeLocalTransport;
+
+    async fn connect(self, config: LocalClientConfig) -> Result<Self::Transport, LocalClientError> {
+        let state = self.plan?;
         state
             .lock()
             .expect("fake state")
             .connected_configs
             .push(config);
-        Ok(Self { state })
+        Ok(FakeLocalTransport { state })
     }
+}
 
+impl LocalTransport for FakeLocalTransport {
     async fn ready(
         &self,
         _request: selvedge_local_protocol::ReadyRequest,
@@ -245,35 +245,11 @@ impl LocalTransport for FakeLocalTransport {
     }
 }
 
-pub fn install_connect_plan(plan: Result<FakeTransportStateHandle, LocalClientError>) {
-    *CONNECT_PLAN.lock().expect("connect plan lock") = Some(plan);
-}
-
-pub fn connect_plan_is_some() -> bool {
-    CONNECT_PLAN.lock().expect("connect plan lock").is_some()
-}
-
-pub fn ready_state() -> FakeTransportStateHandle {
-    let state = FakeTransportState::new_handle();
-    state
-        .lock()
-        .expect("fake state")
-        .ready_responses
-        .push_back(ReadyAction::Response(Ok(ReadyResponse {
-            state: ReadyState::Ready,
-        })));
-    state
-}
-
 pub fn valid_local_config() -> LocalClientConfig {
     LocalClientConfig {
         endpoint: LocalEndpoint::TcpIpv4 { port: 17691 },
         request_timeout: Duration::from_secs(1),
     }
-}
-
-pub fn valid_config() -> LocalClientConfig {
-    valid_local_config()
 }
 
 pub async fn connected_client(state: FakeTransportStateHandle) -> LocalClient<FakeLocalTransport> {
@@ -284,11 +260,13 @@ pub async fn connected_client_with_timeout(
     state: FakeTransportStateHandle,
     request_timeout: Duration,
 ) -> LocalClient<FakeLocalTransport> {
-    install_connect_plan(Ok(state));
-    connect::<FakeLocalTransport>(LocalClientConfig {
-        endpoint: LocalEndpoint::TcpIpv4 { port: 17691 },
-        request_timeout,
-    })
+    connect_with(
+        LocalClientConfig {
+            endpoint: LocalEndpoint::TcpIpv4 { port: 17691 },
+            request_timeout,
+        },
+        FakeLocalConnector::new(Ok(state)),
+    )
     .await
     .expect("connect client")
 }
@@ -360,5 +338,48 @@ pub fn empty_local_snapshot() -> LocalClientSnapshot {
         task_parent_edges: Vec::new(),
         history_nodes: Vec::new(),
         task_versions: Vec::new(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn concurrent_connections_consume_their_own_plans() {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("test runtime")
+            .block_on(async {
+                let first = FakeTransportState::new_handle();
+                let second = FakeTransportState::new_handle();
+                let first_config = valid_local_config();
+                let second_config = LocalClientConfig {
+                    endpoint: LocalEndpoint::TcpIpv4 { port: 17692 },
+                    ..valid_local_config()
+                };
+                let (first_client, second_client) = futures_util::future::join(
+                    connect_with(
+                        first_config.clone(),
+                        FakeLocalConnector::new(Ok(first.clone())),
+                    ),
+                    connect_with(
+                        second_config.clone(),
+                        FakeLocalConnector::new(Ok(second.clone())),
+                    ),
+                )
+                .await;
+                first_client.expect("first connection");
+                second_client.expect("second connection");
+                assert_eq!(
+                    first.lock().expect("first state").connected_configs,
+                    vec![first_config]
+                );
+                assert_eq!(
+                    second.lock().expect("second state").connected_configs,
+                    vec![second_config]
+                );
+            });
     }
 }

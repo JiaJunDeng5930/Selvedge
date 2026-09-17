@@ -2,12 +2,14 @@
 
 <!-- selvedge-package-readme
 package: selvedge-domain-model
-freshness_fingerprint: ac25435e2d627b5cfbe10c5336897088147bcbf7
+freshness_fingerprint: 261553225476271e5dce8a65f52822357cf7e28a
 -->
 
 This crate defines Selvedge's shared task lifecycle and model-call domain values.
 
 Use it to define conversation, tool, provider, and normalized model reply data structures.
+
+`TaskModelConfig` keeps a nonempty model profile selection and its reasoning effort in one immutable value. Construction rejects an empty profile key; callers share the validated configuration through `Arc` from persistence to provider dispatch.
 
 Tool input schemas and function-call arguments use `JsonObject`, backed by
 `serde_json` with arbitrary-precision number decoding. `Conversation` stores one
@@ -33,6 +35,8 @@ flowchart TD
   Conversation[Conversation and history value]
   Tool[Tool manifest and argument value]
   Provider[Model provider profile]
+  Config[Validate TaskModelConfig]
+  InvalidConfig[Reject empty model profile key]
   Reply[Normalized model reply]
   TaskActive[Task active]
   TaskFrozen[Task frozen]
@@ -45,6 +49,9 @@ flowchart TD
   Start -->|caller constructs tool name, full input schema, manifest, callable selection, call id, or object arguments| Tool
   Start -->|caller constructs provider profile or reasoning effort| Provider
   Start -->|caller constructs model reply content, tool call, usage, or finish reason| Reply
+  Start -->|caller constructs task model configuration| Config
+  Config -->|profile key is nonempty after trimming| Ready
+  Config -->|profile key is empty after trimming| InvalidConfig
   Start -->|caller constructs task status| TaskActive
   Conversation -->|Rust type construction succeeds| Ready
   Tool -->|Rust type construction succeeds| Ready

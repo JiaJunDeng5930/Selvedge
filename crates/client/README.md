@@ -2,7 +2,7 @@
 
 <!-- selvedge-package-readme
 package: selvedge-client
-freshness_fingerprint: a6784af6b097509a5707b59c6289293520cdb642
+freshness_fingerprint: e4ef04e8531e38f0153db90440ee7389f02e6a18
 -->
 
 ## This crate is for
@@ -21,7 +21,7 @@ Use it to:
 This crate is not for:
 
 - exposing a reusable client object
-- caching config, transport builders, or per-request derived state
+- caching mutable config or per-request derived state
 - retrying requests implicitly
 - parsing response bodies into JSON, SSE, or auth-specific models
 
@@ -60,6 +60,9 @@ assert!(response.status.is_success());
 - callers must initialize `selvedge_config` before using this crate
 - callers must run these async functions inside a Tokio runtime
 - every call reads `network.*` config immediately through `selvedge_config::read`
+- the most recent immutable transport settings (connect timeout and CA bundle contents) retain a reusable connection pool; different settings replace the retained pool while in-flight calls keep their own transport
+- a call reads the CA bundle at its first HTTPS hop and reuses that snapshot for later HTTPS redirects; changes at the same path apply on the next call, and HTTP calls ignore the CA path
+- request timeouts and User-Agent remain per-call settings and do not prevent connection reuse
 - this crate does not support outbound proxies and intentionally ignores environment proxy settings such as `HTTP_PROXY` and `HTTPS_PROXY`
 - `request.timeout` overrides `network.request_timeout_ms` only for that call
 - `network.request_timeout_ms` is optional; when it is unset and no per-call timeout is supplied, this crate does not install a request timeout and leaves timeout behavior to the underlying HTTP client
@@ -72,7 +75,8 @@ assert!(response.status.is_success());
 ## Response semantics
 
 - `GET` requests follow standard redirect statuses inside this crate, with a fixed hop limit
-- redirect hops are rebuilt inside the crate; cross-origin hops keep only a small safe request-header allowlist and do not forward other caller-supplied headers
+- request bodies are encoded and compressed once, then shared as immutable bytes across GET redirects for all supported redirect statuses
+- cross-origin hops keep only a small safe caller-supplied request-header allowlist; generated body media type and compression headers are derived from the encoded body on every send
 - `execute(...)` returns a full `HttpResponse` only for `2xx`
 - `stream(...)` returns a raw `ByteStream` only for `2xx`
 - non-`2xx` responses are returned as `HttpError::Status`
@@ -87,7 +91,8 @@ The diagram records the package-level observable states and transition paths. Ea
 flowchart TD
   Start([execute or stream])
   ReadConfig[Read network config]
-  Prepare[Build request client, URL, headers, and body]
+  Prepare[Resolve URL and encode body once]
+  Transport[Select reusable transport and prepare hop headers]
   Send[Send HTTP request]
   Redirect{redirect decision}
   Buffer[Buffer response body]
@@ -103,12 +108,14 @@ flowchart TD
   Start -->|caller invokes execute or stream| ReadConfig
   ReadConfig -->|selvedge_config read succeeds| Prepare
   ReadConfig -->|selvedge_config read fails| ConfigError
-  Prepare -->|method, URL, TLS, timeout, compression, and body are prepared| Send
-  Prepare -->|URL, client, certificate, compression, or request build fails| BuildError
+  Prepare -->|URL, headers, compression, and body are prepared| Transport
+  Transport -->|transport settings and TLS materials select or build a client| Send
+  Transport -->|client or certificate preparation fails| BuildError
+  Prepare -->|URL, compression, or request build fails| BuildError
   Send -->|response head arrives before configured timeout| Redirect
   Send -->|transport fails while sending request or reading response head| TransportError
   Send -->|configured request timeout expires| TimeoutError
-  Redirect -->|GET response has supported redirect status and hop count remains| Prepare
+  Redirect -->|GET redirect target is valid and hop count remains; retain encoded body and filter headers| Transport
   Redirect -->|redirect hop limit is exceeded or location is invalid| BuildError
   Redirect -->|status is 2xx and caller invoked execute| Buffer
   Redirect -->|status is 2xx and caller invoked stream| OpenBody
