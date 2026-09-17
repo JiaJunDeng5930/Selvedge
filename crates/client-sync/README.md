@@ -2,7 +2,7 @@
 
 <!-- selvedge-package-readme
 package: selvedge-client-sync
-freshness_fingerprint: 5b74e170d246e0efbb63081574360906b46d4a7a
+freshness_fingerprint: 037cd790a837e240bdd28183eb6dfd7ea5ab829e
 -->
 
 This crate defines the client hydration synchronization boundary used by the server and router attach path.

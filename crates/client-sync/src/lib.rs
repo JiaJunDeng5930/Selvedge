@@ -387,7 +387,10 @@ async fn deliver_build_result(
 async fn send_control(
     events_tx: &EventIngressSender,
     control: EventControlMessage,
-) -> Result<(), mpsc::error::SendError<EventIngress>> {
+) -> Result<(), ClientSyncError> {
     let ingress = EventIngress::Control(control);
-    events_tx.send(ingress).await
+    events_tx
+        .send(ingress)
+        .await
+        .map_err(|_| ClientSyncError::EventsMailboxClosed)
 }
