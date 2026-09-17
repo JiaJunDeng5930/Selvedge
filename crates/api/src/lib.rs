@@ -413,6 +413,7 @@ fn chatgpt_item_from_message(
             })?;
 
             Ok(ResponseItem::FunctionCall(FunctionCallItem {
+                asynchronous: None,
                 internal_chat_message_metadata_passthrough: None,
                 encrypted_function_args: None,
                 id: None,

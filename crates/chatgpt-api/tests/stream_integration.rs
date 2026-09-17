@@ -1258,3 +1258,212 @@ stream_completion_timeout_ms = 100
         ))
     ));
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn async_calls_and_configuration_updates_survive_http_replay() {
+    use chatgpt_api::{ConfigurationReasoningEffort, ConfigurationUpdateItem, ToolDescriptor};
+    const FLAG: &str = "CHATGPT_API_GPT6_REPLAY_CHILD";
+    if !child_mode(FLAG) {
+        assert_child_success(&run_child(
+            "async_calls_and_configuration_updates_survive_http_replay",
+            FLAG,
+        ));
+        return;
+    }
+    let bodies = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let api_server = spawn_http_server(Router::new().route("/responses", post({
+        let bodies = Arc::clone(&bodies);
+        move |Json(body): Json<serde_json::Value>| {
+            let bodies = Arc::clone(&bodies);
+            async move {
+                bodies.lock().expect("request capture lock").push(body);
+                let events = [
+                    json!({"type": "response.output_item.added", "output_index": 0, "item": {
+                        "type": "function_call", "name": "lookup", "call_id": "call_1", "arguments": "", "async": true
+                    }}),
+                    json!({"type": "response.output_item.done", "output_index": 0, "item": {
+                        "type": "function_call", "name": "lookup", "call_id": "call_1", "arguments": "{}", "async": true
+                    }}),
+                    json!({"type": "response.output_item.done", "output_index": 1, "item": {
+                        "type": "custom_tool_call", "name": "raw_lookup", "call_id": "call_2", "input": "query", "async": false
+                    }}),
+                    json!({"type": "response.completed", "response": {"id": "resp-1"}}),
+                ];
+                let data = events.iter().map(|event| format!("data: {event}\n\n")).collect::<String>();
+                ([(http::header::CONTENT_TYPE, "text/event-stream")], data)
+            }
+        }
+    }))).await;
+    let _tempdir = init_authenticated_api_test(&api_server.url(""));
+    let mut request = base_request();
+    request.model = "gpt-6-astra".to_owned();
+    request.reasoning.effort = Some("low".to_owned());
+    request.tools = [
+        json!({"type": "function", "name": "lookup", "parameters": {"type": "object"}, "async": true}),
+        json!({"type": "custom", "name": "raw_lookup", "async": true}),
+    ].into_iter().map(|tool| ToolDescriptor(serde_json::from_value(tool).expect("tool descriptor object"))).collect();
+    let mut response_stream = stream(request.clone()).await.expect("open initial stream");
+    let mut completed_calls = Vec::new();
+    while let Some(event) = response_stream.next().await {
+        match event.expect("valid event") {
+            ChatgptResponseEvent::OutputItemAdded {
+                item: ResponseItem::PendingFunctionCall(call),
+                ..
+            } => {
+                assert_eq!(call.asynchronous, Some(true));
+            }
+            ChatgptResponseEvent::OutputItemDone { item, .. } => completed_calls.push(item),
+            _ => {}
+        }
+    }
+    assert_eq!(completed_calls.len(), 2);
+    request.input.extend(completed_calls);
+    request
+        .input
+        .push(ResponseItem::ConfigurationUpdate(ConfigurationUpdateItem {
+            reasoning_effort: ConfigurationReasoningEffort::Max,
+        }));
+    request.input.push(base_request().input.remove(0));
+    let mut replay = stream(request).await.expect("open replay stream");
+    while let Some(event) = replay.next().await {
+        event.expect("replay event");
+    }
+    let bodies = bodies.lock().expect("request capture lock");
+    assert_eq!(bodies.len(), 2);
+    assert_eq!(bodies[0]["tools"][0]["async"], true);
+    assert_eq!(bodies[0]["tools"][1]["async"], true);
+    assert_eq!(bodies[1]["input"][1]["async"], true);
+    assert_eq!(bodies[1]["input"][1]["call_id"], "call_1");
+    assert_eq!(bodies[1]["input"][2]["async"], false);
+    assert_eq!(
+        bodies[1]["input"][3],
+        json!({"type": "configuration_update", "reasoning": {"effort": "max"}})
+    );
+    assert_eq!(bodies[1]["input"][4]["role"], "user");
+    assert_eq!(bodies[1]["reasoning"]["effort"], "low");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn http_misalignment_policy_failure_preserves_details_without_retry() {
+    use chatgpt_api::{ChatgptApiLowerLayerError, ChatgptFailedEndpointKind};
+    const FLAG: &str = "CHATGPT_API_GPT6_HTTP_POLICY_CHILD";
+    if !child_mode(FLAG) {
+        assert_child_success(&run_child(
+            "http_misalignment_policy_failure_preserves_details_without_retry",
+            FLAG,
+        ));
+        return;
+    }
+    let calls = Arc::new(AtomicUsize::new(0));
+    let policy_error = json!({"error": {
+        "type": "invalid_request_error", "code": "misalignment_policy_violation",
+        "message": "Conversation stopped", "details": {"alert_id": "alert_1"}
+    }});
+    let api_server = spawn_http_server(Router::new().route(
+        "/responses",
+        post({
+            let calls = Arc::clone(&calls);
+            let policy_error = policy_error.clone();
+            move || {
+                let count = calls.fetch_add(1, Ordering::SeqCst);
+                let body = if count == 0 {
+                    policy_error.clone()
+                } else {
+                    json!({"error": {"type": "invalid_request_error", "code": "permission_denied"}})
+                };
+                async move { (StatusCode::FORBIDDEN, Json(body)) }
+            }
+        }),
+    ))
+    .await;
+    let _tempdir = init_authenticated_api_test(&api_server.url(""));
+    let error = match stream(base_request()).await {
+        Ok(_) => panic!("blocked response must fail"),
+        Err(error) => error,
+    };
+    let ChatgptApiError::Endpoint(ChatgptApiEndpointError::Failed(failed)) = error else {
+        panic!("expected classified misalignment failure, got {error:?}");
+    };
+    assert_eq!(
+        failed.kind,
+        ChatgptFailedEndpointKind::MisalignmentPolicyViolation
+    );
+    assert_eq!(failed.http_status, Some(StatusCode::FORBIDDEN));
+    assert_eq!(
+        failed.code.as_deref(),
+        Some("misalignment_policy_violation")
+    );
+    assert_eq!(serde_json::Value::Object(failed.raw), policy_error);
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+
+    let other_error = match stream(base_request()).await {
+        Ok(_) => panic!("other forbidden response must fail"),
+        Err(error) => error,
+    };
+    assert!(matches!(other_error,
+        ChatgptApiError::LowerLayer(ChatgptApiLowerLayerError::Client(selvedge_client::HttpError::Status(status)))
+        if status.status == StatusCode::FORBIDDEN
+    ));
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn streamed_misalignment_failure_ends_after_visible_output_without_retry() {
+    use chatgpt_api::ChatgptFailedEndpointKind;
+    const FLAG: &str = "CHATGPT_API_GPT6_STREAM_POLICY_CHILD";
+    if !child_mode(FLAG) {
+        assert_child_success(&run_child(
+            "streamed_misalignment_failure_ends_after_visible_output_without_retry",
+            FLAG,
+        ));
+        return;
+    }
+    let calls = Arc::new(AtomicUsize::new(0));
+    let failed_response = json!({
+        "id": "resp-blocked", "error": {"type": "invalid_request_error",
+        "code": "misalignment_policy_violation", "message": "Conversation stopped", "alert_id": "alert_2"}
+    });
+    let api_server = spawn_http_server(Router::new().route("/responses", post({
+        let calls = Arc::clone(&calls);
+        let failed_response = failed_response.clone();
+        move || {
+            calls.fetch_add(1, Ordering::SeqCst);
+            let events = [
+                json!({"type": "response.output_text.delta", "item_id": "item-1", "output_index": 0, "content_index": 0, "delta": "Already visible"}),
+                json!({"type": "response.failed", "response": failed_response}),
+                json!({"type": "response.completed", "response": {"id": "must-not-be-delivered"}}),
+            ];
+            async move {
+                ([(http::header::CONTENT_TYPE, "text/event-stream")],
+                    events.iter().map(|event| format!("data: {event}\n\n")).collect::<String>())
+            }
+        }
+    }))).await;
+    let _tempdir = init_authenticated_api_test(&api_server.url(""));
+    let mut response_stream = stream(base_request()).await.expect("open stream");
+    assert!(
+        matches!(response_stream.next().await.expect("first streamed item").expect("text before failure"),
+        ChatgptResponseEvent::OutputTextDelta { delta, .. } if delta == "Already visible")
+    );
+    let error = response_stream
+        .next()
+        .await
+        .expect("failure item")
+        .expect_err("stream must fail after content");
+    let ChatgptApiError::Endpoint(ChatgptApiEndpointError::Failed(failed)) = error else {
+        panic!("expected classified misalignment failure");
+    };
+    assert_eq!(
+        failed.kind,
+        ChatgptFailedEndpointKind::MisalignmentPolicyViolation
+    );
+    assert_eq!(failed.http_status, None);
+    assert_eq!(
+        failed.code.as_deref(),
+        Some("misalignment_policy_violation")
+    );
+    assert_eq!(failed.response_id.as_deref(), Some("resp-blocked"));
+    assert_eq!(serde_json::Value::Object(failed.raw), failed_response);
+    assert!(response_stream.next().await.is_none());
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+}

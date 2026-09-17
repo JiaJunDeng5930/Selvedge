@@ -1,6 +1,8 @@
 #![doc = include_str!("../README.md")]
 #![allow(clippy::result_large_err)]
 
+pub mod websocket;
+
 use std::{
     pin::Pin,
     sync::{Arc, Mutex},
@@ -104,6 +106,12 @@ async fn open_response_stream(
                 tokio::time::sleep(delay).await;
             }
             Err(error) => {
+                if let selvedge_client::HttpError::Status(status) = &error
+                    && let Some(error) =
+                        misalignment_policy_error_from_http_response(status.status, &status.body)
+                {
+                    return Err(error);
+                }
                 return Err(ChatgptApiError::LowerLayer(
                     ChatgptApiLowerLayerError::Client(error),
                 ));
@@ -601,6 +609,9 @@ fn response_item_from_field(
 
 fn response_item_from_object(item: &JsonObject) -> Result<ResponseItem, ChatgptApiError> {
     let item_type = required_string(item, "type")?;
+    if matches!(item_type.as_str(), "function_call" | "custom_tool_call") {
+        optional_boolean(item, "async")?;
+    }
 
     match item_type.as_str() {
         "message" => Ok(ResponseItem::Message(MessageItem {
@@ -627,6 +638,7 @@ fn response_item_from_object(item: &JsonObject) -> Result<ResponseItem, ChatgptA
             match function_call_arguments(item)? {
                 DecodedFunctionCallArguments::Pending => {
                     Ok(ResponseItem::PendingFunctionCall(PendingFunctionCallItem {
+                        asynchronous: optional_boolean(item, "async")?,
                         encrypted_function_args: optional_string_array(
                             item,
                             "encrypted_function_args",
@@ -644,6 +656,7 @@ fn response_item_from_object(item: &JsonObject) -> Result<ResponseItem, ChatgptA
                 }
                 DecodedFunctionCallArguments::Complete(arguments) => {
                     Ok(ResponseItem::FunctionCall(FunctionCallItem {
+                        asynchronous: optional_boolean(item, "async")?,
                         encrypted_function_args: optional_string_array(
                             item,
                             "encrypted_function_args",
@@ -690,6 +703,9 @@ fn response_item_from_object(item: &JsonObject) -> Result<ResponseItem, ChatgptA
                 )?,
             },
         )),
+        "configuration_update" => configuration_update_from_object(item)
+            .map(ResponseItem::ConfigurationUpdate)
+            .map_err(|reason| malformed_event("configuration_update", reason)),
         "reasoning" => Ok(ResponseItem::Reasoning(ReasoningItem {
             internal_chat_message_metadata_passthrough: optional_object(
                 item,
@@ -877,6 +893,7 @@ fn failed_endpoint_event(object: &JsonObject, event_type: &str) -> ChatgptApiErr
     match failed_endpoint_kind(code.as_deref()) {
         Some(kind) => ChatgptApiError::Endpoint(ChatgptApiEndpointError::Failed(
             ChatgptFailedEndpointError {
+                http_status: None,
                 retry_after: message.as_deref().and_then(parse_retry_after),
                 kind,
                 response_id,
@@ -930,6 +947,28 @@ fn incomplete_endpoint_error(object: &JsonObject) -> ChatgptIncompleteEndpointEr
         reason,
         raw: response,
     }
+}
+
+fn misalignment_policy_error_from_http_response(
+    status: StatusCode,
+    body: &[u8],
+) -> Option<ChatgptApiError> {
+    if status != StatusCode::FORBIDDEN {
+        return None;
+    }
+    let object = serde_json::from_slice::<JsonObject>(body).ok()?;
+    let ChatgptApiError::Endpoint(ChatgptApiEndpointError::Failed(mut failed)) =
+        failed_endpoint_event(&object, "error")
+    else {
+        return None;
+    };
+    if failed.kind != ChatgptFailedEndpointKind::MisalignmentPolicyViolation {
+        return None;
+    }
+    failed.http_status = Some(status);
+    Some(ChatgptApiError::Endpoint(ChatgptApiEndpointError::Failed(
+        failed,
+    )))
 }
 
 fn failed_endpoint_kind(code: Option<&str>) -> Option<ChatgptFailedEndpointKind> {
@@ -1037,6 +1076,17 @@ fn optional_string(
         None | Some(Value::Null) => Ok(None),
         Some(Value::String(value)) => Ok(Some(value.clone())),
         Some(_) => Err(malformed_event(field, "must be a string")),
+    }
+}
+
+fn optional_boolean(
+    object: &JsonObject,
+    field: &'static str,
+) -> Result<Option<bool>, ChatgptApiError> {
+    match object.get(field) {
+        None => Ok(None),
+        Some(Value::Bool(value)) => Ok(Some(*value)),
+        Some(_) => Err(malformed_event(field, "must be a boolean when present")),
     }
 }
 
@@ -1401,6 +1451,9 @@ fn response_item_to_json(item: &ResponseItem) -> Value {
                 );
             }
             insert_optional_string(&mut value, "namespace", call.namespace.as_deref());
+            if let Some(asynchronous) = call.asynchronous {
+                value.insert("async".to_owned(), Value::Bool(asynchronous));
+            }
             if let Some(arguments) = &call.encrypted_function_args {
                 value.insert(
                     "encrypted_function_args".to_owned(),
@@ -1425,6 +1478,9 @@ fn response_item_to_json(item: &ResponseItem) -> Value {
                 );
             }
             insert_optional_string(&mut value, "namespace", call.namespace.as_deref());
+            if let Some(asynchronous) = call.asynchronous {
+                value.insert("async".to_owned(), Value::Bool(asynchronous));
+            }
             if let Some(arguments) = &call.encrypted_function_args {
                 value.insert(
                     "encrypted_function_args".to_owned(),
@@ -1501,6 +1557,10 @@ fn response_item_to_json(item: &ResponseItem) -> Value {
 
             Value::Object(value)
         }
+        ResponseItem::ConfigurationUpdate(update) => serde_json::json!({
+            "type": "configuration_update",
+            "reasoning": { "effort": update.reasoning_effort.as_str() },
+        }),
         ResponseItem::Opaque(opaque) => Value::Object(opaque.raw.clone()),
     }
 }
@@ -1672,6 +1732,16 @@ impl ChatgptResponsesRequest {
             }
         }
 
+        validate_input_items(&self.input)?;
+        for tool in &self.tools {
+            if matches!(
+                tool.0.get("type").and_then(Value::as_str),
+                Some("function" | "custom")
+            ) {
+                validate_async_field(&tool.0, "tools.async")?;
+            }
+        }
+
         if let Some(allowed_tools) = &self.allowed_tools {
             let mut unique_names = std::collections::BTreeSet::new();
             for allowed_tool in allowed_tools {
@@ -1696,6 +1766,81 @@ impl ChatgptResponsesRequest {
 
         Ok(())
     }
+}
+
+fn validate_input_items(input: &[ResponseItem]) -> Result<(), RequestValidationError> {
+    let mut previous_configuration_update = false;
+    for item in input {
+        let configuration_update = match item {
+            ResponseItem::ConfigurationUpdate(_) => true,
+            ResponseItem::Opaque(opaque) => match opaque.raw.get("type").and_then(Value::as_str) {
+                Some("configuration_update") => {
+                    configuration_update_from_object(&opaque.raw).map_err(|reason| {
+                        RequestValidationError::new("input.configuration_update", reason)
+                    })?;
+                    true
+                }
+                Some("function_call" | "custom_tool_call") => {
+                    validate_async_field(&opaque.raw, "input.async")?;
+                    false
+                }
+                _ => false,
+            },
+            _ => false,
+        };
+        if configuration_update && previous_configuration_update {
+            return Err(RequestValidationError::new(
+                "input.configuration_update",
+                "configuration_update items must not be adjacent",
+            ));
+        }
+        previous_configuration_update = configuration_update;
+    }
+    Ok(())
+}
+
+fn validate_async_field(
+    object: &JsonObject,
+    field: &'static str,
+) -> Result<(), RequestValidationError> {
+    if object.get("async").is_some_and(|value| !value.is_boolean()) {
+        return Err(RequestValidationError::new(
+            field,
+            "must be a boolean when present",
+        ));
+    }
+    Ok(())
+}
+
+fn configuration_update_from_object(
+    item: &JsonObject,
+) -> Result<ConfigurationUpdateItem, &'static str> {
+    if item
+        .keys()
+        .any(|key| !matches!(key.as_str(), "type" | "reasoning"))
+    {
+        return Err("configuration_update supports only reasoning.effort");
+    }
+    let reasoning = item
+        .get("reasoning")
+        .and_then(Value::as_object)
+        .ok_or("configuration_update.reasoning must be an object")?;
+    if reasoning.len() != 1 || !reasoning.contains_key("effort") {
+        return Err("configuration_update supports only reasoning.effort");
+    }
+    let reasoning_effort = match reasoning.get("effort").and_then(Value::as_str) {
+        Some("low") => ConfigurationReasoningEffort::Low,
+        Some("medium") => ConfigurationReasoningEffort::Medium,
+        Some("high") => ConfigurationReasoningEffort::High,
+        Some("xhigh") => ConfigurationReasoningEffort::XHigh,
+        Some("max") => ConfigurationReasoningEffort::Max,
+        _ => {
+            return Err(
+                "configuration_update.reasoning.effort must be low, medium, high, xhigh, or max",
+            );
+        }
+    };
+    Ok(ConfigurationUpdateItem { reasoning_effort })
 }
 
 fn validate_non_blank(field: &'static str, value: &str) -> Result<(), RequestValidationError> {
@@ -1860,6 +2005,7 @@ pub enum ResponseItem {
     FunctionCallOutput(FunctionCallOutputItem),
     CustomToolCallOutput(CustomToolCallOutputItem),
     Reasoning(ReasoningItem),
+    ConfigurationUpdate(ConfigurationUpdateItem),
     Opaque(OpaqueResponseItem),
 }
 
@@ -1875,6 +2021,8 @@ pub struct MessageItem {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct FunctionCallItem {
+    /// The provider's `async` field; absence is distinct from explicit false.
+    pub asynchronous: Option<bool>,
     pub encrypted_function_args: Option<Vec<String>>,
     pub internal_chat_message_metadata_passthrough: Option<JsonObject>,
     pub id: Option<String>,
@@ -1887,6 +2035,8 @@ pub struct FunctionCallItem {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PendingFunctionCallItem {
+    /// The provider's `async` field; absence is distinct from explicit false.
+    pub asynchronous: Option<bool>,
     pub encrypted_function_args: Option<Vec<String>>,
     pub internal_chat_message_metadata_passthrough: Option<JsonObject>,
     pub id: Option<String>,
@@ -1922,6 +2072,34 @@ pub struct ReasoningItem {
     pub summary: Value,
     pub content: Option<Vec<ContentItem>>,
     pub encrypted_content: Option<String>,
+}
+
+/// Changes conversation reasoning effort without rewriting the request-level setting.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ConfigurationUpdateItem {
+    pub reasoning_effort: ConfigurationReasoningEffort,
+}
+
+/// Reasoning efforts supported by GPT-6 Astra configuration updates.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ConfigurationReasoningEffort {
+    Low,
+    Medium,
+    High,
+    XHigh,
+    Max,
+}
+
+impl ConfigurationReasoningEffort {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Low => "low",
+            Self::Medium => "medium",
+            Self::High => "high",
+            Self::XHigh => "xhigh",
+            Self::Max => "max",
+        }
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -2032,6 +2210,7 @@ pub enum ChatgptFailedEndpointKind {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ChatgptFailedEndpointError {
+    pub http_status: Option<StatusCode>,
     pub retry_after: Option<Duration>,
     pub kind: ChatgptFailedEndpointKind,
     pub response_id: Option<String>,
@@ -2816,5 +2995,61 @@ mod tests {
         )
         .expect("reasoning");
         assert!(matches!(reasoning, ResponseItem::Reasoning(item) if item.content.is_none()));
+    }
+
+    #[test]
+    fn async_tool_call_decoding_and_replay_preserve_boolean_presence() {
+        for arguments in ["", "{}"] {
+            for asynchronous in [None, Some(false), Some(true)] {
+                let mut raw = serde_json::json!({
+                    "type": "function_call", "call_id": "call_1", "name": "lookup",
+                    "arguments": arguments,
+                });
+                if let Some(asynchronous) = asynchronous {
+                    raw["async"] = serde_json::json!(asynchronous);
+                }
+                let item = response_item_from_object(raw.as_object().expect("tool call object"))
+                    .expect("valid async tool call");
+                match &item {
+                    ResponseItem::FunctionCall(call) => assert_eq!(call.asynchronous, asynchronous),
+                    ResponseItem::PendingFunctionCall(call) => {
+                        assert_eq!(call.asynchronous, asynchronous)
+                    }
+                    _ => panic!("expected function call"),
+                }
+                assert_eq!(response_item_to_json(&item), raw);
+            }
+        }
+        for asynchronous in [false, true] {
+            let raw = serde_json::json!({
+                "type": "custom_tool_call", "call_id": "call_2", "name": "lookup",
+                "input": "query", "async": asynchronous,
+            });
+            let item = response_item_from_object(raw.as_object().expect("tool call object"))
+                .expect("valid async tool call");
+            assert!(matches!(&item, ResponseItem::Opaque(_)));
+            assert_eq!(response_item_to_json(&item), raw);
+        }
+    }
+
+    #[test]
+    fn malformed_async_tool_flags_are_not_silently_dropped() {
+        for item_type in ["function_call", "custom_tool_call"] {
+            for invalid in [
+                serde_json::json!(null),
+                serde_json::json!("true"),
+                serde_json::json!(1),
+            ] {
+                let raw = serde_json::json!({
+                    "type": item_type, "call_id": "call_1", "name": "lookup",
+                    "arguments": "{}", "async": invalid,
+                });
+                let error = response_item_from_object(raw.as_object().expect("tool call object"))
+                    .expect_err("invalid async flag must fail");
+                assert!(
+                    matches!(error, ChatgptApiError::Endpoint(ChatgptApiEndpointError::MalformedEvent { reason, .. }) if reason.contains("async"))
+                );
+            }
+        }
     }
 }

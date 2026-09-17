@@ -88,3 +88,109 @@ fn request_validation_rejects_conversation_ids_with_colons() {
 
     assert_eq!(error.field, "context.conversation_id");
 }
+
+#[test]
+fn configuration_updates_validate_typed_and_opaque_histories_together() {
+    use chatgpt_api::{ConfigurationReasoningEffort, ConfigurationUpdateItem, OpaqueResponseItem};
+    let update = ResponseItem::ConfigurationUpdate(ConfigurationUpdateItem {
+        reasoning_effort: ConfigurationReasoningEffort::Max,
+    });
+    let mut request = base_request();
+    request.model = "gpt-6-astra".to_owned();
+    request.context.subagent = None;
+    request.input.push(update.clone());
+    request.validate().expect("typed configuration update");
+
+    request.input.push(ResponseItem::Opaque(OpaqueResponseItem {
+        raw: serde_json::from_value(serde_json::json!({
+            "type": "configuration_update", "reasoning": {"effort": "low"}
+        }))
+        .expect("JSON object fixture"),
+    }));
+    let error = request
+        .validate()
+        .expect_err("opaque update cannot bypass adjacency");
+    assert_eq!(error.field, "input.configuration_update");
+    assert!(error.reason.contains("adjacent"));
+
+    request.input = vec![update.clone(), base_request().input.remove(0), update];
+    request.validate().expect("separated updates");
+}
+
+#[test]
+fn configuration_updates_reject_unsupported_fields_and_efforts() {
+    use chatgpt_api::OpaqueResponseItem;
+    for invalid_update in [
+        serde_json::json!({"type": "configuration_update"}),
+        serde_json::json!({"type": "configuration_update", "reasoning": {}}),
+        serde_json::json!({"type": "configuration_update", "reasoning": {"effort": "none"}}),
+        serde_json::json!({"type": "configuration_update", "reasoning": {"effort": "minimal"}}),
+        serde_json::json!({"type": "configuration_update", "reasoning": {"effort": "ultra"}}),
+        serde_json::json!({"type": "configuration_update", "reasoning": {"effort": 3}}),
+        serde_json::json!({"type": "configuration_update", "reasoning": {"effort": "high", "summary": "auto"}}),
+        serde_json::json!({"type": "configuration_update", "reasoning": {"effort": "high"}, "model": "gpt-6-astra"}),
+    ] {
+        let mut request = base_request();
+        request.input.push(ResponseItem::Opaque(OpaqueResponseItem {
+            raw: serde_json::from_value(invalid_update.clone()).expect("JSON object fixture"),
+        }));
+        assert_eq!(
+            request
+                .validate()
+                .expect_err(&invalid_update.to_string())
+                .field,
+            "input.configuration_update"
+        );
+    }
+}
+
+#[test]
+fn async_tool_flags_require_booleans_in_descriptors_and_opaque_calls() {
+    use chatgpt_api::OpaqueResponseItem;
+    use serde_json::{Value, json};
+    for tool_type in ["function", "custom"] {
+        for asynchronous in [None, Some(Value::Bool(false)), Some(Value::Bool(true))] {
+            let mut request = base_request();
+            let mut descriptor = json!({"type": tool_type, "name": "lookup"});
+            if let Some(asynchronous) = asynchronous {
+                descriptor["async"] = asynchronous;
+            }
+            request.tools = vec![ToolDescriptor(
+                serde_json::from_value(descriptor).expect("JSON object fixture"),
+            )];
+            request
+                .validate()
+                .expect("optional boolean async descriptor");
+        }
+        for invalid in [Value::Null, json!("true"), json!(1), json!([])] {
+            let mut request = base_request();
+            request.tools = vec![ToolDescriptor(
+                serde_json::from_value(json!({
+                    "type": tool_type, "name": "lookup", "async": invalid
+                }))
+                .expect("JSON object fixture"),
+            )];
+            assert_eq!(
+                request
+                    .validate()
+                    .expect_err("invalid async descriptor")
+                    .field,
+                "tools.async"
+            );
+            request.tools.clear();
+            request.input.push(ResponseItem::Opaque(OpaqueResponseItem {
+                raw: serde_json::from_value(json!({
+                    "type": if tool_type == "function" { "function_call" } else { "custom_tool_call" }, "async": invalid
+                }))
+                .expect("JSON object fixture"),
+            }));
+            assert_eq!(
+                request
+                    .validate()
+                    .expect_err("invalid opaque async call")
+                    .field,
+                "input.async"
+            );
+        }
+    }
+}

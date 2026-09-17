@@ -84,8 +84,8 @@ This file is for coding agents working in this repository.
 |crates/api/src:{lib.rs}
 |crates/api/tests:{api_contract.rs}
 |crates/chatgpt-api:{src/,tests/,Cargo.toml,README.md}
-|crates/chatgpt-api/src:{lib.rs}
-|crates/chatgpt-api/tests:{support/,request_contract.rs,stream_integration.rs}
+|crates/chatgpt-api/src:{lib.rs,websocket.rs}
+|crates/chatgpt-api/tests:{support/,request_contract.rs,stream_integration.rs,websocket_integration.rs}
 |crates/chatgpt-api/tests/support:{mod.rs}
 |crates/chatgpt-auth:{src/,tests/,Cargo.toml,README.md}
 |crates/chatgpt-auth/src:{auth_file.rs,config.rs,jwt.rs,lib.rs,lock.rs,refresh.rs,resolve.rs}
@@ -99,8 +99,8 @@ This file is for coding agents working in this repository.
 |crates/client-sync:{src/,tests/,Cargo.toml,README.md}
 |crates/client-sync/src:{lib.rs}
 |crates/client-sync/tests:{client_sync_contract.rs}
-|crates/client/src:{config_resolution.rs,lib.rs,redaction.rs,redirect_runtime.rs,request_prep.rs,runtime.rs,transport.rs}
-|crates/client/tests:{support/,http_integration.rs}
+|crates/client/src:{config_resolution.rs,lib.rs,redaction.rs,redirect_runtime.rs,request_prep.rs,runtime.rs,transport.rs,websocket.rs}
+|crates/client/tests:{support/,http_integration.rs,websocket_integration.rs}
 |crates/client/tests/support:{mod.rs}
 |crates/command-model:{src/,tests/,Cargo.toml,README.md}
 |crates/command-model/src:{lib.rs}
@@ -159,7 +159,7 @@ This file is for coding agents working in this repository.
 |crates/web/src:{lib.rs}
 |crates/web/tests:{web_contract.rs}
 |docs:{adr/}
-|docs/adr:{0001-task-owned-tool-contracts.md,0002-open-tool-call-recovery.md,0003-persisted-task-lifecycle.md,0004-semantic-ownership-at-runtime-boundaries.md,0005-single-source-configuration-and-transport.md,0006-codex-chatgpt-protocol-alignment.md}
+|docs/adr:{0001-task-owned-tool-contracts.md,0002-open-tool-call-recovery.md,0003-persisted-task-lifecycle.md,0004-semantic-ownership-at-runtime-boundaries.md,0005-single-source-configuration-and-transport.md,0006-codex-chatgpt-protocol-alignment.md,0007-caller-owned-responses-websocket-connections.md}
 |scripts:{bootstrap.sh,setup-worktree.sh}
 |src:{lib.rs,main.rs}
 |tests:{stdout_stderr_integration.rs}

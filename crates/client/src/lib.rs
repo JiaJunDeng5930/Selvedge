@@ -7,6 +7,11 @@ mod redirect_runtime;
 mod request_prep;
 mod runtime;
 mod transport;
+mod websocket;
+
+pub use websocket::{
+    WebSocketConnection, WebSocketReceiver, WebSocketRequest, WebSocketSender, connect_websocket,
+};
 
 use std::{error::Error as StdError, fmt, pin::Pin, time::Duration};
 
