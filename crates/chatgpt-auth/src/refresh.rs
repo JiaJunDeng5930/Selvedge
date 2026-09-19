@@ -14,14 +14,11 @@ pub(crate) async fn refresh(
         method: selvedge_client::HttpMethod::Post,
         url: format!("{}/oauth/token", config.issuer),
         headers: HeaderMap::new(),
-        body: selvedge_client::HttpRequestBody::FormUrlEncoded(vec![
-            ("client_id".to_owned(), config.client_id.clone()),
-            ("grant_type".to_owned(), "refresh_token".to_owned()),
-            (
-                "refresh_token".to_owned(),
-                current_tokens.refresh_token.clone(),
-            ),
-        ]),
+        body: selvedge_client::HttpRequestBody::Json(serde_json::json!({
+            "client_id": config.client_id,
+            "grant_type": "refresh_token",
+            "refresh_token": current_tokens.refresh_token,
+        })),
         timeout: None,
         compression: selvedge_client::RequestCompression::None,
     })
@@ -48,10 +45,11 @@ fn map_transport_error(error: selvedge_client::HttpError) -> ChatgptAuthError {
         selvedge_client::HttpError::Status(status_error) => {
             let diagnostics = extract_error_diagnostics(&status_error.body);
 
-            if diagnostics
-                .provider_code
-                .as_deref()
-                .is_some_and(is_reauthentication_code)
+            if status_error.status == http::StatusCode::UNAUTHORIZED
+                || diagnostics
+                    .provider_code
+                    .as_deref()
+                    .is_some_and(is_reauthentication_code)
             {
                 return ChatgptAuthError::ReauthenticationRequired {
                     provider_code: diagnostics.provider_code,
@@ -71,7 +69,7 @@ fn map_transport_error(error: selvedge_client::HttpError) -> ChatgptAuthError {
 
 fn is_reauthentication_code(code: &str) -> bool {
     matches!(
-        code,
+        code.to_ascii_lowercase().as_str(),
         "invalid_grant"
             | "refresh_token_expired"
             | "refresh_token_reused"
@@ -220,13 +218,20 @@ fn extract_error_diagnostics(body: &[u8]) -> ProviderErrorDiagnostics {
 
 fn extract_error_diagnostics_value(value: &Value) -> Option<ProviderErrorDiagnostics> {
     let object = value.as_object()?;
+    let nested_error = object.get("error").and_then(Value::as_object);
 
     Some(ProviderErrorDiagnostics {
-        provider_code: read_string_field(object, &["provider_code", "code", "error"]),
-        provider_message: read_string_field(
-            object,
-            &["provider_message", "message", "error_description"],
-        ),
+        provider_code: nested_error
+            .and_then(|error| read_string_field(error, &["code"]))
+            .or_else(|| read_string_field(object, &["error", "code", "provider_code"])),
+        provider_message: nested_error
+            .and_then(|error| read_string_field(error, &["message", "error_description"]))
+            .or_else(|| {
+                read_string_field(
+                    object,
+                    &["provider_message", "message", "error_description"],
+                )
+            }),
     })
 }
 

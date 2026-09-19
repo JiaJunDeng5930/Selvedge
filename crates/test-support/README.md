@@ -2,7 +2,7 @@
 
 <!-- selvedge-package-readme
 package: selvedge-test-support
-freshness_fingerprint: a3130a01adfdb51ca4358e12f82e8ee3bd7659df
+freshness_fingerprint: e3a179c6bf9404c8957d9a768b970fbcf1dc4a6f
 -->
 
 This crate provides shared fixtures for Selvedge integration tests.
@@ -11,7 +11,8 @@ Use narrow feature flags so each test crate imports only the fixture layer it ne
 
 - `config` initializes a temporary Selvedge home and global config/logging state.
 - `http` owns bound loopback servers and held-port helpers with abort-on-drop server tasks.
-- `chatgpt-auth` writes ChatGPT auth fixture files and unsigned JWT strings.
+- `chatgpt-auth` writes ChatGPT auth fixture files with a current `last_refresh`
+  timestamp and unsigned JWT strings.
 - `local-transport` provides a scripted local protocol transport for client and TUI tests. Each `FakeLocalConnector` owns its connection plan, so tests do not share a global plan or require a connection lock.
 - `db-fixtures` provides downstream database setup helpers.
 

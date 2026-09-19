@@ -2,7 +2,7 @@
 
 <!-- selvedge-package-readme
 package: selvedge-api
-freshness_fingerprint: 856bf412912d26ac57079fbdf5ed90c95500f17a
+freshness_fingerprint: 35c6b745117403498a117c44a32a3e201a86ed4e
 -->
 
 This crate executes one Selvedge model call and returns the completed result to the router mailbox.
@@ -25,6 +25,13 @@ object-shaped arguments without numeric conversion, and `function_output`
 objects serialize non-string output as provider text. Local history
 `source_node_id` values remain provenance and are not reused as provider item
 identifiers.
+
+The direct `chatgpt-api` contract preserves provider replay fields such as message
+phase and encrypted function arguments. This provider-neutral adapter currently
+emits text, function calls, and token totals; its durable conversation protocol
+does not retain phase, reasoning/encrypted metadata, or effective turn state.
+New history items therefore set the corresponding optional replay fields to
+`None`. Full Codex conversation replay requires a separate durable-history change.
 
 This crate is not for database access, filesystem access, task creation, task runtime mutation, router registry mutation, retries, or persistence.
 

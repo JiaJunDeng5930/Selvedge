@@ -15,8 +15,11 @@ selvedge-config = { path = "../config" }
 selvedge-logging = { path = "../logging" }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
-tokio = { workspace = true, features = ["time"] }
+tokio = { workspace = true, features = ["net", "sync", "time"] }
+tokio-rustls = { version = "0.26.4", default-features = false, features = ["ring", "tls12"] }
+tokio-tungstenite = { version = "0.28", default-features = false, features = ["handshake", "rustls-tls-webpki-roots"] }
 url = { workspace = true }
+webpki-roots = "1.0.6"
 zstd = "0.13.3"
 
 [dev-dependencies]
@@ -25,7 +28,6 @@ rcgen = "0.14.5"
 selvedge-test-support = { path = "../test-support", features = ["config", "http"] }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["io-util", "macros", "net", "rt-multi-thread", "sync", "time"] }
-tokio-rustls = "0.26.4"
 
 [lints]
 workspace = true

@@ -79,6 +79,16 @@ issuer = "{}"
         .join(".selvedge/auth/model-providers/chatgpt.json");
     let persisted = std::fs::read_to_string(&persisted_path).expect("read persisted auth file");
 
+    let record: serde_json::Value = serde_json::from_str(&persisted).expect("stored JSON");
+    let last_refresh = chrono::DateTime::parse_from_rfc3339(
+        record["payload"]["last_refresh"]
+            .as_str()
+            .expect("last refresh timestamp"),
+    )
+    .expect("RFC3339 timestamp");
+    assert!(last_refresh >= challenge.issued_at);
+    chatgpt_auth::parse_auth_file(persisted.as_bytes()).expect("current credential format");
+
     assert_eq!(result.auth_file_path, persisted_path);
     assert_eq!(result.account_id.as_deref(), Some("workspace-123"));
     assert_eq!(result.user_id.as_deref(), Some("user-456"));

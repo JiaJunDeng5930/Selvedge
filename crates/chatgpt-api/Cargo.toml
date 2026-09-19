@@ -25,7 +25,7 @@ package = "chatgpt-auth"
 
 [dev-dependencies]
 async-stream = { workspace = true }
-axum = { workspace = true }
+axum = { workspace = true, features = ["ws"] }
 selvedge-logging = { path = "../logging" }
 selvedge-test-support = { path = "../test-support", features = ["chatgpt-auth", "config", "http"] }
 tempfile = { workspace = true }

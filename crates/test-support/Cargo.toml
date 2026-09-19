@@ -8,7 +8,7 @@ description = "Shared test fixtures for Selvedge workspace crates"
 default = []
 config = ["dep:selvedge-config", "dep:selvedge-logging", "dep:tempfile"]
 http = ["dep:axum", "dep:tokio"]
-chatgpt-auth = ["dep:base64", "dep:serde_json", "dep:tempfile"]
+chatgpt-auth = ["dep:base64", "dep:chrono", "dep:serde_json", "dep:tempfile"]
 local-transport = [
     "dep:futures-core",
     "dep:futures-util",
@@ -26,6 +26,7 @@ db-fixtures = [
 [dependencies]
 axum = { workspace = true, optional = true }
 base64 = { workspace = true, optional = true }
+chrono = { workspace = true, optional = true }
 futures-core = { workspace = true, optional = true }
 futures-util = { workspace = true, optional = true }
 selvedge-command-model = { path = "../command-model", optional = true }
