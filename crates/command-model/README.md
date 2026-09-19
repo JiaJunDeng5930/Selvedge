@@ -2,7 +2,7 @@
 
 <!-- selvedge-package-readme
 package: selvedge-command-model
-freshness_fingerprint: 6138e4942715f917013df1603f36557151bf5b48
+freshness_fingerprint: 4b1f404f016d6467bb7ef607b9c77d9d15fe785e
 -->
 
 This crate defines the Selvedge command model API slice used to dispatch model calls, return completed API and branched tool outputs to the router, and describe router-mediated client event ingress.
@@ -27,6 +27,12 @@ Function-call history projections and tool execution requests carry their argume
 `DetachReason::ClientRequested` represents an explicit detach command. `DetachReason::ClientDisconnected` represents the server observing the attach stream close.
 
 `ClientSessionIdentity` allocates a fresh process-local generation for each attach attempt. Control messages carry that identity even if a later attach reuses the same client and command IDs. `DeliverNotice` additionally carries the command correlation for the operation that produced the notice. `ClientEvent` is the shared representation from publication through hydration buffering to client delivery.
+
+`RouterCommand::SendTaskInput` and `ChangeTaskStatus` carry a trusted `CommandOperationContext` and a `CommandOperationResponder`. The context separates caller scope from optional durable operation identity; the responder returns the JSON business result saved with the database mutation, or a classified `TaskCommandError`. A replayed operation returns its recorded result. Self lifecycle changes can return `deferred: true` until the enclosing tool result commits. Dropping an unsettled responder reports `RuntimeUnavailable`. Existing client commands retain their unscoped response contracts.
+
+`RouterCommand::RecoverCommandInvocation` and its runtime counterpart identify a specific admitted invocation by task and durable function-call node. They request completion of that admission, including when ordinary task status would prevent execution; they do not authorize a new model run. Command-model validates nonempty task identifiers and required message text. The router, runtime, and database own admission, scope, and lifecycle checks.
+
+`ToolExecutionRequest.execution_mode` distinguishes ordinary dispatch from startup recovery. `ToolExecutionResult.completion` owns a `ToolExecutionCompletion`, constructed with `ordinary()` or `command(commit, lease)`. The latter retains the environment mutex guard while `persistence()` lends the durable completion description to the database. Clones share the guard, so the lease remains held until all result owners release it after the transaction. Equality includes guard identity; checkpoint bytes alone do not imply the same lease.
 
 ## Package State Machine
 
@@ -53,7 +59,8 @@ flowchart TD
   Start -->|caller validates API output envelope| ValidateApiOutput
   Start -->|caller validates router command| ValidateRouterCommand
   Start -->|caller creates TaskRuntimeControl| ControlReady
-  Start -->|caller creates a user-input or archive response channel| TaskResponsePending
+  Start -->|caller creates a user-input, lifecycle, or command-operation response channel| TaskResponsePending
+  Start -->|caller constructs recovery request for a durable invocation| ValidateRouterCommand
   Start -->|router status gate suppresses a model dispatch| ModelNotStarted
   Start -->|caller constructs a completed tool result| ToolResult
   ValidateDispatch -->|correlation, task, provider, profile, input, manifest, and callable subset satisfy contract| Valid
@@ -69,7 +76,10 @@ flowchart TD
   StatusChanged -->|shutdown is called| ShuttingDown
   ShuttingDown -->|finish_shutdown stores result and notifies waiters| ShutdownFinished
   ShutdownFinished -->|later shutdown call observes stored result| ShutdownFinished
-  TaskResponsePending -->|runtime reports a committed SQLite outcome or classified failure| TaskResponseSettled
+  TaskResponsePending -->|runtime reports a committed, replayed, or deferred operation result, or classified failure| TaskResponseSettled
   TaskResponsePending -->|unsettled responder is dropped| TaskResponseSettled
-  ToolResult -->|every branch has a target, JSON output, error bit, and user messages| Valid
+  CommandCompletion[Command completion retains lease]
+  ToolResult -->|command constructor receives checkpoint and lease| CommandCompletion
+  CommandCompletion -->|outer transaction finishes and all completion owners release| Valid
+  ToolResult -->|ordinary constructor selects output-only completion| Valid
 ```

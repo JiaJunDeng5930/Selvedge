@@ -1,5 +1,5 @@
 use super::*;
-use selvedge_domain_model::{FunctionCallId, ToolName, UnixTs};
+use selvedge_domain_model::{FunctionCallId, JsonObject, ToolName, UnixTs};
 
 #[test]
 fn every_success_projection_has_stable_json() {

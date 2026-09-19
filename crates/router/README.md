@@ -2,7 +2,7 @@
 
 <!-- selvedge-package-readme
 package: selvedge-router
-freshness_fingerprint: 431a09c80aadba1f9dca08fd483d54db6f6758be
+freshness_fingerprint: b64add587b0dbfb278b1ea5a4fbfae42bd1cf3ba
 -->
 
 This crate owns the Selvedge router actor.
@@ -19,6 +19,10 @@ Core output routing is task-id based. Router ingress order is the lifecycle line
 Core output with an embedded task id must match the envelope task id before the router starts model calls, tool executions, or event publication.
 
 The current user-input command remains owned by the router while it awaits missing-runtime creation or replaces a closed mailbox. Only the task runtime settles it after SQLite commits. Freeze, unfreeze, stop, and archive commit directly through the database boundary and return the persisted status. Factory failures are mapped to task missing, task archived, persistence failure, or runtime unavailable, and router shutdown fails unread task commands before releasing their responders.
+
+Task-originated sends and lifecycle changes carry caller scope and optional durable operation identity. Before looking up or starting a runtime for a task-originated send, the router validates that the target is the caller or its direct child; the delivery transaction checks the same scope again. A rejected send cannot activate an unrelated task cursor. Their database transactions save effects and operation results together. Pending children accept queued input without creating a runtime. Self lifecycle changes from a command invocation remain deferred until its outer result commits.
+
+`EnsureMissingTaskRuntimes` enumerates durable environment admissions before its ordinary task scan, so pending children do not depend on another live task to request their owner's recovery. `RecoverCommandInvocation` restores an admitted predecessor even when its owning task is archived, frozen, or stopped. The router does not wait for script completion in its command handler, so a task waiting for the shared environment cannot block predecessor recovery. An already running predecessor is left in place.
 
 Core commits tool-result branches before requesting runtime startup. `CoreOutputMessage::EnsureTaskRuntimes` sends the committed new task ids to the router, and each id enters the same missing, live, and stopping runtime lifecycle as every other task.
 
@@ -68,9 +72,14 @@ flowchart TD
   Loop -->|ApiOutputEnvelope arrives| ApiOutput
   Loop -->|ToolExecutionResult arrives| ToolOutput
   Command -->|AttachClient reservation send succeeds| Events
-  Command -->|ensure or recovery requires missing runtime creation| CreateRuntime
+  Command -->|task-originated send fails self or direct-child scope check| TaskResponseSettled
+  Command -->|ensure or authorized delivery requires missing runtime creation| CreateRuntime
   CoreOutput -->|committed branch task ids need runtimes| CreateRuntime
   Command -->|user input targets live runtime| RuntimeLive
+  Command -->|task-originated pending-child input is received| PendingInput[Commit queue and operation result without startup]
+  PendingInput -->|transaction commits| Loop
+  Command -->|recover admitted predecessor is received| RecoveryOnly[Create runtime for exact outer call]
+  RecoveryOnly -->|recovery command enqueues without awaiting execution| Loop
   Command -->|freeze, unfreeze, stop, or archive is received| StatusCommit
   StatusCommit -->|non-archive status commits| RuntimeLive
   StatusCommit -->|archive commits| EffectStopping

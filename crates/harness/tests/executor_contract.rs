@@ -102,10 +102,27 @@ async fn ordinary_tool_returns_one_calling_task_branch() {
     assert_eq!(branch.output["status"], "active");
 }
 
-async fn execute(executor: &ToolExecutor, request: ToolExecutionRequest) -> ToolExecutionResult {
+async fn execute(
+    executor: &ExecutorFixture,
+    mut request: ToolExecutionRequest,
+) -> ToolExecutionResult {
     let (router_tx, mut router_rx) = mpsc::unbounded_channel();
+    request.function_call_node_id =
+        selvedge_db::append_model_reply_with_tool_calls_and_move_cursor(
+            &executor.db,
+            &request.task_id,
+            None,
+            vec![selvedge_db::NewFunctionCallNodeContent {
+                function_call_id: request.function_call_id.clone(),
+                tool_name: request.tool_name.clone(),
+                arguments: request.arguments.clone(),
+            }],
+            UnixTs(2),
+        )
+        .expect("persist open fork call")[0];
     let expected = request.clone();
     executor
+        .executor
         .spawn_tool_execution(request, router_tx.downgrade())
         .expect("spawn tool execution")
         .await
@@ -130,7 +147,12 @@ async fn execute(executor: &ToolExecutor, request: ToolExecutionRequest) -> Tool
     result
 }
 
-fn executor(db: DbPool) -> ToolExecutor {
+struct ExecutorFixture {
+    executor: ToolExecutor,
+    db: DbPool,
+}
+
+fn executor(db: DbPool) -> ExecutorFixture {
     create_root_task_with_user_message_and_tools(
         &db,
         "task-1",
@@ -138,11 +160,15 @@ fn executor(db: DbPool) -> ToolExecutor {
         harness_tool_catalog(&selvedge_config_model::HarnessConfig::default()),
         UnixTs(1),
     );
-    ToolExecutor::new(db, McpConnectionSet::default())
+    ExecutorFixture {
+        executor: ToolExecutor::new(db.clone(), McpConnectionSet::default()),
+        db,
+    }
 }
 
 fn request(tool_name: &str, arguments: Vec<(String, Value)>) -> ToolExecutionRequest {
     ToolExecutionRequest {
+        execution_mode: selvedge_domain_model::ToolExecutionMode::Normal,
         task_id: TaskId("task-1".to_owned()),
         tool_execution_run_id: ToolExecutionRunId("run-1".to_owned()),
         function_call_node_id: HistoryNodeId(7),

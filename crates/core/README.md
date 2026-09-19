@@ -2,7 +2,7 @@
 
 <!-- selvedge-package-readme
 package: selvedge-core
-freshness_fingerprint: 5241fa891dc4b912ec93b0cf3e419ee05aee0f24
+freshness_fingerprint: f22e35a37db158e5964c611e6ac51ce180b0c6a3
 -->
 
 This crate runs one task runtime actor per non-archived task.
@@ -11,7 +11,7 @@ Use it to spawn a task-local runtime that loads SQLite state through `selvedge-d
 
 This crate only talks to the router mailbox and the database package. Provider calls, tool execution, event fanout, runtime registry ownership, and direct client delivery live in other crates.
 
-On `Start`, the runtime reads the persisted task status. An `active` task starts normal cursor processing. A `stopped` task still reconciles open tool calls and commits their results, but it does not request another model call. A `frozen` task publishes readiness and does not consume its mailbox until a status notification confirms that it is active. The runtime keeps only in-flight correlation ids, the complete manifest and callable subset sent with an active model request, pending tool-call identity, and a deferred model-call continuation in memory; the task status and cursor live in SQLite.
+On `Start`, the runtime reads the persisted task status. An `active` task starts normal cursor processing. A `stopped` task still reconciles open tool calls and commits their results, but it does not request another model call. A `frozen` task publishes readiness and does not consume its mailbox until a status notification confirms that it is active. The runtime keeps only in-flight correlation ids, the complete manifest and callable subset sent with an active model request, pending tool-call identity, deferred tool/model continuations, and ordinary inputs held while finishing a frozen task's dispatched tool in memory; the task status and cursor live in SQLite.
 
 Each admitted mailbox command or status notification moves the actor into one Tokio blocking-pool job for the complete state transition. All SQLite reads and writes run within that boundary; only mailbox, control, and shutdown-barrier waiting runs on async workers. The actor cannot process another input until the transition returns, and shutdown waits for any admitted transition. A failed blocking job reports a runtime exit and completes the shutdown barrier; responder ownership settles commands even if the actor unwinds.
 
@@ -19,13 +19,17 @@ Before dispatching a model call, core reads the conversation, frozen tool state,
 
 Durable history is projected into one provider-neutral conversation model whose message content is JSON. Function calls and outputs use the shared discriminated JSON contract from `selvedge-domain-model`; core validates call/output pairing through that contract without introducing a second conversation representation.
 
-A matching tool execution result contains one or more history branches. Core commits all branch outputs, child tasks, optional child messages, and cursor changes through one database transaction. The calling task always has exactly one branch; any committed child task ids are then sent to the router's ordinary runtime-ensure path. If that transaction rejects a fork because an ancestor reached its configured descendant limit, core commits one ordinary error output for the same call and continues the model loop. Runtime creation is derived from committed task state and is not part of the history transaction.
+Recovered and initial cursor tool calls carry `Startup` execution mode; calls produced by a new model reply carry `Normal`. `RecoverCommandInvocation` can finish the exact durable admitted call of an archived, frozen, or stopped task and then exits without requesting another model call.
+
+Task-originated input carries the trusted caller and optional durable operation identity. Core uses the scoped database transaction to commit both delivery and the saved operation result. Replaying a completed delivery does not drive another model turn.
+
+A matching tool execution result contains one or more history branches. Its completion value retains any required lease while core passes its persistence description to the unified database completion boundary. The database validates command admission and commits checkpoint, outputs, pending children, and deferred self lifecycle together. Stale results and failed commits release the lease without installing prepared state. Core commits all branch outputs, child tasks, optional child messages, and cursor changes through that transaction. The calling task always has exactly one branch; any committed child task ids are then sent to the router's ordinary runtime-ensure path. If that transaction rejects a fork because an ancestor reached its configured descendant limit, core commits one error output with the same completion effects for the call and continues the model loop. Runtime creation is derived from committed task state and is not part of the history transaction.
 
 When a matching model reply arrives, the actor validates it against the exact manifest and callable subset stored for that model run rather than reading current availability again. A tool marked unavailable after request dispatch can therefore finish the already-issued turn. Core rejects duplicate call ids, tools absent from the frozen manifest, and tools excluded from that turn, but leaves JSON Schema interpretation to the selected executor.
 
 The router can return `ModelCallNotStarted` when task status changes after core's final active check but before API dispatch. Core correlates that result separately from provider failure, reloads durable status, and either retries the continuation when active, defers it while frozen, or waits for new user input while stopped. Before a stopped actor waits, it promotes existing queued inputs to the cursor without calling the model, so a later activating input cannot overtake the durable FIFO.
 
-`TaskRuntimeControl` carries only high-priority notifications and the process shutdown barrier. A status notification makes the actor read the database again. `frozen` pauses mailbox consumption, `archived` exits the actor, and `active` or `stopped` resumes mailbox processing. A shutdown request prevents the next mailbox command from starting and completes only after the actor's unified exit path runs.
+`TaskRuntimeControl` carries only high-priority notifications and the process shutdown barrier. A status notification makes the actor read the database again. `frozen` pauses ordinary mailbox consumption. An already dispatched tool may still deliver its result so its checkpoint transaction completes and releases the shared environment; subsequent tool calls and ordinary input wait for unfreeze. `archived` exits the actor, and `active` or `stopped` resumes mailbox processing. A shutdown request prevents the next mailbox command from starting and completes only after the actor's unified exit path runs.
 
 User-input responders return `Committed` with the persisted history node id only after the history append and cursor transaction commits, or `Queued` only after the FIFO queue transaction commits. A user input received while stopped activates the task in the same database transaction. On archive, database failure, internal failure, or shutdown, the runtime drains its mailbox and settles every remaining task responder with the terminal task error.
 
@@ -69,7 +73,8 @@ flowchart TD
   RouterClosed[Exit on router ingress closure]
   InternalError[Exit on invalid correlated reply]
 
-  Start -->|task runtime actor starts| LoadSnapshot
+  Start -->|ordinary Start command is received| LoadSnapshot
+  Start -->|RecoverCommandInvocation identifies an admitted outer call| CommandRecovery
   LoadSnapshot -->|runtime task snapshot read succeeds| Status
   LoadSnapshot -->|database read fails or task is archived| DbError
   Status -->|status is frozen| Frozen
@@ -137,4 +142,8 @@ flowchart TD
   RouterClosed -->|runtime unavailable is selected| FailPending
   InternalError -->|runtime unavailable is selected| FailPending
   FailPending -->|mailbox responders are settled exactly once| Exit
+  CommandRecovery[Recover exact admitted command]
+  CommandRecovery -->|exact call is dispatched in Startup mode| AwaitTool
+  CommitToolBranches -->|recovery commits checkpoint and output without children| CommandRecoveryExit[Exit without model dispatch]
+  EnsureChildRuntimes -->|recovery enqueues finalized children| CommandRecoveryExit
 ```

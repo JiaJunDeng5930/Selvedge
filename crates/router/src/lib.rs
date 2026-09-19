@@ -188,6 +188,102 @@ impl RouterActor {
                 )
                 .await
             }
+            RouterCommand::SendTaskInput {
+                task_id,
+                message_text,
+                context,
+                responder,
+            } => {
+                // Starting a task can execute its cursor, so scope must be checked before
+                // runtime admission as well as inside the eventual delivery transaction.
+                let db = self.db.clone();
+                let replay_context = context.clone();
+                let scoped_task_id = task_id.clone();
+                match tokio::task::spawn_blocking(move || {
+                    selvedge_db::validate_command_task_scope(
+                        &db,
+                        &replay_context,
+                        &scoped_task_id,
+                    )?;
+                    // A completed delivery remains replayable if the target was later archived.
+                    selvedge_db::read_command_operation(&db, &replay_context)
+                })
+                .await
+                {
+                    Ok(Ok(Some(result))) => {
+                        responder.settle(Ok(result));
+                        return Ok(());
+                    }
+                    Ok(Ok(None)) => {}
+                    Ok(Err(error)) => {
+                        responder.settle(Err(task_status_change_error(error)));
+                        return Ok(());
+                    }
+                    Err(_) => {
+                        responder.settle(Err(TaskCommandError::PersistenceFailed));
+                        return Ok(());
+                    }
+                }
+                let db = self.db.clone();
+                let pending_task_id = task_id.clone();
+                match tokio::task::spawn_blocking(move || {
+                    let pending = selvedge_db::task_is_pending(&db, &pending_task_id)?;
+                    let frozen = read_task_status(&db, &pending_task_id)?
+                        == selvedge_domain_model::TaskStatus::Frozen;
+                    Ok::<_, DbError>(pending || frozen)
+                })
+                .await
+                {
+                    Ok(Ok(true)) => {
+                        let db = self.db.clone();
+                        let outcome = tokio::task::spawn_blocking(move || {
+                            selvedge_db::queue_user_input_with_context(
+                                &db,
+                                &task_id,
+                                message_text,
+                                now(),
+                                &context,
+                                serde_json::json!({"delivered": true}),
+                            )
+                        })
+                        .await;
+                        responder.settle(match outcome {
+                            Ok(Ok(outcome)) => Ok(outcome.result),
+                            Ok(Err(error)) => Err(task_status_change_error(error)),
+                            Err(_) => Err(TaskCommandError::PersistenceFailed),
+                        });
+                        Ok(())
+                    }
+                    Ok(Ok(false)) => {
+                        self.route_task_local_command(
+                            task_id,
+                            TaskRuntimeCommand::TaskInput {
+                                message_text,
+                                context,
+                                responder,
+                            },
+                        )
+                        .await
+                    }
+                    Ok(Err(error)) => {
+                        responder.settle(Err(task_status_change_error(error)));
+                        Ok(())
+                    }
+                    Err(_) => {
+                        responder.settle(Err(TaskCommandError::PersistenceFailed));
+                        Ok(())
+                    }
+                }
+            }
+            RouterCommand::ChangeTaskStatus {
+                task_id,
+                event,
+                context,
+                responder,
+            } => {
+                self.change_task_status_with_context(task_id, event, context, responder)
+                    .await
+            }
             RouterCommand::ArchiveTask { task_id, responder } => {
                 self.change_task_status(task_id, TaskLifecycleEvent::Archive, responder)
                     .await
@@ -203,6 +299,9 @@ impl RouterActor {
             RouterCommand::StopTask { task_id, responder } => {
                 self.change_task_status(task_id, TaskLifecycleEvent::Stop, responder)
                     .await
+            }
+            RouterCommand::RecoverCommandInvocation { invocation } => {
+                self.recover_command_invocation(invocation).await
             }
             RouterCommand::EnsureTaskRuntime { task_id } => self.ensure_task_runtime(task_id).await,
             RouterCommand::EnsureMissingTaskRuntimes => self.ensure_missing_task_runtimes().await,
@@ -285,12 +384,26 @@ impl RouterActor {
                         .await;
                 match status {
                     Ok(Ok(selvedge_domain_model::TaskStatus::Archived)) => {
-                        return self
-                            .publish_debug(
-                                Some(task_id),
-                                "tool execution rejected because task is archived",
-                            )
-                            .await;
+                        let db = self.db.clone();
+                        let invocation = selvedge_domain_model::CommandInvocationId {
+                            task_id: task_id.clone(),
+                            function_call_node_id: request.function_call_node_id,
+                        };
+                        if tokio::task::spawn_blocking(move || {
+                            selvedge_db::read_admitted_command_call(&db, &invocation)
+                        })
+                        .await
+                        .is_ok_and(|result| result.is_ok())
+                        {
+                            // Only the already admitted outer call may finish after archive.
+                        } else {
+                            return self
+                                .publish_debug(
+                                    Some(task_id),
+                                    "tool execution rejected because task is archived",
+                                )
+                                .await;
+                        }
                     }
                     Ok(Ok(_)) => {}
                     Ok(Err(_)) | Err(_) => {
@@ -581,6 +694,50 @@ impl RouterActor {
         Ok(())
     }
 
+    async fn change_task_status_with_context(
+        &mut self,
+        task_id: TaskId,
+        event: TaskLifecycleEvent,
+        context: selvedge_domain_model::CommandOperationContext,
+        responder: selvedge_command_model::CommandOperationResponder,
+    ) -> Result<(), RouterExitStatus> {
+        let db = self.db.clone();
+        let effect_task_id = task_id.clone();
+        let deferred_self_change = context.operation.is_some() && context.caller_task_id == task_id;
+        let status = match event {
+            TaskLifecycleEvent::Archive => selvedge_domain_model::TaskStatus::Archived,
+            TaskLifecycleEvent::Freeze => selvedge_domain_model::TaskStatus::Frozen,
+            TaskLifecycleEvent::Unfreeze => selvedge_domain_model::TaskStatus::Active,
+            TaskLifecycleEvent::Stop => selvedge_domain_model::TaskStatus::Stopped,
+            _ => {
+                responder.settle(Err(TaskCommandError::InvalidCommand));
+                return Ok(());
+            }
+        };
+        let outcome = tokio::task::spawn_blocking(move || {
+            selvedge_db::transition_task_status_with_context(
+                &db,
+                &effect_task_id,
+                event,
+                now(),
+                &context,
+                serde_json::json!({"status": format!("{status:?}").to_lowercase()}),
+            )
+        })
+        .await;
+        match outcome {
+            Ok(Ok(outcome)) => {
+                responder.settle(Ok(outcome.result));
+                if !outcome.replayed && !deferred_self_change {
+                    self.apply_committed_task_status(task_id, status).await?;
+                }
+            }
+            Ok(Err(error)) => responder.settle(Err(task_status_change_error(error))),
+            Err(_) => responder.settle(Err(TaskCommandError::PersistenceFailed)),
+        }
+        Ok(())
+    }
+
     async fn change_task_status(
         &mut self,
         task_id: TaskId,
@@ -613,6 +770,14 @@ impl RouterActor {
         let status = row.task_status;
         responder.settle(Ok(TaskStatusChangeOutcome { status }));
 
+        self.apply_committed_task_status(task_id, status).await
+    }
+
+    async fn apply_committed_task_status(
+        &mut self,
+        task_id: TaskId,
+        status: selvedge_domain_model::TaskStatus,
+    ) -> Result<(), RouterExitStatus> {
         if status.has_runtime() {
             if let Some(entry) = self.task_runtime_registry.get(&task_id) {
                 entry.control.notify_status_changed();
@@ -650,6 +815,78 @@ impl RouterActor {
             .await
     }
 
+    async fn recover_command_invocation(
+        &mut self,
+        invocation: selvedge_domain_model::CommandInvocationId,
+    ) -> Result<(), RouterExitStatus> {
+        let db = self.db.clone();
+        let recovery = invocation.clone();
+        if !tokio::task::spawn_blocking(move || {
+            selvedge_db::read_admitted_command_call(&db, &recovery)
+        })
+        .await
+        .is_ok_and(|result| result.is_ok())
+        {
+            return Ok(());
+        }
+        let db = self.db.clone();
+        let task_id = invocation.task_id.clone();
+        if tokio::task::spawn_blocking(move || read_task_status(&db, &task_id))
+            .await
+            .is_ok_and(|result| result == Ok(selvedge_domain_model::TaskStatus::Active))
+        {
+            return self.ensure_task_runtime(invocation.task_id).await;
+        }
+        if self
+            .tool_execution_tasks
+            .values()
+            .any(|effect| effect.task_id == invocation.task_id)
+        {
+            return Ok(());
+        }
+        if let Some(entry) = self.task_runtime_registry.get(&invocation.task_id).cloned() {
+            self.cancel_task_effects(&invocation.task_id).await;
+            entry.control.shutdown().await;
+            self.remove_runtime_if_current(&invocation.task_id, &entry);
+        }
+        let db = self.db.clone();
+        let router_tx = self.router_tx.clone();
+        let deps = self.core_spawn_deps.clone();
+        let recovery = invocation.clone();
+        match tokio::task::spawn_blocking(move || {
+            selvedge_task_runtime_factory::create_command_recovery_runtime(
+                &db, &router_tx, &deps, &recovery,
+            )
+        })
+        .await
+        {
+            Ok(Ok(spawned)) => {
+                let entry = RuntimeRegistryEntry {
+                    sender: spawned.task_runtime_tx,
+                    control: spawned.task_runtime_control,
+                };
+                if entry
+                    .sender
+                    .send(TaskRuntimeCommand::RecoverCommandInvocation {
+                        invocation: invocation.clone(),
+                    })
+                    .is_ok()
+                {
+                    self.task_runtime_registry.insert(invocation.task_id, entry);
+                }
+                Ok(())
+            }
+            Ok(Err(error)) => {
+                self.publish_debug(Some(invocation.task_id), error.to_string())
+                    .await
+            }
+            Err(error) => {
+                self.publish_debug(Some(invocation.task_id), error.to_string())
+                    .await
+            }
+        }
+    }
+
     async fn ensure_task_runtime(&mut self, task_id: TaskId) -> Result<(), RouterExitStatus> {
         if self.task_runtime_registry.contains_key(&task_id) {
             return Ok(());
@@ -683,6 +920,21 @@ impl RouterActor {
     }
 
     async fn ensure_missing_task_runtimes(&mut self) -> Result<(), RouterExitStatus> {
+        let db = self.db.clone();
+        let admissions = match tokio::task::spawn_blocking(move || {
+            selvedge_db::list_admitted_command_invocations(&db)
+        })
+        .await
+        {
+            Ok(Ok(admissions)) => admissions,
+            Ok(Err(error)) => return self.publish_debug(None, error.to_string()).await,
+            Err(error) => return self.publish_debug(None, error.to_string()).await,
+        };
+        // Pending children cannot request predecessor recovery themselves. Register every
+        // admitted owner before the ordinary scan so inactive owners can publish them.
+        for invocation in admissions {
+            self.recover_command_invocation(invocation).await?;
+        }
         let db = self.db.clone();
         let router_tx = self.router_tx.clone();
         let deps = self.core_spawn_deps.clone();
@@ -873,6 +1125,7 @@ impl RouterActor {
 
 fn tool_spawn_failed_result(request: ToolExecutionRequest) -> ToolExecutionResult {
     ToolExecutionResult {
+        completion: selvedge_command_model::ToolExecutionCompletion::ordinary(),
         task_id: request.task_id,
         tool_execution_run_id: request.tool_execution_run_id,
         function_call_node_id: request.function_call_node_id,
@@ -896,6 +1149,8 @@ fn settle_router_ingress(ingress: RouterIngressMessage, error: TaskCommandError)
 fn settle_router_command(command: RouterCommand, error: TaskCommandError) {
     match command {
         RouterCommand::SendUserInput { responder, .. } => responder.settle(Err(error)),
+        RouterCommand::SendTaskInput { responder, .. }
+        | RouterCommand::ChangeTaskStatus { responder, .. } => responder.settle(Err(error)),
         RouterCommand::ArchiveTask { responder, .. }
         | RouterCommand::FreezeTask { responder, .. }
         | RouterCommand::UnfreezeTask { responder, .. }
@@ -903,6 +1158,7 @@ fn settle_router_command(command: RouterCommand, error: TaskCommandError) {
         RouterCommand::AttachClient { .. }
         | RouterCommand::DetachClient { .. }
         | RouterCommand::UpdateSubscription { .. }
+        | RouterCommand::RecoverCommandInvocation { .. }
         | RouterCommand::EnsureTaskRuntime { .. }
         | RouterCommand::EnsureMissingTaskRuntimes => {}
     }
@@ -911,7 +1167,9 @@ fn settle_router_command(command: RouterCommand, error: TaskCommandError) {
 fn settle_task_runtime_command(command: TaskRuntimeCommand, error: TaskCommandError) {
     match command {
         TaskRuntimeCommand::UserInput { responder, .. } => responder.settle(Err(error)),
+        TaskRuntimeCommand::TaskInput { responder, .. } => responder.settle(Err(error)),
         TaskRuntimeCommand::Start
+        | TaskRuntimeCommand::RecoverCommandInvocation { .. }
         | TaskRuntimeCommand::ModelCallNotStarted { .. }
         | TaskRuntimeCommand::ApiModelReply(_)
         | TaskRuntimeCommand::ToolResult(_) => {}
@@ -921,8 +1179,10 @@ fn settle_task_runtime_command(command: TaskRuntimeCommand, error: TaskCommandEr
 fn task_status_change_error(error: DbError) -> TaskCommandError {
     match error {
         DbError::NotFound => TaskCommandError::TaskMissing,
+        DbError::CommandOperationMismatch => TaskCommandError::CommandOperationMismatch,
         DbError::InvalidTaskStatus { status } => TaskCommandError::InvalidTaskStatus { status },
-        DbError::StaleFunctionCall
+        DbError::CommandEnvironmentBusy { .. }
+        | DbError::StaleFunctionCall
         | DbError::HistoryCursorNotOnTask
         | DbError::ToolUnavailable
         | DbError::TaskDescendantLimitExceeded { .. }
@@ -945,6 +1205,7 @@ fn task_command_factory_error(error: &RuntimeCreationError) -> TaskCommandError 
     match error {
         RuntimeCreationError::TaskMissing => TaskCommandError::TaskMissing,
         RuntimeCreationError::TaskArchived => TaskCommandError::TaskArchived,
+        RuntimeCreationError::TaskPending => TaskCommandError::RuntimeUnavailable,
         RuntimeCreationError::DbReadFailed(_) => TaskCommandError::PersistenceFailed,
         RuntimeCreationError::CoreSpawnFailed(_) => TaskCommandError::RuntimeUnavailable,
     }

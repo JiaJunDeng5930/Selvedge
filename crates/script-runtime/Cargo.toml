@@ -1,0 +1,15 @@
+[package]
+name = "selvedge-script-runtime"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "Checkpointed JavaScript execution with invocation-owned host operations"
+
+[dependencies]
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["rt", "sync", "time", "macros"] }
+v8 = "=150.4.0"
+
+[lints]
+workspace = true

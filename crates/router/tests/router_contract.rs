@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+use tokio::time::timeout;
 
 use selvedge_api::ApiExecutorConfig;
 use selvedge_command_model::{
@@ -248,10 +249,23 @@ async fn missing_runtime_user_input_settles_after_the_runtime_sqlite_transition(
         Ok(SendUserInputOutcome::Queued)
     );
 
+    // The actor can promote the queue before this observation; both locations must
+    // contain exactly one durable input in the same database snapshot.
+    let persisted = selvedge_db::read_task(
+        &db,
+        selvedge_db::ReadTaskInput {
+            task_id: TaskId("task-1".to_owned()),
+            after_node_id: None,
+            limit: 100,
+        },
+    )
+    .expect("durable input snapshot");
+    assert!(!persisted.has_more);
+    let committed_count = persisted.history_nodes.iter().filter(|node| matches!(node,
+        selvedge_db::HistoryNode::Message { message_text, .. } if message_text == "input for missing runtime"
+    )).count();
     assert_eq!(
-        selvedge_db::load_runtime_task(&db, &TaskId("task-1".to_owned()))
-            .expect("committed queue")
-            .queued_input_count,
+        persisted.queued_input_count + u64::try_from(committed_count).expect("history count"),
         1
     );
 
@@ -1551,6 +1565,7 @@ fn model_request(task_id: &str) -> ModelCallDispatchRequest {
 
 fn tool_result(task_id: &str) -> ToolExecutionResult {
     ToolExecutionResult {
+        completion: selvedge_command_model::ToolExecutionCompletion::ordinary(),
         task_id: TaskId(task_id.to_owned()),
         tool_execution_run_id: ToolExecutionRunId("tool-1".to_owned()),
         function_call_node_id: HistoryNodeId(1),
@@ -1567,6 +1582,7 @@ fn tool_result(task_id: &str) -> ToolExecutionResult {
 
 fn tool_request(task_id: &str) -> ToolExecutionRequest {
     ToolExecutionRequest {
+        execution_mode: selvedge_domain_model::ToolExecutionMode::Normal,
         task_id: TaskId(task_id.to_owned()),
         tool_execution_run_id: ToolExecutionRunId("tool-1".to_owned()),
         function_call_node_id: HistoryNodeId(1),
@@ -1802,4 +1818,537 @@ impl TaskRuntimeSpawner for ClosedMailboxRuntimeSpawner {
             task_runtime_control: TaskRuntimeControl::new(),
         })
     }
+}
+
+#[tokio::test]
+async fn journaled_self_archive_does_not_cancel_the_outer_tool() {
+    use selvedge_domain_model::{
+        CommandInvocationId, CommandOperation, CommandOperationContext, CommandOperationId,
+        ToolExecutionMode,
+    };
+    let db = open_memory_db();
+    let root = create_command_task(&db, "parent");
+    let call_id = FunctionCallId("call".into());
+    let tool_name = ToolName("exec_cmd".into());
+    let call = selvedge_db::append_model_reply_with_tool_calls_and_move_cursor(
+        &db,
+        &root.task_id,
+        None,
+        vec![selvedge_db::NewFunctionCallNodeContent {
+            function_call_id: call_id.clone(),
+            tool_name: tool_name.clone(),
+            arguments: JsonObject::new(),
+        }],
+        UnixTs(2),
+    )
+    .expect("command operation succeeds")[0];
+    let invocation = CommandInvocationId {
+        task_id: root.task_id.clone(),
+        function_call_node_id: call,
+    };
+    selvedge_db::admit_command_invocation(&db, &invocation, &call_id, &tool_name)
+        .expect("command operation succeeds");
+    let context = CommandOperationContext {
+        caller_task_id: root.task_id.clone(),
+        mode: ToolExecutionMode::Normal,
+        operation: Some(CommandOperation {
+            id: CommandOperationId {
+                invocation,
+                ordinal: 0,
+            },
+            command: "tasks.archive".into(),
+            arguments: serde_json::json!({"task_id":"parent"}),
+        }),
+    };
+    let spawner = Arc::new(BlockingToolSpawner::default());
+    let (events_tx, _events_rx) = tokio::sync::mpsc::channel(32);
+    let handle = spawn_router(RouterStartArgs {
+        db: db.clone(),
+        events_tx,
+        api_config: ApiExecutorConfig {
+            request_timeout: Duration::from_secs(1),
+            max_response_bytes: None,
+        },
+        tool_executor: spawner.clone(),
+        core_spawn_deps: TaskRuntimeSpawnDeps::new(TaskRuntimeConfig {
+            model_profiles: HashMap::new(),
+        }),
+    });
+    let mut request = tool_request("parent");
+    request.function_call_node_id = call;
+    request.function_call_id = call_id;
+    request.tool_name = tool_name;
+    handle
+        .ingress_tx
+        .send(RouterIngressMessage::Core(CoreOutputEnvelope {
+            task_id: root.task_id.clone(),
+            message: CoreOutputMessage::RequestToolExecution(request),
+        }))
+        .expect("command operation succeeds");
+    spawner.wait_started().await;
+    for _ in 0..2 {
+        let (responder, response) = selvedge_command_model::command_operation_response_channel();
+        handle
+            .ingress_tx
+            .send(RouterIngressMessage::Command(
+                RouterCommand::ChangeTaskStatus {
+                    task_id: root.task_id.clone(),
+                    event: TaskLifecycleEvent::Archive,
+                    context: context.clone(),
+                    responder,
+                },
+            ))
+            .expect("command operation succeeds");
+        let result = response
+            .await
+            .expect("command operation succeeds")
+            .expect("command operation succeeds");
+        assert_eq!(result["deferred"], true);
+        assert_eq!(
+            read_task_status(&db, &root.task_id).expect("command operation succeeds"),
+            TaskStatus::Active
+        );
+        assert!(!spawner.dropped.load(Ordering::SeqCst));
+    }
+    handle
+        .ingress_tx
+        .send(RouterIngressMessage::StopRouter)
+        .expect("command operation succeeds");
+    assert_eq!(
+        handle
+            .join_handle
+            .await
+            .expect("command operation succeeds"),
+        RouterExitStatus::Stopped
+    );
+    assert!(spawner.dropped.load(Ordering::SeqCst));
+}
+
+#[tokio::test]
+async fn scoped_send_to_frozen_task_queues_once_without_waiting_for_runtime() {
+    use selvedge_domain_model::{
+        CommandInvocationId, CommandOperation, CommandOperationContext, CommandOperationId,
+        ToolExecutionMode,
+    };
+    let db = open_memory_db();
+    let task = create_command_task(&db, "frozen");
+    let call_id = FunctionCallId("call".into());
+    let tool_name = ToolName("exec_cmd".into());
+    let call = selvedge_db::append_model_reply_with_tool_calls_and_move_cursor(
+        &db,
+        &task.task_id,
+        None,
+        vec![selvedge_db::NewFunctionCallNodeContent {
+            function_call_id: call_id.clone(),
+            tool_name: tool_name.clone(),
+            arguments: JsonObject::new(),
+        }],
+        UnixTs(2),
+    )
+    .expect("command operation succeeds")[0];
+    let invocation = CommandInvocationId {
+        task_id: task.task_id.clone(),
+        function_call_node_id: call,
+    };
+    selvedge_db::admit_command_invocation(&db, &invocation, &call_id, &tool_name)
+        .expect("command operation succeeds");
+    transition_task_status(&db, &task.task_id, TaskLifecycleEvent::Freeze, UnixTs(3))
+        .expect("command operation succeeds");
+    let context = CommandOperationContext {
+        caller_task_id: task.task_id.clone(),
+        mode: ToolExecutionMode::Normal,
+        operation: Some(CommandOperation {
+            id: CommandOperationId {
+                invocation,
+                ordinal: 0,
+            },
+            command: "tasks.send".into(),
+            arguments: serde_json::json!({"task_id":"frozen","message":"queued"}),
+        }),
+    };
+    let (events_tx, _events_rx) = tokio::sync::mpsc::channel(32);
+    let handle = spawn_router(RouterStartArgs {
+        db: db.clone(),
+        events_tx,
+        api_config: ApiExecutorConfig {
+            request_timeout: Duration::from_secs(1),
+            max_response_bytes: None,
+        },
+        tool_executor: Arc::new(NoopToolSpawner),
+        core_spawn_deps: TaskRuntimeSpawnDeps::new(TaskRuntimeConfig {
+            model_profiles: HashMap::new(),
+        }),
+    });
+    for _ in 0..2 {
+        let (responder, response) = selvedge_command_model::command_operation_response_channel();
+        handle
+            .ingress_tx
+            .send(RouterIngressMessage::Command(
+                RouterCommand::SendTaskInput {
+                    task_id: task.task_id.clone(),
+                    message_text: "queued".into(),
+                    context: context.clone(),
+                    responder,
+                },
+            ))
+            .expect("command operation succeeds");
+        let result = tokio::time::timeout(Duration::from_secs(1), response)
+            .await
+            .expect("command operation succeeds")
+            .expect("command operation succeeds")
+            .expect("command operation succeeds");
+        assert_eq!(result["disposition"], "queued");
+    }
+    assert_eq!(
+        selvedge_db::load_runtime_task(&db, &task.task_id)
+            .expect("command operation succeeds")
+            .queued_input_count,
+        1
+    );
+    assert_eq!(
+        read_task_status(&db, &task.task_id).expect("command operation succeeds"),
+        TaskStatus::Frozen
+    );
+    handle
+        .ingress_tx
+        .send(RouterIngressMessage::StopRouter)
+        .expect("command operation succeeds");
+    assert_eq!(
+        handle
+            .join_handle
+            .await
+            .expect("command operation succeeds"),
+        RouterExitStatus::Stopped
+    );
+}
+
+fn create_command_task(db: &selvedge_db::DbPool, id: &str) -> selvedge_db::TaskRow {
+    selvedge_test_support::db::create_root_task_with_user_message_and_tools(
+        db,
+        id,
+        "hello",
+        vec![selvedge_db::TaskToolSpec {
+            tool: selvedge_domain_model::ToolSpec {
+                name: "exec_cmd".into(),
+                description: "command".into(),
+                input_schema: [("type".into(), "object".into())].into_iter().collect(),
+            },
+            execution_source: selvedge_db::ToolExecutionSource::Harness,
+            recovery_policy: selvedge_db::ToolRecoveryPolicy::RetrySafe,
+        }],
+        UnixTs(1),
+    )
+}
+
+#[derive(Default)]
+struct RecordingLiveSpawner(Mutex<Vec<TaskId>>);
+
+impl TaskRuntimeSpawner for RecordingLiveSpawner {
+    fn spawn_task_runtime(
+        &self,
+        args: SpawnTaskRuntimeArgs,
+    ) -> Result<SpawnedTaskRuntime, SpawnTaskRuntimeError> {
+        self.0
+            .lock()
+            .expect("spawn inventory")
+            .push(args.task_id.clone());
+        Ok(selvedge_core::spawn_task_runtime(args))
+    }
+}
+
+struct CompletingCommandSpawner(DbPool);
+
+impl ToolExecutionSpawner for CompletingCommandSpawner {
+    fn spawn_tool_execution(
+        &self,
+        request: ToolExecutionRequest,
+        router_tx: selvedge_command_model::RouterIngressWeakSender,
+    ) -> Result<tokio::task::JoinHandle<()>, ToolExecutionSpawnError> {
+        let db = self.0.clone();
+        Ok(tokio::spawn(async move {
+            let environment = selvedge_db::read_command_environment(&db, &request.task_id)
+                .expect("admitted environment");
+            let prepared = selvedge_command_model::ToolExecutionCompletion::command(
+                selvedge_domain_model::CommandEnvironmentCommit {
+                    new_child_environment_mode:
+                        selvedge_domain_model::CommandEnvironmentMode::Shared,
+                    environment_id: environment.environment_id,
+                    invocation: environment.admitted_invocation.expect("admitted owner"),
+                    expected_revision: environment.revision,
+                    checkpoint: vec![8],
+                    base_checkpoint: vec![],
+                },
+                Arc::new(tokio::sync::Mutex::new(())).lock_owned().await,
+            );
+            router_tx
+                .upgrade()
+                .expect("live router")
+                .send(RouterIngressMessage::Tool(ToolExecutionResult {
+                    completion: prepared,
+                    task_id: request.task_id,
+                    tool_execution_run_id: request.tool_execution_run_id,
+                    function_call_node_id: request.function_call_node_id,
+                    function_call_id: request.function_call_id,
+                    tool_name: request.tool_name,
+                    branches: vec![ToolExecutionBranch {
+                        target: ToolExecutionBranchTarget::CallingTask,
+                        output: serde_json::json!({"recovered":true}),
+                        is_error: false,
+                        messages: vec![],
+                    }],
+                }))
+                .expect("tool result");
+        }))
+    }
+}
+
+#[tokio::test]
+async fn startup_recovers_inactive_admission_and_publishes_pending_child_without_a_waiter() {
+    use selvedge_domain_model::{
+        CommandEnvironmentMode, CommandInvocationId, CommandOperation, CommandOperationContext,
+        CommandOperationId, ToolExecutionMode,
+    };
+    for event in [
+        TaskLifecycleEvent::Archive,
+        TaskLifecycleEvent::Freeze,
+        TaskLifecycleEvent::Stop,
+    ] {
+        let db = open_memory_db();
+        let parent = create_command_task(&db, "parent");
+        let call_id = FunctionCallId("call".into());
+        let tool_name = ToolName("exec_cmd".into());
+        let call = selvedge_db::append_model_reply_with_tool_calls_and_move_cursor(
+            &db,
+            &parent.task_id,
+            None,
+            vec![selvedge_db::NewFunctionCallNodeContent {
+                function_call_id: call_id.clone(),
+                tool_name: tool_name.clone(),
+                arguments: JsonObject::new(),
+            }],
+            UnixTs(2),
+        )
+        .expect("persist call")[0];
+        let invocation = CommandInvocationId {
+            task_id: parent.task_id.clone(),
+            function_call_node_id: call,
+        };
+        selvedge_db::admit_command_invocation(&db, &invocation, &call_id, &tool_name)
+            .expect("admit outer");
+        let context = CommandOperationContext {
+            caller_task_id: parent.task_id.clone(),
+            mode: ToolExecutionMode::Normal,
+            operation: Some(CommandOperation {
+                id: CommandOperationId {
+                    invocation,
+                    ordinal: 0,
+                },
+                command: "tasks.fork".into(),
+                arguments: serde_json::json!({"child_count":1}),
+            }),
+        };
+        let child = TaskId("pending-child".into());
+        selvedge_db::create_pending_command_child(
+            &db,
+            &context,
+            child.clone(),
+            CommandEnvironmentMode::Copy,
+            vec![],
+            UnixTs(3),
+        )
+        .expect("stage child");
+        transition_task_status(&db, &parent.task_id, event, UnixTs(4))
+            .expect("parent becomes inactive");
+        let spawner = Arc::new(RecordingLiveSpawner::default());
+        let (events_tx, mut events_rx) = tokio::sync::mpsc::channel(64);
+        let handle = spawn_router(RouterStartArgs {
+            db: db.clone(),
+            events_tx,
+            api_config: ApiExecutorConfig {
+                request_timeout: Duration::from_secs(1),
+                max_response_bytes: None,
+            },
+            tool_executor: Arc::new(CompletingCommandSpawner(db.clone())),
+            core_spawn_deps: TaskRuntimeSpawnDeps::with_spawner(
+                TaskRuntimeConfig {
+                    model_profiles: HashMap::new(),
+                },
+                spawner.clone(),
+            ),
+        });
+        if event == TaskLifecycleEvent::Freeze {
+            handle
+                .ingress_tx
+                .send(RouterIngressMessage::Command(
+                    RouterCommand::EnsureTaskRuntime {
+                        task_id: parent.task_id.clone(),
+                    },
+                ))
+                .expect("create frozen idle runtime");
+            timeout(Duration::from_secs(1), events_rx.recv())
+                .await
+                .expect("frozen readiness")
+                .expect("readiness event");
+        }
+        handle
+            .ingress_tx
+            .send(RouterIngressMessage::Command(
+                RouterCommand::EnsureMissingTaskRuntimes,
+            ))
+            .expect("startup recovery");
+        timeout(Duration::from_secs(2), async {
+            loop {
+                let started = spawner.0.lock().expect("spawn inventory").contains(&child);
+                if started && !selvedge_db::task_is_pending(&db, &child).expect("pending state") {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("inactive admission publishes and starts its child");
+        assert!(
+            selvedge_db::list_admitted_command_invocations(&db)
+                .expect("remaining admissions")
+                .is_empty()
+        );
+        assert_eq!(
+            selvedge_db::read_command_environment(&db, &child)
+                .expect("child environment")
+                .checkpoint,
+            vec![8]
+        );
+        assert_eq!(
+            read_task_status(&db, &parent.task_id).expect("parent status"),
+            TaskStatus::Active
+                .transition(event)
+                .expect("expected inactive status")
+        );
+        handle
+            .ingress_tx
+            .send(RouterIngressMessage::StopRouter)
+            .expect("stop");
+        assert_eq!(
+            handle.join_handle.await.expect("join"),
+            RouterExitStatus::Stopped
+        );
+    }
+}
+
+#[tokio::test]
+async fn unrelated_task_send_is_rejected_before_runtime_or_cursor_execution() {
+    use selvedge_domain_model::{
+        CommandInvocationId, CommandOperation, CommandOperationContext, CommandOperationId,
+        ToolExecutionMode,
+    };
+    let db = open_memory_db();
+    let caller = create_command_task(&db, "caller");
+    let target = create_command_task(&db, "unrelated-target");
+    let mut calls = Vec::new();
+    for task in [&caller, &target] {
+        calls.push(
+            selvedge_db::append_model_reply_with_tool_calls_and_move_cursor(
+                &db,
+                &task.task_id,
+                None,
+                vec![selvedge_db::NewFunctionCallNodeContent {
+                    function_call_id: FunctionCallId(format!("{}-call", task.task_id.0)),
+                    tool_name: ToolName("exec_cmd".into()),
+                    arguments: JsonObject::new(),
+                }],
+                UnixTs(2),
+            )
+            .expect("persist executable cursor")[0],
+        );
+    }
+    let invocation = CommandInvocationId {
+        task_id: caller.task_id.clone(),
+        function_call_node_id: calls[0],
+    };
+    selvedge_db::admit_command_invocation(
+        &db,
+        &invocation,
+        &FunctionCallId("caller-call".into()),
+        &ToolName("exec_cmd".into()),
+    )
+    .expect("admit caller script");
+    let operation = CommandOperation {
+        id: CommandOperationId {
+            invocation,
+            ordinal: 0,
+        },
+        command: "tasks.send".into(),
+        arguments: serde_json::json!({"task_id":"unrelated-target","message":"unauthorized"}),
+    };
+    let runtimes = Arc::new(RecordingLiveSpawner::default());
+    let tools = Arc::new(CapturingToolSpawner::default());
+    let (events_tx, mut events_rx) = tokio::sync::mpsc::channel(16);
+    let handle = spawn_router(RouterStartArgs {
+        db: db.clone(),
+        events_tx,
+        api_config: ApiExecutorConfig {
+            request_timeout: Duration::from_secs(1),
+            max_response_bytes: None,
+        },
+        tool_executor: tools.clone(),
+        core_spawn_deps: TaskRuntimeSpawnDeps::with_spawner(
+            TaskRuntimeConfig {
+                model_profiles: default_model_profiles(),
+            },
+            runtimes.clone(),
+        ),
+    });
+    for operation in [None, Some(operation)] {
+        let (responder, response) = selvedge_command_model::command_operation_response_channel();
+        handle
+            .ingress_tx
+            .send(RouterIngressMessage::Command(
+                RouterCommand::SendTaskInput {
+                    task_id: target.task_id.clone(),
+                    message_text: "unauthorized".into(),
+                    context: CommandOperationContext {
+                        caller_task_id: caller.task_id.clone(),
+                        mode: ToolExecutionMode::Normal,
+                        operation,
+                    },
+                    responder,
+                },
+            ))
+            .expect("submit task-originated send");
+        assert!(
+            timeout(Duration::from_secs(1), response)
+                .await
+                .expect("send responds")
+                .expect("response channel")
+                .is_err()
+        );
+        assert!(
+            runtimes.0.lock().expect("runtime inventory").is_empty(),
+            "denied send must not start a task or model turn"
+        );
+        assert_eq!(
+            tools.request_count(),
+            0,
+            "denied send must not execute the target cursor"
+        );
+        assert!(
+            events_rx.try_recv().is_err(),
+            "denied send must not publish runtime or model activity"
+        );
+        assert_eq!(
+            selvedge_db::load_runtime_task(&db, &target.task_id)
+                .expect("target remains untouched")
+                .task
+                .cursor_node_id,
+            calls[1]
+        );
+    }
+    handle
+        .ingress_tx
+        .send(RouterIngressMessage::StopRouter)
+        .expect("stop router");
+    assert_eq!(
+        handle.join_handle.await.expect("join router"),
+        RouterExitStatus::Stopped
+    );
 }
