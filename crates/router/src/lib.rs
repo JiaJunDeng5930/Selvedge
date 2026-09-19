@@ -1125,7 +1125,7 @@ impl RouterActor {
 
 fn tool_spawn_failed_result(request: ToolExecutionRequest) -> ToolExecutionResult {
     ToolExecutionResult {
-        prepared_environment: None,
+        completion: selvedge_command_model::ToolExecutionCompletion::ordinary(),
         task_id: request.task_id,
         tool_execution_run_id: request.tool_execution_run_id,
         function_call_node_id: request.function_call_node_id,

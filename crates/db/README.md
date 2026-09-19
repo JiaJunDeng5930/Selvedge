@@ -2,7 +2,7 @@
 
 <!-- selvedge-package-readme
 package: selvedge-db
-freshness_fingerprint: 936d7d10bfa150a5fc763d422a2363797919fa27
+freshness_fingerprint: ec76f6e11c05d9ceb6fc14f7ee6358945332e77b
 -->
 
 This crate owns SQLite persistence for router-mediated Selvedge tasks.
@@ -34,11 +34,11 @@ Public transition writes keep cursor movement atomic with the history append the
 
 ## Command environments and durable operations
 
-Tasks reference independently owned command environments. Root environments begin with an empty checkpoint; the harness installs base capabilities when restoring that placeholder. Ordinary child branches share their caller environment. Prepared command completion atomically commits the checkpoint revision, outer outputs, child environment choices, queued messages, and deferred self lifecycle changes. Copy forks receive the completed checkpoint; new forks receive the base checkpoint.
+Tasks reference independently owned command environments. Root environments begin with an empty checkpoint; the harness installs base capabilities when restoring that placeholder. Ordinary child branches share their caller environment. `commit_tool_result_branches` accepts a `ToolResultCompletion` description. Ordinary completion rejects a matching durable command admission. Command completion atomically commits the checkpoint revision, outer outputs, child environment choices, queued messages, and deferred self lifecycle changes. Copy forks receive the completed checkpoint; new forks receive the base checkpoint.
 
-An admission belongs to the durable pair of task ID and function-call node ID. A different invocation receives `CommandEnvironmentBusy` with its predecessor identity. `list_admitted_command_invocations` enumerates admissions independently of task lifecycle, so startup can recover frozen, stopped, or archived owners before their pending children can run. Only an already admitted call may finish after its caller has been archived. Pending children are readable and accept scoped messages, but runtime listing and loading exclude them until their outer call commits. Failure before that transaction retains the admission and pending children for recovery.
+An admission belongs to the durable pair of task ID and function-call node ID. A different invocation receives `CommandEnvironmentBusy` with its predecessor identity. `list_admitted_command_invocations` enumerates admissions independently of task lifecycle, so startup can recover frozen, stopped, or archived owners before their pending children can run. A transaction-bound completion permission validates environment identity, revision, and the exact open call before authorizing history writes for its caller and recorded pending children. They may complete after archive without changing lifecycle status to acquire write permission. Ordinary writes still reject archived tasks. Pending children are readable and accept scoped messages, but runtime listing and loading exclude them until their outer call commits. Failure before that transaction retains the admission and pending children for recovery.
 
-Every operation journal entry validates its command name and structural JSON arguments before reusing its saved result. Scoped mutation APIs check self or direct-child permission and save the mutation and result in one transaction. Caller-only contexts preserve ordinary tools; clients retain the existing unscoped APIs. Startup execution permits task commands but rejects new external shell or filesystem effects. External operations persist admission before execution and completion separately; an unfinished admission has an unknown outcome and cannot be executed again. Reads and module-source observations reuse saved results. The replay length is the largest recorded ordinal plus one, including gaps.
+Every operation journal entry validates its command name and structural JSON arguments before reusing its saved result. Scoped mutation APIs check self or direct-child permission and save the mutation and result in one transaction. Caller-only contexts preserve ordinary tools; clients retain the existing unscoped APIs. Both entries share the transaction-local message, queue, and lifecycle write operations. Startup execution permits task commands but rejects new external shell or filesystem effects. External operations persist admission before execution and completion separately; an unfinished admission has an unknown outcome and cannot be executed again. Reads and module-source observations reuse saved results. The replay length is the largest recorded ordinal plus one, including gaps.
 
 Self lifecycle commands return `deferred: true` and store the resulting status with the task state version at first deferral. Each subsequent command validates its transition against that staged status. At completion, the validated result applies only if the caller state version still matches; a later committed task change supersedes it, including changes that return to the original status. A journaled mutation by the same invocation advances an uncontested baseline together with its effect; it never advances a baseline already superseded by another committed change. The outer output, checkpoint, and pending children still finalize when the deferred result is superseded. Task reads report committed status until completion. `validate_command_task_scope` provides a read-only permission check before runtime activation; mutation APIs repeat the permission check inside their write transaction.
 
@@ -74,7 +74,8 @@ flowchart TD
   Journal -->|fork creates children within descendant limits| PendingChild
   Admission -->|runtime settles and retains environment lease| Prepared
   PendingChild -->|outer output and environment commit atomically| Commit
-  Prepared -->|admitted identity and checkpoint revision match| Commit
+  Prepared -->|admitted identity, exact open call, and revision grant completion permission| Commit
+  Prepared -->|invocation, environment, or revision differs| ValidationError
   Start -->|open_db is called| Open
   Open -->|database has no application tables| Initialize
   Open -->|database has application tables and schema metadata is readable| Schema

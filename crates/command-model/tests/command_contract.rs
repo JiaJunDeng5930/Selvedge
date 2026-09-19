@@ -183,15 +183,15 @@ fn valid_correlation() -> ApiCallCorrelation {
 }
 
 #[test]
-fn prepared_environment_keeps_lease_until_all_result_owners_release_it() {
-    use selvedge_command_model::PreparedCommandEnvironment;
+fn command_completion_keeps_lease_until_all_result_owners_release_it() {
+    use selvedge_command_model::ToolExecutionCompletion;
     use selvedge_domain_model::{
         CommandEnvironmentCommit, CommandEnvironmentId, CommandEnvironmentMode,
         CommandInvocationId, HistoryNodeId,
     };
     let mutex = Arc::new(tokio::sync::Mutex::new(()));
     let lease = mutex.clone().try_lock_owned().expect("initial lease");
-    let prepared = PreparedCommandEnvironment::new(
+    let prepared = ToolExecutionCompletion::command(
         CommandEnvironmentCommit {
             environment_id: CommandEnvironmentId("env".into()),
             invocation: CommandInvocationId {

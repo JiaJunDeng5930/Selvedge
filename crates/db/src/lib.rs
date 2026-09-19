@@ -16,7 +16,7 @@ mod command;
 pub use command::*;
 pub use selvedge_domain_model::{
     CommandEnvironmentCommit, CommandEnvironmentId, CommandEnvironmentMode, CommandInvocationId,
-    CommandOperationContext, ToolExecutionMode,
+    CommandOperationContext, ToolExecutionMode, ToolResultCompletion,
 };
 
 pub const MAX_TASK_HISTORY_PAGE_SIZE: u32 = 100;
@@ -612,23 +612,16 @@ pub fn create_root_task(db: &DbPool, input: CreateRootTaskInput) -> Result<TaskR
     read_task_metadata(db, &task_id)
 }
 
-pub fn commit_tool_result_branches(
-    db: &DbPool,
-    input: CommitToolResultBranchesInput,
-) -> Result<CommitToolResultBranchesResult, DbError> {
-    let mut connection = db.connection()?;
-    let tx = connection
-        .transaction_with_behavior(TransactionBehavior::Immediate)
-        .map_err(map_error)?;
-    let result = commit_tool_result_branches_in_tx(&tx, input)?;
-    tx.commit().map_err(map_error)?;
-    Ok(result)
-}
-
 fn commit_tool_result_branches_in_tx(
-    tx: &rusqlite::Transaction<'_>,
+    permission: &TaskHistoryWritePermission<'_, '_>,
     input: CommitToolResultBranchesInput,
 ) -> Result<CommitToolResultBranchesResult, DbError> {
+    let tx = permission.tx;
+    if permission.task_id != input.calling_task_id {
+        return Err(DbError::Constraint(
+            "completion permission differs from calling task".into(),
+        ));
+    }
     let calling_branch_count = input
         .branches
         .iter()
@@ -668,11 +661,6 @@ fn commit_tool_result_branches_in_tx(
     }
 
     let calling_task = read_task_in_connection(tx, &input.calling_task_id)?;
-    if !calling_task.task_status.accepts_history_writes() {
-        return Err(DbError::InvalidTaskStatus {
-            status: calling_task.task_status,
-        });
-    }
     let branch_parent_node_id = calling_task.cursor_node_id;
     let output_identity = NewFunctionOutputNodeContent {
         function_call_node_id: input.function_call_node_id,
@@ -698,13 +686,8 @@ fn commit_tool_result_branches_in_tx(
         )?;
         match branch.target {
             ToolResultBranchTarget::CallingTask => {
-                update_task_cursor_in_tx(
-                    tx,
-                    &input.calling_task_id,
-                    branch_cursor_node_id,
-                    input.now,
-                )?;
-                append_all_queued_user_inputs_in_tx(tx, &input.calling_task_id, input.now)?;
+                permission.update_cursor(branch_cursor_node_id, input.now)?;
+                permission.append_queued_inputs(input.now)?;
             }
             ToolResultBranchTarget::NewChildTask(child_task_id) => {
                 tx.execute(
@@ -862,7 +845,18 @@ pub fn append_user_message_and_move_cursor(
 ) -> Result<HistoryNodeId, DbError> {
     let mut connection = db.connection()?;
     let tx = connection.transaction().map_err(map_error)?;
-    let task = read_task_in_connection(&tx, task_id)?;
+    let node_id = append_user_message_in_tx(&tx, task_id, message_text, created_at)?;
+    tx.commit().map_err(map_error)?;
+    Ok(node_id)
+}
+
+fn append_user_message_in_tx(
+    tx: &rusqlite::Transaction<'_>,
+    task_id: &TaskId,
+    message_text: String,
+    created_at: UnixTs,
+) -> Result<HistoryNodeId, DbError> {
+    let task = read_task_in_connection(tx, task_id)?;
     let next_status = task
         .task_status
         .transition(TaskLifecycleEvent::UserInput)
@@ -870,7 +864,7 @@ pub fn append_user_message_and_move_cursor(
             status: task.task_status,
         })?;
     let node_id = insert_history_node(
-        &tx,
+        tx,
         NewHistoryNode {
             parent_node_id: Some(task.cursor_node_id),
             content: NewHistoryNodeContent::Message(NewMessageNodeContent {
@@ -901,7 +895,6 @@ pub fn append_user_message_and_move_cursor(
             "user input task state changed before commit".to_owned(),
         ));
     }
-    tx.commit().map_err(map_error)?;
     Ok(node_id)
 }
 
@@ -1086,23 +1079,88 @@ fn current_cursor_node_id_in_tx(
     }
 }
 
+struct TaskHistoryWritePermission<'tx, 'connection> {
+    tx: &'tx rusqlite::Transaction<'connection>,
+    task_id: TaskId,
+}
+
+impl<'tx, 'connection> TaskHistoryWritePermission<'tx, 'connection> {
+    fn ordinary(
+        tx: &'tx rusqlite::Transaction<'connection>,
+        task_id: &TaskId,
+    ) -> Result<Self, DbError> {
+        current_cursor_node_id_in_tx(tx, task_id)?;
+        Ok(Self {
+            tx,
+            task_id: task_id.clone(),
+        })
+    }
+
+    fn append_node(
+        &self,
+        content: NewHistoryNodeContent,
+        created_at: UnixTs,
+    ) -> Result<HistoryNodeId, DbError> {
+        let task = read_task_in_connection(self.tx, &self.task_id)?;
+        let node_id = insert_history_node(
+            self.tx,
+            NewHistoryNode {
+                parent_node_id: Some(task.cursor_node_id),
+                content,
+                created_at,
+            },
+        )?;
+        self.update_cursor(node_id, created_at)?;
+        Ok(node_id)
+    }
+
+    fn update_cursor(&self, node_id: HistoryNodeId, updated_at: UnixTs) -> Result<(), DbError> {
+        self.tx.execute(
+            "UPDATE tasks SET cursor_node_id=?1, updated_at=?2, state_version=state_version+1 WHERE task_id=?3",
+            params![node_id.0, updated_at.0, self.task_id.0],
+        ).map_err(map_error)?;
+        Ok(())
+    }
+
+    fn append_queued_inputs(&self, created_at: UnixTs) -> Result<Option<HistoryNodeId>, DbError> {
+        let queued_inputs = {
+            let mut statement = self.tx.prepare(
+                "SELECT task_id,seq_no,message_text,queued_at FROM queued_user_inputs WHERE task_id=?1 ORDER BY seq_no ASC"
+            ).map_err(map_error)?;
+            statement
+                .query_map(params![self.task_id.0], map_queued_user_input_row)
+                .map_err(map_error)?
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(map_error)?
+        };
+        let mut last_node_id = None;
+        for queued in queued_inputs {
+            let node_id = self.append_node(
+                NewHistoryNodeContent::Message(NewMessageNodeContent {
+                    message_role: MessageRole::User,
+                    message_text: queued.message_text,
+                }),
+                created_at,
+            )?;
+            self.tx
+                .execute(
+                    "DELETE FROM queued_user_inputs WHERE task_id=?1 AND seq_no=?2",
+                    params![queued.task_id.0, u64_to_i64(queued.seq_no)?],
+                )
+                .map_err(map_error)?;
+            last_node_id = Some(node_id);
+        }
+        Ok(last_node_id)
+    }
+}
+
 fn append_node_to_current_cursor_in_tx(
     tx: &rusqlite::Transaction<'_>,
     task_id: &TaskId,
     content: NewHistoryNodeContent,
     created_at: UnixTs,
 ) -> Result<HistoryNodeId, DbError> {
-    let current_cursor_node_id = current_cursor_node_id_in_tx(tx, task_id)?;
-    let node_id = insert_history_node(
-        tx,
-        NewHistoryNode {
-            parent_node_id: Some(HistoryNodeId(current_cursor_node_id)),
-            content,
-            created_at,
-        },
-    )?;
-    update_task_cursor_in_tx(tx, task_id, node_id, created_at)?;
-    Ok(node_id)
+    TaskHistoryWritePermission::ordinary(tx, task_id)?.append_node(content, created_at)
 }
 
 fn insert_tool_result_branch_in_tx(
@@ -1149,63 +1207,7 @@ fn append_all_queued_user_inputs_in_tx(
     task_id: &TaskId,
     created_at: UnixTs,
 ) -> Result<Option<HistoryNodeId>, DbError> {
-    let queued_inputs = {
-        let mut statement = tx
-            .prepare(
-                "SELECT task_id, seq_no, message_text, queued_at
-                 FROM queued_user_inputs
-                 WHERE task_id = ?1
-                 ORDER BY seq_no ASC",
-            )
-            .map_err(map_error)?;
-        statement
-            .query_map(params![task_id.0], map_queued_user_input_row)
-            .map_err(map_error)?
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(map_error)?
-    };
-
-    let mut last_node_id = None;
-    for queued in queued_inputs {
-        let node_id = append_node_to_current_cursor_in_tx(
-            tx,
-            task_id,
-            NewHistoryNodeContent::Message(NewMessageNodeContent {
-                message_role: MessageRole::User,
-                message_text: queued.message_text,
-            }),
-            created_at,
-        )?;
-        tx.execute(
-            "DELETE FROM queued_user_inputs WHERE task_id = ?1 AND seq_no = ?2",
-            params![queued.task_id.0, u64_to_i64(queued.seq_no)?],
-        )
-        .map_err(map_error)?;
-        last_node_id = Some(node_id);
-    }
-    Ok(last_node_id)
-}
-
-fn update_task_cursor_in_tx(
-    tx: &rusqlite::Transaction<'_>,
-    task_id: &TaskId,
-    node_id: HistoryNodeId,
-    updated_at: UnixTs,
-) -> Result<(), DbError> {
-    let changed = tx
-        .execute(
-            "UPDATE tasks
-             SET cursor_node_id = ?1, updated_at = ?2, state_version = state_version + 1
-             WHERE task_id = ?3 AND task_status <> 'archived'",
-            params![node_id.0, updated_at.0, task_id.0],
-        )
-        .map_err(map_error)?;
-    if changed == 0 {
-        let status = task_status_in_tx(tx, task_id)?;
-        Err(DbError::InvalidTaskStatus { status })
-    } else {
-        Ok(())
-    }
+    TaskHistoryWritePermission::ordinary(tx, task_id)?.append_queued_inputs(created_at)
 }
 
 pub fn queue_user_input(
@@ -1216,7 +1218,18 @@ pub fn queue_user_input(
 ) -> Result<QueuedUserInputRow, DbError> {
     let mut connection = db.connection()?;
     let tx = connection.transaction().map_err(map_error)?;
-    let task = read_task_in_connection(&tx, task_id)?;
+    let queued = queue_user_input_in_tx(&tx, task_id, message_text, queued_at)?;
+    tx.commit().map_err(map_error)?;
+    Ok(queued)
+}
+
+fn queue_user_input_in_tx(
+    tx: &rusqlite::Transaction<'_>,
+    task_id: &TaskId,
+    message_text: String,
+    queued_at: UnixTs,
+) -> Result<QueuedUserInputRow, DbError> {
+    let task = read_task_in_connection(tx, task_id)?;
     let next_status = task
         .task_status
         .transition(TaskLifecycleEvent::UserInput)
@@ -1250,7 +1263,6 @@ pub fn queue_user_input(
         )
         .map_err(map_error)?;
     }
-    tx.commit().map_err(map_error)?;
     Ok(QueuedUserInputRow {
         task_id: task_id.clone(),
         seq_no: i64_to_u64(next_seq_no)?,
@@ -1269,14 +1281,25 @@ pub fn transition_task_status(
     event: TaskLifecycleEvent,
     now: UnixTs,
 ) -> Result<TaskRow, DbError> {
+    let mut connection = db.connection()?;
+    let tx = connection.transaction().map_err(map_error)?;
+    let transitioned = transition_task_status_in_tx(&tx, task_id, event, now)?;
+    tx.commit().map_err(map_error)?;
+    Ok(transitioned)
+}
+
+fn transition_task_status_in_tx(
+    tx: &rusqlite::Transaction<'_>,
+    task_id: &TaskId,
+    event: TaskLifecycleEvent,
+    now: UnixTs,
+) -> Result<TaskRow, DbError> {
     if event == TaskLifecycleEvent::UserInput {
         return Err(DbError::Constraint(
             "user input status transition must be committed with the input".to_owned(),
         ));
     }
-    let mut connection = db.connection()?;
-    let tx = connection.transaction().map_err(map_error)?;
-    let task = read_task_in_connection(&tx, task_id)?;
+    let task = read_task_in_connection(tx, task_id)?;
     let next_status = task
         .task_status
         .transition(event)
@@ -1301,8 +1324,7 @@ pub fn transition_task_status(
             "task status changed before transition commit".to_owned(),
         ));
     }
-    let transitioned = read_task_in_connection(&tx, task_id)?;
-    tx.commit().map_err(map_error)?;
+    let transitioned = read_task_in_connection(tx, task_id)?;
     Ok(transitioned)
 }
 

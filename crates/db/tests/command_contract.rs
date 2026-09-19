@@ -100,31 +100,39 @@ fn finish(
     is_error: bool,
 ) -> Result<CommitToolResultBranchesResult, DbError> {
     let env = read_command_environment(db, &inv.task_id)?;
-    commit_tool_result_branches_with_environment(
+    commit_tool_result_branches(
         db,
-        CommitToolResultBranchesInput {
-            calling_task_id: inv.task_id.clone(),
-            function_call_node_id: inv.function_call_node_id,
-            function_call_id: FunctionCallId(id.into()),
-            tool_name: ToolName("exec_cmd".into()),
-            branches: vec![ToolResultBranch {
-                target: ToolResultBranchTarget::CallingTask,
-                output: json!("done"),
-                is_error,
-                user_messages: vec![],
-            }],
-            now: UnixTs(9),
-        },
-        &CommandEnvironmentCommit {
+        completion_input(inv, id, is_error),
+        &ToolResultCompletion::CommandEnvironment(CommandEnvironmentCommit {
             new_child_environment_mode: CommandEnvironmentMode::Shared,
             environment_id: env.environment_id,
             invocation: inv.clone(),
             expected_revision: env.revision,
             checkpoint: vec![1, 2, 3],
             base_checkpoint: vec![0],
-        },
+        }),
     )
 }
+fn completion_input(
+    inv: &CommandInvocationId,
+    id: &str,
+    is_error: bool,
+) -> CommitToolResultBranchesInput {
+    CommitToolResultBranchesInput {
+        calling_task_id: inv.task_id.clone(),
+        function_call_node_id: inv.function_call_node_id,
+        function_call_id: FunctionCallId(id.into()),
+        tool_name: ToolName("exec_cmd".into()),
+        branches: vec![ToolResultBranch {
+            target: ToolResultBranchTarget::CallingTask,
+            output: json!("done"),
+            is_error,
+            user_messages: vec![],
+        }],
+        now: UnixTs(9),
+    }
+}
+
 #[test]
 fn effect_and_saved_result_replay_once_and_reject_mismatch() {
     let db = database();
@@ -401,6 +409,7 @@ fn caller_scope_allows_direct_child_but_rejects_parent_grandchild_and_unrelated(
                 ],
                 now: UnixTs(3),
             },
+            &selvedge_domain_model::ToolResultCompletion::Ordinary,
         )
         .expect("valid command contract operation");
         child
@@ -477,7 +486,14 @@ fn caller_scope_allows_direct_child_but_rejects_parent_grandchild_and_unrelated(
 
 #[test]
 fn existing_admission_recovers_after_archive_and_child_batch_failure_rolls_back() {
-    let db = database();
+    let directory = tempfile::tempdir().expect("temporary database directory");
+    let path = directory.path().join("completion.sqlite");
+    let db = open_db(OpenDbOptions {
+        sqlite_path: path.to_string_lossy().into_owned(),
+        max_children_per_fork: 4,
+        max_task_descendants: 20,
+    })
+    .expect("open completion database");
     let task = root(&db, "root");
     let inv = invocation(&db, &task, "c1");
     let child = TaskId("child".into());
@@ -497,6 +513,17 @@ fn existing_admission_recovers_after_archive_and_child_batch_failure_rolls_back(
         read_command_operation(&db, &ctx).expect("valid command contract operation"),
         None
     );
+    create_pending_command_child(
+        &db,
+        &ctx,
+        child.clone(),
+        CommandEnvironmentMode::Shared,
+        vec!["queued child message".into()],
+        UnixTs(3),
+    )
+    .expect("create pending child");
+    transition_task_status(&db, &child, TaskLifecycleEvent::Archive, UnixTs(4))
+        .expect("archive pending child");
     transition_task_status(&db, &task, TaskLifecycleEvent::Archive, UnixTs(4))
         .expect("valid command contract operation");
     assert_eq!(
@@ -512,6 +539,28 @@ fn existing_admission_recovers_after_archive_and_child_batch_failure_rolls_back(
         &ToolName("exec_cmd".into()),
     )
     .expect("valid command contract operation");
+    let observer = rusqlite::Connection::open(&path).expect("open database observer");
+    observer
+        .execute_batch(
+            "CREATE TRIGGER archived_status_is_final BEFORE UPDATE OF task_status ON tasks
+        WHEN OLD.task_status='archived' AND NEW.task_status<>'archived'
+        BEGIN SELECT RAISE(ABORT,'archived task cannot become writable'); END;",
+        )
+        .expect("install archive invariant");
+    for target in [&task, &child] {
+        assert!(matches!(
+            append_user_message_and_move_cursor(&db, target, "rejected".into(), UnixTs(8)),
+            Err(DbError::InvalidTaskStatus {
+                status: TaskStatus::Archived
+            })
+        ));
+        assert!(matches!(
+            queue_user_input(&db, target, "rejected".into(), UnixTs(8)),
+            Err(DbError::InvalidTaskStatus {
+                status: TaskStatus::Archived
+            })
+        ));
+    }
     finish(&db, &inv, "c1", true).expect("valid command contract operation");
     assert_eq!(
         read_task_status(&db, &task).expect("valid command contract operation"),
@@ -524,6 +573,21 @@ fn existing_admission_recovers_after_archive_and_child_batch_failure_rolls_back(
         1
     );
     assert!(read_admitted_command_call(&db, &inv).is_err());
+    assert_eq!(
+        read_task_status(&db, &child).expect("child status"),
+        TaskStatus::Archived
+    );
+    assert!(!task_is_pending(&db, &child).expect("child completion"));
+    assert_eq!(
+        observer
+            .query_row(
+                "SELECT COUNT(*) FROM queued_user_inputs WHERE task_id=?1",
+                [&child.0],
+                |row| row.get::<_, i64>(0)
+            )
+            .expect("child queue"),
+        0
+    );
 }
 
 #[test]
@@ -748,4 +812,49 @@ fn own_reactivation_advances_uncontested_deferral_but_does_not_hide_external_con
             expected
         );
     }
+}
+
+#[test]
+fn incomplete_or_mismatched_completion_cannot_close_an_admitted_call() {
+    let db = database();
+    let task = root(&db, "root");
+    let inv = invocation(&db, &task, "call");
+    let environment = read_command_environment(&db, &task).expect("admitted environment");
+    let before = read_task_metadata(&db, &task).expect("task before rejected completions");
+    let valid = CommandEnvironmentCommit {
+        environment_id: environment.environment_id.clone(),
+        invocation: inv.clone(),
+        expected_revision: environment.revision,
+        checkpoint: vec![1],
+        base_checkpoint: vec![],
+        new_child_environment_mode: CommandEnvironmentMode::Shared,
+    };
+    let mut other_environment = valid.clone();
+    other_environment.environment_id = CommandEnvironmentId("unrelated".into());
+    let mut other_invocation = valid.clone();
+    other_invocation.invocation.function_call_node_id =
+        HistoryNodeId(inv.function_call_node_id.0 + 1);
+    let mut other_revision = valid;
+    other_revision.expected_revision += 1;
+    for completion in [
+        ToolResultCompletion::Ordinary,
+        ToolResultCompletion::CommandEnvironment(other_environment),
+        ToolResultCompletion::CommandEnvironment(other_invocation),
+        ToolResultCompletion::CommandEnvironment(other_revision),
+    ] {
+        assert!(matches!(
+            commit_tool_result_branches(&db, completion_input(&inv, "call", false), &completion),
+            Err(DbError::Constraint(_))
+        ));
+        assert_eq!(
+            read_task_metadata(&db, &task).expect("unchanged task"),
+            before
+        );
+        assert_eq!(
+            read_command_environment(&db, &task).expect("unchanged environment"),
+            environment
+        );
+        assert!(read_admitted_command_call(&db, &inv).is_ok());
+    }
+    finish(&db, &inv, "call", false).expect("valid completion still succeeds");
 }

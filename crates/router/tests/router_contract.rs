@@ -1565,7 +1565,7 @@ fn model_request(task_id: &str) -> ModelCallDispatchRequest {
 
 fn tool_result(task_id: &str) -> ToolExecutionResult {
     ToolExecutionResult {
-        prepared_environment: None,
+        completion: selvedge_command_model::ToolExecutionCompletion::ordinary(),
         task_id: TaskId(task_id.to_owned()),
         tool_execution_run_id: ToolExecutionRunId("tool-1".to_owned()),
         function_call_node_id: HistoryNodeId(1),
@@ -2068,7 +2068,7 @@ impl ToolExecutionSpawner for CompletingCommandSpawner {
         Ok(tokio::spawn(async move {
             let environment = selvedge_db::read_command_environment(&db, &request.task_id)
                 .expect("admitted environment");
-            let prepared = selvedge_command_model::PreparedCommandEnvironment::new(
+            let prepared = selvedge_command_model::ToolExecutionCompletion::command(
                 selvedge_domain_model::CommandEnvironmentCommit {
                     new_child_environment_mode:
                         selvedge_domain_model::CommandEnvironmentMode::Shared,
@@ -2084,7 +2084,7 @@ impl ToolExecutionSpawner for CompletingCommandSpawner {
                 .upgrade()
                 .expect("live router")
                 .send(RouterIngressMessage::Tool(ToolExecutionResult {
-                    prepared_environment: Some(prepared),
+                    completion: prepared,
                     task_id: request.task_id,
                     tool_execution_run_id: request.tool_execution_run_id,
                     function_call_node_id: request.function_call_node_id,

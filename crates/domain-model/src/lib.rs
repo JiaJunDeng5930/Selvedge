@@ -69,6 +69,14 @@ pub struct CommandEnvironmentCommit {
     pub base_checkpoint: Vec<u8>,
 }
 
+/// The durable effects that must commit atomically with a tool's output.
+/// Database admission and revision checks remain authoritative at commit time.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ToolResultCompletion {
+    Ordinary,
+    CommandEnvironment(CommandEnvironmentCommit),
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize)]
 pub enum TaskStatus {
     Active,

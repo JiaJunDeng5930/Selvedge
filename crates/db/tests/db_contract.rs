@@ -164,6 +164,7 @@ fn fork_one_child(
             ],
             now: UnixTs(now + 1),
         },
+        &selvedge_domain_model::ToolResultCompletion::Ordinary,
     )?;
     Ok(())
 }
@@ -539,6 +540,7 @@ fn non_archived_tasks_accept_runtime_commits_and_archived_tasks_reject_them() {
             }],
             now: UnixTs(13),
         },
+        &selvedge_domain_model::ToolResultCompletion::Ordinary,
     )
     .expect("commit stopped tool result");
     assert_eq!(
@@ -758,6 +760,7 @@ fn tool_result_commit_creates_sibling_branches_with_independent_cursors() {
             ],
             now: UnixTs(12),
         },
+        &selvedge_domain_model::ToolResultCompletion::Ordinary,
     )
     .expect("commit tool result branches");
     assert_eq!(
@@ -921,6 +924,7 @@ fn tool_result_commit_creates_sibling_branches_with_independent_cursors() {
             }],
             now: UnixTs(13),
         },
+        &selvedge_domain_model::ToolResultCompletion::Ordinary,
     );
     assert!(
         sibling_commit.is_ok(),
@@ -1357,6 +1361,7 @@ fn tool_result_branch_failure_rolls_back_tasks_edges_history_and_queue_drain() {
                 ],
                 now: UnixTs(13),
             },
+            &selvedge_domain_model::ToolResultCompletion::Ordinary,
         ),
         Err(DbError::Constraint(_))
     ));

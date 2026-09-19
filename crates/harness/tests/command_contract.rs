@@ -124,10 +124,10 @@ impl Fixture {
         result
     }
     fn commit(&self, result: ToolExecutionResult) {
-        let prepared = result
-            .prepared_environment
-            .as_ref()
-            .expect("prepared environment");
+        assert!(matches!(
+            result.completion.persistence(),
+            ToolResultCompletion::CommandEnvironment(_)
+        ));
         let input = CommitToolResultBranchesInput {
             calling_task_id: result.task_id.clone(),
             function_call_node_id: result.function_call_node_id,
@@ -152,7 +152,7 @@ impl Fixture {
                 })
                 .collect(),
         };
-        commit_tool_result_branches_with_environment(&self.db, input, &prepared.commit)
+        commit_tool_result_branches(&self.db, input, result.completion.persistence())
             .expect("atomically commit prepared environment");
     }
     async fn run(&self, task: &str, source: &str) -> Value {
@@ -516,7 +516,10 @@ async fn admitted_invocation_finalizes_even_when_its_tool_becomes_unavailable() 
     fixture.run("root", "let count=1").await;
     let request = fixture.request("root", EXEC_CMD_TOOL_NAME, json!({"code":"count=2"}));
     let first = fixture.execute(request.clone()).await;
-    assert!(first.prepared_environment.is_some());
+    assert!(matches!(
+        first.completion.persistence(),
+        ToolResultCompletion::CommandEnvironment(_)
+    ));
     drop(first);
     let tools = harness_tool_catalog(&Default::default())
         .into_iter()
@@ -536,4 +539,45 @@ async fn admitted_invocation_finalizes_even_when_its_tool_becomes_unavailable() 
     reconcile_task_tool_availability(&fixture.db, harness_tool_catalog(&Default::default()))
         .expect("restore tool availability");
     assert_eq!(fixture.run("root", "count").await, 1);
+}
+
+#[tokio::test]
+async fn script_reads_share_the_model_argument_contract() {
+    let fixture = Fixture::new();
+    let value = fixture.run("root", "({task:(await tasks.read({limit:100})).task_id, page:await tasks.logs({limit:1}), signature:kernel.describe().find(command => command.name === 'tasks.read').signature})").await;
+    assert_eq!(value["task"], "root");
+    assert!(value["page"]["nodes"].is_array());
+    assert_eq!(
+        value["signature"],
+        "tasks.read({task_id?, after_node_id?, limit?} = {}) -> Promise<Task>"
+    );
+
+    for (arguments, message) in [
+        (
+            json!({"limit":101}),
+            "argument 'limit' must be between 1 and 100",
+        ),
+        (json!({"limit":null}), "argument 'limit' must be an integer"),
+        (
+            json!({"task_id":null}),
+            "argument 'task_id' must be a string",
+        ),
+        (json!({"extra":1}), "unexpected argument 'extra'"),
+    ] {
+        let source = format!("[await tasks.read({arguments}), await tasks.logs({arguments})]");
+        let result = fixture
+            .execute(fixture.request("root", EXEC_CMD_TOOL_NAME, json!({"code": source})))
+            .await;
+        assert!(result.branches[0].is_error);
+        for diagnostic in result.branches[0].output["value"]
+            .as_array()
+            .expect("both read diagnostics")
+        {
+            assert_eq!(
+                diagnostic["error"]["message"],
+                format!("invalid_arguments: {message}")
+            );
+        }
+        fixture.commit(result);
+    }
 }

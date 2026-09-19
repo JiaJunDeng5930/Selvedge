@@ -464,6 +464,7 @@ impl TaskRuntimeActor {
                             }],
                             now: now(),
                         },
+                        &selvedge_domain_model::ToolResultCompletion::Ordinary,
                     ) {
                         return self.stop_with_db_error(error);
                     }
@@ -726,26 +727,7 @@ impl TaskRuntimeActor {
         let function_call_node_id = result.function_call_node_id;
         let function_call_id = result.function_call_id;
         let tool_name = result.tool_name;
-        let prepared_environment = result.prepared_environment;
-        if prepared_environment.is_none() {
-            let environment = match selvedge_db::read_command_environment(&self.db, &self.task_id) {
-                Ok(environment) => environment,
-                Err(error) => return self.stop_with_db_error(error),
-            };
-            if environment
-                .admitted_invocation
-                .as_ref()
-                .is_some_and(|invocation| {
-                    invocation.task_id == self.task_id
-                        && invocation.function_call_node_id == function_call_node_id
-                })
-            {
-                // Closing the outer call alone would strand its durable environment admission.
-                return self.stop_with_internal_error(
-                    "admitted command result has no prepared environment",
-                );
-            }
-        }
+        let completion = result.completion;
         let commit_input = CommitToolResultBranchesInput {
             calling_task_id: self.task_id.clone(),
             function_call_node_id,
@@ -770,14 +752,8 @@ impl TaskRuntimeActor {
                 .collect(),
             now: now(),
         };
-        let commit_result = match &prepared_environment {
-            Some(prepared) => selvedge_db::commit_tool_result_branches_with_environment(
-                &self.db,
-                commit_input,
-                &prepared.commit,
-            ),
-            None => commit_tool_result_branches(&self.db, commit_input),
-        };
+        let commit_result =
+            commit_tool_result_branches(&self.db, commit_input, completion.persistence());
         let commit_result = match commit_result {
             Err(DbError::TaskDescendantLimitExceeded { task_id, limit }) => {
                 let fallback = CommitToolResultBranchesInput {
@@ -793,14 +769,7 @@ impl TaskRuntimeActor {
                     }],
                     now: now(),
                 };
-                match &prepared_environment {
-                    Some(prepared) => selvedge_db::commit_tool_result_branches_with_environment(
-                        &self.db,
-                        fallback,
-                        &prepared.commit,
-                    ),
-                    None => commit_tool_result_branches(&self.db, fallback),
-                }
+                commit_tool_result_branches(&self.db, fallback, completion.persistence())
             }
             result => result,
         };
@@ -815,7 +784,7 @@ impl TaskRuntimeActor {
                 {
                     return true;
                 }
-                drop(prepared_environment);
+                drop(completion);
                 if self.recovering_command {
                     self.send_exit(TaskRuntimeExitReason::Shutdown);
                     return true;

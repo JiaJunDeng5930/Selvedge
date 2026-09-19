@@ -278,6 +278,17 @@ fn invalid_requests_are_rejected_without_backend_state() {
             "missing required argument 'child_count'",
         ),
         (
+            request(
+                FORK_TASK_TOOL_NAME,
+                vec![
+                    integer_argument("child_count", 0),
+                    ("environment".into(), Value::Null),
+                ],
+            ),
+            HarnessErrorCode::InvalidArguments,
+            "environment must be shared, copy, or new",
+        ),
+        (
             request(FORK_TASK_TOOL_NAME, vec![string_argument("extra", "value")]),
             HarnessErrorCode::InvalidArguments,
             "unexpected argument 'extra'",

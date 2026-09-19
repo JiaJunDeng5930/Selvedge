@@ -346,48 +346,19 @@ pub fn append_user_message_with_context(
             *result = serde_json::json!({"task_id":task.0,"disposition":"queued"});
             return Ok(());
         }
-        let row = read_task_in_connection(tx, task)?;
-        let status = row
-            .task_status
-            .transition(TaskLifecycleEvent::UserInput)
-            .ok_or(DbError::InvalidTaskStatus {
-                status: row.task_status,
-            })?;
-        let node = insert_history_node(
-            tx,
-            NewHistoryNode {
-                parent_node_id: Some(row.cursor_node_id),
-                content: NewHistoryNodeContent::Message(NewMessageNodeContent {
-                    message_role: MessageRole::User,
-                    message_text,
-                }),
-                created_at: now,
-            },
-        )?;
-        tx.execute("UPDATE tasks SET task_status=?1, cursor_node_id=?2, updated_at=?3, state_version=state_version+1 WHERE task_id=?4", params![task_status_to_db(status), node.0, now.0, task.0]).map_err(map_error)?;
+        let node = append_user_message_in_tx(tx, task, message_text, now)?;
         *result = serde_json::json!({"task_id":task.0,"disposition":"committed","node_id":node.0});
         Ok(())
     })
 }
 
 fn queue_input_in_tx(
-    tx: &Connection,
+    tx: &rusqlite::Transaction<'_>,
     task: &TaskId,
     message_text: String,
     now: UnixTs,
 ) -> Result<(), DbError> {
-    let row = read_task_in_connection(tx, task)?;
-    let status = row
-        .task_status
-        .transition(TaskLifecycleEvent::UserInput)
-        .ok_or(DbError::InvalidTaskStatus {
-            status: row.task_status,
-        })?;
-    tx.execute("INSERT INTO queued_user_inputs(task_id,seq_no,message_text,queued_at) SELECT ?1,COALESCE(MAX(seq_no),0)+1,?2,?3 FROM queued_user_inputs WHERE task_id=?1", params![task.0, message_text, now.0]).map_err(map_error)?;
-    if status != row.task_status {
-        tx.execute("UPDATE tasks SET task_status=?1, updated_at=?2, state_version=state_version+1 WHERE task_id=?3", params![task_status_to_db(status), now.0, task.0]).map_err(map_error)?;
-    }
-    Ok(())
+    queue_user_input_in_tx(tx, task, message_text, now).map(|_| ())
 }
 
 pub fn queue_user_input_with_context(
@@ -437,13 +408,7 @@ pub fn transition_task_status_with_context(
             tx.execute("INSERT INTO pending_command_lifecycle(task_id,call_node_id,task_status,base_state_version) VALUES(?1,?2,?3,?4) ON CONFLICT(task_id,call_node_id) DO UPDATE SET task_status=excluded.task_status", params![task.0, operation.id.invocation.function_call_node_id.0, task_status_to_db(status), u64_to_i64(pending.base_state_version)?]).map_err(map_error)?;
             *result = serde_json::json!({"task_id":task.0,"deferred":true,"task_status":task_status_to_db(status)});
         } else {
-            let status = row
-                .task_status
-                .transition(event)
-                .ok_or(DbError::InvalidTaskStatus {
-                    status: row.task_status,
-                })?;
-            tx.execute("UPDATE tasks SET task_status=?1, updated_at=?2, state_version=state_version+1 WHERE task_id=?3", params![task_status_to_db(status), now.0, task.0]).map_err(map_error)?;
+            transition_task_status_in_tx(tx, task, event, now)?;
         }
         Ok(())
     })
@@ -531,31 +496,117 @@ fn assign_final_environment(
     Ok(())
 }
 
-pub fn commit_tool_result_branches_with_environment(
+pub fn commit_tool_result_branches(
     db: &DbPool,
     input: CommitToolResultBranchesInput,
-    environment: &CommandEnvironmentCommit,
+    completion: &ToolResultCompletion,
 ) -> Result<CommitToolResultBranchesResult, DbError> {
     let mut connection = db.connection()?;
     let tx = connection
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(map_error)?;
-    if environment.invocation.task_id != input.calling_task_id
-        || environment.invocation.function_call_node_id != input.function_call_node_id
-    {
-        return Err(DbError::Constraint(
-            "environment commit differs from outer tool identity".into(),
-        ));
+    let result = match completion {
+        ToolResultCompletion::Ordinary => {
+            let environment = environment_in_tx(&tx, &input.calling_task_id)?;
+            if environment
+                .admitted_invocation
+                .as_ref()
+                .is_some_and(|invocation| {
+                    invocation.task_id == input.calling_task_id
+                        && invocation.function_call_node_id == input.function_call_node_id
+                })
+            {
+                return Err(DbError::Constraint(
+                    "admitted command requires command environment completion".into(),
+                ));
+            }
+            let permission = TaskHistoryWritePermission::ordinary(&tx, &input.calling_task_id)?;
+            commit_tool_result_branches_in_tx(&permission, input)?
+        }
+        ToolResultCompletion::CommandEnvironment(environment) => {
+            let admitted = AdmittedCommandCompletion::validate(&tx, &input, environment)?;
+            commit_command_completion_in_tx(&admitted, input, environment)?
+        }
+    };
+    tx.commit().map_err(map_error)?;
+    Ok(result)
+}
+
+/// Grants completion only for the admitted call and its recorded pending children,
+/// within the transaction that checked the current environment revision.
+struct AdmittedCommandCompletion<'tx, 'connection> {
+    tx: &'tx rusqlite::Transaction<'connection>,
+    invocation: CommandInvocationId,
+}
+
+impl<'tx, 'connection> AdmittedCommandCompletion<'tx, 'connection> {
+    fn validate(
+        tx: &'tx rusqlite::Transaction<'connection>,
+        input: &CommitToolResultBranchesInput,
+        environment: &CommandEnvironmentCommit,
+    ) -> Result<Self, DbError> {
+        if environment.invocation.task_id != input.calling_task_id
+            || environment.invocation.function_call_node_id != input.function_call_node_id
+        {
+            return Err(DbError::Constraint(
+                "environment commit differs from outer tool identity".into(),
+            ));
+        }
+        let row = environment_in_tx(tx, &input.calling_task_id)?;
+        if row.environment_id != environment.environment_id
+            || row.revision != environment.expected_revision
+            || row.admitted_invocation.as_ref() != Some(&environment.invocation)
+        {
+            return Err(DbError::Constraint(
+                "environment commit does not match admitted revision".into(),
+            ));
+        }
+        let caller = read_task_in_connection(tx, &input.calling_task_id)?;
+        ensure_current_path_contains_open_function_call(
+            tx,
+            caller.cursor_node_id.0,
+            &NewFunctionOutputNodeContent {
+                function_call_node_id: input.function_call_node_id,
+                function_call_id: input.function_call_id.clone(),
+                tool_name: input.tool_name.clone(),
+                output: Value::Null,
+                is_error: false,
+            },
+        )?;
+        Ok(Self {
+            tx,
+            invocation: environment.invocation.clone(),
+        })
     }
-    let row = environment_in_tx(&tx, &input.calling_task_id)?;
-    if row.environment_id != environment.environment_id
-        || row.revision != environment.expected_revision
-        || row.admitted_invocation.as_ref() != Some(&environment.invocation)
-    {
-        return Err(DbError::Constraint(
-            "environment commit does not match admitted revision".into(),
-        ));
+
+    fn history_permission(
+        &self,
+        task_id: &TaskId,
+    ) -> Result<TaskHistoryWritePermission<'tx, 'connection>, DbError> {
+        if task_id != &self.invocation.task_id {
+            let pending: bool = self.tx.query_row(
+                "SELECT EXISTS(SELECT 1 FROM pending_command_children WHERE child_task_id=?1 AND task_id=?2 AND call_node_id=?3)",
+                params![task_id.0, self.invocation.task_id.0, self.invocation.function_call_node_id.0], |row| row.get(0),
+            ).map_err(map_error)?;
+            if !pending {
+                return Err(DbError::Constraint(
+                    "task does not belong to admitted command completion".into(),
+                ));
+            }
+        }
+        Ok(TaskHistoryWritePermission {
+            tx: self.tx,
+            task_id: task_id.clone(),
+        })
     }
+}
+
+fn commit_command_completion_in_tx(
+    admitted: &AdmittedCommandCompletion<'_, '_>,
+    input: CommitToolResultBranchesInput,
+    environment: &CommandEnvironmentCommit,
+) -> Result<CommitToolResultBranchesResult, DbError> {
+    let tx = admitted.tx;
     let output = input
         .branches
         .iter()
@@ -582,26 +633,12 @@ pub fn commit_tool_result_branches_with_environment(
         .collect::<Result<_, _>>()
         .map_err(map_error)?;
     drop(pending);
-    // Only this admitted completion may write an archived caller after recovery.
-    let caller = read_task_in_connection(&tx, &input.calling_task_id)?;
-    if caller.task_status == TaskStatus::Archived {
-        tx.execute(
-            "UPDATE tasks SET task_status='stopped' WHERE task_id=?1",
-            [&input.calling_task_id.0],
-        )
-        .map_err(map_error)?;
-    }
-    let mut result = commit_tool_result_branches_in_tx(&tx, input)?;
-    if caller.task_status == TaskStatus::Archived {
-        tx.execute(
-            "UPDATE tasks SET task_status='archived' WHERE task_id=?1",
-            [&environment.invocation.task_id.0],
-        )
-        .map_err(map_error)?;
-    }
+    let caller = read_task_in_connection(tx, &input.calling_task_id)?;
+    let permission = admitted.history_permission(&input.calling_task_id)?;
+    let mut result = commit_tool_result_branches_in_tx(&permission, input)?;
     for child in &result.created_child_task_ids {
         assign_final_environment(
-            &tx,
+            tx,
             child,
             mode_to_db(environment.new_child_environment_mode),
             environment,
@@ -609,9 +646,9 @@ pub fn commit_tool_result_branches_with_environment(
     }
     for (child, mode) in children {
         let child = TaskId(child);
-        let cursor = read_task_in_connection(&tx, &child)?.cursor_node_id;
+        let cursor = read_task_in_connection(tx, &child)?.cursor_node_id;
         let new_cursor = insert_tool_result_branch_in_tx(
-            &tx,
+            tx,
             cursor,
             &identity,
             output.output.clone(),
@@ -619,25 +656,10 @@ pub fn commit_tool_result_branches_with_environment(
             vec![],
             now,
         )?;
-        // A pending child may already be archived; its outer call still must settle.
-        let status = read_task_in_connection(&tx, &child)?.task_status;
-        if status == TaskStatus::Archived {
-            tx.execute(
-                "UPDATE tasks SET task_status='stopped' WHERE task_id=?1",
-                [&child.0],
-            )
-            .map_err(map_error)?;
-        }
-        update_task_cursor_in_tx(&tx, &child, new_cursor, now)?;
-        append_all_queued_user_inputs_in_tx(&tx, &child, now)?;
-        if status == TaskStatus::Archived {
-            tx.execute(
-                "UPDATE tasks SET task_status='archived' WHERE task_id=?1",
-                [&child.0],
-            )
-            .map_err(map_error)?;
-        }
-        assign_final_environment(&tx, &child, &mode, environment)?;
+        let permission = admitted.history_permission(&child)?;
+        permission.update_cursor(new_cursor, now)?;
+        permission.append_queued_inputs(now)?;
+        assign_final_environment(tx, &child, &mode, environment)?;
         tx.execute(
             "DELETE FROM pending_command_children WHERE child_task_id=?1",
             [&child.0],
@@ -646,7 +668,7 @@ pub fn commit_tool_result_branches_with_environment(
         result.created_child_task_ids.push(child);
     }
     tx.execute("UPDATE command_environments SET checkpoint=?1,revision=revision+1,admitted_task_id=NULL,admitted_call_node_id=NULL WHERE environment_id=?2", params![environment.checkpoint,environment.environment_id.0]).map_err(map_error)?;
-    if let Some(plan) = read_pending_lifecycle(&tx, &environment.invocation)? {
+    if let Some(plan) = read_pending_lifecycle(tx, &environment.invocation)? {
         // Each deferred transition was validated when staged. A later committed
         // change supersedes that result, even if its status has returned to the original.
         if caller.state_version == plan.base_state_version {
@@ -661,7 +683,6 @@ pub fn commit_tool_result_branches_with_environment(
         ],
     )
     .map_err(map_error)?;
-    tx.commit().map_err(map_error)?;
     Ok(result)
 }
 

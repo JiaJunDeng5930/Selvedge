@@ -2,7 +2,7 @@
 
 <!-- selvedge-package-readme
 package: selvedge-core
-freshness_fingerprint: b9136e0bfcfa3df844341754d897cad37b3078c0
+freshness_fingerprint: f22e35a37db158e5964c611e6ac51ce180b0c6a3
 -->
 
 This crate runs one task runtime actor per non-archived task.
@@ -23,7 +23,7 @@ Recovered and initial cursor tool calls carry `Startup` execution mode; calls pr
 
 Task-originated input carries the trusted caller and optional durable operation identity. Core uses the scoped database transaction to commit both delivery and the saved operation result. Replaying a completed delivery does not drive another model turn.
 
-A matching tool execution result contains one or more history branches. A prepared command environment retains its exclusive lease through the transaction that commits the checkpoint, outputs, pending children, and deferred self lifecycle. Stale results and failed commits release the lease without installing prepared state. Core commits all branch outputs, child tasks, optional child messages, and cursor changes through one database transaction. The calling task always has exactly one branch; any committed child task ids are then sent to the router's ordinary runtime-ensure path. If that transaction rejects a fork because an ancestor reached its configured descendant limit, core commits one ordinary error output for the same call and continues the model loop. Runtime creation is derived from committed task state and is not part of the history transaction.
+A matching tool execution result contains one or more history branches. Its completion value retains any required lease while core passes its persistence description to the unified database completion boundary. The database validates command admission and commits checkpoint, outputs, pending children, and deferred self lifecycle together. Stale results and failed commits release the lease without installing prepared state. Core commits all branch outputs, child tasks, optional child messages, and cursor changes through that transaction. The calling task always has exactly one branch; any committed child task ids are then sent to the router's ordinary runtime-ensure path. If that transaction rejects a fork because an ancestor reached its configured descendant limit, core commits one error output with the same completion effects for the call and continues the model loop. Runtime creation is derived from committed task state and is not part of the history transaction.
 
 When a matching model reply arrives, the actor validates it against the exact manifest and callable subset stored for that model run rather than reading current availability again. A tool marked unavailable after request dispatch can therefore finish the already-issued turn. Core rejects duplicate call ids, tools absent from the frozen manifest, and tools excluded from that turn, but leaves JSON Schema interpretation to the selected executor.
 

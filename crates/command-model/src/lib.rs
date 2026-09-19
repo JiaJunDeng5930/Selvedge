@@ -16,6 +16,7 @@ use selvedge_domain_model::{
 
 pub use selvedge_domain_model::{
     CommandEnvironmentCommit, CommandOperationContext, TaskId, TaskStatus, ToolExecutionMode,
+    ToolResultCompletion,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -744,7 +745,7 @@ pub struct ToolExecutionRequest {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ToolExecutionResult {
-    pub prepared_environment: Option<PreparedCommandEnvironment>,
+    pub completion: ToolExecutionCompletion,
     pub task_id: TaskId,
     pub tool_execution_run_id: ToolExecutionRunId,
     pub function_call_node_id: HistoryNodeId,
@@ -934,24 +935,44 @@ fn validation_message(message: impl Into<String>) -> ModelCallError {
     }
 }
 
-/// Keeps environment serialization in force until the outer result transaction commits.
+/// Owns the lease required by a durable completion until its transaction finishes.
+/// Clones retain the same lease; the persistence view cannot release it.
 #[derive(Clone, Debug)]
-pub struct PreparedCommandEnvironment {
-    pub commit: CommandEnvironmentCommit,
-    lease: Arc<tokio::sync::OwnedMutexGuard<()>>,
+pub struct ToolExecutionCompletion {
+    persistence: ToolResultCompletion,
+    lease: Option<Arc<tokio::sync::OwnedMutexGuard<()>>>,
 }
 
-impl PreparedCommandEnvironment {
-    pub fn new(commit: CommandEnvironmentCommit, lease: tokio::sync::OwnedMutexGuard<()>) -> Self {
+impl ToolExecutionCompletion {
+    pub fn ordinary() -> Self {
         Self {
-            commit,
-            lease: Arc::new(lease),
+            persistence: ToolResultCompletion::Ordinary,
+            lease: None,
         }
+    }
+
+    pub fn command(
+        commit: CommandEnvironmentCommit,
+        lease: tokio::sync::OwnedMutexGuard<()>,
+    ) -> Self {
+        Self {
+            persistence: ToolResultCompletion::CommandEnvironment(commit),
+            lease: Some(Arc::new(lease)),
+        }
+    }
+
+    pub fn persistence(&self) -> &ToolResultCompletion {
+        &self.persistence
     }
 }
 
-impl PartialEq for PreparedCommandEnvironment {
+impl PartialEq for ToolExecutionCompletion {
     fn eq(&self, other: &Self) -> bool {
-        self.commit == other.commit && Arc::ptr_eq(&self.lease, &other.lease)
+        self.persistence == other.persistence
+            && match (&self.lease, &other.lease) {
+                (None, None) => true,
+                (Some(left), Some(right)) => Arc::ptr_eq(left, right),
+                _ => false,
+            }
     }
 }

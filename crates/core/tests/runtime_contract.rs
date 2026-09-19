@@ -425,7 +425,7 @@ async fn task_runtime_ensures_child_runtimes_after_branch_commit() {
     runtime
         .task_runtime_tx
         .send(TaskRuntimeCommand::ToolResult(ToolExecutionResult {
-            prepared_environment: None,
+            completion: selvedge_command_model::ToolExecutionCompletion::ordinary(),
             task_id: TaskId("task-1".to_owned()),
             tool_execution_run_id: request.tool_execution_run_id,
             function_call_node_id: request.function_call_node_id,
@@ -490,7 +490,7 @@ async fn task_runtime_commits_descendant_limit_as_a_model_visible_tool_error() {
     runtime
         .task_runtime_tx
         .send(TaskRuntimeCommand::ToolResult(ToolExecutionResult {
-            prepared_environment: None,
+            completion: selvedge_command_model::ToolExecutionCompletion::ordinary(),
             task_id: TaskId("task-1".to_owned()),
             tool_execution_run_id: request.tool_execution_run_id,
             function_call_node_id: request.function_call_node_id,
@@ -807,7 +807,7 @@ async fn stopped_runtime_commits_tool_result_without_calling_model_until_user_in
     runtime
         .task_runtime_tx
         .send(TaskRuntimeCommand::ToolResult(ToolExecutionResult {
-            prepared_environment: None,
+            completion: selvedge_command_model::ToolExecutionCompletion::ordinary(),
             task_id: TaskId("task-1".to_owned()),
             tool_execution_run_id: tool_request.tool_execution_run_id,
             function_call_node_id: tool_request.function_call_node_id,
@@ -986,7 +986,7 @@ async fn task_runtime_preserves_batched_tool_call_order_in_next_model_request() 
     runtime
         .task_runtime_tx
         .send(TaskRuntimeCommand::ToolResult(ToolExecutionResult {
-            prepared_environment: None,
+            completion: selvedge_command_model::ToolExecutionCompletion::ordinary(),
             task_id: TaskId("task-1".to_owned()),
             tool_execution_run_id: first_tool_request.tool_execution_run_id,
             function_call_node_id: first_tool_request.function_call_node_id,
@@ -1004,7 +1004,7 @@ async fn task_runtime_preserves_batched_tool_call_order_in_next_model_request() 
     runtime
         .task_runtime_tx
         .send(TaskRuntimeCommand::ToolResult(ToolExecutionResult {
-            prepared_environment: None,
+            completion: selvedge_command_model::ToolExecutionCompletion::ordinary(),
             task_id: TaskId("task-1".to_owned()),
             tool_execution_run_id: second_tool_request.tool_execution_run_id,
             function_call_node_id: second_tool_request.function_call_node_id,
@@ -1108,7 +1108,7 @@ async fn task_runtime_ignores_tool_result_with_mismatched_call_identity() {
     runtime
         .task_runtime_tx
         .send(TaskRuntimeCommand::ToolResult(ToolExecutionResult {
-            prepared_environment: None,
+            completion: selvedge_command_model::ToolExecutionCompletion::ordinary(),
             task_id: TaskId("task-1".to_owned()),
             tool_execution_run_id: first_tool_request.tool_execution_run_id.clone(),
             function_call_node_id: call_2_node_id,
@@ -1127,7 +1127,7 @@ async fn task_runtime_ignores_tool_result_with_mismatched_call_identity() {
     runtime
         .task_runtime_tx
         .send(TaskRuntimeCommand::ToolResult(ToolExecutionResult {
-            prepared_environment: None,
+            completion: selvedge_command_model::ToolExecutionCompletion::ordinary(),
             task_id: TaskId("task-1".to_owned()),
             tool_execution_run_id: first_tool_request.tool_execution_run_id,
             function_call_node_id: first_tool_request.function_call_node_id,
@@ -1276,7 +1276,7 @@ async fn task_runtime_validates_tool_reply_against_sent_callable_snapshot() {
     runtime
         .task_runtime_tx
         .send(TaskRuntimeCommand::ToolResult(ToolExecutionResult {
-            prepared_environment: None,
+            completion: selvedge_command_model::ToolExecutionCompletion::ordinary(),
             task_id: tool_request.task_id,
             tool_execution_run_id: tool_request.tool_execution_run_id,
             function_call_node_id: tool_request.function_call_node_id,
@@ -1674,7 +1674,7 @@ async fn task_runtime_preserves_model_wait_state_for_stray_tool_result() {
     runtime
         .task_runtime_tx
         .send(TaskRuntimeCommand::ToolResult(ToolExecutionResult {
-            prepared_environment: None,
+            completion: selvedge_command_model::ToolExecutionCompletion::ordinary(),
             task_id: TaskId("task-1".to_owned()),
             tool_execution_run_id: selvedge_command_model::ToolExecutionRunId("stray".to_owned()),
             function_call_node_id: selvedge_db::HistoryNodeId(1),
@@ -1968,6 +1968,7 @@ async fn child_runtime_synthesizes_unknown_outcome_for_inherited_open_call() {
             ],
             now: UnixTs(3),
         },
+        &selvedge_domain_model::ToolResultCompletion::Ordinary,
     )
     .expect("commit fork branches");
 
@@ -2070,6 +2071,7 @@ async fn task_runtime_allows_messages_between_tool_call_and_matching_output() {
             }],
             now: UnixTs(4),
         },
+        &selvedge_domain_model::ToolResultCompletion::Ordinary,
     )
     .expect("append function output");
     let (router_tx, mut router_rx) = tokio::sync::mpsc::unbounded_channel();
@@ -2467,7 +2469,7 @@ async fn admitted_inactive_command_finishes_checkpoint_then_exits_without_model_
             runtime.task_runtime_control.notify_status_changed();
         }
         let lease = Arc::new(tokio::sync::Mutex::new(()));
-        let prepared = selvedge_command_model::PreparedCommandEnvironment::new(
+        let prepared = selvedge_command_model::ToolExecutionCompletion::command(
             CommandEnvironmentCommit {
                 new_child_environment_mode: CommandEnvironmentMode::Shared,
                 environment_id: environment.environment_id,
@@ -2482,7 +2484,7 @@ async fn admitted_inactive_command_finishes_checkpoint_then_exits_without_model_
         runtime
             .task_runtime_tx
             .send(TaskRuntimeCommand::ToolResult(ToolExecutionResult {
-                prepared_environment: Some(prepared),
+                completion: prepared,
                 task_id: task.task_id.clone(),
                 tool_execution_run_id: request.tool_execution_run_id,
                 function_call_node_id: call,

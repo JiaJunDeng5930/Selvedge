@@ -125,7 +125,7 @@ This file is for coding agents working in this repository.
 |crates/events/src:{lib.rs}
 |crates/events/tests:{events_contract.rs}
 |crates/harness:{src/,tests/,Cargo.toml,README.md}
-|crates/harness/src:{command.rs,kernel.rs,lib.rs,mcp.rs,projection_tests.rs,protocol_tests.rs}
+|crates/harness/src:{arguments.rs,command.rs,kernel.rs,lib.rs,mcp.rs,projection_tests.rs,protocol_tests.rs}
 |crates/harness/tests:{fixtures/,bash_contract.rs,command_contract.rs,executor_contract.rs,mcp_contract.rs}
 |crates/harness/tests/fixtures:{mcp_server.sh}
 |crates/local-client:{src/,tests/,Cargo.toml,README.md}
@@ -162,7 +162,7 @@ This file is for coding agents working in this repository.
 |crates/web/src:{lib.rs}
 |crates/web/tests:{web_contract.rs}
 |docs:{adr/}
-|docs/adr:{0001-task-owned-tool-contracts.md,0002-open-tool-call-recovery.md,0003-persisted-task-lifecycle.md,0004-semantic-ownership-at-runtime-boundaries.md,0005-single-source-configuration-and-transport.md,0006-codex-chatgpt-protocol-alignment.md,0007-caller-owned-responses-websocket-connections.md,0008-script-command-environments.md}
+|docs/adr:{0001-task-owned-tool-contracts.md,0002-open-tool-call-recovery.md,0003-persisted-task-lifecycle.md,0004-semantic-ownership-at-runtime-boundaries.md,0005-single-source-configuration-and-transport.md,0006-codex-chatgpt-protocol-alignment.md,0007-caller-owned-responses-websocket-connections.md,0008-script-command-environments.md,0009-tool-completion-and-argument-contracts.md}
 |scripts:{bootstrap.sh,setup-worktree.sh}
 |src:{lib.rs,main.rs}
 |tests:{stdout_stderr_integration.rs}

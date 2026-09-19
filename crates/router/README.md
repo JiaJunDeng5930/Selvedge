@@ -2,7 +2,7 @@
 
 <!-- selvedge-package-readme
 package: selvedge-router
-freshness_fingerprint: 4c093fcdf0de7e79b8b81364781681fb41673783
+freshness_fingerprint: b64add587b0dbfb278b1ea5a4fbfae42bd1cf3ba
 -->
 
 This crate owns the Selvedge router actor.

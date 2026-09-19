@@ -2,7 +2,7 @@
 
 <!-- selvedge-package-readme
 package: selvedge-command-model
-freshness_fingerprint: 081b3aa9305f93209fdecb007690921c696a3c00
+freshness_fingerprint: 4b1f404f016d6467bb7ef607b9c77d9d15fe785e
 -->
 
 This crate defines the Selvedge command model API slice used to dispatch model calls, return completed API and branched tool outputs to the router, and describe router-mediated client event ingress.
@@ -32,7 +32,7 @@ Function-call history projections and tool execution requests carry their argume
 
 `RouterCommand::RecoverCommandInvocation` and its runtime counterpart identify a specific admitted invocation by task and durable function-call node. They request completion of that admission, including when ordinary task status would prevent execution; they do not authorize a new model run. Command-model validates nonempty task identifiers and required message text. The router, runtime, and database own admission, scope, and lifecycle checks.
 
-`ToolExecutionRequest.execution_mode` distinguishes ordinary dispatch from startup recovery. `ToolExecutionResult.prepared_environment` optionally carries a typed checkpoint commit and an owned environment mutex guard. Clones share the same guard, so the lease remains held until all prepared-result owners release it after the database transaction. Equality includes guard identity; checkpoint bytes alone do not imply the same lease.
+`ToolExecutionRequest.execution_mode` distinguishes ordinary dispatch from startup recovery. `ToolExecutionResult.completion` owns a `ToolExecutionCompletion`, constructed with `ordinary()` or `command(commit, lease)`. The latter retains the environment mutex guard while `persistence()` lends the durable completion description to the database. Clones share the guard, so the lease remains held until all result owners release it after the transaction. Equality includes guard identity; checkpoint bytes alone do not imply the same lease.
 
 ## Package State Machine
 
@@ -78,8 +78,8 @@ flowchart TD
   ShutdownFinished -->|later shutdown call observes stored result| ShutdownFinished
   TaskResponsePending -->|runtime reports a committed, replayed, or deferred operation result, or classified failure| TaskResponseSettled
   TaskResponsePending -->|unsettled responder is dropped| TaskResponseSettled
-  PreparedEnvironment[Prepared checkpoint retains lease]
-  ToolResult -->|result includes prepared environment| PreparedEnvironment
-  PreparedEnvironment -->|outer checkpoint transaction commits and all prepared owners release| Valid
-  ToolResult -->|every branch has a target, JSON output, error bit, and user messages| Valid
+  CommandCompletion[Command completion retains lease]
+  ToolResult -->|command constructor receives checkpoint and lease| CommandCompletion
+  CommandCompletion -->|outer transaction finishes and all completion owners release| Valid
+  ToolResult -->|ordinary constructor selects output-only completion| Valid
 ```

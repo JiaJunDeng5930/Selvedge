@@ -8,7 +8,7 @@ use std::sync::{
 };
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use selvedge_command_model::{PreparedCommandEnvironment, command_operation_response_channel};
+use selvedge_command_model::{ToolExecutionCompletion, command_operation_response_channel};
 use selvedge_db::*;
 use selvedge_domain_model::{CommandOperation, CommandOperationId};
 use selvedge_script_runtime::{
@@ -23,14 +23,14 @@ use crate::*;
 
 pub(crate) struct ExecutedTool {
     pub(crate) branches: Vec<ToolExecutionBranch>,
-    pub(crate) prepared_environment: Option<PreparedCommandEnvironment>,
+    pub(crate) completion: ToolExecutionCompletion,
 }
 
 impl ExecutedTool {
     pub(crate) fn ordinary(branches: Vec<ToolExecutionBranch>) -> Self {
         Self {
             branches,
-            prepared_environment: None,
+            completion: ToolExecutionCompletion::ordinary(),
         }
     }
 }
@@ -129,7 +129,7 @@ impl CommandEnvironmentManager {
         // can initialize. Empty base bytes are the database's lazy new-environment marker.
         Ok(ExecutedTool {
             branches: vec![calling_task_branch(error_json(&error), true)],
-            prepared_environment: Some(PreparedCommandEnvironment::new(
+            completion: ToolExecutionCompletion::command(
                 CommandEnvironmentCommit {
                     environment_id: row.environment_id,
                     invocation,
@@ -139,7 +139,7 @@ impl CommandEnvironmentManager {
                     new_child_environment_mode: CommandEnvironmentMode::Shared,
                 },
                 guard,
-            )),
+            ),
         })
     }
 
@@ -265,7 +265,7 @@ impl CommandEnvironmentManager {
         };
         Ok(ExecutedTool {
             branches,
-            prepared_environment: Some(PreparedCommandEnvironment::new(
+            completion: ToolExecutionCompletion::command(
                 CommandEnvironmentCommit {
                     environment_id: row.environment_id,
                     invocation,
@@ -275,7 +275,7 @@ impl CommandEnvironmentManager {
                     new_child_environment_mode: environment_mode,
                 },
                 guard,
-            )),
+            ),
         })
     }
 }
@@ -451,9 +451,7 @@ impl CommandHost {
             .collect();
         match command {
             KernelCommand::Read | KernelCommand::Logs => {
-                let HarnessInvocation::ReadTask(invocation) = parse_read_task(&arguments)? else {
-                    unreachable!()
-                };
+                let invocation = ReadTaskInvocation::parse(&arguments, &self.config)?;
                 let success =
                     execute_read_task(self.db.clone(), self.invocation.task_id.clone(), invocation)
                         .await?;
@@ -470,21 +468,15 @@ impl CommandHost {
                     .result)
             }
             KernelCommand::Send => {
-                let HarnessInvocation::SendMessageToTask(invocation) =
-                    parse_send_message_to_task(&arguments)?
-                else {
-                    unreachable!()
-                };
+                let invocation = SendMessageToTaskInvocation::parse(&arguments, &self.config)?;
                 send_task_input(invocation, self.router_tx.clone(), context.clone()).await
             }
             KernelCommand::Archive
             | KernelCommand::Freeze
             | KernelCommand::Unfreeze
             | KernelCommand::Stop => {
-                let args = Arguments::new(&arguments, &["task_id"])?;
-                let task_id = args
-                    .optional_nonempty_string("task_id")?
-                    .map(TaskId)
+                let task_id = OptionalTaskTarget::parse(&arguments, &self.config)?
+                    .task_id
                     .unwrap_or_else(|| self.invocation.task_id.clone());
                 let event = match command {
                     KernelCommand::Archive => TaskLifecycleEvent::Archive,
@@ -496,10 +488,7 @@ impl CommandHost {
                 change_task_status(task_id, event, self.router_tx.clone(), context.clone()).await
             }
             KernelCommand::Fork => {
-                let HarnessInvocation::ForkTask(fork) = parse_fork_task(&arguments, &self.config)?
-                else {
-                    unreachable!()
-                };
+                let fork = ForkTaskInvocation::parse(&arguments, &self.config)?;
                 let children = (0..fork.child_count)
                     .map(|index| {
                         (
@@ -535,22 +524,13 @@ impl CommandHost {
         // Validate before durable admission; once admitted, any crash leaves an unknown
         // external outcome, never a license to execute shell or filesystem effects twice.
         let bash = if command == KernelCommand::Bash {
-            let HarnessInvocation::Bash(bash) = parse_bash(arguments)? else {
-                unreachable!()
-            };
-            Some(bash)
+            Some(BashInvocation::parse(arguments, &self.config)?)
         } else {
             None
         };
         let write = if command == KernelCommand::WriteFile {
-            let args = Arguments::new(arguments, &["path", "content"])?;
-            let path = args.required_nonempty_string("path")?;
-            let content = arguments
-                .get("content")
-                .and_then(Value::as_str)
-                .ok_or_else(|| HarnessError::invalid_arguments("content must be a string"))?
-                .to_owned();
-            Some((path, content))
+            let write = WriteFileArguments::parse(arguments, &self.config)?;
+            Some((write.path, write.content))
         } else {
             None
         };
@@ -634,20 +614,6 @@ pub(crate) async fn change_task_status(
         .await
         .map_err(|_| storage_message("task status response cancelled"))?
         .map_err(map_task_command_error)
-}
-
-pub(crate) fn parse_environment_mode(
-    value: Option<&Value>,
-) -> Result<CommandEnvironmentMode, HarnessError> {
-    match value {
-        None => Ok(CommandEnvironmentMode::Shared),
-        Some(Value::String(value)) if value == "shared" => Ok(CommandEnvironmentMode::Shared),
-        Some(Value::String(value)) if value == "copy" => Ok(CommandEnvironmentMode::Copy),
-        Some(Value::String(value)) if value == "new" => Ok(CommandEnvironmentMode::New),
-        _ => Err(HarnessError::invalid_arguments(
-            "environment must be shared, copy, or new",
-        )),
-    }
 }
 
 fn load_module(specifier: &str, referrer: &str) -> Result<(String, String), String> {
@@ -789,10 +755,11 @@ mod tests {
         .await
         .expect("prepare recovery error without engine");
         assert!(result.branches[0].is_error);
-        let prepared = result
-            .prepared_environment
-            .expect("retain environment lease for finalization");
-        commit_tool_result_branches_with_environment(
+        assert!(matches!(
+            result.completion.persistence(),
+            ToolResultCompletion::CommandEnvironment(_)
+        ));
+        commit_tool_result_branches(
             &db,
             CommitToolResultBranchesInput {
                 calling_task_id: task_id.clone(),
@@ -807,7 +774,7 @@ mod tests {
                     user_messages: vec![],
                 }],
             },
-            &prepared.commit,
+            result.completion.persistence(),
         )
         .expect("finalize interrupted invocation without an engine");
         assert!(
