@@ -2,20 +2,28 @@
 
 <!-- selvedge-package-readme
 package: selvedge-harness
-freshness_fingerprint: d7061b41b9e65459c8a6f4a1440704c450b2b742
+freshness_fingerprint: 722bef5e4cc958c46fcc3e5f2a5a1c5064cd66b1
 -->
 
 This crate implements Selvedge task self-orchestration, bounded Bash command execution, and stdio MCP client execution for model tool calls.
 
-Use it for the five harness tool manifests, complete JSON input schemas, typed invocation parsing from JSON objects, argument validation, SQLite-backed task reads with active, frozen, stopped, or archived status, router-mediated task mutations, non-interactive Bash commands, MCP discovery and calls, stable JSON output, and the production `ToolExecutionSpawner`.
+Use it for the six harness tool manifests, complete JSON input schemas, typed invocation parsing from JSON objects, argument validation, SQLite-backed task reads with active, frozen, stopped, or archived status, router-mediated task mutations, non-interactive Bash commands, MCP discovery and calls, stable JSON output, and the production `ToolExecutionSpawner`.
 
 Calling task identity and complete function-call correlation come from `ToolExecutionRequest`, not model arguments. SQLite reads run on Tokio's blocking pool. Send and archive wait for typed router responders, so enqueueing a command is never reported as business success.
 
-One finite built-in tool definition supplies the wire name, schema, argument parser, and recovery policy through exhaustive enum dispatch. Each catalog entry carries a recovery policy that is frozen into the task tool contract. `fork_task` and `read_task` are retry-safe because they are side-effect free or commit their effects atomically with their output. `send_message_to_task`, `archive_task`, and `bash` are not automatically retried when an open call has no committed output, because the call may have been interrupted after taking effect or inherited into a fork branch without being executed there. Discovered MCP tools use the same conservative policy because their effect semantics are not known locally.
+One finite built-in tool definition supplies the wire name, schema, argument parser, and recovery policy through exhaustive enum dispatch. Each catalog entry carries a recovery policy that is frozen into the task tool contract. `fork_task`, `read_task`, and `exec_cmd` are retry-safe because they are side-effect free or commit their effects atomically with their output. `send_message_to_task`, `archive_task`, and `bash` are not automatically retried when an open call has no committed output, because the call may have been interrupted after taking effect or inherited into a fork branch without being executed there. Discovered MCP tools use the same conservative policy because their effect semantics are not known locally.
+
+`exec_cmd` accepts ordinary JavaScript in `code`. It preserves evaluated variables, closures and modules through owned heap checkpoints. `kernel.describe()` lists the script command names, signatures and documentation; `environment.names()` discovers stored bindings, `modules.list()` and `modules.source()` inspect extensions, and functions retain their `toString()` source; `tasks.read` and `tasks.logs` read state/history, `tasks.send` and `tasks.fork` manage direct children, and task lifecycle commands enforce the same self/direct-child scope in the database transaction. Task identity is rebound for each invocation, including async continuations and copied functions. CommonJS-style modules load local UTF-8 source through a journaled host observation, without ambient process or filesystem-write access.
+
+One `CommandEnvironmentManager` is shared by the server's tool executor. Both `exec_cmd` and ordinary `fork_task` acquire the referenced environment's exclusive lease and keep it inside `PreparedCommandEnvironment` until core atomically commits the checkpoint and outer output. Fork's `environment` is `shared` by default, `copy` for independent state, or `new` for base capabilities. Script-created children remain durable but cannot execute until outer completion; their final copy includes changes made after the fork call. An interrupted admitted predecessor is explicitly recovered before another task can use its environment.
+
+Nested host operations use the durable outer call and a runtime-assigned ordinal. Completed results, reads and module sources are replayed; command or argument mismatches poison the invocation, and skipping an existing operation prefix also retains the old committed checkpoint. Native JavaScript nondeterminism is permitted; replay does not claim to reconstruct arbitrary executions exactly. Ordinary JavaScript exceptions commit the settled state; engine failures and replay mismatches finalize the outer error while retaining the prior state. Cancellation leaves the admission available for recovery. If a previously admitted tool becomes unavailable or the engine cannot initialize, the executor still returns the old checkpoint with its lease so core can finalize the error and publish pending children.
+
+`tools.exec_bash` and `tools.write_file` journal admission before external effects. Startup reuses completed results and returns ordinary error diagnostics for new external effects; an interrupted admitted external operation reports an unknown outcome without being repeated. Startup still permits scoped, journaled task operations. Host error diagnostics mark the outer output as an error even if JavaScript does not inspect them. Self lifecycle changes are deferred until the outer command commits.
 
 `McpConnectionSet` starts each configured command in its own process group, completes MCP initialization, and consumes every page from `tools/list`. Each incoming JSON-RPC frame is limited to 4 MiB, and discovery rejects a complete catalog above 1024 tools or 4 MiB of serialized tool definitions. A discovered tool becomes `mcp__<normalized server id>__<normalized remote name>` only when that name is valid and unique and the tool does not require MCP task-mode execution. Missing descriptions receive a stable route-derived description so every definition satisfies the durable task contract.
 
-The production `ToolExecutor` reads each call's task-owned execution source and limits before dispatch. An unavailable tool fails before execution. Harness routes use the five built-in implementations; MCP routes use the discovered server connection and stored remote tool name under that server's timeout. Connections are shared across concurrent calls and retained separately from their cloneable peers so shutdown can close each child service exactly once. Shutdown terminates the original server process group and reaps the direct child, which removes descendants that remain in that group. Preventing a process from voluntarily changing its session or process group requires containment from the external execution environment. A complete MCP `CallToolResult` remains arbitrary JSON in the ordinary calling-task branch, and `isError: true` marks that branch as an error without rewriting the remote result.
+The production `ToolExecutor` reads each call's task-owned execution source and limits before dispatch. An unavailable tool fails before execution. Harness routes use the six built-in implementations; MCP routes use the discovered server connection and stored remote tool name under that server's timeout. Connections are shared across concurrent calls and retained separately from their cloneable peers so shutdown can close each child service exactly once. Shutdown terminates the original server process group and reaps the direct child, which removes descendants that remain in that group. Preventing a process from voluntarily changing its session or process group requires containment from the external execution environment. A complete MCP `CallToolResult` remains arbitrary JSON in the ordinary calling-task branch, and `isError: true` marks that branch as an error without rewriting the remote result.
 
 `fork_task` accepts `child_count` from 1 through `HarnessConfig::max_children_per_fork` and an optional `messages` string array of the same length. It creates one calling-task branch with JSON number `0` and one new-child branch per requested child with JSON numbers `1` through `child_count`; each aligned initial message is attached to its child branch and is not part of the branch output. Branch-count arithmetic and allocation fail as an ordinary `resource_exhausted` tool result when the configured request cannot fit on the current platform; the executor does not impose a second limit beyond configuration. The executor generates child task ids only. Core owns the later transactional branch commit and runtime startup, while the database enforces the configured complete-descendant limit.
 
@@ -40,6 +48,9 @@ flowchart TD
   Select{harness tool name}
   Validate[Validate the JSON argument object]
   Invocation[Build typed harness invocation]
+  Lease[Acquire shared environment lease and recover any admitted predecessor]
+  Script[Restore checkpoint and evaluate script with invocation host]
+  Prepared[Return checkpoint and lease for atomic core commit]
   Fork[Generate child ids and numbered branches]
   Read[Read SQLite snapshot on blocking pool]
   Mutate[Send router mutation and wait for responder]
@@ -64,12 +75,17 @@ flowchart TD
   Route -->|route storage read fails| Failure
   Source -->|route kind is Harness| Select
   Source -->|route kind is MCP| McpRoute
-  Select -->|tool name is one of the five harness names| Validate
+  Select -->|tool name is one of the six harness names| Validate
   Select -->|tool name is not a harness name| Unknown
   Validate -->|allowed keys, required values, types, and semantic ranges hold| Invocation
   Validate -->|an argument rule fails| Invalid
   Invocation -->|invocation is read_task| Read
-  Invocation -->|invocation is fork| Fork
+  Invocation -->|invocation is fork or exec_cmd| Lease
+  Lease -->|fork owns the environment lease| Fork
+  Lease -->|exec_cmd owns the environment lease| Script
+  Script -->|evaluation settles or fails with prior state retained| Prepared
+  Fork -->|branches and selected environment mode are prepared| Prepared
+  Prepared -->|lease accompanies the terminal result until core commit| Result
   Invocation -->|invocation is send or archive| Mutate
   Invocation -->|invocation is bash| Bash
   Read -->|SQLite read completes| Outcome
@@ -84,7 +100,6 @@ flowchart TD
   McpCall -->|remote CallToolResult arrives| Result
   McpCall -->|protocol, transport, or timeout fails| Failure
   Panic -->|supervisor catches the unwind| Failure
-  Fork -->|calling branch and all requested child branches are built| Result
   Invalid -->|validation error is terminal| Failure
   Unknown -->|unknown tool error is terminal| Failure
   Outcome -->|outcome is successful| Success

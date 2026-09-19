@@ -79,7 +79,7 @@ This file is for coding agents working in this repository.
 |.codex/environments:{environment.toml}
 |.github:{workflows/}
 |.github/workflows:{ci.yml}
-|crates:{api/,chatgpt-api/,chatgpt-auth/,chatgpt-login/,client-sync/,client/,command-model/,config-model/,config/,core/,db/,domain-model/,events/,harness/,local-client/,local-protocol/,logging/,model-credentials/,model-providers/,router/,server/,task-runtime-factory/,test-support/,tui/,web/}
+|crates:{api/,chatgpt-api/,chatgpt-auth/,chatgpt-login/,client-sync/,client/,command-model/,config-model/,config/,core/,db/,domain-model/,events/,harness/,local-client/,local-protocol/,logging/,model-credentials/,model-providers/,router/,script-runtime/,server/,task-runtime-factory/,test-support/,tui/,web/}
 |crates/api:{src/,tests/,Cargo.toml,README.md}
 |crates/api/src:{lib.rs}
 |crates/api/tests:{api_contract.rs}
@@ -116,8 +116,8 @@ This file is for coding agents working in this repository.
 |crates/core/src:{lib.rs}
 |crates/core/tests:{runtime_contract.rs}
 |crates/db:{src/,tests/,Cargo.toml,README.md}
-|crates/db/src:{lib.rs,schema.sql}
-|crates/db/tests:{db_contract.rs}
+|crates/db/src:{command.rs,lib.rs,schema.sql}
+|crates/db/tests:{command_contract.rs,db_contract.rs}
 |crates/domain-model:{src/,tests/,Cargo.toml,README.md}
 |crates/domain-model/src:{lib.rs}
 |crates/domain-model/tests:{domain_contract.rs}
@@ -125,8 +125,8 @@ This file is for coding agents working in this repository.
 |crates/events/src:{lib.rs}
 |crates/events/tests:{events_contract.rs}
 |crates/harness:{src/,tests/,Cargo.toml,README.md}
-|crates/harness/src:{lib.rs,mcp.rs,projection_tests.rs,protocol_tests.rs}
-|crates/harness/tests:{fixtures/,bash_contract.rs,executor_contract.rs,mcp_contract.rs}
+|crates/harness/src:{command.rs,kernel.rs,lib.rs,mcp.rs,projection_tests.rs,protocol_tests.rs}
+|crates/harness/tests:{fixtures/,bash_contract.rs,command_contract.rs,executor_contract.rs,mcp_contract.rs}
 |crates/harness/tests/fixtures:{mcp_server.sh}
 |crates/local-client:{src/,tests/,Cargo.toml,README.md}
 |crates/local-client/src:{lib.rs}
@@ -145,6 +145,9 @@ This file is for coding agents working in this repository.
 |crates/router:{src/,tests/,Cargo.toml,README.md}
 |crates/router/src:{lib.rs}
 |crates/router/tests:{router_contract.rs}
+|crates/script-runtime:{src/,tests/,Cargo.toml,README.md}
+|crates/script-runtime/src:{checkpoint.rs,engine.rs,environment.js,lib.rs,worker.rs}
+|crates/script-runtime/tests:{runtime_contract.rs}
 |crates/server:{src/,tests/,Cargo.toml,README.md}
 |crates/server/src:{command.rs,lib.rs}
 |crates/server/tests:{server_contract.rs}
@@ -159,7 +162,7 @@ This file is for coding agents working in this repository.
 |crates/web/src:{lib.rs}
 |crates/web/tests:{web_contract.rs}
 |docs:{adr/}
-|docs/adr:{0001-task-owned-tool-contracts.md,0002-open-tool-call-recovery.md,0003-persisted-task-lifecycle.md,0004-semantic-ownership-at-runtime-boundaries.md,0005-single-source-configuration-and-transport.md,0006-codex-chatgpt-protocol-alignment.md,0007-caller-owned-responses-websocket-connections.md}
+|docs/adr:{0001-task-owned-tool-contracts.md,0002-open-tool-call-recovery.md,0003-persisted-task-lifecycle.md,0004-semantic-ownership-at-runtime-boundaries.md,0005-single-source-configuration-and-transport.md,0006-codex-chatgpt-protocol-alignment.md,0007-caller-owned-responses-websocket-connections.md,0008-script-command-environments.md}
 |scripts:{bootstrap.sh,setup-worktree.sh}
 |src:{lib.rs,main.rs}
 |tests:{stdout_stderr_integration.rs}

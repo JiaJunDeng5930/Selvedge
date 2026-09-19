@@ -2,12 +2,12 @@
 
 <!-- selvedge-package-readme
 package: selvedge-db
-freshness_fingerprint: ce9e99021a56647fd338a83211547be36dc17193
+freshness_fingerprint: 936d7d10bfa150a5fc763d422a2363797919fa27
 -->
 
 This crate owns SQLite persistence for router-mediated Selvedge tasks.
 
-Use it to create and open schema-v11 SQLite databases, create tasks with frozen tool contracts, reconcile task-local tool availability, atomically commit tool-result branches, persist task lifecycle transitions, queue user inputs, and read bounded task snapshots. Nonempty databases must match schema v11 exactly.
+Use it to create and open schema-v12 SQLite databases, create tasks with frozen tool contracts, reconcile task-local tool availability, atomically commit tool-result branches, persist task lifecycle transitions, queue user inputs, and read bounded task snapshots. Nonempty databases must match schema v12 exactly.
 
 This crate is for SQLite persistence only. Runtime wait state, provider calls, tool execution, router registries, and event delivery live in other crates.
 
@@ -32,6 +32,16 @@ Resource boundaries:
 
 Public transition writes keep cursor movement atomic with the history append they perform: user message commit, model reply with tool calls, assistant reply with queued-input drain, tool-result branch commit, queued input promotion, queue input, and archive.
 
+## Command environments and durable operations
+
+Tasks reference independently owned command environments. Root environments begin with an empty checkpoint; the harness installs base capabilities when restoring that placeholder. Ordinary child branches share their caller environment. Prepared command completion atomically commits the checkpoint revision, outer outputs, child environment choices, queued messages, and deferred self lifecycle changes. Copy forks receive the completed checkpoint; new forks receive the base checkpoint.
+
+An admission belongs to the durable pair of task ID and function-call node ID. A different invocation receives `CommandEnvironmentBusy` with its predecessor identity. `list_admitted_command_invocations` enumerates admissions independently of task lifecycle, so startup can recover frozen, stopped, or archived owners before their pending children can run. Only an already admitted call may finish after its caller has been archived. Pending children are readable and accept scoped messages, but runtime listing and loading exclude them until their outer call commits. Failure before that transaction retains the admission and pending children for recovery.
+
+Every operation journal entry validates its command name and structural JSON arguments before reusing its saved result. Scoped mutation APIs check self or direct-child permission and save the mutation and result in one transaction. Caller-only contexts preserve ordinary tools; clients retain the existing unscoped APIs. Startup execution permits task commands but rejects new external shell or filesystem effects. External operations persist admission before execution and completion separately; an unfinished admission has an unknown outcome and cannot be executed again. Reads and module-source observations reuse saved results. The replay length is the largest recorded ordinal plus one, including gaps.
+
+Self lifecycle commands return `deferred: true` and store the resulting status with the task state version at first deferral. Each subsequent command validates its transition against that staged status. At completion, the validated result applies only if the caller state version still matches; a later committed task change supersedes it, including changes that return to the original status. A journaled mutation by the same invocation advances an uncontested baseline together with its effect; it never advances a baseline already superseded by another committed change. The outer output, checkpoint, and pending children still finalize when the deferred result is superseded. Task reads report committed status until completion. `validate_command_task_scope` provides a read-only permission check before runtime activation; mutation APIs repeat the permission check inside their write transaction.
+
 ## Package State Machine
 
 The diagram records the package-level observable states and transition paths. Each edge label names the concrete condition checked at this package boundary.
@@ -41,7 +51,7 @@ flowchart TD
   Start([database API call])
   Open[Open SQLite database]
   Schema{stored schema state}
-  Initialize[Create schema v11]
+  Initialize[Create schema v12]
   SnapshotTx[Start read_task transaction]
   SnapshotValidate[Validate task, limit, and after node]
   SnapshotPage[Read metadata and cursor-path page]
@@ -55,13 +65,23 @@ flowchart TD
   ValidationError[Return invalid task, cursor, tool contract, availability, or state error]
   CommitError[Return commit database error]
 
+  Admission[Command invocation admitted]
+  Journal[Command operation saved]
+  PendingChild[Child awaits outer completion]
+  Prepared[Environment checkpoint prepared]
+  Start -->|command call is open and environment has no different admission| Admission
+  Admission -->|operation identity matches or scoped effect and saved result commit together| Journal
+  Journal -->|fork creates children within descendant limits| PendingChild
+  Admission -->|runtime settles and retains environment lease| Prepared
+  PendingChild -->|outer output and environment commit atomically| Commit
+  Prepared -->|admitted identity and checkpoint revision match| Commit
   Start -->|open_db is called| Open
   Open -->|database has no application tables| Initialize
   Open -->|database has application tables and schema metadata is readable| Schema
   Open -->|SQLite open or schema metadata read fails| OpenError
-  Schema -->|stored version and all schema objects match task-lifecycle-v11| Return
+  Schema -->|stored version and all schema objects match command-environments-v12| Return
   Schema -->|stored version or schema objects differ| OpenError
-  Initialize -->|schema-v11 transaction commits| Return
+  Initialize -->|schema-v12 transaction commits| Return
   Initialize -->|schema creation fails| OpenError
   Start -->|read_task is called with open connection| SnapshotTx
   SnapshotTx -->|transaction begins| SnapshotValidate

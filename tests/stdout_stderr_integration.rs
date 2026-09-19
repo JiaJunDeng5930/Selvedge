@@ -189,7 +189,14 @@ fn spawn_server_until(home: &std::path::Path, ready: impl Fn(u16) -> bool) -> st
             .stderr(Stdio::piped());
         drop(candidate);
         let mut child = command.spawn().expect("spawn server");
-        let deadline = Instant::now() + Duration::from_secs(5);
+        let started = Instant::now();
+        // Newly linked macOS debug binaries containing static V8 can spend more than
+        // five seconds in dyld before Rust main. Keep that loader allowance separate
+        // from the five-second SIGINT shutdown contract below.
+        let startup_budget = Duration::from_secs(if cfg!(target_os = "macos") { 15 } else { 5 });
+        let deadline = started + startup_budget;
+        let mut startup_timeout = false;
+        let mut startup_files = Vec::new();
         loop {
             if child.try_wait().expect("poll server").is_some() {
                 break;
@@ -198,7 +205,24 @@ fn spawn_server_until(home: &std::path::Path, ready: impl Fn(u16) -> bool) -> st
                 return child;
             }
             if Instant::now() >= deadline {
-                let _ = child.kill();
+                startup_timeout = true;
+                startup_files = std::fs::read_dir(home)
+                    .expect("inspect unsuccessful startup")
+                    .map(|entry| entry.expect("startup file").file_name())
+                    .collect();
+                // Give startup cancellation its normal cleanup path before forcing exit;
+                // MCP descendants otherwise keep the stderr pipe open after server SIGKILL.
+                let _ = Command::new("kill")
+                    .args(["-INT", &child.id().to_string()])
+                    .status();
+                let cleanup_deadline = Instant::now() + Duration::from_secs(5);
+                while child.try_wait().expect("poll startup cleanup").is_none() {
+                    if Instant::now() >= cleanup_deadline {
+                        let _ = child.kill();
+                        break;
+                    }
+                    std::thread::sleep(Duration::from_millis(10));
+                }
                 break;
             }
             std::thread::sleep(Duration::from_millis(10));
@@ -211,7 +235,9 @@ fn spawn_server_until(home: &std::path::Path, ready: impl Fn(u16) -> bool) -> st
             && (stderr.contains("os error 48") || stderr.contains("os error 98"));
         assert!(
             address_in_use && attempt < 3,
-            "server did not reach expected startup state: {stderr}"
+            "server did not reach expected startup state: status={}, timeout={startup_timeout}, elapsed={:?}, files={startup_files:?}, stderr={stderr}",
+            output.status,
+            started.elapsed()
         );
     }
     unreachable!("attempt limit returns or reports failure")

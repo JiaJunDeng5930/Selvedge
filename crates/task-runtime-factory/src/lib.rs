@@ -10,6 +10,7 @@ use selvedge_db::{DbError, DbPool, TaskId, list_runtime_tasks, read_task_metadat
 pub enum RuntimeCreationError {
     TaskMissing,
     TaskArchived,
+    TaskPending,
     DbReadFailed(String),
     CoreSpawnFailed(String),
 }
@@ -19,6 +20,7 @@ impl std::fmt::Display for RuntimeCreationError {
         match self {
             Self::TaskMissing => f.write_str("task is missing"),
             Self::TaskArchived => f.write_str("task is archived"),
+            Self::TaskPending => f.write_str("task awaits its enclosing command invocation"),
             Self::DbReadFailed(message) | Self::CoreSpawnFailed(message) => f.write_str(message),
         }
     }
@@ -38,10 +40,24 @@ pub fn create_task_runtime(
     task_id: TaskId,
 ) -> Result<SpawnedTaskRuntime, RuntimeCreationError> {
     let task = read_task_metadata(db, &task_id).map_err(map_db_error)?;
+    if selvedge_db::task_is_pending(db, &task_id).map_err(map_db_error)? {
+        return Err(RuntimeCreationError::TaskPending);
+    }
     if !task.task_status.has_runtime() {
         return Err(RuntimeCreationError::TaskArchived);
     }
     spawn_task_runtime(db, router_tx, core_spawn_deps, task_id)
+}
+
+/// Recover only the durable admitted invocation, including one owned by an archived task.
+pub fn create_command_recovery_runtime(
+    db: &DbPool,
+    router_tx: &RouterIngressWeakSender,
+    core_spawn_deps: &TaskRuntimeSpawnDeps,
+    invocation: &selvedge_db::CommandInvocationId,
+) -> Result<SpawnedTaskRuntime, RuntimeCreationError> {
+    selvedge_db::read_admitted_command_call(db, invocation).map_err(map_db_error)?;
+    spawn_task_runtime(db, router_tx, core_spawn_deps, invocation.task_id.clone())
 }
 
 pub fn recover_task_runtimes(
@@ -56,7 +72,9 @@ pub fn recover_task_runtimes(
         failed: Vec::new(),
     };
     for task in tasks {
-        if live_task_ids.contains(&task.task_id) {
+        if live_task_ids.contains(&task.task_id)
+            || selvedge_db::task_is_pending(db, &task.task_id).map_err(map_db_error)?
+        {
             continue;
         }
         match spawn_task_runtime(db, router_tx, core_spawn_deps, task.task_id.clone()) {

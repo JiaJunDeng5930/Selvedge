@@ -2,7 +2,7 @@
 
 <!-- selvedge-package-readme
 package: selvedge-domain-model
-freshness_fingerprint: 261553225476271e5dce8a65f52822357cf7e28a
+freshness_fingerprint: 636e7a3559eb5d1dd3dd0b30f7a4edef14662015
 -->
 
 This crate defines Selvedge's shared task lifecycle and model-call domain values.
@@ -25,6 +25,8 @@ definition model.
 
 This crate is not for network access, database access, filesystem access, provider execution, or task runtime mutation.
 
+Command environments have nominal identities independent of task parentage. `CommandInvocationId` pairs task and durable call-node identity; operation ordinals distinguish nested commands. `CommandOperationContext` carries trusted caller scope and current execution mode separately from optional journal identity. `CommandEnvironmentCommit` carries owned checkpoints and the expected revision; persistence validates admission and revision at commit.
+
 ## Package State Machine
 
 The diagram records the package-level observable states and transition paths. Each edge label names the concrete condition checked at this package boundary.
@@ -45,6 +47,7 @@ flowchart TD
   Ready[Value ready for package boundary]
   Serialize[Serialize or clone for caller]
 
+  Start -->|caller constructs environment identity, invocation, operation scope, or checkpoint commit| Ready
   Start -->|caller constructs conversation, JSON message, node id, or task id| Conversation
   Start -->|caller constructs tool name, full input schema, manifest, callable selection, call id, or object arguments| Tool
   Start -->|caller constructs provider profile or reasoning effort| Provider

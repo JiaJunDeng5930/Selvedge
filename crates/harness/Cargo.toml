@@ -10,6 +10,7 @@ selvedge-command-model = { path = "../command-model" }
 selvedge-config-model = { path = "../config-model" }
 selvedge-db = { path = "../db" }
 selvedge-domain-model = { path = "../domain-model" }
+selvedge-script-runtime = { path = "../script-runtime" }
 selvedge-router = { path = "../router" }
 rustix = { version = "1.1.4", features = ["process"] }
 serde_json = { workspace = true }

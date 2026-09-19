@@ -269,7 +269,7 @@ async fn task_runtime_start_dispatches_tool_from_function_call_cursor() {
                 )
                 .expect("model config"),
             ),
-            tools: vec![task_tool(tool_spec("search"))],
+            tools: vec![task_tool(tool_spec("exec_cmd"))],
             now: UnixTs(1),
         },
     )
@@ -280,7 +280,7 @@ async fn task_runtime_start_dispatches_tool_from_function_call_cursor() {
         None,
         vec![NewFunctionCallNodeContent {
             function_call_id: FunctionCallId("call-1".to_owned()),
-            tool_name: ToolName("search".to_owned()),
+            tool_name: ToolName("exec_cmd".to_owned()),
             arguments: JsonObject::new(),
         }],
         UnixTs(2),
@@ -307,8 +307,12 @@ async fn task_runtime_start_dispatches_tool_from_function_call_cursor() {
             .await
             .expect("tool request");
 
+    assert_eq!(
+        request.execution_mode,
+        selvedge_domain_model::ToolExecutionMode::Startup
+    );
     assert_eq!(request.function_call_id.0, "call-1");
-    assert_eq!(request.tool_name.0, "search");
+    assert_eq!(request.tool_name.0, "exec_cmd");
 }
 
 #[tokio::test]
@@ -421,6 +425,7 @@ async fn task_runtime_ensures_child_runtimes_after_branch_commit() {
     runtime
         .task_runtime_tx
         .send(TaskRuntimeCommand::ToolResult(ToolExecutionResult {
+            prepared_environment: None,
             task_id: TaskId("task-1".to_owned()),
             tool_execution_run_id: request.tool_execution_run_id,
             function_call_node_id: request.function_call_node_id,
@@ -485,6 +490,7 @@ async fn task_runtime_commits_descendant_limit_as_a_model_visible_tool_error() {
     runtime
         .task_runtime_tx
         .send(TaskRuntimeCommand::ToolResult(ToolExecutionResult {
+            prepared_environment: None,
             task_id: TaskId("task-1".to_owned()),
             tool_execution_run_id: request.tool_execution_run_id,
             function_call_node_id: request.function_call_node_id,
@@ -801,6 +807,7 @@ async fn stopped_runtime_commits_tool_result_without_calling_model_until_user_in
     runtime
         .task_runtime_tx
         .send(TaskRuntimeCommand::ToolResult(ToolExecutionResult {
+            prepared_environment: None,
             task_id: TaskId("task-1".to_owned()),
             tool_execution_run_id: tool_request.tool_execution_run_id,
             function_call_node_id: tool_request.function_call_node_id,
@@ -979,6 +986,7 @@ async fn task_runtime_preserves_batched_tool_call_order_in_next_model_request() 
     runtime
         .task_runtime_tx
         .send(TaskRuntimeCommand::ToolResult(ToolExecutionResult {
+            prepared_environment: None,
             task_id: TaskId("task-1".to_owned()),
             tool_execution_run_id: first_tool_request.tool_execution_run_id,
             function_call_node_id: first_tool_request.function_call_node_id,
@@ -996,6 +1004,7 @@ async fn task_runtime_preserves_batched_tool_call_order_in_next_model_request() 
     runtime
         .task_runtime_tx
         .send(TaskRuntimeCommand::ToolResult(ToolExecutionResult {
+            prepared_environment: None,
             task_id: TaskId("task-1".to_owned()),
             tool_execution_run_id: second_tool_request.tool_execution_run_id,
             function_call_node_id: second_tool_request.function_call_node_id,
@@ -1099,6 +1108,7 @@ async fn task_runtime_ignores_tool_result_with_mismatched_call_identity() {
     runtime
         .task_runtime_tx
         .send(TaskRuntimeCommand::ToolResult(ToolExecutionResult {
+            prepared_environment: None,
             task_id: TaskId("task-1".to_owned()),
             tool_execution_run_id: first_tool_request.tool_execution_run_id.clone(),
             function_call_node_id: call_2_node_id,
@@ -1117,6 +1127,7 @@ async fn task_runtime_ignores_tool_result_with_mismatched_call_identity() {
     runtime
         .task_runtime_tx
         .send(TaskRuntimeCommand::ToolResult(ToolExecutionResult {
+            prepared_environment: None,
             task_id: TaskId("task-1".to_owned()),
             tool_execution_run_id: first_tool_request.tool_execution_run_id,
             function_call_node_id: first_tool_request.function_call_node_id,
@@ -1265,6 +1276,7 @@ async fn task_runtime_validates_tool_reply_against_sent_callable_snapshot() {
     runtime
         .task_runtime_tx
         .send(TaskRuntimeCommand::ToolResult(ToolExecutionResult {
+            prepared_environment: None,
             task_id: tool_request.task_id,
             tool_execution_run_id: tool_request.tool_execution_run_id,
             function_call_node_id: tool_request.function_call_node_id,
@@ -1662,6 +1674,7 @@ async fn task_runtime_preserves_model_wait_state_for_stray_tool_result() {
     runtime
         .task_runtime_tx
         .send(TaskRuntimeCommand::ToolResult(ToolExecutionResult {
+            prepared_environment: None,
             task_id: TaskId("task-1".to_owned()),
             tool_execution_run_id: selvedge_command_model::ToolExecutionRunId("stray".to_owned()),
             function_call_node_id: selvedge_db::HistoryNodeId(1),
@@ -2377,4 +2390,141 @@ async fn sqlite_write_contention_leaves_async_worker_available() {
         worker_progressed,
         "SQLite contention blocked the async worker until the OS-thread fallback released the lock"
     );
+}
+
+#[tokio::test]
+async fn admitted_inactive_command_finishes_checkpoint_then_exits_without_model_call() {
+    for (event, status, recovering) in [
+        (TaskLifecycleEvent::Archive, TaskStatus::Archived, true),
+        (TaskLifecycleEvent::Freeze, TaskStatus::Frozen, true),
+        (TaskLifecycleEvent::Freeze, TaskStatus::Frozen, false),
+        (TaskLifecycleEvent::Stop, TaskStatus::Stopped, true),
+    ] {
+        use selvedge_domain_model::{
+            CommandEnvironmentCommit, CommandEnvironmentMode, CommandInvocationId,
+            ToolExecutionMode,
+        };
+        let db = open_memory_db();
+        let task = selvedge_test_support::db::create_root_task_with_user_message_and_tools(
+            &db,
+            "recovery",
+            "hello",
+            vec![task_tool(tool_spec("exec_cmd"))],
+            UnixTs(1),
+        );
+        let call_id = FunctionCallId("recover-call".into());
+        let tool_name = ToolName("exec_cmd".into());
+        let call = append_model_reply_with_tool_calls_and_move_cursor(
+            &db,
+            &task.task_id,
+            None,
+            vec![NewFunctionCallNodeContent {
+                function_call_id: call_id.clone(),
+                tool_name: tool_name.clone(),
+                arguments: JsonObject::new(),
+            }],
+            UnixTs(2),
+        )
+        .expect("command operation succeeds")[0];
+        let invocation = CommandInvocationId {
+            task_id: task.task_id.clone(),
+            function_call_node_id: call,
+        };
+        let environment =
+            selvedge_db::admit_command_invocation(&db, &invocation, &call_id, &tool_name)
+                .expect("command operation succeeds");
+        if recovering {
+            transition_task_status(&db, &task.task_id, event, UnixTs(3))
+                .expect("command operation succeeds");
+        }
+        let (router_tx, mut router_rx) = tokio::sync::mpsc::unbounded_channel();
+        let runtime = spawn_task_runtime(SpawnTaskRuntimeArgs {
+            task_id: task.task_id.clone(),
+            db: db.clone(),
+            router_tx: router_tx.downgrade(),
+            config: TaskRuntimeConfig {
+                model_profiles: model_profiles(),
+            },
+        });
+        runtime
+            .task_runtime_tx
+            .send(if recovering {
+                TaskRuntimeCommand::RecoverCommandInvocation {
+                    invocation: invocation.clone(),
+                }
+            } else {
+                TaskRuntimeCommand::Start
+            })
+            .expect("command operation succeeds");
+        if !recovering {
+            router_rx.recv().await.expect("command operation succeeds");
+        }
+        let request = recv_tool_request(&mut router_rx).await;
+        assert_eq!(request.execution_mode, ToolExecutionMode::Startup);
+        if !recovering {
+            transition_task_status(&db, &task.task_id, event, UnixTs(3))
+                .expect("command operation succeeds");
+            runtime.task_runtime_control.notify_status_changed();
+        }
+        let lease = Arc::new(tokio::sync::Mutex::new(()));
+        let prepared = selvedge_command_model::PreparedCommandEnvironment::new(
+            CommandEnvironmentCommit {
+                new_child_environment_mode: CommandEnvironmentMode::Shared,
+                environment_id: environment.environment_id,
+                invocation,
+                expected_revision: environment.revision,
+                checkpoint: vec![1, 2, 3],
+                base_checkpoint: vec![],
+            },
+            lease.clone().lock_owned().await,
+        );
+        assert!(lease.try_lock().is_err());
+        runtime
+            .task_runtime_tx
+            .send(TaskRuntimeCommand::ToolResult(ToolExecutionResult {
+                prepared_environment: Some(prepared),
+                task_id: task.task_id.clone(),
+                tool_execution_run_id: request.tool_execution_run_id,
+                function_call_node_id: call,
+                function_call_id: call_id,
+                tool_name,
+                branches: vec![ToolExecutionBranch {
+                    target: ToolExecutionBranchTarget::CallingTask,
+                    output: json!({"done":true}),
+                    is_error: false,
+                    messages: vec![],
+                }],
+            }))
+            .expect("command operation succeeds");
+        if recovering {
+            runtime.task_runtime_control.wait_for_shutdown().await;
+        } else {
+            tokio::time::timeout(Duration::from_secs(1), async {
+                while selvedge_db::read_command_environment(&db, &task.task_id)
+                    .expect("command operation succeeds")
+                    .revision
+                    == 0
+                {
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .expect("frozen actor commits admitted output");
+            runtime.task_runtime_control.shutdown().await;
+        }
+        let environment = selvedge_db::read_command_environment(&db, &task.task_id)
+            .expect("command operation succeeds");
+        assert_eq!(environment.checkpoint, vec![1, 2, 3]);
+        assert!(environment.admitted_invocation.is_none());
+        assert!(lease.try_lock().is_ok());
+        assert_eq!(
+            selvedge_db::read_task_status(&db, &task.task_id).expect("command operation succeeds"),
+            status
+        );
+        while let Ok(message) = router_rx.try_recv() {
+            assert!(
+                !matches!(message, RouterIngressMessage::Core(envelope) if matches!(envelope.message, CoreOutputMessage::RequestModelCall(_)))
+            );
+        }
+    }
 }

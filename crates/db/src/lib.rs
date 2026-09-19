@@ -12,6 +12,13 @@ pub use selvedge_domain_model::{
 };
 use serde_json::Value;
 
+mod command;
+pub use command::*;
+pub use selvedge_domain_model::{
+    CommandEnvironmentCommit, CommandEnvironmentId, CommandEnvironmentMode, CommandInvocationId,
+    CommandOperationContext, ToolExecutionMode,
+};
+
 pub const MAX_TASK_HISTORY_PAGE_SIZE: u32 = 100;
 
 #[derive(Clone)]
@@ -28,6 +35,10 @@ pub enum DbError {
         status: TaskStatus,
     },
     StaleFunctionCall,
+    CommandOperationMismatch,
+    CommandEnvironmentBusy {
+        invocation: CommandInvocationId,
+    },
     HistoryCursorNotOnTask,
     ToolUnavailable,
     TaskDescendantLimitExceeded {
@@ -51,6 +62,14 @@ impl fmt::Display for DbError {
                     formatter,
                     "task status does not permit the operation: {status:?}"
                 )
+            }
+            DbError::CommandEnvironmentBusy { invocation } => write!(
+                formatter,
+                "command environment is admitted by {}:{}",
+                invocation.task_id.0, invocation.function_call_node_id.0
+            ),
+            DbError::CommandOperationMismatch => {
+                write!(formatter, "command replay name or arguments mismatch")
             }
             DbError::StaleFunctionCall => {
                 write!(formatter, "function call is not open on the task path")
@@ -584,6 +603,7 @@ pub fn create_root_task(db: &DbPool, input: CreateRootTaskInput) -> Result<TaskR
             ],
         )
         .map_err(map_error)?;
+        command::create_root_environment_in_tx(&tx, &task_id)?;
         for (ordinal, tool) in input.tools.into_iter().enumerate() {
             insert_task_tool_in_tx(&tx, &task_id, ordinal, tool)?;
         }
@@ -594,6 +614,19 @@ pub fn create_root_task(db: &DbPool, input: CreateRootTaskInput) -> Result<TaskR
 
 pub fn commit_tool_result_branches(
     db: &DbPool,
+    input: CommitToolResultBranchesInput,
+) -> Result<CommitToolResultBranchesResult, DbError> {
+    let mut connection = db.connection()?;
+    let tx = connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(map_error)?;
+    let result = commit_tool_result_branches_in_tx(&tx, input)?;
+    tx.commit().map_err(map_error)?;
+    Ok(result)
+}
+
+fn commit_tool_result_branches_in_tx(
+    tx: &rusqlite::Transaction<'_>,
     input: CommitToolResultBranchesInput,
 ) -> Result<CommitToolResultBranchesResult, DbError> {
     let calling_branch_count = input
@@ -634,11 +667,7 @@ pub fn commit_tool_result_branches(
         ));
     }
 
-    let mut connection = db.connection()?;
-    let tx = connection
-        .transaction_with_behavior(TransactionBehavior::Immediate)
-        .map_err(map_error)?;
-    let calling_task = read_task_in_connection(&tx, &input.calling_task_id)?;
+    let calling_task = read_task_in_connection(tx, &input.calling_task_id)?;
     if !calling_task.task_status.accepts_history_writes() {
         return Err(DbError::InvalidTaskStatus {
             status: calling_task.task_status,
@@ -653,13 +682,13 @@ pub fn commit_tool_result_branches(
         is_error: false,
     };
     if !child_task_ids.is_empty() {
-        ensure_task_descendant_capacity_in_tx(&tx, &input.calling_task_id, child_task_ids.len())?;
+        ensure_task_descendant_capacity_in_tx(tx, &input.calling_task_id, child_task_ids.len())?;
     }
 
     let mut created_child_task_ids = Vec::with_capacity(child_task_ids.len());
     for branch in input.branches {
         let branch_cursor_node_id = insert_tool_result_branch_in_tx(
-            &tx,
+            tx,
             branch_parent_node_id,
             &output_identity,
             branch.output,
@@ -670,12 +699,12 @@ pub fn commit_tool_result_branches(
         match branch.target {
             ToolResultBranchTarget::CallingTask => {
                 update_task_cursor_in_tx(
-                    &tx,
+                    tx,
                     &input.calling_task_id,
                     branch_cursor_node_id,
                     input.now,
                 )?;
-                append_all_queued_user_inputs_in_tx(&tx, &input.calling_task_id, input.now)?;
+                append_all_queued_user_inputs_in_tx(tx, &input.calling_task_id, input.now)?;
             }
             ToolResultBranchTarget::NewChildTask(child_task_id) => {
                 tx.execute(
@@ -720,12 +749,12 @@ pub fn commit_tool_result_branches(
                     params![input.calling_task_id.0, child_task_id.0, input.now.0],
                 )
                 .map_err(map_error)?;
+                command::share_child_environment_in_tx(tx, &input.calling_task_id, &child_task_id)?;
                 created_child_task_ids.push(child_task_id);
             }
         }
     }
 
-    tx.commit().map_err(map_error)?;
     Ok(CommitToolResultBranchesResult {
         created_child_task_ids,
     })
@@ -789,6 +818,7 @@ pub fn load_runtime_task(db: &DbPool, task_id: &TaskId) -> Result<LoadedRuntimeT
     let mut connection = db.connection()?;
     let tx = connection.transaction().map_err(map_error)?;
     let task = read_task_in_connection(&tx, task_id)?;
+    command::ensure_not_pending_in_tx(&tx, task_id)?;
     ensure_runtime_task(&task)?;
     let cursor_node = read_history_node_concrete_in_connection(&tx, &task.cursor_node_id)?;
     let queued_input_count = queued_input_count_in_connection(&tx, task_id)?;
@@ -984,6 +1014,7 @@ pub fn read_open_function_calls_for_task(
     let mut connection = db.connection()?;
     let tx = connection.transaction().map_err(map_error)?;
     let task = read_task_in_connection(&tx, task_id)?;
+    command::ensure_not_pending_in_tx(&tx, task_id)?;
     ensure_runtime_task(&task)?;
     let recovery_policies = read_task_tool_recovery_policies_in_connection(&tx, task_id)?;
     let nodes = read_history_path(&tx, task.cursor_node_id)?;
@@ -1282,7 +1313,7 @@ pub fn list_runtime_tasks(db: &DbPool) -> Result<Vec<TaskRow>, DbError> {
             "SELECT task_id, task_status, cursor_node_id, model_profile_key, reasoning_effort,
                     max_children_per_fork, max_task_descendants, state_version, created_at, updated_at
              FROM tasks
-             WHERE task_status <> 'archived'
+             WHERE task_status <> 'archived' AND NOT EXISTS (SELECT 1 FROM pending_command_children pending WHERE pending.child_task_id = tasks.task_id)
              ORDER BY updated_at DESC, task_id ASC",
         )
         .map_err(map_error)?;

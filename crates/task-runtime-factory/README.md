@@ -2,12 +2,12 @@
 
 <!-- selvedge-package-readme
 package: selvedge-task-runtime-factory
-freshness_fingerprint: 2dbbdfb4367b202c0d4fd0b7e02a57f53fe14ee9
+freshness_fingerprint: b461c57cae11dda77f42b3ea8ac7169e57485abe
 -->
 
 This crate creates task runtimes for the router through synchronous operations.
 
-`create_task_runtime` checks task metadata and returns the core runtime handles or a typed missing, archived, database, or spawner failure. `recover_task_runtimes` scans non-archived tasks, skips the supplied live task IDs, and returns created runtimes and individual creation failures. Active, frozen, and stopped tasks are eligible. The router calls these operations on Tokio's blocking pool and awaits their direct results before processing another command.
+`create_task_runtime` checks task metadata and returns the core runtime handles or a typed missing, archived, database, or spawner failure. `recover_task_runtimes` scans non-archived tasks, skips the supplied live task IDs, and returns created runtimes and individual creation failures. Active, frozen, and stopped tasks are eligible once their pending command-child admission has completed. Pending children return `TaskPending` from direct creation and are omitted from recovery. `create_command_recovery_runtime` separately validates an exact admitted invocation and may create a recovery-only actor for an archived owner. The router calls these operations on Tokio's blocking pool and awaits their direct results before processing another command.
 
 Runtime uniqueness, registration, the initial `Start` command, and shutdown belong to the router. This package does not introduce factory effect IDs, pending inventories, or output envelopes.
 
@@ -25,7 +25,9 @@ flowchart TD
 
   Start -->|create_task_runtime is called| Create
   Start -->|recover_task_runtimes is called| Scan
-  Create -->|task exists and is non-archived| Spawn
+  Create -->|task exists, is non-archived, and is not a pending command child| Spawn
+  Create -->|task is a pending command child| Failure
+  Start -->|create_command_recovery_runtime verifies exact durable admission| Spawn
   Create -->|task is missing, archived, or database read fails| Failure
   Scan -->|database read fails| Failure
   Scan -->|task ID is already live| Recovery

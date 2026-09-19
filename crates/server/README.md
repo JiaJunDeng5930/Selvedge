@@ -2,7 +2,7 @@
 
 <!-- selvedge-package-readme
 package: selvedge-server
-freshness_fingerprint: 98a480831188fe13a1e7f15d3446de30692f74a8
+freshness_fingerprint: 7a521c0173660a73f43bb794b89da1e761ded0bf
 -->
 
 This crate owns the process-local Selvedge server lifecycle.
@@ -11,7 +11,7 @@ Use it to start the server runtime, hold the singleton lock, initialize config a
 
 `ServerStartArgs` uses the current `selvedge-api` boundary: server passes `ApiExecutorConfig` into the router, and provider selection remains inside each model-call request. It also receives the default harness limits for newly created tasks and the current MCP server map from the configuration boundary. Existing tasks execute with their stored limits and tool contracts. This crate does not own a provider registry.
 
-After opening SQLite, startup builds the current harness catalog and connects configured MCP servers to discover their complete tool catalogs. It then reconciles every task by changing only its unavailable-tool exceptions; stored definitions, routes, and task limits are never rewritten. Duplicate runtime names or reconciliation failures stop startup before task recovery. The shared MCP connections stay alive for concurrent calls and close their process groups after the supervised services stop.
+After opening SQLite, startup builds the current harness catalog and connects configured MCP servers to discover their complete tool catalogs. It then reconciles every task by changing only its unavailable-tool exceptions; stored definitions, routes, and task limits are never rewritten. Duplicate runtime names or reconciliation failures stop startup before task recovery. One shared command-environment manager belongs to the server tool executor, so all task tools serialize access to the same live environment. The shared MCP connections stay alive for concurrent calls and close their process groups after the supervised services stop.
 
 Startup owns every acquired service until the complete runtime is handed off. Any failure stops and joins the router, client-sync, web, and events tasks that were started, closes discovered MCP connections, and only then releases the singleton lock. The lock has one RAII owner from acquisition through handoff to the server join task, so cancelling startup also releases it.
 
@@ -75,7 +75,7 @@ flowchart TD
   InitConfig -->|config or logging fails| StartupFailure
   OpenDb -->|SQLite opens at selected home| BuildHarness
   OpenDb -->|database open or schema setup fails| StartupFailure
-  BuildHarness -->|five runtime definitions and routes are valid| DiscoverMcp
+  BuildHarness -->|runtime definitions and routes are valid| DiscoverMcp
   DiscoverMcp -->|all configured servers initialize and list supported tools| ReconcileTools
   DiscoverMcp -->|transport, protocol, discovery, or definition validation fails| StartupFailure
   DiscoverMcp -->|startup future is cancelled| CancelStartup

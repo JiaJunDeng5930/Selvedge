@@ -1,6 +1,9 @@
 #![doc = include_str!("../README.md")]
 
+mod command;
+mod kernel;
 mod mcp;
+pub use command::CommandEnvironmentManager;
 
 use std::collections::BTreeMap;
 use std::future::Future;
@@ -15,9 +18,8 @@ use rustix::io::Errno;
 use rustix::process::{Pid, Signal, kill_process_group};
 use selvedge_command_model::{
     HistoryNodeProjection, HistoryNodeProjectionBody, RouterCommand, RouterIngressMessage,
-    RouterIngressWeakSender, SendUserInputOutcome, TaskCommandError, ToolExecutionBranch,
-    ToolExecutionBranchTarget, ToolExecutionRequest, ToolExecutionResult,
-    send_user_input_response_channel, task_status_change_response_channel,
+    RouterIngressWeakSender, TaskCommandError, ToolExecutionBranch, ToolExecutionBranchTarget,
+    ToolExecutionRequest, ToolExecutionResult,
 };
 use selvedge_config_model::HarnessConfig;
 use selvedge_db::{
@@ -56,6 +58,7 @@ builtin_tools! {
     SendMessageToTask => SEND_MESSAGE_TO_TASK_TOOL_NAME = "send_message_to_task",
     ArchiveTask => ARCHIVE_TASK_TOOL_NAME = "archive_task",
     Bash => BASH_TOOL_NAME = "bash",
+    ExecCmd => EXEC_CMD_TOOL_NAME = "exec_cmd",
 }
 
 pub const DEFAULT_BASH_TIMEOUT_MS: i64 = 30_000;
@@ -92,6 +95,7 @@ impl BuiltinTool {
                                 i64::from(config.max_children_per_fork),
                             ),
                         ),
+                        ("environment", object([("type", Value::String("string".into())), ("enum", serde_json::json!(["shared", "copy", "new"])), ("description", Value::String("Command environment inheritance: shared (default), copy, or new.".into()))])),
                         (
                             "messages",
                             string_array_property(
@@ -156,6 +160,11 @@ impl BuiltinTool {
                     &["task_id"],
                 ),
             },
+            Self::ExecCmd => ToolSpec {
+                name: self.name().to_owned(),
+                description: "Execute JavaScript in the task's persistent command environment. Use kernel.describe() to discover task operations and host tools; modules.load() and modules.source() inspect extensions.".to_owned(),
+                input_schema: input_schema([("code", string_property("JavaScript source, including top-level await."))], &["code"]),
+            },
             Self::Bash => ToolSpec {
                 name: self.name().to_owned(),
                 description:
@@ -178,7 +187,7 @@ impl BuiltinTool {
             },
         };
         let recovery_policy = match self {
-            Self::ForkTask | Self::ReadTask => ToolRecoveryPolicy::RetrySafe,
+            Self::ForkTask | Self::ReadTask | Self::ExecCmd => ToolRecoveryPolicy::RetrySafe,
             Self::SendMessageToTask | Self::ArchiveTask | Self::Bash => {
                 ToolRecoveryPolicy::OutcomeUnknown
             }
@@ -274,11 +283,13 @@ enum HarnessInvocation {
     SendMessageToTask(SendMessageToTaskInvocation),
     ArchiveTask(ArchiveTaskInvocation),
     Bash(BashInvocation),
+    ExecCmd(String),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct ForkTaskInvocation {
     child_count: usize,
+    environment: selvedge_domain_model::CommandEnvironmentMode,
     messages: Option<Vec<String>>,
 }
 
@@ -326,6 +337,12 @@ fn parse_invocation(
         BuiltinTool::SendMessageToTask => parse_send_message_to_task(&request.arguments),
         BuiltinTool::ArchiveTask => parse_archive_task(&request.task_id, &request.arguments),
         BuiltinTool::Bash => parse_bash(&request.arguments),
+        BuiltinTool::ExecCmd => {
+            let args = Arguments::new(&request.arguments, &["code"])?;
+            Ok(HarnessInvocation::ExecCmd(
+                args.required_nonempty_string("code")?,
+            ))
+        }
     }
 }
 
@@ -350,7 +367,8 @@ fn parse_fork_task(
     arguments: &JsonObject,
     config: &HarnessConfig,
 ) -> Result<HarnessInvocation, HarnessError> {
-    let arguments = Arguments::new(arguments, &["child_count", "messages"])?;
+    let arguments = Arguments::new(arguments, &["child_count", "messages", "environment"])?;
+    let environment = command::parse_environment_mode(arguments.values.get("environment"))?;
     let child_count = arguments.required_integer("child_count")?;
     let child_count = usize::try_from(child_count)
         .ok()
@@ -372,6 +390,7 @@ fn parse_fork_task(
     }
     Ok(HarnessInvocation::ForkTask(ForkTaskInvocation {
         child_count,
+        environment,
         messages,
     }))
 }
@@ -650,6 +669,7 @@ struct BashSuccess {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum HarnessErrorCode {
     InvalidArguments,
+    CommandReplayMismatch,
     UnknownTool,
     TaskNotFound,
     TaskArchived,
@@ -675,6 +695,7 @@ impl HarnessErrorCode {
     const fn as_str(self) -> &'static str {
         match self {
             HarnessErrorCode::InvalidArguments => "invalid_arguments",
+            HarnessErrorCode::CommandReplayMismatch => "command_replay_mismatch",
             HarnessErrorCode::UnknownTool => "unknown_tool",
             HarnessErrorCode::TaskNotFound => "task_not_found",
             HarnessErrorCode::TaskArchived => "task_archived",
@@ -738,6 +759,7 @@ fn correlated_tool_execution_result(
     branches: Vec<ToolExecutionBranch>,
 ) -> ToolExecutionResult {
     ToolExecutionResult {
+        prepared_environment: None,
         task_id: request.task_id.clone(),
         tool_execution_run_id: request.tool_execution_run_id.clone(),
         function_call_node_id: request.function_call_node_id,
@@ -760,11 +782,23 @@ fn calling_task_branch(output: Value, is_error: bool) -> ToolExecutionBranch {
 pub struct ToolExecutor {
     db: DbPool,
     mcp: McpConnectionSet,
+    commands: CommandEnvironmentManager,
 }
 
 impl ToolExecutor {
+    pub fn with_command_environments(
+        db: DbPool,
+        mcp: McpConnectionSet,
+        commands: CommandEnvironmentManager,
+    ) -> Self {
+        Self { db, mcp, commands }
+    }
     pub fn new(db: DbPool, mcp: McpConnectionSet) -> Self {
-        Self { db, mcp }
+        Self {
+            db,
+            mcp,
+            commands: CommandEnvironmentManager::new(),
+        }
     }
 }
 
@@ -776,10 +810,11 @@ impl ToolExecutionSpawner for ToolExecutor {
     ) -> Result<JoinHandle<()>, ToolExecutionSpawnError> {
         let db = self.db.clone();
         let mcp = self.mcp.clone();
+        let commands = self.commands.clone();
         let execution_request = request.clone();
         let execution_router_tx = router_tx.clone();
         spawn_supervised_execution(request, router_tx, async move {
-            execute_routed_request(db, mcp, execution_request, execution_router_tx).await
+            execute_routed_request(db, mcp, commands, execution_request, execution_router_tx).await
         })
     }
 }
@@ -790,23 +825,26 @@ fn spawn_supervised_execution<F>(
     execution: F,
 ) -> Result<JoinHandle<()>, ToolExecutionSpawnError>
 where
-    F: Future<Output = Result<Vec<ToolExecutionBranch>, HarnessError>> + Send + 'static,
+    F: Future<Output = Result<command::ExecutedTool, HarnessError>> + Send + 'static,
 {
     let runtime = tokio::runtime::Handle::try_current()
         .map_err(|_| ToolExecutionSpawnError::TokioSpawnFailed)?;
     Ok(runtime.spawn(async move {
         let branches = match AssertUnwindSafe(execution).catch_unwind().await {
-            Ok(Ok(branches)) => branches,
-            Ok(Err(error)) => vec![calling_task_branch(error_json(&error), true)],
-            Err(_) => vec![calling_task_branch(
+            Ok(Ok(result)) => result,
+            Ok(Err(error)) => {
+                command::ExecutedTool::ordinary(vec![calling_task_branch(error_json(&error), true)])
+            }
+            Err(_) => command::ExecutedTool::ordinary(vec![calling_task_branch(
                 error_json(&HarnessError::new(
                     HarnessErrorCode::ExecutorPanicked,
                     "tool executor panicked",
                 )),
                 true,
-            )],
+            )]),
         };
-        let result = correlated_tool_execution_result(&request, branches);
+        let mut result = correlated_tool_execution_result(&request, branches.branches);
+        result.prepared_environment = branches.prepared_environment;
         if let Some(router_tx) = router_tx.upgrade() {
             let _ = router_tx.send(RouterIngressMessage::Tool(result));
         }
@@ -816,9 +854,36 @@ where
 async fn execute_routed_request(
     db: DbPool,
     mcp: McpConnectionSet,
+    commands: CommandEnvironmentManager,
     request: ToolExecutionRequest,
     router_tx: RouterIngressWeakSender,
-) -> Result<Vec<ToolExecutionBranch>, HarnessError> {
+) -> Result<command::ExecutedTool, HarnessError> {
+    let execution = AssertUnwindSafe(execute_routed_request_inner(
+        db.clone(),
+        mcp,
+        commands.clone(),
+        request.clone(),
+        router_tx.clone(),
+    ))
+    .catch_unwind()
+    .await;
+    let error = match execution {
+        Ok(Ok(result)) => return Ok(result),
+        Ok(Err(error)) => error,
+        Err(_) => HarnessError::new(HarnessErrorCode::ExecutorPanicked, "tool executor panicked"),
+    };
+    commands
+        .finalize_existing_error(&db, &request, &router_tx, error)
+        .await
+}
+
+async fn execute_routed_request_inner(
+    db: DbPool,
+    mcp: McpConnectionSet,
+    commands: CommandEnvironmentManager,
+    request: ToolExecutionRequest,
+    router_tx: RouterIngressWeakSender,
+) -> Result<command::ExecutedTool, HarnessError> {
     let route_db = db.clone();
     let task_id = request.task_id.clone();
     let tool_name = request.tool_name.clone();
@@ -834,7 +899,7 @@ async fn execute_routed_request(
                 max_children_per_fork: execution.max_children_per_fork,
                 max_descendants_per_task: execution.max_task_descendants,
             };
-            execute_harness_request(db, config, request, router_tx).await
+            execute_harness_request(db, commands, config, request, router_tx).await
         }
         ToolExecutionSource::Mcp {
             server_id,
@@ -843,36 +908,51 @@ async fn execute_routed_request(
             let (output, is_error) = mcp
                 .call_tool(&server_id, remote_tool_name, request.arguments)
                 .await?;
-            Ok(vec![calling_task_branch(output, is_error)])
+            Ok(command::ExecutedTool::ordinary(vec![calling_task_branch(
+                output, is_error,
+            )]))
         }
     }
 }
 
 async fn execute_harness_request(
     db: DbPool,
+    commands: CommandEnvironmentManager,
     config: HarnessConfig,
     request: ToolExecutionRequest,
     router_tx: RouterIngressWeakSender,
-) -> Result<Vec<ToolExecutionBranch>, HarnessError> {
-    match parse_invocation(&request, &config)? {
-        HarnessInvocation::ForkTask(invocation) => execute_fork_task(invocation),
+) -> Result<command::ExecutedTool, HarnessError> {
+    let branches = match parse_invocation(&request, &config)? {
+        HarnessInvocation::ExecCmd(code) => {
+            return commands
+                .execute(db, config, request, router_tx, Some(code), None)
+                .await;
+        }
+        HarnessInvocation::ForkTask(invocation) => {
+            return commands
+                .execute(db, config, request, router_tx, None, Some(invocation))
+                .await;
+        }
         HarnessInvocation::ReadTask(invocation) => {
             execute_read_task(db, request.task_id, invocation)
                 .await
                 .map(single_success_branch)
         }
         HarnessInvocation::SendMessageToTask(invocation) => {
-            execute_send_message_to_task(invocation, router_tx)
+            execute_send_message_to_task(invocation, router_tx, command::caller_context(&request))
                 .await
                 .map(single_success_branch)
         }
-        HarnessInvocation::ArchiveTask(invocation) => execute_archive_task(invocation, router_tx)
-            .await
-            .map(single_success_branch),
+        HarnessInvocation::ArchiveTask(invocation) => {
+            execute_archive_task(invocation, router_tx, command::caller_context(&request))
+                .await
+                .map(single_success_branch)
+        }
         HarnessInvocation::Bash(invocation) => {
             execute_bash(invocation).await.map(single_success_branch)
         }
-    }
+    }?;
+    Ok(command::ExecutedTool::ordinary(branches))
 }
 
 fn map_tool_route_error(error: DbError) -> HarnessError {
@@ -956,68 +1036,44 @@ async fn execute_read_task(
 async fn execute_send_message_to_task(
     invocation: SendMessageToTaskInvocation,
     router_tx: RouterIngressWeakSender,
+    context: selvedge_domain_model::CommandOperationContext,
 ) -> Result<HarnessSuccess, HarnessError> {
-    let task_id = invocation.task_id;
-    let (responder, response) = send_user_input_response_channel();
-    send_router_command(
-        &router_tx,
-        RouterCommand::SendUserInput {
-            task_id: task_id.clone(),
-            message_text: invocation.message,
-            responder,
+    let task_id = invocation.task_id.clone();
+    let value = command::send_task_input(invocation, router_tx, context).await?;
+    let disposition = if value["disposition"] == "queued" {
+        MessageDisposition::Queued
+    } else {
+        MessageDisposition::Committed {
+            node_id: HistoryNodeId(value["node_id"].as_i64().ok_or_else(|| {
+                HarnessError::new(
+                    HarnessErrorCode::StorageError,
+                    "committed input response lacks node_id",
+                )
+            })?),
+        }
+    };
+    Ok(HarnessSuccess::SendMessageToTask(
+        SendMessageToTaskSuccess {
+            task_id,
+            disposition,
         },
-    )?;
-    match response.await {
-        Ok(Ok(SendUserInputOutcome::Committed { node_id })) => Ok(
-            HarnessSuccess::SendMessageToTask(SendMessageToTaskSuccess {
-                task_id,
-                disposition: MessageDisposition::Committed { node_id },
-            }),
-        ),
-        Ok(Ok(SendUserInputOutcome::Queued)) => Ok(HarnessSuccess::SendMessageToTask(
-            SendMessageToTaskSuccess {
-                task_id,
-                disposition: MessageDisposition::Queued,
-            },
-        )),
-        Ok(Err(error)) => Err(map_task_command_error(error)),
-        Err(_) => Err(HarnessError::new(
-            HarnessErrorCode::OperationCancelled,
-            "send message response was cancelled",
-        )),
-    }
+    ))
 }
 
 async fn execute_archive_task(
     invocation: ArchiveTaskInvocation,
     router_tx: RouterIngressWeakSender,
+    context: selvedge_domain_model::CommandOperationContext,
 ) -> Result<HarnessSuccess, HarnessError> {
     let task_id = invocation.task_id;
-    let (responder, response) = task_status_change_response_channel();
-    send_router_command(
-        &router_tx,
-        RouterCommand::ArchiveTask {
-            task_id: task_id.clone(),
-            responder,
-        },
-    )?;
-    match response.await {
-        Ok(Ok(outcome)) if outcome.status == TaskStatus::Archived => {
-            Ok(HarnessSuccess::ArchiveTask(ArchiveTaskSuccess { task_id }))
-        }
-        Ok(Ok(outcome)) => Err(HarnessError::new(
-            HarnessErrorCode::StorageError,
-            format!(
-                "archive returned unexpected task status: {:?}",
-                outcome.status
-            ),
-        )),
-        Ok(Err(error)) => Err(map_task_command_error(error)),
-        Err(_) => Err(HarnessError::new(
-            HarnessErrorCode::OperationCancelled,
-            "archive task response was cancelled",
-        )),
-    }
+    command::change_task_status(
+        task_id.clone(),
+        selvedge_domain_model::TaskLifecycleEvent::Archive,
+        router_tx,
+        context,
+    )
+    .await?;
+    Ok(HarnessSuccess::ArchiveTask(ArchiveTaskSuccess { task_id }))
 }
 
 async fn execute_bash(invocation: BashInvocation) -> Result<HarnessSuccess, HarnessError> {
@@ -1217,6 +1273,10 @@ fn send_router_command(
 
 fn map_task_command_error(error: TaskCommandError) -> HarnessError {
     match error {
+        TaskCommandError::CommandOperationMismatch => HarnessError::new(
+            HarnessErrorCode::CommandReplayMismatch,
+            "command operation replay mismatch",
+        ),
         TaskCommandError::TaskMissing => {
             HarnessError::new(HarnessErrorCode::TaskNotFound, "task was not found")
         }
@@ -1258,6 +1318,8 @@ fn map_read_error(error: DbError) -> HarnessError {
         } => HarnessError::new(HarnessErrorCode::TaskArchived, "task is archived"),
         DbError::InvalidTaskStatus { .. }
         | DbError::StaleFunctionCall
+        | DbError::CommandEnvironmentBusy { .. }
+        | DbError::CommandOperationMismatch
         | DbError::ToolUnavailable
         | DbError::TaskDescendantLimitExceeded { .. }
         | DbError::Constraint(_)
@@ -1560,7 +1622,7 @@ fn object<const N: usize>(entries: [(&str, Value); N]) -> Value {
 #[cfg(test)]
 mod tests {
     use selvedge_command_model::{
-        RouterIngressMessage, ToolExecutionBranch, ToolExecutionBranchTarget, ToolExecutionRunId,
+        RouterIngressMessage, ToolExecutionBranchTarget, ToolExecutionRunId,
     };
     use selvedge_domain_model::{FunctionCallId, HistoryNodeId, JsonObject, TaskId, ToolName};
 
@@ -1572,6 +1634,7 @@ mod tests {
         for child_count in [usize::MAX, usize::MAX - 1] {
             let error = execute_fork_task(ForkTaskInvocation {
                 child_count,
+                environment: selvedge_domain_model::CommandEnvironmentMode::Shared,
                 messages: None,
             })
             .expect_err("capacity must be rejected");
@@ -1583,6 +1646,7 @@ mod tests {
     #[tokio::test]
     async fn panicking_execution_still_emits_one_correlated_terminal_result() {
         let request = ToolExecutionRequest {
+            execution_mode: selvedge_domain_model::ToolExecutionMode::Normal,
             task_id: TaskId("task-1".to_owned()),
             tool_execution_run_id: ToolExecutionRunId("run-1".to_owned()),
             function_call_node_id: HistoryNodeId(7),
@@ -1595,7 +1659,7 @@ mod tests {
             spawn_supervised_execution(request.clone(), router_tx.downgrade(), async move {
                 panic!("executor panic");
                 #[allow(unreachable_code)]
-                Ok::<Vec<ToolExecutionBranch>, super::HarnessError>(unreachable!())
+                Ok::<super::command::ExecutedTool, super::HarnessError>(unreachable!())
             })
             .expect("spawn supervisor");
 

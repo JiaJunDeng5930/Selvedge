@@ -24,7 +24,7 @@ use selvedge_db::{
 use selvedge_domain_model::{
     CallableTools, Conversation, FUNCTION_CALL_CONTENT_TYPE, FUNCTION_OUTPUT_CONTENT_TYPE,
     JsonObject, ModelProfileKey, ModelProviderProfile, ResponsePreference, ToolCallProposal,
-    ToolManifest,
+    ToolExecutionMode, ToolManifest,
 };
 use serde_json::Value;
 use uuid::Uuid;
@@ -108,7 +108,10 @@ pub fn spawn_task_runtime(args: SpawnTaskRuntimeArgs) -> SpawnedTaskRuntime {
         router_tx: args.router_tx,
         rx: task_runtime_rx,
         started: false,
+        recovering_command: false,
         cursor_started: false,
+        deferred_commands: VecDeque::new(),
+        deferred_tool_calls: VecDeque::new(),
         task_status: None,
         deferred_model_call: false,
         model_profiles: args.config.model_profiles,
@@ -127,7 +130,10 @@ struct TaskRuntimeActor {
     router_tx: RouterIngressWeakSender,
     rx: tokio::sync::mpsc::UnboundedReceiver<TaskRuntimeCommand>,
     started: bool,
+    recovering_command: bool,
     cursor_started: bool,
+    deferred_commands: VecDeque<TaskRuntimeCommand>,
+    deferred_tool_calls: VecDeque<PendingToolCall>,
     task_status: Option<TaskStatus>,
     deferred_model_call: bool,
     model_profiles: HashMap<ModelProfileKey, ModelProviderProfile>,
@@ -159,6 +165,7 @@ struct ValidatedToolCall {
 
 #[derive(Clone, Debug, PartialEq)]
 struct PendingToolCall {
+    execution_mode: ToolExecutionMode,
     function_call_node_id: HistoryNodeId,
     function_call_id: FunctionCallId,
     tool_name: ToolName,
@@ -167,7 +174,7 @@ struct PendingToolCall {
 
 enum RuntimeInput {
     StatusChanged,
-    Command(TaskRuntimeCommand),
+    Command(Box<TaskRuntimeCommand>),
 }
 
 impl TaskRuntimeActor {
@@ -177,9 +184,17 @@ impl TaskRuntimeActor {
                 self.send_exit(TaskRuntimeExitReason::Shutdown);
                 break;
             }
-            let input = if self.started && self.task_status == Some(TaskStatus::Frozen) {
+            let input = if self.started
+                && !self.recovering_command
+                && self.task_status == Some(TaskStatus::Frozen)
+                && !matches!(self.wait_state, WaitState::WaitingToolResult { .. })
+            {
                 self.task_runtime_control.wait_for_control_change().await;
                 RuntimeInput::StatusChanged
+            } else if self.task_status != Some(TaskStatus::Frozen)
+                && let Some(command) = self.deferred_commands.pop_front()
+            {
+                RuntimeInput::Command(Box::new(command))
             } else {
                 tokio::select! {
                     biased;
@@ -189,17 +204,28 @@ impl TaskRuntimeActor {
                             self.send_exit(TaskRuntimeExitReason::Shutdown);
                             break;
                         };
-                        RuntimeInput::Command(command)
+                        RuntimeInput::Command(Box::new(command))
                     }
                 }
             };
             if self.task_runtime_control.is_shutdown_requested() {
                 if let RuntimeInput::Command(command) = input {
-                    settle_task_runtime_command(command, TaskCommandError::RuntimeUnavailable);
+                    settle_task_runtime_command(*command, TaskCommandError::RuntimeUnavailable);
                 }
                 self.send_exit(TaskRuntimeExitReason::Shutdown);
                 break;
             }
+            let input = match input {
+                RuntimeInput::Command(command)
+                    if self.task_status == Some(TaskStatus::Frozen)
+                        && matches!(*command, TaskRuntimeCommand::UserInput { .. }) =>
+                {
+                    // Finish an admitted tool while keeping ordinary frozen mailbox input deferred.
+                    self.deferred_commands.push_back(*command);
+                    continue;
+                }
+                input => input,
+            };
             // A whole actor transition owns its synchronous database work. Moving
             // the actor prevents overlapping commands while SQLite waits off the
             // async workers; shutdown still waits for the admitted transition.
@@ -209,12 +235,20 @@ impl TaskRuntimeActor {
             match tokio::task::spawn_blocking(move || {
                 let should_stop = match input {
                     RuntimeInput::StatusChanged => self.handle_status_changed(),
-                    RuntimeInput::Command(command) => match command {
+                    RuntimeInput::Command(command) => match *command {
                         TaskRuntimeCommand::Start => self.handle_start(),
+                        TaskRuntimeCommand::RecoverCommandInvocation { invocation } => {
+                            self.handle_command_recovery(invocation)
+                        }
                         TaskRuntimeCommand::UserInput {
                             message_text,
                             responder,
                         } => self.handle_user_input(message_text, responder),
+                        TaskRuntimeCommand::TaskInput {
+                            message_text,
+                            context,
+                            responder,
+                        } => self.handle_task_input(message_text, context, responder),
                         TaskRuntimeCommand::ModelCallNotStarted { correlation } => {
                             self.handle_model_call_not_started(correlation)
                         }
@@ -255,12 +289,48 @@ impl TaskRuntimeActor {
         let terminal_error = self
             .terminal_task_error
             .unwrap_or(TaskCommandError::RuntimeUnavailable);
+        for command in self.deferred_commands.drain(..) {
+            settle_task_runtime_command(command, terminal_error);
+        }
         while let Some(command) = self.rx.recv().await {
             settle_task_runtime_command(command, terminal_error);
         }
         self.task_runtime_control
             .finish_shutdown(TaskRuntimeShutdownResult)
             .await;
+    }
+
+    fn handle_command_recovery(
+        &mut self,
+        invocation: selvedge_domain_model::CommandInvocationId,
+    ) -> bool {
+        if self.started {
+            return false;
+        }
+        if invocation.task_id != self.task_id {
+            return self.stop_with_internal_error("command recovery task does not match runtime");
+        }
+        let call = match selvedge_db::read_admitted_command_call(&self.db, &invocation) {
+            Ok(call) => call,
+            Err(error) => return self.stop_with_db_error(error),
+        };
+        self.task_status = match read_task_status(&self.db, &self.task_id) {
+            Ok(status) => Some(status),
+            Err(error) => return self.stop_with_db_error(error),
+        };
+        self.started = true;
+        self.cursor_started = true;
+        self.recovering_command = true;
+        self.dispatch_tool_call(
+            PendingToolCall {
+                execution_mode: ToolExecutionMode::Startup,
+                function_call_node_id: call.function_call_node_id,
+                function_call_id: call.function_call_id,
+                tool_name: call.tool_name,
+                arguments: call.arguments,
+            },
+            VecDeque::new(),
+        )
     }
 
     fn handle_start(&mut self) -> bool {
@@ -290,7 +360,13 @@ impl TaskRuntimeActor {
             Ok(status) => status,
             Err(error) => return self.stop_with_db_error(error),
         };
+        let previous_status = self.task_status;
         self.task_status = Some(status);
+        if self.recovering_command
+            && (status != TaskStatus::Archived || previous_status == Some(status))
+        {
+            return false;
+        }
         if status == TaskStatus::Archived {
             self.terminal_task_error = Some(TaskCommandError::TaskArchived);
             self.send_exit(TaskRuntimeExitReason::Archived);
@@ -304,8 +380,16 @@ impl TaskRuntimeActor {
             self.cursor_started = true;
             return self.start_from_cursor_tail(loaded);
         }
+        if status != TaskStatus::Frozen && !self.deferred_tool_calls.is_empty() {
+            self.deferred_model_call = false;
+            let pending = std::mem::take(&mut self.deferred_tool_calls);
+            return self.dispatch_next_tool_or_request_model(pending);
+        }
         if status == TaskStatus::Active && self.deferred_model_call {
             return self.request_model_call();
+        }
+        if status == TaskStatus::Active && matches!(self.wait_state, WaitState::AwaitingUserInput) {
+            return self.enter_awaiting_user_input_or_promote_queue();
         }
         false
     }
@@ -338,6 +422,7 @@ impl TaskRuntimeActor {
                 ..
             } => self.dispatch_tool_call(
                 PendingToolCall {
+                    execution_mode: ToolExecutionMode::Startup,
                     function_call_node_id: node_id,
                     function_call_id,
                     tool_name,
@@ -355,6 +440,7 @@ impl TaskRuntimeActor {
         let mut pending_tool_calls = VecDeque::new();
         for call in open_calls {
             let tool_call = PendingToolCall {
+                execution_mode: ToolExecutionMode::Startup,
                 function_call_node_id: call.function_call_node_id,
                 function_call_id: call.function_call_id,
                 tool_name: call.tool_name,
@@ -419,7 +505,11 @@ impl TaskRuntimeActor {
                 }
                 Err(error) => {
                     responder.settle(Err(task_command_db_error(&error)));
-                    self.stop_with_db_error(error)
+                    if self.recovering_command {
+                        false
+                    } else {
+                        self.stop_with_db_error(error)
+                    }
                 }
             },
             WaitState::WaitingModelReply { .. } | WaitState::WaitingToolResult { .. } => {
@@ -430,9 +520,49 @@ impl TaskRuntimeActor {
                     }
                     Err(error) => {
                         responder.settle(Err(task_command_db_error(&error)));
-                        self.stop_with_db_error(error)
+                        if self.recovering_command {
+                            false
+                        } else {
+                            self.stop_with_db_error(error)
+                        }
                     }
                 }
+            }
+        }
+    }
+
+    fn handle_task_input(
+        &mut self,
+        message_text: String,
+        context: selvedge_domain_model::CommandOperationContext,
+        responder: selvedge_command_model::CommandOperationResponder,
+    ) -> bool {
+        let idle = matches!(self.wait_state, WaitState::AwaitingUserInput);
+        let write = if idle {
+            selvedge_db::append_user_message_with_context
+        } else {
+            selvedge_db::queue_user_input_with_context
+        };
+        match write(
+            &self.db,
+            &self.task_id,
+            message_text,
+            now(),
+            &context,
+            serde_json::json!({"delivered": true}),
+        ) {
+            Ok(outcome) => {
+                responder.settle(Ok(outcome.result));
+                if idle && !outcome.replayed {
+                    self.request_model_call()
+                } else {
+                    false
+                }
+            }
+            Err(error) => {
+                // A rejected task-originated operation is a tool diagnostic, not an actor failure.
+                responder.settle(Err(task_command_db_error(&error)));
+                false
             }
         }
     }
@@ -596,51 +726,81 @@ impl TaskRuntimeActor {
         let function_call_node_id = result.function_call_node_id;
         let function_call_id = result.function_call_id;
         let tool_name = result.tool_name;
-        let commit_result = commit_tool_result_branches(
-            &self.db,
-            CommitToolResultBranchesInput {
-                calling_task_id: self.task_id.clone(),
-                function_call_node_id,
-                function_call_id: function_call_id.clone(),
-                tool_name: tool_name.clone(),
-                branches: result
-                    .branches
-                    .into_iter()
-                    .map(|branch| ToolResultBranch {
-                        target: match branch.target {
-                            ToolExecutionBranchTarget::CallingTask => {
-                                ToolResultBranchTarget::CallingTask
-                            }
-                            ToolExecutionBranchTarget::NewChildTask { task_id } => {
-                                ToolResultBranchTarget::NewChildTask(task_id)
-                            }
-                        },
-                        output: branch.output,
-                        is_error: branch.is_error,
-                        user_messages: branch.messages,
-                    })
-                    .collect(),
-                now: now(),
-            },
-        );
+        let prepared_environment = result.prepared_environment;
+        if prepared_environment.is_none() {
+            let environment = match selvedge_db::read_command_environment(&self.db, &self.task_id) {
+                Ok(environment) => environment,
+                Err(error) => return self.stop_with_db_error(error),
+            };
+            if environment
+                .admitted_invocation
+                .as_ref()
+                .is_some_and(|invocation| {
+                    invocation.task_id == self.task_id
+                        && invocation.function_call_node_id == function_call_node_id
+                })
+            {
+                // Closing the outer call alone would strand its durable environment admission.
+                return self.stop_with_internal_error(
+                    "admitted command result has no prepared environment",
+                );
+            }
+        }
+        let commit_input = CommitToolResultBranchesInput {
+            calling_task_id: self.task_id.clone(),
+            function_call_node_id,
+            function_call_id: function_call_id.clone(),
+            tool_name: tool_name.clone(),
+            branches: result
+                .branches
+                .into_iter()
+                .map(|branch| ToolResultBranch {
+                    target: match branch.target {
+                        ToolExecutionBranchTarget::CallingTask => {
+                            ToolResultBranchTarget::CallingTask
+                        }
+                        ToolExecutionBranchTarget::NewChildTask { task_id } => {
+                            ToolResultBranchTarget::NewChildTask(task_id)
+                        }
+                    },
+                    output: branch.output,
+                    is_error: branch.is_error,
+                    user_messages: branch.messages,
+                })
+                .collect(),
+            now: now(),
+        };
+        let commit_result = match &prepared_environment {
+            Some(prepared) => selvedge_db::commit_tool_result_branches_with_environment(
+                &self.db,
+                commit_input,
+                &prepared.commit,
+            ),
+            None => commit_tool_result_branches(&self.db, commit_input),
+        };
         let commit_result = match commit_result {
             Err(DbError::TaskDescendantLimitExceeded { task_id, limit }) => {
-                commit_tool_result_branches(
-                    &self.db,
-                    CommitToolResultBranchesInput {
-                        calling_task_id: self.task_id.clone(),
-                        function_call_node_id,
-                        function_call_id,
-                        tool_name,
-                        branches: vec![ToolResultBranch {
-                            target: ToolResultBranchTarget::CallingTask,
-                            output: task_descendant_limit_output(&task_id, limit),
-                            is_error: true,
-                            user_messages: Vec::new(),
-                        }],
-                        now: now(),
-                    },
-                )
+                let fallback = CommitToolResultBranchesInput {
+                    calling_task_id: self.task_id.clone(),
+                    function_call_node_id,
+                    function_call_id,
+                    tool_name,
+                    branches: vec![ToolResultBranch {
+                        target: ToolResultBranchTarget::CallingTask,
+                        output: task_descendant_limit_output(&task_id, limit),
+                        is_error: true,
+                        user_messages: Vec::new(),
+                    }],
+                    now: now(),
+                };
+                match &prepared_environment {
+                    Some(prepared) => selvedge_db::commit_tool_result_branches_with_environment(
+                        &self.db,
+                        fallback,
+                        &prepared.commit,
+                    ),
+                    None => commit_tool_result_branches(&self.db, fallback),
+                }
             }
             result => result,
         };
@@ -654,6 +814,25 @@ impl TaskRuntimeActor {
                         .is_err()
                 {
                     return true;
+                }
+                drop(prepared_environment);
+                if self.recovering_command {
+                    self.send_exit(TaskRuntimeExitReason::Shutdown);
+                    return true;
+                }
+                self.task_status = match read_task_status(&self.db, &self.task_id) {
+                    Ok(status) => Some(status),
+                    Err(error) => return self.stop_with_db_error(error),
+                };
+                if self.task_status == Some(TaskStatus::Archived) {
+                    self.terminal_task_error = Some(TaskCommandError::TaskArchived);
+                    self.send_exit(TaskRuntimeExitReason::Archived);
+                    return true;
+                }
+                if self.task_status == Some(TaskStatus::Frozen) {
+                    self.deferred_tool_calls = pending_tool_calls;
+                    self.deferred_model_call = true;
+                    return false;
                 }
                 self.dispatch_next_tool_or_request_model(pending_tool_calls)
             }
@@ -777,6 +956,7 @@ impl TaskRuntimeActor {
             .into_iter()
             .zip(tool_calls)
             .map(|(node_id, tool_call)| PendingToolCall {
+                execution_mode: ToolExecutionMode::Normal,
                 function_call_node_id: node_id,
                 function_call_id: tool_call.function_call_id,
                 tool_name: tool_call.tool_name,
@@ -793,6 +973,7 @@ impl TaskRuntimeActor {
     ) -> bool {
         let tool_run_id = ToolExecutionRunId(format!("{}-tool-{}", self.task_id.0, Uuid::new_v4()));
         let request = ToolExecutionRequest {
+            execution_mode: tool_call.execution_mode,
             task_id: self.task_id.clone(),
             tool_execution_run_id: tool_run_id.clone(),
             function_call_node_id: tool_call.function_call_node_id,
@@ -859,13 +1040,15 @@ impl TaskRuntimeActor {
 fn task_command_db_error(error: &DbError) -> TaskCommandError {
     match error {
         DbError::NotFound => TaskCommandError::TaskMissing,
+        DbError::CommandOperationMismatch => TaskCommandError::CommandOperationMismatch,
         DbError::InvalidTaskStatus {
             status: TaskStatus::Archived,
         } => TaskCommandError::TaskArchived,
         DbError::InvalidTaskStatus { status } => {
             TaskCommandError::InvalidTaskStatus { status: *status }
         }
-        DbError::StaleFunctionCall
+        DbError::CommandEnvironmentBusy { .. }
+        | DbError::StaleFunctionCall
         | DbError::HistoryCursorNotOnTask
         | DbError::ToolUnavailable
         | DbError::TaskDescendantLimitExceeded { .. }
@@ -896,7 +1079,9 @@ fn unknown_tool_call_outcome() -> Value {
 fn settle_task_runtime_command(command: TaskRuntimeCommand, error: TaskCommandError) {
     match command {
         TaskRuntimeCommand::UserInput { responder, .. } => responder.settle(Err(error)),
+        TaskRuntimeCommand::TaskInput { responder, .. } => responder.settle(Err(error)),
         TaskRuntimeCommand::Start
+        | TaskRuntimeCommand::RecoverCommandInvocation { .. }
         | TaskRuntimeCommand::ModelCallNotStarted { .. }
         | TaskRuntimeCommand::ApiModelReply(_)
         | TaskRuntimeCommand::ToolResult(_) => {}

@@ -2,7 +2,7 @@
 
 <!-- selvedge-package-readme
 package: selvedge
-freshness_fingerprint: cb74caa5b30d33c2deadd7470b3e1a087ac7c495
+freshness_fingerprint: d5f4e74858957a9d65c66fec3fb09dbb97335621
 -->
 
 Selvedge runs a local server for persistent AI tasks. It stores task history in SQLite, routes commands and streamed updates to local clients, and executes model calls and tools through a task-owned runtime.
@@ -13,6 +13,7 @@ Read each package README before changing its behavior. Start with the boundary r
 
 - [server](crates/server/README.md) and [web](crates/web/README.md): startup, local commands, and HTTP delivery.
 - [core](crates/core/README.md), [db](crates/db/README.md), and [harness](crates/harness/README.md): durable task execution, persistence, and tools.
+- [script-runtime](crates/script-runtime/README.md): JavaScript command execution, modules, and environment checkpoints.
 - [model-providers](crates/model-providers/README.md): model request adapters and provider selection.
 - [local-client](crates/local-client/README.md) and [tui](crates/tui/README.md): local protocol access and terminal interaction.
 - [config](crates/config/README.md): runtime configuration and storage paths.
