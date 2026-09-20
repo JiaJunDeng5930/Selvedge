@@ -9,12 +9,15 @@ use tokio::sync::{Mutex, Notify, mpsc, oneshot};
 
 use selvedge_domain_model::{
     ApiDomainValidationError, CallableTools, Conversation, FunctionCallId, HistoryNodeId,
-    JsonObject, MessageRole, ModelProviderProfile, ModelReply, ResponsePreference, TaskModelConfig,
-    ToolManifest, ToolName, UnixTs, validate_conversation, validate_model_provider_profile,
-    validate_model_reply, validate_tool_manifest,
+    JsonObject, MessageRole, ModelProviderProfile, ModelReply, ResponsePreference,
+    TaskLifecycleEvent, TaskModelConfig, ToolManifest, ToolName, UnixTs, validate_conversation,
+    validate_model_provider_profile, validate_model_reply, validate_tool_manifest,
 };
 
-pub use selvedge_domain_model::{TaskId, TaskStatus};
+pub use selvedge_domain_model::{
+    CommandEnvironmentCommit, CommandOperationContext, TaskId, TaskStatus, ToolExecutionMode,
+    ToolResultCompletion,
+};
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ApiEffectId(pub String);
@@ -95,6 +98,21 @@ pub type TaskStatusChangeResult = Result<TaskStatusChangeOutcome, TaskCommandErr
 pub type SendUserInputResponseReceiver = oneshot::Receiver<SendUserInputResult>;
 pub type TaskStatusChangeResponseReceiver = oneshot::Receiver<TaskStatusChangeResult>;
 pub type SendUserInputResponder = TaskCommandResponder<SendUserInputOutcome>;
+pub type CommandOperationResponder = TaskCommandResponder<serde_json::Value>;
+pub type CommandOperationResponseReceiver =
+    oneshot::Receiver<Result<serde_json::Value, TaskCommandError>>;
+
+pub fn command_operation_response_channel()
+-> (CommandOperationResponder, CommandOperationResponseReceiver) {
+    let (result_tx, result_rx) = oneshot::channel();
+    (
+        TaskCommandResponder {
+            result_tx: Some(result_tx),
+        },
+        result_rx,
+    )
+}
+
 pub type TaskStatusChangeResponder = TaskCommandResponder<TaskStatusChangeOutcome>;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -110,6 +128,7 @@ pub struct TaskStatusChangeOutcome {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TaskCommandError {
+    CommandOperationMismatch,
     InvalidCommand,
     InvalidTaskStatus { status: TaskStatus },
     TaskMissing,
@@ -187,6 +206,18 @@ pub enum RouterCommand {
         message_text: String,
         responder: SendUserInputResponder,
     },
+    SendTaskInput {
+        task_id: TaskId,
+        message_text: String,
+        context: CommandOperationContext,
+        responder: CommandOperationResponder,
+    },
+    ChangeTaskStatus {
+        task_id: TaskId,
+        event: TaskLifecycleEvent,
+        context: CommandOperationContext,
+        responder: CommandOperationResponder,
+    },
     ArchiveTask {
         task_id: TaskId,
         responder: TaskStatusChangeResponder,
@@ -202,6 +233,9 @@ pub enum RouterCommand {
     StopTask {
         task_id: TaskId,
         responder: TaskStatusChangeResponder,
+    },
+    RecoverCommandInvocation {
+        invocation: selvedge_domain_model::CommandInvocationId,
     },
     EnsureTaskRuntime {
         task_id: TaskId,
@@ -649,9 +683,17 @@ pub struct ToolExecutionRunId(pub String);
 #[derive(Debug)]
 pub enum TaskRuntimeCommand {
     Start,
+    RecoverCommandInvocation {
+        invocation: selvedge_domain_model::CommandInvocationId,
+    },
     UserInput {
         message_text: String,
         responder: SendUserInputResponder,
+    },
+    TaskInput {
+        message_text: String,
+        context: CommandOperationContext,
+        responder: CommandOperationResponder,
     },
     ModelCallNotStarted {
         correlation: ApiCallCorrelation,
@@ -692,6 +734,7 @@ pub enum CoreOutputMessage {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ToolExecutionRequest {
+    pub execution_mode: ToolExecutionMode,
     pub task_id: TaskId,
     pub tool_execution_run_id: ToolExecutionRunId,
     pub function_call_node_id: HistoryNodeId,
@@ -702,6 +745,7 @@ pub struct ToolExecutionRequest {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ToolExecutionResult {
+    pub completion: ToolExecutionCompletion,
     pub task_id: TaskId,
     pub tool_execution_run_id: ToolExecutionRunId,
     pub function_call_node_id: HistoryNodeId,
@@ -814,17 +858,26 @@ pub fn validate_router_command(
             task_id,
             message_text,
             ..
+        }
+        | RouterCommand::SendTaskInput {
+            task_id,
+            message_text,
+            ..
         } => {
             validate_task_id(task_id)?;
             if message_text.trim().is_empty() {
                 return Err(RouterCommandValidationError::EmptyMessageText);
             }
         }
-        RouterCommand::ArchiveTask { task_id, .. }
+        RouterCommand::ChangeTaskStatus { task_id, .. }
+        | RouterCommand::ArchiveTask { task_id, .. }
         | RouterCommand::FreezeTask { task_id, .. }
         | RouterCommand::UnfreezeTask { task_id, .. }
         | RouterCommand::StopTask { task_id, .. }
         | RouterCommand::EnsureTaskRuntime { task_id } => validate_task_id(task_id)?,
+        RouterCommand::RecoverCommandInvocation { invocation } => {
+            validate_task_id(&invocation.task_id)?
+        }
         RouterCommand::EnsureMissingTaskRuntimes => {}
     }
 
@@ -879,5 +932,47 @@ fn validation_message(message: impl Into<String>) -> ModelCallError {
     ModelCallError {
         kind: ModelCallErrorKind::Validation,
         message: message.into(),
+    }
+}
+
+/// Owns the lease required by a durable completion until its transaction finishes.
+/// Clones retain the same lease; the persistence view cannot release it.
+#[derive(Clone, Debug)]
+pub struct ToolExecutionCompletion {
+    persistence: ToolResultCompletion,
+    lease: Option<Arc<tokio::sync::OwnedMutexGuard<()>>>,
+}
+
+impl ToolExecutionCompletion {
+    pub fn ordinary() -> Self {
+        Self {
+            persistence: ToolResultCompletion::Ordinary,
+            lease: None,
+        }
+    }
+
+    pub fn command(
+        commit: CommandEnvironmentCommit,
+        lease: tokio::sync::OwnedMutexGuard<()>,
+    ) -> Self {
+        Self {
+            persistence: ToolResultCompletion::CommandEnvironment(commit),
+            lease: Some(Arc::new(lease)),
+        }
+    }
+
+    pub fn persistence(&self) -> &ToolResultCompletion {
+        &self.persistence
+    }
+}
+
+impl PartialEq for ToolExecutionCompletion {
+    fn eq(&self, other: &Self) -> bool {
+        self.persistence == other.persistence
+            && match (&self.lease, &other.lease) {
+                (None, None) => true,
+                (Some(left), Some(right)) => Arc::ptr_eq(left, right),
+                _ => false,
+            }
     }
 }

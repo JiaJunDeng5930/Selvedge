@@ -15,6 +15,68 @@ pub struct HistoryNodeIdRef(pub String);
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize)]
 pub struct TaskId(pub String);
 
+/// Durable script state identity, independent of task parentage.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct CommandEnvironmentId(pub String);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CommandEnvironmentMode {
+    Shared,
+    Copy,
+    New,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ToolExecutionMode {
+    Normal,
+    Startup,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct CommandInvocationId {
+    pub task_id: TaskId,
+    pub function_call_node_id: HistoryNodeId,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct CommandOperationId {
+    pub invocation: CommandInvocationId,
+    pub ordinal: u64,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct CommandOperation {
+    pub id: CommandOperationId,
+    pub command: String,
+    pub arguments: serde_json::Value,
+}
+
+/// Trusted caller scope; an absent operation preserves non-journaled tool use.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CommandOperationContext {
+    pub caller_task_id: TaskId,
+    pub mode: ToolExecutionMode,
+    pub operation: Option<CommandOperation>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CommandEnvironmentCommit {
+    pub new_child_environment_mode: CommandEnvironmentMode,
+    pub environment_id: CommandEnvironmentId,
+    pub invocation: CommandInvocationId,
+    pub expected_revision: u64,
+    pub checkpoint: Vec<u8>,
+    pub base_checkpoint: Vec<u8>,
+}
+
+/// The durable effects that must commit atomically with a tool's output.
+/// Database admission and revision checks remain authoritative at commit time.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ToolResultCompletion {
+    Ordinary,
+    CommandEnvironment(CommandEnvironmentCommit),
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize)]
 pub enum TaskStatus {
     Active,

@@ -181,3 +181,34 @@ fn valid_correlation() -> ApiCallCorrelation {
         model_run_id: ModelRunId("run-1".to_owned()),
     }
 }
+
+#[test]
+fn command_completion_keeps_lease_until_all_result_owners_release_it() {
+    use selvedge_command_model::ToolExecutionCompletion;
+    use selvedge_domain_model::{
+        CommandEnvironmentCommit, CommandEnvironmentId, CommandEnvironmentMode,
+        CommandInvocationId, HistoryNodeId,
+    };
+    let mutex = Arc::new(tokio::sync::Mutex::new(()));
+    let lease = mutex.clone().try_lock_owned().expect("initial lease");
+    let prepared = ToolExecutionCompletion::command(
+        CommandEnvironmentCommit {
+            environment_id: CommandEnvironmentId("env".into()),
+            invocation: CommandInvocationId {
+                task_id: TaskId("task".into()),
+                function_call_node_id: HistoryNodeId(1),
+            },
+            expected_revision: 0,
+            checkpoint: vec![1],
+            base_checkpoint: vec![0],
+            new_child_environment_mode: CommandEnvironmentMode::Shared,
+        },
+        lease,
+    );
+    let retained = prepared.clone();
+    assert_eq!(prepared, retained);
+    drop(prepared);
+    assert!(mutex.clone().try_lock_owned().is_err());
+    drop(retained);
+    assert!(mutex.try_lock_owned().is_ok());
+}

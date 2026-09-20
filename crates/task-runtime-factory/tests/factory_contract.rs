@@ -126,3 +126,93 @@ impl TaskRuntimeSpawner for FailingSpawner {
         Err(SpawnTaskRuntimeError::TokioSpawnFailed)
     }
 }
+
+#[tokio::test]
+async fn pending_command_child_is_held_by_creation_and_recovery() {
+    use selvedge_domain_model::{
+        CommandEnvironmentMode, CommandInvocationId, CommandOperation, CommandOperationContext,
+        CommandOperationId, FunctionCallId, JsonObject, ToolExecutionMode, ToolName,
+    };
+    let db = open_memory_db();
+    let root = create_command_task(&db, "parent");
+    let call_id = FunctionCallId("call".into());
+    let tool_name = ToolName("exec_cmd".into());
+    let call = selvedge_db::append_model_reply_with_tool_calls_and_move_cursor(
+        &db,
+        &root.task_id,
+        None,
+        vec![selvedge_db::NewFunctionCallNodeContent {
+            function_call_id: call_id.clone(),
+            tool_name: tool_name.clone(),
+            arguments: JsonObject::new(),
+        }],
+        UnixTs(2),
+    )
+    .expect("command operation succeeds")[0];
+    let invocation = CommandInvocationId {
+        task_id: root.task_id.clone(),
+        function_call_node_id: call,
+    };
+    selvedge_db::admit_command_invocation(&db, &invocation, &call_id, &tool_name)
+        .expect("command operation succeeds");
+    let context = CommandOperationContext {
+        caller_task_id: root.task_id,
+        mode: ToolExecutionMode::Normal,
+        operation: Some(CommandOperation {
+            id: CommandOperationId {
+                invocation,
+                ordinal: 0,
+            },
+            command: "tasks.fork".into(),
+            arguments: Default::default(),
+        }),
+    };
+    let child = TaskId("child".into());
+    selvedge_db::create_pending_command_child(
+        &db,
+        &context,
+        child.clone(),
+        CommandEnvironmentMode::Shared,
+        vec![],
+        UnixTs(3),
+    )
+    .expect("command operation succeeds");
+    let (router_tx, _router_rx) = tokio::sync::mpsc::unbounded_channel();
+    let deps = TaskRuntimeSpawnDeps::new(TaskRuntimeConfig {
+        model_profiles: default_model_profiles(),
+    });
+    assert_eq!(
+        create_task_runtime(&db, &router_tx.downgrade(), &deps, child.clone())
+            .expect_err("pending child cannot start"),
+        RuntimeCreationError::TaskPending
+    );
+    let recovered = recover_task_runtimes(&db, &router_tx.downgrade(), &deps, &HashSet::new())
+        .expect("command operation succeeds");
+    assert!(
+        recovered
+            .created
+            .iter()
+            .all(|runtime| runtime.task_id != child)
+    );
+    for runtime in recovered.created {
+        runtime.task_runtime_control.shutdown().await;
+    }
+}
+
+fn create_command_task(db: &selvedge_db::DbPool, id: &str) -> selvedge_db::TaskRow {
+    selvedge_test_support::db::create_root_task_with_user_message_and_tools(
+        db,
+        id,
+        "hello",
+        vec![selvedge_db::TaskToolSpec {
+            tool: selvedge_domain_model::ToolSpec {
+                name: "exec_cmd".into(),
+                description: "command".into(),
+                input_schema: [("type".into(), "object".into())].into_iter().collect(),
+            },
+            execution_source: selvedge_db::ToolExecutionSource::Harness,
+            recovery_policy: selvedge_db::ToolRecoveryPolicy::RetrySafe,
+        }],
+        UnixTs(1),
+    )
+}

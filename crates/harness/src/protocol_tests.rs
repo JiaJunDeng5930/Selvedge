@@ -12,7 +12,11 @@ fn manifest_defines_closed_schemas_with_required_typed_properties() {
         (
             "fork_task",
             vec!["child_count"],
-            vec![("child_count", "integer"), ("messages", "array")],
+            vec![
+                ("child_count", "integer"),
+                ("environment", "string"),
+                ("messages", "array"),
+            ],
         ),
         (
             "read_task",
@@ -34,6 +38,7 @@ fn manifest_defines_closed_schemas_with_required_typed_properties() {
             vec!["command"],
             vec![("command", "string"), ("timeout_ms", "integer")],
         ),
+        ("exec_cmd", vec!["code"], vec![("code", "string")]),
     ];
     assert_eq!(manifest.len(), expected.len());
     for (tool, (name, required, properties)) in manifest.iter().zip(expected) {
@@ -81,6 +86,7 @@ fn catalog_freezes_builtin_recovery_policies() {
     assert_eq!(
         policies,
         std::collections::BTreeMap::from([
+            (EXEC_CMD_TOOL_NAME.to_owned(), ToolRecoveryPolicy::RetrySafe),
             (
                 ARCHIVE_TASK_TOOL_NAME.to_owned(),
                 ToolRecoveryPolicy::OutcomeUnknown
@@ -117,6 +123,7 @@ fn valid_requests_parse_to_typed_invocations() {
                 ],
             ),
             HarnessInvocation::ForkTask(ForkTaskInvocation {
+                environment: selvedge_domain_model::CommandEnvironmentMode::Shared,
                 child_count: 2,
                 messages: Some(vec!["investigate".to_owned(), "review".to_owned()]),
             }),
@@ -269,6 +276,17 @@ fn invalid_requests_are_rejected_without_backend_state() {
             request(FORK_TASK_TOOL_NAME, Vec::new()),
             HarnessErrorCode::InvalidArguments,
             "missing required argument 'child_count'",
+        ),
+        (
+            request(
+                FORK_TASK_TOOL_NAME,
+                vec![
+                    integer_argument("child_count", 0),
+                    ("environment".into(), Value::Null),
+                ],
+            ),
+            HarnessErrorCode::InvalidArguments,
+            "environment must be shared, copy, or new",
         ),
         (
             request(FORK_TASK_TOOL_NAME, vec![string_argument("extra", "value")]),
@@ -492,6 +510,7 @@ fn error_codes_keep_their_wire_names() {
 
 fn request(tool_name: &str, arguments: Vec<(String, Value)>) -> ToolExecutionRequest {
     ToolExecutionRequest {
+        execution_mode: selvedge_domain_model::ToolExecutionMode::Normal,
         task_id: TaskId("task-1".to_owned()),
         tool_execution_run_id: ToolExecutionRunId("execution-1".to_owned()),
         function_call_node_id: HistoryNodeId(9),

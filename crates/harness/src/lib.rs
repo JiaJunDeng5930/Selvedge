@@ -1,6 +1,11 @@
 #![doc = include_str!("../README.md")]
 
+mod arguments;
+mod command;
+use arguments::*;
+mod kernel;
 mod mcp;
+pub use command::CommandEnvironmentManager;
 
 use std::collections::BTreeMap;
 use std::future::Future;
@@ -15,17 +20,16 @@ use rustix::io::Errno;
 use rustix::process::{Pid, Signal, kill_process_group};
 use selvedge_command_model::{
     HistoryNodeProjection, HistoryNodeProjectionBody, RouterCommand, RouterIngressMessage,
-    RouterIngressWeakSender, SendUserInputOutcome, TaskCommandError, ToolExecutionBranch,
-    ToolExecutionBranchTarget, ToolExecutionRequest, ToolExecutionResult,
-    send_user_input_response_channel, task_status_change_response_channel,
+    RouterIngressWeakSender, TaskCommandError, ToolExecutionBranch, ToolExecutionBranchTarget,
+    ToolExecutionCompletion, ToolExecutionRequest, ToolExecutionResult,
 };
 use selvedge_config_model::HarnessConfig;
 use selvedge_db::{
     DbError, DbPool, HistoryNode, ReadTaskInput, TaskRead, TaskToolSpec, ToolExecutionSource,
     ToolRecoveryPolicy, read_task, read_tool_execution_source,
 };
-use selvedge_domain_model::{HistoryNodeId, JsonObject, MessageRole, TaskId, TaskStatus, ToolSpec};
-use serde_json::{Number, Value};
+use selvedge_domain_model::{HistoryNodeId, MessageRole, TaskId, TaskStatus, ToolSpec};
+use serde_json::Value;
 use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::process::Command;
 use tokio::task::JoinHandle;
@@ -56,6 +60,7 @@ builtin_tools! {
     SendMessageToTask => SEND_MESSAGE_TO_TASK_TOOL_NAME = "send_message_to_task",
     ArchiveTask => ARCHIVE_TASK_TOOL_NAME = "archive_task",
     Bash => BASH_TOOL_NAME = "bash",
+    ExecCmd => EXEC_CMD_TOOL_NAME = "exec_cmd",
 }
 
 pub const DEFAULT_BASH_TIMEOUT_MS: i64 = 30_000;
@@ -63,7 +68,6 @@ pub const MIN_BASH_TIMEOUT_MS: i64 = 100;
 pub const MAX_BASH_TIMEOUT_MS: i64 = 120_000;
 pub const BASH_OUTPUT_LIMIT_BYTES: usize = 64 * 1024;
 
-const MAX_READ_LIMIT: i64 = 100;
 const BASH_REAP_TIMEOUT: Duration = Duration::from_secs(5);
 
 pub fn harness_tool_catalog(config: &HarnessConfig) -> Vec<TaskToolSpec> {
@@ -75,110 +79,21 @@ pub fn harness_tool_catalog(config: &HarnessConfig) -> Vec<TaskToolSpec> {
 
 impl BuiltinTool {
     fn registration(self, config: &HarnessConfig) -> TaskToolSpec {
-        let tool = match self {
-            Self::ForkTask => ToolSpec {
-                name: self.name().to_owned(),
-                description: format!(
-                    "Create up to {} parallel child task branches with optional aligned initial messages.",
-                    config.max_children_per_fork
-                ),
-                input_schema: input_schema(
-                    [
-                        (
-                            "child_count",
-                            bounded_integer_property(
-                                "Number of child task branches to create.",
-                                1,
-                                i64::from(config.max_children_per_fork),
-                            ),
-                        ),
-                        (
-                            "messages",
-                            string_array_property(
-                                "Optional initial messages aligned by child branch number.",
-                                config.max_children_per_fork,
-                            ),
-                        ),
-                    ],
-                    &["child_count"],
-                ),
-            },
-            Self::ReadTask => ToolSpec {
-                name: self.name().to_owned(),
-                description:
-                    "Read task state and a page of history. Omit task_id to read the calling task."
-                        .to_owned(),
-                input_schema: input_schema(
-                    [
-                        (
-                            "task_id",
-                            string_property("Task to read; omit it to read the calling task."),
-                        ),
-                        (
-                            "after_node_id",
-                            integer_property(
-                                "Return history nodes after this node ID.",
-                            ),
-                        ),
-                        (
-                            "limit",
-                            bounded_integer_property(
-                                "Maximum history nodes to return, from 1 through 100.",
-                                1,
-                                MAX_READ_LIMIT,
-                            ),
-                        ),
-                    ],
-                    &[],
-                ),
-            },
-            Self::SendMessageToTask => ToolSpec {
-                name: self.name().to_owned(),
-                description:
-                    "Send a message to an active task and report whether it was committed or queued."
-                        .to_owned(),
-                input_schema: input_schema(
-                    [
-                        (
-                            "task_id",
-                            string_property("Task that should receive the message."),
-                        ),
-                        ("message", string_property("Message to send to the task.")),
-                    ],
-                    &["message", "task_id"],
-                ),
-            },
-            Self::ArchiveTask => ToolSpec {
-                name: self.name().to_owned(),
-                description: "Archive another active task.".to_owned(),
-                input_schema: input_schema(
-                    [("task_id", string_property("Task to archive."))],
-                    &["task_id"],
-                ),
-            },
-            Self::Bash => ToolSpec {
-                name: self.name().to_owned(),
-                description:
-                    "Run a non-interactive Bash login command in the server process environment and working directory. Stdout and stderr are each capped at 65536 bytes."
-                        .to_owned(),
-                input_schema: input_schema(
-                    [
-                        ("command", string_property("Bash command to run.")),
-                        (
-                            "timeout_ms",
-                            bounded_integer_property(
-                                "Timeout in milliseconds; defaults to 30000, from 100 through 120000.",
-                                MIN_BASH_TIMEOUT_MS,
-                                MAX_BASH_TIMEOUT_MS,
-                            ),
-                        ),
-                    ],
-                    &["command"],
-                ),
-            },
+        let (description, input_schema) = match self {
+            Self::ForkTask => (format!("Create up to {} parallel child task branches with optional aligned initial messages.", config.max_children_per_fork), ForkTaskInvocation::schema(config)),
+            Self::ReadTask => ("Read task state and a page of history. Omit task_id to read the calling task.".to_owned(), ReadTaskInvocation::schema(config)),
+            Self::SendMessageToTask => ("Send a message to an active task and report whether it was committed or queued.".to_owned(), SendMessageToTaskInvocation::schema(config)),
+            Self::ArchiveTask => ("Archive another active task.".to_owned(), ArchiveTaskInvocation::schema(config)),
+            Self::ExecCmd => ("Execute JavaScript in the task's persistent command environment. Use kernel.describe() to discover task operations and host tools; modules.load() and modules.source() inspect extensions.".to_owned(), ExecCmdArguments::schema(config)),
+            Self::Bash => ("Run a non-interactive Bash login command in the server process environment and working directory. Stdout and stderr are each capped at 65536 bytes.".to_owned(), BashInvocation::schema(config)),
+        };
+        let tool = ToolSpec {
+            name: self.name().to_owned(),
+            description,
+            input_schema,
         };
         let recovery_policy = match self {
-            Self::ForkTask | Self::ReadTask => ToolRecoveryPolicy::RetrySafe,
+            Self::ForkTask | Self::ReadTask | Self::ExecCmd => ToolRecoveryPolicy::RetrySafe,
             Self::SendMessageToTask | Self::ArchiveTask | Self::Bash => {
                 ToolRecoveryPolicy::OutcomeUnknown
             }
@@ -191,82 +106,6 @@ impl BuiltinTool {
     }
 }
 
-fn input_schema<const N: usize>(properties: [(&str, Value); N], required: &[&str]) -> JsonObject {
-    JsonObject::from_iter([
-        ("type".to_owned(), Value::String("object".to_owned())),
-        (
-            "properties".to_owned(),
-            Value::Object(
-                properties
-                    .into_iter()
-                    .map(|(name, schema)| (name.to_owned(), schema))
-                    .collect(),
-            ),
-        ),
-        (
-            "required".to_owned(),
-            Value::Array(
-                required
-                    .iter()
-                    .map(|name| Value::String((*name).to_owned()))
-                    .collect(),
-            ),
-        ),
-        ("additionalProperties".to_owned(), Value::Bool(false)),
-    ])
-}
-
-fn string_property(description: &str) -> Value {
-    Value::Object(JsonObject::from_iter([
-        ("type".to_owned(), Value::String("string".to_owned())),
-        (
-            "description".to_owned(),
-            Value::String(description.to_owned()),
-        ),
-    ]))
-}
-
-fn integer_property(description: &str) -> Value {
-    Value::Object(JsonObject::from_iter([
-        ("type".to_owned(), Value::String("integer".to_owned())),
-        (
-            "description".to_owned(),
-            Value::String(description.to_owned()),
-        ),
-    ]))
-}
-
-fn bounded_integer_property(description: &str, minimum: i64, maximum: i64) -> Value {
-    Value::Object(JsonObject::from_iter([
-        ("type".to_owned(), Value::String("integer".to_owned())),
-        (
-            "description".to_owned(),
-            Value::String(description.to_owned()),
-        ),
-        ("minimum".to_owned(), Value::from(minimum)),
-        ("maximum".to_owned(), Value::from(maximum)),
-    ]))
-}
-
-fn string_array_property(description: &str, max_items: u32) -> Value {
-    Value::Object(JsonObject::from_iter([
-        ("type".to_owned(), Value::String("array".to_owned())),
-        (
-            "items".to_owned(),
-            Value::Object(JsonObject::from_iter([(
-                "type".to_owned(),
-                Value::String("string".to_owned()),
-            )])),
-        ),
-        (
-            "description".to_owned(),
-            Value::String(description.to_owned()),
-        ),
-        ("minItems".to_owned(), Value::from(1)),
-        ("maxItems".to_owned(), Value::from(max_items)),
-    ]))
-}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum HarnessInvocation {
     ForkTask(ForkTaskInvocation),
@@ -274,36 +113,7 @@ enum HarnessInvocation {
     SendMessageToTask(SendMessageToTaskInvocation),
     ArchiveTask(ArchiveTaskInvocation),
     Bash(BashInvocation),
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct ForkTaskInvocation {
-    child_count: usize,
-    messages: Option<Vec<String>>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct ReadTaskInvocation {
-    task_id: Option<TaskId>,
-    after_node_id: Option<HistoryNodeId>,
-    limit: Option<u8>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct SendMessageToTaskInvocation {
-    task_id: TaskId,
-    message: String,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct ArchiveTaskInvocation {
-    task_id: TaskId,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct BashInvocation {
-    command: String,
-    timeout_ms: u64,
+    ExecCmd(String),
 }
 
 fn parse_invocation(
@@ -320,279 +130,32 @@ fn parse_invocation(
                 format!("unknown tool '{}'", request.tool_name.0),
             )
         })?;
-    match tool {
-        BuiltinTool::ForkTask => parse_fork_task(&request.arguments, config),
-        BuiltinTool::ReadTask => parse_read_task(&request.arguments),
-        BuiltinTool::SendMessageToTask => parse_send_message_to_task(&request.arguments),
-        BuiltinTool::ArchiveTask => parse_archive_task(&request.task_id, &request.arguments),
-        BuiltinTool::Bash => parse_bash(&request.arguments),
-    }
-}
-
-fn parse_bash(arguments: &JsonObject) -> Result<HarnessInvocation, HarnessError> {
-    let arguments = Arguments::new(arguments, &["command", "timeout_ms"])?;
-    let command = arguments.required_nonempty_string("command")?;
-    let timeout_ms = arguments
-        .optional_integer("timeout_ms")?
-        .unwrap_or(DEFAULT_BASH_TIMEOUT_MS);
-    if !(MIN_BASH_TIMEOUT_MS..=MAX_BASH_TIMEOUT_MS).contains(&timeout_ms) {
-        return Err(HarnessError::invalid_arguments(format!(
-            "argument 'timeout_ms' must be between {MIN_BASH_TIMEOUT_MS} and {MAX_BASH_TIMEOUT_MS}"
-        )));
-    }
-    Ok(HarnessInvocation::Bash(BashInvocation {
-        command,
-        timeout_ms: timeout_ms as u64,
-    }))
-}
-
-fn parse_fork_task(
-    arguments: &JsonObject,
-    config: &HarnessConfig,
-) -> Result<HarnessInvocation, HarnessError> {
-    let arguments = Arguments::new(arguments, &["child_count", "messages"])?;
-    let child_count = arguments.required_integer("child_count")?;
-    let child_count = usize::try_from(child_count)
-        .ok()
-        .filter(|child_count| (1..=config.max_children_per_fork as usize).contains(child_count));
-    let Some(child_count) = child_count else {
-        return Err(HarnessError::invalid_arguments(format!(
-            "argument 'child_count' must be between 1 and {}",
-            config.max_children_per_fork
-        )));
-    };
-    let messages = arguments.optional_nonempty_string_array("messages")?;
-    if messages
-        .as_ref()
-        .is_some_and(|messages| messages.len() != child_count)
-    {
-        return Err(HarnessError::invalid_arguments(
-            "argument 'messages' length must equal 'child_count'",
-        ));
-    }
-    Ok(HarnessInvocation::ForkTask(ForkTaskInvocation {
-        child_count,
-        messages,
-    }))
-}
-
-fn parse_read_task(arguments: &JsonObject) -> Result<HarnessInvocation, HarnessError> {
-    let arguments = Arguments::new(arguments, &["task_id", "after_node_id", "limit"])?;
-    let task_id = arguments.optional_nonempty_string("task_id")?.map(TaskId);
-    let after_node_id = arguments
-        .optional_integer("after_node_id")?
-        .map(HistoryNodeId);
-    let limit = match arguments.optional_integer("limit")? {
-        Some(limit) if (1..=MAX_READ_LIMIT).contains(&limit) => Some(limit as u8),
-        Some(_) => {
-            return Err(HarnessError::invalid_arguments(
-                "argument 'limit' must be between 1 and 100",
-            ));
+    let arguments = &request.arguments;
+    Ok(match tool {
+        BuiltinTool::ForkTask => {
+            HarnessInvocation::ForkTask(ForkTaskInvocation::parse(arguments, config)?)
         }
-        None => None,
-    };
-
-    Ok(HarnessInvocation::ReadTask(ReadTaskInvocation {
-        task_id,
-        after_node_id,
-        limit,
-    }))
-}
-
-fn parse_send_message_to_task(arguments: &JsonObject) -> Result<HarnessInvocation, HarnessError> {
-    let arguments = Arguments::new(arguments, &["task_id", "message"])?;
-    Ok(HarnessInvocation::SendMessageToTask(
-        SendMessageToTaskInvocation {
-            task_id: TaskId(arguments.required_nonempty_string("task_id")?),
-            message: arguments.required_nonempty_string("message")?,
-        },
-    ))
-}
-
-fn parse_archive_task(
-    calling_task_id: &TaskId,
-    arguments: &JsonObject,
-) -> Result<HarnessInvocation, HarnessError> {
-    let arguments = Arguments::new(arguments, &["task_id"])?;
-    let task_id = TaskId(arguments.required_nonempty_string("task_id")?);
-    if task_id == *calling_task_id {
-        return Err(HarnessError::new(
-            HarnessErrorCode::CannotArchiveCurrentTask,
-            "cannot archive the calling task",
-        ));
-    }
-    Ok(HarnessInvocation::ArchiveTask(ArchiveTaskInvocation {
-        task_id,
-    }))
-}
-
-struct Arguments<'a> {
-    values: &'a JsonObject,
-}
-
-impl<'a> Arguments<'a> {
-    fn new(arguments: &'a JsonObject, allowed: &[&str]) -> Result<Arguments<'a>, HarnessError> {
-        for name in arguments.keys() {
-            if !allowed.contains(&name.as_str()) {
-                return Err(HarnessError::invalid_arguments(format!(
-                    "unexpected argument '{name}'"
-                )));
+        BuiltinTool::ReadTask => {
+            HarnessInvocation::ReadTask(ReadTaskInvocation::parse(arguments, config)?)
+        }
+        BuiltinTool::SendMessageToTask => HarnessInvocation::SendMessageToTask(
+            SendMessageToTaskInvocation::parse(arguments, config)?,
+        ),
+        BuiltinTool::ArchiveTask => {
+            let invocation = ArchiveTaskInvocation::parse(arguments, config)?;
+            if invocation.task_id == request.task_id {
+                return Err(HarnessError::new(
+                    HarnessErrorCode::CannotArchiveCurrentTask,
+                    "cannot archive the calling task",
+                ));
             }
+            HarnessInvocation::ArchiveTask(invocation)
         }
-        Ok(Arguments { values: arguments })
-    }
-
-    fn required_nonempty_string(&self, name: &str) -> Result<String, HarnessError> {
-        self.optional_nonempty_string(name)?.ok_or_else(|| {
-            HarnessError::invalid_arguments(format!("missing required argument '{name}'"))
-        })
-    }
-
-    fn optional_nonempty_string(&self, name: &str) -> Result<Option<String>, HarnessError> {
-        let Some(value) = self.values.get(name) else {
-            return Ok(None);
-        };
-        let Value::String(value) = value else {
-            return Err(HarnessError::invalid_arguments(format!(
-                "argument '{name}' must be a string"
-            )));
-        };
-        if value.trim().is_empty() {
-            return Err(HarnessError::invalid_arguments(format!(
-                "argument '{name}' must not be empty"
-            )));
+        BuiltinTool::Bash => HarnessInvocation::Bash(BashInvocation::parse(arguments, config)?),
+        BuiltinTool::ExecCmd => {
+            HarnessInvocation::ExecCmd(ExecCmdArguments::parse(arguments, config)?.code)
         }
-        Ok(Some(value.clone()))
-    }
-
-    fn optional_integer(&self, name: &str) -> Result<Option<i64>, HarnessError> {
-        let Some(value) = self.values.get(name) else {
-            return Ok(None);
-        };
-        let Value::Number(value) = value else {
-            return Err(HarnessError::invalid_arguments(format!(
-                "argument '{name}' must be an integer"
-            )));
-        };
-        exact_json_integer(value).map(Some).ok_or_else(|| {
-            HarnessError::invalid_arguments(format!("argument '{name}' must be an integer"))
-        })
-    }
-
-    fn required_integer(&self, name: &str) -> Result<i64, HarnessError> {
-        self.optional_integer(name)?.ok_or_else(|| {
-            HarnessError::invalid_arguments(format!("missing required argument '{name}'"))
-        })
-    }
-
-    fn optional_nonempty_string_array(
-        &self,
-        name: &str,
-    ) -> Result<Option<Vec<String>>, HarnessError> {
-        let Some(value) = self.values.get(name) else {
-            return Ok(None);
-        };
-        let Value::Array(values) = value else {
-            return Err(HarnessError::invalid_arguments(format!(
-                "argument '{name}' must be an array of strings"
-            )));
-        };
-        let mut strings = Vec::with_capacity(values.len());
-        for value in values {
-            let Value::String(value) = value else {
-                return Err(HarnessError::invalid_arguments(format!(
-                    "argument '{name}' must be an array of strings"
-                )));
-            };
-            if value.trim().is_empty() {
-                return Err(HarnessError::invalid_arguments(format!(
-                    "argument '{name}' entries must not be empty"
-                )));
-            }
-            strings.push(value.clone());
-        }
-        Ok(Some(strings))
-    }
-}
-
-// JSON Schema integer semantics are mathematical, so decimal and exponent
-// spellings must be evaluated from the exact token instead of through f64.
-fn exact_json_integer(number: &Number) -> Option<i64> {
-    let source = number.to_string();
-    let (negative, unsigned) = match source.strip_prefix('-') {
-        Some(unsigned) => (true, unsigned),
-        None => (false, source.as_str()),
-    };
-    let exponent_start = unsigned.find(['e', 'E']);
-    let (mantissa, exponent) = exponent_start.map_or((unsigned, None), |index| {
-        (&unsigned[..index], Some(&unsigned[index + 1..]))
-    });
-    let (whole, fraction) = mantissa.split_once('.').unwrap_or((mantissa, ""));
-    let mut digits = String::with_capacity(whole.len() + fraction.len());
-    digits.push_str(whole);
-    digits.push_str(fraction);
-
-    if digits.bytes().all(|digit| digit == b'0') {
-        return Some(0);
-    }
-
-    let exponent = match exponent {
-        Some(exponent) => exponent.parse::<i64>().ok()?,
-        None => 0,
-    };
-    let fraction_len = i64::try_from(fraction.len()).ok()?;
-    let scale = exponent.checked_sub(fraction_len)?;
-    let coefficient_end = if scale < 0 {
-        let discarded_len = scale.checked_neg()?;
-        if discarded_len > i64::try_from(digits.len()).ok()? {
-            return None;
-        }
-        let coefficient_end = digits.len() - usize::try_from(discarded_len).ok()?;
-        if digits.as_bytes()[coefficient_end..]
-            .iter()
-            .any(|digit| *digit != b'0')
-        {
-            return None;
-        }
-        coefficient_end
-    } else {
-        digits.len()
-    };
-
-    // A nonzero i64 cannot contain more than 19 decimal places. This bound
-    // also keeps enormous JSON exponents from turning into long loops.
-    if scale > 18 {
-        return None;
-    }
-    let limit = if negative {
-        (i64::MAX as u64) + 1
-    } else {
-        i64::MAX as u64
-    };
-    let mut magnitude = 0_u64;
-    for digit in digits.as_bytes()[..coefficient_end].iter().copied() {
-        let digit = u64::from(digit.checked_sub(b'0')?);
-        if digit > 9 {
-            return None;
-        }
-        magnitude = magnitude.checked_mul(10)?.checked_add(digit)?;
-        if magnitude > limit {
-            return None;
-        }
-    }
-    for _ in 0..usize::try_from(scale).unwrap_or(0) {
-        magnitude = magnitude.checked_mul(10)?;
-        if magnitude > limit {
-            return None;
-        }
-    }
-
-    if negative && magnitude == (i64::MAX as u64) + 1 {
-        Some(i64::MIN)
-    } else {
-        let magnitude = i64::try_from(magnitude).ok()?;
-        Some(if negative { -magnitude } else { magnitude })
-    }
+    })
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -650,6 +213,7 @@ struct BashSuccess {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum HarnessErrorCode {
     InvalidArguments,
+    CommandReplayMismatch,
     UnknownTool,
     TaskNotFound,
     TaskArchived,
@@ -675,6 +239,7 @@ impl HarnessErrorCode {
     const fn as_str(self) -> &'static str {
         match self {
             HarnessErrorCode::InvalidArguments => "invalid_arguments",
+            HarnessErrorCode::CommandReplayMismatch => "command_replay_mismatch",
             HarnessErrorCode::UnknownTool => "unknown_tool",
             HarnessErrorCode::TaskNotFound => "task_not_found",
             HarnessErrorCode::TaskArchived => "task_archived",
@@ -738,6 +303,7 @@ fn correlated_tool_execution_result(
     branches: Vec<ToolExecutionBranch>,
 ) -> ToolExecutionResult {
     ToolExecutionResult {
+        completion: ToolExecutionCompletion::ordinary(),
         task_id: request.task_id.clone(),
         tool_execution_run_id: request.tool_execution_run_id.clone(),
         function_call_node_id: request.function_call_node_id,
@@ -760,11 +326,23 @@ fn calling_task_branch(output: Value, is_error: bool) -> ToolExecutionBranch {
 pub struct ToolExecutor {
     db: DbPool,
     mcp: McpConnectionSet,
+    commands: CommandEnvironmentManager,
 }
 
 impl ToolExecutor {
+    pub fn with_command_environments(
+        db: DbPool,
+        mcp: McpConnectionSet,
+        commands: CommandEnvironmentManager,
+    ) -> Self {
+        Self { db, mcp, commands }
+    }
     pub fn new(db: DbPool, mcp: McpConnectionSet) -> Self {
-        Self { db, mcp }
+        Self {
+            db,
+            mcp,
+            commands: CommandEnvironmentManager::new(),
+        }
     }
 }
 
@@ -776,10 +354,11 @@ impl ToolExecutionSpawner for ToolExecutor {
     ) -> Result<JoinHandle<()>, ToolExecutionSpawnError> {
         let db = self.db.clone();
         let mcp = self.mcp.clone();
+        let commands = self.commands.clone();
         let execution_request = request.clone();
         let execution_router_tx = router_tx.clone();
         spawn_supervised_execution(request, router_tx, async move {
-            execute_routed_request(db, mcp, execution_request, execution_router_tx).await
+            execute_routed_request(db, mcp, commands, execution_request, execution_router_tx).await
         })
     }
 }
@@ -790,23 +369,26 @@ fn spawn_supervised_execution<F>(
     execution: F,
 ) -> Result<JoinHandle<()>, ToolExecutionSpawnError>
 where
-    F: Future<Output = Result<Vec<ToolExecutionBranch>, HarnessError>> + Send + 'static,
+    F: Future<Output = Result<command::ExecutedTool, HarnessError>> + Send + 'static,
 {
     let runtime = tokio::runtime::Handle::try_current()
         .map_err(|_| ToolExecutionSpawnError::TokioSpawnFailed)?;
     Ok(runtime.spawn(async move {
         let branches = match AssertUnwindSafe(execution).catch_unwind().await {
-            Ok(Ok(branches)) => branches,
-            Ok(Err(error)) => vec![calling_task_branch(error_json(&error), true)],
-            Err(_) => vec![calling_task_branch(
+            Ok(Ok(result)) => result,
+            Ok(Err(error)) => {
+                command::ExecutedTool::ordinary(vec![calling_task_branch(error_json(&error), true)])
+            }
+            Err(_) => command::ExecutedTool::ordinary(vec![calling_task_branch(
                 error_json(&HarnessError::new(
                     HarnessErrorCode::ExecutorPanicked,
                     "tool executor panicked",
                 )),
                 true,
-            )],
+            )]),
         };
-        let result = correlated_tool_execution_result(&request, branches);
+        let mut result = correlated_tool_execution_result(&request, branches.branches);
+        result.completion = branches.completion;
         if let Some(router_tx) = router_tx.upgrade() {
             let _ = router_tx.send(RouterIngressMessage::Tool(result));
         }
@@ -816,9 +398,36 @@ where
 async fn execute_routed_request(
     db: DbPool,
     mcp: McpConnectionSet,
+    commands: CommandEnvironmentManager,
     request: ToolExecutionRequest,
     router_tx: RouterIngressWeakSender,
-) -> Result<Vec<ToolExecutionBranch>, HarnessError> {
+) -> Result<command::ExecutedTool, HarnessError> {
+    let execution = AssertUnwindSafe(execute_routed_request_inner(
+        db.clone(),
+        mcp,
+        commands.clone(),
+        request.clone(),
+        router_tx.clone(),
+    ))
+    .catch_unwind()
+    .await;
+    let error = match execution {
+        Ok(Ok(result)) => return Ok(result),
+        Ok(Err(error)) => error,
+        Err(_) => HarnessError::new(HarnessErrorCode::ExecutorPanicked, "tool executor panicked"),
+    };
+    commands
+        .finalize_existing_error(&db, &request, &router_tx, error)
+        .await
+}
+
+async fn execute_routed_request_inner(
+    db: DbPool,
+    mcp: McpConnectionSet,
+    commands: CommandEnvironmentManager,
+    request: ToolExecutionRequest,
+    router_tx: RouterIngressWeakSender,
+) -> Result<command::ExecutedTool, HarnessError> {
     let route_db = db.clone();
     let task_id = request.task_id.clone();
     let tool_name = request.tool_name.clone();
@@ -834,7 +443,7 @@ async fn execute_routed_request(
                 max_children_per_fork: execution.max_children_per_fork,
                 max_descendants_per_task: execution.max_task_descendants,
             };
-            execute_harness_request(db, config, request, router_tx).await
+            execute_harness_request(db, commands, config, request, router_tx).await
         }
         ToolExecutionSource::Mcp {
             server_id,
@@ -843,36 +452,51 @@ async fn execute_routed_request(
             let (output, is_error) = mcp
                 .call_tool(&server_id, remote_tool_name, request.arguments)
                 .await?;
-            Ok(vec![calling_task_branch(output, is_error)])
+            Ok(command::ExecutedTool::ordinary(vec![calling_task_branch(
+                output, is_error,
+            )]))
         }
     }
 }
 
 async fn execute_harness_request(
     db: DbPool,
+    commands: CommandEnvironmentManager,
     config: HarnessConfig,
     request: ToolExecutionRequest,
     router_tx: RouterIngressWeakSender,
-) -> Result<Vec<ToolExecutionBranch>, HarnessError> {
-    match parse_invocation(&request, &config)? {
-        HarnessInvocation::ForkTask(invocation) => execute_fork_task(invocation),
+) -> Result<command::ExecutedTool, HarnessError> {
+    let branches = match parse_invocation(&request, &config)? {
+        HarnessInvocation::ExecCmd(code) => {
+            return commands
+                .execute(db, config, request, router_tx, Some(code), None)
+                .await;
+        }
+        HarnessInvocation::ForkTask(invocation) => {
+            return commands
+                .execute(db, config, request, router_tx, None, Some(invocation))
+                .await;
+        }
         HarnessInvocation::ReadTask(invocation) => {
             execute_read_task(db, request.task_id, invocation)
                 .await
                 .map(single_success_branch)
         }
         HarnessInvocation::SendMessageToTask(invocation) => {
-            execute_send_message_to_task(invocation, router_tx)
+            execute_send_message_to_task(invocation, router_tx, command::caller_context(&request))
                 .await
                 .map(single_success_branch)
         }
-        HarnessInvocation::ArchiveTask(invocation) => execute_archive_task(invocation, router_tx)
-            .await
-            .map(single_success_branch),
+        HarnessInvocation::ArchiveTask(invocation) => {
+            execute_archive_task(invocation, router_tx, command::caller_context(&request))
+                .await
+                .map(single_success_branch)
+        }
         HarnessInvocation::Bash(invocation) => {
             execute_bash(invocation).await.map(single_success_branch)
         }
-    }
+    }?;
+    Ok(command::ExecutedTool::ordinary(branches))
 }
 
 fn map_tool_route_error(error: DbError) -> HarnessError {
@@ -936,7 +560,7 @@ async fn execute_read_task(
     invocation: ReadTaskInvocation,
 ) -> Result<HarnessSuccess, HarnessError> {
     let task_id = invocation.task_id.unwrap_or(calling_task_id);
-    let limit = u32::from(invocation.limit.unwrap_or(MAX_READ_LIMIT as u8));
+    let limit = u32::from(invocation.limit.unwrap_or(MAX_READ_LIMIT));
     let read = tokio::task::spawn_blocking(move || {
         read_task(
             &db,
@@ -956,68 +580,44 @@ async fn execute_read_task(
 async fn execute_send_message_to_task(
     invocation: SendMessageToTaskInvocation,
     router_tx: RouterIngressWeakSender,
+    context: selvedge_domain_model::CommandOperationContext,
 ) -> Result<HarnessSuccess, HarnessError> {
-    let task_id = invocation.task_id;
-    let (responder, response) = send_user_input_response_channel();
-    send_router_command(
-        &router_tx,
-        RouterCommand::SendUserInput {
-            task_id: task_id.clone(),
-            message_text: invocation.message,
-            responder,
+    let task_id = invocation.task_id.clone();
+    let value = command::send_task_input(invocation, router_tx, context).await?;
+    let disposition = if value["disposition"] == "queued" {
+        MessageDisposition::Queued
+    } else {
+        MessageDisposition::Committed {
+            node_id: HistoryNodeId(value["node_id"].as_i64().ok_or_else(|| {
+                HarnessError::new(
+                    HarnessErrorCode::StorageError,
+                    "committed input response lacks node_id",
+                )
+            })?),
+        }
+    };
+    Ok(HarnessSuccess::SendMessageToTask(
+        SendMessageToTaskSuccess {
+            task_id,
+            disposition,
         },
-    )?;
-    match response.await {
-        Ok(Ok(SendUserInputOutcome::Committed { node_id })) => Ok(
-            HarnessSuccess::SendMessageToTask(SendMessageToTaskSuccess {
-                task_id,
-                disposition: MessageDisposition::Committed { node_id },
-            }),
-        ),
-        Ok(Ok(SendUserInputOutcome::Queued)) => Ok(HarnessSuccess::SendMessageToTask(
-            SendMessageToTaskSuccess {
-                task_id,
-                disposition: MessageDisposition::Queued,
-            },
-        )),
-        Ok(Err(error)) => Err(map_task_command_error(error)),
-        Err(_) => Err(HarnessError::new(
-            HarnessErrorCode::OperationCancelled,
-            "send message response was cancelled",
-        )),
-    }
+    ))
 }
 
 async fn execute_archive_task(
     invocation: ArchiveTaskInvocation,
     router_tx: RouterIngressWeakSender,
+    context: selvedge_domain_model::CommandOperationContext,
 ) -> Result<HarnessSuccess, HarnessError> {
     let task_id = invocation.task_id;
-    let (responder, response) = task_status_change_response_channel();
-    send_router_command(
-        &router_tx,
-        RouterCommand::ArchiveTask {
-            task_id: task_id.clone(),
-            responder,
-        },
-    )?;
-    match response.await {
-        Ok(Ok(outcome)) if outcome.status == TaskStatus::Archived => {
-            Ok(HarnessSuccess::ArchiveTask(ArchiveTaskSuccess { task_id }))
-        }
-        Ok(Ok(outcome)) => Err(HarnessError::new(
-            HarnessErrorCode::StorageError,
-            format!(
-                "archive returned unexpected task status: {:?}",
-                outcome.status
-            ),
-        )),
-        Ok(Err(error)) => Err(map_task_command_error(error)),
-        Err(_) => Err(HarnessError::new(
-            HarnessErrorCode::OperationCancelled,
-            "archive task response was cancelled",
-        )),
-    }
+    command::change_task_status(
+        task_id.clone(),
+        selvedge_domain_model::TaskLifecycleEvent::Archive,
+        router_tx,
+        context,
+    )
+    .await?;
+    Ok(HarnessSuccess::ArchiveTask(ArchiveTaskSuccess { task_id }))
 }
 
 async fn execute_bash(invocation: BashInvocation) -> Result<HarnessSuccess, HarnessError> {
@@ -1217,6 +817,10 @@ fn send_router_command(
 
 fn map_task_command_error(error: TaskCommandError) -> HarnessError {
     match error {
+        TaskCommandError::CommandOperationMismatch => HarnessError::new(
+            HarnessErrorCode::CommandReplayMismatch,
+            "command operation replay mismatch",
+        ),
         TaskCommandError::TaskMissing => {
             HarnessError::new(HarnessErrorCode::TaskNotFound, "task was not found")
         }
@@ -1258,6 +862,8 @@ fn map_read_error(error: DbError) -> HarnessError {
         } => HarnessError::new(HarnessErrorCode::TaskArchived, "task is archived"),
         DbError::InvalidTaskStatus { .. }
         | DbError::StaleFunctionCall
+        | DbError::CommandEnvironmentBusy { .. }
+        | DbError::CommandOperationMismatch
         | DbError::ToolUnavailable
         | DbError::TaskDescendantLimitExceeded { .. }
         | DbError::Constraint(_)
@@ -1560,7 +1166,7 @@ fn object<const N: usize>(entries: [(&str, Value); N]) -> Value {
 #[cfg(test)]
 mod tests {
     use selvedge_command_model::{
-        RouterIngressMessage, ToolExecutionBranch, ToolExecutionBranchTarget, ToolExecutionRunId,
+        RouterIngressMessage, ToolExecutionBranchTarget, ToolExecutionRunId,
     };
     use selvedge_domain_model::{FunctionCallId, HistoryNodeId, JsonObject, TaskId, ToolName};
 
@@ -1572,6 +1178,7 @@ mod tests {
         for child_count in [usize::MAX, usize::MAX - 1] {
             let error = execute_fork_task(ForkTaskInvocation {
                 child_count,
+                environment: selvedge_domain_model::CommandEnvironmentMode::Shared,
                 messages: None,
             })
             .expect_err("capacity must be rejected");
@@ -1583,6 +1190,7 @@ mod tests {
     #[tokio::test]
     async fn panicking_execution_still_emits_one_correlated_terminal_result() {
         let request = ToolExecutionRequest {
+            execution_mode: selvedge_domain_model::ToolExecutionMode::Normal,
             task_id: TaskId("task-1".to_owned()),
             tool_execution_run_id: ToolExecutionRunId("run-1".to_owned()),
             function_call_node_id: HistoryNodeId(7),
@@ -1595,7 +1203,7 @@ mod tests {
             spawn_supervised_execution(request.clone(), router_tx.downgrade(), async move {
                 panic!("executor panic");
                 #[allow(unreachable_code)]
-                Ok::<Vec<ToolExecutionBranch>, super::HarnessError>(unreachable!())
+                Ok::<super::command::ExecutedTool, super::HarnessError>(unreachable!())
             })
             .expect("spawn supervisor");
 

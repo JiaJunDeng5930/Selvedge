@@ -299,6 +299,7 @@ fn bash_executor() -> ToolExecutor {
 
 fn bash_request(arguments: Vec<(String, Value)>) -> ToolExecutionRequest {
     ToolExecutionRequest {
+        execution_mode: selvedge_domain_model::ToolExecutionMode::Normal,
         task_id: TaskId("task-1".to_owned()),
         tool_execution_run_id: ToolExecutionRunId("run-1".to_owned()),
         function_call_node_id: HistoryNodeId(7),

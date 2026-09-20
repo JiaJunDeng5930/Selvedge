@@ -662,3 +662,110 @@ fn valid_attach_for(client_id: &str, command_id: &str) -> AttachRequest {
         },
     }
 }
+
+#[tokio::test]
+async fn startup_exec_cmd_runs_through_server_and_commits_children_before_model_dispatch() {
+    let _guard = SERVER_TEST_LOCK.lock().await;
+    let home = SERVER_TEST_HOME.path();
+    let denied_path = home.join("startup-write-must-not-exist.txt");
+    let db = open_db(OpenDbOptions {
+        sqlite_path: home.join("selvedge.sqlite").to_string_lossy().into_owned(),
+        max_children_per_fork: 5,
+        max_task_descendants: 20,
+    })
+    .expect("command operation succeeds");
+    let task_id = TaskId("startup-command-smoke".into());
+    let code = format!(
+        "const identity = await tasks.read(); const child = (await tasks.fork({{child_count:1,environment:'copy'}})).children[0]; const sent = await tasks.send({{task_id:child,message:'startup child input'}}); const denied = await tools.write_file({{path:{},content:'forbidden'}}); ({{self:identity.task_id,child,sent,denied}})",
+        serde_json::to_string(&denied_path.to_string_lossy()).expect("command operation succeeds"),
+    );
+    let cursor_node_id = create_history_node(
+        &db,
+        NewHistoryNode {
+            parent_node_id: None,
+            content: NewHistoryNodeContent::FunctionCall(selvedge_db::NewFunctionCallNodeContent {
+                function_call_id: selvedge_domain_model::FunctionCallId(
+                    "startup-command-call".into(),
+                ),
+                tool_name: ToolName("exec_cmd".into()),
+                arguments: serde_json::json!({"code":code})
+                    .as_object()
+                    .expect("command operation succeeds")
+                    .clone(),
+            }),
+            created_at: UnixTs(1),
+        },
+    )
+    .expect("command operation succeeds");
+    create_root_task(
+        &db,
+        CreateRootTaskInput {
+            task_id: task_id.clone(),
+            cursor_node_id,
+            model_config: Arc::new(
+                TaskModelConfig::new(ModelProfileKey("default".into()), ReasoningEffort::Medium)
+                    .expect("command operation succeeds"),
+            ),
+            tools: harness_tool_catalog(&HarnessConfig::default()),
+            now: UnixTs(1),
+        },
+    )
+    .expect("command operation succeeds");
+    // With no configured model profile, entering generation before this cursor call
+    // would terminate the runtime and this committed output could never appear.
+    let handle = spawn_server(test_args(home.to_path_buf()))
+        .await
+        .expect("command operation succeeds");
+    let (output, is_error) = timeout(Duration::from_secs(20), async {
+        loop {
+            if let selvedge_db::HistoryNode::FunctionOutput {
+                output, is_error, ..
+            } = load_runtime_task(&db, &task_id)
+                .expect("command operation succeeds")
+                .cursor_node
+            {
+                break (output, is_error);
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("startup command must commit without model generation");
+    handle.control.stop().await;
+    handle
+        .join_handle
+        .await
+        .expect("command operation succeeds");
+    assert!(
+        is_error,
+        "startup write denial must be an ordinary error output: {output}"
+    );
+    assert_eq!(output["value"]["self"], task_id.0);
+    assert_eq!(output["value"]["sent"]["disposition"], "queued");
+    assert!(!denied_path.exists());
+    let child = TaskId(
+        output["value"]["child"]
+            .as_str()
+            .expect("command operation succeeds")
+            .into(),
+    );
+    assert!(!selvedge_db::task_is_pending(&db, &child).expect("command operation succeeds"));
+    let parent_environment =
+        selvedge_db::read_command_environment(&db, &task_id).expect("command operation succeeds");
+    let child_environment =
+        selvedge_db::read_command_environment(&db, &child).expect("command operation succeeds");
+    assert_ne!(
+        parent_environment.environment_id,
+        child_environment.environment_id
+    );
+    assert!(!parent_environment.checkpoint.is_empty());
+    assert_eq!(parent_environment.checkpoint, child_environment.checkpoint);
+    let conversation =
+        selvedge_db::read_conversation_for_task(&db, &child).expect("command operation succeeds");
+    assert!(
+        conversation
+            .messages
+            .iter()
+            .any(|message| message.content.as_str() == Some("startup child input"))
+    );
+}

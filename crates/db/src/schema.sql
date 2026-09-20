@@ -6,7 +6,7 @@ CREATE TABLE schema_metadata (
 );
 
 INSERT INTO schema_metadata (schema_key, schema_value)
-VALUES ('selvedge_schema_version', 'task-lifecycle-v11');
+VALUES ('selvedge_schema_version', 'command-environments-v12');
 
 CREATE TABLE history_nodes (
     node_id INTEGER PRIMARY KEY,
@@ -147,4 +147,39 @@ CREATE TABLE queued_user_inputs (
     queued_at INTEGER NOT NULL CHECK (queued_at >= 0),
     PRIMARY KEY (task_id, seq_no),
     FOREIGN KEY (task_id) REFERENCES tasks(task_id) ON UPDATE RESTRICT ON DELETE CASCADE
+);
+
+CREATE TABLE command_environments (
+    environment_id TEXT PRIMARY KEY,
+    checkpoint BLOB NOT NULL,
+    revision INTEGER NOT NULL CHECK (revision >= 0),
+    admitted_task_id TEXT REFERENCES tasks(task_id),
+    admitted_call_node_id INTEGER REFERENCES history_function_call_nodes(node_id),
+    CHECK ((admitted_task_id IS NULL) = (admitted_call_node_id IS NULL))
+);
+CREATE TABLE task_command_environments (
+    task_id TEXT PRIMARY KEY REFERENCES tasks(task_id),
+    environment_id TEXT NOT NULL REFERENCES command_environments(environment_id)
+);
+CREATE TABLE command_operations (
+    task_id TEXT NOT NULL REFERENCES tasks(task_id),
+    call_node_id INTEGER NOT NULL REFERENCES history_function_call_nodes(node_id),
+    ordinal INTEGER NOT NULL CHECK (ordinal >= 0),
+    command TEXT NOT NULL,
+    arguments_json TEXT NOT NULL,
+    result_json TEXT,
+    PRIMARY KEY (task_id, call_node_id, ordinal)
+);
+CREATE TABLE pending_command_children (
+    child_task_id TEXT PRIMARY KEY REFERENCES tasks(task_id),
+    task_id TEXT NOT NULL REFERENCES tasks(task_id),
+    call_node_id INTEGER NOT NULL REFERENCES history_function_call_nodes(node_id),
+    environment_mode TEXT NOT NULL CHECK (environment_mode IN ('shared', 'copy', 'new'))
+);
+CREATE TABLE pending_command_lifecycle (
+    task_id TEXT NOT NULL REFERENCES tasks(task_id),
+    call_node_id INTEGER NOT NULL REFERENCES history_function_call_nodes(node_id),
+    task_status TEXT NOT NULL CHECK (task_status IN ('active', 'frozen', 'stopped', 'archived')),
+    base_state_version INTEGER NOT NULL CHECK (base_state_version >= 0),
+    PRIMARY KEY (task_id, call_node_id)
 );
