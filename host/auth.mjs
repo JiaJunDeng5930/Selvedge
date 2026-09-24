@@ -55,7 +55,14 @@ async function locked(filename, action) {
 export async function resolveAuth(profile, home, { signal, rejectedToken } = {}) {
   const filename = path.resolve(home, profile.auth_file);
   return locked(filename, async () => {
-    const current = validateCredential(JSON.parse(await readFile(filename, 'utf8')));
+    const contents = await readFile(filename, 'utf8');
+    let parsed;
+    try { parsed = JSON.parse(contents); }
+    catch {
+      // JSON parser diagnostics can quote secrets; callers persist error messages.
+      throw new Error('Invalid current-format ChatGPT credential; sign in again');
+    }
+    const current = validateCredential(parsed);
     const expiration = claims(current.access_token).exp;
     const stale = typeof expiration === 'number' ? expiration * 1000 <= Date.now() + 300_000
       : Date.parse(current.last_refresh) <= Date.now() - 55 * 60_000;

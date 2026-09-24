@@ -4,42 +4,30 @@ default:
     @just --list
 
 bootstrap:
-    ./scripts/bootstrap.sh
-
-agents-index:
-    cargo xtask agents-index update
-
-agents-index-check:
-    cargo xtask agents-index check
-
-readme-mermaid-check:
-    cargo xtask readme check-mermaid
-
-readme-freshness-check:
-    cargo xtask readme check-freshness
-
-readme-freshness:
-    cargo xtask readme update-freshness
+    bash scripts/bootstrap.sh
 
 run:
-    cargo run -- server
+    npm start
 
-fmt:
-    cargo fmt --all
-
-fmt-check:
-    cargo fmt --all -- --check
-
-lint:
-    cargo clippy --workspace --all-targets --all-features -- -D warnings
+build:
+    npm run build
 
 test:
-    cargo test --workspace --all-targets --all-features
+    npm test
 
-check: fmt-check lint test
-    @just agents-index-check
-    @just readme-mermaid-check
-    @just readme-freshness-check
+check:
+    npm run check
+    npm test
+    npm run index:check
+
+agents-index:
+    npm run index
+
+agents-index-check:
+    npm run index:check
+
+bench:
+    npm run bench
 
 hooks:
     pre-commit run --all-files

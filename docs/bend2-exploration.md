@@ -110,14 +110,168 @@ Bend 2.0.27 rejects both, including under `--check-only`. This tests the actual
 build gate used here; it does not prove the checker itself sound. Repository hooks
 now include this branch's proof/syntax check and native integration suite.
 
-## Outstanding exploration questions
+## 2026-09-24: close the world-invariant proof
 
-- Prove useful world invariants through arbitrary admitted transitions, beyond the
-  currently proved local operations and replay algebra.
-- Extend host evidence to interrupted remote requests, dynamic MCP catalog changes,
-  and failures during concurrent shutdown; local happy-path coverage is not a proof
-  of arbitrary provider behavior.
-- Measure replay cost and shared-history memory behavior on substantial task trees.
-- Validate live model authentication and MCP interoperability separately from local
-  deterministic fixtures. No live credentials or external model calls have been
-  used by the baseline tests.
+The earlier local laws did not establish that a complete scheduler decision left
+an admissible task forest. INVARIANTS now defines two executable predicates:
+`world` describes a valid state, and `decision(previous, candidate)` describes the
+permitted relationship between successive states and their effect intents.
+Their definitions are imported by the real transition, rather than copied into
+a test simulator or maintained as a separate validation specification.
+
+The world predicate covers canonical task identities, ordered ancestry with
+existing parents, inherited frozen contracts, ancestor descendant quotas,
+well-formed pending calls, and globally distinct outstanding tickets. The
+transition predicate retains existing identities, contracts, ancestry, and history
+prefixes; keeps already archived tasks terminal; and checks that every emitted
+model/tool intent matches its final task phase, frozen contract, and fresh ticket.
+Comparison of structured payloads has an explicit budget and rejects exhaustion.
+
+LAWS now states `transition_admitted` about `PROGRAM.transition` itself. Its
+certificate has two alternatives: unchanged world and no effects, or satisfied
+world and transition predicates. The certificate survives both invariant checking
+and output-size admission. Public observations receive the unchanged alternative
+without running a second mutable path. This yields `transition_preserves_world`;
+the domain-independent `replay_invariant` theorem then proves
+`replay_preserves_world` for every finite input list and any valid starting world.
+`initial_world_valid` independently checks the actual initial state.
+
+This construction establishes safety by Boolean reflection at the admission
+boundary. It does not establish that the candidate producer always succeeds.
+For example, an identity transition could satisfy an invariant-preservation law
+while implementing none of the useful commands. Positive operation laws and
+functional integration evidence therefore remain necessary. A resource-bound
+rejection is also compatible with safety. Making these quantifiers and alternatives
+explicit is essential to keeping the formal entry point an honest requirements
+model rather than a collection of reassuring theorem names.
+
+A negative test copies the production proof closure, verifies it, then replaces
+`PROGRAM.admitted` with unconditional acceptance. The same proof fails at
+`admitted_certificate`. Together with the missing/false-proof tests, this checks
+that the build gate is actually tied to the implementation being shipped. It does
+not prove the compiler sound or establish that the chosen predicates express every
+human expectation.
+
+## 2026-09-24: the commit is the unit of effect authority
+
+One scheduler transition can execute several internal tools before returning a
+single durable decision. A task can send a message to an idle peer, causing a model
+intent to be accumulated, and subsequently archive that peer in the same commit.
+The final state has no pending model request for the archived task. Dispatching
+the earlier intent and then sending a cancellation would expose an intermediate
+state that was never independently committed.
+
+`live_decision` withdraws those superseded intents before the final predicates are
+checked. A native test performs the send-and-archive sequence and observes the
+archived task, retained input, cancellation intent, and absence of a model request
+for it. The finding is that an invariant over emitted effects must relate them
+to the committed final state, not merely to the intermediate state where each
+effect was initially constructed.
+
+## 2026-09-24: proof factoring has an operational cost
+
+Bend 2.0.27 checked the general trace-invariant development, including separate
+initial-state validity, in approximately 0.20 seconds in an isolated probe.
+Adding a redundant corollary specialized to `replay(events, initial())` exceeded
+a five-second timeout; directly instantiating the generic induction in that
+corollary also exceeded the timeout. The initial-state proof alone took about
+0.17 seconds. These are observed differences in this pinned checker, not a claim
+about the exact internal reduction responsible or all future Bend versions.
+
+The retained development uses the stronger general theorem and the separately
+checked initial-state fact. The complete strengthened certificate development
+subsequently checked in 0.164 seconds. Keeping a large concrete program out of
+unnecessary theorem specialization is therefore an engineering concern even when
+the mathematical argument is a straightforward instance of induction.
+
+Two other factoring details mattered. The reusable induction parameter expects
+an affine function type; an otherwise identical theorem declared with reusable
+parameters does not match that signature. An auxiliary reusable implementation
+behind the affine theorem boundary resolves this without changing the statement.
+Also, a residual match case excluding an observed command did not reduce far
+enough to check the transition proof. Enumerating the command constructors at that
+proof boundary made the required reductions explicit. Neither case was addressed
+by adding axioms, bypassing termination, or weakening a law.
+
+## 2026-09-24: test the interpreter where the proof ends
+
+The integration suite now contains 26 passing tests. New evidence includes a real
+HTTP request interrupted by service shutdown, restart-driven retry of that model
+request, a truncated SSE response settled as a failure, and a subsequent successful
+request whose history survives another restart without an extra call. Real stdio
+MCP notifications remove a route while existing task manifests remain frozen;
+shutdown also completes while a catalog discovery is waiting for a response.
+
+A loopback issuer exercises the complete device-code grant, private credential
+persistence, concurrent refresh serialization, and rejection of account changes.
+A malformed-credential test exposed a host leak: the JSON parser could include
+credential text in an exception that the service would place in task history.
+The reader now replaces parse diagnostics with a non-secret credential error.
+This illustrates an important limit of moving domain invariants into Bend: host
+error translation is still an information-flow boundary and needs its own evidence.
+
+An isolated Chrome profile drove the actual local web server through task creation,
+echo completion, freezing, queued input, unfreezing, the schema-derived fork form,
+child selection, and archival. All eight checks passed with no JavaScript
+exceptions or displayed error. The generated screenshot was inspected; the child
+retained its inherited history and branch output, and archival disabled its input.
+These are local observations, not formal UI or usability theorems.
+
+## 2026-09-24: measure trace and history costs
+
+`scripts/benchmark.mjs` builds a breadth-first four-child task tree after 32 user
+turns, each containing 1,024 ASCII bytes. It drives the actual native kernel through
+SQLite commits, settles each model intent with deterministic fixture output, and
+reopens the journal to verify identical state. There are no remote model calls.
+The following run used Node v26.5.0 and Bend 2.0.27 on darwin-arm64. Native peak RSS
+was obtained with macOS `/usr/bin/time -l` around the kernel process, excluding
+Node. Replay includes native startup and exact decision verification.
+
+| Tasks | Committed inputs | Median transition | P95 transition | Maximum transition | Replay | Journal | Native peak RSS | Replay peak RSS |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 17 | 89 | 7.36 ms | 35.90 ms | 192.08 ms | 1.56 s | 1.43 MiB | 10.73 MiB | 10.75 MiB |
+| 65 | 161 | 28.86 ms | 225.90 ms | 315.70 ms | 8.19 s | 3.62 MiB | 10.84 MiB | 10.84 MiB |
+
+Measured at `2026-09-24T18:03:12.136Z` with kernel fingerprint `050b42e5d4e028e73c09d7dfcfc0fb34f174afc95eeea0bd8ef5719f962dc4d0`.
+
+The modest RSS change in this workload is an observation about the compiled
+runtime, not a proof of pointer sharing or asymptotic space usage. A history-prefix
+law relates values; it cannot establish allocator or representation behavior.
+Likewise, shared history inside the modeled world does not eliminate copies in
+serialized model requests and journal decisions.
+
+Whole-world checks and exact replay have visible costs: the 65-task run takes
+about eight seconds to reopen, and its slowest committed transition takes about
+316 milliseconds. This implementation accepts those measured costs; it does not
+claim indexed validation, snapshot-based recovery, or a throughput result for
+unbounded conversations. An incremental validator would need a new preservation
+argument tying its cached evidence to each change. A snapshot would similarly
+need an explicit reconstruction contract. Neither optimization is silently
+assumed by the current theorem.
+
+## Completed migration and evidence boundary
+
+The branch now has one task runtime. The earlier Rust implementation and its
+Cargo-based maintenance machinery have been retired from the checkout; history
+remains in Git. The fixed Bend release is checksum-verified in a worktree-local
+installation, and bootstrap, npm/Just commands, Codex actions, hooks, and the
+macOS/Linux CI configuration all target the checked native implementation.
+The pinned macOS installer and local gates were executed; the remote CI jobs
+have been configured but were not run as part of this local task.
+
+The three exploration goals are realized at their relevant boundaries. Requirements,
+model predicates, and operational definitions inhabit the same Bend program used
+by the service. List-monoid laws, transition induction, replay composition, and
+observation stuttering are instantiated directly on that program. MODEL,
+INVARIANTS, LAWS, and PROGRAM provide the top-level reading path, with PROOF holding
+proof construction; client command descriptions and controls derive from model
+values instead of a second handwritten protocol specification.
+
+The resulting guarantee is deliberately precise. Formalization does not certify
+that the predicates capture all informal intent, make runtime rejection impossible,
+prove progress or scheduler fairness, or verify a remote system. Live vendor
+credentials were not used: authentication and MCP behavior were exercised against
+controlled endpoints and real local processes. The Bend checker/compiler, C ABI,
+Node, SQLite, operating system, and remote services remain trusted boundaries.
+Those limits, the positive functional evidence, and the measured costs are part of
+the outcome of this experiment, rather than hidden assumptions of the safety proof.

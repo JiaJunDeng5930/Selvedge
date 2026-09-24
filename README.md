@@ -1,126 +1,129 @@
 # Selvedge
 
-<!-- selvedge-package-readme
-package: selvedge
-freshness_fingerprint: cb74caa5b30d33c2deadd7470b3e1a087ac7c495
--->
+Selvedge runs persistent agent tasks through an executable Bend 2 model. It has a
+local web interface and CLI, model profiles, task branching and messaging, Bash
+and stdio MCP tools, and a SQLite input journal for restart recovery. The default
+profile is an offline echo demonstration.
 
-Selvedge runs a local server for persistent AI tasks. This branch explores a Bend 2
-rewrite in which the task model, executable transition, and requirements are
-checked together. Start with these executable entry points:
+## Read the program
 
-- [MODEL.bend](MODEL.bend): task identity, ancestry, frozen contracts, lifecycle,
-  work phases, commands, and effect boundaries.
-- [LAWS.bend](LAWS.bend): the precise requirements currently proved about those
-  definitions and the running transition.
-- [PROGRAM.bend](PROGRAM.bend): the bounded transition that the native server
-  executes. [PROOF.bend](PROOF.bend) supplies the proofs and connects reusable
-  theory to that same transition.
+| Entry | What it establishes |
+| --- | --- |
+| [MODEL.bend](MODEL.bend) | Domain values, lifecycle and recovery policy, frozen contracts, and the command vocabulary used by clients. |
+| [INVARIANTS.bend](INVARIANTS.bend) | Executable predicates for valid worlds, append-only task forests, retained history and contracts, and external-effect authority. |
+| [LAWS.bend](LAWS.bend) | Requirements stated about the actual program, including admission, invariant preservation through arbitrary finite traces, and observation/replay laws. |
+| [PROGRAM.bend](PROGRAM.bend) | The bounded state transition that the native service executes. |
+| [PROOF.bend](PROOF.bend) | Checked proofs discharging those requirements, using reusable theory from `bendlib`. |
 
-Install Bend at the version recorded in `bend-version` and Node.js 26 or later.
-The host uses Node's built-in SQLite support and has no npm dependencies.
+These files are the model and its implementation. Command descriptions, validation
+schemas, lifecycle controls, and client command forms derive from their executable
+definitions. [host/README.md](host/README.md) describes the operating-system
+boundary; [bendlib/README.md](bendlib/README.md) locates supporting definitions.
+[The exploration record](docs/bend2-exploration.md) explains the findings and their
+limits. Architectural reasons live in [docs/adr](docs/adr).
+
+## Run
+
+Install Node.js 26 or later and a C compiler on macOS or Linux, then run:
+
+```bash
+bash scripts/bootstrap.sh
+npm start
+```
+
+Bootstrap uses the Bend version in `bend-version`. When necessary, it downloads
+the corresponding release into this checkout's `.build/bend` and verifies the
+archive against `bend-checksums.txt`. It changes neither the system compiler nor
+another worktree. There are no npm runtime dependencies.
+
+The server prints a local URL with its access token. Open it to create a task,
+send messages, control its lifecycle, or use the schema-derived Commands dialog.
+The default `demo` profile runs without credentials or an external model request.
+`Ctrl-C` closes the service and its owned processes.
+
+With the server running, the same operations are available through the CLI:
+
+```bash
+node host/cli.mjs describe
+node host/cli.mjs create --profile demo --message "Hello"
+node host/cli.mjs read --task-id 0
+node host/cli.mjs watch
+```
+
+Use `describe` for the current command fields instead of maintaining a second
+command specification. `node host/cli.mjs help` lists host-level commands.
+
+## Model and tool configuration
+
+The default home is `~/.selvedge-bend`. `node host/cli.mjs init` creates its
+`config.json` without overwriting an existing file. `--home PATH` and `--config
+FILE` select explicit locations; both options also work with `npm start -- ...`.
+Configuration is read at server startup.
+
+For a ChatGPT profile, replace `MODEL_ID` with an available model identifier:
+
+```json
+{
+  "format": "selvedge-bend-config-1",
+  "profiles": {
+    "agent": { "provider": "chatgpt", "model": "MODEL_ID" }
+  },
+  "mcp": {}
+}
+```
+
+Run `node host/cli.mjs login agent` to perform the explicit device-code login.
+A Responses API profile uses `provider: "responses"`, `model`, and optionally
+`endpoint` and `api_key_env` (default `OPENAI_API_KEY`). A stdio MCP entry under
+`mcp` uses its server name as the key and `command`, `args`, optional `cwd`, and
+optional string-valued `env` as its process settings. Unknown fields are rejected;
+[host/config.mjs](host/config.mjs) is the configuration parser.
+
+Each task retains its selected model identity and complete tool definitions.
+Later MCP catalog notifications change availability without rewriting that
+contract. Forked tasks inherit the contract and message prefix, with explicit
+branch results and fresh task identities.
+
+## Persistence and guarantees
+
+The journal records admitted inputs and decisions before any external effect is
+started. Reopening verifies the hash chain and replays the same executable kernel;
+historical effects are not dispatched. Interrupted external tool outcomes remain
+unknown and are not automatically repeated. Interrupted model requests can be
+requested again by recovery.
+
+There is one current journal format, tied to the complete Bend source fingerprint
+and compiler version. Another kernel or an obsolete Rust database is rejected.
+Use a separate home when changing the kernel; this branch provides no migration
+or backward-compatible reader. The earlier Rust implementation is retained in
+Git history, not as a second runtime in the checkout.
+
+The checked transition either retains the world with no effects, or satisfies the
+world and transition predicates. Starting from a valid world, every finite trace
+preserves its world invariant. This is a safety result: it does not prove that a
+model terminates, that every valid request fits the resource bounds, that the
+scheduler is fair, or that an operating system or remote service obeys the model.
+The Bend checker/compiler, native transport, Node, SQLite, OS, and remote protocols
+remain explicit trust boundaries. Local integration tests exercise those paths;
+live provider acceptance and physical history sharing are not claimed.
+
+## Develop and verify
 
 ```bash
 npm run check
 npm test
-npm start
+npm run index:check
+npm run bench
 ```
 
-The server prints its local web URL, including an access token. The default `demo`
-profile is an offline echo model. Run `node host/cli.mjs help` for the command
-interface. Configuration and the journal use a separate `~/.selvedge-bend` home;
-obsolete persistence formats are rejected. The current exploration and its
-verification limits are recorded in [docs/bend2-exploration.md](docs/bend2-exploration.md).
+`check` verifies the pinned compiler, every proof obligation, and host/script
+syntax. Tests run the native kernel, real loopback HTTP/SSE services, SQLite,
+Bash, stdio MCP, credential-flow fixtures, and negative proof mutations. The
+benchmark measures committed transitions and replay on reproducible task trees;
+it imposes no machine-dependent CI threshold. CI is configured to run checks and
+tests on macOS and Linux. `just` provides aliases for these commands.
 
-The Rust workspace below remains available as the earlier implementation while
-the Bend experiment is being completed. Its commands do not launch the Bend host.
-
-## Earlier Rust repository navigation
-
-Read each package README before changing its behavior. Start with the boundary relevant to your change:
-
-- [server](crates/server/README.md) and [web](crates/web/README.md): startup, local commands, and HTTP delivery.
-- [core](crates/core/README.md), [db](crates/db/README.md), and [harness](crates/harness/README.md): durable task execution, persistence, and tools.
-- [model-providers](crates/model-providers/README.md): model request adapters and provider selection.
-- [local-client](crates/local-client/README.md) and [tui](crates/tui/README.md): local protocol access and terminal interaction.
-- [config](crates/config/README.md): runtime configuration and storage paths.
-- [xtask](xtask/README.md): repository checks and documentation maintenance.
-
-[AGENTS.md](AGENTS.md) contains the complete tracked-file index and repository policies. Architectural decisions are recorded in [docs/adr](docs/adr).
-
-## Earlier Rust quickstart
-
-```bash
-just run
-just test
-```
-
-`just run` starts the local server. `Ctrl-C` exits with status 130 after cancelling an in-progress startup or supervising a running server to shutdown, including releasing the singleton lock in either phase.
-
-Server startup builds the current harness and MCP runtime catalog, reconciles existing tasks' unavailable-tool sets without changing their frozen tool definitions, and requests recovery for every active durable task. The current CLI still supplies no model profiles and does not provision a root task, so those remain separate prerequisites for a model-driven production session.
-
-## Development setup
-
-```bash
-./scripts/bootstrap.sh
-```
-
-Run this once in a clean Ubuntu environment. It installs the Rust toolchain, `just`, `pre-commit`, and the repository hooks. When run as a non-root user, it will prompt for `sudo` during package installation.
-
-## Common commands
-
-```bash
-just fmt
-just check
-just hooks
-just agents-index
-just readme-freshness
-```
-
-Use `just agents-index` after adding, removing, or renaming tracked files so the project index in `AGENTS.md` stays current. Use `just agents-index-check` to verify that the index is up to date without rewriting the file. The index is built from Git-tracked files, so ignored and untracked files stay out automatically. Both commands warn when an indexed directory has an unusually large number of direct filesystem entries.
-
-The underlying repository commands are `cargo xtask agents-index update` and `cargo xtask agents-index check`.
-
-## Package State Machine
-
-The diagram records the root package observable states and transition paths. Each edge label names the concrete condition checked at this package boundary.
-
-```mermaid
-flowchart TD
-  Start([selvedge binary starts])
-  Runtime[Create multi-thread Tokio runtime]
-  RunCli[Run selvedge::run_cli with process argv]
-  Parse[Parse process arguments]
-  InitConfig[Initialize config and logging through CLI flow]
-  Command{parsed command}
-  RunServer[Run local server]
-  StopServer[Request supervised server shutdown]
-  Submit[Submit command to local server]
-  WaitTerminal[Wait for terminal notice]
-  Success[Exit code 0]
-  Interrupted[Exit code 130]
-  Failure[Exit code 1]
-  PanicExit[Process exits through Rust panic path]
-
-  Start -->|main is invoked by the operating system| Runtime
-  Runtime -->|Tokio runtime builds successfully| RunCli
-  Runtime -->|Tokio runtime construction panics before CLI status mapping runs| PanicExit
-  RunCli -->|CLI execution starts| Parse
-  Parse -->|argv identifies a supported command| InitConfig
-  Parse -->|argv is empty, malformed, or contains an unsupported command shape| Failure
-  InitConfig -->|config and logging initialize successfully| Command
-  InitConfig -->|config read, validation, or logging initialization fails| Failure
-  Command -->|parsed command is RunServer| RunServer
-  Command -->|parsed command is SubmitCommand| Submit
-  RunServer -->|server startup and run complete successfully| Success
-  RunServer -->|server startup, runtime, or dependency fails| Failure
-  RunServer -->|SIGINT is received during startup| Interrupted
-  RunServer -->|SIGINT is received after startup| StopServer
-  StopServer -->|server tasks stop and the singleton lock is released| Interrupted
-  Submit -->|server accepts typed login-chatgpt or list-models command| WaitTerminal
-  Submit -->|local client connection, readiness, command rejection, or server wait fails| Failure
-  WaitTerminal -->|matching CommandCompleted notice arrives| Success
-  WaitTerminal -->|matching CommandFailed notice, stream close, or protocol error arrives| Failure
-```
-
-See [CONTRIBUTING.md](./CONTRIBUTING.md) for the contribution workflow and pull request expectations.
+After adding or deleting files, stage the changed paths, run `npm run index`, and
+stage `AGENTS.md`. The index contains only Git-tracked files. When `pre-commit` is
+installed, bootstrap installs the configured commit and push hooks. See
+[CONTRIBUTING.md](CONTRIBUTING.md) for the change workflow.

@@ -3,10 +3,41 @@ import ./MODEL.bend as M
 import ./PROGRAM.bend as P
 import ./bendlib/tasks.bend as T
 import ./bendlib/json.bend as J
+import ./INVARIANTS.bend as I
 
 # These are requirements about the definitions the server actually executes.
 # They are deliberately separate from their proofs, so a changed requirement is
 # visible in review. They do not claim that an OS, database, or model obeys us.
+
+# A step either leaves the world unchanged with no effects, or preserves the
+# declared world and transition predicates. This also covers rejected replies.
+def Admitted(+previous: M.World, +decision: M.Decision) -> Type:
+  Result<&1, &1,
+    {P.decision_world(decision) == previous : M.World} & {P.decision_effects(decision) == Nil{} : +List<M.Effect>},
+    {P.valid_world(decision) == True{} : Bool} & {I.decision(previous, decision) == True{} : Bool}>
+
+law transition_admitted:
+  for world: M.World
+  for input: M.Input
+  Admitted(world, P.transition(input, world))
+
+# The executable predicate includes canonical task identities, forest ancestry,
+# inherited contracts, descendant quotas, and unique pending correlation tickets.
+# Safety is closed under every admitted input and every finite execution trace.
+law initial_world_valid:
+  {I.world(M.initial()) == True{} : Bool}
+
+law transition_preserves_world:
+  for world: M.World
+  for input: M.Input
+  for evidence: {I.world(world) == True{} : Bool}
+  {I.world(P.next(world, input)) == True{} : Bool}
+
+law replay_preserves_world:
+  for +events: +List<M.Input>
+  for +world: M.World
+  for evidence: {I.world(world) == True{} : Bool}
+  {I.world(P.replay(events, world)) == True{} : Bool}
 
 # Archived tasks are terminal. No later user input changes their history/queue.
 law archived_terminal:

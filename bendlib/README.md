@@ -1,10 +1,22 @@
-# Bend support library
+# Bend support definitions
 
-`json.bend` handles the generic, lossless JSON value boundary. Numbers keep their
-source lexemes. The host sends postfix tokens; only this module constructs JSON
-values from those tokens. Rendering is explicitly bounded and fails on exhaustion.
+Read the root MODEL, INVARIANTS, LAWS, and PROGRAM entry points before following
+an implementation detail into this directory.
 
-`theory.bend` contains reusable list and transition-system results. Domain code
-uses the same list operations and replay function that these results describe.
+`theory.bend` contains domain-independent list-monoid, replay composition,
+stuttering, and transition-invariant induction results. PROOF instantiates them
+with the production state transition.
 
-Neither module performs effects or contains task-specific policy.
+`tasks.bend` implements task collection, history, queue, and recovery operations.
+`equality.bend` supplies bounded structural comparisons used by INVARIANTS.
+A comparison budget exhaustion returns false; it never certifies unchecked values.
+These comparisons establish value relations, not physical pointer sharing.
+
+`json.bend` preserves JSON number spellings and provides bounded decoding and
+rendering. `schema.bend` checks the supported command and built-in tool schemas.
+`wire.bend` decodes external messages to MODEL inputs. `presentation.bend` renders
+model values and decisions. None of these modules performs an operating-system
+effect; all external work crosses the host boundary.
+
+Run `npm run check` for the proof gate and `npm test` for native execution and
+host integration. Changing a Bend source changes the journal's kernel identity.

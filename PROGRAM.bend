@@ -5,6 +5,7 @@ import ./bendlib/tasks.bend as T
 import ./bendlib/schema.bend as Schema
 import ./bendlib/theory.bend as Theory
 import ./bendlib/presentation.bend as View
+import ./INVARIANTS.bend as I
 
 # Every admitted input passes through apply and schedule. This is the running
 # program's state transition, and the object named by LAWS.bend and PROOF.bend.
@@ -470,10 +471,32 @@ def admission(rendered: Result<&2, &2, String, String>, decision: M.Decision, +p
 def deliver(durable: Bool, +decision: M.Decision, +previous: M.World) -> M.Decision:
   admission(J.render(rendering_budget(previous), J.One{View.envelope(durable, decision)}), decision, previous)
 
-# Delivery admission is part of the executable transition. An oversized reply
-# must not leave an advanced in-memory world behind a failed external request.
-def transition(+input: M.Input, +world: M.World) -> M.Decision:
-  deliver(M.durable(input), scheduled(M.schedules(input), apply(input, world)), world)
+def live_decision(decision: M.Decision) -> M.Decision:
+  M.Decision{+world, reply, effects} = decision
+  M.Decision{world, reply, I.live_effects(effects, tasks(world))}
+
+def valid_world(decision: M.Decision) -> Bool:
+  I.world(decision_world(decision))
+
+def admitted(state_valid: Bool, change_valid: Bool, decision: M.Decision, previous: M.World) -> M.Decision:
+  Theory.admit(~M.Decision, state_valid, change_valid, decision,
+    reject(previous, "invariant_violation", "The candidate violates a world invariant, task retention, or effect authority"))
+
+def check_live(+decision: M.Decision, +previous: M.World) -> M.Decision:
+  admitted(valid_world(decision), I.decision(previous, decision), decision, previous)
+
+# Reflection checks the declared predicates on the actual candidate. Rejection
+# retains the old state and emits no effects; output admission has the same rule.
+def checked(decision: M.Decision, previous: M.World) -> M.Decision:
+  check_live(live_decision(decision), previous)
+
+def update(+input: M.Input, +world: M.World) -> M.Decision:
+  deliver(M.durable(input), checked(scheduled(M.schedules(input), apply(input, world)), world), world)
+
+def transition(input: M.Input, +world: M.World) -> M.Decision:
+  match input:
+    case M.UserCommand{M.Observe{request}}: deliver(False{}, observe(request, world), world)
+    case other: update(other, world)
 
 def next(world: M.World, input: M.Input) -> M.World:
   decision_world(transition(input, world))

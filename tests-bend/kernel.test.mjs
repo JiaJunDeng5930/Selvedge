@@ -153,3 +153,35 @@ test('self-archive and its tool output commit together, and later task writes ar
   assert.equal((await command({ op: 'unfreeze', task_id: 0 })).reply.ok, false);
   assert.deepEqual((await command({ op: 'read', task_id: 0 })).reply.result, before);
 });
+
+test('an archive withdraws a model intent created earlier in the same commit', async t => {
+  const { send, command } = await kernel(t);
+  const first = await command({ op: 'create', profile: 'fixture', message: 'target' });
+  await send(model(0, first.effects[0].ticket));
+  const caller = await command({ op: 'create', profile: 'fixture', message: 'wake and archive target' });
+  const result = await send(model(1, caller.effects[0].ticket, '', [
+    { id: 'wake', name: 'send_message_to_task', arguments: { task_id: 0, message: 'new work' } },
+    { id: 'seal', name: 'archive_task', arguments: { task_id: 0 } },
+  ]));
+  assert.equal(result.reply.ok, true);
+  assert.equal(result.effects.some(effect => effect.kind === 'model' && effect.task_id === 0), false);
+  assert.ok(result.effects.some(effect => effect.kind === 'cancel' && effect.task_id === 0));
+  const target = (await command({ op: 'read', task_id: 0 })).reply.result;
+  assert.equal(target.task.status, 'archived');
+  assert.equal(target.task.phase, 'idle');
+  assert.equal(target.messages.at(-1).content, 'new work');
+});
+
+test('ambiguous profile and tool identities cannot replace the admitted catalog', async t => {
+  const { command, configure } = await kernel(t);
+  const before = (await command({ op: 'list' })).reply.result;
+  for (const invalid of [
+    { profiles: [{ key: 'duplicate', provider: 'echo', name: 'one' }, { key: 'duplicate', provider: 'echo', name: 'two' }] },
+    { tools: [remote, { ...remote, description: 'A second route with the same exposed identity' }] },
+  ]) {
+    const rejected = await configure(invalid);
+    assert.equal(rejected.reply.ok, false);
+    assert.deepEqual(rejected.effects, []);
+    assert.deepEqual((await command({ op: 'list' })).reply.result, before);
+  }
+});

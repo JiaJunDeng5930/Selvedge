@@ -1,5 +1,13 @@
 import Base
 
+def choose(~S: Data, condition: Bool, yes: S, no: S) -> S:
+  match condition:
+    case True{}: yes
+    case False{}: no
+
+def admit(~S: Data, state_valid: Bool, change_valid: Bool, candidate: S, +previous: S) -> S:
+  choose(~S, state_valid, choose(~S, change_valid, candidate, previous), previous)
+
 # Lists form a monoid. The task implementation uses Base's append directly.
 law append_right_identity:
   for -A: Data
@@ -35,6 +43,17 @@ def replay(~S: Data, ~A: Data, ~step: S -> A -> S, events: +List<A>, state: S) -
       state
     case Con{event, rest}:
       replay(~S, ~A, ~step, rest, step(state, event))
+
+# The usual induction principle for invariant safety in a transition system.
+# It states nothing about progress: an identity-only system also preserves safety.
+def replay_invariant(~S: Data, ~A: Data, ~step: S -> A -> S, ~valid: S -> Bool,
+  ~preserves: @state:S -> @event:A -> {valid(state) == True{} : Bool} -> {valid(step(state, event)) == True{} : Bool},
+  events: +List<A>, +state: S, evidence: {valid(state) == True{} : Bool}) ->
+  {valid(replay(~S, ~A, ~step, events, state)) == True{} : Bool}:
+  match events:
+    case Nil{}: evidence
+    case Con{+event, rest}:
+      replay_invariant(~S, ~A, ~step, ~valid, ~preserves, rest, step(state, event), preserves(state, event, evidence))
 
 # Prove composition with an abstract step, then instantiate it at the program.
 # The induction never needs to unfold a server transition or its wire encoder.

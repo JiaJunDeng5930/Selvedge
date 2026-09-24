@@ -13,3 +13,13 @@ compiler's effect ABI and the operating system remain trusted boundaries.
 
 Host integration tests exercise persistence, HTTP delivery, model transport, and
 process execution. Bend laws do not prove those implementations or their services.
+
+The suite also exercises device login and serialized credential refresh against a
+loopback issuer, interruption and restart of an actual HTTP stream, MCP catalog
+notifications during shutdown, and suppression of effects withdrawn within a
+commit. Credential parsing errors must not quote file contents into task history.
+Use `npm test` to run these checks; they require no real credentials or model calls.
+
+The browser consumes command schemas and allowed lifecycle controls returned by
+the running model. It does not own a second lifecycle table. The exploration
+record distinguishes browser interaction evidence from the native proof gate.

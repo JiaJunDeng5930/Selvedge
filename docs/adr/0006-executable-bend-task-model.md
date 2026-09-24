@@ -33,6 +33,10 @@ it does not duplicate the lifecycle tables or command vocabulary.
 The existing Rust workspace remains as a reference during this experiment. Its
 persistent formats are not imported or migrated by the Bend host.
 
+This temporary retention was superseded by
+[ADR 0007](0007-admit-certified-bend-transitions.md) when the Bend runtime became
+the sole implementation in the checkout.
+
 ## Observation boundary
 
 Public queries return only a reply value. The transition supplies the unchanged

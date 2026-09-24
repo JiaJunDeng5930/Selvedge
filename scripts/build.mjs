@@ -3,14 +3,10 @@ import { createHash } from 'node:crypto';
 import { readdir, readFile, mkdir, writeFile, stat } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import { compiler, expectedVersion } from './toolchain.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
-const expectedVersion = (await readFile(path.join(root, 'bend-version'), 'utf8')).trim();
-const version = spawnSync('bend', ['version'], { encoding: 'utf8', cwd: root });
-if (version.error) throw new Error('Install the pinned Bend compiler before building', { cause: version.error });
-if (version.status !== 0 || version.stdout.trim() !== `bend ${expectedVersion}`) {
-  throw new Error(`Expected Bend ${expectedVersion}; observed ${version.stdout.trim() || version.stderr.trim()}`);
-}
+const bend = compiler();
 
 async function sources(directory, relative = '') {
   const result = [];
@@ -37,7 +33,7 @@ if (previous?.fingerprint === fingerprint && binaryExists && !process.argv.inclu
   console.log(`Bend kernel is current (${fingerprint.slice(0, 12)}).`);
 } else {
   for (const args of [['PROOF.bend', '--check-only'], ['MAIN.bend', '-o', '.build/selvedge-kernel']]) {
-    const result = spawnSync('bend', args, { cwd: root, stdio: 'inherit' });
+    const result = spawnSync(bend, args, { cwd: root, stdio: 'inherit', env: { ...process.env, BEND_NO_TELEMETRY: '1' } });
     if (result.error) throw result.error;
     if (result.status !== 0) process.exit(result.status ?? 1);
   }
