@@ -2,6 +2,20 @@
 repos:
   - repo: local
     hooks:
+      - id: bend-check
+        name: Bend proofs and host syntax
+        entry: node scripts/check.mjs
+        language: system
+        pass_filenames: false
+        files: '(^[^/]+\.bend$|^bendlib/|^host/|^tests-bend/|^scripts/(build|check)\.mjs$|^bend-version$|^package\.json$)'
+        stages: [pre-commit, manual]
+      - id: bend-test
+        name: Bend native integration tests
+        entry: npm test
+        language: system
+        pass_filenames: false
+        files: '(^[^/]+\.bend$|^bendlib/|^host/|^tests-bend/|^scripts/(build|check)\.mjs$|^bend-version$|^package\.json$)'
+        stages: [pre-push, manual]
       - id: cargo-fmt
         name: cargo fmt --check
         entry: cargo fmt --all -- --check

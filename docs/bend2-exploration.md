@@ -88,12 +88,35 @@ model is factored, rather than the classification itself. The installed guide's
 explicit equality motives also proved useful for keeping generic replay induction
 independent of the concrete task transition.
 
+## 2026-09-24: exercise the effect boundary
+
+The local service tests now run HTTP and event delivery, CLI command discovery,
+an offline task, a streaming model fixture, a real stdio MCP process, and a real
+Bash process. Both tool fixtures open SQLite themselves and assert that their
+effect intent is already committed before producing output. Restart reconstructs
+the same conversation without a second model request or repeated tool execution.
+Separate process tests exercise bounded stdout/stderr retention, timeout, and
+cancellation. These are observations of the host implementation, not new theorems
+about the operating system or remote providers.
+
+This exposes a practical division of evidence. The query laws quantify over all
+modeled states and inputs. The integration tests check that this particular host
+uses the kernel's decision in the intended order. Neither form of evidence should
+be used to imply the other. The transcript-replay law also concerns kernel state;
+replaying already committed inputs must not interpret their historical effects.
+
+A negative compiler test checks both an open law and a false equality proof.
+Bend 2.0.27 rejects both, including under `--check-only`. This tests the actual
+build gate used here; it does not prove the checker itself sound. Repository hooks
+now include this branch's proof/syntax check and native integration suite.
+
 ## Outstanding exploration questions
 
 - Prove useful world invariants through arbitrary admitted transitions, beyond the
   currently proved local operations and replay algebra.
-- Establish the host protocol behavior with actual HTTP, model, tool, and restart
-  tests; keep this evidence distinct from mathematical proof.
+- Extend host evidence to interrupted remote requests, dynamic MCP catalog changes,
+  and failures during concurrent shutdown; local happy-path coverage is not a proof
+  of arbitrary provider behavior.
 - Measure replay cost and shared-history memory behavior on substantial task trees.
 - Validate live model authentication and MCP interoperability separately from local
   deterministic fixtures. No live credentials or external model calls have been

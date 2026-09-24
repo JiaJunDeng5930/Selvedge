@@ -35,7 +35,7 @@ verification limits are recorded in [docs/bend2-exploration.md](docs/bend2-explo
 The Rust workspace below remains available as the earlier implementation while
 the Bend experiment is being completed. Its commands do not launch the Bend host.
 
-## Repository navigation
+## Earlier Rust repository navigation
 
 Read each package README before changing its behavior. Start with the boundary relevant to your change:
 

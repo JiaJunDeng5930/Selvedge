@@ -8,7 +8,7 @@ const root = fileURLToPath(new URL('../', import.meta.url));
 const expectedVersion = (await readFile(path.join(root, 'bend-version'), 'utf8')).trim();
 const version = spawnSync('bend', ['version'], { encoding: 'utf8', cwd: root });
 if (version.error) throw new Error('Install the pinned Bend compiler before building', { cause: version.error });
-if (version.status !== 0 || !version.stdout.includes(expectedVersion)) {
+if (version.status !== 0 || version.stdout.trim() !== `bend ${expectedVersion}`) {
   throw new Error(`Expected Bend ${expectedVersion}; observed ${version.stdout.trim() || version.stderr.trim()}`);
 }
 

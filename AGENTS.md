@@ -10,6 +10,8 @@ This file is for coding agents working in this repository.
 
 ## Git Hooks
 
+- `pre-commit` checks Bend proof obligations and host JavaScript syntax for Bend-related changes
+- `pre-push` checks `npm test` for Bend-related changes
 - `pre-commit` checks `cargo fmt --all -- --check`
 - `pre-commit` checks `cargo clippy --workspace --all-targets --all-features -- -D warnings`
 - `pre-commit` checks that the project index in this file is up to date
@@ -166,7 +168,8 @@ This file is for coding agents working in this repository.
 |scripts:{bootstrap.sh,build.mjs,check.mjs,setup-worktree.sh}
 |src:{lib.rs,main.rs}
 |tests:{stdout_stderr_integration.rs}
-|tests-bend:{journal.test.mjs,kernel.test.mjs,proof-gate.test.mjs}
+|tests-bend:{fixtures/,journal.test.mjs,kernel.test.mjs,process.test.mjs,proof-gate.test.mjs,service.test.mjs,support.mjs}
+|tests-bend/fixtures:{committed-tool.mjs,mcp.mjs}
 |xtask:{src/,Cargo.toml,README.md}
 |xtask/src:{agents_index.rs,lib.rs,main.rs,readme_gate.rs,test_repo.rs}
 ```
