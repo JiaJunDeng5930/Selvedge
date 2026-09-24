@@ -32,3 +32,11 @@ it does not duplicate the lifecycle tables or command vocabulary.
 
 The existing Rust workspace remains as a reference during this experiment. Its
 persistent formats are not imported or migrated by the Bend host.
+
+## Observation boundary
+
+Public queries return only a reply value. The transition supplies the unchanged
+world and an empty effect list, and derives persistence and scheduling from one
+input-mode classification. This avoids separately proving that each branch of
+every query remembers to preserve state. Internal read tools reuse the query but
+still record their tool result through the normal durable execution path.

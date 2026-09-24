@@ -36,9 +36,9 @@ def construct_command(kind: M.CommandKind, +body: J.Json) -> M.Command:
       M.Fork{P.argument_nat(body, "task_id", 0n), P.argument_nat(body, "child_count", 0n),
         P.decode_messages(J.items(J.get(body, "messages")))}
     case M.ReadCommand{}:
-      M.Read{P.argument_nat(body, "task_id", 0n), P.argument_nat(body, "after", 0n), P.argument_nat(body, "limit", 100n)}
-    case M.ListCommand{}: M.ListTasks{}
-    case M.DescribeCommand{}: M.Describe{}
+      M.Observe{M.Read{P.argument_nat(body, "task_id", 0n), P.argument_nat(body, "after", 0n), P.argument_nat(body, "limit", 100n)}}
+    case M.ListCommand{}: M.Observe{M.ListTasks{}}
+    case M.DescribeCommand{}: M.Observe{M.Describe{}}
 
 def command_valid(valid: Bool, kind: M.CommandKind, body: J.Json) -> Result<&2, &2, String, M.Input>:
   match valid:

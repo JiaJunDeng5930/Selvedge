@@ -103,32 +103,41 @@ def change_found(found: Maybe<&2, M.Task>, control: M.Control, world: M.World) -
 def change(id: Nat, control: M.Control, +world: M.World) -> M.Decision:
   change_found(T.find(tasks(world), id), control, world)
 
-def read_checked(valid: Bool, task: M.Task, after: Nat, limit: Nat, world: M.World) -> M.Decision:
+def read_checked(valid: Bool, task: M.Task, after: Nat, limit: Nat) -> J.Json:
   match valid:
-    case False{}: reject(world, "invalid_page", "The page requires 1..100 messages and an offset on the task history")
-    case True{}: respond(world, T.page(task, after, limit))
+    case False{}: M.failure("invalid_page", "The page requires 1..100 messages and an offset on the task history")
+    case True{}: M.success(T.page(task, after, limit))
 
-def read_found(found: Maybe<&2, M.Task>, +after: Nat, +limit: Nat, world: M.World) -> M.Decision:
+def read_found(found: Maybe<&2, M.Task>, +after: Nat, +limit: Nat) -> J.Json:
   match found:
-    case None{}: reject(world, "task_not_found", "The target task does not exist")
+    case None{}: M.failure("task_not_found", "The target task does not exist")
     case Some{+task}:
       read_checked(Nat.is_le(1n, limit) && Nat.is_le(limit, 100n) && Nat.is_le(after, M.history_length(M.task_history(task))),
-        task, after, limit, world)
+        task, after, limit)
 
-def read(id: Nat, after: Nat, limit: Nat, +world: M.World) -> M.Decision:
-  read_found(T.find(tasks(world), id), after, limit, world)
+def read(id: Nat, after: Nat, limit: Nat, world: M.World) -> J.Json:
+  read_found(T.find(tasks(world), id), after, limit)
 
-def list_environment(environment: M.Environment, +world: M.World) -> M.Decision:
+def list_environment(environment: M.Environment, world: M.World) -> J.Json:
   M.Environment{catalog, profiles, max_fork, max_descendants} = environment
-  respond(world, J.Object{[
+  M.success(J.Object{[
     J.Field{"tasks", J.Array{T.summaries(tasks(world))}},
     J.Field{"profiles", J.Array{M.profiles_json(profiles)}},
     J.Field{"tools", J.Array{M.tools_json(catalog)}},
     J.Field{"max_fork", J.nat(max_fork)},
     J.Field{"max_descendants", J.nat(max_descendants)}]})
 
-def list(+world: M.World) -> M.Decision:
+def list(+world: M.World) -> J.Json:
   list_environment(environment(world), world)
+
+def query(query: M.Query, world: M.World) -> J.Json:
+  match query:
+    case M.Read{task_id, after, limit}: read(task_id, after, limit, world)
+    case M.ListTasks{}: list(world)
+    case M.Describe{}: M.success(M.description())
+
+def observe(request: M.Query, +world: M.World) -> M.Decision:
+  M.Decision{world, query(request, world), Nil{}}
 
 def add_initial(message: Maybe<&2, String>, history: M.History) -> M.History:
   match message:
@@ -212,9 +221,7 @@ def apply_command(command: M.Command, world: M.World) -> M.Decision:
     case M.Send{task_id, message}: send(task_id, message, world)
     case M.ChangeStatus{task_id, control}: change(task_id, control, world)
     case M.Fork{task_id, count, messages}: manual_fork(task_id, count, messages, world)
-    case M.Read{task_id, after, limit}: read(task_id, after, limit, world)
-    case M.ListTasks{}: list(world)
-    case M.Describe{}: respond(world, M.description())
+    case M.Observe{request}: observe(request, world)
 
 def accepted(yes: Bool) -> J.Json:
   J.Object{[J.Field{"accepted", J.Boolean{yes}}]}
@@ -339,7 +346,7 @@ def builtin(tool: M.Builtin, +arguments: J.Json, +call: M.Call, remaining: +List
       fork(argument_nat(arguments, "child_count", 0n), decode_messages(J.items(J.get(arguments, "messages"))), call, remaining, task, world)
     case M.ReadTask{}:
       finish_internal(M.task_id(task), call, remaining,
-        read(argument_nat(arguments, "task_id", 0n), argument_nat(arguments, "after", 0n), argument_nat(arguments, "limit", 100n), world))
+        observe(M.Read{argument_nat(arguments, "task_id", 0n), argument_nat(arguments, "after", 0n), argument_nat(arguments, "limit", 100n)}, world))
     case M.SendMessage{}:
       finish_internal(M.task_id(task), call, remaining,
         send(argument_nat(arguments, "task_id", 0n), J.text(J.get(arguments, "message")), world))
@@ -432,14 +439,6 @@ def schedule(fuel: Nat, candidate: Maybe<&2, M.Task>, +decision: M.Decision) -> 
       +next = combine(decision, work(M.work(M.task_status(task), M.task_phase(task)), task, decision_world(decision)))
       schedule(p, T.runnable(tasks(decision_world(next))), next)
 
-def should_schedule(input: M.Input) -> Bool:
-  match input:
-    case M.UserCommand{M.Read{task_id, after, limit}}: False{}
-    case M.UserCommand{M.ListTasks{}}: False{}
-    case M.UserCommand{M.Describe{}}: False{}
-    case M.Configure{environment}: False{}
-    case _: True{}
-
 def scheduling_budget(world: M.World) -> Nat:
   M.World{tasks, next_task, next_ticket, environment, M.ExecutionLimits{steps, render, bytes}} = world
   steps
@@ -474,7 +473,7 @@ def deliver(durable: Bool, +decision: M.Decision, +previous: M.World) -> M.Decis
 # Delivery admission is part of the executable transition. An oversized reply
 # must not leave an advanced in-memory world behind a failed external request.
 def transition(+input: M.Input, +world: M.World) -> M.Decision:
-  deliver(M.durable(input), scheduled(should_schedule(input), apply(input, world)), world)
+  deliver(M.durable(input), scheduled(M.schedules(input), apply(input, world)), world)
 
 def next(world: M.World, input: M.Input) -> M.World:
   decision_world(transition(input, world))

@@ -91,20 +91,6 @@ def Laws.replay_composition(first, second, world):
 def Laws.replay_empty(world):
   {==}
 
-def read_checked_world(valid: Bool, task: M.Task, after: Nat, limit: Nat, +world: M.World) ->
-  {P.decision_world(P.read_checked(valid, task, after, limit, world)) == world : M.World}:
-  match valid:
-    case False{}: {==}
-    case True{}: {==}
-
-def read_found_world(found: Maybe<&2, M.Task>, +after: Nat, +limit: Nat, +world: M.World) ->
-  {P.decision_world(P.read_found(found, after, limit, world)) == world : M.World}:
-  match found:
-    case None{}: {==}
-    case Some{+task}:
-      read_checked_world(Nat.is_le(1n, limit) && Nat.is_le(limit, 100n) && Nat.is_le(after, M.history_length(M.task_history(task))),
-        task, after, limit, world)
-
 def output_admitted_world(fits: Bool, +decision: M.Decision, +previous: M.World,
   evidence: {P.decision_world(decision) == previous : M.World}) ->
   {P.decision_world(P.output_admitted(fits, decision, previous)) == previous : M.World}:
@@ -125,17 +111,34 @@ def deliver_world(+durable: Bool, +decision: M.Decision, +previous: M.World,
   {P.decision_world(P.deliver(durable, decision, previous)) == previous : M.World}:
   admission_world(J.render(P.rendering_budget(previous), J.One{View.envelope(durable, decision)}), decision, previous, evidence)
 
-def Laws.read_preserves_world(id, after, limit, world):
-  deliver_world(False{}, P.read(id, after, limit, world), world,
-    read_found_world(T.find(P.tasks(world), id), after, limit, world))
+def Laws.observation_preserves_world(query, world):
+  deliver_world(False{}, P.observe(query, world), world, {==})
 
-def list_world(+world: M.World) -> {P.decision_world(P.list(world)) == world : M.World}:
-  match world:
-    case M.World{tasks, next_task, next_ticket, M.Environment{catalog, profiles, max_fork, max_descendants}, limits}:
-      {==}
+def output_admitted_no_effects(fits: Bool, +decision: M.Decision, previous: M.World,
+  evidence: {P.decision_effects(decision) == Nil{} : +List<M.Effect>}) ->
+  {P.decision_effects(P.output_admitted(fits, decision, previous)) == Nil{} : +List<M.Effect>}:
+  match fits:
+    case True{}: evidence
+    case False{}: {==}
 
-def Laws.list_preserves_world(world):
-  deliver_world(False{}, P.list(world), world, list_world(world))
+def admission_no_effects(rendered: Result<&2, &2, String, String>, +decision: M.Decision, +previous: M.World,
+  evidence: {P.decision_effects(decision) == Nil{} : +List<M.Effect>}) ->
+  {P.decision_effects(P.admission(rendered, decision, previous)) == Nil{} : +List<M.Effect>}:
+  match rendered:
+    case Fail{error}: {==}
+    case Done{text}:
+      output_admitted_no_effects(Nat.is_le(J.utf8_length(text), U32.to_nat(P.frame_limit(previous))), decision, previous, evidence)
+
+def Laws.observation_has_no_effects(query, world):
+  admission_no_effects(J.render(P.rendering_budget(world), J.One{View.envelope(False{}, P.observe(query, world))}),
+    P.observe(query, world), world, {==})
+
+def Laws.observation_not_durable(query):
+  {==}
+
+def Laws.observation_replay(query, first, second, world):
+  Theory.replay_insert_identity(~M.World, ~M.Input, ~P.next, first, second,
+    M.UserCommand{M.Observe{query}}, world, Laws.observation_preserves_world(query, P.replay(first, world)))
 
 def Laws.rejected_delivery_unchanged(decision, world):
   {==}

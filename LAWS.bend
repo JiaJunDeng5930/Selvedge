@@ -145,17 +145,31 @@ law replay_empty:
   for +world: M.World
   {P.replay(Nil{}, world) == world : M.World}
 
-# Reads do not advance the scheduler, append history, or consume pending work.
-law read_preserves_world:
-  for +id: Nat
-  for +after: Nat
-  for +limit: Nat
+# All public queries, including invalid pages and failed output admission, leave
+# the entire world unchanged and dispatch no effects. They need no journal entry.
+law observation_preserves_world:
+  for +query: M.Query
   for +world: M.World
-  {P.decision_world(P.transition(M.UserCommand{M.Read{id, after, limit}}, world)) == world : M.World}
+  {P.decision_world(P.transition(M.UserCommand{M.Observe{query}}, world)) == world : M.World}
 
-law list_preserves_world:
+law observation_has_no_effects:
+  for +query: M.Query
   for +world: M.World
-  {P.decision_world(P.transition(M.UserCommand{M.ListTasks{}}, world)) == world : M.World}
+  {P.decision_effects(P.transition(M.UserCommand{M.Observe{query}}, world)) == Nil{} : +List<M.Effect>}
+
+law observation_not_durable:
+  for query: M.Query
+  {M.durable(M.UserCommand{M.Observe{query}}) == False{} : Bool}
+
+# Inserting a query anywhere in an input trace preserves its final world.
+# Query replies remain observable; this statement concerns task state, not replies.
+law observation_replay:
+  for +query: M.Query
+  for +first: +List<M.Input>
+  for +second: +List<M.Input>
+  for +world: M.World
+  {P.replay(List.append(&2, M.Input, first, M.UserCommand{M.Observe{query}} <> second), world) ==
+    P.replay(List.append(&2, M.Input, first, second), world) : M.World}
 
 law rejected_delivery_unchanged:
   for decision: M.Decision

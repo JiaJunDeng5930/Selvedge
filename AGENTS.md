@@ -166,7 +166,7 @@ This file is for coding agents working in this repository.
 |scripts:{bootstrap.sh,build.mjs,check.mjs,setup-worktree.sh}
 |src:{lib.rs,main.rs}
 |tests:{stdout_stderr_integration.rs}
-|tests-bend:{journal.test.mjs,kernel.test.mjs}
+|tests-bend:{journal.test.mjs,kernel.test.mjs,proof-gate.test.mjs}
 |xtask:{src/,Cargo.toml,README.md}
 |xtask/src:{agents_index.rs,lib.rs,main.rs,readme_gate.rs,test_repo.rs}
 ```

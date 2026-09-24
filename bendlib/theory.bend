@@ -46,3 +46,17 @@ def replay_composition(~S: Data, ~A: Data, ~step: S -> A -> S,
     case Nil{}: {==}
     case Con{event, rest}:
       replay_composition(~S, ~A, ~step, rest, second, step(state, event))
+
+# A step that is the identity at the reached state may be inserted in a trace.
+# The caller proves only the domain fact; trace algebra stays independent of it.
+def replay_insert_identity(~S: Data, ~A: Data, ~step: S -> A -> S,
+  +first: +List<A>, +second: +List<A>, +event: A, +state: S,
+  identity: {step(replay(~S, ~A, ~step, first, state), event) == replay(~S, ~A, ~step, first, state) : S}) ->
+  {replay(~S, ~A, ~step, List.append(&2, A, first, event <> second), state) ==
+    replay(~S, ~A, ~step, List.append(&2, A, first, second), state) : S}:
+  match first:
+    case Nil{}:
+      %identity : {replay(~S, ~A, ~step, second, step(state, event)) == replay(~S, ~A, ~step, second, _) : S}
+      {==}
+    case Con{before, rest}:
+      replay_insert_identity(~S, ~A, ~step, rest, second, event, step(state, before), identity)

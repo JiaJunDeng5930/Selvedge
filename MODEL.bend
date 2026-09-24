@@ -378,14 +378,19 @@ type Effect is Data:
   CancelTask{task_id: Nat}
   ContinueScheduling{}
 
+# A public query observes a world without acquiring permission to advance it.
+# A tool may use the same query, then durably append its own tool result.
+type Query is Data:
+  Read{task_id: Nat, after: Nat, limit: Nat}
+  ListTasks{}
+  Describe{}
+
 type Command is Data:
   Create{profile: String, reasoning: String, message: String}
   Send{task_id: Nat, message: String}
   ChangeStatus{task_id: Nat, control: Control}
   Fork{task_id: Nat, count: Nat, messages: +List<String>}
-  Read{task_id: Nat, after: Nat, limit: Nat}
-  ListTasks{}
-  Describe{}
+  Observe{query: Query}
 
 type CommandKind is Data:
   CreateCommand{}
@@ -466,12 +471,34 @@ type Input is Data:
 type Decision is Data:
   Decision{world: World, reply: J.Json, effects: +List<Effect>}
 
-def durable(input: Input) -> Bool:
+type InputMode is Data:
+  Observation{}
+  UpdateOnly{}
+  UpdateAndSchedule{}
+
+# Persistence and scheduling derive from the same classification. Configuration
+# commits a catalog without starting work before startup recovery has run.
+def input_mode(input: Input) -> InputMode:
   match input:
-    case UserCommand{Read{task_id, after, limit}}: False{}
-    case UserCommand{ListTasks{}}: False{}
-    case UserCommand{Describe{}}: False{}
+    case UserCommand{Observe{query}}: Observation{}
+    case Configure{environment}: UpdateOnly{}
+    case _: UpdateAndSchedule{}
+
+def mode_durable(mode: InputMode) -> Bool:
+  match mode:
+    case Observation{}: False{}
     case _: True{}
+
+def mode_schedules(mode: InputMode) -> Bool:
+  match mode:
+    case UpdateAndSchedule{}: True{}
+    case _: False{}
+
+def durable(input: Input) -> Bool:
+  mode_durable(input_mode(input))
+
+def schedules(input: Input) -> Bool:
+  mode_schedules(input_mode(input))
 
 def success(result: J.Json) -> J.Json:
   J.Object{[J.Field{"ok", J.Boolean{True{}}}, J.Field{"result", result}]}

@@ -56,6 +56,38 @@ when a compiled kernel is cached. `npm test` builds the native kernel and runs t
 integration suite. The root README points readers to the three executable entry
 files rather than presenting the earlier Rust runtime as the experiment's entry.
 
+## 2026-09-24: make observation a program entity
+
+The initial implementation represented read, list, and describe as ordinary
+commands. Persistence and scheduling each enumerated them, and read-only proofs
+followed the error branches of individual query implementations. This duplicated
+the conceptual claim that these commands merely observe the world.
+
+`MODEL.Query` now represents that concept. Its interpreter returns only JSON;
+it cannot return a new world or dispatchable effects. `InputMode` supplies the
+shared classification used by persistence and scheduling. A tool that reads a
+task reuses the same interpreter, but its result is still a durable history event.
+Identical data access does not imply identical operational meaning.
+
+The checked laws now quantify over every query and every world, including failed
+queries and output admission failures. They establish unchanged world, no effects,
+and no durable journal input. A generic transition-system theorem proves that
+inserting an identity step anywhere in a trace preserves the final state. The
+domain proof instantiates it with `PROGRAM.next` and the query preservation law.
+This is a concrete use of stuttering in transition systems. It does not claim that
+the observed reply stream is unchanged, or that scheduler fairness is proved.
+
+This refactoring reduces proof dependence on query implementation details: a new
+query case inherits the observation laws through the result type and wrapper.
+The domain fact and reusable induction are separate, so the generic proof never
+unfolds the entire server or serializer.
+
+Bend 2.0.27 requires a match scrutinee to be a parameter or field; matching a
+computed classification needs a helper definition. This affects how the executable
+model is factored, rather than the classification itself. The installed guide's
+explicit equality motives also proved useful for keeping generic replay induction
+independent of the concrete task transition.
+
 ## Outstanding exploration questions
 
 - Prove useful world invariants through arbitrary admitted transitions, beyond the

@@ -91,3 +91,30 @@ test('journal corruption is detected before any saved effect is published', asyn
   db.close();
   await assert.rejects(Journal.open(filename), /integrity failure/);
 });
+
+test('public observations leave pending work and the SQLite journal unchanged, including failed queries', async t => {
+  const filename = await temporary(t);
+  const journal = await Journal.open(filename);
+  t.after(() => journal.close());
+  await journal.execute(environment);
+  await journal.execute(command({ op: 'create', profile: 'fixture', message: 'still pending' }));
+  const before = await journal.execute(command({ op: 'read', task_id: 0 }));
+  let commits = 0;
+  journal.on('commit', () => commits++);
+  for (const query of [
+    { op: 'list' }, { op: 'describe' }, { op: 'read', task_id: 0 },
+    { op: 'read', task_id: 0, after: 100 }, { op: 'read', task_id: 99 },
+  ]) {
+    const result = await journal.execute(command(query));
+    assert.equal(result.sequence, before.sequence);
+    assert.deepEqual(result.effects, []);
+  }
+  assert.equal(commits, 0);
+  assert.deepEqual((await journal.execute(command({ op: 'read', task_id: 0 }))).reply, before.reply);
+  const database = new DatabaseSync(filename, { readOnly: true });
+  try { assert.equal(database.prepare('SELECT count(*) AS n FROM journal').get().n, before.sequence); }
+  finally { database.close(); }
+  const settled = await journal.execute(model(0, 0));
+  assert.equal(settled.reply.result.accepted, true);
+  assert.equal(settled.sequence, before.sequence + 1);
+});
