@@ -73,12 +73,13 @@ This file is for coding agents working in this repository.
 [Project Index]|root:.
 |source:git-tracked-files-only
 |excluded:{git-ignored,git-untracked}
-|.:{.cargo/,.codex/,.github/,crates/,docs/,scripts/,src/,tests/,xtask/,.editorconfig,.gitignore,.pre-commit-config.yaml,AGENTS.md,CONTRIBUTING.md,Cargo.lock,Cargo.toml,Justfile,README.md,rust-toolchain.toml}
+|.:{.cargo/,.codex/,.github/,bendlib/,crates/,docs/,host/,scripts/,src/,tests-bend/,tests/,xtask/,.editorconfig,.gitignore,.pre-commit-config.yaml,AGENTS.md,CONTRIBUTING.md,Cargo.lock,Cargo.toml,Justfile,LAWS.bend,MAIN.bend,MODEL.bend,PROGRAM.bend,PROOF.bend,README.md,bend-version,package.json,rust-toolchain.toml}
 |.cargo:{config.toml}
 |.codex:{environments/}
 |.codex/environments:{environment.toml}
 |.github:{workflows/}
 |.github/workflows:{ci.yml}
+|bendlib:{README.md,json.bend,presentation.bend,schema.bend,tasks.bend,theory.bend,wire.bend}
 |crates:{api/,chatgpt-api/,chatgpt-auth/,chatgpt-login/,client-sync/,client/,command-model/,config-model/,config/,core/,db/,domain-model/,events/,harness/,local-client/,local-protocol/,logging/,model-credentials/,model-providers/,router/,server/,task-runtime-factory/,test-support/,tui/,web/}
 |crates/api:{src/,tests/,Cargo.toml,README.md}
 |crates/api/src:{lib.rs}
@@ -158,11 +159,14 @@ This file is for coding agents working in this repository.
 |crates/web:{src/,tests/,Cargo.toml,README.md}
 |crates/web/src:{lib.rs}
 |crates/web/tests:{web_contract.rs}
-|docs:{adr/}
-|docs/adr:{0001-task-owned-tool-contracts.md,0002-open-tool-call-recovery.md,0003-persisted-task-lifecycle.md,0004-semantic-ownership-at-runtime-boundaries.md,0005-single-source-configuration-and-transport.md}
-|scripts:{bootstrap.sh,setup-worktree.sh}
+|docs:{adr/,bend2-exploration.md}
+|docs/adr:{0001-task-owned-tool-contracts.md,0002-open-tool-call-recovery.md,0003-persisted-task-lifecycle.md,0004-semantic-ownership-at-runtime-boundaries.md,0005-single-source-configuration-and-transport.md,0006-executable-bend-task-model.md}
+|host:{public/,README.md,auth.mjs,cli.mjs,codec.mjs,config.mjs,files.mjs,journal.mjs,kernel.mjs,mcp.mjs,network.mjs,process.mjs,providers.mjs,server.mjs,service.mjs,transport.c}
+|host/public:{app.mjs,index.html,style.css}
+|scripts:{bootstrap.sh,build.mjs,check.mjs,setup-worktree.sh}
 |src:{lib.rs,main.rs}
 |tests:{stdout_stderr_integration.rs}
+|tests-bend:{journal.test.mjs,kernel.test.mjs}
 |xtask:{src/,Cargo.toml,README.md}
 |xtask/src:{agents_index.rs,lib.rs,main.rs,readme_gate.rs,test_repo.rs}
 ```

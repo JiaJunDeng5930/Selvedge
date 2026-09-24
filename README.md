@@ -5,7 +5,35 @@ package: selvedge
 freshness_fingerprint: cb74caa5b30d33c2deadd7470b3e1a087ac7c495
 -->
 
-Selvedge runs a local server for persistent AI tasks. It stores task history in SQLite, routes commands and streamed updates to local clients, and executes model calls and tools through a task-owned runtime.
+Selvedge runs a local server for persistent AI tasks. This branch explores a Bend 2
+rewrite in which the task model, executable transition, and requirements are
+checked together. Start with these executable entry points:
+
+- [MODEL.bend](MODEL.bend): task identity, ancestry, frozen contracts, lifecycle,
+  work phases, commands, and effect boundaries.
+- [LAWS.bend](LAWS.bend): the precise requirements currently proved about those
+  definitions and the running transition.
+- [PROGRAM.bend](PROGRAM.bend): the bounded transition that the native server
+  executes. [PROOF.bend](PROOF.bend) supplies the proofs and connects reusable
+  theory to that same transition.
+
+Install Bend at the version recorded in `bend-version` and Node.js 26 or later.
+The host uses Node's built-in SQLite support and has no npm dependencies.
+
+```bash
+npm run check
+npm test
+npm start
+```
+
+The server prints its local web URL, including an access token. The default `demo`
+profile is an offline echo model. Run `node host/cli.mjs help` for the command
+interface. Configuration and the journal use a separate `~/.selvedge-bend` home;
+obsolete persistence formats are rejected. The current exploration and its
+verification limits are recorded in [docs/bend2-exploration.md](docs/bend2-exploration.md).
+
+The Rust workspace below remains available as the earlier implementation while
+the Bend experiment is being completed. Its commands do not launch the Bend host.
 
 ## Repository navigation
 
@@ -20,7 +48,7 @@ Read each package README before changing its behavior. Start with the boundary r
 
 [AGENTS.md](AGENTS.md) contains the complete tracked-file index and repository policies. Architectural decisions are recorded in [docs/adr](docs/adr).
 
-## Quickstart
+## Earlier Rust quickstart
 
 ```bash
 just run

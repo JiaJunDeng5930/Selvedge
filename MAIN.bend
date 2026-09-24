@@ -1,0 +1,54 @@
+import Base
+import ./MODEL.bend as M
+import ./PROGRAM.bend as P
+import ./PROOF.bend as Proof
+import ./bendlib/json.bend as J
+import ./bendlib/wire.bend as Wire
+
+def Host.receive(max_bytes: U32) -> IO(Result<&1, &1, U32 & String, Maybe<&2, +List<String>>>):
+  import "./host/transport.c"
+
+type Output is Data:
+  Output{decision: M.Decision, durable: Bool}
+
+def decide(input: Result<&2, &2, String, M.Input>, world: M.World) -> Output:
+  match input:
+    case Fail{error}:
+      Output{P.reject(world, "invalid_input", error), False{}}
+    case Done{+input}:
+      Output{P.transition(input, world), Wire.durable(input)}
+
+def decoded(json: Result<&2, &2, String, J.Json>, world: M.World) -> Output:
+  match json:
+    case Fail{error}: Output{P.reject(world, "invalid_json", error), False{}}
+    case Done{json}: decide(Wire.decode(json), world)
+
+def output_world(output: Output) -> M.World:
+  Output{decision, durable} = output
+  P.decision_world(decision)
+
+def output_json(output: Output) -> J.Json:
+  Output{decision, durable} = output
+  Wire.envelope(durable, decision)
+
+def print_result(result: Result<&2, &2, String, String>) -> IO(Unit):
+  match result:
+    case Fail{error}: IO.die(Unit, 1, error)
+    case Done{text}: IO.print(text)
+
+# The only unchecked recursion is the lifetime of the external stdin stream.
+# It constructs no proofs. PROGRAM.transition itself always terminates.
+@unsafe def serve(packet: Maybe<&2, +List<String>>, world: M.World) -> IO(Unit):
+  match packet:
+    case None{}: IO.pure(Unit, Unit{})
+    case Some{tokens}:
+      +output = decoded(J.decode(tokens), world)
+      do IO<Unit>:
+        print_result(J.show(output_json(output)))
+        packet : Maybe<&2, +List<String>> <- IO.try(Maybe<&2, +List<String>>, Host.receive(M.frame_bytes()))
+        serve(packet, output_world(output))
+
+def main() -> IO(Unit):
+  do IO<Unit>:
+    packet : Maybe<&2, +List<String>> <- IO.try(Maybe<&2, +List<String>>, Host.receive(M.frame_bytes()))
+    serve(packet, M.initial())
