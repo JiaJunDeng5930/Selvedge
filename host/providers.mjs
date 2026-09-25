@@ -165,7 +165,8 @@ export async function requestModel(effect, config, home, limits, { signal, onDel
     if (response.status === 400 && contextLimit(errorBody)) throw new ContextLimitError();
     throw new Error(`Model request failed with HTTP ${response.status}`);
   }
-  if (!response.headers.get('content-type')?.toLowerCase().includes('text/event-stream')) {
+  const contentType = response.headers.get('content-type');
+  if (contentType !== null && !contentType.toLowerCase().includes('text/event-stream')) {
     await response.body?.cancel();
     throw new Error('Provider did not return an SSE response');
   }

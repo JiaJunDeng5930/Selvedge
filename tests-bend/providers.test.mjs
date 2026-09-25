@@ -77,6 +77,25 @@ test('a partially exposed SSE response is never silently replayed', async t => {
   assert.deepEqual(deltas, ['partial']);
 });
 
+test('an SSE body is accepted when the provider omits Content-Type', async t => {
+  const { run } = await fixture(t, (_, response) => {
+    response.writeHead(200);
+    response.end(`data: ${JSON.stringify({ type: 'response.completed', response: { status: 'completed', output: [
+      { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'done' }] },
+    ] } })}\n\n`);
+  });
+  const result = await run();
+  assert.equal(result[0].value.content[0].text, 'done');
+});
+
+test('an explicit non-SSE Content-Type is still rejected', async t => {
+  const { run } = await fixture(t, (_, response) => {
+    response.writeHead(200, { 'content-type': 'application/json' });
+    response.end('{}');
+  });
+  await assert.rejects(run(), /did not return an SSE response/);
+});
+
 test('persistent transient failures exhaust the declared retry budget', { timeout: 10_000 }, async t => {
   let calls = 0;
   const { run, description } = await fixture(t, (_, response) => { calls++; response.writeHead(503); response.end(); });
