@@ -8,6 +8,17 @@ import ./bendlib/json.bend as J
 import ./bendlib/presentation.bend as View
 import ./INVARIANTS.bend as I
 
+def Laws.read_file_recovery_safe(attempt):
+  match attempt:
+    case M.InitialAttempt{call}: {==}
+    case M.RecoveryAttempt{call}: {==}
+
+def Laws.write_file_recovery_blocked(call):
+  {==}
+
+def Laws.edit_file_recovery_blocked(call):
+  {==}
+
 def Laws.initial_world_valid():
   {==}
 
@@ -68,6 +79,8 @@ def Laws.transition_admitted(world, input):
       update_certificate(M.UserCommand{M.ChangeStatus{id, control}}, world)
     case M.UserCommand{M.Fork{id, count, messages}}:
       update_certificate(M.UserCommand{M.Fork{id, count, messages}}, world)
+    case M.UserCommand{M.Compact{id, summary}}:
+      update_certificate(M.UserCommand{M.Compact{id, summary}}, world)
     case M.ModelCompleted{id, ticket, outcome}:
       update_certificate(M.ModelCompleted{id, ticket, outcome}, world)
     case M.ToolCompleted{id, ticket, value, error}:
@@ -101,6 +114,7 @@ def Laws.archived_terminal(request):
     case M.Freeze{}: {==}
     case M.Unfreeze{}: {==}
     case M.Stop{}: {==}
+    case M.Interrupt{}: {==}
     case M.Archive{}: {==}
 
 def Laws.archived_input_unchanged(id, lineage, contract, history, queue, phase, text):
@@ -115,10 +129,27 @@ def Laws.stopped_no_model(phase):
     case M.Ready{Nil{}}: {==}
     case M.Ready{Con{call, rest}}: {==}
     case M.ModelPending{ticket, callable}: {==}
+    case M.SummaryPending{ticket, resume}: {==}
     case M.ToolPending{ticket, call, remaining}: {==}
 
 def Laws.stopped_input_reactivates():
   {==}
+
+def Laws.interrupt_preserves_contract(task):
+  match task:
+    case M.Task{id, lineage, contract, status, history, queue, phase}: {==}
+
+def Laws.interrupt_preserves_queue(task):
+  match task:
+    case M.Task{id, lineage, contract, status, history, queue, phase}: {==}
+
+def Laws.interrupt_settles_phase(task):
+  match task:
+    case M.Task{id, lineage, contract, status, history, queue, phase}: {==}
+
+def Laws.interrupt_idempotent(task):
+  match task:
+    case M.Task{id, lineage, contract, status, history, queue, phase}: {==}
 
 def Laws.status_preserves_contract(status, task):
   match task:
@@ -160,6 +191,8 @@ def Laws.recover_phase_idempotent(phase):
     case M.Idle{}: {==}
     case M.Ready{calls}: {==}
     case M.ModelPending{ticket, callable}: {==}
+    case M.SummaryPending{ticket, True{}}: {==}
+    case M.SummaryPending{ticket, False{}}: {==}
     case M.ToolPending{ticket, call, remaining}: {==}
 
 def Laws.unmatched_model_result_unchanged(outcome, allowed, task, world):
@@ -237,3 +270,40 @@ def Laws.rejected_delivery_no_effects(decision, world):
 
 def Laws.context_has_no_call_authority(value):
   {==}
+
+def project_node_idempotent(+previous: M.History, +message: M.Message,
+  evidence: {M.context_history(M.context_history(previous)) == M.context_history(previous) : M.History}) ->
+  {M.context_history(M.context_node(M.context_history(previous), message)) == M.context_node(M.context_history(previous), message) : M.History}:
+  match message:
+    case M.ContextCheckpoint{summary}: {==}
+    case M.UserMessage{+text}:
+      %evidence : {M.HistoryNode{M.context_history(M.context_history(previous)), M.UserMessage{text}} == M.HistoryNode{_, M.UserMessage{text}} : M.History}
+      {==}
+    case M.AssistantMessage{+text}:
+      %evidence : {M.HistoryNode{M.context_history(M.context_history(previous)), M.AssistantMessage{text}} == M.HistoryNode{_, M.AssistantMessage{text}} : M.History}
+      {==}
+    case M.FailureMessage{+text}:
+      %evidence : {M.HistoryNode{M.context_history(M.context_history(previous)), M.FailureMessage{text}} == M.HistoryNode{_, M.FailureMessage{text}} : M.History}
+      {==}
+    case M.FunctionCall{+call}:
+      %evidence : {M.HistoryNode{M.context_history(M.context_history(previous)), M.FunctionCall{call}} == M.HistoryNode{_, M.FunctionCall{call}} : M.History}
+      {==}
+    case M.FunctionOutput{+id, +value, +error}:
+      %evidence : {M.HistoryNode{M.context_history(M.context_history(previous)), M.FunctionOutput{id, value, error}} == M.HistoryNode{_, M.FunctionOutput{id, value, error}} : M.History}
+      {==}
+    case M.ModelContext{+value}:
+      %evidence : {M.HistoryNode{M.context_history(M.context_history(previous)), M.ModelContext{value}} == M.HistoryNode{_, M.ModelContext{value}} : M.History}
+      {==}
+
+def Laws.context_projection_idempotent(history):
+  match history:
+    case M.EmptyHistory{}: {==}
+    case M.HistoryNode{+previous, message}:
+      project_node_idempotent(previous, message, Laws.context_projection_idempotent(previous))
+
+def Laws.checkpoint_cuts_context(history, summary):
+  {==}
+
+def Laws.summary_rejects_invocations(call, rest, resume, task):
+  match task:
+    case M.Task{id, lineage, contract, status, history, queue, phase}: {==}

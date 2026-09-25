@@ -91,15 +91,21 @@ def change_to(next: M.Status, +task: M.Task, world: M.World) -> M.Decision:
     case other:
       respond(store(T.promote(M.with_status(other, task)), world), id_result(M.task_id(task)))
 
-def change_checked(next: Maybe<&2, M.Status>, task: M.Task, world: M.World) -> M.Decision:
+def change_requested(control: M.Control, next: M.Status, +task: M.Task, world: M.World) -> M.Decision:
+  match control:
+    case M.Interrupt{}:
+      M.Decision{store(T.interrupt(task), world), M.success(id_result(M.task_id(task))), [M.CancelTask{M.task_id(task)}]}
+    case _: change_to(next, task, world)
+
+def change_checked(next: Maybe<&2, M.Status>, control: M.Control, task: M.Task, world: M.World) -> M.Decision:
   match next:
     case None{}: reject(world, "invalid_transition", "This lifecycle transition is not permitted")
-    case Some{status}: change_to(status, task, world)
+    case Some{status}: change_requested(control, status, task, world)
 
-def change_found(found: Maybe<&2, M.Task>, control: M.Control, world: M.World) -> M.Decision:
+def change_found(found: Maybe<&2, M.Task>, +control: M.Control, world: M.World) -> M.Decision:
   match found:
     case None{}: reject(world, "task_not_found", "The target task does not exist")
-    case Some{+task}: change_checked(M.control(M.task_status(task), control), task, world)
+    case Some{+task}: change_checked(M.control(M.task_status(task), control), control, task, world)
 
 def change(id: Nat, control: M.Control, +world: M.World) -> M.Decision:
   change_found(T.find(tasks(world), id), control, world)
@@ -216,12 +222,41 @@ def manual_fork_found(found: Maybe<&2, M.Task>, count: Nat, messages: +List<Stri
 def manual_fork(id: Nat, count: Nat, messages: +List<String>, +world: M.World) -> M.Decision:
   manual_fork_found(T.find(tasks(world), id), count, messages, world)
 
+def summary_request(+task: M.Task, resume: Bool, world: M.World) -> M.Decision:
+  M.World{tasks, next_task, +next_ticket, environment, limits} = world
+  next = M.with_phase(M.SummaryPending{next_ticket, resume}, task)
+  M.Decision{M.World{T.replace(tasks, next), next_task, 1n+next_ticket, environment, limits}, M.success(id_result(M.task_id(task))),
+    [M.RequestSummary{M.task_id(task), next_ticket, T.task_model(M.task_contract(task)), M.context_history(M.task_history(task))}]}
+
+def checkpoint_checked(valid: Bool, summary: String, +task: M.Task, world: M.World) -> M.Decision:
+  match valid:
+    case False{}: reject(world, "invalid_summary", "A checkpoint requires a nonempty bounded summary and settled tool calls")
+    case True{}: respond(store(M.append_message(M.ContextCheckpoint{summary}, task), world), id_result(M.task_id(task)))
+
+def compact_ready(status: M.Status, phase: M.Phase, summary: Maybe<&2, String>, +task: M.Task, world: M.World) -> M.Decision:
+  match status phase summary:
+    case M.Archived{} _ _: reject(world, "task_archived", "An archived task cannot be changed")
+    case M.Active{} M.Idle{} None{}: summary_request(task, False{}, world)
+    case _ M.Idle{} Some{+summary}:
+      +context = M.context_history(M.task_history(task))
+      checkpoint_checked(M.valid_summary(summary) && I.settled_calls(context, context), summary, task, world)
+    case _ _ _: reject(world, "task_busy", "Model compaction requires an active idle task; a supplied summary requires a nonarchived idle task")
+
+def compact_found(found: Maybe<&2, M.Task>, summary: Maybe<&2, String>, world: M.World) -> M.Decision:
+  match found:
+    case None{}: reject(world, "task_not_found", "The target task does not exist")
+    case Some{+task}: compact_ready(M.task_status(task), M.task_phase(task), summary, task, world)
+
+def compact(id: Nat, summary: Maybe<&2, String>, +world: M.World) -> M.Decision:
+  compact_found(T.find(tasks(world), id), summary, world)
+
 def apply_command(command: M.Command, world: M.World) -> M.Decision:
   match command:
     case M.Create{profile, reasoning, message}: create(profile, reasoning, message, world)
     case M.Send{task_id, message}: send(task_id, message, world)
     case M.ChangeStatus{task_id, control}: change(task_id, control, world)
     case M.Fork{task_id, count, messages}: manual_fork(task_id, count, messages, world)
+    case M.Compact{task_id, summary}: compact(task_id, summary, world)
     case M.Observe{request}: observe(request, world)
 
 def accepted(yes: Bool) -> J.Json:
@@ -232,11 +267,18 @@ def model_matched(same: Bool, outcome: M.Outcome, allowed: +List<String>, task: 
     case False{}: respond(world, accepted(False{}))
     case True{}: respond(store(T.model_outcome(outcome, allowed, task), world), accepted(True{}))
 
+def summary_matched(same: Bool, outcome: M.Outcome, resume: Bool, task: M.Task, world: M.World) -> M.Decision:
+  match same:
+    case False{}: respond(world, accepted(False{}))
+    case True{}: respond(store(T.summary_outcome(outcome, resume, task), world), accepted(True{}))
+
 def model_phase(status: M.Status, phase: M.Phase, ticket: Nat, outcome: M.Outcome, task: M.Task, world: M.World) -> M.Decision:
   match status phase:
     case M.Archived{} _: respond(world, accepted(False{}))
     case _ M.ModelPending{expected, allowed}:
       model_matched(Nat.is_eq(ticket, expected), outcome, allowed, task, world)
+    case _ M.SummaryPending{expected, resume}:
+      summary_matched(Nat.is_eq(ticket, expected), outcome, resume, task, world)
     case _ _: respond(world, accepted(False{}))
 
 def model_found(found: Maybe<&2, M.Task>, ticket: Nat, outcome: M.Outcome, world: M.World) -> M.Decision:
@@ -296,14 +338,32 @@ def decision_effects(decision: M.Decision) -> +List<M.Effect>:
   M.Decision{world, reply, effects} = decision
   effects
 
-def model_request(+task: M.Task, world: M.World) -> M.Decision:
+def model_request_direct(+task: M.Task, world: M.World) -> M.Decision:
   M.World{tasks, next_task, +next_ticket, +environment, limits} = world
   +contract = M.task_contract(task)
   +tools = T.task_tools(contract)
   +allowed = T.callable(tools, catalog(environment))
   next = M.with_phase(M.ModelPending{next_ticket, allowed}, task)
   M.Decision{M.World{T.replace(tasks, next), next_task, 1n+next_ticket, environment, limits}, J.Null{},
-    [M.RequestModel{M.task_id(task), next_ticket, T.task_model(contract), M.task_history(task), tools, allowed}]}
+    [M.RequestModel{M.task_id(task), next_ticket, T.task_model(contract), M.context_history(M.task_history(task)), tools, allowed}]}
+
+def needs_summary(rendered: Result<&2, &2, String, String>) -> Bool:
+  match rendered:
+    case Fail{error}: True{}
+    case Done{text}: Nat.is_le(M.context_threshold_bytes(), J.utf8_length(text))
+
+def model_request_sized(large: Bool, task: M.Task, world: M.World) -> M.Decision:
+  match large:
+    case True{}: summary_request(task, True{}, world)
+    case False{}: model_request_direct(task, world)
+
+def rendering_budget(world: M.World) -> Nat:
+  M.World{tasks, next_task, next_ticket, environment, M.ExecutionLimits{steps, render, bytes}} = world
+  render
+
+def model_request(+task: M.Task, +world: M.World) -> M.Decision:
+  model_request_sized(needs_summary(J.render(rendering_budget(world), J.One{J.Array{
+    T.messages_json(M.history_messages(M.context_history(M.task_history(task)), Nil{}))}})), task, world)
 
 def external_tool(tool: M.Tool, +call: M.Call, +remaining: +List<M.Attempt>, +task: M.Task, world: M.World) -> M.Decision:
   M.World{tasks, next_task, +next_ticket, environment, limits} = world
@@ -354,17 +414,22 @@ def builtin(tool: M.Builtin, +arguments: J.Json, +call: M.Call, remaining: +List
     case M.ArchiveTask{}:
       finish_internal(M.task_id(task), call, remaining,
         change(argument_nat(arguments, "task_id", 0n), M.Archive{}, world))
-    case M.Bash{}:
-      tool_error("internal_error", "Bash must cross the external-effect boundary", call, remaining, task, world)
+    case _:
+      tool_error("internal_error", "External tools must cross the external-effect boundary", call, remaining, task, world)
 
-def dispatch_source(source: M.Source, tool: M.Tool, +call: M.Call, remaining: +List<M.Attempt>, task: M.Task, world: M.World) -> M.Decision:
-  match source:
-    case M.Harness{M.Bash{}}:
+def dispatch_execution(execution: M.Execution, source: M.Source, tool: M.Tool, +call: M.Call, remaining: +List<M.Attempt>, task: M.Task, world: M.World) -> M.Decision:
+  match execution source:
+    case M.ExternalObservation{} _:
       external_tool(tool, call, remaining, task, world)
-    case M.Mcp{server, remote}:
+    case M.ExternalMutation{} _:
       external_tool(tool, call, remaining, task, world)
-    case M.Harness{builtin_tool}:
+    case M.InternalOperation{} M.Harness{builtin_tool}:
       builtin(builtin_tool, T.call_arguments(call), call, remaining, task, world)
+    case _ _:
+      tool_error("internal_error", "Invalid internal tool classification", call, remaining, task, world)
+
+def dispatch_source(+source: M.Source, tool: M.Tool, call: M.Call, remaining: +List<M.Attempt>, task: M.Task, world: M.World) -> M.Decision:
+  dispatch_execution(M.execution(source), source, tool, call, remaining, task, world)
 
 def tool_schema(tool: M.Tool) -> J.Json:
   M.Tool{name, description, schema, source} = tool
@@ -443,10 +508,6 @@ def schedule(fuel: Nat, candidate: Maybe<&2, M.Task>, +decision: M.Decision) -> 
 def scheduling_budget(world: M.World) -> Nat:
   M.World{tasks, next_task, next_ticket, environment, M.ExecutionLimits{steps, render, bytes}} = world
   steps
-
-def rendering_budget(world: M.World) -> Nat:
-  M.World{tasks, next_task, next_ticket, environment, M.ExecutionLimits{steps, render, bytes}} = world
-  render
 
 def frame_limit(world: M.World) -> U32:
   M.World{tasks, next_task, next_ticket, environment, M.ExecutionLimits{steps, render, bytes}} = world

@@ -76,11 +76,11 @@ This file is for coding agents working in this repository.
 |.github/workflows:{ci.yml}
 |bendlib:{README.md,equality.bend,json.bend,presentation.bend,schema.bend,tasks.bend,theory.bend,wire.bend}
 |docs:{adr/,bend2-exploration.md}
-|docs/adr:{0001-task-owned-tool-contracts.md,0002-open-tool-call-recovery.md,0003-persisted-task-lifecycle.md,0004-semantic-ownership-at-runtime-boundaries.md,0005-single-source-configuration-and-transport.md,0006-executable-bend-task-model.md,0007-admit-certified-bend-transitions.md}
-|host:{README.md,auth.mjs,cli.mjs,codec.mjs,config.mjs,files.mjs,journal.mjs,kernel.mjs,mcp.mjs,network.mjs,process.mjs,providers.mjs,public/,server.mjs,service.mjs,transport.c}
+|docs/adr:{0001-task-owned-tool-contracts.md,0002-open-tool-call-recovery.md,0003-persisted-task-lifecycle.md,0004-semantic-ownership-at-runtime-boundaries.md,0005-single-source-configuration-and-transport.md,0006-executable-bend-task-model.md,0007-admit-certified-bend-transitions.md,0008-core-coding-effects-and-context-checkpoints.md}
+|host:{README.md,auth.mjs,cli.mjs,codec.mjs,config.mjs,file-tools.mjs,files.mjs,journal.mjs,kernel.mjs,mcp.mjs,network.mjs,process.mjs,providers.mjs,public/,server.mjs,service.mjs,transport.c}
 |host/public:{app.mjs,index.html,style.css}
 |scripts:{agents-index.mjs,benchmark.mjs,bootstrap.sh,build.mjs,check.mjs,install-bend.sh,setup-worktree.sh,toolchain.mjs}
-|tests-bend:{auth.test.mjs,fixtures/,journal.test.mjs,kernel.test.mjs,process.test.mjs,proof-gate.test.mjs,service-recovery.test.mjs,service.test.mjs,support.mjs}
+|tests-bend:{auth.test.mjs,coding.test.mjs,file-tools.test.mjs,fixtures/,journal.test.mjs,kernel.test.mjs,process.test.mjs,proof-gate.test.mjs,providers.test.mjs,service-recovery.test.mjs,service.test.mjs,support.mjs}
 |tests-bend/fixtures:{catalog.mjs,committed-tool.mjs,mcp.mjs}
 ```
 <!-- END AGENTS_MD_PROJECT_INDEX -->

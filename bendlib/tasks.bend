@@ -128,6 +128,8 @@ def message_json(message: M.Message) -> J.Json:
       J.Object{[J.Field{"role", J.Text{"error"}}, J.Field{"content", J.Text{text}}]}
     case M.ModelContext{value}:
       J.Object{[J.Field{"role", J.Text{"model_context"}}, J.Field{"content", value}]}
+    case M.ContextCheckpoint{summary}:
+      J.Object{[J.Field{"role", J.Text{"context_summary"}}, J.Field{"content", J.Text{summary}}]}
 
 def messages_json(messages: +List<M.Message>) -> +List<J.Json>:
   match messages:
@@ -144,6 +146,7 @@ def phase_name(phase: M.Phase) -> String:
     case M.Idle{}: "idle"
     case M.Ready{calls}: "ready"
     case M.ModelPending{ticket, callable}: "model_pending"
+    case M.SummaryPending{ticket, resume}: "summary_pending"
     case M.ToolPending{ticket, call, remaining}: "tool_pending"
 
 def summary(task: M.Task) -> J.Json:
@@ -196,9 +199,9 @@ def receive_when(status: M.Status, phase: M.Phase, text: String, task: M.Task) -
     case M.Archived{} _: task
     case M.Frozen{} _: M.queue_message(text, task)
     case M.Active{} M.Idle{}:
-      M.with_phase(M.Ready{Nil{}}, M.append_message(M.UserMessage{text}, task))
+      drain(M.queue_message(text, task))
     case M.Stopped{} M.Idle{}:
-      M.with_phase(M.Ready{Nil{}}, M.append_message(M.UserMessage{text}, M.with_status(M.Active{}, task)))
+      drain(M.queue_message(text, M.with_status(M.Active{}, task)))
     case M.Stopped{} _:
       M.queue_message(text, M.with_status(M.Active{}, task))
     case _ _: M.queue_message(text, task)
@@ -263,9 +266,78 @@ def model_outcome(outcome: M.Outcome, allowed: +List<String>, +task: M.Task) -> 
 def complete_tool(call: M.Call, remaining: +List<M.Attempt>, value: J.Json, error: Bool, task: M.Task) -> M.Task:
   promote(M.with_phase(M.Ready{remaining}, M.append_message(M.FunctionOutput{call_id(call), value, error}, task)))
 
+def summary_parts(parts: +List<J.Json>) -> String:
+  match parts:
+    case Nil{}: ""
+    case Con{part, rest}: J.text(J.get(part, "text")) ++ summary_parts(rest)
+
+def summary_context(value: J.Json) -> String:
+  summary_parts(J.items(J.get(value, "content")))
+
+def summary_text(items: +List<M.ModelItem>) -> String:
+  match items:
+    case Nil{}: ""
+    case Con{M.Say{text}, rest}: text ++ summary_text(rest)
+    case Con{M.Context{value}, rest}: summary_context(value) ++ summary_text(rest)
+    case Con{M.Invoke{call}, rest}: summary_text(rest)
+
+def has_invocation(items: +List<M.ModelItem>) -> Bool:
+  match items:
+    case Nil{}: False{}
+    case Con{M.Invoke{call}, rest}: True{}
+    case Con{other, rest}: has_invocation(rest)
+
+def after_summary(resume: Bool) -> M.Phase:
+  match resume:
+    case True{}: M.Ready{Nil{}}
+    case False{}: M.Idle{}
+
+def summary_checked(valid: Bool, summary: String, resume: Bool, task: M.Task) -> M.Task:
+  match valid:
+    case True{}:
+      promote(M.with_phase(after_summary(resume), M.append_message(M.ContextCheckpoint{summary}, task)))
+    case False{}:
+      M.with_phase(M.Idle{}, M.append_message(M.FailureMessage{"Compaction failed: expected a nonempty bounded summary without tool calls; original history retained"}, task))
+
+def summary_outcome(outcome: M.Outcome, resume: Bool, task: M.Task) -> M.Task:
+  match outcome:
+    case M.ModelFailure{message}: M.with_phase(M.Idle{}, M.append_message(M.FailureMessage{message}, task))
+    case M.ModelReply{+items}:
+      +summary = summary_text(items)
+      summary_checked(Bool.not(has_invocation(items)) && M.valid_summary(summary), summary, resume, task)
+
+def interrupted_outcome(attempt: M.Attempt) -> J.Json:
+  match attempt:
+    case M.InitialAttempt{call}: M.failure("cancelled_before_execution", "This tool was cancelled before dispatch")
+    case M.RecoveryAttempt{call}: M.failure("outcome_unknown", "This tool may already have run; cancellation does not undo it")
+
+def interrupt_attempts(attempts: +List<M.Attempt>, history: M.History) -> M.History:
+  match attempts:
+    case Nil{}: history
+    case Con{+attempt, remaining}:
+      interrupt_attempts(remaining, M.HistoryNode{history,
+        M.FunctionOutput{call_id(M.attempt_call(attempt)), interrupted_outcome(attempt), True{}}})
+
+def interrupted_history(phase: M.Phase, history: M.History) -> M.History:
+  match phase:
+    case M.Idle{}: history
+    case M.ModelPending{ticket, callable}:
+      M.HistoryNode{history, M.FailureMessage{"Model request interrupted by the user"}}
+    case M.SummaryPending{ticket, resume}:
+      M.HistoryNode{history, M.FailureMessage{"Context summary interrupted; original history retained"}}
+    case M.Ready{attempts}: interrupt_attempts(attempts, history)
+    case M.ToolPending{ticket, +call, remaining}:
+      interrupt_attempts(remaining, M.HistoryNode{history, M.FunctionOutput{call_id(call),
+        interrupted_outcome(M.RecoveryAttempt{call}), True{}}})
+
+def interrupt(task: M.Task) -> M.Task:
+  M.Task{id, lineage, contract, status, history, queued, phase} = task
+  M.Task{id, lineage, contract, M.Stopped{}, interrupted_history(phase, history), queued, M.Idle{}}
+
 def recover_phase(phase: M.Phase) -> M.Phase:
   match phase:
     case M.ModelPending{ticket, callable}: M.Ready{Nil{}}
+    case M.SummaryPending{ticket, resume}: after_summary(resume)
     case M.ToolPending{ticket, call, remaining}: M.Ready{M.RecoveryAttempt{call} <> remaining}
     case other: other
 

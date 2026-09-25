@@ -7,7 +7,12 @@ an implementation detail into this directory.
 stuttering, and transition-invariant induction results. PROOF instantiates them
 with the production state transition.
 
-`tasks.bend` implements task collection, history, queue, and recovery operations.
+`tasks.bend` implements task collection, history, queue, and recovery operations,
+including closing interrupted tool attempts and validating summary completions.
+`MODEL.context_history` is the authoritative checkpoint projection. Full history
+remains append-only; the presentation layer renders whichever history the
+authorized effect carries. `INVARIANTS.settled_calls` guards context cuts against
+unsettled function calls.
 `equality.bend` supplies bounded structural comparisons used by INVARIANTS.
 A comparison budget exhaustion returns false; it never certifies unchecked values.
 These comparisons establish value relations, not physical pointer sharing.

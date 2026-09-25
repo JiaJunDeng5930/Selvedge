@@ -275,3 +275,148 @@ controlled endpoints and real local processes. The Bend checker/compiler, C ABI,
 Node, SQLite, operating system, and remote services remain trusted boundaries.
 Those limits, the positive functional evidence, and the measured costs are part of
 the outcome of this experiment, rather than hidden assumptions of the safety proof.
+
+## 2026-09-24: extend the migrated runtime into a coding harness
+
+This development round began from the migrated runtime with 26 passing tests.
+Reference identities and the selected source files are pinned in ADR 0008:
+`earendil-works/pi` at `19a0361be89bf78ccf9bbaed9a496d6484759f67`, and
+`shpz/UnrealHarness` at `af72d7e53a096bc97bbc3a6fd50e8e4bda183a8c`.
+The latter is a UE build/skills/benchmark suite, not an alternative implementation
+of a general agent scheduler. The useful comparison was bounded file/tool
+interaction, context management, and independently observable build/test results,
+not plugins or a claimed benchmark uplift from copying an entire harness.
+
+### A new primitive must join the existing interpretation, not start another model
+
+Adding file operations exposed a distinction that the previous Bash/MCP-only
+boundary did not need: an external observation can be repeated without repeating
+a mutation. `MODEL.Execution` now supplies the classification used by both
+production dispatch and recovery permission. The new read/write/edit recovery
+laws reduce that same classification; there is no separately maintained recovery
+table in Node.
+
+Repeatable is not the same as deterministic. Repeating a file read after a crash
+can return a newer revision. The guarantee is permission to observe again, not
+equality to the lost result. The file primitive returns revision evidence so the
+next mutation can detect that distinction. By contrast, an interrupted mutation
+is still an unknown outcome and cannot be reissued merely because its result was
+not recorded. This is a concrete example of why the relevant mathematical
+structure must describe the intended observation/effect relation rather than
+simply labeling all retries “idempotent.”
+
+### Closing a task phase is not undoing a physical effect
+
+The original `stop` intentionally settles accepted tool calls. Treating it as
+“kill current work” would silently change that contract. `interrupt` instead
+closes the current logical phase, appends explicit results for every outstanding
+call, preserves queued input, and emits cancellation. Dispatched calls receive
+an unknown-outcome result; undispatched initial attempts receive a cancellation
+result. Late completions then fail the existing ticket/phase correlation check.
+
+The interruption lemmas establish phase settlement, preservation of the frozen
+contract and queue, and idempotence on the actual `tasks.interrupt` operation.
+The global finite-trace result continues to be an instance of the existing
+generic transition invariant theorem. No second replay or cancellation theory
+was introduced for this feature. Physical process termination still needs host
+evidence: the integration test waits for a real Bash process, interrupts its
+task, observes that the process is gone, and resumes the unarchived task.
+
+The new stopped-idle-with-queued-input case also exposed a FIFO issue that was
+previously unreachable in the ordinary workflow. Appending a new input directly
+would place it ahead of retained queued messages. The implementation now uses
+the same `queue_message` followed by `drain` operation for idle reception, rather
+than adding another special queue rule. This is an instance where a new modeled
+state reveals a missing correspondence to the already chosen list/FIFO model.
+
+### Context compaction is an idempotent view, not a theorem about summarization
+
+`History` remains the append-only record used by replay, audit, task branching,
+and `read_task`. `context_history` selects the latest checkpoint plus its suffix
+for a model request. Its idempotence and checkpoint-cut equations are checked
+against that executable projection. A repeated summary replaces the context
+view again without erasing any previous summary or original message from history.
+
+This separates two different proof obligations. Structural safety can be checked:
+the summary request has no tool manifest, the cut has only settled function calls,
+the returned note must be bounded and nonempty, tool-bearing replies are rejected,
+and only a matching live ticket can install a checkpoint. The existing effect
+admission certificate now checks the settled-call precondition as part of
+`INVARIANTS.summary_effect`. The same precondition guards an explicitly supplied
+checkpoint. There is no independent host-side cutoff decision.
+
+Semantic fidelity is different: a model's note need not preserve every relevant
+fact. `ContextCheckpoint` therefore contains data, not a proof of conversational
+equivalence, and the provider receives it without promotion to system authority.
+Original details remain recoverable through the ordinary history tool. Claiming
+lossless semantic compression from the projection theorem would cross an
+unjustified abstraction boundary.
+
+A provider may reject a context before the byte threshold predicts overflow, or
+may be unavailable when a summary is needed. The explicit `compact --summary`
+path supplies a bounded checkpoint without invoking that provider. This keeps
+recovery expressible in the same native command model instead of requiring an
+operator to edit the journal. Automatic thresholds are serialized UTF-8 byte
+budgets, not token counts; journal storage, history traversal, and replay still
+grow with the complete record.
+
+### An effect interpreter has semantic parameters outside the pure world
+
+Before this change, reopening the same source fingerprint under a different
+working directory could replay an identical pure state while interpreting the
+next relative file or Bash path in another project. A trace-equality theorem
+alone cannot exclude that change in meaning.
+
+The journal now binds the canonical workspace as part of its checked identity,
+before kernel reconstruction and recovery. The host uses that same canonical
+directory for its effects. This is a concrete interpretation precondition, not
+another task-state model. It also makes an important limit visible: two task
+branches share a workspace; history branching does not imply filesystem
+isolation. Canonical path identity does not establish a snapshot of the directory
+contents, which may legitimately change between operations.
+
+### Model-level authorization and OS-level refinement require different evidence
+
+The file primitives use expected SHA-256 revisions, unique literal matches,
+per-canonical-path mutation serialization, and same-directory atomic publication.
+Tests cover stale readers, overlapping matches, symlink aliases, concurrent
+creation, cancellation, executable modes, BOM/CRLF preservation, invalid UTF-8,
+binary data, and bounded pages. These observations exercise the bridge from an
+authorized file effect to its Node/OS interpretation.
+
+They do not turn a revision check plus `rename` into a global compare-and-swap:
+an independent editor, Bash process, or another host can race the final check.
+Neither the pure recovery theorem nor atomic replacement proves cross-process
+isolation. Multiply-linked mutation is refused rather than pretending replacement
+preserves all aliases. Keeping these premises explicit is more useful than adding
+a local “safe edit” proposition whose statement omits the physical actors.
+
+Output truncation has a similar boundary. A bounded preview is useful only when
+the model knows what was omitted and how to inspect retained evidence. Bash now
+returns revision-addressed artifacts for truncated streams, counts bytes beyond
+the artifact cap, and avoids splitting valid UTF-8 prefixes. A nonzero exit is a
+tool error. Artifact retention remains bounded per stream and cumulative across
+commands; it is not an unbounded transcript or automatic storage compactor.
+
+### Evidence from this round
+
+On Node v26.5.0, Bend 2.0.27, darwin-arm64, the current source passed the proof
+gate and all 51 automated tests. The negative proof mutations still reject
+missing/false obligations and removal of production admission. The new coding
+integration runs real reads, file creation, an exact edit, and a Node assertion
+through committed native effects; then it compacts, reopens the journal, and
+checks that the successful command was not rerun. Other tests cover automatic
+and supplied checkpoints, settled tool boundaries, stale/cancelled summaries,
+retry exhaustion and cancellation, live process interruption, and workspace
+mismatch rejection.
+
+The loopback provider specifies test decisions; it is not evidence that a live
+model will choose correct edits or produce faithful summaries. No real provider
+credentials or subordinate agents were used. After obtaining permission to launch
+an isolated local Chrome process, the browser smoke check passed creation, echo,
+freeze, queued input, unfreeze, interrupt, the schema-derived supplied-checkpoint
+form, resumption, and archival. It observed twelve command schemas, one task,
+no JavaScript exceptions, and no displayed error; its screenshot was inspected.
+This checks the local interaction, not model intelligence or general usability.
+The earlier performance table records its earlier fingerprint, not measurements
+of this larger tool catalog and context-management implementation.

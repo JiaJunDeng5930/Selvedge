@@ -102,7 +102,7 @@ async function refresh() {
         $('send').textContent = 'Send message';
         $('message').disabled = result.task.status === 'archived';
         $('send').disabled = result.task.status === 'archived';
-        if (result.task.phase !== 'model_pending') { $('stream').hidden = true; $('stream').textContent = ''; }
+        if (!['model_pending', 'summary_pending'].includes(result.task.phase)) { $('stream').hidden = true; $('stream').textContent = ''; }
       }
     } while (refreshAgain);
   } finally { refreshing = false; }
@@ -154,6 +154,8 @@ async function watch(signal) {
               $('stream').dataset.ticket = String(event.ticket);
               $('stream').hidden = false;
               $('stream').textContent += event.text;
+            } else if (event.type === 'retry' && event.task_id === selected) {
+              $('details').textContent = `Retrying model connection · attempt ${event.attempt} · ${event.delay_ms} ms backoff`;
             } else if (['fatal', 'diagnostic'].includes(event.type)) error(event.message);
           }
         }

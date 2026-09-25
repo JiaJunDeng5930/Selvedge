@@ -24,6 +24,11 @@ def text_or(value: J.Json, fallback: String) -> String:
     case J.Text{text}: text
     case _: fallback
 
+def optional_text(value: J.Json) -> Maybe<&2, String>:
+  match value:
+    case J.Text{text}: Some{text}
+    case _: None{}
+
 def construct_command(kind: M.CommandKind, +body: J.Json) -> M.Command:
   match kind:
     case M.CreateCommand{}:
@@ -38,6 +43,7 @@ def construct_command(kind: M.CommandKind, +body: J.Json) -> M.Command:
     case M.ReadCommand{}:
       M.Observe{M.Read{P.argument_nat(body, "task_id", 0n), P.argument_nat(body, "after", 0n), P.argument_nat(body, "limit", 100n)}}
     case M.ListCommand{}: M.Observe{M.ListTasks{}}
+    case M.CompactCommand{}: M.Compact{P.argument_nat(body, "task_id", 0n), optional_text(J.get(body, "summary"))}
     case M.DescribeCommand{}: M.Observe{M.Describe{}}
 
 def command_valid(valid: Bool, kind: M.CommandKind, body: J.Json) -> Result<&2, &2, String, M.Input>:

@@ -1,9 +1,10 @@
 # Selvedge
 
 Selvedge runs persistent agent tasks through an executable Bend 2 model. It has a
-local web interface and CLI, model profiles, task branching and messaging, Bash
-and stdio MCP tools, and a SQLite input journal for restart recovery. The default
-profile is an offline echo demonstration.
+local web interface and CLI, model profiles, task branching and messaging, file
+read/write/edit tools, Bash and stdio MCP tools, context checkpoints, and a SQLite
+input journal for restart recovery. The default profile is an offline echo
+demonstration, not a coding model or summarizer.
 
 ## Read the program
 
@@ -53,6 +54,56 @@ node host/cli.mjs watch
 Use `describe` for the current command fields instead of maintaining a second
 command specification. `node host/cli.mjs help` lists host-level commands.
 
+## Use it on a project
+
+Start the server from the project's directory; that directory is the workspace
+for relative file and Bash paths. For example, after building this checkout:
+
+```bash
+cd /absolute/path/to/project
+node /absolute/path/to/Selvedge/host/cli.mjs --home /absolute/path/to/task-home server
+```
+
+The journal pins the workspace's canonical path. Restart from the same workspace;
+a different directory is rejected before replay or tool dispatch. Tasks within a
+service share that workspace; a task fork is not a separate Git worktree or an OS
+sandbox. Bash and file tools run with the service user's permissions, and absolute
+paths are allowed. Use only trusted local users and tools.
+
+The frozen tool catalog includes `read_file`, `write_file`, and `edit_file`.
+Reads return UTF-8 byte pages, a content revision, and a continuation offset.
+Writes require the revision read earlier, or `absent` to create a new file.
+Edits require a unique literal match at the expected revision; they do not guess
+which occurrence to change. Bash reports nonzero exit status as a tool error.
+Truncated stdout/stderr carry artifact paths, revisions, and explicit retention
+limits so the model can inspect retained output without filling its context.
+The executable catalog and `limits` in `describe` are authoritative.
+
+`stop` lets already accepted tools settle. `interrupt` cancels current work,
+closes outstanding calls with explicit cancellation/unknown-outcome results,
+and retains queued input. A later `send` resumes the task. `archive` remains
+permanent. These controls also appear in the browser from the native model.
+
+Long contexts are summarized automatically at a settled tool boundary. The model
+receives a checkpoint and its subsequent history; `read`/`read_task` still expose
+the complete original record. On an active idle task, `compact` requests a summary
+without starting another assistant turn. A supplied summary requires no provider
+and also works on stopped or frozen idle tasks:
+
+```bash
+node host/cli.mjs compact --task-id 0
+node host/cli.mjs interrupt --task-id 0
+node host/cli.mjs compact --task-id 0 --summary 'Completed work, verified results, unresolved problems, and next steps.'
+node host/cli.mjs send --task-id 0 --message 'Continue from the checkpoint.'
+```
+
+Summaries are fallible continuation data, not verified equivalents of the original
+conversation. Automatic thresholds count serialized UTF-8 bytes, not provider
+tokens; unusually small context windows may require earlier manual compaction.
+Empty, oversized, tool-bearing, stale, or cancelled model summaries are not
+installed. When the provider cannot read the old context at all, use the supplied
+summary path after settling or interrupting current work.
+
 ## Model and tool configuration
 
 The default home is `~/.selvedge-bend`. `node host/cli.mjs init` creates its
@@ -88,12 +139,21 @@ branch results and fresh task identities.
 
 The journal records admitted inputs and decisions before any external effect is
 started. Reopening verifies the hash chain and replays the same executable kernel;
-historical effects are not dispatched. Interrupted external tool outcomes remain
-unknown and are not automatically repeated. Interrupted model requests can be
-requested again by recovery.
+historical effects are not dispatched. Interrupted external mutations remain
+unknown and are not automatically repeated. File observations can be repeated,
+possibly observing a newer revision. Interrupted ordinary model requests and
+automatic summaries can be requested again by recovery. An interrupted manually
+requested summary leaves the original history intact and can be requested again
+explicitly.
 
-There is one current journal format, tied to the complete Bend source fingerprint
-and compiler version. Another kernel or an obsolete Rust database is rejected.
+Transient model connection/HTTP failures use bounded, abortable backoff from the
+native boundary policy. Permanent failures and excessive `Retry-After` delays
+are not retried. A partially exposed response stream is never silently replayed;
+retry notices are visible in the event stream and browser.
+
+There is one current journal format, tied to the complete Bend source fingerprint,
+compiler version, and canonical workspace. Another kernel, a different workspace,
+or an obsolete Rust database is rejected.
 Use a separate home when changing the kernel; this branch provides no migration
 or backward-compatible reader. The earlier Rust implementation is retained in
 Git history, not as a second runtime in the checkout.
@@ -103,6 +163,9 @@ world and transition predicates. Starting from a valid world, every finite trace
 preserves its world invariant. This is a safety result: it does not prove that a
 model terminates, that every valid request fits the resource bounds, that the
 scheduler is fair, or that an operating system or remote service obeys the model.
+File mutations are serialized within this host, revision-checked, and published
+with atomic replacement or exclusive creation. They are not a global
+compare-and-swap against independent editors, Bash processes, or other services.
 The Bend checker/compiler, native transport, Node, SQLite, OS, and remote protocols
 remain explicit trust boundaries. Local integration tests exercise those paths;
 live provider acceptance and physical history sharing are not claimed.
@@ -118,7 +181,9 @@ npm run bench
 
 `check` verifies the pinned compiler, every proof obligation, and host/script
 syntax. Tests run the native kernel, real loopback HTTP/SSE services, SQLite,
-Bash, stdio MCP, credential-flow fixtures, and negative proof mutations. The
+Bash, file revision conflicts and concurrent edits, an actual coding/test loop,
+compaction and interruption, stdio MCP, credential-flow fixtures, and negative
+proof mutations. The
 benchmark measures committed transitions and replay on reproducible task trees;
 it imposes no machine-dependent CI threshold. CI is configured to run checks and
 tests on macOS and Linux. `just` provides aliases for these commands.

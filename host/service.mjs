@@ -1,8 +1,10 @@
 import { EventEmitter } from 'node:events';
 import path from 'node:path';
+import { realpath } from 'node:fs/promises';
 import { Journal } from './journal.mjs';
 import { Mcp } from './mcp.mjs';
 import { runBash } from './process.mjs';
+import { runFileTool } from './file-tools.mjs';
 import { requestModel } from './providers.mjs';
 import { profileCatalog } from './config.mjs';
 
@@ -19,9 +21,9 @@ export class Service extends EventEmitter {
 
   static async open({ home, config, cwd = process.cwd(), journalOptions } = {}) {
     const service = new Service();
-    Object.assign(service, { home, config, cwd });
+    Object.assign(service, { home, config, cwd: await realpath(cwd) });
     try {
-      service.journal = await Journal.open(path.join(home, 'journal.sqlite'), journalOptions);
+      service.journal = await Journal.open(path.join(home, 'journal.sqlite'), { ...journalOptions, cwd: service.cwd });
       service.description = service.journal.description;
       service.limits = service.description.limits;
       service.journal.on('commit', decision => {
@@ -85,7 +87,7 @@ export class Service extends EventEmitter {
   #dispatch(effect) {
     if (this.#closing || this.#failure) return;
     if (effect.kind === 'cancel') {
-      for (const active of this.#running.values()) if (active.task === effect.task_id) active.controller.abort(new Error('Task archived'));
+      for (const active of this.#running.values()) if (active.task === effect.task_id) active.controller.abort(new Error('Task work cancelled'));
       return;
     }
     if (effect.kind === 'continue') {
@@ -97,7 +99,7 @@ export class Service extends EventEmitter {
       });
       return;
     }
-    if (!['model', 'tool'].includes(effect.kind)) { this.#fatal(new Error(`Unknown effect ${effect.kind}`)); return; }
+    if (!['model', 'summary', 'tool'].includes(effect.kind)) { this.#fatal(new Error(`Unknown effect ${effect.kind}`)); return; }
     const key = `${effect.task_id}:${effect.ticket}`;
     if (this.#running.has(key)) { this.#fatal(new Error('The kernel repeated an in-flight effect identity')); return; }
     const controller = new AbortController();
@@ -109,15 +111,19 @@ export class Service extends EventEmitter {
   async #perform(effect, signal) {
     let input;
     try {
-      if (effect.kind === 'model') {
+      if (effect.kind === 'model' || effect.kind === 'summary') {
         const items = await requestModel(effect, this.config, this.home, this.limits, {
           signal, onDelta: text => this.notify({ type: 'delta', task_id: effect.task_id, ticket: effect.ticket, text }),
+          onRetry: retry => this.notify({ type: 'retry', task_id: effect.task_id, ticket: effect.ticket, ...retry }),
         });
         input = { kind: 'model', task_id: effect.task_id, ticket: effect.ticket, ok: true, items };
       } else {
         let result;
         if (effect.tool.source === 'harness' && effect.tool.name === 'bash') {
-          result = await runBash(effect.call.arguments, this.limits, { signal, cwd: this.cwd });
+          result = await runBash(effect.call.arguments, this.limits, { signal, cwd: this.cwd,
+            artifactDirectory: path.join(this.home, 'artifacts') });
+        } else if (effect.tool.source === 'harness' && ['read_file', 'write_file', 'edit_file'].includes(effect.tool.name)) {
+          result = await runFileTool(effect.tool.name, effect.call.arguments, this.limits, { signal, cwd: this.cwd });
         } else if (effect.tool.source && typeof effect.tool.source === 'object') {
           const client = this.#servers.get(effect.tool.source.server);
           if (!client) throw new Error('MCP route is unavailable');
@@ -145,7 +151,7 @@ export class Service extends EventEmitter {
 
   #failureInput(effect, message) {
     message = String(message).slice(0, 1024);
-    return effect.kind === 'model'
+    return effect.kind === 'model' || effect.kind === 'summary'
       ? { kind: 'model', task_id: effect.task_id, ticket: effect.ticket, ok: false, message }
       : { kind: 'tool', task_id: effect.task_id, ticket: effect.ticket, error: true,
         value: { error: { code: 'external_execution_failed', message } } };

@@ -12,6 +12,7 @@ def effect(effect: M.Effect) -> J.Json:
   match effect:
     case M.RequestModel{task_id, ticket, model, history, tools, callable}:
       J.Object{[J.Field{"kind", J.Text{"model"}}, J.Field{"task_id", J.nat(task_id)}, J.Field{"ticket", J.nat(ticket)},
+        J.Field{"instructions", J.Text{M.assistant_instructions()}},
         J.Field{"model", model_json(model)}, J.Field{"history", J.Array{T.messages_json(M.history_messages(history, Nil{}))}},
         J.Field{"tools", J.Array{M.tools_json(tools)}}, J.Field{"callable", J.Array{T.strings_json(callable)}}]}
     case M.ExecuteTool{task_id, ticket, tool, call}:
@@ -19,6 +20,11 @@ def effect(effect: M.Effect) -> J.Json:
         J.Field{"tool", M.tool_json(tool)}, J.Field{"call", T.call_json(call)}]}
     case M.CancelTask{task_id}:
       J.Object{[J.Field{"kind", J.Text{"cancel"}}, J.Field{"task_id", J.nat(task_id)}]}
+    case M.RequestSummary{task_id, ticket, model, history}:
+      J.Object{[J.Field{"kind", J.Text{"summary"}}, J.Field{"task_id", J.nat(task_id)}, J.Field{"ticket", J.nat(ticket)},
+        J.Field{"model", model_json(model)}, J.Field{"instructions", J.Text{M.summary_instructions()}},
+        J.Field{"history", J.Array{T.messages_json(M.history_messages(history, Nil{}))}},
+        J.Field{"tools", J.Array{Nil{}}}, J.Field{"callable", J.Array{Nil{}}}]}
     case M.ContinueScheduling{}:
       J.Object{[J.Field{"kind", J.Text{"continue"}}]}
 

@@ -1,6 +1,7 @@
 import { parseJson, stringifyJson } from './codec.mjs';
 import { events, readText } from './network.mjs';
 import { resolveAuth } from './auth.mjs';
+import { setTimeout as delay } from 'node:timers/promises';
 
 const text = value => typeof value === 'string' && value.trim().length > 0;
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -14,6 +15,7 @@ export function providerInput(history) {
       case 'function_output': return { type: 'function_call_output', call_id: message.call_id,
         output: stringifyJson({ value: message.content, is_error: message.is_error }) };
       case 'model_context': return message.content;
+      case 'context_summary': return { role: 'user', content: `Task continuation summary (fallible; original history remains in read_task):\n${message.content}` };
       // Runtime failures explain an interruption without inventing an answer
       // from the model, or elevating it to a system/developer instruction.
       case 'error': return { role: 'user', content: `Runtime notice: ${message.content}` };
@@ -51,7 +53,7 @@ export function providerOutput(output) {
 export function responseBody(effect) {
   const body = {
     model: effect.model.name, stream: true, store: false,
-    instructions: 'You are an assistant working on a persistent Selvedge task. Use the supplied tools when they help complete the user request.',
+    instructions: effect.instructions,
     input: providerInput(effect.history), reasoning: { effort: effect.model.reasoning },
     tools: effect.tools.map(tool => ({ type: 'function', name: tool.name,
       description: tool.description, parameters: tool.parameters, strict: false })),
@@ -64,11 +66,44 @@ export function responseBody(effect) {
   return body;
 }
 
-export async function requestModel(effect, config, home, limits, { signal, onDelta = () => {} } = {}) {
+function retryAfter(value) {
+  if (value === null) return 0;
+  if (/^\d+(?:\.\d+)?$/.test(value.trim())) return Number(value) * 1000;
+  const date = Date.parse(value);
+  return Number.isFinite(date) ? Math.max(0, date - Date.now()) : 0;
+}
+
+async function requestHeaders(send, policy, signal, onRetry) {
+  for (let attempt = 0; ; attempt++) {
+    signal.throwIfAborted();
+    let response;
+    let retryDelay;
+    try { response = await send(); }
+    catch (error) {
+      signal.throwIfAborted();
+      if (!(error instanceof TypeError) || attempt >= policy.delays_ms.length) throw new Error('Model connection failed', { cause: error });
+    }
+    if (response) {
+      if (!policy.statuses.includes(response.status) || attempt >= policy.delays_ms.length) return response;
+      retryDelay = retryAfter(response.headers.get('retry-after'));
+      if (retryDelay > policy.max_retry_after_ms) {
+        await response.body?.cancel();
+        throw new Error(`Model request failed with HTTP ${response.status}; Retry-After exceeds the retry budget`);
+      }
+      await response.body?.cancel();
+    }
+    const milliseconds = Math.max(policy.delays_ms[attempt], retryDelay ?? 0);
+    onRetry({ attempt: attempt + 1, delay_ms: milliseconds, status: response?.status ?? null });
+    await delay(milliseconds, undefined, { signal });
+  }
+}
+
+export async function requestModel(effect, config, home, limits, { signal, onDelta = () => {}, onRetry = () => {} } = {}) {
   signal?.throwIfAborted();
   const profile = config.profiles[effect.model.profile];
   if (!profile || profile.provider !== effect.model.provider) throw new Error('The frozen model provider is no longer configured');
   if (profile.provider === 'echo') {
+    if (effect.kind === 'summary') throw new Error('The offline echo profile cannot summarize context; configure a model provider');
     const last = effect.history.findLast(item => item.role === 'user');
     return [{ type: 'text', text: `[Offline demo] ${last?.content ?? 'Task resumed.'}` }];
   }
@@ -87,7 +122,7 @@ export async function requestModel(effect, config, home, limits, { signal, onDel
     headers.authorization = `Bearer ${key}`;
   }
   const send = () => fetch(profile.endpoint, { method: 'POST', headers, body, signal: lifetime, redirect: 'error' });
-  let response = await send();
+  let response = await requestHeaders(send, limits.model_retry, lifetime, onRetry);
   if (response.status === 401 && credential) {
     await response.body?.cancel();
     credential = await resolveAuth(profile, home, { signal: lifetime, rejectedToken: credential.access_token });

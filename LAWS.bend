@@ -67,6 +67,22 @@ law stopped_no_model:
 law stopped_input_reactivates:
   {M.after_input(M.Stopped{}) == M.Active{} : M.Status}
 
+law interrupt_preserves_contract:
+  for +task: M.Task
+  {M.task_contract(T.interrupt(task)) == M.task_contract(task) : M.Contract}
+
+law interrupt_preserves_queue:
+  for +task: M.Task
+  {M.task_queue(T.interrupt(task)) == M.task_queue(task) : +List<String>}
+
+law interrupt_settles_phase:
+  for task: M.Task
+  {M.task_phase(T.interrupt(task)) == M.Idle{} : M.Phase}
+
+law interrupt_idempotent:
+  for +task: M.Task
+  {T.interrupt(T.interrupt(task)) == T.interrupt(task) : M.Task}
+
 # The task contract does not change when its lifecycle or work phase changes.
 law status_preserves_contract:
   for status: M.Status
@@ -133,6 +149,20 @@ law unknown_effect_not_repeated:
 law internal_effect_retry_safe:
   for attempt: M.Attempt
   {M.may_execute(M.RetrySafe{}, attempt) == True{} : Bool}
+
+# File observations may be repeated; mutations must never be replayed merely
+# because their result was lost. These classify the production dispatch path.
+law read_file_recovery_safe:
+  for attempt: M.Attempt
+  {M.may_execute(M.recovery(M.Harness{M.ReadFile{}}), attempt) == True{} : Bool}
+
+law write_file_recovery_blocked:
+  for call: M.Call
+  {M.may_execute(M.recovery(M.Harness{M.WriteFile{}}), M.RecoveryAttempt{call}) == False{} : Bool}
+
+law edit_file_recovery_blocked:
+  for call: M.Call
+  {M.may_execute(M.recovery(M.Harness{M.EditFile{}}), M.RecoveryAttempt{call}) == False{} : Bool}
 
 law recover_phase_idempotent:
   for +phase: M.Phase
@@ -215,3 +245,22 @@ law rejected_delivery_no_effects:
 law context_has_no_call_authority:
   for value: J.Json
   {T.item_calls([M.Context{value}]) == Nil{} : +List<M.Call>}
+
+# This is an idempotent context projection, not a semantic-equivalence claim
+# about model-generated text. The append-only history invariant is unchanged.
+law context_projection_idempotent:
+  for +history: M.History
+  {M.context_history(M.context_history(history)) == M.context_history(history) : M.History}
+
+law checkpoint_cuts_context:
+  for history: M.History
+  for +summary: String
+  {M.context_history(M.HistoryNode{history, M.ContextCheckpoint{summary}}) ==
+    M.HistoryNode{M.EmptyHistory{}, M.ContextCheckpoint{summary}} : M.History}
+
+law summary_rejects_invocations:
+  for call: M.Call
+  for rest: +List<M.ModelItem>
+  for resume: Bool
+  for task: M.Task
+  {M.task_phase(T.summary_outcome(M.ModelReply{M.Invoke{call} <> rest}, resume, task)) == M.Idle{} : M.Phase}
