@@ -8,18 +8,33 @@ demonstration, not a coding model or summarizer.
 
 ## Read the program
 
-| Entry | What it establishes |
-| --- | --- |
-| [MODEL.bend](MODEL.bend) | Domain values, lifecycle and recovery policy, frozen contracts, and the command vocabulary used by clients. |
-| [INVARIANTS.bend](INVARIANTS.bend) | Executable predicates for valid worlds, append-only task forests, retained history and contracts, and external-effect authority. |
-| [LAWS.bend](LAWS.bend) | Requirements stated about the actual program, including admission, invariant preservation through arbitrary finite traces, and observation/replay laws. |
-| [PROGRAM.bend](PROGRAM.bend) | The bounded state transition that the native service executes. |
-| [PROOF.bend](PROOF.bend) | Checked proofs discharging those requirements, using reusable theory from `bendlib`. |
+Start with `Harness` in [CONCEPTS.bend](CONCEPTS.bend): a proof-carrying program
+object assembling exact command/interaction refinement, a state machine, journal
+action, recovery homomorphism, read-only observations and context/interruption
+projections. Follow its named structures for the domain correspondences. These
+values bind the actual operations, rather than describing a separate architecture.
 
-These files are the model and its implementation. Command descriptions, validation
-schemas, lifecycle controls, and client command forms derive from their executable
-definitions. [host/README.md](host/README.md) describes the operating-system
-boundary; [bendlib/README.md](bendlib/README.md) locates supporting definitions.
+[COMMANDS.bend](COMMANDS.bend) states what every command means. Its resolver owns
+the preconditions and produces an operation whose meaning fixes the complete
+post-state, reply, and effects. [MODEL.bend](MODEL.bend) defines the domain values,
+policy and client vocabulary. These three files are the conceptual entry.
+
+For implementation/proof details, [PROGRAM.bend](PROGRAM.bend) realizes the
+operations and runs bounded scheduling. [LAWS.bend](LAWS.bend) states the exact
+command, scheduling, commit and dispatch equations, as well as safety and trace
+properties. [PROOF.bend](PROOF.bend) discharges them. [INVARIANTS.bend](INVARIANTS.bend)
+defines the reflected validity/admission predicates. The full command refinement
+includes `bendlib/commit.bend`'s rollback, output-bound, and refusal semantics;
+it is not merely a pre-scheduling postcondition. `bendlib/protocol.bend` completes
+the interaction vocabulary with asynchronous results, configuration, restart,
+scheduler ticks and accepted internal tool calls. The input-wide refinement fixes
+their post-state, reply and effects, including refusal versus tool-error settlement.
+
+The existing standard-library proof terms and their checked translation live in
+[theory/README.md](theory/README.md). Normal builds need neither Rocq nor MetaRocq.
+Command descriptions, validation schemas, lifecycle controls, and client forms
+derive from the executable definitions. [host/README.md](host/README.md) describes
+the operating-system boundary; [bendlib/README.md](bendlib/README.md) locates support.
 [The exploration record](docs/bend2-exploration.md) explains the findings and their
 limits. Architectural reasons live in [docs/adr](docs/adr).
 
@@ -79,6 +94,14 @@ Truncated stdout/stderr carry artifact paths, revisions, and explicit retention
 limits so the model can inspect retained output without filling its context.
 The executable catalog and `limits` in `describe` are authoritative.
 
+At startup the service captures the root `AGENTS.md` as a bounded UTF-8 snapshot
+with a content revision and canonical workspace. A new task freezes that snapshot
+in its contract; forks, checkpoints and restarts retain it. Later file changes
+are visible through file tools, but do not silently rewrite an existing task's
+instructions. Restarting captures new guidance for subsequently created tasks.
+Nested module guidance is read on demand. Repository text remains task context,
+not privileged system authority.
+
 `stop` lets already accepted tools settle. `interrupt` cancels current work,
 closes outstanding calls with explicit cancellation/unknown-outcome results,
 and retains queued input. A later `send` resumes the task. `archive` remains
@@ -99,10 +122,14 @@ node host/cli.mjs send --task-id 0 --message 'Continue from the checkpoint.'
 
 Summaries are fallible continuation data, not verified equivalents of the original
 conversation. Automatic thresholds count serialized UTF-8 bytes, not provider
-tokens; unusually small context windows may require earlier manual compaction.
+tokens. An explicit provider context-limit error before output enters the native
+compact-and-retry path even below that byte threshold. A checkpoint with no new
+work is not compacted again; persistent overflow stops with an actionable error.
 Empty, oversized, tool-bearing, stale, or cancelled model summaries are not
 installed. When the provider cannot read the old context at all, use the supplied
-summary path after settling or interrupting current work.
+summary path after settling or interrupting current work. Failed summaries retain
+the original history and do not strand independently queued user input. Without
+new input they stop rather than starting an unbounded retry loop.
 
 ## Model and tool configuration
 

@@ -1,4 +1,5 @@
 import Base
+import ./stdlib.bend as Std
 import ./json.bend as J
 import ../MODEL.bend as M
 
@@ -145,12 +146,13 @@ def phase_name(phase: M.Phase) -> String:
   match phase:
     case M.Idle{}: "idle"
     case M.Ready{calls}: "ready"
+    case M.CompactionReady{}: "compaction_ready"
     case M.ModelPending{ticket, callable}: "model_pending"
     case M.SummaryPending{ticket, resume}: "summary_pending"
     case M.ToolPending{ticket, call, remaining}: "tool_pending"
 
 def summary(task: M.Task) -> J.Json:
-  M.Task{id, lineage, M.Contract{M.Model{M.Profile{profile, provider, model}, reasoning}, tools, max_fork, max_descendants}, +status, history, queued, phase} = task
+  M.Task{id, lineage, M.Contract{M.Model{M.Profile{profile, provider, model}, reasoning, project}, tools, max_fork, max_descendants}, +status, history, queued, phase} = task
   J.Object{[J.Field{"id", J.nat(id)}, J.Field{"parent", J.optional_nat(List.head(&2, Nat, lineage))},
     J.Field{"profile", J.Text{profile}}, J.Field{"provider", J.Text{provider}}, J.Field{"model", J.Text{model}}, J.Field{"reasoning", J.Text{reasoning}},
     J.Field{"status", J.Text{M.status_name(status)}}, J.Field{"controls", M.controls(status)},
@@ -159,9 +161,7 @@ def summary(task: M.Task) -> J.Json:
     J.Field{"max_fork", J.nat(max_fork)}, J.Field{"max_descendants", J.nat(max_descendants)}]}
 
 def summaries(tasks: +List<M.Task>) -> +List<J.Json>:
-  match tasks:
-    case Nil{}: Nil{}
-    case Con{task, rest}: summary(task) <> summaries(rest)
+  Std.map(~M.Task, ~J.Json, ~summary, tasks)
 
 def page(+task: M.Task, +after: Nat, +limit: Nat) -> J.Json:
   +history = M.task_history(task)
@@ -255,10 +255,19 @@ def model_reply(valid: Bool, items: +List<M.ModelItem>, calls: +List<M.Call>, +t
     case False{}:
       promote(M.with_phase(M.Idle{}, M.append_message(M.FailureMessage{"invalid model reply: duplicate call identity, unavailable tool, or invalid arguments"}, task)))
 
+def context_limit(reducible: Bool, task: M.Task) -> M.Task:
+  match reducible:
+    case True{}:
+      M.with_phase(M.CompactionReady{}, M.append_message(M.FailureMessage{"Model context limit reached; requesting one checkpoint before retry"}, task))
+    case False{}:
+      promote(M.with_phase(M.Idle{}, M.append_message(M.FailureMessage{"Model context limit persists after compaction; reduce the request, project guidance or tool catalog before resuming"}, task)))
+
 def model_outcome(outcome: M.Outcome, allowed: +List<String>, +task: M.Task) -> M.Task:
   match outcome:
     case M.ModelFailure{message}:
       promote(M.with_phase(M.Idle{}, M.append_message(M.FailureMessage{message}, task)))
+    case M.ContextLimit{}:
+      context_limit(M.compactable(M.context_history(M.task_history(task))), task)
     case M.ModelReply{+items}:
       +calls = item_calls(items)
       model_reply(valid_calls(calls, allowed, M.task_history(task)), items, calls, task)
@@ -292,16 +301,24 @@ def after_summary(resume: Bool) -> M.Phase:
     case True{}: M.Ready{Nil{}}
     case False{}: M.Idle{}
 
+# Failure ends this summary attempt, not independently queued user requests.
+# With no new input the task stays idle; frozen input stays queued. This never
+# installs a partial checkpoint or an invocation from the rejected summary.
+def summary_failure(message: String, task: M.Task) -> M.Task:
+  promote(M.with_phase(M.Idle{}, M.append_message(M.FailureMessage{message}, task)))
+
 def summary_checked(valid: Bool, summary: String, resume: Bool, task: M.Task) -> M.Task:
   match valid:
     case True{}:
       promote(M.with_phase(after_summary(resume), M.append_message(M.ContextCheckpoint{summary}, task)))
     case False{}:
-      M.with_phase(M.Idle{}, M.append_message(M.FailureMessage{"Compaction failed: expected a nonempty bounded summary without tool calls; original history retained"}, task))
+      summary_failure("Compaction failed: expected a nonempty bounded summary without tool calls; original history retained", task)
 
 def summary_outcome(outcome: M.Outcome, resume: Bool, task: M.Task) -> M.Task:
   match outcome:
-    case M.ModelFailure{message}: M.with_phase(M.Idle{}, M.append_message(M.FailureMessage{message}, task))
+    case M.ContextLimit{}:
+      summary_failure("The summary request exceeded the model context limit; supply a bounded checkpoint with compact", task)
+    case M.ModelFailure{message}: summary_failure(message, task)
     case M.ModelReply{+items}:
       +summary = summary_text(items)
       summary_checked(Bool.not(has_invocation(items)) && M.valid_summary(summary), summary, resume, task)
@@ -321,6 +338,8 @@ def interrupt_attempts(attempts: +List<M.Attempt>, history: M.History) -> M.Hist
 def interrupted_history(phase: M.Phase, history: M.History) -> M.History:
   match phase:
     case M.Idle{}: history
+    case M.CompactionReady{}:
+      M.HistoryNode{history, M.FailureMessage{"Context recovery cancelled before dispatch; original history retained"}}
     case M.ModelPending{ticket, callable}:
       M.HistoryNode{history, M.FailureMessage{"Model request interrupted by the user"}}
     case M.SummaryPending{ticket, resume}:
@@ -334,10 +353,15 @@ def interrupt(task: M.Task) -> M.Task:
   M.Task{id, lineage, contract, status, history, queued, phase} = task
   M.Task{id, lineage, contract, M.Stopped{}, interrupted_history(phase, history), queued, M.Idle{}}
 
+def recover_summary(resume: Bool) -> M.Phase:
+  match resume:
+    case True{}: M.CompactionReady{}
+    case False{}: M.Idle{}
+
 def recover_phase(phase: M.Phase) -> M.Phase:
   match phase:
     case M.ModelPending{ticket, callable}: M.Ready{Nil{}}
-    case M.SummaryPending{ticket, resume}: after_summary(resume)
+    case M.SummaryPending{ticket, resume}: recover_summary(resume)
     case M.ToolPending{ticket, call, remaining}: M.Ready{M.RecoveryAttempt{call} <> remaining}
     case other: other
 

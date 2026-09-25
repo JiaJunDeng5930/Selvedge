@@ -21,7 +21,9 @@ async function checkDirectory(directory) {
 }
 
 for (const directory of ['host', 'scripts', 'tests-bend']) await checkDirectory(directory);
+run(process.execPath, ['scripts/import-stdlib.mjs', '--check']);
 // Check the obligations even when a compiled kernel is already cached.
 run(compiler(), ['PROOF.bend', '--check-only']);
+run(compiler(), ['MAIN.bend', '--check-only']);
 for (const filename of ['bootstrap.sh', 'setup-worktree.sh', 'install-bend.sh']) run('bash', ['-n', `scripts/${filename}`]);
 console.log('Host syntax and Bend proof obligations check.');

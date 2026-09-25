@@ -10,7 +10,9 @@ This file is for coding agents working in this repository.
 
 ## Executable Requirements
 
-- Read MODEL, INVARIANTS, and LAWS before changing task behavior; PROGRAM executes the modeled transition.
+- Start at CONCEPTS.Harness, COMMANDS, and MODEL. Read INVARIANTS and LAWS before changing behavior; PROGRAM realizes the resolved operations and executes the bounded transition.
+- Public command preconditions belong in COMMANDS.resolve; completion correlation and accepted-call resolution belong in bendlib/protocol. A change must retain complete-decision, invocation and input-wide committed refinement, not merely state safety. Keep rejection distinct from an already accepted tool's error result.
+- Standard algebra comes from the quoted certificates in theory, checked through bendlib/stdlib and packaged by bendlib/structures. Do not hand-reprove a standard theorem already available through that bridge or edit generated certificates.
 - Requirements belong in executable definitions and propositions. Do not maintain duplicate lifecycle tables or state-machine diagrams in documentation.
 - PROOF must discharge the production laws. Never replace a proof with an axiom, a hole, or unchecked recursion, or weaken a requirement solely to pass a check.
 - The host interprets committed effects. Keep task policy in Bend and verify host ordering through integration tests.
@@ -18,7 +20,7 @@ This file is for coding agents working in this repository.
 
 ## Git Hooks
 
-- `pre-commit` runs `node scripts/check.mjs` to check the pinned compiler, Bend proof obligations, and host/script syntax.
+- `pre-commit` runs `node scripts/check.mjs` to check the pinned compiler, reproducible imported certificates, Bend proof obligations, the native entry point and host/script syntax.
 - `pre-commit` runs `node scripts/agents-index.mjs check` to check the tracked-file index.
 - `pre-push` runs `npm test` for native kernel and host integration tests.
 - `just hooks` runs both configured stages. CI runs the same proof, syntax, integration, and index checks on macOS and Linux.
@@ -69,18 +71,19 @@ This file is for coding agents working in this repository.
 [Project Index]|root:.
 |source:git-tracked-files-only
 |excluded:{git-ignored,git-untracked}
-|.:{.codex/,.editorconfig,.github/,.gitignore,.pre-commit-config.yaml,AGENTS.md,CONTRIBUTING.md,INVARIANTS.bend,Justfile,LAWS.bend,MAIN.bend,MODEL.bend,PROGRAM.bend,PROOF.bend,README.md,bend-checksums.txt,bend-version,bendlib/,docs/,host/,package.json,scripts/,tests-bend/}
+|.:{.codex/,.editorconfig,.github/,.gitignore,.pre-commit-config.yaml,AGENTS.md,COMMANDS.bend,CONCEPTS.bend,CONTRIBUTING.md,INVARIANTS.bend,Justfile,LAWS.bend,MAIN.bend,MODEL.bend,PROGRAM.bend,PROOF.bend,README.md,bend-checksums.txt,bend-version,bendlib/,docs/,host/,package.json,scripts/,tests-bend/,theory/}
 |.codex:{environments/}
 |.codex/environments:{environment.toml}
 |.github:{workflows/}
 |.github/workflows:{ci.yml}
-|bendlib:{README.md,equality.bend,json.bend,presentation.bend,schema.bend,tasks.bend,theory.bend,wire.bend}
+|bendlib:{README.md,commit.bend,equality.bend,json.bend,presentation.bend,protocol.bend,schema.bend,stdlib.bend,structures.bend,tasks.bend,theory.bend,wire.bend}
 |docs:{adr/,bend2-exploration.md}
-|docs/adr:{0001-task-owned-tool-contracts.md,0002-open-tool-call-recovery.md,0003-persisted-task-lifecycle.md,0004-semantic-ownership-at-runtime-boundaries.md,0005-single-source-configuration-and-transport.md,0006-executable-bend-task-model.md,0007-admit-certified-bend-transitions.md,0008-core-coding-effects-and-context-checkpoints.md}
+|docs/adr:{0001-task-owned-tool-contracts.md,0002-open-tool-call-recovery.md,0003-persisted-task-lifecycle.md,0004-semantic-ownership-at-runtime-boundaries.md,0005-single-source-configuration-and-transport.md,0006-executable-bend-task-model.md,0007-admit-certified-bend-transitions.md,0008-core-coding-effects-and-context-checkpoints.md,0009-command-meaning-and-imported-theory.md,0010-interaction-refinement-and-context-recovery.md}
 |host:{README.md,auth.mjs,cli.mjs,codec.mjs,config.mjs,file-tools.mjs,files.mjs,journal.mjs,kernel.mjs,mcp.mjs,network.mjs,process.mjs,providers.mjs,public/,server.mjs,service.mjs,transport.c}
 |host/public:{app.mjs,index.html,style.css}
-|scripts:{agents-index.mjs,benchmark.mjs,bootstrap.sh,build.mjs,check.mjs,install-bend.sh,setup-worktree.sh,toolchain.mjs}
-|tests-bend:{auth.test.mjs,coding.test.mjs,file-tools.test.mjs,fixtures/,journal.test.mjs,kernel.test.mjs,process.test.mjs,proof-gate.test.mjs,providers.test.mjs,service-recovery.test.mjs,service.test.mjs,support.mjs}
+|scripts:{ExportStdlib.v,agents-index.mjs,benchmark.mjs,bootstrap.sh,build.mjs,check.mjs,import-stdlib.mjs,install-bend.sh,setup-worktree.sh,toolchain.mjs}
+|tests-bend:{auth.test.mjs,coding.test.mjs,commands.test.mjs,context-recovery.test.mjs,file-tools.test.mjs,fixtures/,journal.test.mjs,kernel.test.mjs,process.test.mjs,project-context.test.mjs,proof-gate.test.mjs,providers.test.mjs,service-recovery.test.mjs,service.test.mjs,stdlib.test.mjs,support.mjs}
 |tests-bend/fixtures:{catalog.mjs,committed-tool.mjs,mcp.mjs}
+|theory:{LICENSE,README.md,stdlib-certificates.json}
 ```
 <!-- END AGENTS_MD_PROJECT_INDEX -->

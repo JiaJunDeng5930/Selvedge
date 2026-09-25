@@ -4,8 +4,8 @@ import { realpath } from 'node:fs/promises';
 import { Journal } from './journal.mjs';
 import { Mcp } from './mcp.mjs';
 import { runBash } from './process.mjs';
-import { runFileTool } from './file-tools.mjs';
-import { requestModel } from './providers.mjs';
+import { runFileTool, snapshotProject } from './file-tools.mjs';
+import { requestModel, ContextLimitError } from './providers.mjs';
 import { profileCatalog } from './config.mjs';
 
 /** Interpret committed effects. No task lifecycle or recovery policy lives here. */
@@ -26,6 +26,7 @@ export class Service extends EventEmitter {
       service.journal = await Journal.open(path.join(home, 'journal.sqlite'), { ...journalOptions, cwd: service.cwd });
       service.description = service.journal.description;
       service.limits = service.description.limits;
+      service.project = await snapshotProject(service.cwd, service.limits);
       service.journal.on('commit', decision => {
         service.notify({ type: 'commit', sequence: decision.sequence });
         for (const effect of decision.effects) service.#dispatch(effect);
@@ -69,7 +70,8 @@ export class Service extends EventEmitter {
 
   async #configure() {
     const decision = await this.journal.execute({ kind: 'configure', profiles: profileCatalog(this.config),
-      tools: [...this.#catalog.values()].flat(), max_fork: this.config.max_fork, max_descendants: this.config.max_descendants });
+      tools: [...this.#catalog.values()].flat(), max_fork: this.config.max_fork, max_descendants: this.config.max_descendants,
+      project: this.project });
     if (!decision.reply.ok) throw new Error(`Catalog rejected: ${decision.reply.error.message}`);
   }
 
@@ -133,6 +135,9 @@ export class Service extends EventEmitter {
       }
     } catch (error) {
       input = this.#failureInput(effect, error.message);
+      if ((effect.kind === 'model' || effect.kind === 'summary') && error instanceof ContextLimitError) {
+        input.failure_kind = 'context_limit';
+      }
     }
     if (this.#closing || this.#failure) return;
     let result;

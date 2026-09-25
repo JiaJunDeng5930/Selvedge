@@ -1,10 +1,11 @@
 import Base
 import ../MODEL.bend as M
-import ../PROGRAM.bend as P
+import ./protocol.bend as Protocol
 import ./json.bend as J
 import ./schema.bend as Schema
 import ./tasks.bend as T
 import ./presentation.bend as View
+import ../INVARIANTS.bend as I
 
 # This module converts untrusted values into domain constructors. The host wraps
 # public commands; only trusted host paths may construct completion/config inputs.
@@ -34,16 +35,16 @@ def construct_command(kind: M.CommandKind, +body: J.Json) -> M.Command:
     case M.CreateCommand{}:
       M.Create{J.text(J.get(body, "profile")), text_or(J.get(body, "reasoning"), "medium"), J.text(J.get(body, "message"))}
     case M.SendCommand{}:
-      M.Send{P.argument_nat(body, "task_id", 0n), J.text(J.get(body, "message"))}
+      M.Send{Protocol.number(body, "task_id", 0n), J.text(J.get(body, "message"))}
     case M.ControlCommand{control}:
-      M.ChangeStatus{P.argument_nat(body, "task_id", 0n), control}
+      M.ChangeStatus{Protocol.number(body, "task_id", 0n), control}
     case M.ForkCommand{}:
-      M.Fork{P.argument_nat(body, "task_id", 0n), P.argument_nat(body, "child_count", 0n),
-        P.decode_messages(J.items(J.get(body, "messages")))}
+      M.Fork{Protocol.number(body, "task_id", 0n), Protocol.number(body, "child_count", 0n),
+        Protocol.messages(J.items(J.get(body, "messages")))}
     case M.ReadCommand{}:
-      M.Observe{M.Read{P.argument_nat(body, "task_id", 0n), P.argument_nat(body, "after", 0n), P.argument_nat(body, "limit", 100n)}}
+      M.Observe{M.Read{Protocol.number(body, "task_id", 0n), Protocol.number(body, "after", 0n), Protocol.number(body, "limit", 100n)}}
     case M.ListCommand{}: M.Observe{M.ListTasks{}}
-    case M.CompactCommand{}: M.Compact{P.argument_nat(body, "task_id", 0n), optional_text(J.get(body, "summary"))}
+    case M.CompactCommand{}: M.Compact{Protocol.number(body, "task_id", 0n), optional_text(J.get(body, "summary"))}
     case M.DescribeCommand{}: M.Observe{M.Describe{}}
 
 def command_valid(valid: Bool, kind: M.CommandKind, body: J.Json) -> Result<&2, &2, String, M.Input>:
@@ -104,21 +105,32 @@ def is_bool(value: J.Json) -> Bool:
     case J.Boolean{boolean}: True{}
     case _: False{}
 
+def model_failure(kind: J.Json, message: String) -> M.Outcome:
+  match kind:
+    case J.Text{"context_limit"}: M.ContextLimit{}
+    case _: M.ModelFailure{message}
+
+def valid_failure_kind(kind: J.Json) -> Bool:
+  match kind:
+    case J.Null{}: True{}
+    case J.Text{"context_limit"}: True{}
+    case _: False{}
+
 def model_outcome(ok: Bool, +body: J.Json) -> M.Outcome:
   match ok:
     case True{}: M.ModelReply{model_items(J.items(J.get(body, "items")))}
-    case False{}: M.ModelFailure{J.text(J.get(body, "message"))}
+    case False{}: model_failure(J.get(body, "failure_kind"), J.text(J.get(body, "message")))
 
 def valid_model_payload(ok: Bool, +body: J.Json) -> Bool:
   match ok:
     case True{}: is_array(J.get(body, "items")) && valid_items(J.items(J.get(body, "items")))
-    case False{}: J.is_text(J.get(body, "message"))
+    case False{}: J.is_text(J.get(body, "message")) && valid_failure_kind(J.get(body, "failure_kind"))
 
 def model_valid(valid: Bool, +body: J.Json) -> Result<&2, &2, String, M.Input>:
   match valid:
     case False{}: Fail{"Malformed model completion"}
     case True{}:
-      Done{M.ModelCompleted{P.argument_nat(body, "task_id", 0n), P.argument_nat(body, "ticket", 0n),
+      Done{M.ModelCompleted{Protocol.number(body, "task_id", 0n), Protocol.number(body, "ticket", 0n),
         model_outcome(J.boolean(J.get(body, "ok")), body)}}
 
 def decode_model(+body: J.Json) -> Result<&2, &2, String, M.Input>:
@@ -129,7 +141,7 @@ def tool_valid(valid: Bool, +body: J.Json) -> Result<&2, &2, String, M.Input>:
   match valid:
     case False{}: Fail{"Malformed tool completion"}
     case True{}:
-      Done{M.ToolCompleted{P.argument_nat(body, "task_id", 0n), P.argument_nat(body, "ticket", 0n),
+      Done{M.ToolCompleted{Protocol.number(body, "task_id", 0n), Protocol.number(body, "ticket", 0n),
         J.get(body, "value"), J.boolean(J.get(body, "error"))}}
 
 def decode_tool(+body: J.Json) -> Result<&2, &2, String, M.Input>:
@@ -166,19 +178,33 @@ def valid_remote_tools(values: +List<J.Json>, +seen: +List<String>) -> Bool:
         M.nonempty(J.text(J.get(value, "server"))) && M.nonempty(J.text(J.get(value, "remote"))) &&
         valid_remote_tools(rest, name <> seen)
 
+def project(+value: J.Json) -> M.ProjectContext:
+  match value:
+    case J.Null{}: M.NoProject{}
+    case other: M.ProjectContext{J.text(J.get(other, "workspace")), J.text(J.get(other, "revision")), J.text(J.get(other, "instructions"))}
+
+def valid_project(+value: J.Json) -> Bool:
+  match value:
+    case J.Null{}: True{}
+    case J.Object{fields}:
+      +body : J.Json = J.Object{fields}
+      J.is_text(J.get(body, "workspace")) && J.is_text(J.get(body, "revision")) && J.is_text(J.get(body, "instructions")) &&
+        I.project_context(project(body))
+    case _: False{}
+
 def config_valid(valid: Bool, +body: J.Json) -> Result<&2, &2, String, M.Input>:
   match valid:
     case False{}: Fail{"Malformed environment: profiles/routes must be unique and limits must be positive integers"}
     case True{}:
-      +max_fork = P.argument_nat(body, "max_fork", 0n)
+      +max_fork = Protocol.number(body, "max_fork", 0n)
       Done{M.Configure{M.Environment{List.append(&2, M.Tool, M.builtins(max_fork), remote_tools(J.items(J.get(body, "tools")))),
-        profile_values(J.items(J.get(body, "profiles"))), max_fork, P.argument_nat(body, "max_descendants", 0n)}}}
+        profile_values(J.items(J.get(body, "profiles"))), max_fork, Protocol.number(body, "max_descendants", 0n), project(J.get(body, "project"))}}}
 
 def decode_config(+body: J.Json) -> Result<&2, &2, String, M.Input>:
-  config_valid(is_array(J.get(body, "profiles")) && valid_profiles(J.items(J.get(body, "profiles")), Nil{}) &&
+  config_valid(valid_project(J.get(body, "project")) && is_array(J.get(body, "profiles")) && valid_profiles(J.items(J.get(body, "profiles")), Nil{}) &&
     is_array(J.get(body, "tools")) && valid_remote_tools(J.items(J.get(body, "tools")), Nil{}) &&
-    is_natural(J.get(body, "max_fork")) && Nat.is_le(1n, P.argument_nat(body, "max_fork", 0n)) &&
-    is_natural(J.get(body, "max_descendants")) && Nat.is_le(1n, P.argument_nat(body, "max_descendants", 0n)), body)
+    is_natural(J.get(body, "max_fork")) && Nat.is_le(1n, Protocol.number(body, "max_fork", 0n)) &&
+    is_natural(J.get(body, "max_descendants")) && Nat.is_le(1n, Protocol.number(body, "max_descendants", 0n)), body)
 
 def decode_kind(kind: String, +body: J.Json) -> Result<&2, &2, String, M.Input>:
   match kind:

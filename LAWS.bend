@@ -4,6 +4,290 @@ import ./PROGRAM.bend as P
 import ./bendlib/tasks.bend as T
 import ./bendlib/json.bend as J
 import ./INVARIANTS.bend as I
+import ./COMMANDS.bend as Commands
+import ./bendlib/commit.bend as Commit
+import ./bendlib/protocol.bend as Protocol
+import ./bendlib/structures.bend as S
+
+# Unlike safety, these equalities prohibit both an always-rejecting command
+# interpreter and a safe no-op. State, reply, and effects are all observable.
+law operation_semantics:
+  for +operation: Commands.Operation
+  for +world: M.World
+  {P.realize(operation, world) == Commands.meaning(operation, world) : M.Decision}
+
+law command_semantics:
+  for +command: M.Command
+  for +world: M.World
+  {P.apply_command(command, world) == Commands.command(command, world) : M.Decision}
+
+law event_semantics:
+  for +event: Protocol.Event
+  for +world: M.World
+  {P.realize_event(event, world) == Protocol.meaning(event, world) : M.Decision}
+
+law input_semantics:
+  for +input: M.Input
+  for +world: M.World
+  {P.apply(input, world) == Protocol.input(input, world) : M.Decision}
+
+law invocation_semantics:
+  for +operation: Protocol.Invocation
+  for +call: M.Call
+  for +remaining: +List<M.Attempt>
+  for +task: M.Task
+  for +world: M.World
+  {P.realize_invocation(operation, call, remaining, task, world) == Protocol.invoked(operation, call, remaining, task, world) : M.Decision}
+
+law builtin_semantics:
+  for +tool: M.Builtin
+  for +arguments: J.Json
+  for +call: M.Call
+  for +remaining: +List<M.Attempt>
+  for +task: M.Task
+  for +world: M.World
+  {P.builtin(tool, arguments, call, remaining, task, world) ==
+    Protocol.invoked(Protocol.invocation(tool, arguments, task, world), call, remaining, task, world) : M.Decision}
+
+law commit_semantics:
+  for +decision: M.Decision
+  for +previous: M.World
+  {P.checked(decision, previous) == Commit.checked(decision, previous) : M.Decision}
+
+law output_semantics:
+  for +durable: Bool
+  for +decision: M.Decision
+  for +previous: M.World
+  {P.deliver(durable, decision, previous) == Commit.deliver(durable, decision, previous) : M.Decision}
+
+law command_transition:
+  for +command: M.Command
+  for +world: M.World
+  {P.transition(M.UserCommand{command}, world) == Commit.command(~P.scheduled, command, world) : M.Decision}
+
+law interaction_transition:
+  for +input: M.Input
+  for +world: M.World
+  {P.transition(input, world) == Commit.input(~P.scheduled, input, world) : M.Decision}
+
+law recovery_partition:
+  for +first: +List<M.Task>
+  for +second: +List<M.Task>
+  {P.recover_tasks(S.append(M.Task, first, second)) == S.append(M.Task, P.recover_tasks(first), P.recover_tasks(second)) : +List<M.Task>}
+
+law task_view_partition:
+  for +first: +List<M.Task>
+  for +second: +List<M.Task>
+  {T.summaries(S.append(M.Task, first, second)) == S.append(J.Json, T.summaries(first), T.summaries(second)) : +List<J.Json>}
+
+law branch_result_partition:
+  for +first: +List<M.Task>
+  for +second: +List<M.Task>
+  {Commands.identities(S.append(M.Task, first, second)) == S.append(J.Json, Commands.identities(first), Commands.identities(second)) : +List<J.Json>}
+
+law recovery_view_composition:
+  for +tasks: +List<M.Task>
+  {T.summaries(P.recover_tasks(tasks)) == S.mapped(~M.Task, ~J.Json, ~(task => T.summary(Protocol.recover(task))), tasks) : +List<J.Json>}
+
+# These equations completely fix the bounded scheduler: zero fuel, quiescence,
+# one successor step, and its dispatch gate. ContinueScheduling is observable.
+law scheduling_disabled:
+  for +decision: M.Decision
+  {P.scheduled(False{}, decision) == decision : M.Decision}
+
+law scheduling_enabled:
+  for +decision: M.Decision
+  {P.scheduled(True{}, decision) == P.schedule(P.scheduling_budget(P.decision_world(decision)),
+    T.runnable(P.tasks(P.decision_world(decision))), decision) : M.Decision}
+
+law scheduling_idle:
+  for fuel: Nat
+  for +decision: M.Decision
+  {P.schedule(fuel, None{}, decision) == decision : M.Decision}
+
+law scheduling_exhausted:
+  for task: M.Task
+  for +world: M.World
+  for +reply: J.Json
+  for +effects: +List<M.Effect>
+  {P.schedule(0n, Some{task}, M.Decision{world, reply, effects}) ==
+    M.Decision{world, reply, List.append(&2, M.Effect, effects, [M.ContinueScheduling{}])} : M.Decision}
+
+def scheduled_step(+task: M.Task, +decision: M.Decision) -> M.Decision:
+  P.combine(decision, P.work(M.work(M.task_status(task), M.task_phase(task)), task, P.decision_world(decision)))
+
+law scheduling_progress:
+  for +fuel: Nat
+  for +task: M.Task
+  for +decision: M.Decision
+  {P.schedule(1n+fuel, Some{task}, decision) ==
+    P.schedule(fuel, T.runnable(P.tasks(P.decision_world(scheduled_step(task, decision)))), scheduled_step(task, decision)) : M.Decision}
+
+law scheduling_combines_outputs:
+  for old: M.World
+  for +reply: J.Json
+  for +effects: +List<M.Effect>
+  for +next: M.World
+  for ignored: J.Json
+  for +added: +List<M.Effect>
+  {P.combine(M.Decision{old, reply, effects}, M.Decision{next, ignored, added}) ==
+    M.Decision{next, reply, List.append(&2, M.Effect, effects, added)} : M.Decision}
+
+# Dispatch and settlement are functional obligations too. A pending phase alone
+# does not mean that its request was emitted, and a safe no-op cannot settle it.
+law model_work:
+  for +task: M.Task
+  for +world: M.World
+  {P.work(M.RequestNextModel{}, task, world) == P.model_request(task, world) : M.Decision}
+
+law tool_work:
+  for +task: M.Task
+  for +world: M.World
+  {P.work(M.RunNextTool{}, task, world) == P.run_tool(M.task_phase(task), task, world) : M.Decision}
+
+law idle_work:
+  for +task: M.Task
+  for +world: M.World
+  {P.work(M.BecomeIdle{}, task, world) ==
+    M.Decision{Commands.replace(M.with_phase(M.Idle{}, task), world), M.success(J.Null{}), Nil{}} : M.Decision}
+
+law no_work:
+  for task: M.Task
+  for +world: M.World
+  {P.work(M.NoWork{}, task, world) == M.Decision{world, M.success(J.Null{}), Nil{}} : M.Decision}
+
+law model_dispatch:
+  for +task: M.Task
+  for +tasks: +List<M.Task>
+  for +next_task: Nat
+  for +ticket: Nat
+  for +catalog: +List<M.Tool>
+  for +profiles: +List<M.Profile>
+  for +max_fork: Nat
+  for +max_descendants: Nat
+  for +project: M.ProjectContext
+  for +limits: M.ExecutionLimits
+  {P.model_request_direct(task, M.World{tasks, next_task, ticket, M.Environment{catalog, profiles, max_fork, max_descendants, project}, limits}) ==
+    M.Decision{M.World{T.replace(tasks, M.with_phase(M.ModelPending{ticket, T.callable(T.task_tools(M.task_contract(task)), catalog)}, task)),
+      next_task, 1n+ticket, M.Environment{catalog, profiles, max_fork, max_descendants, project}, limits}, J.Null{},
+      [M.RequestModel{M.task_id(task), ticket, T.task_model(M.task_contract(task)), M.context_history(M.task_history(task)),
+        T.task_tools(M.task_contract(task)), T.callable(T.task_tools(M.task_contract(task)), catalog)}]} : M.Decision}
+
+law tool_dispatch:
+  for +tool: M.Tool
+  for +call: M.Call
+  for +remaining: +List<M.Attempt>
+  for +task: M.Task
+  for +tasks: +List<M.Task>
+  for +next_task: Nat
+  for +ticket: Nat
+  for +environment: M.Environment
+  for +limits: M.ExecutionLimits
+  {P.external_tool(tool, call, remaining, task, M.World{tasks, next_task, ticket, environment, limits}) ==
+    M.Decision{M.World{T.replace(tasks, M.with_phase(M.ToolPending{ticket, call, remaining}, task)),
+      next_task, 1n+ticket, environment, limits}, J.Null{}, [M.ExecuteTool{M.task_id(task), ticket, tool, call}]} : M.Decision}
+
+law small_context_dispatch:
+  for +task: M.Task
+  for +world: M.World
+  {P.model_request_sized(False{}, task, world) == P.model_request_direct(task, world) : M.Decision}
+
+law large_context_dispatch:
+  for +task: M.Task
+  for +world: M.World
+  {P.model_request_sized(True{}, task, world) == P.summary_request(task, True{}, world) : M.Decision}
+
+law accepted_model_settlement:
+  for +outcome: M.Outcome
+  for +allowed: +List<String>
+  for +task: M.Task
+  for +world: M.World
+  {P.model_matched(True{}, outcome, allowed, task, world) ==
+    M.Decision{Commands.replace(T.model_outcome(outcome, allowed, task), world),
+      M.success(J.Object{[J.Field{"accepted", J.Boolean{True{}}}]}), Nil{}} : M.Decision}
+
+law accepted_tool_settlement:
+  for +call: M.Call
+  for +remaining: +List<M.Attempt>
+  for +value: J.Json
+  for +error: Bool
+  for +task: M.Task
+  for +world: M.World
+  {P.tool_matched(True{}, call, remaining, value, error, task, world) ==
+    M.Decision{Commands.replace(T.complete_tool(call, remaining, value, error, task), world),
+      M.success(J.Object{[J.Field{"accepted", J.Boolean{True{}}}]}), Nil{}} : M.Decision}
+
+law accepted_summary_settlement:
+  for +outcome: M.Outcome
+  for +resume: Bool
+  for +task: M.Task
+  for +world: M.World
+  {P.summary_matched(True{}, outcome, resume, task, world) ==
+    M.Decision{Commands.replace(T.summary_outcome(outcome, resume, task), world),
+      M.success(J.Object{[J.Field{"accepted", J.Boolean{True{}}}]}), Nil{}} : M.Decision}
+
+# Recovery is a committed state-machine path, not an adapter-owned retry loop.
+law context_recovery_work:
+  for +task: M.Task
+  for +world: M.World
+  {P.work(M.RequestContextSummary{}, task, world) == P.summary_request(task, True{}, world) : M.Decision}
+
+law context_recovery_ready:
+  for task: M.Task
+  {M.task_phase(T.context_limit(True{}, task)) == M.CompactionReady{} : M.Phase}
+
+law recover_resumable_summary:
+  for ticket: Nat
+  {T.recover_phase(M.SummaryPending{ticket, True{}}) == M.CompactionReady{} : M.Phase}
+
+law checkpoint_consumes_compaction:
+  for history: M.History
+  for summary: String
+  {M.compactable(M.context_history(M.HistoryNode{history, M.ContextCheckpoint{summary}})) == False{} : Bool}
+
+law checkpoint_is_not_recompacted:
+  for +id: Nat
+  for +lineage: +List<Nat>
+  for +contract: M.Contract
+  for +status: M.Status
+  for +history: M.History
+  for +summary: String
+  for +queued: +List<String>
+  for +phase: M.Phase
+  for +world: M.World
+  {P.model_request(M.Task{id, lineage, contract, status, M.HistoryNode{history, M.ContextCheckpoint{summary}}, queued, phase}, world) ==
+    P.model_request_direct(M.Task{id, lineage, contract, status, M.HistoryNode{history, M.ContextCheckpoint{summary}}, queued, phase}, world) : M.Decision}
+
+law context_limit_after_checkpoint_stops:
+  for allowed: +List<String>
+  for +id: Nat
+  for +lineage: +List<Nat>
+  for +contract: M.Contract
+  for +status: M.Status
+  for +history: M.History
+  for +summary: String
+  for +phase: M.Phase
+  {T.model_outcome(M.ContextLimit{}, allowed,
+    M.Task{id, lineage, contract, status, M.HistoryNode{history, M.ContextCheckpoint{summary}}, Nil{}, phase}) ==
+    M.Task{id, lineage, contract, status, M.HistoryNode{M.HistoryNode{history, M.ContextCheckpoint{summary}},
+      M.FailureMessage{"Model context limit persists after compaction; reduce the request, project guidance or tool catalog before resuming"}}, Nil{}, M.Idle{}} : M.Task}
+
+law summary_context_limit_stops:
+  for resume: Bool
+  for +id: Nat
+  for +lineage: +List<Nat>
+  for +contract: M.Contract
+  for +status: M.Status
+  for +history: M.History
+  for phase: M.Phase
+  {T.summary_outcome(M.ContextLimit{}, resume, M.Task{id, lineage, contract, status, history, Nil{}, phase}) ==
+    M.Task{id, lineage, contract, status, M.HistoryNode{history,
+      M.FailureMessage{"The summary request exceeded the model context limit; supply a bounded checkpoint with compact"}}, Nil{}, M.Idle{}} : M.Task}
+
+law checkpoint_preserves_project_contract:
+  for +task: M.Task
+  for summary: String
+  {M.task_contract(M.append_message(M.ContextCheckpoint{summary}, task)) == M.task_contract(task) : M.Contract}
 
 # These are requirements about the definitions the server actually executes.
 # They are deliberately separate from their proofs, so a changed requirement is
@@ -262,5 +546,30 @@ law summary_rejects_invocations:
   for call: M.Call
   for rest: +List<M.ModelItem>
   for resume: Bool
-  for task: M.Task
-  {M.task_phase(T.summary_outcome(M.ModelReply{M.Invoke{call} <> rest}, resume, task)) == M.Idle{} : M.Phase}
+  for +task: M.Task
+  {T.summary_outcome(M.ModelReply{M.Invoke{call} <> rest}, resume, task) ==
+    T.promote(M.with_phase(M.Idle{}, M.append_message(M.FailureMessage{"Compaction failed: expected a nonempty bounded summary without tool calls; original history retained"}, task))) : M.Task}
+
+law summary_failure_promotes_fifo:
+  for +message: String
+  for +id: Nat
+  for +lineage: +List<Nat>
+  for +contract: M.Contract
+  for +history: M.History
+  for +first: String
+  for +rest: +List<String>
+  for phase: M.Phase
+  {T.summary_failure(message, M.Task{id, lineage, contract, M.Active{}, history, first <> rest, phase}) ==
+    M.Task{id, lineage, contract, M.Active{}, M.history_append(T.user_messages(first <> rest), M.HistoryNode{history, M.FailureMessage{message}}),
+      Nil{}, M.Ready{Nil{}}} : M.Task}
+
+law summary_failure_empty_stops:
+  for +message: String
+  for +id: Nat
+  for +lineage: +List<Nat>
+  for +contract: M.Contract
+  for +status: M.Status
+  for +history: M.History
+  for phase: M.Phase
+  {T.summary_failure(message, M.Task{id, lineage, contract, status, history, Nil{}, phase}) ==
+    M.Task{id, lineage, contract, status, M.HistoryNode{history, M.FailureMessage{message}}, Nil{}, M.Idle{}} : M.Task}

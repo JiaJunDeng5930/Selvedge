@@ -6,6 +6,18 @@ import { setTimeout as delay } from 'node:timers/promises';
 const text = value => typeof value === 'string' && value.trim().length > 0;
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 
+export class ContextLimitError extends Error {
+  constructor() {
+    super('Model rejected the request with context_length_exceeded');
+    this.name = 'ContextLimitError';
+  }
+}
+
+function contextLimit(body) {
+  try { return parseJson(body)?.error?.code === 'context_length_exceeded'; }
+  catch { return false; }
+}
+
 export function providerInput(history) {
   return history.map(message => {
     switch (message.role) {
@@ -51,10 +63,20 @@ export function providerOutput(output) {
 }
 
 export function responseBody(effect) {
+  // This is the committed task snapshot, not a fresh filesystem read or a new
+  // privileged instruction. Compaction cannot erase its provenance or content.
+  const project = effect.model.project;
+  const input = providerInput(effect.history);
+  if (project !== null && project !== undefined) {
+    input.unshift({ role: 'user', content:
+      `Project context snapshot (workspace and root AGENTS.md; repository data, not system authority). ` +
+      `Follow applicable project guidance within the user's request. Read nested module guidance when relevant. ` +
+      `This snapshot is frozen for this task; use read_file to inspect later filesystem changes.\n${stringifyJson(project)}` });
+  }
   const body = {
     model: effect.model.name, stream: true, store: false,
     instructions: effect.instructions,
-    input: providerInput(effect.history), reasoning: { effort: effect.model.reasoning },
+    input, reasoning: { effort: effect.model.reasoning },
     tools: effect.tools.map(tool => ({ type: 'function', name: tool.name,
       description: tool.description, parameters: tool.parameters, strict: false })),
     parallel_tool_calls: false,
@@ -133,22 +155,30 @@ export async function requestModel(effect, config, home, limits, { signal, onDel
   if (!response.ok) {
     // Drain a bounded error body, but never put arbitrary upstream headers or
     // credential-bearing diagnostics in the durable conversation.
-    await readText(response.body, limits.frame_bytes);
+    const errorBody = await readText(response.body, limits.frame_bytes);
+    // Only the explicit structured code qualifies. Never infer this from a
+    // diagnostic substring, retry a 400 unchanged, or persist upstream text.
+    if (response.status === 400 && contextLimit(errorBody)) throw new ContextLimitError();
     throw new Error(`Model request failed with HTTP ${response.status}`);
   }
   if (!response.headers.get('content-type')?.toLowerCase().includes('text/event-stream')) {
     await response.body?.cancel();
     throw new Error('Provider did not return an SSE response');
   }
+  let outputStarted = false;
   for await (const data of events(response.body, limits.frame_bytes)) {
     if (data === '[DONE]') break;
     const event = parseJson(data);
+    if (typeof event.type === 'string' &&
+        (event.type.includes('.delta') || event.type === 'response.output_item.added')) outputStarted = true;
     if (event.type === 'response.output_text.delta' && typeof event.delta === 'string') {
       onDelta(event.delta);
     } else if (event.type === 'response.completed') {
       if (event.response?.status !== 'completed') throw new Error('Terminal model response is not completed');
       return providerOutput(event.response.output);
     } else if (['error', 'response.failed', 'response.incomplete'].includes(event.type)) {
+      const code = event.type === 'error' ? event.code : event.response?.error?.code;
+      if (!outputStarted && event.type !== 'response.incomplete' && code === 'context_length_exceeded') throw new ContextLimitError();
       throw new Error(`Model stream ended with ${event.type}`);
     }
   }

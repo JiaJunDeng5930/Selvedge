@@ -420,3 +420,263 @@ no JavaScript exceptions, and no displayed error; its screenshot was inspected.
 This checks the local interaction, not model intelligence or general usability.
 The earlier performance table records its earlier fingerprint, not measurements
 of this larger tool catalog and context-management implementation.
+## 2026-09-24: functional meaning, not merely safe admission
+
+The previous admission theorem allowed a safe program to refuse every request.
+It also allowed some acknowledged no-ops. Adding another invariant would not
+have addressed this: the absent object was the meaning of a command.
+
+The new boundary is a resolved operation algebra. Preconditions select an
+operation exactly once; a total semantic function fixes its post-world, reply,
+and effects. PROGRAM must refine that entire value, and the committed-command
+theorem includes scheduling, effect retirement, validity, output admission and
+rollback. Scheduling has explicit zero, quiescent and successor equations;
+successful asynchronous dispatch and settlement are positive obligations too.
+
+This exposed a real distinction that the old safety model did not force us to
+state. A rejected public fork had already written a synthetic function call and
+consumed a ticket. Rejection of a new command and failure of an already accepted
+tool are not interchangeable. The former is now inert on the task world; the
+latter still records its output. Similarly, a rejected command no longer drains
+another task's ready queue. A stale completion may still be a scheduler tick,
+without accepting its stale payload; that is a different input class.
+
+At the semantic checkpoint, all 69 tests passed. Eleven additional mutants were
+first checked as valid Bend programs, then rejected by the production proof:
+always-refused creation, acknowledged but undelivered input, a wrong task identity,
+omitted cancellation, omitted model/tool requests, a disabled scheduler, a lost
+continuation, arbitrary admission rejection, oversized publication and missing
+tool settlement. This checks a different property from simply asking whether a
+deliberately false standalone theorem fails. It still does not prove that the
+formal requirement is what a human intended; reviewed semantic clauses and
+independent native scenarios remain necessary.
+
+## 2026-09-24: reuse the original proof, not its theorem name
+
+The local list theory was previously re-proved with recursive Bend definitions.
+Replacing those definitions with calls to renamed local lemmas would not remove
+the duplicated theoretical development. We instead quoted the existing opaque
+proof bodies of `List.app_nil_r`, `List.app_assoc` and `List.fold_left_app`, plus
+the list induction principle, using MetaRocq. The saved bundle records source
+versions and digests; an untrusted translator emits proofs that Bend rechecks.
+The three source algebra theorems are closed under the global context.
+
+The correspondence is small and explicit: source lists, append, fold-left and
+equality map to Bend Base. History extension and actual input replay now use
+Base's fold directly. Their composition proofs are instances of the imported
+fold theorem. The trace-invariant argument instantiates the imported induction
+principle with the actual validity predicate and supplied one-step obligation;
+it does not introduce a new recursive standard-theory proof. Unknown constants,
+unmapped inductives and unsupported syntax fail closed. A test replaces an
+original certificate with a reflexivity term while retaining its statement;
+Bend rejects it. A digest or a source label is not a proof oracle.
+
+An affine-language wrinkle matters here. The first generated proof called the
+imported eliminator through templates and checked while uninstantiated, but some
+real clients captured local list values that cannot be closed template arguments.
+The converter now specializes the *imported* eliminator, threading its environment
+and retaining the original nil/cons proof terms. It does not discover a fresh
+induction proof. Client instantiation, not just checking a generic library file,
+must therefore be part of the proof-import gate.
+
+## 2026-09-24: the concept is a value with obligations
+
+Named structures in CONCEPTS bind carriers and actual operations to proof-carrying
+types: monoids, right actions, exact refinements, read-only machines and idempotent
+projections. Queue, history and replay proofs consume the corresponding values.
+An operation is not classified by a comment saying "monoid"; a value of that type
+cannot be constructed without the relevant laws.
+
+Choosing the right standard structure also revealed a modeling error to avoid.
+Decision combination preserves the first reply, takes the last world and appends
+effects. It is associative, but has no global identity decision. Treating the
+whole thing as a monoid would add a false requirement. It is a semigroup whose
+application-specific correspondence reduces associativity to the imported
+effect-list theorem. Conversely, context cutting, phase recovery and interruption
+are all projections, despite having very different meanings. Their idempotence
+does not establish summary fidelity, replay safety for arbitrary external writes,
+or reversal of an interrupted process.
+
+Complete equations can also make proof checking expensive in ways that ordinary
+code factoring does not predict. Comparing two independently expanded concrete
+query implementations, including the large `describe` value, exceeded a four-
+second probe. Sharing the authoritative pure query meaning and checking its
+realization at an abstract boundary brought the complete strengthened proof back
+under a second locally. The query semantics was not weakened. This is a reason
+to keep meaning, realization, and their correspondence separately identifiable
+even when they inhabit one formal program.
+
+## 2026-09-25: the specification needs the entire interaction alphabet
+
+A command-wide refinement still left two ways to remain safe but fail useful
+work: ignore every asynchronous completion, or execute an internal command
+without recording the result in its caller. Public commands alone are not the
+input alphabet of an agent harness. Correlated completions, configuration,
+recovery and scheduling ticks have their own meaning too.
+
+`protocol.Event` now represents resolved input meaning and `protocol.Invocation`
+represents an already accepted internal call. The former settles only the current
+ticket and phase; the latter reuses the public resolver but completes its caller
+in the *resulting* world. This last choice matters for self-send and self-archive:
+using the pre-command caller would silently overwrite the very change being
+specified. Internal fork also has different obligations from a manual idle-task
+fork: remaining accepted calls must be inherited with their recovery authority.
+
+The input-wide and invocation refinements compare complete decisions. They are
+not extra safety predicates and are not proofs about an unused reference loop.
+Mutants that discard all input, acknowledge ignored results, skip recovery, omit
+caller settlement, or drop the remaining calls of an internal fork are well-typed
+but rejected by the same production proof. Changing the authoritative resolver
+is a requirements change, not something refinement alone can label incorrect.
+Positive native scenarios and review of those semantic clauses remain necessary.
+
+## 2026-09-25: a standard structure must constrain the actual representation
+
+Batch recovery, task views and branch-result identities are now concrete monoid
+homomorphisms. Their split-batch and composed-map laws consume original
+`List.map_app` and `List.map_map` proofs. `List.map_id` is imported as well; none
+of these standard proofs was reconstructed with project-specific induction.
+The project supplies operation binding and genuinely domain-specific behavior.
+
+The apparent obvious mapping to Bend's `List.map` was wrong: that primitive takes
+affine lists, while the state contains duplicable lists. The same mathematical
+name does not establish a representation correspondence. The bridge represents
+source map with Base.foldr at the correct multiplicity. Original proof terms are
+checked against that representation; source equality elimination is lowered to
+Bend's equality rewrite rule. No new equality axiom is introduced.
+
+There is another distinction between stating an algebra law and importing its
+proof. An always-empty mapping preserves concatenation, so the homomorphism
+statement alone does not identify the intended map. Our mutation of the mapping
+to discard every element is rejected by the original map certificate, whose
+proof depends on the actual cons equation; map identity separately states the
+non-degenerate behavior. Source statements, proof terms, representation choices
+and real client instantiations all belong in the import audit.
+
+Finally, a generic mapping factory and a named domain function can be pointwise
+equal without being interchangeable as indices of a proof-carrying record.
+Bend rejected the direct substitution of the factory's function name for
+`protocol.recovery`. The domain structure is therefore constructed at the actual
+function index, with pointwise obligations discharged by imported proofs. This
+is correspondence work, not a reason to re-prove the algebra or assume function
+extensionality. Factoring ordinary code and factoring dependent proof objects
+have different constraints.
+
+## 2026-09-25: the conceptual entry can be an assembled program object
+
+`CONCEPTS.Harness` collects the required correspondences in one type. Constructing
+it requires the actual command and interaction refinements, invariant-preserving
+machine, journal action, read-only observation, batch recovery, associative
+decisions, context projection and interruption. A reader can begin with this
+object and follow a named structure, rather than discovering concepts by walking
+the implementation. Proof construction stays in PROOF; JSON handling and concrete
+lifecycle branches remain outside this entry.
+
+This does not make a human request automatically formal. It makes the accepted
+formal interpretation and its links to code explicit and checkable. Nor should
+every function receive a decorative mathematical label: a useful correspondence
+must remove a real proof obligation through a standard theorem or express a
+constraint that would otherwise be implicit.
+
+## 2026-09-25: terminating failed work is not abandoning new work
+
+A new native regression exposed two branches where failed compaction left queued
+user messages in an active idle task indefinitely: transport failure and invalid
+tool-bearing summaries. Context-limit failure already promoted its queue. Safety
+did not distinguish these cases, and the earlier local requirement that every
+invalid summary ends in Idle actually preserved the defect.
+
+The refined requirement fixes the whole rejected-summary result: retain original
+history, record only a failure, reject all proposed calls/checkpoints, then promote
+independently queued input. Separate exact laws establish FIFO promotion for an
+active nonempty queue and stopping for an empty queue. Frozen input is not
+dispatched. This is a deliberate functional-requirement correction, not weakening
+a proof until the code passes. The regression failed before the change and passes
+after it; reverting promotion is also required to fail the formal proof gate.
+
+The distinction is broader than this particular bug. A phase-only postcondition
+can conflate the lifetime of one attempted operation with the obligations owed
+to other requests. Complete semantics must account for both, especially when a
+background summary and newly submitted instructions share a task.
+
+## 2026-09-25: context recovery must leave evidence in the modeled state
+
+The reference review used pi commit
+`19a0361be89bf78ccf9bbaed9a496d6484759f67`, particularly
+`packages/coding-agent/src/core/agent-session.ts`, and UnrealHarness commit
+`af72d7e53a096bc97bbc3a6fd50e8e4bda183a8c`, particularly the `ue-build` skill and
+its executable build feedback. The useful ideas here are bounded recovery,
+queue handling and a real tool/result verification loop, not importing a UI or
+Unreal-specific integrations. Sources are the `earendil-works/pi` and
+`shpz/UnrealHarness` GitHub repositories; the local clones are research material,
+not shipped dependencies.
+
+Pi's recovery guard is session bookkeeping. Here an explicit pre-output provider
+overflow becomes a typed journal input. The state machine requests a tool-free
+summary, commits a checkpoint, then issues a fresh model ticket. A checkpoint
+with no new work has consumed the compaction opportunity. Persistent overflow
+therefore stops instead of triggering an invisible retry cycle. This survives
+reconstruction without trusting a host-local attempt counter. Failed summaries
+retain the full record; when even the summary request cannot fit, an explicit
+supplied checkpoint is the recovery route, not silent truncation or a claimed
+successful summary. No theorem asserts that a model's summary is faithful.
+
+The HTTP/native/SQLite fixture performs a file mutation, encounters overflow,
+installs a checkpoint and continues. It checks that the overflow and summary
+intent are durable before dispatch and that restart repeats neither the model
+turns nor the completed mutation. Separate fixtures reject diagnostic substring
+matches, incomplete streams and overflow reported after exposed output as
+permission for automatic replay. Only explicit pre-output codes qualify.
+
+Root project instructions exposed a related boundary. Reading AGENTS.md afresh
+inside the provider would allow identical replayed effects to acquire different
+meaning after a file edit. Instead, startup observes a bounded, revisioned
+snapshot and commits it; creation freezes that value into the task contract.
+Old tasks and forks retain it, while new tasks after restart can adopt a new
+snapshot. Live file contents remain separately observable. Repository guidance
+is task data, not a privileged instruction injected by the transport adapter.
+
+## 2026-09-25: proof closure is not deployment closure
+
+Removing obsolete PROGRAM parsing helpers passed the proof root but initially
+broke the wire decoder: that module was not in the proof dependency closure.
+The decoder now uses the shared protocol parsing helpers, and `npm run check`
+checks MAIN as well as PROOF. A theorem about the actual transition does not
+establish that every adapter importing it still builds or implements its wire
+contract. Native execution, error-path fixtures and durable-effect ordering
+remain separate verification obligations, rather than evidence silently folded
+into the theorem's claim.
+
+### Validation checkpoint
+
+The completed continuation passed `npm run check`, all 97 tests in `npm test`,
+and the tracked-file index check. Seventeen production mutations first passed
+ordinary type checking and then failed the formal proof gate. The source proof
+bundle was refreshed through the installed Rocq/MetaRocq exporter and reproduced
+the checked Bend certificates. MAIN's foreign input and indefinite service loop
+remain explicitly reported boundaries; PROOF does not depend on those definitions.
+
+The separate isolated Chrome check passed creation, echo, freeze, FIFO input,
+unfreeze, interruption, schema-derived supplied checkpoint, resumption and
+archival. It observed twelve command schemas, one task, disabled archived input,
+no displayed error and no JavaScript exceptions; its screenshot was inspected.
+The smoke script was corrected to wait for actionable controls across asynchronous
+refresh, rather than treating a temporarily removed button as a program failure.
+This uses the offline profile. Provider protocol tests use local HTTP fixtures,
+not a paid model, real account or an evaluation of model intelligence.
+
+A single developer-machine benchmark on 2026-09-25 used darwin-arm64, Node
+26.5.0, Bend 2.0.27 and kernel fingerprint `4a3383e4a1c2`. Each case forks after
+32 history turns with 1,024-byte messages:
+
+| Tasks | Committed inputs | Median transition | p95 transition | Replay | Native peak RSS |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 17 | 89 | 10.71 ms | 75.12 ms | 2.53 s | 11.69 MiB |
+| 65 | 161 | 41.19 ms | 384.38 ms | 11.97 s | 11.80 MiB |
+
+This measures SQLite commit plus native transition latency and reconstruction,
+not provider latency or a comparison with another harness. RSS excludes Node;
+it does not prove physical history sharing or asymptotic bounds. Resource
+accounting required permission for macOS `time -l` outside the command sandbox;
+the initial sandbox-only run could not read its clock information. Timing is
+observational, not a CI pass threshold or a guarantee of performance under load.

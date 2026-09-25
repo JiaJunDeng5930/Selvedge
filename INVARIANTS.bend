@@ -2,6 +2,7 @@ import Base
 import ./MODEL.bend as M
 import ./bendlib/tasks.bend as T
 import ./bendlib/equality.bend as Same
+import ./bendlib/json.bend as J
 
 # A world is an append-only registry of tasks, whose ancestry is a forest.
 # These predicates are executed by PROGRAM's admission boundary and named by
@@ -30,14 +31,22 @@ def unique_profiles(profiles: +List<M.Profile>) -> Bool:
       M.nonempty(key) && M.nonempty(provider) && M.nonempty(name) &&
         missing_profile(M.find_profile(rest, key)) && unique_profiles(rest)
 
+def project_context(project: M.ProjectContext) -> Bool:
+  match project:
+    case M.NoProject{}: True{}
+    case M.ProjectContext{+workspace, +revision, +instructions}:
+      M.nonempty(workspace) && Nat.is_le(J.utf8_length(workspace), 4096n) &&
+        Nat.is_le(J.utf8_length(instructions), M.project_limit()) &&
+        ((String.eq(revision, "absent") && String.eq(instructions, "")) || Nat.is_eq(J.utf8_length(revision), 64n))
+
 def environment(environment: M.Environment) -> Bool:
-  M.Environment{catalog, profiles, max_fork, max_descendants} = environment
-  unique_tools(catalog) && unique_profiles(profiles) &&
+  M.Environment{catalog, profiles, max_fork, max_descendants, project} = environment
+  project_context(project) && unique_tools(catalog) && unique_profiles(profiles) &&
     Nat.is_le(1n, max_fork) && Nat.is_le(1n, max_descendants)
 
 def contract(contract: M.Contract) -> Bool:
-  M.Contract{M.Model{M.Profile{key, provider, name}, reasoning}, tools, max_fork, max_descendants} = contract
-  M.nonempty(key) && M.nonempty(provider) && M.nonempty(name) && M.nonempty(reasoning) &&
+  M.Contract{M.Model{M.Profile{key, provider, name}, reasoning, project}, tools, max_fork, max_descendants} = contract
+  project_context(project) && M.nonempty(key) && M.nonempty(provider) && M.nonempty(name) && M.nonempty(reasoning) &&
     unique_tools(tools) && Nat.is_le(1n, max_fork) && Nat.is_le(1n, max_descendants)
 
 def lineage_parent(found: Maybe<&2, M.Task>, child: Nat, tail: +List<Nat>, contract: M.Contract, budget: Nat) -> Bool:
@@ -86,6 +95,7 @@ def phase(status: M.Status, phase: M.Phase, +history: M.History, tools: +List<M.
     case M.Archived{} M.Idle{}: True{}
     case M.Archived{} _: False{}
     case _ M.Idle{}: True{}
+    case _ M.CompactionReady{}: True{}
     case _ M.Ready{pending}: attempts(pending, history)
     case _ M.ModelPending{ticket, names}: Nat.is_lt(ticket, next_ticket) && callable(names, tools)
     case _ M.SummaryPending{ticket, resume}: Nat.is_lt(ticket, next_ticket)

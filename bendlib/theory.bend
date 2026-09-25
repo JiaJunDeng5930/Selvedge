@@ -1,4 +1,5 @@
 import Base
+import ./stdlib.bend as Std
 
 def choose(~S: Data, condition: Bool, yes: S, no: S) -> S:
   match condition:
@@ -8,19 +9,15 @@ def choose(~S: Data, condition: Bool, yes: S, no: S) -> S:
 def admit(~S: Data, state_valid: Bool, change_valid: Bool, candidate: S, +previous: S) -> S:
   choose(~S, state_valid, choose(~S, change_valid, candidate, previous), previous)
 
-# Lists form a monoid. The task implementation uses Base's append directly.
+# The operations are Base operations. Proofs are imported Stdlib certificates;
+# the application supplies only type/operation instantiations and equalities.
 law append_right_identity:
   for -A: Data
   for +xs: +List<A>
   {List.append(&2, A, xs, Nil{}) == xs : +List<A>}
 
 def append_right_identity(A, xs):
-  match xs:
-    case Nil{}:
-      {==}
-    case Con{+head, +tail}:
-      %append_right_identity(A, tail) : {head <> List.append(&2, A, tail, Nil{}) == head <> _ : +List<A>}
-      {==}
+  Std.app_nil_r(A, xs)
 
 law append_associative:
   for -A: Data
@@ -30,19 +27,11 @@ law append_associative:
   {List.append(&2, A, List.append(&2, A, xs, ys), zs) == List.append(&2, A, xs, List.append(&2, A, ys, zs)) : +List<A>}
 
 def append_associative(A, xs, ys, zs):
-  match xs:
-    case Nil{}:
-      {==}
-    case Con{+head, +tail}:
-      %append_associative(A, tail, ys, zs) : {head <> List.append(&2, A, List.append(&2, A, tail, ys), zs) == head <> _ : +List<A>}
-      {==}
+  Equal.sym(+List<A>, List.append(&2, A, xs, List.append(&2, A, ys, zs)),
+    List.append(&2, A, List.append(&2, A, xs, ys), zs), Std.app_assoc(A, xs, ys, zs))
 
 def replay(~S: Data, ~A: Data, ~step: S -> A -> S, events: +List<A>, state: S) -> S:
-  match events:
-    case Nil{}:
-      state
-    case Con{event, rest}:
-      replay(~S, ~A, ~step, rest, step(state, event))
+  List.foldl(~&2, ~A, ~S, ~step, events, state)
 
 # The usual induction principle for invariant safety in a transition system.
 # It states nothing about progress: an identity-only system also preserves safety.
@@ -50,21 +39,19 @@ def replay_invariant(~S: Data, ~A: Data, ~step: S -> A -> S, ~valid: S -> Bool,
   ~preserves: @state:S -> @event:A -> {valid(state) == True{} : Bool} -> {valid(step(state, event)) == True{} : Bool},
   events: +List<A>, +state: S, evidence: {valid(state) == True{} : Bool}) ->
   {valid(replay(~S, ~A, ~step, events, state)) == True{} : Bool}:
-  match events:
-    case Nil{}: evidence
-    case Con{+event, rest}:
-      replay_invariant(~S, ~A, ~step, ~valid, ~preserves, rest, step(state, event), preserves(state, event, evidence))
+  Std.list_ind(~A,
+    ~(events => @state:S -> @evidence:{valid(state) == True{} : Bool} ->
+      {valid(replay(~S, ~A, ~step, events, state)) == True{} : Bool}),
+    ~(state => evidence => evidence),
+    ~(+event => rest => induction => +state => evidence =>
+      induction(step(state, event), preserves(state, event, evidence))), events)(state, evidence)
 
-# Prove composition with an abstract step, then instantiate it at the program.
-# The induction never needs to unfold a server transition or its wire encoder.
+# Instantiate the existing standard fold-left theorem at the actual transition.
 def replay_composition(~S: Data, ~A: Data, ~step: S -> A -> S,
   +first: +List<A>, +second: +List<A>, +state: S) ->
   {replay(~S, ~A, ~step, List.append(&2, A, first, second), state) ==
     replay(~S, ~A, ~step, second, replay(~S, ~A, ~step, first, state)) : S}:
-  match first:
-    case Nil{}: {==}
-    case Con{event, rest}:
-      replay_composition(~S, ~A, ~step, rest, second, step(state, event))
+  Std.fold_left_app(~S, ~A, ~step, first, second, state)
 
 # A step that is the identity at the reached state may be inserted in a trace.
 # The caller proves only the domain fact; trace algebra stays independent of it.
@@ -73,9 +60,13 @@ def replay_insert_identity(~S: Data, ~A: Data, ~step: S -> A -> S,
   identity: {step(replay(~S, ~A, ~step, first, state), event) == replay(~S, ~A, ~step, first, state) : S}) ->
   {replay(~S, ~A, ~step, List.append(&2, A, first, event <> second), state) ==
     replay(~S, ~A, ~step, List.append(&2, A, first, second), state) : S}:
-  match first:
-    case Nil{}:
-      %identity : {replay(~S, ~A, ~step, second, step(state, event)) == replay(~S, ~A, ~step, second, _) : S}
-      {==}
-    case Con{before, rest}:
-      replay_insert_identity(~S, ~A, ~step, rest, second, event, step(state, before), identity)
+  +middle = replay(~S, ~A, ~step, first, state)
+  Equal.trans(S, replay(~S, ~A, ~step, List.append(&2, A, first, event <> second), state),
+    replay(~S, ~A, ~step, second, step(middle, event)),
+    replay(~S, ~A, ~step, List.append(&2, A, first, second), state),
+    Std.fold_left_app(~S, ~A, ~step, first, event <> second, state),
+    Equal.trans(S, replay(~S, ~A, ~step, second, step(middle, event)),
+      replay(~S, ~A, ~step, second, middle), replay(~S, ~A, ~step, List.append(&2, A, first, second), state),
+      Equal.cong(S, S, (value => replay(~S, ~A, ~step, second, value)), step(middle, event), middle, identity),
+      Equal.sym(S, replay(~S, ~A, ~step, List.append(&2, A, first, second), state),
+        replay(~S, ~A, ~step, second, middle), Std.fold_left_app(~S, ~A, ~step, first, second, state))))

@@ -4,9 +4,11 @@ import { readdir, readFile, mkdir, writeFile, stat } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { compiler, expectedVersion } from './toolchain.mjs';
+import { checkBundle } from './import-stdlib.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const bend = compiler();
+await checkBundle();
 
 async function sources(directory, relative = '') {
   const result = [];

@@ -231,10 +231,27 @@ def profiles_json(profiles: +List<Profile>) -> +List<J.Json>:
       J.Object{[J.Field{"key", J.Text{key}}, J.Field{"provider", J.Text{provider}}, J.Field{"name", J.Text{name}}]} <>
         profiles_json(rest)
 
-# Freeze the selected model identity, not just a key whose configuration may
-# later change. Credentials and endpoint availability remain external inputs.
+# Project guidance is a frozen external observation, not a hidden prompt read.
+# The host snapshots only the canonical workspace's root AGENTS.md. Its content
+# and revision enter Configure before task creation and remain in the contract.
+type ProjectContext is Data:
+  NoProject{}
+  ProjectContext{workspace: String, revision: String, instructions: String}
+
+def project_limit() -> Nat:
+  32768n
+
+def project_json(project: ProjectContext) -> J.Json:
+  match project:
+    case NoProject{}: J.Null{}
+    case ProjectContext{workspace, revision, instructions}:
+      J.Object{[J.Field{"workspace", J.Text{workspace}}, J.Field{"source", J.Text{"AGENTS.md"}},
+        J.Field{"revision", J.Text{revision}}, J.Field{"instructions", J.Text{instructions}}]}
+
+# Freeze the selected model identity and project snapshot, not just mutable keys.
+# Credentials and endpoint availability remain external inputs.
 type Model is Data:
-  Model{profile: Profile, reasoning: String}
+  Model{profile: Profile, reasoning: String, project: ProjectContext}
 
 type Contract is Data:
   Contract{model: Model, tools: +List<Tool>, max_fork: Nat, max_descendants: Nat}
@@ -293,11 +310,20 @@ def history_length(history: History) -> Nat:
     case EmptyHistory{}: 0n
     case HistoryNode{previous, message}: 1n+history_length(previous)
 
+def history_step(history: History, message: Message) -> History:
+  HistoryNode{history, message}
+
 def history_append(messages: +List<Message>, history: History) -> History:
-  match messages:
-    case Nil{}: history
-    case Con{message, rest}:
-      history_append(rest, HistoryNode{history, message})
+  List.foldl(~&2, ~Message, ~History, ~history_step, messages, history)
+
+# Compaction must consume an opportunity to reduce context. A single checkpoint
+# cannot be compacted again without intervening input/work; this gives recovery
+# a structural bound instead of an ephemeral host retry counter.
+def compactable(history: History) -> Bool:
+  match history:
+    case EmptyHistory{}: False{}
+    case HistoryNode{EmptyHistory{}, ContextCheckpoint{summary}}: False{}
+    case _: True{}
 
 def branch_history(history: History, call_id: String, branch: Nat) -> History:
   HistoryNode{history, FunctionOutput{call_id, J.nat(branch), False{}}}
@@ -305,6 +331,7 @@ def branch_history(history: History, call_id: String, branch: Nat) -> History:
 type Phase is Data:
   Idle{}
   Ready{calls: List<&2, Attempt>}
+  CompactionReady{}
   ModelPending{ticket: Nat, callable: +List<String>}
   SummaryPending{ticket: Nat, resume: Bool}
   ToolPending{ticket: Nat, call: Call, remaining: List<&2, Attempt>}
@@ -341,6 +368,7 @@ def initial_attempts(calls: +List<Call>) -> +List<Attempt>:
 type Work is Data:
   NoWork{}
   RequestNextModel{}
+  RequestContextSummary{}
   RunNextTool{}
   BecomeIdle{}
 
@@ -352,6 +380,8 @@ def work(status: Status, phase: Phase) -> Work:
     case Frozen{} _: NoWork{}
     case Active{} Ready{Nil{}}: RequestNextModel{}
     case Stopped{} Ready{Nil{}}: BecomeIdle{}
+    case Active{} CompactionReady{}: RequestContextSummary{}
+    case Stopped{} CompactionReady{}: BecomeIdle{}
     case Active{} Ready{Con{call, rest}}: RunNextTool{}
     case Stopped{} Ready{Con{call, rest}}: RunNextTool{}
     case _ _: NoWork{}
@@ -364,6 +394,7 @@ def has_work(work: Work) -> Bool:
 def is_model_request(work: Work) -> Bool:
   match work:
     case RequestNextModel{}: True{}
+    case RequestContextSummary{}: True{}
     case _: False{}
 
 type Task is Data:
@@ -419,7 +450,7 @@ def queue_message(text: String, task: Task) -> Task:
   Task{id, lineage, contract, status, history, List.append(&2, String, queued, [text]), phase}
 
 type Environment is Data:
-  Environment{catalog: +List<Tool>, profiles: +List<Profile>, max_fork: Nat, max_descendants: Nat}
+  Environment{catalog: +List<Tool>, profiles: +List<Profile>, max_fork: Nat, max_descendants: Nat, project: ProjectContext}
 
 type ExecutionLimits is Data:
   ExecutionLimits{schedule_steps: Nat, render_steps: Nat, frame_bytes: U32}
@@ -436,7 +467,7 @@ type World is Data:
   World{tasks: +List<Task>, next_task: Nat, next_ticket: Nat, environment: Environment, limits: ExecutionLimits}
 
 def initial() -> World:
-  World{Nil{}, 0n, 0n, Environment{builtins(4n), Nil{}, 4n, 64n}, execution_limits()}
+  World{Nil{}, 0n, 0n, Environment{builtins(4n), Nil{}, 4n, 64n, NoProject{}}, execution_limits()}
 
 type Effect is Data:
   RequestModel{task_id: Nat, ticket: Nat, model: Model, history: History,
@@ -531,6 +562,7 @@ def boundary_limits() -> J.Json:
     J.Field{"artifact_bytes", J.nat(U32.to_nat(8388608))},
     J.Field{"context_threshold_bytes", J.nat(context_threshold_bytes())},
     J.Field{"summary_limit_bytes", J.nat(summary_limit_bytes())},
+    J.Field{"project_context_bytes", J.nat(project_limit())},
     J.Field{"model_retry", J.Object{[
       J.Field{"statuses", J.Array{[J.nat(408n), J.nat(429n), J.nat(500n), J.nat(502n), J.nat(503n), J.nat(504n)]}},
       J.Field{"delays_ms", J.Array{[J.nat(250n), J.nat(1000n), J.nat(2500n)]}},
@@ -549,6 +581,7 @@ def description() -> J.Json:
 type Outcome is Data:
   ModelReply{items: +List<ModelItem>}
   ModelFailure{message: String}
+  ContextLimit{}
 
 type Input is Data:
   UserCommand{command: Command}

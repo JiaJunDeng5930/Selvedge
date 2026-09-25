@@ -63,3 +63,16 @@ is current. Bend performs those decisions, validates summaries, and commits a
 checkpoint before using its context projection. Supplied checkpoints need no
 host/model effect. Model retries and text deltas are notices, not extra task
 history or a second scheduler.
+
+An explicit `context_length_exceeded` code in HTTP 400 or a pre-output SSE failure
+becomes a typed native completion. Diagnostic substrings, incomplete responses
+and failures after emitted output do not grant automatic compaction/retry. The
+native phase owns whether to summarize, retry with a fresh ticket or stop; the
+adapter has no hidden context-recovery counter. Upstream error bodies are not
+copied into the durable conversation.
+
+Root project guidance is observed once before configuration and durably recorded
+in the environment. Providers consume the frozen task snapshot from the committed
+effect, never a fresh filesystem read. It is unprivileged repository data, not an
+extra system prompt. `project-context.test.mjs` and `context-recovery.test.mjs`
+exercise restart and compaction with this same contract.

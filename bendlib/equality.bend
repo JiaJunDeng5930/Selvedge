@@ -55,12 +55,19 @@ def json_go(fuel: Nat, pending: +List<Comparison>) -> Bool:
 def json(budget: Nat, left: J.Json, right: J.Json) -> Bool:
   json_go(budget, [Values{left, right}])
 
+def project(left: M.ProjectContext, right: M.ProjectContext) -> Bool:
+  match left right:
+    case M.NoProject{} M.NoProject{}: True{}
+    case M.ProjectContext{root_a, revision_a, text_a} M.ProjectContext{root_b, revision_b, text_b}:
+      String.eq(root_a, root_b) && String.eq(revision_a, revision_b) && String.eq(text_a, text_b)
+    case _ _: False{}
+
 def model(left: M.Model, right: M.Model) -> Bool:
   match left right:
-    case M.Model{M.Profile{key_a, provider_a, name_a}, reasoning_a}
-         M.Model{M.Profile{key_b, provider_b, name_b}, reasoning_b}:
+    case M.Model{M.Profile{key_a, provider_a, name_a}, reasoning_a, project_a}
+         M.Model{M.Profile{key_b, provider_b, name_b}, reasoning_b, project_b}:
       String.eq(key_a, key_b) && String.eq(provider_a, provider_b) &&
-        String.eq(name_a, name_b) && String.eq(reasoning_a, reasoning_b)
+        String.eq(name_a, name_b) && String.eq(reasoning_a, reasoning_b) && project(project_a, project_b)
 
 def tool(budget: Nat, left: M.Tool, right: M.Tool) -> Bool:
   match left right:

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import { requestModel } from '../host/providers.mjs';
+import { requestModel, ContextLimitError } from '../host/providers.mjs';
 import { Kernel } from '../host/kernel.mjs';
 import { validateConfig, defaultConfig } from '../host/config.mjs';
 import { home } from './support.mjs';
@@ -82,4 +82,36 @@ test('persistent transient failures exhaust the declared retry budget', { timeou
   const { run, description } = await fixture(t, (_, response) => { calls++; response.writeHead(503); response.end(); });
   await assert.rejects(run(), /HTTP 503/);
   assert.equal(calls, description.limits.model_retry.delays_ms.length + 1);
+});
+
+test('only an explicit context-limit code before output requests native recovery', async t => {
+  for (const [name, status, payload, recover] of [
+    ['structured HTTP error', 400, { error: { code: 'context_length_exceeded', message: 'private upstream detail' } }, true],
+    ['diagnostic text is not a code', 400, { error: { message: 'context_length_exceeded private upstream detail' } }, false],
+    ['unrelated HTTP status', 403, { error: { code: 'context_length_exceeded' } }, false],
+    ['SSE error before output', 200, [{ type: 'error', code: 'context_length_exceeded' }], true],
+    ['SSE failed before output', 200, [{ type: 'response.failed', response: { error: { code: 'context_length_exceeded' } } }], true],
+    ['SSE text already exposed', 200, [
+      { type: 'response.output_text.delta', delta: 'partial' }, { type: 'error', code: 'context_length_exceeded' },
+    ], false],
+    ['SSE tool item already exposed', 200, [
+      { type: 'response.output_item.added', item: { type: 'function_call' } }, { type: 'error', code: 'context_length_exceeded' },
+    ], false],
+    ['incomplete is not overflow recovery', 200, [{ type: 'response.incomplete', response: { error: { code: 'context_length_exceeded' } } }], false],
+  ]) {
+    await t.test(name, async t => {
+      let calls = 0;
+      const { run } = await fixture(t, (_, response) => {
+        calls++;
+        response.writeHead(status, { 'content-type': status === 200 ? 'text/event-stream' : 'application/json' });
+        response.end(status === 200 ? payload.map(event => `data: ${JSON.stringify(event)}\n\n`).join('') : JSON.stringify(payload));
+      });
+      await assert.rejects(run(), error => {
+        assert.equal(error instanceof ContextLimitError, recover);
+        assert.equal(error.message.includes('private upstream detail'), false);
+        return true;
+      });
+      assert.equal(calls, 1, 'Recovery is a fresh native transition, not a hidden HTTP retry');
+    });
+  }
 });

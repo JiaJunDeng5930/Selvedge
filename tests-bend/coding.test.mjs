@@ -55,8 +55,9 @@ test('coding loop reads, writes, edits, tests, compacts, and restarts through co
         assert.match(body.instructions, /Summarize this task/);
         return answer('math.mjs addition fixed. check.mjs verified add(2, 3) = 5. No unfinished side effects.');
       case 6:
-        assert.match(body.input[0].content, /Task continuation summary/);
-        assert.match(body.input[0].content, /addition fixed/);
+        assert.match(body.input[0].content, /Project context snapshot/);
+        assert.match(body.input[1].content, /Task continuation summary/);
+        assert.match(body.input[1].content, /addition fixed/);
         assert.equal(body.input.some(item => item.content === 'Fix the addition bug and run a real test.'), false);
         return answer('Continuing from the preserved checkpoint.');
       default: throw new Error(`Unexpected model request ${index}`);

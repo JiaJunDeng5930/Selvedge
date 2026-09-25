@@ -4,9 +4,9 @@ import ./json.bend as J
 import ./tasks.bend as T
 
 def model_json(model: M.Model) -> J.Json:
-  M.Model{M.Profile{profile, provider, name}, reasoning} = model
+  M.Model{M.Profile{profile, provider, name}, reasoning, project} = model
   J.Object{[J.Field{"profile", J.Text{profile}}, J.Field{"provider", J.Text{provider}},
-    J.Field{"name", J.Text{name}}, J.Field{"reasoning", J.Text{reasoning}}]}
+    J.Field{"name", J.Text{name}}, J.Field{"reasoning", J.Text{reasoning}}, J.Field{"project", M.project_json(project)}]}
 
 def effect(effect: M.Effect) -> J.Json:
   match effect:

@@ -56,6 +56,17 @@ async function snapshot(filename, maximum, signal, allowAbsent = false) {
   } finally { await file.close(); }
 }
 
+/** A bounded, no-follow observation of root project guidance, before Configure. */
+export async function snapshotProject(cwd, limits, { signal } = {}) {
+  const workspace = await realpath(cwd);
+  if (Buffer.byteLength(workspace) > 4096) throw new Error('Workspace path exceeds the model boundary');
+  if (!Number.isSafeInteger(limits.project_context_bytes) || limits.project_context_bytes <= 0) {
+    throw new Error('The kernel did not declare a project-context bound');
+  }
+  const observed = await snapshot(path.join(workspace, 'AGENTS.md'), limits.project_context_bytes, signal, true);
+  return { workspace, revision: observed?.revision ?? 'absent', instructions: observed?.text ?? '' };
+}
+
 async function canonical(filename, create) {
   try { return await realpath(filename); }
   catch (error) {
