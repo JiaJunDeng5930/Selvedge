@@ -119,3 +119,6 @@ def Laws.small_context_dispatch(task, world):
 
 def Laws.large_context_dispatch(task, world):
   {==}
+
+def Laws.oversized_operation_barrier(task):
+  {==}

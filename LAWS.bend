@@ -255,12 +255,16 @@ law tool_dispatch:
 law small_context_dispatch:
   for +task: M.Task
   for +world: M.World
-  {P.realize_action(Execution.model_sized(False{}, task), world) == P.model_request_direct(task, world) : M.Decision}
+  {P.realize_action(Execution.model_with_operations(False{}, False{}, task), world) == P.model_request_direct(task, world) : M.Decision}
 
 law large_context_dispatch:
   for +task: M.Task
   for +world: M.World
-  {P.realize_action(Execution.model_sized(True{}, task), world) == P.summary_request(task, True{}, world) : M.Decision}
+  {P.realize_action(Execution.model_with_operations(True{}, False{}, task), world) == P.summary_request(task, True{}, world) : M.Decision}
+
+law oversized_operation_barrier:
+  for +task: M.Task
+  {Execution.model_with_operations(True{}, True{}, task) == Execution.Idle{task} : Execution.Action}
 
 law accepted_model_settlement:
   for +outcome: M.Outcome

@@ -3,6 +3,7 @@
 From MetaRocq.Template Require Import All.
 From Stdlib Require Import Lists.List.
 From Stdlib Require Import Arith.PeanoNat.
+From Stdlib Require Import Bool.Bool.
 Import MonadNotation.
 Open Scope bs_scope.
 Set Printing Width 1000000.
@@ -63,6 +64,12 @@ MetaRocq Run (export (@nat_ind)).
 MetaRocq Run (export (@Nat.iter_swap_gen)).
 MetaRocq Run (export (@Nat.iter_add)).
 MetaRocq Run (export (@Nat.iter_ind)).
+MetaRocq Run (export (@Bool.orb_assoc)).
+MetaRocq Run (export (@Bool.orb_comm)).
+MetaRocq Run (export (@Bool.orb_diag)).
+MetaRocq Run (export (@Bool.orb_false_l)).
+MetaRocq Run (export (@Bool.orb_false_r)).
+MetaRocq Run (export (@Bool.orb_true_r)).
 Print Assumptions list_ind.
 Print Assumptions nat_ind.
 Print Assumptions List.app_nil_r.
@@ -74,3 +81,9 @@ Print Assumptions List.map_id.
 Print Assumptions Nat.iter_swap_gen.
 Print Assumptions Nat.iter_add.
 Print Assumptions Nat.iter_ind.
+Print Assumptions Bool.orb_assoc.
+Print Assumptions Bool.orb_comm.
+Print Assumptions Bool.orb_diag.
+Print Assumptions Bool.orb_false_l.
+Print Assumptions Bool.orb_false_r.
+Print Assumptions Bool.orb_true_r.

@@ -13,6 +13,8 @@ import ./traces.bend as Traces
 import ./transcript.bend as Transcript
 import ./interface.bend as Interface
 import ./frontend.bend as Frontend
+import ./operations.bend as Ops
+import ./stdlib.bend as Std
 
 # Concrete bindings for the conceptual entry in ../CONCEPTS.bend. These indices
 # name the actual production operations. PROOF supplies the correspondences;
@@ -180,3 +182,59 @@ type Journal is Type:
 
 law persistence:
   Journal
+
+def OperationRights() -> Type:
+  S.AssociationMap<M.Operation, Ops.ticket, Ops.find, Ops.remove>
+
+law operation_rights:
+  OperationRights()
+
+type Announcement is Type:
+  Announcement{projection: S.Projection<M.Operation, Ops.announce>,
+    ticket: @operation:M.Operation -> {Ops.ticket(Ops.announce(operation)) == Ops.ticket(operation) : Nat},
+    call: @operation:M.Operation -> {Ops.call(Ops.announce(operation)) == Ops.call(operation) : M.Call},
+    status: @operation:M.Operation -> {Ops.announced(Ops.announce(operation)) == True{} : Bool}}
+
+law announcement:
+  Announcement
+
+type Notifications is Type:
+  Notifications{algebra: S.JoinSemilattice<Bool, False{}, Bool.or>,
+    raise: @task:M.Task -> {M.task_notified(M.notify(task)) == Bool.or(M.task_notified(task), True{}) : Bool},
+    sticky: @task:M.Task -> {M.task_notified(M.notify(task)) == True{} : Bool},
+    consume: @task:M.Task -> {M.task_notified(Ops.publish(task)) == False{} : Bool}}
+
+law notifications:
+  Notifications
+
+# Noninterference of the actual state coordinates, not of arbitrary external
+# effects. Work settlement owns its right and notification, not a model ticket.
+type Coordination is Type:
+  Coordination{
+    settlement_phase: @operation:M.Operation -> @value:J.Json -> @error:Bool -> @task:M.Task ->
+      {M.task_phase(Ops.completed(operation, value, error, task)) == M.wake_phase(M.task_phase(task)) : M.Phase},
+    settlement_rights: @operation:M.Operation -> @value:J.Json -> @error:Bool -> @task:M.Task ->
+      {M.task_operations(Ops.completed(operation, value, error, task)) == Ops.remove(M.task_operations(task), Ops.ticket(operation)) : +List<M.Operation>},
+    settlement_notifies: @operation:M.Operation -> @value:J.Json -> @error:Bool -> @task:M.Task ->
+      {M.task_notified(Ops.completed(operation, value, error, task)) == True{} : Bool},
+    steering_rights: @message:String -> @task:M.Task ->
+      {M.task_operations(T.steer(message, task)) == M.task_operations(task) : +List<M.Operation>},
+    steering_queue: @message:String -> @task:M.Task ->
+      {M.task_queue(T.steer(message, task)) == M.task_queue(task) : +List<String>},
+    abandonment: @task:M.Task -> {M.task_operations(Ops.abandoned(task)) == Nil{} : +List<M.Operation>},
+    publication: @task:M.Task ->
+      {M.task_operations(Ops.publish(task)) == Std.map(~M.Operation, ~M.Operation, ~Ops.announce, M.task_operations(task)) : +List<M.Operation>},
+    final_output: @ticket:Nat -> @call:M.Call -> @value:J.Json -> @error:Bool ->
+      {Ops.result(M.Operation{ticket, call, False{}}, value, error) == M.FunctionOutput{T.call_id(call), value, error} : M.Message},
+    later_output: @operation:M.Operation -> @value:J.Json -> @error:Bool ->
+      {Ops.result(Ops.announce(operation), value, error) ==
+        M.OperationResult{Ops.ticket(operation), T.call_id(Ops.call(operation)), T.call_name(Ops.call(operation)), value, error} : M.Message},
+    pending_model: @id:Nat -> @lineage:+List<Nat> -> @contract:M.Contract -> @status:M.Status ->
+      @history:M.History -> @queued:+List<String> -> @ticket:Nat -> @allowed:+List<String> ->
+      @operations:+List<M.Operation> -> @notified:Bool -> @operation:M.Operation -> @value:J.Json -> @error:Bool ->
+      {M.task_phase(T.complete_operation(operation, value, error,
+        M.Task{id, lineage, contract, status, history, queued, M.ModelPending{ticket, allowed}, operations, notified})) ==
+        M.ModelPending{ticket, allowed} : M.Phase}}
+
+law coordination:
+  Coordination

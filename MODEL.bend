@@ -474,7 +474,7 @@ def wake_phase(phase: Phase) -> Phase:
     case other: other
 
 def notify(+task: Task) -> Task:
-  with_notified(True{}, with_phase(wake_phase(task_phase(task)), task))
+  with_notified(Bool.or(task_notified(task), True{}), with_phase(wake_phase(task_phase(task)), task))
 
 def append_message(message: Message, task: Task) -> Task:
   Task{id, lineage, contract, status, history, queued, phase, operations, notified} = task

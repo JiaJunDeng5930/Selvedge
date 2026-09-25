@@ -42,8 +42,17 @@ type Observation is Type:
     tasks: A.TaskViews(),
     branches: A.BranchResults()}
 
+# A finite map owns live operations. Announcements are idempotent projections;
+# unread notifications form a join semilattice between committed model snapshots.
+# Coordination proves which state coordinates a completion or steer may change.
+# No law here says that external commands commute, can be replayed, or are undone.
+type Concurrency is Type:
+  Concurrency{rights: A.OperationRights(), announcements: A.Announcement,
+    notifications: A.Notifications, coordination: A.Coordination}
+
 type Harness is Type:
-  Harness{meaning: Meaning, composition: Composition, recovery: Recovery, observation: Observation}
+  Harness{meaning: Meaning, composition: Composition, recovery: Recovery,
+    observation: Observation, concurrency: Concurrency}
 
 # Construction is mandatory in PROOF. No field is an unproved assertion.
 # The OS/network/SQLite effect interpreter is an explicit external boundary;

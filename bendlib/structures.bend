@@ -27,6 +27,44 @@ type RightAction<-S: Data, -E: Data, -empty: E, -join: E -> E -> E, -act: S -> E
 type Projection<-A: Data, -project: A -> A> is Type:
   Projection{idempotent: @value:A -> {project(project(value)) == project(value) : A}}
 
+# A bounded join semilattice: duplicate and reordered notifications have the
+# same join. This structure makes no assertion about resets or external work.
+type JoinSemilattice<-A: Data, -bottom: A, -join: A -> A -> A> is Type:
+  JoinSemilattice{monoid: Monoid<A, bottom, join>,
+    commutative: @x:A -> @y:A -> {join(x, y) == join(y, x) : A},
+    idempotent: @x:A -> {join(x, x) == x : A}}
+
+def boolean_join() -> JoinSemilattice<Bool, False{}, Bool.or>:
+  JoinSemilattice{Monoid{Associative{(x => y => z =>
+    Equal.sym(Bool, Bool.or(x, Bool.or(y, z)), Bool.or(Bool.or(x, y), z), Std.orb_assoc(x, y, z)))},
+    (value => Std.orb_false_l(value)), (value => Std.orb_false_r(value))},
+    (x => y => Std.orb_comm(x, y)), (value => Std.orb_diag(value))}
+
+def lookup_choice(-V: Data, same: Bool, value: V, rest: Maybe<&2, V>) -> Maybe<&2, V>:
+  match same:
+    case True{}: Some{value}
+    case False{}: rest
+
+def keep_unmatched(-V: Data, same: Bool, value: V, rest: +List<V>) -> +List<V>:
+  match same:
+    case True{}: rest
+    case False{}: value <> rest
+
+# Representation of a finite association map indexed by natural-number keys.
+# Equations specify lookup and erasure, including preservation of other entries.
+# Erasing everything would satisfy absence alone, but not this interface.
+type AssociationMap<-V: Data, -key: V -> Nat,
+  -lookup: @entries:+List<V> -> @+id:Nat -> Maybe<&2, V>,
+  -erase: @entries:+List<V> -> @+id:Nat -> +List<V>> is Type:
+  AssociationMap{
+    lookup_empty: @id:Nat -> {lookup(Nil{}, id) == None{} : Maybe<&2, V>},
+    lookup_binding: @value:V -> @rest:+List<V> -> @id:Nat ->
+      {lookup(value <> rest, id) == lookup_choice(V, Nat.is_eq(key(value), id), value, lookup(rest, id)) : Maybe<&2, V>},
+    erase_empty: @id:Nat -> {erase(Nil{}, id) == Nil{} : +List<V>},
+    erase_binding: @value:V -> @rest:+List<V> -> @id:Nat ->
+      {erase(value <> rest, id) == keep_unmatched(V, Nat.is_eq(key(value), id), value, erase(rest, id)) : +List<V>},
+    consumed: @entries:+List<V> -> @id:Nat -> {lookup(erase(entries, id), id) == None{} : Maybe<&2, V>}}
+
 # Exact refinement is a forward simulation with the identity state abstraction.
 # The response includes the post-state, reply, and effects, not only state safety.
 type Refinement<-S: Data, -I: Data, -O: Data, -specification: I -> S -> O, -implementation: I -> S -> O> is Type:

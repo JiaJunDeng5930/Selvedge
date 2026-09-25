@@ -48,7 +48,7 @@ test('the conceptual entry declares proof-carrying concepts rather than implemen
   const source = await readFile(path.join(root, 'CONCEPTS.bend'), 'utf8');
   assert.doesNotMatch(source, /^(?:@unsafe )?def /m);
   assert.doesNotMatch(source, /M\.(World|Task)|J\.(Json|Field)|P\./);
-  for (const name of ['Meaning', 'Composition', 'Recovery', 'Observation', 'Harness']) {
+  for (const name of ['Meaning', 'Composition', 'Recovery', 'Observation', 'Concurrency', 'Harness']) {
     assert.match(source, new RegExp(`type ${name} is Type:`));
   }
   assert.match(source, /law harness:\s+Harness/);

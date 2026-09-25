@@ -22,12 +22,19 @@ const names = [
   'Stdlib.Arith.PeanoNat.Nat.iter_swap_gen',
   'Stdlib.Arith.PeanoNat.Nat.iter_add',
   'Stdlib.Arith.PeanoNat.Nat.iter_ind',
+  'Stdlib.Bool.Bool.orb_assoc',
+  'Stdlib.Bool.Bool.orb_comm',
+  'Stdlib.Bool.Bool.orb_diag',
+  'Stdlib.Bool.Bool.orb_false_l',
+  'Stdlib.Bool.Bool.orb_false_r',
+  'Stdlib.Bool.Bool.orb_true_r',
 ];
 const intrinsic = new Set([
   'Corelib.Init.Datatypes.app', 'Stdlib.Lists.List.fold_left', 'Corelib.Lists.ListDef.map',
   'Corelib.Init.Logic.f_equal', 'Corelib.Init.Logic.eq_trans',
   'Corelib.Init.Logic.eq_sym', 'Corelib.Init.Logic.eq_ind_r', ...names,
   'Corelib.Init.Nat.iter', 'Corelib.Init.Nat.add',
+  'Corelib.Init.Datatypes.orb',
 ]);
 const digest = value => createHash('sha256').update(value).digest('hex');
 
@@ -70,7 +77,7 @@ function decoder() {
       return { tag, name: args[0] };
     }
     if (tag === 'ind' || tag === 'ctor') {
-      if (!['Corelib.Init.Datatypes.list', 'Corelib.Init.Datatypes.nat', 'Corelib.Init.Logic.eq'].includes(args[0]) || args[1] !== 0 ||
+      if (!['Corelib.Init.Datatypes.list', 'Corelib.Init.Datatypes.nat', 'Corelib.Init.Datatypes.bool', 'Corelib.Init.Logic.eq'].includes(args[0]) || args[1] !== 0 ||
           (tag === 'ctor' && ![0, ...(!args[0].endsWith('.eq') ? [1] : [])].includes(args[2]))) {
         throw new Error('Unmapped source inductive');
       }
@@ -137,13 +144,14 @@ function normalize(node) {
 const short = name => name.slice(name.lastIndexOf('.') + 1);
 const templateSlots = { list_ind: [0, 1, 2, 3], app_nil_r: [], app_assoc: [], fold_left_app: [0, 1, 2],
   map_app: [0, 1, 2], map_map: [0, 1, 2, 3, 4], map_id: [0], nat_ind: [0, 1, 2],
-  iter_swap_gen: [0, 1, 2, 3, 4, 5], iter_add: [2, 3], iter_ind: [0, 1, 3, 5] };
+  iter_swap_gen: [0, 1, 2, 3, 4, 5], iter_add: [2, 3], iter_ind: [0, 1, 3, 5],
+  orb_assoc: [], orb_comm: [], orb_diag: [], orb_false_l: [], orb_false_r: [], orb_true_r: [] };
 const parameterOrder = (method, length) => {
   const slots = templateSlots[method];
   return [...slots, ...Array.from({ length }, (_, i) => i).filter(i => !slots.includes(i))];
 };
 function dataType(type) {
-  return type.tag === 'var' || (type.tag === 'ind' && type.name.endsWith('.nat')) ||
+  return type.tag === 'var' || (type.tag === 'ind' && ['Corelib.Init.Datatypes.nat', 'Corelib.Init.Datatypes.bool'].includes(type.name)) ||
     (type.tag === 'app' && type.fn.tag === 'ind' && type.fn.name.endsWith('.list'));
 }
 function templateType(type) { return type.tag === 'sort' || type.tag === 'pi'; }
@@ -157,6 +165,8 @@ function occurrences(node, name) {
 function emit(node, recursive = new Map()) {
   if (node.tag === 'var') return node.name;
   if (node.tag === 'ind' && node.name === 'Corelib.Init.Datatypes.nat') return 'Nat';
+  if (node.tag === 'ind' && node.name === 'Corelib.Init.Datatypes.bool') return 'Bool';
+  if (node.tag === 'ctor' && node.name === 'Corelib.Init.Datatypes.bool') return node.index === 0 ? 'True{}' : 'False{}';
   if (node.tag === 'ctor' && node.name === 'Corelib.Init.Datatypes.nat' && node.index === 0) return '0n';
   if (node.tag === 'sort') return node.kind === 'Prop' ? 'Type' : 'Data';
   if (node.tag === 'refl') return '{==}';
@@ -199,6 +209,7 @@ function emit(node, recursive = new Map()) {
     if (fn.name.endsWith('.list') && fn.index === 1 && e.length === 2) return `(tail => (${e[1]} <> tail))`;
   }
   if (fn.tag === 'const') {
+    if (fn.name === 'Corelib.Init.Datatypes.orb' && e.length === 2) return `Bool.or(${e.join(', ')})`;
     if (fn.name === 'Corelib.Init.Nat.iter' && e.length === 4) return `iter(~${e[1]}, ~${e[2]}, ${e[0]}, ${e[3]})`;
     if (fn.name === 'Corelib.Init.Nat.add' && e.length === 2) return `Nat.add(${e.join(', ')})`;
     if (fn.name === 'Corelib.Init.Datatypes.app' && e.length === 3) return `List.append(&2, ${e.join(', ')})`;
@@ -258,6 +269,42 @@ function lowerInduction(name, parameters, node) {
     `    case ${isList ? `Con{+${item.name}, +${rest.name}}` : `1n+${rest.name}`}: ${emit(successor)}`;
 }
 
+// Preserve the original proof's Boolean eliminations. Only declared Boolean
+// parameters and the two nullary constructors belong to this subset; a source
+// case is not replaced by a locally generated truth-table proof.
+function lowerBooleanCases(node, parameters) {
+  if (node.tag !== 'case') return `  ${emit(node)}`;
+  const columns = [];
+  const leaves = [];
+  function flatten(term, bindings) {
+    if (term.tag !== 'case') { leaves.push({ term, bindings }); return; }
+    if (term.value.tag !== 'var' || bindings.has(term.value.name) ||
+        !parameters.some(p => p.variable.name === term.value.name && p.type.tag === 'ind' &&
+          p.type.name === 'Corelib.Init.Datatypes.bool') || term.branches.length !== 2 ||
+        term.branches.some(branch => branch.variables.length !== 0)) {
+      throw new Error('Unsupported Boolean certificate elimination');
+    }
+    if (!columns.includes(term.value.name)) columns.push(term.value.name);
+    term.branches.forEach((branch, index) => flatten(branch.body, new Map([...bindings, [term.value.name, index]])));
+  }
+  flatten(node, new Map());
+  columns.sort((left, right) => parameters.findIndex(p => p.variable.name === left) -
+    parameters.findIndex(p => p.variable.name === right));
+  // Bend consumes unmatched local parameters at a match boundary. Flatten only
+  // the existing source branches into a multi-pattern match; do not invent new
+  // cases or solve a leaf. Each leaf remains the original specialized proof.
+  return `  match ${columns.join(' ')}:\n` + leaves.map(({ term, bindings }) => {
+    const patterns = columns.map(name => {
+      const index = bindings.get(name);
+      const replacement = index === undefined ? { tag: 'var', name: `imported_${name}` } :
+        { tag: 'ctor', name: 'Corelib.Init.Datatypes.bool', index };
+      term = substitute(term, name, replacement);
+      return index === undefined ? `+${replacement.name}` : index === 0 ? 'True{}' : 'False{}';
+    });
+    return `    case ${patterns.join(' ')}: ${emit(normalize(term))}`;
+  }).join('\n');
+}
+
 function compileEntity([name, sourceType, sourceBody]) {
   const decode = decoder();
   const { parameters, result } = telescope(decode(sourceType));
@@ -283,7 +330,7 @@ function compileEntity([name, sourceType, sourceBody]) {
     const [tail, head] = body.branches[1].variables;
     code = `  match ${emit(body.value)}:\n    case ${isList ? 'Nil{}' : '0n'}: ${emit(body.branches[0].body, recursive)}\n` +
       `    case ${isList ? `Con{+${head.name}, +${tail.name}}` : `1n+${tail.name}`}: ${emit(body.branches[1].body, recursive)}`;
-  } else code = lowerInduction(name, parameters, body) ?? `  ${emit(body)}`;
+  } else code = lowerInduction(name, parameters, body) ?? lowerBooleanCases(body, parameters);
   return `# Imported proof term: ${name}\ndef ${method}(${declarations.join(', ')}) ->\n  ${emit(result)}:\n${code}\n`;
 }
 
@@ -321,6 +368,7 @@ async function refresh() {
       ['Stdlib.Lists.List', 'user-contrib/Stdlib/Lists/List.v'],
       ['Corelib.Init.Nat', 'theories/Init/Nat.v'],
       ['Stdlib.Arith.PeanoNat', 'user-contrib/Stdlib/Arith/PeanoNat.v'],
+      ['Stdlib.Bool.Bool', 'user-contrib/Stdlib/Bool/Bool.v'],
     ]) sources[name] = digest(await readFile(path.join(library, relative)));
     const bundle = {
       format: 'rocq-template-certificates-2',

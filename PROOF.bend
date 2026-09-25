@@ -11,6 +11,7 @@ import ./bendlib/proofs/protocol.bend as ProtocolProof
 import ./bendlib/proofs/safety.bend as SafetyProof
 import ./bendlib/proofs/tasks.bend as TasksProof
 import ./bendlib/proofs/traces.bend as TracesProof
+import ./bendlib/proofs/operations.bend as OperationsProof
 
 # Assemble the conceptual program only after every local obligation is closed.
 
@@ -19,4 +20,5 @@ def Entry.harness():
     Entry.Meaning{Concepts.commands(), Concepts.interactions(), Concepts.actions(), Concepts.scheduling(), Concepts.native_interface()},
     Entry.Composition{Concepts.traces(), Concepts.task_machine(), Concepts.persistence(), Concepts.history(), Concepts.decisions()},
     Entry.Recovery{Concepts.context(), Concepts.interruption(), Concepts.recovery(), Concepts.recovery_batches()},
-    Entry.Observation{Concepts.observations(), Concepts.task_views(), Concepts.branch_results()}}
+    Entry.Observation{Concepts.observations(), Concepts.task_views(), Concepts.branch_results()},
+    Entry.Concurrency{Concepts.operation_rights(), Concepts.announcement(), Concepts.notifications(), Concepts.coordination()}}

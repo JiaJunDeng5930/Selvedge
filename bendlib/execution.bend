@@ -38,11 +38,6 @@ def oversized(rendered: Result<&2, &2, String, String>) -> Bool:
     case Fail{reason}: True{}
     case Done{text}: Nat.is_le(M.context_threshold_bytes(), J.utf8_length(text))
 
-def model_sized(large: Bool, task: M.Task) -> Action:
-  match large:
-    case True{}: Summary{task, True{}}
-    case False{}: Model{task}
-
 def model_with_operations(large: Bool, pending: Bool, task: M.Task) -> Action:
   match large pending:
     case True{} True{}: Idle{task}

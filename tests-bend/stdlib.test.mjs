@@ -18,8 +18,36 @@ test('standard algebra certificates reproduce the saved Bend proof terms without
   assert.match(bundle.sources['Stdlib.Lists.List'], /^[a-f0-9]{64}$/);
   assert.match(bundle.sources['Corelib.Init.Nat'], /^[a-f0-9]{64}$/);
   assert.match(bundle.sources['Stdlib.Arith.PeanoNat'], /^[a-f0-9]{64}$/);
+  assert.match(bundle.sources['Stdlib.Bool.Bool'], /^[a-f0-9]{64}$/);
   for (const name of ['iter_swap_gen', 'iter_add', 'iter_ind']) {
     assert.ok(bundle.entities.some(([entity]) => entity === `Stdlib.Arith.PeanoNat.Nat.${name}`));
+  }
+  for (const name of ['orb_assoc', 'orb_comm', 'orb_diag', 'orb_false_l', 'orb_false_r', 'orb_true_r']) {
+    assert.ok(bundle.entities.some(([entity]) => entity === `Stdlib.Bool.Bool.${name}`));
+  }
+});
+
+test('original notification algebra rejects a wrong Boolean correspondence and invented evidence', async t => {
+  const source = translate(bundle.entities);
+  const directory = await mkdtemp(path.join(tmpdir(), 'selvedge-boolean-certificates-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const mutants = [['or-mapped-to-and', source.replaceAll('Bool.or(', 'Bool.and(')],
+    ['constructors-exchanged', source.replaceAll('True{}', 'SWAPPED_TRUE').replaceAll('False{}', 'True{}').replaceAll('SWAPPED_TRUE', 'False{}')]];
+  for (const name of ['orb_comm', 'orb_diag', 'orb_false_r', 'orb_true_r']) {
+    const start = source.indexOf(`def ${name}(`);
+    assert.notEqual(start, -1);
+    const body = source.indexOf(':\n', start) + 2;
+    const next = source.indexOf('\n# Imported proof term:', body);
+    mutants.push([name, source.slice(0, body) + '  {==}\n' + (next < 0 ? '' : source.slice(next))]);
+  }
+  for (const [name, corrupted] of mutants) {
+    assert.notEqual(corrupted, source);
+    const filename = path.join(directory, `${name}.bend`);
+    await writeFile(filename, corrupted);
+    const rejected = spawnSync(compiler(), [filename, '--check-only'], { encoding: 'utf8', timeout: 10_000 });
+    assert.equal(rejected.error, undefined);
+    assert.notEqual(rejected.status, 0, `${name} must not certify a notification semilattice`);
+    assert.match(rejected.stdout + rejected.stderr, /orb_(assoc|comm|diag|false_l|false_r|true_r)/);
   }
 });
 

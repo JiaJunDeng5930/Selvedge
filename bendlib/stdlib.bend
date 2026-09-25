@@ -97,3 +97,53 @@ def iter_ind(~A_0: Data, ~f_1: @__2:A_0 -> A_0, ~P_4: @__5:Nat -> @__6:A_0 -> Ty
   match n_12:
     case 0n: __7
     case 1n+imported_rest: __8(imported_rest, iter(~A_0, ~f_1, imported_rest, a_3), iter_ind(~A_0, ~f_1, ~P_4, ~__8, a_3, __7, imported_rest))
+
+# Imported proof term: Stdlib.Bool.Bool.orb_assoc
+def orb_assoc(+b1_0: Bool, +b2_1: Bool, +b3_2: Bool) ->
+  {Bool.or(b1_0, Bool.or(b2_1, b3_2)) == Bool.or(Bool.or(b1_0, b2_1), b3_2) : Bool}:
+  match b1_0 b2_1 b3_2:
+    case True{} True{} True{}: {==}
+    case False{} True{} True{}: {==}
+    case True{} False{} True{}: {==}
+    case False{} False{} True{}: {==}
+    case True{} True{} False{}: {==}
+    case False{} True{} False{}: {==}
+    case True{} False{} False{}: {==}
+    case False{} False{} False{}: {==}
+
+# Imported proof term: Stdlib.Bool.Bool.orb_comm
+def orb_comm(+b1_0: Bool, +b2_1: Bool) ->
+  {Bool.or(b1_0, b2_1) == Bool.or(b2_1, b1_0) : Bool}:
+  match b1_0 b2_1:
+    case True{} True{}: {==}
+    case False{} True{}: {==}
+    case True{} False{}: {==}
+    case False{} False{}: {==}
+
+# Imported proof term: Stdlib.Bool.Bool.orb_diag
+def orb_diag(+b_0: Bool) ->
+  {Bool.or(b_0, b_0) == b_0 : Bool}:
+  match b_0:
+    case True{}: {==}
+    case False{}: {==}
+
+# Imported proof term: Stdlib.Bool.Bool.orb_false_l
+def orb_false_l(+b_0: Bool) ->
+  {Bool.or(False{}, b_0) == b_0 : Bool}:
+  match b_0:
+    case True{}: {==}
+    case False{}: {==}
+
+# Imported proof term: Stdlib.Bool.Bool.orb_false_r
+def orb_false_r(+b_0: Bool) ->
+  {Bool.or(b_0, False{}) == b_0 : Bool}:
+  match b_0:
+    case True{}: {==}
+    case False{}: {==}
+
+# Imported proof term: Stdlib.Bool.Bool.orb_true_r
+def orb_true_r(+b_0: Bool) ->
+  {Bool.or(b_0, True{}) == True{} : Bool}:
+  match b_0:
+    case True{}: {==}
+    case False{}: {==}
