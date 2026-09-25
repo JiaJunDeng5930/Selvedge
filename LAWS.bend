@@ -8,6 +8,7 @@ import ./COMMANDS.bend as Commands
 import ./bendlib/commit.bend as Commit
 import ./bendlib/protocol.bend as Protocol
 import ./bendlib/structures.bend as S
+import ./bendlib/execution.bend as Execution
 
 # Unlike safety, these equalities prohibit both an always-rejecting command
 # interpreter and a safe no-op. State, reply, and effects are all observable.
@@ -63,12 +64,36 @@ law output_semantics:
 law command_transition:
   for +command: M.Command
   for +world: M.World
-  {P.transition(M.UserCommand{command}, world) == Commit.command(~P.scheduled, command, world) : M.Decision}
+  {P.transition(M.UserCommand{command}, world) == Commit.command(~Execution.scheduled, command, world) : M.Decision}
 
 law interaction_transition:
   for +input: M.Input
   for +world: M.World
-  {P.transition(input, world) == Commit.input(~P.scheduled, input, world) : M.Decision}
+  {P.transition(input, world) == Commit.input(~Execution.scheduled, input, world) : M.Decision}
+
+# These correspondences close the scheduling parameter in the complete command
+# specification. They quantify over every resolved action and every finite run.
+law execution_semantics:
+  for +action: Execution.Action
+  for +world: M.World
+  {P.realize_action(action, world) == Execution.meaning(action, world) : M.Decision}
+
+law work_semantics:
+  for +work: M.Work
+  for +task: M.Task
+  for +world: M.World
+  {P.work(work, task, world) == Execution.work(work, task, world) : M.Decision}
+
+law schedule_semantics:
+  for +fuel: Nat
+  for +candidate: Maybe<&2, M.Task>
+  for +decision: M.Decision
+  {P.schedule(fuel, candidate, decision) == Execution.schedule(fuel, candidate, decision) : M.Decision}
+
+law scheduling_semantics:
+  for +enabled: Bool
+  for +decision: M.Decision
+  {P.scheduled(enabled, decision) == Execution.scheduled(enabled, decision) : M.Decision}
 
 law recovery_partition:
   for +first: +List<M.Task>
@@ -190,12 +215,12 @@ law tool_dispatch:
 law small_context_dispatch:
   for +task: M.Task
   for +world: M.World
-  {P.model_request_sized(False{}, task, world) == P.model_request_direct(task, world) : M.Decision}
+  {P.realize_action(Execution.model_sized(False{}, task), world) == P.model_request_direct(task, world) : M.Decision}
 
 law large_context_dispatch:
   for +task: M.Task
   for +world: M.World
-  {P.model_request_sized(True{}, task, world) == P.summary_request(task, True{}, world) : M.Decision}
+  {P.realize_action(Execution.model_sized(True{}, task), world) == P.summary_request(task, True{}, world) : M.Decision}
 
 law accepted_model_settlement:
   for +outcome: M.Outcome

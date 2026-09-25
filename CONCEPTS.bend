@@ -6,6 +6,7 @@ import ./bendlib/tasks.bend as T
 import ./bendlib/commit.bend as Commit
 import ./bendlib/structures.bend as S
 import ./bendlib/protocol.bend as Protocol
+import ./bendlib/execution.bend as Execution
 import ./bendlib/json.bend as J
 import ./COMMANDS.bend as Commands
 
@@ -17,7 +18,7 @@ import ./COMMANDS.bend as Commands
 # PROOF supplies application-specific correspondence, not fresh algebra theory.
 
 def specification(command: M.Command, world: M.World) -> M.Decision:
-  Commit.command(~P.scheduled, command, world)
+  Commit.command(~Execution.scheduled, command, world)
 
 def implementation(command: M.Command, world: M.World) -> M.Decision:
   P.transition(M.UserCommand{command}, world)
@@ -26,7 +27,7 @@ law commands:
   S.Refinement<M.World, M.Command, M.Decision, specification, implementation>
 
 def interaction_specification(input: M.Input, world: M.World) -> M.Decision:
-  Commit.input(~P.scheduled, input, world)
+  Commit.input(~Execution.scheduled, input, world)
 
 def interaction_implementation(input: M.Input, world: M.World) -> M.Decision:
   P.transition(input, world)

@@ -106,6 +106,10 @@ test('functional proof gates reject type-correct no-ops, wrong replies, missing 
       block.replace(/\[M\.ExecuteTool\{[\s\S]*?\}\]/, 'Nil{}'))],
     ['never run the scheduler', source => replaceBody(source, 'scheduled', 'decision')],
     ['drop the continuation at fuel exhaustion', source => replaceBody(source, 'defer', 'decision')],
+    ['ignore the complete resolved execution alphabet', source => replaceBody(source, 'realize_action', 'respond(world, J.Null{})')],
+    ['turn every selected task into a safe no-op', source => replaceBody(source, 'work', 'respond(world, J.Null{})')],
+    ['discard earlier effects when combining scheduler steps', source => alterDefinition(source, 'combine', block =>
+      replaceOnce(block, 'List.append(&2, M.Effect, effects, added)', 'added'))],
     ['reject even admitted decisions', source => replaceBody(source, 'admitted',
       'reject(previous, "invariant_violation", "The candidate violates a world invariant, task retention, or effect authority")')],
     ['publish oversized decisions', source => replaceBody(source, 'output_admitted', 'decision')],

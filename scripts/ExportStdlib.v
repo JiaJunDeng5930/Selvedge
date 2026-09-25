@@ -58,6 +58,9 @@ MetaRocq Run (export (@List.fold_left_app)).
 MetaRocq Run (export (@List.map_app)).
 MetaRocq Run (export (@List.map_map)).
 MetaRocq Run (export (@List.map_id)).
+MetaRocq Run (export (@nat_ind)).
+Print Assumptions list_ind.
+Print Assumptions nat_ind.
 Print Assumptions List.app_nil_r.
 Print Assumptions List.app_assoc.
 Print Assumptions List.fold_left_app.

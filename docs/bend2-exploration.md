@@ -680,3 +680,30 @@ it does not prove physical history sharing or asymptotic bounds. Resource
 accounting required permission for macOS `time -l` outside the command sandbox;
 the initial sandbox-only run could not read its clock information. Timing is
 observational, not a CI pass threshold or a guarantee of performance under load.
+
+## 2026-09-25: semantic independence must include higher-order parameters
+
+The complete command equation still accepted PROGRAM's scheduler as a parameter.
+This is a specification dependency even without a direct import in the commit
+module: changing scheduling could change both sides together. A theorem's
+quantifiers and supplied higher-order operations therefore belong in its
+dependency audit, not just its import graph. Execution now has an independent
+action alphabet, action meaning and finite-run meaning. Correspondence proofs
+compose command/protocol interpretation, action execution, scheduling, admission
+and output delivery. A structural test rejects an implementation dependency in
+the specification closure and a production-scheduler binding at the entry.
+
+The imported natural-number eliminator makes the proof boundary tangible: the
+project supplies a zero-budget case and a successor correspondence, while the
+existing Corelib term performs induction. Adding a source entity also required
+refreshing the manifest's format and source fingerprints; changing only the
+translator correctly failed the reproducibility gate. The bundle was regenerated
+from installed Rocq/MetaRocq rather than repairing the digest by hand. Proof and
+native gates then passed, with 102 tests including the corrupted eliminator.
+
+The reference audit also found a name-resolution error in previous exploration:
+the local `shpz/UnrealHarness` clone is an Unreal Engine integration, not the
+async-first coding harness discussed with the user. The relevant reference is
+`unreallabsai/unreal-agent`. Earlier observations about the former must not be
+treated as evidence about the latter. Subsequent capability work uses the
+correct source, with inspected paths and revisions recorded below.

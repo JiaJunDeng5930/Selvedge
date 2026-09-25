@@ -12,6 +12,7 @@ import ./COMMANDS.bend as Commands
 import ./bendlib/commit.bend as Commit
 import ./bendlib/structures.bend as S
 import ./CONCEPTS.bend as Concepts
+import ./bendlib/execution.bend as Execution
 import ./bendlib/protocol.bend as Protocol
 
 def query_semantics(+query: M.Query, +world: M.World) ->
@@ -155,6 +156,72 @@ def Laws.invocation_semantics(operation, call, remaining, task, world):
 def Laws.builtin_semantics(tool, arguments, call, remaining, task, world):
   Laws.invocation_semantics(Protocol.invocation(tool, arguments, task, world), call, remaining, task, world)
 
+def Laws.execution_semantics(action, world):
+  match action world:
+    case Execution.Rest{} _: {==}
+    case Execution.Idle{task} M.World{tasks, next_task, ticket, environment, limits}: {==}
+    case Execution.Model{task} M.World{tasks, next_task, ticket, M.Environment{catalog, profiles, max_fork, max_descendants, project}, limits}: {==}
+    case Execution.Summary{task, resume} M.World{tasks, next_task, ticket, environment, limits}: {==}
+    case Execution.External{tool, call, remaining, task} M.World{tasks, next_task, ticket, environment, limits}: {==}
+    case Execution.Internal{operation, call, remaining, task} _:
+      Laws.invocation_semantics(operation, call, remaining, task, world)
+    case Execution.Failure{code, reason, call, remaining, task} M.World{tasks, next_task, ticket, environment, limits}: {==}
+
+def Laws.work_semantics(work, task, world):
+  Laws.execution_semantics(Execution.resolve(work, task, world), world)
+
+def combination_semantics(+before: M.Decision, +after: M.Decision) ->
+  {P.combine(before, after) == Execution.combine(before, after) : M.Decision}:
+  match before after:
+    case M.Decision{old, reply, effects} M.Decision{world, ignored, added}: {==}
+
+def combined_work_semantics(+task: M.Task, +decision: M.Decision) ->
+  {P.combine(decision, P.work(M.work(M.task_status(task), M.task_phase(task)), task, P.decision_world(decision))) ==
+    Execution.combine(decision, Execution.work(M.work(M.task_status(task), M.task_phase(task)), task, Execution.world(decision))) : M.Decision}:
+  +work = M.work(M.task_status(task), M.task_phase(task))
+  +world = P.decision_world(decision)
+  +actual = P.work(work, task, world)
+  +expected = Execution.work(work, task, world)
+  Equal.trans(M.Decision, P.combine(decision, actual), Execution.combine(decision, actual), Execution.combine(decision, expected),
+    combination_semantics(decision, actual),
+    Equal.cong(M.Decision, M.Decision, (value => Execution.combine(decision, value)), actual, expected, Laws.work_semantics(work, task, world)))
+
+def Scheduling(fuel: Nat) -> Type:
+  @+candidate:Maybe<&2, M.Task> -> @+decision:M.Decision ->
+    {P.schedule(fuel, candidate, decision) == Execution.schedule(fuel, candidate, decision) : M.Decision}
+
+def scheduling_zero(+candidate: Maybe<&2, M.Task>, +decision: M.Decision) ->
+  {P.schedule(0n, candidate, decision) == Execution.schedule(0n, candidate, decision) : M.Decision}:
+  match candidate decision:
+    case None{} _: {==}
+    case Some{task} M.Decision{world, reply, effects}: {==}
+
+def scheduling_successor(+fuel: Nat, induction: Scheduling(fuel), +candidate: Maybe<&2, M.Task>, +decision: M.Decision) ->
+  {P.schedule(1n+fuel, candidate, decision) == Execution.schedule(1n+fuel, candidate, decision) : M.Decision}:
+  match candidate:
+    case None{}: {==}
+    case Some{+task}:
+      +work = M.work(M.task_status(task), M.task_phase(task))
+      +world = P.decision_world(decision)
+      +actual = P.combine(decision, P.work(work, task, world))
+      +expected = Execution.combine(decision, Execution.work(work, task, world))
+      +following = T.runnable(P.tasks(P.decision_world(actual)))
+      Equal.trans(M.Decision, P.schedule(fuel, following, actual), Execution.schedule(fuel, following, actual),
+        Execution.schedule(fuel, T.runnable(P.tasks(P.decision_world(expected))), expected), induction(following, actual),
+        Equal.cong(M.Decision, M.Decision,
+          (+value => Execution.schedule(fuel, T.runnable(P.tasks(P.decision_world(value))), value)),
+          actual, expected, combined_work_semantics(task, decision)))
+
+def Laws.schedule_semantics(fuel, candidate, decision):
+  Std.nat_ind(~Scheduling, ~scheduling_zero,
+    ~(fuel => induction => +candidate => +decision => scheduling_successor(fuel, induction, candidate, decision)), fuel)(candidate, decision)
+
+def Laws.scheduling_semantics(enabled, decision):
+  match enabled:
+    case False{}: {==}
+    case True{}:
+      Laws.schedule_semantics(P.scheduling_budget(P.decision_world(decision)), T.runnable(P.tasks(P.decision_world(decision))), decision)
+
 def guard_semantics(+state_valid: Bool, +change_valid: Bool, +decision: M.Decision, +previous: M.World) ->
   {P.admitted(state_valid, change_valid, decision, previous) == Commit.guard(state_valid, change_valid, decision, previous) : M.Decision}:
   match state_valid change_valid:
@@ -198,20 +265,24 @@ def Laws.output_semantics(durable, decision, previous):
   rendered_semantics(J.render(Commit.render_budget(previous), J.One{View.envelope(durable, decision)}), decision, previous)
 
 def after_apply_semantics(+input: M.Input, +decision: M.Decision, +previous: M.World) ->
-  {P.after_apply(input, decision, previous) == Commit.update(~P.scheduled, input, decision, previous) : M.Decision}:
+  {P.after_apply(input, decision, previous) == Commit.update(~Execution.scheduled, input, decision, previous) : M.Decision}:
   +durable = M.durable(input)
   +candidate = P.scheduled(Commit.schedules(input, decision), decision)
-  Equal.trans(M.Decision, P.after_apply(input, decision, previous), Commit.deliver(durable, P.checked(candidate, previous), previous),
+  first = Equal.trans(M.Decision, P.after_apply(input, decision, previous), Commit.deliver(durable, P.checked(candidate, previous), previous),
     Commit.update(~P.scheduled, input, decision, previous), Laws.output_semantics(durable, P.checked(candidate, previous), previous),
     Equal.cong(M.Decision, M.Decision, (value => Commit.deliver(durable, value, previous)),
       P.checked(candidate, previous), Commit.checked(candidate, previous), Laws.commit_semantics(candidate, previous)))
+  Equal.trans(M.Decision, P.after_apply(input, decision, previous), Commit.update(~P.scheduled, input, decision, previous),
+    Commit.update(~Execution.scheduled, input, decision, previous), first,
+    Equal.cong(M.Decision, M.Decision, (value => Commit.finish(durable, value, previous)),
+      candidate, Execution.scheduled(Commit.schedules(input, decision), decision), Laws.scheduling_semantics(Commit.schedules(input, decision), decision)))
 
 def updated_command_semantics(+command: M.Command, +world: M.World) ->
-  {P.update(M.UserCommand{command}, world) == Commit.update(~P.scheduled, M.UserCommand{command}, Commands.command(command, world), world) : M.Decision}:
+  {P.update(M.UserCommand{command}, world) == Commit.update(~Execution.scheduled, M.UserCommand{command}, Commands.command(command, world), world) : M.Decision}:
   +input : M.Input = M.UserCommand{command}
   +meaning = Commands.command(command, world)
   Equal.trans(M.Decision, P.update(input, world), P.after_apply(input, meaning, world),
-    Commit.update(~P.scheduled, input, meaning, world),
+    Commit.update(~Execution.scheduled, input, meaning, world),
     Equal.cong(M.Decision, M.Decision, (decision => P.after_apply(input, decision, world)),
       P.apply_command(command, world), meaning, Laws.command_semantics(command, world)), after_apply_semantics(input, meaning, world))
 
@@ -225,10 +296,10 @@ def Laws.command_transition(command, world):
     case M.Compact{id, summary}: updated_command_semantics(M.Compact{id, summary}, world)
 
 def updated_input_semantics(+input: M.Input, +world: M.World) ->
-  {P.update(input, world) == Commit.update(~P.scheduled, input, Protocol.input(input, world), world) : M.Decision}:
+  {P.update(input, world) == Commit.update(~Execution.scheduled, input, Protocol.input(input, world), world) : M.Decision}:
   +meaning = Protocol.input(input, world)
   Equal.trans(M.Decision, P.update(input, world), P.after_apply(input, meaning, world),
-    Commit.update(~P.scheduled, input, meaning, world),
+    Commit.update(~Execution.scheduled, input, meaning, world),
     Equal.cong(M.Decision, M.Decision, (decision => P.after_apply(input, decision, world)),
       P.apply(input, world), meaning, Laws.input_semantics(input, world)), after_apply_semantics(input, meaning, world))
 

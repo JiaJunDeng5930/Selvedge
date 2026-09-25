@@ -18,6 +18,7 @@ const names = [
   'Stdlib.Lists.List.map_app',
   'Stdlib.Lists.List.map_map',
   'Stdlib.Lists.List.map_id',
+  'Corelib.Init.Datatypes.nat_ind',
 ];
 const intrinsic = new Set([
   'Corelib.Init.Datatypes.app', 'Stdlib.Lists.List.fold_left', 'Corelib.Lists.ListDef.map',
@@ -38,7 +39,7 @@ export function parseExport(output) {
   if (entities.length !== names.length || entities.some((entry, index) => entry[0] !== names[index])) {
     throw new Error('The exporter did not produce exactly the required named entities');
   }
-  if ((output.match(/Closed under the global context/g) ?? []).length !== names.length - 1) {
+  if ((output.match(/Closed under the global context/g) ?? []).length !== names.length) {
     throw new Error('The standard theorems must be closed under the global context');
   }
   return entities;
@@ -65,8 +66,8 @@ function decoder() {
       return { tag, name: args[0] };
     }
     if (tag === 'ind' || tag === 'ctor') {
-      if (!['Corelib.Init.Datatypes.list', 'Corelib.Init.Logic.eq'].includes(args[0]) || args[1] !== 0 ||
-          (tag === 'ctor' && ![0, ...(args[0].endsWith('.list') ? [1] : [])].includes(args[2]))) {
+      if (!['Corelib.Init.Datatypes.list', 'Corelib.Init.Datatypes.nat', 'Corelib.Init.Logic.eq'].includes(args[0]) || args[1] !== 0 ||
+          (tag === 'ctor' && ![0, ...(!args[0].endsWith('.eq') ? [1] : [])].includes(args[2]))) {
         throw new Error('Unmapped source inductive');
       }
       return { tag, name: args[0], index: args[2] };
@@ -131,9 +132,10 @@ function normalize(node) {
 
 const short = name => name.slice(name.lastIndexOf('.') + 1);
 const templateSlots = { list_ind: [0, 1, 2, 3], app_nil_r: [], app_assoc: [], fold_left_app: [0, 1, 2],
-  map_app: [0, 1, 2], map_map: [0, 1, 2, 3, 4], map_id: [0] };
+  map_app: [0, 1, 2], map_map: [0, 1, 2, 3, 4], map_id: [0], nat_ind: [0, 1, 2] };
 function dataType(type) {
-  return type.tag === 'var' || (type.tag === 'app' && type.fn.tag === 'ind' && type.fn.name.endsWith('.list'));
+  return type.tag === 'var' || (type.tag === 'ind' && type.name.endsWith('.nat')) ||
+    (type.tag === 'app' && type.fn.tag === 'ind' && type.fn.name.endsWith('.list'));
 }
 function templateType(type) { return type.tag === 'sort' || type.tag === 'pi'; }
 
@@ -145,6 +147,8 @@ function occurrences(node, name) {
 
 function emit(node, recursive = new Map()) {
   if (node.tag === 'var') return node.name;
+  if (node.tag === 'ind' && node.name === 'Corelib.Init.Datatypes.nat') return 'Nat';
+  if (node.tag === 'ctor' && node.name === 'Corelib.Init.Datatypes.nat' && node.index === 0) return '0n';
   if (node.tag === 'sort') return node.kind === 'Prop' ? 'Type' : 'Data';
   if (node.tag === 'refl') return '{==}';
   if (node.tag === 'pi') return `@${node.variable.name}:${emit(node.type)} -> ${emit(node.body)}`;
@@ -158,6 +162,7 @@ function emit(node, recursive = new Map()) {
     if (fn.name.endsWith('.eq') && e.length === 3) return `{${e[1]} == ${e[2]} : ${e[0]}}`;
   }
   if (fn.tag === 'ctor') {
+    if (fn.name === 'Corelib.Init.Datatypes.nat' && fn.index === 1 && e.length === 1) return `(1n+${e[0]})`;
     if (fn.name.endsWith('.eq') && fn.index === 0) return '{==}';
     if (fn.name.endsWith('.list') && fn.index === 0 && e.length === 1) return 'Nil{}';
     if (fn.name.endsWith('.list') && fn.index === 1 && e.length === 3) return `(${e[1]} <> ${e[2]})`;
@@ -229,19 +234,20 @@ function compileEntity([name, sourceType, sourceBody]) {
     return `${isTemplate ? '~' : p.type.tag === 'sort' ? '-' : dataType(p.type) ? '+' : ''}${p.variable.name}: ${emit(p.type)}`;
   });
   let code;
-  if (method === 'list_ind') {
+  if (method === 'list_ind' || method === 'nat_ind') {
     if (body.tag !== 'app' || body.fn.tag !== 'fix' || body.fn.argument !== 0 || body.args.length !== 1) {
       throw new Error('The imported list recursor has changed shape');
     }
     const fixed = body.fn;
     body = application(fixed.body, body.args);
-    if (body.tag !== 'case' || body.branches.length !== 2 || body.branches[0].variables.length !== 0 || body.branches[1].variables.length !== 2) {
+    const isList = method === 'list_ind';
+    if (body.tag !== 'case' || body.branches.length !== 2 || body.branches[0].variables.length !== 0 || body.branches[1].variables.length !== (isList ? 2 : 1)) {
       throw new Error('Unsupported recursor branches');
     }
-    const recursive = new Map([[fixed.variable.name, `${method}(${parameters.slice(0, 4).map(p => `~${p.variable.name}`).join(', ')}, `]]);
+    const recursive = new Map([[fixed.variable.name, `${method}(${parameters.slice(0, isList ? 4 : 3).map(p => `~${p.variable.name}`).join(', ')}, `]]);
     const [tail, head] = body.branches[1].variables;
-    code = `  match ${emit(body.value)}:\n    case Nil{}: ${emit(body.branches[0].body, recursive)}\n` +
-      `    case Con{+${head.name}, +${tail.name}}: ${emit(body.branches[1].body, recursive)}`;
+    code = `  match ${emit(body.value)}:\n    case ${isList ? 'Nil{}' : '0n'}: ${emit(body.branches[0].body, recursive)}\n` +
+      `    case ${isList ? `Con{+${head.name}, +${tail.name}}` : `1n+${tail.name}`}: ${emit(body.branches[1].body, recursive)}`;
   } else code = lowerInduction(name, parameters, body) ?? `  ${emit(body)}`;
   return `# Imported proof term: ${name}\ndef ${method}(${declarations.join(', ')}) ->\n  ${emit(result)}:\n${code}\n`;
 }
@@ -270,15 +276,19 @@ async function refresh() {
   try {
     const output = run('rocq', ['c', '-o', path.join(temporary, 'ExportStdlib.vo'), 'scripts/ExportStdlib.v']);
     const entities = parseExport(output);
-    const library = path.join(run('rocq', ['c', '-where']), 'user-contrib/Stdlib/Lists/List.v');
-    const source = await readFile(library);
+    const library = run('rocq', ['c', '-where']);
+    const sources = {};
+    for (const [name, relative] of [
+      ['Corelib.Init.Datatypes', 'theories/Init/Datatypes.v'],
+      ['Stdlib.Lists.List', 'user-contrib/Stdlib/Lists/List.v'],
+    ]) sources[name] = digest(await readFile(path.join(library, relative)));
     const bundle = {
-      format: 'rocq-template-certificates-1',
+      format: 'rocq-template-certificates-2',
       rocq: run('rocq', ['--version']).split('\n')[0],
       stdlib: run('opam', ['var', 'rocq-stdlib:version']),
       metarocq: run('opam', ['var', 'rocq-metarocq-template:version']),
       source: 'https://github.com/rocq-prover/stdlib',
-      listSourceSha256: digest(source),
+      sources,
       entitiesSha256: digest(JSON.stringify(entities)),
       entities,
     };
@@ -291,7 +301,7 @@ async function refresh() {
 
 export async function checkBundle() {
   const bundle = JSON.parse(await readFile(bundlePath, 'utf8'));
-  if (bundle.format !== 'rocq-template-certificates-1' || bundle.entitiesSha256 !== digest(JSON.stringify(bundle.entities))) {
+  if (bundle.format !== 'rocq-template-certificates-2' || bundle.entitiesSha256 !== digest(JSON.stringify(bundle.entities))) {
     throw new Error('The pinned proof bundle has an invalid format or digest');
   }
   const expected = translate(bundle.entities);

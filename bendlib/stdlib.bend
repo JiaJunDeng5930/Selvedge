@@ -63,3 +63,10 @@ def map_id(~A_0: Data, +l_1: +List<A_0>) ->
   match l_1:
     case Nil{}: {==}
     case Con{+imported_item, +imported_rest}: transport(+List<A_0>, imported_rest, (l_11 => {(imported_item <> l_11) == (imported_item <> imported_rest) : +List<A_0>}), {==}, map(~A_0, ~A_0, ~(x_12 => x_12), imported_rest), map_id(~A_0, imported_rest))
+
+# Imported proof term: Corelib.Init.Datatypes.nat_ind
+def nat_ind(~P_0: @n_1:Nat -> Type, ~O_2: P_0(0n), ~S_3: @n_4:Nat -> @__5:P_0(n_4) -> P_0((1n+n_4)), +n_6: Nat) ->
+  P_0(n_6):
+  match n_6:
+    case 0n: O_2
+    case 1n+n0_16: S_3(n0_16, nat_ind(~P_0, ~O_2, ~S_3, n0_16))

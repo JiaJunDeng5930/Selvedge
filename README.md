@@ -29,6 +29,9 @@ it is not merely a pre-scheduling postcondition. `bendlib/protocol.bend` complet
 the interaction vocabulary with asynchronous results, configuration, restart,
 scheduler ticks and accepted internal tool calls. The input-wide refinement fixes
 their post-state, reply and effects, including refusal versus tool-error settlement.
+`bendlib/execution.bend` independently specifies work resolution, effect dispatch
+and finite scheduling. Neither it nor the command/protocol/commit specification
+imports PROGRAM; the complete refinement closes over this independent scheduler.
 
 The existing standard-library proof terms and their checked translation live in
 [theory/README.md](theory/README.md). Normal builds need neither Rocq nor MetaRocq.

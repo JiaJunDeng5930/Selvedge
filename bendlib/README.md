@@ -25,6 +25,12 @@ or complete-envelope output rejection rolls back state and all effects. LAWS
 also fixes the scheduler's zero, quiescent and successor cases. Host commit
 ordering is checked separately by integration tests, not assumed proven by Bend.
 
+`execution.bend` owns the finite execution specification. Its action alphabet
+separates deciding what work means from realizing it in PROGRAM. Resolution
+includes recovery, availability and argument checks; action meaning fixes the
+whole decision. The scheduler refinement uses the original imported `nat_ind`
+certificate. The specification dependency closure excludes the implementation.
+
 `tasks.bend` implements task collection, history, queue, and recovery operations,
 including closing interrupted tool attempts and validating summary completions.
 Summary failure consumes no new authority: rejected calls and checkpoints are

@@ -2,11 +2,14 @@
 
 `stdlib-certificates.json` contains the **original types and proof terms** quoted
 from Rocq Stdlib 9.2.0, not project-written tactics with the same theorem names.
-The bundle records the source file's SHA-256, tool versions, and its own content
+The bundle records the source files' SHA-256, tool versions, and its own content
 digest. The included entities are `list_ind`, `List.app_nil_r`, `List.app_assoc`,
-`List.fold_left_app`, `List.map_app`, `List.map_map`, and `List.map_id`.
+`List.fold_left_app`, `List.map_app`, `List.map_map`, `List.map_id`, and `nat_ind`.
 The six algebra theorems are closed under the global
 context: their source proofs introduce no axioms.
+The natural-number eliminator is the original Corelib term, used to lift
+one-step execution correspondence to every finite scheduler budget. The current
+bundle records both Corelib's Datatypes and Stdlib's List source fingerprints.
 
 `scripts/ExportStdlib.v` obtains the opaque proof bodies with MetaRocq 1.5.1+9.2.
 `scripts/import-stdlib.mjs` translates that restricted term language to

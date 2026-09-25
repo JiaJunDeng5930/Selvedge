@@ -14,6 +14,8 @@ test('standard algebra certificates reproduce the saved Bend proof terms without
   assert.equal(translate(bundle.entities), await readFile(new URL('../bendlib/stdlib.bend', import.meta.url), 'utf8'));
   assert.equal(bundle.stdlib, '9.2.0');
   assert.equal(bundle.metarocq, '1.5.1+9.2');
+  assert.match(bundle.sources['Corelib.Init.Datatypes'], /^[a-f0-9]{64}$/);
+  assert.match(bundle.sources['Stdlib.Lists.List'], /^[a-f0-9]{64}$/);
 });
 
 test('certificate translation fails closed on unmapped constants, inductives, and syntax', () => {
@@ -57,4 +59,18 @@ test('the original map certificates reject a correspondence that silently drops 
   assert.equal(rejected.error, undefined);
   assert.notEqual(rejected.status, 0, 'An append-preserving empty map is not the required standard map');
   assert.match(rejected.stdout + rejected.stderr, /Location: map_(app|map|id)/);
+});
+
+test('the imported natural-number eliminator cannot replace every successor proof with its zero proof', async t => {
+  const source = translate(bundle.entities);
+  const corrupted = source.replace(/(case 1n\+\w+: )S_\d+\([^\n]*/, '$1O_2');
+  assert.notEqual(corrupted, source);
+  const directory = await mkdtemp(path.join(tmpdir(), 'selvedge-nat-certificate-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const filename = path.join(directory, 'corrupt-nat.bend');
+  await writeFile(filename, corrupted);
+  const rejected = spawnSync(compiler(), [filename, '--check-only'], { encoding: 'utf8', timeout: 10_000 });
+  assert.equal(rejected.error, undefined);
+  assert.notEqual(rejected.status, 0, 'Finite-run composition must use the actual imported induction step');
+  assert.match(rejected.stdout + rejected.stderr, /Location: nat_ind/);
 });

@@ -2,21 +2,20 @@ import Base
 import ./MODEL.bend as M
 import ./bendlib/json.bend as J
 import ./bendlib/tasks.bend as T
-import ./bendlib/schema.bend as Schema
 import ./bendlib/theory.bend as Theory
 import ./bendlib/presentation.bend as View
 import ./INVARIANTS.bend as I
 import ./COMMANDS.bend as Commands
 import ./bendlib/commit.bend as Commit
 import ./bendlib/protocol.bend as Protocol
+import ./bendlib/execution.bend as Execution
 
 # Accepted updates pass through resolution, realization and bounded scheduling.
 # program's state transition, and the object named by LAWS.bend and PROOF.bend.
 # The host owns no task state, lifecycle table, fork rule, or recovery decision.
 
 def tasks(world: M.World) -> +List<M.Task>:
-  M.World{tasks, next_task, next_ticket, environment, limits} = world
-  tasks
+  Commands.entries(world)
 
 def environment(world: M.World) -> M.Environment:
   M.World{tasks, next_task, next_ticket, environment, limits} = world
@@ -162,8 +161,7 @@ def apply(input: M.Input, +world: M.World) -> M.Decision:
   realize_event(Protocol.resolve(input, world), world)
 
 def decision_world(decision: M.Decision) -> M.World:
-  M.Decision{world, reply, effects} = decision
-  world
+  Execution.world(decision)
 
 def decision_reply(decision: M.Decision) -> J.Json:
   M.Decision{world, reply, effects} = decision
@@ -182,29 +180,8 @@ def model_request_direct(+task: M.Task, world: M.World) -> M.Decision:
   M.Decision{M.World{T.replace(tasks, next), next_task, 1n+next_ticket, environment, limits}, J.Null{},
     [M.RequestModel{M.task_id(task), next_ticket, T.task_model(contract), M.context_history(M.task_history(task)), tools, allowed}]}
 
-def needs_summary(rendered: Result<&2, &2, String, String>) -> Bool:
-  match rendered:
-    case Fail{error}: True{}
-    case Done{text}: Nat.is_le(M.context_threshold_bytes(), J.utf8_length(text))
-
-def model_request_sized(large: Bool, task: M.Task, world: M.World) -> M.Decision:
-  match large:
-    case True{}: summary_request(task, True{}, world)
-    case False{}: model_request_direct(task, world)
-
 def rendering_budget(world: M.World) -> Nat:
   Commit.render_budget(world)
-
-# Include the frozen guidance and tool schemas in the byte heuristic. This is
-# not a token oracle. Explicit provider overflow follows the same bounded path.
-def request_context(+task: M.Task) -> J.Json:
-  J.Object{[J.Field{"model", View.model_json(T.task_model(M.task_contract(task)))},
-    J.Field{"tools", J.Array{M.tools_json(T.task_tools(M.task_contract(task)))}},
-    J.Field{"history", J.Array{T.messages_json(M.history_messages(M.context_history(M.task_history(task)), Nil{}))}}]}
-
-def model_request(+task: M.Task, +world: M.World) -> M.Decision:
-  model_request_sized(M.compactable(M.context_history(M.task_history(task))) &&
-    needs_summary(J.render(rendering_budget(world), J.One{request_context(task)})), task, world)
 
 def external_tool(tool: M.Tool, +call: M.Call, +remaining: +List<M.Attempt>, +task: M.Task, world: M.World) -> M.Decision:
   M.World{tasks, next_task, +next_ticket, environment, limits} = world
@@ -244,74 +221,24 @@ def realize_invocation(operation: Protocol.Invocation, +call: M.Call, +remaining
 def builtin(tool: M.Builtin, arguments: J.Json, call: M.Call, remaining: +List<M.Attempt>, +task: M.Task, +world: M.World) -> M.Decision:
   realize_invocation(Protocol.invocation(tool, arguments, task, world), call, remaining, task, world)
 
-def dispatch_execution(execution: M.Execution, source: M.Source, tool: M.Tool, +call: M.Call, remaining: +List<M.Attempt>, task: M.Task, world: M.World) -> M.Decision:
-  match execution source:
-    case M.ExternalObservation{} _:
-      external_tool(tool, call, remaining, task, world)
-    case M.ExternalMutation{} _:
-      external_tool(tool, call, remaining, task, world)
-    case M.InternalOperation{} M.Harness{builtin_tool}:
-      builtin(builtin_tool, T.call_arguments(call), call, remaining, task, world)
-    case _ _:
-      tool_error("internal_error", "Invalid internal tool classification", call, remaining, task, world)
+def realize_action(action: Execution.Action, world: M.World) -> M.Decision:
+  match action:
+    case Execution.Rest{}: respond(world, J.Null{})
+    case Execution.Idle{task}: respond(store(M.with_phase(M.Idle{}, task), world), J.Null{})
+    case Execution.Model{task}: model_request_direct(task, world)
+    case Execution.Summary{task, resume}: summary_request(task, resume, world)
+    case Execution.External{tool, call, remaining, task}: external_tool(tool, call, remaining, task, world)
+    case Execution.Internal{operation, call, remaining, task}: realize_invocation(operation, call, remaining, task, world)
+    case Execution.Failure{code, reason, call, remaining, task}: tool_error(code, reason, call, remaining, task, world)
 
-def dispatch_source(+source: M.Source, tool: M.Tool, call: M.Call, remaining: +List<M.Attempt>, task: M.Task, world: M.World) -> M.Decision:
-  dispatch_execution(M.execution(source), source, tool, call, remaining, task, world)
+def model_request(task: M.Task, +world: M.World) -> M.Decision:
+  realize_action(Execution.model(task, world), world)
 
-def tool_schema(tool: M.Tool) -> J.Json:
-  M.Tool{name, description, schema, source} = tool
-  schema
+def run_tool(phase: M.Phase, task: M.Task, +world: M.World) -> M.Decision:
+  realize_action(Execution.tool(phase, task, world), world)
 
-def valid_arguments(source: M.Source, schema: J.Json, +arguments: J.Json) -> Bool:
-  match source:
-    case M.Mcp{server, remote}:
-      J.is_object(arguments)
-    case M.Harness{M.Bash{}}:
-      Schema.valid(schema, arguments) && M.nonempty(J.text(J.get(arguments, "command")))
-    case M.Harness{other}:
-      Schema.valid(schema, arguments)
-
-def tool_valid(valid: Bool, +tool: M.Tool, call: M.Call, remaining: +List<M.Attempt>, task: M.Task, world: M.World) -> M.Decision:
-  match valid:
-    case False{}:
-      tool_error("invalid_arguments", "Tool arguments do not satisfy its frozen schema", call, remaining, task, world)
-    case True{}:
-      dispatch_source(M.tool_source(tool), tool, call, remaining, task, world)
-
-def tool_available(available: Bool, +tool: M.Tool, +call: M.Call, remaining: +List<M.Attempt>, task: M.Task, world: M.World) -> M.Decision:
-  match available:
-    case False{}:
-      tool_error("tool_unavailable", "The task's frozen tool route is unavailable", call, remaining, task, world)
-    case True{}:
-      tool_valid(valid_arguments(M.tool_source(tool), tool_schema(tool), T.call_arguments(call)), tool, call, remaining, task, world)
-
-def tool_retry(permitted: Bool, +tool: M.Tool, call: M.Call, remaining: +List<M.Attempt>, task: M.Task, +world: M.World) -> M.Decision:
-  match permitted:
-    case False{}:
-      tool_error("outcome_unknown", "The effect may already have happened; automatic repetition is forbidden", call, remaining, task, world)
-    case True{}:
-      tool_available(T.available(catalog(environment(world)), tool), tool, call, remaining, task, world)
-
-def tool_found_for_work(found: Maybe<&2, M.Tool>, +attempt: M.Attempt, remaining: +List<M.Attempt>, task: M.Task, world: M.World) -> M.Decision:
-  match found:
-    case None{}:
-      tool_error("unknown_tool", "The call does not name a tool in the task contract", M.attempt_call(attempt), remaining, task, world)
-    case Some{+tool}:
-      tool_retry(M.may_execute(M.recovery(M.tool_source(tool)), attempt), tool, M.attempt_call(attempt), remaining, task, world)
-
-def run_tool(phase: M.Phase, +task: M.Task, world: M.World) -> M.Decision:
-  match phase:
-    case M.Ready{Con{+attempt, remaining}}:
-      tool_found_for_work(T.find_tool(T.task_tools(M.task_contract(task)), T.call_name(M.attempt_call(attempt))), attempt, remaining, task, world)
-    case _: respond(world, J.Null{})
-
-def work(work: M.Work, +task: M.Task, world: M.World) -> M.Decision:
-  match work:
-    case M.NoWork{}: respond(world, J.Null{})
-    case M.BecomeIdle{}: respond(store(M.with_phase(M.Idle{}, task), world), J.Null{})
-    case M.RequestNextModel{}: model_request(task, world)
-    case M.RequestContextSummary{}: summary_request(task, True{}, world)
-    case M.RunNextTool{}: run_tool(M.task_phase(task), task, world)
+def work(work: M.Work, task: M.Task, +world: M.World) -> M.Decision:
+  realize_action(Execution.resolve(work, task, world), world)
 
 def combine(before: M.Decision, after: M.Decision) -> M.Decision:
   match before after:
@@ -334,8 +261,7 @@ def schedule(fuel: Nat, candidate: Maybe<&2, M.Task>, +decision: M.Decision) -> 
       schedule(p, T.runnable(tasks(decision_world(next))), next)
 
 def scheduling_budget(world: M.World) -> Nat:
-  M.World{tasks, next_task, next_ticket, environment, M.ExecutionLimits{steps, render, bytes}} = world
-  steps
+  Execution.budget(world)
 
 def frame_limit(world: M.World) -> U32:
   Commit.frame_bytes(world)
