@@ -10,6 +10,7 @@ import ./bendlib/protocol.bend as Protocol
 import ./bendlib/structures.bend as S
 import ./bendlib/execution.bend as Execution
 import ./bendlib/traces.bend as Traces
+import ./bendlib/operations.bend as Ops
 import ./bendlib/transcript.bend as Transcript
 import ./bendlib/interface.bend as Interface
 import ./bendlib/frontend.bend as Frontend
@@ -178,7 +179,7 @@ law scheduling_exhausted:
     M.Decision{world, reply, List.append(&2, M.Effect, effects, [M.ContinueScheduling{}])} : M.Decision}
 
 def scheduled_step(+task: M.Task, +decision: M.Decision) -> M.Decision:
-  P.combine(decision, P.work(M.work(M.task_status(task), M.task_phase(task)), task, P.decision_world(decision)))
+  P.combine(decision, P.work(M.task_work(task), task, P.decision_world(decision)))
 
 law scheduling_progress:
   for +fuel: Nat
@@ -232,9 +233,9 @@ law model_dispatch:
   for +project: M.ProjectContext
   for +limits: M.ExecutionLimits
   {P.model_request_direct(task, M.World{tasks, next_task, ticket, M.Environment{catalog, profiles, max_fork, max_descendants, project}, limits}) ==
-    M.Decision{M.World{T.replace(tasks, M.with_phase(M.ModelPending{ticket, T.callable(T.task_tools(M.task_contract(task)), catalog)}, task)),
+    M.Decision{M.World{T.replace(tasks, M.with_phase(M.ModelPending{ticket, T.callable(T.task_tools(M.task_contract(task)), catalog)}, Ops.publish(task))),
       next_task, 1n+ticket, M.Environment{catalog, profiles, max_fork, max_descendants, project}, limits}, J.Null{},
-      [M.RequestModel{M.task_id(task), ticket, T.task_model(M.task_contract(task)), M.context_history(M.task_history(task)),
+      [M.RequestModel{M.task_id(task), ticket, T.task_model(M.task_contract(task)), M.context_history(M.task_history(Ops.publish(task))),
         T.task_tools(M.task_contract(task)), T.callable(T.task_tools(M.task_contract(task)), catalog)}]} : M.Decision}
 
 law tool_dispatch:
@@ -248,7 +249,7 @@ law tool_dispatch:
   for +environment: M.Environment
   for +limits: M.ExecutionLimits
   {P.external_tool(tool, call, remaining, task, M.World{tasks, next_task, ticket, environment, limits}) ==
-    M.Decision{M.World{T.replace(tasks, M.with_phase(M.ToolPending{ticket, call, remaining}, task)),
+    M.Decision{M.World{T.replace(tasks, T.promote(Ops.started(ticket, call, remaining, task))),
       next_task, 1n+ticket, environment, limits}, J.Null{}, [M.ExecuteTool{M.task_id(task), ticket, tool, call}]} : M.Decision}
 
 law small_context_dispatch:
@@ -271,14 +272,13 @@ law accepted_model_settlement:
       M.success(J.Object{[J.Field{"accepted", J.Boolean{True{}}}]}), Nil{}} : M.Decision}
 
 law accepted_tool_settlement:
-  for +call: M.Call
-  for +remaining: +List<M.Attempt>
+  for +operation: M.Operation
   for +value: J.Json
   for +error: Bool
   for +task: M.Task
   for +world: M.World
-  {P.tool_matched(True{}, call, remaining, value, error, task, world) ==
-    M.Decision{Commands.replace(T.complete_tool(call, remaining, value, error, task), world),
+  {P.tool_matched(True{}, operation, value, error, task, world) ==
+    M.Decision{Commands.replace(T.complete_operation(operation, value, error, task), world),
       M.success(J.Object{[J.Field{"accepted", J.Boolean{True{}}}]}), Nil{}} : M.Decision}
 
 law accepted_summary_settlement:
@@ -319,8 +319,10 @@ law checkpoint_is_not_recompacted:
   for +queued: +List<String>
   for +phase: M.Phase
   for +world: M.World
-  {P.model_request(M.Task{id, lineage, contract, status, M.HistoryNode{history, M.ContextCheckpoint{summary}}, queued, phase}, world) ==
-    P.model_request_direct(M.Task{id, lineage, contract, status, M.HistoryNode{history, M.ContextCheckpoint{summary}}, queued, phase}, world) : M.Decision}
+  for +operations: +List<M.Operation>
+  for +notified: Bool
+  {P.model_request(M.Task{id, lineage, contract, status, M.HistoryNode{history, M.ContextCheckpoint{summary}}, queued, phase, operations, notified}, world) ==
+    P.model_request_direct(M.Task{id, lineage, contract, status, M.HistoryNode{history, M.ContextCheckpoint{summary}}, queued, phase, operations, notified}, world) : M.Decision}
 
 law context_limit_after_checkpoint_stops:
   for allowed: +List<String>
@@ -331,10 +333,12 @@ law context_limit_after_checkpoint_stops:
   for +history: M.History
   for +summary: String
   for +phase: M.Phase
+  for +operations: +List<M.Operation>
+  for +notified: Bool
   {T.model_outcome(M.ContextLimit{}, allowed,
-    M.Task{id, lineage, contract, status, M.HistoryNode{history, M.ContextCheckpoint{summary}}, Nil{}, phase}) ==
+    M.Task{id, lineage, contract, status, M.HistoryNode{history, M.ContextCheckpoint{summary}}, Nil{}, phase, operations, notified}) ==
     M.Task{id, lineage, contract, status, M.HistoryNode{M.HistoryNode{history, M.ContextCheckpoint{summary}},
-      M.FailureMessage{"Model context limit persists after compaction; reduce the request, project guidance or tool catalog before resuming"}}, Nil{}, M.Idle{}} : M.Task}
+      M.FailureMessage{"Model context limit persists after compaction; reduce the request, project guidance or tool catalog before resuming"}}, Nil{}, M.Idle{}, operations, notified} : M.Task}
 
 law summary_context_limit_stops:
   for resume: Bool
@@ -344,9 +348,11 @@ law summary_context_limit_stops:
   for +status: M.Status
   for +history: M.History
   for phase: M.Phase
-  {T.summary_outcome(M.ContextLimit{}, resume, M.Task{id, lineage, contract, status, history, Nil{}, phase}) ==
+  for +operations: +List<M.Operation>
+  for +notified: Bool
+  {T.summary_outcome(M.ContextLimit{}, resume, M.Task{id, lineage, contract, status, history, Nil{}, phase, operations, notified}) ==
     M.Task{id, lineage, contract, status, M.HistoryNode{history,
-      M.FailureMessage{"The summary request exceeded the model context limit; supply a bounded checkpoint with compact"}}, Nil{}, M.Idle{}} : M.Task}
+      M.FailureMessage{"The summary request exceeded the model context limit; supply a bounded checkpoint with compact"}}, Nil{}, M.Idle{}, operations, notified} : M.Task}
 
 law checkpoint_preserves_project_contract:
   for +task: M.Task
@@ -400,8 +406,10 @@ law archived_input_unchanged:
   for +queue: +List<String>
   for +phase: M.Phase
   for text: String
-  {T.receive(text, M.Task{id, lineage, contract, M.Archived{}, history, queue, phase}) ==
-    M.Task{id, lineage, contract, M.Archived{}, history, queue, phase} : M.Task}
+  for +operations: +List<M.Operation>
+  for +notified: Bool
+  {T.receive(text, M.Task{id, lineage, contract, M.Archived{}, history, queue, phase, operations, notified}) ==
+    M.Task{id, lineage, contract, M.Archived{}, history, queue, phase, operations, notified} : M.Task}
 
 # Freeze suspends dispatch; stop permits settlement but never requests a model.
 law frozen_no_dispatch:
@@ -468,7 +476,7 @@ law child_history_prefix:
   for +branch: Nat
   for remaining: +List<M.Attempt>
   {M.task_history(P.child(id, parent, call, branch, remaining, None{})) ==
-    M.branch_history(M.task_history(parent), call, branch) : M.History}
+    M.branch_history(Ops.inherited(parent), call, branch) : M.History}
 
 law child_lineage:
   for id: Nat
@@ -498,19 +506,17 @@ law internal_effect_retry_safe:
   for attempt: M.Attempt
   {M.may_execute(M.RetrySafe{}, attempt) == True{} : Bool}
 
-# File observations may be repeated; mutations must never be replayed merely
-# because their result was lost. These classify the production dispatch path.
-law read_file_recovery_safe:
-  for attempt: M.Attempt
-  {M.may_execute(M.recovery(M.Harness{M.ReadFile{}}), attempt) == True{} : Bool}
-
-law write_file_recovery_blocked:
+# Shell and MCP effects must never be replayed merely because their result was
+# lost. Their arguments do not establish that an arbitrary command is read-only.
+law bash_recovery_blocked:
   for call: M.Call
-  {M.may_execute(M.recovery(M.Harness{M.WriteFile{}}), M.RecoveryAttempt{call}) == False{} : Bool}
+  {M.may_execute(M.recovery(M.Harness{M.Bash{}}), M.RecoveryAttempt{call}) == False{} : Bool}
 
-law edit_file_recovery_blocked:
+law mcp_recovery_blocked:
+  for server: String
+  for name: String
   for call: M.Call
-  {M.may_execute(M.recovery(M.Harness{M.EditFile{}}), M.RecoveryAttempt{call}) == False{} : Bool}
+  {M.may_execute(M.recovery(M.Mcp{server, name}), M.RecoveryAttempt{call}) == False{} : Bool}
 
 law recover_phase_idempotent:
   for +phase: M.Phase
@@ -525,13 +531,12 @@ law unmatched_model_result_unchanged:
   {P.decision_world(P.model_matched(False{}, outcome, allowed, task, world)) == world : M.World}
 
 law unmatched_tool_result_unchanged:
-  for call: M.Call
-  for remaining: +List<M.Attempt>
+  for operation: M.Operation
   for value: J.Json
   for error: Bool
   for task: M.Task
   for +world: M.World
-  {P.decision_world(P.tool_matched(False{}, call, remaining, value, error, task, world)) == world : M.World}
+  {P.decision_world(P.tool_matched(False{}, operation, value, error, task, world)) == world : M.World}
 
 # History append and journal replay are actions of the list monoid: processing
 # concatenated inputs equals processing the first part then the second part.
@@ -623,9 +628,11 @@ law summary_failure_promotes_fifo:
   for +first: String
   for +rest: +List<String>
   for phase: M.Phase
-  {T.summary_failure(message, M.Task{id, lineage, contract, M.Active{}, history, first <> rest, phase}) ==
+  for +operations: +List<M.Operation>
+  for +notified: Bool
+  {T.summary_failure(message, M.Task{id, lineage, contract, M.Active{}, history, first <> rest, phase, operations, notified}) ==
     M.Task{id, lineage, contract, M.Active{}, M.history_append(T.user_messages(first <> rest), M.HistoryNode{history, M.FailureMessage{message}}),
-      Nil{}, M.Ready{Nil{}}} : M.Task}
+      Nil{}, M.Ready{Nil{}}, operations, True{}} : M.Task}
 
 law summary_failure_empty_stops:
   for +message: String
@@ -635,5 +642,7 @@ law summary_failure_empty_stops:
   for +status: M.Status
   for +history: M.History
   for phase: M.Phase
-  {T.summary_failure(message, M.Task{id, lineage, contract, status, history, Nil{}, phase}) ==
-    M.Task{id, lineage, contract, status, M.HistoryNode{history, M.FailureMessage{message}}, Nil{}, M.Idle{}} : M.Task}
+  for +operations: +List<M.Operation>
+  for +notified: Bool
+  {T.summary_failure(message, M.Task{id, lineage, contract, status, history, Nil{}, phase, operations, notified}) ==
+    M.Task{id, lineage, contract, status, M.HistoryNode{history, M.FailureMessage{message}}, Nil{}, M.Idle{}, operations, notified} : M.Task}

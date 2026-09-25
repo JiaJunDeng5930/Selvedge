@@ -2,6 +2,7 @@ import Base
 import ./MODEL.bend as M
 import ./bendlib/json.bend as J
 import ./bendlib/tasks.bend as T
+import ./bendlib/operations.bend as Ops
 import ./bendlib/theory.bend as Theory
 import ./bendlib/presentation.bend as View
 import ./INVARIANTS.bend as I
@@ -46,7 +47,7 @@ def execute_start(profile: M.Profile, reasoning: String, message: String, world:
   M.World{tasks, +next_task, next_ticket, +environment, limits} = world
   M.Environment{catalog, profiles, max_fork, max_descendants, project} = environment
   task : M.Task = M.Task{next_task, Nil{}, M.Contract{M.Model{profile, reasoning, project}, catalog, max_fork, max_descendants},
-    M.Active{}, M.HistoryNode{M.EmptyHistory{}, M.UserMessage{message}}, Nil{}, M.Ready{Nil{}}}
+    M.Active{}, M.HistoryNode{M.EmptyHistory{}, M.UserMessage{message}}, Nil{}, M.Ready{Nil{}}, Nil{}, True{}}
   respond(M.World{List.append(&2, M.Task, tasks, [task]), 1n+next_task, next_ticket, environment, limits}, id_result(next_task))
 
 def execute_delivery(text: String, +task: M.Task, world: M.World) -> M.Decision:
@@ -55,7 +56,7 @@ def execute_delivery(text: String, +task: M.Task, world: M.World) -> M.Decision:
 def change_to(next: M.Status, +task: M.Task, world: M.World) -> M.Decision:
   match next:
     case M.Archived{}:
-      M.Decision{store(M.with_phase(M.Idle{}, M.with_status(M.Archived{}, task)), world),
+      M.Decision{store(T.archive(task), world),
         M.success(id_result(M.task_id(task))), [M.CancelTask{M.task_id(task)}]}
     case other:
       respond(store(T.promote(M.with_status(other, task)), world), id_result(M.task_id(task)))
@@ -85,13 +86,13 @@ def ids(tasks: +List<M.Task>) -> +List<J.Json>:
 def commit_fork(built: Commands.Children, call: M.Call, remaining: +List<M.Attempt>, +parent: M.Task, world: M.World) -> M.Decision:
   match built world:
     case Commands.Children{+new_tasks, end} M.World{tasks, next_task, next_ticket, environment, limits}:
-      caller = T.promote(M.with_phase(M.Ready{remaining}, M.with_history(M.branch_history(M.task_history(parent), T.call_id(call), 0n), parent)))
+      caller = T.promote(M.with_notified(True{}, M.with_phase(M.Ready{remaining}, M.with_history(M.branch_history(M.task_history(parent), T.call_id(call), 0n), parent))))
       respond(M.World{List.append(&2, M.Task, T.replace(tasks, caller), new_tasks), end, next_ticket, environment, limits},
         J.Object{[J.Field{"children", J.Array{ids(new_tasks)}}]})
 
 def summary_request(+task: M.Task, resume: Bool, world: M.World) -> M.Decision:
   M.World{tasks, next_task, +next_ticket, environment, limits} = world
-  next = M.with_phase(M.SummaryPending{next_ticket, resume}, task)
+  next = M.with_notified(False{}, M.with_phase(M.SummaryPending{next_ticket, resume}, task))
   M.Decision{M.World{T.replace(tasks, next), next_task, 1n+next_ticket, environment, limits}, M.success(id_result(M.task_id(task))),
     [M.RequestSummary{M.task_id(task), next_ticket, T.task_model(M.task_contract(task)), M.context_history(M.task_history(task))}]}
 
@@ -112,6 +113,13 @@ def realize(operation: Commands.Operation, world: M.World) -> M.Decision:
     case Commands.Refuse{code, reason}: reject(world, code, reason)
     case Commands.Start{profile, reasoning, message}: execute_start(profile, reasoning, message, world)
     case Commands.Deliver{task, message}: execute_delivery(message, task, world)
+    case Commands.Steer{+task, message}:
+      M.Decision{store(T.steer(message, task), world), M.success(id_result(M.task_id(task))),
+        T.steering_effects(M.task_phase(task), M.task_id(task))}
+    case Commands.Cancel{+task, +operation}:
+      M.Decision{store(T.promote(Ops.cancelled(operation, task)), world),
+        M.success(J.Object{[J.Field{"task_id", J.nat(M.task_id(task))}, J.Field{"operation_id", J.nat(Ops.ticket(operation))}]}),
+        [M.CancelTicket{M.task_id(task), Ops.ticket(operation)}]}
     case Commands.Control{task, request, next}: change_requested(request, next, task, world)
     case Commands.Branch{task, count, messages}: execute_branch(task, count, messages, world)
     case Commands.Summarize{task}: summary_request(task, False{}, world)
@@ -134,10 +142,10 @@ def summary_matched(same: Bool, outcome: M.Outcome, resume: Bool, task: M.Task, 
     case False{}: respond(world, accepted(False{}))
     case True{}: respond(store(T.summary_outcome(outcome, resume, task), world), accepted(True{}))
 
-def tool_matched(same: Bool, call: M.Call, remaining: +List<M.Attempt>, value: J.Json, error: Bool, task: M.Task, world: M.World) -> M.Decision:
+def tool_matched(same: Bool, operation: M.Operation, value: J.Json, error: Bool, task: M.Task, world: M.World) -> M.Decision:
   match same:
     case False{}: respond(world, accepted(False{}))
-    case True{}: respond(store(T.complete_tool(call, remaining, value, error, task), world), accepted(True{}))
+    case True{}: respond(store(T.complete_operation(operation, value, error, task), world), accepted(True{}))
 
 def recover_tasks(tasks: +List<M.Task>) -> +List<M.Task>:
   Protocol.recovery(tasks)
@@ -148,7 +156,7 @@ def realize_event(event: Protocol.Event, world: M.World) -> M.Decision:
     case Protocol.Ignore{}: respond(world, accepted(False{}))
     case Protocol.ModelResult{task, outcome, allowed}: model_matched(True{}, outcome, allowed, task, world)
     case Protocol.SummaryResult{task, outcome, resume}: summary_matched(True{}, outcome, resume, task, world)
-    case Protocol.ToolResult{task, call, remaining, value, error}: tool_matched(True{}, call, remaining, value, error, task, world)
+    case Protocol.ToolResult{task, operation, value, error}: tool_matched(True{}, operation, value, error, task, world)
     case Protocol.Settings{environment}:
       M.World{tasks, next_task, next_ticket, previous, limits} = world
       respond(M.World{tasks, next_task, next_ticket, environment, limits}, J.Null{})
@@ -176,16 +184,17 @@ def model_request_direct(+task: M.Task, world: M.World) -> M.Decision:
   +contract = M.task_contract(task)
   +tools = T.task_tools(contract)
   +allowed = T.callable(tools, catalog(environment))
-  next = M.with_phase(M.ModelPending{next_ticket, allowed}, task)
+  +prepared = Ops.publish(task)
+  next = M.with_phase(M.ModelPending{next_ticket, allowed}, prepared)
   M.Decision{M.World{T.replace(tasks, next), next_task, 1n+next_ticket, environment, limits}, J.Null{},
-    [M.RequestModel{M.task_id(task), next_ticket, T.task_model(contract), M.context_history(M.task_history(task)), tools, allowed}]}
+    [M.RequestModel{M.task_id(task), next_ticket, T.task_model(contract), M.context_history(M.task_history(prepared)), tools, allowed}]}
 
 def rendering_budget(world: M.World) -> Nat:
   Commit.render_budget(world)
 
 def external_tool(tool: M.Tool, +call: M.Call, +remaining: +List<M.Attempt>, +task: M.Task, world: M.World) -> M.Decision:
   M.World{tasks, next_task, +next_ticket, environment, limits} = world
-  next = M.with_phase(M.ToolPending{next_ticket, call, remaining}, task)
+  next = T.promote(Ops.started(next_ticket, call, remaining, task))
   M.Decision{M.World{T.replace(tasks, next), next_task, 1n+next_ticket, environment, limits}, J.Null{},
     [M.ExecuteTool{M.task_id(task), next_ticket, tool, call}]}
 
@@ -257,7 +266,7 @@ def schedule(fuel: Nat, candidate: Maybe<&2, M.Task>, +decision: M.Decision) -> 
     case 0n Some{task}: defer(decision)
     case 1n+p None{}: decision
     case 1n+p Some{+task}:
-      +next = combine(decision, work(M.work(M.task_status(task), M.task_phase(task)), task, decision_world(decision)))
+      +next = combine(decision, work(M.task_work(task), task, decision_world(decision)))
       schedule(p, T.runnable(tasks(decision_world(next))), next)
 
 def scheduling_budget(world: M.World) -> Nat:

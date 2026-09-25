@@ -65,3 +65,12 @@ effect; all external work crosses the host boundary.
 
 Run `npm run check` for the proof gate and `npm test` for native execution and
 host integration. Changing a Bend source changes the journal's kernel identity.
+
+`operations.bend` owns live external-operation rights, running announcements and
+non-replayable unknown outcomes. Task control and operation ownership are a
+product: finishing one tool must not overwrite an unrelated pending model request.
+A coalescing notification bit retains results that arrive during a model turn.
+Summary eligibility excludes live operations; oversized partial context waits,
+then summarizes after settlement. Forks inherit context with explicit nonownership
+notices, never the parent's rights. `steer` and `cancel_operation` have separate
+native command meanings and separately scoped cancellation effects.

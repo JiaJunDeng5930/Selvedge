@@ -46,6 +46,8 @@ def Laws.operation_semantics(operation, world):
     case Commands.Start{profile, reasoning, message}
          M.World{tasks, next_task, next_ticket, M.Environment{catalog, profiles, max_fork, max_descendants, project}, limits}: {==}
     case Commands.Deliver{task, message} M.World{tasks, next_task, next_ticket, environment, limits}: {==}
+    case Commands.Steer{task, message} M.World{tasks, next_task, next_ticket, environment, limits}: {==}
+    case Commands.Cancel{task, operation} M.World{tasks, next_task, next_ticket, environment, limits}: {==}
     case Commands.Control{task, request, next} _: control_semantics(request, next, task, world)
     case Commands.Branch{+task, +count, +messages} M.World{tasks, +next_task, +next_ticket, environment, limits}:
       +call = Commands.branch_call(next_ticket, count, messages)
@@ -67,7 +69,7 @@ def Laws.event_semantics(event, world):
     case Protocol.Ignore{} _: {==}
     case Protocol.ModelResult{task, outcome, allowed} M.World{tasks, next_task, next_ticket, environment, limits}: {==}
     case Protocol.SummaryResult{task, outcome, resume} M.World{tasks, next_task, next_ticket, environment, limits}: {==}
-    case Protocol.ToolResult{task, call, remaining, value, error} M.World{tasks, next_task, next_ticket, environment, limits}: {==}
+    case Protocol.ToolResult{task, operation, value, error} M.World{tasks, next_task, next_ticket, environment, limits}: {==}
     case Protocol.Settings{settings} M.World{tasks, next_task, next_ticket, environment, limits}: {==}
     case Protocol.Restart{} M.World{tasks, next_task, next_ticket, environment, limits}: {==}
     case Protocol.Tick{} _: {==}
@@ -127,7 +129,7 @@ def Laws.accepted_model_settlement(outcome, allowed, task, world):
   match world:
     case M.World{tasks, next_task, next_ticket, environment, limits}: {==}
 
-def Laws.accepted_tool_settlement(call, remaining, value, error, task, world):
+def Laws.accepted_tool_settlement(operation, value, error, task, world):
   match world:
     case M.World{tasks, next_task, next_ticket, environment, limits}: {==}
 

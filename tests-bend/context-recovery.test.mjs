@@ -153,8 +153,8 @@ test('the service commits overflow and summary before retrying, without repeatin
       }
       let output;
       if (index === 0) {
-        output = [{ type: 'function_call', call_id: 'only-write', name: 'write_file',
-          arguments: JSON.stringify({ path: 'result.txt', content: 'committed once', expected_revision: 'absent' }) }];
+        output = [{ type: 'function_call', call_id: 'only-write', name: 'bash',
+          arguments: JSON.stringify({ command: "printf 'committed once' > result.txt" }) }];
       } else if (index === 2) {
         assert.equal(JSON.parse(record.input).failure_kind, 'context_limit');
         assert.deepEqual(body.tools, []);

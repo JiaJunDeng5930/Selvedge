@@ -2,6 +2,7 @@ import Base
 import ./MODEL.bend as M
 import ./bendlib/json.bend as J
 import ./bendlib/tasks.bend as T
+import ./bendlib/operations.bend as Ops
 import ./INVARIANTS.bend as I
 import ./bendlib/stdlib.bend as Std
 
@@ -13,6 +14,8 @@ type Operation is Data:
   Refuse{code: String, reason: String}
   Start{profile: M.Profile, reasoning: String, message: String}
   Deliver{task: M.Task, message: String}
+  Steer{task: M.Task, message: String}
+  Cancel{task: M.Task, operation: M.Operation}
   Control{task: M.Task, request: M.Control, next: M.Status}
   Branch{parent: M.Task, count: Nat, messages: +List<String>}
   Summarize{task: M.Task}
@@ -50,6 +53,24 @@ def recipient(found: Maybe<&2, M.Task>, +message: String) -> Operation:
       require(M.nonempty(message) && M.accepts_input(M.task_status(task)), Deliver{task, message},
         "invalid_arguments", "The message must be nonempty and the target must not be archived")
 
+def steering(found: Maybe<&2, M.Task>, +message: String) -> Operation:
+  match found:
+    case None{}: Refuse{"task_not_found", "The target task does not exist"}
+    case Some{+task}:
+      require(M.nonempty(message) && M.accepts_input(M.task_status(task)), Steer{task, message},
+        "invalid_arguments", "Steering requires a nonempty instruction and a nonarchived task")
+
+def cancellable(found: Maybe<&2, M.Operation>, +task: M.Task) -> Operation:
+  match found:
+    case None{}: Refuse{"operation_not_found", "The operation is not in flight for this task"}
+    case Some{operation}:
+      require(M.accepts_input(M.task_status(task)), Cancel{task, operation}, "task_archived", "An archived task cannot be changed")
+
+def cancellation(found: Maybe<&2, M.Task>, ticket: Nat) -> Operation:
+  match found:
+    case None{}: Refuse{"task_not_found", "The target task does not exist"}
+    case Some{+task}: cancellable(Ops.find(M.task_operations(task), ticket), task)
+
 def permitted(next: Maybe<&2, M.Status>, task: M.Task, request: M.Control) -> Operation:
   match next:
     case None{}: Refuse{"invalid_transition", "This lifecycle transition is not permitted"}
@@ -86,11 +107,13 @@ def branched(found: Maybe<&2, M.Task>, count: Nat, messages: +List<String>, worl
 def checkpoint_ready(status: M.Status, phase: M.Phase, +task: M.Task, summary: Maybe<&2, String>) -> Operation:
   match status phase summary:
     case M.Archived{} _ _: Refuse{"task_archived", "An archived task cannot be changed"}
-    case M.Active{} M.Idle{} None{}: Summarize{task}
+    case M.Active{} M.Idle{} None{}:
+      require(Bool.not(M.operations_pending(M.task_operations(task))), Summarize{task},
+        "task_busy", "Wait for in-flight operation results before summarizing the task")
     case _ M.Idle{} Some{+text}:
       +context = M.context_history(M.task_history(task))
-      require(M.valid_summary(text) && I.settled_calls(context, context), Checkpoint{task, text},
-        "invalid_summary", "A checkpoint requires a nonempty bounded summary and settled tool calls")
+      require(Bool.not(M.operations_pending(M.task_operations(task))) && M.valid_summary(text) && I.settled_calls(context, context), Checkpoint{task, text},
+        "invalid_summary", "A checkpoint requires a nonempty bounded summary, settled tool calls, and no in-flight operations")
     case _ _ _: Refuse{"task_busy", "Model compaction requires an active idle task; a supplied summary requires a nonarchived idle task"}
 
 def compacted(found: Maybe<&2, M.Task>, summary: Maybe<&2, String>) -> Operation:
@@ -105,6 +128,8 @@ def resolve(command: M.Command, +world: M.World) -> Operation:
     case M.Create{profile, reasoning, message}:
       selected(M.find_profile(configured(settings(world)), profile), reasoning, message)
     case M.Send{id, message}: recipient(T.find(entries(world), id), message)
+    case M.Steer{id, message}: steering(T.find(entries(world), id), message)
+    case M.Cancel{id, ticket}: cancellation(T.find(entries(world), id), ticket)
     case M.ChangeStatus{id, control}: controlled(T.find(entries(world), id), control)
     case M.Fork{id, count, messages}: branched(T.find(entries(world), id), count, messages, world)
     case M.Compact{id, summary}: compacted(T.find(entries(world), id), summary)
@@ -124,14 +149,14 @@ def start(profile: M.Profile, reasoning: String, message: String, world: M.World
   M.World{tasks, +next_task, next_ticket, +environment, limits} = world
   M.Environment{catalog, profiles, max_fork, max_descendants, project} = environment
   task : M.Task = M.Task{next_task, Nil{}, M.Contract{M.Model{profile, reasoning, project}, catalog, max_fork, max_descendants},
-    M.Active{}, M.HistoryNode{M.EmptyHistory{}, M.UserMessage{message}}, Nil{}, M.Ready{Nil{}}}
+    M.Active{}, M.HistoryNode{M.EmptyHistory{}, M.UserMessage{message}}, Nil{}, M.Ready{Nil{}}, Nil{}, True{}}
   M.Decision{M.World{List.append(&2, M.Task, tasks, [task]), 1n+next_task, next_ticket, environment, limits},
     M.success(id_result(next_task)), Nil{}}
 
 def status_change(next: M.Status, +task: M.Task, world: M.World) -> M.Decision:
   match next:
     case M.Archived{}:
-      changed(M.task_id(task), M.with_phase(M.Idle{}, M.with_status(M.Archived{}, task)), world, [M.CancelTask{M.task_id(task)}])
+      changed(M.task_id(task), T.archive(task), world, [M.CancelTask{M.task_id(task)}])
     case status: changed(M.task_id(task), T.promote(M.with_status(status, task)), world, Nil{})
 
 def lifecycle(request: M.Control, next: M.Status, +task: M.Task, world: M.World) -> M.Decision:
@@ -144,10 +169,10 @@ def initial_message(message: Maybe<&2, String>, history: M.History) -> M.History
     case None{}: history
     case Some{text}: M.HistoryNode{history, M.UserMessage{text}}
 
-def child(id: Nat, parent: M.Task, call_id: String, branch: Nat, remaining: +List<M.Attempt>, message: Maybe<&2, String>) -> M.Task:
-  M.Task{parent_id, lineage, contract, status, history, queued, phase} = parent
-  M.Task{id, parent_id <> lineage, contract, M.Active{}, initial_message(message, M.branch_history(history, call_id, branch)),
-    Nil{}, M.Ready{M.inherit_attempts(remaining)}}
+def child(id: Nat, +parent: M.Task, call_id: String, branch: Nat, remaining: +List<M.Attempt>, message: Maybe<&2, String>) -> M.Task:
+  M.Task{parent_id, lineage, contract, status, history, queued, phase, operations, notified} = parent
+  M.Task{id, parent_id <> lineage, contract, M.Active{}, initial_message(message, M.branch_history(Ops.inherited(parent), call_id, branch)),
+    Nil{}, M.Ready{M.inherit_attempts(remaining)}, Nil{}, True{}}
 
 type Children is Data:
   Children{tasks: +List<M.Task>, next_id: Nat}
@@ -177,7 +202,7 @@ def branch_call(ticket: Nat, count: Nat, messages: +List<String>) -> M.Call:
 def branch_commit(built: Children, +parent: M.Task, call_id: String, world: M.World) -> M.Decision:
   Children{+spawned, end} = built
   M.World{tasks, next_task, next_ticket, environment, limits} = world
-  caller = T.promote(M.with_phase(M.Ready{Nil{}}, M.with_history(M.branch_history(M.task_history(parent), call_id, 0n), parent)))
+  caller = T.promote(M.with_notified(True{}, M.with_phase(M.Ready{Nil{}}, M.with_history(M.branch_history(M.task_history(parent), call_id, 0n), parent))))
   M.Decision{M.World{List.append(&2, M.Task, T.replace(tasks, caller), spawned), end, 1n+next_ticket, environment, limits},
     M.success(J.Object{[J.Field{"children", J.Array{identities(spawned)}}]}), Nil{}}
 
@@ -189,7 +214,7 @@ def branch(+task: M.Task, +count: Nat, +messages: +List<String>, +world: M.World
 
 def summarize(+task: M.Task, world: M.World) -> M.Decision:
   M.World{tasks, next_task, +next_ticket, environment, limits} = world
-  next = M.with_phase(M.SummaryPending{next_ticket, False{}}, task)
+  next = M.with_notified(False{}, M.with_phase(M.SummaryPending{next_ticket, False{}}, task))
   M.Decision{M.World{T.replace(tasks, next), next_task, 1n+next_ticket, environment, limits}, M.success(id_result(M.task_id(task))),
     [M.RequestSummary{M.task_id(task), next_ticket, T.task_model(M.task_contract(task)), M.context_history(M.task_history(task))}]}
 
@@ -222,6 +247,13 @@ def meaning(operation: Operation, +world: M.World) -> M.Decision:
     case Start{profile, reasoning, message}: start(profile, reasoning, message, world)
     case Deliver{+task, message}:
       M.Decision{replace(T.receive(message, task), world), M.success(id_result(M.task_id(task))), Nil{}}
+    case Steer{+task, message}:
+      M.Decision{replace(T.steer(message, task), world), M.success(id_result(M.task_id(task))),
+        T.steering_effects(M.task_phase(task), M.task_id(task))}
+    case Cancel{+task, +operation}:
+      M.Decision{replace(T.promote(Ops.cancelled(operation, task)), world),
+        M.success(J.Object{[J.Field{"task_id", J.nat(M.task_id(task))}, J.Field{"operation_id", J.nat(Ops.ticket(operation))}]}),
+        [M.CancelTicket{M.task_id(task), Ops.ticket(operation)}]}
     case Control{task, request, next}: lifecycle(request, next, task, world)
     case Branch{task, count, messages}: branch(task, count, messages, world)
     case Summarize{task}: summarize(task, world)

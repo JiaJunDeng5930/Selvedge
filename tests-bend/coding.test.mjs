@@ -32,15 +32,18 @@ test('coding loop reads, writes, edits, tests, compacts, and restarts through co
     switch (index) {
       case 0:
         assert.match(body.instructions, /AGENTS\.md/);
-        return call('read-source', 'read_file', { path: 'math.mjs' });
+        assert.equal(body.parallel_tool_calls, true);
+        assert.equal(body.tools.some(tool => ['read_file', 'write_file', 'edit_file'].includes(tool.name)), false);
+        return call('read-source', 'bash', { command: 'cat math.mjs' });
       case 1:
-        assert.match(output(body, 'read-source').value.content, /a - b/);
-        return call('write-test', 'write_file', { path: 'check.mjs', expected_revision: 'absent', content:
-          "import assert from 'node:assert/strict';\nimport { add } from './math.mjs';\nassert.equal(add(2, 3), 5);\nconsole.log('one assertion passed');\n" });
+        assert.match(output(body, 'read-source').value.stdout, /a - b/);
+        return call('write-test', 'bash', { command: "cat > check.mjs <<'SELVEDGE_TEST'\n" +
+          "import assert from 'node:assert/strict';\nimport { add } from './math.mjs';\nassert.equal(add(2, 3), 5);\nconsole.log('one assertion passed');\nSELVEDGE_TEST" });
       case 2:
         assert.equal(output(body, 'write-test').is_error, false);
-        return call('edit-source', 'edit_file', { path: 'math.mjs', expected_revision: output(body, 'read-source').value.revision,
-          old_text: 'a - b', new_text: 'a + b' });
+        return call('edit-source', 'bash', { command: `${shellQuote(process.execPath)} --input-type=module -e ${shellQuote(
+          "import {readFileSync,writeFileSync} from 'node:fs'; const p='math.mjs'; const s=readFileSync(p,'utf8'); if(s.split('a - b').length!==2) throw Error('ambiguous edit'); writeFileSync(p,s.replace('a - b','a + b'));"
+        )}` });
       case 3:
         assert.equal(output(body, 'edit-source').is_error, false);
         return call('test-code', 'bash', { command: `${shellQuote(process.execPath)} check.mjs && printf 'ran\n' >> executions` });

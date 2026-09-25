@@ -4,7 +4,7 @@ import { mkdir, readFile, writeFile, symlink, realpath } from 'node:fs/promises'
 import { createHash } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import path from 'node:path';
-import { snapshotProject } from '../host/file-tools.mjs';
+import { snapshotProject } from '../host/project.mjs';
 import { Kernel } from '../host/kernel.mjs';
 import { Service } from '../host/service.mjs';
 import { defaultConfig, validateConfig } from '../host/config.mjs';

@@ -773,3 +773,80 @@ This checkpoint passed the pure proof gate, separate native-entry check and all
 108 tests. The observed success includes original iterator-certificate mutation
 tests and whole-program receipt/input mutations; it is not evidence about remote
 model quality or operating-system isolation.
+
+## 2026-09-25: asynchronous operation rights reshape the state machine
+
+The reference actually used here is `unreallabsai/unreal-agent` at
+`1b9f778453f411c029b39b85102aaefb95e7e48d`: `harness/tool/bash/bash.go`,
+`tool/static.go`, `operation/shell.go`, `operation/output.go`, `coordinator/loop.go`
+and `contextbuilder/builder.go`. The pi steering/follow-up comparison used
+`earendil-works/pi` at `19a0361be89bf78ccf9bbaed9a496d6484759f67`, specifically
+`packages/agent/src/agent-loop.ts` and `agent.ts`. No behavior was inferred from
+the unrelated Unreal Engine harness.
+
+The important correspondence is an operation, not a shell syntax convention.
+A single ToolPending phase made model work and external work mutually exclusive.
+The new task state is a product of control phase, operation rights and a sticky
+unread-input bit. Its constructors and invariants expose the possible overlap.
+Completion consumes its operation ticket without replacing a pending model phase;
+the unread bit forces a subsequent turn when a completion races a model reply.
+This is materially different from hiding a background-process table in the host:
+the complete command/input/receipt refinement sees the operation lifecycle.
+
+Append-only history constrains partial-result design. Replacing a pending output
+later would rewrite information already sent to the model; appending another
+function output for the same call would claim two final results. An operation is
+therefore announced only when a committed model request actually needs its running
+status. Fast completion remains an ordinary function output. After announcement,
+completion is a distinct operation-result entity. Original call identity, current
+operation ownership and whether a running status has been recorded are separately
+checked. The provider adapter labels the later event as unprivileged tool data.
+
+The representation exposed a real queue bug: after a batch's last external call
+was dispatched, the old implementation could start another model request without
+promoting previously queued user input. Promotion now occurs at the end of batch
+dispatch, not only after tool settlement. The fork test caught this by observing
+the parent's queue separately from the child's inherited history. An incorrect
+implementation could remain world-safe while silently omitting that instruction;
+operational tests remain necessary alongside safety and correspondence proofs.
+
+Context cuts need a causal boundary, not just a small string. A result can arrive
+after a summary's input snapshot; installing that summary would then erase data
+it never observed. Native summary/checkpoint eligibility now excludes live
+operations. An oversized partial context waits for the other results rather than
+sending an oversized request or prematurely summarizing. The existing provider
+overflow path resumes summarization when the last right is consumed. A steered
+summary loses its ticket, so its late response cannot replace newer user input.
+
+Cancellation has two scopes. Steering replaces model work and undispatched calls
+but retains independent operations and queued follow-ups. CancelOperation consumes
+one right. If a later internal call cancels an earlier external intent within the
+same decision, explicit cancellation withdraws that intent before host execution.
+Filtering is driven by that withdrawal, not by a heuristic that hides arbitrary
+invalid effects. Unknown external outcomes cannot be retried or undone. Forks
+copy context with a nonownership notice, never a parent's live execution rights.
+
+The prior integration fixture assumed an effect belonged to the latest journal
+row. Concurrency invalidates that assertion: other completions can advance the log
+after an intent is committed but before its process starts. The correct witness
+is the effect's own causal committed ticket. Fixtures now check that witness and
+still require exactly one execution and no automatic restart replay. This is a
+case where changing the concurrency model changes the shape of required evidence,
+not merely an implementation detail in the test.
+
+Bash replaced the three file tools; revision-sensitive or atomic editing is now a
+project script obligation rather than a second hard-coded mutation API. The root
+guidance observer remains separate because its frozen contract is not a tool call.
+Output has two units: retained Unicode characters and raw stream bytes. Head/tail
+previews preserve code points across arbitrary pipe boundaries; artifact metadata
+describes the retained prefix, never a fictitious complete stream. The 65,536-
+character ceiling and 8 MiB artifact cap fit this program's native output boundary,
+rather than copying the reference's larger limit without analyzing its effect.
+
+This checkpoint passed all 117 tests, including real overlapping Bash processes,
+partial-result HTTP model requests, independently scoped process/model cancellation,
+background descendant cleanup, same-commit withdrawal, capacity, fork, recovery and
+summary races. It does not establish that external mutations commute, that summary
+text is faithful, or that early partial results always minimize paid model turns.
+Earlier results can improve latency while adding a model round; quiet operations
+themselves do not generate polling rounds.

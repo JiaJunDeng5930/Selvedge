@@ -28,8 +28,8 @@ test('interrupt closes accepted calls without replay, ignores late results, and 
     { id: 'running', name: 'bash', arguments: { command: 'sleep 60' } },
     { id: 'waiting', name: 'bash', arguments: { command: 'must not run' } },
   ]));
-  await command({ op: 'send', task_id: 0, message: 'older queued instruction' });
   await command({ op: 'freeze', task_id: 0 });
+  await command({ op: 'send', task_id: 0, message: 'older queued instruction' });
   const stopped = await command({ op: 'interrupt', task_id: 0 });
   assert.equal(stopped.reply.ok, true);
   assert.deepEqual(stopped.effects, [{ kind: 'cancel', task_id: 0 }]);
@@ -39,7 +39,7 @@ test('interrupt closes accepted calls without replay, ignores late results, and 
   assert.equal(page.task.queued, 1);
   const outputs = page.messages.filter(message => message.role === 'function_output');
   assert.deepEqual(outputs.map(message => [message.call_id, message.content.error.code]), [
-    ['running', 'outcome_unknown'], ['waiting', 'cancelled_before_execution'],
+    ['running', 'outcome_unknown'], ['waiting', 'outcome_unknown'],
   ]);
   await command({ op: 'interrupt', task_id: 0 });
   const late = await send({ kind: 'tool', task_id: 0, ticket: pending.effects[0].ticket, value: 'late', error: false });
@@ -159,43 +159,42 @@ test('automatic context cuts wait for every accepted tool result', async t => {
     { id: 'one', name: 'bash', arguments: { command: 'first' } },
     { id: 'two', name: 'bash', arguments: { command: 'second' } },
   ]));
-  assert.equal((await command({ op: 'compact', task_id: 0, summary: 'must not cut' })).reply.error.code, 'task_busy');
+  assert.equal(first.effects.filter(effect => effect.kind === 'tool').length, 2);
+  assert.equal((await command({ op: 'compact', task_id: 0, summary: 'must not cut' })).reply.error.code, 'invalid_summary');
   const second = await send({ kind: 'tool', task_id: 0, ticket: first.effects[0].ticket,
     value: 'x'.repeat(k.description.limits.context_threshold_bytes), error: false });
-  assert.equal(second.effects[0].kind, 'tool');
-  const summary = await send({ kind: 'tool', task_id: 0, ticket: second.effects[0].ticket, value: 'done', error: false });
+  assert.equal(second.reply.ok, true);
+  assert.deepEqual(second.effects, [], 'oversized partial context waits rather than cutting or rejecting a completed result');
+  const summary = await send({ kind: 'tool', task_id: 0, ticket: first.effects[1].ticket, value: 'done', error: false });
   assert.equal(summary.effects[0].kind, 'summary');
   const history = summary.effects[0].history;
   assert.deepEqual(history.filter(item => item.role === 'function_call').map(item => item.content.id), ['one', 'two']);
   assert.deepEqual(history.filter(item => item.role === 'function_output').map(item => item.call_id), ['one', 'two']);
 });
 
-test('file tools use committed external tickets and recovery repeats only observations', async t => {
-  for (const [name, arguments_] of [
-    ['read_file', { path: 'example.txt' }],
-    ['write_file', { path: 'example.txt', content: 'new', expected_revision: 'absent' }],
-    ['edit_file', { path: 'example.txt', old_text: 'old', new_text: 'new', expected_revision: 'a'.repeat(64) }],
-  ]) {
+test('Bash replaces file tools and never repeats an uncertain external command during recovery', async t => {
+  for (const commandText of ['cat example.txt', 'printf new > example.txt', 'sed -i.bak s/old/new/ example.txt']) {
+    const name = 'bash';
+    const arguments_ = { command: commandText };
     const { send, command } = await kernel(t);
     const created = await command({ op: 'create', profile: 'fixture', message: 'work' });
     assert.ok(created.effects[0].tools.some(tool => tool.name === name));
+    assert.equal(created.effects[0].tools.some(tool => ['read_file', 'write_file', 'edit_file'].includes(tool.name)), false);
     const result = await send(model(0, 0, '', [{ id: 'file-op', name, arguments: arguments_ }]));
     assert.equal(result.effects[0].kind, 'tool');
     assert.equal(result.effects[0].tool.name, name);
     const recovered = await send({ kind: 'recover' });
     const tools = recovered.effects.filter(effect => effect.kind === 'tool');
-    assert.equal(tools.length, name === 'read_file' ? 1 : 0);
-    if (tools.length) assert.notEqual(tools[0].ticket, result.effects[0].ticket);
-    else {
-      const page = (await command({ op: 'read', task_id: 0 })).reply.result;
-      assert.equal(page.messages.find(message => message.role === 'function_output').is_error, true);
-    }
+    assert.equal(tools.length, 0);
+    const page = (await command({ op: 'read', task_id: 0 })).reply.result;
+    assert.equal(page.messages.find(message => message.role === 'function_output').is_error, true);
+    assert.deepEqual(page.task.operations, []);
   }
 });
 
 test('the native program exposes its command model and preserves Unicode and exact JSON numbers', async t => {
   const { k, send, command } = await kernel(t, { tools: [remote] });
-  assert.deepEqual(k.description.commands.map(x => x.name), ['create', 'send', 'freeze', 'unfreeze', 'stop', 'interrupt', 'archive', 'compact', 'fork', 'read', 'list', 'describe']);
+  assert.deepEqual(k.description.commands.map(x => x.name), ['create', 'send', 'steer', 'cancel_operation', 'freeze', 'unfreeze', 'stop', 'interrupt', 'archive', 'compact', 'fork', 'read', 'list', 'describe']);
   const text = 'hello\n"\\\0 世界 😀';
   const created = await command({ op: 'create', profile: 'fixture', message: text });
   assert.equal(created.effects[0].history[0].content, text);
@@ -262,7 +261,8 @@ test('fork shares the call prefix, numbers its outputs, and never repeats an inh
   await send({ kind: 'tool', task_id: 0, ticket: 1, value: { exit_code: 0 }, error: false });
   const caller = (await command({ op: 'read', task_id: 0 })).reply.result;
   assert.equal(caller.messages.find(x => x.role === 'function_output' && x.call_id === 'split').content, 0);
-  assert.equal(caller.messages.at(-1).content, 'parent-only queue');
+  assert.ok(caller.messages.some(message => message.role === 'user' && message.content === 'parent-only queue'));
+  assert.equal(caller.messages.at(-1).role, 'operation_result');
 });
 
 test('every ancestor quota includes archived descendants', async t => {

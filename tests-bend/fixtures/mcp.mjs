@@ -19,9 +19,9 @@ for await (const line of createInterface({ input: process.stdin })) {
     case 'tools/call': {
       assert.equal(request.params.name, 'inspect');
       const database = new DatabaseSync(process.env.SELVEDGE_FIXTURE_JOURNAL, { readOnly: true });
-      const row = database.prepare('SELECT decision FROM journal ORDER BY seq DESC LIMIT 1').get();
+      const effects = database.prepare('SELECT decision FROM journal ORDER BY seq').all().flatMap(row => JSON.parse(row.decision).effects);
       database.close();
-      assert.ok(JSON.parse(row.decision).effects.some(effect => effect.kind === 'tool' && effect.call.id === 'mcp-1'));
+      assert.equal(effects.filter(effect => effect.kind === 'tool' && effect.call.id === 'mcp-1').length, 1);
       appendFileSync(process.env.SELVEDGE_FIXTURE_MARKER, 'mcp\n');
       result = { content: [{ type: 'text', text: request.params.arguments.text }], isError: false };
       break;

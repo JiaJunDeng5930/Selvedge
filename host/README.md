@@ -26,20 +26,19 @@ record distinguishes browser interaction evidence from the native proof gate.
 
 ## Coding effect interpreters
 
-`file-tools.mjs` interprets committed file observations and mutations. Reads are
-bounded regular-file UTF-8 snapshots with SHA-256 revisions. Mutations resolve
-symlink aliases, serialize per canonical path, reject stale revisions and
-ambiguous literal edits, preserve existing permission bits, and publish through
-a same-directory temporary file. Exclusive creation does not clobber an existing
-path. Multiply-linked files are rejected for mutation; BOM and line endings are
-not normalized. File and directory synchronization are attempted before success.
-Independent processes can still race a check and replacement: this is an explicit
-filesystem boundary, not a proved cross-process transaction or access sandbox.
+`process.mjs` is the single local coding-effect interpreter. Reading, writing,
+editing and running a reusable script are ordinary Bash commands, not redundant
+tool implementations. `project.mjs` only observes bounded root guidance before
+configuration; it is not a model-callable file tool. File locking, atomic editing
+and revision checks required by a project belong in its commands or reusable
+scripts. This service is not a cross-process filesystem transaction or sandbox.
 
 `process.mjs` drains both pipes with bounded previews and bounded artifact files
 under the service home's `artifacts` directory. Output beyond the artifact cap is
-discarded but counted and reported. UTF-8 prefixes are not split at retention
-boundaries. Arbitrary binary output can still require a binary-aware Bash reader.
+discarded but counted and reported. Previews retain Unicode head and tail, and
+artifact prefixes do not split UTF-8 retention boundaries. Raw byte counts and
+omitted-character counts are separate. Arbitrary binary output can still require
+a binary-aware Bash reader.
 Artifacts have private permissions; they are not automatically garbage-collected
 because durable history may reference them. File synchronization is reported in
 artifact metadata; filesystem loss or external deletion remains possible.
@@ -47,8 +46,21 @@ artifact metadata; filesystem loss or external deletion remains possible.
 The journal binds the canonical workspace before reconstructing a kernel. This
 prevents identical relative paths from acquiring a different meaning after a
 restart in another directory. The source fingerprint and workspace are checked,
-not migrated. Different service homes do not coordinate their file mutation
-queues, even when intentionally pointed at the same workspace.
+not migrated. Different operations and service homes do not serialize arbitrary
+filesystem mutations, even when pointed at the same workspace.
+
+Native operations are independently keyed by task ID and committed ticket. The
+host can run several tools for one task and a model request at the same time.
+`cancel_ticket` aborts exactly one controller; task-wide cancellation is separate.
+Neither the host nor a timer invents model polling turns. Running announcements,
+completion notification, queue promotion and summary eligibility are native
+policy. Providers enable parallel calls and encode a later `operation_result` as
+explicit unprivileged asynchronous-result data, not a duplicate function output.
+
+Every external intent must belong to its own earlier committed decision, not
+necessarily the latest journal row. Concurrent completions may advance the log
+before an already-authorized process starts. Integration fixtures verify causal
+authorization by operation identity and retain the no-replay-on-restart check.
 
 `providers.mjs` consumes the instructions and retry policy supplied by the native
 model. Only pre-stream connection failures and declared transient HTTP statuses

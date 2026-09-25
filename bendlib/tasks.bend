@@ -2,6 +2,7 @@ import Base
 import ./stdlib.bend as Std
 import ./json.bend as J
 import ../MODEL.bend as M
+import ./operations.bend as Ops
 
 def has_id(xs: +List<Nat>, +id: Nat) -> Bool:
   match xs:
@@ -125,6 +126,10 @@ def message_json(message: M.Message) -> J.Json:
     case M.FunctionOutput{call_id, value, error}:
       J.Object{[J.Field{"role", J.Text{"function_output"}}, J.Field{"call_id", J.Text{call_id}},
         J.Field{"content", value}, J.Field{"is_error", J.Boolean{error}}]}
+    case M.OperationResult{ticket, call_id, tool, value, error}:
+      J.Object{[J.Field{"role", J.Text{"operation_result"}}, J.Field{"operation_id", J.nat(ticket)},
+        J.Field{"call_id", J.Text{call_id}}, J.Field{"tool", J.Text{tool}},
+        J.Field{"content", value}, J.Field{"is_error", J.Boolean{error}}]}
     case M.FailureMessage{text}:
       J.Object{[J.Field{"role", J.Text{"error"}}, J.Field{"content", J.Text{text}}]}
     case M.ModelContext{value}:
@@ -149,15 +154,15 @@ def phase_name(phase: M.Phase) -> String:
     case M.CompactionReady{}: "compaction_ready"
     case M.ModelPending{ticket, callable}: "model_pending"
     case M.SummaryPending{ticket, resume}: "summary_pending"
-    case M.ToolPending{ticket, call, remaining}: "tool_pending"
 
 def summary(task: M.Task) -> J.Json:
-  M.Task{id, lineage, M.Contract{M.Model{M.Profile{profile, provider, model}, reasoning, project}, tools, max_fork, max_descendants}, +status, history, queued, phase} = task
+  M.Task{id, lineage, M.Contract{M.Model{M.Profile{profile, provider, model}, reasoning, project}, tools, max_fork, max_descendants}, +status, history, queued, phase, operations, notified} = task
   J.Object{[J.Field{"id", J.nat(id)}, J.Field{"parent", J.optional_nat(List.head(&2, Nat, lineage))},
     J.Field{"profile", J.Text{profile}}, J.Field{"provider", J.Text{provider}}, J.Field{"model", J.Text{model}}, J.Field{"reasoning", J.Text{reasoning}},
     J.Field{"status", J.Text{M.status_name(status)}}, J.Field{"controls", M.controls(status)},
     J.Field{"phase", J.Text{phase_name(phase)}}, J.Field{"cursor", J.nat(M.history_length(history))},
     J.Field{"queued", J.nat(List.length(&2, String, queued))},
+    J.Field{"operations", J.Array{Ops.summaries(operations)}},
     J.Field{"max_fork", J.nat(max_fork)}, J.Field{"max_descendants", J.nat(max_descendants)}]}
 
 def summaries(tasks: +List<M.Task>) -> +List<J.Json>:
@@ -178,10 +183,10 @@ def user_messages(inputs: +List<String>) -> +List<M.Message>:
 
 def drain(task: M.Task) -> M.Task:
   match task:
-    case M.Task{id, lineage, contract, status, history, Nil{}, phase}:
-      M.Task{id, lineage, contract, status, history, Nil{}, phase}
-    case M.Task{id, lineage, contract, status, history, Con{text, rest}, phase}:
-      M.Task{id, lineage, contract, status, M.history_append(user_messages(text <> rest), history), Nil{}, M.Ready{Nil{}}}
+    case M.Task{id, lineage, contract, status, history, Nil{}, phase, operations, notified}:
+      M.Task{id, lineage, contract, status, history, Nil{}, phase, operations, notified}
+    case M.Task{id, lineage, contract, status, history, Con{text, rest}, phase, operations, notified}:
+      M.Task{id, lineage, contract, status, M.history_append(user_messages(text <> rest), history), Nil{}, M.Ready{Nil{}}, operations, True{}}
 
 def promote_when(status: M.Status, phase: M.Phase, task: M.Task) -> M.Task:
   match status phase:
@@ -242,9 +247,14 @@ def item_messages(items: +List<M.ModelItem>) -> +List<M.Message>:
     case Con{M.Invoke{call}, rest}: M.FunctionCall{call} <> item_messages(rest)
     case Con{M.Context{value}, rest}: M.ModelContext{value} <> item_messages(rest)
 
-def after_model(calls: +List<M.Call>, task: M.Task) -> M.Task:
+def settled_model(notified: Bool, task: M.Task) -> M.Task:
+  match notified:
+    case True{}: promote(M.with_phase(M.Ready{Nil{}}, task))
+    case False{}: promote(M.with_phase(M.Idle{}, task))
+
+def after_model(calls: +List<M.Call>, +task: M.Task) -> M.Task:
   match calls:
-    case Nil{}: promote(M.with_phase(M.Idle{}, task))
+    case Nil{}: settled_model(M.task_notified(task), task)
     case Con{+call, +rest}:
       M.with_phase(M.Ready{M.initial_attempts(call <> rest)}, task)
 
@@ -253,7 +263,7 @@ def model_reply(valid: Bool, items: +List<M.ModelItem>, calls: +List<M.Call>, +t
     case True{}:
       after_model(calls, M.with_history(M.history_append(item_messages(items), M.task_history(task)), task))
     case False{}:
-      promote(M.with_phase(M.Idle{}, M.append_message(M.FailureMessage{"invalid model reply: duplicate call identity, unavailable tool, or invalid arguments"}, task)))
+      settled_model(M.task_notified(task), M.append_message(M.FailureMessage{"invalid model reply: duplicate call identity, unavailable tool, or invalid arguments"}, task))
 
 def context_limit(reducible: Bool, task: M.Task) -> M.Task:
   match reducible:
@@ -265,7 +275,7 @@ def context_limit(reducible: Bool, task: M.Task) -> M.Task:
 def model_outcome(outcome: M.Outcome, allowed: +List<String>, +task: M.Task) -> M.Task:
   match outcome:
     case M.ModelFailure{message}:
-      promote(M.with_phase(M.Idle{}, M.append_message(M.FailureMessage{message}, task)))
+      settled_model(M.task_notified(task), M.append_message(M.FailureMessage{message}, task))
     case M.ContextLimit{}:
       context_limit(M.compactable(M.context_history(M.task_history(task))), task)
     case M.ModelReply{+items}:
@@ -273,7 +283,10 @@ def model_outcome(outcome: M.Outcome, allowed: +List<String>, +task: M.Task) -> 
       model_reply(valid_calls(calls, allowed, M.task_history(task)), items, calls, task)
 
 def complete_tool(call: M.Call, remaining: +List<M.Attempt>, value: J.Json, error: Bool, task: M.Task) -> M.Task:
-  promote(M.with_phase(M.Ready{remaining}, M.append_message(M.FunctionOutput{call_id(call), value, error}, task)))
+  promote(M.with_notified(True{}, M.with_phase(M.Ready{remaining}, M.append_message(M.FunctionOutput{call_id(call), value, error}, task))))
+
+def complete_operation(operation: M.Operation, value: J.Json, error: Bool, task: M.Task) -> M.Task:
+  promote(Ops.completed(operation, value, error, task))
 
 def summary_parts(parts: +List<J.Json>) -> String:
   match parts:
@@ -345,13 +358,33 @@ def interrupted_history(phase: M.Phase, history: M.History) -> M.History:
     case M.SummaryPending{ticket, resume}:
       M.HistoryNode{history, M.FailureMessage{"Context summary interrupted; original history retained"}}
     case M.Ready{attempts}: interrupt_attempts(attempts, history)
-    case M.ToolPending{ticket, +call, remaining}:
-      interrupt_attempts(remaining, M.HistoryNode{history, M.FunctionOutput{call_id(call),
-        interrupted_outcome(M.RecoveryAttempt{call}), True{}}})
+
+def interrupted_task(task: M.Task) -> M.Task:
+  M.Task{id, lineage, contract, status, history, queued, phase, operations, notified} = task
+  M.Task{id, lineage, contract, M.Stopped{}, interrupted_history(phase, history), queued, M.Idle{}, Nil{}, False{}}
 
 def interrupt(task: M.Task) -> M.Task:
-  M.Task{id, lineage, contract, status, history, queued, phase} = task
-  M.Task{id, lineage, contract, M.Stopped{}, interrupted_history(phase, history), queued, M.Idle{}}
+  interrupted_task(Ops.abandoned(task))
+
+def archive(task: M.Task) -> M.Task:
+  M.with_notified(False{}, M.with_phase(M.Idle{}, M.with_status(M.Archived{}, Ops.abandoned(task))))
+
+def steering_status(status: M.Status) -> M.Status:
+  match status:
+    case M.Stopped{}: M.Active{}
+    case other: other
+
+def steer(text: String, task: M.Task) -> M.Task:
+  M.Task{id, lineage, contract, status, history, queued, phase, operations, notified} = task
+  M.Task{id, lineage, contract, steering_status(status),
+    M.HistoryNode{interrupted_history(phase, history), M.UserMessage{text}}, queued,
+    M.Ready{Nil{}}, operations, True{}}
+
+def steering_effects(phase: M.Phase, id: Nat) -> +List<M.Effect>:
+  match phase:
+    case M.ModelPending{ticket, allowed}: [M.CancelTicket{id, ticket}]
+    case M.SummaryPending{ticket, resume}: [M.CancelTicket{id, ticket}]
+    case _: Nil{}
 
 def recover_summary(resume: Bool) -> M.Phase:
   match resume:
@@ -362,16 +395,22 @@ def recover_phase(phase: M.Phase) -> M.Phase:
   match phase:
     case M.ModelPending{ticket, callable}: M.Ready{Nil{}}
     case M.SummaryPending{ticket, resume}: recover_summary(resume)
-    case M.ToolPending{ticket, call, remaining}: M.Ready{M.RecoveryAttempt{call} <> remaining}
     case other: other
+
+def recovered_operations(pending: Bool, task: M.Task) -> M.Task:
+  match pending:
+    case True{}: M.notify(Ops.abandoned(task))
+    case False{}: task
 
 def recover(status: M.Status, +task: M.Task) -> M.Task:
   match status:
     case M.Archived{}: task
-    case _: M.with_phase(recover_phase(M.task_phase(task)), task)
+    case _:
+      recovered_operations(M.operations_pending(M.task_operations(task)),
+        M.with_phase(recover_phase(M.task_phase(task)), task))
 
 def runnable(tasks: +List<M.Task>) -> Maybe<&2, M.Task>:
   match tasks:
     case Nil{}: None{}
     case Con{+task, rest}:
-      choose_task(M.has_work(M.work(M.task_status(task), M.task_phase(task))), task, runnable(rest))
+      choose_task(M.has_work(M.task_work(task)), task, runnable(rest))

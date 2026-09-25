@@ -18,7 +18,7 @@ export async function taskIdle(service, taskId = 0) {
     const result = await service.command({ op: 'read', task_id: taskId });
     assert.equal(result.reply.ok, true);
     page = result.reply.result;
-    if (page.task.phase === 'idle') return page;
+    if (page.task.phase === 'idle' && page.task.operations.length === 0) return page;
     await delay(10);
   } while (Date.now() < deadline);
   throw new Error(`Task did not settle: ${JSON.stringify(page)}`);

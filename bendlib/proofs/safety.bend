@@ -66,6 +66,10 @@ def Laws.transition_admitted(world, input):
       update_certificate(M.UserCommand{M.Create{profile, reasoning, message}}, world)
     case M.UserCommand{M.Send{id, message}}:
       update_certificate(M.UserCommand{M.Send{id, message}}, world)
+    case M.UserCommand{M.Steer{id, message}}:
+      update_certificate(M.UserCommand{M.Steer{id, message}}, world)
+    case M.UserCommand{M.Cancel{id, ticket}}:
+      update_certificate(M.UserCommand{M.Cancel{id, ticket}}, world)
     case M.UserCommand{M.ChangeStatus{id, control}}:
       update_certificate(M.UserCommand{M.ChangeStatus{id, control}}, world)
     case M.UserCommand{M.Fork{id, count, messages}}:

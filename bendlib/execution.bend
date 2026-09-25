@@ -6,6 +6,7 @@ import ./tasks.bend as T
 import ./json.bend as J
 import ./schema.bend as Schema
 import ./presentation.bend as View
+import ./operations.bend as Ops
 
 # The execution alphabet is the semantic boundary between task policy and the
 # scheduler. Resolution owns authority, recovery and argument preconditions;
@@ -42,22 +43,34 @@ def model_sized(large: Bool, task: M.Task) -> Action:
     case True{}: Summary{task, True{}}
     case False{}: Model{task}
 
+def model_with_operations(large: Bool, pending: Bool, task: M.Task) -> Action:
+  match large pending:
+    case True{} True{}: Idle{task}
+    case True{} False{}: Summary{task, True{}}
+    case False{} _: Model{task}
+
 def model(+task: M.Task, world: M.World) -> Action:
-  model_sized(M.compactable(M.context_history(M.task_history(task))) &&
-    oversized(J.render(render_budget(world), J.One{context(task)})), task)
+  model_with_operations(M.compactable(M.context_history(M.task_history(task))) &&
+    oversized(J.render(render_budget(world), J.One{context(task)})), M.operations_pending(M.task_operations(task)), task)
 
 def arguments_valid(source: M.Source, schema: J.Json, +arguments: J.Json) -> Bool:
   match source:
     case M.Mcp{server, remote}: J.is_object(arguments)
     case M.Harness{M.Bash{}}:
-      Schema.valid(schema, arguments) && M.nonempty(J.text(J.get(arguments, "command")))
+      Schema.valid(schema, arguments) && M.nonempty(J.text(J.get(arguments, "command"))) &&
+        Bool.not(String.contains(J.text(J.get(arguments, "command")), SCon{Chr{0}, SNil{}}))
     case M.Harness{other}: Schema.valid(schema, arguments)
+
+def external_capacity(available: Bool, tool: M.Tool, call: M.Call, remaining: +List<M.Attempt>, task: M.Task) -> Action:
+  match available:
+    case True{}: External{tool, call, remaining, task}
+    case False{}: Failure{"operation_limit", "This task has reached its in-flight operation limit; wait for results or cancel an operation", call, remaining, task}
 
 def classified(execution: M.Execution, source: M.Source, tool: M.Tool, +call: M.Call,
   remaining: +List<M.Attempt>, +task: M.Task, world: M.World) -> Action:
   match execution source:
-    case M.ExternalObservation{} _: External{tool, call, remaining, task}
-    case M.ExternalMutation{} _: External{tool, call, remaining, task}
+    case M.ExternalMutation{} _:
+      external_capacity(Nat.is_lt(List.length(&2, M.Operation, M.task_operations(task)), M.operation_limit()), tool, call, remaining, task)
     case M.InternalOperation{} M.Harness{builtin}:
       Internal{Protocol.invocation(builtin, T.call_arguments(call), task, world), call, remaining, task}
     case _ _:
@@ -116,14 +129,15 @@ def meaning(action: Action, world: M.World) -> M.Decision:
       M.Environment{catalog, profiles, max_fork, max_descendants, project} = environment
       +tools = T.task_tools(M.task_contract(task))
       +allowed = T.callable(tools, catalog)
-      M.Decision{M.World{T.replace(tasks, M.with_phase(M.ModelPending{ticket, allowed}, task)), next_task, 1n+ticket, environment, limits},
-        J.Null{}, [M.RequestModel{M.task_id(task), ticket, T.task_model(M.task_contract(task)), M.context_history(M.task_history(task)), tools, allowed}]}
+      +prepared = Ops.publish(task)
+      M.Decision{M.World{T.replace(tasks, M.with_phase(M.ModelPending{ticket, allowed}, prepared)), next_task, 1n+ticket, environment, limits},
+        J.Null{}, [M.RequestModel{M.task_id(task), ticket, T.task_model(M.task_contract(task)), M.context_history(M.task_history(prepared)), tools, allowed}]}
     case Summary{+task, +resume} M.World{tasks, next_task, +ticket, environment, limits}:
-      M.Decision{M.World{T.replace(tasks, M.with_phase(M.SummaryPending{ticket, resume}, task)), next_task, 1n+ticket, environment, limits},
+      M.Decision{M.World{T.replace(tasks, M.with_notified(False{}, M.with_phase(M.SummaryPending{ticket, resume}, task))), next_task, 1n+ticket, environment, limits},
         M.success(J.Object{[J.Field{"task_id", J.nat(M.task_id(task))}]}),
         [M.RequestSummary{M.task_id(task), ticket, T.task_model(M.task_contract(task)), M.context_history(M.task_history(task))}]}
     case External{+tool, +call, remaining, +task} M.World{tasks, next_task, +ticket, environment, limits}:
-      M.Decision{M.World{T.replace(tasks, M.with_phase(M.ToolPending{ticket, call, remaining}, task)), next_task, 1n+ticket, environment, limits},
+      M.Decision{M.World{T.replace(tasks, T.promote(Ops.started(ticket, call, remaining, task))), next_task, 1n+ticket, environment, limits},
         J.Null{}, [M.ExecuteTool{M.task_id(task), ticket, tool, call}]}
     case Internal{operation, call, remaining, task} _:
       Protocol.invoked(operation, call, remaining, task, world)
@@ -154,7 +168,7 @@ def schedule(fuel: Nat, candidate: Maybe<&2, M.Task>, +decision: M.Decision) -> 
     case 0n Some{task}: defer(decision)
     case 1n+p None{}: decision
     case 1n+p Some{+task}:
-      +next = combine(decision, work(M.work(M.task_status(task), M.task_phase(task)), task, world(decision)))
+      +next = combine(decision, work(M.task_work(task), task, world(decision)))
       schedule(p, T.runnable(Commands.entries(world(next))), next)
 
 def budget(world: M.World) -> Nat:

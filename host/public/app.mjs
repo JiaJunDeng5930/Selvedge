@@ -62,7 +62,7 @@ async function refresh() {
       for (const task of state.tasks) {
         const button = element('button', `Task ${task.id}`, 'task');
         button.setAttribute('aria-current', String(selected === task.id));
-        button.append(element('small', `${task.status} · ${task.model}${task.parent === null ? '' : ` · parent ${task.parent}`}`));
+        button.append(element('small', `${task.status} · ${task.operations.length} running · ${task.model}${task.parent === null ? '' : ` · parent ${task.parent}`}`));
         button.onclick = () => { selected = task.id; page = 0; $('stream').hidden = true; refresh().catch(showError); };
         $('tasks').append(button);
       }
@@ -89,7 +89,7 @@ async function refresh() {
         const result = await command({ op: 'read', task_id: selected, after: page, limit: 100 });
         taskSnapshot = result.task;
         $('title').textContent = `Task ${selected}`;
-        $('details').textContent = `${result.task.status} · ${result.task.phase.replaceAll('_', ' ')} · ${result.task.model} · ${result.task.queued} queued`;
+        $('details').textContent = `${result.task.status} · ${result.task.phase.replaceAll('_', ' ')} · ${result.task.operations.length} running · ${result.task.model} · ${result.task.queued} queued`;
         for (const name of result.task.controls) {
           const button = element('button', name[0].toUpperCase() + name.slice(1));
           button.title = description.commands.find(spec => spec.name === name)?.description ?? name;

@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import { mkdir, mkdtemp, open } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
+import { StringDecoder } from 'node:string_decoder';
 
 export function killGroup(child, signal = 'SIGKILL') {
   if (!child.pid) return;
@@ -21,6 +22,39 @@ export function capture(limit) {
     },
     result() { return { text: new TextDecoder().decode(Buffer.concat(chunks, retained), { stream: total > retained }),
       truncated: total > retained, total_bytes: total }; },
+  };
+}
+
+/** Bounded Unicode head/tail, independent of pipe chunk boundaries. */
+export function captureHeadTail(limit) {
+  if (!Number.isSafeInteger(limit) || limit < 1) throw new TypeError('Invalid output length');
+  const headLimit = Math.ceil(limit / 2);
+  const tailLimit = limit - headLimit;
+  const decoder = new StringDecoder('utf8');
+  const head = [];
+  let tail = [];
+  let characters = 0;
+  let totalBytes = 0;
+  let ended = false;
+  function retain(text) {
+    const points = Array.from(text);
+    characters += points.length;
+    const take = Math.min(points.length, headLimit - head.length);
+    if (take) head.push(...points.slice(0, take));
+    if (tailLimit) tail = tail.concat(points.slice(take)).slice(-tailLimit);
+  }
+  return {
+    add(chunk) {
+      if (ended) throw new Error('Output capture is already closed');
+      totalBytes += chunk.length;
+      retain(decoder.write(chunk));
+    },
+    end() { if (!ended) { retain(decoder.end()); ended = true; } },
+    result() {
+      const omitted = Math.max(0, characters - limit);
+      return { text: head.join('') + (omitted ? `\n… [${omitted} Unicode characters omitted] …\n` : '') + tail.join(''),
+        truncated: omitted > 0, total_bytes: totalBytes, total_characters: characters, omitted_characters: omitted };
+    },
   };
 }
 
@@ -54,7 +88,12 @@ async function hashPrefix(file, length) {
 export async function runBash(arguments_, limits, { signal, cwd = process.cwd(), artifactDirectory } = {}) {
   signal?.throwIfAborted();
   const timeout = arguments_.timeout_ms ?? limits.bash_timeout_ms;
-  if (typeof arguments_.command !== 'string' || !Number.isSafeInteger(timeout) || timeout <= 0) {
+  const maximum = arguments_.max_output_length ?? limits.bash_default_output_length;
+  if (typeof arguments_.command !== 'string' || arguments_.command.length === 0 || !arguments_.command.isWellFormed() ||
+      arguments_.command.includes('\0') || !Number.isSafeInteger(timeout) || timeout < 100 || timeout > 1_800_000 ||
+      !Number.isSafeInteger(limits.bash_max_output_length) || limits.bash_max_output_length < 1 ||
+      !Number.isSafeInteger(maximum) || maximum < 1 || maximum > limits.bash_max_output_length ||
+      Object.keys(arguments_).some(key => !['command', 'timeout_ms', 'max_output_length'].includes(key))) {
     throw new TypeError('Malformed Bash effect');
   }
   const artifacts = [];
@@ -75,8 +114,8 @@ export async function runBash(arguments_, limits, { signal, cwd = process.cwd(),
     await Promise.allSettled(artifacts.map(artifact => artifact.file.close()));
     throw error;
   }
-  const stdout = capture(limits.tool_output_bytes);
-  const stderr = capture(limits.tool_output_bytes);
+  const stdout = captureHeadTail(maximum);
+  const stderr = captureHeadTail(maximum);
   let reason;
   let forcedClose;
   let closed = false;
@@ -109,6 +148,7 @@ export async function runBash(arguments_, limits, { signal, cwd = process.cwd(),
           }
         }
       }
+      output.end();
       if (artifact) {
         if (output.result().total_bytes > retained) {
           const complete = await completeUtf8Prefix(artifact.file, retained);
@@ -120,6 +160,7 @@ export async function runBash(arguments_, limits, { signal, cwd = process.cwd(),
     } catch (error) {
       stop('output_capture_failed', `Could not retain command output: ${error.message}`);
     } finally {
+      output.end();
       if (artifact) {
         try { await artifact.file.close(); }
         catch (error) { persisted = false; stop('output_capture_failed', `Could not close command output: ${error.message}`); }
@@ -146,6 +187,8 @@ export async function runBash(arguments_, limits, { signal, cwd = process.cwd(),
       const err = stderr.result();
       const value = { exit_code: exitCode, signal: exitSignal, stdout: out.text, stderr: err.text,
         stdout_truncated: out.truncated, stderr_truncated: err.truncated,
+        stdout_bytes: out.total_bytes, stderr_bytes: err.total_bytes,
+        stdout_omitted_characters: out.omitted_characters, stderr_omitted_characters: err.omitted_characters,
         ...(out.truncated && outArtifact ? { stdout_artifact: outArtifact } : {}),
         ...(err.truncated && errArtifact ? { stderr_artifact: errArtifact } : {}) };
       if (!reason && (exitCode !== 0 || exitSignal !== null)) {

@@ -30,13 +30,16 @@ test('the command vocabulary has positive operational coverage, including every 
   assert.equal(observed.durable, false);
   assert.deepEqual(observed.effects, []);
   assert.deepEqual(observed.reply.result.commands.map(x => x.name).sort(),
-    ['archive', 'compact', 'create', 'describe', 'fork', 'freeze', 'interrupt', 'list', 'read', 'send', 'stop', 'unfreeze']);
+    ['archive', 'cancel_operation', 'compact', 'create', 'describe', 'fork', 'freeze', 'interrupt', 'list', 'read', 'send', 'steer', 'stop', 'unfreeze']);
   const created = await command({ op: 'create', profile: 'fixture', reasoning: 'high', message: 'original objective' });
   assert.deepEqual(created.reply.result, { task_id: 0 });
   assert.equal(created.effects[0].kind, 'model');
   assert.equal(created.effects[0].model.reasoning, 'high');
+  const steered = await command({ op: 'steer', task_id: 0, message: 'prioritize this instruction' });
+  assert.equal(steered.reply.ok, true);
+  assert.deepEqual(steered.effects[0], { kind: 'cancel_ticket', task_id: 0, ticket: created.effects[0].ticket });
   await command({ op: 'freeze', task_id: 0 });
-  await complete(0, created.effects[0].ticket);
+  await complete(0, steered.effects.find(effect => effect.kind === 'model').ticket);
   assert.equal((await page(0)).task.status, 'frozen');
   const queued = await command({ op: 'send', task_id: 0, message: 'next objective' });
   assert.deepEqual(queued.effects, []);
@@ -55,6 +58,13 @@ test('the command vocabulary has positive operational coverage, including every 
   const forked = await command({ op: 'fork', task_id: 0, child_count: 1, messages: ['child objective'] });
   assert.deepEqual(forked.reply.result, { children: [1] });
   assert.equal(forked.effects.find(x => x.task_id === 1).history.at(-1).content, 'child objective');
+  const launched = await complete(0, forked.effects.find(effect => effect.kind === 'model' && effect.task_id === 0).ticket,
+    [{ type: 'call', id: 'cancel-me', name: 'bash', arguments: { command: 'sleep 60' } }]);
+  const ticket = launched.effects.find(effect => effect.kind === 'tool').ticket;
+  const cancelled = await command({ op: 'cancel_operation', task_id: 0, operation_id: ticket });
+  assert.equal(cancelled.reply.ok, true);
+  assert.deepEqual(cancelled.reply.result, { task_id: 0, operation_id: ticket });
+  assert.ok(cancelled.effects.some(effect => effect.kind === 'cancel_ticket' && effect.ticket === ticket));
   const interrupted = await command({ op: 'interrupt', task_id: 0 });
   assert.deepEqual(interrupted.effects, [{ kind: 'cancel', task_id: 0 }]);
   const archived = await command({ op: 'archive', task_id: 1 });
@@ -74,6 +84,10 @@ test('command refusals leave task state, history, identities, and dispatch ticke
     [{ op: 'create', profile: 'fixture', message: ' ' }, 'invalid_arguments'],
     [{ op: 'send', task_id: 0, message: ' ' }, 'invalid_arguments'],
     [{ op: 'send', task_id: 999, message: 'x' }, 'task_not_found'],
+    [{ op: 'steer', task_id: 999, message: 'x' }, 'task_not_found'],
+    [{ op: 'steer', task_id: 0, message: ' ' }, 'invalid_arguments'],
+    [{ op: 'cancel_operation', task_id: 0, operation_id: 999 }, 'operation_not_found'],
+    [{ op: 'cancel_operation', task_id: 999, operation_id: 0 }, 'task_not_found'],
     [{ op: 'freeze', task_id: 999 }, 'task_not_found'],
     [{ op: 'unfreeze', task_id: 0 }, 'invalid_transition'],
     [{ op: 'fork', task_id: 0, child_count: 5 }, 'resource_limit'],

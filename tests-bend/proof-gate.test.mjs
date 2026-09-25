@@ -114,7 +114,7 @@ test('functional proof gates reject type-correct no-ops, wrong replies, missing 
       'reject(previous, "invariant_violation", "The candidate violates a world invariant, task retention, or effect authority")')],
     ['publish oversized decisions', source => replaceBody(source, 'output_admitted', 'decision')],
     ['claim successful tool settlement without appending it', source => alterDefinition(source, 'tool_matched', block =>
-      replaceOnce(block, 'respond(store(T.complete_tool(call, remaining, value, error, task), world), accepted(True{}))',
+      replaceOnce(block, 'respond(store(T.complete_operation(operation, value, error, task), world), accepted(True{}))',
         'respond(world, accepted(True{}))'))],
     ['silently discard every resolved input', source => replaceBody(source, 'realize_event', 'respond(world, J.Null{})')],
     ['claim acceptance of an ignored completion', source => replaceOnce(source,

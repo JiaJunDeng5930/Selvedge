@@ -68,20 +68,30 @@ test('real model, MCP, and Bash effects start after SQLite commit and are not re
   const model = await responsesServer(t, (body, index, request) => {
     assert.equal(request.headers.authorization, 'Bearer fixture-not-a-secret');
     const database = new DatabaseSync(filename, { readOnly: true });
-    const row = database.prepare('SELECT decision FROM journal ORDER BY seq DESC LIMIT 1').get();
+    const committed = database.prepare('SELECT decision FROM journal ORDER BY seq').all().flatMap(row => JSON.parse(row.decision).effects);
     database.close();
-    assert.ok(JSON.parse(row.decision).effects.some(effect => effect.kind === 'model'));
+    assert.ok(committed.some(effect => effect.kind === 'model'));
     if (index === 0) return [reasoning,
       { type: 'function_call', call_id: 'mcp-1', name: 'mcp__fixture__inspect', arguments: JSON.stringify({ text: 'MCP 世界' }) },
       { type: 'function_call', call_id: 'bash-1', name: 'bash', arguments: JSON.stringify({ command }) },
     ];
-    assert.equal(index, 1, 'A settled task must not make another model request');
+    assert.ok(index <= 2, 'Only completed operations may wake another model turn');
     assert.deepEqual(body.input.find(item => item.type === 'reasoning'), reasoning);
     const outputs = body.input.filter(item => item.type === 'function_call_output');
-    assert.deepEqual(outputs.map(item => item.call_id), ['mcp-1', 'bash-1']);
-    assert.equal(JSON.parse(outputs[0].output).value.content[0].text, 'MCP 世界');
-    assert.equal(JSON.parse(outputs[1].output).value.stdout, 'Bash result 世界 😀');
-    return [{ type: 'message', role: 'assistant', phase: 'final_answer', content: [{ type: 'output_text', text: 'Both tools completed.' }] }];
+    assert.deepEqual(outputs.map(item => item.call_id).sort(), ['bash-1', 'mcp-1']);
+    const final = new Map(outputs.map(item => [item.call_id, JSON.parse(item.output)]));
+    for (const item of body.input) {
+      if (item.role === 'user' && typeof item.content === 'string' && item.content.startsWith('Asynchronous operation completed')) {
+        const result = JSON.parse(item.content.slice(item.content.indexOf('\n') + 1));
+        final.set(result.call_id, result);
+      }
+    }
+    const mcp = final.get('mcp-1');
+    const bash = final.get('bash-1');
+    if (mcp.value.status !== 'running') { assert.equal(mcp.is_error, false); assert.equal(mcp.value.content[0].text, 'MCP 世界'); }
+    if (bash.value.status !== 'running') { assert.equal(bash.is_error, false); assert.equal(bash.value.stdout, 'Bash result 世界 😀'); }
+    const finished = mcp.value.status !== 'running' && bash.value.status !== 'running';
+    return [{ type: 'message', role: 'assistant', phase: 'final_answer', content: [{ type: 'output_text', text: finished ? 'Both tools completed.' : 'Waiting for the remaining operation.' }] }];
   });
   const config = validateConfig({ ...defaultConfig,
     profiles: { fixture: { provider: 'responses', model: 'fixture', endpoint: model.endpoint, api_key_env: 'SELVEDGE_FIXTURE_KEY' } },
@@ -96,13 +106,14 @@ test('real model, MCP, and Bash effects start after SQLite commit and are not re
   assert.equal(created.reply.ok, true);
   const settled = await taskIdle(service);
   assert.deepEqual(model.failures, []);
-  assert.equal(model.requests.length, 2);
+  assert.ok(model.requests.length >= 2 && model.requests.length <= 3);
+  const completedRequests = model.requests.length;
   assert.equal(settled.messages.at(-1).content.phase, 'final_answer');
-  assert.equal(await readFile(marker, 'utf8'), 'mcp\nbash\n');
+  assert.deepEqual((await readFile(marker, 'utf8')).trim().split('\n').sort(), ['bash', 'mcp']);
   assert.ok(notices.some(event => event.type === 'delta' && event.text === '处理中 😀'));
   await service.close();
   service = await Service.open({ home: directory, config, cwd: directory });
   assert.deepEqual((await taskIdle(service)).messages, settled.messages);
-  assert.equal(model.requests.length, 2);
-  assert.equal(await readFile(marker, 'utf8'), 'mcp\nbash\n');
+  assert.equal(model.requests.length, completedRequests);
+  assert.deepEqual((await readFile(marker, 'utf8')).trim().split('\n').sort(), ['bash', 'mcp']);
 });

@@ -4,6 +4,7 @@ import ../COMMANDS.bend as Commands
 import ./json.bend as J
 import ./tasks.bend as T
 import ./stdlib.bend as Std
+import ./operations.bend as Ops
 
 # The other half of command meaning: an effect result is a message carrying a
 # one-use ticket, not permission to overwrite a task. Resolve against the current
@@ -13,7 +14,7 @@ type Event is Data:
   Ignore{}
   ModelResult{task: M.Task, outcome: M.Outcome, allowed: +List<String>}
   SummaryResult{task: M.Task, outcome: M.Outcome, resume: Bool}
-  ToolResult{task: M.Task, call: M.Call, remaining: +List<M.Attempt>, value: J.Json, error: Bool}
+  ToolResult{task: M.Task, operation: M.Operation, value: J.Json, error: Bool}
   Settings{environment: M.Environment}
   Restart{}
   Tick{}
@@ -37,17 +38,20 @@ def model(found: Maybe<&2, M.Task>, ticket: Nat, outcome: M.Outcome) -> Event:
     case None{}: Ignore{}
     case Some{+task}: model_phase(M.task_status(task), M.task_phase(task), task, ticket, outcome)
 
-def tool_phase(status: M.Status, phase: M.Phase, +task: M.Task, ticket: Nat, value: J.Json, error: Bool) -> Event:
-  match status phase:
-    case M.Archived{} _: Ignore{}
-    case _ M.ToolPending{expected, call, remaining}:
-      matching(Nat.is_eq(ticket, expected), ToolResult{task, call, remaining, value, error})
-    case _ _: Ignore{}
+def tool_operation(found: Maybe<&2, M.Operation>, task: M.Task, value: J.Json, error: Bool) -> Event:
+  match found:
+    case None{}: Ignore{}
+    case Some{operation}: ToolResult{task, operation, value, error}
+
+def tool_status(status: M.Status, +task: M.Task, ticket: Nat, value: J.Json, error: Bool) -> Event:
+  match status:
+    case M.Archived{}: Ignore{}
+    case _: tool_operation(Ops.find(M.task_operations(task), ticket), task, value, error)
 
 def tool(found: Maybe<&2, M.Task>, ticket: Nat, value: J.Json, error: Bool) -> Event:
   match found:
     case None{}: Ignore{}
-    case Some{+task}: tool_phase(M.task_status(task), M.task_phase(task), task, ticket, value, error)
+    case Some{+task}: tool_status(M.task_status(task), task, ticket, value, error)
 
 def resolve(input: M.Input, +world: M.World) -> Event:
   match input:
@@ -76,8 +80,8 @@ def meaning(event: Event, world: M.World) -> M.Decision:
       M.Decision{Commands.replace(T.model_outcome(outcome, allowed, task), world), acknowledgement(True{}), Nil{}}
     case SummaryResult{task, outcome, resume}:
       M.Decision{Commands.replace(T.summary_outcome(outcome, resume, task), world), acknowledgement(True{}), Nil{}}
-    case ToolResult{task, call, remaining, value, error}:
-      M.Decision{Commands.replace(T.complete_tool(call, remaining, value, error, task), world), acknowledgement(True{}), Nil{}}
+    case ToolResult{task, operation, value, error}:
+      M.Decision{Commands.replace(T.complete_operation(operation, value, error, task), world), acknowledgement(True{}), Nil{}}
     case Settings{environment}:
       M.World{tasks, next_task, next_ticket, previous, limits} = world
       M.Decision{M.World{tasks, next_task, next_ticket, environment, limits}, M.success(J.Null{}), Nil{}}
@@ -121,6 +125,8 @@ def invocation(tool: M.Builtin, +arguments: J.Json, +task: M.Task, +world: M.Wor
       Internal{Commands.resolve(M.Send{number(arguments, "task_id", 0n), J.text(J.get(arguments, "message"))}, world)}
     case M.ArchiveTask{}:
       Internal{Commands.resolve(M.ChangeStatus{number(arguments, "task_id", 0n), M.Archive{}}, world)}
+    case M.CancelOperation{}:
+      Internal{Commands.resolve(M.Cancel{number(arguments, "task_id", M.task_id(task)), number(arguments, "operation_id", 0n)}, world)}
     case _: Internal{Commands.Refuse{"internal_error", "External tools must cross the external-effect boundary"}}
 
 def finish_status(status: M.Status, task: M.Task) -> M.Task:
@@ -143,7 +149,7 @@ def finish(id: Nat, call: M.Call, remaining: +List<M.Attempt>, +decision: M.Deci
 def branched(built: Commands.Children, call: M.Call, remaining: +List<M.Attempt>, +parent: M.Task, world: M.World) -> M.Decision:
   Commands.Children{+children, end} = built
   M.World{tasks, next_task, next_ticket, environment, limits} = world
-  caller = T.promote(M.with_phase(M.Ready{remaining}, M.with_history(M.branch_history(M.task_history(parent), T.call_id(call), 0n), parent)))
+  caller = T.promote(M.with_notified(True{}, M.with_phase(M.Ready{remaining}, M.with_history(M.branch_history(M.task_history(parent), T.call_id(call), 0n), parent))))
   M.Decision{M.World{List.append(&2, M.Task, T.replace(tasks, caller), children), end, next_ticket, environment, limits},
     M.success(J.Object{[J.Field{"children", J.Array{Commands.identities(children)}}]}), Nil{}}
 

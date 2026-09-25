@@ -36,6 +36,10 @@ def construct_command(kind: M.CommandKind, +body: J.Json) -> M.Command:
       M.Create{J.text(J.get(body, "profile")), text_or(J.get(body, "reasoning"), "medium"), J.text(J.get(body, "message"))}
     case M.SendCommand{}:
       M.Send{Protocol.number(body, "task_id", 0n), J.text(J.get(body, "message"))}
+    case M.SteerCommand{}:
+      M.Steer{Protocol.number(body, "task_id", 0n), J.text(J.get(body, "message"))}
+    case M.CancelCommand{}:
+      M.Cancel{Protocol.number(body, "task_id", 0n), Protocol.number(body, "operation_id", 0n)}
     case M.ControlCommand{control}:
       M.ChangeStatus{Protocol.number(body, "task_id", 0n), control}
     case M.ForkCommand{}:

@@ -4,7 +4,7 @@ import { realpath } from 'node:fs/promises';
 import { Journal } from './journal.mjs';
 import { Mcp } from './mcp.mjs';
 import { runBash } from './process.mjs';
-import { runFileTool, snapshotProject } from './file-tools.mjs';
+import { snapshotProject } from './project.mjs';
 import { requestModel, ContextLimitError } from './providers.mjs';
 import { profileCatalog } from './config.mjs';
 
@@ -92,6 +92,10 @@ export class Service extends EventEmitter {
       for (const active of this.#running.values()) if (active.task === effect.task_id) active.controller.abort(new Error('Task work cancelled'));
       return;
     }
+    if (effect.kind === 'cancel_ticket') {
+      this.#running.get(`${effect.task_id}:${effect.ticket}`)?.controller.abort(new Error('Operation or model request cancelled'));
+      return;
+    }
     if (effect.kind === 'continue') {
       this.#continuation ??= setImmediate(() => {
         this.#continuation = undefined;
@@ -124,8 +128,6 @@ export class Service extends EventEmitter {
         if (effect.tool.source === 'harness' && effect.tool.name === 'bash') {
           result = await runBash(effect.call.arguments, this.limits, { signal, cwd: this.cwd,
             artifactDirectory: path.join(this.home, 'artifacts') });
-        } else if (effect.tool.source === 'harness' && ['read_file', 'write_file', 'edit_file'].includes(effect.tool.name)) {
-          result = await runFileTool(effect.tool.name, effect.call.arguments, this.limits, { signal, cwd: this.cwd });
         } else if (effect.tool.source && typeof effect.tool.source === 'object') {
           const client = this.#servers.get(effect.tool.source.server);
           if (!client) throw new Error('MCP route is unavailable');

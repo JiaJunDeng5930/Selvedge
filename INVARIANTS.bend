@@ -1,6 +1,7 @@
 import Base
 import ./MODEL.bend as M
 import ./bendlib/tasks.bend as T
+import ./bendlib/operations.bend as Ops
 import ./bendlib/equality.bend as Same
 import ./bendlib/json.bend as J
 
@@ -99,41 +100,98 @@ def phase(status: M.Status, phase: M.Phase, +history: M.History, tools: +List<M.
     case _ M.Ready{pending}: attempts(pending, history)
     case _ M.ModelPending{ticket, names}: Nat.is_lt(ticket, next_ticket) && callable(names, tools)
     case _ M.SummaryPending{ticket, resume}: Nat.is_lt(ticket, next_ticket)
-    case _ M.ToolPending{ticket, +call, +remaining}:
-      Nat.is_lt(ticket, next_ticket) && open_call(call, history) &&
-        Bool.not(has_attempt(remaining, T.call_id(call))) && attempts(remaining, history)
 
 def ticket_is(phase: M.Phase, ticket: Nat) -> Bool:
   match phase:
     case M.ModelPending{expected, callable}: Nat.is_eq(expected, ticket)
     case M.SummaryPending{expected, resume}: Nat.is_eq(expected, ticket)
-    case M.ToolPending{expected, call, remaining}: Nat.is_eq(expected, ticket)
     case _: False{}
+
+def operation_ticket(operations: +List<M.Operation>, +ticket: Nat) -> Bool:
+  match operations:
+    case Nil{}: False{}
+    case Con{operation, rest}: Nat.is_eq(Ops.ticket(operation), ticket) || operation_ticket(rest, ticket)
+
+def operation_call(operations: +List<M.Operation>, +id: String) -> Bool:
+  match operations:
+    case Nil{}: False{}
+    case Con{operation, rest}: String.eq(T.call_id(Ops.call(operation)), id) || operation_call(rest, id)
+
+def original_call(history: M.History, +call: M.Call, +budget: Nat) -> Bool:
+  match history:
+    case M.EmptyHistory{}: False{}
+    case M.HistoryNode{previous, M.FunctionCall{original}}:
+      Same.call(budget, original, call) || original_call(previous, call, budget)
+    case M.HistoryNode{previous, other}: original_call(previous, call, budget)
+
+def running_output(history: M.History, +operation: M.Operation, +budget: Nat) -> Bool:
+  match history:
+    case M.EmptyHistory{}: False{}
+    case M.HistoryNode{previous, M.FunctionOutput{id, value, error}}:
+      (String.eq(id, T.call_id(Ops.call(operation))) && Bool.not(error) && Same.json(budget, value, Ops.running(operation))) ||
+        running_output(previous, operation, budget)
+    case M.HistoryNode{previous, other}: running_output(previous, operation, budget)
+
+def operation_history(announced: Bool, operation: M.Operation, history: M.History, budget: Nat) -> Bool:
+  match announced:
+    case False{}: open_call(Ops.call(operation), history)
+    case True{}: running_output(history, operation, budget)
+
+def phase_has_call(phase: M.Phase, id: String) -> Bool:
+  match phase:
+    case M.Ready{attempts}: has_attempt(attempts, id)
+    case _: False{}
+
+def operation_rights(operations: +List<M.Operation>, +phase: M.Phase, +history: M.History,
+  +tools: +List<M.Tool>, +next_ticket: Nat, +budget: Nat) -> Bool:
+  match operations:
+    case Nil{}: True{}
+    case Con{+operation, +rest}:
+      Nat.is_lt(Ops.ticket(operation), next_ticket) && Bool.not(ticket_is(phase, Ops.ticket(operation))) &&
+        Bool.not(operation_ticket(rest, Ops.ticket(operation))) && Bool.not(operation_call(rest, T.call_id(Ops.call(operation)))) &&
+        Bool.not(phase_has_call(phase, T.call_id(Ops.call(operation)))) &&
+        original_call(history, Ops.call(operation), budget) &&
+        Bool.not(missing_tool(T.find_tool(tools, T.call_name(Ops.call(operation))))) &&
+        operation_history(Ops.announced(operation), operation, history, budget) &&
+        operation_rights(rest, phase, history, tools, next_ticket, budget)
+
+def operation_status(status: M.Status, operations: +List<M.Operation>) -> Bool:
+  match status:
+    case M.Archived{}: Bool.not(M.operations_pending(operations))
+    case _: True{}
 
 def has_ticket(tasks: +List<M.Task>, +ticket: Nat) -> Bool:
   match tasks:
     case Nil{}: False{}
-    case Con{task, rest}: ticket_is(M.task_phase(task), ticket) || has_ticket(rest, ticket)
+    case Con{+task, rest}:
+      ticket_is(M.task_phase(task), ticket) || operation_ticket(M.task_operations(task), ticket) || has_ticket(rest, ticket)
 
 def distinct_ticket(phase: M.Phase, tasks: +List<M.Task>) -> Bool:
   match phase:
     case M.ModelPending{ticket, callable}: Bool.not(has_ticket(tasks, ticket))
     case M.SummaryPending{ticket, resume}: Bool.not(has_ticket(tasks, ticket))
-    case M.ToolPending{ticket, call, remaining}: Bool.not(has_ticket(tasks, ticket))
     case _: True{}
 
-def task(task: M.Task, expected_id: Nat, +all: +List<M.Task>, next_ticket: Nat, budget: Nat) -> Bool:
-  M.Task{+id, ancestors, +frozen, status, history, queued, pending} = task
+def distinct_operations(operations: +List<M.Operation>, +tasks: +List<M.Task>) -> Bool:
+  match operations:
+    case Nil{}: True{}
+    case Con{operation, rest}: Bool.not(has_ticket(tasks, Ops.ticket(operation))) && distinct_operations(rest, tasks)
+
+def task(task: M.Task, expected_id: Nat, +all: +List<M.Task>, +next_ticket: Nat, +budget: Nat) -> Bool:
+  M.Task{+id, ancestors, +frozen, +status, +history, queued, +pending, +operations, notified} = task
   Nat.is_eq(id, expected_id) && contract(frozen) &&
     lineage(ancestors, id, frozen, all, budget) &&
     Nat.is_le(T.descendant_count(all, id), T.contract_limit(frozen)) &&
-    phase(status, pending, history, T.task_tools(frozen), next_ticket)
+    phase(status, pending, history, T.task_tools(frozen), next_ticket) &&
+    operation_status(status, operations) && Nat.is_le(List.length(&2, M.Operation, operations), M.operation_limit()) &&
+    operation_rights(operations, pending, history, T.task_tools(frozen), next_ticket, budget)
 
 def tasks(remaining: +List<M.Task>, +expected_id: Nat, +all: +List<M.Task>, +next_task: Nat, +next_ticket: Nat, +budget: Nat) -> Bool:
   match remaining:
     case Nil{}: Nat.is_eq(expected_id, next_task)
     case Con{+entry, +rest}:
       task(entry, expected_id, all, next_ticket, budget) && distinct_ticket(M.task_phase(entry), rest) &&
+        distinct_operations(M.task_operations(entry), rest) &&
         tasks(rest, 1n+expected_id, all, next_task, next_ticket, budget)
 
 # Canonical identities imply uniqueness. Each parent is older, exists, and has
@@ -184,9 +242,23 @@ def found_archived(found: Maybe<&2, M.Task>) -> Bool:
 
 def cancellation_authorized(found: Maybe<&2, M.Task>) -> Bool:
   match found:
-    case Some{M.Task{id, lineage, contract, M.Stopped{}, history, queued, M.Idle{}}}: True{}
-    case Some{M.Task{id, lineage, contract, M.Archived{}, history, queued, M.Idle{}}}: True{}
+    case Some{M.Task{id, lineage, contract, M.Stopped{}, history, queued, M.Idle{}, operations, notified}}: True{}
+    case Some{M.Task{id, lineage, contract, M.Archived{}, history, queued, M.Idle{}, operations, notified}}: True{}
     case _: False{}
+
+def retired_ticket(found: Maybe<&2, M.Task>, +ticket: Nat) -> Bool:
+  match found:
+    case None{}: False{}
+    case Some{+task}:
+      Bool.not(ticket_is(M.task_phase(task), ticket)) && Bool.not(operation_ticket(M.task_operations(task), ticket))
+
+def explicitly_cancelled(effects: +List<M.Effect>, +id: Nat, +ticket: Nat) -> Bool:
+  match effects:
+    case Nil{}: False{}
+    case Con{M.CancelTask{target}, rest}: Nat.is_eq(target, id) || explicitly_cancelled(rest, id, ticket)
+    case Con{M.CancelTicket{target, expected}, rest}:
+      (Nat.is_eq(target, id) && Nat.is_eq(expected, ticket)) || explicitly_cancelled(rest, id, ticket)
+    case Con{other, rest}: explicitly_cancelled(rest, id, ticket)
 
 def keep_effect(cancelled: Bool, effect: M.Effect, rest: +List<M.Effect>) -> +List<M.Effect>:
   match cancelled:
@@ -196,21 +268,27 @@ def keep_effect(cancelled: Bool, effect: M.Effect, rest: +List<M.Effect>) -> +Li
 # Several internal steps share one commit. An archive later in that decision
 # withdraws an earlier, still-unexecuted intent; cancelling it after dispatch
 # would unnecessarily cross the external-effect boundary.
-def live_effects(effects: +List<M.Effect>, +tasks: +List<M.Task>) -> +List<M.Effect>:
+def retained_effects(effects: +List<M.Effect>, +cancellations: +List<M.Effect>, +tasks: +List<M.Task>) -> +List<M.Effect>:
   match effects:
     case Nil{}: Nil{}
-    case Con{M.RequestModel{+id, ticket, model, history, tools, callable}, rest}:
-      keep_effect(found_archived(T.find(tasks, id)), M.RequestModel{id, ticket, model, history, tools, callable}, live_effects(rest, tasks))
-    case Con{M.RequestSummary{+id, ticket, model, history}, rest}:
-      keep_effect(found_archived(T.find(tasks, id)), M.RequestSummary{id, ticket, model, history}, live_effects(rest, tasks))
-    case Con{M.ExecuteTool{+id, ticket, tool, call}, rest}:
-      keep_effect(found_archived(T.find(tasks, id)), M.ExecuteTool{id, ticket, tool, call}, live_effects(rest, tasks))
-    case Con{other, rest}: other <> live_effects(rest, tasks)
+    case Con{M.RequestModel{+id, +ticket, model, history, tools, callable}, rest}:
+      keep_effect(found_archived(T.find(tasks, id)) || explicitly_cancelled(cancellations, id, ticket),
+        M.RequestModel{id, ticket, model, history, tools, callable}, retained_effects(rest, cancellations, tasks))
+    case Con{M.RequestSummary{+id, +ticket, model, history}, rest}:
+      keep_effect(found_archived(T.find(tasks, id)) || explicitly_cancelled(cancellations, id, ticket),
+        M.RequestSummary{id, ticket, model, history}, retained_effects(rest, cancellations, tasks))
+    case Con{M.ExecuteTool{+id, +ticket, tool, call}, rest}:
+      keep_effect(found_archived(T.find(tasks, id)) || explicitly_cancelled(cancellations, id, ticket),
+        M.ExecuteTool{id, ticket, tool, call}, retained_effects(rest, cancellations, tasks))
+    case Con{other, rest}: other <> retained_effects(rest, cancellations, tasks)
+
+def live_effects(+effects: +List<M.Effect>, tasks: +List<M.Task>) -> +List<M.Effect>:
+  retained_effects(effects, effects, tasks)
 
 def model_effect(found: Maybe<&2, M.Task>, ticket: Nat, model: M.Model, sent_history: M.History,
   tools: +List<M.Tool>, callable: +List<String>, +budget: Nat) -> Bool:
   match found:
-    case Some{M.Task{id, lineage, +contract, M.Active{}, history, queued, M.ModelPending{expected, allowed}}}:
+    case Some{M.Task{id, lineage, +contract, M.Active{}, history, queued, M.ModelPending{expected, allowed}, operations, notified}}:
       Nat.is_eq(ticket, expected) && Same.model(model, T.task_model(contract)) &&
         Same.history(budget, sent_history, M.context_history(history)) && Same.tools(budget, tools, T.task_tools(contract)) && Same.strings(callable, allowed)
     case _: False{}
@@ -226,8 +304,8 @@ def settled_calls(remaining: M.History, +whole: M.History) -> Bool:
 # The same admission certificate used for all effects enforces this precondition.
 def summary_effect(found: Maybe<&2, M.Task>, ticket: Nat, model: M.Model, +sent_history: M.History, +budget: Nat) -> Bool:
   match found:
-    case Some{M.Task{id, lineage, contract, M.Active{}, history, queued, M.SummaryPending{expected, resume}}}:
-      Nat.is_eq(ticket, expected) && Same.model(model, T.task_model(contract)) &&
+    case Some{M.Task{id, lineage, contract, M.Active{}, history, queued, M.SummaryPending{expected, resume}, operations, notified}}:
+      Bool.not(M.operations_pending(operations)) && Nat.is_eq(ticket, expected) && Same.model(model, T.task_model(contract)) &&
         Same.history(budget, sent_history, M.context_history(history)) && settled_calls(sent_history, sent_history)
     case _: False{}
 
@@ -242,10 +320,15 @@ def runs_tools(status: M.Status) -> Bool:
     case M.Stopped{}: True{}
     case _: False{}
 
+def operation_effect(found: Maybe<&2, M.Operation>, call: M.Call, budget: Nat) -> Bool:
+  match found:
+    case None{}: False{}
+    case Some{operation}: Same.call(budget, call, Ops.call(operation))
+
 def tool_effect(found: Maybe<&2, M.Task>, ticket: Nat, tool: M.Tool, call: M.Call, +budget: Nat) -> Bool:
   match found:
-    case Some{M.Task{id, lineage, contract, status, history, queued, M.ToolPending{expected, pending, remaining}}}:
-      runs_tools(status) && Nat.is_eq(ticket, expected) && Same.call(budget, call, pending) &&
+    case Some{M.Task{id, lineage, contract, status, history, queued, phase, operations, notified}}:
+      runs_tools(status) && operation_effect(Ops.find(operations, ticket), call, budget) &&
         tool_member(T.task_tools(contract), tool, budget)
     case _: False{}
 
@@ -276,6 +359,8 @@ def effects(pending: +List<M.Effect>, +tasks: +List<M.Task>, +first_ticket: Nat,
         tool_effect(T.find(tasks, id), ticket, tool, call, budget) && effects(rest, tasks, first_ticket, budget)
     case Con{M.CancelTask{id}, rest}:
       cancellation_authorized(T.find(tasks, id)) && effects(rest, tasks, first_ticket, budget)
+    case Con{M.CancelTicket{id, ticket}, rest}:
+      retired_ticket(T.find(tasks, id), ticket) && effects(rest, tasks, first_ticket, budget)
     case Con{M.ContinueScheduling{}, rest}: effects(rest, tasks, first_ticket, budget)
 
 def decision(previous: M.World, candidate: M.Decision) -> Bool:

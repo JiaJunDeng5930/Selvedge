@@ -20,6 +20,8 @@ def effect(effect: M.Effect) -> J.Json:
         J.Field{"tool", M.tool_json(tool)}, J.Field{"call", T.call_json(call)}]}
     case M.CancelTask{task_id}:
       J.Object{[J.Field{"kind", J.Text{"cancel"}}, J.Field{"task_id", J.nat(task_id)}]}
+    case M.CancelTicket{task_id, ticket}:
+      J.Object{[J.Field{"kind", J.Text{"cancel_ticket"}}, J.Field{"task_id", J.nat(task_id)}, J.Field{"ticket", J.nat(ticket)}]}
     case M.RequestSummary{task_id, ticket, model, history}:
       J.Object{[J.Field{"kind", J.Text{"summary"}}, J.Field{"task_id", J.nat(task_id)}, J.Field{"ticket", J.nat(ticket)},
         J.Field{"model", model_json(model)}, J.Field{"instructions", J.Text{M.summary_instructions()}},

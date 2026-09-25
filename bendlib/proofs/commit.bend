@@ -83,6 +83,8 @@ def Laws.command_transition(command, world):
     case M.Observe{query}: Laws.output_semantics(False{}, P.observe(query, world), world)
     case M.Create{profile, reasoning, message}: updated_command_semantics(M.Create{profile, reasoning, message}, world)
     case M.Send{id, message}: updated_command_semantics(M.Send{id, message}, world)
+    case M.Steer{id, message}: updated_command_semantics(M.Steer{id, message}, world)
+    case M.Cancel{id, ticket}: updated_command_semantics(M.Cancel{id, ticket}, world)
     case M.ChangeStatus{id, control}: updated_command_semantics(M.ChangeStatus{id, control}, world)
     case M.Fork{id, count, messages}: updated_command_semantics(M.Fork{id, count, messages}, world)
     case M.Compact{id, summary}: updated_command_semantics(M.Compact{id, summary}, world)

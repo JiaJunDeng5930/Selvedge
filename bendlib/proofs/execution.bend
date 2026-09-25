@@ -29,9 +29,9 @@ def combination_semantics(+before: M.Decision, +after: M.Decision) ->
     case M.Decision{old, reply, effects} M.Decision{world, ignored, added}: {==}
 
 def combined_work_semantics(+task: M.Task, +decision: M.Decision) ->
-  {P.combine(decision, P.work(M.work(M.task_status(task), M.task_phase(task)), task, P.decision_world(decision))) ==
-    Execution.combine(decision, Execution.work(M.work(M.task_status(task), M.task_phase(task)), task, Execution.world(decision))) : M.Decision}:
-  +work = M.work(M.task_status(task), M.task_phase(task))
+  {P.combine(decision, P.work(M.task_work(task), task, P.decision_world(decision))) ==
+    Execution.combine(decision, Execution.work(M.task_work(task), task, Execution.world(decision))) : M.Decision}:
+  +work = M.task_work(task)
   +world = P.decision_world(decision)
   +actual = P.work(work, task, world)
   +expected = Execution.work(work, task, world)
@@ -54,7 +54,7 @@ def scheduling_successor(+fuel: Nat, induction: Scheduling(fuel), +candidate: Ma
   match candidate:
     case None{}: {==}
     case Some{+task}:
-      +work = M.work(M.task_status(task), M.task_phase(task))
+      +work = M.task_work(task)
       +world = P.decision_world(decision)
       +actual = P.combine(decision, P.work(work, task, world))
       +expected = Execution.combine(decision, Execution.work(work, task, world))

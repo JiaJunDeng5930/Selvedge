@@ -101,6 +101,9 @@ def message(budget: Nat, left: M.Message, right: M.Message) -> Bool:
     case M.FunctionCall{a} M.FunctionCall{b}: call(budget, a, b)
     case M.FunctionOutput{id_a, a, error_a} M.FunctionOutput{id_b, b, error_b}:
       String.eq(id_a, id_b) && booleans(error_a, error_b) && json(budget, a, b)
+    case M.OperationResult{ticket_a, id_a, tool_a, a, error_a} M.OperationResult{ticket_b, id_b, tool_b, b, error_b}:
+      Nat.is_eq(ticket_a, ticket_b) && String.eq(id_a, id_b) && String.eq(tool_a, tool_b) &&
+        booleans(error_a, error_b) && json(budget, a, b)
     case M.ModelContext{a} M.ModelContext{b}: json(budget, a, b)
     case M.ContextCheckpoint{a} M.ContextCheckpoint{b}: String.eq(a, b)
     case _ _: False{}
