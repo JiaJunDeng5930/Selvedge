@@ -5,10 +5,11 @@ implementation detail into this directory. INVARIANTS and LAWS constrain changes
 
 `stdlib.bend` is generated from existing Rocq standard-library proof terms, with
 provenance and regeneration instructions in `../theory/README.md`. `theory.bend`
-instantiates those certificates for append, replay composition, stuttering and
-trace invariants. It does not maintain a second recursive algebra development.
+instantiates those certificates for append, replay composition and stuttering.
+It does not maintain a second recursive algebra development.
 `structures.bend` packages first-class semigroups, monoids, homomorphisms, actions, projections,
-refinements and read-only machines. CONCEPTS binds them to the real program;
+refinements, discrete dynamical systems, simulations and read-only machines.
+`architecture.bend` binds them to the real program below the CONCEPTS entry;
 PROOF consumes these values for queue, history, replay, decision and batch laws.
 Batch recovery, task views and branch results use the imported map correspondence;
 partition and map-composition results instantiate original library theorems.
@@ -30,6 +31,18 @@ separates deciding what work means from realizing it in PROGRAM. Resolution
 includes recovery, availability and argument checks; action meaning fixes the
 whole decision. The scheduler refinement uses the original imported `nat_ind`
 certificate. The specification dependency closure excludes the implementation.
+
+`transcript.bend` independently specifies complete finite decision traces;
+`traces.bend` runs the production transition on that carrier. Original
+`Nat.iter_swap_gen`, `Nat.iter_add` and `Nat.iter_ind` proofs lift the one-step
+correspondence to trace refinement, partition and replay safety. Receipts include
+replies and ordered effects. The local tape/fold proof establishes correspondence
+with the production journal rather than proving an unused abstract interpreter.
+
+`interface.bend` specifies the pure native packet protocol; `frontend.bend`
+implements it, including malformed JSON, failed decoding and durability. Both
+are in the proof closure. MAIN only performs IO. The modules in `proofs` consume
+declared laws through explicit provider imports; see `proofs/README.md`.
 
 `tasks.bend` implements task collection, history, queue, and recovery operations,
 including closing interrupted tool attempts and validating summary completions.

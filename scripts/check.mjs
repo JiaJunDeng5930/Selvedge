@@ -3,6 +3,7 @@ import { readdir } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { compiler } from './toolchain.mjs';
+import { verifyProof } from './verify-proof.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 
@@ -23,7 +24,7 @@ async function checkDirectory(directory) {
 for (const directory of ['host', 'scripts', 'tests-bend']) await checkDirectory(directory);
 run(process.execPath, ['scripts/import-stdlib.mjs', '--check']);
 // Check the obligations even when a compiled kernel is already cached.
-run(compiler(), ['PROOF.bend', '--check-only']);
+console.log(verifyProof({ cwd: root }));
 run(compiler(), ['MAIN.bend', '--check-only']);
 for (const filename of ['bootstrap.sh', 'setup-worktree.sh', 'install-bend.sh']) run('bash', ['-n', `scripts/${filename}`]);
 console.log('Host syntax and Bend proof obligations check.');

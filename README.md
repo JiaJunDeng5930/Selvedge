@@ -9,10 +9,10 @@ demonstration, not a coding model or summarizer.
 ## Read the program
 
 Start with `Harness` in [CONCEPTS.bend](CONCEPTS.bend): a proof-carrying program
-object assembling exact command/interaction refinement, a state machine, journal
-action, recovery homomorphism, read-only observations and context/interruption
-projections. Follow its named structures for the domain correspondences. These
-values bind the actual operations, rather than describing a separate architecture.
+object organized by meaning, composition, recovery and observation. It contains
+no implementation functions. `bendlib/architecture.bend` binds these concepts to
+the exact production operations, with proof-carrying simulation, journal actions,
+recovery homomorphisms and projections rather than a separate architecture model.
 
 [COMMANDS.bend](COMMANDS.bend) states what every command means. Its resolver owns
 the preconditions and produces an operation whose meaning fixes the complete
@@ -22,7 +22,9 @@ policy and client vocabulary. These three files are the conceptual entry.
 For implementation/proof details, [PROGRAM.bend](PROGRAM.bend) realizes the
 operations and runs bounded scheduling. [LAWS.bend](LAWS.bend) states the exact
 command, scheduling, commit and dispatch equations, as well as safety and trace
-properties. [PROOF.bend](PROOF.bend) discharges them. [INVARIANTS.bend](INVARIANTS.bend)
+properties. [PROOF.bend](PROOF.bend) assembles the local proofs in
+`bendlib/proofs`; their explicit dependency graph follows the semantic boundaries.
+[INVARIANTS.bend](INVARIANTS.bend)
 defines the reflected validity/admission predicates. The full command refinement
 includes `bendlib/commit.bend`'s rollback, output-bound, and refusal semantics;
 it is not merely a pre-scheduling postcondition. `bendlib/protocol.bend` completes
@@ -32,6 +34,13 @@ their post-state, reply and effects, including refusal versus tool-error settlem
 `bendlib/execution.bend` independently specifies work resolution, effect dispatch
 and finite scheduling. Neither it nor the command/protocol/commit specification
 imports PROGRAM; the complete refinement closes over this independent scheduler.
+The independent native-interface and transcript specifications extend this chain
+to malformed packets and finite input sequences. Trace simulation retains complete
+decision receipts, not only the final world. Existing Stdlib iterator theorems
+provide finite-run simulation, partition and invariant lifting; the project proves
+the one-step and tape/journal correspondences. MAIN contains only the IO boundary.
+The shared proof gate rejects unsafe/foreign evidence even when a compiled kernel
+is cached; MAIN's separately reported foreign input and service loop are not proofs.
 
 The existing standard-library proof terms and their checked translation live in
 [theory/README.md](theory/README.md). Normal builds need neither Rocq nor MetaRocq.

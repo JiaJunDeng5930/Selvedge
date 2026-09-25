@@ -4,6 +4,12 @@ import Base
 # Do not edit. No axioms, proof search, or unchecked recursion are emitted.
 # Source copyright INRIA, CNRS and contributors; LGPL-2.1 (theory/LICENSE).
 
+# Exact Corelib Nat.iter correspondence: zero is the seed; successor applies f.
+def iter(~A: Data, ~f: A -> A, count: Nat, seed: A) -> A:
+  match count:
+    case 0n: seed
+    case 1n+rest: f(iter(~A, ~f, rest, seed))
+
 # Source List.map corresponds to Base.foldr on duplicable lists. Base.map
 # itself operates on affine lists; changing the list multiplicity is not a cast.
 def map(~A: Data, ~B: Data, ~f: A -> B, items: +List<A>) -> +List<B>:
@@ -70,3 +76,24 @@ def nat_ind(~P_0: @n_1:Nat -> Type, ~O_2: P_0(0n), ~S_3: @n_4:Nat -> @__5:P_0(n_
   match n_6:
     case 0n: O_2
     case 1n+n0_16: S_3(n0_16, nat_ind(~P_0, ~O_2, ~S_3, n0_16))
+
+# Imported proof term: Stdlib.Arith.PeanoNat.Nat.iter_swap_gen
+def iter_swap_gen(~A_0: Data, ~B_1: Data, ~f_2: @__3:A_0 -> B_1, ~g_4: @__5:A_0 -> A_0, ~h_6: @__7:B_1 -> B_1, ~__8: @a_9:A_0 -> {f_2(g_4(a_9)) == h_6(f_2(a_9)) : B_1}, +n_10: Nat, +a_11: A_0) ->
+  {f_2(iter(~A_0, ~g_4, n_10, a_11)) == iter(~B_1, ~h_6, n_10, f_2(a_11)) : B_1}:
+  match n_10:
+    case 0n: {==}
+    case 1n+imported_rest: transport(B_1, h_6(f_2(iter(~A_0, ~g_4, imported_rest, a_11))), (b_27 => {b_27 == h_6(iter(~B_1, ~h_6, imported_rest, f_2(a_11))) : B_1}), transport(B_1, iter(~B_1, ~h_6, imported_rest, f_2(a_11)), (b_28 => {h_6(b_28) == h_6(iter(~B_1, ~h_6, imported_rest, f_2(a_11))) : B_1}), {==}, f_2(iter(~A_0, ~g_4, imported_rest, a_11)), iter_swap_gen(~A_0, ~B_1, ~f_2, ~g_4, ~h_6, ~__8, imported_rest, a_11)), f_2(g_4(iter(~A_0, ~g_4, imported_rest, a_11))), __8(iter(~A_0, ~g_4, imported_rest, a_11)))
+
+# Imported proof term: Stdlib.Arith.PeanoNat.Nat.iter_add
+def iter_add(~A_2: Data, ~f_3: @__4:A_2 -> A_2, +p_0: Nat, +q_1: Nat, +x_5: A_2) ->
+  {iter(~A_2, ~f_3, Nat.add(p_0, q_1), x_5) == iter(~A_2, ~f_3, p_0, iter(~A_2, ~f_3, q_1, x_5)) : A_2}:
+  match p_0:
+    case 0n: {==}
+    case 1n+imported_rest: transport(A_2, iter(~A_2, ~f_3, imported_rest, iter(~A_2, ~f_3, q_1, x_5)), (a_30 => {f_3(a_30) == f_3(iter(~A_2, ~f_3, imported_rest, iter(~A_2, ~f_3, q_1, x_5))) : A_2}), {==}, iter(~A_2, ~f_3, Nat.add(imported_rest, q_1), x_5), iter_add(~A_2, ~f_3, imported_rest, q_1, x_5))
+
+# Imported proof term: Stdlib.Arith.PeanoNat.Nat.iter_ind
+def iter_ind(~A_0: Data, ~f_1: @__2:A_0 -> A_0, ~P_4: @__5:Nat -> @__6:A_0 -> Type, ~__8: @n_9:Nat -> @a_prime_10:A_0 -> @__11:P_4(n_9, a_prime_10) -> P_4((1n+n_9), f_1(a_prime_10)), +a_3: A_0, __7: P_4(0n, a_3), +n_12: Nat) ->
+  P_4(n_12, iter(~A_0, ~f_1, n_12, a_3)):
+  match n_12:
+    case 0n: __7
+    case 1n+imported_rest: __8(imported_rest, iter(~A_0, ~f_1, imported_rest, a_3), iter_ind(~A_0, ~f_1, ~P_4, ~__8, a_3, __7, imported_rest))

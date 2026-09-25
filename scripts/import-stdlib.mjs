@@ -19,11 +19,15 @@ const names = [
   'Stdlib.Lists.List.map_map',
   'Stdlib.Lists.List.map_id',
   'Corelib.Init.Datatypes.nat_ind',
+  'Stdlib.Arith.PeanoNat.Nat.iter_swap_gen',
+  'Stdlib.Arith.PeanoNat.Nat.iter_add',
+  'Stdlib.Arith.PeanoNat.Nat.iter_ind',
 ];
 const intrinsic = new Set([
   'Corelib.Init.Datatypes.app', 'Stdlib.Lists.List.fold_left', 'Corelib.Lists.ListDef.map',
   'Corelib.Init.Logic.f_equal', 'Corelib.Init.Logic.eq_trans',
   'Corelib.Init.Logic.eq_sym', 'Corelib.Init.Logic.eq_ind_r', ...names,
+  'Corelib.Init.Nat.iter', 'Corelib.Init.Nat.add',
 ]);
 const digest = value => createHash('sha256').update(value).digest('hex');
 
@@ -132,7 +136,12 @@ function normalize(node) {
 
 const short = name => name.slice(name.lastIndexOf('.') + 1);
 const templateSlots = { list_ind: [0, 1, 2, 3], app_nil_r: [], app_assoc: [], fold_left_app: [0, 1, 2],
-  map_app: [0, 1, 2], map_map: [0, 1, 2, 3, 4], map_id: [0], nat_ind: [0, 1, 2] };
+  map_app: [0, 1, 2], map_map: [0, 1, 2, 3, 4], map_id: [0], nat_ind: [0, 1, 2],
+  iter_swap_gen: [0, 1, 2, 3, 4, 5], iter_add: [2, 3], iter_ind: [0, 1, 3, 5] };
+const parameterOrder = (method, length) => {
+  const slots = templateSlots[method];
+  return [...slots, ...Array.from({ length }, (_, i) => i).filter(i => !slots.includes(i))];
+};
 function dataType(type) {
   return type.tag === 'var' || (type.tag === 'ind' && type.name.endsWith('.nat')) ||
     (type.tag === 'app' && type.fn.tag === 'ind' && type.fn.name.endsWith('.list'));
@@ -157,6 +166,27 @@ function emit(node, recursive = new Map()) {
   if (node.tag !== 'app') throw new Error(`Cannot emit ${node.tag} as a Bend expression`);
   const { fn, args } = node;
   const e = args.map(arg => emit(arg, recursive));
+  if (fn.tag === 'fix' && fn.argument === 0 && args.length === 1) {
+    // Rocq sometimes delta-reduces Nat.iter inside an existing proof. Recognize
+    // its exact structural body, not its local name or the desired conclusion.
+    const type = telescope(fn.type);
+    const body = fn.body;
+    const cases = body.tag === 'lam' ? body.body : undefined;
+    const branch = cases?.tag === 'case' ? cases.branches[1] : undefined;
+    const step = branch?.body;
+    const recursiveCall = step?.tag === 'app' && step.args.length === 1 ? step.args[0] : undefined;
+    if (type.parameters.length === 1 && type.parameters[0].type.tag === 'ind' &&
+        type.parameters[0].type.name === 'Corelib.Init.Datatypes.nat' &&
+        cases?.tag === 'case' && cases.value.tag === 'var' && cases.value.name === body.variable.name &&
+        cases.branches.length === 2 && cases.branches[0].variables.length === 0 && branch.variables.length === 1 &&
+        recursiveCall?.tag === 'app' && recursiveCall.fn.tag === 'var' && recursiveCall.fn.name === fn.variable.name &&
+        recursiveCall.args.length === 1 && recursiveCall.args[0].tag === 'var' && recursiveCall.args[0].name === branch.variables[0].name &&
+        [fn.variable.name, body.variable.name, branch.variables[0].name].every(name =>
+          occurrences(step.fn, name) === 0 && occurrences(cases.branches[0].body, name) === 0)) {
+      return `iter(~${emit(type.result)}, ~${emit(step.fn)}, ${e[0]}, ${emit(cases.branches[0].body)})`;
+    }
+    throw new Error('Unsupported unfolded iterator in certificate');
+  }
   if (fn.tag === 'ind') {
     if (fn.name.endsWith('.list') && e.length === 1) return `+List<${e[0]}>`;
     if (fn.name.endsWith('.eq') && e.length === 3) return `{${e[1]} == ${e[2]} : ${e[0]}}`;
@@ -169,6 +199,8 @@ function emit(node, recursive = new Map()) {
     if (fn.name.endsWith('.list') && fn.index === 1 && e.length === 2) return `(tail => (${e[1]} <> tail))`;
   }
   if (fn.tag === 'const') {
+    if (fn.name === 'Corelib.Init.Nat.iter' && e.length === 4) return `iter(~${e[1]}, ~${e[2]}, ${e[0]}, ${e[3]})`;
+    if (fn.name === 'Corelib.Init.Nat.add' && e.length === 2) return `Nat.add(${e.join(', ')})`;
     if (fn.name === 'Corelib.Init.Datatypes.app' && e.length === 3) return `List.append(&2, ${e.join(', ')})`;
     if (fn.name === 'Stdlib.Lists.List.fold_left' && e.length === 5) return `List.foldl(~&2, ~${e[1]}, ~${e[0]}, ~${e[2]}, ${e[3]}, ${e[4]})`;
     if (fn.name === 'Corelib.Lists.ListDef.map' && e.length === 4) return `map(~${e[0]}, ~${e[1]}, ~${e[2]}, ${e[3]})`;
@@ -177,7 +209,7 @@ function emit(node, recursive = new Map()) {
     if (equal) return `Equal.${equal}(${e.join(', ')})`;
     if (names.includes(fn.name)) {
       const mask = templateSlots[short(fn.name)];
-      return `${short(fn.name)}(${e.map((value, index) => mask.includes(index) ? `~${value}` : value).join(', ')})`;
+      return `${short(fn.name)}(${parameterOrder(short(fn.name), e.length).map(index => mask.includes(index) ? `~${e[index]}` : e[index]).join(', ')})`;
     }
   }
   if (fn.tag === 'var' && recursive.has(fn.name)) return `${recursive.get(fn.name)}${e.join(', ')})`;
@@ -202,8 +234,10 @@ function spine(node) {
 // this routine only lowers their eliminator and threads its environment.
 function lowerInduction(name, parameters, node) {
   const { fn, args } = spine(node);
-  if (fn.tag !== 'const' || fn.name !== names[0] || args.length < 5) return null;
-  const [, predicate, base, step, list, ...applied] = args;
+  if (fn.tag !== 'const') return null;
+  const isList = fn.name === names[0];
+  if ((!isList && fn.name !== 'Corelib.Init.Datatypes.nat_ind') || args.length < (isList ? 5 : 4)) return null;
+  const [predicate, base, step, list, ...applied] = isList ? args.slice(1) : args;
   if (list.tag !== 'var' || !parameters.some(p => p.variable.name === list.name) || applied.some(x => x.tag !== 'var')) {
     throw new Error('The induction environment is outside the certificate subset');
   }
@@ -219,9 +253,9 @@ function lowerInduction(name, parameters, node) {
   let induction = application({ tag: 'const', name }, recursiveArguments);
   for (const p of goal.parameters.toReversed()) induction = { ...p, tag: 'lam', body: induction };
   const zero = application(base, applied);
-  const successor = application(step, [item, rest, induction, ...applied]);
-  return `  match ${emit(list)}:\n    case Nil{}: ${emit(zero)}\n` +
-    `    case Con{+${item.name}, +${rest.name}}: ${emit(successor)}`;
+  const successor = application(step, [...(isList ? [item] : []), rest, induction, ...applied]);
+  return `  match ${emit(list)}:\n    case ${isList ? 'Nil{}' : '0n'}: ${emit(zero)}\n` +
+    `    case ${isList ? `Con{+${item.name}, +${rest.name}}` : `1n+${rest.name}`}: ${emit(successor)}`;
 }
 
 function compileEntity([name, sourceType, sourceBody]) {
@@ -229,7 +263,8 @@ function compileEntity([name, sourceType, sourceBody]) {
   const { parameters, result } = telescope(decode(sourceType));
   let body = application(decode(sourceBody), parameters.map(p => p.variable));
   const method = short(name);
-  const declarations = parameters.map((p, i) => {
+  const declarations = parameterOrder(method, parameters.length).map(i => {
+    const p = parameters[i];
     const isTemplate = templateSlots[method].includes(i);
     return `${isTemplate ? '~' : p.type.tag === 'sort' ? '-' : dataType(p.type) ? '+' : ''}${p.variable.name}: ${emit(p.type)}`;
   });
@@ -259,6 +294,9 @@ export function translate(entities) {
   return `import Base\n\n# Generated by scripts/import-stdlib.mjs from existing Rocq Stdlib proof terms.\n` +
     `# Do not edit. No axioms, proof search, or unchecked recursion are emitted.\n` +
     `# Source copyright INRIA, CNRS and contributors; LGPL-2.1 (theory/LICENSE).\n\n` +
+    `# Exact Corelib Nat.iter correspondence: zero is the seed; successor applies f.\n` +
+    `def iter(~A: Data, ~f: A -> A, count: Nat, seed: A) -> A:\n` +
+    `  match count:\n    case 0n: seed\n    case 1n+rest: f(iter(~A, ~f, rest, seed))\n\n` +
     `# Source List.map corresponds to Base.foldr on duplicable lists. Base.map\n` +
     `# itself operates on affine lists; changing the list multiplicity is not a cast.\n` +
     `def map(~A: Data, ~B: Data, ~f: A -> B, items: +List<A>) -> +List<B>:\n` +
@@ -281,6 +319,8 @@ async function refresh() {
     for (const [name, relative] of [
       ['Corelib.Init.Datatypes', 'theories/Init/Datatypes.v'],
       ['Stdlib.Lists.List', 'user-contrib/Stdlib/Lists/List.v'],
+      ['Corelib.Init.Nat', 'theories/Init/Nat.v'],
+      ['Stdlib.Arith.PeanoNat', 'user-contrib/Stdlib/Arith/PeanoNat.v'],
     ]) sources[name] = digest(await readFile(path.join(library, relative)));
     const bundle = {
       format: 'rocq-template-certificates-2',

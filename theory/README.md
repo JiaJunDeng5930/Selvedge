@@ -4,12 +4,13 @@
 from Rocq Stdlib 9.2.0, not project-written tactics with the same theorem names.
 The bundle records the source files' SHA-256, tool versions, and its own content
 digest. The included entities are `list_ind`, `List.app_nil_r`, `List.app_assoc`,
-`List.fold_left_app`, `List.map_app`, `List.map_map`, `List.map_id`, and `nat_ind`.
-The six algebra theorems are closed under the global
+`List.fold_left_app`, `List.map_app`, `List.map_map`, `List.map_id`, `nat_ind`,
+`Nat.iter_swap_gen`, `Nat.iter_add`, and `Nat.iter_ind`.
+All eleven exported entities are closed under the global
 context: their source proofs introduce no axioms.
 The natural-number eliminator is the original Corelib term, used to lift
 one-step execution correspondence to every finite scheduler budget. The current
-bundle records both Corelib's Datatypes and Stdlib's List source fingerprints.
+bundle records Corelib's Datatypes/Nat and Stdlib's List/PeanoNat fingerprints.
 
 `scripts/ExportStdlib.v` obtains the opaque proof bodies with MetaRocq 1.5.1+9.2.
 `scripts/import-stdlib.mjs` translates that restricted term language to
@@ -22,6 +23,11 @@ own `List.map` takes affine lists, so its name alone does not establish the
 correspondence. Source `eq_ind_r` becomes the checker's equality rewrite rule,
 not a fresh proof axiom. Existing map certificates are checked against this exact
 representation; their use fixes recovery, task-view and branch-result batch laws.
+The iterator correspondence is the exact zero/seed and successor/application
+definition of Corelib `Nat.iter`. A delta-reduced iterator inside a source proof
+is recognized only by this structural form, never by its name or target theorem.
+Template arguments are reordered consistently because Bend requires them before
+ordinary arguments. Unsupported eliminators and recursion fail closed.
 
 Normal builds require only the pinned Bend compiler and Node. Both `npm run check`
 and `npm run build` check that the saved certificates reproduce the generated
@@ -42,12 +48,23 @@ an imported proof and mutate the actual command interpreter to check these gates
 
 `bendlib/structures.bend` packages these results as monoids, right actions and
 monoid homomorphisms. Map identity and composition also reuse the source proofs.
-`CONCEPTS.bend` binds them to queues, histories, effects and actual replay. The
+`bendlib/architecture.bend` binds them to queues, histories, effects and actual
+replay beneath `CONCEPTS.bend`. `Dynamics` and `Simulation` carry the actual step
+and run functions as indices. Original iterator theorems supply finite simulation,
+run partition and invariant lifting; the old local generic invariant induction
+has been removed. The application proves only tape/fold correspondence and the
+single-step obligations, not another copy of the standard iteration theorems. The
 project proves only the correspondence, the one-step obligations, and genuinely
 domain-specific facts such as context projection and cancellation. In particular,
 decision combination is a **semigroup**, not a monoid: the first reply and final
 world have different owners. Its associativity reduces to the imported effect-list
 theorem after destructuring the three decisions.
+
+When the checker distinguishes a named run wrapper from its underlying iterator,
+the imported structure's fields are rebound by pointwise application. No function
+extensionality axiom is introduced. Both proof terms and their application to the
+production functions must check. A shared pure-proof gate rejects foreign/unsafe
+dependencies and unexpected compiler reports, including on cached builds.
 
 Source: https://github.com/rocq-prover/stdlib and Rocq Corelib, copyright INRIA,
 CNRS and contributors. The quoted terms and their generated translation retain

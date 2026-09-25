@@ -5,10 +5,12 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { compiler, expectedVersion } from './toolchain.mjs';
 import { checkBundle } from './import-stdlib.mjs';
+import { verifyProof } from './verify-proof.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const bend = compiler();
 await checkBundle();
+console.log(verifyProof({ cwd: root }));
 
 async function sources(directory, relative = '') {
   const result = [];
@@ -34,7 +36,7 @@ try { binaryExists = (await stat(path.join(build, 'selvedge-kernel'))).isFile();
 if (previous?.fingerprint === fingerprint && binaryExists && !process.argv.includes('--force')) {
   console.log(`Bend kernel is current (${fingerprint.slice(0, 12)}).`);
 } else {
-  for (const args of [['PROOF.bend', '--check-only'], ['MAIN.bend', '-o', '.build/selvedge-kernel']]) {
+  for (const args of [['MAIN.bend', '-o', '.build/selvedge-kernel']]) {
     const result = spawnSync(bend, args, { cwd: root, stdio: 'inherit', env: { ...process.env, BEND_NO_TELEMETRY: '1' } });
     if (result.error) throw result.error;
     if (result.status !== 0) process.exit(result.status ?? 1);

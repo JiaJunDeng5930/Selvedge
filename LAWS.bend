@@ -9,6 +9,10 @@ import ./bendlib/commit.bend as Commit
 import ./bendlib/protocol.bend as Protocol
 import ./bendlib/structures.bend as S
 import ./bendlib/execution.bend as Execution
+import ./bendlib/traces.bend as Traces
+import ./bendlib/transcript.bend as Transcript
+import ./bendlib/interface.bend as Interface
+import ./bendlib/frontend.bend as Frontend
 
 # Unlike safety, these equalities prohibit both an always-rejecting command
 # interpreter and a safe no-op. State, reply, and effects are all observable.
@@ -70,6 +74,41 @@ law interaction_transition:
   for +input: M.Input
   for +world: M.World
   {P.transition(input, world) == Commit.input(~Execution.scheduled, input, world) : M.Decision}
+
+law trace_step:
+  for +tape: Transcript.Tape
+  {Traces.implementation(tape) == Transcript.step(tape) : Transcript.Tape}
+
+law trace_refinement:
+  for +count: Nat
+  for +tape: Transcript.Tape
+  {Traces.actual(count, tape) == Transcript.run(count, tape) : Transcript.Tape}
+
+law trace_partition:
+  for +first: Nat
+  for +second: Nat
+  for +tape: Transcript.Tape
+  {Traces.actual(Nat.add(first, second), tape) == Traces.actual(first, Traces.actual(second, tape)) : Transcript.Tape}
+
+law trace_interpretation:
+  for +events: +List<M.Input>
+  for +world: M.World
+  {Traces.replay(events, world) == P.replay(events, world) : M.World}
+
+law frontend_input:
+  for +input: Result<&2, &2, String, M.Input>
+  for +world: M.World
+  {Frontend.input(input, world) == Interface.input(input, world) : Interface.Output}
+
+law frontend_json:
+  for +json: Result<&2, &2, String, J.Json>
+  for +world: M.World
+  {Frontend.json(json, world) == Interface.json(json, world) : Interface.Output}
+
+law frontend_packet:
+  for +tokens: +List<String>
+  for +world: M.World
+  {Frontend.packet(tokens, world) == Interface.packet(tokens, world) : Interface.Output}
 
 # These correspondences close the scheduling parameter in the complete command
 # specification. They quantify over every resolved action and every finite run.

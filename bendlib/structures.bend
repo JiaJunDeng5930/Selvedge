@@ -40,6 +40,44 @@ type ReadOnly<-S: Data, -Q: Data, -R: Data, -E: Data, -observe: Q -> S -> R, -ne
   ReadOnly{unchanged: @query:Q -> @state:S -> {next(observe(query, state)) == state : S},
     no_effects: @query:Q -> @state:S -> {effects(observe(query, state)) == Nil{} : +List<E>}}
 
+# A discrete dynamical system and a commuting map between two such systems.
+# The run operation is indexed too: a record about an unused interpreter cannot
+# certify the production interpreter merely by sharing a carrier type.
+type Dynamics<-A: Data, -step: A -> A, -run: Nat -> A -> A> is Type:
+  Dynamics{zero: @state:A -> {run(0n, state) == state : A},
+    successor: @count:Nat -> @state:A -> {run(1n+count, state) == step(run(count, state)) : A},
+    partition: @first:Nat -> @second:Nat -> @state:A ->
+      {run(Nat.add(first, second), state) == run(first, run(second, state)) : A}}
+
+type Simulation<-A: Data, -B: Data, -source: A -> A, -target: B -> B,
+  -abstract: A -> B, -source_run: Nat -> A -> A, -target_run: Nat -> B -> B> is Type:
+  Simulation{source_system: Dynamics<A, source, source_run>,
+    target_system: Dynamics<B, target, target_run>,
+    commutes: @state:A -> {abstract(source(state)) == target(abstract(state)) : B},
+    finite_runs: @count:Nat -> @state:A ->
+      {abstract(source_run(count, state)) == target_run(count, abstract(state)) : B}}
+
+def powers(~A: Data, ~step: A -> A) -> Dynamics<A, step, Std.iter(~A, ~step)>:
+  Dynamics{(state => {==}), (count => state => {==}),
+    (first => second => state => Std.iter_add(~A, ~step, first, second, state))}
+
+def simulation(~A: Data, ~B: Data, ~source: A -> A, ~target: B -> B, ~abstract: A -> B,
+  ~commutes: @state:A -> {abstract(source(state)) == target(abstract(state)) : B}) ->
+  Simulation<A, B, source, target, abstract, Std.iter(~A, ~source), Std.iter(~B, ~target)>:
+  Simulation{powers(~A, ~source), powers(~B, ~target), commutes,
+    (count => state => Std.iter_swap_gen(~A, ~B, ~abstract, ~source, ~target, ~commutes, count, state))}
+
+def iteration_safe(~A: Data, ~step: A -> A, ~valid: A -> Bool,
+  ~preserves: @state:A -> {valid(state) == True{} : Bool} -> {valid(step(state)) == True{} : Bool},
+  +state: A, evidence: {valid(state) == True{} : Bool}, count: Nat) ->
+  {valid(Std.iter(~A, ~step, count, state)) == True{} : Bool}:
+  Std.iter_ind(~A, ~step, ~(count => state => {valid(state) == True{} : Bool}),
+    ~(count => state => evidence => preserves(state, evidence)), state, evidence, count)
+
+def iteration_shift(~A: Data, ~step: A -> A, +count: Nat, +state: A) ->
+  {Std.iter(~A, ~step, 1n+count, state) == Std.iter(~A, ~step, count, step(state)) : A}:
+  Std.iter_swap_gen(~A, ~A, ~step, ~step, ~step, ~(state => {==}), count, state)
+
 def append(-A: Data, first: +List<A>, second: +List<A>) -> +List<A>:
   List.append(&2, A, first, second)
 

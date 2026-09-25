@@ -707,3 +707,69 @@ async-first coding harness discussed with the user. The relevant reference is
 `unreallabsai/unreal-agent`. Earlier observations about the former must not be
 treated as evidence about the latter. Subsequent capability work uses the
 correct source, with inspected paths and revisions recorded below.
+
+## 2026-09-25: existing iteration theory becomes the composition mechanism
+
+Importing an eliminator alone still leaves a project-owned proof of a standard
+global theorem. The installed Stdlib already supplies `Nat.iter_swap_gen`,
+`Nat.iter_add` and `Nat.iter_ind`: a commuting square lifts to finite iteration,
+iterations split into consecutive runs, and a preserved predicate holds through
+iteration. The bridge now quotes these original terms and checks their translated
+statements and bodies. No replacement tactics or local versions of those three
+theorems were written. The former local replay-invariant induction was removed.
+
+The engineering work is the representation: an input tape carries the remaining
+inputs, current world and complete decision receipts. Its single step is the
+actual committed transition. The project proves this step corresponds to the
+independent input meaning, and that consuming the tape has the same world as the
+production fold-based journal. Those are genuine application obligations. The
+imported theorems then provide simulation, partition and safety. Retaining whole
+receipts matters: final-state equality alone could accept a program that lost a
+reply, duplicated an effect or changed effect order.
+
+Naming a structure is insufficient if its indices name an unused interpreter.
+Dynamics and Simulation therefore index both step and run operations. Bend does
+not automatically identify a named run wrapper with its partially applied
+iterator. The imported proof record is destructured as a parameter and rebuilt
+by applying its evidence pointwise. This is a binding proof, not a fresh global
+theorem or a function-extensionality assumption. It also exposed a language
+constraint: computed values cannot directly be match scrutinees, so the rebinding
+boundary needs its own small definition.
+
+The original `iter_ind` proof contains a delta-reduced iterator. A proof translator
+must not recognize this by a convenient local name or expected result. Its exact
+zero/seed and successor/recursive-application syntax is checked before translating
+it. Unknown recursive bodies fail closed. Template parameter reordering must
+preserve both declarations and applications, including recursive calls.
+
+## 2026-09-25: proof dependencies become module boundaries
+
+CONCEPTS now consists of proof-carrying meaning, composition, recovery and
+observation records. Concrete function indices and constructors moved beneath
+that entry. The native packet protocol also acquired an independent meaning and
+refinement, so MAIN contains only IO. An architectural test checks that every
+pure runtime import belongs to the proof closure; checking a separate transition
+root is no longer mistaken for checking its deployed pure frontend.
+
+Splitting the proof root exposed another important dependency: importing a law's
+declaration does not import its evidence. Bend rejects using an unfilled law as
+live proof. Provider imports now explicitly follow command/protocol, execution,
+commit, frontend, trace, safety, task and observation boundaries. The algebra
+assembly consumes these interfaces rather than private proof helpers. The graph
+is acyclic and checked, making local proof composition an architectural contract
+instead of relying on the order of one large proof file.
+
+Negative tests must preserve project identity. Compiling a nested module as a
+different root produced an import-namespace error, which is not evidence that a
+semantic mutation was caught. The tests now compile a root wrapper importing the
+mutated module before requiring the actual proof to fail. Cases include dropping
+receipts, ignoring input, making malformed JSON durable and replacing replay by
+the identity. Likewise, a successful compiler exit is not enough for the proof
+gate: unsafe/foreign dependency reports must fail even when an executable is
+cached. MAIN's foreign input and unbounded service lifetime remain separately
+reported, rather than being accepted as proof evidence.
+
+This checkpoint passed the pure proof gate, separate native-entry check and all
+108 tests. The observed success includes original iterator-certificate mutation
+tests and whole-program receipt/input mutations; it is not evidence about remote
+model quality or operating-system isolation.

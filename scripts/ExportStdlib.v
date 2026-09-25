@@ -2,6 +2,7 @@
    requires Rocq and MetaRocq; the normal Bend build checks the saved certificates. *)
 From MetaRocq.Template Require Import All.
 From Stdlib Require Import Lists.List.
+From Stdlib Require Import Arith.PeanoNat.
 Import MonadNotation.
 Open Scope bs_scope.
 Set Printing Width 1000000.
@@ -59,6 +60,9 @@ MetaRocq Run (export (@List.map_app)).
 MetaRocq Run (export (@List.map_map)).
 MetaRocq Run (export (@List.map_id)).
 MetaRocq Run (export (@nat_ind)).
+MetaRocq Run (export (@Nat.iter_swap_gen)).
+MetaRocq Run (export (@Nat.iter_add)).
+MetaRocq Run (export (@Nat.iter_ind)).
 Print Assumptions list_ind.
 Print Assumptions nat_ind.
 Print Assumptions List.app_nil_r.
@@ -67,3 +71,6 @@ Print Assumptions List.fold_left_app.
 Print Assumptions List.map_app.
 Print Assumptions List.map_map.
 Print Assumptions List.map_id.
+Print Assumptions Nat.iter_swap_gen.
+Print Assumptions Nat.iter_add.
+Print Assumptions Nat.iter_ind.
