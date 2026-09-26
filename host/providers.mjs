@@ -175,6 +175,7 @@ export async function requestModel(effect, config, home, limits, { signal, onDel
     throw new Error('Provider did not return an SSE response');
   }
   let outputStarted = false;
+  const completedItems = new Map();
   for await (const data of events(response.body, limits.frame_bytes)) {
     if (data === '[DONE]') break;
     const event = parseJson(data);
@@ -182,9 +183,19 @@ export async function requestModel(effect, config, home, limits, { signal, onDel
         (event.type.includes('.delta') || event.type === 'response.output_item.added')) outputStarted = true;
     if (event.type === 'response.output_text.delta' && typeof event.delta === 'string') {
       onDelta(event.delta);
+    } else if (event.type === 'response.output_item.done') {
+      if (!Number.isSafeInteger(event.output_index) || event.output_index < 0 || !object(event.item)) {
+        throw new Error('Provider returned an invalid completed output item');
+      }
+      completedItems.set(event.output_index, event.item);
     } else if (event.type === 'response.completed') {
       if (event.response?.status !== 'completed') throw new Error('Terminal model response is not completed');
-      return providerOutput(event.response.output);
+      let output;
+      if (Array.isArray(event.response.output) && event.response.output.length > 0) output = event.response.output;
+      else if (completedItems.size > 0) {
+        output = [...completedItems.entries()].sort(([left], [right]) => left - right).map(([, item]) => item);
+      } else output = event.response.output;
+      return providerOutput(output);
     } else if (['error', 'response.failed', 'response.incomplete'].includes(event.type)) {
       const code = event.type === 'error' ? event.code : event.response?.error?.code;
       if (!outputStarted && event.type !== 'response.incomplete' && code === 'context_length_exceeded') throw new ContextLimitError();

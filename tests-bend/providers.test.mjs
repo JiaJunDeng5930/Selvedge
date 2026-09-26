@@ -88,6 +88,20 @@ test('an SSE body is accepted when the provider omits Content-Type', async t => 
   assert.equal(result[0].value.content[0].text, 'done');
 });
 
+test('completed output items are retained when ChatGPT omits them from response.completed', async t => {
+  const { run } = await fixture(t, (_, response) => {
+    response.writeHead(200, { 'content-type': 'text/event-stream' });
+    const item = { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'done' }] };
+    response.end([
+      `data: ${JSON.stringify({ type: 'response.output_item.added', output_index: 0, item: { ...item, content: [] } })}\n\n`,
+      `data: ${JSON.stringify({ type: 'response.output_item.done', output_index: 0, item })}\n\n`,
+      `data: ${JSON.stringify({ type: 'response.completed', response: { status: 'completed', output: [] } })}\n\n`,
+    ].join(''));
+  });
+  const result = await run();
+  assert.equal(result[0].value.content[0].text, 'done');
+});
+
 test('an explicit non-SSE Content-Type is still rejected', async t => {
   const { run } = await fixture(t, (_, response) => {
     response.writeHead(200, { 'content-type': 'application/json' });
