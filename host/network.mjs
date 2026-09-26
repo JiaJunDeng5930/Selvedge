@@ -12,10 +12,11 @@ export async function readText(body, maximum) {
   return new TextDecoder('utf-8', { fatal: true }).decode(Buffer.concat(chunks, length));
 }
 
-export async function requestJson(url, { method = 'POST', body, headers = {}, signal, timeout = 30_000, maximum = 1024 * 1024 } = {}) {
+export async function requestJson(url, { method = 'POST', body, encoding = 'json', headers = {}, signal, timeout = 30_000, maximum = 1024 * 1024 } = {}) {
+  if (!['json', 'form'].includes(encoding)) throw new TypeError('Unsupported request encoding');
   const response = await fetch(url, {
-    method, headers: { 'content-type': 'application/json', ...headers },
-    body: body === undefined ? undefined : stringifyJson(body),
+    method, headers: { 'content-type': encoding === 'form' ? 'application/x-www-form-urlencoded' : 'application/json', ...headers },
+    body: body === undefined ? undefined : encoding === 'form' ? new URLSearchParams(body).toString() : stringifyJson(body),
     signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(timeout)]) : AbortSignal.timeout(timeout),
     redirect: 'error',
   });
