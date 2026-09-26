@@ -15,6 +15,25 @@ import ./interface.bend as Interface
 import ./frontend.bend as Frontend
 import ./operations.bend as Ops
 import ./stdlib.bend as Std
+import ../UI.bend as UI
+
+def user_surface(state: M.ViewState, world: M.World) -> M.Decision:
+  P.transition(M.UserInterface{state, M.RefreshView{}}, world)
+
+type UserSurface is Type:
+  UserSurface{
+    observation: S.ReadOnly<M.World, M.ViewState, M.Decision, M.Effect, user_surface, P.decision_world, P.decision_effects>,
+    submission: @state:M.ViewState -> @command:M.Command -> @world:M.World ->
+      {P.apply(M.UserInterface{state, M.Submit{command}}, world) == P.apply_command(command, world) : M.Decision},
+    action: @key:String -> @label:String -> @command:M.Command -> @world:M.World ->
+      {UI.action(key, label, command, world) == UI.Action{key, label, M.Submit{command}, UI.selected(Commands.resolve(command, world)), False{}} : UI.Node},
+    form: @key:String -> @title:String -> @label:String -> @command:M.Command -> @fields:+List<UI.Field> -> @world:M.World ->
+      {UI.form(key, title, label, command, fields, world) == UI.Form{key, title, label, command, fields, UI.selected(Commands.resolve(command, world))} : UI.Node},
+    state: @input:M.Input -> @decision:M.Decision -> {P.decision_world(UI.decorate(input, decision)) == P.decision_world(decision) : M.World},
+    effects: @input:M.Input -> @decision:M.Decision -> {P.decision_effects(UI.decorate(input, decision)) == P.decision_effects(decision) : +List<M.Effect>}}
+
+law surface:
+  UserSurface
 
 # Concrete bindings for the conceptual entry in ../CONCEPTS.bend. These indices
 # name the actual production operations. PROOF supplies the correspondences;

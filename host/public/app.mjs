@@ -1,213 +1,125 @@
+import { mount } from './renderer.mjs';
+
 const $ = id => document.getElementById(id);
 let token = new URLSearchParams(location.hash.slice(1)).get('token') || sessionStorage.getItem('selvedge-token') || '';
 if (location.hash) history.replaceState(null, '', location.pathname);
-let description;
-let selected;
-let page = 0;
-let cursor = 0;
-let eventController;
-let refreshing = false;
+let state = null;
+let revision = 0;
+let requests = Promise.resolve();
+let refreshQueued = false;
 let refreshAgain = false;
-let taskSnapshot;
+let connection;
+let generation = 0;
+const drafts = new Map();
+const disclosures = new Map();
 
-function error(message = '') { $('error').textContent = message; $('error').hidden = !message; }
-function element(tag, text, className) {
-  const node = document.createElement(tag);
-  if (text !== undefined) node.textContent = text;
-  if (className) node.className = className;
-  return node;
+function report(message = '') {
+  $('error').textContent = message;
+  $('error').hidden = !message;
 }
-async function api(route, body) {
-  const response = await fetch(route, { method: body === undefined ? 'GET' : 'POST',
-    headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
-    body: body === undefined ? undefined : JSON.stringify(body) });
+
+async function api(body, signal) {
+  const response = await fetch('/api/ui', { method: 'POST', signal,
+    headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify(body) });
   const value = await response.json();
-  if (!response.ok || !value.ok) {
-    if (response.status === 401) $('access').hidden = false;
-    throw new Error(value.error?.message ?? `HTTP ${response.status}`);
-  }
+  if (response.status === 401) $('access').hidden = false;
+  if (!response.ok || !value.ok) throw new Error(value.error?.message ?? `HTTP ${response.status}`);
+  revision = Math.max(revision, value.sequence);
   return value.result;
 }
-const command = body => api('/api/commands', body);
 
-function messageView(message) {
-  const item = element('article', undefined, 'message');
-  let role = message.role;
-  let content = message.content;
-  if (role === 'model_context') {
-    if (content.type === 'message') {
-      role = content.role;
-      content = content.content.map(part => part.text ?? part.refusal ?? '').join('\n');
-    } else {
-      const disclosure = element('details');
-      disclosure.append(element('summary', content.type === 'reasoning' ? 'Reasoning context retained' : 'Conversation context retained'));
-      disclosure.append(element('p', content.summary?.map(part => part.text ?? '').join('\n') || 'Available to subsequent model calls.'));
-      item.append(disclosure);
-      return item;
+// Serialize navigation and submissions. No client copy of a task or command
+// table exists: the opaque cursor and unsubmitted widget drafts are UI state.
+function dispatch(event, formKey) {
+  const epoch = generation;
+  const next = requests.then(async () => {
+    if (epoch !== generation) return;
+    const result = await api({ state, event }, connection?.signal);
+    if (epoch !== generation) return;
+    state = result.presentation.state;
+    if (formKey && result.receipt.ok) {
+      for (const key of drafts.keys()) if (key.startsWith(`${formKey}/`)) drafts.delete(key);
     }
-  }
-  item.append(element('h3', role.replaceAll('_', ' ')));
-  item.append(element(typeof content === 'string' ? 'div' : 'pre', typeof content === 'string' ? content : JSON.stringify(content, null, 2), typeof content === 'string' ? 'prose' : ''));
-  return item;
+    mount($('surface'), result.presentation.root, dispatch, { drafts, disclosures });
+    report();
+  });
+  requests = next.catch(error => { if (epoch === generation && error.name !== 'AbortError') report(error.message); });
+  return requests;
 }
 
-async function refresh() {
-  if (refreshing) { refreshAgain = true; return; }
-  refreshing = true;
-  try {
-    do {
-      refreshAgain = false;
-      const state = await command({ op: 'list' });
-      $('tasks').replaceChildren();
-      for (const task of state.tasks) {
-        const button = element('button', `Task ${task.id}`, 'task');
-        button.setAttribute('aria-current', String(selected === task.id));
-        button.append(element('small', `${task.status} · ${task.operations.length} running · ${task.model}${task.parent === null ? '' : ` · parent ${task.parent}`}`));
-        button.onclick = () => { selected = task.id; page = 0; $('stream').hidden = true; refresh().catch(showError); };
-        $('tasks').append(button);
-      }
-      if (!state.tasks.length) $('tasks').append(element('p', 'No tasks yet.'));
-      const oldProfile = $('profile').value;
-      $('profile').replaceChildren(...state.profiles.map(profile => {
-        const option = element('option', `${profile.key} · ${profile.name}`);
-        option.value = profile.key;
-        return option;
-      }));
-      if (state.profiles.some(profile => profile.key === oldProfile)) $('profile').value = oldProfile;
-      $('controls').replaceChildren();
-      $('new-settings').hidden = selected !== undefined;
-      $('more').hidden = true;
-      $('history').replaceChildren();
-      taskSnapshot = undefined;
-      if (selected === undefined) {
-        $('title').textContent = 'Start a task';
-        $('details').textContent = 'Choose a model profile and describe the work. The echo profile is an offline demonstration.';
-        $('send').textContent = 'Start task';
-        $('send').disabled = !state.profiles.length;
-        $('message').disabled = false;
-      } else {
-        const result = await command({ op: 'read', task_id: selected, after: page, limit: 100 });
-        taskSnapshot = result.task;
-        $('title').textContent = `Task ${selected}`;
-        $('details').textContent = `${result.task.status} · ${result.task.phase.replaceAll('_', ' ')} · ${result.task.operations.length} running · ${result.task.model} · ${result.task.queued} queued`;
-        for (const name of result.task.controls) {
-          const button = element('button', name[0].toUpperCase() + name.slice(1));
-          button.title = description.commands.find(spec => spec.name === name)?.description ?? name;
-          button.onclick = () => command({ op: name, task_id: selected }).then(() => refresh()).catch(showError);
-          $('controls').append(button);
-        }
-        $('history').replaceChildren(...result.messages.map(messageView));
-        $('more').hidden = !result.has_more;
-        $('more').textContent = 'Next history page';
-        $('send').textContent = 'Send message';
-        $('message').disabled = result.task.status === 'archived';
-        $('send').disabled = result.task.status === 'archived';
-        if (!['model_pending', 'summary_pending'].includes(result.task.phase)) { $('stream').hidden = true; $('stream').textContent = ''; }
-      }
-    } while (refreshAgain);
-  } finally { refreshing = false; }
+function refresh() {
+  refreshAgain = true;
+  if (refreshQueued) return;
+  refreshQueued = true;
+  (async () => {
+    do { refreshAgain = false; await dispatch({ type: 'refresh' }); } while (refreshAgain);
+  })().finally(() => { refreshQueued = false; });
 }
 
-function showError(reason) { error(reason.message); }
-function populateCommand() {
-  const spec = description.commands.find(value => value.name === $('command-name').value);
-  $('command-description').textContent = spec.description;
-  $('command-fields').replaceChildren();
-  for (const [name, field] of Object.entries(spec.schema.properties)) {
-    if (name === 'op') continue;
-    const label = element('label', `${name}${spec.schema.required?.includes(name) ? ' *' : ''}`);
-    const input = element(field.type === 'array' ? 'textarea' : 'input');
-    input.name = name;
-    input.dataset.type = field.type;
-    input.required = spec.schema.required?.includes(name) ?? false;
-    input.placeholder = field.description ?? (field.type === 'array' ? 'JSON array' : '');
-    if (name === 'task_id' && selected !== undefined) input.value = String(selected);
-    if (name === 'profile') input.value = $('profile').value;
-    label.append(input);
-    $('command-fields').append(label);
-  }
-}
-
-async function watch(signal) {
-  while (!signal.aborted) {
+async function watch(signal, epoch) {
+  while (!signal.aborted && epoch === generation) {
     try {
-      const response = await fetch(`/api/events?after=${cursor}`, { headers: { authorization: `Bearer ${token}` }, signal });
-      if (!response.ok) throw new Error(`Event connection failed (${response.status})`);
+      const response = await fetch(`/api/events?after=${revision}`, {
+        headers: { authorization: `Bearer ${token}` }, signal });
+      if (!response.ok || !response.body) throw new Error(`Event connection: HTTP ${response.status}`);
       $('connection').textContent = 'Connected';
-      const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
       let pending = '';
       try {
         for (;;) {
           const { value, done } = await reader.read();
           if (done) break;
-          pending += value;
+          pending += decoder.decode(value, { stream: true }).replaceAll('\r\n', '\n');
           let end;
           while ((end = pending.indexOf('\n\n')) >= 0) {
             const frame = pending.slice(0, end);
             pending = pending.slice(end + 2);
-            const data = frame.split('\n').find(line => line.startsWith('data: '));
+            const data = frame.split('\n').filter(line => line.startsWith('data:')).map(line => line.slice(5).trimStart()).join('\n');
             if (!data) continue;
-            const event = JSON.parse(data.slice(6));
-            if (event.type === 'commit') { cursor = event.sequence; await refresh(); }
-            else if (event.type === 'delta' && event.task_id === selected) {
-              if ($('stream').dataset.ticket !== String(event.ticket)) $('stream').textContent = '';
-              $('stream').dataset.ticket = String(event.ticket);
-              $('stream').hidden = false;
-              $('stream').textContent += event.text;
-            } else if (event.type === 'retry' && event.task_id === selected) {
-              $('details').textContent = `Retrying model connection · attempt ${event.attempt} · ${event.delay_ms} ms backoff`;
-            } else if (['fatal', 'diagnostic'].includes(event.type)) error(event.message);
+            const notice = JSON.parse(data);
+            // SSE invalidates the surface; it never tells the adapter how to
+            // interpret domain state, model deltas, tool outcomes or controls.
+            if (notice.type === 'commit') { revision = Math.max(revision, notice.sequence); refresh(); }
+            if (notice.type === 'fatal') throw new Error(notice.message);
           }
+          if (pending.length > 4 * 1024 * 1024) throw new Error('Event frame is too large');
         }
-      } finally { await reader.cancel().catch(() => {}); }
-    } catch (reason) { if (signal.aborted) return; $('connection').textContent = 'Reconnecting…'; }
-    await new Promise(resolve => { const timer = setTimeout(resolve, 1500); signal.addEventListener('abort', () => { clearTimeout(timer); resolve(); }, { once: true }); });
+      } finally { await reader.cancel().catch(() => {}); reader.releaseLock(); }
+      if (!signal.aborted) throw new Error('Event connection closed');
+    } catch (error) {
+      if (signal.aborted || epoch !== generation) return;
+      $('connection').textContent = 'Reconnecting';
+      report(error.message);
+      await new Promise(resolve => {
+        const finish = () => { clearTimeout(timer); signal.removeEventListener('abort', finish); resolve(); };
+        const timer = setTimeout(finish, 1000);
+        signal.addEventListener('abort', finish, { once: true });
+      });
+    }
   }
 }
 
 async function connect() {
+  connection?.abort();
+  connection = new AbortController();
+  generation += 1;
+  const epoch = generation;
+  const signal = connection.signal;
+  requests = Promise.resolve();
+  refreshQueued = false;
+  refreshAgain = false;
+  state = null;
+  revision = 0;
+  drafts.clear();
+  disclosures.clear();
   if (!token) { $('access').hidden = false; $('connection').textContent = 'Access token required'; return; }
-  description = await api('/api/describe');
   sessionStorage.setItem('selvedge-token', token);
   $('access').hidden = true;
-  error();
-  $('command-name').replaceChildren(...description.commands.map(spec => { const option = element('option', spec.name); option.value = spec.name; return option; }));
-  populateCommand();
-  await refresh();
-  eventController?.abort();
-  eventController = new AbortController();
-  watch(eventController.signal).catch(showError);
+  await dispatch({ type: 'refresh' });
+  if (epoch === generation) watch(signal, epoch).catch(error => report(error.message));
 }
 
-$('connect').onclick = () => { token = $('token').value.trim(); connect().catch(showError); };
-$('new-task').onclick = () => { selected = undefined; page = 0; $('stream').hidden = true; refresh().catch(showError); $('message').focus(); };
-$('more').onclick = () => { page += 100; refresh().catch(showError); };
-$('composer').onsubmit = async event => {
-  event.preventDefault(); error();
-  $('send').disabled = true;
-  try {
-    const result = await command(selected === undefined
-      ? { op: 'create', profile: $('profile').value, reasoning: $('reasoning').value, message: $('message').value }
-      : { op: 'send', task_id: selected, message: $('message').value });
-    selected = result.task_id;
-    $('message').value = '';
-    await refresh();
-  } catch (reason) { showError(reason); }
-  finally { $('send').disabled = taskSnapshot?.status === 'archived'; }
-};
-$('show-commands').onclick = () => { if (!description) return; populateCommand(); $('commands').showModal(); };
-$('close-commands').onclick = () => $('commands').close();
-$('command-name').onchange = populateCommand;
-$('command-form').onsubmit = async event => {
-  event.preventDefault();
-  try {
-    const body = { op: $('command-name').value };
-    for (const input of $('command-fields').querySelectorAll('[name]')) {
-      if (!input.value && !input.required) continue;
-      body[input.name] = input.dataset.type === 'string' ? input.value : JSON.parse(input.value);
-    }
-    $('command-result').textContent = JSON.stringify(await command(body), null, 2);
-    await refresh();
-  } catch (reason) { $('command-result').textContent = reason.message; }
-};
-connect().catch(showError);
+$('connect').onclick = () => { token = $('token').value.trim(); connect().catch(error => report(error.message)); };
+window.addEventListener('pagehide', () => connection?.abort());
+connect().catch(error => report(error.message));

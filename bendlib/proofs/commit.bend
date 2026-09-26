@@ -11,6 +11,7 @@ import ../execution.bend as Execution
 import ../protocol.bend as Protocol
 import ./execution.bend as ExecutionProof
 import ./protocol.bend as ProtocolProof
+import ../../UI.bend as UI
 
 # Local proof obligations for the commit boundary. No runtime policy lives here.
 
@@ -59,15 +60,15 @@ def Laws.output_semantics(durable, decision, previous):
 def after_apply_semantics(+input: M.Input, +decision: M.Decision, +previous: M.World) ->
   {P.after_apply(input, decision, previous) == Commit.update(~Execution.scheduled, input, decision, previous) : M.Decision}:
   +durable = M.durable(input)
-  +candidate = P.scheduled(Commit.schedules(input, decision), decision)
+  +candidate = UI.decorate(input, P.scheduled(Commit.schedules(input, decision), decision))
   first = Equal.trans(M.Decision, P.after_apply(input, decision, previous), Commit.deliver(durable, P.checked(candidate, previous), previous),
     Commit.update(~P.scheduled, input, decision, previous), Laws.output_semantics(durable, P.checked(candidate, previous), previous),
     Equal.cong(M.Decision, M.Decision, (value => Commit.deliver(durable, value, previous)),
       P.checked(candidate, previous), Commit.checked(candidate, previous), Laws.commit_semantics(candidate, previous)))
   Equal.trans(M.Decision, P.after_apply(input, decision, previous), Commit.update(~P.scheduled, input, decision, previous),
     Commit.update(~Execution.scheduled, input, decision, previous), first,
-    Equal.cong(M.Decision, M.Decision, (value => Commit.finish(durable, value, previous)),
-      candidate, Execution.scheduled(Commit.schedules(input, decision), decision), Laws.scheduling_semantics(Commit.schedules(input, decision), decision)))
+    Equal.cong(M.Decision, M.Decision, (value => Commit.finish(durable, UI.decorate(input, value), previous)),
+      P.scheduled(Commit.schedules(input, decision), decision), Execution.scheduled(Commit.schedules(input, decision), decision), Laws.scheduling_semantics(Commit.schedules(input, decision), decision)))
 
 def updated_command_semantics(+command: M.Command, +world: M.World) ->
   {P.update(M.UserCommand{command}, world) == Commit.update(~Execution.scheduled, M.UserCommand{command}, Commands.command(command, world), world) : M.Decision}:
@@ -100,6 +101,7 @@ def updated_input_semantics(+input: M.Input, +world: M.World) ->
 def Laws.interaction_transition(input, world):
   match input:
     case M.UserCommand{command}: Laws.command_transition(command, world)
+    case M.UserInterface{state, event}: updated_input_semantics(M.UserInterface{state, event}, world)
     case M.ModelCompleted{id, ticket, outcome}: updated_input_semantics(M.ModelCompleted{id, ticket, outcome}, world)
     case M.ToolCompleted{id, ticket, value, error}: updated_input_semantics(M.ToolCompleted{id, ticket, value, error}, world)
     case M.Configure{environment}: updated_input_semantics(M.Configure{environment}, world)

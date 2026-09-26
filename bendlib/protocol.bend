@@ -5,6 +5,7 @@ import ./json.bend as J
 import ./tasks.bend as T
 import ./stdlib.bend as Std
 import ./operations.bend as Ops
+import ../UI.bend as UI
 
 # The other half of command meaning: an effect result is a message carrying a
 # one-use ticket, not permission to overwrite a task. Resolve against the current
@@ -56,6 +57,7 @@ def tool(found: Maybe<&2, M.Task>, ticket: Nat, value: J.Json, error: Bool) -> E
 def resolve(input: M.Input, +world: M.World) -> Event:
   match input:
     case M.UserCommand{command}: User{Commands.resolve(command, world)}
+    case M.UserInterface{state, event}: User{Commands.resolve(UI.command(event), world)}
     case M.ModelCompleted{id, ticket, outcome}: model(T.find(Commands.entries(world), id), ticket, outcome)
     case M.ToolCompleted{id, ticket, value, error}: tool(T.find(Commands.entries(world), id), ticket, value, error)
     case M.Configure{environment}: Settings{environment}

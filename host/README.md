@@ -20,9 +20,19 @@ notifications during shutdown, and suppression of effects withdrawn within a
 commit. Credential parsing errors must not quote file contents into task history.
 Use `npm test` to run these checks; they require no real credentials or model calls.
 
-The browser consumes command schemas and allowed lifecycle controls returned by
-the running model. It does not own a second lifecycle table. The exploration
-record distinguishes browser interaction evidence from the native proof gate.
+`POST /api/ui` accepts only an opaque navigation cursor and a public presentation
+event. Bend produces the entire typed surface in `UI.bend`: content, titles,
+actions, fields, bindings and enabled flags. `public/renderer.mjs` renders generic
+widgets, escapes text through DOM text nodes, and fills the declared event bindings.
+`public/app.mjs` handles authentication, serialized requests and commit invalidation.
+Neither file interprets task state or provider message roles. Unsubmitted field
+drafts and disclosure/focus state are presentation mechanics, not a domain cache.
+Uncommitted model deltas do not replace the native conversation surface.
+The existing command endpoint remains available to CLI and API callers. Both
+endpoints revalidate against the current native world; a stale enabled button is
+never authority to execute. Navigation/refresh has no journal entry or effects.
+The exploration record distinguishes adapter test evidence from the native proof
+gate; no theorem here proves the browser's DOM implementation.
 
 ## Coding effect interpreters
 

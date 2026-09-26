@@ -10,6 +10,7 @@ import ./COMMANDS.bend as Commands
 import ./bendlib/commit.bend as Commit
 import ./bendlib/protocol.bend as Protocol
 import ./bendlib/execution.bend as Execution
+import ./UI.bend as UI
 
 # Accepted updates pass through resolution, realization and bounded scheduling.
 # program's state transition, and the object named by LAWS.bend and PROOF.bend.
@@ -314,7 +315,7 @@ def checked(decision: M.Decision, previous: M.World) -> M.Decision:
   check_live(live_decision(decision), previous)
 
 def after_apply(+input: M.Input, +decision: M.Decision, +world: M.World) -> M.Decision:
-  deliver(M.durable(input), checked(scheduled(Commit.schedules(input, decision), decision), world), world)
+  deliver(M.durable(input), checked(UI.decorate(input, scheduled(Commit.schedules(input, decision), decision)), world), world)
 
 def update(+input: M.Input, +world: M.World) -> M.Decision:
   after_apply(input, apply(input, world), world)

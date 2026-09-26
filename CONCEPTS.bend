@@ -2,7 +2,8 @@ import Base
 import ./bendlib/architecture.bend as A
 
 # Selvedge is a persistent command/effect protocol. Start with Harness below.
-# COMMANDS defines requested behavior; MODEL names the domain. The bindings in
+# COMMANDS defines requested behavior; MODEL names the domain; UI defines the
+# platform-independent interaction surface. The bindings in
 # A attach every structure here to the actual operations, not a second model.
 
 # Meaning fixes the entire decision: refusal or exact new world, reply and
@@ -40,7 +41,8 @@ type Recovery is Type:
 type Observation is Type:
   Observation{queries: A.Observations(),
     tasks: A.TaskViews(),
-    branches: A.BranchResults()}
+    branches: A.BranchResults(),
+    surface: A.UserSurface}
 
 # A finite map owns live operations. Announcements are idempotent projections;
 # unread notifications form a join semilattice between committed model snapshots.

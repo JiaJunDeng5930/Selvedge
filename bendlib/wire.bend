@@ -6,6 +6,7 @@ import ./schema.bend as Schema
 import ./tasks.bend as T
 import ./presentation.bend as View
 import ../INVARIANTS.bend as I
+import ../UI.bend as UI
 
 # This module converts untrusted values into domain constructors. The host wraps
 # public commands; only trusted host paths may construct completion/config inputs.
@@ -210,9 +211,71 @@ def decode_config(+body: J.Json) -> Result<&2, &2, String, M.Input>:
     is_natural(J.get(body, "max_fork")) && Nat.is_le(1n, Protocol.number(body, "max_fork", 0n)) &&
     is_natural(J.get(body, "max_descendants")) && Nat.is_le(1n, Protocol.number(body, "max_descendants", 0n)), body)
 
+# UI cursors are observations, not cached domain state. The wire may name only
+# the public event vocabulary; effect completions cannot be smuggled as events.
+def exact_keys(fields: +List<J.Field>, +allowed: +List<String>, +seen: +List<String>) -> Bool:
+  match fields:
+    case Nil{}: Nat.is_eq(List.length(&2, String, seen), List.length(&2, String, allowed))
+    case Con{J.Field{+key, value}, rest}:
+      T.has_name(allowed, key) && Bool.not(T.has_name(seen, key)) && exact_keys(rest, allowed, key <> seen)
+
+def object_keys(value: J.Json, allowed: +List<String>) -> Bool:
+  match value:
+    case J.Object{fields}: exact_keys(fields, allowed, Nil{})
+    case _: False{}
+
+def optional_id(value: J.Json) -> Bool:
+  match value:
+    case J.Null{}: True{}
+    case other: Schema.valid(M.task_id_schema(), other)
+
+def view_state(value: J.Json) -> M.ViewState:
+  match value:
+    case J.Null{}: UI.initial()
+    case +other: M.ViewState{J.natural(J.get(other, "selected")), J.natural(J.get(other, "after")), Protocol.number(other, "tasks_after", 0n)}
+
+def valid_view_state(value: J.Json) -> Bool:
+  match value:
+    case J.Null{}: True{}
+    case +other: object_keys(other, ["selected", "after", "tasks_after"]) &&
+      optional_id(J.get(other, "selected")) && optional_id(J.get(other, "after")) &&
+      Schema.valid(M.task_id_schema(), J.get(other, "tasks_after"))
+
+def ui_event(valid: Bool, state: M.ViewState, event: M.ViewEvent) -> Result<&2, &2, String, M.Input>:
+  match valid:
+    case True{}: Done{M.UserInterface{state, event}}
+    case False{}: Fail{"Malformed presentation event"}
+
+def ui_command(valid: Bool, decoded: Result<&2, &2, String, M.Input>, state: M.ViewState) -> Result<&2, &2, String, M.Input>:
+  match valid decoded:
+    case True{} Done{M.UserCommand{command}}: Done{M.UserInterface{state, M.Submit{command}}}
+    case True{} Fail{reason}: Fail{reason}
+    case _ _: Fail{"A presentation can submit only a public command"}
+
+def view_event(kind: String, +event: J.Json, state: M.ViewState) -> Result<&2, &2, String, M.Input>:
+  match kind:
+    case "refresh": ui_event(object_keys(event, ["type"]), state, M.RefreshView{})
+    case "select": ui_event(object_keys(event, ["type", "task_id"]) && optional_id(J.get(event, "task_id")),
+      state, M.SelectTask{J.natural(J.get(event, "task_id"))})
+    case "history": ui_event(object_keys(event, ["type", "after"]) && optional_id(J.get(event, "after")),
+      state, M.HistoryPage{J.natural(J.get(event, "after"))})
+    case "tasks": ui_event(object_keys(event, ["type", "after"]) && Schema.valid(M.task_id_schema(), J.get(event, "after")),
+      state, M.TaskPage{Protocol.number(event, "after", 0n)})
+    case "submit": ui_command(object_keys(event, ["type", "command"]), decode_command(J.get(event, "command")), state)
+    case _: Fail{"Unknown presentation event"}
+
+def ui_valid(valid: Bool, +body: J.Json) -> Result<&2, &2, String, M.Input>:
+  match valid:
+    case False{}: Fail{"Malformed presentation cursor"}
+    case True{}: view_event(J.text(J.get(J.get(body, "event"), "type")), J.get(body, "event"), view_state(J.get(body, "state")))
+
+def decode_ui(+body: J.Json) -> Result<&2, &2, String, M.Input>:
+  ui_valid(valid_view_state(J.get(body, "state")), body)
+
 def decode_kind(kind: String, +body: J.Json) -> Result<&2, &2, String, M.Input>:
   match kind:
     case "command": decode_command(J.get(body, "command"))
+    case "ui": decode_ui(body)
     case "model": decode_model(body)
     case "tool": decode_tool(body)
     case "configure": decode_config(body)

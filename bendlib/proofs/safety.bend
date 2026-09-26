@@ -1,4 +1,5 @@
 import Base
+import ../../UI.bend as UI
 import ../../MODEL.bend as M
 import ../../PROGRAM.bend as P
 import ../../LAWS.bend as Laws
@@ -52,7 +53,7 @@ def deliver_certificate(+durable: Bool, +decision: M.Decision, +previous: M.Worl
 
 def update_certificate(+input: M.Input, +world: M.World) -> Laws.Admitted(world, P.update(input, world)):
   +raw = P.apply(input, world)
-  +candidate = P.scheduled(Commit.schedules(input, raw), raw)
+  +candidate = UI.decorate(input, P.scheduled(Commit.schedules(input, raw), raw))
   deliver_certificate(M.durable(input), P.checked(candidate, world), world, checked_certificate(candidate, world))
 
 def observe_certificate(query: M.Query, +world: M.World) ->
@@ -61,6 +62,7 @@ def observe_certificate(query: M.Query, +world: M.World) ->
 
 def Laws.transition_admitted(world, input):
   match input:
+    case M.UserInterface{state, event}: update_certificate(M.UserInterface{state, event}, world)
     case M.UserCommand{M.Observe{query}}: observe_certificate(query, world)
     case M.UserCommand{M.Create{profile, reasoning, message}}:
       update_certificate(M.UserCommand{M.Create{profile, reasoning, message}}, world)

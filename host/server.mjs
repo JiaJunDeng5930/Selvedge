@@ -10,6 +10,7 @@ import { writeAtomic } from './files.mjs';
 const assets = new Map([
   ['/', ['index.html', 'text/html; charset=utf-8']],
   ['/app.mjs', ['app.mjs', 'text/javascript; charset=utf-8']],
+  ['/renderer.mjs', ['renderer.mjs', 'text/javascript; charset=utf-8']],
   ['/style.css', ['style.css', 'text/css; charset=utf-8']],
 ]);
 
@@ -65,7 +66,15 @@ export async function startServer(options) {
     }
     if (!authorized(request)) { json(response, 401, { ok: false, error: { code: 'unauthorized', message: 'A local access token is required' } }); return; }
     if (request.headers.origin && request.headers.origin !== address) { json(response, 403, { ok: false, error: { code: 'origin', message: 'Origin does not match this server' } }); return; }
-    if (request.method === 'POST' && url.pathname === '/api/commands') {
+    if (request.method === 'POST' && url.pathname === '/api/ui') {
+      if (!request.headers['content-type']?.toLowerCase().startsWith('application/json')) { json(response, 415, { ok: false, error: { code: 'content_type', message: 'Send application/json' } }); return; }
+      const body = parseJson(await readText(request, service.limits.frame_bytes));
+      if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).some(key => !['state', 'event'].includes(key))) {
+        throw new TypeError('A presentation request contains only state and event');
+      }
+      const result = await service.presentation(body);
+      json(response, result.reply.ok ? 200 : 400, { sequence: result.sequence, ...result.reply });
+    } else if (request.method === 'POST' && url.pathname === '/api/commands') {
       if (!request.headers['content-type']?.toLowerCase().startsWith('application/json')) { json(response, 415, { ok: false, error: { code: 'content_type', message: 'Send application/json' } }); return; }
       const command = parseJson(await readText(request, service.limits.frame_bytes));
       // The public boundary accepts commands only. It never passes an incoming

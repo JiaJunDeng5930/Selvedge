@@ -850,3 +850,50 @@ summary races. It does not establish that external mutations commute, that summa
 text is faithful, or that early partial results always minimize paid model turns.
 Earlier results can improve latency while adding a model round; quiet operations
 themselves do not generate polling rounds.
+
+## 2026-09-25: include the user interaction surface in the executable model
+
+### A schema is not ownership of a user interface
+
+The old browser obtained schemas from Bend but still interpreted task snapshots,
+provider messages and action rules. Thus the conceptual entry described only part
+of the program's behavior. `UI.bend` now owns a typed presentation tree and its
+events; `CONCEPTS.Observation.surface` binds its submission, projection and command
+gates. Every platform can render this same value without reconstructing a task
+model. The remaining client state is an opaque cursor plus unsubmitted widget
+drafts, focus and disclosure state. An enabled form describes the availability of
+an action, not a proof that arbitrary future input will satisfy its preconditions.
+
+### Projection belongs inside the atomic decision, after scheduling
+
+A command's immediate result is not necessarily its final state: bounded scheduling
+can start a model, finish internal work or retire effects before commit. Rendering
+earlier produced the wrong conceptual boundary. The native surface is now generated
+from the post-scheduling world, before checked full-envelope admission. Output
+rejection rolls back both the command and its effects, instead of leaving an
+accepted mutation behind a failed view. The response separately carries the native
+command receipt; a refused stale action can still return an up-to-date surface.
+Refresh and cursor navigation are observations, not persisted scheduling events.
+
+### Storage variants are not user-visible meanings
+
+Ordinary Responses assistant answers are retained as `ModelContext` to avoid
+duplicating provider context, alongside encrypted reasoning and compaction items.
+Hiding that constructor wholesale erased real answers. Its display projection now
+lives in Bend: supported message/refusal text and public summaries are displayed;
+encrypted payloads are retained for model continuation but not copied into the
+surface. Neither Web nor a future native adapter needs its own provider interpreter.
+The native tree is structurally serialized by matching nested list constructors,
+so no unchecked mutual recursion or silent depth truncation is needed.
+
+### New conceptual boundaries need public proof interfaces
+
+The surface reused read-only output-admission evidence from another proof module.
+The architecture gate correctly rejected calls into that module's private helper.
+The shared property became a public `LAWS.delivery_observation_*` obligation, with
+its existing proof supplied by the original module. This preserves the graph of
+declared propositions rather than allowing a new feature to depend on incidental
+proof implementation structure. Native/HTTP/DOM-adapter tests cover post-state
+projection, real provider message shapes, stale actions, invalid events, pagination,
+independent cancellation, recovery, literal text and unsent drafts. These tests do
+not turn the browser into a formally verified renderer or certify a visual design.

@@ -14,6 +14,83 @@ import ./bendlib/operations.bend as Ops
 import ./bendlib/transcript.bend as Transcript
 import ./bendlib/interface.bend as Interface
 import ./bendlib/frontend.bend as Frontend
+import ./UI.bend as UI
+
+# User-facing decisions are native entities too. The adapter cannot choose a
+# different command resolver or manufacture state/effects while projecting it.
+law ui_submit_semantics:
+  for state: M.ViewState
+  for +command: M.Command
+  for +world: M.World
+  {P.apply(M.UserInterface{state, M.Submit{command}}, world) == P.apply_command(command, world) : M.Decision}
+
+law ui_action_semantics:
+  for +key: String
+  for +label: String
+  for +command: M.Command
+  for +world: M.World
+  {UI.action(key, label, command, world) ==
+    UI.Action{key, label, M.Submit{command}, UI.selected(Commands.resolve(command, world)), False{}} : UI.Node}
+
+law ui_form_semantics:
+  for +key: String
+  for +title: String
+  for +label: String
+  for +command: M.Command
+  for +fields: +List<UI.Field>
+  for +world: M.World
+  {UI.form(key, title, label, command, fields, world) ==
+    UI.Form{key, title, label, command, fields, UI.selected(Commands.resolve(command, world))} : UI.Node}
+
+law ui_projection_world:
+  for input: M.Input
+  for +decision: M.Decision
+  {P.decision_world(UI.decorate(input, decision)) == P.decision_world(decision) : M.World}
+
+law ui_projection_effects:
+  for input: M.Input
+  for +decision: M.Decision
+  {P.decision_effects(UI.decorate(input, decision)) == P.decision_effects(decision) : +List<M.Effect>}
+
+law ui_current_surface:
+  for +state: M.ViewState
+  for +event: M.ViewEvent
+  for +world: M.World
+  for +reply: J.Json
+  for effects: +List<M.Effect>
+  {P.decision_reply(UI.decorate(M.UserInterface{state, event}, M.Decision{world, reply, effects})) ==
+    M.success(J.Object{[
+      J.Field{"presentation", UI.json(UI.Presentation{UI.navigate(event, state, reply),
+        UI.screen(UI.navigate(event, state, reply), world, UI.receipt(event, reply))})},
+      J.Field{"receipt", UI.receipt(event, reply)}]}) : J.Json}
+
+law ui_refresh_world:
+  for +state: M.ViewState
+  for +world: M.World
+  {P.decision_world(P.transition(M.UserInterface{state, M.RefreshView{}}, world)) == world : M.World}
+
+law ui_refresh_effects:
+  for state: M.ViewState
+  for +world: M.World
+  {P.decision_effects(P.transition(M.UserInterface{state, M.RefreshView{}}, world)) == Nil{} : +List<M.Effect>}
+
+law ui_refresh_not_durable:
+  for state: M.ViewState
+  {M.durable(M.UserInterface{state, M.RefreshView{}}) == False{} : Bool}
+
+law delivery_observation_world:
+  for +durable: Bool
+  for +decision: M.Decision
+  for +previous: M.World
+  for unchanged: {P.decision_world(decision) == previous : M.World}
+  {P.decision_world(P.deliver(durable, decision, previous)) == previous : M.World}
+
+law delivery_observation_effects:
+  for +durable: Bool
+  for +decision: M.Decision
+  for +previous: M.World
+  for silent: {P.decision_effects(decision) == Nil{} : +List<M.Effect>}
+  {P.decision_effects(P.deliver(durable, decision, previous)) == Nil{} : +List<M.Effect>}
 
 # Unlike safety, these equalities prohibit both an always-rejecting command
 # interpreter and a safe no-op. State, reply, and effects are all observable.

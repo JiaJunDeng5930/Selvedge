@@ -50,6 +50,15 @@ the operating-system boundary; [bendlib/README.md](bendlib/README.md) locates su
 [The exploration record](docs/bend2-exploration.md) explains the findings and their
 limits. Architectural reasons live in [docs/adr](docs/adr).
 
+[UI.bend](UI.bend) is the platform-independent interaction entry. It defines a
+typed presentation tree, form bindings, navigation events, conversation visibility
+and action availability against the live command resolver. The Web client renders
+that tree through `/api/ui`; it has no task snapshot, lifecycle table or provider
+message interpreter. Its only retained state is an opaque navigation cursor and
+unsubmitted widget drafts. Presentation is generated after scheduling and admitted
+with the same atomic decision. SwiftUI, Windows UI and TUI adapters are not required
+to reinterpret the domain and are not implemented in this checkout.
+
 ## Run
 
 Install Node.js 26 or later and a C compiler on macOS or Linux, then run:

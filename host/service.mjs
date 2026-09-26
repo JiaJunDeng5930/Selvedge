@@ -170,6 +170,12 @@ export class Service extends EventEmitter {
     return this.journal.execute({ kind: 'command', command });
   }
 
+  presentation({ state = null, event } = {}) {
+    if (this.#failure) return Promise.reject(this.#failure);
+    if (this.#closing) return Promise.reject(new Error('Service is stopping'));
+    return this.journal.execute({ kind: 'ui', state, event });
+  }
+
   close() {
     this.#closePromise ??= this.#close();
     return this.#closePromise;

@@ -626,8 +626,21 @@ type Outcome is Data:
   ModelFailure{message: String}
   ContextLimit{}
 
+# A client retains only this opaque navigation cursor and unsent widget input.
+# Neither value is a task snapshot or an authority to execute a command.
+type ViewState is Data:
+  ViewState{selected: Maybe<&2, Nat>, after: Maybe<&2, Nat>, tasks_after: Nat}
+
+type ViewEvent is Data:
+  SelectTask{task_id: Maybe<&2, Nat>}
+  HistoryPage{after: Maybe<&2, Nat>}
+  TaskPage{after: Nat}
+  Submit{command: Command}
+  RefreshView{}
+
 type Input is Data:
   UserCommand{command: Command}
+  UserInterface{state: ViewState, event: ViewEvent}
   ModelCompleted{task_id: Nat, ticket: Nat, outcome: Outcome}
   ToolCompleted{task_id: Nat, ticket: Nat, value: J.Json, error: Bool}
   Configure{environment: Environment}
@@ -647,6 +660,9 @@ type InputMode is Data:
 def input_mode(input: Input) -> InputMode:
   match input:
     case UserCommand{Observe{query}}: Observation{}
+    case UserInterface{state, Submit{Observe{query}}}: Observation{}
+    case UserInterface{state, Submit{command}}: UpdateAndSchedule{}
+    case UserInterface{state, event}: Observation{}
     case Configure{environment}: UpdateOnly{}
     case _: UpdateAndSchedule{}
 

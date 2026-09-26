@@ -51,3 +51,9 @@ def Laws.observation_has_no_effects(query, world):
 
 def Laws.observation_not_durable(query):
   {==}
+
+def Laws.delivery_observation_world(durable, decision, previous, unchanged):
+  deliver_world(durable, decision, previous, unchanged)
+
+def Laws.delivery_observation_effects(durable, decision, previous, silent):
+  admission_no_effects(J.render(P.rendering_budget(previous), J.One{View.envelope(durable, decision)}), decision, previous, silent)

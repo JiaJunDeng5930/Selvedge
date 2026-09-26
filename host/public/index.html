@@ -2,18 +2,9 @@
 <html lang="en">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Selvedge</title><link rel="stylesheet" href="/style.css"><script type="module" src="/app.mjs"></script></head>
 <body>
-  <header><a class="brand" href="/">Selvedge</a><span id="connection">Connecting…</span><button id="show-commands">Commands</button></header>
+  <header><a class="brand" href="/">Selvedge</a><span id="connection" role="status">Connecting…</span></header>
   <div id="access" hidden><label>Local access token <input id="token" type="password" autocomplete="off"></label><button id="connect">Connect</button></div>
   <p id="error" role="alert" hidden></p>
-  <main>
-    <aside><div class="section-title"><h1>Tasks</h1><button id="new-task">New task</button></div><nav id="tasks" aria-label="Tasks"></nav></aside>
-    <section id="conversation"><div id="task-heading"><h2 id="title">Start a task</h2><p id="details">Choose a model profile and describe the work.</p><div id="controls"></div></div>
-      <div id="history" aria-live="polite"></div><button id="more" hidden>Load older page</button><pre id="stream" hidden></pre>
-      <form id="composer"><div id="new-settings"><label>Profile <select id="profile"></select></label><label>Reasoning <input id="reasoning" value="medium"></label></div>
-        <label class="message-label" for="message">Message</label><textarea id="message" rows="4" placeholder="Describe the work…" required></textarea><button id="send" type="submit">Start task</button>
-      </form>
-    </section>
-  </main>
-  <dialog id="commands"><div class="section-title"><h2>Commands</h2><button id="close-commands">Close</button></div><p>These descriptions and fields come from the running program.</p><label>Command <select id="command-name"></select></label><p id="command-description"></p><form id="command-form"><div id="command-fields"></div><button>Run command</button></form><pre id="command-result"></pre></dialog>
+  <main id="surface"></main>
 </body>
 </html>

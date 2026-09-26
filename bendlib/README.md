@@ -3,6 +3,12 @@
 Read the root CONCEPTS, COMMANDS and MODEL entry points before following an
 implementation detail into this directory. INVARIANTS and LAWS constrain changes.
 
+`../UI.bend` owns the platform-independent presentation and event semantics.
+`wire.bend` decodes that public vocabulary; `protocol.bend` uses the ordinary
+command resolver, and `commit.bend` projects the post-scheduling world before
+atomic output admission. The surface's read-only observation and command gates
+are carried by `architecture.UserSurface` and checked in `proofs/ui.bend`.
+
 `stdlib.bend` is generated from existing Rocq standard-library proof terms, with
 provenance and regeneration instructions in `../theory/README.md`. `theory.bend`
 instantiates those certificates for append, replay composition and stuttering.

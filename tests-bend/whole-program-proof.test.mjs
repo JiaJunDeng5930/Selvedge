@@ -19,6 +19,10 @@ test('whole-program proofs reject type-correct loss of input, durability, receip
   const baseline = check('PROOF.bend');
   assert.equal(baseline.status, 0, baseline.stdout + baseline.stderr);
   for (const [filename, before, after, law] of [
+    ['UI.bend', 'Action{key, label, M.Submit{command}, enabled(command, world), False{}}',
+      'Action{key, label, M.Submit{command}, True{}, False{}}', /ui_action_semantics/],
+    ['UI.bend', 'Form{key, title, label, command, fields, enabled(command, world)}',
+      'Form{key, title, label, command, fields, True{}}', /ui_form_semantics/],
     ['bendlib/frontend.bend', 'P.reject(world, "invalid_json", reason), False{}', 'P.reject(world, "invalid_json", reason), True{}', /frontend_json/],
     ['bendlib/frontend.bend', 'json(J.decode(tokens), world)', 'json(J.decode(Nil{}), world)', /frontend_packet/],
     ['bendlib/traces.bend', 'Spec.record(P.transition(input, world), pending, receipts)', 'Spec.record(P.transition(input, world), pending, Nil{})', /trace_step/],

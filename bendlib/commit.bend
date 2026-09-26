@@ -5,6 +5,7 @@ import ../INVARIANTS.bend as I
 import ./json.bend as J
 import ./presentation.bend as View
 import ./protocol.bend as Protocol
+import ../UI.bend as UI
 
 # Complete command meaning includes the finite scheduling and commit boundary.
 # A refusal cannot advance unrelated tasks. Accepted commands may advance any
@@ -14,6 +15,10 @@ def schedules(input: M.Input, decision: M.Decision) -> Bool:
   match input:
     case M.UserCommand{M.Observe{query}}: False{}
     case M.UserCommand{other}:
+      M.Decision{world, reply, effects} = decision
+      J.boolean(J.get(reply, "ok"))
+    case M.UserInterface{state, M.Submit{M.Observe{query}}}: False{}
+    case M.UserInterface{state, M.Submit{command}}:
       M.Decision{world, reply, effects} = decision
       J.boolean(J.get(reply, "ok"))
     case other: M.schedules(other)
@@ -66,7 +71,7 @@ def finish(durable: Bool, decision: M.Decision, +previous: M.World) -> M.Decisio
   deliver(durable, checked(decision, previous), previous)
 
 def update(~schedule: Bool -> @+decision:M.Decision -> M.Decision, +input: M.Input, +decision: M.Decision, previous: M.World) -> M.Decision:
-  finish(M.durable(input), schedule(schedules(input, decision), decision), previous)
+  finish(M.durable(input), UI.decorate(input, schedule(schedules(input, decision), decision)), previous)
 
 # Scheduling is a supplied deterministic transducer, constrained by the exact
 # zero/idle/successor equations in LAWS, not a fairness or termination assumption.

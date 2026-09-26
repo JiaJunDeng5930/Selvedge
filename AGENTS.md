@@ -71,19 +71,19 @@ This file is for coding agents working in this repository.
 [Project Index]|root:.
 |source:git-tracked-files-only
 |excluded:{git-ignored,git-untracked}
-|.:{.codex/,.editorconfig,.github/,.gitignore,.pre-commit-config.yaml,AGENTS.md,COMMANDS.bend,CONCEPTS.bend,CONTRIBUTING.md,INVARIANTS.bend,Justfile,LAWS.bend,MAIN.bend,MODEL.bend,PROGRAM.bend,PROOF.bend,README.md,bend-checksums.txt,bend-version,bendlib/,docs/,host/,package.json,scripts/,tests-bend/,theory/}
+|.:{.codex/,.editorconfig,.github/,.gitignore,.pre-commit-config.yaml,AGENTS.md,COMMANDS.bend,CONCEPTS.bend,CONTRIBUTING.md,INVARIANTS.bend,Justfile,LAWS.bend,MAIN.bend,MODEL.bend,PROGRAM.bend,PROOF.bend,README.md,UI.bend,bend-checksums.txt,bend-version,bendlib/,docs/,host/,package.json,scripts/,tests-bend/,theory/}
 |.codex:{environments/}
 |.codex/environments:{environment.toml}
 |.github:{workflows/}
 |.github/workflows:{ci.yml}
 |bendlib:{README.md,architecture.bend,commit.bend,equality.bend,execution.bend,frontend.bend,interface.bend,json.bend,operations.bend,presentation.bend,proofs/,protocol.bend,schema.bend,stdlib.bend,structures.bend,tasks.bend,theory.bend,traces.bend,transcript.bend,wire.bend}
-|bendlib/proofs:{README.md,algebra.bend,commit.bend,execution.bend,frontend.bend,observations.bend,protocol.bend,safety.bend,tasks.bend,traces.bend}
+|bendlib/proofs:{README.md,algebra.bend,commit.bend,execution.bend,frontend.bend,observations.bend,operations.bend,protocol.bend,safety.bend,tasks.bend,traces.bend,ui.bend}
 |docs:{adr/,bend2-exploration.md}
-|docs/adr:{0001-task-owned-tool-contracts.md,0002-open-tool-call-recovery.md,0003-persisted-task-lifecycle.md,0004-semantic-ownership-at-runtime-boundaries.md,0005-single-source-configuration-and-transport.md,0006-executable-bend-task-model.md,0007-admit-certified-bend-transitions.md,0008-core-coding-effects-and-context-checkpoints.md,0009-command-meaning-and-imported-theory.md,0010-interaction-refinement-and-context-recovery.md,0011-independent-execution-semantics.md,0012-theory-indexed-whole-program-composition.md,0013-independent-operation-rights.md}
+|docs/adr:{0001-task-owned-tool-contracts.md,0002-open-tool-call-recovery.md,0003-persisted-task-lifecycle.md,0004-semantic-ownership-at-runtime-boundaries.md,0005-single-source-configuration-and-transport.md,0006-executable-bend-task-model.md,0007-admit-certified-bend-transitions.md,0008-core-coding-effects-and-context-checkpoints.md,0009-command-meaning-and-imported-theory.md,0010-interaction-refinement-and-context-recovery.md,0011-independent-execution-semantics.md,0012-theory-indexed-whole-program-composition.md,0013-independent-operation-rights.md,0014-native-presentation-model.md}
 |host:{README.md,auth.mjs,cli.mjs,codec.mjs,config.mjs,files.mjs,journal.mjs,kernel.mjs,mcp.mjs,network.mjs,process.mjs,project.mjs,providers.mjs,public/,server.mjs,service.mjs,transport.c}
-|host/public:{app.mjs,index.html,style.css}
+|host/public:{app.mjs,index.html,renderer.mjs,style.css}
 |scripts:{ExportStdlib.v,agents-index.mjs,benchmark.mjs,bootstrap.sh,build.mjs,check.mjs,import-stdlib.mjs,install-bend.sh,setup-worktree.sh,toolchain.mjs,verify-proof.mjs}
-|tests-bend:{architecture.test.mjs,async-operations.test.mjs,async-service.test.mjs,auth.test.mjs,coding.test.mjs,commands.test.mjs,context-recovery.test.mjs,fixtures/,journal.test.mjs,kernel.test.mjs,process.test.mjs,project-context.test.mjs,proof-gate.test.mjs,providers.test.mjs,pure-proof.test.mjs,service-recovery.test.mjs,service.test.mjs,stdlib.test.mjs,support.mjs,whole-program-proof.test.mjs}
+|tests-bend:{architecture.test.mjs,async-operations.test.mjs,async-service.test.mjs,auth.test.mjs,coding.test.mjs,commands.test.mjs,context-recovery.test.mjs,fixtures/,journal.test.mjs,kernel.test.mjs,process.test.mjs,project-context.test.mjs,proof-gate.test.mjs,providers.test.mjs,pure-proof.test.mjs,service-recovery.test.mjs,service.test.mjs,stdlib.test.mjs,support.mjs,ui.test.mjs,whole-program-proof.test.mjs}
 |tests-bend/fixtures:{catalog.mjs,committed-tool.mjs,mcp.mjs}
 |theory:{LICENSE,README.md,stdlib-certificates.json}
 ```
