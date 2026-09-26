@@ -58,7 +58,12 @@ export function parseExport(output) {
 
 // Give every binder a unique name before beta/zeta reduction. Substitution is
 // capture-free; unsupported source constructs and constants fail closed.
-function decoder() {
+export function decoder({ constants = intrinsic, inductives = {
+  'Corelib.Init.Datatypes.list': 2,
+  'Corelib.Init.Datatypes.nat': 2,
+  'Corelib.Init.Datatypes.bool': 2,
+  'Corelib.Init.Logic.eq': 1,
+} } = {}) {
   let serial = 0;
   const fresh = hint => `${hint.replaceAll("'", '_prime').replace(/[^a-zA-Z0-9_]/g, '_') || 'v'}_${serial++}`;
   function decode(node, scope = []) {
@@ -73,12 +78,12 @@ function decoder() {
       return { tag, kind: args[0] };
     }
     if (tag === 'const') {
-      if (!intrinsic.has(args[0])) throw new Error(`Unmapped source constant: ${args[0]}`);
+      if (!constants.has(args[0])) throw new Error(`Unmapped source constant: ${args[0]}`);
       return { tag, name: args[0] };
     }
     if (tag === 'ind' || tag === 'ctor') {
-      if (!['Corelib.Init.Datatypes.list', 'Corelib.Init.Datatypes.nat', 'Corelib.Init.Datatypes.bool', 'Corelib.Init.Logic.eq'].includes(args[0]) || args[1] !== 0 ||
-          (tag === 'ctor' && ![0, ...(!args[0].endsWith('.eq') ? [1] : [])].includes(args[2]))) {
+      if (!Object.hasOwn(inductives, args[0]) || args[1] !== 0 ||
+          (tag === 'ctor' && (!Number.isInteger(args[2]) || args[2] < 0 || args[2] >= inductives[args[0]]))) {
         throw new Error('Unmapped source inductive');
       }
       return { tag, name: args[0], index: args[2] };
@@ -108,14 +113,14 @@ function decoder() {
   return decode;
 }
 
-function substitute(node, name, value) {
+export function substitute(node, name, value) {
   if (!node || typeof node !== 'object') return node;
   if (Array.isArray(node)) return node.map(x => substitute(x, name, value));
   if (node.tag === 'var') return node.name === name ? value : node;
   return Object.fromEntries(Object.entries(node).map(([key, x]) => [key, substitute(x, name, value)]));
 }
 
-function application(fn, args) {
+export function application(fn, args) {
   if (fn.tag === 'app') return application(fn.fn, [...fn.args, ...args]);
   while (args.length && fn.tag === 'lam') {
     fn = normalize(substitute(fn.body, fn.variable.name, args[0]));
@@ -134,7 +139,7 @@ function application(fn, args) {
 function isRefl(node) {
   return node.tag === 'refl' || (node.tag === 'app' && node.fn.tag === 'ctor' && node.fn.name.endsWith('.eq') && node.fn.index === 0);
 }
-function normalize(node) {
+export function normalize(node) {
   if (!node || typeof node !== 'object') return node;
   if (Array.isArray(node)) return node.map(normalize);
   const result = Object.fromEntries(Object.entries(node).map(([key, x]) => [key, normalize(x)]));
@@ -228,13 +233,13 @@ function emit(node, recursive = new Map()) {
   throw new Error(`Unmapped certificate application: ${fn.name ?? fn.tag}`);
 }
 
-function telescope(type) {
+export function telescope(type) {
   const parameters = [];
   while (type.tag === 'pi') { parameters.push(type); type = type.body; }
   return { parameters, result: type };
 }
 
-function spine(node) {
+export function spine(node) {
   const args = [];
   while (node.tag === 'app') { args.unshift(...node.args); node = node.fn; }
   return { fn: node, args };

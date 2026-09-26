@@ -84,9 +84,90 @@ type Builtin is Data:
   Bash{}
   CancelOperation{}
 
+type PluginRef is Data:
+  PluginRef{name: String, revision: String}
+
+type EventKind is Data:
+  TaskCreated{}
+  TaskChanged{}
+  ModelStarted{}
+  ModelSettled{}
+  ToolRequested{}
+  ToolDispatched{}
+  ToolSettled{}
+  HookSettled{}
+  Recovered{}
+  Configured{}
+
+def event_name(kind: EventKind) -> String:
+  match kind:
+    case TaskCreated{}: "task_created"
+    case TaskChanged{}: "task_changed"
+    case ModelStarted{}: "model_started"
+    case ModelSettled{}: "model_completed"
+    case ToolRequested{}: "tool_requested"
+    case ToolDispatched{}: "tool_dispatched"
+    case ToolSettled{}: "tool_completed"
+    case HookSettled{}: "hook_completed"
+    case Recovered{}: "recovered"
+    case Configured{}: "configured"
+
+def event_kinds() -> +List<EventKind>:
+  [TaskCreated{}, TaskChanged{}, ModelStarted{}, ModelSettled{}, ToolRequested{},
+   ToolDispatched{}, ToolSettled{}, HookSettled{}, Recovered{}, Configured{}]
+
+def event_names(kinds: +List<EventKind>) -> +List<String>:
+  match kinds:
+    case Nil{}: Nil{}
+    case Con{kind, rest}: event_name(kind) <> event_names(rest)
+
+def event_selected(same: Bool, kind: EventKind, rest: Maybe<&2, EventKind>) -> Maybe<&2, EventKind>:
+  match same:
+    case True{}: Some{kind}
+    case False{}: rest
+
+def find_event(kinds: +List<EventKind>, +name: String) -> Maybe<&2, EventKind>:
+  match kinds:
+    case Nil{}: None{}
+    case Con{+kind, rest}: event_selected(String.eq(event_name(kind), name), kind, find_event(rest, name))
+
+type Plugin is Data:
+  Plugin{reference: PluginRef, before_tool: Bool, events: +List<EventKind>}
+
+def plugin_limit() -> Nat:
+  16n
+
+def plugin_events() -> +List<String>:
+  event_names(event_kinds())
+
+def plugin_same(left: PluginRef, right: PluginRef) -> Bool:
+  match left right:
+    case PluginRef{name_a, revision_a} PluginRef{name_b, revision_b}:
+      String.eq(name_a, name_b) && String.eq(revision_a, revision_b)
+
+def plugin_json(plugin: PluginRef) -> J.Json:
+  PluginRef{name, revision} = plugin
+  J.Object{[J.Field{"name", J.Text{name}}, J.Field{"revision", J.Text{revision}}]}
+
+def subscription_json(events: +List<String>) -> +List<J.Json>:
+  match events:
+    case Nil{}: Nil{}
+    case Con{event, rest}: J.Text{event} <> subscription_json(rest)
+
+def plugin_values(plugins: +List<Plugin>) -> +List<J.Json>:
+  match plugins:
+    case Nil{}: Nil{}
+    case Con{Plugin{reference, before, events}, rest}:
+      J.Object{[J.Field{"reference", plugin_json(reference)}, J.Field{"before_tool", J.Boolean{before}},
+        J.Field{"events", J.Array{subscription_json(event_names(events))}}]} <> plugin_values(rest)
+
+def plugins_json(plugins: +List<Plugin>) -> J.Json:
+  J.Array{plugin_values(plugins)}
+
 type Source is Data:
   Harness{tool: Builtin}
   Mcp{server: String, remote: String}
+  Extension{plugin: PluginRef, remote: String}
 
 type Recovery is Data:
   RetrySafe{}
@@ -103,6 +184,7 @@ def execution(source: Source) -> Execution:
     case Harness{Bash{}}: ExternalMutation{}
     case Harness{_}: InternalOperation{}
     case Mcp{server, remote}: ExternalMutation{}
+    case Extension{plugin, remote}: ExternalMutation{}
 
 type Tool is Data:
   Tool{name: String, description: String, schema: J.Json, source: Source}
@@ -135,10 +217,14 @@ def source_same(a: Source, b: Source) -> Bool:
     case Harness{CancelOperation{}} Harness{CancelOperation{}}: True{}
     case Mcp{server_a, remote_a} Mcp{server_b, remote_b}:
       String.eq(server_a, server_b) && String.eq(remote_a, remote_b)
+    case Extension{plugin_a, remote_a} Extension{plugin_b, remote_b}:
+      plugin_same(plugin_a, plugin_b) && String.eq(remote_a, remote_b)
     case _ _: False{}
 
 def source_json(source: Source) -> J.Json:
   match source:
+    case Extension{plugin, remote}:
+      J.Object{[J.Field{"plugin", plugin_json(plugin)}, J.Field{"name", J.Text{remote}}]}
     case Harness{tool}:
       J.Text{"harness"}
     case Mcp{server, remote}:
@@ -237,10 +323,35 @@ type Model is Data:
   Model{profile: Profile, reasoning: String, project: ProjectContext}
 
 type Contract is Data:
-  Contract{model: Model, tools: +List<Tool>, max_fork: Nat, max_descendants: Nat}
+  Contract{model: Model, tools: +List<Tool>, max_fork: Nat, max_descendants: Nat, plugins: +List<Plugin>}
 
 type Call is Data:
   Call{id: String, name: String, arguments: J.Json}
+
+def call_id(call: Call) -> String:
+  Call{id, name, arguments} = call
+  id
+
+def call_arguments(call: Call) -> J.Json:
+  Call{id, name, arguments} = call
+  arguments
+
+def rewritten(call: Call, arguments: J.Json) -> Call:
+  Call{id, name, original} = call
+  Call{id, name, arguments}
+
+type HookOutcome is Data:
+  AllowTool{}
+  RewriteTool{arguments: J.Json}
+  DenyTool{reason: String}
+  HookFailure{reason: String}
+
+def hook_json(outcome: HookOutcome) -> J.Json:
+  match outcome:
+    case AllowTool{}: J.Object{[J.Field{"decision", J.Text{"allow"}}]}
+    case RewriteTool{arguments}: J.Object{[J.Field{"decision", J.Text{"rewrite"}}, J.Field{"arguments", arguments}]}
+    case DenyTool{reason}: J.Object{[J.Field{"decision", J.Text{"deny"}}, J.Field{"reason", J.Text{reason}}]}
+    case HookFailure{reason}: J.Object{[J.Field{"decision", J.Text{"failed"}}, J.Field{"reason", J.Text{reason}}]}
 
 # A tool call and its running operation have different lifetimes. An operation
 # owns one committed ticket. Announced means that an explicit running status has
@@ -260,6 +371,8 @@ type Message is Data:
   FailureMessage{text: String}
   ModelContext{value: J.Json}
   ContextCheckpoint{summary: String}
+  HookRecord{task_id: Nat, call_id: String, plugin: PluginRef, outcome: HookOutcome}
+  ForkResult{task_id: Nat, call_id: String, branch: Nat}
 
 # A model may produce ordered answers, invocations, and opaque continuation data.
 # It cannot construct user messages or tool results. Continuation data is retained
@@ -321,29 +434,38 @@ def compactable(history: History) -> Bool:
 def branch_history(history: History, call_id: String, branch: Nat) -> History:
   HistoryNode{history, FunctionOutput{call_id, J.nat(branch), False{}}}
 
+# A child inherits observations, not the occurrence of those observations.
+# This marker identifies the birth suffix without changing its public fork return.
+def child_history(history: History, task_id: Nat, call_id: String, branch: Nat) -> History:
+  HistoryNode{history, ForkResult{task_id, call_id, branch}}
+
 type Phase is Data:
   Idle{}
   Ready{calls: List<&2, Attempt>}
   CompactionReady{}
   ModelPending{ticket: Nat, callable: +List<String>}
   SummaryPending{ticket: Nat, resume: Bool}
+  HookPending{ticket: Nat, plugin: PluginRef, call: Call, pending: +List<PluginRef>, remaining: +List<Attempt>}
 
 # A copied history does not confer permission to repeat an external effect.
 # Fork inheritance and interrupted execution both produce recovery attempts.
 type Attempt is Data:
   InitialAttempt{call: Call}
   RecoveryAttempt{call: Call}
+  CheckedAttempt{call: Call, pending: +List<PluginRef>}
 
 def attempt_call(attempt: Attempt) -> Call:
   match attempt:
     case InitialAttempt{call}: call
     case RecoveryAttempt{call}: call
+    case CheckedAttempt{call, pending}: call
 
 def may_execute(policy: Recovery, attempt: Attempt) -> Bool:
   match policy attempt:
     case RetrySafe{} _: True{}
     case OutcomeUnknown{} InitialAttempt{call}: True{}
     case OutcomeUnknown{} RecoveryAttempt{call}: False{}
+    case OutcomeUnknown{} CheckedAttempt{call, pending}: True{}
 
 def inherit_attempts(calls: +List<Attempt>) -> +List<Attempt>:
   match calls:
@@ -485,7 +607,7 @@ def queue_message(text: String, task: Task) -> Task:
   Task{id, lineage, contract, status, history, List.append(&2, String, queued, [text]), phase, operations, notified}
 
 type Environment is Data:
-  Environment{catalog: +List<Tool>, profiles: +List<Profile>, max_fork: Nat, max_descendants: Nat, project: ProjectContext}
+  Environment{catalog: +List<Tool>, profiles: +List<Profile>, max_fork: Nat, max_descendants: Nat, project: ProjectContext, plugins: +List<Plugin>}
 
 type ExecutionLimits is Data:
   ExecutionLimits{schedule_steps: Nat, render_steps: Nat, frame_bytes: U32}
@@ -502,12 +624,18 @@ type World is Data:
   World{tasks: +List<Task>, next_task: Nat, next_ticket: Nat, environment: Environment, limits: ExecutionLimits}
 
 def initial() -> World:
-  World{Nil{}, 0n, 0n, Environment{builtins(4n), Nil{}, 4n, 64n, NoProject{}}, execution_limits()}
+  World{Nil{}, 0n, 0n, Environment{builtins(4n), Nil{}, 4n, 64n, NoProject{}, Nil{}}, execution_limits()}
+
+type Notice is Data:
+  Notice{kind: EventKind, task_id: Maybe<&2, Nat>, cursor: Maybe<&2, Nat>,
+    payload: Maybe<&2, J.Json>, recipients: +List<PluginRef>}
 
 type Effect is Data:
   RequestModel{task_id: Nat, ticket: Nat, model: Model, history: History,
     tools: +List<Tool>, callable: +List<String>}
   ExecuteTool{task_id: Nat, ticket: Nat, tool: Tool, call: Call}
+  CheckTool{task_id: Nat, ticket: Nat, plugin: PluginRef, tool: Tool, call: Call}
+  NotifyPlugins{events: +List<Notice>}
   RequestSummary{task_id: Nat, ticket: Nat, model: Model, history: History}
   CancelTask{task_id: Nat}
   CancelTicket{task_id: Nat, ticket: Nat}
@@ -599,6 +727,9 @@ def boundary_limits() -> J.Json:
     J.Field{"request_timeout_ms", J.nat(U32.to_nat(5000))}, J.Field{"tool_output_bytes", J.nat(U32.to_nat(65536))},
     J.Field{"bash_timeout_ms", J.nat(U32.to_nat(30000))}, J.Field{"mcp_catalog_tools", J.nat(U32.to_nat(1024))},
     J.Field{"mcp_timeout_ms", J.nat(U32.to_nat(30000))},
+    J.Field{"plugin_timeout_ms", J.nat(U32.to_nat(10000))},
+    J.Field{"plugin_event_timeout_ms", J.nat(U32.to_nat(5000))},
+    J.Field{"plugin_catalog_tools", J.nat(1024n)}, J.Field{"plugin_event_queue", J.nat(128n)},
     J.Field{"bash_default_output_length", J.nat(U32.to_nat(40000))},
     J.Field{"bash_max_output_length", J.nat(U32.to_nat(65536))},
     J.Field{"operations_per_task", J.nat(operation_limit())},
@@ -619,7 +750,9 @@ def summary_instructions() -> String:
   " UTF-8 bytes. Preserve the latest user request and constraints, decisions and their reasons, completed work, relevant paths and revisions, tests actually run and their results, unresolved failures and unknown side effects, and next steps. Distinguish facts from assumptions. Preserve relevant prior summary details. Never claim that omitted work was verified. The complete original task history remains available through read_task."
 
 def description() -> J.Json:
-  J.Object{[J.Field{"commands", J.Array{command_specs_json(commands())}}, J.Field{"limits", boundary_limits()}]}
+  J.Object{[J.Field{"commands", J.Array{command_specs_json(commands())}}, J.Field{"limits", boundary_limits()},
+    J.Field{"plugins", J.Object{[J.Field{"protocolVersion", J.Text{"selvedge-plugin-1"}}, J.Field{"max_plugins", J.nat(plugin_limit())},
+      J.Field{"events", J.Array{subscription_json(plugin_events())}}]}}]}
 
 type Outcome is Data:
   ModelReply{items: +List<ModelItem>}
@@ -643,6 +776,7 @@ type Input is Data:
   UserInterface{state: ViewState, event: ViewEvent}
   ModelCompleted{task_id: Nat, ticket: Nat, outcome: Outcome}
   ToolCompleted{task_id: Nat, ticket: Nat, value: J.Json, error: Bool}
+  HookCompleted{task_id: Nat, ticket: Nat, outcome: HookOutcome}
   Configure{environment: Environment}
   Recover{}
   Continue{}

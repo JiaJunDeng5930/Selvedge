@@ -9,6 +9,13 @@ command resolver, and `commit.bend` projects the post-scheduling world before
 atomic output admission. The surface's read-only observation and command gates
 are carried by `architecture.UserSurface` and checked in `proofs/ui.bend`.
 
+`../HOOKS.bend` owns ordered task-bound authorization. `notifications.bend` projects
+typed post-commit occurrences and frozen recipients; it cannot change the core
+state, reply or effect projection. `architecture.PluginBoundary` binds both to the
+conceptual entry through public laws and `proofs/plugins.bend`. Transport-specific
+plugin logic belongs to the host, not a second task model. The explicit child-birth
+record preserves public fork output while distinguishing inherited from new events.
+
 `stdlib.bend` is generated from existing Rocq standard-library proof terms, with
 provenance and regeneration instructions in `../theory/README.md`. `theory.bend`
 instantiates those certificates for append, replay composition and stuttering.
@@ -17,6 +24,12 @@ It does not maintain a second recursive algebra development.
 refinements, discrete dynamical systems, simulations and read-only machines.
 `architecture.bend` binds them to the real program below the CONCEPTS entry;
 PROOF consumes these values for queue, history, replay, decision and batch laws.
+`relations.bend` is generated from original relational-closure proofs and explicit
+theorem applications. `reachability.bend` binds their edges to actual inputs and
+complete committed decisions; `CONCEPTS.Composition.protocol` requires preorder,
+batch flattening, simulation, safety and exact journal/receipt correspondence.
+`proofs/reachability.bend` supplies only the single-step and representation
+obligations; arbitrary-path results reuse those checked source proofs.
 Batch recovery, task views and branch results use the imported map correspondence;
 partition and map-composition results instantiate original library theorems.
 

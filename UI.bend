@@ -164,7 +164,7 @@ def first_profile(profiles: +List<M.Profile>) -> String:
     case Con{M.Profile{key, provider, model}, rest}: key
 
 def create_config(environment: M.Environment, world: M.World) -> Node:
-  M.Environment{catalog, +profiles, max_fork, max_descendants, project} = environment
+  M.Environment{catalog, +profiles, max_fork, max_descendants, project, plugins} = environment
   +profile = first_profile(profiles)
   form("create", "New task", "Create task", M.Create{profile, "medium", "message"},
     [Field{"profile", "Model profile", "choice", J.Text{profile}, field_schema("create", "profile"), profile_choices(profiles), True{}},
@@ -261,6 +261,9 @@ def provider_context(kind: String, +value: J.Json, key: String) -> +List<Node>:
 
 def message_nodes(message: M.Message, +key: String) -> +List<Node>:
   match message:
+    case M.ForkResult{owner, call_id, branch}: [Value{key, "Fork return · " ++ call_id, J.nat(branch)}]
+    case M.HookRecord{owner, +call_id, plugin, outcome}:
+      [Value{key, "Hook decision · " ++ call_id, T.message_json(M.HookRecord{owner, call_id, plugin, outcome})}]
     case M.UserMessage{text}: [Text{key, "user", "You", text}]
     case M.AssistantMessage{text}: [Text{key, "assistant", "Agent", text}]
     case M.FunctionCall{call}: [Value{key, "Tool call", T.call_json(call)}]
@@ -320,7 +323,7 @@ def tools(entries: +List<M.Tool>, +catalog: +List<M.Tool>) -> +List<Node>:
          Value{"schema", "Arguments", schema}]} <> tools(rest, catalog)
 
 def task_surface(+task: M.Task, after: Maybe<&2, Nat>, environment: M.Environment, +world: M.World) -> Node:
-  M.Environment{catalog, profiles, max_fork, max_descendants, project} = environment
+  M.Environment{catalog, profiles, max_fork, max_descendants, project, plugins} = environment
   +id = M.task_id(task)
   Group{"task/" ++ Nat.show(id), "panel", task_label(task),
     [Group{"lineage", "actions", "Ancestry", lineage_nodes(M.task_lineage(task))},

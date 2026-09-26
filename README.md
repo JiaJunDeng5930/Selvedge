@@ -1,8 +1,8 @@
 # Selvedge
 
 Selvedge runs persistent agent tasks through an executable Bend 2 model. It has a
-local web interface and CLI, model profiles, task branching and messaging, file
-read/write/edit tools, Bash and stdio MCP tools, context checkpoints, and a SQLite
+local web interface and CLI, model profiles, task branching and messaging,
+Bash-based coding tools, stdio MCP and plugin tools, context checkpoints, and a SQLite
 input journal for restart recovery. The default profile is an offline echo
 demonstration, not a coding model or summarizer.
 
@@ -44,6 +44,12 @@ is cached; MAIN's separately reported foreign input and service loop are not pro
 
 The existing standard-library proof terms and their checked translation live in
 [theory/README.md](theory/README.md). Normal builds need neither Rocq nor MetaRocq.
+`CONCEPTS.Composition.protocol` additionally binds the whole input-labelled
+protocol to imported relational-closure theory: reachability composition,
+macro-step flattening, simulation and safety. Its carrier retains full decision
+receipts and is proved to correspond to the actual journal and finite executor.
+The project supplies one-step and representation obligations, not another copy
+of the generic path theory. The theory inventory is generated and checked.
 Command descriptions, validation schemas, lifecycle controls, and client forms
 derive from the executable definitions. [host/README.md](host/README.md) describes
 the operating-system boundary; [bendlib/README.md](bendlib/README.md) locates support.
@@ -58,6 +64,14 @@ message interpreter. Its only retained state is an opaque navigation cursor and
 unsubmitted widget drafts. Presentation is generated after scheduling and admitted
 with the same atomic decision. SwiftUI, Windows UI and TUI adapters are not required
 to reinterpret the domain and are not implemented in this checkout.
+
+[HOOKS.bend](HOOKS.bend) is the unified extension entry. All accepted model tools,
+including internal task operations, pass through its ordered before-tool protocol.
+Plugins can register tools, inspect/rewrite/deny arguments and receive native
+post-commit lifecycle events. Original calls and task-bound authorization records
+remain distinct; callbacks never acquire permission by inheriting history.
+See [docs/plugins.md](docs/plugins.md) for the executable protocol, configuration,
+example and explicit delivery/trust boundaries.
 
 ## Run
 

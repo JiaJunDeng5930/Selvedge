@@ -82,11 +82,11 @@ def tools(+budget: Nat, left: +List<M.Tool>, right: +List<M.Tool>) -> Bool:
       tool(budget, a, b) && tools(budget, rest_a, rest_b)
     case _ _: False{}
 
-def contract(budget: Nat, left: M.Contract, right: M.Contract) -> Bool:
+def contract(+budget: Nat, left: M.Contract, right: M.Contract) -> Bool:
   match left right:
-    case M.Contract{model_a, tools_a, fork_a, descendants_a} M.Contract{model_b, tools_b, fork_b, descendants_b}:
+    case M.Contract{model_a, tools_a, fork_a, descendants_a, plugins_a} M.Contract{model_b, tools_b, fork_b, descendants_b, plugins_b}:
       model(model_a, model_b) && tools(budget, tools_a, tools_b) &&
-        Nat.is_eq(fork_a, fork_b) && Nat.is_eq(descendants_a, descendants_b)
+        Nat.is_eq(fork_a, fork_b) && Nat.is_eq(descendants_a, descendants_b) && json(budget, M.plugins_json(plugins_a), M.plugins_json(plugins_b))
 
 def call(budget: Nat, left: M.Call, right: M.Call) -> Bool:
   match left right:
@@ -95,6 +95,10 @@ def call(budget: Nat, left: M.Call, right: M.Call) -> Bool:
 
 def message(budget: Nat, left: M.Message, right: M.Message) -> Bool:
   match left right:
+    case M.ForkResult{owner_a, id_a, branch_a} M.ForkResult{owner_b, id_b, branch_b}:
+      Nat.is_eq(owner_a, owner_b) && String.eq(id_a, id_b) && Nat.is_eq(branch_a, branch_b)
+    case M.HookRecord{owner_a, id_a, plugin_a, outcome_a} M.HookRecord{owner_b, id_b, plugin_b, outcome_b}:
+      Nat.is_eq(owner_a, owner_b) && String.eq(id_a, id_b) && M.plugin_same(plugin_a, plugin_b) && json(budget, M.hook_json(outcome_a), M.hook_json(outcome_b))
     case M.UserMessage{a} M.UserMessage{b}: String.eq(a, b)
     case M.AssistantMessage{a} M.AssistantMessage{b}: String.eq(a, b)
     case M.FailureMessage{a} M.FailureMessage{b}: String.eq(a, b)

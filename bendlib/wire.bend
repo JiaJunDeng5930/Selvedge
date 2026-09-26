@@ -7,6 +7,18 @@ import ./tasks.bend as T
 import ./presentation.bend as View
 import ../INVARIANTS.bend as I
 import ../UI.bend as UI
+import ../HOOKS.bend as Hooks
+
+def exact_keys(fields: +List<J.Field>, +allowed: +List<String>, +seen: +List<String>) -> Bool:
+  match fields:
+    case Nil{}: Nat.is_eq(List.length(&2, String, seen), List.length(&2, String, allowed))
+    case Con{J.Field{+key, value}, rest}:
+      T.has_name(allowed, key) && Bool.not(T.has_name(seen, key)) && exact_keys(rest, allowed, key <> seen)
+
+def object_keys(value: J.Json, allowed: +List<String>) -> Bool:
+  match value:
+    case J.Object{fields}: exact_keys(fields, allowed, Nil{})
+    case _: False{}
 
 # This module converts untrusted values into domain constructors. The host wraps
 # public commands; only trusted host paths may construct completion/config inputs.
@@ -166,22 +178,76 @@ def valid_profiles(values: +List<J.Json>, +seen: +List<String>) -> Bool:
       M.nonempty(key) && M.nonempty(J.text(J.get(value, "provider"))) && M.nonempty(J.text(J.get(value, "name"))) &&
         Bool.not(T.has_name(seen, key)) && valid_profiles(rest, key <> seen)
 
+def plugin_ref(+value: J.Json) -> M.PluginRef:
+  M.PluginRef{J.text(J.get(value, "name")), J.text(J.get(value, "revision"))}
+
+def source(plugin: J.Json, +value: J.Json) -> M.Source:
+  match plugin:
+    case J.Null{}: M.Mcp{J.text(J.get(value, "server")), J.text(J.get(value, "remote"))}
+    case other: M.Extension{plugin_ref(other), J.text(J.get(value, "remote"))}
+
+def valid_ref(+value: J.Json) -> Bool:
+  object_keys(value, ["name", "revision"]) && J.is_text(J.get(value, "name")) && J.is_text(J.get(value, "revision")) &&
+    Hooks.reference_valid(plugin_ref(value))
+
+def valid_route(plugin: J.Json, +value: J.Json) -> Bool:
+  match plugin:
+    case J.Null{}: String.starts_with(J.text(J.get(value, "name")), "mcp__") && M.nonempty(J.text(J.get(value, "server")))
+    case +other: valid_ref(other) && String.eq(J.text(J.get(value, "name")), "plugin__" ++ Hooks.plugin_name(plugin_ref(other)) ++ "__" ++ J.text(J.get(value, "remote")))
+
 def remote_tools(values: +List<J.Json>) -> +List<M.Tool>:
   match values:
     case Nil{}: Nil{}
     case Con{+value, rest}:
       M.Tool{J.text(J.get(value, "name")), J.text(J.get(value, "description")), J.get(value, "schema"),
-        M.Mcp{J.text(J.get(value, "server")), J.text(J.get(value, "remote"))}} <> remote_tools(rest)
+        source(J.get(value, "plugin"), value)} <> remote_tools(rest)
 
 def valid_remote_tools(values: +List<J.Json>, +seen: +List<String>) -> Bool:
   match values:
     case Nil{}: True{}
     case Con{+value, rest}:
       +name = J.text(J.get(value, "name"))
-      M.nonempty(name) && String.starts_with(name, "mcp__") && Bool.not(T.has_name(seen, name)) &&
+      M.nonempty(name) && valid_route(J.get(value, "plugin"), value) && Bool.not(T.has_name(seen, name)) &&
         M.nonempty(J.text(J.get(value, "description"))) && J.is_object(J.get(value, "schema")) &&
-        M.nonempty(J.text(J.get(value, "server"))) && M.nonempty(J.text(J.get(value, "remote"))) &&
+        M.nonempty(J.text(J.get(value, "remote"))) &&
         valid_remote_tools(rest, name <> seen)
+
+def event_cons(kind: Maybe<&2, M.EventKind>, rest: +List<M.EventKind>) -> +List<M.EventKind>:
+  match kind:
+    case None{}: rest
+    case Some{kind}: kind <> rest
+
+def event_values(values: +List<J.Json>) -> +List<M.EventKind>:
+  match values:
+    case Nil{}: Nil{}
+    case Con{value, rest}: event_cons(M.find_event(M.event_kinds(), J.text(value)), event_values(rest))
+
+def plugin_values(values: +List<J.Json>) -> +List<M.Plugin>:
+  match values:
+    case Nil{}: Nil{}
+    case Con{+value, rest}:
+      M.Plugin{plugin_ref(J.get(value, "reference")), J.boolean(J.get(value, "before_tool")),
+        event_values(J.items(J.get(value, "events")))} <> plugin_values(rest)
+
+def string_values(values: +List<J.Json>) -> Bool:
+  match values:
+    case Nil{}: True{}
+    case Con{J.Text{value}, rest}: T.has_name(M.plugin_events(), value) && string_values(rest)
+    case _: False{}
+
+def valid_plugin_values(values: +List<J.Json>) -> Bool:
+  match values:
+    case Nil{}: True{}
+    case Con{+value, rest}:
+      object_keys(value, ["reference", "before_tool", "events"]) && valid_ref(J.get(value, "reference")) &&
+        is_bool(J.get(value, "before_tool")) && is_array(J.get(value, "events")) &&
+        string_values(J.items(J.get(value, "events"))) && valid_plugin_values(rest)
+
+def valid_plugins(value: J.Json) -> Bool:
+  match value:
+    case J.Null{}: True{}
+    case J.Array{+values}: valid_plugin_values(values) && Hooks.valid(plugin_values(values))
+    case _: False{}
 
 def project(+value: J.Json) -> M.ProjectContext:
   match value:
@@ -203,27 +269,17 @@ def config_valid(valid: Bool, +body: J.Json) -> Result<&2, &2, String, M.Input>:
     case True{}:
       +max_fork = Protocol.number(body, "max_fork", 0n)
       Done{M.Configure{M.Environment{List.append(&2, M.Tool, M.builtins(max_fork), remote_tools(J.items(J.get(body, "tools")))),
-        profile_values(J.items(J.get(body, "profiles"))), max_fork, Protocol.number(body, "max_descendants", 0n), project(J.get(body, "project"))}}}
+        profile_values(J.items(J.get(body, "profiles"))), max_fork, Protocol.number(body, "max_descendants", 0n), project(J.get(body, "project")),
+        plugin_values(J.items(J.get(body, "plugins")))}}}
 
 def decode_config(+body: J.Json) -> Result<&2, &2, String, M.Input>:
-  config_valid(valid_project(J.get(body, "project")) && is_array(J.get(body, "profiles")) && valid_profiles(J.items(J.get(body, "profiles")), Nil{}) &&
+  config_valid(valid_plugins(J.get(body, "plugins")) && valid_project(J.get(body, "project")) && is_array(J.get(body, "profiles")) && valid_profiles(J.items(J.get(body, "profiles")), Nil{}) &&
     is_array(J.get(body, "tools")) && valid_remote_tools(J.items(J.get(body, "tools")), Nil{}) &&
     is_natural(J.get(body, "max_fork")) && Nat.is_le(1n, Protocol.number(body, "max_fork", 0n)) &&
     is_natural(J.get(body, "max_descendants")) && Nat.is_le(1n, Protocol.number(body, "max_descendants", 0n)), body)
 
 # UI cursors are observations, not cached domain state. The wire may name only
 # the public event vocabulary; effect completions cannot be smuggled as events.
-def exact_keys(fields: +List<J.Field>, +allowed: +List<String>, +seen: +List<String>) -> Bool:
-  match fields:
-    case Nil{}: Nat.is_eq(List.length(&2, String, seen), List.length(&2, String, allowed))
-    case Con{J.Field{+key, value}, rest}:
-      T.has_name(allowed, key) && Bool.not(T.has_name(seen, key)) && exact_keys(rest, allowed, key <> seen)
-
-def object_keys(value: J.Json, allowed: +List<String>) -> Bool:
-  match value:
-    case J.Object{fields}: exact_keys(fields, allowed, Nil{})
-    case _: False{}
-
 def optional_id(value: J.Json) -> Bool:
   match value:
     case J.Null{}: True{}
@@ -272,12 +328,42 @@ def ui_valid(valid: Bool, +body: J.Json) -> Result<&2, &2, String, M.Input>:
 def decode_ui(+body: J.Json) -> Result<&2, &2, String, M.Input>:
   ui_valid(valid_view_state(J.get(body, "state")), body)
 
+def hook_outcome(kind: String, +value: J.Json) -> M.HookOutcome:
+  match kind:
+    case "allow": M.AllowTool{}
+    case "rewrite": M.RewriteTool{J.get(value, "arguments")}
+    case "deny": M.DenyTool{J.text(J.get(value, "reason"))}
+    case _: M.HookFailure{J.text(J.get(value, "reason"))}
+
+def hook_reason(+value: J.Json) -> Bool:
+  object_keys(value, ["decision", "reason"]) && M.nonempty(J.text(J.get(value, "reason"))) &&
+    Nat.is_le(J.utf8_length(J.text(J.get(value, "reason"))), 4096n)
+
+def valid_hook_outcome(kind: String, +value: J.Json) -> Bool:
+  match kind:
+    case "allow": object_keys(value, ["decision"])
+    case "rewrite": object_keys(value, ["decision", "arguments"]) && J.is_object(J.get(value, "arguments"))
+    case "deny": hook_reason(value)
+    case "failed": hook_reason(value)
+    case _: False{}
+
+def hook_valid(valid: Bool, +body: J.Json) -> Result<&2, &2, String, M.Input>:
+  match valid:
+    case False{}: Fail{"Malformed hook completion"}
+    case True{}: Done{M.HookCompleted{Protocol.number(body, "task_id", 0n), Protocol.number(body, "ticket", 0n),
+      hook_outcome(J.text(J.get(J.get(body, "outcome"), "decision")), J.get(body, "outcome"))}}
+
+def decode_hook(+body: J.Json) -> Result<&2, &2, String, M.Input>:
+  hook_valid(object_keys(body, ["kind", "task_id", "ticket", "outcome"]) && is_natural(J.get(body, "task_id")) &&
+    is_natural(J.get(body, "ticket")) && valid_hook_outcome(J.text(J.get(J.get(body, "outcome"), "decision")), J.get(body, "outcome")), body)
+
 def decode_kind(kind: String, +body: J.Json) -> Result<&2, &2, String, M.Input>:
   match kind:
     case "command": decode_command(J.get(body, "command"))
     case "ui": decode_ui(body)
     case "model": decode_model(body)
     case "tool": decode_tool(body)
+    case "hook": decode_hook(body)
     case "configure": decode_config(body)
     case "recover": Done{M.Recover{}}
     case "continue": Done{M.Continue{}}

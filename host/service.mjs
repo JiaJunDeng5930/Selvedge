@@ -3,6 +3,7 @@ import path from 'node:path';
 import { realpath } from 'node:fs/promises';
 import { Journal } from './journal.mjs';
 import { Mcp } from './mcp.mjs';
+import { Plugin } from './plugins.mjs';
 import { runBash } from './process.mjs';
 import { snapshotProject } from './project.mjs';
 import { requestModel, ContextLimitError } from './providers.mjs';
@@ -13,6 +14,8 @@ export class Service extends EventEmitter {
   #running = new Map();
   #servers = new Map();
   #catalog = new Map();
+  #plugins = new Map();
+  #pluginCatalog = new Map();
   #continuation;
   #closing = false;
   #failure;
@@ -29,7 +32,11 @@ export class Service extends EventEmitter {
       service.project = await snapshotProject(service.cwd, service.limits);
       service.journal.on('commit', decision => {
         service.notify({ type: 'commit', sequence: decision.sequence });
-        for (const effect of decision.effects) service.#dispatch(effect);
+        let ordinal = 0;
+        for (const effect of decision.effects) {
+          service.#dispatch(effect, decision.sequence, ordinal);
+          if (effect.kind === 'plugin_events') ordinal += effect.events.length;
+        }
       });
       service.journal.on('observerFailure', error => service.#fatal(error));
       await Promise.all(Object.entries(config.mcp).map(async ([name, settings]) => {
@@ -43,6 +50,23 @@ export class Service extends EventEmitter {
           service.#refreshCatalog(name, false);
         });
         client.on('toolsChanged', () => service.#refreshCatalog(name, true));
+      }));
+      const extensions = Object.entries(config.plugins ?? {});
+      if (extensions.length > service.description.plugins.max_plugins) throw new RangeError('Plugin count exceeds the native limit');
+      await Promise.all(extensions.map(async ([name, settings]) => {
+        const client = new Plugin(name, { ...settings, cwd: settings.cwd ?? service.cwd }, service.limits, service.description.plugins);
+        service.#plugins.set(name, client);
+        client.on('diagnostic', event => service.notify({ type: 'diagnostic', ...event }));
+        const descriptor = await client.initialize();
+        service.#pluginCatalog.set(name, { descriptor, tools: client.tools });
+        client.on('unavailable', error => {
+          service.notify({ type: 'diagnostic', message: `Plugin ${name} is unavailable: ${error.message}` });
+          service.#catalogTail = service.#catalogTail.then(async () => {
+            if (service.#closing || service.#failure) return;
+            service.#pluginCatalog.delete(name);
+            await service.#configure();
+          }).catch(error => service.#fatal(error));
+        });
       }));
       await service.#configure();
       const recovery = await service.journal.execute({ kind: 'recover' });
@@ -69,8 +93,11 @@ export class Service extends EventEmitter {
   }
 
   async #configure() {
+    // Configuration order, not process initialization speed, defines the chain.
+    const extensions = Object.keys(this.config.plugins ?? {}).flatMap(name => this.#pluginCatalog.has(name) ? [this.#pluginCatalog.get(name)] : []);
     const decision = await this.journal.execute({ kind: 'configure', profiles: profileCatalog(this.config),
-      tools: [...this.#catalog.values()].flat(), max_fork: this.config.max_fork, max_descendants: this.config.max_descendants,
+      tools: [...this.#catalog.values(), ...extensions.map(extension => extension.tools)].flat(),
+      plugins: extensions.map(extension => extension.descriptor), max_fork: this.config.max_fork, max_descendants: this.config.max_descendants,
       project: this.project });
     if (!decision.reply.ok) throw new Error(`Catalog rejected: ${decision.reply.error.message}`);
   }
@@ -86,8 +113,18 @@ export class Service extends EventEmitter {
     }).catch(error => this.#fatal(error));
   }
 
-  #dispatch(effect) {
+  #dispatch(effect, sequence, firstOrdinal = 0) {
     if (this.#closing || this.#failure) return;
+    if (effect.kind === 'plugin_events') {
+      effect.events.forEach(({ recipients, ...event }, index) => {
+        for (const reference of recipients) {
+          const client = this.#plugins.get(reference.name);
+          if (client?.matches(reference)) client.enqueue({ sequence, ordinal: firstOrdinal + index, ...event });
+          else this.notify({ type: 'diagnostic', message: `Plugin ${reference.name} notification route is unavailable`, event_id: { sequence, ordinal: firstOrdinal + index } });
+        }
+      });
+      return;
+    }
     if (effect.kind === 'cancel') {
       for (const active of this.#running.values()) if (active.task === effect.task_id) active.controller.abort(new Error('Task work cancelled'));
       return;
@@ -105,7 +142,7 @@ export class Service extends EventEmitter {
       });
       return;
     }
-    if (!['model', 'summary', 'tool'].includes(effect.kind)) { this.#fatal(new Error(`Unknown effect ${effect.kind}`)); return; }
+    if (!['model', 'summary', 'tool', 'hook'].includes(effect.kind)) { this.#fatal(new Error(`Unknown effect ${effect.kind}`)); return; }
     const key = `${effect.task_id}:${effect.ticket}`;
     if (this.#running.has(key)) { this.#fatal(new Error('The kernel repeated an in-flight effect identity')); return; }
     const controller = new AbortController();
@@ -123,11 +160,20 @@ export class Service extends EventEmitter {
           onRetry: retry => this.notify({ type: 'retry', task_id: effect.task_id, ticket: effect.ticket, ...retry }),
         });
         input = { kind: 'model', task_id: effect.task_id, ticket: effect.ticket, ok: true, items };
+      } else if (effect.kind === 'hook') {
+        const client = this.#plugins.get(effect.plugin.name);
+        if (!client) throw new Error('Required plugin route is unavailable');
+        const outcome = await client.before(effect, { signal });
+        input = { kind: 'hook', task_id: effect.task_id, ticket: effect.ticket, outcome };
       } else {
         let result;
         if (effect.tool.source === 'harness' && effect.tool.name === 'bash') {
           result = await runBash(effect.call.arguments, this.limits, { signal, cwd: this.cwd,
             artifactDirectory: path.join(this.home, 'artifacts') });
+        } else if (effect.tool.source?.plugin) {
+          const client = this.#plugins.get(effect.tool.source.plugin.name);
+          if (!client) throw new Error('Plugin tool route is unavailable');
+          result = await client.call(effect, { signal });
         } else if (effect.tool.source && typeof effect.tool.source === 'object') {
           const client = this.#servers.get(effect.tool.source.server);
           if (!client) throw new Error('MCP route is unavailable');
@@ -157,7 +203,8 @@ export class Service extends EventEmitter {
   }
 
   #failureInput(effect, message) {
-    message = String(message).slice(0, 1024);
+    message = [...String(message || 'External execution failed').toWellFormed()].slice(0, 1024).join('');
+    if (effect.kind === 'hook') return { kind: 'hook', task_id: effect.task_id, ticket: effect.ticket, outcome: { decision: 'failed', reason: message } };
     return effect.kind === 'model' || effect.kind === 'summary'
       ? { kind: 'model', task_id: effect.task_id, ticket: effect.ticket, ok: false, message }
       : { kind: 'tool', task_id: effect.task_id, ticket: effect.ticket, error: true,
@@ -186,7 +233,7 @@ export class Service extends EventEmitter {
     if (this.#continuation) clearImmediate(this.#continuation);
     for (const active of this.#running.values()) active.controller.abort(new Error('Server stopped'));
     await Promise.allSettled([...this.#running.values()].map(active => active.promise));
-    await Promise.allSettled([...this.#servers.values()].map(client => client.close()));
+    await Promise.allSettled([...this.#servers.values(), ...this.#plugins.values()].map(client => client.close()));
     await this.#catalogTail;
     await this.journal?.close();
   }

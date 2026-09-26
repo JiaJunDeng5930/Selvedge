@@ -62,6 +62,7 @@ def Laws.frozen_no_dispatch(phase):
 
 def Laws.stopped_no_model(phase):
   match phase:
+    case M.HookPending{ticket, reference, call, pending, remaining}: {==}
     case M.Idle{}: {==}
     case M.CompactionReady{}: {==}
     case M.Ready{Nil{}}: {==}
@@ -125,6 +126,7 @@ def Laws.internal_effect_retry_safe(attempt):
 
 def Laws.recover_phase_idempotent(phase):
   match phase:
+    case M.HookPending{ticket, reference, call, pending, remaining}: {==}
     case M.Idle{}: {==}
     case M.CompactionReady{}: {==}
     case M.Ready{calls}: {==}
@@ -146,6 +148,12 @@ def project_node_idempotent(+previous: M.History, +message: M.Message,
   {M.context_history(M.context_node(M.context_history(previous), message)) == M.context_node(M.context_history(previous), message) : M.History}:
   match message:
     case M.ContextCheckpoint{summary}: {==}
+    case M.ForkResult{+owner, +id, +branch}:
+      %evidence : {M.HistoryNode{M.context_history(M.context_history(previous)), M.ForkResult{owner, id, branch}} == M.HistoryNode{_, M.ForkResult{owner, id, branch}} : M.History}
+      {==}
+    case M.HookRecord{+owner, +id, +reference, +outcome}:
+      %evidence : {M.HistoryNode{M.context_history(M.context_history(previous)), M.HookRecord{owner, id, reference, outcome}} == M.HistoryNode{_, M.HookRecord{owner, id, reference, outcome}} : M.History}
+      {==}
     case M.UserMessage{+text}:
       %evidence : {M.HistoryNode{M.context_history(M.context_history(previous)), M.UserMessage{text}} == M.HistoryNode{_, M.UserMessage{text}} : M.History}
       {==}

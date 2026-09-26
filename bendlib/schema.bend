@@ -62,3 +62,104 @@ def check(fuel: Nat, job: Check) -> Bool:
 
 def valid(schema: J.Json, value: J.Json) -> Bool:
   check(256n, CheckValue{schema, value})
+
+# Extension schemas use exactly the native decidable fragment. Unsupported
+# JSON Schema keywords are rejected at registration, never silently ignored.
+def contains(strings: +List<String>, +value: String) -> Bool:
+  match strings:
+    case Nil{}: False{}
+    case Con{item, rest}: String.eq(item, value) || contains(rest, value)
+
+def keywords(fields: +List<J.Field>, +allowed: +List<String>, +seen: +List<String>) -> Bool:
+  match fields:
+    case Nil{}: True{}
+    case Con{J.Field{+name, value}, rest}:
+      contains(allowed, name) && Bool.not(contains(seen, name)) && keywords(rest, allowed, name <> seen)
+
+def keys(value: J.Json, allowed: +List<String>) -> Bool:
+  match value:
+    case J.Object{fields}: keywords(fields, allowed, Nil{})
+    case _: False{}
+
+def optional_text(value: J.Json) -> Bool:
+  match value:
+    case J.Null{}: True{}
+    case J.Text{text}: True{}
+    case _: False{}
+
+def closed(value: J.Json) -> Bool:
+  match value:
+    case J.Null{}: True{}
+    case J.Boolean{False{}}: True{}
+    case _: False{}
+
+def bounded_natural(value: Maybe<&2, Nat>) -> Bool:
+  match value:
+    case None{}: False{}
+    case Some{n}: Nat.is_le(n, U32.to_nat(4294967295))
+
+def bound(value: J.Json) -> Bool:
+  match value:
+    case J.Null{}: True{}
+    case J.Number{lexeme}: bounded_natural(Nat.read(lexeme))
+    case _: False{}
+
+def required_names(names: +List<J.Json>, +properties: +List<J.Field>, +seen: +List<String>) -> Bool:
+  match names:
+    case Nil{}: True{}
+    case Con{J.Text{+name}, rest}:
+      exists(properties, name) && Bool.not(contains(seen, name)) && required_names(rest, properties, name <> seen)
+    case _: False{}
+
+def required_shape(value: J.Json, fields: +List<J.Field>) -> Bool:
+  match value:
+    case J.Null{}: True{}
+    case J.Array{names}: required_names(names, fields, Nil{})
+    case _: False{}
+
+def property_requirements(properties: J.Json, required: J.Json) -> Bool:
+  match properties:
+    case J.Object{fields}: required_shape(required, fields)
+    case _: False{}
+
+type Definition is Data:
+  SchemaDefinition{value: J.Json}
+  PropertiesDefinition{value: J.Json, seen: +List<String>}
+
+def definition_jobs(kind: String, +value: J.Json, rest: +List<Definition>) -> Maybe<&2, +List<Definition>>:
+  match kind:
+    case "object": Some{PropertiesDefinition{J.get(value, "properties"), Nil{}} <> rest}
+    case "array": Some{SchemaDefinition{J.get(value, "items")} <> rest}
+    case "string": Some{rest}
+    case "integer": Some{rest}
+    case "boolean": Some{rest}
+    case "null": Some{rest}
+    case _: None{}
+
+def definition_shape(kind: String, +value: J.Json) -> Bool:
+  match kind:
+    case "object": keys(value, ["type", "description", "title", "properties", "required", "additionalProperties"]) &&
+      closed(J.get(value, "additionalProperties")) && property_requirements(J.get(value, "properties"), J.get(value, "required"))
+    case "array": keys(value, ["type", "description", "title", "items"]) && J.is_object(J.get(value, "items"))
+    case "integer": keys(value, ["type", "description", "title", "minimum", "maximum"]) &&
+      bound(J.get(value, "minimum")) && bound(J.get(value, "maximum")) &&
+      Nat.is_le(J.natural_or(J.natural(J.get(value, "minimum")), 0n), J.natural_or(J.natural(J.get(value, "maximum")), U32.to_nat(4294967295)))
+    case _: keys(value, ["type", "description", "title"])
+
+def definition(fuel: Nat, jobs: Maybe<&2, +List<Definition>>) -> Bool:
+  match fuel jobs:
+    case 0n _: False{}
+    case 1n+p None{}: False{}
+    case 1n+p Some{Nil{}}: True{}
+    case 1n+p Some{Con{SchemaDefinition{+value}, rest}}:
+      optional_text(J.get(value, "title")) && optional_text(J.get(value, "description")) &&
+        definition_shape(J.text(J.get(value, "type")), value) &&
+        definition(p, definition_jobs(J.text(J.get(value, "type")), value, rest))
+    case 1n+p Some{Con{PropertiesDefinition{J.Object{Nil{}}, seen}, rest}}: definition(p, Some{rest})
+    case 1n+p Some{Con{PropertiesDefinition{J.Object{Con{J.Field{+name, value}, fields}}, +seen}, rest}}:
+      Bool.not(contains(seen, name)) && definition(p,
+        Some{SchemaDefinition{value} <> PropertiesDefinition{J.Object{fields}, name <> seen} <> rest})
+    case 1n+p Some{Con{PropertiesDefinition{value, seen}, rest}}: False{}
+
+def supported(schema: J.Json) -> Bool:
+  definition(256n, Some{[SchemaDefinition{schema}]})

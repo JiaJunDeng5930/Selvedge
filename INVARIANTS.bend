@@ -4,6 +4,7 @@ import ./bendlib/tasks.bend as T
 import ./bendlib/operations.bend as Ops
 import ./bendlib/equality.bend as Same
 import ./bendlib/json.bend as J
+import ./HOOKS.bend as Hooks
 
 # A world is an append-only registry of tasks, whose ancestry is a forest.
 # These predicates are executed by PROGRAM's admission boundary and named by
@@ -41,13 +42,13 @@ def project_context(project: M.ProjectContext) -> Bool:
         ((String.eq(revision, "absent") && String.eq(instructions, "")) || Nat.is_eq(J.utf8_length(revision), 64n))
 
 def environment(environment: M.Environment) -> Bool:
-  M.Environment{catalog, profiles, max_fork, max_descendants, project} = environment
-  project_context(project) && unique_tools(catalog) && unique_profiles(profiles) &&
+  M.Environment{+catalog, profiles, max_fork, max_descendants, project, +plugins} = environment
+  Hooks.valid(plugins) && Hooks.routes(catalog, plugins) && project_context(project) && unique_tools(catalog) && unique_profiles(profiles) &&
     Nat.is_le(1n, max_fork) && Nat.is_le(1n, max_descendants)
 
 def contract(contract: M.Contract) -> Bool:
-  M.Contract{M.Model{M.Profile{key, provider, name}, reasoning, project}, tools, max_fork, max_descendants} = contract
-  project_context(project) && M.nonempty(key) && M.nonempty(provider) && M.nonempty(name) && M.nonempty(reasoning) &&
+  M.Contract{M.Model{M.Profile{key, provider, name}, reasoning, project}, +tools, max_fork, max_descendants, +plugins} = contract
+  Hooks.valid(plugins) && Hooks.routes(tools, plugins) && project_context(project) && M.nonempty(key) && M.nonempty(provider) && M.nonempty(name) && M.nonempty(reasoning) &&
     unique_tools(tools) && Nat.is_le(1n, max_fork) && Nat.is_le(1n, max_descendants)
 
 def lineage_parent(found: Maybe<&2, M.Task>, child: Nat, tail: +List<Nat>, contract: M.Contract, budget: Nat) -> Bool:
@@ -66,6 +67,8 @@ def has_output(history: M.History, +id: String) -> Bool:
   match history:
     case M.EmptyHistory{}: False{}
     case M.HistoryNode{previous, M.FunctionOutput{call_id, value, error}}:
+      String.eq(call_id, id) || has_output(previous, id)
+    case M.HistoryNode{previous, M.ForkResult{owner, call_id, branch}}:
       String.eq(call_id, id) || has_output(previous, id)
     case M.HistoryNode{previous, other}: has_output(previous, id)
 
@@ -100,11 +103,14 @@ def phase(status: M.Status, phase: M.Phase, +history: M.History, tools: +List<M.
     case _ M.Ready{pending}: attempts(pending, history)
     case _ M.ModelPending{ticket, names}: Nat.is_lt(ticket, next_ticket) && callable(names, tools)
     case _ M.SummaryPending{ticket, resume}: Nat.is_lt(ticket, next_ticket)
+    case _ M.HookPending{ticket, reference, call, pending, remaining}:
+      Nat.is_lt(ticket, next_ticket) && attempts(M.CheckedAttempt{call, reference <> pending} <> remaining, history)
 
 def ticket_is(phase: M.Phase, ticket: Nat) -> Bool:
   match phase:
     case M.ModelPending{expected, callable}: Nat.is_eq(expected, ticket)
     case M.SummaryPending{expected, resume}: Nat.is_eq(expected, ticket)
+    case M.HookPending{expected, reference, call, pending, remaining}: Nat.is_eq(expected, ticket)
     case _: False{}
 
 def operation_ticket(operations: +List<M.Operation>, +ticket: Nat) -> Bool:
@@ -140,20 +146,36 @@ def operation_history(announced: Bool, operation: M.Operation, history: M.Histor
 def phase_has_call(phase: M.Phase, id: String) -> Bool:
   match phase:
     case M.Ready{attempts}: has_attempt(attempts, id)
+    case M.HookPending{ticket, reference, call, pending, remaining}: has_attempt(M.CheckedAttempt{call, reference <> pending} <> remaining, id)
     case _: False{}
 
 def operation_rights(operations: +List<M.Operation>, +phase: M.Phase, +history: M.History,
-  +tools: +List<M.Tool>, +next_ticket: Nat, +budget: Nat) -> Bool:
+  +owner: Nat, +contract: M.Contract, +next_ticket: Nat, +budget: Nat) -> Bool:
   match operations:
     case Nil{}: True{}
     case Con{+operation, +rest}:
       Nat.is_lt(Ops.ticket(operation), next_ticket) && Bool.not(ticket_is(phase, Ops.ticket(operation))) &&
         Bool.not(operation_ticket(rest, Ops.ticket(operation))) && Bool.not(operation_call(rest, T.call_id(Ops.call(operation)))) &&
         Bool.not(phase_has_call(phase, T.call_id(Ops.call(operation)))) &&
-        original_call(history, Ops.call(operation), budget) &&
-        Bool.not(missing_tool(T.find_tool(tools, T.call_name(Ops.call(operation))))) &&
+        Hooks.corresponds(history, owner, Ops.call(operation), Nil{}, contract, budget) &&
+        Bool.not(missing_tool(T.find_tool(T.task_tools(contract), T.call_name(Ops.call(operation))))) &&
         operation_history(Ops.announced(operation), operation, history, budget) &&
-        operation_rights(rest, phase, history, tools, next_ticket, budget)
+        operation_rights(rest, phase, history, owner, contract, next_ticket, budget)
+
+def checked_attempts(attempts: +List<M.Attempt>, +history: M.History, +owner: Nat, +contract: M.Contract, +budget: Nat) -> Bool:
+  match attempts:
+    case Nil{}: True{}
+    case Con{M.CheckedAttempt{call, pending}, rest}:
+      Hooks.corresponds(history, owner, call, pending, contract, budget) && checked_attempts(rest, history, owner, contract, budget)
+    case Con{other, rest}: checked_attempts(rest, history, owner, contract, budget)
+
+def checked_phase(phase: M.Phase, +history: M.History, +owner: Nat, +contract: M.Contract, +budget: Nat) -> Bool:
+  match phase:
+    case M.Ready{attempts}: checked_attempts(attempts, history, owner, contract, budget)
+    case M.HookPending{ticket, reference, +call, pending, remaining}:
+      Bool.not(missing_tool(T.find_tool(T.task_tools(contract), T.call_name(call)))) &&
+        Hooks.corresponds(history, owner, call, reference <> pending, contract, budget) && checked_attempts(remaining, history, owner, contract, budget)
+    case _: True{}
 
 def operation_status(status: M.Status, operations: +List<M.Operation>) -> Bool:
   match status:
@@ -170,6 +192,7 @@ def distinct_ticket(phase: M.Phase, tasks: +List<M.Task>) -> Bool:
   match phase:
     case M.ModelPending{ticket, callable}: Bool.not(has_ticket(tasks, ticket))
     case M.SummaryPending{ticket, resume}: Bool.not(has_ticket(tasks, ticket))
+    case M.HookPending{ticket, reference, call, pending, remaining}: Bool.not(has_ticket(tasks, ticket))
     case _: True{}
 
 def distinct_operations(operations: +List<M.Operation>, +tasks: +List<M.Task>) -> Bool:
@@ -183,8 +206,9 @@ def task(task: M.Task, expected_id: Nat, +all: +List<M.Task>, +next_ticket: Nat,
     lineage(ancestors, id, frozen, all, budget) &&
     Nat.is_le(T.descendant_count(all, id), T.contract_limit(frozen)) &&
     phase(status, pending, history, T.task_tools(frozen), next_ticket) &&
+    checked_phase(pending, history, id, frozen, budget) &&
     operation_status(status, operations) && Nat.is_le(List.length(&2, M.Operation, operations), M.operation_limit()) &&
-    operation_rights(operations, pending, history, T.task_tools(frozen), next_ticket, budget)
+    operation_rights(operations, pending, history, id, frozen, next_ticket, budget)
 
 def tasks(remaining: +List<M.Task>, +expected_id: Nat, +all: +List<M.Task>, +next_task: Nat, +next_ticket: Nat, +budget: Nat) -> Bool:
   match remaining:
@@ -280,6 +304,9 @@ def retained_effects(effects: +List<M.Effect>, +cancellations: +List<M.Effect>, 
     case Con{M.ExecuteTool{+id, +ticket, tool, call}, rest}:
       keep_effect(found_archived(T.find(tasks, id)) || explicitly_cancelled(cancellations, id, ticket),
         M.ExecuteTool{id, ticket, tool, call}, retained_effects(rest, cancellations, tasks))
+    case Con{M.CheckTool{+id, +ticket, reference, tool, call}, rest}:
+      keep_effect(found_archived(T.find(tasks, id)) || explicitly_cancelled(cancellations, id, ticket),
+        M.CheckTool{id, ticket, reference, tool, call}, retained_effects(rest, cancellations, tasks))
     case Con{other, rest}: other <> retained_effects(rest, cancellations, tasks)
 
 def live_effects(+effects: +List<M.Effect>, tasks: +List<M.Task>) -> +List<M.Effect>:
@@ -332,6 +359,13 @@ def tool_effect(found: Maybe<&2, M.Task>, ticket: Nat, tool: M.Tool, call: M.Cal
         tool_member(T.task_tools(contract), tool, budget)
     case _: False{}
 
+def hook_effect(found: Maybe<&2, M.Task>, ticket: Nat, plugin: M.PluginRef, +tool: M.Tool, +call: M.Call, +budget: Nat) -> Bool:
+  match found:
+    case Some{M.Task{id, lineage, contract, status, history, queued, M.HookPending{expected, reference, current, pending, remaining}, operations, notified}}:
+      runs_tools(status) && Nat.is_eq(ticket, expected) && M.plugin_same(plugin, reference) && Same.call(budget, call, current) &&
+        String.eq(M.tool_name(tool), T.call_name(call)) && tool_member(T.task_tools(contract), tool, budget)
+    case _: False{}
+
 def has_effect_ticket(effects: +List<M.Effect>, +ticket: Nat) -> Bool:
   match effects:
     case Nil{}: False{}
@@ -341,6 +375,8 @@ def has_effect_ticket(effects: +List<M.Effect>, +ticket: Nat) -> Bool:
       Nat.is_eq(other, ticket) || has_effect_ticket(rest, ticket)
     case Con{M.ExecuteTool{id, other, tool, call}, rest}:
       Nat.is_eq(other, ticket) || has_effect_ticket(rest, ticket)
+    case Con{M.CheckTool{id, other, reference, tool, call}, rest}:
+      Nat.is_eq(other, ticket) || has_effect_ticket(rest, ticket)
     case Con{other, rest}: has_effect_ticket(rest, ticket)
 
 # A dispatched effect must describe the final pending phase exactly, have a
@@ -348,6 +384,7 @@ def has_effect_ticket(effects: +List<M.Effect>, +ticket: Nat) -> Bool:
 def effects(pending: +List<M.Effect>, +tasks: +List<M.Task>, +first_ticket: Nat, +budget: Nat) -> Bool:
   match pending:
     case Nil{}: True{}
+    case Con{M.NotifyPlugins{events}, rest}: effects(rest, tasks, first_ticket, budget)
     case Con{M.RequestModel{id, +ticket, model, history, tools, callable}, +rest}:
       Nat.is_le(first_ticket, ticket) && Bool.not(has_effect_ticket(rest, ticket)) &&
         model_effect(T.find(tasks, id), ticket, model, history, tools, callable, budget) && effects(rest, tasks, first_ticket, budget)
@@ -357,6 +394,9 @@ def effects(pending: +List<M.Effect>, +tasks: +List<M.Task>, +first_ticket: Nat,
     case Con{M.ExecuteTool{id, +ticket, tool, call}, +rest}:
       Nat.is_le(first_ticket, ticket) && Bool.not(has_effect_ticket(rest, ticket)) &&
         tool_effect(T.find(tasks, id), ticket, tool, call, budget) && effects(rest, tasks, first_ticket, budget)
+    case Con{M.CheckTool{id, +ticket, reference, tool, call}, +rest}:
+      Nat.is_le(first_ticket, ticket) && Bool.not(has_effect_ticket(rest, ticket)) &&
+        hook_effect(T.find(tasks, id), ticket, reference, tool, call, budget) && effects(rest, tasks, first_ticket, budget)
     case Con{M.CancelTask{id}, rest}:
       cancellation_authorized(T.find(tasks, id)) && effects(rest, tasks, first_ticket, budget)
     case Con{M.CancelTicket{id, ticket}, rest}:

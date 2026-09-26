@@ -15,6 +15,100 @@ import ./bendlib/transcript.bend as Transcript
 import ./bendlib/interface.bend as Interface
 import ./bendlib/frontend.bend as Frontend
 import ./UI.bend as UI
+import ./HOOKS.bend as Hooks
+import ./bendlib/notifications.bend as Notifications
+
+law hook_gateway:
+  for +tool: M.Tool
+  for +attempt: M.Attempt
+  for +remaining: +List<M.Attempt>
+  for +task: M.Task
+  for +world: M.World
+  {Execution.found(Some{tool}, attempt, remaining, task, world) ==
+    Execution.authorization(M.may_execute(M.recovery(M.tool_source(tool)), attempt), tool, attempt, remaining, task, world) : Execution.Action}
+
+law hook_before_route:
+  for +plugin: M.PluginRef
+  for +pending: +List<M.PluginRef>
+  for +tool: M.Tool
+  for +call: M.Call
+  for +remaining: +List<M.Attempt>
+  for +task: M.Task
+  for +world: M.World
+  {Execution.chain(plugin <> pending, tool, call, remaining, task, world) ==
+    Execution.hook_available(Hooks.available(Hooks.live(world), plugin), plugin, pending, tool, call, remaining, task) : Execution.Action}
+
+law hook_rewrite_identity:
+  for +call: M.Call
+  for +arguments: J.Json
+  {M.call_id(M.rewritten(call, arguments)) == M.call_id(call) : String} &
+  {T.call_name(M.rewritten(call, arguments)) == T.call_name(call) : String}
+
+law hook_rejected_is_absorbing:
+  for plugin: M.PluginRef
+  for outcome: M.HookOutcome
+  {Hooks.record(Hooks.Refused{}, plugin, outcome) == Hooks.Refused{} : Hooks.Progress}
+
+law hook_deny:
+  for reason: String
+  for call: M.Call
+  for pending: +List<M.PluginRef>
+  {Hooks.advance(M.DenyTool{reason}, call, pending) == Hooks.Refused{} : Hooks.Progress}
+
+law hook_failure:
+  for reason: String
+  for call: M.Call
+  for pending: +List<M.PluginRef>
+  {Hooks.advance(M.HookFailure{reason}, call, pending) == Hooks.Refused{} : Hooks.Progress}
+
+law hook_foreign_owner:
+  for +owner: Nat
+  for +other: Nat
+  for +id: String
+  for plugin: M.PluginRef
+  for outcome: M.HookOutcome
+  for pending: +List<M.PluginRef>
+  for +state: Hooks.Progress
+  for different: {Nat.is_eq(other, owner) == False{} : Bool}
+  {Hooks.history_step(M.HookRecord{other, id, plugin, outcome}, owner, id, pending, state) == state : Hooks.Progress}
+
+law hook_record_order:
+  for +expected: M.PluginRef
+  for +actual: M.PluginRef
+  for +call: M.Call
+  for +pending: +List<M.PluginRef>
+  for +outcome: M.HookOutcome
+  {Hooks.record(Hooks.Awaiting{call, expected <> pending}, actual, outcome) ==
+    Hooks.checked(M.plugin_same(actual, expected), outcome, call, pending) : Hooks.Progress}
+
+law event_kind_roundtrip:
+  for +kind: M.EventKind
+  {M.find_event(M.event_kinds(), M.event_name(kind)) == Some{kind} : Maybe<&2, M.EventKind>}
+
+law child_return_serialization:
+  for owner: Nat
+  for +id: String
+  for +branch: Nat
+  {T.message_json(M.ForkResult{owner, id, branch}) == T.message_json(M.FunctionOutput{id, J.nat(branch), False{}}) : J.Json}
+
+type ObservationExtension<-original: M.Decision, -projected: M.Decision> is Type:
+  ObservationExtension{
+    state: {P.decision_world(projected) == P.decision_world(original) : M.World},
+    reply: {P.decision_reply(projected) == P.decision_reply(original) : J.Json},
+    effects: {Notifications.core(P.decision_effects(projected)) == Notifications.core(P.decision_effects(original)) : +List<M.Effect>}}
+
+law plugin_observation_extension:
+  for +source: M.Input
+  for before: M.World
+  for +decision: M.Decision
+  ObservationExtension<decision, Notifications.decorate(source, before, decision)>
+
+law plugin_observation_budget_failure:
+  for reason: String
+  for bytes: U32
+  for enriched: M.Decision
+  for +plain: M.Decision
+  {Notifications.fit(Fail{reason}, bytes, enriched, plain) == plain : M.Decision}
 
 # User-facing decisions are native entities too. The adapter cannot choose a
 # different command resolver or manufacture state/effects while projecting it.
@@ -308,10 +402,11 @@ law model_dispatch:
   for +max_fork: Nat
   for +max_descendants: Nat
   for +project: M.ProjectContext
+  for +plugins: +List<M.Plugin>
   for +limits: M.ExecutionLimits
-  {P.model_request_direct(task, M.World{tasks, next_task, ticket, M.Environment{catalog, profiles, max_fork, max_descendants, project}, limits}) ==
+  {P.model_request_direct(task, M.World{tasks, next_task, ticket, M.Environment{catalog, profiles, max_fork, max_descendants, project, plugins}, limits}) ==
     M.Decision{M.World{T.replace(tasks, M.with_phase(M.ModelPending{ticket, T.callable(T.task_tools(M.task_contract(task)), catalog)}, Ops.publish(task))),
-      next_task, 1n+ticket, M.Environment{catalog, profiles, max_fork, max_descendants, project}, limits}, J.Null{},
+      next_task, 1n+ticket, M.Environment{catalog, profiles, max_fork, max_descendants, project, plugins}, limits}, J.Null{},
       [M.RequestModel{M.task_id(task), ticket, T.task_model(M.task_contract(task)), M.context_history(M.task_history(Ops.publish(task))),
         T.task_tools(M.task_contract(task)), T.callable(T.task_tools(M.task_contract(task)), catalog)}]} : M.Decision}
 
@@ -551,13 +646,13 @@ law child_contract:
   {M.task_contract(P.child(id, parent, call, branch, remaining, message)) == M.task_contract(parent) : M.Contract}
 
 law child_history_prefix:
-  for id: Nat
+  for +id: Nat
   for +parent: M.Task
   for +call: String
   for +branch: Nat
   for remaining: +List<M.Attempt>
   {M.task_history(P.child(id, parent, call, branch, remaining, None{})) ==
-    M.branch_history(Ops.inherited(parent), call, branch) : M.History}
+    M.child_history(Ops.inherited(parent), id, call, branch) : M.History}
 
 law child_lineage:
   for id: Nat

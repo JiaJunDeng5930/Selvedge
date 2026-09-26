@@ -8,8 +8,35 @@ def model_json(model: M.Model) -> J.Json:
   J.Object{[J.Field{"profile", J.Text{profile}}, J.Field{"provider", J.Text{provider}},
     J.Field{"name", J.Text{name}}, J.Field{"reasoning", J.Text{reasoning}}, J.Field{"project", M.project_json(project)}]}
 
+def references(values: +List<M.PluginRef>) -> +List<J.Json>:
+  match values:
+    case Nil{}: Nil{}
+    case Con{value, rest}: M.plugin_json(value) <> references(rest)
+
+def payload(value: Maybe<&2, J.Json>) -> J.Json:
+  match value:
+    case None{}: J.Null{}
+    case Some{value}: value
+
+def omitted(value: Maybe<&2, J.Json>) -> Bool:
+  match value:
+    case None{}: True{}
+    case Some{value}: False{}
+
+def notices(items: +List<M.Notice>) -> +List<J.Json>:
+  match items:
+    case Nil{}: Nil{}
+    case Con{M.Notice{kind, task_id, cursor, +value, recipients}, rest}:
+      J.Object{[J.Field{"type", J.Text{M.event_name(kind)}}, J.Field{"task_id", J.optional_nat(task_id)},
+        J.Field{"cursor", J.optional_nat(cursor)}, J.Field{"payload", payload(value)}, J.Field{"payload_omitted", J.Boolean{omitted(value)}},
+        J.Field{"recipients", J.Array{references(recipients)}}]} <> notices(rest)
+
 def effect(effect: M.Effect) -> J.Json:
   match effect:
+    case M.NotifyPlugins{events}: J.Object{[J.Field{"kind", J.Text{"plugin_events"}}, J.Field{"events", J.Array{notices(events)}}]}
+    case M.CheckTool{task_id, ticket, plugin, tool, call}:
+      J.Object{[J.Field{"kind", J.Text{"hook"}}, J.Field{"task_id", J.nat(task_id)}, J.Field{"ticket", J.nat(ticket)},
+        J.Field{"plugin", M.plugin_json(plugin)}, J.Field{"tool", M.tool_json(tool)}, J.Field{"call", T.call_json(call)}]}
     case M.RequestModel{task_id, ticket, model, history, tools, callable}:
       J.Object{[J.Field{"kind", J.Text{"model"}}, J.Field{"task_id", J.nat(task_id)}, J.Field{"ticket", J.nat(ticket)},
         J.Field{"instructions", J.Text{M.assistant_instructions()}},

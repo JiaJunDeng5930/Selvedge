@@ -11,8 +11,11 @@ boundary through the shared `LAWS.bend` or architecture declarations:
 | `frontend` | Exact pure native input protocol, including malformed packets. |
 | `safety` | Initial validity and one committed transition's safety certificate. |
 | `traces` | Complete receipt simulation, partitioned execution and journal safety. |
+| `reachability` | Input-labelled edges, exact journal/receipt correspondence and premises for imported relational simulation/safety. |
 | `tasks` | Lifecycle, fork, interruption, recovery and context correspondences. |
 | `observations` | Queries preserve both world and effect silence. |
+| `ui` | Native presentation, live command gates and state/effect-preserving projection. |
+| `plugins` | Unified gate, call identity, task-owned certificates and observer non-interference. |
 | `algebra` | Bind standard structures and imported results to production operations. |
 
 Provider imports are explicit: Bend rejects using an unfilled law as live proof

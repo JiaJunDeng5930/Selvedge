@@ -1,11 +1,12 @@
 import { readFile, access } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import path from 'node:path';
+import { validPluginName } from './plugins.mjs';
 
 export const format = 'selvedge-bend-config-1';
 export const defaultConfig = {
   format, host: '127.0.0.1', port: 7421, max_fork: 4, max_descendants: 64,
-  profiles: { demo: { provider: 'echo', model: 'echo' } }, mcp: {},
+  profiles: { demo: { provider: 'echo', model: 'echo' } }, mcp: {}, plugins: {},
 };
 
 function object(value, label, keys) {
@@ -26,7 +27,7 @@ function endpoint(value, label) {
 }
 
 export function validateConfig(value) {
-  object(value, 'configuration', ['format', 'host', 'port', 'max_fork', 'max_descendants', 'profiles', 'mcp']);
+  object(value, 'configuration', ['format', 'host', 'port', 'max_fork', 'max_descendants', 'profiles', 'mcp', 'plugins']);
   if (value.format !== format) throw new Error('The configuration is not in the current Bend format');
   const config = { ...defaultConfig, ...value };
   if (!['127.0.0.1', '::1'].includes(config.host)) throw new TypeError('The local server requires a loopback address');
@@ -69,6 +70,18 @@ export function validateConfig(value) {
     if (server.cwd !== undefined) text(server.cwd, `MCP ${name} cwd`);
     if (server.timeout_ms !== undefined) number(server.timeout_ms, `MCP ${name} timeout`, 100, 1_800_000);
     if (server.env !== undefined && (!server.env || typeof server.env !== 'object' || Array.isArray(server.env) || Object.values(server.env).some(x => typeof x !== 'string'))) throw new TypeError(`Invalid MCP ${name} environment`);
+  }
+  if (!config.plugins || typeof config.plugins !== 'object' || Array.isArray(config.plugins)) throw new TypeError('plugins must be an object');
+  for (const [name, plugin] of Object.entries(config.plugins)) {
+    if (!validPluginName(name)) throw new TypeError(`Invalid plugin name: ${name}`);
+    object(plugin, `plugin ${name}`, ['command', 'args', 'cwd', 'env', 'timeout_ms', 'event_timeout_ms', 'event_queue']);
+    text(plugin.command, `plugin ${name} command`);
+    if (plugin.args !== undefined && (!Array.isArray(plugin.args) || plugin.args.some(value => typeof value !== 'string'))) throw new TypeError(`Invalid plugin ${name} arguments`);
+    if (plugin.cwd !== undefined) text(plugin.cwd, `plugin ${name} cwd`);
+    if (plugin.timeout_ms !== undefined) number(plugin.timeout_ms, `plugin ${name} timeout`, 100, 1_800_000);
+    if (plugin.event_timeout_ms !== undefined) number(plugin.event_timeout_ms, `plugin ${name} event timeout`, 100, 60_000);
+    if (plugin.event_queue !== undefined) number(plugin.event_queue, `plugin ${name} event queue`, 1, 4096);
+    if (plugin.env !== undefined && (!plugin.env || typeof plugin.env !== 'object' || Array.isArray(plugin.env) || Object.values(plugin.env).some(value => typeof value !== 'string'))) throw new TypeError(`Invalid plugin ${name} environment`);
   }
   return config;
 }

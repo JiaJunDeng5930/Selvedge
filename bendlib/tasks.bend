@@ -1,4 +1,5 @@
 import Base
+import ../HOOKS.bend as Hooks
 import ./stdlib.bend as Std
 import ./json.bend as J
 import ../MODEL.bend as M
@@ -76,7 +77,7 @@ def descendant_count(tasks: +List<M.Task>, +ancestor: Nat) -> Nat:
       add_count(has_id(M.task_lineage(task), ancestor), descendant_count(rest, ancestor))
 
 def contract_limit(contract: M.Contract) -> Nat:
-  M.Contract{model, tools, max_fork, max_descendants} = contract
+  M.Contract{model, tools, max_fork, max_descendants, plugins} = contract
   max_descendants
 
 def ancestor_fits(task: Maybe<&2, M.Task>, added: Nat, descendants: Nat) -> Bool:
@@ -92,11 +93,11 @@ def ancestors_fit(ancestors: +List<Nat>, +tasks: +List<M.Task>, +added: Nat) -> 
       ancestor_fits(find(tasks, ancestor), added, descendant_count(tasks, ancestor)) && ancestors_fit(rest, tasks, added)
 
 def task_tools(contract: M.Contract) -> +List<M.Tool>:
-  M.Contract{model, tools, max_fork, max_descendants} = contract
+  M.Contract{model, tools, max_fork, max_descendants, plugins} = contract
   tools
 
 def task_model(contract: M.Contract) -> M.Model:
-  M.Contract{model, tools, max_fork, max_descendants} = contract
+  M.Contract{model, tools, max_fork, max_descendants, plugins} = contract
   model
 
 def call_id(call: M.Call) -> String:
@@ -117,6 +118,12 @@ def call_json(call: M.Call) -> J.Json:
 
 def message_json(message: M.Message) -> J.Json:
   match message:
+    case M.ForkResult{owner, call_id, branch}:
+      J.Object{[J.Field{"role", J.Text{"function_output"}}, J.Field{"call_id", J.Text{call_id}},
+        J.Field{"content", J.nat(branch)}, J.Field{"is_error", J.Boolean{False{}}}]}
+    case M.HookRecord{owner, call_id, plugin, outcome}:
+      J.Object{[J.Field{"role", J.Text{"hook_record"}}, J.Field{"task_id", J.nat(owner)}, J.Field{"call_id", J.Text{call_id}},
+        J.Field{"plugin", M.plugin_json(plugin)}, J.Field{"content", M.hook_json(outcome)}]}
     case M.UserMessage{text}:
       J.Object{[J.Field{"role", J.Text{"user"}}, J.Field{"content", J.Text{text}}]}
     case M.AssistantMessage{text}:
@@ -149,6 +156,7 @@ def strings_json(strings: +List<String>) -> +List<J.Json>:
 
 def phase_name(phase: M.Phase) -> String:
   match phase:
+    case M.HookPending{ticket, reference, call, pending, remaining}: "hook_pending"
     case M.Idle{}: "idle"
     case M.Ready{calls}: "ready"
     case M.CompactionReady{}: "compaction_ready"
@@ -156,13 +164,14 @@ def phase_name(phase: M.Phase) -> String:
     case M.SummaryPending{ticket, resume}: "summary_pending"
 
 def summary(task: M.Task) -> J.Json:
-  M.Task{id, lineage, M.Contract{M.Model{M.Profile{profile, provider, model}, reasoning, project}, tools, max_fork, max_descendants}, +status, history, queued, phase, operations, notified} = task
+  M.Task{id, lineage, M.Contract{M.Model{M.Profile{profile, provider, model}, reasoning, project}, tools, max_fork, max_descendants, plugins}, +status, history, queued, phase, operations, notified} = task
   J.Object{[J.Field{"id", J.nat(id)}, J.Field{"parent", J.optional_nat(List.head(&2, Nat, lineage))},
     J.Field{"profile", J.Text{profile}}, J.Field{"provider", J.Text{provider}}, J.Field{"model", J.Text{model}}, J.Field{"reasoning", J.Text{reasoning}},
     J.Field{"status", J.Text{M.status_name(status)}}, J.Field{"controls", M.controls(status)},
     J.Field{"phase", J.Text{phase_name(phase)}}, J.Field{"cursor", J.nat(M.history_length(history))},
     J.Field{"queued", J.nat(List.length(&2, String, queued))},
     J.Field{"operations", J.Array{Ops.summaries(operations)}},
+    J.Field{"plugins", M.plugins_json(plugins)},
     J.Field{"max_fork", J.nat(max_fork)}, J.Field{"max_descendants", J.nat(max_descendants)}]}
 
 def summaries(tasks: +List<M.Task>) -> +List<J.Json>:
@@ -285,6 +294,9 @@ def model_outcome(outcome: M.Outcome, allowed: +List<String>, +task: M.Task) -> 
 def complete_tool(call: M.Call, remaining: +List<M.Attempt>, value: J.Json, error: Bool, task: M.Task) -> M.Task:
   promote(M.with_notified(True{}, M.with_phase(M.Ready{remaining}, M.append_message(M.FunctionOutput{call_id(call), value, error}, task))))
 
+def complete_hook(outcome: M.HookOutcome, +task: M.Task) -> M.Task:
+  promote(Hooks.complete(M.task_phase(task), outcome, task))
+
 def complete_operation(operation: M.Operation, value: J.Json, error: Bool, task: M.Task) -> M.Task:
   promote(Ops.completed(operation, value, error, task))
 
@@ -338,6 +350,7 @@ def summary_outcome(outcome: M.Outcome, resume: Bool, task: M.Task) -> M.Task:
 
 def interrupted_outcome(attempt: M.Attempt) -> J.Json:
   match attempt:
+    case M.CheckedAttempt{call, pending}: M.failure("cancelled_before_execution", "This tool was cancelled during its authorization protocol, before dispatch")
     case M.InitialAttempt{call}: M.failure("cancelled_before_execution", "This tool was cancelled before dispatch")
     case M.RecoveryAttempt{call}: M.failure("outcome_unknown", "This tool may already have run; cancellation does not undo it")
 
@@ -350,6 +363,9 @@ def interrupt_attempts(attempts: +List<M.Attempt>, history: M.History) -> M.Hist
 
 def interrupted_history(phase: M.Phase, history: M.History) -> M.History:
   match phase:
+    case M.HookPending{ticket, plugin, call, pending, remaining}:
+      interrupt_attempts(remaining, M.HistoryNode{history,
+        M.FunctionOutput{call_id(call), M.failure("hook_cancelled", "Authorization was interrupted; the tool was not dispatched. The plugin callback may already have run."), True{}}})
     case M.Idle{}: history
     case M.CompactionReady{}:
       M.HistoryNode{history, M.FailureMessage{"Context recovery cancelled before dispatch; original history retained"}}
@@ -366,8 +382,14 @@ def interrupted_task(task: M.Task) -> M.Task:
 def interrupt(task: M.Task) -> M.Task:
   interrupted_task(Ops.abandoned(task))
 
-def archive(task: M.Task) -> M.Task:
-  M.with_notified(False{}, M.with_phase(M.Idle{}, M.with_status(M.Archived{}, Ops.abandoned(task))))
+def archive_history(phase: M.Phase, +task: M.Task) -> M.Task:
+  match phase:
+    case M.HookPending{ticket, plugin, call, pending, remaining}:
+      M.with_history(interrupted_history(M.HookPending{ticket, plugin, call, pending, remaining}, M.task_history(task)), task)
+    case _: task
+
+def archive(+task: M.Task) -> M.Task:
+  M.with_notified(False{}, M.with_phase(M.Idle{}, M.with_status(M.Archived{}, Ops.abandoned(archive_history(M.task_phase(task), task)))))
 
 def steering_status(status: M.Status) -> M.Status:
   match status:
@@ -382,6 +404,7 @@ def steer(text: String, task: M.Task) -> M.Task:
 
 def steering_effects(phase: M.Phase, id: Nat) -> +List<M.Effect>:
   match phase:
+    case M.HookPending{ticket, plugin, call, pending, remaining}: [M.CancelTicket{id, ticket}]
     case M.ModelPending{ticket, allowed}: [M.CancelTicket{id, ticket}]
     case M.SummaryPending{ticket, resume}: [M.CancelTicket{id, ticket}]
     case _: Nil{}
@@ -402,12 +425,14 @@ def recovered_operations(pending: Bool, task: M.Task) -> M.Task:
     case True{}: M.notify(Ops.abandoned(task))
     case False{}: task
 
-def recover(status: M.Status, +task: M.Task) -> M.Task:
+def recover_running(+task: M.Task) -> M.Task:
+  recovered_operations(M.operations_pending(M.task_operations(task)), M.with_phase(recover_phase(M.task_phase(task)), task))
+
+def recover(status: M.Status, task: M.Task) -> M.Task:
   match status:
     case M.Archived{}: task
     case _:
-      recovered_operations(M.operations_pending(M.task_operations(task)),
-        M.with_phase(recover_phase(M.task_phase(task)), task))
+      recover_running(Hooks.recovered(task))
 
 def runnable(tasks: +List<M.Task>) -> Maybe<&2, M.Task>:
   match tasks:

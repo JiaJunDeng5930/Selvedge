@@ -897,3 +897,146 @@ proof implementation structure. Native/HTTP/DOM-adapter tests cover post-state
 projection, real provider message shapes, stale actions, invalid events, pagination,
 independent cancellation, recovery, literal text and unsent drafts. These tests do
 not turn the browser into a formally verified renderer or certify a visual design.
+
+## 2026-09-25: extensions as a native authorization and observation protocol
+
+### Rewriting a call creates a correspondence obligation
+
+The old operation invariant equated an executable call directly with its immutable
+accepted history entry. Replacing stored arguments would make that proof convenient
+but destroy the evidence of what the model requested. Keeping the original while
+weakening equality to call-ID matching would instead grant arbitrary arguments.
+The missing entity was an authorization derivation: ordered `HookRecord` values
+reconstruct an effective call and its remaining chain from the original request.
+Checked continuations and operation rights now require that correspondence.
+Identity is fixed; only the argument object can change, and the final result is
+validated again. These are native entities, not a log that someone must interpret
+to infer whether execution was permitted.
+
+### Inheriting knowledge does not inherit authority or event occurrence
+
+Forked tasks share history. Initially this looked compatible with replaying hook
+records, but a parent's grant must not authorize a child's pending work. Each grant
+is therefore owned by a task, and foreign-owner records provably leave its
+authorization state unchanged. This is a concrete example of equal information
+not implying equal authority in an otherwise shared formal model.
+
+Event projection exposed a second distinction: an inherited tool result exists in
+a child's history but did not just happen there. Deriving births by comparing the
+parent's before/after snapshots is ambiguous when forking occurs inside a larger
+scheduled transition. `ForkResult` is now an explicit child-birth record. Its public
+serialization is proved equal to the previous function-output representation, but
+native projection can identify the exact new suffix. No additional public history
+record or changed fork return is needed. Pending inherited calls still acquire the
+child's own grants when they execute.
+
+### Observer non-interference must include packet admission
+
+It is insufficient to say an observer callback cannot mutate the model. Adding its
+event payload to a bounded output envelope can otherwise make a valid command fail
+admission. Native notification projection now carries a proof that state, reply and
+core effect projection are unchanged; bounded payloads and an optional-batch
+admission fallback keep observation from rejecting core work. The host's separate
+bounded queues may lose notifications under pressure and report diagnostics.
+Delivery is honestly best-effort: callback outcomes are not durable acknowledgments
+and replay does not repeat them. Sequence/ordinal identity supports an extension's
+own idempotent sink, not a claim of exactly-once external effects.
+
+Running-operation announcements introduced another representational trap. A JSON
+value containing `status: "running"` is not a proof that it is an announcement; a
+real tool may return that exact value. Native projection uses outstanding operation
+rights, typed final results and the newly settled suffix rather than payload
+heuristics. Cancellation emits one completion even if an earlier running output
+was already published. Replayed inputs and stale completion tickets create no new
+model-settlement occurrence.
+
+### Plugin transport is not a policy runtime
+
+The native binary does not need a TypeScript plugin layer. A shared bounded stdio
+RPC transport serves both MCP and language-neutral plugin processes, with separate
+protocol vocabularies. All internal and external model calls pass through the native
+gate before their route-specific interpretation. Callbacks inspect committed
+tickets; slow observers have a separate queue and cannot delay native authorization.
+Failure or unknown callback outcome closes the gate without repeating a callback
+after recovery. The process may still have performed its own effects: formal core
+permissions do not sandbox a trusted executable or roll back the operating system.
+
+A registered tool's schema also has to denote one known native structure. Accepting
+arbitrary JSON Schema while ignoring unsupported constructs would create an
+undeclared interpretation gap. Registration now rejects schemas outside the native
+closed fragment. Both the schema language and its bounds are explicit; MCP remains
+an external server-validated schema contract rather than pretending these two
+interfaces have identical validation semantics.
+
+### Evidence exercises the intended broken correspondence
+
+New negative tests remove the universal gate, discard task ownership, revive a
+denied chain, ignore plugin order, retarget a rewritten call or alter an observer's
+reply projection. Each must remain syntactically/type-correct until the relevant
+law fails; an affine typing error is not evidence that a semantic obligation caught
+the regression. Process fixtures also inspect SQLite before each callback and
+compare received events with native committed batches. This tests the mechanical
+host bridge without confusing it with a proof of an arbitrary plugin policy.
+
+## Relational theory reuse beyond collection and iterator laws
+
+### Standard names are not the point where reuse becomes real
+
+The previous conceptual entry named simulations and state machines, but a standard
+name alone does not remove a project's proof burden. The useful boundary is an
+existing theorem's premises. The relational protocol now presents exactly that
+boundary: concrete input-labelled edges against `PROGRAM.transition`, one-step
+refinement and safety, and a correspondence to the actual journal. Existing
+closure preorder/idempotence proofs and explicit applications of original
+induction proofs supply composition, macro-step flattening, path simulation and
+invariant lifting. The project does not maintain another recursive path theory.
+
+The carrier must include the observation a theorem is meant to preserve. A graph
+of final worlds alone could silently discard replies or effects while still
+satisfying safety. Keeping complete decisions and proving equality with the actual
+receipt executor closes that loophole. Negative tests delete old receipts from
+both sides of a shared helper: the independent production correspondence still
+has to reject the change. A shared helper is not independent evidence.
+
+### Proof portability has an evidence-use interface
+
+Original Rocq induction duplicates a subpath when it passes both that path and its
+induction hypothesis to a callback. Arbitrary Bend `Type` evidence is affine, so
+literal translation of that interface fails even though the proposition is the
+desired one. Marking the evidence reusable would require `Data`; erasing it would
+not create live evidence. Neither is a valid shortcut.
+
+The successful boundary is to specialize the original proof at its explicit
+application. The simulation callback does not need its original subpath witnesses;
+the invariant application does not need the already-known reachable-prefix witness.
+Beta reduction removes those unused arguments while preserving original cases and
+recursive calls. Generalized induction can also change the unused prefix witness's
+type. The translator ignores that domain only after checking the binder is unused,
+and still verifies captured arguments and bodies. Raw dependencies and the two
+application wrappers remain separately visible in the certificate bundle.
+
+### An index and the evidence needed to discharge a premise are different roles
+
+Runtime endpoint arguments placed before a recursive path prevented Bend from
+seeing structural descent: the recursive endpoint changes before the path shrinks.
+Making endpoints and intermediate states erased indices fixes the ordering without
+unsafe recursion. A dependent reflexive constructor carries an explicit equality
+witness for its endpoint. Actual edge evidence separately retains the concrete
+source state and input, because the one-step application needs live values.
+The distinction is not two state models: endpoint equations bind the retained
+values to the exact indexed transition.
+
+### Provenance inventories also need one source of truth
+
+The theory README's old count survived after Boolean proofs were added. The import
+inventory now comes directly from both quoted bundles and is checked with the
+program. It distinguishes original definitions/theorems, specialized dependencies
+and explicit applications, rather than presenting every exported name as an
+upstream theorem. Human explanation records the correspondence and limits; it no
+longer owns a second manually maintained list of imported entities.
+
+The resulting theory reuse covers arbitrary finite choices of protocol inputs,
+including independent completion order and nested macro-steps. It does not assert
+that changing external side-effect order is harmless, or that a pending process
+eventually responds. Such conclusions need their own theory and premises, not a
+stronger-sounding name for reachability.

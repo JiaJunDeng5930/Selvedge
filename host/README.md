@@ -36,6 +36,14 @@ gate; no theorem here proves the browser's DOM implementation.
 
 ## Coding effect interpreters
 
+`stdio-rpc.mjs` is the shared bounded process transport for MCP and plugins.
+`plugins.mjs` implements only the manifest, ticketed callback/tool protocol and
+best-effort observer queue. `service.mjs` dispatches committed native `CheckTool`
+and `NotifyPlugins` effects; it neither classifies domain events nor bypasses the
+native chain for internal tools. Policy order is configuration order, not process
+startup completion order. Revision loss withdraws live routes without rewriting
+task contracts. See `../docs/plugins.md` for schemas, recovery and delivery limits.
+
 `process.mjs` is the single local coding-effect interpreter. Reading, writing,
 editing and running a reusable script are ordinary Bash commands, not redundant
 tool implementations. `project.mjs` only observes bounded root guidance before

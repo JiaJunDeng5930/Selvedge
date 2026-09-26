@@ -31,7 +31,7 @@ def settings(world: M.World) -> M.Environment:
   environment
 
 def configured(environment: M.Environment) -> +List<M.Profile>:
-  M.Environment{catalog, profiles, max_fork, max_descendants, project} = environment
+  M.Environment{catalog, profiles, max_fork, max_descendants, project, plugins} = environment
   profiles
 
 def require(valid: Bool, yes: Operation, code: String, reason: String) -> Operation:
@@ -82,7 +82,7 @@ def controlled(found: Maybe<&2, M.Task>, +request: M.Control) -> Operation:
     case Some{+task}: permitted(M.control(M.task_status(task), request), task, request)
 
 def per_fork(contract: M.Contract) -> Nat:
-  M.Contract{model, tools, max_fork, max_descendants} = contract
+  M.Contract{model, tools, max_fork, max_descendants, plugins} = contract
   max_fork
 
 def branch_fits(+count: Nat, messages: +List<String>, +parent: M.Task, world: M.World) -> Bool:
@@ -147,8 +147,8 @@ def changed(id: Nat, task: M.Task, world: M.World, effects: +List<M.Effect>) -> 
 
 def start(profile: M.Profile, reasoning: String, message: String, world: M.World) -> M.Decision:
   M.World{tasks, +next_task, next_ticket, +environment, limits} = world
-  M.Environment{catalog, profiles, max_fork, max_descendants, project} = environment
-  task : M.Task = M.Task{next_task, Nil{}, M.Contract{M.Model{profile, reasoning, project}, catalog, max_fork, max_descendants},
+  M.Environment{catalog, profiles, max_fork, max_descendants, project, plugins} = environment
+  task : M.Task = M.Task{next_task, Nil{}, M.Contract{M.Model{profile, reasoning, project}, catalog, max_fork, max_descendants, plugins},
     M.Active{}, M.HistoryNode{M.EmptyHistory{}, M.UserMessage{message}}, Nil{}, M.Ready{Nil{}}, Nil{}, True{}}
   M.Decision{M.World{List.append(&2, M.Task, tasks, [task]), 1n+next_task, next_ticket, environment, limits},
     M.success(id_result(next_task)), Nil{}}
@@ -169,9 +169,9 @@ def initial_message(message: Maybe<&2, String>, history: M.History) -> M.History
     case None{}: history
     case Some{text}: M.HistoryNode{history, M.UserMessage{text}}
 
-def child(id: Nat, +parent: M.Task, call_id: String, branch: Nat, remaining: +List<M.Attempt>, message: Maybe<&2, String>) -> M.Task:
+def child(+id: Nat, +parent: M.Task, call_id: String, branch: Nat, remaining: +List<M.Attempt>, message: Maybe<&2, String>) -> M.Task:
   M.Task{parent_id, lineage, contract, status, history, queued, phase, operations, notified} = parent
-  M.Task{id, parent_id <> lineage, contract, M.Active{}, initial_message(message, M.branch_history(Ops.inherited(parent), call_id, branch)),
+  M.Task{id, parent_id <> lineage, contract, M.Active{}, initial_message(message, M.child_history(Ops.inherited(parent), id, call_id, branch)),
     Nil{}, M.Ready{M.inherit_attempts(remaining)}, Nil{}, True{}}
 
 type Children is Data:
@@ -230,9 +230,10 @@ def page(found: Maybe<&2, M.Task>, +after: Nat, +limit: Nat) -> J.Json:
       page_checked(Nat.is_le(1n, limit) && Nat.is_le(limit, 100n) && Nat.is_le(after, M.history_length(M.task_history(task))), task, after, limit)
 
 def listing(world: M.World) -> J.Json:
-  M.World{tasks, next_task, next_ticket, M.Environment{catalog, profiles, max_fork, max_descendants, project}, limits} = world
+  M.World{tasks, next_task, next_ticket, M.Environment{catalog, profiles, max_fork, max_descendants, project, plugins}, limits} = world
   M.success(J.Object{[J.Field{"tasks", J.Array{T.summaries(tasks)}},
     J.Field{"profiles", J.Array{M.profiles_json(profiles)}}, J.Field{"tools", J.Array{M.tools_json(catalog)}},
+    J.Field{"plugins", M.plugins_json(plugins)},
     J.Field{"max_fork", J.nat(max_fork)}, J.Field{"max_descendants", J.nat(max_descendants)}]})
 
 def query(query: M.Query, world: M.World) -> J.Json:

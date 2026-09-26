@@ -7,6 +7,7 @@ import ./json.bend as J
 import ./schema.bend as Schema
 import ./presentation.bend as View
 import ./operations.bend as Ops
+import ../HOOKS.bend as Hooks
 
 # The execution alphabet is the semantic boundary between task policy and the
 # scheduler. Resolution owns authority, recovery and argument preconditions;
@@ -17,11 +18,12 @@ type Action is Data:
   Model{task: M.Task}
   Summary{task: M.Task, resume: Bool}
   External{tool: M.Tool, call: M.Call, remaining: +List<M.Attempt>, task: M.Task}
+  Hook{plugin: M.PluginRef, pending: +List<M.PluginRef>, tool: M.Tool, call: M.Call, remaining: +List<M.Attempt>, task: M.Task}
   Internal{operation: Protocol.Invocation, call: M.Call, remaining: +List<M.Attempt>, task: M.Task}
   Failure{code: String, reason: String, call: M.Call, remaining: +List<M.Attempt>, task: M.Task}
 
 def catalog(world: M.World) -> +List<M.Tool>:
-  M.World{tasks, next_task, next_ticket, M.Environment{tools, profiles, max_fork, max_descendants, project}, limits} = world
+  M.World{tasks, next_task, next_ticket, M.Environment{tools, profiles, max_fork, max_descendants, project, plugins}, limits} = world
   tools
 
 def render_budget(world: M.World) -> Nat:
@@ -50,6 +52,7 @@ def model(+task: M.Task, world: M.World) -> Action:
 
 def arguments_valid(source: M.Source, schema: J.Json, +arguments: J.Json) -> Bool:
   match source:
+    case M.Extension{plugin, remote}: Schema.valid(schema, arguments)
     case M.Mcp{server, remote}: J.is_object(arguments)
     case M.Harness{M.Bash{}}:
       Schema.valid(schema, arguments) && M.nonempty(J.text(J.get(arguments, "command"))) &&
@@ -86,19 +89,30 @@ def available(present: Bool, +tool: M.Tool, +call: M.Call, remaining: +List<M.At
       M.Tool{name, description, schema, source} = tool
       validated(arguments_valid(source, schema, T.call_arguments(call)), tool, call, remaining, task, world)
 
-def permitted(repeatable: Bool, +tool: M.Tool, call: M.Call, remaining: +List<M.Attempt>, task: M.Task, +world: M.World) -> Action:
+def hook_available(present: Bool, plugin: M.PluginRef, pending: +List<M.PluginRef>, tool: M.Tool,
+  call: M.Call, remaining: +List<M.Attempt>, task: M.Task) -> Action:
+  match present:
+    case True{}: Hook{plugin, pending, tool, call, remaining, task}
+    case False{}: Failure{"hook_unavailable", "A required frozen plugin revision is unavailable; the tool was not dispatched", call, remaining, task}
+
+# Every route crosses this boundary before internal/external classification and
+# argument validation. Each accepted rewrite is revalidated at the final gate.
+def chain(pending: +List<M.PluginRef>, +tool: M.Tool, call: M.Call, remaining: +List<M.Attempt>, task: M.Task, +world: M.World) -> Action:
+  match pending:
+    case Nil{}: available(T.available(catalog(world), tool), tool, call, remaining, task, world)
+    case Con{+plugin, pending}: hook_available(Hooks.available(Hooks.live(world), plugin), plugin, pending, tool, call, remaining, task)
+
+def authorization(repeatable: Bool, tool: M.Tool, +attempt: M.Attempt, remaining: +List<M.Attempt>, +task: M.Task, world: M.World) -> Action:
   match repeatable:
-    case False{}:
-      Failure{"outcome_unknown", "The effect may already have happened; automatic repetition is forbidden", call, remaining, task}
-    case True{}:
-      available(T.available(catalog(world), tool), tool, call, remaining, task, world)
+    case False{}: Failure{"outcome_unknown", "The effect may already have happened; automatic repetition is forbidden", M.attempt_call(attempt), remaining, task}
+    case True{}: chain(Hooks.queued(attempt, M.task_contract(task)), tool, M.attempt_call(attempt), remaining, task, world)
 
 def found(found: Maybe<&2, M.Tool>, +attempt: M.Attempt, remaining: +List<M.Attempt>, task: M.Task, world: M.World) -> Action:
   match found:
     case None{}:
       Failure{"unknown_tool", "The call does not name a tool in the task contract", M.attempt_call(attempt), remaining, task}
     case Some{+tool}:
-      permitted(M.may_execute(M.recovery(M.tool_source(tool)), attempt), tool, M.attempt_call(attempt), remaining, task, world)
+      authorization(M.may_execute(M.recovery(M.tool_source(tool)), attempt), tool, attempt, remaining, task, world)
 
 def tool(phase: M.Phase, +task: M.Task, world: M.World) -> Action:
   match phase:
@@ -121,7 +135,7 @@ def meaning(action: Action, world: M.World) -> M.Decision:
     case Idle{task} _:
       M.Decision{Commands.replace(M.with_phase(M.Idle{}, task), world), M.success(J.Null{}), Nil{}}
     case Model{+task} M.World{tasks, next_task, +ticket, +environment, limits}:
-      M.Environment{catalog, profiles, max_fork, max_descendants, project} = environment
+      M.Environment{catalog, profiles, max_fork, max_descendants, project, plugins} = environment
       +tools = T.task_tools(M.task_contract(task))
       +allowed = T.callable(tools, catalog)
       +prepared = Ops.publish(task)
@@ -134,6 +148,9 @@ def meaning(action: Action, world: M.World) -> M.Decision:
     case External{+tool, +call, remaining, +task} M.World{tasks, next_task, +ticket, environment, limits}:
       M.Decision{M.World{T.replace(tasks, T.promote(Ops.started(ticket, call, remaining, task))), next_task, 1n+ticket, environment, limits},
         J.Null{}, [M.ExecuteTool{M.task_id(task), ticket, tool, call}]}
+    case Hook{+plugin, pending, tool, +call, remaining, +task} M.World{tasks, next_task, +ticket, environment, limits}:
+      M.Decision{M.World{T.replace(tasks, M.with_phase(M.HookPending{ticket, plugin, call, pending, remaining}, task)), next_task, 1n+ticket, environment, limits},
+        J.Null{}, [M.CheckTool{M.task_id(task), ticket, plugin, tool, call}]}
     case Internal{operation, call, remaining, task} _:
       Protocol.invoked(operation, call, remaining, task, world)
     case Failure{code, reason, call, remaining, task} _:

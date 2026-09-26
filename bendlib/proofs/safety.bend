@@ -7,6 +7,7 @@ import ../json.bend as J
 import ../presentation.bend as View
 import ../../INVARIANTS.bend as I
 import ../commit.bend as Commit
+import ../notifications.bend as Notifications
 
 # Local proof obligations for the safety boundary. No runtime policy lives here.
 
@@ -53,7 +54,7 @@ def deliver_certificate(+durable: Bool, +decision: M.Decision, +previous: M.Worl
 
 def update_certificate(+input: M.Input, +world: M.World) -> Laws.Admitted(world, P.update(input, world)):
   +raw = P.apply(input, world)
-  +candidate = UI.decorate(input, P.scheduled(Commit.schedules(input, raw), raw))
+  +candidate = Notifications.decorate(input, world, UI.decorate(input, P.scheduled(Commit.schedules(input, raw), raw)))
   deliver_certificate(M.durable(input), P.checked(candidate, world), world, checked_certificate(candidate, world))
 
 def observe_certificate(query: M.Query, +world: M.World) ->
@@ -82,6 +83,7 @@ def Laws.transition_admitted(world, input):
       update_certificate(M.ModelCompleted{id, ticket, outcome}, world)
     case M.ToolCompleted{id, ticket, value, error}:
       update_certificate(M.ToolCompleted{id, ticket, value, error}, world)
+    case M.HookCompleted{id, ticket, outcome}: update_certificate(M.HookCompleted{id, ticket, outcome}, world)
     case M.Configure{settings}: update_certificate(M.Configure{settings}, world)
     case M.Recover{}: update_certificate(M.Recover{}, world)
     case M.Continue{}: update_certificate(M.Continue{}, world)

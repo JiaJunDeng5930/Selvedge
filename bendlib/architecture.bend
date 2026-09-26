@@ -16,6 +16,37 @@ import ./frontend.bend as Frontend
 import ./operations.bend as Ops
 import ./stdlib.bend as Std
 import ../UI.bend as UI
+import ../HOOKS.bend as Hooks
+import ../LAWS.bend as Laws
+import ./notifications.bend as Notifications
+import ./reachability.bend as Reach
+
+law protocol_reachability:
+  Reach.Protocol
+
+type PluginBoundary is Type:
+  PluginBoundary{
+    entry: @tool:M.Tool -> @attempt:M.Attempt -> @remaining:+List<M.Attempt> -> @task:M.Task -> @world:M.World ->
+      {Execution.found(Some{tool}, attempt, remaining, task, world) ==
+        Execution.authorization(M.may_execute(M.recovery(M.tool_source(tool)), attempt), tool, attempt, remaining, task, world) : Execution.Action},
+    before_route: @plugin:M.PluginRef -> @pending:+List<M.PluginRef> -> @tool:M.Tool -> @call:M.Call -> @remaining:+List<M.Attempt> -> @task:M.Task -> @world:M.World ->
+      {Execution.chain(plugin <> pending, tool, call, remaining, task, world) ==
+        Execution.hook_available(Hooks.available(Hooks.live(world), plugin), plugin, pending, tool, call, remaining, task) : Execution.Action},
+    identity: @call:M.Call -> @arguments:J.Json ->
+      {M.call_id(M.rewritten(call, arguments)) == M.call_id(call) : String} & {T.call_name(M.rewritten(call, arguments)) == T.call_name(call) : String},
+    deny: @reason:String -> @call:M.Call -> @pending:+List<M.PluginRef> ->
+      {Hooks.advance(M.DenyTool{reason}, call, pending) == Hooks.Refused{} : Hooks.Progress},
+    fail: @reason:String -> @call:M.Call -> @pending:+List<M.PluginRef> ->
+      {Hooks.advance(M.HookFailure{reason}, call, pending) == Hooks.Refused{} : Hooks.Progress},
+    absorbing: @plugin:M.PluginRef -> @outcome:M.HookOutcome -> {Hooks.record(Hooks.Refused{}, plugin, outcome) == Hooks.Refused{} : Hooks.Progress},
+    isolation: @owner:Nat -> @other:Nat -> @id:String -> @plugin:M.PluginRef -> @outcome:M.HookOutcome -> @pending:+List<M.PluginRef> -> @state:Hooks.Progress ->
+      {Nat.is_eq(other, owner) == False{} : Bool} ->
+      {Hooks.history_step(M.HookRecord{other, id, plugin, outcome}, owner, id, pending, state) == state : Hooks.Progress},
+    observations: @source:M.Input -> @before:M.World -> @decision:M.Decision ->
+      Laws.ObservationExtension<decision, Notifications.decorate(source, before, decision)>}
+
+law plugin_boundary:
+  PluginBoundary
 
 def user_surface(state: M.ViewState, world: M.World) -> M.Decision:
   P.transition(M.UserInterface{state, M.RefreshView{}}, world)

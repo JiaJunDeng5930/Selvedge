@@ -16,6 +16,7 @@ type Event is Data:
   ModelResult{task: M.Task, outcome: M.Outcome, allowed: +List<String>}
   SummaryResult{task: M.Task, outcome: M.Outcome, resume: Bool}
   ToolResult{task: M.Task, operation: M.Operation, value: J.Json, error: Bool}
+  HookResult{task: M.Task, outcome: M.HookOutcome}
   Settings{environment: M.Environment}
   Restart{}
   Tick{}
@@ -54,12 +55,25 @@ def tool(found: Maybe<&2, M.Task>, ticket: Nat, value: J.Json, error: Bool) -> E
     case None{}: Ignore{}
     case Some{+task}: tool_status(M.task_status(task), task, ticket, value, error)
 
+def hook_phase(status: M.Status, phase: M.Phase, task: M.Task, ticket: Nat, outcome: M.HookOutcome) -> Event:
+  match status phase:
+    case M.Archived{} _: Ignore{}
+    case _ M.HookPending{expected, reference, call, pending, remaining}:
+      matching(Nat.is_eq(ticket, expected), HookResult{task, outcome})
+    case _ _: Ignore{}
+
+def hook(found: Maybe<&2, M.Task>, ticket: Nat, outcome: M.HookOutcome) -> Event:
+  match found:
+    case None{}: Ignore{}
+    case Some{+task}: hook_phase(M.task_status(task), M.task_phase(task), task, ticket, outcome)
+
 def resolve(input: M.Input, +world: M.World) -> Event:
   match input:
     case M.UserCommand{command}: User{Commands.resolve(command, world)}
     case M.UserInterface{state, event}: User{Commands.resolve(UI.command(event), world)}
     case M.ModelCompleted{id, ticket, outcome}: model(T.find(Commands.entries(world), id), ticket, outcome)
     case M.ToolCompleted{id, ticket, value, error}: tool(T.find(Commands.entries(world), id), ticket, value, error)
+    case M.HookCompleted{id, ticket, outcome}: hook(T.find(Commands.entries(world), id), ticket, outcome)
     case M.Configure{environment}: Settings{environment}
     case M.Recover{}: Restart{}
     case M.Continue{}: Tick{}
@@ -84,6 +98,8 @@ def meaning(event: Event, world: M.World) -> M.Decision:
       M.Decision{Commands.replace(T.summary_outcome(outcome, resume, task), world), acknowledgement(True{}), Nil{}}
     case ToolResult{task, operation, value, error}:
       M.Decision{Commands.replace(T.complete_operation(operation, value, error, task), world), acknowledgement(True{}), Nil{}}
+    case HookResult{task, outcome}:
+      M.Decision{Commands.replace(T.complete_hook(outcome, task), world), acknowledgement(True{}), Nil{}}
     case Settings{environment}:
       M.World{tasks, next_task, next_ticket, previous, limits} = world
       M.Decision{M.World{tasks, next_task, next_ticket, environment, limits}, M.success(J.Null{}), Nil{}}

@@ -11,6 +11,7 @@ import ./bendlib/commit.bend as Commit
 import ./bendlib/protocol.bend as Protocol
 import ./bendlib/execution.bend as Execution
 import ./UI.bend as UI
+import ./bendlib/notifications.bend as Notifications
 
 # Accepted updates pass through resolution, realization and bounded scheduling.
 # program's state transition, and the object named by LAWS.bend and PROOF.bend.
@@ -24,7 +25,7 @@ def environment(world: M.World) -> M.Environment:
   environment
 
 def catalog(environment: M.Environment) -> +List<M.Tool>:
-  M.Environment{catalog, profiles, max_fork, max_descendants, project} = environment
+  M.Environment{catalog, profiles, max_fork, max_descendants, project, plugins} = environment
   catalog
 
 def next_task(world: M.World) -> Nat:
@@ -46,8 +47,8 @@ def id_result(id: Nat) -> J.Json:
 
 def execute_start(profile: M.Profile, reasoning: String, message: String, world: M.World) -> M.Decision:
   M.World{tasks, +next_task, next_ticket, +environment, limits} = world
-  M.Environment{catalog, profiles, max_fork, max_descendants, project} = environment
-  task : M.Task = M.Task{next_task, Nil{}, M.Contract{M.Model{profile, reasoning, project}, catalog, max_fork, max_descendants},
+  M.Environment{catalog, profiles, max_fork, max_descendants, project, plugins} = environment
+  task : M.Task = M.Task{next_task, Nil{}, M.Contract{M.Model{profile, reasoning, project}, catalog, max_fork, max_descendants, plugins},
     M.Active{}, M.HistoryNode{M.EmptyHistory{}, M.UserMessage{message}}, Nil{}, M.Ready{Nil{}}, Nil{}, True{}}
   respond(M.World{List.append(&2, M.Task, tasks, [task]), 1n+next_task, next_ticket, environment, limits}, id_result(next_task))
 
@@ -158,6 +159,7 @@ def realize_event(event: Protocol.Event, world: M.World) -> M.Decision:
     case Protocol.ModelResult{task, outcome, allowed}: model_matched(True{}, outcome, allowed, task, world)
     case Protocol.SummaryResult{task, outcome, resume}: summary_matched(True{}, outcome, resume, task, world)
     case Protocol.ToolResult{task, operation, value, error}: tool_matched(True{}, operation, value, error, task, world)
+    case Protocol.HookResult{task, outcome}: respond(store(T.complete_hook(outcome, task), world), accepted(True{}))
     case Protocol.Settings{environment}:
       M.World{tasks, next_task, next_ticket, previous, limits} = world
       respond(M.World{tasks, next_task, next_ticket, environment, limits}, J.Null{})
@@ -199,6 +201,12 @@ def external_tool(tool: M.Tool, +call: M.Call, +remaining: +List<M.Attempt>, +ta
   M.Decision{M.World{T.replace(tasks, next), next_task, 1n+next_ticket, environment, limits}, J.Null{},
     [M.ExecuteTool{M.task_id(task), next_ticket, tool, call}]}
 
+def check_tool(+plugin: M.PluginRef, pending: +List<M.PluginRef>, tool: M.Tool, +call: M.Call, remaining: +List<M.Attempt>, +task: M.Task, world: M.World) -> M.Decision:
+  M.World{tasks, next_task, +next_ticket, environment, limits} = world
+  next = M.with_phase(M.HookPending{next_ticket, plugin, call, pending, remaining}, task)
+  M.Decision{M.World{T.replace(tasks, next), next_task, 1n+next_ticket, environment, limits}, J.Null{},
+    [M.CheckTool{M.task_id(task), next_ticket, plugin, tool, call}]}
+
 def tool_error(code: String, message: String, call: M.Call, remaining: +List<M.Attempt>, task: M.Task, world: M.World) -> M.Decision:
   respond(store(T.complete_tool(call, remaining, M.failure(code, message), True{}, task), world), J.Null{})
 
@@ -238,6 +246,7 @@ def realize_action(action: Execution.Action, world: M.World) -> M.Decision:
     case Execution.Model{task}: model_request_direct(task, world)
     case Execution.Summary{task, resume}: summary_request(task, resume, world)
     case Execution.External{tool, call, remaining, task}: external_tool(tool, call, remaining, task, world)
+    case Execution.Hook{plugin, pending, tool, call, remaining, task}: check_tool(plugin, pending, tool, call, remaining, task, world)
     case Execution.Internal{operation, call, remaining, task}: realize_invocation(operation, call, remaining, task, world)
     case Execution.Failure{code, reason, call, remaining, task}: tool_error(code, reason, call, remaining, task, world)
 
@@ -315,7 +324,7 @@ def checked(decision: M.Decision, previous: M.World) -> M.Decision:
   check_live(live_decision(decision), previous)
 
 def after_apply(+input: M.Input, +decision: M.Decision, +world: M.World) -> M.Decision:
-  deliver(M.durable(input), checked(UI.decorate(input, scheduled(Commit.schedules(input, decision), decision)), world), world)
+  deliver(M.durable(input), checked(Notifications.decorate(input, world, UI.decorate(input, scheduled(Commit.schedules(input, decision), decision))), world), world)
 
 def update(+input: M.Input, +world: M.World) -> M.Decision:
   after_apply(input, apply(input, world), world)

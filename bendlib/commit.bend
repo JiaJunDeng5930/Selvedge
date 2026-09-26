@@ -6,6 +6,7 @@ import ./json.bend as J
 import ./presentation.bend as View
 import ./protocol.bend as Protocol
 import ../UI.bend as UI
+import ./notifications.bend as Notifications
 
 # Complete command meaning includes the finite scheduling and commit boundary.
 # A refusal cannot advance unrelated tasks. Accepted commands may advance any
@@ -70,8 +71,8 @@ def deliver(+durable: Bool, +decision: M.Decision, +previous: M.World) -> M.Deci
 def finish(durable: Bool, decision: M.Decision, +previous: M.World) -> M.Decision:
   deliver(durable, checked(decision, previous), previous)
 
-def update(~schedule: Bool -> @+decision:M.Decision -> M.Decision, +input: M.Input, +decision: M.Decision, previous: M.World) -> M.Decision:
-  finish(M.durable(input), UI.decorate(input, schedule(schedules(input, decision), decision)), previous)
+def update(~schedule: Bool -> @+decision:M.Decision -> M.Decision, +input: M.Input, +decision: M.Decision, +previous: M.World) -> M.Decision:
+  finish(M.durable(input), Notifications.decorate(input, previous, UI.decorate(input, schedule(schedules(input, decision), decision))), previous)
 
 # Scheduling is a supplied deterministic transducer, constrained by the exact
 # zero/idle/successor equations in LAWS, not a fairness or termination assumption.

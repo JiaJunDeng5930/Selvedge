@@ -12,6 +12,7 @@ import ../protocol.bend as Protocol
 import ./execution.bend as ExecutionProof
 import ./protocol.bend as ProtocolProof
 import ../../UI.bend as UI
+import ../notifications.bend as Notifications
 
 # Local proof obligations for the commit boundary. No runtime policy lives here.
 
@@ -60,14 +61,14 @@ def Laws.output_semantics(durable, decision, previous):
 def after_apply_semantics(+input: M.Input, +decision: M.Decision, +previous: M.World) ->
   {P.after_apply(input, decision, previous) == Commit.update(~Execution.scheduled, input, decision, previous) : M.Decision}:
   +durable = M.durable(input)
-  +candidate = UI.decorate(input, P.scheduled(Commit.schedules(input, decision), decision))
+  +candidate = Notifications.decorate(input, previous, UI.decorate(input, P.scheduled(Commit.schedules(input, decision), decision)))
   first = Equal.trans(M.Decision, P.after_apply(input, decision, previous), Commit.deliver(durable, P.checked(candidate, previous), previous),
     Commit.update(~P.scheduled, input, decision, previous), Laws.output_semantics(durable, P.checked(candidate, previous), previous),
     Equal.cong(M.Decision, M.Decision, (value => Commit.deliver(durable, value, previous)),
       P.checked(candidate, previous), Commit.checked(candidate, previous), Laws.commit_semantics(candidate, previous)))
   Equal.trans(M.Decision, P.after_apply(input, decision, previous), Commit.update(~P.scheduled, input, decision, previous),
     Commit.update(~Execution.scheduled, input, decision, previous), first,
-    Equal.cong(M.Decision, M.Decision, (value => Commit.finish(durable, UI.decorate(input, value), previous)),
+    Equal.cong(M.Decision, M.Decision, (value => Commit.finish(durable, Notifications.decorate(input, previous, UI.decorate(input, value)), previous)),
       P.scheduled(Commit.schedules(input, decision), decision), Execution.scheduled(Commit.schedules(input, decision), decision), Laws.scheduling_semantics(Commit.schedules(input, decision), decision)))
 
 def updated_command_semantics(+command: M.Command, +world: M.World) ->
@@ -104,6 +105,7 @@ def Laws.interaction_transition(input, world):
     case M.UserInterface{state, event}: updated_input_semantics(M.UserInterface{state, event}, world)
     case M.ModelCompleted{id, ticket, outcome}: updated_input_semantics(M.ModelCompleted{id, ticket, outcome}, world)
     case M.ToolCompleted{id, ticket, value, error}: updated_input_semantics(M.ToolCompleted{id, ticket, value, error}, world)
+    case M.HookCompleted{id, ticket, outcome}: updated_input_semantics(M.HookCompleted{id, ticket, outcome}, world)
     case M.Configure{environment}: updated_input_semantics(M.Configure{environment}, world)
     case M.Recover{}: updated_input_semantics(M.Recover{}, world)
     case M.Continue{}: updated_input_semantics(M.Continue{}, world)

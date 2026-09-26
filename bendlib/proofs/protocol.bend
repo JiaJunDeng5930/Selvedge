@@ -44,7 +44,7 @@ def Laws.operation_semantics(operation, world):
   match operation world:
     case Commands.Refuse{code, reason} _: {==}
     case Commands.Start{profile, reasoning, message}
-         M.World{tasks, next_task, next_ticket, M.Environment{catalog, profiles, max_fork, max_descendants, project}, limits}: {==}
+         M.World{tasks, next_task, next_ticket, M.Environment{catalog, profiles, max_fork, max_descendants, project, plugins}, limits}: {==}
     case Commands.Deliver{task, message} M.World{tasks, next_task, next_ticket, environment, limits}: {==}
     case Commands.Steer{task, message} M.World{tasks, next_task, next_ticket, environment, limits}: {==}
     case Commands.Cancel{task, operation} M.World{tasks, next_task, next_ticket, environment, limits}: {==}
@@ -70,6 +70,7 @@ def Laws.event_semantics(event, world):
     case Protocol.ModelResult{task, outcome, allowed} M.World{tasks, next_task, next_ticket, environment, limits}: {==}
     case Protocol.SummaryResult{task, outcome, resume} M.World{tasks, next_task, next_ticket, environment, limits}: {==}
     case Protocol.ToolResult{task, operation, value, error} M.World{tasks, next_task, next_ticket, environment, limits}: {==}
+    case Protocol.HookResult{task, outcome} M.World{tasks, next_task, next_ticket, environment, limits}: {==}
     case Protocol.Settings{settings} M.World{tasks, next_task, next_ticket, environment, limits}: {==}
     case Protocol.Restart{} M.World{tasks, next_task, next_ticket, environment, limits}: {==}
     case Protocol.Tick{} _: {==}

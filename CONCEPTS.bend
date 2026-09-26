@@ -1,9 +1,11 @@
 import Base
 import ./bendlib/architecture.bend as A
+import ./bendlib/reachability.bend as Reach
 
 # Selvedge is a persistent command/effect protocol. Start with Harness below.
 # COMMANDS defines requested behavior; MODEL names the domain; UI defines the
-# platform-independent interaction surface. The bindings in
+# platform-independent interaction surface; HOOKS defines ordered authorization
+# and task-bound certificates. The bindings in
 # A attach every structure here to the actual operations, not a second model.
 
 # Meaning fixes the entire decision: refusal or exact new world, reply and
@@ -16,12 +18,15 @@ type Meaning is Type:
     scheduling: A.SchedulingMeaning(),
     native_input: A.NativeInterface()}
 
-# A finite protocol is a discrete dynamical system. Its simulation preserves
+# Arbitrarily interleaved inputs form a labelled transition system. Existing
+# relation theory supplies reachability, macro-step flattening, simulation and
+# invariant lifting after the actual step and receipt correspondence is proved.
+# A fixed finite input tape is also a discrete dynamical system. Its simulation preserves
 # complete decision receipts. Inputs/history act by free-monoid actions; a
 # journal carries both its interpretation and its safety obligation. Decision
 # combination is only a semigroup: the first reply and final world have owners.
 type Composition is Type:
-  Composition{traces: A.TraceSimulation(),
+  Composition{protocol: Reach.Protocol, traces: A.TraceSimulation(),
     state_machine: A.StateMachine(),
     journal: A.Journal,
     history: A.HistoryAction(),
@@ -52,9 +57,14 @@ type Concurrency is Type:
   Concurrency{rights: A.OperationRights(), announcements: A.Announcement,
     notifications: A.Notifications, coordination: A.Coordination}
 
+# Every model tool enters the same native authorization protocol. Extension
+# callbacks answer committed tickets; observer events add no state/effect rights.
+type Extensibility is Type:
+  Extensibility{plugins: A.PluginBoundary}
+
 type Harness is Type:
   Harness{meaning: Meaning, composition: Composition, recovery: Recovery,
-    observation: Observation, concurrency: Concurrency}
+    observation: Observation, concurrency: Concurrency, extensibility: Extensibility}
 
 # Construction is mandatory in PROOF. No field is an unproved assertion.
 # The OS/network/SQLite effect interpreter is an explicit external boundary;
