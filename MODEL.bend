@@ -1,5 +1,6 @@
 import Base
 import ./bendlib/json.bend as J
+import ./bendlib/association-map.bend as Finite
 
 # Persistent agents: a task has its own lifecycle and immutable contract.
 # Its lineage describes task ancestry; History describes message ancestry.
@@ -132,7 +133,7 @@ def find_event(kinds: +List<EventKind>, +name: String) -> Maybe<&2, EventKind>:
     case Con{+kind, rest}: event_selected(String.eq(event_name(kind), name), kind, find_event(rest, name))
 
 type Plugin is Data:
-  Plugin{reference: PluginRef, before_tool: Bool, events: +List<EventKind>}
+  Plugin{reference: PluginRef, before_tool: Bool, after_tool: Bool, events: +List<EventKind>}
 
 def plugin_limit() -> Nat:
   16n
@@ -157,8 +158,9 @@ def subscription_json(events: +List<String>) -> +List<J.Json>:
 def plugin_values(plugins: +List<Plugin>) -> +List<J.Json>:
   match plugins:
     case Nil{}: Nil{}
-    case Con{Plugin{reference, before, events}, rest}:
+    case Con{Plugin{reference, before, after, events}, rest}:
       J.Object{[J.Field{"reference", plugin_json(reference)}, J.Field{"before_tool", J.Boolean{before}},
+        J.Field{"after_tool", J.Boolean{after}},
         J.Field{"events", J.Array{subscription_json(event_names(events))}}]} <> plugin_values(rest)
 
 def plugins_json(plugins: +List<Plugin>) -> J.Json:
@@ -346,6 +348,26 @@ type HookOutcome is Data:
   DenyTool{reason: String}
   HookFailure{reason: String}
 
+# Result processing has no authority to change a call or undo its effects. The
+# execution error flag belongs to the original result; a rewrite changes only
+# its value. Denial/failure suppresses delivery and supplies an explicit error.
+type AfterOutcome is Data:
+  KeepResult{}
+  RewriteResult{value: J.Json}
+  DenyResult{reason: String}
+  AfterFailure{reason: String}
+
+def after_json(outcome: AfterOutcome) -> J.Json:
+  match outcome:
+    case KeepResult{}: J.Object{[J.Field{"decision", J.Text{"allow"}}]}
+    case RewriteResult{value}: J.Object{[J.Field{"decision", J.Text{"rewrite"}}, J.Field{"value", value}]}
+    case DenyResult{reason}: J.Object{[J.Field{"decision", J.Text{"deny"}}, J.Field{"reason", J.Text{reason}}]}
+    case AfterFailure{reason}: J.Object{[J.Field{"decision", J.Text{"failed"}}, J.Field{"reason", J.Text{reason}}]}
+
+type OperationStage is Data:
+  Executing{}
+  ResultPending{ticket: Nat, plugin: PluginRef, pending: +List<PluginRef>, value: J.Json, error: Bool}
+
 def hook_json(outcome: HookOutcome) -> J.Json:
   match outcome:
     case AllowTool{}: J.Object{[J.Field{"decision", J.Text{"allow"}}]}
@@ -356,8 +378,15 @@ def hook_json(outcome: HookOutcome) -> J.Json:
 # A tool call and its running operation have different lifetimes. An operation
 # owns one committed ticket. Announced means that an explicit running status has
 # entered a committed model request, not that the external work succeeded.
-type Operation is Data:
-  Operation{ticket: Nat, call: Call, announced: Bool}
+type OperationBody is Data:
+  OperationBody{call: Call, announced: Bool, stage: OperationStage}
+
+# An operation right is a standard finite-map binding: stable identity is its
+# key; the invocation, publication bit and executing/result state are its value.
+# Keeping identity outside the payload makes ownership lookup/removal direct
+# instances of the existing association-list theory rather than a second map.
+def Operation() -> Data:
+  Finite.Entry(OperationBody)
 
 def operation_limit() -> Nat:
   64n
@@ -372,6 +401,8 @@ type Message is Data:
   ModelContext{value: J.Json}
   ContextCheckpoint{summary: String}
   HookRecord{task_id: Nat, call_id: String, plugin: PluginRef, outcome: HookOutcome}
+  ToolReceipt{task_id: Nat, operation_id: Nat, call: Call, value: J.Json, error: Bool}
+  AfterRecord{task_id: Nat, operation_id: Nat, plugin: PluginRef, outcome: AfterOutcome}
   ForkResult{task_id: Nat, call_id: String, branch: Nat}
 
 # A model may produce ordered answers, invocations, and opaque continuation data.
@@ -392,6 +423,8 @@ type History is Data:
 def context_node(previous: History, message: Message) -> History:
   match message:
     case ContextCheckpoint{summary}: HistoryNode{EmptyHistory{}, ContextCheckpoint{summary}}
+    case ToolReceipt{owner, operation, call, value, error}: previous
+    case AfterRecord{owner, operation, plugin, outcome}: previous
     case other: HistoryNode{previous, other}
 
 def context_history(history: History) -> History:
@@ -514,7 +547,7 @@ def is_model_request(work: Work) -> Bool:
 type Task is Data:
   Task{id: Nat, lineage: +List<Nat>, contract: Contract, status: Status,
     history: History, queued: +List<String>, phase: Phase,
-    operations: +List<Operation>, notified: Bool}
+    operations: +List<Operation()>, notified: Bool}
 
 def task_id(task: Task) -> Nat:
   Task{id, lineage, contract, status, history, queued, phase, operations, notified} = task
@@ -544,7 +577,7 @@ def task_queue(task: Task) -> +List<String>:
   Task{id, lineage, contract, status, history, queued, phase, operations, notified} = task
   queued
 
-def task_operations(task: Task) -> +List<Operation>:
+def task_operations(task: Task) -> +List<Operation()>:
   Task{id, lineage, contract, status, history, queued, phase, operations, notified} = task
   operations
 
@@ -552,7 +585,7 @@ def task_notified(task: Task) -> Bool:
   Task{id, lineage, contract, status, history, queued, phase, operations, notified} = task
   notified
 
-def operations_pending(operations: +List<Operation>) -> Bool:
+def operations_pending(operations: +List<Operation()>) -> Bool:
   match operations:
     case Nil{}: False{}
     case Con{operation, rest}: True{}
@@ -582,7 +615,7 @@ def with_history(history: History, task: Task) -> Task:
   Task{id, lineage, contract, status, old, queued, phase, operations, notified} = task
   Task{id, lineage, contract, status, history, queued, phase, operations, notified}
 
-def with_operations(operations: +List<Operation>, task: Task) -> Task:
+def with_operations(operations: +List<Operation()>, task: Task) -> Task:
   Task{id, lineage, contract, status, history, queued, phase, old, notified} = task
   Task{id, lineage, contract, status, history, queued, phase, operations, notified}
 
@@ -635,6 +668,7 @@ type Effect is Data:
     tools: +List<Tool>, callable: +List<String>}
   ExecuteTool{task_id: Nat, ticket: Nat, tool: Tool, call: Call}
   CheckTool{task_id: Nat, ticket: Nat, plugin: PluginRef, tool: Tool, call: Call}
+  CheckResult{task_id: Nat, ticket: Nat, operation_id: Nat, plugin: PluginRef, call: Call, value: J.Json, error: Bool}
   NotifyPlugins{events: +List<Notice>}
   RequestSummary{task_id: Nat, ticket: Nat, model: Model, history: History}
   CancelTask{task_id: Nat}
@@ -751,7 +785,7 @@ def summary_instructions() -> String:
 
 def description() -> J.Json:
   J.Object{[J.Field{"commands", J.Array{command_specs_json(commands())}}, J.Field{"limits", boundary_limits()},
-    J.Field{"plugins", J.Object{[J.Field{"protocolVersion", J.Text{"selvedge-plugin-1"}}, J.Field{"max_plugins", J.nat(plugin_limit())},
+    J.Field{"plugins", J.Object{[J.Field{"protocolVersion", J.Text{"selvedge-plugin-2"}}, J.Field{"max_plugins", J.nat(plugin_limit())},
       J.Field{"events", J.Array{subscription_json(plugin_events())}}]}}]}
 
 type Outcome is Data:
@@ -777,6 +811,7 @@ type Input is Data:
   ModelCompleted{task_id: Nat, ticket: Nat, outcome: Outcome}
   ToolCompleted{task_id: Nat, ticket: Nat, value: J.Json, error: Bool}
   HookCompleted{task_id: Nat, ticket: Nat, outcome: HookOutcome}
+  AfterCompleted{task_id: Nat, operation_id: Nat, ticket: Nat, outcome: AfterOutcome}
   Configure{environment: Environment}
   Recover{}
   Continue{}

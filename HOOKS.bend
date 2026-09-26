@@ -24,8 +24,20 @@ def live(world: M.World) -> +List<M.Plugin>:
 def before(plugins: +List<M.Plugin>) -> +List<M.PluginRef>:
   match plugins:
     case Nil{}: Nil{}
-    case Con{M.Plugin{reference, True{}, events}, rest}: reference <> before(rest)
-    case Con{M.Plugin{reference, False{}, events}, rest}: before(rest)
+    case Con{M.Plugin{reference, True{}, after, events}, rest}: reference <> before(rest)
+    case Con{M.Plugin{reference, False{}, after, events}, rest}: before(rest)
+
+def after(plugins: +List<M.Plugin>) -> +List<M.PluginRef>:
+  match plugins:
+    case Nil{}: Nil{}
+    case Con{M.Plugin{reference, before, True{}, events}, rest}: reference <> after(rest)
+    case Con{M.Plugin{reference, before, False{}, events}, rest}: after(rest)
+
+def after_available(plugins: +List<M.Plugin>, +reference: M.PluginRef) -> Bool:
+  match plugins:
+    case Nil{}: False{}
+    case Con{M.Plugin{candidate, before, after, events}, rest}:
+      (after && M.plugin_same(candidate, reference)) || after_available(rest, reference)
 
 def references(left: +List<M.PluginRef>, right: +List<M.PluginRef>) -> Bool:
   match left right:
@@ -36,13 +48,13 @@ def references(left: +List<M.PluginRef>, right: +List<M.PluginRef>) -> Bool:
 def present(plugins: +List<M.Plugin>, +reference: M.PluginRef) -> Bool:
   match plugins:
     case Nil{}: False{}
-    case Con{M.Plugin{candidate, before, events}, rest}:
+    case Con{M.Plugin{candidate, before, after, events}, rest}:
       M.plugin_same(candidate, reference) || present(rest, reference)
 
 def available(plugins: +List<M.Plugin>, +reference: M.PluginRef) -> Bool:
   match plugins:
     case Nil{}: False{}
-    case Con{M.Plugin{candidate, before, events}, rest}:
+    case Con{M.Plugin{candidate, before, after, events}, rest}:
       (before && M.plugin_same(candidate, reference)) || available(rest, reference)
 
 def member(strings: +List<String>, +value: String) -> Bool:
@@ -69,7 +81,7 @@ def reference_valid(reference: M.PluginRef) -> Bool:
 def unique(plugins: +List<M.Plugin>, +seen: +List<String>) -> Bool:
   match plugins:
     case Nil{}: True{}
-    case Con{M.Plugin{+reference, before, events}, rest}:
+    case Con{M.Plugin{+reference, before, after, events}, rest}:
       reference_valid(reference) && Bool.not(member(seen, plugin_name(reference))) && subscriptions(events, Nil{}) &&
         unique(rest, plugin_name(reference) <> seen)
 
@@ -159,3 +171,82 @@ def complete(phase: M.Phase, +outcome: M.HookOutcome, +task: M.Task) -> M.Task:
 
 def recovered(+task: M.Task) -> M.Task:
   complete(M.task_phase(task), M.HookFailure{"Hook outcome unknown after restart; its callback is not repeated and this tool was not dispatched"}, task)
+
+# The after protocol interprets the immutable execution receipt and its ordered
+# certificates. An operation can own execution OR a result callback, never both.
+# The raw error flag is not a plugin-editable field.
+type ResultProgress is Data:
+  MissingResult{}
+  AwaitingResult{call: M.Call, value: J.Json, error: Bool, pending: +List<M.PluginRef>}
+  RefusedResult{}
+
+def result_begin(state: ResultProgress, call: M.Call, value: J.Json, error: Bool, chain: +List<M.PluginRef>) -> ResultProgress:
+  match state:
+    case MissingResult{}: AwaitingResult{call, value, error, chain}
+    case _: RefusedResult{}
+
+type ResultAction is Data:
+  ResultValue{value: J.Json, error: Bool}
+  ResultError{code: String, reason: String}
+
+# One interpretation of a plugin outcome is shared by authorization replay and
+# actual delivery. In particular, value replacement cannot clear execution error.
+def result_action(outcome: M.AfterOutcome, value: J.Json, error: Bool) -> ResultAction:
+  match outcome:
+    case M.KeepResult{}: ResultValue{value, error}
+    case M.RewriteResult{rewritten}: ResultValue{rewritten, error}
+    case M.DenyResult{reason}: ResultError{"after_hook_denied", reason}
+    case M.AfterFailure{reason}: ResultError{"after_hook_failed", reason}
+
+def result_action_progress(action: ResultAction, call: M.Call, pending: +List<M.PluginRef>) -> ResultProgress:
+  match action:
+    case ResultValue{value, error}: AwaitingResult{call, value, error, pending}
+    case ResultError{code, reason}: RefusedResult{}
+
+def result_advance(outcome: M.AfterOutcome, call: M.Call, value: J.Json, error: Bool, pending: +List<M.PluginRef>) -> ResultProgress:
+  result_action_progress(result_action(outcome, value, error), call, pending)
+
+def result_checked(same: Bool, outcome: M.AfterOutcome, call: M.Call, value: J.Json, error: Bool, pending: +List<M.PluginRef>) -> ResultProgress:
+  match same:
+    case True{}: result_advance(outcome, call, value, error, pending)
+    case False{}: RefusedResult{}
+
+def result_record(state: ResultProgress, reference: M.PluginRef, outcome: M.AfterOutcome) -> ResultProgress:
+  match state:
+    case AwaitingResult{call, value, error, Con{expected, pending}}:
+      result_checked(M.plugin_same(reference, expected), outcome, call, value, error, pending)
+    case _: RefusedResult{}
+
+def result_start_matching(same: Bool, state: ResultProgress, call: M.Call, value: J.Json, error: Bool, chain: +List<M.PluginRef>) -> ResultProgress:
+  match same:
+    case True{}: result_begin(state, call, value, error, chain)
+    case False{}: state
+
+def result_record_matching(same: Bool, state: ResultProgress, reference: M.PluginRef, outcome: M.AfterOutcome) -> ResultProgress:
+  match same:
+    case True{}: result_record(state, reference, outcome)
+    case False{}: state
+
+def result_step(message: M.Message, owner: Nat, operation: Nat, chain: +List<M.PluginRef>, state: ResultProgress) -> ResultProgress:
+  match message:
+    case M.ToolReceipt{task_id, id, call, value, error}:
+      result_start_matching(Nat.is_eq(task_id, owner) && Nat.is_eq(id, operation), state, call, value, error, chain)
+    case M.AfterRecord{task_id, id, reference, outcome}:
+      result_record_matching(Nat.is_eq(task_id, owner) && Nat.is_eq(id, operation), state, reference, outcome)
+    case _: state
+
+def result_progress(history: M.History, +owner: Nat, +operation: Nat, +chain: +List<M.PluginRef>) -> ResultProgress:
+  match history:
+    case M.EmptyHistory{}: MissingResult{}
+    case M.HistoryNode{previous, message}:
+      result_step(message, owner, operation, chain, result_progress(previous, owner, operation, chain))
+
+def result_matches(state: ResultProgress, call: M.Call, value: J.Json, error: Bool, pending: +List<M.PluginRef>, +budget: Nat) -> Bool:
+  match state:
+    case AwaitingResult{original, current, original_error, remaining}:
+      Same.call(budget, call, original) && Same.json(budget, value, current) && Same.booleans(error, original_error) && references(pending, remaining)
+    case _: False{}
+
+def result_corresponds(history: M.History, owner: Nat, operation: Nat, call: M.Call, value: J.Json, error: Bool,
+  pending: +List<M.PluginRef>, contract: M.Contract, budget: Nat) -> Bool:
+  result_matches(result_progress(history, owner, operation, after(plugins(contract))), call, value, error, pending, budget)

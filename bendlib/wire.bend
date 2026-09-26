@@ -227,6 +227,7 @@ def plugin_values(values: +List<J.Json>) -> +List<M.Plugin>:
     case Nil{}: Nil{}
     case Con{+value, rest}:
       M.Plugin{plugin_ref(J.get(value, "reference")), J.boolean(J.get(value, "before_tool")),
+        J.boolean(J.get(value, "after_tool")),
         event_values(J.items(J.get(value, "events")))} <> plugin_values(rest)
 
 def string_values(values: +List<J.Json>) -> Bool:
@@ -239,8 +240,8 @@ def valid_plugin_values(values: +List<J.Json>) -> Bool:
   match values:
     case Nil{}: True{}
     case Con{+value, rest}:
-      object_keys(value, ["reference", "before_tool", "events"]) && valid_ref(J.get(value, "reference")) &&
-        is_bool(J.get(value, "before_tool")) && is_array(J.get(value, "events")) &&
+      object_keys(value, ["reference", "before_tool", "after_tool", "events"]) && valid_ref(J.get(value, "reference")) &&
+        is_bool(J.get(value, "before_tool")) && is_bool(J.get(value, "after_tool")) && is_array(J.get(value, "events")) &&
         string_values(J.items(J.get(value, "events"))) && valid_plugin_values(rest)
 
 def valid_plugins(value: J.Json) -> Bool:
@@ -357,6 +358,32 @@ def decode_hook(+body: J.Json) -> Result<&2, &2, String, M.Input>:
   hook_valid(object_keys(body, ["kind", "task_id", "ticket", "outcome"]) && is_natural(J.get(body, "task_id")) &&
     is_natural(J.get(body, "ticket")) && valid_hook_outcome(J.text(J.get(J.get(body, "outcome"), "decision")), J.get(body, "outcome")), body)
 
+def after_outcome(kind: String, +value: J.Json) -> M.AfterOutcome:
+  match kind:
+    case "allow": M.KeepResult{}
+    case "rewrite": M.RewriteResult{J.get(value, "value")}
+    case "deny": M.DenyResult{J.text(J.get(value, "reason"))}
+    case _: M.AfterFailure{J.text(J.get(value, "reason"))}
+
+def valid_after_outcome(kind: String, +value: J.Json) -> Bool:
+  match kind:
+    case "allow": object_keys(value, ["decision"])
+    case "rewrite": object_keys(value, ["decision", "value"])
+    case "deny": hook_reason(value)
+    case "failed": hook_reason(value)
+    case _: False{}
+
+def after_valid(valid: Bool, +body: J.Json) -> Result<&2, &2, String, M.Input>:
+  match valid:
+    case False{}: Fail{"Malformed after-hook completion"}
+    case True{}: Done{M.AfterCompleted{Protocol.number(body, "task_id", 0n), Protocol.number(body, "operation_id", 0n),
+      Protocol.number(body, "ticket", 0n), after_outcome(J.text(J.get(J.get(body, "outcome"), "decision")), J.get(body, "outcome"))}}
+
+def decode_after(+body: J.Json) -> Result<&2, &2, String, M.Input>:
+  after_valid(object_keys(body, ["kind", "task_id", "operation_id", "ticket", "outcome"]) &&
+    is_natural(J.get(body, "task_id")) && is_natural(J.get(body, "operation_id")) && is_natural(J.get(body, "ticket")) &&
+    valid_after_outcome(J.text(J.get(J.get(body, "outcome"), "decision")), J.get(body, "outcome")), body)
+
 def decode_kind(kind: String, +body: J.Json) -> Result<&2, &2, String, M.Input>:
   match kind:
     case "command": decode_command(J.get(body, "command"))
@@ -364,6 +391,7 @@ def decode_kind(kind: String, +body: J.Json) -> Result<&2, &2, String, M.Input>:
     case "model": decode_model(body)
     case "tool": decode_tool(body)
     case "hook": decode_hook(body)
+    case "after_hook": decode_after(body)
     case "configure": decode_config(body)
     case "recover": Done{M.Recover{}}
     case "continue": Done{M.Continue{}}

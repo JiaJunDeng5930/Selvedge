@@ -215,7 +215,7 @@ def controls(+id: Nat, +world: M.World) -> Node:
      action("interrupt", "Interrupt now", M.ChangeStatus{id, M.Interrupt{}}, world),
      action("archive", "Archive permanently", M.ChangeStatus{id, M.Archive{}}, world)]}
 
-def operation_nodes(operations: +List<M.Operation>, +id: Nat, +world: M.World) -> +List<Node>:
+def operation_nodes(operations: +List<M.Operation()>, +id: Nat, +world: M.World) -> +List<Node>:
   match operations:
     case Nil{}: Nil{}
     case Con{+operation, rest}:
@@ -264,6 +264,10 @@ def message_nodes(message: M.Message, +key: String) -> +List<Node>:
     case M.ForkResult{owner, call_id, branch}: [Value{key, "Fork return · " ++ call_id, J.nat(branch)}]
     case M.HookRecord{owner, +call_id, plugin, outcome}:
       [Value{key, "Hook decision · " ++ call_id, T.message_json(M.HookRecord{owner, call_id, plugin, outcome})}]
+    case M.ToolReceipt{owner, +operation, call, value, error}:
+      [Value{key, "Execution receipt · " ++ Nat.show(operation), T.message_json(M.ToolReceipt{owner, operation, call, value, error})}]
+    case M.AfterRecord{owner, +operation, plugin, outcome}:
+      [Value{key, "Result hook · " ++ Nat.show(operation), T.message_json(M.AfterRecord{owner, operation, plugin, outcome})}]
     case M.UserMessage{text}: [Text{key, "user", "You", text}]
     case M.AssistantMessage{text}: [Text{key, "assistant", "Agent", text}]
     case M.FunctionCall{call}: [Value{key, "Tool call", T.call_json(call)}]

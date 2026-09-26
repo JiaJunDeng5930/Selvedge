@@ -5,7 +5,6 @@ import ../../LAWS.bend as Laws
 import ../../UI.bend as UI
 import ../../INVARIANTS.bend as I
 import ../architecture.bend as A
-import ../structures.bend as S
 import ../json.bend as J
 import ./observations.bend as ObservationsProof
 
@@ -30,6 +29,7 @@ def Laws.ui_projection_world(input, decision):
     case M.ModelCompleted{id, ticket, outcome}: {==}
     case M.ToolCompleted{id, ticket, value, error}: {==}
     case M.HookCompleted{id, ticket, outcome}: {==}
+    case M.AfterCompleted{id, operation, ticket, outcome}: {==}
     case M.Configure{environment}: {==}
     case M.Recover{}: {==}
     case M.Continue{}: {==}
@@ -43,6 +43,7 @@ def Laws.ui_projection_effects(input, decision):
     case M.ModelCompleted{id, ticket, outcome}: {==}
     case M.ToolCompleted{id, ticket, value, error}: {==}
     case M.HookCompleted{id, ticket, outcome}: {==}
+    case M.AfterCompleted{id, operation, ticket, outcome}: {==}
     case M.Configure{environment}: {==}
     case M.Recover{}: {==}
     case M.Continue{}: {==}
@@ -84,7 +85,7 @@ def Laws.ui_refresh_not_durable(state):
 
 def A.surface():
   A.UserSurface{
-    S.ReadOnly{(state => world => Laws.ui_refresh_world(state, world)), (state => world => Laws.ui_refresh_effects(state, world))},
+    (+state => +world => (Laws.ui_refresh_world(state, world), Laws.ui_refresh_effects(state, world))),
     (state => command => world => Laws.ui_submit_semantics(state, command, world)),
     (key => label => command => world => Laws.ui_action_semantics(key, label, command, world)),
     (key => title => label => command => fields => world => Laws.ui_form_semantics(key, title, label, command, fields, world)),

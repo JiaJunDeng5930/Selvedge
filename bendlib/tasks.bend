@@ -124,6 +124,12 @@ def message_json(message: M.Message) -> J.Json:
     case M.HookRecord{owner, call_id, plugin, outcome}:
       J.Object{[J.Field{"role", J.Text{"hook_record"}}, J.Field{"task_id", J.nat(owner)}, J.Field{"call_id", J.Text{call_id}},
         J.Field{"plugin", M.plugin_json(plugin)}, J.Field{"content", M.hook_json(outcome)}]}
+    case M.ToolReceipt{owner, operation, call, value, error}:
+      J.Object{[J.Field{"role", J.Text{"tool_receipt"}}, J.Field{"task_id", J.nat(owner)}, J.Field{"operation_id", J.nat(operation)},
+        J.Field{"call", call_json(call)}, J.Field{"content", value}, J.Field{"is_error", J.Boolean{error}}]}
+    case M.AfterRecord{owner, operation, plugin, outcome}:
+      J.Object{[J.Field{"role", J.Text{"after_record"}}, J.Field{"task_id", J.nat(owner)}, J.Field{"operation_id", J.nat(operation)},
+        J.Field{"plugin", M.plugin_json(plugin)}, J.Field{"content", M.after_json(outcome)}]}
     case M.UserMessage{text}:
       J.Object{[J.Field{"role", J.Text{"user"}}, J.Field{"content", J.Text{text}}]}
     case M.AssistantMessage{text}:
@@ -297,7 +303,7 @@ def complete_tool(call: M.Call, remaining: +List<M.Attempt>, value: J.Json, erro
 def complete_hook(outcome: M.HookOutcome, +task: M.Task) -> M.Task:
   promote(Hooks.complete(M.task_phase(task), outcome, task))
 
-def complete_operation(operation: M.Operation, value: J.Json, error: Bool, task: M.Task) -> M.Task:
+def complete_operation(operation: M.Operation(), value: J.Json, error: Bool, task: M.Task) -> M.Task:
   promote(Ops.completed(operation, value, error, task))
 
 def summary_parts(parts: +List<J.Json>) -> String:
@@ -430,7 +436,7 @@ def recover_running(+task: M.Task) -> M.Task:
 
 def recover(status: M.Status, task: M.Task) -> M.Task:
   match status:
-    case M.Archived{}: task
+    case M.Archived{}: M.with_phase(M.Idle{}, Ops.abandoned(task))
     case _:
       recover_running(Hooks.recovered(task))
 

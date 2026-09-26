@@ -6,12 +6,14 @@ import path from 'node:path';
 import { compiler, expectedVersion } from './toolchain.mjs';
 import { checkBundle } from './import-stdlib.mjs';
 import { checkRelations } from './import-relations.mjs';
+import { checkMaps } from './import-maps.mjs';
 import { verifyProof } from './verify-proof.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const bend = compiler();
 await checkBundle();
 await checkRelations();
+await checkMaps();
 console.log(verifyProof({ cwd: root }));
 
 async function sources(directory, relative = '') {

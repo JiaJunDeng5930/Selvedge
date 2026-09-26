@@ -93,12 +93,16 @@ def call(budget: Nat, left: M.Call, right: M.Call) -> Bool:
     case M.Call{id_a, name_a, arguments_a} M.Call{id_b, name_b, arguments_b}:
       String.eq(id_a, id_b) && String.eq(name_a, name_b) && json(budget, arguments_a, arguments_b)
 
-def message(budget: Nat, left: M.Message, right: M.Message) -> Bool:
+def message(+budget: Nat, left: M.Message, right: M.Message) -> Bool:
   match left right:
     case M.ForkResult{owner_a, id_a, branch_a} M.ForkResult{owner_b, id_b, branch_b}:
       Nat.is_eq(owner_a, owner_b) && String.eq(id_a, id_b) && Nat.is_eq(branch_a, branch_b)
     case M.HookRecord{owner_a, id_a, plugin_a, outcome_a} M.HookRecord{owner_b, id_b, plugin_b, outcome_b}:
       Nat.is_eq(owner_a, owner_b) && String.eq(id_a, id_b) && M.plugin_same(plugin_a, plugin_b) && json(budget, M.hook_json(outcome_a), M.hook_json(outcome_b))
+    case M.ToolReceipt{owner_a, operation_a, call_a, a, error_a} M.ToolReceipt{owner_b, operation_b, call_b, b, error_b}:
+      Nat.is_eq(owner_a, owner_b) && Nat.is_eq(operation_a, operation_b) && call(budget, call_a, call_b) && booleans(error_a, error_b) && json(budget, a, b)
+    case M.AfterRecord{owner_a, operation_a, plugin_a, outcome_a} M.AfterRecord{owner_b, operation_b, plugin_b, outcome_b}:
+      Nat.is_eq(owner_a, owner_b) && Nat.is_eq(operation_a, operation_b) && M.plugin_same(plugin_a, plugin_b) && json(budget, M.after_json(outcome_a), M.after_json(outcome_b))
     case M.UserMessage{a} M.UserMessage{b}: String.eq(a, b)
     case M.AssistantMessage{a} M.AssistantMessage{b}: String.eq(a, b)
     case M.FailureMessage{a} M.FailureMessage{b}: String.eq(a, b)

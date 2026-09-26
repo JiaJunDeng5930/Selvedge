@@ -54,13 +54,13 @@ type Observation is Type:
 # Coordination proves which state coordinates a completion or steer may change.
 # No law here says that external commands commute, can be replayed, or are undone.
 type Concurrency is Type:
-  Concurrency{rights: A.OperationRights(), announcements: A.Announcement,
+  Concurrency{rights: A.OperationRights, announcements: A.Announcement,
     notifications: A.Notifications, coordination: A.Coordination}
 
 # Every model tool enters the same native authorization protocol. Extension
 # callbacks answer committed tickets; observer events add no state/effect rights.
 type Extensibility is Type:
-  Extensibility{plugins: A.PluginBoundary}
+  Extensibility{plugins: A.PluginBoundary, results: A.ResultBoundary}
 
 type Harness is Type:
   Harness{meaning: Meaning, composition: Composition, recovery: Recovery,

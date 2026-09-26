@@ -9,7 +9,11 @@ command resolver, and `commit.bend` projects the post-scheduling world before
 atomic output admission. The surface's read-only observation and command gates
 are carried by `architecture.UserSurface` and checked in `proofs/ui.bend`.
 
-`../HOOKS.bend` owns ordered task-bound authorization. `notifications.bend` projects
+`../HOOKS.bend` owns ordered task-bound authorization and result interpretation.
+`results.bend` consumes execution receipts, advances after callbacks and settles
+processed results. `architecture.ResultBoundary` binds every pipeline entry and
+exit as well as value/error/call correspondence; `proofs/results.bend` supplies
+that evidence. `notifications.bend` projects
 typed post-commit occurrences and frozen recipients; it cannot change the core
 state, reply or effect projection. `architecture.PluginBoundary` binds both to the
 conceptual entry through public laws and `proofs/plugins.bend`. Transport-specific
@@ -20,10 +24,12 @@ record preserves public fork output while distinguishing inherited from new even
 provenance and regeneration instructions in `../theory/README.md`. `theory.bend`
 instantiates those certificates for append, replay composition and stuttering.
 It does not maintain a second recursive algebra development.
-`structures.bend` packages first-class semigroups, monoids, homomorphisms, actions, projections,
-refinements, discrete dynamical systems, simulations and read-only machines.
-`architecture.bend` binds them to the real program below the CONCEPTS entry;
-PROOF consumes these values for queue, history, replay, decision and batch laws.
+`architecture.bend` stores domain correspondence and theorem-premise evidence
+below the CONCEPTS entry. Consumers use existing list/map/iterator theorems
+directly; there is no project-owned general algebra or simulation hierarchy.
+`association-map.bend` imports the original ExtLib association-list definitions
+and deletion-absence proof. `MODEL.Operation()` uses its key/value representation
+directly, so `operations.bend` only adapts the domain value returned by lookup.
 `relations.bend` is generated from original relational-closure proofs and explicit
 theorem applications. `reachability.bend` binds their edges to actual inputs and
 complete committed decisions; `CONCEPTS.Composition.protocol` requires preorder,
@@ -82,11 +88,13 @@ rendering. `schema.bend` checks the supported command and built-in tool schemas.
 model values and decisions. None of these modules performs an operating-system
 effect; all external work crosses the host boundary.
 
-Run `npm run check` for the proof gate and `npm test` for native execution and
-host integration. Changing a Bend source changes the journal's kernel identity.
+Run `npm run check` for the proof gate and `npm test` for compiler/protocol probes,
+host components, end-to-end behavior and proof-infrastructure mutations. Internal
+semantic examples already covered by proofs are not duplicated as unit tests;
+see `../tests-bend/README.md`. Changing a Bend source changes the journal identity.
 
-`operations.bend` owns live external-operation rights, running announcements and
-non-replayable unknown outcomes. Task control and operation ownership are a
+`operations.bend` owns execution and result-callback rights, running announcements
+and non-replayable interrupted outcomes. Task control and operation ownership are a
 product: finishing one tool must not overwrite an unrelated pending model request.
 A coalescing notification bit retains results that arrive during a model turn.
 Summary eligibility excludes live operations; oversized partial context waits,

@@ -37,6 +37,10 @@ def effect(effect: M.Effect) -> J.Json:
     case M.CheckTool{task_id, ticket, plugin, tool, call}:
       J.Object{[J.Field{"kind", J.Text{"hook"}}, J.Field{"task_id", J.nat(task_id)}, J.Field{"ticket", J.nat(ticket)},
         J.Field{"plugin", M.plugin_json(plugin)}, J.Field{"tool", M.tool_json(tool)}, J.Field{"call", T.call_json(call)}]}
+    case M.CheckResult{task_id, ticket, operation, plugin, call, value, error}:
+      J.Object{[J.Field{"kind", J.Text{"after_hook"}}, J.Field{"task_id", J.nat(task_id)}, J.Field{"ticket", J.nat(ticket)},
+        J.Field{"operation_id", J.nat(operation)}, J.Field{"plugin", M.plugin_json(plugin)}, J.Field{"call", T.call_json(call)},
+        J.Field{"value", value}, J.Field{"error", J.Boolean{error}}]}
     case M.RequestModel{task_id, ticket, model, history, tools, callable}:
       J.Object{[J.Field{"kind", J.Text{"model"}}, J.Field{"task_id", J.nat(task_id)}, J.Field{"ticket", J.nat(ticket)},
         J.Field{"instructions", J.Text{M.assistant_instructions()}},

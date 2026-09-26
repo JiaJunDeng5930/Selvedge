@@ -24,6 +24,7 @@ async function checkDirectory(directory) {
 for (const directory of ['host', 'scripts', 'tests-bend', 'examples']) await checkDirectory(directory);
 run(process.execPath, ['scripts/import-stdlib.mjs', '--check']);
 run(process.execPath, ['scripts/import-relations.mjs', '--check']);
+run(process.execPath, ['scripts/import-maps.mjs', '--check']);
 run(process.execPath, ['scripts/theory-index.mjs', 'check']);
 // Check the obligations even when a compiled kernel is already cached.
 console.log(verifyProof({ cwd: root }));

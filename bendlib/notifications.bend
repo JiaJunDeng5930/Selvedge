@@ -29,14 +29,14 @@ def recipient(include: Bool, reference: M.PluginRef, rest: +List<M.PluginRef>) -
 def recipients(plugins: +List<M.Plugin>, +kind: M.EventKind) -> +List<M.PluginRef>:
   match plugins:
     case Nil{}: Nil{}
-    case Con{M.Plugin{reference, before, events}, rest}:
+    case Con{M.Plugin{reference, before, after, events}, rest}:
       recipient(subscribed(events, kind), reference, recipients(rest, kind))
 
 def listeners(plugins: +List<M.Plugin>) -> Bool:
   match plugins:
     case Nil{}: False{}
-    case Con{M.Plugin{reference, before, Nil{}}, rest}: listeners(rest)
-    case Con{M.Plugin{reference, before, Con{kind, more}}, rest}: True{}
+    case Con{M.Plugin{reference, before, after, Nil{}}, rest}: listeners(rest)
+    case Con{M.Plugin{reference, before, after, Con{kind, more}}, rest}: True{}
 
 def bounded(fits: Bool, value: J.Json) -> Maybe<&2, J.Json>:
   match fits:
@@ -111,6 +111,9 @@ def consume(message: M.Message, cursor: Nat, +task: M.Task, scan: Scan) -> Scan:
     case M.HookRecord{+owner, call_id, reference, outcome}:
       owned(Nat.is_eq(owner, M.task_id(task)), task_event(M.HookSettled{}, Some{cursor},
         T.message_json(M.HookRecord{owner, call_id, reference, outcome}), task), scan)
+    case M.AfterRecord{+owner, operation, reference, outcome}:
+      owned(Nat.is_eq(owner, M.task_id(task)), task_event(M.HookSettled{}, Some{cursor},
+        T.message_json(M.AfterRecord{owner, operation, reference, outcome}), task), scan)
     case M.FunctionOutput{id, value, error}: complete(id, cursor, value, error, task, scan)
     case M.OperationResult{ticket, id, tool, value, error}: complete(id, cursor, value, error, task, scan)
     case M.ForkResult{+owner, +call_id, branch}:

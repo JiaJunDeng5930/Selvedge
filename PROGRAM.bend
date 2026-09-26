@@ -3,6 +3,7 @@ import ./MODEL.bend as M
 import ./bendlib/json.bend as J
 import ./bendlib/tasks.bend as T
 import ./bendlib/operations.bend as Ops
+import ./bendlib/results.bend as Results
 import ./bendlib/theory.bend as Theory
 import ./bendlib/presentation.bend as View
 import ./INVARIANTS.bend as I
@@ -121,7 +122,7 @@ def realize(operation: Commands.Operation, world: M.World) -> M.Decision:
     case Commands.Cancel{+task, +operation}:
       M.Decision{store(T.promote(Ops.cancelled(operation, task)), world),
         M.success(J.Object{[J.Field{"task_id", J.nat(M.task_id(task))}, J.Field{"operation_id", J.nat(Ops.ticket(operation))}]}),
-        [M.CancelTicket{M.task_id(task), Ops.ticket(operation)}]}
+        [M.CancelTicket{M.task_id(task), Ops.callback(operation)}]}
     case Commands.Control{task, request, next}: change_requested(request, next, task, world)
     case Commands.Branch{task, count, messages}: execute_branch(task, count, messages, world)
     case Commands.Summarize{task}: summary_request(task, False{}, world)
@@ -144,10 +145,10 @@ def summary_matched(same: Bool, outcome: M.Outcome, resume: Bool, task: M.Task, 
     case False{}: respond(world, accepted(False{}))
     case True{}: respond(store(T.summary_outcome(outcome, resume, task), world), accepted(True{}))
 
-def tool_matched(same: Bool, operation: M.Operation, value: J.Json, error: Bool, task: M.Task, world: M.World) -> M.Decision:
+def tool_matched(same: Bool, operation: M.Operation(), value: J.Json, error: Bool, task: M.Task, world: M.World) -> M.Decision:
   match same:
     case False{}: respond(world, accepted(False{}))
-    case True{}: respond(store(T.complete_operation(operation, value, error, task), world), accepted(True{}))
+    case True{}: Results.begin(operation, value, error, task, world)
 
 def recover_tasks(tasks: +List<M.Task>) -> +List<M.Task>:
   Protocol.recovery(tasks)
@@ -160,6 +161,7 @@ def realize_event(event: Protocol.Event, world: M.World) -> M.Decision:
     case Protocol.SummaryResult{task, outcome, resume}: summary_matched(True{}, outcome, resume, task, world)
     case Protocol.ToolResult{task, operation, value, error}: tool_matched(True{}, operation, value, error, task, world)
     case Protocol.HookResult{task, outcome}: respond(store(T.complete_hook(outcome, task), world), accepted(True{}))
+    case Protocol.AfterResult{task, +operation, outcome}: Results.complete(Ops.stage(operation), outcome, operation, task, world)
     case Protocol.Settings{environment}:
       M.World{tasks, next_task, next_ticket, previous, limits} = world
       respond(M.World{tasks, next_task, next_ticket, environment, limits}, J.Null{})
@@ -210,31 +212,31 @@ def check_tool(+plugin: M.PluginRef, pending: +List<M.PluginRef>, tool: M.Tool, 
 def tool_error(code: String, message: String, call: M.Call, remaining: +List<M.Attempt>, task: M.Task, world: M.World) -> M.Decision:
   respond(store(T.complete_tool(call, remaining, M.failure(code, message), True{}, task), world), J.Null{})
 
-def finish_archived(status: M.Status, task: M.Task) -> M.Task:
-  match status:
-    case M.Archived{}: M.with_phase(M.Idle{}, task)
-    case _: task
-
-# Internal effects and their calling-task output are one pure transition and one
-# durable commit. Looking the caller up again preserves self-send/self-archive.
 def internal_result(found: Maybe<&2, M.Task>, call: M.Call, remaining: +List<M.Attempt>, +result: M.Decision) -> M.Decision:
   match found:
     case None{}:
       result
     case Some{+task}:
       +reply = decision_reply(result)
-      next = finish_archived(M.task_status(task), T.complete_tool(call, remaining, reply, Bool.not(J.boolean(J.get(reply, "ok"))), task))
-      M.Decision{store(next, decision_world(result)), J.Null{}, decision_effects(result)}
+      Results.attached(Results.internal(call, remaining, reply, Bool.not(J.boolean(J.get(reply, "ok"))), task, decision_world(result)),
+        J.Null{}, decision_effects(result))
 
 def finish_internal(id: Nat, call: M.Call, remaining: +List<M.Attempt>, +result: M.Decision) -> M.Decision:
   internal_result(T.find(tasks(decision_world(result)), id), call, remaining, result)
+
+def commit_invoked_fork(built: Commands.Children, call: M.Call, remaining: +List<M.Attempt>, parent: M.Task, world: M.World) -> M.Decision:
+  match built world:
+    case Commands.Children{+new_tasks, end} M.World{tasks, next_task, next_ticket, environment, limits}:
+      Results.attached(Results.internal(call, remaining, J.nat(0n), False{}, parent,
+        M.World{List.append(&2, M.Task, tasks, new_tasks), end, next_ticket, environment, limits}),
+        M.success(J.Object{[J.Field{"children", J.Array{ids(new_tasks)}}]}), Nil{})
 
 def realize_invocation(operation: Protocol.Invocation, +call: M.Call, +remaining: +List<M.Attempt>, +task: M.Task, +world: M.World) -> M.Decision:
   match operation:
     case Protocol.Internal{operation}:
       finish_internal(M.task_id(task), call, remaining, realize(operation, world))
     case Protocol.Branch{count, messages}:
-      commit_fork(children(count, next_task(world), 1n, task, T.call_id(call), remaining, messages), call, remaining, task, world)
+      commit_invoked_fork(children(count, next_task(world), 1n, task, T.call_id(call), remaining, messages), call, remaining, task, world)
 
 def builtin(tool: M.Builtin, arguments: J.Json, call: M.Call, remaining: +List<M.Attempt>, +task: M.Task, +world: M.World) -> M.Decision:
   realize_invocation(Protocol.invocation(tool, arguments, task, world), call, remaining, task, world)

@@ -8,11 +8,13 @@ const end = '<!-- END CHECKED_THEORY_INVENTORY -->';
 export async function inventory() {
   const algebra = JSON.parse(await readFile(new URL('../theory/stdlib-certificates.json', import.meta.url), 'utf8'));
   const relations = JSON.parse(await readFile(new URL('../theory/relation-certificates.json', import.meta.url), 'utf8'));
+  const maps = JSON.parse(await readFile(new URL('../theory/rocq-maps.json', import.meta.url), 'utf8'));
   const applications = relations.entities.filter(([name]) => name.startsWith('ExportRelations.'));
   const records = [
-    `${algebra.entities.length + relations.entities.length} quoted entities: ${algebra.entities.length} algebra/iteration entities and ` +
-      `${relations.entities.length} relation entities. The latter include ${relations.entities.length - applications.length} upstream ` +
-      `definitions/theorems and ${applications.length} explicit applications in \`scripts/ExportRelations.v\`.`,
+    `${algebra.entities.length + relations.entities.length + maps.entities.length} quoted entities: ${algebra.entities.length} algebra/iteration, ` +
+      `${relations.entities.length} relation, and ${maps.entities.length} association-map entities. Relations include ` +
+      `${relations.entities.length - applications.length} upstream definitions/theorems and ${applications.length} explicit applications. ` +
+      'The map bundle contains four upstream definitions/proofs plus one theorem application and its three reflection-premise definitions.',
     '', '| Quoted entity | Checked Bend use |', '| --- | --- |',
   ];
   for (const [name] of algebra.entities) records.push(`| \`${name}\` | \`stdlib.${name.split('.').at(-1)}\` |`);
@@ -20,6 +22,12 @@ export async function inventory() {
     const target = name.endsWith('.relation') || name.endsWith('.inclusion') || name.endsWith('.clos_refl_trans_ind') || name.endsWith('.clos_refl_trans_ind_left')
       ? 'Original dependency body specialized at its application'
       : `\`relations.${name.split('.').at(-1)}\``;
+    records.push(`| \`${name}\` | ${target} |`);
+  }
+  for (const [name] of maps.entities) {
+    const target = name.endsWith('.alist_find') ? '`association-map.find`' : name.endsWith('.alist_remove') || name.endsWith('.filter')
+      ? '`association-map.remove` (source filter specialization)' : name.endsWith('.remove_eq_alist')
+        ? '`association-map.removal_absence` (original induction body)' : 'Checked Boolean-relation instance in `scripts/ExportMaps.v`';
     records.push(`| \`${name}\` | ${target} |`);
   }
   return records.join('\n');

@@ -1,4 +1,5 @@
 import Base
+import ./bendlib/stdlib.bend as Std
 import ./MODEL.bend as M
 import ./PROGRAM.bend as P
 import ./bendlib/tasks.bend as T
@@ -7,10 +8,10 @@ import ./INVARIANTS.bend as I
 import ./COMMANDS.bend as Commands
 import ./bendlib/commit.bend as Commit
 import ./bendlib/protocol.bend as Protocol
-import ./bendlib/structures.bend as S
 import ./bendlib/execution.bend as Execution
 import ./bendlib/traces.bend as Traces
 import ./bendlib/operations.bend as Ops
+import ./bendlib/results.bend as Results
 import ./bendlib/transcript.bend as Transcript
 import ./bendlib/interface.bend as Interface
 import ./bendlib/frontend.bend as Frontend
@@ -309,21 +310,21 @@ law scheduling_semantics:
 law recovery_partition:
   for +first: +List<M.Task>
   for +second: +List<M.Task>
-  {P.recover_tasks(S.append(M.Task, first, second)) == S.append(M.Task, P.recover_tasks(first), P.recover_tasks(second)) : +List<M.Task>}
+  {P.recover_tasks(List.append(&2, M.Task, first, second)) == List.append(&2, M.Task, P.recover_tasks(first), P.recover_tasks(second)) : +List<M.Task>}
 
 law task_view_partition:
   for +first: +List<M.Task>
   for +second: +List<M.Task>
-  {T.summaries(S.append(M.Task, first, second)) == S.append(J.Json, T.summaries(first), T.summaries(second)) : +List<J.Json>}
+  {T.summaries(List.append(&2, M.Task, first, second)) == List.append(&2, J.Json, T.summaries(first), T.summaries(second)) : +List<J.Json>}
 
 law branch_result_partition:
   for +first: +List<M.Task>
   for +second: +List<M.Task>
-  {Commands.identities(S.append(M.Task, first, second)) == S.append(J.Json, Commands.identities(first), Commands.identities(second)) : +List<J.Json>}
+  {Commands.identities(List.append(&2, M.Task, first, second)) == List.append(&2, J.Json, Commands.identities(first), Commands.identities(second)) : +List<J.Json>}
 
 law recovery_view_composition:
   for +tasks: +List<M.Task>
-  {T.summaries(P.recover_tasks(tasks)) == S.mapped(~M.Task, ~J.Json, ~(task => T.summary(Protocol.recover(task))), tasks) : +List<J.Json>}
+  {T.summaries(P.recover_tasks(tasks)) == Std.map(~M.Task, ~J.Json, ~(task => T.summary(Protocol.recover(task))), tasks) : +List<J.Json>}
 
 # These equations completely fix the bounded scheduler: zero fuel, quiescence,
 # one successor step, and its dispatch gate. ContinueScheduling is observable.
@@ -448,14 +449,13 @@ law accepted_model_settlement:
       M.success(J.Object{[J.Field{"accepted", J.Boolean{True{}}}]}), Nil{}} : M.Decision}
 
 law accepted_tool_settlement:
-  for +operation: M.Operation
+  for +operation: M.Operation()
   for +value: J.Json
   for +error: Bool
   for +task: M.Task
   for +world: M.World
   {P.tool_matched(True{}, operation, value, error, task, world) ==
-    M.Decision{Commands.replace(T.complete_operation(operation, value, error, task), world),
-      M.success(J.Object{[J.Field{"accepted", J.Boolean{True{}}}]}), Nil{}} : M.Decision}
+    Results.begin(operation, value, error, task, world) : M.Decision}
 
 law accepted_summary_settlement:
   for +outcome: M.Outcome
@@ -495,7 +495,7 @@ law checkpoint_is_not_recompacted:
   for +queued: +List<String>
   for +phase: M.Phase
   for +world: M.World
-  for +operations: +List<M.Operation>
+  for +operations: +List<M.Operation()>
   for +notified: Bool
   {P.model_request(M.Task{id, lineage, contract, status, M.HistoryNode{history, M.ContextCheckpoint{summary}}, queued, phase, operations, notified}, world) ==
     P.model_request_direct(M.Task{id, lineage, contract, status, M.HistoryNode{history, M.ContextCheckpoint{summary}}, queued, phase, operations, notified}, world) : M.Decision}
@@ -509,7 +509,7 @@ law context_limit_after_checkpoint_stops:
   for +history: M.History
   for +summary: String
   for +phase: M.Phase
-  for +operations: +List<M.Operation>
+  for +operations: +List<M.Operation()>
   for +notified: Bool
   {T.model_outcome(M.ContextLimit{}, allowed,
     M.Task{id, lineage, contract, status, M.HistoryNode{history, M.ContextCheckpoint{summary}}, Nil{}, phase, operations, notified}) ==
@@ -524,7 +524,7 @@ law summary_context_limit_stops:
   for +status: M.Status
   for +history: M.History
   for phase: M.Phase
-  for +operations: +List<M.Operation>
+  for +operations: +List<M.Operation()>
   for +notified: Bool
   {T.summary_outcome(M.ContextLimit{}, resume, M.Task{id, lineage, contract, status, history, Nil{}, phase, operations, notified}) ==
     M.Task{id, lineage, contract, status, M.HistoryNode{history,
@@ -582,7 +582,7 @@ law archived_input_unchanged:
   for +queue: +List<String>
   for +phase: M.Phase
   for text: String
-  for +operations: +List<M.Operation>
+  for +operations: +List<M.Operation()>
   for +notified: Bool
   {T.receive(text, M.Task{id, lineage, contract, M.Archived{}, history, queue, phase, operations, notified}) ==
     M.Task{id, lineage, contract, M.Archived{}, history, queue, phase, operations, notified} : M.Task}
@@ -707,7 +707,7 @@ law unmatched_model_result_unchanged:
   {P.decision_world(P.model_matched(False{}, outcome, allowed, task, world)) == world : M.World}
 
 law unmatched_tool_result_unchanged:
-  for operation: M.Operation
+  for operation: M.Operation()
   for value: J.Json
   for error: Bool
   for task: M.Task
@@ -804,7 +804,7 @@ law summary_failure_promotes_fifo:
   for +first: String
   for +rest: +List<String>
   for phase: M.Phase
-  for +operations: +List<M.Operation>
+  for +operations: +List<M.Operation()>
   for +notified: Bool
   {T.summary_failure(message, M.Task{id, lineage, contract, M.Active{}, history, first <> rest, phase, operations, notified}) ==
     M.Task{id, lineage, contract, M.Active{}, M.history_append(T.user_messages(first <> rest), M.HistoryNode{history, M.FailureMessage{message}}),
@@ -818,7 +818,7 @@ law summary_failure_empty_stops:
   for +status: M.Status
   for +history: M.History
   for phase: M.Phase
-  for +operations: +List<M.Operation>
+  for +operations: +List<M.Operation()>
   for +notified: Bool
   {T.summary_failure(message, M.Task{id, lineage, contract, status, history, Nil{}, phase, operations, notified}) ==
     M.Task{id, lineage, contract, status, M.HistoryNode{history, M.FailureMessage{message}}, Nil{}, M.Idle{}, operations, notified} : M.Task}

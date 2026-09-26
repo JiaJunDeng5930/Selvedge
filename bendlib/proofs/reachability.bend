@@ -9,7 +9,6 @@ import ../relations.bend as R
 import ../stdlib.bend as Std
 import ../commit.bend as Commit
 import ../execution.bend as Execution
-import ../structures.bend as S
 import ../traces.bend as Traces
 import ../transcript.bend as Transcript
 import ./commit.bend as CommitProof
@@ -106,7 +105,7 @@ def receipts_prepend(+input: M.Input, +rest: +List<M.Input>, induction: ReceiptC
     Equal.cong(Transcript.Tape, Reach.State, Reach.project,
       Traces.actual(count, Traces.implementation(tape)), Traces.actual(1n+count, tape),
       Equal.sym(Transcript.Tape, Traces.actual(1n+count, tape), Traces.actual(count, Traces.implementation(tape)),
-        S.iteration_shift(~Transcript.Tape, ~Traces.implementation, count, tape))))
+        Std.iter_swap_gen(~Transcript.Tape, ~Transcript.Tape, ~Traces.implementation, ~Traces.implementation, ~Traces.implementation, ~(tape => {==}), count, tape))))
 
 def receipts(events: +List<M.Input>, state: Reach.State) ->
   {Reach.run(events, state) == Reach.execute(events, state) : Reach.State}:

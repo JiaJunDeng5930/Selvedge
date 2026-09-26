@@ -71,6 +71,7 @@ def Laws.event_semantics(event, world):
     case Protocol.SummaryResult{task, outcome, resume} M.World{tasks, next_task, next_ticket, environment, limits}: {==}
     case Protocol.ToolResult{task, operation, value, error} M.World{tasks, next_task, next_ticket, environment, limits}: {==}
     case Protocol.HookResult{task, outcome} M.World{tasks, next_task, next_ticket, environment, limits}: {==}
+    case Protocol.AfterResult{task, operation, outcome} M.World{tasks, next_task, next_ticket, environment, limits}: {==}
     case Protocol.Settings{settings} M.World{tasks, next_task, next_ticket, environment, limits}: {==}
     case Protocol.Restart{} M.World{tasks, next_task, next_ticket, environment, limits}: {==}
     case Protocol.Tick{} _: {==}
@@ -78,24 +79,11 @@ def Laws.event_semantics(event, world):
 def Laws.input_semantics(input, world):
   Laws.event_semantics(Protocol.resolve(input, world), world)
 
-def finish_status_semantics(+status: M.Status, +task: M.Task) ->
-  {P.finish_archived(status, task) == Protocol.finish_status(status, task) : M.Task}:
-  match status:
-    case M.Active{}: {==}
-    case M.Frozen{}: {==}
-    case M.Stopped{}: {==}
-    case M.Archived{}: {==}
-
 def internal_result_semantics(+found: Maybe<&2, M.Task>, +call: M.Call, +remaining: +List<M.Attempt>, +decision: M.Decision) ->
   {P.internal_result(found, call, remaining, decision) == Protocol.result(found, call, remaining, decision) : M.Decision}:
   match found decision:
     case None{} _: {==}
-    case Some{+task} M.Decision{M.World{+tasks, +next_task, +next_ticket, +environment, +limits}, +reply, +effects}:
-      +next = T.complete_tool(call, remaining, reply, Bool.not(J.boolean(J.get(reply, "ok"))), task)
-      +status = M.task_status(task)
-      Equal.cong(M.Task, M.Decision,
-        (value => M.Decision{M.World{T.replace(tasks, value), next_task, next_ticket, environment, limits}, J.Null{}, effects}),
-        P.finish_archived(status, next), Protocol.finish_status(status, next), finish_status_semantics(status, next))
+    case Some{task} M.Decision{world, reply, effects}: {==}
 
 def finish_internal_semantics(+id: Nat, +call: M.Call, +remaining: +List<M.Attempt>, +decision: M.Decision) ->
   {P.finish_internal(id, call, remaining, decision) == Protocol.finish(id, call, remaining, decision) : M.Decision}:
@@ -105,7 +93,7 @@ def finish_internal_semantics(+id: Nat, +call: M.Call, +remaining: +List<M.Attem
         M.Decision{M.World{tasks, next_task, next_ticket, environment, limits}, reply, effects})
 
 def branched_semantics(+built: Commands.Children, +call: M.Call, +remaining: +List<M.Attempt>, +task: M.Task, +world: M.World) ->
-  {P.commit_fork(built, call, remaining, task, world) == Protocol.branched(built, call, remaining, task, world) : M.Decision}:
+  {P.commit_invoked_fork(built, call, remaining, task, world) == Protocol.branched_invocation(built, call, remaining, task, world) : M.Decision}:
   match built world:
     case Commands.Children{children, end} M.World{tasks, next_task, next_ticket, environment, limits}: {==}
 

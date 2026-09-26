@@ -2,83 +2,103 @@ import Base
 import ../MODEL.bend as M
 import ./json.bend as J
 import ./stdlib.bend as Std
+import ./association-map.bend as Finite
 
 # Pending operation rights are distinct from the task's model/control phase.
 # A right can be announced once and consumed once. Late events find no right.
-def ticket(operation: M.Operation) -> Nat:
-  M.Operation{ticket, call, announced} = operation
+def ticket(operation: M.Operation()) -> Nat:
+  (ticket, M.OperationBody{call, announced, stage}) = operation
   ticket
 
-def call(operation: M.Operation) -> M.Call:
-  M.Operation{ticket, call, announced} = operation
+def call(operation: M.Operation()) -> M.Call:
+  (ticket, M.OperationBody{call, announced, stage}) = operation
   call
 
-def announced(operation: M.Operation) -> Bool:
-  M.Operation{ticket, call, announced} = operation
+def announced(operation: M.Operation()) -> Bool:
+  (ticket, M.OperationBody{call, announced, stage}) = operation
   announced
 
-def chosen(same: Bool, operation: M.Operation, rest: Maybe<&2, M.Operation>) -> Maybe<&2, M.Operation>:
+def stage(operation: M.Operation()) -> M.OperationStage:
+  (ticket, M.OperationBody{call, announced, stage}) = operation
+  stage
+
+def executing(stage: M.OperationStage) -> Bool:
+  match stage:
+    case M.Executing{}: True{}
+    case _: False{}
+
+def callback(operation: M.Operation()) -> Nat:
+  (ticket, M.OperationBody{call, announced, stage}) = operation
+  match stage:
+    case M.Executing{}: ticket
+    case M.ResultPending{callback, plugin, pending, value, error}: callback
+
+def with_stage(stage: M.OperationStage, operation: M.Operation()) -> M.Operation():
+  (ticket, M.OperationBody{call, announced, previous}) = operation
+  (ticket, M.OperationBody{call, announced, stage})
+
+def replaced(same: Bool, operation: M.Operation(), previous: M.Operation()) -> M.Operation():
   match same:
-    case True{}: Some{operation}
-    case False{}: rest
+    case True{}: operation
+    case False{}: previous
 
-def find(operations: +List<M.Operation>, +id: Nat) -> Maybe<&2, M.Operation>:
-  match operations:
-    case Nil{}: None{}
-    case Con{+operation, rest}:
-      chosen(Nat.is_eq(ticket(operation), id), operation, find(rest, id))
-
-def retained(same: Bool, operation: M.Operation, rest: +List<M.Operation>) -> +List<M.Operation>:
-  match same:
-    case True{}: rest
-    case False{}: operation <> rest
-
-def remove(operations: +List<M.Operation>, +id: Nat) -> +List<M.Operation>:
+def replace(operations: +List<M.Operation()>, +operation: M.Operation()) -> +List<M.Operation()>:
   match operations:
     case Nil{}: Nil{}
-    case Con{+operation, rest}:
-      retained(Nat.is_eq(ticket(operation), id), operation, remove(rest, id))
+    case Con{+previous, rest}:
+      replaced(Nat.is_eq(ticket(previous), ticket(operation)), operation, previous) <> replace(rest, operation)
 
-def announce(operation: M.Operation) -> M.Operation:
-  M.Operation{ticket, call, previous} = operation
-  M.Operation{ticket, call, True{}}
+def binding(found: Maybe<&2, M.OperationBody>, id: Nat) -> Maybe<&2, M.Operation()>:
+  match found:
+    case None{}: None{}
+    case Some{body}: Some{(id, body)}
 
-def running(+operation: M.Operation) -> J.Json:
-  M.Operation{ticket, M.Call{id, name, arguments}, announced} = operation
+def find(operations: +List<M.Operation()>, +id: Nat) -> Maybe<&2, M.Operation()>:
+  binding(Finite.find(~M.OperationBody, operations, id), id)
+
+def remove(operations: +List<M.Operation()>, id: Nat) -> +List<M.Operation()>:
+  Finite.remove(~M.OperationBody, operations, id)
+
+def announce(operation: M.Operation()) -> M.Operation():
+  (ticket, M.OperationBody{call, previous, stage}) = operation
+  (ticket, M.OperationBody{call, True{}, stage})
+
+def running(+operation: M.Operation()) -> J.Json:
+  (ticket, M.OperationBody{M.Call{id, name, arguments}, announced, stage}) = operation
   J.Object{[J.Field{"status", J.Text{"running"}}, J.Field{"operation_id", J.nat(ticket)},
     J.Field{"tool", J.Text{name}}, J.Field{"message", J.Text{
       "This operation is still running, not completed. Its result will arrive as an asynchronous operation result. Continue independent work, or end your turn to wait; do not poll or sleep just to wait."}}]}
 
-def announce_step(history: M.History, +operation: M.Operation) -> M.History:
-  M.Operation{ticket, M.Call{id, name, arguments}, announced} = operation
+def announce_step(history: M.History, +operation: M.Operation()) -> M.History:
+  (ticket, M.OperationBody{M.Call{id, name, arguments}, announced, stage}) = operation
   match announced:
     case True{}: history
     case False{}: M.HistoryNode{history, M.FunctionOutput{id, running(operation), False{}}}
 
-def announced_history(operations: +List<M.Operation>, history: M.History) -> M.History:
-  List.foldl(~&2, ~M.Operation, ~M.History, ~(history => operation => announce_step(history, operation)), operations, history)
+def announced_history(operations: +List<M.Operation()>, history: M.History) -> M.History:
+  List.foldl(~&2, ~M.Operation(), ~M.History, ~(history => operation => announce_step(history, operation)), operations, history)
 
 # Running statuses enter history only when an actual model request needs them.
 # Fast completions remain ordinary function results, without a gratuitous turn.
 def publish(+task: M.Task) -> M.Task:
-  M.with_notified(False{}, M.with_operations(Std.map(~M.Operation, ~M.Operation, ~announce, M.task_operations(task)),
+  M.with_notified(False{}, M.with_operations(Std.map(~M.Operation(), ~M.Operation(), ~announce, M.task_operations(task)),
     M.with_history(announced_history(M.task_operations(task), M.task_history(task)), task)))
 
 def started(ticket: Nat, call: M.Call, remaining: +List<M.Attempt>, +task: M.Task) -> M.Task:
-  M.with_operations(List.append(&2, M.Operation, M.task_operations(task), [M.Operation{ticket, call, False{}}]),
+  M.with_operations(List.append(&2, M.Operation(), M.task_operations(task), [(ticket, M.OperationBody{call, False{}, M.Executing{}})]),
     M.with_phase(M.Ready{remaining}, task))
 
-def result(operation: M.Operation, value: J.Json, error: Bool) -> M.Message:
-  M.Operation{ticket, M.Call{id, name, arguments}, announced} = operation
+def result(operation: M.Operation(), value: J.Json, error: Bool) -> M.Message:
+  (ticket, M.OperationBody{M.Call{id, name, arguments}, announced, stage}) = operation
   match announced:
     case False{}: M.FunctionOutput{id, value, error}
     case True{}: M.OperationResult{ticket, id, name, value, error}
 
-def completed(+operation: M.Operation, value: J.Json, error: Bool, +task: M.Task) -> M.Task:
+def completed(+operation: M.Operation(), value: J.Json, error: Bool, +task: M.Task) -> M.Task:
   M.notify(M.with_operations(remove(M.task_operations(task), ticket(operation)),
     M.append_message(result(operation, value, error), task)))
 
-def cancelled(operation: M.Operation, task: M.Task) -> M.Task:
+def cancelled(operation: M.Operation(), task: M.Task) -> M.Task:
   completed(operation, M.failure("cancelled",
     "Cancellation requested. The operation may already have made changes; those changes are not undone."), True{}, task)
 
@@ -87,16 +107,24 @@ def cancelled(operation: M.Operation, task: M.Task) -> M.Task:
 type Closure is Data:
   Closure{history: M.History, code: String, reason: String}
 
-def close_step(state: Closure, operation: M.Operation) -> Closure:
+def interrupted_result(+operation: M.Operation(), code: String, reason: String) -> M.Message:
+  (ticket, M.OperationBody{call, announced, stage}) = operation
+  match stage:
+    case M.Executing{}: result(operation, M.failure(code, reason), True{})
+    case M.ResultPending{ticket, plugin, pending, value, error}:
+      result(operation, M.failure("after_hook_interrupted",
+        "Result processing was interrupted. The execution receipt remains in history; neither the tool nor its callback is repeated. " ++ reason), True{})
+
+def close_step(state: Closure, operation: M.Operation()) -> Closure:
   Closure{history, +code, +reason} = state
-  Closure{M.HistoryNode{history, result(operation, M.failure(code, reason), True{})}, code, reason}
+  Closure{M.HistoryNode{history, interrupted_result(operation, code, reason)}, code, reason}
 
 def closed(state: Closure) -> M.History:
   Closure{history, code, reason} = state
   history
 
-def close(operations: +List<M.Operation>, history: M.History, code: String, reason: String) -> M.History:
-  closed(List.foldl(~&2, ~M.Operation, ~Closure, ~close_step, operations, Closure{history, code, reason}))
+def close(operations: +List<M.Operation()>, history: M.History, code: String, reason: String) -> M.History:
+  closed(List.foldl(~&2, ~M.Operation(), ~Closure, ~close_step, operations, Closure{history, code, reason}))
 
 def abandoned(+task: M.Task) -> M.Task:
   M.with_operations(Nil{}, M.with_history(close(M.task_operations(task), M.task_history(task),
@@ -107,10 +135,10 @@ def inherited(+parent: M.Task) -> M.History:
     "This operation belongs to parent task " ++ Nat.show(M.task_id(parent)) ++
     "; its execution was not copied. Read that task for its eventual result.")
 
-def summary(operation: M.Operation) -> J.Json:
-  M.Operation{ticket, M.Call{id, name, arguments}, announced} = operation
+def summary(operation: M.Operation()) -> J.Json:
+  (ticket, M.OperationBody{M.Call{id, name, arguments}, announced, stage}) = operation
   J.Object{[J.Field{"operation_id", J.nat(ticket)}, J.Field{"call_id", J.Text{id}},
     J.Field{"tool", J.Text{name}}, J.Field{"status", J.Text{"running"}}, J.Field{"announced", J.Boolean{announced}}]}
 
-def summaries(operations: +List<M.Operation>) -> +List<J.Json>:
-  Std.map(~M.Operation, ~J.Json, ~summary, operations)
+def summaries(operations: +List<M.Operation()>) -> +List<J.Json>:
+  Std.map(~M.Operation(), ~J.Json, ~summary, operations)

@@ -84,6 +84,7 @@ def Laws.transition_admitted(world, input):
     case M.ToolCompleted{id, ticket, value, error}:
       update_certificate(M.ToolCompleted{id, ticket, value, error}, world)
     case M.HookCompleted{id, ticket, outcome}: update_certificate(M.HookCompleted{id, ticket, outcome}, world)
+    case M.AfterCompleted{id, operation, ticket, outcome}: update_certificate(M.AfterCompleted{id, operation, ticket, outcome}, world)
     case M.Configure{settings}: update_certificate(M.Configure{settings}, world)
     case M.Recover{}: update_certificate(M.Recover{}, world)
     case M.Continue{}: update_certificate(M.Continue{}, world)

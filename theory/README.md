@@ -6,6 +6,8 @@ The bundle records the source files' SHA-256, tool versions, and its own content
 digest. It supplies collection algebra, iteration and the six Boolean join laws.
 `relation-certificates.json` adds original relational-closure definitions and
 theorems, together with two explicitly labelled source theorem applications.
+`rocq-maps.json` adds the original ExtLib 0.13.1 association-list definitions and
+deletion proof, plus an explicit Boolean-relation instance and its premises.
 All exported entities are closed under the global context: their source proofs
 introduce no axioms. The applications are not described as upstream theorems;
 they contain no project induction, proof search or tactics.
@@ -15,12 +17,12 @@ bundle records Corelib's Datatypes/Nat and Stdlib's List/PeanoNat/Bool fingerpri
 
 ## Checked import inventory
 
-This section is generated from both bundles. `npm run check` rejects a stale
+This section is generated from all three bundles. `npm run check` rejects a stale
 inventory; run `node scripts/theory-index.mjs update` after changing the exports.
 
 <!-- BEGIN CHECKED_THEORY_INVENTORY -->
 
-25 quoted entities: 17 algebra/iteration entities and 8 relation entities. The latter include 6 upstream definitions/theorems and 2 explicit applications in `scripts/ExportRelations.v`.
+33 quoted entities: 17 algebra/iteration, 8 relation, and 8 association-map entities. Relations include 6 upstream definitions/theorems and 2 explicit applications. The map bundle contains four upstream definitions/proofs plus one theorem application and its three reflection-premise definitions.
 
 | Quoted entity | Checked Bend use |
 | --- | --- |
@@ -49,6 +51,14 @@ inventory; run `node scripts/theory-index.mjs update` after changing the exports
 | `Stdlib.Relations.Operators_Properties.clos_rt_idempotent` | `relations.clos_rt_idempotent` |
 | `ExportRelations.closure_map` | `relations.closure_map` |
 | `ExportRelations.closure_invariant` | `relations.closure_invariant` |
+| `ExtLib.Data.Map.FMapAList.alist_find` | `association-map.find` |
+| `ExtLib.Data.Map.FMapAList.alist_remove` | `association-map.remove` (source filter specialization) |
+| `Stdlib.Lists.List.filter` | `association-map.remove` (source filter specialization) |
+| `ExtLib.Data.Map.FMapAList.remove_eq_alist` | `association-map.removal_absence` (original induction body) |
+| `ExportMaps.removal_absence` | Checked Boolean-relation instance in `scripts/ExportMaps.v` |
+| `ExportMaps.boolean_relation` | Checked Boolean-relation instance in `scripts/ExportMaps.v` |
+| `ExportMaps.boolean_decision` | Checked Boolean-relation instance in `scripts/ExportMaps.v` |
+| `ExportMaps.boolean_correct` | Checked Boolean-relation instance in `scripts/ExportMaps.v` |
 
 <!-- END CHECKED_THEORY_INVENTORY -->
 
@@ -79,10 +89,11 @@ file. To regenerate from installed Rocq/MetaRocq and inspect changes:
 ```sh
 node scripts/import-stdlib.mjs --refresh
 node scripts/import-relations.mjs --refresh
+node scripts/import-maps.mjs --refresh
 node scripts/theory-index.mjs update
 npm run check
 npm test
-git diff -- theory bendlib/stdlib.bend bendlib/relations.bend
+git diff -- theory bendlib/stdlib.bend bendlib/relations.bend bendlib/association-map.bend
 ```
 
 This is a deliberately small proof bridge, not a general Rocq-to-Bend compiler,
@@ -92,22 +103,20 @@ the application-specific proposition must still type-check in Bend. Its kernel,
 termination check and compilation/runtime remain trusted. Negative tests corrupt
 an imported proof and mutate the actual command interpreter to check these gates.
 
-`bendlib/structures.bend` packages these results as monoids, right actions and
-monoid homomorphisms. Map identity and composition also reuse the source proofs.
-`bendlib/architecture.bend` binds them to queues, histories, effects and actual
-replay beneath `CONCEPTS.bend`. `Dynamics` and `Simulation` carry the actual step
-and run functions as indices. Original iterator theorems supply finite simulation,
-run partition and invariant lifting; the old local generic invariant induction
-has been removed. The application proves only tape/fold correspondence and the
-single-step obligations, not another copy of the standard iteration theorems. The
-project proves only the correspondence, the one-step obligations, and genuinely
-domain-specific facts such as context projection and cancellation. In particular,
+Consumers instantiate the existing List, Bool and Nat theorems directly.
+`bendlib/architecture.bend` binds the domain interpretations and theorem premises
+to actual queues, histories, effects and replay beneath `CONCEPTS.bend`. There is
+no second general `Semigroup`, `Refinement`, `InvariantSystem`, `Dynamics` or
+`Simulation` hierarchy. Original iterator theorems supply finite simulation, run
+partition and invariant lifting. The project proves only representation and
+single-step correspondence, required premises, and genuinely domain-specific
+facts such as context projection and cancellation. In particular,
 decision combination is a **semigroup**, not a monoid: the first reply and final
 world have different owners. Its associativity reduces to the imported effect-list
 theorem after destructuring the three decisions.
 
 When the checker distinguishes a named run wrapper from its underlying iterator,
-the imported structure's fields are rebound by pointwise application. No function
+the imported theorem is applied pointwise to the actual function. No function
 extensionality axiom is introduced. Both proof terms and their application to the
 production functions must check. A shared pure-proof gate rejects foreign/unsafe
 dependencies and unexpected compiler reports, including on cached builds.
@@ -117,7 +126,7 @@ dependencies and unexpected compiler reports, including on cached builds.
 `scripts/ExportRelations.v` quotes the relation/inclusion definitions and existing
 closure proofs. `scripts/import-relations.mjs` emits `bendlib/relations.bend`.
 Their production correspondence is required by `CONCEPTS.Composition.protocol`,
-not an optional example. Builds check both bundles even with a cached kernel.
+not an optional example. Builds check every bundle even with a cached kernel.
 
 | Standard structure | Existing evidence | Production correspondence and use |
 | --- | --- | --- |

@@ -1,7 +1,7 @@
 import Base
 import ../../MODEL.bend as M
 import ../../LAWS.bend as Laws
-import ../structures.bend as S
+import ../theory.bend as Theory
 import ../architecture.bend as Concepts
 
 # Local proof obligations for the tasks boundary. No runtime policy lives here.
@@ -100,7 +100,7 @@ def Laws.phase_preserves_contract(phase, task):
 def Laws.queue_order(first, second, task):
   match task:
     case M.Task{id, lineage, contract, status, history, +queued, phase, operations, notified}:
-      S.monoid_associative(+List<String>, Nil{}, S.append(String), Concepts.inbox(), queued, [first], [second])
+      Theory.append_associative(String, queued, [first], [second])
 
 def Laws.child_contract(id, parent, call, branch, remaining, message):
   match parent:
@@ -148,6 +148,8 @@ def project_node_idempotent(+previous: M.History, +message: M.Message,
   {M.context_history(M.context_node(M.context_history(previous), message)) == M.context_node(M.context_history(previous), message) : M.History}:
   match message:
     case M.ContextCheckpoint{summary}: {==}
+    case M.ToolReceipt{owner, operation, call, value, error}: evidence
+    case M.AfterRecord{owner, operation, plugin, outcome}: evidence
     case M.ForkResult{+owner, +id, +branch}:
       %evidence : {M.HistoryNode{M.context_history(M.context_history(previous)), M.ForkResult{owner, id, branch}} == M.HistoryNode{_, M.ForkResult{owner, id, branch}} : M.History}
       {==}

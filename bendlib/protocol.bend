@@ -5,6 +5,7 @@ import ./json.bend as J
 import ./tasks.bend as T
 import ./stdlib.bend as Std
 import ./operations.bend as Ops
+import ./results.bend as Results
 import ../UI.bend as UI
 
 # The other half of command meaning: an effect result is a message carrying a
@@ -15,8 +16,9 @@ type Event is Data:
   Ignore{}
   ModelResult{task: M.Task, outcome: M.Outcome, allowed: +List<String>}
   SummaryResult{task: M.Task, outcome: M.Outcome, resume: Bool}
-  ToolResult{task: M.Task, operation: M.Operation, value: J.Json, error: Bool}
+  ToolResult{task: M.Task, operation: M.Operation(), value: J.Json, error: Bool}
   HookResult{task: M.Task, outcome: M.HookOutcome}
+  AfterResult{task: M.Task, operation: M.Operation(), outcome: M.AfterOutcome}
   Settings{environment: M.Environment}
   Restart{}
   Tick{}
@@ -40,10 +42,26 @@ def model(found: Maybe<&2, M.Task>, ticket: Nat, outcome: M.Outcome) -> Event:
     case None{}: Ignore{}
     case Some{+task}: model_phase(M.task_status(task), M.task_phase(task), task, ticket, outcome)
 
-def tool_operation(found: Maybe<&2, M.Operation>, task: M.Task, value: J.Json, error: Bool) -> Event:
+def tool_operation(found: Maybe<&2, M.Operation()>, task: M.Task, value: J.Json, error: Bool) -> Event:
   match found:
     case None{}: Ignore{}
-    case Some{operation}: ToolResult{task, operation, value, error}
+    case Some{+operation}: matching(Ops.executing(Ops.stage(operation)), ToolResult{task, operation, value, error})
+
+def after_stage(stage: M.OperationStage, task: M.Task, operation: M.Operation(), ticket: Nat, outcome: M.AfterOutcome) -> Event:
+  match stage:
+    case M.Executing{}: Ignore{}
+    case M.ResultPending{expected, plugin, pending, value, error}:
+      matching(Nat.is_eq(ticket, expected), AfterResult{task, operation, outcome})
+
+def after_operation(found: Maybe<&2, M.Operation()>, task: M.Task, ticket: Nat, outcome: M.AfterOutcome) -> Event:
+  match found:
+    case None{}: Ignore{}
+    case Some{+operation}: after_stage(Ops.stage(operation), task, operation, ticket, outcome)
+
+def after(found: Maybe<&2, M.Task>, operation: Nat, ticket: Nat, outcome: M.AfterOutcome) -> Event:
+  match found:
+    case None{}: Ignore{}
+    case Some{+task}: after_operation(Ops.find(M.task_operations(task), operation), task, ticket, outcome)
 
 def tool_status(status: M.Status, +task: M.Task, ticket: Nat, value: J.Json, error: Bool) -> Event:
   match status:
@@ -74,6 +92,7 @@ def resolve(input: M.Input, +world: M.World) -> Event:
     case M.ModelCompleted{id, ticket, outcome}: model(T.find(Commands.entries(world), id), ticket, outcome)
     case M.ToolCompleted{id, ticket, value, error}: tool(T.find(Commands.entries(world), id), ticket, value, error)
     case M.HookCompleted{id, ticket, outcome}: hook(T.find(Commands.entries(world), id), ticket, outcome)
+    case M.AfterCompleted{id, operation, ticket, outcome}: after(T.find(Commands.entries(world), id), operation, ticket, outcome)
     case M.Configure{environment}: Settings{environment}
     case M.Recover{}: Restart{}
     case M.Continue{}: Tick{}
@@ -97,7 +116,9 @@ def meaning(event: Event, world: M.World) -> M.Decision:
     case SummaryResult{task, outcome, resume}:
       M.Decision{Commands.replace(T.summary_outcome(outcome, resume, task), world), acknowledgement(True{}), Nil{}}
     case ToolResult{task, operation, value, error}:
-      M.Decision{Commands.replace(T.complete_operation(operation, value, error, task), world), acknowledgement(True{}), Nil{}}
+      Results.begin(operation, value, error, task, world)
+    case AfterResult{task, +operation, outcome}:
+      Results.complete(Ops.stage(operation), outcome, operation, task, world)
     case HookResult{task, outcome}:
       M.Decision{Commands.replace(T.complete_hook(outcome, task), world), acknowledgement(True{}), Nil{}}
     case Settings{environment}:
@@ -147,18 +168,12 @@ def invocation(tool: M.Builtin, +arguments: J.Json, +task: M.Task, +world: M.Wor
       Internal{Commands.resolve(M.Cancel{number(arguments, "task_id", M.task_id(task)), number(arguments, "operation_id", 0n)}, world)}
     case _: Internal{Commands.Refuse{"internal_error", "External tools must cross the external-effect boundary"}}
 
-def finish_status(status: M.Status, task: M.Task) -> M.Task:
-  match status:
-    case M.Archived{}: M.with_phase(M.Idle{}, task)
-    case _: task
-
 def result(found: Maybe<&2, M.Task>, call: M.Call, remaining: +List<M.Attempt>, decision: M.Decision) -> M.Decision:
   match found:
     case None{}: decision
     case Some{+task}:
       M.Decision{world, +reply, effects} = decision
-      next = finish_status(M.task_status(task), T.complete_tool(call, remaining, reply, Bool.not(J.boolean(J.get(reply, "ok"))), task))
-      M.Decision{Commands.replace(next, world), J.Null{}, effects}
+      Results.attached(Results.internal(call, remaining, reply, Bool.not(J.boolean(J.get(reply, "ok"))), task, world), J.Null{}, effects)
 
 def finish(id: Nat, call: M.Call, remaining: +List<M.Attempt>, +decision: M.Decision) -> M.Decision:
   M.Decision{world, reply, effects} = decision
@@ -171,9 +186,16 @@ def branched(built: Commands.Children, call: M.Call, remaining: +List<M.Attempt>
   M.Decision{M.World{List.append(&2, M.Task, T.replace(tasks, caller), children), end, next_ticket, environment, limits},
     M.success(J.Object{[J.Field{"children", J.Array{Commands.identities(children)}}]}), Nil{}}
 
+def branched_invocation(built: Commands.Children, call: M.Call, remaining: +List<M.Attempt>, parent: M.Task, world: M.World) -> M.Decision:
+  Commands.Children{+children, end} = built
+  M.World{tasks, next_task, next_ticket, environment, limits} = world
+  Results.attached(Results.internal(call, remaining, J.nat(0n), False{}, parent,
+    M.World{List.append(&2, M.Task, tasks, children), end, next_ticket, environment, limits}),
+    M.success(J.Object{[J.Field{"children", J.Array{Commands.identities(children)}}]}), Nil{})
+
 def invoked(operation: Invocation, +call: M.Call, +remaining: +List<M.Attempt>, +task: M.Task, +world: M.World) -> M.Decision:
   match operation:
     case Internal{operation}: finish(M.task_id(task), call, remaining, Commands.meaning(operation, world))
     case Branch{count, texts}:
       M.World{tasks, next_task, next_ticket, environment, limits} = world
-      branched(Commands.children(count, next_task, 1n, task, T.call_id(call), remaining, texts), call, remaining, task, world)
+      branched_invocation(Commands.children(count, next_task, 1n, task, T.call_id(call), remaining, texts), call, remaining, task, world)

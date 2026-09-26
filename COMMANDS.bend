@@ -15,7 +15,7 @@ type Operation is Data:
   Start{profile: M.Profile, reasoning: String, message: String}
   Deliver{task: M.Task, message: String}
   Steer{task: M.Task, message: String}
-  Cancel{task: M.Task, operation: M.Operation}
+  Cancel{task: M.Task, operation: M.Operation()}
   Control{task: M.Task, request: M.Control, next: M.Status}
   Branch{parent: M.Task, count: Nat, messages: +List<String>}
   Summarize{task: M.Task}
@@ -60,7 +60,7 @@ def steering(found: Maybe<&2, M.Task>, +message: String) -> Operation:
       require(M.nonempty(message) && M.accepts_input(M.task_status(task)), Steer{task, message},
         "invalid_arguments", "Steering requires a nonempty instruction and a nonarchived task")
 
-def cancellable(found: Maybe<&2, M.Operation>, +task: M.Task) -> Operation:
+def cancellable(found: Maybe<&2, M.Operation()>, +task: M.Task) -> Operation:
   match found:
     case None{}: Refuse{"operation_not_found", "The operation is not in flight for this task"}
     case Some{operation}:
@@ -254,7 +254,7 @@ def meaning(operation: Operation, +world: M.World) -> M.Decision:
     case Cancel{+task, +operation}:
       M.Decision{replace(T.promote(Ops.cancelled(operation, task)), world),
         M.success(J.Object{[J.Field{"task_id", J.nat(M.task_id(task))}, J.Field{"operation_id", J.nat(Ops.ticket(operation))}]}),
-        [M.CancelTicket{M.task_id(task), Ops.ticket(operation)}]}
+        [M.CancelTicket{M.task_id(task), Ops.callback(operation)}]}
     case Control{task, request, next}: lifecycle(request, next, task, world)
     case Branch{task, count, messages}: branch(task, count, messages, world)
     case Summarize{task}: summarize(task, world)

@@ -6,7 +6,6 @@ import ../theory.bend as Theory
 import ../stdlib.bend as Std
 import ../../INVARIANTS.bend as I
 import ../commit.bend as Commit
-import ../structures.bend as S
 import ../architecture.bend as Concepts
 import ../execution.bend as Execution
 import ../traces.bend as Traces
@@ -49,7 +48,7 @@ def trace_cons(+input: M.Input, +rest: +List<M.Input>, induction: TraceInterpret
     Transcript.state(Traces.actual(count, Traces.implementation(tape))), P.replay(input <> rest, world),
     Equal.cong(Transcript.Tape, M.World, Transcript.state,
       Traces.actual(1n+count, tape), Traces.actual(count, Traces.implementation(tape)),
-      S.iteration_shift(~Transcript.Tape, ~Traces.implementation, count, tape)),
+      Std.iter_swap_gen(~Transcript.Tape, ~Transcript.Tape, ~Traces.implementation, ~Traces.implementation, ~Traces.implementation, ~(tape => {==}), count, tape)),
     induction(P.next(world, input), P.transition(input, world) <> receipts))
 
 def Laws.trace_interpretation(events, world):
@@ -69,16 +68,14 @@ def Laws.replay_preserves_world(events, world, evidence):
   Equal.trans(Bool, I.world(P.replay(events, world)), I.world(Traces.replay(events, world)), True{},
     Equal.cong(M.World, Bool, I.world, P.replay(events, world), Traces.replay(events, world),
       Equal.sym(M.World, Traces.replay(events, world), P.replay(events, world), Laws.trace_interpretation(events, world))),
-    S.iteration_safe(~Transcript.Tape, ~Traces.implementation, ~Transcript.valid,
-      ~(tape => evidence => trace_preserves(tape, evidence)), tape, evidence, count))
+    Std.iter_ind(~Transcript.Tape, ~Traces.implementation, ~(count => tape => {Transcript.valid(tape) == True{} : Bool}),
+      ~(count => tape => evidence => trace_preserves(tape, evidence)), tape, evidence, count))
 
 def Laws.history_append_composition(first, second, history):
-  S.action_composition(M.History, +List<M.Message>, Nil{}, S.append(M.Message), S.act(~M.History, ~M.Message, ~M.history_step),
-    Concepts.history(), history, first, second)
+  Std.fold_left_app(~M.History, ~M.Message, ~M.history_step, first, second, history)
 
 def Laws.replay_composition(first, second, world):
-  S.action_composition(M.World, +List<M.Input>, Nil{}, S.append(M.Input), S.act(~M.World, ~M.Input, ~P.next),
-    Concepts.journal(), world, first, second)
+  Std.fold_left_app(~M.World, ~M.Input, ~P.next, first, second, world)
 
 def Laws.replay_empty(world):
   {==}

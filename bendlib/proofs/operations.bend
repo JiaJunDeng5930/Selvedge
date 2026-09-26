@@ -6,81 +6,37 @@ import ../operations.bend as Ops
 import ../tasks.bend as T
 import ../json.bend as J
 import ../stdlib.bend as Std
-import ../structures.bend as S
+import ../association-map.bend as Finite
 
-# Application correspondence for the operation map. Standard Boolean join and
-# fold/iteration laws are imported, not re-established by local proof search.
-def choice_correspondence(same: Bool, operation: M.Operation, rest: Maybe<&2, M.Operation>) ->
-  {Ops.chosen(same, operation, rest) == S.lookup_choice(M.Operation, same, operation, rest) : Maybe<&2, M.Operation>}:
-  match same:
-    case True{}: {==}
-    case False{}: {==}
-
-def lookup_binding(+operation: M.Operation, +rest: +List<M.Operation>, +id: Nat) ->
-  {Ops.find(operation <> rest, id) == S.lookup_choice(M.Operation, Nat.is_eq(Ops.ticket(operation), id), operation, Ops.find(rest, id)) : Maybe<&2, M.Operation>}:
-  choice_correspondence(Nat.is_eq(Ops.ticket(operation), id), operation, Ops.find(rest, id))
-
-def retention_correspondence(same: Bool, operation: M.Operation, rest: +List<M.Operation>) ->
-  {Ops.retained(same, operation, rest) == S.keep_unmatched(M.Operation, same, operation, rest) : +List<M.Operation>}:
-  match same:
-    case True{}: {==}
-    case False{}: {==}
-
-def erase_binding(+operation: M.Operation, +rest: +List<M.Operation>, +id: Nat) ->
-  {Ops.remove(operation <> rest, id) == S.keep_unmatched(M.Operation, Nat.is_eq(Ops.ticket(operation), id), operation, Ops.remove(rest, id)) : +List<M.Operation>}:
-  retention_correspondence(Nat.is_eq(Ops.ticket(operation), id), operation, Ops.remove(rest, id))
-
-def Consumed(entries: +List<M.Operation>) -> Type:
-  @id:Nat -> {Ops.find(Ops.remove(entries, id), id) == None{} : Maybe<&2, M.Operation>}
-
-def consume_empty(id: Nat) -> {Ops.find(Ops.remove(Nil{}, id), id) == None{} : Maybe<&2, M.Operation>}:
-  {==}
-
-def consume_choice(+same: Bool, +operation: M.Operation, +rest: +List<M.Operation>, +id: Nat,
-  equality: {Nat.is_eq(Ops.ticket(operation), id) == same : Bool},
-  induction: {Ops.find(Ops.remove(rest, id), id) == None{} : Maybe<&2, M.Operation>}) ->
-  {Ops.find(Ops.retained(same, operation, Ops.remove(rest, id)), id) == None{} : Maybe<&2, M.Operation>}:
-  match same:
-    case True{}: induction
-    case False{}:
-      Equal.trans(Maybe<&2, M.Operation>,
-        Ops.find(operation <> Ops.remove(rest, id), id), Ops.find(Ops.remove(rest, id), id), None{},
-        Equal.cong(Bool, Maybe<&2, M.Operation>, (same => Ops.chosen(same, operation, Ops.find(Ops.remove(rest, id), id))),
-          Nat.is_eq(Ops.ticket(operation), id), False{}, equality), induction)
-
-def consume_step(+operation: M.Operation, +rest: +List<M.Operation>, induction: Consumed(rest), +id: Nat) ->
-  {Ops.find(Ops.remove(operation <> rest, id), id) == None{} : Maybe<&2, M.Operation>}:
-  consume_choice(Nat.is_eq(Ops.ticket(operation), id), operation, rest, id, {==}, induction(id))
-
-def consumed(entries: +List<M.Operation>, id: Nat) ->
-  {Ops.find(Ops.remove(entries, id), id) == None{} : Maybe<&2, M.Operation>}:
-  Std.list_ind(~M.Operation, ~Consumed, ~consume_empty,
-    ~(operation => rest => induction => id => consume_step(operation, rest, induction, id)), entries)(id)
-
+# Stable operation identity is the association-list key. The project proves
+# only the value adapter; deletion absence is the original ExtLib theorem.
 def A.operation_rights():
-  S.AssociationMap{(id => {==}), (operation => rest => id => lookup_binding(operation, rest, id)),
-    (id => {==}), (operation => rest => id => erase_binding(operation, rest, id)),
-    (entries => id => consumed(entries, id))}
+  A.OperationRights{
+    (operations => id => {==}),
+    (operations => id => {==}),
+    (+operations => +id => Equal.cong(Maybe<&2, M.OperationBody>, Maybe<&2, M.Operation()>,
+      (found => Ops.binding(found, id)), Finite.find(~M.OperationBody, Finite.remove(~M.OperationBody, operations, id), id),
+      None{}, Finite.removal_absence(~M.OperationBody, operations, id)))}
 
-def announce_projection(operation: M.Operation) ->
-  {Ops.announce(Ops.announce(operation)) == Ops.announce(operation) : M.Operation}:
-  M.Operation{ticket, call, announced} = operation
+def announce_projection(operation: M.Operation()) ->
+  {Ops.announce(Ops.announce(operation)) == Ops.announce(operation) : M.Operation()}:
+  (ticket, M.OperationBody{call, announced, stage}) = operation
   {==}
 
-def announce_ticket(+operation: M.Operation) -> {Ops.ticket(Ops.announce(operation)) == Ops.ticket(operation) : Nat}:
-  M.Operation{ticket, call, announced} = operation
+def announce_ticket(+operation: M.Operation()) -> {Ops.ticket(Ops.announce(operation)) == Ops.ticket(operation) : Nat}:
+  (ticket, M.OperationBody{call, announced, stage}) = operation
   {==}
 
-def announce_call(+operation: M.Operation) -> {Ops.call(Ops.announce(operation)) == Ops.call(operation) : M.Call}:
-  M.Operation{ticket, call, announced} = operation
+def announce_call(+operation: M.Operation()) -> {Ops.call(Ops.announce(operation)) == Ops.call(operation) : M.Call}:
+  (ticket, M.OperationBody{call, announced, stage}) = operation
   {==}
 
-def announce_status(operation: M.Operation) -> {Ops.announced(Ops.announce(operation)) == True{} : Bool}:
-  M.Operation{ticket, call, announced} = operation
+def announce_status(operation: M.Operation()) -> {Ops.announced(Ops.announce(operation)) == True{} : Bool}:
+  (ticket, M.OperationBody{call, announced, stage}) = operation
   {==}
 
 def A.announcement():
-  A.Announcement{S.Projection{(operation => announce_projection(operation))},
+  A.Announcement{(operation => announce_projection(operation)),
     (operation => announce_ticket(operation)), (operation => announce_call(operation)),
     (operation => announce_status(operation))}
 
@@ -98,26 +54,26 @@ def notification_consumed(task: M.Task) -> {M.task_notified(Ops.publish(task)) =
   {==}
 
 def A.notifications():
-  A.Notifications{S.boolean_join(), (task => notification_join(task)),
+  A.Notifications{ (task => notification_join(task)),
     (task => notification_sticky(task)), (task => notification_consumed(task))}
 
-def settlement_phase(operation: M.Operation, value: J.Json, error: Bool, +task: M.Task) ->
+def settlement_phase(operation: M.Operation(), value: J.Json, error: Bool, +task: M.Task) ->
   {M.task_phase(Ops.completed(operation, value, error, task)) == M.wake_phase(M.task_phase(task)) : M.Phase}:
   M.Task{id, lineage, contract, status, history, queued, phase, operations, notified} = task
   {==}
 
-def settlement_rights(+operation: M.Operation, value: J.Json, error: Bool, +task: M.Task) ->
-  {M.task_operations(Ops.completed(operation, value, error, task)) == Ops.remove(M.task_operations(task), Ops.ticket(operation)) : +List<M.Operation>}:
+def settlement_rights(+operation: M.Operation(), value: J.Json, error: Bool, +task: M.Task) ->
+  {M.task_operations(Ops.completed(operation, value, error, task)) == Ops.remove(M.task_operations(task), Ops.ticket(operation)) : +List<M.Operation()>}:
   M.Task{id, lineage, contract, status, history, queued, phase, operations, notified} = task
   {==}
 
-def settlement_notifies(+operation: M.Operation, value: J.Json, error: Bool, +task: M.Task) ->
+def settlement_notifies(+operation: M.Operation(), value: J.Json, error: Bool, +task: M.Task) ->
   {M.task_notified(Ops.completed(operation, value, error, task)) == True{} : Bool}:
   notification_sticky(M.with_operations(Ops.remove(M.task_operations(task), Ops.ticket(operation)),
     M.append_message(Ops.result(operation, value, error), task)))
 
 def steering_rights(message: String, +task: M.Task) ->
-  {M.task_operations(T.steer(message, task)) == M.task_operations(task) : +List<M.Operation>}:
+  {M.task_operations(T.steer(message, task)) == M.task_operations(task) : +List<M.Operation()>}:
   M.Task{id, lineage, contract, status, history, queued, phase, operations, notified} = task
   {==}
 
@@ -126,29 +82,29 @@ def steering_queue(message: String, +task: M.Task) ->
   M.Task{id, lineage, contract, status, history, queued, phase, operations, notified} = task
   {==}
 
-def abandonment(task: M.Task) -> {M.task_operations(Ops.abandoned(task)) == Nil{} : +List<M.Operation>}:
+def abandonment(task: M.Task) -> {M.task_operations(Ops.abandoned(task)) == Nil{} : +List<M.Operation()>}:
   M.Task{id, lineage, contract, status, history, queued, phase, operations, notified} = task
   {==}
 
 def publication(+task: M.Task) ->
-  {M.task_operations(Ops.publish(task)) == Std.map(~M.Operation, ~M.Operation, ~Ops.announce, M.task_operations(task)) : +List<M.Operation>}:
+  {M.task_operations(Ops.publish(task)) == Std.map(~M.Operation(), ~M.Operation(), ~Ops.announce, M.task_operations(task)) : +List<M.Operation()>}:
   M.Task{id, lineage, contract, status, history, queued, phase, operations, notified} = task
   {==}
 
 def final_output(ticket: Nat, +call: M.Call, +value: J.Json, +error: Bool) ->
-  {Ops.result(M.Operation{ticket, call, False{}}, value, error) == M.FunctionOutput{T.call_id(call), value, error} : M.Message}:
+  {Ops.result((ticket, M.OperationBody{call, False{}, M.Executing{}}), value, error) == M.FunctionOutput{T.call_id(call), value, error} : M.Message}:
   M.Call{id, name, arguments} = call
   {==}
 
-def later_output(+operation: M.Operation, +value: J.Json, +error: Bool) ->
+def later_output(+operation: M.Operation(), +value: J.Json, +error: Bool) ->
   {Ops.result(Ops.announce(operation), value, error) ==
     M.OperationResult{Ops.ticket(operation), T.call_id(Ops.call(operation)), T.call_name(Ops.call(operation)), value, error} : M.Message}:
-  M.Operation{ticket, M.Call{id, name, arguments}, announced} = operation
+  (ticket, M.OperationBody{M.Call{id, name, arguments}, announced, stage}) = operation
   {==}
 
 def pending_model(id: Nat, lineage: +List<Nat>, contract: M.Contract, status: M.Status,
-  history: M.History, queued: +List<String>, +ticket: Nat, +allowed: +List<String>, operations: +List<M.Operation>,
-  notified: Bool, operation: M.Operation, value: J.Json, error: Bool) ->
+  history: M.History, queued: +List<String>, +ticket: Nat, +allowed: +List<String>, operations: +List<M.Operation()>,
+  notified: Bool, operation: M.Operation(), value: J.Json, error: Bool) ->
   {M.task_phase(T.complete_operation(operation, value, error,
     M.Task{id, lineage, contract, status, history, queued, M.ModelPending{ticket, allowed}, operations, notified})) ==
     M.ModelPending{ticket, allowed} : M.Phase}:

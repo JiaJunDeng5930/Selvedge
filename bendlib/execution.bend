@@ -64,13 +64,19 @@ def external_capacity(available: Bool, tool: M.Tool, call: M.Call, remaining: +L
     case True{}: External{tool, call, remaining, task}
     case False{}: Failure{"operation_limit", "This task has reached its in-flight operation limit; wait for results or cancel an operation", call, remaining, task}
 
+def internal_capacity(available: Bool, builtin: M.Builtin, +call: M.Call, remaining: +List<M.Attempt>, +task: M.Task, world: M.World) -> Action:
+  match available:
+    case True{}: Internal{Protocol.invocation(builtin, T.call_arguments(call), task, world), call, remaining, task}
+    case False{}: Failure{"operation_limit", "This task has reached its result-processing operation limit; wait for results or cancel an operation", call, remaining, task}
+
 def classified(execution: M.Execution, source: M.Source, tool: M.Tool, +call: M.Call,
   remaining: +List<M.Attempt>, +task: M.Task, world: M.World) -> Action:
   match execution source:
     case M.ExternalMutation{} _:
-      external_capacity(Nat.is_lt(List.length(&2, M.Operation, M.task_operations(task)), M.operation_limit()), tool, call, remaining, task)
+      external_capacity(Nat.is_lt(List.length(&2, M.Operation(), M.task_operations(task)), M.operation_limit()), tool, call, remaining, task)
     case M.InternalOperation{} M.Harness{builtin}:
-      Internal{Protocol.invocation(builtin, T.call_arguments(call), task, world), call, remaining, task}
+      internal_capacity(Nat.is_eq(List.length(&2, M.PluginRef, Hooks.after(Hooks.plugins(M.task_contract(task)))), 0n) ||
+        Nat.is_lt(List.length(&2, M.Operation(), M.task_operations(task)), M.operation_limit()), builtin, call, remaining, task, world)
     case _ _:
       Failure{"internal_error", "Invalid internal tool classification", call, remaining, task}
 

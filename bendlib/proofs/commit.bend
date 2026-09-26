@@ -106,6 +106,7 @@ def Laws.interaction_transition(input, world):
     case M.ModelCompleted{id, ticket, outcome}: updated_input_semantics(M.ModelCompleted{id, ticket, outcome}, world)
     case M.ToolCompleted{id, ticket, value, error}: updated_input_semantics(M.ToolCompleted{id, ticket, value, error}, world)
     case M.HookCompleted{id, ticket, outcome}: updated_input_semantics(M.HookCompleted{id, ticket, outcome}, world)
+    case M.AfterCompleted{id, operation, ticket, outcome}: updated_input_semantics(M.AfterCompleted{id, operation, ticket, outcome}, world)
     case M.Configure{environment}: updated_input_semantics(M.Configure{environment}, world)
     case M.Recover{}: updated_input_semantics(M.Recover{}, world)
     case M.Continue{}: updated_input_semantics(M.Continue{}, world)
