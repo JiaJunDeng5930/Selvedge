@@ -114,7 +114,7 @@ test('functional proof gates reject type-correct no-ops, wrong replies, missing 
       'reject(previous, "invariant_violation", "The candidate violates a world invariant, task retention, or effect authority")')],
     ['publish oversized decisions', source => replaceBody(source, 'output_admitted', 'decision')],
     ['claim successful tool settlement without appending it', source => alterDefinition(source, 'tool_matched', block =>
-      replaceOnce(block, 'respond(store(T.complete_operation(operation, value, error, task), world), accepted(True{}))',
+      replaceOnce(block, 'Results.begin(operation, value, error, task, world)',
         'respond(world, accepted(True{}))'))],
     ['silently discard every resolved input', source => replaceBody(source, 'realize_event', 'respond(world, J.Null{})')],
     ['claim acceptance of an ignored completion', source => replaceOnce(source,
@@ -124,8 +124,8 @@ test('functional proof gates reject type-correct no-ops, wrong replies, missing 
       replaceOnce(block, 'Protocol.recovery(tasks)', 'tasks'))],
     ['execute an internal command without settling its caller', source => alterDefinition(source, 'realize_invocation', block =>
       replaceOnce(block, 'finish_internal(M.task_id(task), call, remaining, realize(operation, world))', 'realize(operation, world)'))],
-    ['lose accepted calls after an internal fork', source => alterDefinition(source, 'commit_fork', block =>
-      replaceOnce(block, 'M.Ready{remaining}', 'M.Ready{Nil{}}'))],
+    ['lose accepted calls after an internal fork', source => alterDefinition(source, 'commit_invoked_fork', block =>
+      replaceOnce(block, 'Results.internal(call, remaining,', 'Results.internal(call, Nil{},'))],
     ['strand new FIFO input after summary failure', source => alterDefinition(source, 'summary_failure', block =>
       replaceOnce(block, 'promote(M.with_phase(M.Idle{}, M.append_message(M.FailureMessage{message}, task)))',
         'M.with_phase(M.Idle{}, M.append_message(M.FailureMessage{message}, task))')), 'bendlib/tasks.bend'],

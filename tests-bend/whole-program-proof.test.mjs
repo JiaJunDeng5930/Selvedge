@@ -49,20 +49,33 @@ test('whole-program proofs reject type-correct loss of input, durability, receip
     ['bendlib/traces.bend', 'Spec.record(P.transition(input, world), pending, receipts)', 'Spec.record(P.transition(input, world), pending, Nil{})', /trace_step/],
     ['bendlib/traces.bend', 'Std.iter(~Spec.Tape, ~implementation, count, tape)', 'Std.iter(~Spec.Tape, ~implementation, 0n, tape)', /trace_refinement|trace_partition|trace_interpretation/],
     ['PROGRAM.bend', 'Theory.replay(~M.World, ~M.Input, ~next, events, world)', 'Theory.replay(~M.World, ~M.Input, ~next, Nil{}, world)', /trace_interpretation|trace_cons/],
-    ['bendlib/operations.bend', 'case False{}: operation <> rest', 'case False{}: rest', /retention_correspondence|erase_binding/],
-    ['bendlib/operations.bend', 'chosen(Nat.is_eq(ticket(operation), id), operation, find(rest, id))', 'find(rest, id)', /lookup_binding/],
+    ['bendlib/operations.bend', 'Finite.remove(~M.OperationBody, operations, id)', 'Nil{}', /operation_rights/],
+    ['bendlib/operations.bend', 'binding(Finite.find(~M.OperationBody, operations, id), id)', 'None{}', /operation_rights/],
     ['MODEL.bend', 'with_notified(Bool.or(task_notified(task), True{}), with_phase(wake_phase(task_phase(task)), task))',
       'with_notified(False{}, with_phase(wake_phase(task_phase(task)), task))', /notification_join|notification_sticky/],
-    ['bendlib/operations.bend', 'M.Operation{ticket, call, True{}}', 'M.Operation{0n, call, True{}}', /announce_ticket/],
+    ['bendlib/operations.bend', '(ticket, M.OperationBody{call, True{}, stage})', '(0n, M.OperationBody{call, True{}, stage})', /announce_ticket/],
     ['bendlib/operations.bend', 'with_notified(False{}, M.with_operations(Std.map(', 'with_notified(True{}, M.with_operations(Std.map(', /notification_consumed/],
     ['bendlib/operations.bend', 'case True{}: M.OperationResult{ticket, id, name, value, error}',
       'case True{}: M.FunctionOutput{id, value, error}', /later_output/],
     ['bendlib/tasks.bend', 'promote(Ops.completed(operation, value, error, task))',
       'promote(M.with_phase(M.Idle{}, Ops.completed(operation, value, error, task)))', /pending_model/],
+    ['bendlib/results.bend', 'received(Hooks.after(Hooks.plugins(M.task_contract(task))), operation, value, error, task, world)',
+      'finished(operation, value, error, task, world)', /result_boundary/],
+    ['bendlib/results.bend', 'internal_chain(Hooks.after(Hooks.plugins(M.task_contract(task))), call, remaining, value, error, task, world)',
+      'internal_chain(Nil{}, call, remaining, value, error, task, world)', /result_boundary/],
+    ['bendlib/results.bend', 'T.complete_operation(operation, value, error, task)', 'task', /result_boundary/],
+    ['bendlib/results.bend', 'complete_action(Hooks.result_action(outcome, value, error), pending, operation,',
+      'complete_action(Hooks.result_action(outcome, value, False{}), pending, operation,', /result_boundary/],
+    ['HOOKS.bend', 'case M.RewriteResult{rewritten}: ResultValue{rewritten, error}',
+      'case M.RewriteResult{rewritten}: ResultValue{rewritten, False{}}', /result_boundary/],
+    ['MODEL.bend', 'case ToolReceipt{owner, operation, call, value, error}: previous',
+      'case ToolReceipt{owner, operation, call, value, error}: HistoryNode{previous, ToolReceipt{owner, operation, call, value, error}}', /result_boundary|project_node_idempotent/],
+    ['bendlib/protocol.bend', 'matching(Ops.executing(Ops.stage(operation)), ToolResult{task, operation, value, error})',
+      'ToolResult{task, operation, value, error}', /result_boundary/],
   ]) {
     const target = path.join(directory, filename);
     const original = await readFile(target, 'utf8');
-    assert.equal(original.split(before).length, 2);
+    assert.equal(original.split(before).length, 2, `${filename}: missing or ambiguous mutation anchor ${before}`);
     try {
       await writeFile(target, original.replace(before, after));
       // Use the production root for relative-module identity. Checking a nested
