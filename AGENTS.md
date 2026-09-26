@@ -12,10 +12,11 @@ This file is for coding agents working in this repository.
 
 - Start at CONCEPTS.Harness, COMMANDS, and MODEL. Read INVARIANTS and LAWS before changing behavior; PROGRAM realizes the resolved operations and executes the bounded transition.
 - Public command preconditions belong in COMMANDS.resolve; completion correlation and accepted-call resolution belong in bendlib/protocol. A change must retain complete-decision, invocation and input-wide committed refinement, not merely state safety. Keep rejection distinct from an already accepted tool's error result.
-- Standard algebra comes from the quoted certificates in theory, checked through bendlib/stdlib and packaged by bendlib/structures. Do not hand-reprove a standard theorem already available through that bridge or edit generated certificates.
+- Choose meaningful existing theory representations before introducing domain abstractions. Use the quoted list, iterator, relation and association-map definitions/theorems directly; keep only domain correspondence and necessary premises local. Do not rebuild a parallel general algebra hierarchy, hand-reprove imported results, or edit generated certificates. Account for bridge cost separately from removed application proof maintenance.
 - Requirements belong in executable definitions and propositions. Do not maintain duplicate lifecycle tables or state-machine diagrams in documentation.
 - PROOF must discharge the production laws. Never replace a proof with an axiom, a hole, or unchecked recursion, or weaken a requirement solely to pass a check.
 - The host interprets committed effects. Keep task policy in Bend and verify host ordering through integration tests.
+- Internal semantics belong to proofs; compiler and external component boundaries belong to focused tests; cross-boundary behavior belongs to end-to-end tests. Remove finite semantic replay tests only after checking their actual proof coverage. Keep independent proof/certificate mutation tests. The evidence map is tests-bend/README.md.
 - Record architecture reasons in an ADR and exploration-specific findings in `docs/bend2-exploration.md`.
 
 ## Git Hooks

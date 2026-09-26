@@ -11,8 +11,9 @@ demonstration, not a coding model or summarizer.
 Start with `Harness` in [CONCEPTS.bend](CONCEPTS.bend): a proof-carrying program
 object organized by meaning, composition, recovery and observation. It contains
 no implementation functions. `bendlib/architecture.bend` binds these concepts to
-the exact production operations, with proof-carrying simulation, journal actions,
-recovery homomorphisms and projections rather than a separate architecture model.
+the exact production operations and existing list, finite-map, iteration and
+relation theories. The entry carries the domain correspondence and required
+premises, not a parallel hierarchy of project-owned general algebra.
 
 [COMMANDS.bend](COMMANDS.bend) states what every command means. Its resolver owns
 the preconditions and produces an operation whose meaning fixes the complete
@@ -50,6 +51,12 @@ macro-step flattening, simulation and safety. Its carrier retains full decision
 receipts and is proved to correspond to the actual journal and finite executor.
 The project supplies one-step and representation obligations, not another copy
 of the generic path theory. The theory inventory is generated and checked.
+Operation ownership is a standard association-list binding: the stable operation
+identity is the key, while invocation and execution/result stage are the value.
+Lookup, removal and removal-absence evidence come from the original ExtLib
+`FMapAList` definitions and proof. Product projections express separation of task
+control and operation rights; only the domain update/dispatch correspondence is
+local. Batch and trace consumers instantiate original library theorems directly.
 Command descriptions, validation schemas, lifecycle controls, and client forms
 derive from the executable definitions. [host/README.md](host/README.md) describes
 the operating-system boundary; [bendlib/README.md](bendlib/README.md) locates support.
@@ -67,6 +74,11 @@ to reinterpret the domain and are not implemented in this checkout.
 
 [HOOKS.bend](HOOKS.bend) is the unified extension entry. All accepted model tools,
 including internal task operations, pass through its ordered before-tool protocol.
+The symmetric `afterTool` protocol processes committed execution results with
+allow/rewrite/deny decisions. It preserves original call and error identity,
+retains an audit receipt, and owns independent cancellable callback tickets.
+Processed results enter the default model context; raw receipts remain available
+through authorized history reads. See [the plugin protocol](docs/plugins.md).
 Plugins can register tools, inspect/rewrite/deny arguments and receive native
 post-commit lifecycle events. Original calls and task-bound authorization records
 remain distinct; callbacks never acquire permission by inheriting history.

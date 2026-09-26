@@ -17,10 +17,13 @@ The commit hook checks proofs, syntax, and the tracked-file index; the push hook
 runs native integration tests. `just check` runs the same checks, and `just hooks`
 executes the configured hook stages. CI covers macOS and Linux.
 
-Use existing tests where they verify the changed contract. Add an independent
-behavioral test when new behavior or a reproduced failure needs evidence. A
-successful test is not a proof about all states; a successful Bend proof is not
-evidence that a host or remote provider follows the model.
+Use proofs for internal semantics, component tests for external boundaries and
+end-to-end tests for their combinations. The ownership map is
+`tests-bend/README.md`. Do not add finite-example tests that only repeat a proven
+state transition; do retain compiler/protocol probes with a concrete fault model
+and independent negative tests of the proof infrastructure. Unproved behavior
+still needs evidence. A successful Bend proof is not evidence that a host,
+compiler or remote provider follows the model.
 
 After adding, renaming, or removing files, stage them, run `npm run index`, and
 stage `AGENTS.md`. The index is derived from Git's staged tracked paths. Temporary
