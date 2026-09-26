@@ -2,6 +2,7 @@ import { readFile, access } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import { validPluginName } from './plugins.mjs';
+import { defaultChatGPTAccount, modelsURL } from './chatgpt-contract.mjs';
 
 export const format = 'selvedge-bend-config-1';
 export const defaultConfig = {
@@ -26,10 +27,25 @@ function endpoint(value, label) {
   if (url.protocol !== 'https:' && !['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)) throw new TypeError(`${label} requires HTTPS except on loopback`);
 }
 
+export function accountConfig(value = {}) {
+  object(value, 'ChatGPT account', ['provider', 'endpoint', 'auth_file', 'issuer', 'client_id', 'timeout_ms']);
+  const account = { ...defaultChatGPTAccount, ...value };
+  if (account.provider !== 'chatgpt') throw new TypeError('The account provider must be chatgpt');
+  endpoint(account.endpoint, 'ChatGPT endpoint');
+  modelsURL(account.endpoint);
+  endpoint(account.issuer, 'ChatGPT issuer');
+  text(account.auth_file, 'ChatGPT auth_file');
+  text(account.client_id, 'ChatGPT client_id');
+  number(account.timeout_ms, 'ChatGPT timeout', 100, 1_800_000);
+  account.issuer = account.issuer.replace(/\/+$/, '');
+  return Object.freeze(account);
+}
+
 export function validateConfig(value) {
-  object(value, 'configuration', ['format', 'host', 'port', 'max_fork', 'max_descendants', 'profiles', 'mcp', 'plugins']);
+  object(value, 'configuration', ['format', 'host', 'port', 'max_fork', 'max_descendants', 'profiles', 'chatgpt', 'mcp', 'plugins']);
   if (value.format !== format) throw new Error('The configuration is not in the current Bend format');
   const config = { ...defaultConfig, ...value };
+  config.chatgpt = value.chatgpt === false ? false : accountConfig(value.chatgpt);
   if (!['127.0.0.1', '::1'].includes(config.host)) throw new TypeError('The local server requires a loopback address');
   number(config.port, 'port', 0, 65535);
   number(config.max_fork, 'max_fork', 1, 0xffffffff);

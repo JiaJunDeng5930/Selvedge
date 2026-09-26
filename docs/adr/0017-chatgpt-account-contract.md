@@ -18,6 +18,11 @@ Source anchors in https://github.com/openai/codex/tree/rust-v0.157.1/codex-rs:
   remain replayable without also synthesizing a duplicate assistant message.
 - `codex-api/src/endpoint/models.rs`: the account catalog is `GET models` with
   `client_version`, using the same bearer credential and account header.
+  `protocol/src/openai_models.rs` defines `models`, visibility (`list`, `hide`,
+  `none`), priorities and reasoning capabilities. Subscription models are not
+  filtered by `supported_in_api`. `models-manager/src/manager.rs` sorts priorities
+  ascending. The host keeps connection settings separate from discovered model
+  descriptors and binds generated profile identities to both account and route.
 - `core/src/compact_remote_v2_attempt.rs`, `compact_remote_v2.rs`, and
   `protocol/src/models.rs`: this release requests remote compaction on the
   Responses stream by appending `{"type":"compaction_trigger"}`. A successful
@@ -29,3 +34,10 @@ native retry budget. One rejected-token refresh is allowed. Redirects are
 refused, bodies are bounded, and upstream error text is not persisted as a task
 diagnostic. A local fixture is evidence about this adapter, not a live account's
 entitlements, remote availability, or the meaning of encrypted compaction.
+
+The model cache contains no tokens. It is valid only for its original account,
+connection and audited client version. A fresh cache lasts five minutes; a
+transient upstream failure can use matching data up to 24 hours old. Malformed
+catalogs, permanent errors and account changes do not authorize stale fallback.
+An explicit login/refresh fails visibly instead of using stale data. Credential
+refresh remains serialized separately from model discovery.

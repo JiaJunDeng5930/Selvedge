@@ -8,6 +8,7 @@ import { runBash } from './process.mjs';
 import { snapshotProject } from './project.mjs';
 import { requestModel, ContextLimitError } from './providers.mjs';
 import { profileCatalog } from './config.mjs';
+import { withAccountModels } from './chatgpt-models.mjs';
 
 /** Interpret committed effects. No task lifecycle or recovery policy lives here. */
 export class Service extends EventEmitter {
@@ -24,12 +25,17 @@ export class Service extends EventEmitter {
 
   static async open({ home, config, cwd = process.cwd(), journalOptions } = {}) {
     const service = new Service();
-    Object.assign(service, { home, config, cwd: await realpath(cwd) });
+    Object.assign(service, { home, config, declaredConfig: config, cwd: await realpath(cwd) });
     try {
       service.journal = await Journal.open(path.join(home, 'journal.sqlite'), { ...journalOptions, cwd: service.cwd });
       service.description = service.journal.description;
       service.limits = service.description.limits;
       service.project = await snapshotProject(service.cwd, service.limits);
+      const discovered = await withAccountModels(config, home, {
+        onDiagnostic: message => service.notify({ type: 'diagnostic', message }),
+      });
+      service.config = discovered.config;
+      service.accounts = discovered.accounts;
       service.journal.on('commit', decision => {
         service.notify({ type: 'commit', sequence: decision.sequence });
         let ordinal = 0;
@@ -222,6 +228,23 @@ export class Service extends EventEmitter {
     if (this.#failure) return Promise.reject(this.#failure);
     if (this.#closing) return Promise.reject(new Error('Service is stopping'));
     return this.journal.execute({ kind: 'command', command });
+  }
+
+  refreshAccounts() {
+    const next = this.#catalogTail.then(async () => {
+      if (this.#closing || this.#failure) throw new Error('Service is unavailable');
+      const discovered = await withAccountModels(this.declaredConfig, this.home, { force: true });
+      if (this.#closing || this.#failure) throw new Error('Service is unavailable');
+      const previous = this.config;
+      this.config = discovered.config;
+      try { await this.#configure(); }
+      catch (error) { this.config = previous; throw error; }
+      this.accounts = discovered.accounts;
+      return { accounts: this.accounts, profiles: profileCatalog(this.config) };
+    });
+    // A failed external catalog refresh does not kill a healthy native world.
+    this.#catalogTail = next.catch(() => {});
+    return next;
   }
 
   presentation({ state = null, event } = {}) {

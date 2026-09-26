@@ -20,6 +20,15 @@ notifications during shutdown, and suppression of effects withdrawn within a
 commit. Credential parsing errors must not quote file contents into task history.
 Use `npm test` to run these checks; they require no real credentials or model calls.
 
+`chatgpt-contract.mjs` fixes the audited wire version and connection identity.
+`chatgpt-models.mjs` reads only this service's credential store, validates the
+account catalog and materializes account-bound profiles. Login works without a
+model profile. Its authenticated catalog refresh commits the ordinary Configure
+input; it does not mutate existing task contracts. Cache freshness, endpoint and
+account matching belong to this external transport boundary. The CLI login
+integration test exercises discovery, live native selector refresh and restart
+against a loopback issuer/model server, not a commercial account.
+
 `POST /api/ui` accepts only an opaque navigation cursor and a public presentation
 event. Bend produces the entire typed surface in `UI.bend`: content, titles,
 actions, fields, bindings and enabled flags. `public/renderer.mjs` renders generic

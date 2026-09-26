@@ -99,6 +99,13 @@ export function responseBody(effect, profile = { provider: effect.model.provider
     // catalog to the native callable set instead of sending allowed_tools.
     body.tools = body.tools.filter(tool => effect.callable.includes(tool.name));
     body.tool_choice = 'auto';
+    if (profile.model_info) {
+      const levels = profile.model_info.supported_reasoning_levels.map(level => level.effort);
+      if (!levels.length) delete body.reasoning;
+      else if (!levels.includes(effect.model.reasoning)) {
+        throw new Error(`This account model supports these reasoning levels: ${levels.join(', ')}`);
+      }
+    }
   }
   if (!body.instructions) delete body.instructions;
   return body;
@@ -155,6 +162,9 @@ export async function requestModel(effect, config, home, limits, { signal, onDel
   const headers = { 'content-type': 'application/json', accept: 'text/event-stream' };
   if (profile.provider === 'chatgpt') {
     credential = await resolveAuth(profile, home, { signal: lifetime });
+    if (profile.bound_account_id && profile.bound_account_id !== credential.account_id) {
+      throw new Error('This task belongs to a different ChatGPT account; restore that account or create a new task');
+    }
     Object.assign(headers, chatgptHeaders(credential, session));
   } else {
     const key = process.env[profile.api_key_env];

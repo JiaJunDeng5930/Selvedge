@@ -20,7 +20,8 @@ export async function chatgptFixture(t, handler) {
       const chunks = [];
       for await (const chunk of request) chunks.push(chunk);
       const raw = Buffer.concat(chunks).toString('utf8');
-      const body = raw ? JSON.parse(raw) : undefined;
+      const body = raw ? request.headers['content-type'] === 'application/x-www-form-urlencoded'
+        ? Object.fromEntries(new URLSearchParams(raw)) : JSON.parse(raw) : undefined;
       requests.push({ method: request.method, url: request.url, headers: request.headers, body });
       await handler(requests.at(-1), response);
     })().catch(error => { failures.push(error); response.destroy(error); });
