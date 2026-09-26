@@ -38,8 +38,8 @@ gate; no theorem here proves the browser's DOM implementation.
 
 `stdio-rpc.mjs` is the shared bounded process transport for MCP and plugins.
 `plugins.mjs` implements only the manifest, ticketed callback/tool protocol and
-best-effort observer queue. `service.mjs` dispatches committed native `CheckTool`
-and `NotifyPlugins` effects; it neither classifies domain events nor bypasses the
+best-effort observer queue. `service.mjs` dispatches committed native `CheckTool`,
+`CheckResult` and `NotifyPlugins` effects; it neither classifies domain events nor bypasses the
 native chain for internal tools. Policy order is configuration order, not process
 startup completion order. Revision loss withdraws live routes without rewriting
 task contracts. See `../docs/plugins.md` for schemas, recovery and delivery limits.
@@ -67,13 +67,22 @@ restart in another directory. The source fingerprint and workspace are checked,
 not migrated. Different operations and service homes do not serialize arbitrary
 filesystem mutations, even when pointed at the same workspace.
 
-Native operations are independently keyed by task ID and committed ticket. The
+Native operations have stable task/operation identities and one current effect
+ticket. An after callback gets a fresh ticket without changing the operation ID.
+Cancellation targets that live ticket, not its retired execution ticket. The
 host can run several tools for one task and a model request at the same time.
 `cancel_ticket` aborts exactly one controller; task-wide cancellation is separate.
 Neither the host nor a timer invents model polling turns. Running announcements,
 completion notification, queue promotion and summary eligibility are native
 policy. Providers enable parallel calls and encode a later `operation_result` as
 explicit unprivileged asynchronous-result data, not a duplicate function output.
+
+After-hook transport carries the frozen route, operation/callback identities,
+effective call and current result. Only value replacement is allowed; execution
+errors cannot be cleared by plugins. The raw execution receipt remains durable
+but outside the default provider projection. A result-processing restart failure
+does not repeat the execution or callback. Tests cross real process/SQLite/provider
+boundaries; the semantic obligations themselves belong to the Bend proof root.
 
 Every external intent must belong to its own earlier committed decision, not
 necessarily the latest journal row. Concurrent completions may advance the log

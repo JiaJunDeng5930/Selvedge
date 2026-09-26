@@ -142,7 +142,7 @@ export class Service extends EventEmitter {
       });
       return;
     }
-    if (!['model', 'summary', 'tool', 'hook'].includes(effect.kind)) { this.#fatal(new Error(`Unknown effect ${effect.kind}`)); return; }
+    if (!['model', 'summary', 'tool', 'hook', 'after_hook'].includes(effect.kind)) { this.#fatal(new Error(`Unknown effect ${effect.kind}`)); return; }
     const key = `${effect.task_id}:${effect.ticket}`;
     if (this.#running.has(key)) { this.#fatal(new Error('The kernel repeated an in-flight effect identity')); return; }
     const controller = new AbortController();
@@ -165,6 +165,11 @@ export class Service extends EventEmitter {
         if (!client) throw new Error('Required plugin route is unavailable');
         const outcome = await client.before(effect, { signal });
         input = { kind: 'hook', task_id: effect.task_id, ticket: effect.ticket, outcome };
+      } else if (effect.kind === 'after_hook') {
+        const client = this.#plugins.get(effect.plugin.name);
+        if (!client) throw new Error('Required plugin route is unavailable');
+        const outcome = await client.after(effect, { signal });
+        input = { kind: 'after_hook', task_id: effect.task_id, operation_id: effect.operation_id, ticket: effect.ticket, outcome };
       } else {
         let result;
         if (effect.tool.source === 'harness' && effect.tool.name === 'bash') {
@@ -205,6 +210,8 @@ export class Service extends EventEmitter {
   #failureInput(effect, message) {
     message = [...String(message || 'External execution failed').toWellFormed()].slice(0, 1024).join('');
     if (effect.kind === 'hook') return { kind: 'hook', task_id: effect.task_id, ticket: effect.ticket, outcome: { decision: 'failed', reason: message } };
+    if (effect.kind === 'after_hook') return { kind: 'after_hook', task_id: effect.task_id, operation_id: effect.operation_id,
+      ticket: effect.ticket, outcome: { decision: 'failed', reason: message } };
     return effect.kind === 'model' || effect.kind === 'summary'
       ? { kind: 'model', task_id: effect.task_id, ticket: effect.ticket, ok: false, message }
       : { kind: 'tool', task_id: effect.task_id, ticket: effect.ticket, error: true,

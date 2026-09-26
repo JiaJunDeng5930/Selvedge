@@ -3,40 +3,13 @@ import assert from 'node:assert/strict';
 import { readFile, access } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import { DatabaseSync } from 'node:sqlite';
-import { setTimeout as delay } from 'node:timers/promises';
 import { Service } from '../host/service.mjs';
 import { Plugin } from '../host/plugins.mjs';
 import { Kernel } from '../host/kernel.mjs';
 import { defaultConfig, validateConfig } from '../host/config.mjs';
 import { home, taskIdle, responsesServer, shellQuote } from './support.mjs';
 
-const fixture = fileURLToPath(new URL('./fixtures/plugin.mjs', import.meta.url));
-const settings = (directory, name, mode = 'normal', extra = {}) => ({
-  command: process.execPath, args: [fixture], timeout_ms: 1000,
-  env: { PLUGIN_NAME: name, PLUGIN_MODE: mode, PLUGIN_LOG: path.join(directory, 'plugins.jsonl'),
-    PLUGIN_JOURNAL: path.join(directory, 'journal.sqlite'), ...extra },
-});
-async function logs(directory) {
-  try { return (await readFile(path.join(directory, 'plugins.jsonl'), 'utf8')).trim().split('\n').filter(Boolean).map(JSON.parse); }
-  catch (error) { if (error.code === 'ENOENT') return []; throw error; }
-}
-function journal(directory) {
-  const database = new DatabaseSync(path.join(directory, 'journal.sqlite'), { readOnly: true });
-  try { return database.prepare('SELECT seq, input, decision FROM journal ORDER BY seq').all().map(row => ({ sequence: row.seq, input: JSON.parse(row.input), ...JSON.parse(row.decision) })); }
-  finally { database.close(); }
-}
-async function waitFor(read, check, message) {
-  const deadline = Date.now() + 5000;
-  let value;
-  do { value = await read(); if (check(value)) return value; await delay(10); } while (Date.now() < deadline);
-  throw new Error(`${message}: ${JSON.stringify(value)}`);
-}
-function configure(endpoint, plugins) {
-  return validateConfig({ ...defaultConfig, profiles: { live: { provider: 'responses', model: 'fixture', endpoint, api_key_env: 'PATH' } }, plugins });
-}
-const call = (name, id, args) => ({ type: 'function_call', name, call_id: id, arguments: JSON.stringify(args) });
-const answer = [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'Finished' }] }];
+import { fixture, settings, logs, journal, waitFor, configure, call, answer } from './plugin-support.mjs';
 
 test('configured process order defines the unified chain; plugin tools, Bash and internal calls are committed and observable', { timeout: 20_000 }, async t => {
   const directory = await home(t);
@@ -159,6 +132,25 @@ test('closing a plugin aborts a hung request and reaps the process transport', {
   const rejected = assert.rejects(pending, /closed|cancel|stopped/i);
   await plugin.close();
   await rejected;
+});
+
+test('Unicode observer payload limits survive serialization to a real plugin, with the durable value accessible by cursor', async t => {
+  const directory = await home(t);
+  const text = '数据'.repeat(10_000);
+  const provider = await responsesServer(t, (body, index) => index === 0 ? [call('plugin__observer__echo', 'large', { text })] : answer);
+  const service = await Service.open({ home: directory, config: configure(provider.endpoint,
+    { observer: settings(directory, 'observer', 'observer') }), cwd: directory });
+  t.after(() => service.close());
+  await service.command({ op: 'create', profile: 'live', message: 'Deliver an oversized observation' });
+  await taskIdle(service);
+  const delivered = await waitFor(() => logs(directory), records => records.some(record =>
+    record.method === 'event' && record.type === 'tool_completed'), 'No observer process received completion');
+  const event = delivered.find(record => record.method === 'event' && record.type === 'tool_completed');
+  assert.equal(event.payload, null);
+  assert.equal(event.payload_omitted, true);
+  const page = (await service.command({ op: 'read', task_id: 0, after: event.cursor - 1, limit: 1 })).reply.result;
+  assert.equal(page.messages[0].content.text, text);
+  assert.deepEqual(provider.failures, []);
 });
 
 test('the distributed example registers its real tool and returns schema-compatible deadline rewrites', async t => {

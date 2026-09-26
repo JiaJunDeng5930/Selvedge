@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { appendFileSync } from 'node:fs';
+import { appendFileSync, existsSync } from 'node:fs';
 import { createInterface } from 'node:readline';
 import { DatabaseSync } from 'node:sqlite';
 
@@ -30,7 +30,7 @@ async function respond(request) {
       const schema = mode === 'unsupported_schema'
         ? { type: 'object', properties: { text: { anyOf: [{ type: 'string' }, { type: 'null' }] } } }
         : { type: 'object', properties: { text: { type: 'string' } }, required: ['text'], additionalProperties: false };
-      result = { protocolVersion: request.params.protocolVersion, revision: process.env.PLUGIN_REVISION ?? '1', beforeTool: mode !== 'observer',
+      result = { protocolVersion: request.params.protocolVersion, revision: process.env.PLUGIN_REVISION ?? '1', beforeTool: mode !== 'observer', afterTool: process.env.PLUGIN_AFTER === 'true',
         events: process.env.PLUGIN_EVENTS === 'none' ? [] : request.params.events,
         tools: [{ name: 'echo', description: 'Return a bounded value', inputSchema: schema }] };
       if (mode === 'bad_manifest') result.events = ['fabricated_event'];
@@ -61,6 +61,28 @@ async function respond(request) {
       committed('tool', context.operation_id, context.task_id);
       log({ method: request.method, ...request.params });
       result = mode === 'bad_tool_result' ? { value: 'bad', error: 'false' } : { value: { text: args.text, status: 'running' }, error: false };
+      if (process.env.PLUGIN_TOOL_SECRET) result.value = { secret: process.env.PLUGIN_TOOL_SECRET };
+      if (process.env.PLUGIN_TOOL_ERROR === 'true') result.error = true;
+      break;
+    }
+    case 'afterTool': {
+      const { task_id, ticket, plugin, value } = request.params;
+      assert.equal(plugin.name, name);
+      committed('after_hook', ticket, task_id);
+      log({ method: request.method, ...request.params });
+      const decision = process.env.PLUGIN_AFTER_MODE ?? 'allow';
+      if (decision === 'hang') return;
+      if (decision === 'crash') process.exit(19);
+      if (process.env.PLUGIN_AFTER_DELAY) await new Promise(resolve => setTimeout(resolve, Number(process.env.PLUGIN_AFTER_DELAY)));
+      if (process.env.PLUGIN_AFTER_GATE && request.params.call.id === 'held-result') {
+        while (!existsSync(process.env.PLUGIN_AFTER_GATE)) await new Promise(resolve => setTimeout(resolve, 10));
+      }
+      if (decision === 'malformed') result = { decision: 'rewrite', value: 'invalid', error: false };
+      else if (decision === 'deny') result = { decision: 'deny', reason: 'Fixture policy suppresses delivery, not execution' };
+      else if (decision === 'redact') result = { decision: 'rewrite', value: { redacted: true, by: name } };
+      else if (decision === 'rewrite') result = { decision: 'rewrite', value: { by: name, previous: value } };
+      else if (decision === 'null') result = { decision: 'rewrite', value: null };
+      else result = { decision: 'allow' };
       break;
     }
     case 'event': {

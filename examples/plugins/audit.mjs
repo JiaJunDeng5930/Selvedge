@@ -17,8 +17,8 @@ async function handle({ id, method, params }) {
   if (id === undefined) return; // Cancellation is advisory for these short calls.
   switch (method) {
     case 'initialize':
-      if (params.protocolVersion !== 'selvedge-plugin-1') throw new Error('Unsupported plugin protocol');
-      reply(id, { protocolVersion: params.protocolVersion, revision: `audit-1-deadline-${requested}`, beforeTool: true,
+      if (params.protocolVersion !== 'selvedge-plugin-2') throw new Error('Unsupported plugin protocol');
+      reply(id, { protocolVersion: params.protocolVersion, revision: `audit-2-deadline-${requested}`, beforeTool: true, afterTool: true,
         events: params.events,
         tools: [{ name: 'text_metrics', description: 'Count Unicode code points and UTF-8 bytes in text',
           inputSchema: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'], additionalProperties: false } }] });
@@ -36,6 +36,9 @@ async function handle({ id, method, params }) {
       reply(id, { decision: 'rewrite', arguments: { ...call.arguments, timeout_ms: Math.min(current ?? requested, requested) } });
       return;
     }
+    case 'afterTool':
+      reply(id, { decision: 'allow' });
+      return;
     case 'callTool': {
       if (params.name !== 'text_metrics' || typeof params.arguments?.text !== 'string') throw new Error('Invalid text_metrics call');
       const text = params.arguments.text;

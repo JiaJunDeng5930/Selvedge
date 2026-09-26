@@ -36,15 +36,15 @@ export class Plugin extends StdioRpc {
       limits: { frame_bytes: this.limits.frame_bytes, catalog_tools: this.limits.plugin_catalog_tools },
     });
     if (!this.available) throw new Error(`Plugin ${this.name} became unavailable during initialization`);
-    if (!keys(manifest, ['protocolVersion', 'revision', 'beforeTool', 'events', 'tools']) ||
+    if (!keys(manifest, ['protocolVersion', 'revision', 'beforeTool', 'afterTool', 'events', 'tools']) ||
         manifest.protocolVersion !== this.definition.protocolVersion || !text(manifest.revision) ||
-        Buffer.byteLength(manifest.revision) > 128 || typeof manifest.beforeTool !== 'boolean' ||
+        Buffer.byteLength(manifest.revision) > 128 || typeof manifest.beforeTool !== 'boolean' || typeof manifest.afterTool !== 'boolean' ||
         !Array.isArray(manifest.events) || manifest.events.some(event => !this.definition.events.includes(event)) ||
         new Set(manifest.events).size !== manifest.events.length || !Array.isArray(manifest.tools)) {
       throw new TypeError(`Plugin ${this.name} returned an invalid manifest`);
     }
     this.reference = Object.freeze({ name: this.name, revision: manifest.revision });
-    this.descriptor = Object.freeze({ reference: this.reference, before_tool: manifest.beforeTool, events: Object.freeze([...manifest.events]) });
+    this.descriptor = Object.freeze({ reference: this.reference, before_tool: manifest.beforeTool, after_tool: manifest.afterTool, events: Object.freeze([...manifest.events]) });
     const names = new Set();
     let size = 0;
     this.tools = manifest.tools.map(tool => {
@@ -92,6 +92,22 @@ export class Plugin extends StdioRpc {
       throw new TypeError('Plugin returned an invalid tool result');
     }
     return result;
+  }
+
+  async after(effect, { signal } = {}) {
+    if (!this.matches(effect.plugin) || !this.descriptor.after_tool) throw new Error('Required plugin revision is unavailable');
+    const outcome = await this.request('afterTool', {
+      task_id: effect.task_id, operation_id: effect.operation_id, ticket: effect.ticket,
+      plugin: effect.plugin, call: effect.call, value: effect.value, error: effect.error,
+    }, { signal });
+    if (!object(outcome)) throw new TypeError('Plugin returned an invalid result decision');
+    const shape = outcome.decision === 'allow' ? ['decision'] : outcome.decision === 'rewrite' ? ['decision', 'value'] : ['decision', 'reason'];
+    if (!keys(outcome, shape) || Object.keys(outcome).length !== shape.length ||
+        !['allow', 'rewrite', 'deny'].includes(outcome.decision) ||
+        (outcome.decision === 'deny' && (!text(outcome.reason) || Buffer.byteLength(outcome.reason) > 4096))) {
+      throw new TypeError('Plugin returned an invalid result decision');
+    }
+    return outcome;
   }
 
   // Observer attempts are ordered per plugin and bounded in both count and

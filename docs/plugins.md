@@ -45,9 +45,10 @@ workspace, native event names and transport limits. The result is:
 
 ```json
 {
-  "protocolVersion": "selvedge-plugin-1",
-  "revision": "example-1",
+  "protocolVersion": "selvedge-plugin-2",
+  "revision": "example-2",
   "beforeTool": true,
+  "afterTool": true,
   "events": ["tool_completed", "task_created"],
   "tools": [{
     "name": "echo",
@@ -67,6 +68,9 @@ unknown manifest fields, unsupported event names and unsupported schemas reject
 initialization. There is no runtime tool-registration mutation inside callbacks:
 restart to install a changed manifest, and use a new revision for new meanings.
 This keeps already frozen contracts unambiguous.
+
+Both hook flags are required Booleans. This is the current protocol, not a
+compatibility negotiation: old manifests without `afterTool` are rejected.
 
 Extension schemas use the native decidable fragment: closed objects with explicit
 `properties` and optional `required`; arrays with `items`; strings, Booleans,
@@ -128,6 +132,66 @@ again or run the unapproved tool. Cancellation is advisory for the plugin proces
 the callback may already have performed its own effects, which Selvedge cannot
 roll back. Lifecycle controls still govern the core task independently.
 
+## Result hooks
+
+`afterTool` is a result-processing request, not an observation. It runs for
+completed Bash, MCP, extension and model-invoked internal tools, including the
+parent return of `fork_task`. Public user commands and inherited fork returns do
+not manufacture another invocation. Calls refused before execution do not have
+an execution result to process.
+
+After the raw completion is committed, enabled plugins from the task's frozen
+contract run in order. Each receives the preceding result value:
+
+```json
+{
+  "task_id": 0,
+  "operation_id": 17,
+  "ticket": 19,
+  "plugin": {"name": "audit", "revision": "example-2"},
+  "call": {"id": "call-1", "name": "bash", "arguments": {"command": "printf hello"}},
+  "value": {"stdout": "hello", "exit_code": 0},
+  "error": false
+}
+```
+
+`operation_id` is stable throughout execution and result processing. `ticket` is
+the fresh, committed callback identity; it is not the old execution ticket.
+The reply is exactly one of:
+
+```json
+{"decision": "allow"}
+{"decision": "rewrite", "value": {"redacted": true}}
+{"decision": "deny", "reason": "Do not deliver this result"}
+```
+
+A rewrite may supply any JSON value, including explicit `null`. It cannot change
+the original call, the task, or the execution error flag. Extra `error`, `name`,
+`arguments` or identity fields are rejected. Invalid replies, unavailable frozen
+revisions, transport errors and timeouts become failed result records. Denial or
+failure delivers an explicit error instead of the value; it does **not** undo the
+tool's already completed external effects.
+
+`ToolReceipt` retains the original call, result and error flag. `AfterRecord`
+retains each decision. Both are visible in durable history and the UI but excluded
+from the default model-context projection; only the processed result is delivered
+there. This is not confidential erasure: authorized history reads, including
+`read_task`, can expose audit records. A confidentiality policy must also govern
+those reads and any external artifacts.
+
+An operation owns its result callback independently of model/control work, so a
+completion cannot replace an unrelated in-flight model request. Cancelling the
+operation addresses the live callback ticket, and late replies have no authority.
+Freeze suspends new task execution, not settlement of an already-owned result.
+An invocation that archives its own task may finish its own result callback, but
+cannot start new work. Older cancellation effects precede the new callback in
+that commit.
+
+After restart, interrupted result processing reports `after_hook_interrupted`:
+execution is known from the retained receipt, while the callback outcome is
+unknown. Neither the tool nor the callback is repeated. This differs from recovery
+of an external operation whose execution outcome itself was never committed.
+
 ## Post-commit observations
 
 Subscribe to native event kinds `task_created`, `task_changed`, `model_started`,
@@ -176,14 +240,15 @@ service and use these IDs for deduplication. Exactly-once external side effects,
 durable observer acknowledgments and reliable message delivery are not promised.
 Observer replies cannot rewrite results, veto committed state or generate native
 tool permissions. Plugins should handle requests concurrently so a slow observer
-does not block their own transport handler for `beforeTool`.
+does not block their own transport handlers for `beforeTool` or `afterTool`.
 
 ## Trust and verification
 
 Plugins execute with the user's OS permissions and inherited environment. Do not
 install untrusted executables expecting a sandbox. The native proof boundary
 establishes gate placement, call identity, ordered task-bound authorization,
-absorption of denial, complete transition refinement and observer non-interference
+absorption of denial, result-chain routing, immutable execution error flags,
+receipt preservation, complete transition refinement and observer non-interference
 with core state/replies/effects. It does not prove a callback's policy correct or
 certify arbitrary external processes. Tests run real fixture processes and
 loopback providers, check SQLite commit-before-callback, exercise denial/rewrite,
