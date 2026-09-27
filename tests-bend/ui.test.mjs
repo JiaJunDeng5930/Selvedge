@@ -61,6 +61,7 @@ test('the web adapter binds fields generically and refuses undeclared or prototy
 class Element {
   constructor(tagName, ownerDocument) { Object.assign(this, { tagName, ownerDocument, children: [], dataset: {}, attributes: {}, listeners: {}, value: '' }); }
   get childNodes() { return this.children; }
+  get childElementCount() { return this.children.length; }
   append(...children) { for (const child of children) this.insertBefore(child, null); }
   insertBefore(child, before) {
     child.remove();
@@ -73,13 +74,21 @@ class Element {
   }
   replaceChildren(...children) { for (const child of [...this.children]) child.remove(); this.append(...children); }
   setAttribute(name, value) { this.attributes[name] = value; }
+  toggleAttribute(name, force = !Object.hasOwn(this.attributes, name)) {
+    if (force) this.attributes[name] = ''; else delete this.attributes[name];
+    return force;
+  }
   addEventListener(name, listener) { this.listeners[name] = listener; }
   focus() { this.ownerDocument.activeElement = this; }
   setSelectionRange(start, end) { this.selectionStart = start; this.selectionEnd = end; }
 }
 
 test('the adapter renders literal content, native enabled flags and stable unsent drafts without domain tables', async () => {
-  const document = { createElement(tag) { return new Element(tag, this); }, getElementById(id) { return walk(root).find(node => node.id === id); } };
+  const document = {
+    createElement(tag) { return new Element(tag, this); },
+    createElementNS(namespaceURI, tag) { return Object.assign(new Element(tag, this), { namespaceURI }); },
+    getElementById(id) { return walk(root).find(node => node.id === id); },
+  };
   const root = new Element('main', document);
   function walk(node) { return [node, ...node.children.flatMap(walk)]; }
   const events = [];
@@ -94,7 +103,10 @@ test('the adapter renders literal content, native enabled flags and stable unsen
   mount(root, tree, (event, key) => events.push({ event, key }), { drafts });
   assert.equal(walk(root).some(node => node.tagName === 'img'), false);
   assert.equal(walk(root).some(node => node.textContent === '<img src=x onerror=alert(1)>'), true);
-  const denied = walk(root).find(node => node.textContent === 'Not allowed');
+  const denied = walk(root).find(node => node.tagName === 'button' && node.dataset.action === 'denied');
+  assert.equal(denied.children.find(node => node.className === 'action-label').textContent, 'Not allowed');
+  assert.ok(walk(root).filter(node => node.tagName === 'svg').every(node =>
+    node.namespaceURI === 'http://www.w3.org/2000/svg' && node.attributes['aria-hidden'] === 'true'));
   assert.equal(denied.disabled, true);
   denied.onclick();
   assert.deepEqual(events, []);

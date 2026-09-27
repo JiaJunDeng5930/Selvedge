@@ -52,6 +52,8 @@ function dispatch(event, formKey, submitted) {
     surface = mount($('surface'), result.presentation.root, dispatch, {
       drafts, disclosures, takeMarkdown: (text, selected) => streams.take(text, selected, value.sequence),
     });
+    if (event.type === 'select' && matchMedia('(max-width: 760px)').matches) setSidebar(false);
+    syncSidebar();
     if (surface.selected !== previousSelection) liveFollow = true;
     if (event.type === 'history') {
       liveFollow = event.after === null;
@@ -66,7 +68,7 @@ function dispatch(event, formKey, submitted) {
   // so its draft is retained and the error appears beside the submitted input.
   requests = next.catch(error => {
     if (epoch !== generation || error.name === 'AbortError') return;
-    if (error.status === 401) { $('access').hidden = false; status('Access token required', 'disconnected'); }
+    if (error.status === 401) { setAccess(true); status('Access token required', 'disconnected'); }
     report(error.message);
   });
   return next;
@@ -141,20 +143,30 @@ async function connect() {
   $('surface').replaceChildren();
   drafts.clear();
   disclosures.clear();
-  if (!token) { $('access').hidden = false; status('Access token required', 'disconnected'); return; }
+  if (!token) { setAccess(true); status('Access token required', 'disconnected'); return; }
   store('selvedge-token', token);
-  $('access').hidden = true;
+  setAccess(false);
   status('Connecting…', 'connecting');
   await dispatch({ type: 'refresh' });
   if (epoch === generation) watch(signal, epoch, token).catch(error => report(error.message));
 }
 
+function syncSidebar() {
+  const modal = document.body.dataset.sidebar === 'open' && matchMedia('(max-width: 760px)').matches;
+  $('sidebar-dismiss').hidden = !modal;
+  for (const child of document.querySelector('[data-role="screen"] > .group-content')?.children ?? []) {
+    child.inert = modal && child.dataset.role !== 'navigation';
+  }
+}
 function setSidebar(open) {
   document.body.dataset.sidebar = open ? 'open' : 'closed';
   $('sidebar-toggle').setAttribute('aria-expanded', String(open));
+  syncSidebar();
 }
 setSidebar(!matchMedia('(max-width: 760px)').matches);
 $('sidebar-toggle').onclick = () => setSidebar(document.body.dataset.sidebar !== 'open');
+$('sidebar-dismiss').onclick = () => { setSidebar(false); $('sidebar-toggle').focus(); };
+matchMedia('(max-width: 760px)').addEventListener('change', event => setSidebar(!event.matches));
 $('theme-toggle').onclick = () => {
   const current = document.documentElement.dataset.theme ?? (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
   const next = current === 'dark' ? 'light' : 'dark';
@@ -162,7 +174,14 @@ $('theme-toggle').onclick = () => {
 };
 const theme = stored('selvedge-theme');
 if (['light', 'dark'].includes(theme)) document.documentElement.dataset.theme = theme;
-$('access-toggle').onclick = () => { $('access').hidden = !$('access').hidden; if (!$('access').hidden) $('token').focus(); };
+function setAccess(open) {
+  const dialog = $('access');
+  if (open) { dialog.hidden = false; if (!dialog.open) dialog.showModal(); $('token').focus(); }
+  else { if (dialog.open) dialog.close(); dialog.hidden = true; }
+}
+$('access-toggle').onclick = () => setAccess(!$('access').open);
+$('access-close').onclick = () => setAccess(false);
+$('access').addEventListener('close', () => { $('access').hidden = true; });
 $('access-form').onsubmit = event => {
   event.preventDefault(); token = $('token').value.trim(); connect().catch(error => report(error.message));
 };
@@ -170,8 +189,18 @@ window.addEventListener('keydown', event => {
   if (event.key === 'Escape') {
     if (matchMedia('(max-width: 760px)').matches) setSidebar(false);
     document.querySelector('.thread-header button[aria-expanded="true"]')?.click();
-    $('access').hidden = true;
+    setAccess(false);
+    for (const popup of document.querySelectorAll('.compose-mode[open], .form-options[open]')) { popup.open = false; popup.querySelector('summary')?.focus(); }
   }
+  if (event.key === 'Tab' && !$('access').open && !$('sidebar-dismiss').hidden) {
+    const focusable = [$('sidebar-toggle'), document.querySelector('.brand'), ...document.querySelectorAll('[data-role="navigation"] button:not(:disabled), .app-tools button')].filter(node => node?.getClientRects().length);
+    const index = focusable.indexOf(document.activeElement);
+    event.preventDefault();
+    focusable[(index + (event.shiftKey ? -1 : 1) + focusable.length) % focusable.length]?.focus();
+  }
+});
+document.addEventListener('pointerdown', event => {
+  for (const popup of document.querySelectorAll('.compose-mode[open], .form-options[open]')) if (!popup.contains(event.target)) popup.open = false;
 });
 window.addEventListener('pagehide', () => { connection?.abort(); streams.clear(); surface?.dispose(); });
 window.addEventListener('pageshow', event => { if (event.persisted) connect().catch(error => report(error.message)); });
