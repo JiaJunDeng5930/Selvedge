@@ -28,7 +28,7 @@ test('the HTTP presentation boundary is authenticated, command-only, and replaya
   assert.equal(initial.status, 200);
   assert.equal(running.service.journal.sequence, before);
   const form = find(initial.body.result.presentation, 'create');
-  const created = await post({ state: initial.body.result.presentation.state, event: eventForForm(form, { profile: 'demo', reasoning: 'medium', message: 'Native UI' }) });
+  const created = await post({ state: initial.body.result.presentation.state, event: eventForForm(form, { profile: 'demo', reasoning: 'medium', message: 'Native UI', settings: '{}' }) });
   assert.equal(created.body.result.receipt.ok, true);
   assert.equal((await post({ kind: 'tool', event: { type: 'refresh' } })).status, 400);
   const page = await taskIdle(running.service);

@@ -183,10 +183,11 @@ def first_profile(profiles: +List<M.Profile>) -> String:
 def create_config(environment: M.Environment, world: M.World) -> Node:
   M.Environment{catalog, +profiles, max_fork, max_descendants, project, plugins} = environment
   +profile = first_profile(profiles)
-  form("create", "New task", "Create task", M.Create{profile, "medium", "message", J.Null{}},
+  form("create", "New task", "Create task", M.Create{profile, "medium", "message", J.Object{Nil{}}},
     [Field{"profile", "Model profile", "choice", J.Text{profile}, field_schema("create", "profile"), profile_choices(profiles), True{}},
       input("create", "reasoning", "Reasoning", "text", J.Text{"medium"}, True{}),
-      input("create", "message", "What should the agent do?", "multiline", J.Text{""}, True{})], world)
+      input("create", "message", "What should the agent do?", "multiline", J.Text{""}, True{}),
+      input("create", "settings", "Workspace, sandbox, approval and project overrides (JSON; {} uses defaults)", "json", J.Object{Nil{}}, True{})], world)
 
 def create(+world: M.World) -> Node:
   create_config(Commands.settings(world), world)
@@ -232,15 +233,51 @@ def controls(+id: Nat, +world: M.World) -> Node:
      action("interrupt", "Interrupt now", M.ChangeStatus{id, M.Interrupt{}}, world),
      action("archive", "Archive permanently", M.ChangeStatus{id, M.Archive{}}, world)]}
 
-def operation_nodes(operations: +List<M.Operation()>, +id: Nat, +world: M.World) -> +List<Node>:
+def approval_directory(context: M.TaskContext) -> String:
+  M.TaskContext{M.Workspace{roots, primary}, sandbox, approval, project} = context
+  match primary:
+    case None{}: "/"
+    case Some{directory}: directory
+
+def approval_controls(reviewer: M.ApprovalReviewer, +id: Nat, +ticket: Nat, +world: M.World) -> +List<Node>:
+  match reviewer:
+    case M.HumanReviewer{}:
+      [Group{"review/actions", "actions", "Decision",
+        [action("approval/allow/" ++ Nat.show(ticket), "Approve once",
+           M.ReviewApproval{id, ticket, M.ApprovalAllowed{"Approved once by the user in the UI."}}, world),
+         action("approval/deny/" ++ Nat.show(ticket), "Deny",
+           M.ReviewApproval{id, ticket, M.ApprovalDenied{"Denied by the user in the UI."}}, world)]}]
+    case M.ModelReviewer{M.Profile{profile, provider, model}}:
+      [Text{"review/model", "note", "Approval for Me",
+        "An independent, tool-free call to " ++ profile ++ " is reviewing this command. Bash has not started."}]
+
+def approval_nodes(stage: M.OperationStage, +operation: M.Operation(), +task: M.Task, +world: M.World) -> +List<Node>:
+  match stage:
+    case M.ApprovalPending{reviewer}:
+      +arguments = T.call_arguments(Ops.call(operation))
+      [Group{"review", "approval", "Permission request",
+        List.append(&2, Node,
+          [Text{"review/command", "command", "Exact Bash command", J.text(J.get(arguments, "command"))},
+           Text{"review/reason", "note", "Agent's reason", J.text(J.get(arguments, "justification"))},
+           Text{"review/cwd", "note", "Working directory", approval_directory(M.task_context(task))},
+           Text{"review/scope", "note", "Requested access",
+             "Run this invocation once outside filesystem and network isolation. The task's saved settings stay unchanged. A frozen task waits until resumed."},
+           Value{"review/settings", "Frozen workspace and permissions", M.task_context_json(M.task_context(task))}],
+          approval_controls(reviewer, M.task_id(task), Ops.ticket(operation), world))}]
+    case M.ApprovalGranted{reviewer}:
+      [Text{"review/granted", "note", "Approved; waiting to run", Ops.stage_notice(M.ApprovalGranted{reviewer})}]
+    case _: Nil{}
+
+def operation_nodes(operations: +List<M.Operation()>, +task: M.Task, +world: M.World) -> +List<Node>:
   match operations:
     case Nil{}: Nil{}
     case Con{+operation, rest}:
       +ticket = Ops.ticket(operation)
       Group{"operation/" ++ Nat.show(ticket), "operation", "Operation " ++ Nat.show(ticket),
-        [Value{"details", "Live operation", Ops.summary(operation)},
-         action("cancel/" ++ Nat.show(ticket), "Cancel this operation", M.Cancel{id, ticket}, world)]} <>
-        operation_nodes(rest, id, world)
+        List.append(&2, Node, approval_nodes(Ops.stage(operation), operation, task, world),
+          [Value{"details", "Live operation", Ops.summary(operation)},
+           action("cancel/" ++ Nat.show(ticket), "Cancel this operation", M.Cancel{M.task_id(task), ticket}, world)])} <>
+        operation_nodes(rest, task, world)
 
 def lineage_nodes(lineage: +List<Nat>) -> +List<Node>:
   match lineage:
@@ -329,8 +366,9 @@ def send_forms(+id: Nat, +world: M.World) -> Node:
 
 def advanced(+id: Nat, +world: M.World) -> Node:
   Group{"advanced", "details", "Branch and context",
-    [form("fork/" ++ Nat.show(id), "Fork this task", "Create branches", M.Fork{id, 1n, Nil{}, J.Null{}},
-       [input("fork", "child_count", "Children", "integer", J.nat(1n), True{})], world),
+    [form("fork/" ++ Nat.show(id), "Fork this task", "Create branches", M.Fork{id, 1n, Nil{}, J.Object{Nil{}}},
+       [input("fork", "child_count", "Children", "integer", J.nat(1n), True{}),
+        input("fork", "settings", "Child overrides (JSON; {} inherits the parent)", "json", J.Object{Nil{}}, True{})], world),
      action("compact/" ++ Nat.show(id), "Ask the model for a checkpoint", M.Compact{id, None{}}, world),
      form("checkpoint/" ++ Nat.show(id), "Supply a checkpoint", "Save checkpoint", M.Compact{id, Some{"summary"}},
        [input("compact", "summary", "Summary", "multiline", J.Text{""}, True{})], world)]}
@@ -351,8 +389,9 @@ def task_surface(+task: M.Task, after: Maybe<&2, Nat>, environment: M.Environmen
   Group{"task/" ++ Nat.show(id), "panel", task_label(task),
     [Group{"lineage", "actions", "Ancestry", lineage_nodes(M.task_lineage(task))},
      Value{"state", "Current state", T.summary(task)}, controls(id, world),
-     Group{"operations", "operations", "Live operations", operation_nodes(M.task_operations(task), id, world)},
-     transcript(task, after), send_forms(id, world), advanced(id, world),
+     transcript(task, after),
+     Group{"operations", "operations", "Live operations", operation_nodes(M.task_operations(task), task, world)},
+     send_forms(id, world), advanced(id, world),
      Group{"tools", "details", "Frozen tool contract", tools(T.task_tools(M.task_contract(task)), catalog)}]}
 
 def task_panel(found: Maybe<&2, M.Task>, after: Maybe<&2, Nat>, +world: M.World) -> Node:

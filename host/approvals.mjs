@@ -1,6 +1,12 @@
 import { parseJson } from './codec.mjs';
 import { requestModel } from './providers.mjs';
 
+// The wire contract has exactly two string members. Checking this grammar before
+// parsing prevents duplicate (including escaped) keys from silently overwriting
+// a denial. JSON.parse and the checks below still validate syntax and values.
+const jsonString = String.raw`"(?:[^"\\\u0000-\u001f]|\\(?:["\\/bfnrt]|u[0-9a-fA-F]{4}))*"`;
+const twoStringMembers = new RegExp(String.raw`^\s*\{\s*${jsonString}\s*:\s*${jsonString}\s*,\s*${jsonString}\s*:\s*${jsonString}\s*\}\s*$`);
+
 /** Decode one untrusted provider response. No heuristic, code fence or tool call grants access. */
 export function approvalOutcome(items, limit) {
   if (!Number.isSafeInteger(limit) || limit < 1) throw new TypeError('Missing native approval response bound');
@@ -18,6 +24,7 @@ export function approvalOutcome(items, limit) {
   if (typeof text !== 'string' || !text.isWellFormed() || Buffer.byteLength(text) > limit + 256) {
     throw new TypeError('The approval reviewer exceeded its response bound');
   }
+  if (!twoStringMembers.test(text)) throw new TypeError('The approval reviewer must return exactly two string fields');
   const value = parseJson(text);
   if (!value || typeof value !== 'object' || Array.isArray(value) ||
       Object.keys(value).length !== 2 || !Object.hasOwn(value, 'decision') || !Object.hasOwn(value, 'reason') ||
