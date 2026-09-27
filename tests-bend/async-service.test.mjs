@@ -42,7 +42,7 @@ async function fixture(t, directory, handler) {
   const config = validateConfig({ ...defaultConfig, profiles: { fixture: {
     provider: 'responses', model: 'fixture', endpoint: model.endpoint, api_key_env: name,
   } } });
-  const service = await Service.open({ home: directory, cwd: directory, config });
+  const service = await Service.open({ home: path.join(directory, 'state'), cwd: directory, config });
   t.after(() => service.close());
   return { model, service };
 }

@@ -33,7 +33,7 @@ def validate_semantics(+decision: M.Decision, +previous: M.World) ->
 
 def live_semantics(+decision: M.Decision) -> {P.live_decision(decision) == Commit.live(decision) : M.Decision}:
   match decision:
-    case M.Decision{M.World{tasks, next_task, next_ticket, environment, limits}, reply, effects}: {==}
+    case M.Decision{M.World{tasks, next_task, next_ticket, environment, limits, projects}, reply, effects}: {==}
 
 def Laws.commit_semantics(decision, previous):
   +live = P.live_decision(decision)
@@ -83,13 +83,16 @@ def updated_command_semantics(+command: M.Command, +world: M.World) ->
 def Laws.command_transition(command, world):
   match command:
     case M.Observe{query}: Laws.output_semantics(False{}, P.observe(query, world), world)
-    case M.Create{profile, reasoning, message}: updated_command_semantics(M.Create{profile, reasoning, message}, world)
+    case M.Create{profile, reasoning, message, options}: updated_command_semantics(M.Create{profile, reasoning, message, options}, world)
     case M.Send{id, message}: updated_command_semantics(M.Send{id, message}, world)
     case M.Steer{id, message}: updated_command_semantics(M.Steer{id, message}, world)
     case M.Cancel{id, ticket}: updated_command_semantics(M.Cancel{id, ticket}, world)
     case M.ChangeStatus{id, control}: updated_command_semantics(M.ChangeStatus{id, control}, world)
-    case M.Fork{id, count, messages}: updated_command_semantics(M.Fork{id, count, messages}, world)
+    case M.Fork{id, count, messages, options}: updated_command_semantics(M.Fork{id, count, messages, options}, world)
     case M.Compact{id, summary}: updated_command_semantics(M.Compact{id, summary}, world)
+    case M.CreateProject{name, workspace, guidance}: updated_command_semantics(M.CreateProject{name, workspace, guidance}, world)
+    case M.UpdateProject{id, name, workspace, guidance}: updated_command_semantics(M.UpdateProject{id, name, workspace, guidance}, world)
+    case M.DeleteProject{id}: updated_command_semantics(M.DeleteProject{id}, world)
 
 def updated_input_semantics(+input: M.Input, +world: M.World) ->
   {P.update(input, world) == Commit.update(~Execution.scheduled, input, Protocol.input(input, world), world) : M.Decision}:

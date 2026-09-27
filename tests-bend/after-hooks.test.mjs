@@ -28,7 +28,7 @@ test('after chains cross stdio, native execution, SQLite and provider encoding w
     first: after(directory, 'first', 'redact', { PLUGIN_TOOL_SECRET: secret, PLUGIN_TOOL_ERROR: 'true' }),
     second: after(directory, 'second', 'rewrite'),
   });
-  const service = await Service.open({ home: directory, config, cwd: directory });
+  const service = await Service.open({ home: path.join(directory, 'state'), config, cwd: directory });
   t.after(() => service.close());
   await service.command({ op: 'create', profile: 'live', message: 'Exercise committed result processing' });
   const page = await taskIdle(service);
@@ -61,7 +61,7 @@ test('invalid, timed-out and crashed after RPCs do not repeat an already-execute
       call('bash', 'shell', { command: `printf x >> ${shellQuote(marker)}; printf raw` }),
     ] : answer);
     const config = configure(provider.endpoint, { policy: { ...after(directory, 'policy', mode), timeout_ms: 150 } });
-    const service = await Service.open({ home: directory, config, cwd: directory });
+    const service = await Service.open({ home: path.join(directory, 'state'), config, cwd: directory });
     t.after(() => service.close());
     await service.command({ op: 'create', profile: 'live', message: 'Check a plugin boundary failure' });
     const page = await taskIdle(service);
@@ -87,7 +87,7 @@ test('cancelling a result operation addresses its live plugin RPC rather than it
     call('bash', 'shell', { command: `printf x >> ${shellQuote(marker)}` }),
   ] : answer);
   const config = configure(provider.endpoint, { policy: { ...after(directory, 'policy', 'hang'), timeout_ms: 10_000 } });
-  const service = await Service.open({ home: directory, config, cwd: directory });
+  const service = await Service.open({ home: path.join(directory, 'state'), config, cwd: directory });
   t.after(() => service.close());
   await service.command({ op: 'create', profile: 'live', message: 'Cancel result processing' });
   const entries = await waitFor(() => logs(directory), lines => lines.some(line => line.method === 'afterTool'), 'No live result RPC');
@@ -111,7 +111,7 @@ test('a result callback completing during a real pending provider request preser
   });
   const config = configure(provider.endpoint, { policy: { ...after(directory, 'policy', 'allow',
     { PLUGIN_AFTER_GATE: gateFile }), timeout_ms: 10_000 } });
-  const service = await Service.open({ home: directory, config, cwd: directory });
+  const service = await Service.open({ home: path.join(directory, 'state'), config, cwd: directory });
   t.after(async () => { releaseModel(); await service.close(); });
   await service.command({ op: 'create', profile: 'live', message: 'Let results arrive during a model stream' });
   await waitFor(() => provider.requests, requests => requests.length === 2, 'The partial result did not start a real provider request');
@@ -139,12 +139,12 @@ test('restart preserves a known execution receipt and never repeats an interrupt
     call('bash', 'shell', { command: `printf x >> ${shellQuote(marker)}; printf known` }),
   ] : answer);
   const config = configure(provider.endpoint, { policy: { ...after(directory, 'policy', 'hang'), timeout_ms: 10_000 } });
-  let service = await Service.open({ home: directory, config, cwd: directory });
+  let service = await Service.open({ home: path.join(directory, 'state'), config, cwd: directory });
   t.after(() => service.close());
   await service.command({ op: 'create', profile: 'live', message: 'Restore result processing' });
   await waitFor(() => logs(directory), lines => lines.some(line => line.method === 'afterTool'), 'No committed result callback');
   await service.close();
-  service = await Service.open({ home: directory, config, cwd: directory });
+  service = await Service.open({ home: path.join(directory, 'state'), config, cwd: directory });
   const page = await taskIdle(service);
   assert.equal(await readFile(marker, 'utf8'), 'x');
   assert.equal((await logs(directory)).filter(line => line.method === 'afterTool').length, 1);
@@ -164,7 +164,7 @@ test('fork callbacks are not replayed in children and a self-archive can settle 
     return answer;
   });
   const config = configure(provider.endpoint, { policy: after(directory, 'policy') });
-  const service = await Service.open({ home: directory, config, cwd: directory });
+  const service = await Service.open({ home: path.join(directory, 'state'), config, cwd: directory });
   t.after(() => service.close());
   await service.command({ op: 'create', profile: 'live', message: 'Fork then archive the parent' });
   const parent = await waitFor(() => read(service), page => page.task.status === 'archived' && page.task.operations.length === 0,

@@ -71,6 +71,11 @@ export function providerOutput(output) {
   });
 }
 
+function taskInstructions(instructions, settings) {
+  return instructions + (settings ?
+    `\nCommitted task settings (workspace, sandbox, approval and project identity):\n${stringifyJson(settings)}` : '');
+}
+
 export function responseBody(effect, profile = { provider: effect.model.provider }) {
   // This is the committed task snapshot, not a fresh filesystem read or a new
   // privileged instruction. Compaction cannot erase its provenance or content.
@@ -84,7 +89,7 @@ export function responseBody(effect, profile = { provider: effect.model.provider
   }
   const body = {
     model: effect.model.name, stream: true, store: false,
-    instructions: effect.instructions,
+    instructions: taskInstructions(effect.instructions, effect.settings),
     input, reasoning: { effort: effect.model.reasoning },
     tools: effect.tools.map(tool => ({ type: 'function', name: tool.name,
       description: tool.description, parameters: tool.parameters, strict: false })),
@@ -101,7 +106,7 @@ export function responseBody(effect, profile = { provider: effect.model.provider
     body.tool_choice = 'auto';
     if (effect.kind === 'summary') {
       if (!text(effect.context_instructions)) throw new Error('A native compaction effect requires the frozen context instructions');
-      body.instructions = effect.context_instructions;
+      body.instructions = taskInstructions(effect.context_instructions, effect.settings);
       body.input.push({ type: 'compaction_trigger' });
     }
     if (profile.model_info) {

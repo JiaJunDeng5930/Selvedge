@@ -5,6 +5,8 @@ import ./bendlib/operations.bend as Ops
 import ./bendlib/equality.bend as Same
 import ./bendlib/json.bend as J
 import ./HOOKS.bend as Hooks
+import ./WORKSPACE.bend as Workspace
+import ./PROJECTS.bend as Projects
 
 # A world is an append-only registry of tasks, whose ancestry is a forest.
 # These predicates are executed by PROGRAM's admission boundary and named by
@@ -34,12 +36,7 @@ def unique_profiles(profiles: +List<M.Profile>) -> Bool:
         missing_profile(M.find_profile(rest, key)) && unique_profiles(rest)
 
 def project_context(project: M.ProjectContext) -> Bool:
-  match project:
-    case M.NoProject{}: True{}
-    case M.ProjectContext{+workspace, +revision, +instructions}:
-      M.nonempty(workspace) && Nat.is_le(J.utf8_length(workspace), 4096n) &&
-        Nat.is_le(J.utf8_length(instructions), M.project_limit()) &&
-        ((String.eq(revision, "absent") && String.eq(instructions, "")) || Nat.is_eq(J.utf8_length(revision), 64n))
+  Workspace.valid_guidance(project)
 
 def environment(environment: M.Environment) -> Bool:
   M.Environment{+catalog, profiles, max_fork, max_descendants, project, +plugins} = environment
@@ -47,8 +44,9 @@ def environment(environment: M.Environment) -> Bool:
     Nat.is_le(1n, max_fork) && Nat.is_le(1n, max_descendants)
 
 def contract(contract: M.Contract) -> Bool:
-  M.Contract{M.Model{M.Profile{key, provider, name}, reasoning, project}, +tools, max_fork, max_descendants, +plugins} = contract
-  Hooks.valid(plugins) && Hooks.routes(tools, plugins) && project_context(project) && M.nonempty(key) && M.nonempty(provider) && M.nonempty(name) && M.nonempty(reasoning) &&
+  M.Contract{M.Model{M.Profile{key, provider, name}, reasoning, +project}, +tools, max_fork, max_descendants, +plugins, +context} = contract
+  Workspace.valid_context(context) && Workspace.guidance_member(Workspace.primary(Workspace.workspace(context)), project) &&
+    Hooks.valid(plugins) && Hooks.routes(tools, plugins) && project_context(project) && M.nonempty(key) && M.nonempty(provider) && M.nonempty(name) && M.nonempty(reasoning) &&
     unique_tools(tools) && Nat.is_le(1n, max_fork) && Nat.is_le(1n, max_descendants)
 
 def lineage_parent(found: Maybe<&2, M.Task>, child: Nat, tail: +List<Nat>, contract: M.Contract, budget: Nat) -> Bool:
@@ -56,7 +54,7 @@ def lineage_parent(found: Maybe<&2, M.Task>, child: Nat, tail: +List<Nat>, contr
     case None{}: False{}
     case Some{+parent}:
       Nat.is_lt(M.task_id(parent), child) && Same.naturals(tail, M.task_lineage(parent)) &&
-        Same.contract(budget, contract, M.task_contract(parent))
+        Same.inherited_contract(budget, contract, M.task_contract(parent))
 
 def lineage(lineage: +List<Nat>, child: Nat, contract: M.Contract, tasks: +List<M.Task>, budget: Nat) -> Bool:
   match lineage:
@@ -240,8 +238,8 @@ def tasks(remaining: +List<M.Task>, +expected_id: Nat, +all: +List<M.Task>, +nex
 # exactly the recorded ancestor tail and contract. Quotas count archived tasks.
 # Every outstanding ticket is fresh within the allocation bound and is unique.
 def world(world: M.World) -> Bool:
-  M.World{+entries, next_task, next_ticket, settings, M.ExecutionLimits{steps, +budget, bytes}} = world
-  environment(settings) && Nat.is_le(1n, steps) && Nat.is_le(1n, budget) &&
+  M.World{+entries, next_task, next_ticket, settings, M.ExecutionLimits{steps, +budget, bytes}, +projects} = world
+  Projects.valid(projects) && Projects.tasks_bound(entries, projects) && environment(settings) && Nat.is_le(1n, steps) && Nat.is_le(1n, budget) &&
     Nat.is_lt(0n, U32.to_nat(bytes)) && tasks(entries, 0n, entries, next_task, next_ticket, budget)
 
 def archived(status: M.Status) -> Bool:
@@ -302,9 +300,10 @@ def retained(previous: +List<M.Task>, candidate: +List<M.Task>, +budget: Nat) ->
 
 def change(previous: M.World, candidate: M.World) -> Bool:
   match previous candidate:
-    case M.World{before, id_before, ticket_before, env_before, M.ExecutionLimits{steps_before, +budget_before, bytes_before}}
-         M.World{after, id_after, ticket_after, env_after, M.ExecutionLimits{steps_after, budget_after, bytes_after}}:
-      Nat.is_le(id_before, id_after) && Nat.is_le(ticket_before, ticket_after) &&
+    case M.World{before, id_before, ticket_before, env_before, M.ExecutionLimits{steps_before, +budget_before, bytes_before}, projects_before}
+         M.World{after, id_after, ticket_after, env_after, M.ExecutionLimits{steps_after, budget_after, bytes_after}, projects_after}:
+      Nat.is_le(Projects.next_id(projects_before), Projects.next_id(projects_after)) &&
+        Nat.is_le(id_before, id_after) && Nat.is_le(ticket_before, ticket_after) &&
         Nat.is_eq(steps_before, steps_after) && Nat.is_eq(budget_before, budget_after) &&
         Nat.is_eq(U32.to_nat(bytes_before), U32.to_nat(bytes_after)) && retained(before, after, budget_before)
 
@@ -354,15 +353,15 @@ def after_pending(found: Maybe<&2, M.Task>, operation: Nat, ticket: Nat) -> Bool
 def retained_effects(effects: +List<M.Effect>, +cancellations: +List<M.Effect>, +tasks: +List<M.Task>) -> +List<M.Effect>:
   match effects:
     case Nil{}: Nil{}
-    case Con{M.RequestModel{+id, +ticket, model, history, tools, callable}, rest}:
+    case Con{M.RequestModel{+id, +ticket, model, history, tools, callable, context}, rest}:
       keep_effect(found_archived(T.find(tasks, id)) || explicitly_cancelled(cancellations, id, ticket),
-        M.RequestModel{id, ticket, model, history, tools, callable}, retained_effects(rest, cancellations, tasks))
-    case Con{M.RequestSummary{+id, +ticket, model, history}, rest}:
+        M.RequestModel{id, ticket, model, history, tools, callable, context}, retained_effects(rest, cancellations, tasks))
+    case Con{M.RequestSummary{+id, +ticket, model, history, context}, rest}:
       keep_effect(found_archived(T.find(tasks, id)) || explicitly_cancelled(cancellations, id, ticket),
-        M.RequestSummary{id, ticket, model, history}, retained_effects(rest, cancellations, tasks))
-    case Con{M.ExecuteTool{+id, +ticket, tool, call}, rest}:
+        M.RequestSummary{id, ticket, model, history, context}, retained_effects(rest, cancellations, tasks))
+    case Con{M.ExecuteTool{+id, +ticket, tool, call, context, access}, rest}:
       keep_effect(found_archived(T.find(tasks, id)) || explicitly_cancelled(cancellations, id, ticket),
-        M.ExecuteTool{id, ticket, tool, call}, retained_effects(rest, cancellations, tasks))
+        M.ExecuteTool{id, ticket, tool, call, context, access}, retained_effects(rest, cancellations, tasks))
     case Con{M.CheckTool{+id, +ticket, reference, tool, call}, rest}:
       keep_effect(found_archived(T.find(tasks, id)) || explicitly_cancelled(cancellations, id, ticket),
         M.CheckTool{id, ticket, reference, tool, call}, retained_effects(rest, cancellations, tasks))
@@ -443,11 +442,11 @@ def hook_effect(found: Maybe<&2, M.Task>, ticket: Nat, plugin: M.PluginRef, +too
 def has_effect_ticket(effects: +List<M.Effect>, +ticket: Nat) -> Bool:
   match effects:
     case Nil{}: False{}
-    case Con{M.RequestModel{id, other, model, history, tools, callable}, rest}:
+    case Con{M.RequestModel{id, other, model, history, tools, callable, context}, rest}:
       Nat.is_eq(other, ticket) || has_effect_ticket(rest, ticket)
-    case Con{M.RequestSummary{id, other, model, history}, rest}:
+    case Con{M.RequestSummary{id, other, model, history, context}, rest}:
       Nat.is_eq(other, ticket) || has_effect_ticket(rest, ticket)
-    case Con{M.ExecuteTool{id, other, tool, call}, rest}:
+    case Con{M.ExecuteTool{id, other, tool, call, context, access}, rest}:
       Nat.is_eq(other, ticket) || has_effect_ticket(rest, ticket)
     case Con{M.CheckTool{id, other, reference, tool, call}, rest}:
       Nat.is_eq(other, ticket) || has_effect_ticket(rest, ticket)
@@ -457,18 +456,29 @@ def has_effect_ticket(effects: +List<M.Effect>, +ticket: Nat) -> Bool:
 
 # A dispatched effect must describe the final pending phase exactly, have a
 # freshly allocated correlation ticket, and occur only once in this decision.
+def context_effect(found: Maybe<&2, M.Task>, context: M.TaskContext, budget: Nat) -> Bool:
+  match found:
+    case None{}: False{}
+    case Some{task}: Same.json(budget, M.task_context_json(context), M.task_context_json(M.task_context(task)))
+
+def default_access_effect(found: Maybe<&2, M.Task>, access: M.ExecutionAccess) -> Bool:
+  match found:
+    case None{}: False{}
+    case Some{task}: String.eq(M.access_name(access), M.access_name(Workspace.default_access(M.task_context(task))))
+
 def effects(pending: +List<M.Effect>, +tasks: +List<M.Task>, +first_ticket: Nat, +budget: Nat) -> Bool:
   match pending:
     case Nil{}: True{}
     case Con{M.NotifyPlugins{events}, rest}: effects(rest, tasks, first_ticket, budget)
-    case Con{M.RequestModel{id, +ticket, model, history, tools, callable}, +rest}:
+    case Con{M.RequestModel{+id, +ticket, model, history, tools, callable, context}, +rest}:
       Nat.is_le(first_ticket, ticket) && Bool.not(has_effect_ticket(rest, ticket)) &&
-        model_effect(T.find(tasks, id), ticket, model, history, tools, callable, budget) && effects(rest, tasks, first_ticket, budget)
-    case Con{M.RequestSummary{id, +ticket, model, history}, +rest}:
+        context_effect(T.find(tasks, id), context, budget) && model_effect(T.find(tasks, id), ticket, model, history, tools, callable, budget) && effects(rest, tasks, first_ticket, budget)
+    case Con{M.RequestSummary{+id, +ticket, model, history, context}, +rest}:
       Nat.is_le(first_ticket, ticket) && Bool.not(has_effect_ticket(rest, ticket)) &&
-        summary_effect(T.find(tasks, id), ticket, model, history, budget) && effects(rest, tasks, first_ticket, budget)
-    case Con{M.ExecuteTool{id, +ticket, tool, call}, +rest}:
+        context_effect(T.find(tasks, id), context, budget) && summary_effect(T.find(tasks, id), ticket, model, history, budget) && effects(rest, tasks, first_ticket, budget)
+    case Con{M.ExecuteTool{+id, +ticket, tool, call, context, access}, +rest}:
       Nat.is_le(first_ticket, ticket) && Bool.not(has_effect_ticket(rest, ticket)) &&
+        context_effect(T.find(tasks, id), context, budget) && default_access_effect(T.find(tasks, id), access) &&
         tool_effect(T.find(tasks, id), ticket, tool, call, budget) && effects(rest, tasks, first_ticket, budget)
     case Con{M.CheckTool{id, +ticket, reference, tool, call}, +rest}:
       Nat.is_le(first_ticket, ticket) && Bool.not(has_effect_ticket(rest, ticket)) &&
@@ -484,7 +494,7 @@ def effects(pending: +List<M.Effect>, +tasks: +List<M.Task>, +first_ticket: Nat,
 
 def decision(previous: M.World, candidate: M.Decision) -> Bool:
   match previous candidate:
-    case M.World{before, id_before, +ticket_before, env_before, M.ExecutionLimits{+steps, +budget, +bytes}}
-         M.Decision{M.World{+after, +id_after, +ticket_after, +env_after, +limits_after}, reply, pending}:
-      change(M.World{before, id_before, ticket_before, env_before, M.ExecutionLimits{steps, budget, bytes}}, M.World{after, id_after, ticket_after, env_after, limits_after}) &&
+    case M.World{before, id_before, +ticket_before, env_before, M.ExecutionLimits{+steps, +budget, +bytes}, projects_before}
+         M.Decision{M.World{+after, +id_after, +ticket_after, +env_after, +limits_after, projects_after}, reply, pending}:
+      change(M.World{before, id_before, ticket_before, env_before, M.ExecutionLimits{steps, budget, bytes}, projects_before}, M.World{after, id_after, ticket_after, env_after, limits_after, projects_after}) &&
         effects(pending, after, ticket_before, budget)

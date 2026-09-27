@@ -12,14 +12,14 @@ import ./protocol.bend as ProtocolProof
 def Laws.execution_semantics(action, world):
   match action world:
     case Execution.Rest{} _: {==}
-    case Execution.Idle{task} M.World{tasks, next_task, ticket, environment, limits}: {==}
-    case Execution.Model{task} M.World{tasks, next_task, ticket, M.Environment{catalog, profiles, max_fork, max_descendants, project, plugins}, limits}: {==}
-    case Execution.Summary{task, resume} M.World{tasks, next_task, ticket, environment, limits}: {==}
-    case Execution.External{tool, call, remaining, task} M.World{tasks, next_task, ticket, environment, limits}: {==}
-    case Execution.Hook{reference, pending, tool, call, remaining, task} M.World{tasks, next_task, ticket, environment, limits}: {==}
+    case Execution.Idle{task} M.World{tasks, next_task, ticket, environment, limits, projects}: {==}
+    case Execution.Model{task} M.World{tasks, next_task, ticket, M.Environment{catalog, profiles, max_fork, max_descendants, project, plugins}, limits, projects}: {==}
+    case Execution.Summary{task, resume} M.World{tasks, next_task, ticket, environment, limits, projects}: {==}
+    case Execution.External{tool, call, remaining, task} M.World{tasks, next_task, ticket, environment, limits, projects}: {==}
+    case Execution.Hook{reference, pending, tool, call, remaining, task} M.World{tasks, next_task, ticket, environment, limits, projects}: {==}
     case Execution.Internal{operation, call, remaining, task} _:
       Laws.invocation_semantics(operation, call, remaining, task, world)
-    case Execution.Failure{code, reason, call, remaining, task} M.World{tasks, next_task, ticket, environment, limits}: {==}
+    case Execution.Failure{code, reason, call, remaining, task} M.World{tasks, next_task, ticket, environment, limits, projects}: {==}
 
 def Laws.work_semantics(work, task, world):
   Laws.execution_semantics(Execution.resolve(work, task, world), world)
@@ -104,15 +104,15 @@ def Laws.tool_work(task, world):
 
 def Laws.idle_work(task, world):
   match world:
-    case M.World{tasks, next_task, next_ticket, environment, limits}: {==}
+    case M.World{tasks, next_task, next_ticket, environment, limits, projects}: {==}
 
 def Laws.no_work(task, world):
   {==}
 
-def Laws.model_dispatch(task, tasks, next_task, ticket, catalog, profiles, max_fork, max_descendants, project, plugins, limits):
+def Laws.model_dispatch(task, tasks, next_task, ticket, catalog, profiles, max_fork, max_descendants, project, plugins, limits, projects):
   {==}
 
-def Laws.tool_dispatch(tool, call, remaining, task, tasks, next_task, ticket, environment, limits):
+def Laws.tool_dispatch(tool, call, remaining, task, tasks, next_task, ticket, environment, limits, projects):
   {==}
 
 def Laws.small_context_dispatch(task, world):

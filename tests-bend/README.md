@@ -14,6 +14,7 @@ Tests do not maintain a second finite-example specification of those semantics.
 | SQLite journal transactions, persistence format, locking and corruption | `journal.test.mjs` |
 | Physical processes, cancellation, descendants, output files and UTF-8 capture | `process.test.mjs`, `coding.test.mjs`, `async-service.test.mjs` |
 | Workspace path observations, Seatbelt quoting, seccomp ABI encoding and real OS write boundaries | `sandbox.test.mjs`; native policy proofs do not prove OS isolation |
+| Canonical project/workspace observations → committed task plan → real subprocess cwd/permissions → journal reopen | `workspaces.test.mjs`; pure context properties are in `workspace-architecture.bend` / `proofs/workspaces.bend` |
 | Provider/MCP/plugin wire formats, failures, actual cancellation and commit-before-callback | `providers`, `plugins`, `after-hooks`, `service-recovery` tests |
 | Authentication, HTTP/SSE and generic browser rendering | `auth`, `ui`, `service` tests |
 | Paced Markdown, safe links, fragmented SSE, draft races and preview identity/revision | `web-streaming.test.mjs`; browser mechanics, not native-domain proofs |

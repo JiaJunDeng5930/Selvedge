@@ -26,7 +26,7 @@ test('configured process order defines the unified chain; plugin tools, Bash and
     rewrite: settings(directory, 'rewrite', 'rewrite', { PLUGIN_COMMAND: `printf revised > ${shellQuote(rewritten)}` }),
     observer: settings(directory, 'observer', 'observer'),
   });
-  let service = await Service.open({ home: directory, config, cwd: directory });
+  let service = await Service.open({ home: path.join(directory, 'state'), config, cwd: directory });
   t.after(() => service.close());
   const diagnostics = [];
   service.on('notice', event => { if (event.type === 'diagnostic' || event.type === 'fatal') diagnostics.push(event); });
@@ -63,7 +63,7 @@ test('configured process order defines the unified chain; plugin tools, Bash and
   const before = (await logs(directory)).filter(line => ['beforeTool', 'callTool'].includes(line.method)).length;
   const oldSequence = service.journal.sequence;
   await service.close();
-  service = await Service.open({ home: directory, config, cwd: directory });
+  service = await Service.open({ home: path.join(directory, 'state'), config, cwd: directory });
   await waitFor(() => logs(directory), lines => lines.some(line => line.method === 'event' && line.type === 'recovered' && line.sequence > oldSequence), 'Recovery event missing');
   assert.equal((await logs(directory)).filter(line => ['beforeTool', 'callTool'].includes(line.method)).length, before, 'replay never reinvokes callbacks');
   assert.deepEqual((await taskIdle(service)).messages, page.messages);
@@ -75,7 +75,7 @@ test('malformed, timed-out and crashed hooks fail closed without dispatching the
     const marker = path.join(directory, 'forbidden');
     const provider = await responsesServer(t, (body, index) => index === 0 ? [call('bash', 'shell', { command: `touch ${shellQuote(marker)}` })] : answer);
     const config = configure(provider.endpoint, { guard: { ...settings(directory, 'guard', mode), timeout_ms: 120 } });
-    const service = await Service.open({ home: directory, config, cwd: directory });
+    const service = await Service.open({ home: path.join(directory, 'state'), config, cwd: directory });
     t.after(() => service.close());
     await service.command({ op: 'create', profile: 'live', message: 'Fail closed' });
     const page = await taskIdle(service);
@@ -94,7 +94,7 @@ test('slow and failing observers cannot delay authorization or roll back work; b
     slow: { ...settings(directory, 'slow', 'event_hang'), event_timeout_ms: 100, event_queue: 1 },
     broken: { ...settings(directory, 'broken', 'event_error'), event_timeout_ms: 100, event_queue: 1 },
   });
-  const service = await Service.open({ home: directory, config, cwd: directory });
+  const service = await Service.open({ home: path.join(directory, 'state'), config, cwd: directory });
   t.after(() => service.close());
   const notices = [];
   service.on('notice', notice => notices.push(notice));
@@ -112,8 +112,8 @@ test('plugin registration rejects unsupported schemas, ambiguous names and inval
   for (const mode of ['unsupported_schema', 'duplicate_tools', 'bad_manifest', 'bad_name', 'missing_name', 'null_name', 'boolean_name']) await t.test(mode, async t => {
     const directory = await home(t);
     const config = validateConfig({ ...defaultConfig, plugins: { guard: settings(directory, 'guard', mode) } });
-    await assert.rejects(Service.open({ home: directory, config, cwd: directory }), /Catalog rejected|invalid|collision/i);
-    const service = await Service.open({ home: directory, config: validateConfig(defaultConfig), cwd: directory });
+    await assert.rejects(Service.open({ home: path.join(directory, 'state'), config, cwd: directory }), /Catalog rejected|invalid|collision/i);
+    const service = await Service.open({ home: path.join(directory, 'state'), config: validateConfig(defaultConfig), cwd: directory });
     await service.close();
   });
   for (const plugins of [{ 'a-b': { command: 'node' } }, { valid: { command: 'node', event_queue: 0 } }, { valid: { command: 'node', env: { VALUE: 4 } } }]) {
@@ -138,7 +138,7 @@ test('Unicode observer payload limits survive serialization to a real plugin, wi
   const directory = await home(t);
   const text = '数据'.repeat(10_000);
   const provider = await responsesServer(t, (body, index) => index === 0 ? [call('plugin__observer__echo', 'large', { text })] : answer);
-  const service = await Service.open({ home: directory, config: configure(provider.endpoint,
+  const service = await Service.open({ home: path.join(directory, 'state'), config: configure(provider.endpoint,
     { observer: settings(directory, 'observer', 'observer') }), cwd: directory });
   t.after(() => service.close());
   await service.command({ op: 'create', profile: 'live', message: 'Deliver an oversized observation' });

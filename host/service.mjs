@@ -5,7 +5,7 @@ import { Journal } from './journal.mjs';
 import { Mcp } from './mcp.mjs';
 import { Plugin } from './plugins.mjs';
 import { runBash } from './process.mjs';
-import { snapshotProject } from './project.mjs';
+import { snapshotProject, observeWorkspaceCommand } from './project.mjs';
 import { requestModel, ContextLimitError } from './providers.mjs';
 import { profileCatalog } from './config.mjs';
 import { withAccountModels } from './chatgpt-models.mjs';
@@ -24,10 +24,11 @@ export class Service extends EventEmitter {
   #closePromise;
 
   static async open({ home, config, cwd = process.cwd(), journalOptions } = {}) {
+    if (!['linux', 'darwin'].includes(process.platform)) throw new Error('Selvedge supports Linux and macOS only');
     const service = new Service();
     Object.assign(service, { home, config, declaredConfig: config, cwd: await realpath(cwd) });
     try {
-      service.journal = await Journal.open(path.join(home, 'journal.sqlite'), { ...journalOptions, cwd: service.cwd });
+      service.journal = await Journal.open(path.join(home, 'journal.sqlite'), journalOptions);
       service.description = service.journal.description;
       service.limits = service.description.limits;
       service.project = await snapshotProject(service.cwd, service.limits);
@@ -184,8 +185,9 @@ export class Service extends EventEmitter {
       } else {
         let result;
         if (effect.tool.source === 'harness' && effect.tool.name === 'bash') {
-          result = await runBash(effect.call.arguments, this.limits, { signal, cwd: this.cwd,
-            artifactDirectory: path.join(this.home, 'artifacts') });
+          if (!effect.execution) throw new Error('A Bash effect requires a committed task execution plan');
+          result = await runBash(effect.call.arguments, this.limits, { signal, execution: effect.execution,
+            readOnlyPaths: [this.home], artifactDirectory: path.join(this.home, 'artifacts') });
         } else if (effect.tool.source?.plugin) {
           const client = this.#plugins.get(effect.tool.source.plugin.name);
           if (!client) throw new Error('Plugin tool route is unavailable');
@@ -233,10 +235,13 @@ export class Service extends EventEmitter {
         value: { error: { code: 'external_execution_failed', message } } };
   }
 
-  command(command) {
+  async command(command) {
     if (this.#failure) return Promise.reject(this.#failure);
     if (this.#closing) return Promise.reject(new Error('Service is stopping'));
-    return this.journal.execute({ kind: 'command', command });
+    const observed = await observeWorkspaceCommand(command, this.limits);
+    if (this.#failure) throw this.#failure;
+    if (this.#closing) throw new Error('Service is stopping');
+    return this.journal.execute({ kind: 'command', command: observed });
   }
 
   refreshAccounts() {
@@ -256,9 +261,12 @@ export class Service extends EventEmitter {
     return next;
   }
 
-  presentation({ state = null, event } = {}) {
+  async presentation({ state = null, event } = {}) {
     if (this.#failure) return Promise.reject(this.#failure);
     if (this.#closing) return Promise.reject(new Error('Service is stopping'));
+    if (event?.type === 'submit') event = { ...event, command: await observeWorkspaceCommand(event.command, this.limits) };
+    if (this.#failure) throw this.#failure;
+    if (this.#closing) throw new Error('Service is stopping');
     return this.journal.execute({ kind: 'ui', state, event });
   }
 

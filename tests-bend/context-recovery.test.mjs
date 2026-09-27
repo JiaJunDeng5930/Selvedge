@@ -136,7 +136,7 @@ test('the service commits overflow and summary before retrying, without repeatin
       const body = JSON.parse(Buffer.concat(chunks));
       const index = requests.length;
       requests.push(body);
-      const db = new DatabaseSync(path.join(directory, 'journal.sqlite'), { readOnly: true });
+      const db = new DatabaseSync(path.join(directory, 'state', 'journal.sqlite'), { readOnly: true });
       let record;
       try { record = db.prepare('SELECT input, decision FROM journal ORDER BY seq DESC LIMIT 1').get(); }
       finally { db.close(); }
@@ -174,7 +174,7 @@ test('the service commits overflow and summary before retrying, without repeatin
   t.after(() => new Promise(resolve => { server.closeAllConnections(); server.close(resolve); }));
   const config = validateConfig({ ...defaultConfig, profiles: { fixture: { provider: 'responses', model: 'fixture',
     endpoint: `http://127.0.0.1:${server.address().port}/responses`, api_key_env: key, timeout_ms: 5000 } } });
-  let service = await Service.open({ home: directory, cwd: directory, config });
+  let service = await Service.open({ home: path.join(directory, 'state'), cwd: directory, config });
   t.after(() => service.close());
   await service.command({ op: 'create', profile: 'fixture', message: 'write the artifact and complete the objective' });
   const page = await taskIdle(service);
@@ -184,7 +184,7 @@ test('the service commits overflow and summary before retrying, without repeatin
   assert.equal(JSON.stringify(page).includes('upstream-private-diagnostic'), false);
   assert.equal(page.messages.filter(x => x.role === 'function_output').length, 1);
   await service.close();
-  service = await Service.open({ home: directory, cwd: directory, config });
+  service = await Service.open({ home: path.join(directory, 'state'), cwd: directory, config });
   assert.deepEqual((await taskIdle(service)).messages, page.messages);
   assert.equal(requests.length, 4);
   assert.equal(await readFile(path.join(directory, 'result.txt'), 'utf8'), 'committed once');

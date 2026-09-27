@@ -77,7 +77,7 @@ def descendant_count(tasks: +List<M.Task>, +ancestor: Nat) -> Nat:
       add_count(has_id(M.task_lineage(task), ancestor), descendant_count(rest, ancestor))
 
 def contract_limit(contract: M.Contract) -> Nat:
-  M.Contract{model, tools, max_fork, max_descendants, plugins} = contract
+  M.Contract{model, tools, max_fork, max_descendants, plugins, context} = contract
   max_descendants
 
 def ancestor_fits(task: Maybe<&2, M.Task>, added: Nat, descendants: Nat) -> Bool:
@@ -93,11 +93,11 @@ def ancestors_fit(ancestors: +List<Nat>, +tasks: +List<M.Task>, +added: Nat) -> 
       ancestor_fits(find(tasks, ancestor), added, descendant_count(tasks, ancestor)) && ancestors_fit(rest, tasks, added)
 
 def task_tools(contract: M.Contract) -> +List<M.Tool>:
-  M.Contract{model, tools, max_fork, max_descendants, plugins} = contract
+  M.Contract{model, tools, max_fork, max_descendants, plugins, context} = contract
   tools
 
 def task_model(contract: M.Contract) -> M.Model:
-  M.Contract{model, tools, max_fork, max_descendants, plugins} = contract
+  M.Contract{model, tools, max_fork, max_descendants, plugins, context} = contract
   model
 
 def call_id(call: M.Call) -> String:
@@ -170,14 +170,14 @@ def phase_name(phase: M.Phase) -> String:
     case M.SummaryPending{ticket, resume}: "summary_pending"
 
 def summary(task: M.Task) -> J.Json:
-  M.Task{id, lineage, M.Contract{M.Model{M.Profile{profile, provider, model}, reasoning, project}, tools, max_fork, max_descendants, plugins}, +status, history, queued, phase, operations, notified} = task
+  M.Task{id, lineage, M.Contract{M.Model{M.Profile{profile, provider, model}, reasoning, project}, tools, max_fork, max_descendants, plugins, context}, +status, history, queued, phase, operations, notified} = task
   J.Object{[J.Field{"id", J.nat(id)}, J.Field{"parent", J.optional_nat(List.head(&2, Nat, lineage))},
     J.Field{"profile", J.Text{profile}}, J.Field{"provider", J.Text{provider}}, J.Field{"model", J.Text{model}}, J.Field{"reasoning", J.Text{reasoning}},
     J.Field{"status", J.Text{M.status_name(status)}}, J.Field{"controls", M.controls(status)},
     J.Field{"phase", J.Text{phase_name(phase)}}, J.Field{"cursor", J.nat(M.history_length(history))},
     J.Field{"queued", J.nat(List.length(&2, String, queued))},
     J.Field{"operations", J.Array{Ops.summaries(operations)}},
-    J.Field{"plugins", M.plugins_json(plugins)},
+    J.Field{"plugins", M.plugins_json(plugins)}, J.Field{"settings", M.task_context_json(context)},
     J.Field{"max_fork", J.nat(max_fork)}, J.Field{"max_descendants", J.nat(max_descendants)}]}
 
 def summaries(tasks: +List<M.Task>) -> +List<J.Json>:

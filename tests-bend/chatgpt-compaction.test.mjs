@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { Service } from '../host/service.mjs';
 import { defaultConfig, validateConfig } from '../host/config.mjs';
@@ -19,12 +20,14 @@ const catalog = { models: [{ slug: 'fixture-model', display_name: 'Fixture model
 async function fixtureService(t, handle) {
   const upstream = await chatgptFixture(t, (request, response) => request.method === 'GET'
     ? jsonResponse(response, catalog) : handle(request, response));
-  const config = validateConfig({ ...defaultConfig, profiles: {}, chatgpt: upstream.profile });
-  let service = await Service.open({ home: upstream.directory, config, cwd: upstream.directory });
+  const config = validateConfig({ ...defaultConfig, profiles: {}, chatgpt: {
+    ...upstream.profile, auth_file: path.join(upstream.directory, upstream.profile.auth_file),
+  } });
+  let service = await Service.open({ home: path.join(upstream.directory, 'state'), config, cwd: upstream.directory });
   t.after(() => service.close());
   return { ...upstream, get service() { return service; },
     key: Object.keys(service.config.profiles)[0],
-    restart: async () => { await service.close(); service = await Service.open({ home: upstream.directory, config, cwd: upstream.directory }); },
+    restart: async () => { await service.close(); service = await Service.open({ home: path.join(upstream.directory, 'state'), config, cwd: upstream.directory }); },
   };
 }
 

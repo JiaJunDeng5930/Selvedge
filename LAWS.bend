@@ -18,6 +18,7 @@ import ./bendlib/frontend.bend as Frontend
 import ./UI.bend as UI
 import ./HOOKS.bend as Hooks
 import ./bendlib/notifications.bend as Notifications
+import ./WORKSPACE.bend as Workspace
 
 law hook_gateway:
   for +tool: M.Tool
@@ -405,11 +406,12 @@ law model_dispatch:
   for +project: M.ProjectContext
   for +plugins: +List<M.Plugin>
   for +limits: M.ExecutionLimits
-  {P.model_request_direct(task, M.World{tasks, next_task, ticket, M.Environment{catalog, profiles, max_fork, max_descendants, project, plugins}, limits}) ==
+  for +projects: M.Projects
+  {P.model_request_direct(task, M.World{tasks, next_task, ticket, M.Environment{catalog, profiles, max_fork, max_descendants, project, plugins}, limits, projects}) ==
     M.Decision{M.World{T.replace(tasks, M.with_phase(M.ModelPending{ticket, T.callable(T.task_tools(M.task_contract(task)), catalog)}, Ops.publish(task))),
-      next_task, 1n+ticket, M.Environment{catalog, profiles, max_fork, max_descendants, project, plugins}, limits}, J.Null{},
+      next_task, 1n+ticket, M.Environment{catalog, profiles, max_fork, max_descendants, project, plugins}, limits, projects}, J.Null{},
       [M.RequestModel{M.task_id(task), ticket, T.task_model(M.task_contract(task)), M.context_history(M.task_history(Ops.publish(task))),
-        T.task_tools(M.task_contract(task)), T.callable(T.task_tools(M.task_contract(task)), catalog)}]} : M.Decision}
+        T.task_tools(M.task_contract(task)), T.callable(T.task_tools(M.task_contract(task)), catalog), M.task_context(task)}]} : M.Decision}
 
 law tool_dispatch:
   for +tool: M.Tool
@@ -421,9 +423,10 @@ law tool_dispatch:
   for +ticket: Nat
   for +environment: M.Environment
   for +limits: M.ExecutionLimits
-  {P.external_tool(tool, call, remaining, task, M.World{tasks, next_task, ticket, environment, limits}) ==
+  for +projects: M.Projects
+  {P.external_tool(tool, call, remaining, task, M.World{tasks, next_task, ticket, environment, limits, projects}) ==
     M.Decision{M.World{T.replace(tasks, T.promote(Ops.started(ticket, call, remaining, task))),
-      next_task, 1n+ticket, environment, limits}, J.Null{}, [M.ExecuteTool{M.task_id(task), ticket, tool, call}]} : M.Decision}
+      next_task, 1n+ticket, environment, limits, projects}, J.Null{}, [M.ExecuteTool{M.task_id(task), ticket, tool, call, M.task_context(task), Workspace.default_access(M.task_context(task))}]} : M.Decision}
 
 law small_context_dispatch:
   for +task: M.Task

@@ -85,7 +85,7 @@ def fitted(rendered: Result<&2, &2, String, String>, bytes: U32, +enriched: M.De
 
 def admitted(+durable: Bool, previous: M.World, +enriched: M.Decision, +plain: M.Decision,
   certificate: Laws.ObservationExtension<plain, enriched>) -> Laws.ObservationExtension<plain, N.admit(durable, previous, enriched, plain)>:
-  M.World{tasks, next_task, next_ticket, environment, M.ExecutionLimits{steps, render, +bytes}} = previous
+  M.World{tasks, next_task, next_ticket, environment, M.ExecutionLimits{steps, render, +bytes}, projects} = previous
   fitted(J.render(render, J.One{View.envelope(durable, enriched)}), bytes, enriched, plain, certificate)
 
 def enrichment(+source: M.Input, +before: M.World, +decision: M.Decision) -> Laws.ObservationExtension<decision, N.enrich(source, before, decision)>:

@@ -46,7 +46,7 @@ def optional_text(value: J.Json) -> Maybe<&2, String>:
 def construct_command(kind: M.CommandKind, +body: J.Json) -> M.Command:
   match kind:
     case M.CreateCommand{}:
-      M.Create{J.text(J.get(body, "profile")), text_or(J.get(body, "reasoning"), "medium"), J.text(J.get(body, "message"))}
+      M.Create{J.text(J.get(body, "profile")), text_or(J.get(body, "reasoning"), "medium"), J.text(J.get(body, "message")), J.get(body, "settings")}
     case M.SendCommand{}:
       M.Send{Protocol.number(body, "task_id", 0n), J.text(J.get(body, "message"))}
     case M.SteerCommand{}:
@@ -57,12 +57,19 @@ def construct_command(kind: M.CommandKind, +body: J.Json) -> M.Command:
       M.ChangeStatus{Protocol.number(body, "task_id", 0n), control}
     case M.ForkCommand{}:
       M.Fork{Protocol.number(body, "task_id", 0n), Protocol.number(body, "child_count", 0n),
-        Protocol.messages(J.items(J.get(body, "messages")))}
+        Protocol.messages(J.items(J.get(body, "messages"))), J.get(body, "settings")}
     case M.ReadCommand{}:
       M.Observe{M.Read{Protocol.number(body, "task_id", 0n), Protocol.number(body, "after", 0n), Protocol.number(body, "limit", 100n)}}
     case M.ListCommand{}: M.Observe{M.ListTasks{}}
     case M.CompactCommand{}: M.Compact{Protocol.number(body, "task_id", 0n), optional_text(J.get(body, "summary"))}
     case M.DescribeCommand{}: M.Observe{M.Describe{}}
+    case M.CreateProjectCommand{}:
+      M.CreateProject{J.text(J.get(body, "name")), J.get(body, "workspace"), J.get(body, "guidance")}
+    case M.UpdateProjectCommand{}:
+      M.UpdateProject{Protocol.number(body, "project_id", 0n), optional_text(J.get(body, "name")), J.get(body, "workspace"), J.get(body, "guidance")}
+    case M.DeleteProjectCommand{}: M.DeleteProject{Protocol.number(body, "project_id", 0n)}
+    case M.ListProjectsCommand{}: M.Observe{M.ListProjects{}}
+    case M.ReadProjectCommand{}: M.Observe{M.ReadProject{Protocol.number(body, "project_id", 0n)}}
 
 def command_valid(valid: Bool, kind: M.CommandKind, body: J.Json) -> Result<&2, &2, String, M.Input>:
   match valid:

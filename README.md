@@ -51,6 +51,30 @@ macro-step flattening, simulation and safety. Its carrier retains full decision
 receipts and is proved to correspond to the actual journal and finite executor.
 The project supplies one-step and representation obligations, not another copy
 of the generic path theory. The theory inventory is generated and checked.
+
+## Workspaces and projects
+
+Each task freezes its own workspace: zero or more canonical directory roots and,
+when roots exist, one primary root used as the Bash working directory. Sandbox
+settings and approval policy are separate contract fields. A restricted Bash
+process can write workspace roots under `workspace-write`, or no roots under
+`read-only`; other paths are read-only. It also gets a private temporary directory.
+The service home is protected, so keep it separate from project code directories.
+macOS uses Seatbelt; Linux requires bubblewrap and seccomp support. Unavailable
+isolation fails closed, rather than falling back to an ordinary host shell.
+
+Projects provide default workspace roots for newly created tasks. Changing a
+project does not change existing tasks. Forks inherit the complete task context
+unless the user explicitly supplies overrides; a model-created fork cannot gain
+broader write, network or approval authority. `create_project`, `update_project`,
+`read_project`, `list_projects` and `delete_project` are native commands. A project
+with task references cannot be deleted. Task creation/fork accepts a `settings`
+object with `project_id`, `workspace`, `sandbox` and `approval`.
+
+The actual command and context guarantees are bound by
+`bendlib/workspace-architecture.bend` in `CONCEPTS.Harness.working_context`.
+Journal format 2 records these task-local plans, not a global working directory;
+opening an older kernel/format is rejected without automatic migration.
 Operation ownership is a standard association-list binding: the stable operation
 identity is the key, while invocation and execution/result stage are the value.
 Lookup, removal and removal-absence evidence come from the original ExtLib

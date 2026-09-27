@@ -61,12 +61,12 @@ type ResultBoundary is Type:
           M.append_message(M.ToolReceipt{M.task_id(task), Ops.ticket(operation), Ops.call(operation), value, error}, task), world) : M.Decision},
     dispatch: @+plugin: M.PluginRef -> @+pending: +List<M.PluginRef> -> @+operation: M.Operation() ->
       @+value: J.Json -> @+error: Bool -> @+task: M.Task -> @+tasks: +List<M.Task> -> @+next_task: Nat ->
-      @+ticket: Nat -> @+environment: M.Environment -> @+limits: M.ExecutionLimits ->
+      @+ticket: Nat -> @+environment: M.Environment -> @+limits: M.ExecutionLimits -> @+projects: M.Projects ->
       {Results.waiting(True{}, plugin, pending, operation, value, error, task,
-        M.World{tasks, next_task, ticket, environment, limits}) ==
+        M.World{tasks, next_task, ticket, environment, limits, projects}) ==
         M.Decision{M.World{T.replace(tasks, M.with_operations(Ops.replace(M.task_operations(task),
           Ops.with_stage(M.ResultPending{ticket, plugin, pending, value, error}, operation)), task)),
-          next_task, 1n+ticket, environment, limits}, M.success(J.Object{[J.Field{"accepted", J.Boolean{True{}}}]}),
+          next_task, 1n+ticket, environment, limits, projects}, M.success(J.Object{[J.Field{"accepted", J.Boolean{True{}}}]}),
           [M.CheckResult{M.task_id(task), ticket, Ops.ticket(operation), plugin, Ops.call(operation), value, error}]} : M.Decision},
     rewrite: @+call: M.Call -> @current: J.Json -> @+replacement: J.Json -> @+error: Bool -> @+pending: +List<M.PluginRef> ->
       {Hooks.result_advance(M.RewriteResult{replacement}, call, current, error, pending) ==
@@ -122,11 +122,11 @@ type ResultBoundary is Type:
         Results.internal_chain(Hooks.after(Hooks.plugins(M.task_contract(task))), call, remaining, value, error, task, world) : M.Decision},
     internal_receipt: @+plugin:M.PluginRef -> @+pending:+List<M.PluginRef> -> @+call:M.Call -> @+remaining:+List<M.Attempt> ->
       @+value:J.Json -> @+error:Bool -> @+task:M.Task -> @+tasks:+List<M.Task> -> @+next_task:Nat -> @+ticket:Nat ->
-      @+environment:M.Environment -> @+limits:M.ExecutionLimits ->
-      {Results.internal_chain(plugin <> pending, call, remaining, value, error, task, M.World{tasks, next_task, ticket, environment, limits}) ==
+      @+environment:M.Environment -> @+limits:M.ExecutionLimits -> @+projects:M.Projects ->
+      {Results.internal_chain(plugin <> pending, call, remaining, value, error, task, M.World{tasks, next_task, ticket, environment, limits, projects}) ==
         Results.received(plugin <> pending, (ticket, M.OperationBody{call, False{}, M.Executing{}}), value, error,
           Results.finish_status(M.task_status(task), Ops.started(ticket, call, remaining, task)),
-          M.World{tasks, next_task, 1n+ticket, environment, limits}) : M.Decision}
+          M.World{tasks, next_task, 1n+ticket, environment, limits, projects}) : M.Decision}
   }
 
 law result_boundary:

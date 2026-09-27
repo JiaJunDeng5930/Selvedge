@@ -55,11 +55,16 @@ def compact_json(id: Nat, summary: Maybe<&2, String>) -> J.Json:
     case None{}: J.Object{[J.Field{"op", J.Text{"compact"}}, J.Field{"task_id", J.nat(id)}]}
     case Some{text}: J.Object{[J.Field{"op", J.Text{"compact"}}, J.Field{"task_id", J.nat(id)}, J.Field{"summary", J.Text{text}}]}
 
+def optional_field(name: String, value: J.Json, fields: +List<J.Field>) -> +List<J.Field>:
+  match value:
+    case J.Null{}: fields
+    case value: J.Field{name, value} <> fields
+
 def command_json(command: M.Command) -> J.Json:
   match command:
-    case M.Create{profile, reasoning, message}:
-      J.Object{[J.Field{"op", J.Text{"create"}}, J.Field{"profile", J.Text{profile}},
-        J.Field{"reasoning", J.Text{reasoning}}, J.Field{"message", J.Text{message}}]}
+    case M.Create{profile, reasoning, message, options}:
+      J.Object{optional_field("settings", options, [J.Field{"op", J.Text{"create"}}, J.Field{"profile", J.Text{profile}},
+        J.Field{"reasoning", J.Text{reasoning}}, J.Field{"message", J.Text{message}}])}
     case M.Send{id, message}:
       J.Object{[J.Field{"op", J.Text{"send"}}, J.Field{"task_id", J.nat(id)}, J.Field{"message", J.Text{message}}]}
     case M.Steer{id, message}:
@@ -68,14 +73,23 @@ def command_json(command: M.Command) -> J.Json:
       J.Object{[J.Field{"op", J.Text{"cancel_operation"}}, J.Field{"task_id", J.nat(id)}, J.Field{"operation_id", J.nat(operation)}]}
     case M.ChangeStatus{id, control}:
       J.Object{[J.Field{"op", J.Text{M.control_name(control)}}, J.Field{"task_id", J.nat(id)}]}
-    case M.Fork{id, count, messages}:
-      J.Object{[J.Field{"op", J.Text{"fork"}}, J.Field{"task_id", J.nat(id)}, J.Field{"child_count", J.nat(count)},
-        J.Field{"messages", J.Array{T.strings_json(messages)}}]}
+    case M.Fork{id, count, messages, options}:
+      J.Object{optional_field("settings", options, [J.Field{"op", J.Text{"fork"}}, J.Field{"task_id", J.nat(id)}, J.Field{"child_count", J.nat(count)},
+        J.Field{"messages", J.Array{T.strings_json(messages)}}])}
     case M.Compact{id, summary}: compact_json(id, summary)
     case M.Observe{M.Read{id, after, limit}}:
       J.Object{[J.Field{"op", J.Text{"read"}}, J.Field{"task_id", J.nat(id)}, J.Field{"after", J.nat(after)}, J.Field{"limit", J.nat(limit)}]}
     case M.Observe{M.ListTasks{}}: J.Object{[J.Field{"op", J.Text{"list"}}]}
     case M.Observe{M.Describe{}}: J.Object{[J.Field{"op", J.Text{"describe"}}]}
+    case M.Observe{M.ListProjects{}}: J.Object{[J.Field{"op", J.Text{"list_projects"}}]}
+    case M.Observe{M.ReadProject{id}}: J.Object{[J.Field{"op", J.Text{"read_project"}}, J.Field{"project_id", J.nat(id)}]}
+    case M.CreateProject{name, workspace, guidance}:
+      J.Object{optional_field("guidance", guidance, [J.Field{"op", J.Text{"create_project"}}, J.Field{"name", J.Text{name}},
+        J.Field{"workspace", workspace}])}
+    case M.UpdateProject{id, name, workspace, guidance}:
+      J.Object{optional_field("guidance", guidance, optional_field("workspace", workspace,
+        optional_field("name", M.optional_string(name), [J.Field{"op", J.Text{"update_project"}}, J.Field{"project_id", J.nat(id)}])))}
+    case M.DeleteProject{id}: J.Object{[J.Field{"op", J.Text{"delete_project"}}, J.Field{"project_id", J.nat(id)}]}
 
 def event_json(event: M.ViewEvent) -> J.Json:
   match event:
@@ -166,7 +180,7 @@ def first_profile(profiles: +List<M.Profile>) -> String:
 def create_config(environment: M.Environment, world: M.World) -> Node:
   M.Environment{catalog, +profiles, max_fork, max_descendants, project, plugins} = environment
   +profile = first_profile(profiles)
-  form("create", "New task", "Create task", M.Create{profile, "medium", "message"},
+  form("create", "New task", "Create task", M.Create{profile, "medium", "message", J.Null{}},
     [Field{"profile", "Model profile", "choice", J.Text{profile}, field_schema("create", "profile"), profile_choices(profiles), True{}},
       input("create", "reasoning", "Reasoning", "text", J.Text{"medium"}, True{}),
       input("create", "message", "What should the agent do?", "multiline", J.Text{""}, True{})], world)
@@ -310,7 +324,7 @@ def send_forms(+id: Nat, +world: M.World) -> Node:
 
 def advanced(+id: Nat, +world: M.World) -> Node:
   Group{"advanced", "details", "Branch and context",
-    [form("fork/" ++ Nat.show(id), "Fork this task", "Create branches", M.Fork{id, 1n, Nil{}},
+    [form("fork/" ++ Nat.show(id), "Fork this task", "Create branches", M.Fork{id, 1n, Nil{}, J.Null{}},
        [input("fork", "child_count", "Children", "integer", J.nat(1n), True{})], world),
      action("compact/" ++ Nat.show(id), "Ask the model for a checkpoint", M.Compact{id, None{}}, world),
      form("checkpoint/" ++ Nat.show(id), "Supply a checkpoint", "Save checkpoint", M.Compact{id, Some{"summary"}},
@@ -369,7 +383,7 @@ def navigate(event: M.ViewEvent, previous: M.ViewState, +reply: J.Json) -> M.Vie
     case M.SelectTask{id} M.ViewState{selected, after, tasks_after}: M.ViewState{id, None{}, tasks_after}
     case M.HistoryPage{offset} M.ViewState{selected, after, tasks_after}: M.ViewState{selected, offset, tasks_after}
     case M.TaskPage{offset} M.ViewState{selected, after, tasks_after}: M.ViewState{selected, after, offset}
-    case M.Submit{M.Create{profile, reasoning, message}} M.ViewState{selected, after, tasks_after}:
+    case M.Submit{M.Create{profile, reasoning, message, options}} M.ViewState{selected, after, tasks_after}:
       follow_created(J.boolean(J.get(reply, "ok")), reply, M.ViewState{selected, after, tasks_after})
     case _ _: previous
 

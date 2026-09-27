@@ -1,6 +1,7 @@
 import Base
 import ./json.bend as J
 import ../MODEL.bend as M
+import ../WORKSPACE.bend as Workspace
 
 def booleans(left: Bool, right: Bool) -> Bool:
   match left right:
@@ -84,9 +85,18 @@ def tools(+budget: Nat, left: +List<M.Tool>, right: +List<M.Tool>) -> Bool:
 
 def contract(+budget: Nat, left: M.Contract, right: M.Contract) -> Bool:
   match left right:
-    case M.Contract{model_a, tools_a, fork_a, descendants_a, plugins_a} M.Contract{model_b, tools_b, fork_b, descendants_b, plugins_b}:
-      model(model_a, model_b) && tools(budget, tools_a, tools_b) &&
+    case M.Contract{model_a, tools_a, fork_a, descendants_a, plugins_a, context_a} M.Contract{model_b, tools_b, fork_b, descendants_b, plugins_b, context_b}:
+      json(budget, M.task_context_json(context_a), M.task_context_json(context_b)) && model(model_a, model_b) && tools(budget, tools_a, tools_b) &&
         Nat.is_eq(fork_a, fork_b) && Nat.is_eq(descendants_a, descendants_b) && json(budget, M.plugins_json(plugins_a), M.plugins_json(plugins_b))
+
+# A branch may explicitly replace execution coordinates and their root guidance.
+# Its model identity, tool definitions, plugin routes and resource bounds remain
+# inherited. Existing tasks still use exact contract equality in retained().
+def inherited_contract(+budget: Nat, left: M.Contract, right: M.Contract) -> Bool:
+  M.Contract{M.Model{profile_a, reasoning_a, guidance_a}, tools_a, fork_a, descendants_a, plugins_a, context_a} = left
+  M.Contract{M.Model{profile_b, reasoning_b, guidance_b}, tools_b, fork_b, descendants_b, plugins_b, context_b} = right
+  Workspace.profile_same(profile_a, profile_b) && String.eq(reasoning_a, reasoning_b) && tools(budget, tools_a, tools_b) &&
+    Nat.is_eq(fork_a, fork_b) && Nat.is_eq(descendants_a, descendants_b) && json(budget, M.plugins_json(plugins_a), M.plugins_json(plugins_b))
 
 def call(budget: Nat, left: M.Call, right: M.Call) -> Bool:
   match left right:

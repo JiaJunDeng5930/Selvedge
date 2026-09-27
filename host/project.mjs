@@ -2,8 +2,9 @@ import { constants } from 'node:fs';
 import { open, realpath } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
+import { canonicalWorkspace } from './sandbox.mjs';
 
-/** Observe root guidance once before Configure; the committed snapshot owns it. */
+/** Observe root guidance before a configuration/birth command; the journal owns the snapshot. */
 export async function snapshotProject(cwd, limits, { signal } = {}) {
   signal?.throwIfAborted();
   const maximum = limits.project_context_bytes;
@@ -39,4 +40,26 @@ export async function snapshotProject(cwd, limits, { signal } = {}) {
     catch { throw new Error('File is not valid UTF-8'); }
     return { workspace, revision: createHash('sha256').update(bytes).digest('hex'), instructions };
   } finally { await file.close(); }
+}
+
+/**
+ * Observe only directories explicitly selected by the user. Project default
+ * selection and fork inheritance remain in the native command resolver.
+ */
+export async function observeWorkspaceCommand(command, limits) {
+  if (command === null || typeof command !== 'object' || Array.isArray(command)) return command;
+  const settingCommand = ['create', 'fork'].includes(command.op);
+  const projectCommand = ['create_project', 'update_project'].includes(command.op);
+  if (!settingCommand && !projectCommand) return command;
+  const selected = settingCommand ? command.settings : command;
+  if (!selected || typeof selected !== 'object' || Array.isArray(selected)) return command;
+  if (selected.guidance !== undefined) throw new TypeError('Root guidance is observed by the service, not supplied by a client');
+  if (selected.workspace === undefined) return command;
+  const canonical = await canonicalWorkspace(selected.workspace);
+  const observed = { ...selected, workspace: { roots: canonical.roots } };
+  if (canonical.primary_root !== null) {
+    observed.workspace.primary_root = canonical.primary_root;
+    observed.guidance = await snapshotProject(canonical.primary_root, limits);
+  }
+  return settingCommand ? { ...command, settings: observed } : observed;
 }

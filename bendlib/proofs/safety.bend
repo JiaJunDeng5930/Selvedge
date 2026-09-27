@@ -65,8 +65,8 @@ def Laws.transition_admitted(world, input):
   match input:
     case M.UserInterface{state, event}: update_certificate(M.UserInterface{state, event}, world)
     case M.UserCommand{M.Observe{query}}: observe_certificate(query, world)
-    case M.UserCommand{M.Create{profile, reasoning, message}}:
-      update_certificate(M.UserCommand{M.Create{profile, reasoning, message}}, world)
+    case M.UserCommand{M.Create{profile, reasoning, message, options}}:
+      update_certificate(M.UserCommand{M.Create{profile, reasoning, message, options}}, world)
     case M.UserCommand{M.Send{id, message}}:
       update_certificate(M.UserCommand{M.Send{id, message}}, world)
     case M.UserCommand{M.Steer{id, message}}:
@@ -75,10 +75,16 @@ def Laws.transition_admitted(world, input):
       update_certificate(M.UserCommand{M.Cancel{id, ticket}}, world)
     case M.UserCommand{M.ChangeStatus{id, control}}:
       update_certificate(M.UserCommand{M.ChangeStatus{id, control}}, world)
-    case M.UserCommand{M.Fork{id, count, messages}}:
-      update_certificate(M.UserCommand{M.Fork{id, count, messages}}, world)
+    case M.UserCommand{M.Fork{id, count, messages, options}}:
+      update_certificate(M.UserCommand{M.Fork{id, count, messages, options}}, world)
     case M.UserCommand{M.Compact{id, summary}}:
       update_certificate(M.UserCommand{M.Compact{id, summary}}, world)
+    case M.UserCommand{M.CreateProject{name, workspace, guidance}}:
+      update_certificate(M.UserCommand{M.CreateProject{name, workspace, guidance}}, world)
+    case M.UserCommand{M.UpdateProject{id, name, workspace, guidance}}:
+      update_certificate(M.UserCommand{M.UpdateProject{id, name, workspace, guidance}}, world)
+    case M.UserCommand{M.DeleteProject{id}}:
+      update_certificate(M.UserCommand{M.DeleteProject{id}}, world)
     case M.ModelCompleted{id, ticket, outcome}:
       update_certificate(M.ModelCompleted{id, ticket, outcome}, world)
     case M.ToolCompleted{id, ticket, value, error}:

@@ -8,6 +8,7 @@ import ./schema.bend as Schema
 import ./presentation.bend as View
 import ./operations.bend as Ops
 import ../HOOKS.bend as Hooks
+import ../WORKSPACE.bend as Workspace
 
 # The execution alphabet is the semantic boundary between task policy and the
 # scheduler. Resolution owns authority, recovery and argument preconditions;
@@ -23,11 +24,11 @@ type Action is Data:
   Failure{code: String, reason: String, call: M.Call, remaining: +List<M.Attempt>, task: M.Task}
 
 def catalog(world: M.World) -> +List<M.Tool>:
-  M.World{tasks, next_task, next_ticket, M.Environment{tools, profiles, max_fork, max_descendants, project, plugins}, limits} = world
+  M.World{tasks, next_task, next_ticket, M.Environment{tools, profiles, max_fork, max_descendants, project, plugins}, limits, projects} = world
   tools
 
 def render_budget(world: M.World) -> Nat:
-  M.World{tasks, next_task, next_ticket, environment, M.ExecutionLimits{steps, render, bytes}} = world
+  M.World{tasks, next_task, next_ticket, environment, M.ExecutionLimits{steps, render, bytes}, projects} = world
   render
 
 def context(+task: M.Task) -> J.Json:
@@ -140,22 +141,22 @@ def meaning(action: Action, world: M.World) -> M.Decision:
       M.Decision{world, M.success(J.Null{}), Nil{}}
     case Idle{task} _:
       M.Decision{Commands.replace(M.with_phase(M.Idle{}, task), world), M.success(J.Null{}), Nil{}}
-    case Model{+task} M.World{tasks, next_task, +ticket, +environment, limits}:
+    case Model{+task} M.World{tasks, next_task, +ticket, +environment, limits, projects}:
       M.Environment{catalog, profiles, max_fork, max_descendants, project, plugins} = environment
       +tools = T.task_tools(M.task_contract(task))
       +allowed = T.callable(tools, catalog)
       +prepared = Ops.publish(task)
-      M.Decision{M.World{T.replace(tasks, M.with_phase(M.ModelPending{ticket, allowed}, prepared)), next_task, 1n+ticket, environment, limits},
-        J.Null{}, [M.RequestModel{M.task_id(task), ticket, T.task_model(M.task_contract(task)), M.context_history(M.task_history(prepared)), tools, allowed}]}
-    case Summary{+task, +resume} M.World{tasks, next_task, +ticket, environment, limits}:
-      M.Decision{M.World{T.replace(tasks, M.with_notified(False{}, M.with_phase(M.SummaryPending{ticket, resume}, task))), next_task, 1n+ticket, environment, limits},
+      M.Decision{M.World{T.replace(tasks, M.with_phase(M.ModelPending{ticket, allowed}, prepared)), next_task, 1n+ticket, environment, limits, projects},
+        J.Null{}, [M.RequestModel{M.task_id(task), ticket, T.task_model(M.task_contract(task)), M.context_history(M.task_history(prepared)), tools, allowed, M.task_context(task)}]}
+    case Summary{+task, +resume} M.World{tasks, next_task, +ticket, environment, limits, projects}:
+      M.Decision{M.World{T.replace(tasks, M.with_notified(False{}, M.with_phase(M.SummaryPending{ticket, resume}, task))), next_task, 1n+ticket, environment, limits, projects},
         M.success(J.Object{[J.Field{"task_id", J.nat(M.task_id(task))}]}),
-        [M.RequestSummary{M.task_id(task), ticket, T.task_model(M.task_contract(task)), M.context_history(M.task_history(task))}]}
-    case External{+tool, +call, remaining, +task} M.World{tasks, next_task, +ticket, environment, limits}:
-      M.Decision{M.World{T.replace(tasks, T.promote(Ops.started(ticket, call, remaining, task))), next_task, 1n+ticket, environment, limits},
-        J.Null{}, [M.ExecuteTool{M.task_id(task), ticket, tool, call}]}
-    case Hook{+plugin, pending, tool, +call, remaining, +task} M.World{tasks, next_task, +ticket, environment, limits}:
-      M.Decision{M.World{T.replace(tasks, M.with_phase(M.HookPending{ticket, plugin, call, pending, remaining}, task)), next_task, 1n+ticket, environment, limits},
+        [M.RequestSummary{M.task_id(task), ticket, T.task_model(M.task_contract(task)), M.context_history(M.task_history(task)), M.task_context(task)}]}
+    case External{+tool, +call, remaining, +task} M.World{tasks, next_task, +ticket, environment, limits, projects}:
+      M.Decision{M.World{T.replace(tasks, T.promote(Ops.started(ticket, call, remaining, task))), next_task, 1n+ticket, environment, limits, projects},
+        J.Null{}, [M.ExecuteTool{M.task_id(task), ticket, tool, call, M.task_context(task), Workspace.default_access(M.task_context(task))}]}
+    case Hook{+plugin, pending, tool, +call, remaining, +task} M.World{tasks, next_task, +ticket, environment, limits, projects}:
+      M.Decision{M.World{T.replace(tasks, M.with_phase(M.HookPending{ticket, plugin, call, pending, remaining}, task)), next_task, 1n+ticket, environment, limits, projects},
         J.Null{}, [M.CheckTool{M.task_id(task), ticket, plugin, tool, call}]}
     case Internal{operation, call, remaining, task} _:
       Protocol.invoked(operation, call, remaining, task, world)
@@ -190,7 +191,7 @@ def schedule(fuel: Nat, candidate: Maybe<&2, M.Task>, +decision: M.Decision) -> 
       schedule(p, T.runnable(Commands.entries(world(next))), next)
 
 def budget(world: M.World) -> Nat:
-  M.World{tasks, next_task, next_ticket, environment, M.ExecutionLimits{steps, render, bytes}} = world
+  M.World{tasks, next_task, next_ticket, environment, M.ExecutionLimits{steps, render, bytes}, projects} = world
   steps
 
 def scheduled(enabled: Bool, +decision: M.Decision) -> M.Decision:

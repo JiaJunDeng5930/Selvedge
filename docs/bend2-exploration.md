@@ -1058,3 +1058,27 @@ macOS. This is evidence about the real Seatbelt path, not Linux execution. The
 Linux BPF interpreter probes both x86-64 and AArch64 syscall/architecture branches;
 the platform matrix separately owns real Linux subprocess tests. `clone3` needs
 `ENOSYS`, rather than `EPERM`, to preserve libc's fallback to flag-checked `clone`.
+
+## 2026-09-27: task-local workspace and project defaults
+
+The former service-wide working directory is now only the default for new
+unprojected tasks. A task contract contains independent workspace, sandbox,
+approval and project coordinates. Project defaults are copied at birth; changing
+the project map preserves the task collection by construction and by the
+`ContextBoundary.project_frame` proof. Forks keep model/tool/resource invariants
+while permitting an explicit child context; existing contracts remain immutable.
+
+The new project ID exhaustion guard initially compared a symbolic `Nat` with
+`U32.to_nat(4294967295)`. The pure checker overflowed while specializing the
+command-transition proof for CreateProject, even though PROGRAM and the initial
+invariant checked. A diagnostic copy of the pinned checker localized that exact
+definition; it was not used as proof evidence. Storing the project allocator as
+U32 and rejecting its maximum value before increment preserves the bound without
+expanding a huge natural literal. The unmodified pinned checker then accepted
+PROOF, including the new context-boundary instance.
+
+The real macOS service probe committed canonical multi-root project observations,
+dispatched a Bash process in the selected primary root, wrote both authorized
+roots, rejected an outside write, and reopened the same journal from another
+launch directory without repeating the effect. Journal identity now describes
+the kernel/format, not a global workspace. File effects carry task-local plans.

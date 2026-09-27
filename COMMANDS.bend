@@ -5,6 +5,9 @@ import ./bendlib/tasks.bend as T
 import ./bendlib/operations.bend as Ops
 import ./INVARIANTS.bend as I
 import ./bendlib/stdlib.bend as Std
+import ./WORKSPACE.bend as Workspace
+import ./PROJECTS.bend as Projects
+import ./bendlib/schema.bend as Schema
 
 # A command denotes a resolved operation, not permission to make any safe change.
 # Resolution owns every command precondition. The operation's meaning fixes the
@@ -12,22 +15,24 @@ import ./bendlib/stdlib.bend as Std
 # The host cannot submit an Operation: only MODEL.Command crosses the wire.
 type Operation is Data:
   Refuse{code: String, reason: String}
-  Start{profile: M.Profile, reasoning: String, message: String}
+  Start{profile: M.Profile, reasoning: String, message: String, selection: Workspace.Selection}
   Deliver{task: M.Task, message: String}
   Steer{task: M.Task, message: String}
   Cancel{task: M.Task, operation: M.Operation()}
   Control{task: M.Task, request: M.Control, next: M.Status}
-  Branch{parent: M.Task, count: Nat, messages: +List<String>}
+  Branch{parent: M.Task, count: Nat, messages: +List<String>, selection: Workspace.Selection}
   Summarize{task: M.Task}
   Checkpoint{task: M.Task, summary: String}
   Observe{query: M.Query}
+  StoreProject{project_id: Nat, project: M.Project, next_id: U32}
+  RemoveProject{project_id: Nat}
 
 def entries(world: M.World) -> +List<M.Task>:
-  M.World{tasks, next_task, next_ticket, environment, limits} = world
+  M.World{tasks, next_task, next_ticket, environment, limits, projects} = world
   tasks
 
 def settings(world: M.World) -> M.Environment:
-  M.World{tasks, next_task, next_ticket, environment, limits} = world
+  M.World{tasks, next_task, next_ticket, environment, limits, projects} = world
   environment
 
 def configured(environment: M.Environment) -> +List<M.Profile>:
@@ -39,12 +44,57 @@ def require(valid: Bool, yes: Operation, code: String, reason: String) -> Operat
     case True{}: yes
     case False{}: Refuse{code, reason}
 
-def selected(profile: Maybe<&2, M.Profile>, +reasoning: String, +message: String) -> Operation:
+def task_selection(+task: M.Task) -> Workspace.Selection:
+  Workspace.Selection{M.task_context(task), M.model_guidance(T.task_model(M.task_contract(task)))}
+
+def environment_selection(environment: M.Environment) -> Workspace.Selection:
+  M.Environment{catalog, profiles, max_fork, max_descendants, +guidance, plugins} = environment
+  Workspace.Selection{Workspace.defaults(guidance), guidance}
+
+def project_settings(base: Result<&2, &2, String, Workspace.Selection>, options: J.Json,
+  profile: M.Profile, profiles: +List<M.Profile>) -> Result<&2, &2, String, Workspace.Selection>:
+  match base:
+    case Fail{reason}: Fail{reason}
+    case Done{Workspace.Selection{context, guidance}}: Workspace.resolve(options, context, guidance, profile, profiles)
+
+def selected_settings(+options: J.Json, base: Workspace.Selection, profile: M.Profile, +world: M.World) -> Result<&2, &2, String, Workspace.Selection>:
+  Workspace.Selection{context, guidance} = base
+  project_settings(Projects.select(J.get(options, "project_id"), context, guidance, Projects.registry(world)),
+    options, profile, configured(settings(world)))
+
+def start_selection(selection: Result<&2, &2, String, Workspace.Selection>, profile: M.Profile,
+  +reasoning: String, +message: String) -> Operation:
+  match selection:
+    case Fail{reason}: Refuse{"invalid_settings", reason}
+    case Done{selection}:
+      require(M.nonempty(reasoning) && M.nonempty(message), Start{profile, reasoning, message, selection},
+        "invalid_arguments", "Create requires a configured profile, a reasoning effort, and a nonempty message")
+
+def selected(profile: Maybe<&2, M.Profile>, reasoning: String, message: String, options: J.Json, +world: M.World) -> Operation:
   match profile:
     case None{}: Refuse{"unknown_profile", "Select a configured model profile"}
-    case Some{profile}:
-      require(M.nonempty(reasoning) && M.nonempty(message), Start{profile, reasoning, message},
-        "invalid_arguments", "Create requires a configured profile, a reasoning effort, and a nonempty message")
+    case Some{+profile}:
+      start_selection(selected_settings(options, environment_selection(settings(world)), profile, world), profile, reasoning, message)
+
+def branch_selection(selection: Result<&2, &2, String, Workspace.Selection>, parent: M.Task,
+  count: Nat, messages: +List<String>) -> Operation:
+  match selection:
+    case Fail{reason}: Refuse{"invalid_settings", reason}
+    case Done{selection}: Branch{parent, count, messages, selection}
+
+def configure_branch(operation: Operation, options: J.Json, world: M.World) -> Operation:
+  match operation:
+    case Branch{+parent, count, messages, base}:
+      branch_selection(selected_settings(options, base, M.model_profile(T.task_model(M.task_contract(parent))), world), parent, count, messages)
+    case other: other
+
+def selected_contract(selection: Workspace.Selection, contract: M.Contract) -> M.Contract:
+  Workspace.Selection{context, guidance} = selection
+  M.Contract{M.Model{profile, reasoning, previous_guidance}, tools, max_fork, max_descendants, plugins, previous_context} = contract
+  M.Contract{M.Model{profile, reasoning, guidance}, tools, max_fork, max_descendants, plugins, context}
+
+def selected_parent(selection: Workspace.Selection, +parent: M.Task) -> M.Task:
+  M.with_contract(selected_contract(selection, M.task_contract(parent)), parent)
 
 def recipient(found: Maybe<&2, M.Task>, +message: String) -> Operation:
   match found:
@@ -82,7 +132,7 @@ def controlled(found: Maybe<&2, M.Task>, +request: M.Control) -> Operation:
     case Some{+task}: permitted(M.control(M.task_status(task), request), task, request)
 
 def per_fork(contract: M.Contract) -> Nat:
-  M.Contract{model, tools, max_fork, max_descendants, plugins} = contract
+  M.Contract{model, tools, max_fork, max_descendants, plugins, context} = contract
   max_fork
 
 def branch_fits(+count: Nat, messages: +List<String>, +parent: M.Task, world: M.World) -> Bool:
@@ -95,7 +145,7 @@ def branch_ready(status: M.Status, phase: M.Phase, +parent: M.Task,
   +count: Nat, +messages: +List<String>, world: M.World) -> Operation:
   match status phase:
     case M.Active{} M.Idle{}:
-      require(branch_fits(count, messages, parent, world), Branch{parent, count, messages},
+      require(branch_fits(count, messages, parent, world), Branch{parent, count, messages, task_selection(parent)},
         "resource_limit", "Fork count, aligned messages, or an ancestor descendant limit is invalid")
     case _ _: Refuse{"task_busy", "A manual fork requires an active, idle task"}
 
@@ -121,36 +171,66 @@ def compacted(found: Maybe<&2, M.Task>, summary: Maybe<&2, String>) -> Operation
     case None{}: Refuse{"task_not_found", "The target task does not exist"}
     case Some{+task}: checkpoint_ready(M.task_status(task), M.task_phase(task), task, summary)
 
+def project_fields(+workspace: J.Json, +guidance: J.Json) -> Bool:
+  (Workspace.absent(workspace) || Schema.valid(M.workspace_schema(), workspace)) &&
+    (Workspace.absent(guidance) || Schema.valid(M.guidance_schema(), guidance))
+
+def create_project(name: String, +workspace: J.Json, +guidance: J.Json, +world: M.World) -> Operation:
+  +project = Projects.proposal(Some{name}, workspace, guidance, M.Project{"", M.Workspace{Nil{}, None{}}, M.NoProject{}})
+  +registry = Projects.registry(world)
+  +id = Projects.next_id(registry)
+  require(Schema.valid(M.workspace_schema(), workspace) && project_fields(workspace, guidance) && Projects.valid_project(project) &&
+    Nat.is_lt(Projects.count(registry), 256n) && (Projects.next_word(registry) < 4294967295 : U32),
+    StoreProject{id, project, (Projects.next_word(registry) + 1 : U32)}, "invalid_project", "A project requires a nonempty bounded name, valid workspace defaults, and available project capacity")
+
+def update_project(found: Maybe<&2, M.Project>, id: Nat, name: Maybe<&2, String>, +workspace: J.Json,
+  +guidance: J.Json, next_id: U32) -> Operation:
+  match found:
+    case None{}: Refuse{"project_not_found", "The project does not exist"}
+    case Some{previous}:
+      +project = Projects.proposal(name, workspace, guidance, previous)
+      require(project_fields(workspace, guidance) && Projects.valid_project(project), StoreProject{id, project, next_id},
+        "invalid_project", "Project defaults require a valid name, workspace and matching guidance")
+
+def delete_project(+id: Nat, +world: M.World) -> Operation:
+  require(Bool.not(Projects.missing(Projects.find(Projects.registry(world), id))) && Nat.is_eq(Projects.task_count(entries(world), id), 0n),
+    RemoveProject{id}, "project_not_empty", "The project must exist and have no tasks before it can be deleted")
+
 # Exhaustiveness is checked by Bend. Client schemas describe MODEL.Command;
 # these clauses give each decoded constructor its operational meaning.
 def resolve(command: M.Command, +world: M.World) -> Operation:
   match command:
-    case M.Create{profile, reasoning, message}:
-      selected(M.find_profile(configured(settings(world)), profile), reasoning, message)
+    case M.Create{profile, reasoning, message, options}:
+      selected(M.find_profile(configured(settings(world)), profile), reasoning, message, options, world)
     case M.Send{id, message}: recipient(T.find(entries(world), id), message)
     case M.Steer{id, message}: steering(T.find(entries(world), id), message)
     case M.Cancel{id, ticket}: cancellation(T.find(entries(world), id), ticket)
     case M.ChangeStatus{id, control}: controlled(T.find(entries(world), id), control)
-    case M.Fork{id, count, messages}: branched(T.find(entries(world), id), count, messages, world)
+    case M.Fork{id, count, messages, options}: configure_branch(branched(T.find(entries(world), id), count, messages, world), options, world)
     case M.Compact{id, summary}: compacted(T.find(entries(world), id), summary)
     case M.Observe{query}: Observe{query}
+    case M.CreateProject{name, workspace, guidance}: create_project(name, workspace, guidance, world)
+    case M.UpdateProject{+id, name, workspace, guidance}:
+      update_project(Projects.find(Projects.registry(world), id), id, name, workspace, guidance, Projects.next_word(Projects.registry(world)))
+    case M.DeleteProject{id}: delete_project(id, world)
 
 def id_result(id: Nat) -> J.Json:
   J.Object{[J.Field{"task_id", J.nat(id)}]}
 
 def replace(task: M.Task, world: M.World) -> M.World:
-  M.World{tasks, next_task, next_ticket, environment, limits} = world
-  M.World{T.replace(tasks, task), next_task, next_ticket, environment, limits}
+  M.World{tasks, next_task, next_ticket, environment, limits, projects} = world
+  M.World{T.replace(tasks, task), next_task, next_ticket, environment, limits, projects}
 
 def changed(id: Nat, task: M.Task, world: M.World, effects: +List<M.Effect>) -> M.Decision:
   M.Decision{replace(task, world), M.success(id_result(id)), effects}
 
-def start(profile: M.Profile, reasoning: String, message: String, world: M.World) -> M.Decision:
-  M.World{tasks, +next_task, next_ticket, +environment, limits} = world
+def start(profile: M.Profile, reasoning: String, message: String, selection: Workspace.Selection, world: M.World) -> M.Decision:
+  Workspace.Selection{context, guidance} = selection
+  M.World{tasks, +next_task, next_ticket, +environment, limits, projects} = world
   M.Environment{catalog, profiles, max_fork, max_descendants, project, plugins} = environment
-  task : M.Task = M.Task{next_task, Nil{}, M.Contract{M.Model{profile, reasoning, project}, catalog, max_fork, max_descendants, plugins},
+  task : M.Task = M.Task{next_task, Nil{}, M.Contract{M.Model{profile, reasoning, guidance}, catalog, max_fork, max_descendants, plugins, context},
     M.Active{}, M.HistoryNode{M.EmptyHistory{}, M.UserMessage{message}}, Nil{}, M.Ready{Nil{}}, Nil{}, True{}}
-  M.Decision{M.World{List.append(&2, M.Task, tasks, [task]), 1n+next_task, next_ticket, environment, limits},
+  M.Decision{M.World{List.append(&2, M.Task, tasks, [task]), 1n+next_task, next_ticket, environment, limits, projects},
     M.success(id_result(next_task)), Nil{}}
 
 def status_change(next: M.Status, +task: M.Task, world: M.World) -> M.Decision:
@@ -201,22 +281,22 @@ def branch_call(ticket: Nat, count: Nat, messages: +List<String>) -> M.Call:
 
 def branch_commit(built: Children, +parent: M.Task, call_id: String, world: M.World) -> M.Decision:
   Children{+spawned, end} = built
-  M.World{tasks, next_task, next_ticket, environment, limits} = world
+  M.World{tasks, next_task, next_ticket, environment, limits, projects} = world
   caller = T.promote(M.with_notified(True{}, M.with_phase(M.Ready{Nil{}}, M.with_history(M.branch_history(M.task_history(parent), call_id, 0n), parent))))
-  M.Decision{M.World{List.append(&2, M.Task, T.replace(tasks, caller), spawned), end, 1n+next_ticket, environment, limits},
+  M.Decision{M.World{List.append(&2, M.Task, T.replace(tasks, caller), spawned), end, 1n+next_ticket, environment, limits, projects},
     M.success(J.Object{[J.Field{"children", J.Array{identities(spawned)}}]}), Nil{}}
 
-def branch(+task: M.Task, +count: Nat, +messages: +List<String>, +world: M.World) -> M.Decision:
-  M.World{tasks, +next_task, +next_ticket, environment, limits} = world
+def branch(+task: M.Task, +count: Nat, +messages: +List<String>, selection: Workspace.Selection, +world: M.World) -> M.Decision:
+  M.World{tasks, +next_task, +next_ticket, environment, limits, projects} = world
   +call = branch_call(next_ticket, count, messages)
   +parent = M.append_message(M.FunctionCall{call}, task)
-  branch_commit(children(count, next_task, 1n, parent, T.call_id(call), Nil{}, messages), parent, T.call_id(call), world)
+  branch_commit(children(count, next_task, 1n, selected_parent(selection, parent), T.call_id(call), Nil{}, messages), parent, T.call_id(call), world)
 
 def summarize(+task: M.Task, world: M.World) -> M.Decision:
-  M.World{tasks, next_task, +next_ticket, environment, limits} = world
+  M.World{tasks, next_task, +next_ticket, environment, limits, projects} = world
   next = M.with_notified(False{}, M.with_phase(M.SummaryPending{next_ticket, False{}}, task))
-  M.Decision{M.World{T.replace(tasks, next), next_task, 1n+next_ticket, environment, limits}, M.success(id_result(M.task_id(task))),
-    [M.RequestSummary{M.task_id(task), next_ticket, T.task_model(M.task_contract(task)), M.context_history(M.task_history(task))}]}
+  M.Decision{M.World{T.replace(tasks, next), next_task, 1n+next_ticket, environment, limits, projects}, M.success(id_result(M.task_id(task))),
+    [M.RequestSummary{M.task_id(task), next_ticket, T.task_model(M.task_contract(task)), M.context_history(M.task_history(task)), M.task_context(task)}]}
 
 def page_checked(valid: Bool, task: M.Task, after: Nat, limit: Nat) -> J.Json:
   match valid:
@@ -230,22 +310,24 @@ def page(found: Maybe<&2, M.Task>, +after: Nat, +limit: Nat) -> J.Json:
       page_checked(Nat.is_le(1n, limit) && Nat.is_le(limit, 100n) && Nat.is_le(after, M.history_length(M.task_history(task))), task, after, limit)
 
 def listing(world: M.World) -> J.Json:
-  M.World{tasks, next_task, next_ticket, M.Environment{catalog, profiles, max_fork, max_descendants, project, plugins}, limits} = world
+  M.World{tasks, next_task, next_ticket, M.Environment{catalog, profiles, max_fork, max_descendants, project, plugins}, limits, projects} = world
   M.success(J.Object{[J.Field{"tasks", J.Array{T.summaries(tasks)}},
     J.Field{"profiles", J.Array{M.profiles_json(profiles)}}, J.Field{"tools", J.Array{M.tools_json(catalog)}},
     J.Field{"plugins", M.plugins_json(plugins)},
     J.Field{"max_fork", J.nat(max_fork)}, J.Field{"max_descendants", J.nat(max_descendants)}]})
 
-def query(query: M.Query, world: M.World) -> J.Json:
+def query(query: M.Query, +world: M.World) -> J.Json:
   match query:
     case M.Read{id, after, limit}: page(T.find(entries(world), id), after, limit)
     case M.ListTasks{}: listing(world)
     case M.Describe{}: M.success(M.description())
+    case M.ListProjects{}: M.success(J.Array{Projects.summaries(Projects.entries(Projects.registry(world)), entries(world))})
+    case M.ReadProject{+id}: Projects.detail(id, Projects.find(Projects.registry(world), id))
 
 def meaning(operation: Operation, +world: M.World) -> M.Decision:
   match operation:
     case Refuse{code, reason}: M.Decision{world, M.failure(code, reason), Nil{}}
-    case Start{profile, reasoning, message}: start(profile, reasoning, message, world)
+    case Start{profile, reasoning, message, selection}: start(profile, reasoning, message, selection, world)
     case Deliver{+task, message}:
       M.Decision{replace(T.receive(message, task), world), M.success(id_result(M.task_id(task))), Nil{}}
     case Steer{+task, message}:
@@ -256,11 +338,17 @@ def meaning(operation: Operation, +world: M.World) -> M.Decision:
         M.success(J.Object{[J.Field{"task_id", J.nat(M.task_id(task))}, J.Field{"operation_id", J.nat(Ops.ticket(operation))}]}),
         [M.CancelTicket{M.task_id(task), Ops.callback(operation)}]}
     case Control{task, request, next}: lifecycle(request, next, task, world)
-    case Branch{task, count, messages}: branch(task, count, messages, world)
+    case Branch{task, count, messages, selection}: branch(task, count, messages, selection, world)
     case Summarize{task}: summarize(task, world)
     case Checkpoint{+task, summary}:
       M.Decision{replace(M.append_message(M.ContextCheckpoint{summary}, task), world), M.success(id_result(M.task_id(task))), Nil{}}
     case Observe{request}: M.Decision{world, query(request, world), Nil{}}
+    case StoreProject{+id, project, next_id}:
+      M.Decision{Projects.store(Projects.put(id, project, Projects.registry(world), next_id), world),
+        M.success(J.Object{[J.Field{"project_id", J.nat(id)}]}), Nil{}}
+    case RemoveProject{+id}:
+      M.Decision{Projects.store(Projects.remove(id, Projects.registry(world)), world),
+        M.success(J.Object{[J.Field{"project_id", J.nat(id)}]}), Nil{}}
 
 def command(+request: M.Command, +world: M.World) -> M.Decision:
   meaning(resolve(request, world), world)

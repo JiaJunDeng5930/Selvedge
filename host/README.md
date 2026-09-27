@@ -55,6 +55,13 @@ bubblewrap/seccomp launch. It canonicalizes explicit workspace observations and
 fails closed on unavailable isolation; it does not select a task's policy or
 decide an approval. See ADR 0019 and `sandbox.test.mjs` for the OS trust boundary.
 
+`project.mjs` observes explicitly selected directories and their primary root
+guidance before task/project commands. Native `WORKSPACE` and `PROJECTS` own
+admission, inheritance and project defaults. Every service Bash effect requires
+its committed plan; `service.cwd` is not a process permission or task directory.
+Keep the service home separate from writable projects: it is read-only inside a
+restricted Bash process, even when a workspace includes its ancestor.
+
 `stdio-rpc.mjs` is the shared bounded process transport for MCP and plugins.
 `plugins.mjs` implements only the manifest, ticketed callback/tool protocol and
 best-effort observer queue. `service.mjs` dispatches committed native `CheckTool`,

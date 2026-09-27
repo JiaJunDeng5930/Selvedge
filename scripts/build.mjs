@@ -28,7 +28,8 @@ async function sources(directory, relative = '') {
 }
 
 const inputs = await sources(root);
-const hash = createHash('sha256').update(`Bend ${expectedVersion}\0`);
+const journalFormat = 'selvedge-bend-journal-2';
+const hash = createHash('sha256').update(`Bend ${expectedVersion}\0${journalFormat}\0`);
 for (const name of inputs) hash.update(name).update('\0').update(await readFile(path.join(root, name))).update('\0');
 const fingerprint = hash.digest('hex');
 const build = path.join(root, '.build');
@@ -37,7 +38,7 @@ let previous;
 try { previous = JSON.parse(await readFile(path.join(build, 'kernel.json'), 'utf8')); } catch {}
 let binaryExists = false;
 try { binaryExists = (await stat(path.join(build, 'selvedge-kernel'))).isFile(); } catch {}
-if (previous?.fingerprint === fingerprint && binaryExists && !process.argv.includes('--force')) {
+if (previous?.format === journalFormat && previous?.fingerprint === fingerprint && binaryExists && !process.argv.includes('--force')) {
   console.log(`Bend kernel is current (${fingerprint.slice(0, 12)}).`);
 } else {
   for (const args of [['MAIN.bend', '-o', '.build/selvedge-kernel']]) {
@@ -45,6 +46,6 @@ if (previous?.fingerprint === fingerprint && binaryExists && !process.argv.inclu
     if (result.error) throw result.error;
     if (result.status !== 0) process.exit(result.status ?? 1);
   }
-  await writeFile(path.join(build, 'kernel.json'), JSON.stringify({ format: 'selvedge-bend-journal-1', compiler: expectedVersion, fingerprint, sources: inputs }, null, 2) + '\n');
+  await writeFile(path.join(build, 'kernel.json'), JSON.stringify({ format: journalFormat, compiler: expectedVersion, fingerprint, sources: inputs }, null, 2) + '\n');
   console.log(`Built Bend kernel ${fingerprint.slice(0, 12)}.`);
 }

@@ -48,7 +48,32 @@ canonicalization, SBPL quoting, both Linux BPF encodings, and real subprocess
 write/read boundaries. CI installs bubblewrap on Linux. Tests do not turn a
 missing sandbox into a pass by substituting unrestricted Bash.
 
-The first implementation step adds the effect adapter. Native task settings,
-project defaults and correlated approval decisions are connected in subsequent
-steps of the same feature; merely importing the adapter does not enable isolation
-for a caller that has not supplied an execution plan.
+## Native location and project model
+
+`MODEL.TaskContext` is the product of a workspace, a sandbox, an approval policy
+and an optional project identity. It is part of the task's immutable contract.
+`WORKSPACE` admits canonical observations and defines the model-fork authority
+check. `PROJECTS` instantiates the already imported ExtLib association map for
+organizational projects. `Commands.Start` and `Commands.Branch` carry resolved
+birth selections; their full decision meanings remain separate from `PROGRAM`.
+
+`ContextBoundary` binds the actual birth and project operations to proofs:
+default children inherit the context but no live operation rights, explicit
+overrides affect the child template, project updates preserve the entire task
+collection, and the imported map removal theorem establishes project removal.
+Existing tasks still require exact contract equality across every commit.
+A model fork may narrow but not broaden write/network/approval authority.
+The authenticated user command may explicitly choose a different child context.
+
+The host canonicalizes only user-selected roots and captures the primary root's
+AGENTS.md before handing that observation to the native command. It does not
+choose project defaults or implement inheritance. The service requires the
+native execution plan for every Bash dispatch and passes the same captured
+coordinates to the provider and subprocess interpreter.
+
+Journal format 2 no longer binds the database to one global working directory.
+Task plans and project defaults are journaled values; a changed service launch
+directory cannot reinterpret them. Existing format-1 databases are refused,
+not silently reinterpreted or automatically migrated. A service home should be
+separate from writable project directories, because sandboxed Bash cannot modify
+the service's persistence, credentials, or artifact subtree.
