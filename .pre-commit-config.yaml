@@ -1,40 +1,24 @@
-# All hooks below are check-only. They must not rewrite tracked files.
 repos:
   - repo: local
     hooks:
-      - id: cargo-fmt
-        name: cargo fmt --check
-        entry: cargo fmt --all -- --check
-        language: unsupported
+      - id: bend-check
+        name: Bend proofs and host syntax
+        entry: node scripts/check.mjs
+        language: system
         pass_filenames: false
-        stages: [pre-commit, manual]
-      - id: cargo-clippy
-        name: cargo clippy --check
-        entry: cargo clippy --workspace --all-targets --all-features -- -D warnings
-        language: unsupported
-        pass_filenames: false
+        always_run: true
         stages: [pre-commit, manual]
       - id: agents-md-project-index
-        name: AGENTS.md project index --check
-        entry: cargo xtask agents-index check
+        name: AGENTS.md project index
+        entry: node scripts/agents-index.mjs check
         language: system
         pass_filenames: false
+        always_run: true
         stages: [pre-commit, manual]
-      - id: package-readme-mermaid
-        name: package README Mermaid --check
-        entry: cargo xtask readme check-mermaid
+      - id: bend-test
+        name: Native Bend and host integration
+        entry: npm test
         language: system
         pass_filenames: false
-        stages: [pre-commit, manual]
-      - id: cargo-test
-        name: cargo test --check
-        entry: cargo test --workspace --all-targets --all-features
-        language: unsupported
-        pass_filenames: false
-        stages: [pre-push, manual]
-      - id: package-readme-freshness
-        name: package README freshness --check
-        entry: cargo xtask readme check-freshness
-        language: system
-        pass_filenames: false
+        always_run: true
         stages: [pre-push, manual]

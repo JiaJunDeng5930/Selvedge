@@ -1,0 +1,101 @@
+import Base
+import ../../MODEL.bend as M
+import ../../PROGRAM.bend as P
+import ../../LAWS.bend as Laws
+import ../tasks.bend as T
+import ../stdlib.bend as Std
+import ../json.bend as J
+import ../../COMMANDS.bend as Commands
+import ../theory.bend as Theory
+import ../architecture.bend as Concepts
+import ../traces.bend as Traces
+import ../transcript.bend as Transcript
+import ../protocol.bend as Protocol
+import ./commit.bend as CommitProof
+import ./execution.bend as ExecutionProof
+import ./frontend.bend as FrontendProof
+import ./observations.bend as ObservationsProof
+import ./safety.bend as SafetyProof
+import ./tasks.bend as TasksProof
+import ./traces.bend as TracesProof
+
+# Local proof obligations for the algebra boundary. No runtime policy lives here.
+
+def Concepts.recovery_batches():
+  (tasks => {==})
+
+def Concepts.task_views():
+  (tasks => {==})
+
+def Concepts.branch_results():
+  (tasks => {==})
+
+def Laws.recovery_partition(first, second):
+  Std.map_app(~M.Task, ~M.Task, ~Protocol.recover, first, second)
+
+def Laws.task_view_partition(first, second):
+  Std.map_app(~M.Task, ~J.Json, ~T.summary, first, second)
+
+def Laws.branch_result_partition(first, second):
+  Std.map_app(~M.Task, ~J.Json, ~Commands.identity, first, second)
+
+def Laws.recovery_view_composition(tasks):
+  Std.map_map(~M.Task, ~M.Task, ~J.Json, ~Protocol.recover, ~T.summary, tasks)
+
+def decision_associativity(+first: M.Decision, +second: M.Decision, +third: M.Decision) ->
+  {P.combine(P.combine(first, second), third) == P.combine(first, P.combine(second, third)) : M.Decision}:
+  match first second third:
+    case M.Decision{old, +reply, +a} M.Decision{middle, ignored, +b} M.Decision{+last, also_ignored, +c}:
+      Equal.cong(+List<M.Effect>, M.Decision, (effects => M.Decision{last, reply, effects}),
+        List.append(&2, M.Effect, List.append(&2, M.Effect, a, b), c),
+        List.append(&2, M.Effect, a, List.append(&2, M.Effect, b, c)),
+        Theory.append_associative(M.Effect, a, b, c))
+
+def Concepts.commands():
+  (command => world => Laws.command_transition(command, world))
+
+def Concepts.interactions():
+  (input => world => Laws.interaction_transition(input, world))
+
+def Concepts.task_machine():
+  (Laws.initial_world_valid(),
+    (state => input => evidence => Laws.transition_preserves_world(state, input, evidence)))
+
+def Concepts.journal_interpretation(world, inputs):
+  {==}
+
+def Concepts.decisions():
+  (first => second => third => decision_associativity(first, second, third))
+
+def Concepts.context():
+  (history => Laws.context_projection_idempotent(history))
+
+def Concepts.recovery():
+  (phase => Laws.recover_phase_idempotent(phase))
+
+def Concepts.interruption():
+  (task => Laws.interrupt_idempotent(task))
+
+def Concepts.observations():
+  (+query => +world => (Laws.observation_preserves_world(query, world), Laws.observation_has_no_effects(query, world)))
+
+def Concepts.actions():
+  (action => world => Laws.execution_semantics(action, world))
+
+def Concepts.scheduling():
+  (enabled => decision => Laws.scheduling_semantics(enabled, decision))
+
+# Only the one-step correspondence is local. Nat.iter_swap_gen supplies every
+# finite run, including its complete decision receipts; there is no local
+# Dynamics/Simulation hierarchy or copied induction theorem.
+def Concepts.traces():
+  (count => tape => Std.iter_swap_gen(~Transcript.Tape, ~Transcript.Tape, ~Transcript.identity,
+    ~Traces.implementation, ~Transcript.step, ~(tape => Laws.trace_step(tape)), count, tape))
+
+def Concepts.native_interface():
+  (tokens => world => Laws.frontend_packet(tokens, world))
+
+def Concepts.persistence():
+  Concepts.Journal{
+    (world => inputs => Concepts.journal_interpretation(world, inputs)),
+    (inputs => world => evidence => Laws.replay_preserves_world(inputs, world, evidence))}

@@ -8,22 +8,23 @@ This file is for coding agents working in this repository.
 - Before you call or modify a module, read that module's `README.md` first.
 - If the relevant `README.md` already answers your question, do not open the module internals first.
 
+## Executable Requirements
+
+- Start at CONCEPTS.Harness, COMMANDS, and MODEL. Read INVARIANTS and LAWS before changing behavior; PROGRAM realizes the resolved operations and executes the bounded transition.
+- Public command preconditions belong in COMMANDS.resolve; completion correlation and accepted-call resolution belong in bendlib/protocol. A change must retain complete-decision, invocation and input-wide committed refinement, not merely state safety. Keep rejection distinct from an already accepted tool's error result.
+- Choose meaningful existing theory representations before introducing domain abstractions. Use the quoted list, iterator, relation and association-map definitions/theorems directly; keep only domain correspondence and necessary premises local. Do not rebuild a parallel general algebra hierarchy, hand-reprove imported results, or edit generated certificates. Account for bridge cost separately from removed application proof maintenance.
+- Requirements belong in executable definitions and propositions. Do not maintain duplicate lifecycle tables or state-machine diagrams in documentation.
+- PROOF must discharge the production laws. Never replace a proof with an axiom, a hole, or unchecked recursion, or weaken a requirement solely to pass a check.
+- The host interprets committed effects. Keep task policy in Bend and verify host ordering through integration tests.
+- Internal semantics belong to proofs; compiler and external component boundaries belong to focused tests; cross-boundary behavior belongs to end-to-end tests. Remove finite semantic replay tests only after checking their actual proof coverage. Keep independent proof/certificate mutation tests. The evidence map is tests-bend/README.md.
+- Record architecture reasons in an ADR and exploration-specific findings in `docs/bend2-exploration.md`.
+
 ## Git Hooks
 
-- `pre-commit` checks `cargo fmt --all -- --check`
-- `pre-commit` checks `cargo clippy --workspace --all-targets --all-features -- -D warnings`
-- `pre-commit` checks that the project index in this file is up to date
-- `pre-commit` checks package README Mermaid diagrams with `cargo xtask readme check-mermaid`
-- `pre-push` checks `cargo test --workspace --all-targets --all-features`
-- `pre-push` checks package README freshness metadata with `cargo xtask readme check-freshness`
-
-## Package README State Machines
-
-- Each workspace package README contains a Mermaid package-level state machine.
-- Read the package state machine before changing package behavior or boundary errors.
-- Package README metadata includes `freshness_fingerprint`, a history-independent hash of the package's tracked paths and staged blob ids. The package README is excluded.
-- `cargo xtask readme check-freshness` compares the recorded fingerprint with the current Git index and reports stale packages.
-- After reviewing affected state machines, run `cargo xtask readme update-freshness` to refresh every package fingerprint.
+- `pre-commit` runs `node scripts/check.mjs` to check the pinned compiler, reproducible imported certificates, Bend proof obligations, the native entry point and host/script syntax.
+- `pre-commit` runs `node scripts/agents-index.mjs check` to check the tracked-file index.
+- `pre-push` runs `npm test` for native kernel and host integration tests.
+- `just hooks` runs both configured stages. CI runs the same proof, syntax, integration, and index checks on macOS and Linux.
 
 ## Persistent Data Formats
 
@@ -59,12 +60,10 @@ This file is for coding agents working in this repository.
 
 ## Project Index Workflow
 
-- Update the index with `just agents-index`
-- Check whether the index is current with `just agents-index-check`
-- The underlying repository commands are `cargo xtask agents-index update` and `cargo xtask agents-index check`
-- Run all configured hooks with `just hooks`
-- The index only includes Git-tracked files. Git-ignored and untracked files are excluded on purpose.
-- Index commands warn when an indexed directory has an unusually large number of direct filesystem entries.
+- Stage added, renamed, and deleted paths before updating the index.
+- Update with `npm run index` or `just agents-index`, then stage AGENTS.md.
+- Check with `npm run index:check` or `just agents-index-check`.
+- The generator uses Git-tracked staged paths only. Ignored and untracked files are excluded.
 
 ## Project Index
 
@@ -73,97 +72,22 @@ This file is for coding agents working in this repository.
 [Project Index]|root:.
 |source:git-tracked-files-only
 |excluded:{git-ignored,git-untracked}
-|.:{.cargo/,.codex/,.github/,crates/,docs/,scripts/,src/,tests/,xtask/,.editorconfig,.gitignore,.pre-commit-config.yaml,AGENTS.md,CONTRIBUTING.md,Cargo.lock,Cargo.toml,Justfile,README.md,rust-toolchain.toml}
-|.cargo:{config.toml}
+|.:{.codex/,.editorconfig,.github/,.gitignore,.pre-commit-config.yaml,AGENTS.md,COMMANDS.bend,CONCEPTS.bend,CONTRIBUTING.md,HOOKS.bend,INVARIANTS.bend,Justfile,LAWS.bend,MAIN.bend,MODEL.bend,PROGRAM.bend,PROOF.bend,README.md,UI.bend,bend-checksums.txt,bend-version,bendlib/,docs/,examples/,host/,package.json,scripts/,tests-bend/,theory/}
 |.codex:{environments/}
 |.codex/environments:{environment.toml}
 |.github:{workflows/}
 |.github/workflows:{ci.yml}
-|crates:{api/,chatgpt-api/,chatgpt-auth/,chatgpt-login/,client-sync/,client/,command-model/,config-model/,config/,core/,db/,domain-model/,events/,harness/,local-client/,local-protocol/,logging/,model-credentials/,model-providers/,router/,server/,task-runtime-factory/,test-support/,tui/,web/}
-|crates/api:{src/,tests/,Cargo.toml,README.md}
-|crates/api/src:{lib.rs}
-|crates/api/tests:{api_contract.rs}
-|crates/chatgpt-api:{src/,tests/,Cargo.toml,README.md}
-|crates/chatgpt-api/src:{lib.rs}
-|crates/chatgpt-api/tests:{support/,request_contract.rs,stream_integration.rs}
-|crates/chatgpt-api/tests/support:{mod.rs}
-|crates/chatgpt-auth:{src/,tests/,Cargo.toml,README.md}
-|crates/chatgpt-auth/src:{auth_file.rs,config.rs,jwt.rs,lib.rs,lock.rs,refresh.rs,resolve.rs}
-|crates/chatgpt-auth/tests:{support/,parse_contract.rs,public_api.rs,resolve_integration.rs}
-|crates/chatgpt-auth/tests/support:{mod.rs}
-|crates/chatgpt-login:{src/,tests/,Cargo.toml,README.md}
-|crates/chatgpt-login/src:{auth_file.rs,device_code.rs,lib.rs,token_exchange.rs}
-|crates/chatgpt-login/tests:{support/,complete_login_integration.rs,device_code_start_integration.rs}
-|crates/chatgpt-login/tests/support:{mod.rs}
-|crates/client:{src/,tests/,Cargo.toml,README.md}
-|crates/client-sync:{src/,tests/,Cargo.toml,README.md}
-|crates/client-sync/src:{lib.rs}
-|crates/client-sync/tests:{client_sync_contract.rs}
-|crates/client/src:{config_resolution.rs,lib.rs,redaction.rs,redirect_runtime.rs,request_prep.rs,runtime.rs,transport.rs}
-|crates/client/tests:{support/,http_integration.rs}
-|crates/client/tests/support:{mod.rs}
-|crates/command-model:{src/,tests/,Cargo.toml,README.md}
-|crates/command-model/src:{lib.rs}
-|crates/command-model/tests:{command_contract.rs}
-|crates/config:{examples/,src/,tests/,Cargo.toml,README.md}
-|crates/config-model:{src/,tests/,Cargo.toml,README.md}
-|crates/config-model/src:{lib.rs}
-|crates/config-model/tests:{model_contract.rs}
-|crates/config/examples:{README.md,layered_sources.rs,load_defaults.rs,runtime_updates.rs}
-|crates/config/src:{lib.rs}
-|crates/config/tests:{public_api.rs}
-|crates/core:{src/,tests/,Cargo.toml,README.md}
-|crates/core/src:{lib.rs}
-|crates/core/tests:{runtime_contract.rs}
-|crates/db:{src/,tests/,Cargo.toml,README.md}
-|crates/db/src:{lib.rs,schema.sql}
-|crates/db/tests:{db_contract.rs}
-|crates/domain-model:{src/,tests/,Cargo.toml,README.md}
-|crates/domain-model/src:{lib.rs}
-|crates/domain-model/tests:{domain_contract.rs}
-|crates/events:{src/,tests/,Cargo.toml,README.md}
-|crates/events/src:{lib.rs}
-|crates/events/tests:{events_contract.rs}
-|crates/harness:{src/,tests/,Cargo.toml,README.md}
-|crates/harness/src:{lib.rs,mcp.rs,projection_tests.rs,protocol_tests.rs}
-|crates/harness/tests:{fixtures/,bash_contract.rs,executor_contract.rs,mcp_contract.rs}
-|crates/harness/tests/fixtures:{mcp_server.sh}
-|crates/local-client:{src/,tests/,Cargo.toml,README.md}
-|crates/local-client/src:{lib.rs}
-|crates/local-client/tests:{local_client_contract.rs}
-|crates/local-protocol:{src/,tests/,Cargo.toml,README.md}
-|crates/local-protocol/src:{lib.rs}
-|crates/local-protocol/tests:{local_protocol_contract.rs}
-|crates/logging:{src/,Cargo.toml,README.md}
-|crates/logging/src:{lib.rs}
-|crates/model-credentials:{src/,tests/,Cargo.toml,README.md}
-|crates/model-credentials/src:{lib.rs}
-|crates/model-credentials/tests:{credential_contract.rs}
-|crates/model-providers:{src/,tests/,Cargo.toml,README.md}
-|crates/model-providers/src:{lib.rs}
-|crates/model-providers/tests:{provider_contract.rs}
-|crates/router:{src/,tests/,Cargo.toml,README.md}
-|crates/router/src:{lib.rs}
-|crates/router/tests:{router_contract.rs}
-|crates/server:{src/,tests/,Cargo.toml,README.md}
-|crates/server/src:{command.rs,lib.rs}
-|crates/server/tests:{server_contract.rs}
-|crates/task-runtime-factory:{src/,tests/,Cargo.toml,README.md}
-|crates/task-runtime-factory/src:{lib.rs}
-|crates/task-runtime-factory/tests:{factory_contract.rs}
-|crates/test-support:{src/,Cargo.toml,README.md}
-|crates/test-support/src:{chatgpt_auth.rs,config.rs,db.rs,http.rs,lib.rs,local_transport.rs,process.rs}
-|crates/tui:{src/,Cargo.toml,README.md}
-|crates/tui/src:{lib.rs,tests.rs}
-|crates/web:{src/,tests/,Cargo.toml,README.md}
-|crates/web/src:{lib.rs}
-|crates/web/tests:{web_contract.rs}
-|docs:{adr/}
-|docs/adr:{0001-task-owned-tool-contracts.md,0002-open-tool-call-recovery.md,0003-persisted-task-lifecycle.md,0004-semantic-ownership-at-runtime-boundaries.md,0005-single-source-configuration-and-transport.md}
-|scripts:{bootstrap.sh,setup-worktree.sh}
-|src:{lib.rs,main.rs}
-|tests:{stdout_stderr_integration.rs}
-|xtask:{src/,Cargo.toml,README.md}
-|xtask/src:{agents_index.rs,lib.rs,main.rs,readme_gate.rs,test_repo.rs}
+|bendlib:{README.md,architecture.bend,commit.bend,equality.bend,execution.bend,frontend.bend,interface.bend,json.bend,notifications.bend,operations.bend,presentation.bend,proofs/,protocol.bend,reachability.bend,relations.bend,schema.bend,stdlib.bend,structures.bend,tasks.bend,theory.bend,traces.bend,transcript.bend,wire.bend}
+|bendlib/proofs:{README.md,algebra.bend,commit.bend,execution.bend,frontend.bend,observations.bend,operations.bend,plugins.bend,protocol.bend,reachability.bend,safety.bend,tasks.bend,traces.bend,ui.bend}
+|docs:{adr/,bend2-exploration.md,plugins.md}
+|docs/adr:{0001-task-owned-tool-contracts.md,0002-open-tool-call-recovery.md,0003-persisted-task-lifecycle.md,0004-semantic-ownership-at-runtime-boundaries.md,0005-single-source-configuration-and-transport.md,0006-executable-bend-task-model.md,0007-admit-certified-bend-transitions.md,0008-core-coding-effects-and-context-checkpoints.md,0009-command-meaning-and-imported-theory.md,0010-interaction-refinement-and-context-recovery.md,0011-independent-execution-semantics.md,0012-theory-indexed-whole-program-composition.md,0013-independent-operation-rights.md,0014-native-presentation-model.md,0015-native-extension-protocol.md,0016-relational-theory-reuse.md}
+|examples:{plugins/}
+|examples/plugins:{audit.mjs}
+|host:{README.md,auth.mjs,cli.mjs,codec.mjs,config.mjs,files.mjs,journal.mjs,kernel.mjs,mcp.mjs,network.mjs,plugins.mjs,process.mjs,project.mjs,providers.mjs,public/,server.mjs,service.mjs,stdio-rpc.mjs,transport.c}
+|host/public:{app.mjs,index.html,renderer.mjs,style.css}
+|scripts:{ExportRelations.v,ExportStdlib.v,QuoteCertificate.v,agents-index.mjs,benchmark.mjs,bootstrap.sh,build.mjs,check.mjs,import-relations.mjs,import-stdlib.mjs,install-bend.sh,setup-worktree.sh,theory-index.mjs,toolchain.mjs,verify-proof.mjs}
+|tests-bend:{architecture.test.mjs,async-operations.test.mjs,async-service.test.mjs,auth.test.mjs,coding.test.mjs,commands.test.mjs,context-recovery.test.mjs,fixtures/,hooks-native.test.mjs,journal.test.mjs,kernel.test.mjs,notifications.test.mjs,plugins.test.mjs,process.test.mjs,project-context.test.mjs,proof-gate.test.mjs,providers.test.mjs,pure-proof.test.mjs,relations.test.mjs,service-recovery.test.mjs,service.test.mjs,stdlib.test.mjs,support.mjs,ui.test.mjs,whole-program-proof.test.mjs}
+|tests-bend/fixtures:{catalog.mjs,committed-tool.mjs,mcp.mjs,plugin.mjs}
+|theory:{LICENSE,README.md,relation-certificates.json,stdlib-certificates.json}
 ```
 <!-- END AGENTS_MD_PROJECT_INDEX -->

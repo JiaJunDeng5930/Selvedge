@@ -10,36 +10,24 @@ permissions:
 
 jobs:
   checks:
-    runs-on: ubuntu-latest
-
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      BEND_NO_TELEMETRY: '1'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+      - name: Install Node.js
+        uses: actions/setup-node@v4
         with:
-          fetch-depth: 0
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
-
-      - name: Cache cargo artifacts
-        uses: Swatinem/rust-cache@v2
-
-      - name: Check formatting
-        run: cargo fmt --all -- --check
-
-      - name: Run clippy
-        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
-
-      - name: Run tests
-        run: cargo test --workspace --all-targets --all-features
-
-      - name: Check AGENTS index freshness
-        run: cargo xtask agents-index check
-
-      - name: Check package README Mermaid diagrams
-        run: cargo xtask readme check-mermaid
-
-      - name: Check package README freshness
-        run: cargo xtask readme check-freshness
+          node-version: '26'
+      - name: Install the pinned Bend release
+        run: bash scripts/install-bend.sh
+      - name: Check proof obligations and syntax
+        run: npm run check
+      - name: Run native integration and negative proof tests
+        run: npm test
+      - name: Check tracked-file index
+        run: npm run index:check

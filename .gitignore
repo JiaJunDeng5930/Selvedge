@@ -2,3 +2,5 @@
 .DS_Store
 .mantic/
 .workpad/
+.build/
+node_modules/

@@ -1,55 +1,50 @@
 # Contributing to Selvedge
 
-Thank you for contributing to Selvedge.
+Read [README.md](README.md) and the relevant module README before changing code.
+The executable requirements in MODEL, INVARIANTS, and LAWS are the entry point
+for behavior changes. PROGRAM executes those definitions; PROOF checks the
+required facts. Do not weaken a requirement merely to make an implementation pass.
 
-## Development setup
+## Setup and checks
 
-Run the bootstrap script from the repository root in a clean Ubuntu environment:
+Use Node.js 26 or later and a C compiler on macOS or Linux. Run
+`bash scripts/bootstrap.sh` to build with the pinned Bend release and install Git
+hooks when `pre-commit` is available. Worktree setup creates a local `.build`
+directory without downloading, building, or sharing a kernel executable.
 
-```bash
-./scripts/bootstrap.sh
-```
+Run `npm run check`, `npm test`, and `npm run index:check` before submitting work.
+The commit hook checks proofs, syntax, and the tracked-file index; the push hook
+runs native integration tests. `just check` runs the same checks, and `just hooks`
+executes the configured hook stages. CI covers macOS and Linux.
 
-The script installs the Rust toolchain, `just`, `pre-commit`, and the repository Git hooks.
+Use proofs for internal semantics, component tests for external boundaries and
+end-to-end tests for their combinations. The ownership map is
+`tests-bend/README.md`. Do not add finite-example tests that only repeat a proven
+state transition; do retain compiler/protocol probes with a concrete fault model
+and independent negative tests of the proof infrastructure. Unproved behavior
+still needs evidence. A successful Bend proof is not evidence that a host,
+compiler or remote provider follows the model.
 
-The installed hooks enforce the checks documented in [AGENTS.md](AGENTS.md#git-hooks). [`.pre-commit-config.yaml`](.pre-commit-config.yaml) defines their commands and stages.
+After adding, renaming, or removing files, stage them, run `npm run index`, and
+stage `AGENTS.md`. The index is derived from Git's staged tracked paths. Temporary
+logs, benchmark measurements, and investigation notes belong in `.workpad/`.
 
-## Worktree build cache
+## Persistent data
 
-Codex local environment setup runs `bash scripts/setup-worktree.sh` when creating a worktree. For a manually created worktree, run the same command from its repository root.
+A journal belongs to one compiler/source identity. Use a fresh temporary home
+for changed kernels. Do not add migration adapters, obsolete-format fallbacks,
+or compatibility layers unless explicitly requested. Preserve existing user data
+rather than changing it to make a development run succeed.
 
-Setup links the worktree's `target` directory to the main checkout's existing `target` directory. Cargo's downloaded dependencies already share the user's Cargo home; the link also shares compiled artifacts and incremental caches without downloading dependencies, building, or testing during setup. An existing worktree-local `target` is preserved and setup reports that it must be moved aside first.
+## Reviews and decisions
 
-Concurrent Cargo builds may wait for the shared build directory lock. Different source changes, compiler options, or toolchains can still require rebuilding. Final binaries are shared too, so use `cargo run` for the current checkout instead of relying on a previously built `target/debug` executable. `cargo clean` affects all worktrees sharing this directory. Keep the main checkout in place while its worktrees use the cache.
+Work on a focused branch; `main` is protected. Explain the resulting behavior,
+its reason, and the relevant verification. Record architecture choices in an ADR.
+Record findings specific to the executable-model exploration in
+[docs/bend2-exploration.md](docs/bend2-exploration.md); avoid restating code tables
+or maintaining a second state-machine diagram.
 
-## Development workflow
-
-1. Start from an up-to-date branch based on `main`.
-2. Create a focused feature or fix branch.
-3. Make the smallest coherent change that solves the problem.
-4. Open a pull request back to `main`.
-
-`main` is protected, so changes should land through pull requests rather than direct pushes.
-
-## Local checks
-
-Before opening a pull request, make sure these commands pass:
-
-```bash
-just check
-```
-
-`just check` runs all local validation gates defined in [Justfile](Justfile), including package README Mermaid rendering and freshness checks. `just hooks` runs both configured Git hook stages manually. Use `just --list` to find individual commands.
-
-After adding, removing, or renaming files, stage them and run `just agents-index` to refresh the tracked-file index. After reviewing affected package state machines, stage package changes and run `just readme-freshness`, then stage the updated READMEs. Freshness compares against the Git index, so working-tree changes alone are not its input. See [xtask's README](xtask/README.md) for the maintenance commands and [AGENTS.md](AGENTS.md#package-readme-state-machines) for the review policy.
-
-## Pull requests
-
-- Keep pull requests scoped to one change.
-- Describe the intent of the change and any user-visible behavior.
-- Include test coverage or explain why additional tests are not needed.
-- Update documentation when behavior or workflow changes.
-
-## Commit messages
-
-Use Conventional Commits: `type(scope): description`, with an English imperative description starting in lowercase. Allowed types are `feat`, `fix`, `docs`, `refactor`, `test`, and `chore`. Mark breaking changes with `!` and a `BREAKING CHANGE:` footer.
+Use Conventional Commits: `type(scope): description`, with an English imperative
+description starting in lowercase. Allowed types are `feat`, `fix`, `docs`,
+`refactor`, `test`, and `chore`. Mark breaking changes with `!` and a
+`BREAKING CHANGE:` footer.
