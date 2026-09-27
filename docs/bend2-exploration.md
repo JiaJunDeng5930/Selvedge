@@ -1040,3 +1040,21 @@ including independent completion order and nested macro-steps. It does not asser
 that changing external side-effect order is harmless, or that a pending process
 eventually responds. Such conclusions need their own theory and premises, not a
 stronger-sounding name for reachability.
+
+## 2026-09-27: sandbox effect boundary
+
+A writable-root list cannot enforce permissions in the process adapter. The
+adapter now translates an explicit plan into Seatbelt or bubblewrap/seccomp;
+neither a failed sandbox startup nor a nonzero command grants an unrestricted
+retry. The service journal needs an additional read-only exclusion when a user
+selects its ancestor as a workspace root. On Seatbelt, protecting only the
+journal's pathname is insufficient: renaming an ancestor could otherwise move
+the subtree outside that pathname rule, so ancestor unlink/rename is denied too.
+
+The initial real-process probe failed inside the outer Codex sandbox with
+`sandbox_apply: Operation not permitted`. Running the isolated temporary-directory
+tests with explicit outer approval produced seven passing sandbox tests on
+macOS. This is evidence about the real Seatbelt path, not Linux execution. The
+Linux BPF interpreter probes both x86-64 and AArch64 syscall/architecture branches;
+the platform matrix separately owns real Linux subprocess tests. `clone3` needs
+`ENOSYS`, rather than `EPERM`, to preserve libc's fallback to flag-checked `clone`.

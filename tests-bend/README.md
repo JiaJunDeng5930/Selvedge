@@ -13,6 +13,7 @@ Tests do not maintain a second finite-example specification of those semantics.
 | Native compiler, framing and codec faults: Unicode, embedded controls, exact numeric lexemes, malformed completion envelopes | `native-boundaries.test.mjs`; these are targeted executable probes, not a lifecycle truth table |
 | SQLite journal transactions, persistence format, locking and corruption | `journal.test.mjs` |
 | Physical processes, cancellation, descendants, output files and UTF-8 capture | `process.test.mjs`, `coding.test.mjs`, `async-service.test.mjs` |
+| Workspace path observations, Seatbelt quoting, seccomp ABI encoding and real OS write boundaries | `sandbox.test.mjs`; native policy proofs do not prove OS isolation |
 | Provider/MCP/plugin wire formats, failures, actual cancellation and commit-before-callback | `providers`, `plugins`, `after-hooks`, `service-recovery` tests |
 | Authentication, HTTP/SSE and generic browser rendering | `auth`, `ui`, `service` tests |
 | Paced Markdown, safe links, fragmented SSE, draft races and preview identity/revision | `web-streaming.test.mjs`; browser mechanics, not native-domain proofs |

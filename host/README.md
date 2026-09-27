@@ -50,6 +50,11 @@ gate; no theorem here proves the browser's DOM implementation.
 
 ## Coding effect interpreters
 
+`sandbox.mjs` converts an already-authorized execution plan into a Seatbelt or
+bubblewrap/seccomp launch. It canonicalizes explicit workspace observations and
+fails closed on unavailable isolation; it does not select a task's policy or
+decide an approval. See ADR 0019 and `sandbox.test.mjs` for the OS trust boundary.
+
 `stdio-rpc.mjs` is the shared bounded process transport for MCP and plugins.
 `plugins.mjs` implements only the manifest, ticketed callback/tool protocol and
 best-effort observer queue. `service.mjs` dispatches committed native `CheckTool`,
