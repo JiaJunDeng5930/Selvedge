@@ -34,9 +34,7 @@ use selvedge_core::TaskRuntimeSpawnDeps;
 use selvedge_db::{DbPool, OpenDbOptions, TaskToolSpec, open_db, reconcile_task_tool_availability};
 use selvedge_domain_model::{MessageRole, ReasoningEffort, TaskId};
 use selvedge_events::{EventsHandle, EventsStartArgs, SpawnEventsError, spawn_events_task};
-use selvedge_harness::{
-    CommandEnvironmentManager, McpConnectionSet, ToolExecutor, harness_tool_catalog,
-};
+use selvedge_harness::{McpConnectionSet, ToolExecutor, harness_tool_catalog};
 use selvedge_local_protocol::{
     AttachAccepted, AttachRejectReason, AttachRejected, AttachRequest, CommandOutcome,
     CommandRejectReason, CommandRequest, CommandResponse, LocalClientCommandId, LocalClientEvent,
@@ -685,11 +683,7 @@ impl StartupResources {
             db: db.clone(),
             events_tx,
             api_config: args.api_config,
-            tool_executor: Arc::new(ToolExecutor::with_command_environments(
-                db,
-                self.mcp_connections.clone(),
-                CommandEnvironmentManager::new(),
-            )),
+            tool_executor: Arc::new(ToolExecutor::new(db, self.mcp_connections.clone())),
             core_spawn_deps: args.core_spawn_deps,
         }));
         let router = self.router.as_ref().expect("startup router");
