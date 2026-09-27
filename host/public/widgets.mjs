@@ -184,8 +184,9 @@ export function mount(root, tree, dispatch, options = {}) {
         const scroll = make('div', 'thread-scroll'); const thread = make('div', 'thread');
         const live = make('div', 'live-streams'); const compose = make('div', 'composer-dock');
         const inspector = make('aside', 'inspector'); inspector.hidden = true; inspector.setAttribute('aria-label', 'Task details');
-        const bottom = make('button', 'scroll-bottom', '↓ Scroll to bottom'); bottom.type = 'button'; bottom.hidden = true;
-        header.append(title, toggle); scroll.append(thread); node.append(header, scroll, compose, inspector, bottom);
+        const bottom = make('button', 'scroll-bottom', '↓ Latest'); bottom.type = 'button'; bottom.hidden = true;
+        bottom.setAttribute('aria-label', 'Scroll to latest output');
+        header.append(title, bottom, toggle); scroll.append(thread); node.append(header, scroll, compose, inspector);
         const entry = { node, title, toggle, scroll, thread, live, compose, inspector, bottom, follow: true };
         toggle.onclick = () => {
           inspector.hidden = !inspector.hidden; node.dataset.inspector = String(!inspector.hidden);

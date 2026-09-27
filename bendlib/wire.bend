@@ -8,6 +8,7 @@ import ./presentation.bend as View
 import ../INVARIANTS.bend as I
 import ../UI.bend as UI
 import ../HOOKS.bend as Hooks
+import ../APPROVALS.bend as Approvals
 
 def exact_keys(fields: +List<J.Field>, +allowed: +List<String>, +seen: +List<String>) -> Bool:
   match fields:
@@ -43,10 +44,16 @@ def optional_text(value: J.Json) -> Maybe<&2, String>:
     case J.Text{text}: Some{text}
     case _: None{}
 
+def approval_outcome(kind: String, +value: J.Json) -> M.ApprovalOutcome:
+  match kind:
+    case "allow": M.ApprovalAllowed{text_or(J.get(value, "reason"), "")}
+    case "deny": M.ApprovalDenied{text_or(J.get(value, "reason"), "")}
+    case _: M.ApprovalFailed{text_or(J.get(value, "reason"), "The review did not return a valid decision")}
+
 def construct_command(kind: M.CommandKind, +body: J.Json) -> M.Command:
   match kind:
     case M.CreateCommand{}:
-      M.Create{J.text(J.get(body, "profile")), text_or(J.get(body, "reasoning"), "medium"), J.text(J.get(body, "message"))}
+      M.Create{J.text(J.get(body, "profile")), text_or(J.get(body, "reasoning"), "medium"), J.text(J.get(body, "message")), J.get(body, "settings")}
     case M.SendCommand{}:
       M.Send{Protocol.number(body, "task_id", 0n), J.text(J.get(body, "message"))}
     case M.SteerCommand{}:
@@ -57,12 +64,21 @@ def construct_command(kind: M.CommandKind, +body: J.Json) -> M.Command:
       M.ChangeStatus{Protocol.number(body, "task_id", 0n), control}
     case M.ForkCommand{}:
       M.Fork{Protocol.number(body, "task_id", 0n), Protocol.number(body, "child_count", 0n),
-        Protocol.messages(J.items(J.get(body, "messages")))}
+        Protocol.messages(J.items(J.get(body, "messages"))), J.get(body, "settings")}
     case M.ReadCommand{}:
       M.Observe{M.Read{Protocol.number(body, "task_id", 0n), Protocol.number(body, "after", 0n), Protocol.number(body, "limit", 100n)}}
     case M.ListCommand{}: M.Observe{M.ListTasks{}}
     case M.CompactCommand{}: M.Compact{Protocol.number(body, "task_id", 0n), optional_text(J.get(body, "summary"))}
     case M.DescribeCommand{}: M.Observe{M.Describe{}}
+    case M.CreateProjectCommand{}:
+      M.CreateProject{J.text(J.get(body, "name")), J.get(body, "workspace"), J.get(body, "guidance")}
+    case M.UpdateProjectCommand{}:
+      M.UpdateProject{Protocol.number(body, "project_id", 0n), optional_text(J.get(body, "name")), J.get(body, "workspace"), J.get(body, "guidance")}
+    case M.DeleteProjectCommand{}: M.DeleteProject{Protocol.number(body, "project_id", 0n)}
+    case M.ListProjectsCommand{}: M.Observe{M.ListProjects{}}
+    case M.ReadProjectCommand{}: M.Observe{M.ReadProject{Protocol.number(body, "project_id", 0n)}}
+    case M.ReviewApprovalCommand{}: M.ReviewApproval{Protocol.number(body, "task_id", 0n), Protocol.number(body, "operation_id", 0n),
+      approval_outcome(J.text(J.get(body, "decision")), body)}
 
 def command_valid(valid: Bool, kind: M.CommandKind, body: J.Json) -> Result<&2, &2, String, M.Input>:
   match valid:
@@ -384,6 +400,22 @@ def decode_after(+body: J.Json) -> Result<&2, &2, String, M.Input>:
     is_natural(J.get(body, "task_id")) && is_natural(J.get(body, "operation_id")) && is_natural(J.get(body, "ticket")) &&
     valid_after_outcome(J.text(J.get(J.get(body, "outcome"), "decision")), J.get(body, "outcome")), body)
 
+def approval_valid(valid: Bool, +body: J.Json) -> Result<&2, &2, String, M.Input>:
+  match valid:
+    case False{}: Fail{"Malformed approval completion envelope"}
+    case True{}: Done{M.ApprovalCompleted{Protocol.number(body, "task_id", 0n), Protocol.number(body, "ticket", 0n),
+      approval_outcome(J.text(J.get(J.get(body, "outcome"), "decision")), J.get(body, "outcome"))}}
+
+def approval_reply(+outcome: J.Json) -> Bool:
+  object_keys(outcome, ["decision", "reason"]) && M.nonempty(J.text(J.get(outcome, "reason"))) &&
+    Approvals.bounded(J.text(J.get(outcome, "reason"))) &&
+    (String.eq(J.text(J.get(outcome, "decision")), "allow") || String.eq(J.text(J.get(outcome, "decision")), "deny") ||
+      String.eq(J.text(J.get(outcome, "decision")), "failed"))
+
+def decode_approval(+body: J.Json) -> Result<&2, &2, String, M.Input>:
+  approval_valid(object_keys(body, ["kind", "task_id", "ticket", "outcome"]) &&
+    is_natural(J.get(body, "task_id")) && is_natural(J.get(body, "ticket")) && approval_reply(J.get(body, "outcome")), body)
+
 def decode_kind(kind: String, +body: J.Json) -> Result<&2, &2, String, M.Input>:
   match kind:
     case "command": decode_command(J.get(body, "command"))
@@ -392,6 +424,7 @@ def decode_kind(kind: String, +body: J.Json) -> Result<&2, &2, String, M.Input>:
     case "tool": decode_tool(body)
     case "hook": decode_hook(body)
     case "after_hook": decode_after(body)
+    case "approval": decode_approval(body)
     case "configure": decode_config(body)
     case "recover": Done{M.Recover{}}
     case "continue": Done{M.Continue{}}

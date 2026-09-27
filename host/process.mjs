@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, open } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
+import { prepareSandbox } from './sandbox.mjs';
 
 export function killGroup(child, signal = 'SIGKILL') {
   if (!child.pid) return;
@@ -85,7 +86,7 @@ async function hashPrefix(file, length) {
 }
 
 /** Execute an already validated Bend Bash effect, draining both pipes concurrently. */
-export async function runBash(arguments_, limits, { signal, cwd = process.cwd(), artifactDirectory } = {}) {
+export async function runBash(arguments_, limits, { signal, cwd = process.cwd(), artifactDirectory, execution, readOnlyPaths } = {}) {
   signal?.throwIfAborted();
   const timeout = arguments_.timeout_ms ?? limits.bash_timeout_ms;
   const maximum = arguments_.max_output_length ?? limits.bash_default_output_length;
@@ -93,12 +94,14 @@ export async function runBash(arguments_, limits, { signal, cwd = process.cwd(),
       arguments_.command.includes('\0') || !Number.isSafeInteger(timeout) || timeout < 100 || timeout > 1_800_000 ||
       !Number.isSafeInteger(limits.bash_max_output_length) || limits.bash_max_output_length < 1 ||
       !Number.isSafeInteger(maximum) || maximum < 1 || maximum > limits.bash_max_output_length ||
-      Object.keys(arguments_).some(key => !['command', 'timeout_ms', 'max_output_length'].includes(key))) {
+      Object.keys(arguments_).some(key => !['command', 'timeout_ms', 'max_output_length', 'sandbox_permissions', 'justification'].includes(key))) {
     throw new TypeError('Malformed Bash effect');
   }
   const artifacts = [];
   let child;
+  let launch;
   try {
+    if (execution) launch = await prepareSandbox(execution, { signal, readOnlyPaths });
     if (artifactDirectory) {
       if (!Number.isSafeInteger(limits.artifact_bytes) || limits.artifact_bytes < 1) throw new TypeError('Invalid artifact byte limit');
       await mkdir(artifactDirectory, { recursive: true, mode: 0o700 });
@@ -109,9 +112,13 @@ export async function runBash(arguments_, limits, { signal, cwd = process.cwd(),
       }
     }
     signal?.throwIfAborted();
-    child = spawn('/bin/bash', ['-c', arguments_.command], { cwd, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    child = spawn(launch?.file ?? '/bin/bash', [...(launch?.prefix ?? ['--noprofile', '--norc']), '-c', arguments_.command], {
+      cwd: launch?.cwd ?? cwd, env: launch?.env, detached: true,
+      stdio: ['ignore', 'pipe', 'pipe', ...(launch?.descriptors ?? [])],
+    });
   } catch (error) {
     await Promise.allSettled(artifacts.map(artifact => artifact.file.close()));
+    await launch?.cleanup();
     throw error;
   }
   const stdout = captureHeadTail(maximum);
@@ -183,6 +190,8 @@ export async function runBash(arguments_, limits, { signal, cwd = process.cwd(),
       clearTimeout(forcedClose);
       signal?.removeEventListener('abort', onAbort);
       const [outArtifact, errArtifact] = await Promise.all(outputTasks);
+      try { await launch?.cleanup(); }
+      catch (error) { reason ??= { code: 'sandbox_cleanup_failed', message: error.message }; }
       const out = stdout.result();
       const err = stderr.result();
       const value = { exit_code: exitCode, signal: exitSignal, stdout: out.text, stderr: err.text,

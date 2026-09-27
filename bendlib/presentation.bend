@@ -1,5 +1,6 @@
 import Base
 import ../MODEL.bend as M
+import ../APPROVALS.bend as Approvals
 import ./json.bend as J
 import ./tasks.bend as T
 
@@ -41,21 +42,28 @@ def effect(effect: M.Effect) -> J.Json:
       J.Object{[J.Field{"kind", J.Text{"after_hook"}}, J.Field{"task_id", J.nat(task_id)}, J.Field{"ticket", J.nat(ticket)},
         J.Field{"operation_id", J.nat(operation)}, J.Field{"plugin", M.plugin_json(plugin)}, J.Field{"call", T.call_json(call)},
         J.Field{"value", value}, J.Field{"error", J.Boolean{error}}]}
-    case M.RequestModel{task_id, ticket, model, history, tools, callable}:
+    case M.RequestModel{task_id, ticket, model, history, tools, callable, context}:
       J.Object{[J.Field{"kind", J.Text{"model"}}, J.Field{"task_id", J.nat(task_id)}, J.Field{"ticket", J.nat(ticket)},
         J.Field{"instructions", J.Text{M.assistant_instructions()}},
-        J.Field{"model", model_json(model)}, J.Field{"history", J.Array{T.messages_json(M.history_messages(history, Nil{}))}},
+        J.Field{"model", model_json(model)}, J.Field{"settings", M.task_context_json(context)},
+        J.Field{"history", J.Array{T.messages_json(M.history_messages(history, Nil{}))}},
         J.Field{"tools", J.Array{M.tools_json(tools)}}, J.Field{"callable", J.Array{T.strings_json(callable)}}]}
-    case M.ExecuteTool{task_id, ticket, tool, call}:
+    case M.ExecuteTool{task_id, ticket, tool, call, context, access}:
       J.Object{[J.Field{"kind", J.Text{"tool"}}, J.Field{"task_id", J.nat(task_id)}, J.Field{"ticket", J.nat(ticket)},
-        J.Field{"tool", M.tool_json(tool)}, J.Field{"call", T.call_json(call)}]}
+        J.Field{"tool", M.tool_json(tool)}, J.Field{"call", T.call_json(call)}, J.Field{"execution", M.execution_json(context, access)}]}
+    case M.RequestApproval{task_id, ticket, M.Profile{key, provider, name}, call, context, history}:
+      J.Object{[J.Field{"kind", J.Text{"approval"}}, J.Field{"task_id", J.nat(task_id)}, J.Field{"ticket", J.nat(ticket)},
+        J.Field{"model", J.Object{[J.Field{"profile", J.Text{key}}, J.Field{"provider", J.Text{provider}}, J.Field{"name", J.Text{name}},
+          J.Field{"reasoning", J.Text{"medium"}}, J.Field{"project", J.Null{}}]}},
+        J.Field{"instructions", J.Text{Approvals.instructions()}}, J.Field{"settings", M.task_context_json(context)},
+        J.Field{"call", T.call_json(call)}, J.Field{"user_requests", J.Array{Approvals.user_requests(4n, history)}}]}
     case M.CancelTask{task_id}:
       J.Object{[J.Field{"kind", J.Text{"cancel"}}, J.Field{"task_id", J.nat(task_id)}]}
     case M.CancelTicket{task_id, ticket}:
       J.Object{[J.Field{"kind", J.Text{"cancel_ticket"}}, J.Field{"task_id", J.nat(task_id)}, J.Field{"ticket", J.nat(ticket)}]}
-    case M.RequestSummary{task_id, ticket, model, history}:
+    case M.RequestSummary{task_id, ticket, model, history, context}:
       J.Object{[J.Field{"kind", J.Text{"summary"}}, J.Field{"task_id", J.nat(task_id)}, J.Field{"ticket", J.nat(ticket)},
-        J.Field{"model", model_json(model)}, J.Field{"instructions", J.Text{M.summary_instructions()}},
+        J.Field{"model", model_json(model)}, J.Field{"settings", M.task_context_json(context)}, J.Field{"instructions", J.Text{M.summary_instructions()}},
         J.Field{"context_instructions", J.Text{M.assistant_instructions()}},
         J.Field{"history", J.Array{T.messages_json(M.history_messages(history, Nil{}))}},
         J.Field{"tools", J.Array{Nil{}}}, J.Field{"callable", J.Array{Nil{}}}]}

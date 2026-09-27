@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, writeFile, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { startServer } from '../host/server.mjs';
 import { defaultConfig, validateConfig } from '../host/config.mjs';
 import { chatgptFixture, jsonResponse, modelResponse } from '../tests-bend/fixtures/chatgpt.mjs';
-import { taskIdle } from '../tests-bend/support.mjs';
+import { taskIdle, shellQuote } from '../tests-bend/support.mjs';
 import { browser } from '../tests-bend/fixtures/browser.mjs';
 
 // A real browser + HTTP/SSE provider + native kernel + SQLite. No user account,
@@ -19,6 +19,7 @@ let browserUI;
 let site;
 let pending;
 let calls = 0;
+let nextToolCall;
 let performanceResult;
 const first = '## A smoother conversation\n\nThe renderer keeps **stable content** in place while new text arrives.\n\n```javascript\nconst message = "hello';
 const rest = ' world";\nconsole.log(message);\n```\n\n### Three independent layers\n\n- **Target text** absorbs incoming bursts.\n- **Visible text** advances at a controlled pace.\n- **Stable blocks** retain their DOM identity.\n\n| Work | When it runs |\n| --- | --- |\n| Parse new text | Display batch |\n| Highlight code | Code block closes |\n\nThe update cost depends on the new suffix: $T(n) = O(n)$.\n\n> Keep the conversation readable, even while the model is working.\n\n[OpenAI](https://openai.com) · [Unsafe link](javascript:alert(1))\n\n<img src=x onerror=alert(1)>\n\n![Image preview](https://example.com/tracking.png)\n';
@@ -28,6 +29,10 @@ try {
     if (request.method === 'GET') return jsonResponse(response, { models: [{ slug: 'gui-fixture', display_name: 'GUI fixture', visibility: 'list',
       priority: 0, default_reasoning_level: 'medium', supported_reasoning_levels: [{ effort: 'medium' }] }] });
     if (request.body.input.at(-1)?.type === 'compaction_trigger') return modelResponse(response, [{ type: 'compaction', encrypted_content: 'fixture-checkpoint' }]);
+    if (nextToolCall) {
+      const call = nextToolCall; nextToolCall = undefined;
+      return modelResponse(response, [call]);
+    }
     if (++calls !== 1) return modelResponse(response, [reply('Follow-up accepted. Your workspace is ready.')]);
     response.writeHead(200, { 'content-type': 'text/event-stream' });
     response.write(`data: ${JSON.stringify({ type: 'response.output_text.delta', output_index: 0, delta: first })}\r\n\r\n`);
@@ -104,7 +109,7 @@ try {
   assert.equal(await evaluate(`document.querySelector('form[data-key$="/send/0"] textarea').value`), '');
   await evaluate(`document.querySelectorAll('.compose-tab')[1].click()`);
   assert.equal(await evaluate(`document.querySelector('form[data-key$="/steer/0"]').hidden`), false);
-  await evaluate(`document.querySelectorAll('.compose-tab')[0].click(); document.querySelector('.thread-header button').click();`);
+  await evaluate(`document.querySelectorAll('.compose-tab')[0].click(); document.querySelector('.thread-header .quiet-button').click();`);
   const command = async key => {
     await wait(`document.querySelector('[data-key$="/${key}"]') && !document.querySelector('[data-key$="/${key}"]').disabled`);
     await evaluate(`document.querySelector('[data-key$="/${key}"]').click()`);
@@ -118,6 +123,53 @@ try {
   await wait('document.querySelector("[data-role=transcript]").textContent.includes("Provider context retained")');
   await browserUI.screenshot(path.join(output, 'webui-details.png'));
   checks.push('IME-safe shortcut, send/steer tabs, native action binding, manual account compaction from existing controls');
+
+  // Exercise native permission requests through actual browser clicks. The
+  // provider only proposes the command; no test driver supplies an approval.
+  for (const decision of ['allow', 'deny']) {
+    const marker = path.join(upstream.directory, `browser-${decision}.txt`);
+    const bash = `printf approved >> ${shellQuote(marker)}`;
+    nextToolCall = { type: 'function_call', call_id: `browser-${decision}`, name: 'bash', arguments: JSON.stringify({
+      command: bash, sandbox_permissions: 'require_escalated', justification: 'Write only the specific file requested by the user.',
+    }) };
+    const created = await site.service.command({ op: 'create', profile, message: `Write only ${marker}.`,
+      settings: { workspace: { roots: [] }, approval: { mode: 'ask-for-approval' } } });
+    assert.equal(created.reply.ok, true, JSON.stringify(created.reply));
+    const id = created.reply.result.task_id;
+    await command(`select/${id}`);
+    await wait('document.querySelector("[data-role=approval]")');
+    const page = (await site.service.command({ op: 'read', task_id: id })).reply.result;
+    const operation = page.task.operations.find(operation => operation.status === 'awaiting_approval');
+    assert.ok(operation);
+    assert.equal(await evaluate('document.querySelector("[data-role=command] .message-body").textContent'), bash);
+    assert.equal(await evaluate(`document.querySelector('[data-role="approval"] [data-key$="/review/cwd"] .message-body').textContent`), '/');
+    await assert.rejects(readFile(marker), { code: 'ENOENT' });
+    await call('Emulation.setDeviceMetricsOverride', decision === 'deny'
+      ? { width: 390, height: 844, deviceScaleFactor: 1, mobile: true }
+      : { width: 1360, height: 940, deviceScaleFactor: 1, mobile: false });
+    await evaluate(`document.body.dataset.sidebar = ${JSON.stringify(decision === 'deny' ? 'closed' : 'open')};
+      document.querySelector('[data-role=approval]').scrollIntoView({block:'center'});`);
+    assert.ok(await evaluate('document.documentElement.scrollWidth <= innerWidth'));
+    const selector = `[data-key$="/approval/${decision}/${operation.operation_id}"]`;
+    await wait(`document.querySelector(${JSON.stringify(selector)}) && !document.querySelector(${JSON.stringify(selector)}).disabled`);
+    const point = await evaluate(`(() => { const button = document.querySelector(${JSON.stringify(selector)});
+      const box = button.getBoundingClientRect(); const x = box.x + box.width / 2, y = box.y + box.height / 2;
+      return { x, y, visible: box.width > 0 && box.height >= 40 && box.top >= 0 && box.bottom <= innerHeight,
+        unobscured: button.contains(document.elementFromPoint(x, y)) }; })()`);
+    assert.equal(point.visible, true);
+    assert.equal(point.unobscured, true, 'Review controls must not be covered by floating UI');
+    await browserUI.screenshot(path.join(output, decision === 'allow' ? 'webui-approval-desktop.png' : 'webui-approval-mobile.png'));
+    await call('Input.dispatchMouseEvent', { type: 'mousePressed', x: point.x, y: point.y, button: 'left', clickCount: 1 });
+    await call('Input.dispatchMouseEvent', { type: 'mouseReleased', x: point.x, y: point.y, button: 'left', clickCount: 1 });
+    const settled = await taskIdle(site.service, id);
+    await wait('!document.querySelector("[data-role=approval]")');
+    assert.equal(settled.messages.find(message => message.role === 'approval_record').content.decision, decision);
+    if (decision === 'allow') assert.equal(await readFile(marker, 'utf8'), 'approved');
+    else await assert.rejects(readFile(marker), { code: 'ENOENT' });
+  }
+  await call('Emulation.setDeviceMetricsOverride', { width: 1360, height: 940, deviceScaleFactor: 1, mobile: false });
+  await evaluate('document.body.dataset.sidebar = "open"');
+  checks.push('visible desktop/mobile permission requests, exact command/cwd, browser approve-once and deny, no preapproval execution');
 
   const syntax = 'Before **bold** and *emphasis*.\n\n- first\n- second with [a link](https://example.com)\n\n```js\nconst x = "<tag>";\n```\n\nAfter 😃.\n';
   const syntaxResult = await evaluate(`(async () => {

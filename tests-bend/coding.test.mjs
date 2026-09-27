@@ -25,7 +25,7 @@ test('coding loop reads, writes, edits, tests, compacts, and restarts through co
   const api_key_env = credentials(t);
   await writeFile(path.join(directory, 'math.mjs'), 'export const add = (a, b) => a - b;\n');
   const model = await responsesServer(t, async (body, index) => {
-    const database = new DatabaseSync(path.join(directory, 'journal.sqlite'), { readOnly: true });
+    const database = new DatabaseSync(path.join(directory, 'state', 'journal.sqlite'), { readOnly: true });
     const decision = JSON.parse(database.prepare('SELECT decision FROM journal ORDER BY seq DESC LIMIT 1').get().decision);
     database.close();
     assert.ok(decision.effects.some(effect => ['model', 'summary'].includes(effect.kind)), 'request must follow the committed intent');
@@ -69,7 +69,7 @@ test('coding loop reads, writes, edits, tests, compacts, and restarts through co
   const config = validateConfig({ ...defaultConfig, profiles: { fixture: {
     provider: 'responses', model: 'fixture', endpoint: model.endpoint, api_key_env,
   } } });
-  let service = await Service.open({ home: directory, cwd: directory, config });
+  let service = await Service.open({ home: path.join(directory, 'state'), cwd: directory, config });
   t.after(() => service.close());
   await service.command({ op: 'create', profile: 'fixture', message: 'Fix the addition bug and run a real test.' });
   const completed = await taskIdle(service);
@@ -79,7 +79,7 @@ test('coding loop reads, writes, edits, tests, compacts, and restarts through co
   const compacted = await taskIdle(service);
   assert.equal(compacted.messages.at(-1).role, 'context_summary');
   await service.close();
-  service = await Service.open({ home: directory, cwd: directory, config });
+  service = await Service.open({ home: path.join(directory, 'state'), cwd: directory, config });
   assert.deepEqual((await taskIdle(service)).messages, compacted.messages);
   assert.equal(model.requests.length, 6);
   await service.command({ op: 'send', task_id: 0, message: 'Continue without rerunning the test.' });
@@ -98,7 +98,7 @@ test('interrupt kills a live Bash process without archiving or accepting its lat
   const config = validateConfig({ ...defaultConfig, profiles: { fixture: {
     provider: 'responses', model: 'fixture', endpoint: model.endpoint, api_key_env,
   } } });
-  const service = await Service.open({ home: directory, cwd: directory, config });
+  const service = await Service.open({ home: path.join(directory, 'state'), cwd: directory, config });
   t.after(() => service.close());
   await service.command({ op: 'create', profile: 'fixture', message: 'Run the long command.' });
   let pid;

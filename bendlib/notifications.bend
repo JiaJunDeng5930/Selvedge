@@ -13,7 +13,7 @@ import ./protocol.bend as Protocol
 # occurrences and recipients; the host adds the committed sequence and attempts
 # bounded delivery. A projection cannot turn inherited history into new events.
 def entries(world: M.World) -> +List<M.Task>:
-  M.World{tasks, next_task, next_ticket, environment, limits} = world
+  M.World{tasks, next_task, next_ticket, environment, limits, projects} = world
   tasks
 
 def subscribed(kinds: +List<M.EventKind>, +kind: M.EventKind) -> Bool:
@@ -207,11 +207,11 @@ def model_started(id: Nat, ticket: Nat, model: M.Model, kind: String, tasks: +Li
 def dispatched(effects: +List<M.Effect>, +tasks: +List<M.Task>) -> +List<M.Notice>:
   match effects:
     case Nil{}: Nil{}
-    case Con{M.RequestModel{id, ticket, model, history, tools, callable}, rest}:
+    case Con{M.RequestModel{id, ticket, model, history, tools, callable, context}, rest}:
       List.append(&2, M.Notice, model_started(id, ticket, model, "model", tasks), dispatched(rest, tasks))
-    case Con{M.RequestSummary{id, ticket, model, history}, rest}:
+    case Con{M.RequestSummary{id, ticket, model, history, context}, rest}:
       List.append(&2, M.Notice, model_started(id, ticket, model, "summary", tasks), dispatched(rest, tasks))
-    case Con{M.ExecuteTool{id, ticket, tool, call}, rest}:
+    case Con{M.ExecuteTool{id, ticket, tool, call, context, access}, rest}:
       List.append(&2, M.Notice, found_event(T.find(tasks, id), M.ToolDispatched{}, J.Object{[J.Field{"ticket", J.nat(ticket)},
         J.Field{"tool", M.tool_json(tool)}, J.Field{"call", T.call_json(call)}]}), dispatched(rest, tasks))
     case Con{other, rest}: dispatched(rest, tasks)
@@ -235,7 +235,7 @@ def fit(rendered: Result<&2, &2, String, String>, bytes: U32, enriched: M.Decisi
 # Notification payloads and queueing are optional observations. Full-envelope
 # pressure can omit the entire optional batch, never reject the underlying work.
 def admit(+durable: Bool, previous: M.World, +enriched: M.Decision, plain: M.Decision) -> M.Decision:
-  M.World{tasks, next_task, next_ticket, environment, M.ExecutionLimits{steps, render, +bytes}} = previous
+  M.World{tasks, next_task, next_ticket, environment, M.ExecutionLimits{steps, render, +bytes}, projects} = previous
   fit(J.render(render, J.One{View.envelope(durable, enriched)}), bytes, enriched, plain)
 
 def enrich(+source: M.Input, +before: M.World, +decision: M.Decision) -> M.Decision:

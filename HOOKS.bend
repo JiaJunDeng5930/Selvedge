@@ -14,11 +14,11 @@ type Progress is Data:
   Refused{}
 
 def plugins(contract: M.Contract) -> +List<M.Plugin>:
-  M.Contract{model, tools, max_fork, max_descendants, plugins} = contract
+  M.Contract{model, tools, max_fork, max_descendants, plugins, context} = contract
   plugins
 
 def live(world: M.World) -> +List<M.Plugin>:
-  M.World{tasks, next_task, next_ticket, M.Environment{catalog, profiles, max_fork, max_descendants, project, plugins}, limits} = world
+  M.World{tasks, next_task, next_ticket, M.Environment{catalog, profiles, max_fork, max_descendants, project, plugins}, limits, projects} = world
   plugins
 
 def before(plugins: +List<M.Plugin>) -> +List<M.PluginRef>:

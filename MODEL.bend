@@ -258,29 +258,6 @@ def object_schema(properties: +List<J.Field>, required: +List<J.Json>) -> J.Json
 def task_id_schema() -> J.Json:
   integer_schema("Task identity", 0n, U32.to_nat(4294967295))
 
-def builtins(max_fork: Nat) -> +List<Tool>:
-  [Tool{"fork_task", "Fork this task. The caller receives 0 and each child receives its one-based branch number.",
-    object_schema([J.Field{"child_count", integer_schema("Number of children", 1n, max_fork)},
-      J.Field{"messages", J.Object{[J.Field{"type", J.Text{"array"}},
-        J.Field{"items", string_schema("Initial child message")}]} }], [J.Text{"child_count"}]), Harness{ForkTask{}}},
-   Tool{"read_task", "Read a bounded page of another task's history and its current lifecycle.",
-    object_schema([J.Field{"task_id", integer_schema("Task identity", 0n, U32.to_nat(4294967295))},
-      J.Field{"after", integer_schema("Exclusive history offset", 0n, U32.to_nat(4294967295))},
-      J.Field{"limit", integer_schema("Maximum messages", 1n, 100n)}], [J.Text{"task_id"}]), Harness{ReadTask{}}},
-   Tool{"send_message_to_task", "Commit a user message to another task, or queue it while that task is busy or frozen.",
-    object_schema([J.Field{"task_id", integer_schema("Task identity", 0n, U32.to_nat(4294967295))},
-      J.Field{"message", string_schema("Nonempty message")}], [J.Text{"task_id"}, J.Text{"message"}]), Harness{SendMessage{}}},
-   Tool{"archive_task", "Archive a task permanently and cancel its outstanding external work.",
-    object_schema([J.Field{"task_id", integer_schema("Task identity", 0n, U32.to_nat(4294967295))}], [J.Text{"task_id"}]), Harness{ArchiveTask{}}},
-   Tool{"bash", "Run a noninteractive Bash command asynchronously. Independent calls in one response run concurrently; put dependent commands in one shell command. A running status is not completion. Results arrive automatically; continue independent work or end the turn to wait. Descendants are terminated when the shell exits. Nonzero exits are errors. Output keeps UTF-8 head and tail with omitted-byte counts and artifact paths; use Bash to inspect those files. The default deadline is 30 seconds, at most 30 minutes.",
-    object_schema([J.Field{"command", string_schema("Command to run")},
-      J.Field{"timeout_ms", integer_schema("Deadline in milliseconds", 100n, U32.to_nat(1800000))},
-      J.Field{"max_output_length", integer_schema("Maximum retained Unicode characters per stream, excluding the truncation marker; defaults to 40000", 1n, U32.to_nat(65536))}],
-      [J.Text{"command"}]), Harness{Bash{}}},
-   Tool{"cancel_operation", "Cancel one in-flight operation, not the task or its other work. Use an operation_id from a running status or read_task. Cancellation cannot undo side effects already performed.",
-    object_schema([J.Field{"operation_id", task_id_schema()}, J.Field{"task_id", integer_schema("Task identity; defaults to this task", 0n, U32.to_nat(4294967295))}],
-      [J.Text{"operation_id"}]), Harness{CancelOperation{}}}]
-
 type Profile is Data:
   Profile{key: String, provider: String, name: String}
 
@@ -324,8 +301,187 @@ def project_json(project: ProjectContext) -> J.Json:
 type Model is Data:
   Model{profile: Profile, reasoning: String, project: ProjectContext}
 
+def model_profile(model: Model) -> Profile:
+  Model{profile, reasoning, project} = model
+  profile
+
+def model_guidance(model: Model) -> ProjectContext:
+  Model{profile, reasoning, project} = model
+  project
+
+# Location, OS restrictions and exception review are independent coordinates.
+# A task freezes these values in its contract; projects only supply birth defaults.
+type Workspace is Data:
+  Workspace{roots: +List<String>, primary: Maybe<&2, String>}
+
+type SandboxMode is Data:
+  WorkspaceWrite{}
+  ReadOnly{}
+
+type Sandbox is Data:
+  Sandbox{mode: SandboxMode, network_access: Bool}
+
+type ApprovalPolicy is Data:
+  FullAccess{}
+  AskForApproval{}
+  ApprovalForMe{reviewer: Profile}
+
+type TaskContext is Data:
+  TaskContext{workspace: Workspace, sandbox: Sandbox, approval: ApprovalPolicy, project_id: Maybe<&2, Nat>}
+
+type ExecutionAccess is Data:
+  Sandboxed{}
+  Unrestricted{}
+
+type ApprovalReviewer is Data:
+  HumanReviewer{}
+  ModelReviewer{profile: Profile}
+
+type ApprovalOutcome is Data:
+  ApprovalAllowed{reason: String}
+  ApprovalDenied{reason: String}
+  ApprovalFailed{reason: String}
+
+def approval_reason(outcome: ApprovalOutcome) -> String:
+  match outcome:
+    case ApprovalAllowed{reason}: reason
+    case ApprovalDenied{reason}: reason
+    case ApprovalFailed{reason}: reason
+
+def approval_decision(outcome: ApprovalOutcome) -> String:
+  match outcome:
+    case ApprovalAllowed{reason}: "allow"
+    case ApprovalDenied{reason}: "deny"
+    case ApprovalFailed{reason}: "failed"
+
+def approval_outcome_json(+outcome: ApprovalOutcome) -> J.Json:
+  J.Object{[J.Field{"decision", J.Text{approval_decision(outcome)}}, J.Field{"reason", J.Text{approval_reason(outcome)}}]}
+
+def approval_reviewer_json(reviewer: ApprovalReviewer) -> J.Json:
+  match reviewer:
+    case HumanReviewer{}: J.Object{[J.Field{"kind", J.Text{"human"}}]}
+    case ModelReviewer{Profile{key, provider, name}}:
+      J.Object{[J.Field{"kind", J.Text{"model"}}, J.Field{"profile", J.Text{key}},
+        J.Field{"provider", J.Text{provider}}, J.Field{"name", J.Text{name}}]}
+
+def access_name(access: ExecutionAccess) -> String:
+  match access:
+    case Sandboxed{}: "sandboxed"
+    case Unrestricted{}: "unrestricted"
+
+type Project is Data:
+  Project{name: String, workspace: Workspace, guidance: ProjectContext}
+
+# Project identities use the same imported finite-map carrier as operation rights.
+type Projects is Data:
+  Projects{entries: +List<Finite.Entry(Project)>, next_id: U32}
+
+def optional_string(value: Maybe<&2, String>) -> J.Json:
+  match value:
+    case None{}: J.Null{}
+    case Some{text}: J.Text{text}
+
+def workspace_json(workspace: Workspace) -> J.Json:
+  Workspace{roots, primary} = workspace
+  J.Object{[J.Field{"roots", J.Array{subscription_json(roots)}}, J.Field{"primary_root", optional_string(primary)}]}
+
+def sandbox_mode_name(mode: SandboxMode) -> String:
+  match mode:
+    case WorkspaceWrite{}: "workspace-write"
+    case ReadOnly{}: "read-only"
+
+def sandbox_json(sandbox: Sandbox) -> J.Json:
+  Sandbox{mode, network_access} = sandbox
+  J.Object{[J.Field{"mode", J.Text{sandbox_mode_name(mode)}}, J.Field{"network_access", J.Boolean{network_access}}]}
+
+def approval_name(policy: ApprovalPolicy) -> String:
+  match policy:
+    case FullAccess{}: "full-access"
+    case AskForApproval{}: "ask-for-approval"
+    case ApprovalForMe{reviewer}: "approval-for-me"
+
+def reviewer_key(policy: ApprovalPolicy) -> String:
+  match policy:
+    case ApprovalForMe{Profile{key, provider, name}}: key
+    case _: ""
+
+def reviewer_json(policy: ApprovalPolicy) -> J.Json:
+  match policy:
+    case ApprovalForMe{Profile{key, provider, name}}:
+      J.Object{[J.Field{"key", J.Text{key}}, J.Field{"provider", J.Text{provider}}, J.Field{"name", J.Text{name}}]}
+    case _: J.Null{}
+
+def approval_json(+policy: ApprovalPolicy) -> J.Json:
+  J.Object{[J.Field{"mode", J.Text{approval_name(policy)}}, J.Field{"reviewer_profile", J.Text{reviewer_key(policy)}},
+    J.Field{"reviewer", reviewer_json(policy)}]}
+
+def task_context_json(context: TaskContext) -> J.Json:
+  TaskContext{workspace, sandbox, approval, project_id} = context
+  J.Object{[J.Field{"workspace", workspace_json(workspace)}, J.Field{"sandbox", sandbox_json(sandbox)},
+    J.Field{"approval", approval_json(approval)}, J.Field{"project_id", J.optional_nat(project_id)}]}
+
+def execution_json(context: TaskContext, access: ExecutionAccess) -> J.Json:
+  TaskContext{workspace, sandbox, approval, project_id} = context
+  J.Object{[J.Field{"workspace", workspace_json(workspace)}, J.Field{"sandbox", sandbox_json(sandbox)},
+    J.Field{"access", J.Text{access_name(access)}}]}
+
+def workspace_schema() -> J.Json:
+  object_schema([J.Field{"roots", J.Object{[J.Field{"type", J.Text{"array"}},
+      J.Field{"items", string_schema("Absolute root directory; at most 32 distinct canonical directories")}] }},
+    J.Field{"primary_root", string_schema("One of the roots; omitted selects the first root. An empty root list has no primary.")}], [J.Text{"roots"}])
+
+def sandbox_schema() -> J.Json:
+  object_schema([J.Field{"mode", string_schema("workspace-write or read-only; independent of approval")},
+    J.Field{"network_access", J.Object{[J.Field{"type", J.Text{"boolean"}}]}}], Nil{})
+
+def approval_schema() -> J.Json:
+  object_schema([J.Field{"mode", string_schema("full-access, ask-for-approval, or approval-for-me")},
+    J.Field{"reviewer_profile", string_schema("Configured profile for the independent approval call; defaults to the task profile")}], [J.Text{"mode"}])
+
+def guidance_schema() -> J.Json:
+  object_schema([J.Field{"workspace", string_schema("Canonical primary root observed by the host")},
+    J.Field{"revision", string_schema("AGENTS.md content revision or absent")},
+    J.Field{"instructions", string_schema("Unprivileged frozen root guidance")}],
+    [J.Text{"workspace"}, J.Text{"revision"}, J.Text{"instructions"}])
+
+def task_settings_schema() -> J.Json:
+  object_schema([J.Field{"workspace", workspace_schema()}, J.Field{"sandbox", sandbox_schema()},
+    J.Field{"approval", approval_schema()}, J.Field{"project_id", task_id_schema()},
+    J.Field{"guidance", guidance_schema()}], Nil{})
+
+def fork_settings_schema() -> J.Json:
+  object_schema([J.Field{"workspace", workspace_schema()}, J.Field{"sandbox", sandbox_schema()},
+    J.Field{"approval", approval_schema()}, J.Field{"project_id", task_id_schema()}], Nil{})
+
+def builtins(max_fork: Nat) -> +List<Tool>:
+  [Tool{"fork_task", "Fork this task. The caller receives 0 and each child receives its one-based branch number.",
+    object_schema([J.Field{"child_count", integer_schema("Number of children", 1n, max_fork)},
+      J.Field{"messages", J.Object{[J.Field{"type", J.Text{"array"}},
+        J.Field{"items", string_schema("Initial child message")}]} },
+      J.Field{"settings", fork_settings_schema()}], [J.Text{"child_count"}]), Harness{ForkTask{}}},
+   Tool{"read_task", "Read a bounded page of another task's history and its current lifecycle.",
+    object_schema([J.Field{"task_id", integer_schema("Task identity", 0n, U32.to_nat(4294967295))},
+      J.Field{"after", integer_schema("Exclusive history offset", 0n, U32.to_nat(4294967295))},
+      J.Field{"limit", integer_schema("Maximum messages", 1n, 100n)}], [J.Text{"task_id"}]), Harness{ReadTask{}}},
+   Tool{"send_message_to_task", "Commit a user message to another task, or queue it while that task is busy or frozen.",
+    object_schema([J.Field{"task_id", integer_schema("Task identity", 0n, U32.to_nat(4294967295))},
+      J.Field{"message", string_schema("Nonempty message")}], [J.Text{"task_id"}, J.Text{"message"}]), Harness{SendMessage{}}},
+   Tool{"archive_task", "Archive a task permanently and cancel its outstanding external work.",
+    object_schema([J.Field{"task_id", integer_schema("Task identity", 0n, U32.to_nat(4294967295))}], [J.Text{"task_id"}]), Harness{ArchiveTask{}}},
+   Tool{"bash", "Run noninteractive Bash in this task's primary workspace root, or / for an empty workspace. Independent calls run concurrently. A running or awaiting_approval status is not completion; results arrive automatically, so do not poll. Default access obeys the task sandbox. To request one command outside that sandbox, set sandbox_permissions to require_escalated and explain the concrete need in justification BEFORE executing it. A failed command may have partial effects: there is no automatic unrestricted retry. Descendants are terminated on exit. Nonzero exits are errors. Output retains bounded UTF-8 previews and artifact paths. The default deadline is 30 seconds, at most 30 minutes.",
+    object_schema([J.Field{"command", string_schema("Command to run")},
+      J.Field{"timeout_ms", integer_schema("Deadline in milliseconds", 100n, U32.to_nat(1800000))},
+      J.Field{"sandbox_permissions", J.Object{[J.Field{"type", J.Text{"string"}},
+        J.Field{"enum", J.Array{[J.Text{"use_default"}, J.Text{"require_escalated"}]}}]}},
+      J.Field{"justification", string_schema("Required for require_escalated: explain the necessary outside-workspace write, network access, or other sandbox exception; at most 2048 UTF-8 bytes")},
+      J.Field{"max_output_length", integer_schema("Maximum retained Unicode characters per stream, excluding the truncation marker; defaults to 40000", 1n, U32.to_nat(65536))}],
+      [J.Text{"command"}]), Harness{Bash{}}},
+   Tool{"cancel_operation", "Cancel one in-flight operation, not the task or its other work. Use an operation_id from a running status or read_task. Cancellation cannot undo side effects already performed.",
+    object_schema([J.Field{"operation_id", task_id_schema()}, J.Field{"task_id", integer_schema("Task identity; defaults to this task", 0n, U32.to_nat(4294967295))}],
+      [J.Text{"operation_id"}]), Harness{CancelOperation{}}}]
+
 type Contract is Data:
-  Contract{model: Model, tools: +List<Tool>, max_fork: Nat, max_descendants: Nat, plugins: +List<Plugin>}
+  Contract{model: Model, tools: +List<Tool>, max_fork: Nat, max_descendants: Nat, plugins: +List<Plugin>, context: TaskContext}
 
 type Call is Data:
   Call{id: String, name: String, arguments: J.Json}
@@ -366,6 +522,9 @@ def after_json(outcome: AfterOutcome) -> J.Json:
 
 type OperationStage is Data:
   Executing{}
+  ApprovalPending{reviewer: ApprovalReviewer}
+  ApprovalGranted{reviewer: ApprovalReviewer}
+  ElevatedExecuting{ticket: Nat, reviewer: ApprovalReviewer}
   ResultPending{ticket: Nat, plugin: PluginRef, pending: +List<PluginRef>, value: J.Json, error: Bool}
 
 def hook_json(outcome: HookOutcome) -> J.Json:
@@ -403,6 +562,7 @@ type Message is Data:
   HookRecord{task_id: Nat, call_id: String, plugin: PluginRef, outcome: HookOutcome}
   ToolReceipt{task_id: Nat, operation_id: Nat, call: Call, value: J.Json, error: Bool}
   AfterRecord{task_id: Nat, operation_id: Nat, plugin: PluginRef, outcome: AfterOutcome}
+  ApprovalRecord{task_id: Nat, operation_id: Nat, call: Call, reviewer: ApprovalReviewer, outcome: ApprovalOutcome}
   ForkResult{task_id: Nat, call_id: String, branch: Nat}
 
 # A model may produce ordered answers, invocations, and opaque continuation data.
@@ -448,6 +608,7 @@ def context_node(previous: History, message: Message) -> History:
     case ContextCheckpoint{summary}: HistoryNode{EmptyHistory{}, ContextCheckpoint{summary}}
     case ToolReceipt{owner, operation, call, value, error}: previous
     case AfterRecord{owner, operation, plugin, outcome}: previous
+    case ApprovalRecord{owner, operation, call, reviewer, outcome}: previous
     case ModelContext{+value}: provider_context_node(is_provider_checkpoint(value), previous, value)
     case other: HistoryNode{previous, other}
 
@@ -551,6 +712,7 @@ type Work is Data:
   RequestNextModel{}
   RequestContextSummary{}
   RunNextTool{}
+  RunGrantedOperation{}
   BecomeIdle{}
 
 # Frozen tasks settle arriving results but dispatch nothing. Stopped tasks may
@@ -599,6 +761,17 @@ def task_contract(task: Task) -> Contract:
   Task{id, lineage, contract, status, history, queued, phase, operations, notified} = task
   contract
 
+def contract_context(contract: Contract) -> TaskContext:
+  Contract{model, tools, max_fork, max_descendants, plugins, context} = contract
+  context
+
+def task_context(task: Task) -> TaskContext:
+  contract_context(task_contract(task))
+
+def with_contract(contract: Contract, task: Task) -> Task:
+  Task{id, lineage, previous, status, history, queued, phase, operations, notified} = task
+  Task{id, lineage, contract, status, history, queued, phase, operations, notified}
+
 def task_lineage(task: Task) -> +List<Nat>:
   Task{id, lineage, contract, status, history, queued, phase, operations, notified} = task
   lineage
@@ -633,9 +806,21 @@ def enabled_work(work: Work, pending: Bool, notified: Bool) -> Work:
     case RequestContextSummary{} True{} _: NoWork{}
     case other _ _: other
 
+def has_granted(operations: +List<Operation()>) -> Bool:
+  match operations:
+    case Nil{}: False{}
+    case Con{(id, OperationBody{call, announced, ApprovalGranted{reviewer}}), rest}: True{}
+    case Con{operation, rest}: has_granted(rest)
+
+def approval_work(status: Status, granted: Bool, normal: Work) -> Work:
+  match status granted:
+    case Active{} True{}: RunGrantedOperation{}
+    case _ _: normal
+
 def task_work(+task: Task) -> Work:
-  enabled_work(work(task_status(task), task_phase(task)),
-    operations_pending(task_operations(task)), task_notified(task))
+  approval_work(task_status(task), has_granted(task_operations(task)),
+    enabled_work(work(task_status(task), task_phase(task)),
+      operations_pending(task_operations(task)), task_notified(task)))
 
 def with_status(status: Status, task: Task) -> Task:
   Task{id, lineage, contract, old, history, queued, phase, operations, notified} = task
@@ -688,10 +873,10 @@ def execution_limits() -> ExecutionLimits:
 # Resource bounds are explicit model parameters. Laws hold for any such bounds;
 # the native entry point supplies these defaults when it constructs the world.
 type World is Data:
-  World{tasks: +List<Task>, next_task: Nat, next_ticket: Nat, environment: Environment, limits: ExecutionLimits}
+  World{tasks: +List<Task>, next_task: Nat, next_ticket: Nat, environment: Environment, limits: ExecutionLimits, projects: Projects}
 
 def initial() -> World:
-  World{Nil{}, 0n, 0n, Environment{builtins(4n), Nil{}, 4n, 64n, NoProject{}, Nil{}}, execution_limits()}
+  World{Nil{}, 0n, 0n, Environment{builtins(4n), Nil{}, 4n, 64n, NoProject{}, Nil{}}, execution_limits(), Projects{Nil{}, 0}}
 
 type Notice is Data:
   Notice{kind: EventKind, task_id: Maybe<&2, Nat>, cursor: Maybe<&2, Nat>,
@@ -699,12 +884,13 @@ type Notice is Data:
 
 type Effect is Data:
   RequestModel{task_id: Nat, ticket: Nat, model: Model, history: History,
-    tools: +List<Tool>, callable: +List<String>}
-  ExecuteTool{task_id: Nat, ticket: Nat, tool: Tool, call: Call}
+    tools: +List<Tool>, callable: +List<String>, context: TaskContext}
+  ExecuteTool{task_id: Nat, ticket: Nat, tool: Tool, call: Call, context: TaskContext, access: ExecutionAccess}
+  RequestApproval{task_id: Nat, ticket: Nat, reviewer: Profile, call: Call, context: TaskContext, history: History}
   CheckTool{task_id: Nat, ticket: Nat, plugin: PluginRef, tool: Tool, call: Call}
   CheckResult{task_id: Nat, ticket: Nat, operation_id: Nat, plugin: PluginRef, call: Call, value: J.Json, error: Bool}
   NotifyPlugins{events: +List<Notice>}
-  RequestSummary{task_id: Nat, ticket: Nat, model: Model, history: History}
+  RequestSummary{task_id: Nat, ticket: Nat, model: Model, history: History, context: TaskContext}
   CancelTask{task_id: Nat}
   CancelTicket{task_id: Nat, ticket: Nat}
   ContinueScheduling{}
@@ -715,16 +901,22 @@ type Query is Data:
   Read{task_id: Nat, after: Nat, limit: Nat}
   ListTasks{}
   Describe{}
+  ListProjects{}
+  ReadProject{project_id: Nat}
 
 type Command is Data:
-  Create{profile: String, reasoning: String, message: String}
+  Create{profile: String, reasoning: String, message: String, settings: J.Json}
   Send{task_id: Nat, message: String}
   Steer{task_id: Nat, message: String}
   Cancel{task_id: Nat, operation_id: Nat}
   ChangeStatus{task_id: Nat, control: Control}
-  Fork{task_id: Nat, count: Nat, messages: +List<String>}
+  Fork{task_id: Nat, count: Nat, messages: +List<String>, settings: J.Json}
   Compact{task_id: Nat, summary: Maybe<&2, String>}
   Observe{query: Query}
+  CreateProject{name: String, workspace: J.Json, guidance: J.Json}
+  UpdateProject{project_id: Nat, name: Maybe<&2, String>, workspace: J.Json, guidance: J.Json}
+  DeleteProject{project_id: Nat}
+  ReviewApproval{task_id: Nat, operation_id: Nat, outcome: ApprovalOutcome}
 
 type CommandKind is Data:
   CreateCommand{}
@@ -737,6 +929,12 @@ type CommandKind is Data:
   ReadCommand{}
   ListCommand{}
   DescribeCommand{}
+  CreateProjectCommand{}
+  UpdateProjectCommand{}
+  DeleteProjectCommand{}
+  ListProjectsCommand{}
+  ReadProjectCommand{}
+  ReviewApprovalCommand{}
 
 type CommandSpec is Data:
   CommandSpec{name: String, description: String, kind: CommandKind, schema: J.Json}
@@ -753,7 +951,7 @@ def commands() -> +List<CommandSpec>:
   [CommandSpec{"create", "Start an agent with a frozen model and tool contract.", CreateCommand{},
      command_schema([J.Field{"profile", string_schema("Configured model profile")},
        J.Field{"reasoning", string_schema("Reasoning effort; defaults to medium")},
-       J.Field{"message", string_schema("Initial user request")}], [J.Text{"profile"}, J.Text{"message"}])},
+       J.Field{"message", string_schema("Initial user request")}, J.Field{"settings", task_settings_schema()}], [J.Text{"profile"}, J.Text{"message"}])},
    CommandSpec{"send", "Commit or queue a user message; reactivate a stopped task.", SendCommand{},
      command_schema([J.Field{"task_id", task_id_schema()}, J.Field{"message", string_schema("User message")}],
        [J.Text{"task_id"}, J.Text{"message"}])},
@@ -773,7 +971,8 @@ def commands() -> +List<CommandSpec>:
    CommandSpec{"fork", "Fork an idle task, subject to every ancestor's descendant limit.", ForkCommand{},
      command_schema([J.Field{"task_id", task_id_schema()},
        J.Field{"child_count", integer_schema("Number of children", 1n, U32.to_nat(4294967295))},
-       J.Field{"messages", J.Object{[J.Field{"type", J.Text{"array"}}, J.Field{"items", string_schema("Child request")}]}}],
+       J.Field{"messages", J.Object{[J.Field{"type", J.Text{"array"}}, J.Field{"items", string_schema("Child request")}]}},
+       J.Field{"settings", task_settings_schema()}],
        [J.Text{"task_id"}, J.Text{"child_count"}])},
    CommandSpec{"read", "Read a bounded history page without advancing the task.", ReadCommand{},
      command_schema([J.Field{"task_id", task_id_schema()}, J.Field{"after", integer_schema("History offset", 0n, U32.to_nat(4294967295))},
@@ -781,7 +980,23 @@ def commands() -> +List<CommandSpec>:
    CommandSpec{"list", "Read task summaries and the currently available model profiles and tools.", ListCommand{},
      command_schema(Nil{}, Nil{})},
    CommandSpec{"describe", "Read this executable command vocabulary and the effect-boundary limits.", DescribeCommand{},
-     command_schema(Nil{}, Nil{})}]
+     command_schema(Nil{}, Nil{})},
+   CommandSpec{"create_project", "Create an organizational project with default workspace roots; existing tasks never follow later default changes.", CreateProjectCommand{},
+     command_schema([J.Field{"name", string_schema("Project name")}, J.Field{"workspace", workspace_schema()},
+       J.Field{"guidance", guidance_schema()}], [J.Text{"name"}, J.Text{"workspace"}])},
+   CommandSpec{"update_project", "Change the project's name or workspace defaults without rewriting task contracts.", UpdateProjectCommand{},
+     command_schema([J.Field{"project_id", task_id_schema()}, J.Field{"name", string_schema("Project name")},
+       J.Field{"workspace", workspace_schema()}, J.Field{"guidance", guidance_schema()}], [J.Text{"project_id"}])},
+   CommandSpec{"delete_project", "Delete an empty project. A project referenced by any task cannot be deleted.", DeleteProjectCommand{},
+     command_schema([J.Field{"project_id", task_id_schema()}], [J.Text{"project_id"}])},
+   CommandSpec{"list_projects", "Read project summaries without advancing tasks.", ListProjectsCommand{}, command_schema(Nil{}, Nil{})},
+   CommandSpec{"read_project", "Read a project's workspace defaults and frozen root guidance.", ReadProjectCommand{},
+     command_schema([J.Field{"project_id", task_id_schema()}], [J.Text{"project_id"}])},
+   CommandSpec{"review_approval", "Approve exactly one pending human-reviewed command, or deny it. A grant cannot change the command, task settings, or any later operation.", ReviewApprovalCommand{},
+     command_schema([J.Field{"task_id", task_id_schema()}, J.Field{"operation_id", task_id_schema()},
+       J.Field{"decision", J.Object{[J.Field{"type", J.Text{"string"}}, J.Field{"enum", J.Array{[J.Text{"allow"}, J.Text{"deny"}]}}]}},
+       J.Field{"reason", string_schema("Optional bounded explanation, at most 2048 UTF-8 bytes")}],
+       [J.Text{"task_id"}, J.Text{"operation_id"}, J.Text{"decision"}])}]
 
 def command_specs_json(specs: +List<CommandSpec>) -> +List<J.Json>:
   match specs:
@@ -793,6 +1008,7 @@ def command_specs_json(specs: +List<CommandSpec>) -> +List<J.Json>:
 def boundary_limits() -> J.Json:
   J.Object{[J.Field{"frame_bytes", J.nat(U32.to_nat(frame_bytes()))}, J.Field{"header_bytes", J.nat(U32.to_nat(16384))},
     J.Field{"request_timeout_ms", J.nat(U32.to_nat(5000))}, J.Field{"tool_output_bytes", J.nat(U32.to_nat(65536))},
+    J.Field{"approval_reason_bytes", J.nat(2048n)},
     J.Field{"bash_timeout_ms", J.nat(U32.to_nat(30000))}, J.Field{"mcp_catalog_tools", J.nat(U32.to_nat(1024))},
     J.Field{"mcp_timeout_ms", J.nat(U32.to_nat(30000))},
     J.Field{"plugin_timeout_ms", J.nat(U32.to_nat(10000))},
@@ -847,6 +1063,7 @@ type Input is Data:
   ToolCompleted{task_id: Nat, ticket: Nat, value: J.Json, error: Bool}
   HookCompleted{task_id: Nat, ticket: Nat, outcome: HookOutcome}
   AfterCompleted{task_id: Nat, operation_id: Nat, ticket: Nat, outcome: AfterOutcome}
+  ApprovalCompleted{task_id: Nat, ticket: Nat, outcome: ApprovalOutcome}
   Configure{environment: Environment}
   Recover{}
   Continue{}

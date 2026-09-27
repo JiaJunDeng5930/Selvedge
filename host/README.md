@@ -50,6 +50,26 @@ gate; no theorem here proves the browser's DOM implementation.
 
 ## Coding effect interpreters
 
+`sandbox.mjs` converts an already-authorized execution plan into a Seatbelt or
+bubblewrap/seccomp launch. It canonicalizes explicit workspace observations and
+fails closed on unavailable isolation; it does not select a task's policy or
+decide an approval. See ADR 0019 and `sandbox.test.mjs` for the OS trust boundary.
+
+`approvals.mjs` interprets a committed approval effect as a separate, tool-free
+provider request. It creates no task and strictly decodes one allow/deny response;
+malformed output and provider failures return failed-review inputs to Bend.
+Human reviews use the authenticated command/UI boundary. The native operation
+identity, reviewer and complete command bind the decision; a grant never mutates
+the task's saved workspace or sandbox. The actual model's judgment is an external
+assumption, not a theorem about user intent.
+
+`project.mjs` observes explicitly selected directories and their primary root
+guidance before task/project commands. Native `WORKSPACE` and `PROJECTS` own
+admission, inheritance and project defaults. Every service Bash effect requires
+its committed plan; `service.cwd` is not a process permission or task directory.
+Keep the service home separate from writable projects: it is read-only inside a
+restricted Bash process, even when a workspace includes its ancestor.
+
 `stdio-rpc.mjs` is the shared bounded process transport for MCP and plugins.
 `plugins.mjs` implements only the manifest, ticketed callback/tool protocol and
 best-effort observer queue. `service.mjs` dispatches committed native `CheckTool`,
@@ -60,10 +80,11 @@ task contracts. See `../docs/plugins.md` for schemas, recovery and delivery limi
 
 `process.mjs` is the single local coding-effect interpreter. Reading, writing,
 editing and running a reusable script are ordinary Bash commands, not redundant
-tool implementations. `project.mjs` only observes bounded root guidance before
-configuration; it is not a model-callable file tool. File locking, atomic editing
+tool implementations. `project.mjs` observes bounded primary-root guidance at
+configuration and explicit workspace selection; it is not a model-callable file
+tool. File locking, atomic editing
 and revision checks required by a project belong in its commands or reusable
-scripts. This service is not a cross-process filesystem transaction or sandbox.
+scripts. Process isolation does not provide cross-process filesystem transactions.
 
 `process.mjs` drains both pipes with bounded previews and bounded artifact files
 under the service home's `artifacts` directory. Output beyond the artifact cap is
@@ -75,11 +96,12 @@ Artifacts have private permissions; they are not automatically garbage-collected
 because durable history may reference them. File synchronization is reported in
 artifact metadata; filesystem loss or external deletion remains possible.
 
-The journal binds the canonical workspace before reconstructing a kernel. This
-prevents identical relative paths from acquiring a different meaning after a
-restart in another directory. The source fingerprint and workspace are checked,
-not migrated. Different operations and service homes do not serialize arbitrary
-filesystem mutations, even when pointed at the same workspace.
+The journal stores canonical task-local workspace observations and verifies the
+kernel fingerprint/current format before reconstruction. Existing execution plans
+retain their meaning after a restart in another launch directory. No workspace
+migration or global directory binding is involved. Different operations and
+service homes do not serialize arbitrary filesystem mutations, even when pointed
+at the same workspace.
 
 Native operations have stable task/operation identities and one current effect
 ticket. An after callback gets a fresh ticket without changing the operation ID.

@@ -1,7 +1,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import { EventEmitter } from 'node:events';
 import { createHash } from 'node:crypto';
-import { mkdir, chmod, realpath } from 'node:fs/promises';
+import { mkdir, chmod } from 'node:fs/promises';
 import path from 'node:path';
 import { Kernel, buildIdentity } from './kernel.mjs';
 import { parseJson, stringifyJson, integer } from './codec.mjs';
@@ -11,7 +11,7 @@ const schema = {
   journal: 'CREATE TABLE journal (seq INTEGER PRIMARY KEY CHECK (seq > 0), input TEXT NOT NULL, decision TEXT NOT NULL, previous TEXT NOT NULL, digest TEXT NOT NULL) STRICT',
 };
 const normalize = sql => sql.replace(/\s+/g, ' ').trim();
-const identityKeys = ['format', 'compiler', 'fingerprint', 'workspace'];
+const identityKeys = ['format', 'compiler', 'fingerprint'];
 const digest = (previous, sequence, input, decision) => createHash('sha256')
   .update(previous).update('\0').update(String(sequence)).update('\0')
   .update(input).update('\0').update(decision).digest('hex');
@@ -25,13 +25,12 @@ export class Journal extends EventEmitter {
   #closing = false;
   #previous;
 
-  static async open(filename, { kernelOptions, identity, cwd = process.cwd() } = {}) {
+  static async open(filename, { kernelOptions, identity } = {}) {
     const journal = new Journal();
     journal.filename = filename;
-    journal.identity = { ...(identity ?? await buildIdentity()), workspace: await realpath(cwd) };
+    journal.identity = identity ?? await buildIdentity();
     journal.sequence = 0;
-    journal.#previous = createHash('sha256').update(journal.identity.format).update(journal.identity.fingerprint)
-      .update('\0').update(journal.identity.workspace).digest('hex');
+    journal.#previous = createHash('sha256').update(journal.identity.format).update(journal.identity.fingerprint).digest('hex');
     try {
       await mkdir(path.dirname(filename), { recursive: true, mode: 0o700 });
       // An OS-backed SQLite lock is released on process death. No stale-PID
@@ -81,7 +80,7 @@ export class Journal extends EventEmitter {
     }
     const entries = this.#database.prepare('SELECT key, value FROM meta ORDER BY key').all();
     if (entries.length !== identityKeys.length || entries.some(row => this.identity[row.key] !== row.value)) {
-      throw new Error('The database belongs to a different kernel, workspace, or persistent format; automatic conversion is not supported');
+      throw new Error('The database belongs to a different kernel or persistent format; automatic conversion is not supported');
     }
   }
 

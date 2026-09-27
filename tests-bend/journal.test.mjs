@@ -92,14 +92,18 @@ test('journal corruption is detected before any saved effect is published', asyn
   await assert.rejects(Journal.open(filename), /integrity failure/);
 });
 
-test('a journal cannot reinterpret relative file effects under a different workspace', async t => {
+test('the journal stores task workspaces rather than a service-wide cwd identity', async t => {
   const filename = await temporary(t);
   const first = await Journal.open(filename);
   await first.execute(environment);
+  await first.execute(command({ op: 'create', profile: 'fixture', message: 'task-local directory',
+    settings: { workspace: { roots: ['/stable'], primary_root: '/stable' } } }));
+  const original = await first.execute(command({ op: 'read', task_id: 0 }));
   await first.close();
-  await assert.rejects(Journal.open(filename, { cwd: path.dirname(filename) }), /different kernel, workspace/);
   const reopened = await Journal.open(filename);
-  assert.equal(reopened.sequence, 1);
+  assert.equal(reopened.sequence, 2);
+  assert.deepEqual((await reopened.execute(command({ op: 'read', task_id: 0 }))).reply, original.reply);
+  assert.equal(reopened.identity.workspace, undefined);
   await reopened.close();
 });
 

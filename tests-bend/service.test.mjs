@@ -54,7 +54,7 @@ test('HTTP, event delivery, CLI discovery, and restart use the native task servi
 
 test('real model, MCP, and Bash effects start after SQLite commit and are not repeated on restart', { timeout: 15_000 }, async t => {
   const directory = await home(t);
-  const filename = path.join(directory, 'journal.sqlite');
+  const filename = path.join(directory, 'state', 'journal.sqlite');
   const marker = path.join(directory, 'effects.txt');
   const fixture = fileURLToPath(new URL('./fixtures/committed-tool.mjs', import.meta.url));
   const command = [process.execPath, fixture, filename, marker].map(shellQuote).join(' ');
@@ -98,7 +98,7 @@ test('real model, MCP, and Bash effects start after SQLite commit and are not re
     mcp: { fixture: { command: process.execPath, args: [fileURLToPath(new URL('./fixtures/mcp.mjs', import.meta.url))],
       env: { SELVEDGE_FIXTURE_JOURNAL: filename, SELVEDGE_FIXTURE_MARKER: marker }, timeout_ms: 2000 } },
   });
-  let service = await Service.open({ home: directory, config, cwd: directory });
+  let service = await Service.open({ home: path.join(directory, 'state'), config, cwd: directory });
   t.after(() => service.close());
   const notices = [];
   service.on('notice', event => notices.push(event));
@@ -112,7 +112,7 @@ test('real model, MCP, and Bash effects start after SQLite commit and are not re
   assert.deepEqual((await readFile(marker, 'utf8')).trim().split('\n').sort(), ['bash', 'mcp']);
   assert.ok(notices.some(event => event.type === 'delta' && event.text === '处理中 😀'));
   await service.close();
-  service = await Service.open({ home: directory, config, cwd: directory });
+  service = await Service.open({ home: path.join(directory, 'state'), config, cwd: directory });
   assert.deepEqual((await taskIdle(service)).messages, settled.messages);
   assert.equal(model.requests.length, completedRequests);
   assert.deepEqual((await readFile(marker, 'utf8')).trim().split('\n').sort(), ['bash', 'mcp']);

@@ -91,8 +91,8 @@ test('functional proof gates reject type-correct no-ops, wrong replies, missing 
   assert.equal(baseline.status, 0, baseline.stdout + baseline.stderr);
   const mutations = [
     ['refuse every valid create', source => replaceOnce(source,
-      'case Commands.Start{profile, reasoning, message}: execute_start(profile, reasoning, message, world)',
-      'case Commands.Start{profile, reasoning, message}: reject(world, "refused", "safe but not useful")')],
+      'case Commands.Start{profile, reasoning, message, selection}: execute_start(profile, reasoning, message, selection, world)',
+      'case Commands.Start{profile, reasoning, message, selection}: reject(world, "refused", "safe but not useful")')],
     ['acknowledge send without delivering it', source => replaceOnce(source,
       'case Commands.Deliver{task, message}: execute_delivery(message, task, world)',
       'case Commands.Deliver{task, message}: respond(world, id_result(M.task_id(task)))')],
