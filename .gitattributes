@@ -1,0 +1,4 @@
+# Preserve exact upstream package bytes; their manifest checks content integrity.
+# Upstream CRLF licenses and whitespace are not project-authored formatting.
+host/public/vendor/*.mjs -text -whitespace
+host/public/vendor/*.LICENSE -text -whitespace

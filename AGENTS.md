@@ -72,7 +72,7 @@ This file is for coding agents working in this repository.
 [Project Index]|root:.
 |source:git-tracked-files-only
 |excluded:{git-ignored,git-untracked}
-|.:{.codex/,.editorconfig,.github/,.gitignore,.pre-commit-config.yaml,AGENTS.md,COMMANDS.bend,CONCEPTS.bend,CONTRIBUTING.md,HOOKS.bend,INVARIANTS.bend,Justfile,LAWS.bend,MAIN.bend,MODEL.bend,PROGRAM.bend,PROOF.bend,README.md,UI.bend,bend-checksums.txt,bend-version,bendlib/,docs/,examples/,host/,package.json,scripts/,tests-bend/,theory/}
+|.:{.codex/,.editorconfig,.gitattributes,.github/,.gitignore,.pre-commit-config.yaml,AGENTS.md,COMMANDS.bend,CONCEPTS.bend,CONTRIBUTING.md,HOOKS.bend,INVARIANTS.bend,Justfile,LAWS.bend,MAIN.bend,MODEL.bend,PROGRAM.bend,PROOF.bend,README.md,UI.bend,bend-checksums.txt,bend-version,bendlib/,docs/,examples/,host/,package.json,scripts/,tests-bend/,theory/}
 |.codex:{environments/}
 |.codex/environments:{environment.toml}
 |.github:{workflows/}
@@ -84,9 +84,10 @@ This file is for coding agents working in this repository.
 |examples:{plugins/}
 |examples/plugins:{audit.mjs}
 |host:{README.md,auth.mjs,chatgpt-contract.mjs,chatgpt-models.mjs,cli.mjs,codec.mjs,config.mjs,files.mjs,journal.mjs,kernel.mjs,mcp.mjs,network.mjs,plugins.mjs,process.mjs,project.mjs,providers.mjs,public/,server.mjs,service.mjs,stdio-rpc.mjs,transport.c}
-|host/public:{app.mjs,index.html,renderer.mjs,style.css}
-|scripts:{ExportMaps.v,ExportRelations.v,ExportStdlib.v,QuoteCertificate.v,agents-index.mjs,benchmark.mjs,bootstrap.sh,build.mjs,check.mjs,import-maps.mjs,import-relations.mjs,import-stdlib.mjs,install-bend.sh,setup-worktree.sh,theory-index.mjs,toolchain.mjs,verify-proof.mjs}
-|tests-bend:{README.md,after-hooks.test.mjs,architecture.test.mjs,association-map.test.mjs,async-service.test.mjs,auth.test.mjs,chatgpt-compaction.test.mjs,chatgpt-models.test.mjs,chatgpt.test.mjs,coding.test.mjs,context-recovery.test.mjs,fixtures/,journal.test.mjs,native-boundaries.test.mjs,plugin-support.mjs,plugins.test.mjs,process.test.mjs,project-context.test.mjs,proof-gate.test.mjs,providers.test.mjs,pure-proof.test.mjs,relations.test.mjs,service-recovery.test.mjs,service.test.mjs,stdlib.test.mjs,support.mjs,ui.test.mjs,whole-program-proof.test.mjs}
+|host/public:{app.mjs,events.mjs,index.html,markdown-worker.mjs,markdown.mjs,renderer.mjs,streams.mjs,style.css,vendor/}
+|host/public/vendor:{README.md,highlight.LICENSE,highlight.mjs,katex.LICENSE,katex.mjs,manifest.json,streaming-markdown.LICENSE,streaming-markdown.mjs}
+|scripts:{ExportMaps.v,ExportRelations.v,ExportStdlib.v,QuoteCertificate.v,agents-index.mjs,benchmark.mjs,bootstrap.sh,build.mjs,check-web-vendor.mjs,check.mjs,import-maps.mjs,import-relations.mjs,import-stdlib.mjs,install-bend.sh,setup-worktree.sh,theory-index.mjs,toolchain.mjs,verify-proof.mjs}
+|tests-bend:{README.md,after-hooks.test.mjs,architecture.test.mjs,association-map.test.mjs,async-service.test.mjs,auth.test.mjs,chatgpt-compaction.test.mjs,chatgpt-models.test.mjs,chatgpt.test.mjs,coding.test.mjs,context-recovery.test.mjs,fixtures/,journal.test.mjs,native-boundaries.test.mjs,plugin-support.mjs,plugins.test.mjs,process.test.mjs,project-context.test.mjs,proof-gate.test.mjs,providers.test.mjs,pure-proof.test.mjs,relations.test.mjs,service-recovery.test.mjs,service.test.mjs,stdlib.test.mjs,support.mjs,ui.test.mjs,web-streaming.test.mjs,whole-program-proof.test.mjs}
 |tests-bend/fixtures:{catalog.mjs,chatgpt.mjs,committed-tool.mjs,mcp.mjs,plugin.mjs}
 |theory:{EXTLIB-LICENSE,LICENSE,README.md,relation-certificates.json,rocq-maps.json,stdlib-certificates.json}
 ```
