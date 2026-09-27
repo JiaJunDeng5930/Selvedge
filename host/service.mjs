@@ -6,6 +6,7 @@ import { Mcp } from './mcp.mjs';
 import { Plugin } from './plugins.mjs';
 import { runBash } from './process.mjs';
 import { snapshotProject, observeWorkspaceCommand } from './project.mjs';
+import { requestApproval } from './approvals.mjs';
 import { requestModel, ContextLimitError } from './providers.mjs';
 import { profileCatalog } from './config.mjs';
 import { withAccountModels } from './chatgpt-models.mjs';
@@ -149,7 +150,7 @@ export class Service extends EventEmitter {
       });
       return;
     }
-    if (!['model', 'summary', 'tool', 'hook', 'after_hook'].includes(effect.kind)) { this.#fatal(new Error(`Unknown effect ${effect.kind}`)); return; }
+    if (!['model', 'summary', 'tool', 'hook', 'after_hook', 'approval'].includes(effect.kind)) { this.#fatal(new Error(`Unknown effect ${effect.kind}`)); return; }
     const key = `${effect.task_id}:${effect.ticket}`;
     if (this.#running.has(key)) { this.#fatal(new Error('The kernel repeated an in-flight effect identity')); return; }
     const controller = new AbortController();
@@ -166,7 +167,10 @@ export class Service extends EventEmitter {
       signal.addEventListener('abort', cancelPreview, { once: true });
     }
     try {
-      if (effect.kind === 'model' || effect.kind === 'summary') {
+      if (effect.kind === 'approval') {
+        input = { kind: 'approval', task_id: effect.task_id, ticket: effect.ticket,
+          outcome: await requestApproval(effect, this.config, this.home, this.limits, { signal }) };
+      } else if (effect.kind === 'model' || effect.kind === 'summary') {
         const items = await requestModel(effect, this.config, this.home, this.limits, {
           signal, onDelta: (text, output_index) => this.notify({ type: 'delta', task_id: effect.task_id, ticket: effect.ticket, output_index, text }),
           onRetry: retry => this.notify({ type: 'retry', task_id: effect.task_id, ticket: effect.ticket, ...retry }),
@@ -227,6 +231,8 @@ export class Service extends EventEmitter {
   #failureInput(effect, message) {
     message = [...String(message || 'External execution failed').toWellFormed()].slice(0, 1024).join('');
     if (effect.kind === 'hook') return { kind: 'hook', task_id: effect.task_id, ticket: effect.ticket, outcome: { decision: 'failed', reason: message } };
+    if (effect.kind === 'approval') return { kind: 'approval', task_id: effect.task_id, ticket: effect.ticket,
+      outcome: { decision: 'failed', reason: [...message].slice(0, 400).join('') } };
     if (effect.kind === 'after_hook') return { kind: 'after_hook', task_id: effect.task_id, operation_id: effect.operation_id,
       ticket: effect.ticket, outcome: { decision: 'failed', reason: message } };
     return effect.kind === 'model' || effect.kind === 'summary'

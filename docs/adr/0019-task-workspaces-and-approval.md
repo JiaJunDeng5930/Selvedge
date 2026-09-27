@@ -39,6 +39,31 @@ nonzero exit is never permission to repeat that command outside isolation:
 the first attempt may already have caused partial side effects. Full access is
 an explicit unrestricted plan, not an error-recovery fallback.
 
+## One-operation review
+
+`APPROVALS` defines review resolution independently of `PROGRAM`. A pending
+request owns the complete post-hook Bash call and its task-local operation ID.
+Human and model completions are distinct inputs: neither can answer the other's
+request. A successful review commits an audit record and a one-use grant before
+the scheduler exchanges it for a fresh execution ticket. Frozen tasks may accept
+a decision, but cannot dispatch that grant until resumed. Forks inherit context,
+not live approval rights. Interrupted reviews are settled during recovery rather
+than resubmitted or treated as permission to execute.
+
+Approval for Me is a separate provider call, not an agent task or a child fork.
+It has no tools and receives the exact command, frozen settings and at most four
+recent user requests, each bounded to 4096 characters. Its instructions require
+denial when this partial context does not establish permission. Strict decoding
+rejects additional authority fields, tool calls, malformed decisions and excess
+output. Transport failure settles as a failed review; it never grants access.
+This constrains the mechanism, not the model's judgment or resistance to prompt
+injection. Full Access deliberately bypasses the sandbox; a reviewed exception
+does so only for its one frozen invocation, without changing task settings.
+
+`LAWS.review_semantics` is the public refinement shared by protocol and approval
+proofs. The protocol module provides its evidence; approval assembly consumes
+that declared law rather than importing a sibling's private helper.
+
 ## Evidence boundary
 
 The Bend proof root owns decisions and permission ownership. Operating-system

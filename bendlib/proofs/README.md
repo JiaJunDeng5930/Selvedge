@@ -18,6 +18,8 @@ boundary through the shared `LAWS.bend` or architecture declarations:
 | `plugins` | Unified gate, call identity, task-owned certificates and observer non-interference. |
 | `results` | Entire after-hook pipeline, immutable execution error/call, raw audit projection and correlated callback retirement. |
 | `operations` | Domain binding to the imported association map and product-state/notification premises. |
+| `workspaces` | Task-local context, fork authority, project snapshots and imported project-map removal. |
+| `approvals` | One-operation review refinement, reviewer separation, unchanged task settings and frozen grants. |
 | `algebra` | Domain correspondences and direct applications of existing map, list and iteration theorems. |
 
 Provider imports are explicit: Bend rejects using an unfilled law as live proof

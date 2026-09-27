@@ -7,6 +7,7 @@ import ./bendlib/json.bend as J
 import ./HOOKS.bend as Hooks
 import ./WORKSPACE.bend as Workspace
 import ./PROJECTS.bend as Projects
+import ./APPROVALS.bend as Approvals
 
 # A world is an append-only registry of tasks, whose ancestry is a forest.
 # These predicates are executed by PROGRAM's admission boundary and named by
@@ -129,18 +130,26 @@ def original_call(history: M.History, +call: M.Call, +budget: Nat) -> Bool:
       Same.call(budget, original, call) || original_call(previous, call, budget)
     case M.HistoryNode{previous, other}: original_call(previous, call, budget)
 
-def running_output(history: M.History, +operation: M.Operation(), +budget: Nat) -> Bool:
+# Announcements are historical snapshots. A pending review may later be running
+# or processing a result without rewriting the already-published tool output.
+def announced_value(+value: J.Json, +operation: M.Operation(), +policy: M.ApprovalPolicy, +budget: Nat) -> Bool:
+  Same.json(budget, value, Ops.running(Ops.with_stage(M.Executing{}, operation))) ||
+    (Bool.not(Workspace.full_access(policy)) && Approvals.requested(T.call_arguments(Ops.call(operation))) &&
+      (Same.json(budget, value, Ops.running(Ops.with_stage(M.ApprovalPending{Approvals.reviewer(policy)}, operation))) ||
+        Same.json(budget, value, Ops.running(Ops.with_stage(M.ApprovalGranted{Approvals.reviewer(policy)}, operation)))))
+
+def running_output(history: M.History, +operation: M.Operation(), +policy: M.ApprovalPolicy, +budget: Nat) -> Bool:
   match history:
     case M.EmptyHistory{}: False{}
     case M.HistoryNode{previous, M.FunctionOutput{id, value, error}}:
-      (String.eq(id, T.call_id(Ops.call(operation))) && Bool.not(error) && Same.json(budget, value, Ops.running(operation))) ||
-        running_output(previous, operation, budget)
-    case M.HistoryNode{previous, other}: running_output(previous, operation, budget)
+      (String.eq(id, T.call_id(Ops.call(operation))) && Bool.not(error) && announced_value(value, operation, policy, budget)) ||
+        running_output(previous, operation, policy, budget)
+    case M.HistoryNode{previous, other}: running_output(previous, operation, policy, budget)
 
-def operation_history(announced: Bool, operation: M.Operation(), history: M.History, budget: Nat) -> Bool:
+def operation_history(announced: Bool, operation: M.Operation(), history: M.History, policy: M.ApprovalPolicy, budget: Nat) -> Bool:
   match announced:
     case False{}: open_call(Ops.call(operation), history)
-    case True{}: running_output(history, operation, budget)
+    case True{}: running_output(history, operation, policy, budget)
 
 def phase_has_call(phase: M.Phase, id: String) -> Bool:
   match phase:
@@ -148,10 +157,23 @@ def phase_has_call(phase: M.Phase, id: String) -> Bool:
     case M.HookPending{ticket, reference, call, pending, remaining}: has_attempt(M.CheckedAttempt{call, reference <> pending} <> remaining, id)
     case _: False{}
 
+def review_right(+call: M.Call, reviewer: M.ApprovalReviewer, contract: M.Contract) -> Bool:
+  String.eq(T.call_name(call), "bash") && Approvals.requested(T.call_arguments(call)) && Approvals.valid_request(T.call_arguments(call)) &&
+    Approvals.bound(Workspace.approval(M.contract_context(contract)), reviewer)
+
 def result_right(stage: M.OperationStage, +operation: M.Operation(), rest: +List<M.Operation()>, phase: M.Phase,
   history: M.History, owner: Nat, contract: M.Contract, next_ticket: Nat, budget: Nat) -> Bool:
   match stage:
     case M.Executing{}: True{}
+    case M.ApprovalPending{reviewer}: review_right(Ops.call(operation), reviewer, contract)
+    case M.ApprovalGranted{+reviewer}:
+      review_right(Ops.call(operation), reviewer, contract) &&
+        Approvals.grant_corresponds(history, owner, Ops.ticket(operation), Ops.call(operation), reviewer, budget)
+    case M.ElevatedExecuting{+ticket, +reviewer}:
+      Nat.is_lt(Ops.ticket(operation), ticket) && Nat.is_lt(ticket, next_ticket) &&
+        Bool.not(ticket_is(phase, ticket)) && Bool.not(operation_ticket(rest, ticket)) &&
+        review_right(Ops.call(operation), reviewer, contract) &&
+        Approvals.grant_corresponds(history, owner, Ops.ticket(operation), Ops.call(operation), reviewer, budget)
     case M.ResultPending{+ticket, plugin, pending, value, error}:
       Nat.is_lt(Ops.ticket(operation), ticket) && Nat.is_lt(ticket, next_ticket) &&
         Bool.not(ticket_is(phase, ticket)) && Bool.not(operation_ticket(rest, ticket)) &&
@@ -169,7 +191,7 @@ def operation_rights(operations: +List<M.Operation()>, +phase: M.Phase, +history
         Hooks.corresponds(history, owner, Ops.call(operation), Nil{}, contract, budget) &&
         result_right(Ops.stage(operation), operation, rest, phase, history, owner, contract, next_ticket, budget) &&
         Bool.not(missing_tool(T.find_tool(T.task_tools(contract), T.call_name(Ops.call(operation))))) &&
-        operation_history(Ops.announced(operation), operation, history, budget) &&
+        operation_history(Ops.announced(operation), operation, history, Workspace.approval(M.contract_context(contract)), budget) &&
         operation_rights(rest, phase, history, owner, contract, next_ticket, budget)
 
 def checked_attempts(attempts: +List<M.Attempt>, +history: M.History, +owner: Nat, +contract: M.Contract, +budget: Nat) -> Bool:
@@ -362,6 +384,9 @@ def retained_effects(effects: +List<M.Effect>, +cancellations: +List<M.Effect>, 
     case Con{M.ExecuteTool{+id, +ticket, tool, call, context, access}, rest}:
       keep_effect(found_archived(T.find(tasks, id)) || explicitly_cancelled(cancellations, id, ticket),
         M.ExecuteTool{id, ticket, tool, call, context, access}, retained_effects(rest, cancellations, tasks))
+    case Con{M.RequestApproval{+id, +ticket, reviewer, call, context, history}, rest}:
+      keep_effect(found_archived(T.find(tasks, id)) || explicitly_cancelled(cancellations, id, ticket),
+        M.RequestApproval{id, ticket, reviewer, call, context, history}, retained_effects(rest, cancellations, tasks))
     case Con{M.CheckTool{+id, +ticket, reference, tool, call}, rest}:
       keep_effect(found_archived(T.find(tasks, id)) || explicitly_cancelled(cancellations, id, ticket),
         M.CheckTool{id, ticket, reference, tool, call}, retained_effects(rest, cancellations, tasks))
@@ -428,7 +453,7 @@ def after_effect(found: Maybe<&2, M.Task>, operation: Nat, ticket: Nat, plugin: 
 def tool_effect(found: Maybe<&2, M.Task>, ticket: Nat, tool: M.Tool, call: M.Call, +budget: Nat) -> Bool:
   match found:
     case Some{M.Task{id, lineage, contract, status, history, queued, phase, operations, notified}}:
-      runs_tools(status) && operation_effect(Ops.find(operations, ticket), call, budget) &&
+      runs_tools(status) && operation_effect(Ops.find_callback(operations, ticket), call, budget) &&
         tool_member(T.task_tools(contract), tool, budget)
     case _: False{}
 
@@ -446,6 +471,8 @@ def has_effect_ticket(effects: +List<M.Effect>, +ticket: Nat) -> Bool:
       Nat.is_eq(other, ticket) || has_effect_ticket(rest, ticket)
     case Con{M.RequestSummary{id, other, model, history, context}, rest}:
       Nat.is_eq(other, ticket) || has_effect_ticket(rest, ticket)
+    case Con{M.RequestApproval{id, other, reviewer, call, context, history}, rest}:
+      Nat.is_eq(other, ticket) || has_effect_ticket(rest, ticket)
     case Con{M.ExecuteTool{id, other, tool, call, context, access}, rest}:
       Nat.is_eq(other, ticket) || has_effect_ticket(rest, ticket)
     case Con{M.CheckTool{id, other, reference, tool, call}, rest}:
@@ -461,10 +488,31 @@ def context_effect(found: Maybe<&2, M.Task>, context: M.TaskContext, budget: Nat
     case None{}: False{}
     case Some{task}: Same.json(budget, M.task_context_json(context), M.task_context_json(M.task_context(task)))
 
-def default_access_effect(found: Maybe<&2, M.Task>, access: M.ExecutionAccess) -> Bool:
+def operation_access(found: Maybe<&2, M.Operation()>, access: M.ExecutionAccess, context: M.TaskContext) -> Bool:
+  match found:
+    case Some{(id, M.OperationBody{call, announced, M.Executing{}})}:
+      String.eq(M.access_name(access), M.access_name(Workspace.default_access(context)))
+    case Some{(id, M.OperationBody{call, announced, M.ElevatedExecuting{ticket, reviewer}})}:
+      String.eq(M.access_name(access), "unrestricted")
+    case _: False{}
+
+def default_access_effect(found: Maybe<&2, M.Task>, ticket: Nat, access: M.ExecutionAccess) -> Bool:
   match found:
     case None{}: False{}
-    case Some{task}: String.eq(M.access_name(access), M.access_name(Workspace.default_access(M.task_context(task))))
+    case Some{+task}: operation_access(Ops.find_callback(M.task_operations(task), ticket), access, M.task_context(task))
+
+def review_operation(found: Maybe<&2, M.Operation()>, profile: M.Profile, call: M.Call, budget: Nat) -> Bool:
+  match found:
+    case Some{(id, M.OperationBody{actual_call, announced, M.ApprovalPending{M.ModelReviewer{actual_profile}}})}:
+      Workspace.profile_same(profile, actual_profile) && Same.call(budget, call, actual_call)
+    case _: False{}
+
+def review_effect(found: Maybe<&2, M.Task>, ticket: Nat, profile: M.Profile, call: M.Call, history: M.History, +budget: Nat) -> Bool:
+  match found:
+    case None{}: False{}
+    case Some{+task}:
+      review_operation(Ops.find(M.task_operations(task), ticket), profile, call, budget) &&
+        Same.history_extends(budget, history, M.task_history(task))
 
 def effects(pending: +List<M.Effect>, +tasks: +List<M.Task>, +first_ticket: Nat, +budget: Nat) -> Bool:
   match pending:
@@ -478,8 +526,12 @@ def effects(pending: +List<M.Effect>, +tasks: +List<M.Task>, +first_ticket: Nat,
         context_effect(T.find(tasks, id), context, budget) && summary_effect(T.find(tasks, id), ticket, model, history, budget) && effects(rest, tasks, first_ticket, budget)
     case Con{M.ExecuteTool{+id, +ticket, tool, call, context, access}, +rest}:
       Nat.is_le(first_ticket, ticket) && Bool.not(has_effect_ticket(rest, ticket)) &&
-        context_effect(T.find(tasks, id), context, budget) && default_access_effect(T.find(tasks, id), access) &&
+        context_effect(T.find(tasks, id), context, budget) && default_access_effect(T.find(tasks, id), ticket, access) &&
         tool_effect(T.find(tasks, id), ticket, tool, call, budget) && effects(rest, tasks, first_ticket, budget)
+    case Con{M.RequestApproval{+id, +ticket, reviewer, call, context, history}, +rest}:
+      Nat.is_le(first_ticket, ticket) && Bool.not(has_effect_ticket(rest, ticket)) &&
+        context_effect(T.find(tasks, id), context, budget) && review_effect(T.find(tasks, id), ticket, reviewer, call, history, budget) &&
+        effects(rest, tasks, first_ticket, budget)
     case Con{M.CheckTool{id, +ticket, reference, tool, call}, +rest}:
       Nat.is_le(first_ticket, ticket) && Bool.not(has_effect_ticket(rest, ticket)) &&
         hook_effect(T.find(tasks, id), ticket, reference, tool, call, budget) && effects(rest, tasks, first_ticket, budget)

@@ -1,7 +1,6 @@
 import Base
 import ../MODEL.bend as M
 import ../HOOKS.bend as Hooks
-import ../COMMANDS.bend as Commands
 import ./json.bend as J
 import ./operations.bend as Ops
 import ./tasks.bend as T
@@ -15,7 +14,7 @@ def finish_status(status: M.Status, task: M.Task) -> M.Task:
     case _: task
 
 def finished(operation: M.Operation(), value: J.Json, error: Bool, +task: M.Task, world: M.World) -> M.Decision:
-  M.Decision{Commands.replace(finish_status(M.task_status(task), T.complete_operation(operation, value, error, task)), world),
+  M.Decision{T.update_world(finish_status(M.task_status(task), T.complete_operation(operation, value, error, task)), world),
     M.success(J.Object{[J.Field{"accepted", J.Boolean{True{}}}]}), Nil{}}
 
 def failed(code: String, reason: String, +plugin: M.PluginRef, +outcome: M.AfterOutcome,
@@ -64,9 +63,9 @@ def completed(+outcome: M.AfterOutcome, plugin: M.PluginRef, pending: +List<M.Pl
 
 def complete(stage: M.OperationStage, outcome: M.AfterOutcome, operation: M.Operation(), task: M.Task, world: M.World) -> M.Decision:
   match stage:
-    case M.Executing{}: M.Decision{world, M.success(J.Object{[J.Field{"accepted", J.Boolean{False{}}}]}), Nil{}}
     case M.ResultPending{ticket, plugin, pending, value, error}:
       completed(outcome, plugin, pending, operation, value, error, task, world)
+    case _: M.Decision{world, M.success(J.Object{[J.Field{"accepted", J.Boolean{False{}}}]}), Nil{}}
 
 # Internal invocations acquire a result right only when a chain exists. Public
 # commands use their own authority and do not enter model-tool hook protocols.
@@ -74,7 +73,7 @@ def internal_chain(chain: +List<M.PluginRef>, +call: M.Call, remaining: +List<M.
   error: Bool, +task: M.Task, world: M.World) -> M.Decision:
   match chain world:
     case Nil{} _:
-      M.Decision{Commands.replace(finish_status(M.task_status(task), T.complete_tool(call, remaining, value, error, task)), world), J.Null{}, Nil{}}
+      M.Decision{T.update_world(finish_status(M.task_status(task), T.complete_tool(call, remaining, value, error, task)), world), J.Null{}, Nil{}}
     case Con{plugin, pending} M.World{tasks, next_task, +ticket, environment, limits, projects}:
       +prepared = finish_status(M.task_status(task), Ops.started(ticket, call, remaining, task))
       received(plugin <> pending, (ticket, M.OperationBody{call, False{}, M.Executing{}}), value, error, prepared,

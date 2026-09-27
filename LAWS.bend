@@ -19,6 +19,7 @@ import ./UI.bend as UI
 import ./HOOKS.bend as Hooks
 import ./bendlib/notifications.bend as Notifications
 import ./WORKSPACE.bend as Workspace
+import ./APPROVALS.bend as Approvals
 
 law hook_gateway:
   for +tool: M.Tool
@@ -190,6 +191,11 @@ law delivery_observation_effects:
 
 # Unlike safety, these equalities prohibit both an always-rejecting command
 # interpreter and a safe no-op. State, reply, and effects are all observable.
+law review_semantics:
+  for +resolution: Approvals.Resolution
+  for +world: M.World
+  {P.review_result(resolution, world) == Approvals.meaning(resolution, world) : M.Decision}
+
 law operation_semantics:
   for +operation: Commands.Operation
   for +world: M.World

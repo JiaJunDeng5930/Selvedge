@@ -7,6 +7,7 @@ import ../json.bend as J
 import ../../COMMANDS.bend as Commands
 import ../protocol.bend as Protocol
 import ../../WORKSPACE.bend as Workspace
+import ../../APPROVALS.bend as Approvals
 
 # Local proof obligations for the protocol boundary. No runtime policy lives here.
 
@@ -41,6 +42,13 @@ def control_semantics(+request: M.Control, +status: M.Status, +task: M.Task, +wo
     case M.Stop{} _: status_semantics(status, task, world)
     case M.Archive{} _: status_semantics(status, task, world)
 
+def Laws.review_semantics(resolution, world):
+  match resolution world:
+    case Approvals.Ignore{} _: {==}
+    case Approvals.Refuse{code, reason} _: {==}
+    case Approvals.Grant{operation, task, reviewer, reason} M.World{tasks, next_task, next_ticket, environment, limits, projects}: {==}
+    case Approvals.Deny{operation, task, reviewer, outcome} _: {==}
+
 def Laws.operation_semantics(operation, world):
   match operation world:
     case Commands.Refuse{code, reason} _: {==}
@@ -62,6 +70,7 @@ def Laws.operation_semantics(operation, world):
         P.query(query, world), Commands.query(query, world), query_semantics(query, world))
     case Commands.StoreProject{id, project, next_id} _: {==}
     case Commands.RemoveProject{id} _: {==}
+    case Commands.Review{resolution} _: Laws.review_semantics(resolution, world)
 
 def Laws.command_semantics(command, world):
   Laws.operation_semantics(Commands.resolve(command, world), world)
@@ -70,6 +79,7 @@ def Laws.event_semantics(event, world):
   match event world:
     case Protocol.User{operation} _: Laws.operation_semantics(operation, world)
     case Protocol.Ignore{} _: {==}
+    case Protocol.Review{resolution} _: Laws.review_semantics(resolution, world)
     case Protocol.ModelResult{task, outcome, allowed} M.World{tasks, next_task, next_ticket, environment, limits, projects}: {==}
     case Protocol.SummaryResult{task, outcome, resume} M.World{tasks, next_task, next_ticket, environment, limits, projects}: {==}
     case Protocol.ToolResult{task, operation, value, error} M.World{tasks, next_task, next_ticket, environment, limits, projects}: {==}

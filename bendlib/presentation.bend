@@ -1,5 +1,6 @@
 import Base
 import ../MODEL.bend as M
+import ../APPROVALS.bend as Approvals
 import ./json.bend as J
 import ./tasks.bend as T
 
@@ -50,6 +51,12 @@ def effect(effect: M.Effect) -> J.Json:
     case M.ExecuteTool{task_id, ticket, tool, call, context, access}:
       J.Object{[J.Field{"kind", J.Text{"tool"}}, J.Field{"task_id", J.nat(task_id)}, J.Field{"ticket", J.nat(ticket)},
         J.Field{"tool", M.tool_json(tool)}, J.Field{"call", T.call_json(call)}, J.Field{"execution", M.execution_json(context, access)}]}
+    case M.RequestApproval{task_id, ticket, M.Profile{key, provider, name}, call, context, history}:
+      J.Object{[J.Field{"kind", J.Text{"approval"}}, J.Field{"task_id", J.nat(task_id)}, J.Field{"ticket", J.nat(ticket)},
+        J.Field{"model", J.Object{[J.Field{"profile", J.Text{key}}, J.Field{"provider", J.Text{provider}}, J.Field{"name", J.Text{name}},
+          J.Field{"reasoning", J.Text{"medium"}}, J.Field{"project", J.Null{}}]}},
+        J.Field{"instructions", J.Text{Approvals.instructions()}}, J.Field{"settings", M.task_context_json(context)},
+        J.Field{"call", T.call_json(call)}, J.Field{"user_requests", J.Array{Approvals.user_requests(4n, history)}}]}
     case M.CancelTask{task_id}:
       J.Object{[J.Field{"kind", J.Text{"cancel"}}, J.Field{"task_id", J.nat(task_id)}]}
     case M.CancelTicket{task_id, ticket}:

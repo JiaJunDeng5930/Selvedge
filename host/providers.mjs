@@ -77,6 +77,13 @@ function taskInstructions(instructions, settings) {
 }
 
 export function responseBody(effect, profile = { provider: effect.model.provider }) {
+  if (effect.kind === 'approval') {
+    effect = { ...effect, tools: [], callable: [], history: [{ role: 'user', content: stringifyJson({
+      task_id: effect.task_id, request_id: effect.ticket, command: effect.call,
+      task_settings: effect.settings, recent_user_requests_newest_first: effect.user_requests,
+      context_boundary: 'Only the latest four user requests, each limited to 4096 characters; older requests and other task data are omitted.',
+    }) }] };
+  }
   // This is the committed task snapshot, not a fresh filesystem read or a new
   // privileged instruction. Compaction cannot erase its provenance or content.
   const project = effect.model.project;
@@ -89,7 +96,7 @@ export function responseBody(effect, profile = { provider: effect.model.provider
   }
   const body = {
     model: effect.model.name, stream: true, store: false,
-    instructions: taskInstructions(effect.instructions, effect.settings),
+    instructions: effect.kind === 'approval' ? effect.instructions : taskInstructions(effect.instructions, effect.settings),
     input, reasoning: { effort: effect.model.reasoning },
     tools: effect.tools.map(tool => ({ type: 'function', name: tool.name,
       description: tool.description, parameters: tool.parameters, strict: false })),
@@ -112,10 +119,15 @@ export function responseBody(effect, profile = { provider: effect.model.provider
     if (profile.model_info) {
       const levels = profile.model_info.supported_reasoning_levels.map(level => level.effort);
       if (!levels.length) delete body.reasoning;
-      else if (!levels.includes(effect.model.reasoning)) {
+      else if (effect.kind !== 'approval' && !levels.includes(effect.model.reasoning)) {
         throw new Error(`This account model supports these reasoning levels: ${levels.join(', ')}`);
       }
     }
+  }
+  if (effect.kind === 'approval') {
+    delete body.reasoning; // Independent request uses the review model's default, not the task's reasoning setting.
+    body.tools = [];
+    body.tool_choice = profile.provider === 'chatgpt' ? 'auto' : 'none';
   }
   if (!body.instructions) delete body.instructions;
   return body;
@@ -158,6 +170,7 @@ export async function requestModel(effect, config, home, limits, { signal, onDel
   const profile = config.profiles[effect.model.profile];
   if (!profile || profile.provider !== effect.model.provider) throw new Error('The frozen model provider is no longer configured');
   if (profile.provider === 'echo') {
+    if (effect.kind === 'approval') throw new Error('The offline echo profile cannot review an approval; configure a model provider');
     if (effect.kind === 'summary') throw new Error('The offline echo profile cannot summarize context; configure a model provider');
     const last = effect.history.findLast(item => item.role === 'user');
     return [{ type: 'text', text: `[Offline demo] ${last?.content ?? 'Task resumed.'}` }];
@@ -168,7 +181,8 @@ export async function requestModel(effect, config, home, limits, { signal, onDel
     throw new Error('The native provider-checkpoint byte policy is missing');
   }
   const request = responseBody(effect, profile);
-  const session = profile.provider === 'chatgpt' ? chatgptSession(home, effect.task_id) : undefined;
+  const session = profile.provider === 'chatgpt' ? chatgptSession(home,
+    effect.kind === 'approval' ? `${effect.task_id}:approval:${effect.ticket}` : effect.task_id) : undefined;
   if (session) request.prompt_cache_key = session;
   const body = stringifyJson(request);
   if (Buffer.byteLength(body) > limits.frame_bytes) throw new RangeError('Provider request exceeds the configured limit');

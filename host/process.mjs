@@ -94,7 +94,7 @@ export async function runBash(arguments_, limits, { signal, cwd = process.cwd(),
       arguments_.command.includes('\0') || !Number.isSafeInteger(timeout) || timeout < 100 || timeout > 1_800_000 ||
       !Number.isSafeInteger(limits.bash_max_output_length) || limits.bash_max_output_length < 1 ||
       !Number.isSafeInteger(maximum) || maximum < 1 || maximum > limits.bash_max_output_length ||
-      Object.keys(arguments_).some(key => !['command', 'timeout_ms', 'max_output_length'].includes(key))) {
+      Object.keys(arguments_).some(key => !['command', 'timeout_ms', 'max_output_length', 'sandbox_permissions', 'justification'].includes(key))) {
     throw new TypeError('Malformed Bash effect');
   }
   const artifacts = [];

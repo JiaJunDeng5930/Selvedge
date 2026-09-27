@@ -55,6 +55,14 @@ bubblewrap/seccomp launch. It canonicalizes explicit workspace observations and
 fails closed on unavailable isolation; it does not select a task's policy or
 decide an approval. See ADR 0019 and `sandbox.test.mjs` for the OS trust boundary.
 
+`approvals.mjs` interprets a committed approval effect as a separate, tool-free
+provider request. It creates no task and strictly decodes one allow/deny response;
+malformed output and provider failures return failed-review inputs to Bend.
+Human reviews use the authenticated command/UI boundary. The native operation
+identity, reviewer and complete command bind the decision; a grant never mutates
+the task's saved workspace or sandbox. The actual model's judgment is an external
+assumption, not a theorem about user intent.
+
 `project.mjs` observes explicitly selected directories and their primary root
 guidance before task/project commands. Native `WORKSPACE` and `PROJECTS` own
 admission, inheritance and project defaults. Every service Bash effect requires

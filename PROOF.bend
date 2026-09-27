@@ -18,6 +18,8 @@ import ./bendlib/proofs/results.bend as ResultsProof
 import ./bendlib/proofs/reachability.bend as ReachabilityProof
 import ./bendlib/workspace-architecture.bend as Workspace
 import ./bendlib/proofs/workspaces.bend as WorkspacesProof
+import ./bendlib/approval-architecture.bend as Approval
+import ./bendlib/proofs/approvals.bend as ApprovalsProof
 
 # Assemble the conceptual program only after every local obligation is closed.
 
@@ -28,4 +30,4 @@ def Entry.harness():
     Entry.Recovery{Concepts.context(), Concepts.interruption(), Concepts.recovery(), Concepts.recovery_batches()},
     Entry.Observation{Concepts.observations(), Concepts.task_views(), Concepts.branch_results(), Concepts.surface()},
     Entry.Concurrency{Concepts.operation_rights(), Concepts.announcement(), Concepts.notifications(), Concepts.coordination()},
-    Entry.Extensibility{Concepts.plugin_boundary(), Concepts.result_boundary()}, Workspace.context_boundary()}
+    Entry.Extensibility{Concepts.plugin_boundary(), Concepts.result_boundary()}, Workspace.context_boundary(), Approval.approval_boundary()}

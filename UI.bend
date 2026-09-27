@@ -90,6 +90,9 @@ def command_json(command: M.Command) -> J.Json:
       J.Object{optional_field("guidance", guidance, optional_field("workspace", workspace,
         optional_field("name", M.optional_string(name), [J.Field{"op", J.Text{"update_project"}}, J.Field{"project_id", J.nat(id)}])))}
     case M.DeleteProject{id}: J.Object{[J.Field{"op", J.Text{"delete_project"}}, J.Field{"project_id", J.nat(id)}]}
+    case M.ReviewApproval{id, operation, +outcome}:
+      J.Object{[J.Field{"op", J.Text{"review_approval"}}, J.Field{"task_id", J.nat(id)}, J.Field{"operation_id", J.nat(operation)},
+        J.Field{"decision", J.Text{M.approval_decision(outcome)}}, J.Field{"reason", J.Text{M.approval_reason(outcome)}}]}
 
 def event_json(event: M.ViewEvent) -> J.Json:
   match event:
@@ -282,6 +285,8 @@ def message_nodes(message: M.Message, +key: String) -> +List<Node>:
       [Value{key, "Execution receipt · " ++ Nat.show(operation), T.message_json(M.ToolReceipt{owner, operation, call, value, error})}]
     case M.AfterRecord{owner, +operation, plugin, outcome}:
       [Value{key, "Result hook · " ++ Nat.show(operation), T.message_json(M.AfterRecord{owner, operation, plugin, outcome})}]
+    case M.ApprovalRecord{owner, +operation, call, reviewer, outcome}:
+      [Value{key, "Approval decision · " ++ Nat.show(operation), T.message_json(M.ApprovalRecord{owner, operation, call, reviewer, outcome})}]
     case M.UserMessage{text}: [Text{key, "user", "You", text}]
     case M.AssistantMessage{text}: [Text{key, "assistant", "Agent", text}]
     case M.FunctionCall{call}: [Value{key, "Tool call", T.call_json(call)}]

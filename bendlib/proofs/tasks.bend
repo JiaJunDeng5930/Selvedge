@@ -164,6 +164,7 @@ def Laws.retained_users_projected(history):
     case M.HistoryNode{previous, M.HookRecord{task, id, plugin, outcome}}: Laws.retained_users_projected(previous)
     case M.HistoryNode{previous, M.ToolReceipt{task, operation, call, value, error}}: Laws.retained_users_projected(previous)
     case M.HistoryNode{previous, M.AfterRecord{task, operation, plugin, outcome}}: Laws.retained_users_projected(previous)
+    case M.HistoryNode{previous, M.ApprovalRecord{task, operation, call, reviewer, outcome}}: Laws.retained_users_projected(previous)
     case M.HistoryNode{previous, M.ForkResult{task, id, branch}}: Laws.retained_users_projected(previous)
 
 def Laws.retained_users_idempotent(history):
@@ -183,6 +184,7 @@ def Laws.retained_users_idempotent(history):
     case M.HistoryNode{previous, M.HookRecord{task, id, plugin, outcome}}: Laws.retained_users_idempotent(previous)
     case M.HistoryNode{previous, M.ToolReceipt{task, operation, call, value, error}}: Laws.retained_users_idempotent(previous)
     case M.HistoryNode{previous, M.AfterRecord{task, operation, plugin, outcome}}: Laws.retained_users_idempotent(previous)
+    case M.HistoryNode{previous, M.ApprovalRecord{task, operation, call, reviewer, outcome}}: Laws.retained_users_idempotent(previous)
     case M.HistoryNode{previous, M.ForkResult{task, id, branch}}: Laws.retained_users_idempotent(previous)
 
 def retained_cut_fixed(+history: M.History) ->
@@ -226,6 +228,7 @@ def project_node_idempotent(+previous: M.History, +message: M.Message,
     case M.ContextCheckpoint{summary}: {==}
     case M.ToolReceipt{owner, operation, call, value, error}: evidence
     case M.AfterRecord{owner, operation, plugin, outcome}: evidence
+    case M.ApprovalRecord{owner, operation, call, reviewer, outcome}: evidence
     case M.ForkResult{+owner, +id, +branch}:
       %evidence : {M.HistoryNode{M.context_history(M.context_history(previous)), M.ForkResult{owner, id, branch}} == M.HistoryNode{_, M.ForkResult{owner, id, branch}} : M.History}
       {==}

@@ -16,6 +16,9 @@ def Laws.execution_semantics(action, world):
     case Execution.Model{task} M.World{tasks, next_task, ticket, M.Environment{catalog, profiles, max_fork, max_descendants, project, plugins}, limits, projects}: {==}
     case Execution.Summary{task, resume} M.World{tasks, next_task, ticket, environment, limits, projects}: {==}
     case Execution.External{tool, call, remaining, task} M.World{tasks, next_task, ticket, environment, limits, projects}: {==}
+    case Execution.Review{reviewer, call, remaining, task} M.World{tasks, next_task, ticket, environment, limits, projects}: {==}
+    case Execution.Granted{reviewer, tool, operation, task} M.World{tasks, next_task, ticket, environment, limits, projects}: {==}
+    case Execution.GrantFailure{operation, task} _: {==}
     case Execution.Hook{reference, pending, tool, call, remaining, task} M.World{tasks, next_task, ticket, environment, limits, projects}: {==}
     case Execution.Internal{operation, call, remaining, task} _:
       Laws.invocation_semantics(operation, call, remaining, task, world)

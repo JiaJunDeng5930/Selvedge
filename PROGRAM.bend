@@ -15,6 +15,7 @@ import ./UI.bend as UI
 import ./bendlib/notifications.bend as Notifications
 import ./WORKSPACE.bend as Workspace
 import ./PROJECTS.bend as Projects
+import ./APPROVALS.bend as Approvals
 
 # Accepted updates pass through resolution, realization and bounded scheduling.
 # program's state transition, and the object named by LAWS.bend and PROOF.bend.
@@ -114,9 +115,22 @@ def execute_branch(+task: M.Task, +count: Nat, +messages: +List<String>, selecti
 
 # PROGRAM realizes the resolved operation. The refinement proof compares the
 # entire decision with COMMANDS.meaning, including replies and requested work.
+def review_result(resolution: Approvals.Resolution, world: M.World) -> M.Decision:
+  match resolution:
+    case Approvals.Ignore{}: respond(world, J.Object{[J.Field{"accepted", J.Boolean{False{}}}]})
+    case Approvals.Refuse{code, reason}: reject(world, code, reason)
+    case Approvals.Grant{+operation, +task, +reviewer, reason}:
+      audited = M.append_message(M.ApprovalRecord{M.task_id(task), Ops.ticket(operation), Ops.call(operation),
+        reviewer, M.ApprovalAllowed{reason}}, task)
+      respond(store(Ops.permitted(reviewer, operation, audited), world), J.Object{[J.Field{"accepted", J.Boolean{True{}}}]})
+    case Approvals.Deny{+operation, +task, +reviewer, +outcome}:
+      audited = M.append_message(M.ApprovalRecord{M.task_id(task), Ops.ticket(operation), Ops.call(operation), reviewer, outcome}, task)
+      Results.begin(operation, Approvals.denial_value(outcome), True{}, audited, world)
+
 def realize(operation: Commands.Operation, +world: M.World) -> M.Decision:
   match operation:
     case Commands.Refuse{code, reason}: reject(world, code, reason)
+    case Commands.Review{resolution}: review_result(resolution, world)
     case Commands.Start{profile, reasoning, message, selection}: execute_start(profile, reasoning, message, selection, world)
     case Commands.Deliver{task, message}: execute_delivery(message, task, world)
     case Commands.Steer{+task, message}:
@@ -176,6 +190,7 @@ def realize_event(event: Protocol.Event, world: M.World) -> M.Decision:
       M.World{tasks, next_task, next_ticket, environment, limits, projects} = world
       respond(M.World{recover_tasks(tasks), next_task, next_ticket, environment, limits, projects}, J.Null{})
     case Protocol.Tick{}: respond(world, J.Null{})
+    case Protocol.Review{resolution}: review_result(resolution, world)
 
 def apply(input: M.Input, +world: M.World) -> M.Decision:
   realize_event(Protocol.resolve(input, world), world)
@@ -209,6 +224,18 @@ def external_tool(tool: M.Tool, +call: M.Call, +remaining: +List<M.Attempt>, +ta
   next = T.promote(Ops.started(next_ticket, call, remaining, task))
   M.Decision{M.World{T.replace(tasks, next), next_task, 1n+next_ticket, environment, limits, projects}, J.Null{},
     [M.ExecuteTool{M.task_id(task), next_ticket, tool, call, M.task_context(task), Workspace.default_access(M.task_context(task))}]}
+
+def approval_request(+reviewer: M.ApprovalReviewer, +call: M.Call, remaining: +List<M.Attempt>, task: M.Task, world: M.World) -> M.Decision:
+  M.World{tasks, next_task, +ticket, environment, limits, projects} = world
+  +pending = T.promote(Ops.awaiting(ticket, reviewer, call, remaining, task))
+  M.Decision{M.World{T.replace(tasks, pending), next_task, 1n+ticket, environment, limits, projects}, J.Null{},
+    Approvals.review_effects(reviewer, pending, ticket, call)}
+
+def elevated_tool(reviewer: M.ApprovalReviewer, tool: M.Tool, +operation: M.Operation(), +task: M.Task, world: M.World) -> M.Decision:
+  M.World{tasks, next_task, +ticket, environment, limits, projects} = world
+  next = Ops.elevated(ticket, reviewer, operation, task)
+  M.Decision{M.World{T.replace(tasks, next), next_task, 1n+ticket, environment, limits, projects}, J.Null{},
+    [M.ExecuteTool{M.task_id(task), ticket, tool, Ops.call(operation), M.task_context(task), M.Unrestricted{}}]}
 
 def check_tool(+plugin: M.PluginRef, pending: +List<M.PluginRef>, tool: M.Tool, +call: M.Call, remaining: +List<M.Attempt>, +task: M.Task, world: M.World) -> M.Decision:
   M.World{tasks, next_task, +next_ticket, environment, limits, projects} = world
@@ -255,6 +282,9 @@ def realize_action(action: Execution.Action, world: M.World) -> M.Decision:
     case Execution.Model{task}: model_request_direct(task, world)
     case Execution.Summary{task, resume}: summary_request(task, resume, world)
     case Execution.External{tool, call, remaining, task}: external_tool(tool, call, remaining, task, world)
+    case Execution.Review{reviewer, call, remaining, task}: approval_request(reviewer, call, remaining, task, world)
+    case Execution.Granted{reviewer, tool, operation, task}: elevated_tool(reviewer, tool, operation, task, world)
+    case Execution.GrantFailure{operation, task}: Results.begin(operation, Execution.grant_failure_value(), True{}, task, world)
     case Execution.Hook{plugin, pending, tool, call, remaining, task}: check_tool(plugin, pending, tool, call, remaining, task, world)
     case Execution.Internal{operation, call, remaining, task}: realize_invocation(operation, call, remaining, task, world)
     case Execution.Failure{code, reason, call, remaining, task}: tool_error(code, reason, call, remaining, task, world)

@@ -93,6 +93,7 @@ def Laws.command_transition(command, world):
     case M.CreateProject{name, workspace, guidance}: updated_command_semantics(M.CreateProject{name, workspace, guidance}, world)
     case M.UpdateProject{id, name, workspace, guidance}: updated_command_semantics(M.UpdateProject{id, name, workspace, guidance}, world)
     case M.DeleteProject{id}: updated_command_semantics(M.DeleteProject{id}, world)
+    case M.ReviewApproval{id, operation, outcome}: updated_command_semantics(M.ReviewApproval{id, operation, outcome}, world)
 
 def updated_input_semantics(+input: M.Input, +world: M.World) ->
   {P.update(input, world) == Commit.update(~Execution.scheduled, input, Protocol.input(input, world), world) : M.Decision}:
@@ -110,6 +111,7 @@ def Laws.interaction_transition(input, world):
     case M.ToolCompleted{id, ticket, value, error}: updated_input_semantics(M.ToolCompleted{id, ticket, value, error}, world)
     case M.HookCompleted{id, ticket, outcome}: updated_input_semantics(M.HookCompleted{id, ticket, outcome}, world)
     case M.AfterCompleted{id, operation, ticket, outcome}: updated_input_semantics(M.AfterCompleted{id, operation, ticket, outcome}, world)
+    case M.ApprovalCompleted{id, ticket, outcome}: updated_input_semantics(M.ApprovalCompleted{id, ticket, outcome}, world)
     case M.Configure{environment}: updated_input_semantics(M.Configure{environment}, world)
     case M.Recover{}: updated_input_semantics(M.Recover{}, world)
     case M.Continue{}: updated_input_semantics(M.Continue{}, world)

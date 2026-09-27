@@ -37,6 +37,10 @@ def replace(tasks: +List<M.Task>, +task: M.Task) -> +List<M.Task>:
     case Con{+old, rest}:
       replacement(Nat.is_eq(M.task_id(old), M.task_id(task)), old, task) <> replace(rest, task)
 
+def update_world(task: M.Task, world: M.World) -> M.World:
+  M.World{tasks, next_task, next_ticket, environment, limits, projects} = world
+  M.World{replace(tasks, task), next_task, next_ticket, environment, limits, projects}
+
 def choose_tool(same: Bool, tool: M.Tool, rest: Maybe<&2, M.Tool>) -> Maybe<&2, M.Tool>:
   match same:
     case True{}: Some{tool}
@@ -130,6 +134,10 @@ def message_json(message: M.Message) -> J.Json:
     case M.AfterRecord{owner, operation, plugin, outcome}:
       J.Object{[J.Field{"role", J.Text{"after_record"}}, J.Field{"task_id", J.nat(owner)}, J.Field{"operation_id", J.nat(operation)},
         J.Field{"plugin", M.plugin_json(plugin)}, J.Field{"content", M.after_json(outcome)}]}
+    case M.ApprovalRecord{owner, operation, call, reviewer, outcome}:
+      J.Object{[J.Field{"role", J.Text{"approval_record"}}, J.Field{"task_id", J.nat(owner)}, J.Field{"operation_id", J.nat(operation)},
+        J.Field{"call", call_json(call)}, J.Field{"reviewer", M.approval_reviewer_json(reviewer)},
+        J.Field{"content", M.approval_outcome_json(outcome)}]}
     case M.UserMessage{text}:
       J.Object{[J.Field{"role", J.Text{"user"}}, J.Field{"content", J.Text{text}}]}
     case M.AssistantMessage{text}:

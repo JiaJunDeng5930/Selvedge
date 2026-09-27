@@ -9,6 +9,8 @@ import ./presentation.bend as View
 import ./operations.bend as Ops
 import ../HOOKS.bend as Hooks
 import ../WORKSPACE.bend as Workspace
+import ../APPROVALS.bend as Approvals
+import ./results.bend as Results
 
 # The execution alphabet is the semantic boundary between task policy and the
 # scheduler. Resolution owns authority, recovery and argument preconditions;
@@ -19,6 +21,9 @@ type Action is Data:
   Model{task: M.Task}
   Summary{task: M.Task, resume: Bool}
   External{tool: M.Tool, call: M.Call, remaining: +List<M.Attempt>, task: M.Task}
+  Review{reviewer: M.ApprovalReviewer, call: M.Call, remaining: +List<M.Attempt>, task: M.Task}
+  Granted{reviewer: M.ApprovalReviewer, tool: M.Tool, operation: M.Operation(), task: M.Task}
+  GrantFailure{operation: M.Operation(), task: M.Task}
   Hook{plugin: M.PluginRef, pending: +List<M.PluginRef>, tool: M.Tool, call: M.Call, remaining: +List<M.Attempt>, task: M.Task}
   Internal{operation: Protocol.Invocation, call: M.Call, remaining: +List<M.Attempt>, task: M.Task}
   Failure{code: String, reason: String, call: M.Call, remaining: +List<M.Attempt>, task: M.Task}
@@ -57,12 +62,18 @@ def arguments_valid(source: M.Source, schema: J.Json, +arguments: J.Json) -> Boo
     case M.Mcp{server, remote}: J.is_object(arguments)
     case M.Harness{M.Bash{}}:
       Schema.valid(schema, arguments) && M.nonempty(J.text(J.get(arguments, "command"))) &&
-        Bool.not(String.contains(J.text(J.get(arguments, "command")), SCon{Chr{0}, SNil{}}))
+        Bool.not(String.contains(J.text(J.get(arguments, "command")), SCon{Chr{0}, SNil{}})) && Approvals.valid_request(arguments)
     case M.Harness{other}: Schema.valid(schema, arguments)
 
-def external_capacity(available: Bool, tool: M.Tool, call: M.Call, remaining: +List<M.Attempt>, task: M.Task) -> Action:
+def external_review(needed: Bool, tool: M.Tool, call: M.Call, remaining: +List<M.Attempt>, +task: M.Task) -> Action:
+  match needed:
+    case True{}: Review{Approvals.reviewer(Workspace.approval(M.task_context(task))), call, remaining, task}
+    case False{}: External{tool, call, remaining, task}
+
+def external_capacity(available: Bool, +tool: M.Tool, +call: M.Call, remaining: +List<M.Attempt>, +task: M.Task) -> Action:
   match available:
-    case True{}: External{tool, call, remaining, task}
+    case True{}: external_review(Approvals.needed(M.tool_source(tool), T.call_arguments(call), Workspace.approval(M.task_context(task))),
+      tool, call, remaining, task)
     case False{}: Failure{"operation_limit", "This task has reached its in-flight operation limit; wait for results or cancel an operation", call, remaining, task}
 
 def internal_capacity(available: Bool, builtin: M.Builtin, +call: M.Call, remaining: +List<M.Attempt>, +task: M.Task, world: M.World) -> Action:
@@ -127,6 +138,30 @@ def tool(phase: M.Phase, +task: M.Task, world: M.World) -> Action:
       found(T.find_tool(T.task_tools(M.task_contract(task)), T.call_name(M.attempt_call(attempt))), attempt, remaining, task, world)
     case _: Rest{}
 
+def grant_valid(available: Bool, reviewer: M.ApprovalReviewer, tool: M.Tool, operation: M.Operation(), task: M.Task) -> Action:
+  match available:
+    case True{}: Granted{reviewer, tool, operation, task}
+    case False{}: GrantFailure{operation, task}
+
+def grant_tool(found: Maybe<&2, M.Tool>, reviewer: M.ApprovalReviewer, +operation: M.Operation(), task: M.Task, world: M.World) -> Action:
+  match found:
+    case None{}: GrantFailure{operation, task}
+    case Some{+tool}: grant_valid(T.available(catalog(world), tool), reviewer, tool, operation, task)
+
+def grant_stage(stage: M.OperationStage, +operation: M.Operation(), +task: M.Task, world: M.World) -> Action:
+  match stage:
+    case M.ApprovalGranted{reviewer}:
+      grant_tool(T.find_tool(T.task_tools(M.task_contract(task)), T.call_name(Ops.call(operation))), reviewer, operation, task, world)
+    case _: Rest{}
+
+def grant(found: Maybe<&2, M.Operation()>, task: M.Task, world: M.World) -> Action:
+  match found:
+    case None{}: Rest{}
+    case Some{+operation}: grant_stage(Ops.stage(operation), operation, task, world)
+
+def grant_failure_value() -> J.Json:
+  M.failure("tool_unavailable", "The approved tool route is no longer available; Bash was not started")
+
 def resolve(work: M.Work, +task: M.Task, world: M.World) -> Action:
   match work:
     case M.NoWork{}: Rest{}
@@ -134,6 +169,7 @@ def resolve(work: M.Work, +task: M.Task, world: M.World) -> Action:
     case M.RequestNextModel{}: model(task, world)
     case M.RequestContextSummary{}: Summary{task, True{}}
     case M.RunNextTool{}: tool(M.task_phase(task), task, world)
+    case M.RunGrantedOperation{}: grant(Ops.find_granted(M.task_operations(task)), task, world)
 
 def meaning(action: Action, world: M.World) -> M.Decision:
   match action world:
@@ -155,6 +191,15 @@ def meaning(action: Action, world: M.World) -> M.Decision:
     case External{+tool, +call, remaining, +task} M.World{tasks, next_task, +ticket, environment, limits, projects}:
       M.Decision{M.World{T.replace(tasks, T.promote(Ops.started(ticket, call, remaining, task))), next_task, 1n+ticket, environment, limits, projects},
         J.Null{}, [M.ExecuteTool{M.task_id(task), ticket, tool, call, M.task_context(task), Workspace.default_access(M.task_context(task))}]}
+    case Review{+reviewer, +call, remaining, task} M.World{tasks, next_task, +ticket, environment, limits, projects}:
+      +prepared = T.promote(Ops.awaiting(ticket, reviewer, call, remaining, task))
+      M.Decision{M.World{T.replace(tasks, prepared), next_task, 1n+ticket, environment, limits, projects},
+        J.Null{}, Approvals.review_effects(reviewer, prepared, ticket, call)}
+    case Granted{reviewer, tool, +operation, +task} M.World{tasks, next_task, +ticket, environment, limits, projects}:
+      M.Decision{M.World{T.replace(tasks, Ops.elevated(ticket, reviewer, operation, task)), next_task, 1n+ticket, environment, limits, projects},
+        J.Null{}, [M.ExecuteTool{M.task_id(task), ticket, tool, Ops.call(operation), M.task_context(task), M.Unrestricted{}}]}
+    case GrantFailure{operation, task} _:
+      Results.begin(operation, grant_failure_value(), True{}, task, world)
     case Hook{+plugin, pending, tool, +call, remaining, +task} M.World{tasks, next_task, +ticket, environment, limits, projects}:
       M.Decision{M.World{T.replace(tasks, M.with_phase(M.HookPending{ticket, plugin, call, pending, remaining}, task)), next_task, 1n+ticket, environment, limits, projects},
         J.Null{}, [M.CheckTool{M.task_id(task), ticket, plugin, tool, call}]}

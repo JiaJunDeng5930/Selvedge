@@ -113,6 +113,10 @@ def message(+budget: Nat, left: M.Message, right: M.Message) -> Bool:
       Nat.is_eq(owner_a, owner_b) && Nat.is_eq(operation_a, operation_b) && call(budget, call_a, call_b) && booleans(error_a, error_b) && json(budget, a, b)
     case M.AfterRecord{owner_a, operation_a, plugin_a, outcome_a} M.AfterRecord{owner_b, operation_b, plugin_b, outcome_b}:
       Nat.is_eq(owner_a, owner_b) && Nat.is_eq(operation_a, operation_b) && M.plugin_same(plugin_a, plugin_b) && json(budget, M.after_json(outcome_a), M.after_json(outcome_b))
+    case M.ApprovalRecord{owner_a, operation_a, call_a, reviewer_a, outcome_a} M.ApprovalRecord{owner_b, operation_b, call_b, reviewer_b, outcome_b}:
+      Nat.is_eq(owner_a, owner_b) && Nat.is_eq(operation_a, operation_b) && call(budget, call_a, call_b) &&
+        json(budget, M.approval_reviewer_json(reviewer_a), M.approval_reviewer_json(reviewer_b)) &&
+        json(budget, M.approval_outcome_json(outcome_a), M.approval_outcome_json(outcome_b))
     case M.UserMessage{a} M.UserMessage{b}: String.eq(a, b)
     case M.AssistantMessage{a} M.AssistantMessage{b}: String.eq(a, b)
     case M.FailureMessage{a} M.FailureMessage{b}: String.eq(a, b)

@@ -333,6 +333,37 @@ type ExecutionAccess is Data:
   Sandboxed{}
   Unrestricted{}
 
+type ApprovalReviewer is Data:
+  HumanReviewer{}
+  ModelReviewer{profile: Profile}
+
+type ApprovalOutcome is Data:
+  ApprovalAllowed{reason: String}
+  ApprovalDenied{reason: String}
+  ApprovalFailed{reason: String}
+
+def approval_reason(outcome: ApprovalOutcome) -> String:
+  match outcome:
+    case ApprovalAllowed{reason}: reason
+    case ApprovalDenied{reason}: reason
+    case ApprovalFailed{reason}: reason
+
+def approval_decision(outcome: ApprovalOutcome) -> String:
+  match outcome:
+    case ApprovalAllowed{reason}: "allow"
+    case ApprovalDenied{reason}: "deny"
+    case ApprovalFailed{reason}: "failed"
+
+def approval_outcome_json(+outcome: ApprovalOutcome) -> J.Json:
+  J.Object{[J.Field{"decision", J.Text{approval_decision(outcome)}}, J.Field{"reason", J.Text{approval_reason(outcome)}}]}
+
+def approval_reviewer_json(reviewer: ApprovalReviewer) -> J.Json:
+  match reviewer:
+    case HumanReviewer{}: J.Object{[J.Field{"kind", J.Text{"human"}}]}
+    case ModelReviewer{Profile{key, provider, name}}:
+      J.Object{[J.Field{"kind", J.Text{"model"}}, J.Field{"profile", J.Text{key}},
+        J.Field{"provider", J.Text{provider}}, J.Field{"name", J.Text{name}}]}
+
 def access_name(access: ExecutionAccess) -> String:
   match access:
     case Sandboxed{}: "sandboxed"
@@ -437,9 +468,12 @@ def builtins(max_fork: Nat) -> +List<Tool>:
       J.Field{"message", string_schema("Nonempty message")}], [J.Text{"task_id"}, J.Text{"message"}]), Harness{SendMessage{}}},
    Tool{"archive_task", "Archive a task permanently and cancel its outstanding external work.",
     object_schema([J.Field{"task_id", integer_schema("Task identity", 0n, U32.to_nat(4294967295))}], [J.Text{"task_id"}]), Harness{ArchiveTask{}}},
-   Tool{"bash", "Run a noninteractive Bash command asynchronously. Independent calls in one response run concurrently; put dependent commands in one shell command. A running status is not completion. Results arrive automatically; continue independent work or end the turn to wait. Descendants are terminated when the shell exits. Nonzero exits are errors. Output keeps UTF-8 head and tail with omitted-byte counts and artifact paths; use Bash to inspect those files. The default deadline is 30 seconds, at most 30 minutes.",
+   Tool{"bash", "Run noninteractive Bash in this task's primary workspace root, or / for an empty workspace. Independent calls run concurrently. A running or awaiting_approval status is not completion; results arrive automatically, so do not poll. Default access obeys the task sandbox. To request one command outside that sandbox, set sandbox_permissions to require_escalated and explain the concrete need in justification BEFORE executing it. A failed command may have partial effects: there is no automatic unrestricted retry. Descendants are terminated on exit. Nonzero exits are errors. Output retains bounded UTF-8 previews and artifact paths. The default deadline is 30 seconds, at most 30 minutes.",
     object_schema([J.Field{"command", string_schema("Command to run")},
       J.Field{"timeout_ms", integer_schema("Deadline in milliseconds", 100n, U32.to_nat(1800000))},
+      J.Field{"sandbox_permissions", J.Object{[J.Field{"type", J.Text{"string"}},
+        J.Field{"enum", J.Array{[J.Text{"use_default"}, J.Text{"require_escalated"}]}}]}},
+      J.Field{"justification", string_schema("Required for require_escalated: explain the necessary outside-workspace write, network access, or other sandbox exception; at most 2048 UTF-8 bytes")},
       J.Field{"max_output_length", integer_schema("Maximum retained Unicode characters per stream, excluding the truncation marker; defaults to 40000", 1n, U32.to_nat(65536))}],
       [J.Text{"command"}]), Harness{Bash{}}},
    Tool{"cancel_operation", "Cancel one in-flight operation, not the task or its other work. Use an operation_id from a running status or read_task. Cancellation cannot undo side effects already performed.",
@@ -488,6 +522,9 @@ def after_json(outcome: AfterOutcome) -> J.Json:
 
 type OperationStage is Data:
   Executing{}
+  ApprovalPending{reviewer: ApprovalReviewer}
+  ApprovalGranted{reviewer: ApprovalReviewer}
+  ElevatedExecuting{ticket: Nat, reviewer: ApprovalReviewer}
   ResultPending{ticket: Nat, plugin: PluginRef, pending: +List<PluginRef>, value: J.Json, error: Bool}
 
 def hook_json(outcome: HookOutcome) -> J.Json:
@@ -525,6 +562,7 @@ type Message is Data:
   HookRecord{task_id: Nat, call_id: String, plugin: PluginRef, outcome: HookOutcome}
   ToolReceipt{task_id: Nat, operation_id: Nat, call: Call, value: J.Json, error: Bool}
   AfterRecord{task_id: Nat, operation_id: Nat, plugin: PluginRef, outcome: AfterOutcome}
+  ApprovalRecord{task_id: Nat, operation_id: Nat, call: Call, reviewer: ApprovalReviewer, outcome: ApprovalOutcome}
   ForkResult{task_id: Nat, call_id: String, branch: Nat}
 
 # A model may produce ordered answers, invocations, and opaque continuation data.
@@ -570,6 +608,7 @@ def context_node(previous: History, message: Message) -> History:
     case ContextCheckpoint{summary}: HistoryNode{EmptyHistory{}, ContextCheckpoint{summary}}
     case ToolReceipt{owner, operation, call, value, error}: previous
     case AfterRecord{owner, operation, plugin, outcome}: previous
+    case ApprovalRecord{owner, operation, call, reviewer, outcome}: previous
     case ModelContext{+value}: provider_context_node(is_provider_checkpoint(value), previous, value)
     case other: HistoryNode{previous, other}
 
@@ -673,6 +712,7 @@ type Work is Data:
   RequestNextModel{}
   RequestContextSummary{}
   RunNextTool{}
+  RunGrantedOperation{}
   BecomeIdle{}
 
 # Frozen tasks settle arriving results but dispatch nothing. Stopped tasks may
@@ -766,9 +806,21 @@ def enabled_work(work: Work, pending: Bool, notified: Bool) -> Work:
     case RequestContextSummary{} True{} _: NoWork{}
     case other _ _: other
 
+def has_granted(operations: +List<Operation()>) -> Bool:
+  match operations:
+    case Nil{}: False{}
+    case Con{(id, OperationBody{call, announced, ApprovalGranted{reviewer}}), rest}: True{}
+    case Con{operation, rest}: has_granted(rest)
+
+def approval_work(status: Status, granted: Bool, normal: Work) -> Work:
+  match status granted:
+    case Active{} True{}: RunGrantedOperation{}
+    case _ _: normal
+
 def task_work(+task: Task) -> Work:
-  enabled_work(work(task_status(task), task_phase(task)),
-    operations_pending(task_operations(task)), task_notified(task))
+  approval_work(task_status(task), has_granted(task_operations(task)),
+    enabled_work(work(task_status(task), task_phase(task)),
+      operations_pending(task_operations(task)), task_notified(task)))
 
 def with_status(status: Status, task: Task) -> Task:
   Task{id, lineage, contract, old, history, queued, phase, operations, notified} = task
@@ -834,6 +886,7 @@ type Effect is Data:
   RequestModel{task_id: Nat, ticket: Nat, model: Model, history: History,
     tools: +List<Tool>, callable: +List<String>, context: TaskContext}
   ExecuteTool{task_id: Nat, ticket: Nat, tool: Tool, call: Call, context: TaskContext, access: ExecutionAccess}
+  RequestApproval{task_id: Nat, ticket: Nat, reviewer: Profile, call: Call, context: TaskContext, history: History}
   CheckTool{task_id: Nat, ticket: Nat, plugin: PluginRef, tool: Tool, call: Call}
   CheckResult{task_id: Nat, ticket: Nat, operation_id: Nat, plugin: PluginRef, call: Call, value: J.Json, error: Bool}
   NotifyPlugins{events: +List<Notice>}
@@ -863,6 +916,7 @@ type Command is Data:
   CreateProject{name: String, workspace: J.Json, guidance: J.Json}
   UpdateProject{project_id: Nat, name: Maybe<&2, String>, workspace: J.Json, guidance: J.Json}
   DeleteProject{project_id: Nat}
+  ReviewApproval{task_id: Nat, operation_id: Nat, outcome: ApprovalOutcome}
 
 type CommandKind is Data:
   CreateCommand{}
@@ -880,6 +934,7 @@ type CommandKind is Data:
   DeleteProjectCommand{}
   ListProjectsCommand{}
   ReadProjectCommand{}
+  ReviewApprovalCommand{}
 
 type CommandSpec is Data:
   CommandSpec{name: String, description: String, kind: CommandKind, schema: J.Json}
@@ -936,7 +991,12 @@ def commands() -> +List<CommandSpec>:
      command_schema([J.Field{"project_id", task_id_schema()}], [J.Text{"project_id"}])},
    CommandSpec{"list_projects", "Read project summaries without advancing tasks.", ListProjectsCommand{}, command_schema(Nil{}, Nil{})},
    CommandSpec{"read_project", "Read a project's workspace defaults and frozen root guidance.", ReadProjectCommand{},
-     command_schema([J.Field{"project_id", task_id_schema()}], [J.Text{"project_id"}])}]
+     command_schema([J.Field{"project_id", task_id_schema()}], [J.Text{"project_id"}])},
+   CommandSpec{"review_approval", "Approve exactly one pending human-reviewed command, or deny it. A grant cannot change the command, task settings, or any later operation.", ReviewApprovalCommand{},
+     command_schema([J.Field{"task_id", task_id_schema()}, J.Field{"operation_id", task_id_schema()},
+       J.Field{"decision", J.Object{[J.Field{"type", J.Text{"string"}}, J.Field{"enum", J.Array{[J.Text{"allow"}, J.Text{"deny"}]}}]}},
+       J.Field{"reason", string_schema("Optional bounded explanation, at most 2048 UTF-8 bytes")}],
+       [J.Text{"task_id"}, J.Text{"operation_id"}, J.Text{"decision"}])}]
 
 def command_specs_json(specs: +List<CommandSpec>) -> +List<J.Json>:
   match specs:
@@ -948,6 +1008,7 @@ def command_specs_json(specs: +List<CommandSpec>) -> +List<J.Json>:
 def boundary_limits() -> J.Json:
   J.Object{[J.Field{"frame_bytes", J.nat(U32.to_nat(frame_bytes()))}, J.Field{"header_bytes", J.nat(U32.to_nat(16384))},
     J.Field{"request_timeout_ms", J.nat(U32.to_nat(5000))}, J.Field{"tool_output_bytes", J.nat(U32.to_nat(65536))},
+    J.Field{"approval_reason_bytes", J.nat(2048n)},
     J.Field{"bash_timeout_ms", J.nat(U32.to_nat(30000))}, J.Field{"mcp_catalog_tools", J.nat(U32.to_nat(1024))},
     J.Field{"mcp_timeout_ms", J.nat(U32.to_nat(30000))},
     J.Field{"plugin_timeout_ms", J.nat(U32.to_nat(10000))},
@@ -1002,6 +1063,7 @@ type Input is Data:
   ToolCompleted{task_id: Nat, ticket: Nat, value: J.Json, error: Bool}
   HookCompleted{task_id: Nat, ticket: Nat, outcome: HookOutcome}
   AfterCompleted{task_id: Nat, operation_id: Nat, ticket: Nat, outcome: AfterOutcome}
+  ApprovalCompleted{task_id: Nat, ticket: Nat, outcome: ApprovalOutcome}
   Configure{environment: Environment}
   Recover{}
   Continue{}

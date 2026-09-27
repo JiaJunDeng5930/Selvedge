@@ -8,6 +8,7 @@ import ./operations.bend as Ops
 import ./results.bend as Results
 import ../UI.bend as UI
 import ../WORKSPACE.bend as Workspace
+import ../APPROVALS.bend as Approvals
 
 # The other half of command meaning: an effect result is a message carrying a
 # one-use ticket, not permission to overwrite a task. Resolve against the current
@@ -20,6 +21,7 @@ type Event is Data:
   ToolResult{task: M.Task, operation: M.Operation(), value: J.Json, error: Bool}
   HookResult{task: M.Task, outcome: M.HookOutcome}
   AfterResult{task: M.Task, operation: M.Operation(), outcome: M.AfterOutcome}
+  Review{resolution: Approvals.Resolution}
   Settings{environment: M.Environment}
   Restart{}
   Tick{}
@@ -50,9 +52,9 @@ def tool_operation(found: Maybe<&2, M.Operation()>, task: M.Task, value: J.Json,
 
 def after_stage(stage: M.OperationStage, task: M.Task, operation: M.Operation(), ticket: Nat, outcome: M.AfterOutcome) -> Event:
   match stage:
-    case M.Executing{}: Ignore{}
     case M.ResultPending{expected, plugin, pending, value, error}:
       matching(Nat.is_eq(ticket, expected), AfterResult{task, operation, outcome})
+    case _: Ignore{}
 
 def after_operation(found: Maybe<&2, M.Operation()>, task: M.Task, ticket: Nat, outcome: M.AfterOutcome) -> Event:
   match found:
@@ -67,7 +69,7 @@ def after(found: Maybe<&2, M.Task>, operation: Nat, ticket: Nat, outcome: M.Afte
 def tool_status(status: M.Status, +task: M.Task, ticket: Nat, value: J.Json, error: Bool) -> Event:
   match status:
     case M.Archived{}: Ignore{}
-    case _: tool_operation(Ops.find(M.task_operations(task), ticket), task, value, error)
+    case _: tool_operation(Ops.find_callback(M.task_operations(task), ticket), task, value, error)
 
 def tool(found: Maybe<&2, M.Task>, ticket: Nat, value: J.Json, error: Bool) -> Event:
   match found:
@@ -94,6 +96,8 @@ def resolve(input: M.Input, +world: M.World) -> Event:
     case M.ToolCompleted{id, ticket, value, error}: tool(T.find(Commands.entries(world), id), ticket, value, error)
     case M.HookCompleted{id, ticket, outcome}: hook(T.find(Commands.entries(world), id), ticket, outcome)
     case M.AfterCompleted{id, operation, ticket, outcome}: after(T.find(Commands.entries(world), id), operation, ticket, outcome)
+    case M.ApprovalCompleted{id, ticket, outcome}:
+      Review{Approvals.resolve(T.find(Commands.entries(world), id), Approvals.ModelDecision{}, ticket, outcome)}
     case M.Configure{environment}: Settings{environment}
     case M.Recover{}: Restart{}
     case M.Continue{}: Tick{}
@@ -129,6 +133,7 @@ def meaning(event: Event, world: M.World) -> M.Decision:
       M.World{tasks, next_task, next_ticket, environment, limits, projects} = world
       M.Decision{M.World{recovery(tasks), next_task, next_ticket, environment, limits, projects}, M.success(J.Null{}), Nil{}}
     case Tick{}: M.Decision{world, M.success(J.Null{}), Nil{}}
+    case Review{resolution}: Approvals.meaning(resolution, world)
 
 def input(+event: M.Input, +world: M.World) -> M.Decision:
   meaning(resolve(event, world), world)

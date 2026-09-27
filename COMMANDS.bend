@@ -8,6 +8,7 @@ import ./bendlib/stdlib.bend as Std
 import ./WORKSPACE.bend as Workspace
 import ./PROJECTS.bend as Projects
 import ./bendlib/schema.bend as Schema
+import ./APPROVALS.bend as Approvals
 
 # A command denotes a resolved operation, not permission to make any safe change.
 # Resolution owns every command precondition. The operation's meaning fixes the
@@ -26,6 +27,7 @@ type Operation is Data:
   Observe{query: M.Query}
   StoreProject{project_id: Nat, project: M.Project, next_id: U32}
   RemoveProject{project_id: Nat}
+  Review{resolution: Approvals.Resolution}
 
 def entries(world: M.World) -> +List<M.Task>:
   M.World{tasks, next_task, next_ticket, environment, limits, projects} = world
@@ -213,13 +215,14 @@ def resolve(command: M.Command, +world: M.World) -> Operation:
     case M.UpdateProject{+id, name, workspace, guidance}:
       update_project(Projects.find(Projects.registry(world), id), id, name, workspace, guidance, Projects.next_word(Projects.registry(world)))
     case M.DeleteProject{id}: delete_project(id, world)
+    case M.ReviewApproval{id, operation, outcome}:
+      Review{Approvals.resolve(T.find(entries(world), id), Approvals.HumanDecision{}, operation, outcome)}
 
 def id_result(id: Nat) -> J.Json:
   J.Object{[J.Field{"task_id", J.nat(id)}]}
 
 def replace(task: M.Task, world: M.World) -> M.World:
-  M.World{tasks, next_task, next_ticket, environment, limits, projects} = world
-  M.World{T.replace(tasks, task), next_task, next_ticket, environment, limits, projects}
+  T.update_world(task, world)
 
 def changed(id: Nat, task: M.Task, world: M.World, effects: +List<M.Effect>) -> M.Decision:
   M.Decision{replace(task, world), M.success(id_result(id)), effects}
@@ -327,6 +330,7 @@ def query(query: M.Query, +world: M.World) -> J.Json:
 def meaning(operation: Operation, +world: M.World) -> M.Decision:
   match operation:
     case Refuse{code, reason}: M.Decision{world, M.failure(code, reason), Nil{}}
+    case Review{resolution}: Approvals.meaning(resolution, world)
     case Start{profile, reasoning, message, selection}: start(profile, reasoning, message, selection, world)
     case Deliver{+task, message}:
       M.Decision{replace(T.receive(message, task), world), M.success(id_result(M.task_id(task))), Nil{}}

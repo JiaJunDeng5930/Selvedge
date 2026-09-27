@@ -9,6 +9,12 @@ command resolver, and `commit.bend` projects the post-scheduling world before
 atomic output admission. The surface's read-only observation and command gates
 are carried by `architecture.UserSurface` and checked in `proofs/ui.bend`.
 
+`../APPROVALS.bend` independently resolves one-operation permission requests and
+their human or model decisions. `approval-architecture.bend` binds the executing
+request, review and grant boundaries to evidence in `proofs/approvals.bend`.
+The shared review refinement is the public `LAWS.review_semantics` obligation,
+provided by `proofs/protocol.bend`, not a sibling-private proof helper.
+
 `../HOOKS.bend` owns ordered task-bound authorization and result interpretation.
 `results.bend` consumes execution receipts, advances after callbacks and settles
 processed results. `architecture.ResultBoundary` binds every pipeline entry and
