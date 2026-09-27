@@ -1,0 +1,55 @@
+{
+  "packages": [
+    {
+      "package": "streaming-markdown",
+      "version": "0.2.15",
+      "integrity": "sha512-eSWjdvLSTznl2+FIzuxw1TRXwhjZiY1RfSygGCMpcNY8CrsaUM2zHtxe/JFcPoXCQxeO3TSJ72QMDIN5B/Ui1w==",
+      "files": [
+        {
+          "source": "smd.js",
+          "file": "streaming-markdown.mjs",
+          "sha256": "c0f8378b15e5e26a309a15fd19e04ccbed4b1d6e6d6dfa8b88ae8568140dc609"
+        },
+        {
+          "source": "license",
+          "file": "streaming-markdown.LICENSE",
+          "sha256": "35f9d60ce9f83fba5a4eaceedf6994e133d7dc9d50ab9098b909eb23564ebabb"
+        }
+      ]
+    },
+    {
+      "package": "@highlightjs/cdn-assets",
+      "version": "11.12.0",
+      "integrity": "sha512-KvOKXODaiFmId9xaq3xc5xCL66wVLUuOngDbO9B/kewbFTqdGbn2nJxNhN3H5R1cgDTVj6R8vH0zgiNDEGjpDw==",
+      "files": [
+        {
+          "source": "es/highlight.min.js",
+          "file": "highlight.mjs",
+          "sha256": "1ed8fc5256b738b8875b74e4d3f0754f60d6411fb034d618dfbc4e6e6c9999d7"
+        },
+        {
+          "source": "LICENSE",
+          "file": "highlight.LICENSE",
+          "sha256": "6c081431591d9df696c82dc598fe1423765b8a299b200ed00b281afd0f64c490"
+        }
+      ]
+    },
+    {
+      "package": "katex",
+      "version": "0.18.9",
+      "integrity": "sha512-8ad9RyoKsb/g8/yLFE+KAlP+DhbCTRUNi/V9XGsxn0R+trJJltNwzcDNo0q/DEkOy5fQUQTAQyCXCYSE+OakTQ==",
+      "files": [
+        {
+          "source": "dist/katex.mjs",
+          "file": "katex.mjs",
+          "sha256": "180dade94d7cbd593e59ded86d347f1482e1e17840ee528109283b1b888452af"
+        },
+        {
+          "source": "LICENSE",
+          "file": "katex.LICENSE",
+          "sha256": "766ccc1f306c885aa45542a9846bbd0a505b27a0374f146778171c2254ce18e3"
+        }
+      ]
+    }
+  ]
+}

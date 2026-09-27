@@ -20,14 +20,28 @@ notifications during shutdown, and suppression of effects withdrawn within a
 commit. Credential parsing errors must not quote file contents into task history.
 Use `npm test` to run these checks; they require no real credentials or model calls.
 
+`chatgpt-contract.mjs` fixes the audited wire version and connection identity.
+`chatgpt-models.mjs` reads only this service's credential store, validates the
+account catalog and materializes account-bound profiles. Login works without a
+model profile. Its authenticated catalog refresh commits the ordinary Configure
+input; it does not mutate existing task contracts. Cache freshness, endpoint and
+account matching belong to this external transport boundary. The CLI login
+integration test exercises discovery, live native selector refresh and restart
+against a loopback issuer/model server, not a commercial account.
+
 `POST /api/ui` accepts only an opaque navigation cursor and a public presentation
 event. Bend produces the entire typed surface in `UI.bend`: content, titles,
-actions, fields, bindings and enabled flags. `public/renderer.mjs` renders generic
-widgets, escapes text through DOM text nodes, and fills the declared event bindings.
+actions, fields, bindings and enabled flags. `public/renderer.mjs` fills declared
+event bindings; `public/widgets.mjs` renders the generic widgets with keyed DOM
+reconciliation and safe Markdown.
 `public/app.mjs` handles authentication, serialized requests and commit invalidation.
 Neither file interprets task state or provider message roles. Unsubmitted field
 drafts and disclosure/focus state are presentation mechanics, not a domain cache.
-Uncommitted model deltas do not replace the native conversation surface.
+Uncommitted model deltas do not replace the native conversation surface. A
+separately labelled, bounded streaming preview is correlated with host execution
+identity and retired after its native settlement revision. Exact settled text
+can retain its already-rendered DOM. See `public/README.md` and ADR 0018 for the
+display scheduler, worker formatting, draft retention and evidence boundaries.
 The existing command endpoint remains available to CLI and API callers. Both
 endpoints revalidate against the current native world; a stale enabled button is
 never authority to execute. Navigation/refresh has no journal entry or effects.
@@ -96,7 +110,10 @@ excessive `Retry-After` is a failure rather than permission to retry too early.
 An already exposed SSE stream is not retried automatically. Transport attempts
 share one committed model ticket and do not replay any tool effect.
 
-Summary requests use the ordinary model transport but receive no tools. The host
+Summary requests use the ordinary model transport but receive no tools. ChatGPT
+uses streaming remote compaction v2 and returns one unchanged encrypted checkpoint;
+API-key profiles retain text summarization. Compaction deltas are not displayed.
+The host
 does not decide when to compact, which history to retain, or whether a completion
 is current. Bend performs those decisions, validates summaries, and commits a
 checkpoint before using its context projection. Supplied checkpoints need no

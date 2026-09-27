@@ -97,7 +97,7 @@ export async function login(profile, home, { signal, onCode = () => {} } = {}) {
     if ([403, 404].includes(response.status)) { await delay(interval * 1000, undefined, { signal: lifetime }); continue; }
     if (!response.ok) throw new Error(`Device login failed: HTTP ${response.status}`);
     if (!text(response.value?.authorization_code) || !text(response.value?.code_verifier)) throw new Error('The login service returned an invalid authorization grant');
-    const exchanged = await requestJson(`${profile.issuer}/oauth/token`, { signal: lifetime, body: {
+    const exchanged = await requestJson(`${profile.issuer}/oauth/token`, { signal: lifetime, encoding: 'form', body: {
       grant_type: 'authorization_code', client_id: profile.client_id, code: response.value.authorization_code,
       code_verifier: response.value.code_verifier, redirect_uri: `${profile.issuer}/deviceauth/callback`,
     } });

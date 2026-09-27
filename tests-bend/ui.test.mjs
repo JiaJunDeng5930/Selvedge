@@ -36,7 +36,10 @@ test('the HTTP presentation boundary is authenticated, command-only, and replaya
   running = await startServer({ home, config, cwd: home });
   const restored = await post({ state: created.body.result.presentation.state, event: { type: 'refresh' } });
   assert.deepEqual(find(restored.body.result.presentation, 'state').value, page.task);
-  for (const asset of ['/', '/app.mjs', '/renderer.mjs', '/style.css']) assert.equal((await fetch(`${running.address}${asset}`)).status, 200);
+  for (const asset of ['/', '/app.mjs', '/renderer.mjs', '/style.css', '/widgets.mjs', '/events.mjs',
+    '/streams.mjs', '/markdown.mjs', '/markdown-worker.mjs', '/vendor/streaming-markdown.mjs',
+    '/vendor/highlight.mjs', '/vendor/katex.mjs']) assert.equal((await fetch(`${running.address}${asset}`)).status, 200);
+  assert.notEqual((await fetch(`${running.address}/vendor/../../config.mjs`)).status, 200);
 });
 
 test('the web adapter binds fields generically and refuses undeclared or prototype routes', () => {
@@ -57,8 +60,18 @@ test('the web adapter binds fields generically and refuses undeclared or prototy
 // or npm runtime dependency. A real-browser interaction is a separate host check.
 class Element {
   constructor(tagName, ownerDocument) { Object.assign(this, { tagName, ownerDocument, children: [], dataset: {}, attributes: {}, listeners: {}, value: '' }); }
-  append(...children) { this.children.push(...children); }
-  replaceChildren(...children) { this.children = children; }
+  get childNodes() { return this.children; }
+  append(...children) { for (const child of children) this.insertBefore(child, null); }
+  insertBefore(child, before) {
+    child.remove();
+    const index = before ? this.children.indexOf(before) : this.children.length;
+    this.children.splice(index, 0, child); child.parentNode = this;
+  }
+  remove() {
+    if (this.parentNode) this.parentNode.children.splice(this.parentNode.children.indexOf(this), 1);
+    this.parentNode = null;
+  }
+  replaceChildren(...children) { for (const child of [...this.children]) child.remove(); this.append(...children); }
   setAttribute(name, value) { this.attributes[name] = value; }
   addEventListener(name, listener) { this.listeners[name] = listener; }
   focus() { this.ownerDocument.activeElement = this; }
@@ -99,7 +112,7 @@ test('the adapter renders literal content, native enabled flags and stable unsen
   await walk(root).find(node => node.tagName === 'form').onsubmit({ preventDefault() {} });
   assert.deepEqual(events, [{ event: { payload: { free: 'Not submitted yet' } }, key: '/root/form' }]);
   assert.throws(() => mount(root, { kind: 'invented', key: 'bad' }, () => {}), /Unsupported/);
-  for (const name of ['app.mjs', 'renderer.mjs']) {
+  for (const name of ['app.mjs', 'renderer.mjs', 'widgets.mjs', 'streams.mjs']) {
     const source = await readFile(new URL(`../host/public/${name}`, import.meta.url), 'utf8');
     assert.doesNotMatch(source, /taskSnapshot|\.status\s*===\s*['"](?:active|archived)|message\.role|\/api\/commands|\.innerHTML\s*=/);
   }

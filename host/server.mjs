@@ -11,6 +11,9 @@ const assets = new Map([
   ['/', ['index.html', 'text/html; charset=utf-8']],
   ['/app.mjs', ['app.mjs', 'text/javascript; charset=utf-8']],
   ['/renderer.mjs', ['renderer.mjs', 'text/javascript; charset=utf-8']],
+  ...['widgets.mjs', 'streams.mjs', 'events.mjs', 'markdown.mjs', 'markdown-worker.mjs',
+    'vendor/streaming-markdown.mjs', 'vendor/highlight.mjs', 'vendor/katex.mjs']
+    .map(file => [`/${file}`, [file, 'text/javascript; charset=utf-8']]),
   ['/style.css', ['style.css', 'text/css; charset=utf-8']],
 ]);
 
@@ -66,7 +69,15 @@ export async function startServer(options) {
     }
     if (!authorized(request)) { json(response, 401, { ok: false, error: { code: 'unauthorized', message: 'A local access token is required' } }); return; }
     if (request.headers.origin && request.headers.origin !== address) { json(response, 403, { ok: false, error: { code: 'origin', message: 'Origin does not match this server' } }); return; }
-    if (request.method === 'POST' && url.pathname === '/api/ui') {
+    if (request.method === 'POST' && url.pathname === '/api/accounts/refresh') {
+      // Local authenticated account transport, not a new domain/UI command.
+      if (!request.headers['content-type']?.toLowerCase().startsWith('application/json')) {
+        json(response, 415, { ok: false, error: { code: 'content_type', message: 'Send application/json' } }); return;
+      }
+      const body = parseJson(await readText(request, 1024));
+      if (!body || Array.isArray(body) || typeof body !== 'object' || Object.keys(body).length) throw new TypeError('Account refresh takes an empty object');
+      json(response, 200, { ok: true, result: await service.refreshAccounts() });
+    } else if (request.method === 'POST' && url.pathname === '/api/ui') {
       if (!request.headers['content-type']?.toLowerCase().startsWith('application/json')) { json(response, 415, { ok: false, error: { code: 'content_type', message: 'Send application/json' } }); return; }
       const body = parseJson(await readText(request, service.limits.frame_bytes));
       if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).some(key => !['state', 'event'].includes(key))) {

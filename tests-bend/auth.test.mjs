@@ -17,7 +17,11 @@ async function issuer(t, handler) {
     void (async () => {
       const chunks = [];
       for await (const chunk of request) chunks.push(chunk);
-      const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+      const raw = Buffer.concat(chunks).toString('utf8');
+      const form = request.headers['content-type'] === 'application/x-www-form-urlencoded';
+      const body = form ? Object.fromEntries(new URLSearchParams(raw)) : JSON.parse(raw);
+      // The two OAuth grants intentionally have different upstream encodings.
+      assert.equal(form, body.grant_type === 'authorization_code');
       requests.push({ path: request.url, body });
       const result = handler(request.url, body);
       response.writeHead(200, { 'content-type': 'application/json' });
@@ -42,6 +46,7 @@ test('device login persists a private credential and uses the received authoriza
     assert.equal(body.grant_type, 'authorization_code');
     assert.equal(body.code, 'grant-fixture');
     assert.equal(body.code_verifier, 'verifier-fixture');
+    assert.equal(body.redirect_uri, `${upstream.address}/deviceauth/callback`);
     return tokens('account-fixture');
   });
   const profile = { issuer: upstream.address, client_id: 'fixture-client', auth_file: 'auth/chatgpt.json' };

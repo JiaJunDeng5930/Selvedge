@@ -1,10 +1,35 @@
 <!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Selvedge</title><link rel="stylesheet" href="/style.css"><script type="module" src="/app.mjs"></script></head>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light dark">
+  <title>Selvedge</title>
+  <link rel="stylesheet" href="/style.css">
+  <script type="module" src="/app.mjs"></script>
+</head>
 <body>
-  <header><a class="brand" href="/">Selvedge</a><span id="connection" role="status">Connecting…</span></header>
-  <div id="access" hidden><label>Local access token <input id="token" type="password" autocomplete="off"></label><button id="connect">Connect</button></div>
-  <p id="error" role="alert" hidden></p>
-  <main id="surface"></main>
+  <a class="skip-link" href="#surface">Skip to workspace</a>
+  <header class="app-header">
+    <div class="app-brand">
+      <button id="sidebar-toggle" class="icon-button" type="button" aria-label="Toggle tasks" aria-expanded="true" title="Toggle tasks">☰</button>
+      <a class="brand" href="/" aria-label="Selvedge home"><span class="brand-mark" aria-hidden="true">s</span>Selvedge</a>
+    </div>
+    <div class="app-tools">
+      <span id="connection" role="status" data-status="connecting">Connecting…</span>
+      <button id="theme-toggle" class="quiet-button" type="button" aria-label="Change color theme">Theme</button>
+      <button id="access-toggle" class="quiet-button" type="button">Access</button>
+    </div>
+  </header>
+  <section id="access" class="access-panel" aria-label="Local server access" hidden>
+    <h2>Connect to your workspace</h2>
+    <p>Use the local access token printed by the Selvedge server. This is not your ChatGPT credential.</p>
+    <form id="access-form">
+      <label class="field">Local access token <input id="token" type="password" autocomplete="off" required></label>
+      <button id="connect" class="primary" type="submit">Connect</button>
+    </form>
+  </section>
+  <p id="error" class="connection-error" role="alert" hidden></p>
+  <main id="surface" tabindex="-1"><div class="loading-surface">Opening your workspace…</div></main>
 </body>
 </html>

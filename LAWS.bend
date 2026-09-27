@@ -781,6 +781,36 @@ law context_projection_idempotent:
   for +history: M.History
   {M.context_history(M.context_history(history)) == M.context_history(history) : M.History}
 
+law retained_users_projected:
+  for +history: M.History
+  {M.context_history(M.retained_users(history)) == M.retained_users(history) : M.History}
+
+law retained_users_idempotent:
+  for +history: M.History
+  {M.retained_users(M.retained_users(history)) == M.retained_users(history) : M.History}
+
+law provider_checkpoint_context:
+  for +history: M.History
+  for +value: J.Json
+  for checked: {M.is_provider_checkpoint(value) == True{} : Bool}
+  {M.context_history(M.HistoryNode{history, M.ModelContext{value}}) ==
+    M.HistoryNode{M.retained_users(M.context_history(history)), M.ModelContext{value}} : M.History}
+
+law provider_checkpoint_consumes_compaction:
+  for +history: M.History
+  for +value: J.Json
+  for +checked: {M.is_provider_checkpoint(value) == True{} : Bool}
+  {M.compactable(M.context_history(M.HistoryNode{history, M.ModelContext{value}})) == False{} : Bool}
+
+law provider_summary_preserves_record:
+  for +value: J.Json
+  for +resume: Bool
+  for +task: M.Task
+  for kind: {M.is_provider_checkpoint(value) == True{} : Bool}
+  for valid: {M.valid_provider_checkpoint(value) == True{} : Bool}
+  {T.summary_outcome(M.ModelReply{[M.Context{value}]}, resume, task) ==
+    T.promote(M.with_phase(T.after_summary(resume), M.append_message(M.ModelContext{value}, task))) : M.Task}
+
 law checkpoint_cuts_context:
   for history: M.History
   for +summary: String

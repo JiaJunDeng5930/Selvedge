@@ -1,6 +1,7 @@
 import { parseJson, stringifyJson } from './codec.mjs';
 import { events, readText } from './network.mjs';
 import { resolveAuth } from './auth.mjs';
+import { chatgptHeaders, chatgptSession } from './chatgpt-contract.mjs';
 import { setTimeout as delay } from 'node:timers/promises';
 
 const text = value => typeof value === 'string' && value.trim().length > 0;
@@ -70,7 +71,7 @@ export function providerOutput(output) {
   });
 }
 
-export function responseBody(effect) {
+export function responseBody(effect, profile = { provider: effect.model.provider }) {
   // This is the committed task snapshot, not a fresh filesystem read or a new
   // privileged instruction. Compaction cannot erase its provenance or content.
   const project = effect.model.project;
@@ -93,6 +94,25 @@ export function responseBody(effect) {
   body.tool_choice = effect.callable.length === 0 ? 'none' : {
     type: 'allowed_tools', mode: 'auto', tools: effect.callable.map(name => ({ type: 'function', name })),
   };
+  if (profile.provider === 'chatgpt') {
+    // Codex's ResponsesApiRequest has a string tool_choice. Limit the actual
+    // catalog to the native callable set instead of sending allowed_tools.
+    body.tools = body.tools.filter(tool => effect.callable.includes(tool.name));
+    body.tool_choice = 'auto';
+    if (effect.kind === 'summary') {
+      if (!text(effect.context_instructions)) throw new Error('A native compaction effect requires the frozen context instructions');
+      body.instructions = effect.context_instructions;
+      body.input.push({ type: 'compaction_trigger' });
+    }
+    if (profile.model_info) {
+      const levels = profile.model_info.supported_reasoning_levels.map(level => level.effort);
+      if (!levels.length) delete body.reasoning;
+      else if (!levels.includes(effect.model.reasoning)) {
+        throw new Error(`This account model supports these reasoning levels: ${levels.join(', ')}`);
+      }
+    }
+  }
+  if (!body.instructions) delete body.instructions;
   return body;
 }
 
@@ -138,14 +158,23 @@ export async function requestModel(effect, config, home, limits, { signal, onDel
     return [{ type: 'text', text: `[Offline demo] ${last?.content ?? 'Task resumed.'}` }];
   }
   const lifetime = signal ? AbortSignal.any([signal, AbortSignal.timeout(profile.timeout_ms)]) : AbortSignal.timeout(profile.timeout_ms);
-  const body = stringifyJson(responseBody(effect));
+  if (profile.provider === 'chatgpt' && effect.kind === 'summary' &&
+      (!Number.isSafeInteger(limits.provider_checkpoint_limit_bytes) || limits.provider_checkpoint_limit_bytes < 1)) {
+    throw new Error('The native provider-checkpoint byte policy is missing');
+  }
+  const request = responseBody(effect, profile);
+  const session = profile.provider === 'chatgpt' ? chatgptSession(home, effect.task_id) : undefined;
+  if (session) request.prompt_cache_key = session;
+  const body = stringifyJson(request);
   if (Buffer.byteLength(body) > limits.frame_bytes) throw new RangeError('Provider request exceeds the configured limit');
   let credential;
   const headers = { 'content-type': 'application/json', accept: 'text/event-stream' };
   if (profile.provider === 'chatgpt') {
     credential = await resolveAuth(profile, home, { signal: lifetime });
-    headers.authorization = `Bearer ${credential.access_token}`;
-    headers['chatgpt-account-id'] = credential.account_id;
+    if (profile.bound_account_id && profile.bound_account_id !== credential.account_id) {
+      throw new Error('This task belongs to a different ChatGPT account; restore that account or create a new task');
+    }
+    Object.assign(headers, chatgptHeaders(credential, session));
   } else {
     const key = process.env[profile.api_key_env];
     if (!key) throw new Error(`Set ${profile.api_key_env} to use this provider`);
@@ -156,8 +185,7 @@ export async function requestModel(effect, config, home, limits, { signal, onDel
   if (response.status === 401 && credential) {
     await response.body?.cancel();
     credential = await resolveAuth(profile, home, { signal: lifetime, rejectedToken: credential.access_token });
-    headers.authorization = `Bearer ${credential.access_token}`;
-    headers['chatgpt-account-id'] = credential.account_id;
+    Object.assign(headers, chatgptHeaders(credential, session));
     response = await send();
   }
   if (!response.ok) {
@@ -182,10 +210,14 @@ export async function requestModel(effect, config, home, limits, { signal, onDel
     if (typeof event.type === 'string' &&
         (event.type.includes('.delta') || event.type === 'response.output_item.added')) outputStarted = true;
     if (event.type === 'response.output_text.delta' && typeof event.delta === 'string') {
-      onDelta(event.delta);
+      if (effect.kind !== 'summary') onDelta(event.delta, event.output_index ?? 0);
     } else if (event.type === 'response.output_item.done') {
       if (!Number.isSafeInteger(event.output_index) || event.output_index < 0 || !object(event.item)) {
         throw new Error('Provider returned an invalid completed output item');
+      }
+      outputStarted = true;
+      if (completedItems.has(event.output_index) && stringifyJson(completedItems.get(event.output_index)) !== stringifyJson(event.item)) {
+        throw new Error('Provider returned conflicting completed output items');
       }
       completedItems.set(event.output_index, event.item);
     } else if (event.type === 'response.completed') {
@@ -195,6 +227,19 @@ export async function requestModel(effect, config, home, limits, { signal, onDel
       else if (completedItems.size > 0) {
         output = [...completedItems.entries()].sort(([left], [right]) => left - right).map(([, item]) => item);
       } else output = event.response.output;
+      if (profile.provider === 'chatgpt' && effect.kind === 'summary') {
+        // The current Codex route is streaming remote compaction v2, not a
+        // text-summary prompt or the obsolete /responses/compact JSON shape.
+        if (!Array.isArray(output) || output.some(item => item?.type === 'function_call')) {
+          throw new Error('Remote compaction returned an invalid output or tool invocation');
+        }
+        const checkpoints = output.filter(item => item?.type === 'compaction');
+        if (checkpoints.length !== 1 || !text(checkpoints[0].encrypted_content) ||
+            Buffer.byteLength(checkpoints[0].encrypted_content) > limits.provider_checkpoint_limit_bytes) {
+          throw new Error('Remote compaction must return exactly one nonempty bounded encrypted checkpoint');
+        }
+        return [{ type: 'context', value: checkpoints[0] }];
+      }
       return providerOutput(output);
     } else if (['error', 'response.failed', 'response.incomplete'].includes(event.type)) {
       const code = event.type === 'error' ? event.code : event.response?.error?.code;

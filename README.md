@@ -100,7 +100,10 @@ archive against `bend-checksums.txt`. It changes neither the system compiler nor
 another worktree. There are no npm runtime dependencies.
 
 The server prints a local URL with its access token. Open it to create a task,
-send messages, control its lifecycle, or use the schema-derived Commands dialog.
+send or steer messages, and open Details for task controls, branches, context
+checkpoints and the frozen tool contract. The task sidebar, conversation and
+composer adapt to desktop and narrow screens, with light/dark themes. Streaming
+Markdown preserves stable blocks and unsent drafts.
 The default `demo` profile runs without credentials or an external model request.
 `Ctrl-C` closes the service and its owned processes.
 
@@ -212,19 +215,30 @@ The default home is `~/.selvedge-bend`. `node host/cli.mjs init` creates its
 FILE` select explicit locations; both options also work with `npm start -- ...`.
 Configuration is read at server startup.
 
-For a ChatGPT profile, replace `MODEL_ID` with an available model identifier:
+To use your ChatGPT subscription, sign in. No model configuration is required:
 
-```json
-{
-  "format": "selvedge-bend-config-1",
-  "profiles": {
-    "agent": { "provider": "chatgpt", "model": "MODEL_ID" }
-  },
-  "mcp": {}
-}
+```bash
+node host/cli.mjs login
+node host/cli.mjs models
 ```
 
-Run `node host/cli.mjs login agent` to perform the explicit device-code login.
+Complete the device-code flow at the displayed OpenAI address. Login fetches
+the account's Codex model catalog and refreshes an already-running server. At
+startup the server also loads these models into the existing native selector;
+advertised account models precede the offline demo. `models --refresh` fetches
+a fresh catalog. Model names are not hardcoded and API-key availability is not
+used to filter subscription models. Discovery is bounded and a fresh catalog is
+cached for five minutes; transient failures may use a matching account's cache
+for at most 24 hours. Authentication failures never fall back to another account.
+
+Optional `chatgpt` connection settings are `endpoint`, `issuer`, `client_id`,
+`auth_file`, and `timeout_ms`; their defaults target OpenAI. `chatgpt: false`
+disables default account discovery. Explicit model profiles remain available for
+custom routing; `login PROFILE` selects a configured ChatGPT connection. Generated
+profile identities bind the account and endpoint so changing credentials cannot
+silently run an old task under a different account. Reasoning levels are checked
+against the selected account model; use an advertised level in the native field.
+
 A Responses API profile uses `provider: "responses"`, `model`, and optionally
 `endpoint` and `api_key_env` (default `OPENAI_API_KEY`). A stdio MCP entry under
 `mcp` uses its server name as the key and `command`, `args`, optional `cwd`, and

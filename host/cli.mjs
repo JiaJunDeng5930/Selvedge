@@ -4,6 +4,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { loadConfig, homeDirectory, defaultConfig } from './config.mjs';
 import { login } from './auth.mjs';
+import { loginAccount, discoverAccount, withAccountModels } from './chatgpt-models.mjs';
 import { startServer } from './server.mjs';
 import { requestJson, events } from './network.mjs';
 import { parseJson, stringifyJson } from './codec.mjs';
@@ -81,9 +82,7 @@ export async function main(args = process.argv.slice(2)) {
   }
   if (operation === 'login') {
     const settings = await loadConfig(global);
-    const key = rest[0] ?? Object.keys(settings.config.profiles).find(name => settings.config.profiles[name].provider === 'chatgpt');
-    const profile = settings.config.profiles[key];
-    if (profile?.provider !== 'chatgpt') throw new Error('Select a configured ChatGPT profile');
+    const profile = loginAccount(settings.config, rest[0]);
     const controller = new AbortController();
     const interrupt = () => controller.abort(new Error('Login cancelled'));
     process.once('SIGINT', interrupt);
@@ -91,11 +90,30 @@ export async function main(args = process.argv.slice(2)) {
       const result = await login(profile, settings.home, { signal: controller.signal,
         onCode: ({ url, code }) => console.log(`Open ${url}\nEnter code: ${code}`) });
       console.log(`Signed in. Credential saved to ${result.filename}`);
+      const catalog = await discoverAccount(profile, settings.home, { signal: controller.signal, force: true });
+      console.log(`Available account models: ${catalog.models.filter(model => model.visibility === 'list').map(model => model.slug).join(', ')}`);
+      try {
+        const local = await connection(settings.home);
+        const refreshed = await requestJson(`${local.address}/api/accounts/refresh`, {
+          headers: { authorization: `Bearer ${local.token}` }, body: {}, signal: controller.signal,
+        });
+        if (!refreshed.ok || !refreshed.value?.ok) throw new Error('The running server could not refresh its model catalog');
+        console.log('The running server’s model selector has been refreshed.');
+      } catch (error) {
+        if (error.code !== 'ENOENT') console.error(`Account saved; restart the server to refresh its models (${error.message}).`);
+      }
     } finally { process.off('SIGINT', interrupt); }
     return;
   }
+  if (operation === 'models') {
+    const settings = await loadConfig(global);
+    if (rest.some(value => value !== '--refresh')) throw new Error('Usage: models [--refresh]');
+    const result = await withAccountModels(settings.config, settings.home, { force: rest.includes('--refresh'), onDiagnostic: message => console.error(message) });
+    for (const [key, profile] of Object.entries(result.config.profiles)) console.log(`${key}\t${profile.provider}\t${profile.model}`);
+    return;
+  }
   if (operation === 'help' && rest.length === 0) {
-    console.log('Usage: node host/cli.mjs [--home PATH] [--config FILE] server|init|login [PROFILE]|describe|watch|COMMAND [--field value]\nRun describe against a running server for its executable command schemas. Array arguments use JSON.\nThe default demo profile is offline; configure responses or chatgpt for a model provider.');
+    console.log('Usage: node host/cli.mjs [--home PATH] [--config FILE] server|init|login [PROFILE]|models [--refresh]|describe|watch|COMMAND [--field value]\nRun describe against a running server for its executable command schemas. Array arguments use JSON.\nRun login to use your ChatGPT account models without writing model profiles. The demo profile is offline.');
     return;
   }
   const local = await connection(global.home);
