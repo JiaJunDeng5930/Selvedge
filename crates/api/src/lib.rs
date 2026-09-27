@@ -384,8 +384,6 @@ fn chatgpt_item_from_message(
             }
         };
         return Ok(ResponseItem::Message(MessageItem {
-            internal_chat_message_metadata_passthrough: None,
-            phase: None,
             id: None,
             status: Some("completed".to_owned()),
             role: chatgpt_role(&message.role).to_owned(),
@@ -413,9 +411,6 @@ fn chatgpt_item_from_message(
             })?;
 
             Ok(ResponseItem::FunctionCall(FunctionCallItem {
-                asynchronous: None,
-                internal_chat_message_metadata_passthrough: None,
-                encrypted_function_args: None,
                 id: None,
                 status: Some("completed".to_owned()),
                 name: tool_name.to_owned(),
@@ -453,7 +448,6 @@ fn chatgpt_item_from_message(
             };
 
             Ok(ResponseItem::FunctionCallOutput(FunctionCallOutputItem {
-                internal_chat_message_metadata_passthrough: None,
                 id: None,
                 status: Some("completed".to_owned()),
                 call_id: function_call_id.to_owned(),
