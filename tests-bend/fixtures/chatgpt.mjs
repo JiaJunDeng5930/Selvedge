@@ -61,5 +61,5 @@ export const modelEffect = () => ({
   ], callable: ['allowed'],
 });
 
-export const wireLimits = { frame_bytes: 4 * 1024 * 1024,
+export const wireLimits = { frame_bytes: 4 * 1024 * 1024, provider_checkpoint_limit_bytes: 262144,
   model_retry: { delays_ms: [1], statuses: [429, 503], max_retry_after_ms: 100 } };

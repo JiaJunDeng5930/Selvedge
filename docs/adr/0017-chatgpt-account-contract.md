@@ -41,3 +41,26 @@ transient upstream failure can use matching data up to 24 hours old. Malformed
 catalogs, permanent errors and account changes do not authorize stale fallback.
 An explicit login/refresh fails visibly instead of using stale data. Credential
 refresh remains serialized separately from model discovery.
+
+## Native account compaction
+
+ChatGPT summary effects use remote compaction v2 with the task's frozen ordinary
+instructions. The host returns the encrypted item unchanged; it does not turn it
+into summary text or expose compaction deltas as assistant output. Missing,
+ambiguous, oversized and tool-bearing checkpoints fail closed. API-key profiles
+keep their existing text-summary path.
+
+Bend owns checkpoint admission, the context projection and automatic scheduling.
+The durable audit history is never cut. A provider checkpoint retains original
+user requests plus the opaque item and later work, while replacing earlier model
+and tool context. The provider item consumes the current compaction opportunity:
+a persistent context-limit failure cannot start an unbounded compaction loop.
+Manual compaction does not start a turn, and cancelled or stale completions
+cannot replace the context. `LAWS.provider_checkpoint_context`,
+`provider_checkpoint_consumes_compaction`, `provider_summary_preserves_record`
+and context-projection idempotence are discharged in `bendlib/proofs/tasks.bend`.
+
+`tests-bend/chatgpt-compaction.test.mjs` crosses real loopback HTTP/SSE, native
+scheduling, SQLite, restart and the existing UI projection. It does not test the
+meaning or quality of an OpenAI encrypted checkpoint. The account contract is
+still an external assumption, not a formal guarantee about the remote service.

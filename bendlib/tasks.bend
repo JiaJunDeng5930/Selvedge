@@ -327,6 +327,12 @@ def has_invocation(items: +List<M.ModelItem>) -> Bool:
     case Con{M.Invoke{call}, rest}: True{}
     case Con{other, rest}: has_invocation(rest)
 
+def has_provider_checkpoint(items: +List<M.ModelItem>) -> Bool:
+  match items:
+    case Nil{}: False{}
+    case Con{M.Context{value}, rest}: M.is_provider_checkpoint(value) || has_provider_checkpoint(rest)
+    case Con{other, rest}: has_provider_checkpoint(rest)
+
 def after_summary(resume: Bool) -> M.Phase:
   match resume:
     case True{}: M.Ready{Nil{}}
@@ -345,14 +351,35 @@ def summary_checked(valid: Bool, summary: String, resume: Bool, task: M.Task) ->
     case False{}:
       summary_failure("Compaction failed: expected a nonempty bounded summary without tool calls; original history retained", task)
 
+def provider_summary_checked(valid: Bool, value: J.Json, resume: Bool, task: M.Task) -> M.Task:
+  match valid:
+    case True{}:
+      promote(M.with_phase(after_summary(resume), M.append_message(M.ModelContext{value}, task)))
+    case False{}:
+      summary_failure("Compaction failed: expected one nonempty bounded provider checkpoint; original history retained", task)
+
+def summary_context_result(checkpoint: Bool, +value: J.Json, resume: Bool, task: M.Task) -> M.Task:
+  match checkpoint:
+    case True{}: provider_summary_checked(M.valid_provider_checkpoint(value), value, resume, task)
+    case False{}:
+      +summary = summary_context(value)
+      summary_checked(M.valid_summary(summary), summary, resume, task)
+
+def summary_reply(items: +List<M.ModelItem>, resume: Bool, task: M.Task) -> M.Task:
+  match items:
+    case Con{M.Context{+value}, Nil{}}:
+      summary_context_result(M.is_provider_checkpoint(value), value, resume, task)
+    case +other:
+      +summary = summary_text(other)
+      summary_checked(Bool.not(has_invocation(other)) && Bool.not(has_provider_checkpoint(other)) &&
+        M.valid_summary(summary), summary, resume, task)
+
 def summary_outcome(outcome: M.Outcome, resume: Bool, task: M.Task) -> M.Task:
   match outcome:
     case M.ContextLimit{}:
       summary_failure("The summary request exceeded the model context limit; supply a bounded checkpoint with compact", task)
     case M.ModelFailure{message}: summary_failure(message, task)
-    case M.ModelReply{+items}:
-      +summary = summary_text(items)
-      summary_checked(Bool.not(has_invocation(items)) && M.valid_summary(summary), summary, resume, task)
+    case M.ModelReply{items}: summary_reply(items, resume, task)
 
 def interrupted_outcome(attempt: M.Attempt) -> J.Json:
   match attempt:

@@ -105,7 +105,10 @@ excessive `Retry-After` is a failure rather than permission to retry too early.
 An already exposed SSE stream is not retried automatically. Transport attempts
 share one committed model ticket and do not replay any tool effect.
 
-Summary requests use the ordinary model transport but receive no tools. The host
+Summary requests use the ordinary model transport but receive no tools. ChatGPT
+uses streaming remote compaction v2 and returns one unchanged encrypted checkpoint;
+API-key profiles retain text summarization. Compaction deltas are not displayed.
+The host
 does not decide when to compact, which history to retain, or whether a completion
 is current. Bend performs those decisions, validates summaries, and commits a
 checkpoint before using its context projection. Supplied checkpoints need no

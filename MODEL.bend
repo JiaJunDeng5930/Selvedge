@@ -418,13 +418,37 @@ type History is Data:
   EmptyHistory{}
   HistoryNode{previous: History, message: Message}
 
-# The durable history is never shortened. This idempotent projection selects
-# the last checkpoint and the exact suffix after it for the next model request.
+# An opaque provider checkpoint has no call authority. Its encryption and
+# upstream meaning are external assumptions; the domain owns its context cut.
+def is_provider_checkpoint(+value: J.Json) -> Bool:
+  String.eq(J.text(J.get(value, "type")), "compaction")
+
+def provider_checkpoint_limit_bytes() -> Nat:
+  U32.to_nat(262144)
+
+# Remote v2 summaries retain client-authored user requests, not tool output that
+# the host encodes as unprivileged user-role transport notices. Full audit history
+# remains available even when an opaque checkpoint replaces working context.
+def retained_users(history: History) -> History:
+  match history:
+    case EmptyHistory{}: EmptyHistory{}
+    case HistoryNode{previous, UserMessage{text}}:
+      HistoryNode{retained_users(previous), UserMessage{text}}
+    case HistoryNode{previous, other}: retained_users(previous)
+
+def provider_context_node(checkpoint: Bool, previous: History, value: J.Json) -> History:
+  match checkpoint:
+    case True{}: HistoryNode{retained_users(previous), ModelContext{value}}
+    case False{}: HistoryNode{previous, ModelContext{value}}
+
+# The durable history is never shortened. Text checkpoints select their exact
+# suffix; provider checkpoints additionally retain original user requests.
 def context_node(previous: History, message: Message) -> History:
   match message:
     case ContextCheckpoint{summary}: HistoryNode{EmptyHistory{}, ContextCheckpoint{summary}}
     case ToolReceipt{owner, operation, call, value, error}: previous
     case AfterRecord{owner, operation, plugin, outcome}: previous
+    case ModelContext{+value}: provider_context_node(is_provider_checkpoint(value), previous, value)
     case other: HistoryNode{previous, other}
 
 def context_history(history: History) -> History:
@@ -458,11 +482,21 @@ def history_append(messages: +List<Message>, history: History) -> History:
 # Compaction must consume an opportunity to reduce context. A single checkpoint
 # cannot be compacted again without intervening input/work; this gives recovery
 # a structural bound instead of an ephemeral host retry counter.
+def history_nonempty(history: History) -> Bool:
+  match history:
+    case EmptyHistory{}: False{}
+    case HistoryNode{previous, message}: True{}
+
+def compactable_node(message: Message, previous: History) -> Bool:
+  match message:
+    case ModelContext{value}: Bool.not(is_provider_checkpoint(value))
+    case ContextCheckpoint{summary}: history_nonempty(previous)
+    case other: True{}
+
 def compactable(history: History) -> Bool:
   match history:
     case EmptyHistory{}: False{}
-    case HistoryNode{EmptyHistory{}, ContextCheckpoint{summary}}: False{}
-    case _: True{}
+    case HistoryNode{previous, message}: compactable_node(message, previous)
 
 def branch_history(history: History, call_id: String, branch: Nat) -> History:
   HistoryNode{history, FunctionOutput{call_id, J.nat(branch), False{}}}
@@ -770,6 +804,7 @@ def boundary_limits() -> J.Json:
     J.Field{"artifact_bytes", J.nat(U32.to_nat(8388608))},
     J.Field{"context_threshold_bytes", J.nat(context_threshold_bytes())},
     J.Field{"summary_limit_bytes", J.nat(summary_limit_bytes())},
+    J.Field{"provider_checkpoint_limit_bytes", J.nat(provider_checkpoint_limit_bytes())},
     J.Field{"project_context_bytes", J.nat(project_limit())},
     J.Field{"model_retry", J.Object{[
       J.Field{"statuses", J.Array{[J.nat(408n), J.nat(429n), J.nat(500n), J.nat(502n), J.nat(503n), J.nat(504n)]}},
@@ -860,6 +895,11 @@ def failure(code: String, message: String) -> J.Json:
 
 def nonempty(text: String) -> Bool:
   Bool.not(String.is_empty(String.trim(text)))
+
+def valid_provider_checkpoint(+value: J.Json) -> Bool:
+  # The host validates the encrypted wire payload and its byte bound. Here the
+  # value is opaque; the native boundary still admits only bounded full frames.
+  is_provider_checkpoint(value) && nonempty(J.text(J.get(value, "encrypted_content")))
 
 def valid_summary(+summary: String) -> Bool:
   nonempty(summary) && Nat.is_le(J.utf8_length(summary), summary_limit_bytes())

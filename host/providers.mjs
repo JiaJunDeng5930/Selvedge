@@ -99,6 +99,11 @@ export function responseBody(effect, profile = { provider: effect.model.provider
     // catalog to the native callable set instead of sending allowed_tools.
     body.tools = body.tools.filter(tool => effect.callable.includes(tool.name));
     body.tool_choice = 'auto';
+    if (effect.kind === 'summary') {
+      if (!text(effect.context_instructions)) throw new Error('A native compaction effect requires the frozen context instructions');
+      body.instructions = effect.context_instructions;
+      body.input.push({ type: 'compaction_trigger' });
+    }
     if (profile.model_info) {
       const levels = profile.model_info.supported_reasoning_levels.map(level => level.effort);
       if (!levels.length) delete body.reasoning;
@@ -153,6 +158,10 @@ export async function requestModel(effect, config, home, limits, { signal, onDel
     return [{ type: 'text', text: `[Offline demo] ${last?.content ?? 'Task resumed.'}` }];
   }
   const lifetime = signal ? AbortSignal.any([signal, AbortSignal.timeout(profile.timeout_ms)]) : AbortSignal.timeout(profile.timeout_ms);
+  if (profile.provider === 'chatgpt' && effect.kind === 'summary' &&
+      (!Number.isSafeInteger(limits.provider_checkpoint_limit_bytes) || limits.provider_checkpoint_limit_bytes < 1)) {
+    throw new Error('The native provider-checkpoint byte policy is missing');
+  }
   const request = responseBody(effect, profile);
   const session = profile.provider === 'chatgpt' ? chatgptSession(home, effect.task_id) : undefined;
   if (session) request.prompt_cache_key = session;
@@ -201,10 +210,14 @@ export async function requestModel(effect, config, home, limits, { signal, onDel
     if (typeof event.type === 'string' &&
         (event.type.includes('.delta') || event.type === 'response.output_item.added')) outputStarted = true;
     if (event.type === 'response.output_text.delta' && typeof event.delta === 'string') {
-      onDelta(event.delta);
+      if (effect.kind !== 'summary') onDelta(event.delta, event.output_index ?? 0);
     } else if (event.type === 'response.output_item.done') {
       if (!Number.isSafeInteger(event.output_index) || event.output_index < 0 || !object(event.item)) {
         throw new Error('Provider returned an invalid completed output item');
+      }
+      outputStarted = true;
+      if (completedItems.has(event.output_index) && stringifyJson(completedItems.get(event.output_index)) !== stringifyJson(event.item)) {
+        throw new Error('Provider returned conflicting completed output items');
       }
       completedItems.set(event.output_index, event.item);
     } else if (event.type === 'response.completed') {
@@ -214,6 +227,19 @@ export async function requestModel(effect, config, home, limits, { signal, onDel
       else if (completedItems.size > 0) {
         output = [...completedItems.entries()].sort(([left], [right]) => left - right).map(([, item]) => item);
       } else output = event.response.output;
+      if (profile.provider === 'chatgpt' && effect.kind === 'summary') {
+        // The current Codex route is streaming remote compaction v2, not a
+        // text-summary prompt or the obsolete /responses/compact JSON shape.
+        if (!Array.isArray(output) || output.some(item => item?.type === 'function_call')) {
+          throw new Error('Remote compaction returned an invalid output or tool invocation');
+        }
+        const checkpoints = output.filter(item => item?.type === 'compaction');
+        if (checkpoints.length !== 1 || !text(checkpoints[0].encrypted_content) ||
+            Buffer.byteLength(checkpoints[0].encrypted_content) > limits.provider_checkpoint_limit_bytes) {
+          throw new Error('Remote compaction must return exactly one nonempty bounded encrypted checkpoint');
+        }
+        return [{ type: 'context', value: checkpoints[0] }];
+      }
       return providerOutput(output);
     } else if (['error', 'response.failed', 'response.incomplete'].includes(event.type)) {
       const code = event.type === 'error' ? event.code : event.response?.error?.code;
