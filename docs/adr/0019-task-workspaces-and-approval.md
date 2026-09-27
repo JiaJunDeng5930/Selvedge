@@ -54,8 +54,9 @@ Approval for Me is a separate provider call, not an agent task or a child fork.
 It has no tools and receives the exact command, frozen settings and at most four
 recent user requests, each bounded to 4096 characters. Its instructions require
 denial when this partial context does not establish permission. Strict decoding
-rejects additional authority fields, tool calls, malformed decisions and excess
-output. Transport failure settles as a failed review; it never grants access.
+rejects duplicate JSON members (including escaped keys), additional authority
+fields, tool calls, malformed decisions and excess output. Transport failure
+settles as a failed review; it never grants access.
 This constrains the mechanism, not the model's judgment or resistance to prompt
 injection. Full Access deliberately bypasses the sandbox; a reviewed exception
 does so only for its one frozen invocation, without changing task settings.
@@ -63,6 +64,13 @@ does so only for its one frozen invocation, without changing task settings.
 `LAWS.review_semantics` is the public refinement shared by protocol and approval
 proofs. The protocol module provides its evidence; approval assembly consumes
 that declared law rather than importing a sibling's private helper.
+
+Human approval controls are generated in `UI.bend` with ordinary live command
+gates. The browser displays the full command literally and forwards the exact
+one-operation event; it cannot alter the requested command through that event.
+A stale click returns a refused command receipt alongside the updated screen.
+The adapter does not infer permission from HTTP success or maintain approval
+state. Browser tests use pointer hit-testing on both desktop and narrow layouts.
 
 ## Evidence boundary
 

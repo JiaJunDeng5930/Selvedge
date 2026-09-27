@@ -16,10 +16,11 @@ Tests do not maintain a second finite-example specification of those semantics.
 | Workspace path observations, Seatbelt quoting, seccomp ABI encoding and real OS write boundaries | `sandbox.test.mjs`; native policy proofs do not prove OS isolation |
 | Canonical project/workspace observations → committed task plan → real subprocess cwd/permissions → journal reopen | `workspaces.test.mjs`; pure context properties are in `workspace-architecture.bend` / `proofs/workspaces.bend` |
 | Approval command/completion encoding, strict reviewer payloads, stable operation IDs and fresh execution-ticket serialization | `approvals-native.test.mjs`; native review properties are bound in `approval-architecture.bend` / `proofs/approvals.bend` |
+| HTTP approval → SQLite grant → actual subprocess authorization; rejected/stale UI input, independent provider calls, malformed/duplicate decisions, cancellation and reopen | `approvals.test.mjs` and `fixtures/approved-tool.mjs`; the executed child checks its own prior committed grant before writing outside the workspace |
 | Provider/MCP/plugin wire formats, failures, actual cancellation and commit-before-callback | `providers`, `plugins`, `after-hooks`, `service-recovery` tests |
 | Authentication, HTTP/SSE and generic browser rendering | `auth`, `ui`, `service` tests |
 | Paced Markdown, safe links, fragmented SSE, draft races and preview identity/revision | `web-streaming.test.mjs`; browser mechanics, not native-domain proofs |
-| Real browser DOM identity, focus, scroll, worker formatting, responsive layout, native form/actions and account compaction | `npm run test:browser`; isolated Chrome, loopback provider, native kernel and SQLite; captures in `.workpad/chatgpt-webui/` |
+| Real browser DOM identity, focus, scroll, worker formatting, responsive layout, unobscured approve/deny pointer targets, native form/actions and account compaction | `npm run test:browser`; isolated Chrome, loopback provider, native kernel and SQLite; captures in `.workpad/chatgpt-webui/` |
 | Audited ChatGPT OAuth/Responses, account model discovery and encrypted compaction transport, restart and cancellation | `chatgpt-contract`, `chatgpt-models`, `chatgpt-compaction` tests; loopback services, not a live commercial account |
 | Cross-boundary create → commit → execution → callback → model delivery → restart | `service`, `service-recovery`, `context-recovery`, `after-hooks`, `coding`, `project-context` tests using real loopback servers/processes and SQLite |
 
@@ -42,3 +43,8 @@ still needs evidence. Keep type-correct semantic mutations: they test whether
 the proof obligations can reject an incorrect implementation, not whether a
 particular input produces the expected domain result. A timeout, syntax error or
 missing import is not an acceptable semantic-mutation success.
+
+Approval mutations include accepting the wrong reviewer origin, consuming a grant
+twice, dropping the independent review effect and changing the approved command
+at dispatch. Each mutation must type-check under the production module root and
+then be rejected by `approval_boundary` or `LAWS.execution_semantics`.

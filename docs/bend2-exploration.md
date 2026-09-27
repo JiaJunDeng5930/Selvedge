@@ -1082,3 +1082,47 @@ dispatched a Bash process in the selected primary root, wrote both authorized
 roots, rejected an outside write, and reopened the same journal from another
 launch directory without repeating the effect. Journal identity now describes
 the kernel/format, not a global workspace. File effects carry task-local plans.
+
+## 2026-09-27: completing the approval boundary and Web interaction
+
+The unfinished approval assembly called a sibling proof's private helper. That
+refinement is now the public `LAWS.review_semantics` obligation: protocol supplies
+the evidence, and approval assembly consumes the declaration. No architecture
+test or invariant was relaxed. The remaining native-test failures confused the
+list envelope with its task array, expected an asynchronous notification without
+an earlier announcement, and attempted another manual fork while its first fork
+had resumed the parent model. Correcting those boundary expectations preserved
+the existing scheduling behavior.
+
+Approval controls now come from the native presentation, through the same command
+resolver as CLI requests. The surface displays the exact post-hook command,
+justification, primary directory and unrestricted one-invocation scope. An old
+button is not authority: a stale submit returns a refused receipt with a refreshed
+screen. HTTP success only means that the presentation envelope was delivered.
+Model review remains a separate tool-free request with its own cancellation
+identity; it creates no task and emits no task-stream preview.
+
+An integration probe runs inside the approved child process and opens SQLite
+before writing outside the workspace. It requires both the committed review and
+the one authorized execution with a fresh ticket. Denial, cancellation, malformed
+review output and reopening a pending review produce no such process. A strict
+two-string-member wire grammar also rejects duplicate JSON keys before ordinary
+JSON decoding can discard an earlier decision. These are external-boundary
+checks, not proofs that a reviewer model reliably judges user intent.
+
+The browser test initially missed a mobile overlay because programmatic `.click()`
+does not test hit targets. The scroll-to-latest control now lives in the header;
+desktop and narrow-screen approval checks use hit-testing and real pointer
+coordinates. Both approval actions were exercised against actual Bash effects,
+and the screenshots were inspected. The browser reported no runtime exceptions.
+
+Validation on this macOS host: `npm run check` passed the pure proof gate,
+certificate reproducibility and syntax checks; `npm test` passed all 188 tests
+with no skips; `npm run test:browser` passed. New type-correct mutations that mix
+reviewer origins, reuse grants, omit the review effect or change the authorized
+command were rejected by the actual proof root. The full process suite was run
+outside the outer sandbox so Seatbelt could create its own boundary. This run
+does not establish real Linux execution: Linux syscall-filter probes passed for
+both supported architectures, and the existing Linux CI job remains responsible
+for executing bubblewrap on a Linux kernel. No sandbox was replaced with a
+permissive fallback and no commercial model's judgment was treated as proof.

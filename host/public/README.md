@@ -3,7 +3,8 @@
 `UI.bend` still owns the entire task presentation: which content and controls
 exist, their labels, events, field bindings and enabled flags. The browser never
 reads a task snapshot or reconstructs lifecycle, provider-message or command
-tables. This redesign makes no change to `UI.bend` or its modeled features.
+tables. Changes to task behavior and available actions belong in that native
+definition, not in a browser-side state machine.
 
 `widgets.mjs` renders the supplied roles as task navigation, a focused conversation,
 a docked send/steer composer and an optional details panel. Task controls, live
@@ -11,6 +12,20 @@ operations, ancestry, branching, context controls and the frozen tool contract
 are existing native widgets, not independently implemented features. The initial
 native form supplies the model choices discovered by account login. There is no
 fabricated Git panel, terminal, file browser or model-switch action.
+
+Pending permission requests are native operation widgets in the conversation,
+with the exact command, justification, working directory and scope. Only human
+review requests have Approve once and Deny actions; model-reviewed requests show
+their independent reviewer and retain cancellation. Commands and justification
+are rendered literally, never as HTML or assistant Markdown. The New task and
+Fork forms use the existing JSON widget for optional context overrides.
+
+An HTTP 200 from `/api/ui` can still carry a refused command in `result.receipt`:
+the outer success also delivers the updated native screen and its error notice.
+The adapter must not confuse that wrapper with an approval. The scroll-to-latest
+control lives in the header so it cannot cover permission buttons on a narrow
+screen. Browser checks verify hit-testing and actual pointer clicks, not only
+programmatic event dispatch.
 
 `renderer.mjs` fills only declared field bindings. `app.mjs` serializes native
 presentation events, stores unsubmitted drafts and reconnects the authenticated

@@ -71,6 +71,28 @@ broader write, network or approval authority. `create_project`, `update_project`
 with task references cannot be deleted. Task creation/fork accepts a `settings`
 object with `project_id`, `workspace`, `sandbox` and `approval`.
 
+Approval policy has three modes. **Full Access** runs Bash without isolation.
+**Ask for Approval** keeps ordinary commands sandboxed and shows an exact-command
+permission request in the conversation when the agent requests an exception.
+**Approval for Me** sends that request to a separate, tool-free model invocation;
+it does not create a task. Set `reviewer_profile` to a configured model profile,
+or omit it to use the task's profile. The offline echo profile cannot approve.
+
+An agent requests an exception with `sandbox_permissions: "require_escalated"`
+and a concrete `justification` before executing the command. The Web UI shows
+the complete command, reason, working directory and requested scope, with
+**Approve once** and **Deny** buttons for human review. Approval permits only that
+invocation outside filesystem and network isolation; it never changes the task's
+saved settings. A frozen task can receive a decision but waits for Unfreeze before
+running. Duplicate or stale decisions cannot authorize another execution.
+Cancellation, malformed model replies and interrupted reviews grant no access.
+A failed sandbox command is not retried automatically with broader permissions.
+
+The New task and Fork forms accept a `settings` JSON object. `{}` uses the normal
+defaults or parent context. For example, `{"project_id": 0}` selects project 0's
+workspace for a new task; `{"workspace": {"roots": []}}` explicitly selects no
+workspace roots. The same fields are available through the CLI and command API.
+
 The actual command and context guarantees are bound by
 `bendlib/workspace-architecture.bend` in `CONCEPTS.Harness.working_context`.
 Journal format 2 records these task-local plans, not a global working directory;
@@ -145,19 +167,23 @@ command specification. `node host/cli.mjs help` lists host-level commands.
 
 ## Use it on a project
 
-Start the server from the project's directory; that directory is the workspace
-for relative file and Bash paths. For example, after building this checkout:
+The service launch directory supplies the default workspace for a new task that
+does not select a project or explicit roots. It is not a shared task directory
+or a permission boundary. For example, after building this checkout:
 
 ```bash
 cd /absolute/path/to/project
 node /absolute/path/to/Selvedge/host/cli.mjs --home /absolute/path/to/task-home server
 ```
 
-The journal pins the workspace's canonical path. Restart from the same workspace;
-a different directory is rejected before replay or tool dispatch. Tasks within a
-service share that workspace; a task fork is not a separate Git worktree or an OS
-sandbox. Bash runs with the service user's permissions, and absolute
-paths are allowed. Use only trusted local users and tools.
+The journal records each task's canonical roots and execution settings. Restarting
+from a different directory cannot reinterpret existing tasks' relative paths;
+only new unprojected tasks use the new launch default. Tasks can select different
+workspaces in the same service. A task fork does not create a Git worktree or copy
+files. Bash uses its task's sandbox unless Full Access or a one-operation grant
+explicitly permits unrestricted execution. Keep the service home separate from
+project code. MCP servers and plugins are trusted host components; the Bash
+sandbox does not isolate those extension processes.
 
 Use `bash` for reading, writing, editing, searching, scripts and tests; there is no
 second set of file tools. Independent calls from one reply run concurrently. Put
@@ -176,9 +202,11 @@ it through Bash. Nonzero exits, deadlines and cancellation are tool errors, and
 shell descendants are terminated when the shell exits.
 The executable catalog and `limits` in `describe` are authoritative.
 
-At startup the service captures the root `AGENTS.md` as a bounded UTF-8 snapshot
-with a content revision and canonical workspace. A new task freezes that snapshot
-in its contract; forks, checkpoints and restarts retain it. Later file changes
+At startup the service captures default root guidance. Supplying explicit
+workspace roots observes the primary root's `AGENTS.md` as a bounded UTF-8 snapshot
+with a content revision. Selecting a saved project reuses its recorded workspace
+and guidance. A new task freezes the selected guidance in its contract; inherited
+forks, checkpoints and restarts retain it. Later file changes
 are visible through Bash, but do not silently rewrite an existing task's
 instructions. Restarting captures new guidance for subsequently created tasks.
 Nested module guidance is read on demand. Repository text remains task context,
@@ -290,9 +318,10 @@ native boundary policy. Permanent failures and excessive `Retry-After` delays
 are not retried. A partially exposed response stream is never silently replayed;
 retry notices are visible in the event stream and browser.
 
-There is one current journal format, tied to the complete Bend source fingerprint,
-compiler version, and canonical workspace. Another kernel, a different workspace,
-or an obsolete Rust database is rejected.
+There is one current journal format, tied to the complete Bend source fingerprint
+and compiler version, with task-local workspace settings stored in its inputs.
+Another kernel or an obsolete database format is rejected; a different service
+launch directory is not a reason to reject an otherwise matching journal.
 Use a separate home when changing the kernel; this branch provides no migration
 or backward-compatible reader. The earlier Rust implementation is retained in
 Git history, not as a second runtime in the checkout.
@@ -302,9 +331,9 @@ world and transition predicates. Starting from a valid world, every finite trace
 preserves its world invariant. This is a safety result: it does not prove that a
 model terminates, that every valid request fits the resource bounds, that the
 scheduler is fair, or that an operating system or remote service obeys the model.
-File mutations are serialized within this host, revision-checked, and published
-with atomic replacement or exclusive creation. They are not a global
-compare-and-swap against independent editors, Bash processes, or other services.
+Host-owned atomic writes do not make arbitrary Bash edits transactional.
+Concurrent commands and editors can change the same files; any required locking,
+revision checks or atomic replacement belong in the project's commands or scripts.
 The Bend checker/compiler, native transport, Node, SQLite, OS, and remote protocols
 remain explicit trust boundaries. Local integration tests exercise those paths;
 live provider acceptance and physical history sharing are not claimed.
@@ -314,15 +343,19 @@ live provider acceptance and physical history sharing are not claimed.
 ```bash
 npm run check
 npm test
+npm run test:browser
 npm run index:check
 npm run bench
 ```
 
 `check` verifies the pinned compiler, every proof obligation, and host/script
 syntax. Tests run the native kernel, real loopback HTTP/SSE services, SQLite,
-Bash, file revision conflicts and concurrent edits, an actual coding/test loop,
-compaction and interruption, stdio MCP, credential-flow fixtures, and negative
-proof mutations. The
+Bash, workspace isolation, approval commit-before-execution, cancellation and
+restart, an actual coding/test loop, compaction, stdio MCP, credential-flow
+fixtures, and negative proof mutations. The browser check uses an isolated Chrome
+or Chromium profile and loopback services, including real approve/deny clicks on
+desktop and narrow screens. Tests require a working platform sandbox; do not
+disable isolation to run them inside another restrictive sandbox. The
 benchmark measures committed transitions and replay on reproducible task trees;
 it imposes no machine-dependent CI threshold. CI is configured to run checks and
 tests on macOS and Linux. `just` provides aliases for these commands.

@@ -80,10 +80,11 @@ task contracts. See `../docs/plugins.md` for schemas, recovery and delivery limi
 
 `process.mjs` is the single local coding-effect interpreter. Reading, writing,
 editing and running a reusable script are ordinary Bash commands, not redundant
-tool implementations. `project.mjs` only observes bounded root guidance before
-configuration; it is not a model-callable file tool. File locking, atomic editing
+tool implementations. `project.mjs` observes bounded primary-root guidance at
+configuration and explicit workspace selection; it is not a model-callable file
+tool. File locking, atomic editing
 and revision checks required by a project belong in its commands or reusable
-scripts. This service is not a cross-process filesystem transaction or sandbox.
+scripts. Process isolation does not provide cross-process filesystem transactions.
 
 `process.mjs` drains both pipes with bounded previews and bounded artifact files
 under the service home's `artifacts` directory. Output beyond the artifact cap is
@@ -95,11 +96,12 @@ Artifacts have private permissions; they are not automatically garbage-collected
 because durable history may reference them. File synchronization is reported in
 artifact metadata; filesystem loss or external deletion remains possible.
 
-The journal binds the canonical workspace before reconstructing a kernel. This
-prevents identical relative paths from acquiring a different meaning after a
-restart in another directory. The source fingerprint and workspace are checked,
-not migrated. Different operations and service homes do not serialize arbitrary
-filesystem mutations, even when pointed at the same workspace.
+The journal stores canonical task-local workspace observations and verifies the
+kernel fingerprint/current format before reconstruction. Existing execution plans
+retain their meaning after a restart in another launch directory. No workspace
+migration or global directory binding is involved. Different operations and
+service homes do not serialize arbitrary filesystem mutations, even when pointed
+at the same workspace.
 
 Native operations have stable task/operation identities and one current effect
 ticket. An after callback gets a fresh ticket without changing the operation ID.
