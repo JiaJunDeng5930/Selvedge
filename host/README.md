@@ -31,12 +31,17 @@ against a loopback issuer/model server, not a commercial account.
 
 `POST /api/ui` accepts only an opaque navigation cursor and a public presentation
 event. Bend produces the entire typed surface in `UI.bend`: content, titles,
-actions, fields, bindings and enabled flags. `public/renderer.mjs` renders generic
-widgets, escapes text through DOM text nodes, and fills the declared event bindings.
+actions, fields, bindings and enabled flags. `public/renderer.mjs` fills declared
+event bindings; `public/widgets.mjs` renders the generic widgets with keyed DOM
+reconciliation and safe Markdown.
 `public/app.mjs` handles authentication, serialized requests and commit invalidation.
 Neither file interprets task state or provider message roles. Unsubmitted field
 drafts and disclosure/focus state are presentation mechanics, not a domain cache.
-Uncommitted model deltas do not replace the native conversation surface.
+Uncommitted model deltas do not replace the native conversation surface. A
+separately labelled, bounded streaming preview is correlated with host execution
+identity and retired after its native settlement revision. Exact settled text
+can retain its already-rendered DOM. See `public/README.md` and ADR 0018 for the
+display scheduler, worker formatting, draft retention and evidence boundaries.
 The existing command endpoint remains available to CLI and API callers. Both
 endpoints revalidate against the current native world; a stale enabled button is
 never authority to execute. Navigation/refresh has no journal entry or effects.

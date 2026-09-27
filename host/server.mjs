@@ -11,6 +11,9 @@ const assets = new Map([
   ['/', ['index.html', 'text/html; charset=utf-8']],
   ['/app.mjs', ['app.mjs', 'text/javascript; charset=utf-8']],
   ['/renderer.mjs', ['renderer.mjs', 'text/javascript; charset=utf-8']],
+  ...['widgets.mjs', 'streams.mjs', 'events.mjs', 'markdown.mjs', 'markdown-worker.mjs',
+    'vendor/streaming-markdown.mjs', 'vendor/highlight.mjs', 'vendor/katex.mjs']
+    .map(file => [`/${file}`, [file, 'text/javascript; charset=utf-8']]),
   ['/style.css', ['style.css', 'text/css; charset=utf-8']],
 ]);
 

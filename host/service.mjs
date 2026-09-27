@@ -159,10 +159,15 @@ export class Service extends EventEmitter {
 
   async #perform(effect, signal) {
     let input;
+    const cancelPreview = () => this.notify({ type: 'stream_cancel', task_id: effect.task_id, ticket: effect.ticket });
+    if (effect.kind === 'model') {
+      this.notify({ type: 'stream_start', task_id: effect.task_id, ticket: effect.ticket });
+      signal.addEventListener('abort', cancelPreview, { once: true });
+    }
     try {
       if (effect.kind === 'model' || effect.kind === 'summary') {
         const items = await requestModel(effect, this.config, this.home, this.limits, {
-          signal, onDelta: text => this.notify({ type: 'delta', task_id: effect.task_id, ticket: effect.ticket, text }),
+          signal, onDelta: (text, output_index) => this.notify({ type: 'delta', task_id: effect.task_id, ticket: effect.ticket, output_index, text }),
           onRetry: retry => this.notify({ type: 'retry', task_id: effect.task_id, ticket: effect.ticket, ...retry }),
         });
         input = { kind: 'model', task_id: effect.task_id, ticket: effect.ticket, ok: true, items };
@@ -198,6 +203,7 @@ export class Service extends EventEmitter {
         input.failure_kind = 'context_limit';
       }
     }
+    signal.removeEventListener('abort', cancelPreview);
     if (this.#closing || this.#failure) return;
     let result;
     try { result = await this.journal.execute(input); }
@@ -211,6 +217,9 @@ export class Service extends EventEmitter {
       result = await this.journal.execute(this.#failureInput(effect, 'External result cannot fit the complete decision'));
     }
     if (!result.reply.ok) throw new Error(`Effect settlement rejected: ${result.reply.error.message}`);
+    if (effect.kind === 'model') {
+      this.notify({ type: 'stream_end', task_id: effect.task_id, ticket: effect.ticket, sequence: result.sequence });
+    }
   }
 
   #failureInput(effect, message) {

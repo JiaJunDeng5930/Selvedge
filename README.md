@@ -100,7 +100,10 @@ archive against `bend-checksums.txt`. It changes neither the system compiler nor
 another worktree. There are no npm runtime dependencies.
 
 The server prints a local URL with its access token. Open it to create a task,
-send messages, control its lifecycle, or use the schema-derived Commands dialog.
+send or steer messages, and open Details for task controls, branches, context
+checkpoints and the frozen tool contract. The task sidebar, conversation and
+composer adapt to desktop and narrow screens, with light/dark themes. Streaming
+Markdown preserves stable blocks and unsent drafts.
 The default `demo` profile runs without credentials or an external model request.
 `Ctrl-C` closes the service and its owned processes.
 
