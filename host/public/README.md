@@ -13,6 +13,13 @@ are existing native widgets, not independently implemented features. The initial
 native form supplies the model choices discovered by account login. There is no
 fabricated Git panel, terminal, file browser or model-switch action.
 
+The presentation follows the installed Codex Desktop's neutral sidebar,
+conversation column, compact composer, action menu and right-hand details panel.
+The reference version and inspected assets are recorded in ADR 0020. The adapter
+does not ship the application's code, branding or fonts. New-task model/reasoning
+fields sit in the composer toolbar; the existing JSON settings field is available
+from its settings disclosure. Its value and binding still come from Bend.
+
 Pending permission requests are native operation widgets in the conversation,
 with the exact command, justification, working directory and scope. Only human
 review requests have Approve once and Deny actions; model-reviewed requests show
@@ -32,9 +39,16 @@ presentation events, stores unsubmitted drafts and reconnects the authenticated
 event stream. Keyed DOM reconciliation retains field elements, caret/selection,
 disclosures and unchanged messages. A successful request clears only the draft
 values actually submitted, not text typed while the request was pending.
-Ctrl/Cmd+Enter submits a form, except during IME composition. Scrolling follows
+Enter submits the active composer; Shift+Enter inserts a new line. Ctrl/Cmd+Enter
+also submits forms. None of these shortcuts submits during IME composition. The
+send/steer menu retains each native form and its draft, rather than rewriting a
+command based on a browser-side task status. Scrolling follows
 new output only while the reader remains near the bottom. Explicit history
 navigation suppresses previews until the reader selects Follow latest.
+
+On narrow screens the task sidebar has an outside-click scrim, keyboard focus
+containment and an inert conversation behind it. The access-token form is a native
+modal dialog. These controls change browser focus and disclosure state only.
 
 ## Incremental Markdown
 

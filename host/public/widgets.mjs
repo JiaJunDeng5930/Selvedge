@@ -10,6 +10,28 @@ const element = (document, tag, className, text) => {
 };
 const setText = (node, text) => { if (node.textContent !== text) node.textContent = text; };
 
+const iconPaths = {
+  new: ['M12 4H5a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h13a2 2 0 0 0 2-2v-7', 'm15 3 6 6', 'm9 15 2.5-6.5L18 2l4 4-6.5 6.5L9 15Z'],
+  panel: ['M4 4h16v16H4z', 'M15 4v16'],
+  up: ['M12 19V5', 'm5 12 7-7 7 7'],
+  chevron: ['m8 10 4 4 4-4'],
+  settings: ['M4 7h16M4 17h16', 'M8 4v6M16 14v6'],
+};
+function icon(document, name) {
+  const node = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  for (const [key, value] of Object.entries({ viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.5', 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'aria-hidden': 'true', focusable: 'false', class: 'icon' })) node.setAttribute(key, value);
+  for (const d of iconPaths[name]) {
+    const path = document.createElementNS(node.namespaceURI, 'path'); path.setAttribute('d', d); node.append(path);
+  }
+  return node;
+}
+
+function resizeEditor(input) {
+  if (!input.isConnected || !input.getClientRects().length) return;
+  input.style.height = 'auto';
+  input.style.height = `${Math.min(240, Math.max(56, input.scrollHeight))}px`;
+}
+
 // Unlike replaceChildren, a keyed splice doesn't detach unaffected editors,
 // selections, disclosure widgets, or the stable prefix of a conversation.
 function reconcile(parent, children) {
@@ -63,9 +85,13 @@ export function mount(root, tree, dispatch, options = {}) {
       } else throw new TypeError(`Unsupported field kind: ${descriptor.kind}`);
       input.id = encodeURIComponent(key);
       input.name = descriptor.name;
-      input.addEventListener('input', () => context.drafts.set(key, input.value));
+      input.addEventListener('input', () => {
+        context.drafts.set(key, input.value);
+        if (form.composer && descriptor.kind === 'multiline') resizeEditor(input);
+      });
       input.addEventListener('keydown', event => {
-        if (event.key === 'Enter' && (event.metaKey || event.ctrlKey) && !event.isComposing && event.keyCode !== 229) {
+        const send = form.composer && descriptor.kind === 'multiline' && !event.shiftKey && !event.altKey;
+        if (event.key === 'Enter' && (send || ((event.metaKey || event.ctrlKey) && !event.shiftKey)) && !event.isComposing && event.keyCode !== 229) {
           event.preventDefault(); form.node.requestSubmit();
         }
       });
@@ -77,6 +103,8 @@ export function mount(root, tree, dispatch, options = {}) {
     const input = item.input;
     input.required = descriptor.required;
     input.setAttribute('aria-label', descriptor.label);
+    input.title = descriptor.label;
+    input.placeholder = form.composer && descriptor.kind === 'multiline' ? descriptor.label : '';
     if (descriptor.kind === 'choice') {
       const signature = JSON.stringify(descriptor.choices);
       if (item.choices !== signature) {
@@ -93,16 +121,21 @@ export function mount(root, tree, dispatch, options = {}) {
     }
     const value = context.drafts.get(key) ?? (descriptor.kind === 'json' ? JSON.stringify(descriptor.value) : String(descriptor.value ?? ''));
     if (input.value !== value) input.value = value;
+    if (form.composer && descriptor.kind === 'multiline') requestAnimationFrame(() => resizeEditor(input));
     return item.label;
   }
 
-  function draw(model, parent = '') {
+  function draw(model, parent = '', parentRole = '') {
     const key = `${parent}/${model.key}`;
     if (model.kind === 'action') {
-      const entry = record(model, key, () => ({ node: make('button', 'action') }));
+      const entry = record(model, key, () => {
+        const node = make('button', 'action'); const label = make('span', 'action-label'); const mark = icon(document, 'new');
+        node.append(mark, label); return { node, label, mark };
+      });
       const node = entry.node;
       node.type = 'button'; node.disabled = !model.enabled;
-      setText(node, model.label);
+      setText(entry.label, model.label); entry.mark.toggleAttribute('hidden', model.key !== 'new');
+      node.dataset.action = model.key;
       node.setAttribute('aria-current', String(model.selected));
       node.title = model.label;
       node.onclick = () => { if (entry.model.enabled) return Promise.resolve(context.dispatch(structuredClone(entry.model.event))).catch(() => {}); };
@@ -151,15 +184,38 @@ export function mount(root, tree, dispatch, options = {}) {
       const entry = record(model, key, () => {
         const node = make('form', 'widget-form'); const title = make('h3', 'form-title');
         const fieldset = make('fieldset'); const fields = make('div', 'fields');
+        const editor = make('div', 'form-editor'); const controls = make('div', 'form-controls');
+        const options = make('details', 'form-options'); const summary = make('summary', 'icon-button');
+        const optionFields = make('div', 'form-option-fields');
+        summary.append(icon(document, 'settings')); summary.setAttribute('aria-label', 'Additional task settings'); summary.title = 'Additional task settings';
+        options.append(summary, optionFields);
+        options.open = context.disclosures.get(`${key}/options`) ?? false;
+        options.addEventListener('toggle', () => context.disclosures.set(`${key}/options`, options.open));
+        options.addEventListener('keydown', event => { if (event.key === 'Escape' && options.open) { event.stopPropagation(); options.open = false; summary.focus(); } });
         const footer = make('div', 'form-footer'); const hint = make('span', 'keyboard-hint', '⌘ / Ctrl + Enter');
         const button = make('button', 'primary'); button.type = 'submit';
+        const buttonLabel = make('span', 'submit-label'); const buttonIcon = icon(document, 'up'); button.append(buttonIcon, buttonLabel);
         const error = make('p', 'form-error'); error.setAttribute('role', 'alert'); error.hidden = true;
-        footer.append(hint, button); fieldset.append(fields, footer); node.append(title, fieldset, error);
-        return { node, title, fieldset, fields, button, error, inputs: new Map(), pending: false };
+        footer.append(controls, hint, button); editor.append(fields, footer); fieldset.append(editor); node.append(title, fieldset, error);
+        node.addEventListener('invalid', event => { if (optionFields.contains(event.target)) options.open = true; }, true);
+        return { node, title, fieldset, fields, controls, options, optionFields, button, buttonLabel, buttonIcon, error, inputs: new Map(), pending: false };
       });
-      setText(entry.title, model.title); setText(entry.button, model.label);
-      entry.fieldset.disabled = !model.enabled; entry.button.disabled = entry.pending;
-      reconcile(entry.fields, model.fields.map(descriptor => field(entry, descriptor)));
+      entry.composer = parentRole === 'compose' || (parentRole === 'screen' && model.key === 'create');
+      entry.node.dataset.layout = entry.composer ? 'composer' : 'form';
+      setText(entry.title, model.title); setText(entry.buttonLabel, model.label);
+      entry.button.setAttribute('aria-label', model.label); entry.button.title = entry.composer ? `${model.label} (Enter)` : model.label;
+      entry.buttonIcon.toggleAttribute('hidden', !entry.composer);
+      entry.fieldset.disabled = !model.enabled; entry.button.disabled = entry.pending || !model.enabled;
+      const main = [], controls = [], options = [];
+      for (const descriptor of model.fields) {
+        const label = field(entry, descriptor);
+        if (!entry.composer || descriptor.kind === 'multiline') main.push(label);
+        else if (descriptor.kind === 'json') options.push(label);
+        else controls.push(label);
+      }
+      reconcile(entry.fields, main); reconcile(entry.optionFields, options);
+      entry.options.hidden = !options.length;
+      reconcile(entry.controls, [...controls, entry.options]);
       for (const name of entry.inputs.keys()) if (!model.fields.some(descriptor => descriptor.name === name)) entry.inputs.delete(name);
       entry.node.onsubmit = async event => {
         event.preventDefault();
@@ -170,8 +226,11 @@ export function mount(root, tree, dispatch, options = {}) {
           const command = eventForForm(entry.model, values);
           entry.pending = true; entry.button.disabled = true;
           await context.dispatch(command, key, values);
-        } catch (error) { entry.error.textContent = error.message; entry.error.hidden = false; }
-        finally { entry.pending = false; entry.button.disabled = false; }
+        } catch (error) {
+          entry.error.textContent = error.message; entry.error.hidden = false;
+          if (error instanceof SyntaxError && entry.optionFields.childElementCount) entry.options.open = true;
+        }
+        finally { entry.pending = false; entry.button.disabled = !entry.model.enabled; }
       };
       return entry.node;
     }
@@ -180,7 +239,8 @@ export function mount(root, tree, dispatch, options = {}) {
       const entry = record(model, key, () => {
         const node = make('section', 'workspace');
         const header = make('header', 'thread-header'); const title = make('h2');
-        const toggle = make('button', 'quiet-button', 'Details'); toggle.type = 'button';
+        const toggle = make('button', 'icon-button'); toggle.type = 'button'; toggle.append(icon(document, 'panel'));
+        toggle.title = 'Task details'; toggle.setAttribute('aria-label', 'Task details');
         const scroll = make('div', 'thread-scroll'); const thread = make('div', 'thread');
         const live = make('div', 'live-streams'); const compose = make('div', 'composer-dock');
         const inspector = make('aside', 'inspector'); inspector.hidden = true; inspector.setAttribute('aria-label', 'Task details');
@@ -205,7 +265,7 @@ export function mount(root, tree, dispatch, options = {}) {
       entry.node.dataset.role = model.role; setText(entry.title, model.title);
       const conversation = [], composers = [], details = [];
       for (const child of model.children) {
-        const node = draw(child, key);
+        const node = draw(child, key, model.role);
         if (['transcript', 'operations'].includes(child.role)) conversation.push(node);
         else if (child.role === 'compose') composers.push(node);
         else details.push(node);
@@ -216,28 +276,48 @@ export function mount(root, tree, dispatch, options = {}) {
       return entry.node;
     }
     if (model.role === 'compose') {
-      const entry = record(model, key, () => ({ node: make('section', 'composer'), tabs: make('div', 'compose-tabs'), content: make('div'), buttons: new Map() }));
-      entry.tabs.setAttribute('role', 'tablist'); entry.tabs.setAttribute('aria-label', model.title);
-      const active = context.tabs.get(key) ?? model.children[0]?.key;
+      const entry = record(model, key, () => {
+        const node = make('section', 'composer'); const mode = make('details', 'compose-mode');
+        const summary = make('summary'); const label = make('span'); summary.append(label, icon(document, 'chevron'));
+        const tabs = make('div', 'compose-tabs'); tabs.setAttribute('role', 'menu'); mode.append(summary, tabs);
+        mode.addEventListener('keydown', event => {
+          const buttons = [...tabs.querySelectorAll('button:not(:disabled)')];
+          if (event.key === 'Escape') { event.stopPropagation(); mode.open = false; summary.focus(); }
+          else if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key) && buttons.length) {
+            event.preventDefault(); mode.open = true;
+            const index = buttons.indexOf(document.activeElement);
+            const next = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1 : (index + (event.key === 'ArrowDown' ? 1 : -1) + buttons.length) % buttons.length;
+            buttons[next].focus();
+          }
+        });
+        return { node, mode, summary, label, tabs, content: make('div'), buttons: new Map() };
+      });
+      entry.tabs.setAttribute('aria-label', model.title); entry.summary.setAttribute('aria-label', model.title);
+      const remembered = context.tabs.get(key);
+      const active = model.children.some(child => child.key === remembered) ? remembered : model.children[0]?.key;
       const buttons = [], forms = [];
       for (const child of model.children) {
-        const form = draw(child, key);
+        const form = draw(child, key, model.role);
         const button = entry.buttons.get(child.key) ?? make('button', 'compose-tab');
         entry.buttons.set(child.key, button);
         setText(button, child.label ?? child.title);
-        button.type = 'button'; button.setAttribute('role', 'tab'); button.setAttribute('aria-selected', String(child.key === active));
+        button.type = 'button'; button.disabled = !child.enabled;
+        button.setAttribute('role', 'menuitemradio'); button.setAttribute('aria-checked', String(child.key === active));
         form.hidden = child.key !== active;
+        if (child.key === active) setText(entry.label, child.label ?? child.title);
         button.onclick = () => {
           context.tabs.set(key, child.key);
+          setText(entry.label, child.label ?? child.title); entry.mode.open = false;
           for (let i = 0; i < forms.length; i++) {
             forms[i].hidden = model.children[i].key !== child.key;
-            buttons[i].setAttribute('aria-selected', String(!forms[i].hidden));
+            buttons[i].setAttribute('aria-checked', String(!forms[i].hidden));
           }
-          form.querySelector('textarea, input')?.focus();
+          const input = form.querySelector('textarea, input'); input?.focus(); if (input?.tagName === 'TEXTAREA') resizeEditor(input);
         };
         buttons.push(button); forms.push(form);
       }
-      reconcile(entry.tabs, buttons); reconcile(entry.content, forms); reconcile(entry.node, [entry.tabs, entry.content]);
+      entry.mode.hidden = buttons.length < 2;
+      reconcile(entry.tabs, buttons); reconcile(entry.content, forms); reconcile(entry.node, [entry.content, entry.mode]);
       return entry.node;
     }
     const entry = record(model, key, () => {
@@ -252,7 +332,7 @@ export function mount(root, tree, dispatch, options = {}) {
     });
     entry.node.dataset.role = model.role; setText(entry.title, model.title); entry.title.hidden = !model.title;
     if (model.role === 'navigation') entry.node.setAttribute('aria-label', model.title);
-    reconcile(entry.content, model.children.map(child => draw(child, key)));
+    reconcile(entry.content, model.children.map(child => draw(child, key, model.role)));
     return entry.node;
   }
 

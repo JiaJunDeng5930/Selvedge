@@ -47,9 +47,23 @@ try {
   site = await startServer({ home: upstream.directory, config, cwd: upstream.directory });
   browserUI = await browser(upstream.directory);
   const { evaluate, wait, call } = browserUI;
+  const click = async selector => {
+    const point = await evaluate(`(() => { const element = document.querySelector(${JSON.stringify(selector)}); const rect = element.getBoundingClientRect();
+      const x = rect.x + rect.width / 2, y = rect.y + rect.height / 2;
+      return { x, y, visible: rect.width > 0 && rect.height > 0, hit: element.contains(document.elementFromPoint(x, y)) }; })()`);
+    assert.ok(point.visible && point.hit, `${selector} must be reachable by a pointer`);
+    await call('Input.dispatchMouseEvent', { type: 'mousePressed', x: point.x, y: point.y, button: 'left', clickCount: 1 });
+    await call('Input.dispatchMouseEvent', { type: 'mouseReleased', x: point.x, y: point.y, button: 'left', clickCount: 1 });
+  };
   await call('Emulation.setDeviceMetricsOverride', { width: 1360, height: 940, deviceScaleFactor: 1, mobile: false });
   await call('Page.navigate', { url: site.url });
   await wait('document.querySelector("select[name=profile]")?.options.length === 1 && document.querySelector("#connection").dataset.status === "connected"');
+  assert.equal(await evaluate('document.querySelector("textarea[name=settings]").checkVisibility()'), false);
+  await click('.form-options > summary');
+  assert.ok(await evaluate('document.querySelector("textarea[name=settings]").checkVisibility()'));
+  await call('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
+  await wait('!document.querySelector(".form-options").open');
+  assert.equal(await evaluate('document.querySelector(".brand-mark")'), null);
   await browserUI.screenshot(path.join(output, 'webui-new-task.png'));
   await evaluate(`{ const form = document.querySelector('form[data-key$="/create"]');
     const input = form.querySelector('textarea'); input.value = 'Explain how the streaming renderer works and show an implementation.';
@@ -94,22 +108,37 @@ try {
   await browserUI.screenshot(path.join(output, 'webui-dark.png'));
   await evaluate('document.getElementById("theme-toggle").click()');
   await call('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
-  await evaluate('document.body.dataset.sidebar = "closed"');
+  await wait('document.body.dataset.sidebar === "closed"');
   assert.ok(await evaluate('document.documentElement.scrollWidth <= innerWidth'));
   await browserUI.screenshot(path.join(output, 'webui-mobile.png'));
+  await click('#sidebar-toggle');
+  assert.ok(await evaluate('!document.getElementById("sidebar-dismiss").hidden && document.querySelector(".workspace").inert'));
+  await browserUI.screenshot(path.join(output, 'webui-mobile-navigation.png'));
+  await call('Input.dispatchMouseEvent', { type: 'mousePressed', x: 370, y: 160, button: 'left', clickCount: 1 });
+  await call('Input.dispatchMouseEvent', { type: 'mouseReleased', x: 370, y: 160, button: 'left', clickCount: 1 });
+  await wait('document.body.dataset.sidebar === "closed" && !document.querySelector(".workspace").inert');
   await call('Emulation.setDeviceMetricsOverride', { width: 1360, height: 940, deviceScaleFactor: 1, mobile: false });
-  await evaluate('document.body.dataset.sidebar = "open"');
-  checks.push('desktop/mobile overflow, light/dark presentation');
+  await wait('document.body.dataset.sidebar === "open"');
+  await click('#access-toggle');
+  assert.ok(await evaluate('document.getElementById("access").open && document.activeElement.id === "token"'));
+  await click('#access-close');
+  assert.ok(await evaluate('!document.getElementById("access").open'));
+  checks.push('desktop/mobile overflow, light/dark presentation, reachable settings, mobile scrim/inert background, access dialog focus');
 
   const before = calls;
   await evaluate(`stableComposer.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, isComposing: true, bubbles: true }));`);
+  await evaluate(`stableComposer.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', shiftKey: true, bubbles: true }));`);
   await delay(80); assert.equal(calls, before);
-  await evaluate(`stableComposer.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true }));`);
+  await evaluate(`stableComposer.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));`);
   await wait('document.querySelector("[data-role=transcript]").textContent.includes("Follow-up accepted")');
   assert.equal(await evaluate(`document.querySelector('form[data-key$="/send/0"] textarea').value`), '');
-  await evaluate(`document.querySelectorAll('.compose-tab')[1].click()`);
+  await click('.compose-mode > summary');
+  await click('.compose-tab:nth-child(2)');
   assert.equal(await evaluate(`document.querySelector('form[data-key$="/steer/0"]').hidden`), false);
-  await evaluate(`document.querySelectorAll('.compose-tab')[0].click(); document.querySelector('.thread-header .quiet-button').click();`);
+  assert.equal(await evaluate(`document.querySelectorAll('.compose-tab')[1].getAttribute('aria-checked')`), 'true');
+  await click('.compose-mode > summary');
+  await click('.compose-tab:first-child');
+  await click('.thread-header [aria-label="Task details"]');
   const command = async key => {
     await wait(`document.querySelector('[data-key$="/${key}"]') && !document.querySelector('[data-key$="/${key}"]').disabled`);
     await evaluate(`document.querySelector('[data-key$="/${key}"]').click()`);
@@ -122,7 +151,7 @@ try {
   await command('compact/0');
   await wait('document.querySelector("[data-role=transcript]").textContent.includes("Provider context retained")');
   await browserUI.screenshot(path.join(output, 'webui-details.png'));
-  checks.push('IME-safe shortcut, send/steer tabs, native action binding, manual account compaction from existing controls');
+  checks.push('IME-safe Enter-to-send and Shift-Enter, pointer-driven send/steer menu, native action binding, manual account compaction');
 
   // Exercise native permission requests through actual browser clicks. The
   // provider only proposes the command; no test driver supplies an approval.
@@ -147,8 +176,8 @@ try {
     await call('Emulation.setDeviceMetricsOverride', decision === 'deny'
       ? { width: 390, height: 844, deviceScaleFactor: 1, mobile: true }
       : { width: 1360, height: 940, deviceScaleFactor: 1, mobile: false });
-    await evaluate(`document.body.dataset.sidebar = ${JSON.stringify(decision === 'deny' ? 'closed' : 'open')};
-      document.querySelector('[data-role=approval]').scrollIntoView({block:'center'});`);
+    await wait(`document.body.dataset.sidebar === ${JSON.stringify(decision === 'deny' ? 'closed' : 'open')}`);
+    await evaluate(`document.querySelector('[data-role=approval]').scrollIntoView({block:'center'});`);
     assert.ok(await evaluate('document.documentElement.scrollWidth <= innerWidth'));
     const selector = `[data-key$="/approval/${decision}/${operation.operation_id}"]`;
     await wait(`document.querySelector(${JSON.stringify(selector)}) && !document.querySelector(${JSON.stringify(selector)}).disabled`);
@@ -168,7 +197,7 @@ try {
     else await assert.rejects(readFile(marker), { code: 'ENOENT' });
   }
   await call('Emulation.setDeviceMetricsOverride', { width: 1360, height: 940, deviceScaleFactor: 1, mobile: false });
-  await evaluate('document.body.dataset.sidebar = "open"');
+  await wait('document.body.dataset.sidebar === "open"');
   checks.push('visible desktop/mobile permission requests, exact command/cwd, browser approve-once and deny, no preapproval execution');
 
   const syntax = 'Before **bold** and *emphasis*.\n\n- first\n- second with [a link](https://example.com)\n\n```js\nconst x = "<tag>";\n```\n\nAfter 😃.\n';

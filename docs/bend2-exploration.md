@@ -1126,3 +1126,26 @@ does not establish real Linux execution: Linux syscall-filter probes passed for
 both supported architectures, and the existing Linux CI job remains responsible
 for executing bubblewrap on a Linux kernel. No sandbox was replaced with a
 permissive fallback and no commercial model's judgment was treated as proof.
+
+## Desktop presentation without changing the native interaction model
+
+The frontend-only refresh follows the locally installed Codex Desktop
+`26.917.71314`; ADR 0020 records the relevant resource names. Native labels,
+field bindings and command availability stay unchanged. The adapter moves
+existing inputs into a compact composer and retains the two native send/steer
+forms behind a menu. Their separate drafts survive the switch.
+
+Chrome can retain layout boxes for descendants of a closed `details` element.
+A zero `getClientRects().length` assertion therefore did not establish whether
+the settings field was actually visible. The browser check now uses
+`checkVisibility()` and real pointer hit-testing; it also verifies that the
+mobile navigation makes the conversation inert and that the access dialog
+receives focus. All eight browser-check groups passed with no runtime exceptions,
+including actual approve/deny clicks and the existing streaming boundary checks.
+No Bend source or theorem was changed for this presentation work.
+
+`npm run check` passed, and the final complete `npm test` run passed all 188 tests
+with no skips. The DOM fixture was extended with namespace-aware SVG creation
+and attribute toggling; the disabled-action assertion still targets the actual
+button, not its new label span. An earlier parallel run stalled in a plugin test
+process; its isolated rerun passed all 17 checks, and the final full run completed.
