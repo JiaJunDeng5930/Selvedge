@@ -1,5 +1,7 @@
 import Base
-import ../MODEL.bend as M
+import ./effects.bend as Effects
+import ./component.bend as C
+import ./domain.bend as D
 import ../REASONING.bend as R
 import ./reasoning-context.bend as Context
 import ./json.bend as J
@@ -17,54 +19,54 @@ def route(policy: R.Policy, lease: R.Lease) -> R.Plan:
     case R.Adaptive{evaluator, efforts, baseline, transport, maximum}:
       live_lease(R.Adaptive{evaluator, efforts, baseline, transport, maximum}, lease)
 
-def request(+task: M.Task, world: M.World) -> M.Decision:
-  M.World{tasks, next_task, +ticket, +environment, limits, projects, board} = world
-  M.Environment{catalog, profiles, forks, descendants, project, plugins} = environment
-  +contract = M.task_contract(task)
+def request(-StateRest: Data, -EffectRest: Data, +task: D.Task, world: C.Frame<D.State, StateRest>) -> C.Decision<C.Frame<D.State, StateRest>, Effects.Effect<EffectRest>>:
+  C.Frame{D.State{tasks, next_task, +ticket, +environment, limits, projects}, +rest} = world
+  D.Environment{catalog, profiles, forks, descendants, project, plugins} = environment
+  +contract = D.task_contract(task)
   +tools = T.task_tools(contract)
   +allowed = T.callable(tools, catalog)
-  next = M.with_phase(M.ModelPending{ticket, allowed}, task)
-  M.Decision{M.World{T.replace(tasks, next), next_task, 1n+ticket, environment, limits, projects, board}, J.Null{},
-    [M.RequestModel{M.task_id(task), ticket, T.task_model(contract), M.context_history(M.task_history(task)), tools, allowed, M.task_context(task)}]}
+  next = D.with_phase(D.ModelPending{ticket, allowed}, task)
+  C.Decision{C.Frame{D.State{T.replace(tasks, next), next_task, 1n+ticket, environment, limits, projects}, rest}, J.Null{},
+    [Effects.RequestModel{D.task_id(task), ticket, T.task_model(contract), D.context_history(D.task_history(task)), tools, allowed, D.task_context(task)}]}
 
-def evaluate(+task: M.Task, world: M.World) -> M.Decision:
-  M.World{tasks, next_task, +ticket, environment, limits, projects, board} = world
-  next = M.with_phase(M.ReasoningPending{ticket, M.history_length(M.task_history(task))}, task)
-  M.Decision{M.World{T.replace(tasks, next), next_task, 1n+ticket, environment, limits, projects, board}, J.Null{},
-    [M.RequestReasoning{M.task_id(task), ticket, T.task_model(M.task_contract(task)), M.task_history(task)}]}
+def evaluate(-StateRest: Data, -EffectRest: Data, +task: D.Task, world: C.Frame<D.State, StateRest>) -> C.Decision<C.Frame<D.State, StateRest>, Effects.Effect<EffectRest>>:
+  C.Frame{D.State{tasks, next_task, +ticket, environment, limits, projects}, +rest} = world
+  next = D.with_phase(D.ReasoningPending{ticket, D.history_length(D.task_history(task))}, task)
+  C.Decision{C.Frame{D.State{T.replace(tasks, next), next_task, 1n+ticket, environment, limits, projects}, rest}, J.Null{},
+    [Effects.RequestReasoning{D.task_id(task), ticket, T.task_model(D.task_contract(task)), D.task_history(task)}]}
 
-def execute(plan: R.Plan, task: M.Task, world: M.World) -> M.Decision:
+def execute(-StateRest: Data, -EffectRest: Data, plan: R.Plan, task: D.Task, world: C.Frame<D.State, StateRest>) -> C.Decision<C.Frame<D.State, StateRest>, Effects.Effect<EffectRest>>:
   match plan:
-    case R.FixedPlan{}: request(task, world)
-    case R.Evaluate{}: evaluate(task, world)
-    case R.Reuse{effort, remaining}: request(Context.generation(effort, remaining, task), world)
+    case R.FixedPlan{}: request(StateRest, EffectRest, task, world)
+    case R.Evaluate{}: evaluate(StateRest, EffectRest, task, world)
+    case R.Reuse{effort, remaining}: request(StateRest, EffectRest, Context.generation(effort, remaining, task), world)
 
-def prepared(+task: M.Task, world: M.World) -> M.Decision:
-  execute(route(Context.task_policy(task), Context.lease(M.task_history(task), M.task_id(task))), task, world)
+def prepared(-StateRest: Data, -EffectRest: Data, +task: D.Task, world: C.Frame<D.State, StateRest>) -> C.Decision<C.Frame<D.State, StateRest>, Effects.Effect<EffectRest>>:
+  execute(StateRest, EffectRest, route(Context.task_policy(task), Context.lease(D.task_history(task), D.task_id(task))), task, world)
 
-def start(task: M.Task, world: M.World) -> M.Decision:
-  prepared(Ops.publish(task), world)
+def start(-StateRest: Data, -EffectRest: Data, task: D.Task, world: C.Frame<D.State, StateRest>) -> C.Decision<C.Frame<D.State, StateRest>, Effects.Effect<EffectRest>>:
+  prepared(StateRest, EffectRest, Ops.publish(task), world)
 
-def rejected(reason: String, task: M.Task) -> M.Task:
-  T.promote(M.with_phase(M.Idle{}, M.append_message(M.FailureMessage{"Automatic reasoning: " ++ reason}, task)))
+def rejected(reason: String, task: D.Task) -> D.Task:
+  T.promote(D.with_phase(D.Idle{}, D.append_message(D.FailureMessage{"Automatic reasoning: " ++ reason}, task)))
 
-def chosen(accepted: Bool, effort: String, generations: Nat, +task: M.Task) -> M.Task:
+def chosen(accepted: Bool, effort: String, generations: Nat, +task: D.Task) -> D.Task:
   match accepted:
     case False{}: rejected("the evaluator selected an unsupported effort or lease; no model request was sent", task)
     case True{}:
-      T.promote(M.with_phase(M.Ready{Nil{}},
-        M.append_message(M.ReasoningRecord{M.task_id(task), effort, generations, False{}}, task)))
+      T.promote(D.with_phase(D.Ready{Nil{}},
+        D.append_message(D.ReasoningRecord{D.task_id(task), effort, generations, False{}}, task)))
 
-def observed(outcome: R.Outcome, +task: M.Task) -> M.Task:
+def observed(outcome: R.Outcome, +task: D.Task) -> D.Task:
   match outcome:
     case R.EvaluationFailed{reason}: rejected(reason, task)
     case R.Chosen{+effort, +generations}:
       chosen(R.accepts(Context.task_policy(task), effort, generations), effort, generations, task)
 
-def revision_matches(current: Bool, outcome: R.Outcome, task: M.Task) -> M.Task:
+def revision_matches(current: Bool, outcome: R.Outcome, task: D.Task) -> D.Task:
   match current:
-    case False{}: T.promote(M.with_phase(M.Ready{Nil{}}, task))
+    case False{}: T.promote(D.with_phase(D.Ready{Nil{}}, task))
     case True{}: observed(outcome, task)
 
-def complete(revision: Nat, outcome: R.Outcome, +task: M.Task) -> M.Task:
-  revision_matches(Nat.is_eq(revision, M.history_length(M.task_history(task))), outcome, task)
+def complete(revision: Nat, outcome: R.Outcome, +task: D.Task) -> D.Task:
+  revision_matches(Nat.is_eq(revision, D.history_length(D.task_history(task))), outcome, task)

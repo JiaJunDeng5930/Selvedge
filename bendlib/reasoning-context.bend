@@ -1,5 +1,5 @@
 import Base
-import ../MODEL.bend as M
+import ./domain.bend as D
 import ../REASONING.bend as R
 import ./json.bend as J
 
@@ -24,27 +24,27 @@ def valid_after(invalidate: Bool, previous: R.Lease) -> R.Lease:
     case True{}: R.NoLease{}
     case False{}: previous
 
-def lease(history: M.History, +owner: Nat) -> R.Lease:
+def lease(history: D.History, +owner: Nat) -> R.Lease:
   match history:
-    case M.EmptyHistory{}: R.NoLease{}
-    case M.HistoryNode{previous, M.ReasoningRecord{other, effort, remaining, sampling}}:
+    case D.EmptyHistory{}: R.NoLease{}
+    case D.HistoryNode{previous, D.ReasoningRecord{other, effort, remaining, sampling}}:
       recorded(Nat.is_eq(owner, other), effort, remaining)
-    case M.HistoryNode{previous, M.UserMessage{text}}: R.NoLease{}
-    case M.HistoryNode{previous, M.FailureMessage{text}}: R.NoLease{}
-    case M.HistoryNode{previous, M.ContextCheckpoint{text}}: R.NoLease{}
-    case M.HistoryNode{previous, M.ModelContext{value}}:
-      valid_after(M.is_provider_checkpoint(value), lease(previous, owner))
-    case M.HistoryNode{previous, M.FunctionOutput{call, value, error}}:
+    case D.HistoryNode{previous, D.UserMessage{text}}: R.NoLease{}
+    case D.HistoryNode{previous, D.FailureMessage{text}}: R.NoLease{}
+    case D.HistoryNode{previous, D.ContextCheckpoint{text}}: R.NoLease{}
+    case D.HistoryNode{previous, D.ModelContext{value}}:
+      valid_after(D.is_provider_checkpoint(value), lease(previous, owner))
+    case D.HistoryNode{previous, D.FunctionOutput{call, value, error}}:
       valid_after(failed_result(error, value), lease(previous, owner))
-    case M.HistoryNode{previous, M.OperationResult{operation, call, tool, value, error}}:
+    case D.HistoryNode{previous, D.OperationResult{operation, call, tool, value, error}}:
       valid_after(failed_result(error, value), lease(previous, owner))
-    case M.HistoryNode{previous, M.ToolReceipt{task, operation, call, value, error}}:
+    case D.HistoryNode{previous, D.ToolReceipt{task, operation, call, value, error}}:
       valid_after(failed_result(error, value), lease(previous, owner))
-    case M.HistoryNode{previous, other}: lease(previous, owner)
+    case D.HistoryNode{previous, other}: lease(previous, owner)
 
-def task_policy(task: M.Task) -> R.Policy:
-  M.Task{id, lineage, M.Contract{model, tools, forks, descendants, plugins, context}, status, history, queued, phase, operations, notified} = task
-  M.model_reasoning(model)
+def task_policy(task: D.Task) -> R.Policy:
+  D.Task{id, lineage, D.Contract{model, tools, forks, descendants, plugins, context}, status, history, queued, phase, operations, notified} = task
+  D.model_reasoning(model)
 
 # Configuration updates are trusted native items, never opaque model output.
 # A checkpoint starts a new provider context, so its next generation needs a
@@ -54,68 +54,68 @@ def after_checkpoint(checkpoint: Bool, previous: Maybe<&2, String>) -> Maybe<&2,
     case True{}: None{}
     case False{}: previous
 
-def last_update(history: M.History) -> Maybe<&2, String>:
+def last_update(history: D.History) -> Maybe<&2, String>:
   match history:
-    case M.EmptyHistory{}: None{}
-    case M.HistoryNode{previous, M.ConfigurationUpdate{effort}}: Some{effort}
-    case M.HistoryNode{previous, M.ContextCheckpoint{summary}}: None{}
-    case M.HistoryNode{previous, M.ModelContext{value}}:
-      after_checkpoint(M.is_provider_checkpoint(value), last_update(previous))
-    case M.HistoryNode{previous, other}: last_update(previous)
+    case D.EmptyHistory{}: None{}
+    case D.HistoryNode{previous, D.ConfigurationUpdate{effort}}: Some{effort}
+    case D.HistoryNode{previous, D.ContextCheckpoint{summary}}: None{}
+    case D.HistoryNode{previous, D.ModelContext{value}}:
+      after_checkpoint(D.is_provider_checkpoint(value), last_update(previous))
+    case D.HistoryNode{previous, other}: last_update(previous)
 
 def changed(previous: Maybe<&2, String>, effort: String) -> Bool:
   match previous:
     case None{}: True{}
     case Some{old}: Bool.not(String.eq(old, effort))
 
-def trailing_update(history: M.History) -> Bool:
+def trailing_update(history: D.History) -> Bool:
   match history:
-    case M.HistoryNode{previous, M.ConfigurationUpdate{effort}}: True{}
-    case M.HistoryNode{previous, M.ReasoningRecord{owner, effort, remaining, sampling}}: trailing_update(previous)
-    case M.HistoryNode{previous, M.ToolReceipt{owner, operation, call, value, error}}: trailing_update(previous)
-    case M.HistoryNode{previous, M.AfterRecord{owner, operation, plugin, outcome}}: trailing_update(previous)
-    case M.HistoryNode{previous, M.ApprovalRecord{owner, operation, call, reviewer, outcome}}: trailing_update(previous)
+    case D.HistoryNode{previous, D.ConfigurationUpdate{effort}}: True{}
+    case D.HistoryNode{previous, D.ReasoningRecord{owner, effort, remaining, sampling}}: trailing_update(previous)
+    case D.HistoryNode{previous, D.ToolReceipt{owner, operation, call, value, error}}: trailing_update(previous)
+    case D.HistoryNode{previous, D.AfterRecord{owner, operation, plugin, outcome}}: trailing_update(previous)
+    case D.HistoryNode{previous, D.ApprovalRecord{owner, operation, call, reviewer, outcome}}: trailing_update(previous)
     case _: False{}
 
-def separate(needed: Bool, history: M.History) -> M.History:
+def separate(needed: Bool, history: D.History) -> D.History:
   match needed:
-    case True{}: M.HistoryNode{history, M.FailureMessage{"The previous generation has no retained output after its configuration update; continuing from the committed request prefix."}}
+    case True{}: D.HistoryNode{history, D.FailureMessage{"The previous generation has no retained output after its configuration update; continuing from the committed request prefix."}}
     case False{}: history
 
-def update(needed: Bool, effort: String, history: M.History) -> M.History:
+def update(needed: Bool, effort: String, history: D.History) -> D.History:
   match needed:
-    case True{}: M.HistoryNode{history, M.ConfigurationUpdate{effort}}
+    case True{}: D.HistoryNode{history, D.ConfigurationUpdate{effort}}
     case False{}: history
 
-def sampling_history(+emit: Bool, +effort: String, remaining: Nat, owner: Nat, +history: M.History) -> M.History:
-  update(emit, effort, M.HistoryNode{separate(emit && trailing_update(history), history),
-    M.ReasoningRecord{owner, effort, remaining, True{}}})
+def sampling_history(+emit: Bool, +effort: String, remaining: Nat, owner: Nat, +history: D.History) -> D.History:
+  update(emit, effort, D.HistoryNode{separate(emit && trailing_update(history), history),
+    D.ReasoningRecord{owner, effort, remaining, True{}}})
 
-def generation(+effort: String, remaining: Nat, +task: M.Task) -> M.Task:
-  M.with_history(sampling_history(R.uses_updates(task_policy(task)) && changed(last_update(M.task_history(task)), effort),
-    effort, remaining, M.task_id(task), M.task_history(task)), task)
+def generation(+effort: String, remaining: Nat, +task: D.Task) -> D.Task:
+  D.with_history(sampling_history(R.uses_updates(task_policy(task)) && changed(last_update(D.task_history(task)), effort),
+    effort, remaining, D.task_id(task), D.task_history(task)), task)
 
 def select_record(same: Bool, effort: String, fallback: String) -> String:
   match same:
     case True{}: effort
     case False{}: fallback
 
-def last_record(history: M.History, +owner: Nat, +fallback: String) -> String:
+def last_record(history: D.History, +owner: Nat, +fallback: String) -> String:
   match history:
-    case M.EmptyHistory{}: fallback
-    case M.HistoryNode{previous, M.ReasoningRecord{other, effort, remaining, True{}}}:
+    case D.EmptyHistory{}: fallback
+    case D.HistoryNode{previous, D.ReasoningRecord{other, effort, remaining, True{}}}:
       select_record(Nat.is_eq(other, owner), effort, fallback)
-    case M.HistoryNode{previous, M.ContextCheckpoint{summary}}: fallback
-    case M.HistoryNode{previous, M.ModelContext{+value}}:
-      select_record(M.is_provider_checkpoint(value), fallback, last_record(previous, owner, fallback))
-    case M.HistoryNode{previous, other}: last_record(previous, owner, fallback)
+    case D.HistoryNode{previous, D.ContextCheckpoint{summary}}: fallback
+    case D.HistoryNode{previous, D.ModelContext{+value}}:
+      select_record(D.is_provider_checkpoint(value), fallback, last_record(previous, owner, fallback))
+    case D.HistoryNode{previous, other}: last_record(previous, owner, fallback)
 
 def update_effort(previous: Maybe<&2, String>, baseline: String) -> String:
   match previous:
     case None{}: baseline
     case Some{effort}: effort
 
-def effective(policy: R.Policy, owner: Nat, fixed: String, history: M.History) -> String:
+def effective(policy: R.Policy, owner: Nat, fixed: String, history: D.History) -> String:
   match policy:
     case R.Adaptive{evaluator, efforts, baseline, R.ConfigurationUpdates{}, maximum}:
       update_effort(last_update(history), baseline)
@@ -123,22 +123,22 @@ def effective(policy: R.Policy, owner: Nat, fixed: String, history: M.History) -
       last_record(history, owner, baseline)
     case R.Fixed{}: fixed
 
-def sample_record(history: M.History, +owner: Nat, +policy: R.Policy) -> Bool:
+def sample_record(history: D.History, +owner: Nat, +policy: R.Policy) -> Bool:
   match history:
-    case M.EmptyHistory{}: False{}
-    case M.HistoryNode{previous, M.ReasoningRecord{other, effort, remaining, sampling}}:
+    case D.EmptyHistory{}: False{}
+    case D.HistoryNode{previous, D.ReasoningRecord{other, effort, remaining, sampling}}:
       Nat.is_eq(owner, other) && sampling && R.allowed(policy, effort) && R.remaining_valid(policy, remaining)
-    case M.HistoryNode{previous, other}: sample_record(previous, owner, policy)
+    case D.HistoryNode{previous, other}: sample_record(previous, owner, policy)
 
-def valid_sample(+policy: R.Policy, +owner: Nat, +history: M.History) -> Bool:
+def valid_sample(+policy: R.Policy, +owner: Nat, +history: D.History) -> Bool:
   match policy:
     case R.Fixed{}: True{}
     case R.Adaptive{evaluator, efforts, baseline, transport, maximum}:
       sample_record(history, owner, policy) && R.allowed(policy, effective(policy, owner, "", history))
 
-def sampling(owner: Nat, model: M.Model, history: M.History) -> J.Json:
-  M.Model{+profile, fixed, project} = model
-  +policy = M.profile_reasoning(profile)
+def sampling(owner: Nat, model: D.Model, history: D.History) -> J.Json:
+  D.Model{+profile, fixed, project} = model
+  +policy = D.profile_reasoning(profile)
   +effort = effective(policy, owner, fixed, history)
   J.Object{[J.Field{"effective_effort", J.Text{effort}}, J.Field{"request_effort", J.Text{R.request_effort(policy, effort)}}]}
 
@@ -203,25 +203,25 @@ def public_value(+fuel: Nat, +value: J.Json) -> J.Json:
         public_object_prepend(public_field(name, public_value(p, item)), public_value(p, J.Object{rest})))
     case _ _: value
 
-def public_message(message: M.Message, rest: +List<J.Json>) -> +List<J.Json>:
+def public_message(message: D.Message, rest: +List<J.Json>) -> +List<J.Json>:
   match message:
-    case M.UserMessage{text}: J.Object{[J.Field{"role", J.Text{"user"}}, J.Field{"content", J.Text{text}}]} <> rest
-    case M.AssistantMessage{text}: J.Object{[J.Field{"role", J.Text{"assistant"}}, J.Field{"content", J.Text{text}}]} <> rest
-    case M.FailureMessage{text}: J.Object{[J.Field{"role", J.Text{"error"}}, J.Field{"content", J.Text{text}}]} <> rest
-    case M.ContextCheckpoint{text}: J.Object{[J.Field{"role", J.Text{"context_summary"}}, J.Field{"content", J.Text{text}}]} <> rest
-    case M.ModelContext{+value}: public_context_named(J.text(J.get(value, "type")), value, rest)
-    case M.FunctionCall{M.Call{id, name, arguments}}:
+    case D.UserMessage{text}: J.Object{[J.Field{"role", J.Text{"user"}}, J.Field{"content", J.Text{text}}]} <> rest
+    case D.AssistantMessage{text}: J.Object{[J.Field{"role", J.Text{"assistant"}}, J.Field{"content", J.Text{text}}]} <> rest
+    case D.FailureMessage{text}: J.Object{[J.Field{"role", J.Text{"error"}}, J.Field{"content", J.Text{text}}]} <> rest
+    case D.ContextCheckpoint{text}: J.Object{[J.Field{"role", J.Text{"context_summary"}}, J.Field{"content", J.Text{text}}]} <> rest
+    case D.ModelContext{+value}: public_context_named(J.text(J.get(value, "type")), value, rest)
+    case D.FunctionCall{D.Call{id, name, arguments}}:
       J.Object{[J.Field{"role", J.Text{"function_call"}}, J.Field{"call_id", J.Text{id}},
         J.Field{"name", J.Text{name}}, J.Field{"arguments", public_value(512n, arguments)}]} <> rest
-    case M.FunctionOutput{id, value, error}:
+    case D.FunctionOutput{id, value, error}:
       J.Object{[J.Field{"role", J.Text{"function_output"}}, J.Field{"call_id", J.Text{id}},
         J.Field{"content", public_value(512n, value)}, J.Field{"is_error", J.Boolean{error}}]} <> rest
-    case M.OperationResult{operation, id, tool, value, error}:
+    case D.OperationResult{operation, id, tool, value, error}:
       J.Object{[J.Field{"role", J.Text{"function_output"}}, J.Field{"call_id", J.Text{id}}, J.Field{"name", J.Text{tool}},
         J.Field{"content", public_value(512n, value)}, J.Field{"is_error", J.Boolean{error}}]} <> rest
     case _: rest
 
-def public_history(history: M.History, tail: +List<J.Json>) -> +List<J.Json>:
+def public_history(history: D.History, tail: +List<J.Json>) -> +List<J.Json>:
   match history:
-    case M.EmptyHistory{}: tail
-    case M.HistoryNode{previous, message}: public_history(previous, public_message(message, tail))
+    case D.EmptyHistory{}: tail
+    case D.HistoryNode{previous, message}: public_history(previous, public_message(message, tail))

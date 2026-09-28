@@ -1,9 +1,10 @@
 import Base
+import ./feature-codec.bend as FeatureCodec
+import ../FEATURES.bend as Features
+import ./domain.bend as D
 import ../MODEL.bend as M
 import ./json.bend as J
 import ./tasks.bend as T
-import ./board-codec.bend as BoardCodec
-import ./board-navigation.bend as BoardNav
 
 # The native command and event wire representation shared by all presentations.
 # No renderer recreates command shapes or endpoint-specific transitions.
@@ -19,8 +20,8 @@ def optional_field(name: String, value: J.Json, fields: +List<J.Field>) -> +List
 
 def command_json(command: M.Command) -> J.Json:
   match command:
-    case M.BoardCommand{command}: BoardCodec.command_json(command)
-    case M.Observe{M.BoardQuery{query}}: BoardCodec.query_json(query)
+    case M.FeatureCommand{command}: FeatureCodec.command_json(command)
+    case M.Observe{M.FeatureQuery{query}}: FeatureCodec.query_json(query)
     case M.Create{profile, reasoning, message, options}:
       J.Object{optional_field("settings", options, [J.Field{"op", J.Text{"create"}}, J.Field{"profile", J.Text{profile}},
         J.Field{"reasoning", J.Text{reasoning}}, J.Field{"message", J.Text{message}}])}
@@ -31,7 +32,7 @@ def command_json(command: M.Command) -> J.Json:
     case M.Cancel{id, operation}:
       J.Object{[J.Field{"op", J.Text{"cancel_operation"}}, J.Field{"task_id", J.nat(id)}, J.Field{"operation_id", J.nat(operation)}]}
     case M.ChangeStatus{id, control}:
-      J.Object{[J.Field{"op", J.Text{M.control_name(control)}}, J.Field{"task_id", J.nat(id)}]}
+      J.Object{[J.Field{"op", J.Text{D.control_name(control)}}, J.Field{"task_id", J.nat(id)}]}
     case M.Fork{id, count, messages, options}:
       J.Object{optional_field("settings", options, [J.Field{"op", J.Text{"fork"}}, J.Field{"task_id", J.nat(id)}, J.Field{"child_count", J.nat(count)},
         J.Field{"messages", J.Array{T.strings_json(messages)}}])}
@@ -47,15 +48,15 @@ def command_json(command: M.Command) -> J.Json:
         J.Field{"workspace", workspace}])}
     case M.UpdateProject{id, name, workspace, guidance}:
       J.Object{optional_field("guidance", guidance, optional_field("workspace", workspace,
-        optional_field("name", M.optional_string(name), [J.Field{"op", J.Text{"update_project"}}, J.Field{"project_id", J.nat(id)}])))}
+        optional_field("name", D.optional_string(name), [J.Field{"op", J.Text{"update_project"}}, J.Field{"project_id", J.nat(id)}])))}
     case M.DeleteProject{id}: J.Object{[J.Field{"op", J.Text{"delete_project"}}, J.Field{"project_id", J.nat(id)}]}
     case M.ReviewApproval{id, operation, +outcome}:
       J.Object{[J.Field{"op", J.Text{"review_approval"}}, J.Field{"task_id", J.nat(id)}, J.Field{"operation_id", J.nat(operation)},
-        J.Field{"decision", J.Text{M.approval_decision(outcome)}}, J.Field{"reason", J.Text{M.approval_reason(outcome)}}]}
+        J.Field{"decision", J.Text{D.approval_decision(outcome)}}, J.Field{"reason", J.Text{D.approval_reason(outcome)}}]}
 
 def event_json(event: M.ViewEvent) -> J.Json:
   match event:
-    case M.BoardEvent{event}: J.Object{[J.Field{"type", J.Text{"board"}}, J.Field{"event", BoardNav.event_json(event)}]}
+    case M.FeatureEvent{event}: FeatureCodec.event_json(event)
     case M.SelectTask{id}: J.Object{[J.Field{"type", J.Text{"select"}}, J.Field{"task_id", J.optional_nat(id)}]}
     case M.HistoryPage{after}: J.Object{[J.Field{"type", J.Text{"history"}}, J.Field{"after", J.optional_nat(after)}]}
     case M.TaskPage{after}: J.Object{[J.Field{"type", J.Text{"tasks"}}, J.Field{"after", J.nat(after)}]}

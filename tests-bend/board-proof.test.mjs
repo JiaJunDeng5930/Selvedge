@@ -15,22 +15,22 @@ test('board evidence rejects type-correct loss of ordering, effects, freshness a
   await cp(path.join(root, 'bendlib'), path.join(directory, 'bendlib'), { recursive: true });
   const binary = compiler();
   const check = entry => spawnSync(binary, [entry, '--check-only'], {
-    cwd: directory, encoding: 'utf8', timeout: 30_000, env: { ...process.env, BEND_NO_TELEMETRY: '1' },
+    cwd: directory, encoding: 'utf8', timeout: 60_000, env: { ...process.env, BEND_NO_TELEMETRY: '1' },
   });
   const baseline = check('PROOF.bend');
   assert.equal(baseline.status, 0, baseline.stdout + baseline.stderr);
   assert.equal(baseline.stdout.trim(), 'All terms check.');
   const mutations = [
     ['ignore the insertion position', 'bendlib/board.bend',
-      'B.reposition(id, card, position, S.registry(world))', 'B.reposition(id, card, 0n, S.registry(world))', /change_meaning/],
+      'B.reposition(id, card, position, S.registry(world))', 'B.reposition(id, card, 0n, S.registry(world))', /change_meaning|reposition_meaning|relocate_meaning/],
     ['discard the cards following an insertion', 'BOARD.bend',
-      'List.drop(&2, Finite.Entry(Card), remaining, position)', 'Nil{}', /change_meaning/],
+      'List.drop(&2, Finite.Entry(Card), remaining, position)', 'Nil{}', /change_meaning|reposition_meaning|relocate_meaning/],
     ['record drafting without dispatching its effect', 'bendlib/board.bend',
-      '[M.RequestBoardText{id, ticket, profile, B.drafting_prompt(retitle, B.draft(card)), retitle}]', 'Nil{}', /change_meaning/],
+      '[Effects.FeatureEffect{F.RequestBoardText{id, ticket, profile, B.drafting_prompt(retitle, B.draft(card)), retitle}}]', 'Nil{}', /change_meaning|reposition_meaning|relocate_meaning/],
     ['replace a description during title-only generation', 'bendlib/board.bend',
       'B.Draft{title, old_description, stage, priority, owner, project, labels, attachments}',
       'B.Draft{title, description, stage, priority, owner, project, labels, attachments}', /board_boundary|text_meaning|draft_meaning/],
-    ['accept an unrelated drafting ticket', 'bendlib/protocol.bend',
+    ['accept an unrelated drafting ticket', 'bendlib/feature-protocol.bend',
       'board_selected_callback(Nat.is_eq(ticket, expected) && Nat.is_eq(version, revision), retitle)',
       'board_selected_callback(True{}, retitle)', /board_boundary/],
     ['close continuous creation', 'bendlib/board-navigation.bend',

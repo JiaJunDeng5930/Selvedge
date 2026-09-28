@@ -15,7 +15,7 @@ def Laws.frontend_input(input, world):
   match input:
     case Fail{reason}: {==}
     case Done{+input}:
-      Equal.cong(M.Decision, Interface.Output, (decision => Interface.Output{decision, M.durable(input)}),
+      Equal.cong(M.Decision(), Interface.Output, (decision => Interface.Output{decision, M.durable(input)}),
         P.transition(input, world), Commit.input(~Execution.scheduled, input, world),
         Laws.interaction_transition(input, world))
 

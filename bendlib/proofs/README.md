@@ -1,5 +1,24 @@
 # Local proof boundaries
 
+The component-local providers `../task-laws.bend` and `../reasoning-laws.bend`
+quantify over unknown surrounding state and effect types. The application
+reasoning provider reuses those proof values. `../feature-laws.bend` composes
+feature refinement with explicit evidence for task creation, and
+`../locality.bend` binds update and preservation guarantees to production dispatch,
+storage and UI functions. `../feature-frame.bend` and `../feature-ui-laws.bend`
+keep those proof terms out of the operational import closure.
+
+Client proofs use the storage operation instead of expanding its concrete task
+list reconstruction. The locality replacement fixture changes that reconstruction
+and discharges the same local contract with the imported `app_nil_r` theorem;
+all client proofs remain byte-identical. The extension fixture likewise checks
+the full proof root with the original global UI, wire and native entry frozen.
+
+Preservation is scoped to the component operation that owns it. Board navigation
+preserves other feature cursors; a new feature may update its own cursor. A law
+quantifying over all future feature events while freezing their entire state
+would prevent legitimate extensions.
+
 `PROOF.bend` only assembles `CONCEPTS.Harness`. Each module here closes one
 boundary through the shared `LAWS.bend` or architecture declarations:
 

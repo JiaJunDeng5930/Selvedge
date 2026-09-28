@@ -1,4 +1,8 @@
 import Base
+import ../reasoning-laws.bend as Local
+import ../../FEATURES.bend as F
+import ../component.bend as C
+import ../domain.bend as D
 import ../../MODEL.bend as M
 import ../../REASONING.bend as R
 import ../reasoning-architecture.bend as A
@@ -10,68 +14,37 @@ import ../tasks.bend as T
 import ../json.bend as J
 
 def A.route_meaning(policy, lease):
-  match policy lease:
-    case R.Fixed{} _: {==}
-    case R.Adaptive{evaluator, efforts, baseline, transport, maximum} R.NoLease{}: {==}
-    case R.Adaptive{evaluator, efforts, baseline, transport, maximum} R.Lease{effort, 0n}: {==}
-    case R.Adaptive{evaluator, efforts, baseline, transport, maximum} R.Lease{effort, 1n+remaining}: {==}
-
-def request_meaning(+task: M.Task, +world: M.World) ->
-  {Actual.request(task, world) == Spec.model(task, world) : M.Decision}:
-  match world:
-    case M.World{tasks, next_task, ticket, M.Environment{catalog, profiles, forks, descendants, project, plugins}, limits, projects, board}: {==}
-
-def evaluator_meaning(+task: M.Task, +world: M.World) ->
-  {Actual.evaluate(task, world) == Spec.evaluator(task, world) : M.Decision}:
-  match world:
-    case M.World{tasks, next_task, ticket, environment, limits, projects, board}: {==}
-
-def execution_meaning(+plan: R.Plan, +task: M.Task, +world: M.World) ->
-  {Actual.execute(plan, task, world) == Spec.required(plan, task, world) : M.Decision}:
-  match plan:
-    case R.FixedPlan{}: request_meaning(task, world)
-    case R.Evaluate{}: evaluator_meaning(task, world)
-    case R.Reuse{effort, remaining}: request_meaning(Context.generation(effort, remaining, task), world)
-
-def prepared_meaning(+task: M.Task, +world: M.World) ->
-  {Actual.prepared(task, world) == Spec.prepared(task, world) : M.Decision}:
-  +policy = Context.task_policy(task)
-  +lease = Context.lease(M.task_history(task), M.task_id(task))
-  +actual = Actual.route(policy, lease)
-  +required = R.requirement(policy, lease)
-  Equal.trans(M.Decision, Actual.execute(actual, task, world), Actual.execute(required, task, world), Spec.required(required, task, world),
-    Equal.cong(R.Plan, M.Decision, (plan => Actual.execute(plan, task, world)), actual, required, A.route_meaning(policy, lease)),
-    execution_meaning(required, task, world))
+  Local.route_meaning(policy, lease)
 
 def A.start_meaning(task, world):
-  prepared_meaning(Ops.publish(task), world)
+  Local.start_meaning(F.State(), F.Effect, task, world)
 
-def selection_meaning(+accepted: Bool, +effort: String, +generations: Nat, +task: M.Task) ->
-  {Actual.chosen(accepted, effort, generations, task) == Spec.selection(accepted, effort, generations, task) : M.Task}:
+def selection_meaning(+accepted: Bool, +effort: String, +generations: Nat, +task: D.Task) ->
+  {Actual.chosen(accepted, effort, generations, task) == Spec.selection(accepted, effort, generations, task) : D.Task}:
   match accepted:
     case True{}: {==}
     case False{}: {==}
 
-def outcome_meaning(+outcome: R.Outcome, +task: M.Task) ->
-  {Actual.observed(outcome, task) == Spec.outcome(outcome, task) : M.Task}:
+def outcome_meaning(+outcome: R.Outcome, +task: D.Task) ->
+  {Actual.observed(outcome, task) == Spec.outcome(outcome, task) : D.Task}:
   match outcome:
     case R.Chosen{+effort, +generations}:
       selection_meaning(R.accepts(Context.task_policy(task), effort, generations), effort, generations, task)
     case R.EvaluationFailed{reason}: {==}
 
-def fresh_meaning(+current: Bool, +outcome: R.Outcome, +task: M.Task) ->
-  {Actual.revision_matches(current, outcome, task) == Spec.fresh(current, outcome, task) : M.Task}:
+def fresh_meaning(+current: Bool, +outcome: R.Outcome, +task: D.Task) ->
+  {Actual.revision_matches(current, outcome, task) == Spec.fresh(current, outcome, task) : D.Task}:
   match current:
     case True{}: outcome_meaning(outcome, task)
     case False{}: {==}
 
 def A.completion_meaning(revision, outcome, task):
-  fresh_meaning(Nat.is_eq(revision, M.history_length(M.task_history(task))), outcome, task)
+  fresh_meaning(Nat.is_eq(revision, D.history_length(D.task_history(task))), outcome, task)
 
-def contract_frame(effort: String, remaining: Nat, +task: M.Task) ->
-  {M.task_contract(Context.generation(effort, remaining, task)) == M.task_contract(task) : M.Contract}:
+def contract_frame(effort: String, remaining: Nat, +task: D.Task) ->
+  {D.task_contract(Context.generation(effort, remaining, task)) == D.task_contract(task) : D.Contract}:
   match task:
-    case M.Task{id, lineage, contract, status, history, queued, phase, operations, notified}: {==}
+    case D.Task{id, lineage, contract, status, history, queued, phase, operations, notified}: {==}
 
 def A.reasoning_boundary():
   A.ReasoningBoundary{

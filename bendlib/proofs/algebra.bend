@@ -1,4 +1,6 @@
 import Base
+import ../component.bend as Component
+import ../domain.bend as D
 import ../../MODEL.bend as M
 import ../../PROGRAM.bend as P
 import ../../LAWS.bend as Laws
@@ -31,25 +33,25 @@ def Concepts.branch_results():
   (tasks => {==})
 
 def Laws.recovery_partition(first, second):
-  Std.map_app(~M.Task, ~M.Task, ~Protocol.recover, first, second)
+  Std.map_app(~D.Task, ~D.Task, ~Protocol.recover, first, second)
 
 def Laws.task_view_partition(first, second):
-  Std.map_app(~M.Task, ~J.Json, ~T.summary, first, second)
+  Std.map_app(~D.Task, ~J.Json, ~T.summary, first, second)
 
 def Laws.branch_result_partition(first, second):
-  Std.map_app(~M.Task, ~J.Json, ~Commands.identity, first, second)
+  Std.map_app(~D.Task, ~J.Json, ~Commands.identity, first, second)
 
 def Laws.recovery_view_composition(tasks):
-  Std.map_map(~M.Task, ~M.Task, ~J.Json, ~Protocol.recover, ~T.summary, tasks)
+  Std.map_map(~D.Task, ~D.Task, ~J.Json, ~Protocol.recover, ~T.summary, tasks)
 
-def decision_associativity(+first: M.Decision, +second: M.Decision, +third: M.Decision) ->
-  {P.combine(P.combine(first, second), third) == P.combine(first, P.combine(second, third)) : M.Decision}:
+def decision_associativity(+first: M.Decision(), +second: M.Decision(), +third: M.Decision()) ->
+  {P.combine(P.combine(first, second), third) == P.combine(first, P.combine(second, third)) : M.Decision()}:
   match first second third:
-    case M.Decision{old, +reply, +a} M.Decision{middle, ignored, +b} M.Decision{+last, also_ignored, +c}:
-      Equal.cong(+List<M.Effect>, M.Decision, (effects => M.Decision{last, reply, effects}),
-        List.append(&2, M.Effect, List.append(&2, M.Effect, a, b), c),
-        List.append(&2, M.Effect, a, List.append(&2, M.Effect, b, c)),
-        Theory.append_associative(M.Effect, a, b, c))
+    case Component.Decision{old, +reply, +a} Component.Decision{middle, ignored, +b} Component.Decision{+last, also_ignored, +c}:
+      Equal.cong(+List<M.Effect()>, M.Decision(), (effects => Component.Decision{last, reply, effects}),
+        List.append(&2, M.Effect(), List.append(&2, M.Effect(), a, b), c),
+        List.append(&2, M.Effect(), a, List.append(&2, M.Effect(), b, c)),
+        Theory.append_associative(M.Effect(), a, b, c))
 
 def Concepts.commands():
   (command => world => Laws.command_transition(command, world))

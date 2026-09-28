@@ -1,4 +1,7 @@
 import Base
+import ../FEATURES.bend as F
+import ./component.bend as C
+import ./domain.bend as D
 import ../BOARD.bend as B
 import ../MODEL.bend as M
 import ../PROJECTS.bend as Projects
@@ -13,56 +16,54 @@ import ./operations.bend as Ops
 
 # Board/task relations are shared domain predicates. Neither the browser nor
 # the effect interpreter maintains these associations or decides their locks.
-def registry(world: M.World) -> B.State:
-  M.World{tasks, next_task, next_ticket, environment, limits, projects, board} = world
-  board
+def registry(world: M.World()) -> B.State:
+  F.board(C.rest(D.State, F.State(), world))
 
-def store(board: B.State, world: M.World) -> M.World:
-  M.World{tasks, next_task, next_ticket, environment, limits, projects, previous} = world
-  M.World{tasks, next_task, next_ticket, environment, limits, projects, board}
+def store(board: B.State, world: M.World()) -> M.World():
+  C.map_rest(D.State, F.State(), state => F.with_board(board, state), world)
 
-def entries(world: M.World) -> +List<M.Task>:
-  M.World{tasks, next_task, next_ticket, environment, limits, projects, board} = world
+def entries(world: M.World()) -> +List<D.Task>:
+  C.Frame{D.State{tasks, next_task, next_ticket, environment, limits, projects}, +board} = world
   tasks
 
-def profiles(world: M.World) -> +List<M.Profile>:
-  M.World{tasks, next_task, next_ticket, M.Environment{catalog, profiles, max_fork, max_descendants, project, plugins}, limits, projects, board} = world
+def profiles(world: M.World()) -> +List<D.Profile>:
+  C.Frame{D.State{tasks, next_task, next_ticket, D.Environment{catalog, profiles, max_fork, max_descendants, project, plugins}, limits, projects}, +board} = world
   profiles
 
-def task_id(world: M.World) -> Nat:
-  M.World{tasks, next_task, next_ticket, environment, limits, projects, board} = world
+def task_id(world: M.World()) -> Nat:
+  C.Frame{D.State{tasks, next_task, next_ticket, environment, limits, projects}, +board} = world
   next_task
 
-def ticket(world: M.World) -> Nat:
-  M.World{tasks, next_task, next_ticket, environment, limits, projects, board} = world
+def ticket(world: M.World()) -> Nat:
+  C.Frame{D.State{tasks, next_task, next_ticket, environment, limits, projects}, +board} = world
   next_ticket
 
-def linked_task(id: Maybe<&2, Nat>, tasks: +List<M.Task>) -> Maybe<&2, M.Task>:
+def linked_task(id: Maybe<&2, Nat>, tasks: +List<D.Task>) -> Maybe<&2, D.Task>:
   match id:
     case None{}: None{}
     case Some{id}: T.find(tasks, id)
 
-def task(+card: B.Card, world: M.World) -> Maybe<&2, M.Task>:
+def task(+card: B.Card, world: M.World()) -> Maybe<&2, D.Task>:
   linked_task(B.task(card), entries(world))
 
-def idle_phase(phase: M.Phase) -> Bool:
+def idle_phase(phase: D.Phase) -> Bool:
   match phase:
-    case M.Idle{}: True{}
+    case D.Idle{}: True{}
     case _: False{}
 
-def busy_task(+task: M.Task) -> Bool:
-  M.accepts_input(M.task_status(task)) &&
-    (Bool.not(idle_phase(M.task_phase(task))) || M.operations_pending(M.task_operations(task)))
+def busy_task(+task: D.Task) -> Bool:
+  D.accepts_input(D.task_status(task)) &&
+    (Bool.not(idle_phase(D.task_phase(task))) || D.operations_pending(D.task_operations(task)))
 
-def busy(found: Maybe<&2, M.Task>) -> Bool:
+def busy(found: Maybe<&2, D.Task>) -> Bool:
   match found:
     case None{}: False{}
     case Some{task}: busy_task(task)
 
-def mutable(+card: B.Card, +world: M.World) -> Bool:
+def mutable(+card: B.Card, +world: M.World()) -> Bool:
   Bool.not(B.archived(card)) && Bool.not(B.pending(B.enrichment(card))) && Bool.not(busy(task(card, world)))
 
-def editing(+card: B.Card, world: M.World) -> Bool:
+def editing(+card: B.Card, world: M.World()) -> Bool:
   mutable(card, world) && B.unlinked(B.task(card))
 
 def owns(expected: Nat, actual: Maybe<&2, Nat>) -> Bool:
@@ -101,9 +102,9 @@ def owner_valid(owner: B.Owner, state: B.State) -> Bool:
     case B.Agent{id}: present(~B.AgentProfile, B.find_agent(state, id))
     case _: True{}
 
-def draft_valid(+draft: B.Draft, +world: M.World) -> Bool:
+def draft_valid(+draft: B.Draft, +world: M.World()) -> Bool:
   B.valid_draft(draft) && owner_valid(B.card_owner(draft), registry(world)) &&
-    Projects.reference_valid(B.project(draft), Projects.registry(world))
+    Projects.reference_valid(B.project(draft), Projects.registry(F.State(), world))
 
 def pending_valid(state: B.Enrichment, version: Nat, next_ticket: Nat) -> Bool:
   match state:
@@ -126,12 +127,12 @@ def exclusive_pending(state: B.Enrichment, archived: Bool, rest: +List<Finite.En
     case B.Enriching{ticket, revision, retitle}: Bool.not(archived) && Bool.not(has_ticket(rest, ticket))
     case _: True{}
 
-def link_valid(id: Maybe<&2, Nat>, tasks: +List<M.Task>, rest: +List<Finite.Entry(B.Card)>) -> Bool:
+def link_valid(id: Maybe<&2, Nat>, tasks: +List<D.Task>, rest: +List<Finite.Entry(B.Card)>) -> Bool:
   match id:
     case None{}: True{}
-    case Some{+id}: present(~M.Task, T.find(tasks, id)) && Bool.not(task_used(rest, id))
+    case Some{+id}: present(~D.Task, T.find(tasks, id)) && Bool.not(task_used(rest, id))
 
-def valid_cards(cards: +List<Finite.Entry(B.Card)>, +next: Nat, +world: M.World) -> Bool:
+def valid_cards(cards: +List<Finite.Entry(B.Card)>, +next: Nat, +world: M.World()) -> Bool:
   match cards:
     case Nil{}: True{}
     case Con{(+id, +card), +rest}:
@@ -146,7 +147,7 @@ def valid_agents(agents: +List<Finite.Entry(B.AgentProfile)>, +next: Nat) -> Boo
     case Con{(+id, agent), +rest}: Nat.is_lt(id, next) && B.valid_agent(agent) &&
       Bool.not(present(~B.AgentProfile, Finite.find(~B.AgentProfile, rest, id))) && valid_agents(rest, next)
 
-def valid(+world: M.World) -> Bool:
+def valid(+world: M.World()) -> Bool:
   +board = registry(world)
   Nat.is_le(List.length(&2, Finite.Entry(B.Card), B.cards(board)), 512n) &&
     Nat.is_le(List.length(&2, Finite.Entry(B.AgentProfile), B.agents(board)), 64n) &&
@@ -201,30 +202,30 @@ def queued_cards(+state: B.State) -> +List<Finite.Entry(B.Card)>:
     by_priority(List.filter(~Finite.Entry(B.Card), (entry => pin_group(True{}, entry)), B.cards(state))),
     by_priority(List.filter(~Finite.Entry(B.Card), (entry => pin_group(False{}, entry)), B.cards(state))))
 
-def drafting_profile(profile: M.Profile) -> Bool:
-  M.Profile{key, provider, name, policy} = profile
+def drafting_profile(profile: D.Profile) -> Bool:
+  D.Profile{key, provider, name, policy} = profile
   Bool.not(String.eq(provider, "echo")) && Bool.not(Reasoning.automatic(policy))
 
-def ordinary(found: Maybe<&2, M.Profile>) -> Bool:
+def ordinary(found: Maybe<&2, D.Profile>) -> Bool:
   match found:
     case None{}: False{}
     case Some{profile}: drafting_profile(profile)
 
-def draft_profile_valid(+name: String, world: M.World) -> Bool:
-  String.is_empty(name) || ordinary(M.find_profile(profiles(world), name))
+def draft_profile_valid(+name: String, world: M.World()) -> Bool:
+  String.is_empty(name) || ordinary(D.find_profile(profiles(world), name))
 
 def count(yes: Bool, rest: Nat) -> Nat:
   match yes:
     case True{}: 1n+rest
     case False{}: rest
 
-def active_for(cards: +List<Finite.Entry(B.Card)>, +owner: B.Owner, +world: M.World) -> Nat:
+def active_for(cards: +List<Finite.Entry(B.Card)>, +owner: B.Owner, +world: M.World()) -> Nat:
   match cards:
     case Nil{}: 0n
     case Con{(id, +card), rest}:
       count(B.same_owner(B.card_owner(B.draft(card)), owner) && busy(task(card, world)), active_for(rest, owner, world))
 
-def agent(owner: B.Owner, world: M.World) -> Maybe<&2, B.AgentProfile>:
+def agent(owner: B.Owner, world: M.World()) -> Maybe<&2, B.AgentProfile>:
   match owner:
     case B.Unassigned{}: None{}
     case B.Self{}: None{}
@@ -236,24 +237,24 @@ def available_capacity(found: Maybe<&2, B.AgentProfile>, active: Nat) -> Bool:
     case None{}: False{}
     case Some{B.AgentProfile{revision, name, profile, reasoning, instructions, settings, capacity}}: Nat.is_lt(active, capacity)
 
-def runnable(+card: B.Card, +world: M.World) -> Bool:
+def runnable(+card: B.Card, +world: M.World()) -> Bool:
   +owner = B.card_owner(B.draft(card))
   mutable(card, world) && B.unlinked(B.task(card)) && B.automatic_owner(owner) &&
     available_capacity(agent(owner, world), active_for(B.cards(registry(world)), owner, world))
 
-def latest_failure(history: M.History) -> Bool:
+def latest_failure(history: D.History) -> Bool:
   match history:
-    case M.EmptyHistory{}: False{}
-    case M.HistoryNode{previous, M.FailureMessage{text}}: True{}
-    case M.HistoryNode{previous, M.UserMessage{text}}: False{}
-    case M.HistoryNode{previous, M.AssistantMessage{text}}: False{}
-    case M.HistoryNode{previous, M.ModelContext{value}}: False{}
-    case M.HistoryNode{previous, other}: latest_failure(previous)
+    case D.EmptyHistory{}: False{}
+    case D.HistoryNode{previous, D.FailureMessage{text}}: True{}
+    case D.HistoryNode{previous, D.UserMessage{text}}: False{}
+    case D.HistoryNode{previous, D.AssistantMessage{text}}: False{}
+    case D.HistoryNode{previous, D.ModelContext{value}}: False{}
+    case D.HistoryNode{previous, other}: latest_failure(previous)
 
-def awaiting(operations: +List<M.Operation()>) -> Bool:
+def awaiting(operations: +List<D.Operation()>) -> Bool:
   match operations:
     case Nil{}: False{}
-    case Con{(id, M.OperationBody{call, announced, M.ApprovalPending{reviewer}}), rest}: True{}
+    case Con{(id, D.OperationBody{call, announced, D.ApprovalPending{reviewer}}), rest}: True{}
     case Con{operation, rest}: awaiting(rest)
 
 def activity_flags(approval: Bool, working: Bool, failed: Bool) -> String:
@@ -263,29 +264,29 @@ def activity_flags(approval: Bool, working: Bool, failed: Bool) -> String:
     case _ _ True{}: "failed"
     case _ _ _: "completed"
 
-def task_activity(+task: M.Task) -> String:
+def task_activity(+task: D.Task) -> String:
   match task:
-    case M.Task{id, lineage, contract, M.Archived{}, history, queued, phase, operations, notified}: "archived"
-    case M.Task{id, lineage, contract, M.Stopped{}, history, queued, M.Idle{}, Nil{}, notified}: "interrupted"
-    case M.Task{id, lineage, contract, M.Frozen{}, history, queued, phase, operations, notified}: "paused"
-    case M.Task{id, lineage, contract, status, history, queued, M.ReasoningPending{ticket, revision}, operations, notified}: "evaluating"
-    case M.Task{id, lineage, contract, status, history, queued, M.SummaryPending{ticket, resume}, operations, notified}: "compacting"
-    case _: activity_flags(awaiting(M.task_operations(task)), busy_task(task), latest_failure(M.task_history(task)))
+    case D.Task{id, lineage, contract, D.Archived{}, history, queued, phase, operations, notified}: "archived"
+    case D.Task{id, lineage, contract, D.Stopped{}, history, queued, D.Idle{}, Nil{}, notified}: "interrupted"
+    case D.Task{id, lineage, contract, D.Frozen{}, history, queued, phase, operations, notified}: "paused"
+    case D.Task{id, lineage, contract, status, history, queued, D.ReasoningPending{ticket, revision}, operations, notified}: "evaluating"
+    case D.Task{id, lineage, contract, status, history, queued, D.SummaryPending{ticket, resume}, operations, notified}: "compacting"
+    case _: activity_flags(awaiting(D.task_operations(task)), busy_task(task), latest_failure(D.task_history(task)))
 
-def activity_task(found: Maybe<&2, M.Task>, queued: Bool) -> String:
+def activity_task(found: Maybe<&2, D.Task>, queued: Bool) -> String:
   match found queued:
     case Some{task} _: task_activity(task)
     case None{} True{}: "queued"
     case None{} False{}: "not_started"
 
-def activity_enrichment(state: B.Enrichment, +card: B.Card, +world: M.World) -> String:
+def activity_enrichment(state: B.Enrichment, +card: B.Card, +world: M.World()) -> String:
   match state:
     case B.Enriching{ticket, revision, retitle}: "generating"
     case B.EnrichmentFailed{reason}: "draft_failed"
     case _:
       activity_task(task(card, world), B.automatic(registry(world)) && B.ready(card))
 
-def activity(+card: B.Card, world: M.World) -> String:
+def activity(+card: B.Card, world: M.World()) -> String:
   activity_enrichment(B.enrichment(card), card, world)
 
 def activity_label(activity: String) -> String:
@@ -316,26 +317,26 @@ def stage_changed(same: Bool, stage: B.Stage, +card: B.Card) -> B.Card:
     case True{}: card
     case False{}: B.with_draft(B.with_stage(stage, B.draft(card)), card, B.updated(card))
 
-def sync_task(found: Maybe<&2, M.Task>, +card: B.Card) -> B.Card:
+def sync_task(found: Maybe<&2, D.Task>, +card: B.Card) -> B.Card:
   match found:
     case None{}: card
     case Some{+task}:
-      +stage = synchronized_stage(busy_task(task), latest_failure(M.task_history(task)), B.card_stage(B.draft(card)))
+      +stage = synchronized_stage(busy_task(task), latest_failure(D.task_history(task)), B.card_stage(B.draft(card)))
       stage_changed(String.eq(B.stage_name(stage), B.stage_name(B.card_stage(B.draft(card)))), stage, card)
 
-def sync_allowed(allowed: Bool, card: B.Card, found: Maybe<&2, M.Task>) -> B.Card:
+def sync_allowed(allowed: Bool, card: B.Card, found: Maybe<&2, D.Task>) -> B.Card:
   match allowed:
     case True{}: sync_task(found, card)
     case False{}: card
 
-def synchronize_cards(cards: +List<Finite.Entry(B.Card)>, +world: M.World) -> +List<Finite.Entry(B.Card)>:
+def synchronize_cards(cards: +List<Finite.Entry(B.Card)>, +world: M.World()) -> +List<Finite.Entry(B.Card)>:
   match cards:
     case Nil{}: Nil{}
     case Con{(id, +card), rest}:
       (id, sync_allowed(Bool.not(B.archived(card)) && Bool.not(B.pending(B.enrichment(card))), card, task(card, world))) <>
         synchronize_cards(rest, world)
 
-def synchronize(+world: M.World) -> M.World:
+def synchronize(+world: M.World()) -> M.World():
   store(B.with_cards(synchronize_cards(B.cards(registry(world)), world), registry(world)), world)
 
 def recovered_pending(pending: Bool, card: B.Card) -> B.Card:
@@ -354,17 +355,17 @@ def recovered(cards: +List<Finite.Entry(B.Card)>) -> +List<Finite.Entry(B.Card)>
 def recover(+state: B.State) -> B.State:
   B.with_cards(recovered(B.cards(state)), state)
 
-def capabilities(+card: B.Card, +world: M.World) -> J.Json:
+def capabilities(+card: B.Card, +world: M.World()) -> J.Json:
   J.Object{[J.Field{"edit", J.Boolean{editing(card, world)}}, J.Field{"metadata", J.Boolean{mutable(card, world)}},
     J.Field{"drag", J.Boolean{mutable(card, world)}}, J.Field{"run", J.Boolean{runnable(card, world)}},
     J.Field{"archive", J.Boolean{Bool.not(B.archived(card)) && Bool.not(B.pending(B.enrichment(card)))}},
     J.Field{"restore", J.Boolean{B.archived(card)}}, J.Field{"delete", J.Boolean{Bool.not(B.pending(B.enrichment(card))) && Bool.not(busy(task(card, world)))}}]}
 
-def card_json(+id: Nat, +card: B.Card, +world: M.World) -> J.Json:
+def card_json(+id: Nat, +card: B.Card, +world: M.World()) -> J.Json:
   J.Object{List.append(&2, J.Field, Codec.card_fields(id, card),
     [J.Field{"activity", J.Text{activity(card, world)}}, J.Field{"capabilities", capabilities(card, world)}])}
 
-def cards_json(cards: +List<Finite.Entry(B.Card)>, +world: M.World) -> +List<J.Json>:
+def cards_json(cards: +List<Finite.Entry(B.Card)>, +world: M.World()) -> +List<J.Json>:
   match cards:
     case Nil{}: Nil{}
     case Con{(id, card), rest}: card_json(id, card, world) <> cards_json(rest, world)
@@ -374,14 +375,14 @@ def agents_json(agents: +List<Finite.Entry(B.AgentProfile)>) -> +List<J.Json>:
     case Nil{}: Nil{}
     case Con{(id, agent), rest}: J.Object{J.Field{"agent_id", J.nat(id)} <> Codec.agent_fields(agent)} <> agents_json(rest)
 
-def read(found: Maybe<&2, B.Card>, id: Nat, world: M.World) -> J.Json:
+def read(found: Maybe<&2, B.Card>, id: Nat, world: M.World()) -> J.Json:
   match found:
-    case None{}: M.failure("card_not_found", "The board card does not exist")
-    case Some{card}: M.success(card_json(id, card, world))
+    case None{}: D.failure("card_not_found", "The board card does not exist")
+    case Some{card}: D.success(card_json(id, card, world))
 
-def query(query: B.Query, +world: M.World) -> J.Json:
+def query(query: B.Query, +world: M.World()) -> J.Json:
   match query:
-    case B.ListCards{}: M.success(J.Object{[J.Field{"cards", J.Array{cards_json(B.cards(registry(world)), world)}},
+    case B.ListCards{}: D.success(J.Object{[J.Field{"cards", J.Array{cards_json(B.cards(registry(world)), world)}},
       J.Field{"automatic", J.Boolean{B.automatic(registry(world))}}, J.Field{"draft_profile", J.Text{B.draft_profile(registry(world))}}]})
     case B.ReadCard{+id}: read(B.find(registry(world), id), id, world)
-    case B.ListAgents{}: M.success(J.Array{agents_json(B.agents(registry(world)))})
+    case B.ListAgents{}: D.success(J.Array{agents_json(B.agents(registry(world)))})

@@ -1,4 +1,8 @@
 import Base
+import ./feature-codec.bend as FeatureCodec
+import ./wire-shape.bend as Shape
+import ../FEATURES.bend as Features
+import ./domain.bend as D
 import ../MODEL.bend as M
 import ./protocol.bend as Protocol
 import ./json.bend as J
@@ -7,26 +11,10 @@ import ./tasks.bend as T
 import ./presentation.bend as View
 import ../INVARIANTS.bend as I
 import ../UI.bend as UI
-import ../BOARD.bend as B
-import ./board-codec.bend as BoardCodec
-import ./board-navigation.bend as BoardNav
 import ../HOOKS.bend as Hooks
 import ../APPROVALS.bend as Approvals
 import ../REASONING.bend as Reasoning
 
-def exact_keys(fields: +List<J.Field>, +allowed: +List<String>, +seen: +List<String>) -> Bool:
-  match fields:
-    case Nil{}: Nat.is_eq(List.length(&2, String, seen), List.length(&2, String, allowed))
-    case Con{J.Field{+key, value}, rest}:
-      T.has_name(allowed, key) && Bool.not(T.has_name(seen, key)) && exact_keys(rest, allowed, key <> seen)
-
-def object_keys(value: J.Json, allowed: +List<String>) -> Bool:
-  match value:
-    case J.Object{fields}: exact_keys(fields, allowed, Nil{})
-    case _: False{}
-
-# This module converts untrusted values into domain constructors. The host wraps
-# public commands; only trusted host paths may construct completion/config inputs.
 def choose_spec(same: Bool, spec: M.CommandSpec, rest: Maybe<&2, M.CommandSpec>) -> Maybe<&2, M.CommandSpec>:
   match same:
     case True{}: Some{spec}
@@ -48,20 +36,15 @@ def optional_text(value: J.Json) -> Maybe<&2, String>:
     case J.Text{text}: Some{text}
     case _: None{}
 
-def approval_outcome(kind: String, +value: J.Json) -> M.ApprovalOutcome:
+def approval_outcome(kind: String, +value: J.Json) -> D.ApprovalOutcome:
   match kind:
-    case "allow": M.ApprovalAllowed{text_or(J.get(value, "reason"), "")}
-    case "deny": M.ApprovalDenied{text_or(J.get(value, "reason"), "")}
-    case _: M.ApprovalFailed{text_or(J.get(value, "reason"), "The review did not return a valid decision")}
-
-def board_command(kind: BoardCodec.EntryKind, body: J.Json) -> M.Command:
-  match kind:
-    case BoardCodec.Write{kind}: M.BoardCommand{BoardCodec.construct(kind, body)}
-    case BoardCodec.Read{kind}: M.Observe{M.BoardQuery{BoardCodec.query(kind, body)}}
+    case "allow": D.ApprovalAllowed{text_or(J.get(value, "reason"), "")}
+    case "deny": D.ApprovalDenied{text_or(J.get(value, "reason"), "")}
+    case _: D.ApprovalFailed{text_or(J.get(value, "reason"), "The review did not return a valid decision")}
 
 def construct_command(kind: M.CommandKind, +body: J.Json) -> M.Command:
   match kind:
-    case M.BoardKind{kind}: board_command(kind, body)
+    case M.FeatureKind{kind}: FeatureCodec.construct(kind, body)
     case M.CreateCommand{}:
       M.Create{J.text(J.get(body, "profile")), text_or(J.get(body, "reasoning"), "default"), J.text(J.get(body, "message")), J.get(body, "settings")}
     case M.SendCommand{}:
@@ -97,7 +80,7 @@ def command_valid(valid: Bool, kind: M.CommandKind, body: J.Json) -> Result<&2, 
 
 def command_constraints(kind: M.CommandKind, body: J.Json) -> Bool:
   match kind:
-    case M.BoardKind{kind}: BoardCodec.valid(kind, body)
+    case M.FeatureKind{kind}: FeatureCodec.valid(kind, body)
     case _: True{}
 
 def command_spec(found: Maybe<&2, M.CommandSpec>, +body: J.Json) -> Result<&2, &2, String, M.Input>:
@@ -109,23 +92,13 @@ def command_spec(found: Maybe<&2, M.CommandSpec>, +body: J.Json) -> Result<&2, &
 def decode_command(+body: J.Json) -> Result<&2, &2, String, M.Input>:
   command_spec(find_spec(M.commands(), J.text(J.get(body, "op"))), body)
 
-def is_some(value: Maybe<&2, Nat>) -> Bool:
-  match value:
-    case Some{n}: True{}
-    case None{}: False{}
-
-def is_natural(value: J.Json) -> Bool:
-  match value:
-    case J.Number{lexeme}: is_some(Nat.read(lexeme))
-    case _: False{}
-
-def item_kind(kind: String, +value: J.Json) -> M.ModelItem:
+def item_kind(kind: String, +value: J.Json) -> D.ModelItem:
   match kind:
-    case "call": M.Invoke{M.Call{J.text(J.get(value, "id")), J.text(J.get(value, "name")), J.get(value, "arguments")}}
-    case "context": M.Context{J.get(value, "value")}
-    case _: M.Say{J.text(J.get(value, "text"))}
+    case "call": D.Invoke{D.Call{J.text(J.get(value, "id")), J.text(J.get(value, "name")), J.get(value, "arguments")}}
+    case "context": D.Context{J.get(value, "value")}
+    case _: D.Say{J.text(J.get(value, "text"))}
 
-def model_items(values: +List<J.Json>) -> +List<M.ModelItem>:
+def model_items(values: +List<J.Json>) -> +List<D.ModelItem>:
   match values:
     case Nil{}: Nil{}
     case Con{+value, rest}:
@@ -148,15 +121,10 @@ def is_array(value: J.Json) -> Bool:
     case J.Array{values}: True{}
     case _: False{}
 
-def is_bool(value: J.Json) -> Bool:
-  match value:
-    case J.Boolean{boolean}: True{}
-    case _: False{}
-
-def model_failure(kind: J.Json, message: String) -> M.Outcome:
+def model_failure(kind: J.Json, message: String) -> D.Outcome:
   match kind:
-    case J.Text{"context_limit"}: M.ContextLimit{}
-    case _: M.ModelFailure{message}
+    case J.Text{"context_limit"}: D.ContextLimit{}
+    case _: D.ModelFailure{message}
 
 def valid_failure_kind(kind: J.Json) -> Bool:
   match kind:
@@ -164,9 +132,9 @@ def valid_failure_kind(kind: J.Json) -> Bool:
     case J.Text{"context_limit"}: True{}
     case _: False{}
 
-def model_outcome(ok: Bool, +body: J.Json) -> M.Outcome:
+def model_outcome(ok: Bool, +body: J.Json) -> D.Outcome:
   match ok:
-    case True{}: M.ModelReply{model_items(J.items(J.get(body, "items")))}
+    case True{}: D.ModelReply{model_items(J.items(J.get(body, "items")))}
     case False{}: model_failure(J.get(body, "failure_kind"), J.text(J.get(body, "message")))
 
 def valid_model_payload(ok: Bool, +body: J.Json) -> Bool:
@@ -182,8 +150,8 @@ def model_valid(valid: Bool, +body: J.Json) -> Result<&2, &2, String, M.Input>:
         model_outcome(J.boolean(J.get(body, "ok")), body)}}
 
 def decode_model(+body: J.Json) -> Result<&2, &2, String, M.Input>:
-  model_valid(is_natural(J.get(body, "task_id")) && is_natural(J.get(body, "ticket")) &&
-    is_bool(J.get(body, "ok")) && valid_model_payload(J.boolean(J.get(body, "ok")), body), body)
+  model_valid(Shape.is_natural(J.get(body, "task_id")) && Shape.is_natural(J.get(body, "ticket")) &&
+    Shape.is_bool(J.get(body, "ok")) && valid_model_payload(J.boolean(J.get(body, "ok")), body), body)
 
 def reasoning_outcome(ok: Bool, +body: J.Json) -> Reasoning.Outcome:
   match ok:
@@ -193,11 +161,11 @@ def reasoning_outcome(ok: Bool, +body: J.Json) -> Reasoning.Outcome:
 def reasoning_payload(ok: Bool, +body: J.Json) -> Bool:
   match ok:
     case True{}:
-      object_keys(body, ["kind", "task_id", "ticket", "ok", "effort", "generations"]) &&
+      Shape.object_keys(body, ["kind", "task_id", "ticket", "ok", "effort", "generations"]) &&
         J.is_text(J.get(body, "effort")) && Nat.is_le(J.utf8_length(J.text(J.get(body, "effort"))), 64n) &&
-        is_natural(J.get(body, "generations"))
+        Shape.is_natural(J.get(body, "generations"))
     case False{}:
-      object_keys(body, ["kind", "task_id", "ticket", "ok", "message"]) && J.is_text(J.get(body, "message")) &&
+      Shape.object_keys(body, ["kind", "task_id", "ticket", "ok", "message"]) && J.is_text(J.get(body, "message")) &&
         Nat.is_le(J.utf8_length(J.text(J.get(body, "message"))), 4096n)
 
 def reasoning_valid(valid: Bool, +body: J.Json) -> Result<&2, &2, String, M.Input>:
@@ -206,31 +174,9 @@ def reasoning_valid(valid: Bool, +body: J.Json) -> Result<&2, &2, String, M.Inpu
     case True{}: Done{M.ReasoningCompleted{Protocol.number(body, "task_id", 0n), Protocol.number(body, "ticket", 0n),
       reasoning_outcome(J.boolean(J.get(body, "ok")), body)}}
 
-def board_text_outcome(ok: Bool, +body: J.Json) -> B.Outcome:
-  match ok:
-    case True{}: B.Suggested{J.text(J.get(body, "title")), J.text(J.get(body, "description"))}
-    case False{}: B.SuggestionFailed{J.text(J.get(body, "message"))}
-
-def board_text_payload(ok: Bool, +body: J.Json) -> Bool:
-  match ok:
-    case True{}: object_keys(body, ["kind", "card_id", "ticket", "ok", "title", "description"]) &&
-      J.is_text(J.get(body, "title")) && J.is_text(J.get(body, "description"))
-    case False{}: object_keys(body, ["kind", "card_id", "ticket", "ok", "message"]) &&
-      J.is_text(J.get(body, "message")) && B.limited(J.text(J.get(body, "message")), 4096n)
-
-def board_text_valid(valid: Bool, +body: J.Json) -> Result<&2, &2, String, M.Input>:
-  match valid:
-    case False{}: Fail{"Malformed board drafting completion"}
-    case True{}: Done{M.BoardTextCompleted{Protocol.number(body, "card_id", 0n), Protocol.number(body, "ticket", 0n),
-      board_text_outcome(J.boolean(J.get(body, "ok")), body)}}
-
-def decode_board_text(+body: J.Json) -> Result<&2, &2, String, M.Input>:
-  board_text_valid(Schema.valid(BoardCodec.integer_schema(), J.get(body, "card_id")) && is_natural(J.get(body, "ticket")) &&
-    is_bool(J.get(body, "ok")) && board_text_payload(J.boolean(J.get(body, "ok")), body), body)
-
 def decode_reasoning(+body: J.Json) -> Result<&2, &2, String, M.Input>:
-  reasoning_valid(is_natural(J.get(body, "task_id")) && is_natural(J.get(body, "ticket")) &&
-    is_bool(J.get(body, "ok")) && reasoning_payload(J.boolean(J.get(body, "ok")), body), body)
+  reasoning_valid(Shape.is_natural(J.get(body, "task_id")) && Shape.is_natural(J.get(body, "ticket")) &&
+    Shape.is_bool(J.get(body, "ok")) && reasoning_payload(J.boolean(J.get(body, "ok")), body), body)
 
 def tool_valid(valid: Bool, +body: J.Json) -> Result<&2, &2, String, M.Input>:
   match valid:
@@ -240,7 +186,7 @@ def tool_valid(valid: Bool, +body: J.Json) -> Result<&2, &2, String, M.Input>:
         J.get(body, "value"), J.boolean(J.get(body, "error"))}}
 
 def decode_tool(+body: J.Json) -> Result<&2, &2, String, M.Input>:
-  tool_valid(is_natural(J.get(body, "task_id")) && is_natural(J.get(body, "ticket")) && is_bool(J.get(body, "error")), body)
+  tool_valid(Shape.is_natural(J.get(body, "task_id")) && Shape.is_natural(J.get(body, "ticket")) && Shape.is_bool(J.get(body, "error")), body)
 
 def reasoning_transport(value: String) -> Reasoning.Transport:
   match value:
@@ -258,16 +204,16 @@ def valid_reasoning_policy(+value: J.Json) -> Bool:
   match value:
     case J.Null{}: True{}
     case other:
-      object_keys(value, ["evaluator", "efforts", "baseline", "transport", "max_lease"]) &&
-        is_array(J.get(value, "efforts")) && is_natural(J.get(value, "max_lease")) &&
+      Shape.object_keys(value, ["evaluator", "efforts", "baseline", "transport", "max_lease"]) &&
+        is_array(J.get(value, "efforts")) && Shape.is_natural(J.get(value, "max_lease")) &&
         (String.eq(J.text(J.get(value, "transport")), "configuration_update") || String.eq(J.text(J.get(value, "transport")), "request_effort")) &&
         Reasoning.valid(reasoning_policy(value))
 
-def profile_values(values: +List<J.Json>) -> +List<M.Profile>:
+def profile_values(values: +List<J.Json>) -> +List<D.Profile>:
   match values:
     case Nil{}: Nil{}
     case Con{+value, rest}:
-      M.Profile{J.text(J.get(value, "key")), J.text(J.get(value, "provider")), J.text(J.get(value, "name")),
+      D.Profile{J.text(J.get(value, "key")), J.text(J.get(value, "provider")), J.text(J.get(value, "name")),
         reasoning_policy(J.get(value, "adaptive_reasoning"))} <> profile_values(rest)
 
 def valid_profiles(values: +List<J.Json>, +seen: +List<String>) -> Bool:
@@ -275,31 +221,31 @@ def valid_profiles(values: +List<J.Json>, +seen: +List<String>) -> Bool:
     case Nil{}: True{}
     case Con{+value, rest}:
       +key = J.text(J.get(value, "key"))
-      M.nonempty(key) && M.nonempty(J.text(J.get(value, "provider"))) && M.nonempty(J.text(J.get(value, "name"))) &&
+      D.nonempty(key) && D.nonempty(J.text(J.get(value, "provider"))) && D.nonempty(J.text(J.get(value, "name"))) &&
         valid_reasoning_policy(J.get(value, "adaptive_reasoning")) && Bool.not(T.has_name(seen, key)) && valid_profiles(rest, key <> seen)
 
-def plugin_ref(+value: J.Json) -> M.PluginRef:
-  M.PluginRef{J.text(J.get(value, "name")), J.text(J.get(value, "revision"))}
+def plugin_ref(+value: J.Json) -> D.PluginRef:
+  D.PluginRef{J.text(J.get(value, "name")), J.text(J.get(value, "revision"))}
 
-def source(plugin: J.Json, +value: J.Json) -> M.Source:
+def source(plugin: J.Json, +value: J.Json) -> D.Source:
   match plugin:
-    case J.Null{}: M.Mcp{J.text(J.get(value, "server")), J.text(J.get(value, "remote"))}
-    case other: M.Extension{plugin_ref(other), J.text(J.get(value, "remote"))}
+    case J.Null{}: D.Mcp{J.text(J.get(value, "server")), J.text(J.get(value, "remote"))}
+    case other: D.Extension{plugin_ref(other), J.text(J.get(value, "remote"))}
 
 def valid_ref(+value: J.Json) -> Bool:
-  object_keys(value, ["name", "revision"]) && J.is_text(J.get(value, "name")) && J.is_text(J.get(value, "revision")) &&
+  Shape.object_keys(value, ["name", "revision"]) && J.is_text(J.get(value, "name")) && J.is_text(J.get(value, "revision")) &&
     Hooks.reference_valid(plugin_ref(value))
 
 def valid_route(plugin: J.Json, +value: J.Json) -> Bool:
   match plugin:
-    case J.Null{}: String.starts_with(J.text(J.get(value, "name")), "mcp__") && M.nonempty(J.text(J.get(value, "server")))
+    case J.Null{}: String.starts_with(J.text(J.get(value, "name")), "mcp__") && D.nonempty(J.text(J.get(value, "server")))
     case +other: valid_ref(other) && String.eq(J.text(J.get(value, "name")), "plugin__" ++ Hooks.plugin_name(plugin_ref(other)) ++ "__" ++ J.text(J.get(value, "remote")))
 
-def remote_tools(values: +List<J.Json>) -> +List<M.Tool>:
+def remote_tools(values: +List<J.Json>) -> +List<D.Tool>:
   match values:
     case Nil{}: Nil{}
     case Con{+value, rest}:
-      M.Tool{J.text(J.get(value, "name")), J.text(J.get(value, "description")), J.get(value, "schema"),
+      D.Tool{J.text(J.get(value, "name")), J.text(J.get(value, "description")), J.get(value, "schema"),
         source(J.get(value, "plugin"), value)} <> remote_tools(rest)
 
 def valid_remote_tools(values: +List<J.Json>, +seen: +List<String>) -> Bool:
@@ -307,41 +253,41 @@ def valid_remote_tools(values: +List<J.Json>, +seen: +List<String>) -> Bool:
     case Nil{}: True{}
     case Con{+value, rest}:
       +name = J.text(J.get(value, "name"))
-      M.nonempty(name) && valid_route(J.get(value, "plugin"), value) && Bool.not(T.has_name(seen, name)) &&
-        M.nonempty(J.text(J.get(value, "description"))) && J.is_object(J.get(value, "schema")) &&
-        M.nonempty(J.text(J.get(value, "remote"))) &&
+      D.nonempty(name) && valid_route(J.get(value, "plugin"), value) && Bool.not(T.has_name(seen, name)) &&
+        D.nonempty(J.text(J.get(value, "description"))) && J.is_object(J.get(value, "schema")) &&
+        D.nonempty(J.text(J.get(value, "remote"))) &&
         valid_remote_tools(rest, name <> seen)
 
-def event_cons(kind: Maybe<&2, M.EventKind>, rest: +List<M.EventKind>) -> +List<M.EventKind>:
+def event_cons(kind: Maybe<&2, D.EventKind>, rest: +List<D.EventKind>) -> +List<D.EventKind>:
   match kind:
     case None{}: rest
     case Some{kind}: kind <> rest
 
-def event_values(values: +List<J.Json>) -> +List<M.EventKind>:
+def event_values(values: +List<J.Json>) -> +List<D.EventKind>:
   match values:
     case Nil{}: Nil{}
-    case Con{value, rest}: event_cons(M.find_event(M.event_kinds(), J.text(value)), event_values(rest))
+    case Con{value, rest}: event_cons(D.find_event(D.event_kinds(), J.text(value)), event_values(rest))
 
-def plugin_values(values: +List<J.Json>) -> +List<M.Plugin>:
+def plugin_values(values: +List<J.Json>) -> +List<D.Plugin>:
   match values:
     case Nil{}: Nil{}
     case Con{+value, rest}:
-      M.Plugin{plugin_ref(J.get(value, "reference")), J.boolean(J.get(value, "before_tool")),
+      D.Plugin{plugin_ref(J.get(value, "reference")), J.boolean(J.get(value, "before_tool")),
         J.boolean(J.get(value, "after_tool")),
         event_values(J.items(J.get(value, "events")))} <> plugin_values(rest)
 
 def string_values(values: +List<J.Json>) -> Bool:
   match values:
     case Nil{}: True{}
-    case Con{J.Text{value}, rest}: T.has_name(M.plugin_events(), value) && string_values(rest)
+    case Con{J.Text{value}, rest}: T.has_name(D.plugin_events(), value) && string_values(rest)
     case _: False{}
 
 def valid_plugin_values(values: +List<J.Json>) -> Bool:
   match values:
     case Nil{}: True{}
     case Con{+value, rest}:
-      object_keys(value, ["reference", "before_tool", "after_tool", "events"]) && valid_ref(J.get(value, "reference")) &&
-        is_bool(J.get(value, "before_tool")) && is_bool(J.get(value, "after_tool")) && is_array(J.get(value, "events")) &&
+      Shape.object_keys(value, ["reference", "before_tool", "after_tool", "events"]) && valid_ref(J.get(value, "reference")) &&
+        Shape.is_bool(J.get(value, "before_tool")) && Shape.is_bool(J.get(value, "after_tool")) && is_array(J.get(value, "events")) &&
         string_values(J.items(J.get(value, "events"))) && valid_plugin_values(rest)
 
 def valid_plugins(value: J.Json) -> Bool:
@@ -350,10 +296,10 @@ def valid_plugins(value: J.Json) -> Bool:
     case J.Array{+values}: valid_plugin_values(values) && Hooks.valid(plugin_values(values))
     case _: False{}
 
-def project(+value: J.Json) -> M.ProjectContext:
+def project(+value: J.Json) -> D.ProjectContext:
   match value:
-    case J.Null{}: M.NoProject{}
-    case other: M.ProjectContext{J.text(J.get(other, "workspace")), J.text(J.get(other, "revision")), J.text(J.get(other, "instructions"))}
+    case J.Null{}: D.NoProject{}
+    case other: D.ProjectContext{J.text(J.get(other, "workspace")), J.text(J.get(other, "revision")), J.text(J.get(other, "instructions"))}
 
 def valid_project(+value: J.Json) -> Bool:
   match value:
@@ -369,32 +315,31 @@ def config_valid(valid: Bool, +body: J.Json) -> Result<&2, &2, String, M.Input>:
     case False{}: Fail{"Malformed environment: profiles/routes must be unique and limits must be positive integers"}
     case True{}:
       +max_fork = Protocol.number(body, "max_fork", 0n)
-      Done{M.Configure{M.Environment{List.append(&2, M.Tool, M.builtins(max_fork), remote_tools(J.items(J.get(body, "tools")))),
+      Done{M.Configure{D.Environment{List.append(&2, D.Tool, D.builtins(max_fork), remote_tools(J.items(J.get(body, "tools")))),
         profile_values(J.items(J.get(body, "profiles"))), max_fork, Protocol.number(body, "max_descendants", 0n), project(J.get(body, "project")),
         plugin_values(J.items(J.get(body, "plugins")))}}}
 
 def decode_config(+body: J.Json) -> Result<&2, &2, String, M.Input>:
   config_valid(valid_plugins(J.get(body, "plugins")) && valid_project(J.get(body, "project")) && is_array(J.get(body, "profiles")) && valid_profiles(J.items(J.get(body, "profiles")), Nil{}) &&
     is_array(J.get(body, "tools")) && valid_remote_tools(J.items(J.get(body, "tools")), Nil{}) &&
-    is_natural(J.get(body, "max_fork")) && Nat.is_le(1n, Protocol.number(body, "max_fork", 0n)) &&
-    is_natural(J.get(body, "max_descendants")) && Nat.is_le(1n, Protocol.number(body, "max_descendants", 0n)), body)
+    Shape.is_natural(J.get(body, "max_fork")) && Nat.is_le(1n, Protocol.number(body, "max_fork", 0n)) &&
+    Shape.is_natural(J.get(body, "max_descendants")) && Nat.is_le(1n, Protocol.number(body, "max_descendants", 0n)), body)
 
 # UI cursors are observations, not cached domain state. The wire may name only
 # the public event vocabulary; effect completions cannot be smuggled as events.
 def optional_id(value: J.Json) -> Bool:
   match value:
     case J.Null{}: True{}
-    case other: Schema.valid(M.task_id_schema(), other)
+    case other: Schema.valid(D.task_id_schema(), other)
 
 def view_state(value: J.Json) -> M.ViewState:
   match value:
     case J.Null{}: UI.initial()
-    case +other: M.ViewState{J.natural(J.get(other, "selected")), J.natural(J.get(other, "after")), Protocol.number(other, "tasks_after", 0n), J.text(J.get(other, "profile")),
-      BoardNav.cursor(J.get(other, "board"), BoardCodec.word(J.get(J.get(other, "board"), "now")))}
+    case +other: M.ViewState{J.natural(J.get(other, "selected")), J.natural(J.get(other, "after")), Protocol.number(other, "tasks_after", 0n), J.text(J.get(other, "profile")), FeatureCodec.cursor(other)}
 
 def view_clock(state: M.ViewState, observed: J.Json) -> M.ViewState:
-  M.ViewState{selected, after, tasks_after, profile, board} = state
-  M.ViewState{selected, after, tasks_after, profile, BoardNav.with_now(BoardCodec.word(observed), board)}
+  M.ViewState{selected, after, tasks_after, profile, +board} = state
+  M.ViewState{selected, after, tasks_after, profile, FeatureCodec.observe_cursor(board, observed)}
 
 def optional_profile(value: J.Json) -> Bool:
   match value:
@@ -404,9 +349,9 @@ def optional_profile(value: J.Json) -> Bool:
 def valid_view_state(value: J.Json) -> Bool:
   match value:
     case J.Null{}: True{}
-    case +other: object_keys(other, ["selected", "after", "tasks_after", "profile", "board"]) &&
+    case +other: Shape.object_keys(other, List.append(&2, String, ["selected", "after", "tasks_after", "profile"], FeatureCodec.cursor_keys())) &&
       optional_id(J.get(other, "selected")) && optional_id(J.get(other, "after")) &&
-      Schema.valid(M.task_id_schema(), J.get(other, "tasks_after")) && optional_profile(J.get(other, "profile")) && BoardNav.valid_cursor(J.get(other, "board"))
+      Schema.valid(D.task_id_schema(), J.get(other, "tasks_after")) && optional_profile(J.get(other, "profile")) && FeatureCodec.valid_cursor(other)
 
 def ui_event(valid: Bool, state: M.ViewState, event: M.ViewEvent) -> Result<&2, &2, String, M.Input>:
   match valid:
@@ -419,22 +364,24 @@ def ui_command(valid: Bool, decoded: Result<&2, &2, String, M.Input>, state: M.V
     case True{} Fail{reason}: Fail{reason}
     case _ _: Fail{"A presentation can submit only a public command"}
 
+def feature_navigation(decoded: Result<&2, &2, String, Features.Navigation>, state: M.ViewState) -> Result<&2, &2, String, M.Input>:
+  match decoded:
+    case Fail{reason}: Fail{reason}
+    case Done{event}: Done{M.UserInterface{state, M.FeatureEvent{event}}}
+
 def view_event(kind: String, +event: J.Json, state: M.ViewState) -> Result<&2, &2, String, M.Input>:
   match kind:
-    case "board": ui_event(object_keys(event, ["type", "event"]) &&
-      BoardNav.valid_event(J.text(J.get(J.get(event, "event"), "action")), J.get(event, "event")),
-      state, M.BoardEvent{BoardNav.event(J.text(J.get(J.get(event, "event"), "action")), J.get(event, "event"))})
-    case "refresh": ui_event(object_keys(event, ["type"]), state, M.RefreshView{})
-    case "select": ui_event(object_keys(event, ["type", "task_id"]) && optional_id(J.get(event, "task_id")),
+    case "refresh": ui_event(Shape.object_keys(event, ["type"]), state, M.RefreshView{})
+    case "select": ui_event(Shape.object_keys(event, ["type", "task_id"]) && optional_id(J.get(event, "task_id")),
       state, M.SelectTask{J.natural(J.get(event, "task_id"))})
-    case "history": ui_event(object_keys(event, ["type", "after"]) && optional_id(J.get(event, "after")),
+    case "history": ui_event(Shape.object_keys(event, ["type", "after"]) && optional_id(J.get(event, "after")),
       state, M.HistoryPage{J.natural(J.get(event, "after"))})
-    case "tasks": ui_event(object_keys(event, ["type", "after"]) && Schema.valid(M.task_id_schema(), J.get(event, "after")),
+    case "tasks": ui_event(Shape.object_keys(event, ["type", "after"]) && Schema.valid(D.task_id_schema(), J.get(event, "after")),
       state, M.TaskPage{Protocol.number(event, "after", 0n)})
-    case "profile": ui_event(object_keys(event, ["type", "profile"]) && J.is_text(J.get(event, "profile")) && optional_profile(J.get(event, "profile")),
+    case "profile": ui_event(Shape.object_keys(event, ["type", "profile"]) && J.is_text(J.get(event, "profile")) && optional_profile(J.get(event, "profile")),
       state, M.SelectProfile{J.text(J.get(event, "profile"))})
-    case "submit": ui_command(object_keys(event, ["type", "command"]), decode_command(J.get(event, "command")), state)
-    case _: Fail{"Unknown presentation event"}
+    case "submit": ui_command(Shape.object_keys(event, ["type", "command"]), decode_command(J.get(event, "command")), state)
+    case other: feature_navigation(FeatureCodec.navigation(other, event), state)
 
 def ui_valid(valid: Bool, +body: J.Json) -> Result<&2, &2, String, M.Input>:
   match valid:
@@ -442,23 +389,23 @@ def ui_valid(valid: Bool, +body: J.Json) -> Result<&2, &2, String, M.Input>:
     case True{}: view_event(J.text(J.get(J.get(body, "event"), "type")), J.get(body, "event"), view_clock(view_state(J.get(body, "state")), J.get(body, "observed_at")))
 
 def decode_ui(+body: J.Json) -> Result<&2, &2, String, M.Input>:
-  ui_valid(valid_view_state(J.get(body, "state")) && BoardCodec.valid_clock(J.get(body, "observed_at")), body)
+  ui_valid(valid_view_state(J.get(body, "state")) && FeatureCodec.valid_clock(J.get(body, "observed_at")), body)
 
-def hook_outcome(kind: String, +value: J.Json) -> M.HookOutcome:
+def hook_outcome(kind: String, +value: J.Json) -> D.HookOutcome:
   match kind:
-    case "allow": M.AllowTool{}
-    case "rewrite": M.RewriteTool{J.get(value, "arguments")}
-    case "deny": M.DenyTool{J.text(J.get(value, "reason"))}
-    case _: M.HookFailure{J.text(J.get(value, "reason"))}
+    case "allow": D.AllowTool{}
+    case "rewrite": D.RewriteTool{J.get(value, "arguments")}
+    case "deny": D.DenyTool{J.text(J.get(value, "reason"))}
+    case _: D.HookFailure{J.text(J.get(value, "reason"))}
 
 def hook_reason(+value: J.Json) -> Bool:
-  object_keys(value, ["decision", "reason"]) && M.nonempty(J.text(J.get(value, "reason"))) &&
+  Shape.object_keys(value, ["decision", "reason"]) && D.nonempty(J.text(J.get(value, "reason"))) &&
     Nat.is_le(J.utf8_length(J.text(J.get(value, "reason"))), 4096n)
 
 def valid_hook_outcome(kind: String, +value: J.Json) -> Bool:
   match kind:
-    case "allow": object_keys(value, ["decision"])
-    case "rewrite": object_keys(value, ["decision", "arguments"]) && J.is_object(J.get(value, "arguments"))
+    case "allow": Shape.object_keys(value, ["decision"])
+    case "rewrite": Shape.object_keys(value, ["decision", "arguments"]) && J.is_object(J.get(value, "arguments"))
     case "deny": hook_reason(value)
     case "failed": hook_reason(value)
     case _: False{}
@@ -470,20 +417,20 @@ def hook_valid(valid: Bool, +body: J.Json) -> Result<&2, &2, String, M.Input>:
       hook_outcome(J.text(J.get(J.get(body, "outcome"), "decision")), J.get(body, "outcome"))}}
 
 def decode_hook(+body: J.Json) -> Result<&2, &2, String, M.Input>:
-  hook_valid(object_keys(body, ["kind", "task_id", "ticket", "outcome"]) && is_natural(J.get(body, "task_id")) &&
-    is_natural(J.get(body, "ticket")) && valid_hook_outcome(J.text(J.get(J.get(body, "outcome"), "decision")), J.get(body, "outcome")), body)
+  hook_valid(Shape.object_keys(body, ["kind", "task_id", "ticket", "outcome"]) && Shape.is_natural(J.get(body, "task_id")) &&
+    Shape.is_natural(J.get(body, "ticket")) && valid_hook_outcome(J.text(J.get(J.get(body, "outcome"), "decision")), J.get(body, "outcome")), body)
 
-def after_outcome(kind: String, +value: J.Json) -> M.AfterOutcome:
+def after_outcome(kind: String, +value: J.Json) -> D.AfterOutcome:
   match kind:
-    case "allow": M.KeepResult{}
-    case "rewrite": M.RewriteResult{J.get(value, "value")}
-    case "deny": M.DenyResult{J.text(J.get(value, "reason"))}
-    case _: M.AfterFailure{J.text(J.get(value, "reason"))}
+    case "allow": D.KeepResult{}
+    case "rewrite": D.RewriteResult{J.get(value, "value")}
+    case "deny": D.DenyResult{J.text(J.get(value, "reason"))}
+    case _: D.AfterFailure{J.text(J.get(value, "reason"))}
 
 def valid_after_outcome(kind: String, +value: J.Json) -> Bool:
   match kind:
-    case "allow": object_keys(value, ["decision"])
-    case "rewrite": object_keys(value, ["decision", "value"])
+    case "allow": Shape.object_keys(value, ["decision"])
+    case "rewrite": Shape.object_keys(value, ["decision", "value"])
     case "deny": hook_reason(value)
     case "failed": hook_reason(value)
     case _: False{}
@@ -495,8 +442,8 @@ def after_valid(valid: Bool, +body: J.Json) -> Result<&2, &2, String, M.Input>:
       Protocol.number(body, "ticket", 0n), after_outcome(J.text(J.get(J.get(body, "outcome"), "decision")), J.get(body, "outcome"))}}
 
 def decode_after(+body: J.Json) -> Result<&2, &2, String, M.Input>:
-  after_valid(object_keys(body, ["kind", "task_id", "operation_id", "ticket", "outcome"]) &&
-    is_natural(J.get(body, "task_id")) && is_natural(J.get(body, "operation_id")) && is_natural(J.get(body, "ticket")) &&
+  after_valid(Shape.object_keys(body, ["kind", "task_id", "operation_id", "ticket", "outcome"]) &&
+    Shape.is_natural(J.get(body, "task_id")) && Shape.is_natural(J.get(body, "operation_id")) && Shape.is_natural(J.get(body, "ticket")) &&
     valid_after_outcome(J.text(J.get(J.get(body, "outcome"), "decision")), J.get(body, "outcome")), body)
 
 def approval_valid(valid: Bool, +body: J.Json) -> Result<&2, &2, String, M.Input>:
@@ -506,14 +453,19 @@ def approval_valid(valid: Bool, +body: J.Json) -> Result<&2, &2, String, M.Input
       approval_outcome(J.text(J.get(J.get(body, "outcome"), "decision")), J.get(body, "outcome"))}}
 
 def approval_reply(+outcome: J.Json) -> Bool:
-  object_keys(outcome, ["decision", "reason"]) && M.nonempty(J.text(J.get(outcome, "reason"))) &&
+  Shape.object_keys(outcome, ["decision", "reason"]) && D.nonempty(J.text(J.get(outcome, "reason"))) &&
     Approvals.bounded(J.text(J.get(outcome, "reason"))) &&
     (String.eq(J.text(J.get(outcome, "decision")), "allow") || String.eq(J.text(J.get(outcome, "decision")), "deny") ||
       String.eq(J.text(J.get(outcome, "decision")), "failed"))
 
 def decode_approval(+body: J.Json) -> Result<&2, &2, String, M.Input>:
-  approval_valid(object_keys(body, ["kind", "task_id", "ticket", "outcome"]) &&
-    is_natural(J.get(body, "task_id")) && is_natural(J.get(body, "ticket")) && approval_reply(J.get(body, "outcome")), body)
+  approval_valid(Shape.object_keys(body, ["kind", "task_id", "ticket", "outcome"]) &&
+    Shape.is_natural(J.get(body, "task_id")) && Shape.is_natural(J.get(body, "ticket")) && approval_reply(J.get(body, "outcome")), body)
+
+def feature_completion(decoded: Result<&2, &2, String, Features.Completion>) -> Result<&2, &2, String, M.Input>:
+  match decoded:
+    case Fail{reason}: Fail{reason}
+    case Done{completion}: Done{M.FeatureCompleted{completion}}
 
 def decode_kind(kind: String, +body: J.Json) -> Result<&2, &2, String, M.Input>:
   match kind:
@@ -521,7 +473,6 @@ def decode_kind(kind: String, +body: J.Json) -> Result<&2, &2, String, M.Input>:
     case "ui": decode_ui(body)
     case "model": decode_model(body)
     case "reasoning": decode_reasoning(body)
-    case "board_text": decode_board_text(body)
     case "tool": decode_tool(body)
     case "hook": decode_hook(body)
     case "after_hook": decode_after(body)
@@ -529,7 +480,7 @@ def decode_kind(kind: String, +body: J.Json) -> Result<&2, &2, String, M.Input>:
     case "configure": decode_config(body)
     case "recover": Done{M.Recover{}}
     case "continue": Done{M.Continue{}}
-    case _: Fail{"Unknown input envelope"}
+    case other: feature_completion(FeatureCodec.completion(other, body))
 
 def decode(+body: J.Json) -> Result<&2, &2, String, M.Input>:
   decode_kind(J.text(J.get(body, "kind")), body)
@@ -537,5 +488,5 @@ def decode(+body: J.Json) -> Result<&2, &2, String, M.Input>:
 def durable(input: M.Input) -> Bool:
   M.durable(input)
 
-def envelope(durable: Bool, decision: M.Decision) -> J.Json:
+def envelope(durable: Bool, decision: M.Decision()) -> J.Json:
   View.envelope(durable, decision)

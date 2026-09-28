@@ -13,13 +13,13 @@ import ./transcript.bend as Transcript
 # to the production interpreter. This admits every ordering of independent
 # completions, without assuming their external effects commute or terminate.
 type State is Data:
-  State{world: M.World, receipts: +List<M.Decision>}
+  State{world: M.World(), receipts: +List<M.Decision()>}
 
-def world(state: State) -> M.World:
+def world(state: State) -> M.World():
   State{world, receipts} = state
   world
 
-def record(+decision: M.Decision, receipts: +List<M.Decision>) -> State:
+def record(+decision: M.Decision(), receipts: +List<M.Decision()>) -> State:
   State{P.decision_world(decision), decision <> receipts}
 
 def project(tape: Transcript.Tape) -> State:
@@ -91,4 +91,4 @@ type Protocol is Type:
     journal: @events:+List<M.Input> -> @state:State -> path(state, run(events, state)),
     receipts: @events:+List<M.Input> -> @state:State -> {run(events, state) == execute(events, state) : State},
     replay: @events:+List<M.Input> -> @state:State ->
-      {world(run(events, state)) == P.replay(events, world(state)) : M.World}}
+      {world(run(events, state)) == P.replay(events, world(state)) : M.World()}}

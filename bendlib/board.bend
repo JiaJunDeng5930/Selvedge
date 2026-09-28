@@ -1,4 +1,8 @@
 import Base
+import ./effects.bend as Effects
+import ../FEATURES.bend as F
+import ./component.bend as C
+import ./domain.bend as D
 import ../BOARD.bend as B
 import ../MODEL.bend as M
 import ./board-state.bend as S
@@ -14,31 +18,30 @@ def card_result(id: Nat, revision: Nat) -> J.Json:
 def agent_result(id: Nat, revision: Nat) -> J.Json:
   J.Object{[J.Field{"agent_id", J.nat(id)}, J.Field{"revision", J.nat(revision)}]}
 
-def respond(world: M.World, result: J.Json) -> M.Decision:
-  M.Decision{world, M.success(result), Nil{}}
+def respond(world: M.World(), result: J.Json) -> M.Decision():
+  C.Decision{world, D.success(result), Nil{}}
 
-def save(+id: Nat, +card: B.Card, next: U32, +world: M.World) -> M.Decision:
+def save(+id: Nat, +card: B.Card, next: U32, +world: M.World()) -> M.Decision():
   respond(S.store(B.put(id, card, S.registry(world), next), world), card_result(id, B.revision(card)))
 
-def interrupt_found(needed: Bool, found: Maybe<&2, M.Task>, decision: M.Decision) -> M.Decision:
+def interrupt_found(needed: Bool, found: Maybe<&2, D.Task>, decision: M.Decision()) -> M.Decision():
   match needed found decision:
-    case True{} Some{+task} M.Decision{M.World{tasks, next_task, next_ticket, environment, limits, projects, board}, reply, effects}:
-      M.Decision{M.World{T.replace(tasks, T.interrupt(task)), next_task, next_ticket, environment, limits, projects, board}, reply,
-        List.append(&2, M.Effect, effects, [M.CancelTask{M.task_id(task)}])}
+    case True{} Some{+task} C.Decision{C.Frame{D.State{tasks, next_task, next_ticket, environment, limits, projects}, +board}, reply, effects}:
+      C.Decision{C.Frame{D.State{T.replace(tasks, T.interrupt(task)), next_task, next_ticket, environment, limits, projects}, board}, reply,
+        List.append(&2, M.Effect(), effects, [Effects.CancelTask{D.task_id(task)}])}
     case _ _ decision: decision
 
-def archive(+id: Nat, +card: B.Card, +archived: Bool, now: U32, +world: M.World) -> M.Decision:
+def archive(+id: Nat, +card: B.Card, +archived: Bool, now: U32, +world: M.World()) -> M.Decision():
   interrupt_found(archived && S.busy(S.task(card, world)), S.task(card, world),
     save(id, B.set_archive(archived, card, now), B.next_card(S.registry(world)), world))
 
-def request_text(+id: Nat, +card: B.Card, profile: M.Profile, +retitle: Bool, next: U32, world: M.World) -> M.Decision:
-  M.World{tasks, next_task, +ticket, environment, limits, projects, board} = world
-  M.Decision{M.World{tasks, next_task, 1n+ticket, environment, limits, projects,
-    B.put(id, B.with_enrichment(B.Enriching{ticket, B.revision(card), retitle}, card), board, next)},
-    M.success(card_result(id, B.revision(card))),
-    [M.RequestBoardText{id, ticket, profile, B.drafting_prompt(retitle, B.draft(card)), retitle}]}
+def request_text(+id: Nat, +card: B.Card, profile: D.Profile, +retitle: Bool, next: U32, world: M.World()) -> M.Decision():
+  C.Frame{D.State{tasks, next_task, +ticket, environment, limits, projects}, +board} = world
+  C.Decision{C.Frame{D.State{tasks, next_task, 1n+ticket, environment, limits, projects}, F.with_board(B.put(id, B.with_enrichment(B.Enriching{ticket, B.revision(card), retitle}, card), F.board(board), next), board)},
+    D.success(card_result(id, B.revision(card))),
+    [Effects.FeatureEffect{F.RequestBoardText{id, ticket, profile, B.drafting_prompt(retitle, B.draft(card)), retitle}}]}
 
-def change(change: R.Change, +world: M.World) -> M.Decision:
+def change(change: R.Change, +world: M.World()) -> M.Decision():
   match change:
     case R.StoreCard{id, card, next}: save(id, card, next, world)
     case R.Relocate{+id, +card, position}: respond(S.store(B.reposition(id, card, position, S.registry(world)), world), card_result(id, B.revision(card)))
@@ -52,10 +55,10 @@ def change(change: R.Change, +world: M.World) -> M.Decision:
 
 # Called only after the existing accepted Start operation. The same atomic
 # native decision contains task birth and the new card association.
-def started(+id: Nat, +task_id: Nat, +card: B.Card, now: U32, decision: M.Decision) -> M.Decision:
-  M.Decision{+world, ignored, effects} = decision
-  M.Decision{S.store(B.put(id, B.linked(task_id, card, now), S.registry(world), B.next_card(S.registry(world))), world),
-    M.success(J.Object{[J.Field{"card_id", J.nat(id)}, J.Field{"task_id", J.nat(task_id)}, J.Field{"revision", J.nat(1n+B.revision(card))}]}), effects}
+def started(+id: Nat, +task_id: Nat, +card: B.Card, now: U32, decision: M.Decision()) -> M.Decision():
+  C.Decision{+world, ignored, effects} = decision
+  C.Decision{S.store(B.put(id, B.linked(task_id, card, now), S.registry(world), B.next_card(S.registry(world))), world),
+    D.success(J.Object{[J.Field{"card_id", J.nat(id)}, J.Field{"task_id", J.nat(task_id)}, J.Field{"revision", J.nat(1n+B.revision(card))}]}), effects}
 
 def suggestion_draft(retitle: Bool, title: String, description: String, draft: B.Draft) -> B.Draft:
   match retitle draft:
@@ -82,9 +85,9 @@ def complete(outcome: B.Outcome, retitle: Bool, +card: B.Card) -> B.Card:
       +draft = suggestion_draft(retitle, String.trim(title), description, B.draft(card))
       suggested(B.valid_draft(draft), draft, card)
 
-def completed(id: Nat, card: B.Card, outcome: B.Outcome, retitle: Bool, +world: M.World) -> M.Decision:
-  M.Decision{S.store(B.put(id, complete(outcome, retitle, card), S.registry(world), B.next_card(S.registry(world))), world),
-    M.success(J.Object{[J.Field{"accepted", J.Boolean{True{}}}]}), Nil{}}
+def completed(id: Nat, card: B.Card, outcome: B.Outcome, retitle: Bool, +world: M.World()) -> M.Decision():
+  C.Decision{S.store(B.put(id, complete(outcome, retitle, card), S.registry(world), B.next_card(S.registry(world))), world),
+    D.success(J.Object{[J.Field{"accepted", J.Boolean{True{}}}]}), Nil{}}
 
-def failed_start(+id: Nat, +card: B.Card, reason: String, +world: M.World) -> M.World:
+def failed_start(+id: Nat, +card: B.Card, reason: String, +world: M.World()) -> M.World():
   S.store(B.put(id, B.start_failed(String.take(reason, 1000n), card), S.registry(world), B.next_card(S.registry(world))), world)

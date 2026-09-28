@@ -8,16 +8,16 @@ import ./stdlib.bend as Std
 # Independent finite-trace meaning. Complete receipts are newest first.
 # No implementation module is in this specification's dependency closure.
 type Tape is Data:
-  Tape{world: M.World, pending: +List<M.Input>, receipts: +List<M.Decision>}
+  Tape{world: M.World(), pending: +List<M.Input>, receipts: +List<M.Decision()>}
 
-def state(tape: Tape) -> M.World:
+def state(tape: Tape) -> M.World():
   Tape{world, pending, receipts} = tape
   world
 
 def valid(tape: Tape) -> Bool:
   I.world(state(tape))
 
-def record(+decision: M.Decision, pending: +List<M.Input>, receipts: +List<M.Decision>) -> Tape:
+def record(+decision: M.Decision(), pending: +List<M.Input>, receipts: +List<M.Decision()>) -> Tape:
   Tape{Execution.world(decision), pending, decision <> receipts}
 
 def step(tape: Tape) -> Tape:
