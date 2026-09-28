@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import { modify, replaceOnce, replaceDefinition } from '../locality-support.mjs';
 import { Kernel } from '../../host/kernel.mjs';
+import { presentationNodes as nodes } from '../support.mjs';
 
 // This fixture extends a copy of the actual application. Only component-owned
 // assembly files change; the old model, executor, codecs and proof tree freeze.
@@ -227,7 +228,6 @@ export async function counterProbe(binary) {
   const kernel = new Kernel({ binary, timeout: 10_000 });
   const send = async input => (await kernel.request(input)).value;
   const command = body => send({ kind: 'command', command: body });
-  const nodes = node => [node, ...(node.children ?? []).flatMap(nodes)];
   const counter = presentation => nodes(presentation.root).find(node => node.key === 'counter');
   try {
     await kernel.initialize();

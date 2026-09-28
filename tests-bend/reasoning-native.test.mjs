@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Kernel } from '../host/kernel.mjs';
 import { providerInput, responseBody } from '../host/providers.mjs';
+import { presentationNodes as walk } from './support.mjs';
 
 const policy = (transport = 'configuration_update', extra = {}) => ({ evaluator: 'separate-evaluator',
   efforts: ['low', 'medium', 'high'], baseline: 'medium', transport, max_lease: 10, ...extra });
@@ -12,7 +13,6 @@ const effect = (decision, kind, task = 0) => {
   assert.ok(found, `Expected ${kind} for task ${task}: ${JSON.stringify(decision)}`);
   return found;
 };
-const walk = node => [node, ...(node.children ?? []).flatMap(walk)];
 
 async function kernel(t, adaptive = policy()) {
   const k = new Kernel({ timeout: 5000 });

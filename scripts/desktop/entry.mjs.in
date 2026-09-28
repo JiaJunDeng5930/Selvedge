@@ -1,0 +1,4 @@
+import {If as initializeMenu, jf as Menu, kf as DropdownMenu, e6 as loadReact, desktopClient, desktopDOM, lw as initializeIcons, cy as ChevronDown, iy as Check} from './shared-with-roots.js';
+initializeMenu(); initializeIcons();
+const React=loadReact(); const {createRoot}=desktopClient(); const {flushSync}=desktopDOM();
+export {React,createRoot,flushSync,Menu,DropdownMenu,ChevronDown,Check};

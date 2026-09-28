@@ -9,10 +9,9 @@ import { startServer } from '../host/server.mjs';
 import { defaultConfig, validateConfig } from '../host/config.mjs';
 import { approvalOutcome } from '../host/approvals.mjs';
 import { eventForForm } from '../host/public/renderer.mjs';
-import { home, responsesServer, shellQuote, taskIdle } from './support.mjs';
+import { home, responsesServer, shellQuote, taskIdle, presentationNodes as nodes } from './support.mjs';
 
 const answer = text => [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text }] }];
-const nodes = node => [node, ...(node.children ?? []).flatMap(nodes)];
 const find = (presentation, key) => nodes(presentation.root).find(node => node.key === key);
 const probe = fileURLToPath(new URL('./fixtures/approved-tool.mjs', import.meta.url));
 

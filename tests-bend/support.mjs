@@ -5,6 +5,16 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
+// Traverse the serialized surface contract, including named conversation
+// regions. Provider/task payloads inside values are deliberately not nodes.
+export function presentationNodes(node) {
+  const regions = {
+    group: ['children'], composition: ['children'], activity: ['children'],
+    thread: ['timeline', 'composer', 'details', 'actions'], composer: ['forms', 'actions'],
+  }[node.kind] ?? [];
+  return [node, ...regions.flatMap(region => (node[region] ?? []).flatMap(presentationNodes))];
+}
+
 export async function home(t) {
   const directory = await mkdtemp(path.join(tmpdir(), 'selvedge-service-test-'));
   t.after(() => rm(directory, { recursive: true, force: true }));

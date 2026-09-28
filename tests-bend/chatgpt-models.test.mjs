@@ -10,7 +10,7 @@ import { accountModels, discoverAccount, withAccountModels, modelCacheFile, logi
 import { defaultChatGPTAccount } from '../host/chatgpt-contract.mjs';
 import { requestModel } from '../host/providers.mjs';
 import { startServer } from '../host/server.mjs';
-import { taskIdle, home } from './support.mjs';
+import { taskIdle, home, presentationNodes as walk } from './support.mjs';
 import { chatgptFixture, fakeTokens, jsonResponse, modelResponse, modelEffect, wireLimits } from './fixtures/chatgpt.mjs';
 
 const model = (slug = 'account-model', priority = 0, visibility = 'list') => ({
@@ -18,7 +18,6 @@ const model = (slug = 'account-model', priority = 0, visibility = 'list') => ({
   default_reasoning_level: 'medium', supported_reasoning_levels: [{ effort: 'medium', description: 'Normal' }, { effort: 'high', description: 'High' }],
 });
 const configFor = profile => validateConfig({ ...defaultConfig, port: 0, chatgpt: profile });
-const walk = node => [node, ...(node.children ?? []).flatMap(walk)];
 
 test('login needs no model profile, and a logged-out home makes no model request', async t => {
   const config = validateConfig(defaultConfig);

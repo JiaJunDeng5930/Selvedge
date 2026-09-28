@@ -149,10 +149,19 @@ limits. Architectural reasons live in [docs/adr](docs/adr).
 typed presentation tree, form bindings, navigation events, conversation visibility
 and action availability against the live command resolver. The Web client renders
 that tree through `/api/ui`; it has no task snapshot, lifecycle table or provider
-message interpreter. Its only retained state is an opaque navigation cursor and
-unsubmitted widget drafts. Presentation is generated after scheduling and admitted
+message interpreter. It retains an opaque navigation cursor, unsubmitted drafts
+and local display state, not a second task model. Presentation is generated after
+scheduling and admitted
 with the same atomic decision. SwiftUI, Windows UI and TUI adapters are not required
 to reinterpret the domain and are not implemented in this checkout.
+
+The native `Thread`, `Composer` and `Activity` vocabulary separates conversation
+content, execution feedback, audit details and submission intent. The production
+surface carries proofs for ordered speech, audit data, result values/errors and
+Send/Steer draft ownership. The Web adapter directly uses the installed desktop's
+menu components, scroll callbacks and theme rules, with a reproducible source
+import rather than a second implementation of those interactions. See
+[ADR 0025](docs/adr/0025-native-conversation-and-desktop-source.md).
 
 [HOOKS.bend](HOOKS.bend) is the unified extension entry. All accepted model tools,
 including internal task operations, pass through its ordered before-tool protocol.

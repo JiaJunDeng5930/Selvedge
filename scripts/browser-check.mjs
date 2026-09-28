@@ -7,6 +7,7 @@ import { defaultConfig, validateConfig } from '../host/config.mjs';
 import { chatgptFixture, jsonResponse, modelResponse } from '../tests-bend/fixtures/chatgpt.mjs';
 import { taskIdle, shellQuote } from '../tests-bend/support.mjs';
 import { browser } from '../tests-bend/fixtures/browser.mjs';
+import { checkConversationScroll } from './conversation-browser-check.mjs';
 
 // A real browser + HTTP/SSE provider + native kernel + SQLite. No user account,
 // external model request, personal browser profile, or installed npm UI framework.
@@ -48,6 +49,7 @@ try {
   browserUI = await browser(upstream.directory);
   const { evaluate, wait, call } = browserUI;
   const click = async selector => {
+    await evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
     const point = await evaluate(`(() => { const element = document.querySelector(${JSON.stringify(selector)}); const rect = element.getBoundingClientRect();
       const x = rect.x + rect.width / 2, y = rect.y + rect.height / 2;
       return { x, y, visible: rect.width > 0 && rect.height > 0, hit: element.contains(document.elementFromPoint(x, y)) }; })()`);
@@ -96,13 +98,17 @@ try {
   checks.push('checkpointed preview adoption without rebuilding the stable prefix; worker code/math; safe HTML/links/images');
 
   // Scroll-up readers must not be yanked back down by another task's commit.
-  await evaluate(`document.querySelector('.thread-scroll').scrollTop = 0`);
-  await delay(80);
+  const scrollPoint = await evaluate(`(() => { const r = document.querySelector('.thread-scroll').getBoundingClientRect();
+    return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; })()`);
+  await call('Input.dispatchMouseEvent', { type: 'mouseWheel', ...scrollPoint, deltaX: 0, deltaY: -320 });
+  await wait('document.querySelector(".thread-scroll").scrollTop < -50');
+  const readingPosition = await evaluate('document.querySelector(".thread-scroll").scrollTop');
   await site.service.command({ op: 'send', task_id: 1, message: 'Background refresh.' });
   await taskIdle(site.service, 1);
   await delay(150);
-  assert.equal(await evaluate('document.querySelector(".thread-scroll").scrollTop'), 0);
-  checks.push('scroll anchoring while reading previous output');
+  assert.ok(Math.abs(await evaluate('document.querySelector(".thread-scroll").scrollTop') - readingPosition) <= 1);
+  assert.ok(await evaluate('!document.querySelector(".scroll-bottom").hidden'));
+  checks.push('real wheel navigation stays anchored across native refreshes');
   await browserUI.screenshot(path.join(output, 'webui-desktop.png'));
   await evaluate('document.getElementById("theme-toggle").click()');
   await browserUI.screenshot(path.join(output, 'webui-dark.png'));
@@ -125,6 +131,15 @@ try {
   assert.ok(await evaluate('!document.getElementById("access").open'));
   checks.push('desktop/mobile overflow, light/dark presentation, reachable settings, mobile scrim/inert background, access dialog focus');
 
+  // Selecting an intent changes the native command, not the draft or editor.
+  await click('.compose-mode [data-desktop-menu-trigger]');
+  await click('.compose-tab:nth-child(2)');
+  assert.deepEqual(await evaluate(`({ same: stableComposer === document.querySelector('form[data-key$="/steer/0"] textarea'),
+    text: stableComposer.value, editors: document.querySelectorAll('.composer textarea[name=message]').length })`),
+  { same: true, text: 'An unsent draft survives unrelated work.', editors: 1 });
+  await click('.compose-mode [data-desktop-menu-trigger]');
+  await click('.compose-tab:first-child');
+
   const before = calls;
   await evaluate(`stableComposer.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, isComposing: true, bubbles: true }));`);
   await evaluate(`stableComposer.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', shiftKey: true, bubbles: true }));`);
@@ -132,21 +147,36 @@ try {
   await evaluate(`stableComposer.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));`);
   await wait('document.querySelector("[data-role=transcript]").textContent.includes("Follow-up accepted")');
   assert.equal(await evaluate(`document.querySelector('form[data-key$="/send/0"] textarea').value`), '');
-  await click('.compose-mode > summary');
+  await click('.compose-mode [data-desktop-menu-trigger]');
   await click('.compose-tab:nth-child(2)');
   assert.equal(await evaluate(`document.querySelector('form[data-key$="/steer/0"]').hidden`), false);
+  await click('.compose-mode [data-desktop-menu-trigger]');
   assert.equal(await evaluate(`document.querySelectorAll('.compose-tab')[1].getAttribute('aria-checked')`), 'true');
-  await click('.compose-mode > summary');
   await click('.compose-tab:first-child');
+  const menuRevision = site.service.journal.sequence;
+  await evaluate('document.querySelector(\'.thread-actions [data-desktop-menu-trigger]\').focus()');
+  await call('Input.dispatchKeyEvent', { type: 'keyDown', key: 'ArrowDown', code: 'ArrowDown', windowsVirtualKeyCode: 40 });
+  await wait('document.activeElement.getAttribute("role") === "menuitem"');
+  assert.ok(await evaluate('document.activeElement.dataset.key.endsWith("/controls/freeze")'));
+  assert.ok(await evaluate('document.querySelector(\'[data-desktop-menu="task-actions"] [aria-disabled="true"]\') !== null'));
+  await call('Input.dispatchKeyEvent', { type: 'keyDown', key: 'End', code: 'End', windowsVirtualKeyCode: 35 });
+  await wait('document.activeElement.dataset.key?.endsWith("/controls/archive")');
+  await call('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
+  await wait('!document.querySelector(\'[data-desktop-menu="task-actions"]\')');
+  assert.equal(await evaluate('document.activeElement.getAttribute("aria-label")'), 'Task actions');
+  assert.equal(site.service.journal.sequence, menuRevision);
+  checks.push('original desktop keyboard navigation skips disabled actions and restores focus without dispatch');
   await click('.thread-header [aria-label="Task details"]');
   const command = async key => {
-    await wait(`document.querySelector('[data-key$="/${key}"]') && !document.querySelector('[data-key$="/${key}"]').disabled`);
-    await evaluate(`document.querySelector('[data-key$="/${key}"]').click()`);
+    if (key.startsWith('controls/')) await click('.thread-actions [data-desktop-menu-trigger]');
+    await wait(`document.querySelector('[data-key$="/${key}"]') && !document.querySelector('[data-key$="/${key}"]').matches(':disabled, [aria-disabled=true]')`);
+    await evaluate(`document.querySelector('[data-key$="/${key}"]').scrollIntoView({ block: 'nearest' })`);
+    await click(`[data-key$="/${key}"]`);
   };
   await command('controls/freeze');
-  await wait('document.querySelector(".thread-header h2").textContent.includes("frozen")');
+  await wait('document.querySelector(".thread-subtitle").textContent.startsWith("Paused")');
   await command('controls/unfreeze');
-  await wait('!document.querySelector(".thread-header h2").textContent.includes("frozen")');
+  await wait('document.querySelector(".thread-subtitle").textContent.startsWith("Ready")');
   await evaluate(`document.querySelector('[data-key$="/advanced"]').open = true;`);
   await command('compact/0');
   await wait('document.querySelector("[data-role=transcript]").textContent.includes("Provider context retained")');
@@ -177,7 +207,9 @@ try {
       ? { width: 390, height: 844, deviceScaleFactor: 1, mobile: true }
       : { width: 1360, height: 940, deviceScaleFactor: 1, mobile: false });
     await wait(`document.body.dataset.sidebar === ${JSON.stringify(decision === 'deny' ? 'closed' : 'open')}`);
-    await evaluate(`document.querySelector('[data-role=approval]').scrollIntoView({block:'center'});`);
+    // The native waiting activity opens in the following viewport. Do not
+    // programmatically scroll its container while the reader is still following.
+    await evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
     assert.ok(await evaluate('document.documentElement.scrollWidth <= innerWidth'));
     const selector = `[data-key$="/approval/${decision}/${operation.operation_id}"]`;
     await wait(`document.querySelector(${JSON.stringify(selector)}) && !document.querySelector(${JSON.stringify(selector)}).disabled`);
@@ -188,8 +220,7 @@ try {
     assert.equal(point.visible, true);
     assert.equal(point.unobscured, true, 'Review controls must not be covered by floating UI');
     await browserUI.screenshot(path.join(output, decision === 'allow' ? 'webui-approval-desktop.png' : 'webui-approval-mobile.png'));
-    await call('Input.dispatchMouseEvent', { type: 'mousePressed', x: point.x, y: point.y, button: 'left', clickCount: 1 });
-    await call('Input.dispatchMouseEvent', { type: 'mouseReleased', x: point.x, y: point.y, button: 'left', clickCount: 1 });
+    await click(selector);
     const settled = await taskIdle(site.service, id);
     await wait('!document.querySelector("[data-role=approval]")');
     assert.equal(settled.messages.find(message => message.role === 'approval_record').content.decision, decision);
@@ -252,6 +283,7 @@ try {
   assert.ok(performanceResult.stableBlocks >= 2400);
   assert.ok(performanceResult.batches < 100);
   checks.push('long-answer bounded batches and stable DOM prefix');
+  checks.push(await checkConversationScroll(browserUI));
   assert.deepEqual(upstream.failures, []);
   assert.deepEqual(browserUI.errors, []);
   const result = { checks, performance: performanceResult, browserErrors: browserUI.errors };
@@ -260,6 +292,14 @@ try {
 } catch (error) {
   if (browserUI) {
     await browserUI.screenshot(path.join(output, 'webui-failure.png')).catch(() => {});
+    const menus = await browserUI.evaluate(`([...document.querySelectorAll('[data-desktop-menu-trigger], [role=menu], .compose-tab')].map(node => {
+      const rect = node.getBoundingClientRect(), css = getComputedStyle(node);
+      return { html: node.outerHTML.slice(0, 1600), rect: rect.toJSON(), display: css.display, visibility: css.visibility,
+        opacity: css.opacity, zIndex: css.zIndex, fontSize: css.fontSize,
+        spacing: css.getPropertyValue('--spacing'), surface: css.getPropertyValue('--color-surface-elevated-secondary'),
+        hit: document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2)?.outerHTML.slice(0, 500) };
+    }))`).catch(() => null);
+    await writeFile(path.join(output, 'webui-failure-menus.json'), JSON.stringify(menus, null, 2));
     console.error('Browser errors:', browserUI.errors);
   }
   throw error;

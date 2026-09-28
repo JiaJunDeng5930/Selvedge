@@ -12,11 +12,13 @@ const assets = new Map([
   ['/', ['index.html', 'text/html; charset=utf-8']],
   ['/app.mjs', ['app.mjs', 'text/javascript; charset=utf-8']],
   ['/renderer.mjs', ['renderer.mjs', 'text/javascript; charset=utf-8']],
-  ...['widgets.mjs', 'board.mjs', 'collection-fields.mjs', 'picker.mjs', 'streams.mjs', 'events.mjs', 'markdown.mjs', 'markdown-worker.mjs',
-    'vendor/streaming-markdown.mjs', 'vendor/highlight.mjs', 'vendor/katex.mjs']
+  ...['widgets.mjs', 'dom.mjs', 'desktop.mjs', 'conversation.mjs', 'board.mjs', 'collection-fields.mjs', 'picker.mjs', 'streams.mjs', 'events.mjs', 'markdown.mjs', 'markdown-worker.mjs',
+    'vendor/desktop-ui.mjs', 'vendor/desktop-scroll.mjs', 'vendor/streaming-markdown.mjs', 'vendor/highlight.mjs', 'vendor/katex.mjs']
     .map(file => [`/${file}`, [file, 'text/javascript; charset=utf-8']]),
   ['/style.css', ['style.css', 'text/css; charset=utf-8']],
   ['/board.css', ['board.css', 'text/css; charset=utf-8']],
+  ['/vendor/desktop.css', ['vendor/desktop.css', 'text/css; charset=utf-8']],
+  ['/vendor/desktop-tokens.css', ['vendor/desktop-tokens.css', 'text/css; charset=utf-8']],
 ]);
 
 export async function startServer(options) {

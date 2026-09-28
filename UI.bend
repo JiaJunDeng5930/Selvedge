@@ -13,6 +13,7 @@ import ./bendlib/json.bend as J
 import ./bendlib/tasks.bend as T
 import ./bendlib/operations.bend as Ops
 import ./bendlib/command-codec.bend as CommandCodec
+import ./bendlib/conversation.bend as Conversation
 
 def initial() -> M.ViewState:
   M.ViewState{None{}, None{}, 0n, "", Features.initial_cursor()}
@@ -66,9 +67,31 @@ def form_changes(command: M.Command) -> J.Json:
         J.Field{"binding", J.Array{[J.Text{"profile"}]}}, J.Field{"reset_fields", J.Array{[J.Text{"reasoning"}]}}]}}]}
     case _: J.Object{Nil{}}
 
+def first_node(nodes: +List<J.Json>) -> J.Json:
+  match nodes:
+    case Nil{}: J.Null{}
+    case Con{node, rest}: node
+
 def nodes_json(nodes: +List<Surface.Node>) -> +List<J.Json>:
   match nodes:
     case Nil{}: Nil{}
+    case Con{Surface.Thread{key, task_id, title, subtitle, timeline, composer, details, actions}, rest}:
+      J.Object{[J.Field{"kind", J.Text{"thread"}}, J.Field{"key", J.Text{key}},
+        J.Field{"task_id", J.optional_nat(task_id)}, J.Field{"title", J.Text{title}}, J.Field{"subtitle", J.Text{subtitle}},
+        J.Field{"timeline", J.Array{nodes_json(timeline)}}, J.Field{"composer", J.Array{nodes_json(composer)}},
+        J.Field{"details", J.Array{nodes_json(details)}}, J.Field{"actions", J.Array{nodes_json(actions)}}]} <> nodes_json(rest)
+    case Con{Surface.ThreadLink{key, title, subtitle, state, event, selected}, rest}:
+      J.Object{[J.Field{"kind", J.Text{"thread-link"}}, J.Field{"key", J.Text{key}},
+        J.Field{"title", J.Text{title}}, J.Field{"subtitle", J.Text{subtitle}}, J.Field{"state", J.Text{state}},
+        J.Field{"event", event_json(event)}, J.Field{"selected", J.Boolean{selected}}]} <> nodes_json(rest)
+    case Con{Surface.Composer{key, draft_key, title, hint, forms, actions}, rest}:
+      J.Object{[J.Field{"kind", J.Text{"composer"}}, J.Field{"key", J.Text{key}},
+        J.Field{"draft_key", J.Text{draft_key}}, J.Field{"title", J.Text{title}}, J.Field{"hint", J.Text{hint}},
+        J.Field{"forms", J.Array{nodes_json(forms)}}, J.Field{"actions", J.Array{nodes_json(actions)}}]} <> nodes_json(rest)
+    case Con{Surface.Activity{key, title, state, children}, rest}:
+      J.Object{[J.Field{"kind", J.Text{"activity"}}, J.Field{"key", J.Text{key}},
+        J.Field{"title", J.Text{title}}, J.Field{"state", J.Text{Surface.activity_state(state)}},
+        J.Field{"children", J.Array{nodes_json(children)}}]} <> nodes_json(rest)
     case Con{Surface.Composition{key, role, properties, children}, rest}:
       J.Object{[J.Field{"kind", J.Text{"composition"}}, J.Field{"key", J.Text{key}}, J.Field{"role", J.Text{role}},
         J.Field{"properties", properties}, J.Field{"children", J.Array{nodes_json(children)}}]} <> nodes_json(rest)
@@ -87,11 +110,6 @@ def nodes_json(nodes: +List<Surface.Node>) -> +List<J.Json>:
       J.Object{[J.Field{"kind", J.Text{"form"}}, J.Field{"key", J.Text{key}}, J.Field{"title", J.Text{title}}, J.Field{"label", J.Text{label}},
         J.Field{"event", event_json(M.Submit{command})}, J.Field{"changes", form_changes(command)},
         J.Field{"fields", J.Array{fields_json(fields)}}, J.Field{"enabled", J.Boolean{enabled}}]} <> nodes_json(rest)
-
-def first_node(nodes: +List<J.Json>) -> J.Json:
-  match nodes:
-    case Nil{}: J.Null{}
-    case Con{node, rest}: node
 
 def node_json(node: Surface.Node) -> J.Json:
   first_node(nodes_json([node]))
@@ -174,14 +192,22 @@ def is_selected(selected: Maybe<&2, Nat>, id: Nat) -> Bool:
     case Some{other}: Nat.is_eq(other, id)
 
 def task_label(+task: D.Task) -> String:
-  "#" ++ Nat.show(D.task_id(task)) ++ " · " ++ D.status_name(D.task_status(task)) ++ " · " ++ T.phase_name(D.task_phase(task))
+  Conversation.title(task)
+
+def approval_directory(context: D.TaskContext) -> String:
+  D.TaskContext{D.Workspace{roots, primary}, sandbox, approval, project} = context
+  match primary:
+    case None{}: "/"
+    case Some{directory}: directory
 
 def task_links(tasks: +List<D.Task>, +selected: Maybe<&2, Nat>) -> +List<Surface.Node>:
   match tasks:
     case Nil{}: Nil{}
     case Con{+task, rest}:
       +id = D.task_id(task)
-      Surface.Action{"select/" ++ Nat.show(id), task_label(task), M.SelectTask{Some{id}}, True{}, is_selected(selected, id)} <> task_links(rest, selected)
+      Surface.ThreadLink{"select/" ++ Nat.show(id), task_label(task),
+        "#" ++ Nat.show(id) ++ " · " ++ approval_directory(D.task_context(task)), Conversation.status(task),
+        M.SelectTask{Some{id}}, is_selected(selected, id)} <> task_links(rest, selected)
 
 def bounded(inside: Bool, value: Nat, maximum: Nat) -> Nat:
   match inside:
@@ -209,12 +235,6 @@ def controls(+id: Nat, +world: M.World()) -> Surface.Node:
      action("stop", "Stop after accepted work", M.ChangeStatus{id, D.Stop{}}, world),
      action("interrupt", "Interrupt now", M.ChangeStatus{id, D.Interrupt{}}, world),
      action("archive", "Archive permanently", M.ChangeStatus{id, D.Archive{}}, world)]}
-
-def approval_directory(context: D.TaskContext) -> String:
-  D.TaskContext{D.Workspace{roots, primary}, sandbox, approval, project} = context
-  match primary:
-    case None{}: "/"
-    case Some{directory}: directory
 
 def approval_controls(reviewer: D.ApprovalReviewer, +id: Nat, +ticket: Nat, +world: M.World()) -> +List<Surface.Node>:
   match reviewer:
@@ -245,12 +265,18 @@ def approval_nodes(stage: D.OperationStage, +operation: D.Operation(), +task: D.
       [Surface.Text{"review/granted", "note", "Approved; waiting to run", Ops.stage_notice(D.ApprovalGranted{reviewer})}]
     case _: Nil{}
 
+def operation_state(stage: D.OperationStage) -> Surface.ActivityState:
+  match stage:
+    case D.ApprovalPending{reviewer}: Surface.Waiting{}
+    case D.ApprovalGranted{reviewer}: Surface.Waiting{}
+    case _: Surface.Running{}
+
 def operation_nodes(operations: +List<D.Operation()>, +task: D.Task, +world: M.World()) -> +List<Surface.Node>:
   match operations:
     case Nil{}: Nil{}
     case Con{+operation, rest}:
       +ticket = Ops.ticket(operation)
-      Surface.Group{"operation/" ++ Nat.show(ticket), "operation", "Operation " ++ Nat.show(ticket),
+      Surface.Activity{"operation/" ++ Nat.show(ticket), T.call_name(Ops.call(operation)), operation_state(Ops.stage(operation)),
         List.append(&2, Surface.Node, approval_nodes(Ops.stage(operation), operation, task, world),
           [Surface.Value{"details", "Live operation", Ops.summary(operation)},
            action("cancel/" ++ Nat.show(ticket), "Cancel this operation", M.Cancel{D.task_id(task), ticket}, world)])} <>
@@ -261,43 +287,69 @@ def lineage_nodes(lineage: +List<Nat>) -> +List<Surface.Node>:
     case Nil{}: Nil{}
     case Con{+id, rest}: Surface.Action{"ancestor/" ++ Nat.show(id), "Open ancestor #" ++ Nat.show(id), M.SelectTask{Some{id}}, True{}, False{}} <> lineage_nodes(rest)
 
-def error_title(error: Bool, title: String) -> String:
+def result_state(error: Bool) -> Surface.ActivityState:
   match error:
-    case True{}: title ++ " · error"
-    case False{}: title
+    case True{}: Surface.Failed{}
+    case False{}: Surface.Complete{}
 
-def context_part(kind: String, value: J.Json) -> String:
-  match kind:
-    case "output_text": J.text(J.get(value, "text"))
-    case "summary_text": J.text(J.get(value, "text"))
-    case "refusal": J.text(J.get(value, "refusal"))
-    case _: ""
+def output_node(value: J.Json) -> Surface.Node:
+  match value:
+    case J.Text{text}: Surface.Text{"output", "tool-output", "Output", text}
+    case value: Surface.Value{"output", "Output", value}
 
-def context_parts(parts: +List<J.Json>) -> String:
-  match parts:
-    case Nil{}: ""
-    case Con{+part, rest}: context_part(J.text(J.get(part, "type")), part) ++ context_parts(rest)
+def result_node(key: String, title: String, value: J.Json, error: Bool) -> Surface.Node:
+  Surface.Activity{key, title, result_state(error), [output_node(value)]}
 
 def assistant_context(assistant: Bool, value: J.Json, key: String) -> +List<Surface.Node>:
   match assistant:
-    case True{}: [Surface.Text{key, "assistant", "Agent", context_parts(J.items(J.get(value, "content")))}]
+    case True{}: [Surface.Text{key, "assistant", "Agent", Conversation.content_parts(J.items(J.get(value, "content")))}]
     case False{}: Nil{}
 
-def provider_context(kind: String, +value: J.Json, key: String) -> +List<Surface.Node>:
+def provider_context(kind: Conversation.ContextKind, +value: J.Json, key: String) -> +List<Surface.Node>:
   match kind:
-    case "message": assistant_context(String.eq(J.text(J.get(value, "role")), "assistant"), value, key)
-    case "reasoning": [Surface.Text{key, "note", "Reasoning summary", context_parts(J.items(J.get(value, "summary")))}]
-    case "compaction": [Surface.Text{key, "note", "Provider context retained", "Available to subsequent model requests."}]
-    case _: Nil{}
+    case Conversation.SpeechContext{}: assistant_context(String.eq(J.text(J.get(value, "role")), "assistant"), value, key)
+    case Conversation.ReasoningContext{}: [Surface.Activity{key, "Thinking", Surface.Informational{},
+      [Surface.Text{"summary", "note", "Reasoning summary", Conversation.content_parts(J.items(J.get(value, "summary")))}]}]
+    case Conversation.CompactionContext{}: [Surface.Activity{key, "Context compacted", Surface.Complete{},
+      [Surface.Text{"context", "note", "Provider context retained", "Available to subsequent model requests."}]}]
+    case Conversation.OtherContext{}: Nil{}
 
 def message_nodes(message: D.Message, +key: String) -> +List<Surface.Node>:
   match message:
     case D.ReasoningRecord{owner, +effort, remaining, True{}}:
-      [Surface.Value{key, "Reasoning · " ++ effort, J.Object{[J.Field{"requested_effort", J.Text{effort}},
-        J.Field{"generations_remaining", J.nat(remaining)}]}}]
+      [Surface.Activity{key, "Reasoning · " ++ effort, Surface.Informational{},
+        [Surface.Value{"decision", "Reasoning decision", J.Object{[J.Field{"requested_effort", J.Text{effort}},
+          J.Field{"generations_remaining", J.nat(remaining)}]}}]}]
     case D.ReasoningRecord{owner, effort, remaining, False{}}: Nil{}
     case D.ConfigurationUpdate{effort}: Nil{}
-    case D.ForkResult{owner, call_id, branch}: [Surface.Value{key, "Fork return · " ++ call_id, J.nat(branch)}]
+    case D.ForkResult{owner, call_id, +branch}: [Surface.Activity{key, "Created branch #" ++ Nat.show(branch), Surface.Complete{},
+      [Surface.Action{"open", "Open branch", M.SelectTask{Some{branch}}, True{}, False{}}]}]
+    case D.HookRecord{owner, call_id, plugin, outcome}: Nil{}
+    case D.ToolReceipt{owner, operation, call, value, error}: Nil{}
+    case D.AfterRecord{owner, operation, plugin, outcome}: Nil{}
+    case D.ApprovalRecord{owner, operation, call, reviewer, outcome}: Nil{}
+    case D.UserMessage{text}: [Surface.Text{key, "user", "You", text}]
+    case D.AssistantMessage{text}: [Surface.Text{key, "assistant", "Agent", text}]
+    case D.FunctionCall{+call}: [Surface.Activity{key, T.call_name(call), Surface.Informational{},
+      [Surface.Value{"call", "Arguments", T.call_json(call)}]}]
+    case D.FunctionOutput{id, value, error}: [result_node(key, "Tool result · " ++ id, value, error)]
+    case D.OperationResult{ticket, id, tool, value, error}:
+      [result_node(key, tool ++ " · " ++ Nat.show(ticket), value, error)]
+    case D.FailureMessage{text}: [Surface.Text{key, "error", "Execution error", text}]
+    case D.ContextCheckpoint{text}: [Surface.Activity{key, "Context checkpoint", Surface.Complete{},
+      [Surface.Text{"checkpoint", "note", "Checkpoint", text}]}]
+    case D.ModelContext{+value}: provider_context(Conversation.context_kind(J.text(J.get(value, "type"))), value, key)
+
+def messages(items: +List<D.Message>, +offset: Nat) -> +List<Surface.Node>:
+  match items:
+    case Nil{}: Nil{}
+    case Con{message, rest}:
+      List.append(&2, Surface.Node, message_nodes(message, "message/" ++ Nat.show(offset)), messages(rest, 1n+offset))
+
+# Execution receipts and hook decisions remain inspectable without masquerading
+# as conversation messages or repeating a tool's already-visible result.
+def audit_message(+message: D.Message, key: String) -> +List<Surface.Node>:
+  match message:
     case D.HookRecord{owner, +call_id, plugin, outcome}:
       [Surface.Value{key, "Hook decision · " ++ call_id, T.message_json(D.HookRecord{owner, call_id, plugin, outcome})}]
     case D.ToolReceipt{owner, +operation, call, value, error}:
@@ -306,26 +358,24 @@ def message_nodes(message: D.Message, +key: String) -> +List<Surface.Node>:
       [Surface.Value{key, "Result hook · " ++ Nat.show(operation), T.message_json(D.AfterRecord{owner, operation, plugin, outcome})}]
     case D.ApprovalRecord{owner, +operation, call, reviewer, outcome}:
       [Surface.Value{key, "Approval decision · " ++ Nat.show(operation), T.message_json(D.ApprovalRecord{owner, operation, call, reviewer, outcome})}]
-    case D.UserMessage{text}: [Surface.Text{key, "user", "You", text}]
-    case D.AssistantMessage{text}: [Surface.Text{key, "assistant", "Agent", text}]
-    case D.FunctionCall{call}: [Surface.Value{key, "Tool call", T.call_json(call)}]
-    case D.FunctionOutput{id, value, error}: [Surface.Value{key, error_title(error, "Tool response · " ++ id), value}]
-    case D.OperationResult{ticket, id, tool, value, error}:
-      [Surface.Value{key, error_title(error, "Operation " ++ Nat.show(ticket) ++ " · " ++ tool), value}]
-    case D.FailureMessage{text}: [Surface.Text{key, "error", "Execution error", text}]
-    case D.ContextCheckpoint{text}: [Surface.Text{key, "note", "Context checkpoint", text}]
-    case D.ModelContext{+value}: provider_context(J.text(J.get(value, "type")), value, key)
+    case _: Nil{}
 
-def messages(items: +List<D.Message>, +offset: Nat) -> +List<Surface.Node>:
+def audit_messages(items: +List<D.Message>, +offset: Nat) -> +List<Surface.Node>:
   match items:
     case Nil{}: Nil{}
     case Con{message, rest}:
-      List.append(&2, Surface.Node, message_nodes(message, "message/" ++ Nat.show(offset)), messages(rest, 1n+offset))
+      List.append(&2, Surface.Node, audit_message(message, "audit/" ++ Nat.show(offset)), audit_messages(rest, 1n+offset))
 
 def history_offset(after: Maybe<&2, Nat>, +total: Nat) -> Nat:
   match after:
     case None{}: Nat.sub(total, page_size())
     case Some{offset}: clip(offset, total)
+
+def audit_trail(+task: D.Task, after: Maybe<&2, Nat>) -> Surface.Node:
+  +history = D.task_history(task)
+  +offset = history_offset(after, D.history_length(history))
+  Surface.Group{"audit", "details", "Execution audit · current history page",
+    audit_messages(List.take(&2, D.Message, List.drop(&2, D.Message, D.history_messages(history, Nil{}), offset), page_size()), offset)}
 
 def transcript(+task: D.Task, after: Maybe<&2, Nat>) -> Surface.Node:
   +history = D.task_history(task)
@@ -340,11 +390,11 @@ def transcript(+task: D.Task, after: Maybe<&2, Nat>) -> Surface.Node:
       messages(List.take(&2, D.Message, List.drop(&2, D.Message, D.history_messages(history, Nil{}), offset), page_size()), offset))}
 
 def send_forms(+id: Nat, +world: M.World()) -> Surface.Node:
-  Surface.Group{"compose", "compose", "Input",
-    [form("send/" ++ Nat.show(id), "Queue a message", "Send", M.Send{id, "message"},
+  Surface.Composer{"compose", "task/" ++ Nat.show(id), "Message", "Send queues the message. Steer changes the current direction immediately.",
+    [form("send/" ++ Nat.show(id), "Send a follow-up", "Send", M.Send{id, "message"},
        [input("send", "message", "Message", "multiline", J.Text{""}, True{})], world),
      form("steer/" ++ Nat.show(id), "Change direction now", "Steer", M.Steer{id, "message"},
-       [input("steer", "message", "Instruction", "multiline", J.Text{""}, True{})], world)]}
+       [input("steer", "message", "Message", "multiline", J.Text{""}, True{})], world)], Nil{}}
 
 def advanced(+id: Nat, +world: M.World()) -> Surface.Node:
   Surface.Group{"advanced", "details", "Branch and context",
@@ -365,26 +415,35 @@ def tools(entries: +List<D.Tool>, +catalog: +List<D.Tool>) -> +List<Surface.Node
          Surface.Value{"availability", "Available now", J.Boolean{T.available(catalog, tool)}},
          Surface.Value{"schema", "Arguments", schema}]} <> tools(rest, catalog)
 
-def task_surface(+task: D.Task, after: Maybe<&2, Nat>, environment: D.Environment, +world: M.World()) -> Surface.Node:
+def task_surface(+task: D.Task, +after: Maybe<&2, Nat>, environment: D.Environment, +world: M.World()) -> Surface.Node:
   D.Environment{catalog, profiles, max_fork, max_descendants, project, plugins} = environment
   +id = D.task_id(task)
-  Surface.Group{"task/" ++ Nat.show(id), "panel", task_label(task),
+  Surface.Thread{"task/" ++ Nat.show(id), Some{id}, task_label(task),
+    Conversation.status(task) ++ " · " ++ approval_directory(D.task_context(task)),
+    [transcript(task, after), Surface.Group{"operations", "operations", "", operation_nodes(D.task_operations(task), task, world)}],
+    [send_forms(id, world)],
     [Surface.Group{"lineage", "actions", "Ancestry", lineage_nodes(D.task_lineage(task))},
-     Surface.Value{"state", "Current state", T.summary(task)}, controls(id, world),
-     transcript(task, after),
-     Surface.Group{"operations", "operations", "Live operations", operation_nodes(D.task_operations(task), task, world)},
-     send_forms(id, world), advanced(id, world),
-     Surface.Group{"tools", "details", "Frozen tool contract", tools(T.task_tools(D.task_contract(task)), catalog)}]}
+     Surface.Value{"state", "Current state", T.summary(task)}, advanced(id, world), audit_trail(task, after),
+     Surface.Group{"tools", "details", "Frozen tool contract", tools(T.task_tools(D.task_contract(task)), catalog)}],
+    [controls(id, world)]}
+
+def new_thread(preferred: String, +world: M.World()) -> Surface.Node:
+  Surface.Thread{"new-task", None{}, "New task", "",
+    [Surface.Text{"welcome", "welcome", "What would you like to work on?", ""}],
+    [Surface.Composer{"compose", "new-task", "New task", "Enter to send · Shift + Enter for a new line",
+      [create_config(preferred, Commands.settings(world), world)], Nil{}}], Nil{}, Nil{}}
 
 def task_panel(found: Maybe<&2, D.Task>, after: Maybe<&2, Nat>, +world: M.World()) -> Surface.Node:
   match found:
-    case None{}: Surface.Group{"missing", "panel", "Task unavailable", [Surface.Text{"missing/reason", "error", "No such task", "Select a task or create a new one."}, create(world)]}
+    case None{}: Surface.Thread{"missing", None{}, "Task unavailable", "",
+      [Surface.Text{"missing/reason", "error", "No such task", "Select a task or create a new one."}],
+      [Surface.Composer{"compose", "new-task", "New task", "", [create(world)], Nil{}}], Nil{}, Nil{}}
     case Some{task}: task_surface(task, after, Commands.settings(world), world)
 
 def panel(state: M.ViewState, +world: M.World()) -> Surface.Node:
   M.ViewState{selected, after, tasks_after, profile, +board} = state
   match selected:
-    case None{}: create_config(profile, Commands.settings(world), world)
+    case None{}: new_thread(profile, world)
     case Some{id}: task_panel(T.find(Commands.entries(world), id), after, world)
 
 def notices(ok: Bool, reply: J.Json) -> +List<Surface.Node>:

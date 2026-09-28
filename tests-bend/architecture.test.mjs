@@ -19,7 +19,7 @@ async function imports(filename, seen = new Set()) {
 test('the complete command, interaction and finite execution specifications do not depend on their implementation', async () => {
   const seen = new Set();
   for (const filename of ['COMMANDS.bend', 'bendlib/protocol.bend', 'bendlib/commit.bend', 'bendlib/execution.bend', 'bendlib/interface.bend', 'bendlib/transcript.bend',
-    'bendlib/board-spec.bend', 'bendlib/board-scheduling-spec.bend']) {
+    'bendlib/board-spec.bend', 'bendlib/board-scheduling-spec.bend', 'bendlib/conversation-spec.bend']) {
     await imports(path.join(root, filename), seen);
   }
   for (const filename of ['PROGRAM.bend', 'PROOF.bend', 'CONCEPTS.bend', 'MAIN.bend', 'bendlib/frontend.bend', 'bendlib/architecture.bend', 'bendlib/traces.bend',
@@ -30,6 +30,11 @@ test('the complete command, interaction and finite execution specifications do n
   assert.match(concepts, /Commit\.command\(~Execution\.scheduled,/);
   assert.match(concepts, /Commit\.input\(~Execution\.scheduled,/);
   assert.doesNotMatch(concepts, /Commit\.(command|input)\(~P\./);
+  // Commit specifies UI decoration by its existing public projection. The
+  // conversation content specification, unlike that commit interface, must be
+  // independently defined without importing the renderer it constrains.
+  const conversation = await imports(path.join(root, 'bendlib/conversation-spec.bend'));
+  assert.equal(conversation.has(path.join(root, 'UI.bend')), false);
 });
 
 test('the native entry contains only IO and all pure runtime imports belong to the proof closure', async () => {

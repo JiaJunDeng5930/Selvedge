@@ -43,7 +43,12 @@ actions, fields, bindings and enabled flags. `public/renderer.mjs` fills declare
 event bindings; `public/widgets.mjs` renders the generic widgets with keyed DOM
 reconciliation and safe Markdown.
 `public/app.mjs` handles authentication, serialized requests and commit invalidation.
-Neither file interprets task state or provider message roles. Unsubmitted field
+`public/conversation.mjs` places named native regions; `public/desktop.mjs` binds
+their descriptors to the actual copied desktop components. The source manifest
+and importer pin those external implementations separately from the unchanged
+Markdown dependencies. Neither copied code nor source hashing is a Bend proof
+of browser behavior; the real-browser suites exercise this boundary.
+The browser adapter does not interpret task state or provider message roles. Unsubmitted field
 drafts and disclosure/focus state are presentation mechanics, not a domain cache.
 Uncommitted model deltas do not replace the native conversation surface. A
 separately labelled, bounded streaming preview is correlated with host execution

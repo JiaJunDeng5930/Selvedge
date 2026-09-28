@@ -103,19 +103,6 @@
 .board-dialog .field select { height: 34px; border-color: var(--line); background: var(--board-lane); border-radius: 6px; font-size: 12px; }
 .choice-picker { display: inline-flex; position: relative; min-width: 0; max-width: 100%; }
 .choice-picker .choice-native { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
-.choice-trigger { display: inline-flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; max-width: 100%; padding: 5px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--ink); font-size: 12px; }
-.choice-trigger > span:not(.choice-mark) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.choice-mark { display: flex; align-items: center; }
-.choice-mark[hidden] { display: none; }
-.choice-option > span { flex: 1; }
-.choice-option > svg { width: 14px; height: 14px; flex-shrink: 0; margin-right: 6px; }
-.choice-menu { position: fixed; inset: auto; margin: 0; padding: 5px; overflow: auto; border: 1px solid var(--line); border-radius: 8px; color: var(--ink); background: var(--bg); box-shadow: 0 6px 24px #0002; }
-.choice-search { width: 100%; padding: 7px; border: 0; border-bottom: 1px solid var(--line); background: transparent; color: var(--ink); font-size: 12px; }
-.choice-options { display: flex; flex-direction: column; padding-top: 4px; }
-.choice-option { display: flex; align-items: center; justify-content: space-between; width: 100%; text-align: left; border: 0; border-radius: 5px; padding: 7px 9px; background: transparent; color: var(--ink); font-size: 12px; }
-.choice-option[hidden] { display: none; }
-.choice-option[aria-selected="true"]::after { content: "✓"; margin-left: 8px; }
-.choice-option:hover, .choice-option:focus { background: var(--hover); outline: none; }
 .widget-form[data-board-editor] .fields { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .widget-form[data-board-editor] .field { flex: 0 1 auto; }
 .widget-form[data-board-editor] .field-label { display: none; }

@@ -43,5 +43,3 @@ export function eventForForm(form, values) {
   }
   return event;
 }
-
-export { mount } from './widgets.mjs';

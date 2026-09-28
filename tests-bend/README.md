@@ -47,6 +47,8 @@ when Chrome is unavailable instead of silently counting an unrun check as passed
 | Provider/MCP/plugin wire formats, failures, actual cancellation and commit-before-callback | `providers`, `plugins`, `after-hooks`, `service-recovery` tests |
 | ChatGPT Web v1 explicit predecessors, durable same-key request observation, object arguments, complete tool batches, deferred/concurrent input coverage, native cancellation versus observer shutdown, tools/reviews/drafts and restart | `chatgpt-web.test.mjs`, independent `fixtures/chatgpt-web.mjs`; real loopback HTTP, SQLite and OS-sandboxed subprocesses, not a commercial account |
 | Authentication, HTTP/SSE and generic browser rendering | `auth`, `ui`, `service` tests |
+| Native conversation content, audit, result/error and composer binding evidence | `conversation-proof.test.mjs`: type-correct defects rejected by the assembled production laws |
+| Copied desktop implementation and generated artifact integrity | `desktop-source.test.mjs`, `scripts/import-desktop.mjs`; hashes are provenance evidence, not a proof of the imported implementation |
 | Paced Markdown, safe links, fragmented SSE, draft races and preview identity/revision | `web-streaming.test.mjs`; browser mechanics, not native-domain proofs |
 | Named Web API snapshots through the native service to actual Chrome, revised/shrunk Markdown, preserved composer and authoritative terminal output | `node scripts/chatgpt-web-browser-check.mjs` after building; isolated browser and local v1 fixture, captures in `.workpad/chatgpt-web-backend/` |
 | Real browser DOM identity, focus, scroll, worker formatting, responsive layout, unobscured approve/deny pointer targets, native form/actions and account compaction | `npm run test:browser`; isolated Chrome, loopback provider, native kernel and SQLite; captures in `.workpad/chatgpt-webui/` |
@@ -73,6 +75,14 @@ still needs evidence. Keep type-correct semantic mutations: they test whether
 the proof obligations can reject an incorrect implementation, not whether a
 particular input produces the expected domain result. A timeout, syntax error or
 missing import is not an acceptable semantic-mutation success.
+
+The old `ui.test.mjs` fake DOM was removed because it could not exercise layout,
+native focus or default browser events. Its literal-content, disabled-action and
+draft checks now run through the real browser/HTTP boundary. The event-binding
+and prototype-route tests remain. `conversation-browser-check.mjs` uses the real
+production `ThreadSurface` and actual wheel/pointer events to measure preserved
+rows during transcript and footer growth; it does not maintain another scroll
+implementation or infer success from `scrollTop === 0` while reading history.
 
 The adaptive-reasoning work removed native-only example replays of unsupported
 choices, queued input, stale tool results, lifecycle/recovery and fork lease

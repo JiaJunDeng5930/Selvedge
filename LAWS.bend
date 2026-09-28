@@ -1,4 +1,5 @@
 import Base
+import ./bendlib/conversation-spec.bend as ConversationSpec
 import ./bendlib/surface.bend as Surface
 import ./bendlib/effects.bend as Effects
 import ./FEATURES.bend as F
@@ -127,6 +128,29 @@ law ui_submit_semantics:
   for +command: M.Command
   for +world: M.World()
   {P.apply(M.UserInterface{state, M.Submit{command}}, world) == P.apply_command(command, world) : M.Decision()}
+
+law ui_transcript_content:
+  for +messages: +List<D.Message>
+  for offset: Nat
+  {ConversationSpec.visible_speech(UI.messages(messages, offset)) == ConversationSpec.transcript(messages) : +List<ConversationSpec.Speech>}
+
+law ui_audit_content:
+  for +message: D.Message
+  for key: String
+  {ConversationSpec.audit_values(UI.audit_message(message, key)) == ConversationSpec.audit_record(message) : +List<J.Json>}
+
+law ui_result_content:
+  for +message: D.Message
+  for key: String
+  {ConversationSpec.visible_results(UI.message_nodes(message, key)) == ConversationSpec.result(message) : +List<ConversationSpec.Result>}
+
+law ui_composer_intents:
+  for +id: Nat
+  for +world: M.World()
+  {ConversationSpec.composer(UI.send_forms(id, world)) ==
+    Some{ConversationSpec.Composer{"task/" ++ Nat.show(id),
+      [ConversationSpec.Intent{M.Send{id, "message"}, UI.selected(Commands.resolve(M.Send{id, "message"}, world))},
+       ConversationSpec.Intent{M.Steer{id, "message"}, UI.selected(Commands.resolve(M.Steer{id, "message"}, world))}]}} : Maybe<&2, ConversationSpec.Composer>}
 
 law ui_action_semantics:
   for +key: String

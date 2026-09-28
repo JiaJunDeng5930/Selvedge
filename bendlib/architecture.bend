@@ -1,4 +1,5 @@
 import Base
+import ./conversation-spec.bend as ConversationSpec
 import ./surface.bend as Surface
 import ./effects.bend as Effects
 import ../FEATURES.bend as F
@@ -142,6 +143,17 @@ def user_surface(state: M.ViewState, world: M.World()) -> M.Decision():
 
 type UserSurface is Type:
   UserSurface{
+    transcript: @+messages:+List<D.Message> -> @offset:Nat ->
+      {ConversationSpec.visible_speech(UI.messages(messages, offset)) == ConversationSpec.transcript(messages) : +List<ConversationSpec.Speech>},
+    audit: @+message:D.Message -> @key:String ->
+      {ConversationSpec.audit_values(UI.audit_message(message, key)) == ConversationSpec.audit_record(message) : +List<J.Json>},
+    results: @+message:D.Message -> @key:String ->
+      {ConversationSpec.visible_results(UI.message_nodes(message, key)) == ConversationSpec.result(message) : +List<ConversationSpec.Result>},
+    composer: @+id:Nat -> @+world:M.World() ->
+      {ConversationSpec.composer(UI.send_forms(id, world)) ==
+        Some{ConversationSpec.Composer{"task/" ++ Nat.show(id),
+          [ConversationSpec.Intent{M.Send{id, "message"}, UI.selected(Commands.resolve(M.Send{id, "message"}, world))},
+           ConversationSpec.Intent{M.Steer{id, "message"}, UI.selected(Commands.resolve(M.Steer{id, "message"}, world))}]}} : Maybe<&2, ConversationSpec.Composer>},
     observation: @+state:M.ViewState -> @+world:M.World() ->
       ({P.decision_world(user_surface(state, world)) == world : M.World()} &
        {P.decision_effects(user_surface(state, world)) == Nil{} : +List<M.Effect()>}),

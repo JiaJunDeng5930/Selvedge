@@ -9,6 +9,7 @@ import ../../INVARIANTS.bend as I
 import ../architecture.bend as A
 import ../json.bend as J
 import ./observations.bend as ObservationsProof
+import ./conversation.bend as ConversationProof
 
 def Laws.ui_submit_semantics(state, command, world):
   {==}
@@ -93,6 +94,10 @@ def Laws.ui_refresh_not_durable(state):
 
 def A.surface():
   A.UserSurface{
+    (messages => offset => Laws.ui_transcript_content(messages, offset)),
+    (message => key => Laws.ui_audit_content(message, key)),
+    (message => key => Laws.ui_result_content(message, key)),
+    (id => world => Laws.ui_composer_intents(id, world)),
     (+state => +world => (Laws.ui_refresh_world(state, world), Laws.ui_refresh_effects(state, world))),
     (state => command => world => Laws.ui_submit_semantics(state, command, world)),
     (key => label => command => world => Laws.ui_action_semantics(key, label, command, world)),

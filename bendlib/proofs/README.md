@@ -40,6 +40,7 @@ checker invocation as evidence that the specification detects those defects.
 | `tasks` | Lifecycle, fork, interruption, recovery and context correspondences. |
 | `observations` | Queries preserve both world and effect silence. |
 | `ui` | Native presentation, live command gates and state/effect-preserving projection. |
+| `conversation` | Ordered speech, audit payloads, result values/error flags, native draft identity and Send/Steer bindings. |
 | `plugins` | Unified gate, call identity, task-owned certificates and observer non-interference. |
 | `results` | Entire after-hook pipeline, immutable execution error/call, raw audit projection and correlated callback retirement. |
 | `operations` | Domain binding to the imported association map and product-state/notification premises. |

@@ -6,17 +6,21 @@ reads a task snapshot or reconstructs lifecycle, provider-message or command
 tables. Changes to task behavior and available actions belong in that native
 definition, not in a browser-side state machine.
 
-`widgets.mjs` renders the supplied roles as task navigation, a focused conversation,
-a docked send/steer composer and an optional details panel. Task controls, live
+`widgets.mjs` renders native `Thread`, `ThreadLink`, `Composer` and `Activity`
+nodes through `conversation.mjs`, alongside the common field/value widgets.
+Named native regions determine placement. Task controls, live
 operations, ancestry, branching, context controls and the frozen tool contract
 are existing native widgets, not independently implemented features. The initial
 native form supplies the model choices discovered by account login. There is no
 fabricated Git panel, terminal, file browser or model-switch action.
 
-The presentation follows the installed Codex Desktop's neutral sidebar,
-conversation column, compact composer, action menu and right-hand details panel.
-The reference version and inspected assets are recorded in ADR 0020. The adapter
-does not ship the application's code, branding or fonts. New-task model/reasoning
+`desktop.mjs` binds the native descriptors to the actual installed Codex Desktop
+menu components. `vendor/desktop-scroll.mjs` contains unchanged source callbacks
+inside a DOM-lifetime adapter, not a separately implemented scroll algorithm.
+The scoped desktop stylesheet and its original theme tokens replace the local
+menu styles and approximate palette. The pinned source version, reproduction
+command and hashes are described in ADR 0025 and `vendor/desktop-source.json`.
+No application branding or fonts are installed. New-task model/reasoning
 fields sit in the composer toolbar; the existing JSON settings field is available
 from its settings disclosure. Its value and binding still come from Bend.
 
@@ -29,9 +33,9 @@ Fork forms use the existing JSON widget for optional context overrides.
 
 An HTTP 200 from `/api/ui` can still carry a refused command in `result.receipt`:
 the outer success also delivers the updated native screen and its error notice.
-The adapter must not confuse that wrapper with an approval. The scroll-to-latest
-control lives in the header so it cannot cover permission buttons on a narrow
-screen. Browser checks verify hit-testing and actual pointer clicks, not only
+The adapter must not confuse that wrapper with an approval. The original scroll
+layout keeps its measured footer spacer, overlaid input and scroll control
+together. Browser checks verify hit-testing and actual pointer clicks, not only
 programmatic event dispatch.
 
 `renderer.mjs` fills only declared field bindings. `app.mjs` serializes native
@@ -41,8 +45,9 @@ disclosures and unchanged messages. A successful request clears only the draft
 values actually submitted, not text typed while the request was pending.
 Enter submits the active composer; Shift+Enter inserts a new line. Ctrl/Cmd+Enter
 also submits forms. None of these shortcuts submits during IME composition. The
-send/steer menu retains each native form and its draft, rather than rewriting a
-command based on a browser-side task status. Scrolling follows
+send/steer menu selects a native form while retaining one editor and the shared
+native draft identity, rather than rewriting a command from browser task status.
+Scrolling follows
 new output only while the reader remains near the bottom. Explicit history
 navigation suppresses previews until the reader selects Follow latest.
 

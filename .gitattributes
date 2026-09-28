@@ -2,3 +2,4 @@
 # Upstream CRLF licenses and whitespace are not project-authored formatting.
 host/public/vendor/*.mjs -text -whitespace
 host/public/vendor/*.LICENSE -text -whitespace
+host/public/vendor/desktop*.css -text -whitespace

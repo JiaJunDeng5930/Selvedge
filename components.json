@@ -26,7 +26,7 @@
   ],
   "application_dependencies": {
     "MODEL.bend": ["FEATURES.bend", "REASONING.bend", "bendlib/component.bend", "bendlib/domain.bend", "bendlib/effects.bend", "bendlib/json.bend"],
-    "UI.bend": ["COMMANDS.bend", "FEATURES.bend", "MODEL.bend", "REASONING.bend", "bendlib/command-codec.bend", "bendlib/component.bend", "bendlib/domain.bend", "bendlib/feature-codec.bend", "bendlib/feature-ui.bend", "bendlib/feature-view.bend", "bendlib/json.bend", "bendlib/operations.bend", "bendlib/surface.bend", "bendlib/tasks.bend"],
+    "UI.bend": ["COMMANDS.bend", "FEATURES.bend", "MODEL.bend", "REASONING.bend", "bendlib/command-codec.bend", "bendlib/component.bend", "bendlib/conversation.bend", "bendlib/domain.bend", "bendlib/feature-codec.bend", "bendlib/feature-ui.bend", "bendlib/feature-view.bend", "bendlib/json.bend", "bendlib/operations.bend", "bendlib/surface.bend", "bendlib/tasks.bend"],
     "bendlib/wire.bend": ["APPROVALS.bend", "FEATURES.bend", "HOOKS.bend", "INVARIANTS.bend", "MODEL.bend", "REASONING.bend", "UI.bend", "bendlib/domain.bend", "bendlib/feature-codec.bend", "bendlib/json.bend", "bendlib/presentation.bend", "bendlib/protocol.bend", "bendlib/schema.bend", "bendlib/tasks.bend", "bendlib/wire-shape.bend"],
     "bendlib/surface.bend": ["MODEL.bend", "bendlib/json.bend"]
   },

@@ -43,6 +43,11 @@ standard list operations; there is no browser-side board state machine.
 command resolver, and `commit.bend` projects the post-scheduling world before
 atomic output admission. The surface's read-only observation and command gates
 are carried by `architecture.UserSurface` and checked in `proofs/ui.bend`.
+`conversation.bend` owns request titles and shared provider-text decoding.
+`conversation-spec.bend` independently observes ordered speech, original audit
+records, result values/errors and composer intents. `proofs/conversation.bend`
+binds those observations to the production UI helpers; `UserSurface` requires
+their evidence. These laws do not assert browser geometry or provider quality.
 
 `../APPROVALS.bend` independently resolves one-operation permission requests and
 their human or model decisions. `approval-architecture.bend` binds the executing

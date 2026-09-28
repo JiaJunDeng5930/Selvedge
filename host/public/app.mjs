@@ -1,4 +1,4 @@
-import { mount } from './renderer.mjs';
+import { mount } from './widgets.mjs';
 import { Streams } from './streams.mjs';
 import { EventFrames, acknowledgeDrafts } from './events.mjs';
 
@@ -196,7 +196,10 @@ $('theme-toggle').onclick = () => {
   document.documentElement.dataset.theme = next; store('selvedge-theme', next);
 };
 const theme = stored('selvedge-theme');
-if (['light', 'dark'].includes(theme)) document.documentElement.dataset.theme = theme;
+document.documentElement.dataset.theme = ['light', 'dark'].includes(theme) ? theme : matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', event => {
+  if (!['light', 'dark'].includes(stored('selvedge-theme'))) document.documentElement.dataset.theme = event.matches ? 'dark' : 'light';
+});
 function setAccess(open) {
   const dialog = $('access');
   if (open) { dialog.hidden = false; if (!dialog.open) dialog.showModal(); $('token').focus(); }

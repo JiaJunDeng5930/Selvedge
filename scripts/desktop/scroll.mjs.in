@@ -1,0 +1,83 @@
+// Transplanted from Codex Desktop 26.917.71314. Callback bodies below are
+// unchanged source slices; provenance records their UTF-16 source offsets and hashes.
+// This shell binds the original refs/effects to Selvedge-owned DOM elements.
+/* @source(helper/tit) */
+/* @source(helper/nit) */
+/* @source(helper/NV) */
+const _ = tit, ce = nit, ge = NV;
+const He = 260, Ue = 64, We = 8, Ge = 1000;
+/* @source(helper/Fe) */
+/* @source(helper/Ie) */
+/* @source(helper/Le) */
+/* @source(helper/Re) */
+/* @source(helper/ze) */
+/* @source(helper/Be) */
+
+export function createDesktopScroll(scroll, content, footer, latest) {
+  const g = true, v = false, y = false, he = true, x = 'bottom', b = 'default', S = 0;
+  const h = undefined, u = undefined, d = undefined;
+  const motion = matchMedia('(prefers-reduced-motion: reduce)');
+  let _e = motion.matches;
+  const reduced = () => { _e = motion.matches; };
+  motion.addEventListener('change', reduced);
+  const ref = current => ({ current });
+  const C = ref(scroll), Ee = ref(null), w = ref(S), T = ref(null), De = ref(null), Oe = ref(null);
+  const Ae = ref(new Set()), O = ref(new Set()), k = ref(null), A = ref(true), j = ref(false);
+  const M = ref(null), N = ref(false), Me = ref(false), P = ref(null), F = ref(null), I = ref(null);
+  const we = scrolled => { latest.hidden = !scrolled; };
+  content.setAttribute('data-thread-user-message-navigation-content', '');
+const V = /* @source(scroll/V) */;
+const Ke = V;
+const qe = /* @source(scroll/qe) */;
+const Je = qe;
+const Ye = /* @source(scroll/Ye) */;
+const Xe = Ye;
+const Ze = /* @source(scroll/Ze) */;
+const H = Ze;
+const Qe = /* @source(scroll/Qe) */;
+const U = Qe;
+const $e = /* @source(scroll/$e) */;
+const W = $e;
+const et = /* @source(scroll/et) */;
+const tt = et;
+const nt = /* @source(scroll/nt) */;
+const G = nt;
+const rt = /* @source(scroll/rt) */;
+const K = rt;
+const it = /* @source(scroll/it) */;
+const q = it;
+const at = /* @source(scroll/at) */;
+const J = at;
+const ot = /* @source(scroll/ot) */;
+const Y = ot;
+const st = /* @source(scroll/st) */;
+const ct = st;
+const lt = /* @source(scroll/lt) */;
+const ut = lt;
+const dt = /* @source(scroll/dt) */;
+const X = dt;
+const ft = /* @source(scroll/ft) */;
+const mt = /* @source(scroll/mt) */;
+const ht = mt;
+const gt = /* @source(scroll/gt) */;
+const vt = /* @source(scroll/vt) */;
+const bt = /* @source(scroll/bt) */;
+const St = /* @source(scroll/St) */;
+const Et = /* @source(scroll/Et) */;
+  gt();
+  const cleanups = [ft(), vt(), bt(), St()];
+  const observer = new ResizeObserver(entries => { for (const entry of entries) Et(entry); });
+  observer.observe(footer);
+  latest.onclick = ht;
+  return {
+    beforeUpdate: ut,
+    end: ht,
+    start: () => J(Math.max(0, scroll.scrollHeight - scroll.clientHeight), 'instant', 'user'),
+    distance: () => _(scroll),
+    get following() { return A.current; },
+    dispose() {
+      for (const cleanup of cleanups) cleanup?.();
+      observer.disconnect(); motion.removeEventListener('change', reduced); latest.onclick = null;
+    },
+  };
+}

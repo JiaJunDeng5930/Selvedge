@@ -1276,3 +1276,46 @@ suite passed all 69 tests with no skips. Final `npm run check`, the existing
 browser regression and the new five-group real-browser snapshot check passed.
 These are separate successful reruns, not a claim that the initial complete run
 was green. All 95 baseline Bend sources remained byte-identical in this snapshot.
+
+## Native conversation and installed desktop implementation
+
+The conversation observations now distinguish spoken text, processed execution
+results, and original audit records. Their implementation and independent
+specification initially matched provider-kind strings separately. On the pinned
+checker, the excluded string-prefix branches did not normalize identically.
+Parsing once into the shared `ContextKind` decoding vocabulary removed that
+representation discrepancy without weakening the content observation. Ordered
+transcripts reuse the imported list induction theorem; its predicate binder must
+match the library's declared usage rather than adding an unrestricted binder.
+
+Borrowed colors and short replacement handlers did not preserve desktop behavior.
+The final adapter imports the actual styled menus and their React/ReactDOM code,
+and retains 22 scroll callback bodies plus nine helpers unchanged. The original
+footer is overlaid and measured; moving it into a separate grid row breaks the
+source algorithm's resize assumptions. Scoping the copied stylesheet also needs
+an outer boundary around styled content, not putting the content itself at the
+scope root. Those were integration errors, not reasons to rewrite the source
+algorithm or add special-case positioning rules.
+
+The keyboard test found another adapter mistake: a custom menu-close callback
+forced focus back into the composer after a different menu had already opened.
+Removing that callback restored the desktop component's own focus lifetime.
+The test now drives actual keyboard events, skips disabled native actions and
+checks focus restoration without dispatch. Search tests type through Chrome's
+input protocol and verify filtered results, rather than setting a controlled
+React input's value and assuming its change handler ran.
+
+Validation of this change: the complete regression suite passed **295/295**
+tests with no skips, with test files serialized so the native compiler did not
+compete with proof-mutation workers. The existing compile timeout was not raised.
+The added source-integrity tests passed **2/2** separately, and the updated HTTP
+UI boundary passed its two tests again. The final browser runs passed ten
+conversation groups, eleven board groups and five Web API snapshot groups.
+`scripts/check.mjs` passed the source boundaries, dependency/source manifests,
+certificate reproduction, pure proof root, native entry and syntax checks.
+
+All four desktop artifacts were reproduced byte-for-byte from the recorded
+installed archive and pinned bundler. The Markdown parser, worker and original
+vendored dependency files stayed byte-identical. Browser tests used isolated
+Chrome profiles and loopback services, not live account calls; mobile checks
+refer to viewport sizes, not a separate Safari-engine run.

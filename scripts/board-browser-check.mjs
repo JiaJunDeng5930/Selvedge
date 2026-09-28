@@ -144,9 +144,14 @@ try {
   checked('Pasted files use authenticated storage, block incomplete submission, preview safely and persist');
 
   await click('[data-action="new-card"]');
-  await click('.board-dialog [role="combobox"][aria-label="优先级"]');
-  await fill('.choice-menu:popover-open .choice-search', '高');
-  await click('.choice-menu:popover-open [data-value="high"]');
+  await click('.board-dialog [data-desktop-menu-trigger][aria-label="优先级"]');
+  await ui.evaluate('document.querySelector(\'[data-desktop-menu="choice"] input\').focus()');
+  await ui.call('Input.insertText', { text: '高' });
+  await ui.wait('document.querySelectorAll(\'[data-desktop-menu="choice"] [role="menuitemradio"]\').length === 1');
+  await ui.call('Input.dispatchKeyEvent', { type: 'keyDown', key: 'ArrowDown', code: 'ArrowDown', windowsVirtualKeyCode: 40 });
+  await ui.wait('document.activeElement.dataset.value === "high"');
+  await ui.call('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 });
+  await ui.wait('!document.querySelector(\'[data-desktop-menu="choice"]\')');
   await click('[data-action="create/keep"]');
   await ui.wait(`document.querySelector('[data-action="create/keep"]')?.getAttribute('aria-checked') === 'true'`);
   await fill('.board-dialog input[name="title"]', '连续创建一');
