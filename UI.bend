@@ -1,5 +1,6 @@
 import Base
 import ./MODEL.bend as M
+import ./REASONING.bend as Reasoning
 import ./COMMANDS.bend as Commands
 import ./bendlib/json.bend as J
 import ./bendlib/tasks.bend as T
@@ -26,7 +27,7 @@ type Presentation is Data:
   Presentation{state: M.ViewState, root: Node}
 
 def initial() -> M.ViewState:
-  M.ViewState{None{}, None{}, 0n}
+  M.ViewState{None{}, None{}, 0n, ""}
 
 def page_size() -> Nat:
   40n
@@ -46,9 +47,9 @@ def command(event: M.ViewEvent) -> M.Command:
     case _: M.Observe{M.Describe{}}
 
 def state_json(state: M.ViewState) -> J.Json:
-  M.ViewState{selected, after, tasks_after} = state
+  M.ViewState{selected, after, tasks_after, profile} = state
   J.Object{[J.Field{"selected", J.optional_nat(selected)}, J.Field{"after", J.optional_nat(after)},
-    J.Field{"tasks_after", J.nat(tasks_after)}]}
+    J.Field{"tasks_after", J.nat(tasks_after)}, J.Field{"profile", J.Text{profile}}]}
 
 def compact_json(id: Nat, summary: Maybe<&2, String>) -> J.Json:
   match summary:
@@ -99,6 +100,7 @@ def event_json(event: M.ViewEvent) -> J.Json:
     case M.SelectTask{id}: J.Object{[J.Field{"type", J.Text{"select"}}, J.Field{"task_id", J.optional_nat(id)}]}
     case M.HistoryPage{after}: J.Object{[J.Field{"type", J.Text{"history"}}, J.Field{"after", J.optional_nat(after)}]}
     case M.TaskPage{after}: J.Object{[J.Field{"type", J.Text{"tasks"}}, J.Field{"after", J.nat(after)}]}
+    case M.SelectProfile{profile}: J.Object{[J.Field{"type", J.Text{"profile"}}, J.Field{"profile", J.Text{profile}}]}
     case M.Submit{command}: J.Object{[J.Field{"type", J.Text{"submit"}}, J.Field{"command", command_json(command)}]}
     case M.RefreshView{}: J.Object{[J.Field{"type", J.Text{"refresh"}}]}
 
@@ -116,6 +118,13 @@ def fields_json(fields: +List<Field>) -> +List<J.Json>:
         J.Field{"value", value}, J.Field{"schema", schema}, J.Field{"choices", J.Array{choices_json(choices)}},
         J.Field{"required", J.Boolean{required}}, J.Field{"binding", J.Array{[J.Text{"command"}, J.Text{name}]}}]} <> fields_json(rest)
 
+def form_changes(command: M.Command) -> J.Json:
+  match command:
+    case M.Create{profile, reasoning, message, options}:
+      J.Object{[J.Field{"profile", J.Object{[J.Field{"event", event_json(M.SelectProfile{profile})},
+        J.Field{"binding", J.Array{[J.Text{"profile"}]}}, J.Field{"reset_fields", J.Array{[J.Text{"reasoning"}]}}]}}]}
+    case _: J.Object{Nil{}}
+
 def nodes_json(nodes: +List<Node>) -> +List<J.Json>:
   match nodes:
     case Nil{}: Nil{}
@@ -130,9 +139,10 @@ def nodes_json(nodes: +List<Node>) -> +List<J.Json>:
     case Con{Action{key, label, event, enabled, selected}, rest}:
       J.Object{[J.Field{"kind", J.Text{"action"}}, J.Field{"key", J.Text{key}}, J.Field{"label", J.Text{label}},
         J.Field{"event", event_json(event)}, J.Field{"enabled", J.Boolean{enabled}}, J.Field{"selected", J.Boolean{selected}}]} <> nodes_json(rest)
-    case Con{Form{key, title, label, command, fields, enabled}, rest}:
+    case Con{Form{key, title, label, +command, fields, enabled}, rest}:
       J.Object{[J.Field{"kind", J.Text{"form"}}, J.Field{"key", J.Text{key}}, J.Field{"title", J.Text{title}}, J.Field{"label", J.Text{label}},
-        J.Field{"event", event_json(M.Submit{command})}, J.Field{"fields", J.Array{fields_json(fields)}}, J.Field{"enabled", J.Boolean{enabled}}]} <> nodes_json(rest)
+        J.Field{"event", event_json(M.Submit{command})}, J.Field{"changes", form_changes(command)},
+        J.Field{"fields", J.Array{fields_json(fields)}}, J.Field{"enabled", J.Boolean{enabled}}]} <> nodes_json(rest)
 
 def first_node(nodes: +List<J.Json>) -> J.Json:
   match nodes:
@@ -169,28 +179,50 @@ def field_schema(command: String, field: String) -> J.Json:
 def input(command: String, +name: String, label: String, kind: String, value: J.Json, required: Bool) -> Field:
   Field{name, label, kind, value, field_schema(command, name), Nil{}, required}
 
+def profile_label(automatic: Bool, name: String) -> String:
+  match automatic:
+    case True{}: name ++ " Auto"
+    case False{}: name
+
 def profile_choices(profiles: +List<M.Profile>) -> +List<Choice>:
   match profiles:
     case Nil{}: Nil{}
-    case Con{M.Profile{+key, provider, model}, rest}:
-      Choice{key, key ++ " · " ++ provider ++ " / " ++ model} <> profile_choices(rest)
+    case Con{M.Profile{+key, provider, model, policy}, rest}:
+      Choice{key, profile_label(Reasoning.automatic(policy), model) ++ " · " ++ provider ++ " / " ++ key} <> profile_choices(rest)
 
 def first_profile(profiles: +List<M.Profile>) -> String:
   match profiles:
     case Nil{}: ""
-    case Con{M.Profile{key, provider, model}, rest}: key
+    case Con{M.Profile{key, provider, model, policy}, rest}: key
 
-def create_config(environment: M.Environment, world: M.World) -> Node:
+def preferred_profile(found: Maybe<&2, M.Profile>, fallback: String) -> String:
+  match found:
+    case None{}: fallback
+    case Some{M.Profile{key, provider, name, policy}}: key
+
+def selected_policy(found: Maybe<&2, M.Profile>) -> Reasoning.Policy:
+  match found:
+    case None{}: Reasoning.Fixed{}
+    case Some{profile}: M.profile_reasoning(profile)
+
+def reasoning_field(policy: Reasoning.Policy) -> Field:
+  match policy:
+    case Reasoning.Fixed{}: input("create", "reasoning", "Reasoning", "text", J.Text{"medium"}, True{})
+    case Reasoning.Adaptive{evaluator, efforts, baseline, transport, maximum}:
+      Field{"reasoning", "Reasoning", "choice", J.Text{"auto"}, field_schema("create", "reasoning"), [Choice{"auto", "Auto"}], True{}}
+
+def create_config(preferred: String, environment: M.Environment, world: M.World) -> Node:
   M.Environment{catalog, +profiles, max_fork, max_descendants, project, plugins} = environment
-  +profile = first_profile(profiles)
-  form("create", "New task", "Create task", M.Create{profile, "medium", "message", J.Object{Nil{}}},
+  +profile = preferred_profile(M.find_profile(profiles, preferred), first_profile(profiles))
+  +policy = selected_policy(M.find_profile(profiles, profile))
+  form("create", "New task", "Create task", M.Create{profile, Reasoning.default_selection(policy), "message", J.Object{Nil{}}},
     [Field{"profile", "Model profile", "choice", J.Text{profile}, field_schema("create", "profile"), profile_choices(profiles), True{}},
-      input("create", "reasoning", "Reasoning", "text", J.Text{"medium"}, True{}),
+      reasoning_field(policy),
       input("create", "message", "What should the agent do?", "multiline", J.Text{""}, True{}),
       input("create", "settings", "Workspace, sandbox, approval and project overrides (JSON; {} uses defaults)", "json", J.Object{Nil{}}, True{})], world)
 
 def create(+world: M.World) -> Node:
-  create_config(Commands.settings(world), world)
+  create_config("", Commands.settings(world), world)
 
 def is_selected(selected: Maybe<&2, Nat>, id: Nat) -> Bool:
   match selected:
@@ -216,7 +248,7 @@ def clip(+value: Nat, +maximum: Nat) -> Nat:
   bounded(Nat.is_le(value, maximum), value, maximum)
 
 def navigation(+state: M.ViewState, +tasks: +List<M.Task>) -> Node:
-  M.ViewState{selected, history_after, +after} = state
+  M.ViewState{selected, history_after, +after, profile} = state
   +total = List.length(&2, M.Task, tasks)
   links = task_links(List.take(&2, M.Task, List.drop(&2, M.Task, tasks, after), page_size()), selected)
   Group{"navigation", "navigation", "Tasks", List.append(&2, Node,
@@ -247,7 +279,7 @@ def approval_controls(reviewer: M.ApprovalReviewer, +id: Nat, +ticket: Nat, +wor
            M.ReviewApproval{id, ticket, M.ApprovalAllowed{"Approved once by the user in the UI."}}, world),
          action("approval/deny/" ++ Nat.show(ticket), "Deny",
            M.ReviewApproval{id, ticket, M.ApprovalDenied{"Denied by the user in the UI."}}, world)]}]
-    case M.ModelReviewer{M.Profile{profile, provider, model}}:
+    case M.ModelReviewer{M.Profile{profile, provider, model, policy}}:
       [Text{"review/model", "note", "Approval for Me",
         "An independent, tool-free call to " ++ profile ++ " is reviewing this command. Bash has not started."}]
 
@@ -315,6 +347,11 @@ def provider_context(kind: String, +value: J.Json, key: String) -> +List<Node>:
 
 def message_nodes(message: M.Message, +key: String) -> +List<Node>:
   match message:
+    case M.ReasoningRecord{owner, +effort, remaining, True{}}:
+      [Value{key, "Reasoning · " ++ effort, J.Object{[J.Field{"requested_effort", J.Text{effort}},
+        J.Field{"generations_remaining", J.nat(remaining)}]}}]
+    case M.ReasoningRecord{owner, effort, remaining, False{}}: Nil{}
+    case M.ConfigurationUpdate{effort}: Nil{}
     case M.ForkResult{owner, call_id, branch}: [Value{key, "Fork return · " ++ call_id, J.nat(branch)}]
     case M.HookRecord{owner, +call_id, plugin, outcome}:
       [Value{key, "Hook decision · " ++ call_id, T.message_json(M.HookRecord{owner, call_id, plugin, outcome})}]
@@ -400,9 +437,9 @@ def task_panel(found: Maybe<&2, M.Task>, after: Maybe<&2, Nat>, +world: M.World)
     case Some{task}: task_surface(task, after, Commands.settings(world), world)
 
 def panel(state: M.ViewState, +world: M.World) -> Node:
-  M.ViewState{selected, after, tasks_after} = state
+  M.ViewState{selected, after, tasks_after, profile} = state
   match selected:
-    case None{}: create(world)
+    case None{}: create_config(profile, Commands.settings(world), world)
     case Some{id}: task_panel(T.find(Commands.entries(world), id), after, world)
 
 def notices(ok: Bool, reply: J.Json) -> +List<Node>:
@@ -419,16 +456,17 @@ def follow_created(ok: Bool, +reply: J.Json, previous: M.ViewState) -> M.ViewSta
   match ok:
     case False{}: previous
     case True{}:
-      M.ViewState{selected, after, tasks_after} = previous
-      M.ViewState{J.natural(J.get(J.get(reply, "result"), "task_id")), None{}, tasks_after}
+      M.ViewState{selected, after, tasks_after, profile} = previous
+      M.ViewState{J.natural(J.get(J.get(reply, "result"), "task_id")), None{}, tasks_after, profile}
 
 def navigate(event: M.ViewEvent, previous: M.ViewState, +reply: J.Json) -> M.ViewState:
   match event previous:
-    case M.SelectTask{id} M.ViewState{selected, after, tasks_after}: M.ViewState{id, None{}, tasks_after}
-    case M.HistoryPage{offset} M.ViewState{selected, after, tasks_after}: M.ViewState{selected, offset, tasks_after}
-    case M.TaskPage{offset} M.ViewState{selected, after, tasks_after}: M.ViewState{selected, after, offset}
-    case M.Submit{M.Create{profile, reasoning, message, options}} M.ViewState{selected, after, tasks_after}:
-      follow_created(J.boolean(J.get(reply, "ok")), reply, M.ViewState{selected, after, tasks_after})
+    case M.SelectTask{id} M.ViewState{selected, after, tasks_after, profile}: M.ViewState{id, None{}, tasks_after, profile}
+    case M.HistoryPage{offset} M.ViewState{selected, after, tasks_after, profile}: M.ViewState{selected, offset, tasks_after, profile}
+    case M.TaskPage{offset} M.ViewState{selected, after, tasks_after, profile}: M.ViewState{selected, after, offset, profile}
+    case M.SelectProfile{profile} M.ViewState{selected, after, tasks_after, old}: M.ViewState{selected, after, tasks_after, profile}
+    case M.Submit{M.Create{profile, reasoning, message, options}} M.ViewState{selected, after, tasks_after, old}:
+      follow_created(J.boolean(J.get(reply, "ok")), reply, M.ViewState{selected, after, tasks_after, profile})
     case _ _: previous
 
 def receipt(event: M.ViewEvent, reply: J.Json) -> J.Json:

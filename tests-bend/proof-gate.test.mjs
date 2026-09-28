@@ -85,6 +85,9 @@ test('functional proof gates reject type-correct no-ops, wrong replies, missing 
   const original = await readFile(filename, 'utf8');
   const tasksFilename = path.join(directory, 'bendlib/tasks.bend');
   const originalTasks = await readFile(tasksFilename, 'utf8');
+  const reasoningFilename = path.join(directory, 'bendlib/reasoning.bend');
+  const originalReasoning = await readFile(reasoningFilename, 'utf8');
+  const originals = { 'PROGRAM.bend': original, 'bendlib/tasks.bend': originalTasks, 'bendlib/reasoning.bend': originalReasoning };
   const compile = file => spawnSync(bend, [file, '--check-only'], { cwd: directory, encoding: 'utf8', timeout: 10_000 });
   const baseline = compile('PROOF.bend');
   assert.equal(baseline.error, undefined);
@@ -100,8 +103,8 @@ test('functional proof gates reject type-correct no-ops, wrong replies, missing 
       replaceOnce(block, 'id_result(next_task))', 'id_result(1n+next_task))'))],
     ['omit interruption cancellation', source => alterDefinition(source, 'change_requested', block =>
       replaceOnce(block, '[M.CancelTask{M.task_id(task)}]', 'Nil{}'))],
-    ['record a model pending phase but omit its request', source => alterDefinition(source, 'model_request_direct', block =>
-      block.replace(/\[M\.RequestModel\{[\s\S]*?\}\]/, 'Nil{}'))],
+    ['record a model pending phase but omit its request', source => alterDefinition(source, 'request', block =>
+      block.replace(/\[M\.RequestModel\{[\s\S]*?\}\]/, 'Nil{}')), 'bendlib/reasoning.bend'],
     ['record a tool pending phase but omit its request', source => alterDefinition(source, 'external_tool', block =>
       block.replace(/\[M\.ExecuteTool\{[\s\S]*?\}\]/, 'Nil{}'))],
     ['never run the scheduler', source => replaceBody(source, 'scheduled', 'decision')],
@@ -134,14 +137,16 @@ test('functional proof gates reject type-correct no-ops, wrong replies, missing 
     await t.test(name, async () => {
       await writeFile(filename, original);
       await writeFile(tasksFilename, originalTasks);
-      await writeFile(path.join(directory, target), mutate(target === 'PROGRAM.bend' ? original : originalTasks));
+      await writeFile(reasoningFilename, originalReasoning);
+      await writeFile(path.join(directory, target), mutate(originals[target]));
       const wellTyped = compile('PROGRAM.bend');
       assert.equal(wellTyped.error, undefined);
       assert.equal(wellTyped.status, 0, `The mutant must be well-typed:\n${wellTyped.stdout}${wellTyped.stderr}`);
+      assert.match(wellTyped.stdout, /All terms check/);
       const rejected = compile('PROOF.bend');
       assert.equal(rejected.error, undefined, `${name} must fail a proof, not time out`);
       assert.notEqual(rejected.status, 0, `${name} was not rejected by the functional specification`);
-      assert.match(rejected.stdout + rejected.stderr, /semantics|scheduling_|model_dispatch|tool_dispatch|settlement|summary_failure_promotes_fifo|summary_rejects_invocations/);
+      assert.match(rejected.stdout + rejected.stderr, /semantics|scheduling_|request_meaning|start_meaning|tool_dispatch|settlement|summary_failure_promotes_fifo|summary_rejects_invocations/);
     });
   }
 });

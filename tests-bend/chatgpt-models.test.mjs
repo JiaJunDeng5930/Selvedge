@@ -54,6 +54,36 @@ test('the account catalog is authenticated, ordered, cached and not filtered by 
   assert.deepEqual(upstream.failures, []);
 });
 
+test('login materializes an independent Astra Auto profile and preserves a manual policy override', async t => {
+  const upstream = await chatgptFixture(t, (_, response) => jsonResponse(response, {
+    models: [model('gpt-6-astra'), model('another-account-model', 1)],
+  }));
+  const config = configFor(upstream.profile);
+  const first = await withAccountModels(config, upstream.directory);
+  const autoKey = Object.keys(first.config.profiles).find(key => key.endsWith('/gpt-6-astra-auto'));
+  assert.ok(autoKey);
+  const baseKey = autoKey.slice(0, -5);
+  const auto = first.config.profiles[autoKey];
+  assert.equal(auto.model, 'gpt-6-astra');
+  assert.equal(auto.bound_account_id, first.config.profiles[baseKey].bound_account_id);
+  assert.equal(auto.adaptive_reasoning.evaluator, 'jev');
+  assert.deepEqual(auto.adaptive_reasoning.efforts, ['medium', 'high']);
+  assert.equal(first.config.profiles[baseKey].adaptive_reasoning, undefined);
+  assert.deepEqual(first.config.reasoning_evaluators, {});
+  assert.equal(Object.keys(first.config.profiles).filter(key => key.endsWith('-auto')).length, 1);
+  const manual = validateConfig({ ...config, profiles: { ...config.profiles,
+    [autoKey]: { ...upstream.profile, model: 'gpt-6-astra', adaptive_reasoning: {
+      ...auto.adaptive_reasoning, evaluator: 'my-evaluator', max_lease: 2,
+    } },
+  } });
+  const overridden = await withAccountModels(manual, upstream.directory);
+  assert.equal(overridden.config.profiles[autoKey].adaptive_reasoning.evaluator, 'my-evaluator');
+  assert.equal(overridden.config.profiles[autoKey].adaptive_reasoning.max_lease, 2);
+  assert.equal(overridden.config.profiles[baseKey].adaptive_reasoning, undefined,
+    'discovering from an adaptive profile must not spread its policy to ordinary account models');
+  assert.deepEqual(upstream.failures, []);
+});
+
 test('cache fallback is bounded and cannot mask invalid data, authorization failure or account changes', async t => {
   let status = 200;
   let payload = { models: [model()] };

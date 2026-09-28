@@ -70,6 +70,7 @@ def Laws.stopped_no_model(phase):
     case M.Ready{Nil{}}: {==}
     case M.Ready{Con{call, rest}}: {==}
     case M.ModelPending{ticket, callable}: {==}
+    case M.ReasoningPending{ticket, revision}: {==}
     case M.SummaryPending{ticket, resume}: {==}
 
 def Laws.stopped_input_reactivates():
@@ -133,6 +134,7 @@ def Laws.recover_phase_idempotent(phase):
     case M.CompactionReady{}: {==}
     case M.Ready{calls}: {==}
     case M.ModelPending{ticket, callable}: {==}
+    case M.ReasoningPending{ticket, revision}: {==}
     case M.SummaryPending{ticket, True{}}: {==}
     case M.SummaryPending{ticket, False{}}: {==}
 
@@ -161,6 +163,8 @@ def Laws.retained_users_projected(history):
     case M.HistoryNode{previous, M.FailureMessage{text}}: Laws.retained_users_projected(previous)
     case M.HistoryNode{previous, M.ModelContext{value}}: Laws.retained_users_projected(previous)
     case M.HistoryNode{previous, M.ContextCheckpoint{summary}}: Laws.retained_users_projected(previous)
+    case M.HistoryNode{previous, M.ReasoningRecord{owner, effort, remaining, sampling}}: Laws.retained_users_projected(previous)
+    case M.HistoryNode{previous, M.ConfigurationUpdate{effort}}: Laws.retained_users_projected(previous)
     case M.HistoryNode{previous, M.HookRecord{task, id, plugin, outcome}}: Laws.retained_users_projected(previous)
     case M.HistoryNode{previous, M.ToolReceipt{task, operation, call, value, error}}: Laws.retained_users_projected(previous)
     case M.HistoryNode{previous, M.AfterRecord{task, operation, plugin, outcome}}: Laws.retained_users_projected(previous)
@@ -181,6 +185,8 @@ def Laws.retained_users_idempotent(history):
     case M.HistoryNode{previous, M.FailureMessage{text}}: Laws.retained_users_idempotent(previous)
     case M.HistoryNode{previous, M.ModelContext{value}}: Laws.retained_users_idempotent(previous)
     case M.HistoryNode{previous, M.ContextCheckpoint{summary}}: Laws.retained_users_idempotent(previous)
+    case M.HistoryNode{previous, M.ReasoningRecord{owner, effort, remaining, sampling}}: Laws.retained_users_idempotent(previous)
+    case M.HistoryNode{previous, M.ConfigurationUpdate{effort}}: Laws.retained_users_idempotent(previous)
     case M.HistoryNode{previous, M.HookRecord{task, id, plugin, outcome}}: Laws.retained_users_idempotent(previous)
     case M.HistoryNode{previous, M.ToolReceipt{task, operation, call, value, error}}: Laws.retained_users_idempotent(previous)
     case M.HistoryNode{previous, M.AfterRecord{task, operation, plugin, outcome}}: Laws.retained_users_idempotent(previous)
@@ -226,6 +232,14 @@ def project_node_idempotent(+previous: M.History, +message: M.Message,
   {M.context_history(M.context_node(M.context_history(previous), message)) == M.context_node(M.context_history(previous), message) : M.History}:
   match message:
     case M.ContextCheckpoint{summary}: {==}
+    case M.ReasoningRecord{+owner, +effort, +remaining, +sampling}:
+      %evidence : {M.HistoryNode{M.context_history(M.context_history(previous)), M.ReasoningRecord{owner, effort, remaining, sampling}} ==
+        M.HistoryNode{_, M.ReasoningRecord{owner, effort, remaining, sampling}} : M.History}
+      {==}
+    case M.ConfigurationUpdate{+effort}:
+      %evidence : {M.HistoryNode{M.context_history(M.context_history(previous)), M.ConfigurationUpdate{effort}} ==
+        M.HistoryNode{_, M.ConfigurationUpdate{effort}} : M.History}
+      {==}
     case M.ToolReceipt{owner, operation, call, value, error}: evidence
     case M.AfterRecord{owner, operation, plugin, outcome}: evidence
     case M.ApprovalRecord{owner, operation, call, reviewer, outcome}: evidence

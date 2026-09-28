@@ -1,4 +1,6 @@
 import Base
+import ../reasoning-architecture.bend as Reasoning
+import ./reasoning.bend as ReasoningProof
 import ../../MODEL.bend as M
 import ../../PROGRAM.bend as P
 import ../../LAWS.bend as Laws
@@ -13,7 +15,7 @@ def Laws.execution_semantics(action, world):
   match action world:
     case Execution.Rest{} _: {==}
     case Execution.Idle{task} M.World{tasks, next_task, ticket, environment, limits, projects}: {==}
-    case Execution.Model{task} M.World{tasks, next_task, ticket, M.Environment{catalog, profiles, max_fork, max_descendants, project, plugins}, limits, projects}: {==}
+    case Execution.Model{task} _: Reasoning.start_meaning(task, world)
     case Execution.Summary{task, resume} M.World{tasks, next_task, ticket, environment, limits, projects}: {==}
     case Execution.External{tool, call, remaining, task} M.World{tasks, next_task, ticket, environment, limits, projects}: {==}
     case Execution.Review{reviewer, call, remaining, task} M.World{tasks, next_task, ticket, environment, limits, projects}: {==}
@@ -110,9 +112,6 @@ def Laws.idle_work(task, world):
     case M.World{tasks, next_task, next_ticket, environment, limits, projects}: {==}
 
 def Laws.no_work(task, world):
-  {==}
-
-def Laws.model_dispatch(task, tasks, next_task, ticket, catalog, profiles, max_fork, max_descendants, project, plugins, limits, projects):
   {==}
 
 def Laws.tool_dispatch(tool, call, remaining, task, tasks, next_task, ticket, environment, limits, projects):

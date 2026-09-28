@@ -1,4 +1,5 @@
 import Base
+import ./REASONING.bend as Reasoning
 import ./bendlib/json.bend as J
 import ./bendlib/association-map.bend as Finite
 
@@ -259,7 +260,11 @@ def task_id_schema() -> J.Json:
   integer_schema("Task identity", 0n, U32.to_nat(4294967295))
 
 type Profile is Data:
-  Profile{key: String, provider: String, name: String}
+  Profile{key: String, provider: String, name: String, reasoning: Reasoning.Policy}
+
+def profile_reasoning(profile: Profile) -> Reasoning.Policy:
+  Profile{key, provider, name, reasoning} = profile
+  reasoning
 
 def select_profile(same: Bool, profile: Profile, rest: Maybe<&2, Profile>) -> Maybe<&2, Profile>:
   match same:
@@ -269,14 +274,15 @@ def select_profile(same: Bool, profile: Profile, rest: Maybe<&2, Profile>) -> Ma
 def find_profile(profiles: +List<Profile>, +key: String) -> Maybe<&2, Profile>:
   match profiles:
     case Nil{}: None{}
-    case Con{Profile{+name, provider, model}, rest}:
-      select_profile(String.eq(name, key), Profile{name, provider, model}, find_profile(rest, key))
+    case Con{Profile{+name, provider, model, reasoning}, rest}:
+      select_profile(String.eq(name, key), Profile{name, provider, model, reasoning}, find_profile(rest, key))
 
 def profiles_json(profiles: +List<Profile>) -> +List<J.Json>:
   match profiles:
     case Nil{}: Nil{}
-    case Con{Profile{key, provider, name}, rest}:
-      J.Object{[J.Field{"key", J.Text{key}}, J.Field{"provider", J.Text{provider}}, J.Field{"name", J.Text{name}}]} <>
+    case Con{Profile{key, provider, name, reasoning}, rest}:
+      J.Object{[J.Field{"key", J.Text{key}}, J.Field{"provider", J.Text{provider}}, J.Field{"name", J.Text{name}},
+        J.Field{"adaptive_reasoning", Reasoning.json(reasoning)}]} <>
         profiles_json(rest)
 
 # Project guidance is a frozen external observation, not a hidden prompt read.
@@ -300,6 +306,10 @@ def project_json(project: ProjectContext) -> J.Json:
 # Credentials and endpoint availability remain external inputs.
 type Model is Data:
   Model{profile: Profile, reasoning: String, project: ProjectContext}
+
+def model_reasoning(model: Model) -> Reasoning.Policy:
+  Model{profile, selection, project} = model
+  profile_reasoning(profile)
 
 def model_profile(model: Model) -> Profile:
   Model{profile, reasoning, project} = model
@@ -360,7 +370,7 @@ def approval_outcome_json(+outcome: ApprovalOutcome) -> J.Json:
 def approval_reviewer_json(reviewer: ApprovalReviewer) -> J.Json:
   match reviewer:
     case HumanReviewer{}: J.Object{[J.Field{"kind", J.Text{"human"}}]}
-    case ModelReviewer{Profile{key, provider, name}}:
+    case ModelReviewer{Profile{key, provider, name, reasoning}}:
       J.Object{[J.Field{"kind", J.Text{"model"}}, J.Field{"profile", J.Text{key}},
         J.Field{"provider", J.Text{provider}}, J.Field{"name", J.Text{name}}]}
 
@@ -402,12 +412,12 @@ def approval_name(policy: ApprovalPolicy) -> String:
 
 def reviewer_key(policy: ApprovalPolicy) -> String:
   match policy:
-    case ApprovalForMe{Profile{key, provider, name}}: key
+    case ApprovalForMe{Profile{key, provider, name, reasoning}}: key
     case _: ""
 
 def reviewer_json(policy: ApprovalPolicy) -> J.Json:
   match policy:
-    case ApprovalForMe{Profile{key, provider, name}}:
+    case ApprovalForMe{Profile{key, provider, name, reasoning}}:
       J.Object{[J.Field{"key", J.Text{key}}, J.Field{"provider", J.Text{provider}}, J.Field{"name", J.Text{name}}]}
     case _: J.Null{}
 
@@ -559,6 +569,8 @@ type Message is Data:
   FailureMessage{text: String}
   ModelContext{value: J.Json}
   ContextCheckpoint{summary: String}
+  ReasoningRecord{owner: Nat, effort: String, remaining: Nat, sampling: Bool}
+  ConfigurationUpdate{effort: String}
   HookRecord{task_id: Nat, call_id: String, plugin: PluginRef, outcome: HookOutcome}
   ToolReceipt{task_id: Nat, operation_id: Nat, call: Call, value: J.Json, error: Bool}
   AfterRecord{task_id: Nat, operation_id: Nat, plugin: PluginRef, outcome: AfterOutcome}
@@ -672,6 +684,7 @@ type Phase is Data:
   Ready{calls: List<&2, Attempt>}
   CompactionReady{}
   ModelPending{ticket: Nat, callable: +List<String>}
+  ReasoningPending{ticket: Nat, revision: Nat}
   SummaryPending{ticket: Nat, resume: Bool}
   HookPending{ticket: Nat, plugin: PluginRef, call: Call, pending: +List<PluginRef>, remaining: +List<Attempt>}
 
@@ -885,6 +898,7 @@ type Notice is Data:
 type Effect is Data:
   RequestModel{task_id: Nat, ticket: Nat, model: Model, history: History,
     tools: +List<Tool>, callable: +List<String>, context: TaskContext}
+  RequestReasoning{task_id: Nat, ticket: Nat, model: Model, history: History}
   ExecuteTool{task_id: Nat, ticket: Nat, tool: Tool, call: Call, context: TaskContext, access: ExecutionAccess}
   RequestApproval{task_id: Nat, ticket: Nat, reviewer: Profile, call: Call, context: TaskContext, history: History}
   CheckTool{task_id: Nat, ticket: Nat, plugin: PluginRef, tool: Tool, call: Call}
@@ -1047,12 +1061,13 @@ type Outcome is Data:
 # A client retains only this opaque navigation cursor and unsent widget input.
 # Neither value is a task snapshot or an authority to execute a command.
 type ViewState is Data:
-  ViewState{selected: Maybe<&2, Nat>, after: Maybe<&2, Nat>, tasks_after: Nat}
+  ViewState{selected: Maybe<&2, Nat>, after: Maybe<&2, Nat>, tasks_after: Nat, profile: String}
 
 type ViewEvent is Data:
   SelectTask{task_id: Maybe<&2, Nat>}
   HistoryPage{after: Maybe<&2, Nat>}
   TaskPage{after: Nat}
+  SelectProfile{profile: String}
   Submit{command: Command}
   RefreshView{}
 
@@ -1060,6 +1075,7 @@ type Input is Data:
   UserCommand{command: Command}
   UserInterface{state: ViewState, event: ViewEvent}
   ModelCompleted{task_id: Nat, ticket: Nat, outcome: Outcome}
+  ReasoningCompleted{task_id: Nat, ticket: Nat, outcome: Reasoning.Outcome}
   ToolCompleted{task_id: Nat, ticket: Nat, value: J.Json, error: Bool}
   HookCompleted{task_id: Nat, ticket: Nat, outcome: HookOutcome}
   AfterCompleted{task_id: Nat, operation_id: Nat, ticket: Nat, outcome: AfterOutcome}

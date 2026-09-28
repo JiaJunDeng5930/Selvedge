@@ -1,4 +1,8 @@
 import Base
+import ../reasoning-architecture.bend as Reasoning
+import ../reasoning.bend as ActualReasoning
+import ../reasoning-spec.bend as RequiredReasoning
+import ./reasoning.bend as ReasoningProof
 import ../../MODEL.bend as M
 import ../../PROGRAM.bend as P
 import ../../LAWS.bend as Laws
@@ -81,6 +85,10 @@ def Laws.event_semantics(event, world):
     case Protocol.Ignore{} _: {==}
     case Protocol.Review{resolution} _: Laws.review_semantics(resolution, world)
     case Protocol.ModelResult{task, outcome, allowed} M.World{tasks, next_task, next_ticket, environment, limits, projects}: {==}
+    case Protocol.ReasoningResult{+task, +revision, +outcome} M.World{tasks, next_task, next_ticket, environment, limits, projects}:
+      Equal.cong(M.Task, M.Decision, (next => M.Decision{
+        M.World{T.replace(tasks, next), next_task, next_ticket, environment, limits, projects}, Protocol.acknowledgement(True{}), Nil{}}),
+        ActualReasoning.complete(revision, outcome, task), RequiredReasoning.complete(revision, outcome, task), Reasoning.completion_meaning(revision, outcome, task))
     case Protocol.SummaryResult{task, outcome, resume} M.World{tasks, next_task, next_ticket, environment, limits, projects}: {==}
     case Protocol.ToolResult{task, operation, value, error} M.World{tasks, next_task, next_ticket, environment, limits, projects}: {==}
     case Protocol.HookResult{task, outcome} M.World{tasks, next_task, next_ticket, environment, limits, projects}: {==}

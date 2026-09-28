@@ -16,6 +16,7 @@ import ./bendlib/notifications.bend as Notifications
 import ./WORKSPACE.bend as Workspace
 import ./PROJECTS.bend as Projects
 import ./APPROVALS.bend as Approvals
+import ./bendlib/reasoning.bend as Reasoning
 
 # Accepted updates pass through resolution, realization and bounded scheduling.
 # program's state transition, and the object named by LAWS.bend and PROOF.bend.
@@ -179,6 +180,8 @@ def realize_event(event: Protocol.Event, world: M.World) -> M.Decision:
     case Protocol.User{operation}: realize(operation, world)
     case Protocol.Ignore{}: respond(world, accepted(False{}))
     case Protocol.ModelResult{task, outcome, allowed}: model_matched(True{}, outcome, allowed, task, world)
+    case Protocol.ReasoningResult{task, revision, outcome}:
+      respond(store(Reasoning.complete(revision, outcome, task), world), accepted(True{}))
     case Protocol.SummaryResult{task, outcome, resume}: summary_matched(True{}, outcome, resume, task, world)
     case Protocol.ToolResult{task, operation, value, error}: tool_matched(True{}, operation, value, error, task, world)
     case Protocol.HookResult{task, outcome}: respond(store(T.complete_hook(outcome, task), world), accepted(True{}))
@@ -206,15 +209,8 @@ def decision_effects(decision: M.Decision) -> +List<M.Effect>:
   M.Decision{world, reply, effects} = decision
   effects
 
-def model_request_direct(+task: M.Task, world: M.World) -> M.Decision:
-  M.World{tasks, next_task, +next_ticket, +environment, limits, projects} = world
-  +contract = M.task_contract(task)
-  +tools = T.task_tools(contract)
-  +allowed = T.callable(tools, catalog(environment))
-  +prepared = Ops.publish(task)
-  next = M.with_phase(M.ModelPending{next_ticket, allowed}, prepared)
-  M.Decision{M.World{T.replace(tasks, next), next_task, 1n+next_ticket, environment, limits, projects}, J.Null{},
-    [M.RequestModel{M.task_id(task), next_ticket, T.task_model(contract), M.context_history(M.task_history(prepared)), tools, allowed, M.task_context(task)}]}
+def model_request_direct(task: M.Task, world: M.World) -> M.Decision:
+  Reasoning.start(task, world)
 
 def rendering_budget(world: M.World) -> Nat:
   Commit.render_budget(world)

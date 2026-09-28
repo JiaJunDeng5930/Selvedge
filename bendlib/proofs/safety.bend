@@ -89,6 +89,8 @@ def Laws.transition_admitted(world, input):
       update_certificate(M.UserCommand{M.ReviewApproval{id, operation, outcome}}, world)
     case M.ModelCompleted{id, ticket, outcome}:
       update_certificate(M.ModelCompleted{id, ticket, outcome}, world)
+    case M.ReasoningCompleted{id, ticket, outcome}:
+      update_certificate(M.ReasoningCompleted{id, ticket, outcome}, world)
     case M.ToolCompleted{id, ticket, value, error}:
       update_certificate(M.ToolCompleted{id, ticket, value, error}, world)
     case M.HookCompleted{id, ticket, outcome}: update_certificate(M.HookCompleted{id, ticket, outcome}, world)

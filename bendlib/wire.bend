@@ -9,6 +9,7 @@ import ../INVARIANTS.bend as I
 import ../UI.bend as UI
 import ../HOOKS.bend as Hooks
 import ../APPROVALS.bend as Approvals
+import ../REASONING.bend as Reasoning
 
 def exact_keys(fields: +List<J.Field>, +allowed: +List<String>, +seen: +List<String>) -> Bool:
   match fields:
@@ -53,7 +54,7 @@ def approval_outcome(kind: String, +value: J.Json) -> M.ApprovalOutcome:
 def construct_command(kind: M.CommandKind, +body: J.Json) -> M.Command:
   match kind:
     case M.CreateCommand{}:
-      M.Create{J.text(J.get(body, "profile")), text_or(J.get(body, "reasoning"), "medium"), J.text(J.get(body, "message")), J.get(body, "settings")}
+      M.Create{J.text(J.get(body, "profile")), text_or(J.get(body, "reasoning"), "default"), J.text(J.get(body, "message")), J.get(body, "settings")}
     case M.SendCommand{}:
       M.Send{Protocol.number(body, "task_id", 0n), J.text(J.get(body, "message"))}
     case M.SteerCommand{}:
@@ -170,6 +171,31 @@ def decode_model(+body: J.Json) -> Result<&2, &2, String, M.Input>:
   model_valid(is_natural(J.get(body, "task_id")) && is_natural(J.get(body, "ticket")) &&
     is_bool(J.get(body, "ok")) && valid_model_payload(J.boolean(J.get(body, "ok")), body), body)
 
+def reasoning_outcome(ok: Bool, +body: J.Json) -> Reasoning.Outcome:
+  match ok:
+    case True{}: Reasoning.Chosen{J.text(J.get(body, "effort")), Protocol.number(body, "generations", 0n)}
+    case False{}: Reasoning.EvaluationFailed{J.text(J.get(body, "message"))}
+
+def reasoning_payload(ok: Bool, +body: J.Json) -> Bool:
+  match ok:
+    case True{}:
+      object_keys(body, ["kind", "task_id", "ticket", "ok", "effort", "generations"]) &&
+        J.is_text(J.get(body, "effort")) && Nat.is_le(J.utf8_length(J.text(J.get(body, "effort"))), 64n) &&
+        is_natural(J.get(body, "generations"))
+    case False{}:
+      object_keys(body, ["kind", "task_id", "ticket", "ok", "message"]) && J.is_text(J.get(body, "message")) &&
+        Nat.is_le(J.utf8_length(J.text(J.get(body, "message"))), 4096n)
+
+def reasoning_valid(valid: Bool, +body: J.Json) -> Result<&2, &2, String, M.Input>:
+  match valid:
+    case False{}: Fail{"Malformed reasoning completion"}
+    case True{}: Done{M.ReasoningCompleted{Protocol.number(body, "task_id", 0n), Protocol.number(body, "ticket", 0n),
+      reasoning_outcome(J.boolean(J.get(body, "ok")), body)}}
+
+def decode_reasoning(+body: J.Json) -> Result<&2, &2, String, M.Input>:
+  reasoning_valid(is_natural(J.get(body, "task_id")) && is_natural(J.get(body, "ticket")) &&
+    is_bool(J.get(body, "ok")) && reasoning_payload(J.boolean(J.get(body, "ok")), body), body)
+
 def tool_valid(valid: Bool, +body: J.Json) -> Result<&2, &2, String, M.Input>:
   match valid:
     case False{}: Fail{"Malformed tool completion"}
@@ -180,11 +206,33 @@ def tool_valid(valid: Bool, +body: J.Json) -> Result<&2, &2, String, M.Input>:
 def decode_tool(+body: J.Json) -> Result<&2, &2, String, M.Input>:
   tool_valid(is_natural(J.get(body, "task_id")) && is_natural(J.get(body, "ticket")) && is_bool(J.get(body, "error")), body)
 
+def reasoning_transport(value: String) -> Reasoning.Transport:
+  match value:
+    case "configuration_update": Reasoning.ConfigurationUpdates{}
+    case _: Reasoning.RequestEffort{}
+
+def reasoning_policy(+value: J.Json) -> Reasoning.Policy:
+  match value:
+    case J.Null{}: Reasoning.Fixed{}
+    case other:
+      Reasoning.Adaptive{J.text(J.get(value, "evaluator")), Protocol.messages(J.items(J.get(value, "efforts"))),
+        J.text(J.get(value, "baseline")), reasoning_transport(J.text(J.get(value, "transport"))), Protocol.number(value, "max_lease", 0n)}
+
+def valid_reasoning_policy(+value: J.Json) -> Bool:
+  match value:
+    case J.Null{}: True{}
+    case other:
+      object_keys(value, ["evaluator", "efforts", "baseline", "transport", "max_lease"]) &&
+        is_array(J.get(value, "efforts")) && is_natural(J.get(value, "max_lease")) &&
+        (String.eq(J.text(J.get(value, "transport")), "configuration_update") || String.eq(J.text(J.get(value, "transport")), "request_effort")) &&
+        Reasoning.valid(reasoning_policy(value))
+
 def profile_values(values: +List<J.Json>) -> +List<M.Profile>:
   match values:
     case Nil{}: Nil{}
     case Con{+value, rest}:
-      M.Profile{J.text(J.get(value, "key")), J.text(J.get(value, "provider")), J.text(J.get(value, "name"))} <> profile_values(rest)
+      M.Profile{J.text(J.get(value, "key")), J.text(J.get(value, "provider")), J.text(J.get(value, "name")),
+        reasoning_policy(J.get(value, "adaptive_reasoning"))} <> profile_values(rest)
 
 def valid_profiles(values: +List<J.Json>, +seen: +List<String>) -> Bool:
   match values:
@@ -192,7 +240,7 @@ def valid_profiles(values: +List<J.Json>, +seen: +List<String>) -> Bool:
     case Con{+value, rest}:
       +key = J.text(J.get(value, "key"))
       M.nonempty(key) && M.nonempty(J.text(J.get(value, "provider"))) && M.nonempty(J.text(J.get(value, "name"))) &&
-        Bool.not(T.has_name(seen, key)) && valid_profiles(rest, key <> seen)
+        valid_reasoning_policy(J.get(value, "adaptive_reasoning")) && Bool.not(T.has_name(seen, key)) && valid_profiles(rest, key <> seen)
 
 def plugin_ref(+value: J.Json) -> M.PluginRef:
   M.PluginRef{J.text(J.get(value, "name")), J.text(J.get(value, "revision"))}
@@ -305,14 +353,19 @@ def optional_id(value: J.Json) -> Bool:
 def view_state(value: J.Json) -> M.ViewState:
   match value:
     case J.Null{}: UI.initial()
-    case +other: M.ViewState{J.natural(J.get(other, "selected")), J.natural(J.get(other, "after")), Protocol.number(other, "tasks_after", 0n)}
+    case +other: M.ViewState{J.natural(J.get(other, "selected")), J.natural(J.get(other, "after")), Protocol.number(other, "tasks_after", 0n), J.text(J.get(other, "profile"))}
+
+def optional_profile(value: J.Json) -> Bool:
+  match value:
+    case J.Null{}: True{}
+    case +other: J.is_text(other) && Nat.is_le(J.utf8_length(J.text(other)), 512n)
 
 def valid_view_state(value: J.Json) -> Bool:
   match value:
     case J.Null{}: True{}
-    case +other: object_keys(other, ["selected", "after", "tasks_after"]) &&
+    case +other: object_keys(other, ["selected", "after", "tasks_after", "profile"]) &&
       optional_id(J.get(other, "selected")) && optional_id(J.get(other, "after")) &&
-      Schema.valid(M.task_id_schema(), J.get(other, "tasks_after"))
+      Schema.valid(M.task_id_schema(), J.get(other, "tasks_after")) && optional_profile(J.get(other, "profile"))
 
 def ui_event(valid: Bool, state: M.ViewState, event: M.ViewEvent) -> Result<&2, &2, String, M.Input>:
   match valid:
@@ -334,6 +387,8 @@ def view_event(kind: String, +event: J.Json, state: M.ViewState) -> Result<&2, &
       state, M.HistoryPage{J.natural(J.get(event, "after"))})
     case "tasks": ui_event(object_keys(event, ["type", "after"]) && Schema.valid(M.task_id_schema(), J.get(event, "after")),
       state, M.TaskPage{Protocol.number(event, "after", 0n)})
+    case "profile": ui_event(object_keys(event, ["type", "profile"]) && J.is_text(J.get(event, "profile")) && optional_profile(J.get(event, "profile")),
+      state, M.SelectProfile{J.text(J.get(event, "profile"))})
     case "submit": ui_command(object_keys(event, ["type", "command"]), decode_command(J.get(event, "command")), state)
     case _: Fail{"Unknown presentation event"}
 
@@ -421,6 +476,7 @@ def decode_kind(kind: String, +body: J.Json) -> Result<&2, &2, String, M.Input>:
     case "command": decode_command(J.get(body, "command"))
     case "ui": decode_ui(body)
     case "model": decode_model(body)
+    case "reasoning": decode_reasoning(body)
     case "tool": decode_tool(body)
     case "hook": decode_hook(body)
     case "after_hook": decode_after(body)

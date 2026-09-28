@@ -400,25 +400,6 @@ law no_work:
   for +world: M.World
   {P.work(M.NoWork{}, task, world) == M.Decision{world, M.success(J.Null{}), Nil{}} : M.Decision}
 
-law model_dispatch:
-  for +task: M.Task
-  for +tasks: +List<M.Task>
-  for +next_task: Nat
-  for +ticket: Nat
-  for +catalog: +List<M.Tool>
-  for +profiles: +List<M.Profile>
-  for +max_fork: Nat
-  for +max_descendants: Nat
-  for +project: M.ProjectContext
-  for +plugins: +List<M.Plugin>
-  for +limits: M.ExecutionLimits
-  for +projects: M.Projects
-  {P.model_request_direct(task, M.World{tasks, next_task, ticket, M.Environment{catalog, profiles, max_fork, max_descendants, project, plugins}, limits, projects}) ==
-    M.Decision{M.World{T.replace(tasks, M.with_phase(M.ModelPending{ticket, T.callable(T.task_tools(M.task_contract(task)), catalog)}, Ops.publish(task))),
-      next_task, 1n+ticket, M.Environment{catalog, profiles, max_fork, max_descendants, project, plugins}, limits, projects}, J.Null{},
-      [M.RequestModel{M.task_id(task), ticket, T.task_model(M.task_contract(task)), M.context_history(M.task_history(Ops.publish(task))),
-        T.task_tools(M.task_contract(task)), T.callable(T.task_tools(M.task_contract(task)), catalog), M.task_context(task)}]} : M.Decision}
-
 law tool_dispatch:
   for +tool: M.Tool
   for +call: M.Call

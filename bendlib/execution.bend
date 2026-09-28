@@ -11,6 +11,7 @@ import ../HOOKS.bend as Hooks
 import ../WORKSPACE.bend as Workspace
 import ../APPROVALS.bend as Approvals
 import ./results.bend as Results
+import ./reasoning-spec.bend as Reasoning
 
 # The execution alphabet is the semantic boundary between task policy and the
 # scheduler. Resolution owns authority, recovery and argument preconditions;
@@ -177,13 +178,7 @@ def meaning(action: Action, world: M.World) -> M.Decision:
       M.Decision{world, M.success(J.Null{}), Nil{}}
     case Idle{task} _:
       M.Decision{Commands.replace(M.with_phase(M.Idle{}, task), world), M.success(J.Null{}), Nil{}}
-    case Model{+task} M.World{tasks, next_task, +ticket, +environment, limits, projects}:
-      M.Environment{catalog, profiles, max_fork, max_descendants, project, plugins} = environment
-      +tools = T.task_tools(M.task_contract(task))
-      +allowed = T.callable(tools, catalog)
-      +prepared = Ops.publish(task)
-      M.Decision{M.World{T.replace(tasks, M.with_phase(M.ModelPending{ticket, allowed}, prepared)), next_task, 1n+ticket, environment, limits, projects},
-        J.Null{}, [M.RequestModel{M.task_id(task), ticket, T.task_model(M.task_contract(task)), M.context_history(M.task_history(prepared)), tools, allowed, M.task_context(task)}]}
+    case Model{task} _: Reasoning.start(task, world)
     case Summary{+task, +resume} M.World{tasks, next_task, +ticket, environment, limits, projects}:
       M.Decision{M.World{T.replace(tasks, M.with_notified(False{}, M.with_phase(M.SummaryPending{ticket, resume}, task))), next_task, 1n+ticket, environment, limits, projects},
         M.success(J.Object{[J.Field{"task_id", J.nat(M.task_id(task))}]}),

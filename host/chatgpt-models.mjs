@@ -1,6 +1,7 @@
 import { access, readFile, stat } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
+import { accountAutoPreset, accountConnection } from './reasoning-config.mjs';
 import { resolveAuth } from './auth.mjs';
 import { requestJson } from './network.mjs';
 import { writeAtomic } from './files.mjs';
@@ -135,8 +136,13 @@ export async function withAccountModels(config, home, { signal, force = false, o
       for (const model of result.models.filter(model => model.visibility === 'list')) {
         const key = `${namespace}/${model.slug}`;
         if (Object.hasOwn(config.profiles, key)) throw new Error('A configured profile conflicts with an account model');
-        generated[key] = Object.freeze({ ...profile, model: model.slug, bound_account_id: result.account_id,
+        generated[key] = Object.freeze({ ...accountConnection(profile), model: model.slug, bound_account_id: result.account_id,
           model_info: Object.freeze(model) });
+        const auto = accountAutoPreset(generated[key], model);
+        const autoKey = `${namespace}/${model.slug}-auto`;
+        // A manually configured profile overrides the login convenience. Its
+        // evaluator connection remains independent of the ChatGPT credentials.
+        if (auto && !Object.hasOwn(config.profiles, autoKey)) generated[autoKey] = auto;
       }
       accounts.push({ models: result.models.filter(model => model.visibility === 'list').length,
         cached: result.cached, stale: result.stale });

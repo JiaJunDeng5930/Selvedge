@@ -3,6 +3,7 @@ import { homedir } from 'node:os';
 import path from 'node:path';
 import { validPluginName } from './plugins.mjs';
 import { defaultChatGPTAccount, modelsURL } from './chatgpt-contract.mjs';
+import { adaptivePolicy, evaluatorConnections } from './reasoning-config.mjs';
 
 export const format = 'selvedge-bend-config-1';
 export const defaultConfig = {
@@ -42,10 +43,11 @@ export function accountConfig(value = {}) {
 }
 
 export function validateConfig(value) {
-  object(value, 'configuration', ['format', 'host', 'port', 'max_fork', 'max_descendants', 'profiles', 'chatgpt', 'mcp', 'plugins']);
+  object(value, 'configuration', ['format', 'host', 'port', 'max_fork', 'max_descendants', 'profiles', 'chatgpt', 'mcp', 'plugins', 'reasoning_evaluators']);
   if (value.format !== format) throw new Error('The configuration is not in the current Bend format');
   const config = { ...defaultConfig, ...value };
   config.chatgpt = value.chatgpt === false ? false : accountConfig(value.chatgpt);
+  config.reasoning_evaluators = evaluatorConnections(value.reasoning_evaluators);
   if (!['127.0.0.1', '::1'].includes(config.host)) throw new TypeError('The local server requires a loopback address');
   number(config.port, 'port', 0, 65535);
   number(config.max_fork, 'max_fork', 1, 0xffffffff);
@@ -53,10 +55,14 @@ export function validateConfig(value) {
   if (!config.profiles || typeof config.profiles !== 'object' || Array.isArray(config.profiles)) throw new TypeError('profiles must be an object');
   config.profiles = Object.fromEntries(Object.entries(config.profiles).map(([key, source]) => {
     text(key, 'profile key');
-    object(source, `profile ${key}`, ['provider', 'model', 'endpoint', 'api_key_env', 'auth_file', 'issuer', 'client_id', 'timeout_ms']);
+    object(source, `profile ${key}`, ['provider', 'model', 'endpoint', 'api_key_env', 'auth_file', 'issuer', 'client_id', 'timeout_ms', 'adaptive_reasoning']);
     if (!['echo', 'responses', 'chatgpt'].includes(source.provider)) throw new TypeError(`Unknown provider for ${key}`);
     text(source.model, `model for ${key}`);
     const profile = { timeout_ms: 300_000, ...source };
+    const adaptive = adaptivePolicy(source.adaptive_reasoning);
+    if (adaptive && profile.provider === 'echo') throw new TypeError('The offline echo provider cannot select model reasoning effort');
+    if (adaptive) profile.adaptive_reasoning = adaptive;
+    else delete profile.adaptive_reasoning;
     number(profile.timeout_ms, `timeout for ${key}`, 100, 1_800_000);
     if (profile.provider !== 'echo') {
       profile.endpoint ??= profile.provider === 'chatgpt' ? 'https://chatgpt.com/backend-api/codex/responses' : 'https://api.openai.com/v1/responses';
@@ -122,5 +128,6 @@ export async function loadConfig({ home, filename } = {}) {
 }
 
 export function profileCatalog(config) {
-  return Object.entries(config.profiles).map(([key, profile]) => ({ key, provider: profile.provider, name: profile.model }));
+  return Object.entries(config.profiles).map(([key, profile]) => ({ key, provider: profile.provider, name: profile.model,
+    ...(profile.adaptive_reasoning ? { adaptive_reasoning: profile.adaptive_reasoning } : {}) }));
 }

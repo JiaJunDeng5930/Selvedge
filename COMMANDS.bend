@@ -1,4 +1,5 @@
 import Base
+import ./REASONING.bend as Reasoning
 import ./MODEL.bend as M
 import ./bendlib/json.bend as J
 import ./bendlib/tasks.bend as T
@@ -64,19 +65,20 @@ def selected_settings(+options: J.Json, base: Workspace.Selection, profile: M.Pr
   project_settings(Projects.select(J.get(options, "project_id"), context, guidance, Projects.registry(world)),
     options, profile, configured(settings(world)))
 
-def start_selection(selection: Result<&2, &2, String, Workspace.Selection>, profile: M.Profile,
+def start_selection(selection: Result<&2, &2, String, Workspace.Selection>, +profile: M.Profile,
   +reasoning: String, +message: String) -> Operation:
   match selection:
     case Fail{reason}: Refuse{"invalid_settings", reason}
     case Done{selection}:
-      require(M.nonempty(reasoning) && M.nonempty(message), Start{profile, reasoning, message, selection},
-        "invalid_arguments", "Create requires a configured profile, a reasoning effort, and a nonempty message")
+      require(Reasoning.permitted(M.profile_reasoning(profile), reasoning) && M.nonempty(message), Start{profile, reasoning, message, selection},
+        "invalid_arguments", "Create requires a nonempty message and a permitted reasoning effort. Adaptive endpoints accept only auto.")
 
 def selected(profile: Maybe<&2, M.Profile>, reasoning: String, message: String, options: J.Json, +world: M.World) -> Operation:
   match profile:
     case None{}: Refuse{"unknown_profile", "Select a configured model profile"}
     case Some{+profile}:
-      start_selection(selected_settings(options, environment_selection(settings(world)), profile, world), profile, reasoning, message)
+      start_selection(selected_settings(options, environment_selection(settings(world)), profile, world),
+        profile, Reasoning.selection(reasoning, M.profile_reasoning(profile)), message)
 
 def branch_selection(selection: Result<&2, &2, String, Workspace.Selection>, parent: M.Task,
   count: Nat, messages: +List<String>) -> Operation:
