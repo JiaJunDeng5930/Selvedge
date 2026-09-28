@@ -3,7 +3,9 @@
 Selvedge runs persistent agent tasks through an executable Bend 2 model. It has a
 local web interface and CLI, model profiles, task branching and messaging,
 Bash-based coding tools, stdio MCP and plugin tools, context checkpoints, and a SQLite
-input journal for restart recovery. The default profile is an offline echo
+input journal for restart recovery. Its [task board](docs/task-board.md) adds
+planned work, execution roles, drag ordering, files and assisted capture without
+creating a second task scheduler. The default profile is an offline echo
 demonstration, not a coding model or summarizer.
 
 ## Read the program

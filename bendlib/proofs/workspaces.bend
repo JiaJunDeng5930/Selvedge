@@ -25,7 +25,7 @@ def override_context(+context:M.TaskContext, guidance:M.ProjectContext, task:M.T
 
 def project_frame(registry:M.Projects, +world:M.World) ->
   {Commands.entries(Projects.store(registry, world)) == Commands.entries(world) : +List<M.Task>}:
-  M.World{tasks, next_task, next_ticket, environment, limits, previous} = world
+  M.World{tasks, next_task, next_ticket, environment, limits, previous, board} = world
   {==}
 
 def removal(registry:M.Projects, +id:Nat) ->

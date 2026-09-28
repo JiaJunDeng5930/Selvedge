@@ -3,6 +3,14 @@
 Read the root CONCEPTS, COMMANDS and MODEL entry points before following an
 implementation detail into this directory. INVARIANTS and LAWS constrain changes.
 
+Board requirements are in `../BOARD.bend` and `board-resolution.bend`.
+`board-spec.bend` specifies complete mutations and drafting settlement;
+`board-scheduling-spec.bend` specifies the use of ordinary task execution.
+`board-navigation.bend`/`board-view.bend` own the cursor, filters, forms and
+revision-bound insertion targets. `board-architecture.bend` declares the evidence
+assembled in `proofs/board.bend`. Ordered cards reuse the existing finite map and
+standard list operations; there is no browser-side board state machine.
+
 `../UI.bend` owns the platform-independent presentation and event semantics.
 `wire.bend` decodes that public vocabulary; `protocol.bend` uses the ordinary
 command resolver, and `commit.bend` projects the post-scheduling world before

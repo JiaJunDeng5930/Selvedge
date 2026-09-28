@@ -18,10 +18,12 @@ async function imports(filename, seen = new Set()) {
 
 test('the complete command, interaction and finite execution specifications do not depend on their implementation', async () => {
   const seen = new Set();
-  for (const filename of ['COMMANDS.bend', 'bendlib/protocol.bend', 'bendlib/commit.bend', 'bendlib/execution.bend', 'bendlib/interface.bend', 'bendlib/transcript.bend']) {
+  for (const filename of ['COMMANDS.bend', 'bendlib/protocol.bend', 'bendlib/commit.bend', 'bendlib/execution.bend', 'bendlib/interface.bend', 'bendlib/transcript.bend',
+    'bendlib/board-spec.bend', 'bendlib/board-scheduling-spec.bend']) {
     await imports(path.join(root, filename), seen);
   }
-  for (const filename of ['PROGRAM.bend', 'PROOF.bend', 'CONCEPTS.bend', 'MAIN.bend', 'bendlib/frontend.bend', 'bendlib/architecture.bend', 'bendlib/traces.bend']) {
+  for (const filename of ['PROGRAM.bend', 'PROOF.bend', 'CONCEPTS.bend', 'MAIN.bend', 'bendlib/frontend.bend', 'bendlib/architecture.bend', 'bendlib/traces.bend',
+    'bendlib/board.bend', 'bendlib/board-scheduling.bend']) {
     assert.equal(seen.has(path.join(root, filename)), false, `Specification depends on ${filename}`);
   }
   const concepts = await readFile(path.join(root, 'bendlib/architecture.bend'), 'utf8');

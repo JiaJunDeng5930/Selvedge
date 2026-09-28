@@ -48,7 +48,7 @@ export async function snapshotProject(cwd, limits, { signal } = {}) {
  */
 export async function observeWorkspaceCommand(command, limits) {
   if (command === null || typeof command !== 'object' || Array.isArray(command)) return command;
-  const settingCommand = ['create', 'fork'].includes(command.op);
+  const settingCommand = ['create', 'fork', 'save_board_agent'].includes(command.op);
   const projectCommand = ['create_project', 'update_project'].includes(command.op);
   if (!settingCommand && !projectCommand) return command;
   const selected = settingCommand ? command.settings : command;

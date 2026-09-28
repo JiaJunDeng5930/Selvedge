@@ -6,15 +6,17 @@ import { Service } from './service.mjs';
 import { stringifyJson, parseJson } from './codec.mjs';
 import { readText } from './network.mjs';
 import { writeAtomic } from './files.mjs';
+import { saveBoardAttachment, readBoardAttachment, BOARD_FILE_LIMIT } from './board-files.mjs';
 
 const assets = new Map([
   ['/', ['index.html', 'text/html; charset=utf-8']],
   ['/app.mjs', ['app.mjs', 'text/javascript; charset=utf-8']],
   ['/renderer.mjs', ['renderer.mjs', 'text/javascript; charset=utf-8']],
-  ...['widgets.mjs', 'streams.mjs', 'events.mjs', 'markdown.mjs', 'markdown-worker.mjs',
+  ...['widgets.mjs', 'board.mjs', 'collection-fields.mjs', 'picker.mjs', 'streams.mjs', 'events.mjs', 'markdown.mjs', 'markdown-worker.mjs',
     'vendor/streaming-markdown.mjs', 'vendor/highlight.mjs', 'vendor/katex.mjs']
     .map(file => [`/${file}`, [file, 'text/javascript; charset=utf-8']]),
   ['/style.css', ['style.css', 'text/css; charset=utf-8']],
+  ['/board.css', ['board.css', 'text/css; charset=utf-8']],
 ]);
 
 export async function startServer(options) {
@@ -62,14 +64,32 @@ export async function startServer(options) {
       const [file, contentType] = assets.get(url.pathname);
       const data = await readFile(new URL(`./public/${file}`, import.meta.url));
       response.writeHead(200, { 'content-type': contentType, 'cache-control': 'no-cache',
-        'content-security-policy': "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
+        'content-security-policy': "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' blob:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
         'x-content-type-options': 'nosniff', 'referrer-policy': 'no-referrer' });
       response.end(data);
       return;
     }
     if (!authorized(request)) { json(response, 401, { ok: false, error: { code: 'unauthorized', message: 'A local access token is required' } }); return; }
     if (request.headers.origin && request.headers.origin !== address) { json(response, 403, { ok: false, error: { code: 'origin', message: 'Origin does not match this server' } }); return; }
-    if (request.method === 'POST' && url.pathname === '/api/accounts/refresh') {
+    if (request.method === 'POST' && url.pathname === '/api/board/attachments') {
+      if (url.searchParams.getAll('name').length !== 1 || [...url.searchParams.keys()].some(key => key !== 'name')) {
+        throw new TypeError('An attachment upload needs exactly one filename');
+      }
+      const length = request.headers['content-length'];
+      if (length !== undefined && (!/^\d+$/.test(length) || Number(length) > BOARD_FILE_LIMIT)) {
+        throw new RangeError('Each board attachment is limited to 10 MiB');
+      }
+      const attachment = await saveBoardAttachment(service.home, url.searchParams.get('name'), request);
+      json(response, 201, { ok: true, result: attachment });
+    } else if (request.method === 'GET' && url.pathname.startsWith('/api/board/attachments/')) {
+      const { attachment, data } = await readBoardAttachment(service.home, url.pathname.slice('/api/board/attachments/'.length));
+      response.writeHead(200, {
+        'content-type': attachment.mime, 'content-length': data.length, 'cache-control': 'no-store',
+        'x-content-type-options': 'nosniff', 'content-security-policy': "default-src 'none'; sandbox",
+        'content-disposition': `${attachment.mime.startsWith('image/') ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(attachment.name)}`,
+      });
+      response.end(data);
+    } else if (request.method === 'POST' && url.pathname === '/api/accounts/refresh') {
       // Local authenticated account transport, not a new domain/UI command.
       if (!request.headers['content-type']?.toLowerCase().startsWith('application/json')) {
         json(response, 415, { ok: false, error: { code: 'content_type', message: 'Send application/json' } }); return;

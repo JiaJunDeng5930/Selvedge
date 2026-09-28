@@ -11,18 +11,18 @@ import ./operations.bend as Ops
 # projection and generation records are shared domain primitives with their own
 # frame, privacy and lease properties in the reasoning boundary.
 def model(+task: M.Task, world: M.World) -> M.Decision:
-  M.World{tasks, next_task, +ticket, M.Environment{+catalog, profiles, forks, descendants, project, plugins}, limits, projects} = world
+  M.World{tasks, next_task, +ticket, M.Environment{+catalog, profiles, forks, descendants, project, plugins}, limits, projects, board} = world
   +tools = T.task_tools(M.task_contract(task))
   +allowed = T.callable(tools, catalog)
   M.Decision{M.World{T.replace(tasks, M.with_phase(M.ModelPending{ticket, allowed}, task)), next_task, 1n+ticket,
-    M.Environment{catalog, profiles, forks, descendants, project, plugins}, limits, projects}, J.Null{},
+    M.Environment{catalog, profiles, forks, descendants, project, plugins}, limits, projects, board}, J.Null{},
     [M.RequestModel{M.task_id(task), ticket, T.task_model(M.task_contract(task)),
       M.context_history(M.task_history(task)), tools, allowed, M.task_context(task)}]}
 
 def evaluator(+task: M.Task, world: M.World) -> M.Decision:
-  M.World{tasks, next_task, +ticket, environment, limits, projects} = world
+  M.World{tasks, next_task, +ticket, environment, limits, projects, board} = world
   M.Decision{M.World{T.replace(tasks, M.with_phase(M.ReasoningPending{ticket, M.history_length(M.task_history(task))}, task)),
-    next_task, 1n+ticket, environment, limits, projects}, J.Null{},
+    next_task, 1n+ticket, environment, limits, projects, board}, J.Null{},
     [M.RequestReasoning{M.task_id(task), ticket, T.task_model(M.task_contract(task)), M.task_history(task)}]}
 
 def required(plan: R.Plan, task: M.Task, world: M.World) -> M.Decision:

@@ -28,6 +28,7 @@ def Laws.ui_projection_world(input, decision):
     case M.UserCommand{command}: {==}
     case M.ModelCompleted{id, ticket, outcome}: {==}
     case M.ReasoningCompleted{id, ticket, outcome}: {==}
+    case M.BoardTextCompleted{id, ticket, outcome}: {==}
     case M.ToolCompleted{id, ticket, value, error}: {==}
     case M.HookCompleted{id, ticket, outcome}: {==}
     case M.AfterCompleted{id, operation, ticket, outcome}: {==}
@@ -44,6 +45,7 @@ def Laws.ui_projection_effects(input, decision):
     case M.UserCommand{command}: {==}
     case M.ModelCompleted{id, ticket, outcome}: {==}
     case M.ReasoningCompleted{id, ticket, outcome}: {==}
+    case M.BoardTextCompleted{id, ticket, outcome}: {==}
     case M.ToolCompleted{id, ticket, value, error}: {==}
     case M.HookCompleted{id, ticket, outcome}: {==}
     case M.AfterCompleted{id, operation, ticket, outcome}: {==}

@@ -1,4 +1,6 @@
 import Base
+import ./BOARD.bend as Board
+import ./bendlib/board-codec.bend as BoardCodec
 import ./REASONING.bend as Reasoning
 import ./bendlib/json.bend as J
 import ./bendlib/association-map.bend as Finite
@@ -886,10 +888,10 @@ def execution_limits() -> ExecutionLimits:
 # Resource bounds are explicit model parameters. Laws hold for any such bounds;
 # the native entry point supplies these defaults when it constructs the world.
 type World is Data:
-  World{tasks: +List<Task>, next_task: Nat, next_ticket: Nat, environment: Environment, limits: ExecutionLimits, projects: Projects}
+  World{tasks: +List<Task>, next_task: Nat, next_ticket: Nat, environment: Environment, limits: ExecutionLimits, projects: Projects, board: Board.State}
 
 def initial() -> World:
-  World{Nil{}, 0n, 0n, Environment{builtins(4n), Nil{}, 4n, 64n, NoProject{}, Nil{}}, execution_limits(), Projects{Nil{}, 0}}
+  World{Nil{}, 0n, 0n, Environment{builtins(4n), Nil{}, 4n, 64n, NoProject{}, Nil{}}, execution_limits(), Projects{Nil{}, 0}, Board.initial()}
 
 type Notice is Data:
   Notice{kind: EventKind, task_id: Maybe<&2, Nat>, cursor: Maybe<&2, Nat>,
@@ -899,6 +901,7 @@ type Effect is Data:
   RequestModel{task_id: Nat, ticket: Nat, model: Model, history: History,
     tools: +List<Tool>, callable: +List<String>, context: TaskContext}
   RequestReasoning{task_id: Nat, ticket: Nat, model: Model, history: History}
+  RequestBoardText{card_id: Nat, ticket: Nat, profile: Profile, prompt: String, retitle: Bool}
   ExecuteTool{task_id: Nat, ticket: Nat, tool: Tool, call: Call, context: TaskContext, access: ExecutionAccess}
   RequestApproval{task_id: Nat, ticket: Nat, reviewer: Profile, call: Call, context: TaskContext, history: History}
   CheckTool{task_id: Nat, ticket: Nat, plugin: PluginRef, tool: Tool, call: Call}
@@ -917,6 +920,7 @@ type Query is Data:
   Describe{}
   ListProjects{}
   ReadProject{project_id: Nat}
+  BoardQuery{query: Board.Query}
 
 type Command is Data:
   Create{profile: String, reasoning: String, message: String, settings: J.Json}
@@ -931,6 +935,7 @@ type Command is Data:
   UpdateProject{project_id: Nat, name: Maybe<&2, String>, workspace: J.Json, guidance: J.Json}
   DeleteProject{project_id: Nat}
   ReviewApproval{task_id: Nat, operation_id: Nat, outcome: ApprovalOutcome}
+  BoardCommand{command: Board.Command}
 
 type CommandKind is Data:
   CreateCommand{}
@@ -949,6 +954,7 @@ type CommandKind is Data:
   ListProjectsCommand{}
   ReadProjectCommand{}
   ReviewApprovalCommand{}
+  BoardKind{kind: BoardCodec.EntryKind}
 
 type CommandSpec is Data:
   CommandSpec{name: String, description: String, kind: CommandKind, schema: J.Json}
@@ -961,7 +967,14 @@ def control_spec(+control: Control, description: String) -> CommandSpec:
     command_schema([J.Field{"task_id", task_id_schema()}], [J.Text{"task_id"}])}
 
 # Clients obtain their command descriptions and validation schema from here.
+def board_specs(specs: +List<BoardCodec.Spec>) -> +List<CommandSpec>:
+  match specs:
+    case Nil{}: Nil{}
+    case Con{BoardCodec.Spec{name, description, kind, schema}, rest}:
+      CommandSpec{name, description, BoardKind{kind}, schema} <> board_specs(rest)
+
 def commands() -> +List<CommandSpec>:
+  List.append(&2, CommandSpec, board_specs(BoardCodec.specs(task_settings_schema())),
   [CommandSpec{"create", "Start an agent with a frozen model and tool contract.", CreateCommand{},
      command_schema([J.Field{"profile", string_schema("Configured model profile")},
        J.Field{"reasoning", string_schema("Reasoning effort; defaults to medium")},
@@ -1010,7 +1023,7 @@ def commands() -> +List<CommandSpec>:
      command_schema([J.Field{"task_id", task_id_schema()}, J.Field{"operation_id", task_id_schema()},
        J.Field{"decision", J.Object{[J.Field{"type", J.Text{"string"}}, J.Field{"enum", J.Array{[J.Text{"allow"}, J.Text{"deny"}]}}]}},
        J.Field{"reason", string_schema("Optional bounded explanation, at most 2048 UTF-8 bytes")}],
-       [J.Text{"task_id"}, J.Text{"operation_id"}, J.Text{"decision"}])}]
+       [J.Text{"task_id"}, J.Text{"operation_id"}, J.Text{"decision"}])}])
 
 def command_specs_json(specs: +List<CommandSpec>) -> +List<J.Json>:
   match specs:
@@ -1061,7 +1074,7 @@ type Outcome is Data:
 # A client retains only this opaque navigation cursor and unsent widget input.
 # Neither value is a task snapshot or an authority to execute a command.
 type ViewState is Data:
-  ViewState{selected: Maybe<&2, Nat>, after: Maybe<&2, Nat>, tasks_after: Nat, profile: String}
+  ViewState{selected: Maybe<&2, Nat>, after: Maybe<&2, Nat>, tasks_after: Nat, profile: String, board: Board.Cursor}
 
 type ViewEvent is Data:
   SelectTask{task_id: Maybe<&2, Nat>}
@@ -1070,12 +1083,14 @@ type ViewEvent is Data:
   SelectProfile{profile: String}
   Submit{command: Command}
   RefreshView{}
+  BoardEvent{event: Board.Navigation}
 
 type Input is Data:
   UserCommand{command: Command}
   UserInterface{state: ViewState, event: ViewEvent}
   ModelCompleted{task_id: Nat, ticket: Nat, outcome: Outcome}
   ReasoningCompleted{task_id: Nat, ticket: Nat, outcome: Reasoning.Outcome}
+  BoardTextCompleted{card_id: Nat, ticket: Nat, outcome: Board.Outcome}
   ToolCompleted{task_id: Nat, ticket: Nat, value: J.Json, error: Bool}
   HookCompleted{task_id: Nat, ticket: Nat, outcome: HookOutcome}
   AfterCompleted{task_id: Nat, operation_id: Nat, ticket: Nat, outcome: AfterOutcome}

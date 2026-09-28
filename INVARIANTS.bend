@@ -10,6 +10,9 @@ import ./HOOKS.bend as Hooks
 import ./WORKSPACE.bend as Workspace
 import ./PROJECTS.bend as Projects
 import ./APPROVALS.bend as Approvals
+import ./bendlib/board-state.bend as Board
+import ./BOARD.bend as B
+import ./bendlib/association-map.bend as Finite
 
 # A world is an append-only registry of tasks, whose ancestry is a forest.
 # These predicates are executed by PROGRAM's admission boundary and named by
@@ -268,10 +271,21 @@ def tasks(remaining: +List<M.Task>, +expected_id: Nat, +all: +List<M.Task>, +nex
 # Canonical identities imply uniqueness. Each parent is older, exists, and has
 # exactly the recorded ancestor tail and contract. Quotas count archived tasks.
 # Every outstanding ticket is fresh within the allocation bound and is unique.
+def board_ticket_separate(pending: B.Enrichment, tasks: +List<M.Task>) -> Bool:
+  match pending:
+    case B.Enriching{ticket, revision, retitle}: Bool.not(has_ticket(tasks, ticket))
+    case _: True{}
+
+def board_tickets(cards: +List<Finite.Entry(B.Card)>, +tasks: +List<M.Task>) -> Bool:
+  match cards:
+    case Nil{}: True{}
+    case Con{(id, card), rest}: board_ticket_separate(B.enrichment(card), tasks) && board_tickets(rest, tasks)
+
 def world(world: M.World) -> Bool:
-  M.World{+entries, next_task, next_ticket, settings, M.ExecutionLimits{steps, +budget, bytes}, +projects} = world
-  Projects.valid(projects) && Projects.tasks_bound(entries, projects) && environment(settings) && Nat.is_le(1n, steps) && Nat.is_le(1n, budget) &&
-    Nat.is_lt(0n, U32.to_nat(bytes)) && tasks(entries, 0n, entries, next_task, next_ticket, budget)
+  M.World{+entries, +next_task, +next_ticket, +settings, M.ExecutionLimits{+steps, +budget, +bytes}, +projects, +board} = world
+  Board.valid(M.World{entries, next_task, next_ticket, settings, M.ExecutionLimits{steps, budget, bytes}, projects, board}) &&
+    Projects.valid(projects) && Projects.tasks_bound(entries, projects) && environment(settings) && Nat.is_le(1n, steps) && Nat.is_le(1n, budget) &&
+    Nat.is_lt(0n, U32.to_nat(bytes)) && board_tickets(B.cards(board), entries) && tasks(entries, 0n, entries, next_task, next_ticket, budget)
 
 def archived(status: M.Status) -> Bool:
   match status:
@@ -331,9 +345,9 @@ def retained(previous: +List<M.Task>, candidate: +List<M.Task>, +budget: Nat) ->
 
 def change(previous: M.World, candidate: M.World) -> Bool:
   match previous candidate:
-    case M.World{before, id_before, ticket_before, env_before, M.ExecutionLimits{steps_before, +budget_before, bytes_before}, projects_before}
-         M.World{after, id_after, ticket_after, env_after, M.ExecutionLimits{steps_after, budget_after, bytes_after}, projects_after}:
-      Nat.is_le(Projects.next_id(projects_before), Projects.next_id(projects_after)) &&
+    case M.World{before, id_before, ticket_before, env_before, M.ExecutionLimits{steps_before, +budget_before, bytes_before}, projects_before, board_before}
+         M.World{after, id_after, ticket_after, env_after, M.ExecutionLimits{steps_after, budget_after, bytes_after}, projects_after, board_after}:
+      Board.evolution(board_before, board_after) && Nat.is_le(Projects.next_id(projects_before), Projects.next_id(projects_after)) &&
         Nat.is_le(id_before, id_after) && Nat.is_le(ticket_before, ticket_after) &&
         Nat.is_eq(steps_before, steps_after) && Nat.is_eq(budget_before, budget_after) &&
         Nat.is_eq(U32.to_nat(bytes_before), U32.to_nat(bytes_after)) && retained(before, after, budget_before)
@@ -491,6 +505,8 @@ def has_effect_ticket(effects: +List<M.Effect>, +ticket: Nat) -> Bool:
       Nat.is_eq(other, ticket) || has_effect_ticket(rest, ticket)
     case Con{M.RequestReasoning{id, other, model, history}, rest}:
       Nat.is_eq(other, ticket) || has_effect_ticket(rest, ticket)
+    case Con{M.RequestBoardText{id, other, profile, prompt, retitle}, rest}:
+      Nat.is_eq(other, ticket) || has_effect_ticket(rest, ticket)
     case Con{M.RequestSummary{id, other, model, history, context}, rest}:
       Nat.is_eq(other, ticket) || has_effect_ticket(rest, ticket)
     case Con{M.RequestApproval{id, other, reviewer, call, context, history}, rest}:
@@ -546,6 +562,8 @@ def effects(pending: +List<M.Effect>, +tasks: +List<M.Task>, +first_ticket: Nat,
     case Con{M.RequestReasoning{id, +ticket, model, history}, +rest}:
       Nat.is_le(first_ticket, ticket) && Bool.not(has_effect_ticket(rest, ticket)) &&
         reasoning_effect(T.find(tasks, id), ticket, model, history, budget) && effects(rest, tasks, first_ticket, budget)
+    case Con{M.RequestBoardText{id, +ticket, profile, prompt, retitle}, +rest}:
+      Nat.is_le(first_ticket, ticket) && Bool.not(has_effect_ticket(rest, ticket)) && effects(rest, tasks, first_ticket, budget)
     case Con{M.RequestSummary{+id, +ticket, model, history, context}, +rest}:
       Nat.is_le(first_ticket, ticket) && Bool.not(has_effect_ticket(rest, ticket)) &&
         context_effect(T.find(tasks, id), context, budget) && summary_effect(T.find(tasks, id), ticket, model, history, budget) && effects(rest, tasks, first_ticket, budget)
@@ -569,9 +587,30 @@ def effects(pending: +List<M.Effect>, +tasks: +List<M.Task>, +first_ticket: Nat,
       retired_ticket(T.find(tasks, id), ticket) && effects(rest, tasks, first_ticket, budget)
     case Con{M.ContinueScheduling{}, rest}: effects(rest, tasks, first_ticket, budget)
 
+def configured_board_profile(found: Maybe<&2, M.Profile>, +profile: M.Profile) -> Bool:
+  match found:
+    case None{}: False{}
+    case Some{configured}: Workspace.profile_same(profile, configured) && Board.drafting_profile(profile)
+
+def board_request(found: Maybe<&2, B.Card>, ticket: Nat, prompt: String, +retitle: Bool) -> Bool:
+  match found:
+    case Some{B.Card{version, draft, task, False{}, created, updated, B.Enriching{expected, revision, title_only}, start_error, pinned}}:
+      Nat.is_eq(ticket, expected) && Nat.is_eq(version, revision) && Same.booleans(retitle, title_only) &&
+        String.eq(prompt, B.drafting_prompt(retitle, draft))
+    case _: False{}
+
+def board_effects(effects: +List<M.Effect>, +board: B.State, +profiles: +List<M.Profile>) -> Bool:
+  match effects:
+    case Nil{}: True{}
+    case Con{M.RequestBoardText{id, ticket, M.Profile{+key, +provider, +name, +policy}, prompt, retitle}, rest}:
+      configured_board_profile(M.find_profile(profiles, key), M.Profile{key, provider, name, policy}) &&
+        board_request(B.find(board, id), ticket, prompt, retitle) && board_effects(rest, board, profiles)
+    case Con{other, rest}: board_effects(rest, board, profiles)
+
 def decision(previous: M.World, candidate: M.Decision) -> Bool:
   match previous candidate:
-    case M.World{before, id_before, +ticket_before, env_before, M.ExecutionLimits{+steps, +budget, +bytes}, projects_before}
-         M.Decision{M.World{+after, +id_after, +ticket_after, +env_after, +limits_after, projects_after}, reply, pending}:
-      change(M.World{before, id_before, ticket_before, env_before, M.ExecutionLimits{steps, budget, bytes}, projects_before}, M.World{after, id_after, ticket_after, env_after, limits_after, projects_after}) &&
-        effects(pending, after, ticket_before, budget)
+    case M.World{before, id_before, +ticket_before, env_before, M.ExecutionLimits{+steps, +budget, +bytes}, projects_before, board_before}
+         M.Decision{M.World{+after, +id_after, +ticket_after, +env_after, +limits_after, +projects_after, +board_after}, reply, +pending}:
+      change(M.World{before, id_before, ticket_before, env_before, M.ExecutionLimits{steps, budget, bytes}, projects_before, board_before}, M.World{after, id_after, ticket_after, env_after, limits_after, projects_after, board_after}) &&
+        effects(pending, after, ticket_before, budget) && board_effects(pending, board_after,
+          Board.profiles(M.World{after, id_after, ticket_after, env_after, limits_after, projects_after, board_after}))

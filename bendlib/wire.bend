@@ -7,6 +7,9 @@ import ./tasks.bend as T
 import ./presentation.bend as View
 import ../INVARIANTS.bend as I
 import ../UI.bend as UI
+import ../BOARD.bend as B
+import ./board-codec.bend as BoardCodec
+import ./board-navigation.bend as BoardNav
 import ../HOOKS.bend as Hooks
 import ../APPROVALS.bend as Approvals
 import ../REASONING.bend as Reasoning
@@ -51,8 +54,14 @@ def approval_outcome(kind: String, +value: J.Json) -> M.ApprovalOutcome:
     case "deny": M.ApprovalDenied{text_or(J.get(value, "reason"), "")}
     case _: M.ApprovalFailed{text_or(J.get(value, "reason"), "The review did not return a valid decision")}
 
+def board_command(kind: BoardCodec.EntryKind, body: J.Json) -> M.Command:
+  match kind:
+    case BoardCodec.Write{kind}: M.BoardCommand{BoardCodec.construct(kind, body)}
+    case BoardCodec.Read{kind}: M.Observe{M.BoardQuery{BoardCodec.query(kind, body)}}
+
 def construct_command(kind: M.CommandKind, +body: J.Json) -> M.Command:
   match kind:
+    case M.BoardKind{kind}: board_command(kind, body)
     case M.CreateCommand{}:
       M.Create{J.text(J.get(body, "profile")), text_or(J.get(body, "reasoning"), "default"), J.text(J.get(body, "message")), J.get(body, "settings")}
     case M.SendCommand{}:
@@ -86,11 +95,16 @@ def command_valid(valid: Bool, kind: M.CommandKind, body: J.Json) -> Result<&2, 
     case False{}: Fail{"Command does not satisfy its declared schema"}
     case True{}: Done{M.UserCommand{construct_command(kind, body)}}
 
+def command_constraints(kind: M.CommandKind, body: J.Json) -> Bool:
+  match kind:
+    case M.BoardKind{kind}: BoardCodec.valid(kind, body)
+    case _: True{}
+
 def command_spec(found: Maybe<&2, M.CommandSpec>, +body: J.Json) -> Result<&2, &2, String, M.Input>:
   match found:
     case None{}: Fail{"Unknown command; use describe for the executable vocabulary"}
-    case Some{M.CommandSpec{name, description, kind, schema}}:
-      command_valid(Schema.valid(schema, body), kind, body)
+    case Some{M.CommandSpec{name, description, +kind, schema}}:
+      command_valid(Schema.valid(schema, body) && command_constraints(kind, body), kind, body)
 
 def decode_command(+body: J.Json) -> Result<&2, &2, String, M.Input>:
   command_spec(find_spec(M.commands(), J.text(J.get(body, "op"))), body)
@@ -191,6 +205,28 @@ def reasoning_valid(valid: Bool, +body: J.Json) -> Result<&2, &2, String, M.Inpu
     case False{}: Fail{"Malformed reasoning completion"}
     case True{}: Done{M.ReasoningCompleted{Protocol.number(body, "task_id", 0n), Protocol.number(body, "ticket", 0n),
       reasoning_outcome(J.boolean(J.get(body, "ok")), body)}}
+
+def board_text_outcome(ok: Bool, +body: J.Json) -> B.Outcome:
+  match ok:
+    case True{}: B.Suggested{J.text(J.get(body, "title")), J.text(J.get(body, "description"))}
+    case False{}: B.SuggestionFailed{J.text(J.get(body, "message"))}
+
+def board_text_payload(ok: Bool, +body: J.Json) -> Bool:
+  match ok:
+    case True{}: object_keys(body, ["kind", "card_id", "ticket", "ok", "title", "description"]) &&
+      J.is_text(J.get(body, "title")) && J.is_text(J.get(body, "description"))
+    case False{}: object_keys(body, ["kind", "card_id", "ticket", "ok", "message"]) &&
+      J.is_text(J.get(body, "message")) && B.limited(J.text(J.get(body, "message")), 4096n)
+
+def board_text_valid(valid: Bool, +body: J.Json) -> Result<&2, &2, String, M.Input>:
+  match valid:
+    case False{}: Fail{"Malformed board drafting completion"}
+    case True{}: Done{M.BoardTextCompleted{Protocol.number(body, "card_id", 0n), Protocol.number(body, "ticket", 0n),
+      board_text_outcome(J.boolean(J.get(body, "ok")), body)}}
+
+def decode_board_text(+body: J.Json) -> Result<&2, &2, String, M.Input>:
+  board_text_valid(Schema.valid(BoardCodec.integer_schema(), J.get(body, "card_id")) && is_natural(J.get(body, "ticket")) &&
+    is_bool(J.get(body, "ok")) && board_text_payload(J.boolean(J.get(body, "ok")), body), body)
 
 def decode_reasoning(+body: J.Json) -> Result<&2, &2, String, M.Input>:
   reasoning_valid(is_natural(J.get(body, "task_id")) && is_natural(J.get(body, "ticket")) &&
@@ -353,7 +389,12 @@ def optional_id(value: J.Json) -> Bool:
 def view_state(value: J.Json) -> M.ViewState:
   match value:
     case J.Null{}: UI.initial()
-    case +other: M.ViewState{J.natural(J.get(other, "selected")), J.natural(J.get(other, "after")), Protocol.number(other, "tasks_after", 0n), J.text(J.get(other, "profile"))}
+    case +other: M.ViewState{J.natural(J.get(other, "selected")), J.natural(J.get(other, "after")), Protocol.number(other, "tasks_after", 0n), J.text(J.get(other, "profile")),
+      BoardNav.cursor(J.get(other, "board"), BoardCodec.word(J.get(J.get(other, "board"), "now")))}
+
+def view_clock(state: M.ViewState, observed: J.Json) -> M.ViewState:
+  M.ViewState{selected, after, tasks_after, profile, board} = state
+  M.ViewState{selected, after, tasks_after, profile, BoardNav.with_now(BoardCodec.word(observed), board)}
 
 def optional_profile(value: J.Json) -> Bool:
   match value:
@@ -363,9 +404,9 @@ def optional_profile(value: J.Json) -> Bool:
 def valid_view_state(value: J.Json) -> Bool:
   match value:
     case J.Null{}: True{}
-    case +other: object_keys(other, ["selected", "after", "tasks_after", "profile"]) &&
+    case +other: object_keys(other, ["selected", "after", "tasks_after", "profile", "board"]) &&
       optional_id(J.get(other, "selected")) && optional_id(J.get(other, "after")) &&
-      Schema.valid(M.task_id_schema(), J.get(other, "tasks_after")) && optional_profile(J.get(other, "profile"))
+      Schema.valid(M.task_id_schema(), J.get(other, "tasks_after")) && optional_profile(J.get(other, "profile")) && BoardNav.valid_cursor(J.get(other, "board"))
 
 def ui_event(valid: Bool, state: M.ViewState, event: M.ViewEvent) -> Result<&2, &2, String, M.Input>:
   match valid:
@@ -380,6 +421,9 @@ def ui_command(valid: Bool, decoded: Result<&2, &2, String, M.Input>, state: M.V
 
 def view_event(kind: String, +event: J.Json, state: M.ViewState) -> Result<&2, &2, String, M.Input>:
   match kind:
+    case "board": ui_event(object_keys(event, ["type", "event"]) &&
+      BoardNav.valid_event(J.text(J.get(J.get(event, "event"), "action")), J.get(event, "event")),
+      state, M.BoardEvent{BoardNav.event(J.text(J.get(J.get(event, "event"), "action")), J.get(event, "event"))})
     case "refresh": ui_event(object_keys(event, ["type"]), state, M.RefreshView{})
     case "select": ui_event(object_keys(event, ["type", "task_id"]) && optional_id(J.get(event, "task_id")),
       state, M.SelectTask{J.natural(J.get(event, "task_id"))})
@@ -395,10 +439,10 @@ def view_event(kind: String, +event: J.Json, state: M.ViewState) -> Result<&2, &
 def ui_valid(valid: Bool, +body: J.Json) -> Result<&2, &2, String, M.Input>:
   match valid:
     case False{}: Fail{"Malformed presentation cursor"}
-    case True{}: view_event(J.text(J.get(J.get(body, "event"), "type")), J.get(body, "event"), view_state(J.get(body, "state")))
+    case True{}: view_event(J.text(J.get(J.get(body, "event"), "type")), J.get(body, "event"), view_clock(view_state(J.get(body, "state")), J.get(body, "observed_at")))
 
 def decode_ui(+body: J.Json) -> Result<&2, &2, String, M.Input>:
-  ui_valid(valid_view_state(J.get(body, "state")), body)
+  ui_valid(valid_view_state(J.get(body, "state")) && BoardCodec.valid_clock(J.get(body, "observed_at")), body)
 
 def hook_outcome(kind: String, +value: J.Json) -> M.HookOutcome:
   match kind:
@@ -477,6 +521,7 @@ def decode_kind(kind: String, +body: J.Json) -> Result<&2, &2, String, M.Input>:
     case "ui": decode_ui(body)
     case "model": decode_model(body)
     case "reasoning": decode_reasoning(body)
+    case "board_text": decode_board_text(body)
     case "tool": decode_tool(body)
     case "hook": decode_hook(body)
     case "after_hook": decode_after(body)

@@ -1,5 +1,8 @@
 import { eventForForm, eventForChange } from './renderer.mjs';
 import { Markdown } from './markdown.mjs';
+import { collectionField } from './collection-fields.mjs';
+import { choicePicker } from './picker.mjs';
+import { BoardSurface, boardNavigation, boardIcon } from './board.mjs';
 
 const surfaces = new WeakMap();
 const element = (document, tag, className, text) => {
@@ -72,13 +75,25 @@ export function mount(root, tree, dispatch, options = {}) {
   function field(form, descriptor) {
     const key = `${form.key}/${descriptor.name}`;
     let item = form.inputs.get(descriptor.name);
-    if (item && item.kind !== descriptor.kind) { item.label.remove(); item = null; context.drafts.delete(key); }
+    if (item && item.kind !== descriptor.kind) { item.collection?.dispose(); item.picker?.dispose(); item.label.remove(); item = null; context.drafts.delete(key); }
     if (!item) {
-      const label = make('label', `field field-${descriptor.kind}`);
+      const composite = ['tags', 'attachments', 'workspace'].includes(descriptor.kind);
+      const customChoice = form.board && ['choice', 'integer-choice', 'profile-choice'].includes(descriptor.kind);
+      const label = make(composite || customChoice ? 'div' : 'label', `field field-${descriptor.kind}`);
       const caption = make('span', 'field-label');
-      let input;
-      if (descriptor.kind === 'choice') input = make('select');
+      let input, collection;
+      if (composite) {
+        collection = collectionField(document, descriptor.kind, context,
+          () => context.drafts.set(key, input.value),
+          pending => {
+            form.uploading ??= new Set();
+            if (pending) form.uploading.add(key); else form.uploading.delete(key);
+            form.button.disabled = !!form.uploading.size || form.pending || form.updating || !form.model.enabled;
+          });
+        input = collection.input;
+      } else if (['choice', 'integer-choice', 'profile-choice'].includes(descriptor.kind)) input = make('select');
       else if (['multiline', 'json'].includes(descriptor.kind)) { input = make('textarea'); input.rows = 3; }
+      else if (descriptor.kind === 'boolean') { input = make('input'); input.type = 'checkbox'; }
       else if (['integer', 'text'].includes(descriptor.kind)) {
         input = make('input'); input.type = descriptor.kind === 'integer' ? 'number' : 'text';
         if (descriptor.kind === 'integer') input.step = '1';
@@ -86,6 +101,7 @@ export function mount(root, tree, dispatch, options = {}) {
       input.id = encodeURIComponent(key);
       input.name = descriptor.name;
       input.addEventListener('input', () => {
+        if (descriptor.kind === 'boolean') input.value = String(input.checked);
         context.drafts.set(key, input.value);
         if (form.composer && descriptor.kind === 'multiline') resizeEditor(input);
       });
@@ -115,17 +131,20 @@ export function mount(root, tree, dispatch, options = {}) {
           event.preventDefault(); form.node.requestSubmit();
         }
       });
-      label.append(caption, input);
-      item = { label, caption, input, kind: descriptor.kind };
+      const picker = form.board && input.tagName === 'SELECT' ? choicePicker(document, input, value => boardIcon(document, value)) : undefined;
+      label.append(caption, collection?.root ?? picker?.root ?? input);
+      label.dataset.field = descriptor.name;
+      item = { label, caption, input, collection, picker, kind: descriptor.kind };
       form.inputs.set(descriptor.name, item);
     }
     setText(item.caption, descriptor.label);
     const input = item.input;
     input.required = descriptor.required;
+    input.disabled = descriptor.enabled === false;
     input.setAttribute('aria-label', descriptor.label);
     input.title = descriptor.label;
-    input.placeholder = form.composer && descriptor.kind === 'multiline' ? descriptor.label : '';
-    if (descriptor.kind === 'choice') {
+    input.placeholder = form.board || (form.composer && descriptor.kind === 'multiline') ? descriptor.label : '';
+    if (['choice', 'integer-choice', 'profile-choice'].includes(descriptor.kind)) {
       const signature = JSON.stringify(descriptor.choices);
       if (item.choices !== signature) {
         const choices = descriptor.choices.map(choice => {
@@ -140,14 +159,36 @@ export function mount(root, tree, dispatch, options = {}) {
       if (schema.minimum !== undefined) input.min = String(schema.minimum);
       if (schema.maximum !== undefined) input.max = String(schema.maximum);
     }
-    const value = context.drafts.get(key) ?? (descriptor.kind === 'json' ? JSON.stringify(descriptor.value) : String(descriptor.value ?? ''));
+    const value = context.drafts.get(key) ?? (['json', 'tags', 'attachments', 'workspace'].includes(descriptor.kind) ? JSON.stringify(descriptor.value) : String(descriptor.value ?? ''));
     if (input.value !== value) input.value = value;
+    if (descriptor.kind === 'boolean') { input.checked = value === 'true'; input.required = false; }
+    if (item.collection) {
+      item.collection.editor.setAttribute('aria-label', descriptor.label);
+      item.collection.update(value, descriptor.enabled !== false && form.model.enabled, descriptor.choices ?? []);
+    }
+    item.picker?.update(descriptor);
     if (form.composer && descriptor.kind === 'multiline') requestAnimationFrame(() => resizeEditor(input));
     return item.label;
   }
 
   function draw(model, parent = '', parentRole = '') {
     const key = `${parent}/${model.key}`;
+    if (model.kind === 'composition') {
+      const entry = record(model, key, () => {
+        if (model.role === 'board-navigation') return { node: make('div', 'board-navigation') };
+        if (model.role !== 'task-board') throw new TypeError(`Unsupported composition: ${model.role}`);
+        const board = new BoardSurface(document, context);
+        return { node: board.node, board, dispose: () => board.dispose() };
+      });
+      if (model.role === 'board-navigation') boardNavigation(entry.node, model.properties.actions, context);
+      else {
+        selected = model.properties.active_task ?? undefined;
+        entry.board.update(model.properties,
+          form => draw({ ...form, kind: 'form' }, key, 'board-form'),
+          model.children.map(child => draw(child, key, 'board-conversation')));
+      }
+      return entry.node;
+    }
     if (model.kind === 'action') {
       const entry = record(model, key, () => {
         const node = make('button', 'action'); const label = make('span', 'action-label'); const mark = icon(document, 'new');
@@ -222,11 +263,12 @@ export function mount(root, tree, dispatch, options = {}) {
         return { node, title, fieldset, fields, controls, options, optionFields, button, buttonLabel, buttonIcon, error, inputs: new Map(), pending: false };
       });
       entry.composer = parentRole === 'compose' || (parentRole === 'screen' && model.key === 'create');
+      entry.board = parentRole === 'board-form';
       entry.node.dataset.layout = entry.composer ? 'composer' : 'form';
       setText(entry.title, model.title); setText(entry.buttonLabel, model.label);
       entry.button.setAttribute('aria-label', model.label); entry.button.title = entry.composer ? `${model.label} (Enter)` : model.label;
       entry.buttonIcon.toggleAttribute('hidden', !entry.composer);
-      entry.fieldset.disabled = !model.enabled || entry.updating; entry.button.disabled = entry.pending || entry.updating || !model.enabled;
+      entry.fieldset.disabled = !model.enabled || entry.updating; entry.button.disabled = entry.pending || entry.updating || !!entry.uploading?.size || !model.enabled;
       const main = [], controls = [], options = [];
       for (const descriptor of model.fields) {
         const label = field(entry, descriptor);
@@ -237,21 +279,30 @@ export function mount(root, tree, dispatch, options = {}) {
       reconcile(entry.fields, main); reconcile(entry.optionFields, options);
       entry.options.hidden = !options.length;
       reconcile(entry.controls, [...controls, entry.options]);
-      for (const name of entry.inputs.keys()) if (!model.fields.some(descriptor => descriptor.name === name)) entry.inputs.delete(name);
+      for (const name of entry.inputs.keys()) if (!model.fields.some(descriptor => descriptor.name === name)) {
+        entry.inputs.get(name).collection?.dispose(); entry.inputs.get(name).picker?.dispose(); entry.inputs.delete(name);
+      }
       entry.node.onsubmit = async event => {
         event.preventDefault();
-        if (!entry.model.enabled || entry.pending || entry.updating) return;
+        if (!entry.model.enabled || entry.pending || entry.updating || entry.uploading?.size) return;
         entry.error.hidden = true;
+        let accepted = false;
         try {
           const values = Object.fromEntries([...entry.inputs].map(([name, item]) => [name, item.input.value]));
           const command = eventForForm(entry.model, values);
           entry.pending = true; entry.button.disabled = true;
-          await context.dispatch(command, key, values);
+          await context.dispatch(command, key, values, () => entry.model.retain_fields);
+          accepted = true;
         } catch (error) {
           entry.error.textContent = error.message; entry.error.hidden = false;
           if (error instanceof SyntaxError && entry.optionFields.childElementCount) entry.options.open = true;
         }
-        finally { entry.pending = false; entry.button.disabled = entry.updating || !entry.model.enabled; }
+        finally {
+          entry.pending = false; entry.button.disabled = entry.updating || !!entry.uploading?.size || !entry.model.enabled;
+          if (accepted && entry.node.isConnected && entry.model.retain_fields?.length) {
+            entry.node.querySelector('input:not([type=hidden]):not(.choice-native):not([type=file]), textarea')?.focus();
+          }
+        }
       };
       return entry.node;
     }
@@ -359,10 +410,15 @@ export function mount(root, tree, dispatch, options = {}) {
 
   reconcile(root, [draw(tree)]);
   for (const [key, entry] of context.records) if (!seen.has(key)) {
-    entry.markdown?.dispose(); entry.observer?.disconnect(); context.records.delete(key);
+    entry.markdown?.dispose(); entry.observer?.disconnect(); entry.dispose?.();
+    for (const item of entry.inputs?.values() ?? []) { item.collection?.dispose(); item.picker?.dispose(); }
+    context.records.delete(key);
   }
   return { liveRoot: panel?.live, selected, scrollToBottom: () => panel?.bottom.onclick(),
     showHistory: () => { if (panel) { panel.follow = false; panel.scroll.scrollTop = 0; } },
-    dispose: () => { for (const entry of context.records.values()) { entry.markdown?.dispose(); entry.observer?.disconnect(); } surfaces.delete(root); },
+    dispose: () => { for (const entry of context.records.values()) {
+      entry.markdown?.dispose(); entry.observer?.disconnect(); entry.dispose?.();
+      for (const item of entry.inputs?.values() ?? []) { item.collection?.dispose(); item.picker?.dispose(); }
+    } surfaces.delete(root); },
   };
 }

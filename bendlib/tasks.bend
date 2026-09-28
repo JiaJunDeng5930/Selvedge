@@ -38,8 +38,8 @@ def replace(tasks: +List<M.Task>, +task: M.Task) -> +List<M.Task>:
       replacement(Nat.is_eq(M.task_id(old), M.task_id(task)), old, task) <> replace(rest, task)
 
 def update_world(task: M.Task, world: M.World) -> M.World:
-  M.World{tasks, next_task, next_ticket, environment, limits, projects} = world
-  M.World{replace(tasks, task), next_task, next_ticket, environment, limits, projects}
+  M.World{tasks, next_task, next_ticket, environment, limits, projects, board} = world
+  M.World{replace(tasks, task), next_task, next_ticket, environment, limits, projects, board}
 
 def choose_tool(same: Bool, tool: M.Tool, rest: Maybe<&2, M.Tool>) -> Maybe<&2, M.Tool>:
   match same:

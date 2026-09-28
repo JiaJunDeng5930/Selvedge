@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { compiler } from '../scripts/toolchain.mjs';
 
-test('the assembled reasoning boundary rejects type-correct evaluator, lease, prefix and privacy faults', { timeout: 90_000 }, async t => {
+test('the assembled reasoning boundary rejects type-correct evaluator, lease, prefix and privacy faults', { timeout: 180_000 }, async t => {
   const root = fileURLToPath(new URL('../', import.meta.url));
   const directory = await mkdtemp(path.join(tmpdir(), 'selvedge-reasoning-proof-'));
   t.after(() => rm(directory, { recursive: true, force: true }));

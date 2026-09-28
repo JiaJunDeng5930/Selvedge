@@ -5,6 +5,11 @@ import ./COMMANDS.bend as Commands
 import ./bendlib/json.bend as J
 import ./bendlib/tasks.bend as T
 import ./bendlib/operations.bend as Ops
+import ./BOARD.bend as B
+import ./bendlib/board-codec.bend as BoardCodec
+import ./bendlib/board-navigation.bend as BoardNav
+import ./bendlib/command-codec.bend as CommandCodec
+import ./bendlib/board-view.bend as BoardView
 
 # The presentation model is a platform-independent interaction surface. Bend
 # selects content, exposes actions and interprets events against the live world.
@@ -22,20 +27,19 @@ type Node is Data:
   Value{key: String, title: String, value: J.Json}
   Action{key: String, label: String, event: M.ViewEvent, enabled: Bool, selected: Bool}
   Form{key: String, title: String, label: String, command: M.Command, fields: +List<Field>, enabled: Bool}
+  Composition{key: String, role: String, properties: J.Json, children: +List<Node>}
 
 type Presentation is Data:
   Presentation{state: M.ViewState, root: Node}
 
 def initial() -> M.ViewState:
-  M.ViewState{None{}, None{}, 0n, ""}
+  M.ViewState{None{}, None{}, 0n, "", B.cursor()}
 
 def page_size() -> Nat:
   40n
 
 def selected(operation: Commands.Operation) -> Bool:
-  match operation:
-    case Commands.Refuse{code, reason}: False{}
-    case _: True{}
+  Commands.admitted(operation)
 
 # This is the command resolver's answer, not a frontend lifecycle table.
 def enabled(command: M.Command, world: M.World) -> Bool:
@@ -47,62 +51,15 @@ def command(event: M.ViewEvent) -> M.Command:
     case _: M.Observe{M.Describe{}}
 
 def state_json(state: M.ViewState) -> J.Json:
-  M.ViewState{selected, after, tasks_after, profile} = state
+  M.ViewState{selected, after, tasks_after, profile, board} = state
   J.Object{[J.Field{"selected", J.optional_nat(selected)}, J.Field{"after", J.optional_nat(after)},
-    J.Field{"tasks_after", J.nat(tasks_after)}, J.Field{"profile", J.Text{profile}}]}
-
-def compact_json(id: Nat, summary: Maybe<&2, String>) -> J.Json:
-  match summary:
-    case None{}: J.Object{[J.Field{"op", J.Text{"compact"}}, J.Field{"task_id", J.nat(id)}]}
-    case Some{text}: J.Object{[J.Field{"op", J.Text{"compact"}}, J.Field{"task_id", J.nat(id)}, J.Field{"summary", J.Text{text}}]}
-
-def optional_field(name: String, value: J.Json, fields: +List<J.Field>) -> +List<J.Field>:
-  match value:
-    case J.Null{}: fields
-    case value: J.Field{name, value} <> fields
+    J.Field{"tasks_after", J.nat(tasks_after)}, J.Field{"profile", J.Text{profile}}, J.Field{"board", BoardNav.cursor_json(board)}]}
 
 def command_json(command: M.Command) -> J.Json:
-  match command:
-    case M.Create{profile, reasoning, message, options}:
-      J.Object{optional_field("settings", options, [J.Field{"op", J.Text{"create"}}, J.Field{"profile", J.Text{profile}},
-        J.Field{"reasoning", J.Text{reasoning}}, J.Field{"message", J.Text{message}}])}
-    case M.Send{id, message}:
-      J.Object{[J.Field{"op", J.Text{"send"}}, J.Field{"task_id", J.nat(id)}, J.Field{"message", J.Text{message}}]}
-    case M.Steer{id, message}:
-      J.Object{[J.Field{"op", J.Text{"steer"}}, J.Field{"task_id", J.nat(id)}, J.Field{"message", J.Text{message}}]}
-    case M.Cancel{id, operation}:
-      J.Object{[J.Field{"op", J.Text{"cancel_operation"}}, J.Field{"task_id", J.nat(id)}, J.Field{"operation_id", J.nat(operation)}]}
-    case M.ChangeStatus{id, control}:
-      J.Object{[J.Field{"op", J.Text{M.control_name(control)}}, J.Field{"task_id", J.nat(id)}]}
-    case M.Fork{id, count, messages, options}:
-      J.Object{optional_field("settings", options, [J.Field{"op", J.Text{"fork"}}, J.Field{"task_id", J.nat(id)}, J.Field{"child_count", J.nat(count)},
-        J.Field{"messages", J.Array{T.strings_json(messages)}}])}
-    case M.Compact{id, summary}: compact_json(id, summary)
-    case M.Observe{M.Read{id, after, limit}}:
-      J.Object{[J.Field{"op", J.Text{"read"}}, J.Field{"task_id", J.nat(id)}, J.Field{"after", J.nat(after)}, J.Field{"limit", J.nat(limit)}]}
-    case M.Observe{M.ListTasks{}}: J.Object{[J.Field{"op", J.Text{"list"}}]}
-    case M.Observe{M.Describe{}}: J.Object{[J.Field{"op", J.Text{"describe"}}]}
-    case M.Observe{M.ListProjects{}}: J.Object{[J.Field{"op", J.Text{"list_projects"}}]}
-    case M.Observe{M.ReadProject{id}}: J.Object{[J.Field{"op", J.Text{"read_project"}}, J.Field{"project_id", J.nat(id)}]}
-    case M.CreateProject{name, workspace, guidance}:
-      J.Object{optional_field("guidance", guidance, [J.Field{"op", J.Text{"create_project"}}, J.Field{"name", J.Text{name}},
-        J.Field{"workspace", workspace}])}
-    case M.UpdateProject{id, name, workspace, guidance}:
-      J.Object{optional_field("guidance", guidance, optional_field("workspace", workspace,
-        optional_field("name", M.optional_string(name), [J.Field{"op", J.Text{"update_project"}}, J.Field{"project_id", J.nat(id)}])))}
-    case M.DeleteProject{id}: J.Object{[J.Field{"op", J.Text{"delete_project"}}, J.Field{"project_id", J.nat(id)}]}
-    case M.ReviewApproval{id, operation, +outcome}:
-      J.Object{[J.Field{"op", J.Text{"review_approval"}}, J.Field{"task_id", J.nat(id)}, J.Field{"operation_id", J.nat(operation)},
-        J.Field{"decision", J.Text{M.approval_decision(outcome)}}, J.Field{"reason", J.Text{M.approval_reason(outcome)}}]}
+  CommandCodec.command_json(command)
 
 def event_json(event: M.ViewEvent) -> J.Json:
-  match event:
-    case M.SelectTask{id}: J.Object{[J.Field{"type", J.Text{"select"}}, J.Field{"task_id", J.optional_nat(id)}]}
-    case M.HistoryPage{after}: J.Object{[J.Field{"type", J.Text{"history"}}, J.Field{"after", J.optional_nat(after)}]}
-    case M.TaskPage{after}: J.Object{[J.Field{"type", J.Text{"tasks"}}, J.Field{"after", J.nat(after)}]}
-    case M.SelectProfile{profile}: J.Object{[J.Field{"type", J.Text{"profile"}}, J.Field{"profile", J.Text{profile}}]}
-    case M.Submit{command}: J.Object{[J.Field{"type", J.Text{"submit"}}, J.Field{"command", command_json(command)}]}
-    case M.RefreshView{}: J.Object{[J.Field{"type", J.Text{"refresh"}}]}
+  CommandCodec.event_json(event)
 
 def choices_json(choices: +List<Choice>) -> +List<J.Json>:
   match choices:
@@ -128,6 +85,9 @@ def form_changes(command: M.Command) -> J.Json:
 def nodes_json(nodes: +List<Node>) -> +List<J.Json>:
   match nodes:
     case Nil{}: Nil{}
+    case Con{Composition{key, role, properties, children}, rest}:
+      J.Object{[J.Field{"kind", J.Text{"composition"}}, J.Field{"key", J.Text{key}}, J.Field{"role", J.Text{role}},
+        J.Field{"properties", properties}, J.Field{"children", J.Array{nodes_json(children)}}]} <> nodes_json(rest)
     case Con{Group{key, role, title, children}, rest}:
       J.Object{[J.Field{"kind", J.Text{"group"}}, J.Field{"key", J.Text{key}}, J.Field{"role", J.Text{role}},
         J.Field{"title", J.Text{title}}, J.Field{"children", J.Array{nodes_json(children)}}]} <> nodes_json(rest)
@@ -248,11 +208,12 @@ def clip(+value: Nat, +maximum: Nat) -> Nat:
   bounded(Nat.is_le(value, maximum), value, maximum)
 
 def navigation(+state: M.ViewState, +tasks: +List<M.Task>) -> Node:
-  M.ViewState{selected, history_after, +after, profile} = state
+  M.ViewState{selected, history_after, +after, profile, board} = state
   +total = List.length(&2, M.Task, tasks)
   links = task_links(List.take(&2, M.Task, List.drop(&2, M.Task, tasks, after), page_size()), selected)
   Group{"navigation", "navigation", "Tasks", List.append(&2, Node,
-    [Action{"new", "New task", M.SelectTask{None{}}, True{}, False{}}],
+    [Composition{"workspaces", "board-navigation", J.Object{[J.Field{"actions", J.Array{BoardView.navigation_actions(B.ThreadsPane{})}}]}, Nil{}},
+     Action{"new", "New task", M.SelectTask{None{}}, True{}, False{}}],
     List.append(&2, Node, links,
       [Action{"tasks/previous", "Previous tasks", M.TaskPage{Nat.sub(after, page_size())}, Nat.is_lt(0n, after), False{}},
        Action{"tasks/next", "Next tasks", M.TaskPage{Nat.add(after, page_size())}, Nat.is_lt(Nat.add(after, page_size()), total), False{}}]))}
@@ -437,7 +398,7 @@ def task_panel(found: Maybe<&2, M.Task>, after: Maybe<&2, Nat>, +world: M.World)
     case Some{task}: task_surface(task, after, Commands.settings(world), world)
 
 def panel(state: M.ViewState, +world: M.World) -> Node:
-  M.ViewState{selected, after, tasks_after, profile} = state
+  M.ViewState{selected, after, tasks_after, profile, board} = state
   match selected:
     case None{}: create_config(profile, Commands.settings(world), world)
     case Some{id}: task_panel(T.find(Commands.entries(world), id), after, world)
@@ -447,26 +408,55 @@ def notices(ok: Bool, reply: J.Json) -> +List<Node>:
     case True{}: Nil{}
     case False{}: [Text{"notice", "error", "Request was not accepted", J.text(J.get(J.get(reply, "error"), "message"))}]
 
-def screen(+state: M.ViewState, +world: M.World, +reply: J.Json) -> Node:
+def thread_screen(+state: M.ViewState, +world: M.World, +reply: J.Json) -> Node:
   Group{"selvedge", "screen", "Selvedge",
     List.append(&2, Node, notices(J.boolean(J.get(reply, "ok")), reply),
       [navigation(state, Commands.entries(world)), panel(state, world)])}
+
+def embedded_task(id: Maybe<&2, Nat>, after: Maybe<&2, Nat>, +world: M.World) -> +List<Node>:
+  match id:
+    case None{}: Nil{}
+    case Some{id}: [task_panel(T.find(Commands.entries(world), id), after, world)]
+
+def screen_pane(pane: B.Pane, +state: M.ViewState, +world: M.World, +reply: J.Json) -> Node:
+  match pane:
+    case B.ThreadsPane{}: thread_screen(state, world, reply)
+    case _:
+      M.ViewState{selected, after, tasks_after, profile, +cursor} = state
+      Group{"selvedge", "board-screen", "", List.append(&2, Node, notices(J.boolean(J.get(reply, "ok")), reply),
+        [Composition{"board", "task-board", BoardView.screen(cursor, profile, world),
+          embedded_task(BoardView.active_task(BoardNav.dialog_of(cursor), world), after, world)}])}
+
+def screen(+state: M.ViewState, world: M.World, reply: J.Json) -> Node:
+  M.ViewState{selected, after, tasks_after, profile, cursor} = state
+  screen_pane(BoardNav.pane_of(cursor), state, world, reply)
 
 def follow_created(ok: Bool, +reply: J.Json, previous: M.ViewState) -> M.ViewState:
   match ok:
     case False{}: previous
     case True{}:
-      M.ViewState{selected, after, tasks_after, profile} = previous
-      M.ViewState{J.natural(J.get(J.get(reply, "result"), "task_id")), None{}, tasks_after, profile}
+      M.ViewState{selected, after, tasks_after, profile, board} = previous
+      M.ViewState{J.natural(J.get(J.get(reply, "result"), "task_id")), None{}, tasks_after, profile, board}
 
 def navigate(event: M.ViewEvent, previous: M.ViewState, +reply: J.Json) -> M.ViewState:
   match event previous:
-    case M.SelectTask{id} M.ViewState{selected, after, tasks_after, profile}: M.ViewState{id, None{}, tasks_after, profile}
-    case M.HistoryPage{offset} M.ViewState{selected, after, tasks_after, profile}: M.ViewState{selected, offset, tasks_after, profile}
-    case M.TaskPage{offset} M.ViewState{selected, after, tasks_after, profile}: M.ViewState{selected, after, offset, profile}
-    case M.SelectProfile{profile} M.ViewState{selected, after, tasks_after, old}: M.ViewState{selected, after, tasks_after, profile}
-    case M.Submit{M.Create{profile, reasoning, message, options}} M.ViewState{selected, after, tasks_after, old}:
-      follow_created(J.boolean(J.get(reply, "ok")), reply, M.ViewState{selected, after, tasks_after, profile})
+    case M.SelectTask{id} M.ViewState{selected, after, tasks_after, profile, board}:
+      M.ViewState{id, None{}, tasks_after, profile, BoardNav.with_pane(B.ThreadsPane{}, board)}
+    case M.HistoryPage{offset} M.ViewState{selected, after, tasks_after, profile, board}: M.ViewState{selected, offset, tasks_after, profile, board}
+    case M.TaskPage{offset} M.ViewState{selected, after, tasks_after, profile, board}: M.ViewState{selected, after, offset, profile, board}
+    case M.SelectProfile{profile} M.ViewState{selected, after, tasks_after, old, board}: M.ViewState{selected, after, tasks_after, profile, board}
+    case M.BoardEvent{B.OpenDialog{B.AgentDialog{id}}} M.ViewState{selected, after, tasks_after, profile, board}:
+      M.ViewState{selected, after, tasks_after, "", BoardNav.navigate(B.OpenDialog{B.AgentDialog{id}}, board)}
+    case M.BoardEvent{event} M.ViewState{selected, after, tasks_after, profile, board}:
+      M.ViewState{selected, after, tasks_after, profile, BoardNav.navigate(event, board)}
+    case M.Submit{M.BoardCommand{command}} M.ViewState{selected, after, tasks_after, profile, board}:
+      M.ViewState{selected, after, tasks_after, profile, BoardNav.submitted(J.boolean(J.get(reply, "ok")), command, reply, board)}
+    case M.Submit{M.Create{profile, reasoning, message, options}} M.ViewState{selected, after, tasks_after, old, board}:
+      follow_created(J.boolean(J.get(reply, "ok")), reply, M.ViewState{selected, after, tasks_after, profile, BoardNav.with_pane(B.ThreadsPane{}, board)})
+    case M.Submit{M.CreateProject{name, workspace, guidance}} M.ViewState{selected, after, tasks_after, profile, board}:
+      M.ViewState{selected, after, tasks_after, profile, BoardNav.project_submitted(J.boolean(J.get(reply, "ok")), board)}
+    case M.Submit{M.UpdateProject{id, name, workspace, guidance}} M.ViewState{selected, after, tasks_after, profile, board}:
+      M.ViewState{selected, after, tasks_after, profile, BoardNav.project_submitted(J.boolean(J.get(reply, "ok")), board)}
     case _ _: previous
 
 def receipt(event: M.ViewEvent, reply: J.Json) -> J.Json:

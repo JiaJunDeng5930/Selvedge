@@ -10,6 +10,10 @@ import ./WORKSPACE.bend as Workspace
 import ./PROJECTS.bend as Projects
 import ./bendlib/schema.bend as Schema
 import ./APPROVALS.bend as Approvals
+import ./BOARD.bend as B
+import ./bendlib/board-resolution.bend as BoardResolution
+import ./bendlib/board-state.bend as BoardState
+import ./bendlib/board-spec.bend as BoardSpec
 
 # A command denotes a resolved operation, not permission to make any safe change.
 # Resolution owns every command precondition. The operation's meaning fixes the
@@ -29,13 +33,20 @@ type Operation is Data:
   StoreProject{project_id: Nat, project: M.Project, next_id: U32}
   RemoveProject{project_id: Nat}
   Review{resolution: Approvals.Resolution}
+  BoardChange{change: BoardResolution.Change}
+  StartCard{id: Nat, card: B.Card, now: U32, profile: M.Profile, reasoning: String, message: String, selection: Workspace.Selection}
+
+def admitted(operation: Operation) -> Bool:
+  match operation:
+    case Refuse{code, reason}: False{}
+    case _: True{}
 
 def entries(world: M.World) -> +List<M.Task>:
-  M.World{tasks, next_task, next_ticket, environment, limits, projects} = world
+  M.World{tasks, next_task, next_ticket, environment, limits, projects, board} = world
   tasks
 
 def settings(world: M.World) -> M.Environment:
-  M.World{tasks, next_task, next_ticket, environment, limits, projects} = world
+  M.World{tasks, next_task, next_ticket, environment, limits, projects, board} = world
   environment
 
 def configured(environment: M.Environment) -> +List<M.Profile>:
@@ -197,8 +208,39 @@ def update_project(found: Maybe<&2, M.Project>, id: Nat, name: Maybe<&2, String>
         "invalid_project", "Project defaults require a valid name, workspace and matching guidance")
 
 def delete_project(+id: Nat, +world: M.World) -> Operation:
-  require(Bool.not(Projects.missing(Projects.find(Projects.registry(world), id))) && Nat.is_eq(Projects.task_count(entries(world), id), 0n),
-    RemoveProject{id}, "project_not_empty", "The project must exist and have no tasks before it can be deleted")
+  require(Bool.not(Projects.missing(Projects.find(Projects.registry(world), id))) && Nat.is_eq(Projects.task_count(entries(world), id), 0n) &&
+    Bool.not(BoardState.project_used(B.cards(BoardState.registry(world)), id)),
+    RemoveProject{id}, "project_not_empty", "The project must exist and have no tasks or board cards before it can be deleted")
+
+def card_start(operation: Operation, id: Nat, card: B.Card, now: U32) -> Operation:
+  match operation:
+    case Start{profile, reasoning, message, selection}: StartCard{id, card, now, profile, reasoning, message, selection}
+    case Refuse{code, reason}: Refuse{code, reason}
+    case _: Refuse{"invalid_card_start", "A board launch must resolve through ordinary task creation"}
+
+def without_project(fields: +List<J.Field>) -> +List<J.Field>:
+  match fields:
+    case Nil{}: Nil{}
+    case Con{J.Field{"project_id", value}, rest}: without_project(rest)
+    case Con{field, rest}: field <> without_project(rest)
+
+def with_project(project: Maybe<&2, Nat>, fields: +List<J.Field>) -> J.Json:
+  match project:
+    case None{}: J.Object{fields}
+    case Some{id}: J.Object{J.Field{"project_id", J.nat(id)} <> fields}
+
+def card_options(project: Maybe<&2, Nat>, options: J.Json) -> J.Json:
+  match options:
+    case J.Object{fields}: with_project(project, without_project(fields))
+    case _: with_project(project, Nil{})
+
+def board_resolution(resolution: BoardResolution.Resolution, +world: M.World) -> Operation:
+  match resolution:
+    case BoardResolution.Refuse{code, reason}: Refuse{code, reason}
+    case BoardResolution.Mutate{change}: BoardChange{change}
+    case BoardResolution.Launch{+id, +card, now, B.AgentProfile{revision, name, profile, reasoning, instructions, options, concurrency}}:
+      card_start(selected(M.find_profile(configured(settings(world)), profile), reasoning,
+        B.prompt(id, B.draft(card), instructions), card_options(B.project(B.draft(card)), options), world), id, card, now)
 
 # Exhaustiveness is checked by Bend. Client schemas describe MODEL.Command;
 # these clauses give each decoded constructor its operational meaning.
@@ -219,6 +261,7 @@ def resolve(command: M.Command, +world: M.World) -> Operation:
     case M.DeleteProject{id}: delete_project(id, world)
     case M.ReviewApproval{id, operation, outcome}:
       Review{Approvals.resolve(T.find(entries(world), id), Approvals.HumanDecision{}, operation, outcome)}
+    case M.BoardCommand{command}: board_resolution(BoardResolution.resolve(command, world), world)
 
 def id_result(id: Nat) -> J.Json:
   J.Object{[J.Field{"task_id", J.nat(id)}]}
@@ -231,11 +274,11 @@ def changed(id: Nat, task: M.Task, world: M.World, effects: +List<M.Effect>) -> 
 
 def start(profile: M.Profile, reasoning: String, message: String, selection: Workspace.Selection, world: M.World) -> M.Decision:
   Workspace.Selection{context, guidance} = selection
-  M.World{tasks, +next_task, next_ticket, +environment, limits, projects} = world
+  M.World{tasks, +next_task, next_ticket, +environment, limits, projects, board} = world
   M.Environment{catalog, profiles, max_fork, max_descendants, project, plugins} = environment
   task : M.Task = M.Task{next_task, Nil{}, M.Contract{M.Model{profile, reasoning, guidance}, catalog, max_fork, max_descendants, plugins, context},
     M.Active{}, M.HistoryNode{M.EmptyHistory{}, M.UserMessage{message}}, Nil{}, M.Ready{Nil{}}, Nil{}, True{}}
-  M.Decision{M.World{List.append(&2, M.Task, tasks, [task]), 1n+next_task, next_ticket, environment, limits, projects},
+  M.Decision{M.World{List.append(&2, M.Task, tasks, [task]), 1n+next_task, next_ticket, environment, limits, projects, board},
     M.success(id_result(next_task)), Nil{}}
 
 def status_change(next: M.Status, +task: M.Task, world: M.World) -> M.Decision:
@@ -286,21 +329,21 @@ def branch_call(ticket: Nat, count: Nat, messages: +List<String>) -> M.Call:
 
 def branch_commit(built: Children, +parent: M.Task, call_id: String, world: M.World) -> M.Decision:
   Children{+spawned, end} = built
-  M.World{tasks, next_task, next_ticket, environment, limits, projects} = world
+  M.World{tasks, next_task, next_ticket, environment, limits, projects, board} = world
   caller = T.promote(M.with_notified(True{}, M.with_phase(M.Ready{Nil{}}, M.with_history(M.branch_history(M.task_history(parent), call_id, 0n), parent))))
-  M.Decision{M.World{List.append(&2, M.Task, T.replace(tasks, caller), spawned), end, 1n+next_ticket, environment, limits, projects},
+  M.Decision{M.World{List.append(&2, M.Task, T.replace(tasks, caller), spawned), end, 1n+next_ticket, environment, limits, projects, board},
     M.success(J.Object{[J.Field{"children", J.Array{identities(spawned)}}]}), Nil{}}
 
 def branch(+task: M.Task, +count: Nat, +messages: +List<String>, selection: Workspace.Selection, +world: M.World) -> M.Decision:
-  M.World{tasks, +next_task, +next_ticket, environment, limits, projects} = world
+  M.World{tasks, +next_task, +next_ticket, environment, limits, projects, board} = world
   +call = branch_call(next_ticket, count, messages)
   +parent = M.append_message(M.FunctionCall{call}, task)
   branch_commit(children(count, next_task, 1n, selected_parent(selection, parent), T.call_id(call), Nil{}, messages), parent, T.call_id(call), world)
 
 def summarize(+task: M.Task, world: M.World) -> M.Decision:
-  M.World{tasks, next_task, +next_ticket, environment, limits, projects} = world
+  M.World{tasks, next_task, +next_ticket, environment, limits, projects, board} = world
   next = M.with_notified(False{}, M.with_phase(M.SummaryPending{next_ticket, False{}}, task))
-  M.Decision{M.World{T.replace(tasks, next), next_task, 1n+next_ticket, environment, limits, projects}, M.success(id_result(M.task_id(task))),
+  M.Decision{M.World{T.replace(tasks, next), next_task, 1n+next_ticket, environment, limits, projects, board}, M.success(id_result(M.task_id(task))),
     [M.RequestSummary{M.task_id(task), next_ticket, T.task_model(M.task_contract(task)), M.context_history(M.task_history(task)), M.task_context(task)}]}
 
 def page_checked(valid: Bool, task: M.Task, after: Nat, limit: Nat) -> J.Json:
@@ -315,7 +358,7 @@ def page(found: Maybe<&2, M.Task>, +after: Nat, +limit: Nat) -> J.Json:
       page_checked(Nat.is_le(1n, limit) && Nat.is_le(limit, 100n) && Nat.is_le(after, M.history_length(M.task_history(task))), task, after, limit)
 
 def listing(world: M.World) -> J.Json:
-  M.World{tasks, next_task, next_ticket, M.Environment{catalog, profiles, max_fork, max_descendants, project, plugins}, limits, projects} = world
+  M.World{tasks, next_task, next_ticket, M.Environment{catalog, profiles, max_fork, max_descendants, project, plugins}, limits, projects, board} = world
   M.success(J.Object{[J.Field{"tasks", J.Array{T.summaries(tasks)}},
     J.Field{"profiles", J.Array{M.profiles_json(profiles)}}, J.Field{"tools", J.Array{M.tools_json(catalog)}},
     J.Field{"plugins", M.plugins_json(plugins)},
@@ -328,12 +371,16 @@ def query(query: M.Query, +world: M.World) -> J.Json:
     case M.Describe{}: M.success(M.description())
     case M.ListProjects{}: M.success(J.Array{Projects.summaries(Projects.entries(Projects.registry(world)), entries(world))})
     case M.ReadProject{+id}: Projects.detail(id, Projects.find(Projects.registry(world), id))
+    case M.BoardQuery{query}: BoardState.query(query, world)
 
 def meaning(operation: Operation, +world: M.World) -> M.Decision:
   match operation:
     case Refuse{code, reason}: M.Decision{world, M.failure(code, reason), Nil{}}
     case Review{resolution}: Approvals.meaning(resolution, world)
     case Start{profile, reasoning, message, selection}: start(profile, reasoning, message, selection, world)
+    case BoardChange{change}: BoardSpec.change(change, world)
+    case StartCard{id, card, now, profile, reasoning, message, selection}:
+      BoardSpec.started(id, BoardState.task_id(world), card, now, start(profile, reasoning, message, selection, world))
     case Deliver{+task, message}:
       M.Decision{replace(T.receive(message, task), world), M.success(id_result(M.task_id(task))), Nil{}}
     case Steer{+task, message}:

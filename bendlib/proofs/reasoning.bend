@@ -19,12 +19,12 @@ def A.route_meaning(policy, lease):
 def request_meaning(+task: M.Task, +world: M.World) ->
   {Actual.request(task, world) == Spec.model(task, world) : M.Decision}:
   match world:
-    case M.World{tasks, next_task, ticket, M.Environment{catalog, profiles, forks, descendants, project, plugins}, limits, projects}: {==}
+    case M.World{tasks, next_task, ticket, M.Environment{catalog, profiles, forks, descendants, project, plugins}, limits, projects, board}: {==}
 
 def evaluator_meaning(+task: M.Task, +world: M.World) ->
   {Actual.evaluate(task, world) == Spec.evaluator(task, world) : M.Decision}:
   match world:
-    case M.World{tasks, next_task, ticket, environment, limits, projects}: {==}
+    case M.World{tasks, next_task, ticket, environment, limits, projects, board}: {==}
 
 def execution_meaning(+plan: R.Plan, +task: M.Task, +world: M.World) ->
   {Actual.execute(plan, task, world) == Spec.required(plan, task, world) : M.Decision}:

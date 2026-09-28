@@ -33,7 +33,7 @@ def validate_semantics(+decision: M.Decision, +previous: M.World) ->
 
 def live_semantics(+decision: M.Decision) -> {P.live_decision(decision) == Commit.live(decision) : M.Decision}:
   match decision:
-    case M.Decision{M.World{tasks, next_task, next_ticket, environment, limits, projects}, reply, effects}: {==}
+    case M.Decision{M.World{tasks, next_task, next_ticket, environment, limits, projects, board}, reply, effects}: {==}
 
 def Laws.commit_semantics(decision, previous):
   +live = P.live_decision(decision)
@@ -82,6 +82,7 @@ def updated_command_semantics(+command: M.Command, +world: M.World) ->
 
 def Laws.command_transition(command, world):
   match command:
+    case M.BoardCommand{command}: updated_command_semantics(M.BoardCommand{command}, world)
     case M.Observe{query}: Laws.output_semantics(False{}, P.observe(query, world), world)
     case M.Create{profile, reasoning, message, options}: updated_command_semantics(M.Create{profile, reasoning, message, options}, world)
     case M.Send{id, message}: updated_command_semantics(M.Send{id, message}, world)
@@ -109,6 +110,7 @@ def Laws.interaction_transition(input, world):
     case M.UserInterface{state, event}: updated_input_semantics(M.UserInterface{state, event}, world)
     case M.ModelCompleted{id, ticket, outcome}: updated_input_semantics(M.ModelCompleted{id, ticket, outcome}, world)
     case M.ReasoningCompleted{id, ticket, outcome}: updated_input_semantics(M.ReasoningCompleted{id, ticket, outcome}, world)
+    case M.BoardTextCompleted{id, ticket, outcome}: updated_input_semantics(M.BoardTextCompleted{id, ticket, outcome}, world)
     case M.ToolCompleted{id, ticket, value, error}: updated_input_semantics(M.ToolCompleted{id, ticket, value, error}, world)
     case M.HookCompleted{id, ticket, outcome}: updated_input_semantics(M.HookCompleted{id, ticket, outcome}, world)
     case M.AfterCompleted{id, operation, ticket, outcome}: updated_input_semantics(M.AfterCompleted{id, operation, ticket, outcome}, world)
