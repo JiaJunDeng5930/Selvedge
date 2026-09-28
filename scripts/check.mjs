@@ -4,8 +4,10 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { compiler } from './toolchain.mjs';
 import { verifyProof } from './verify-proof.mjs';
+import { checkComponents } from './check-components.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
+console.log(await checkComponents(root));
 
 function run(command, args) {
   const result = spawnSync(command, args, { cwd: root, stdio: 'inherit', env: { ...process.env, BEND_NO_TELEMETRY: '1' } });

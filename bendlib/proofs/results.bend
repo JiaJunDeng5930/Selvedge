@@ -1,12 +1,12 @@
 import Base
-import ../../MODEL.bend as M
+import ../domain.bend as D
 import ../architecture.bend as A
 import ../operations.bend as Ops
 import ../protocol.bend as Protocol
 
-def control_frame(+task: M.Task, operation: M.Operation()) ->
-  {M.task_phase(M.with_operations(Ops.replace(M.task_operations(task), operation), task)) == M.task_phase(task) : M.Phase}:
-  M.Task{id, lineage, contract, status, history, queued, phase, operations, notified} = task
+def control_frame(+task: D.Task, operation: D.Operation()) ->
+  {D.task_phase(D.with_operations(Ops.replace(D.task_operations(task), operation), task)) == D.task_phase(task) : D.Phase}:
+  D.Task{id, lineage, contract, status, history, queued, phase, operations, notified} = task
   {==}
 
 def A.result_boundary():

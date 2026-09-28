@@ -1,4 +1,7 @@
 import Base
+import ../../FEATURES.bend as F
+import ../component.bend as C
+import ../domain.bend as D
 import ../../MODEL.bend as M
 import ../../WORKSPACE.bend as W
 import ../../PROJECTS.bend as Projects
@@ -7,31 +10,31 @@ import ../workspace-architecture.bend as A
 import ../association-map.bend as Finite
 import ../protocol.bend as Protocol
 
-def inherited(id:Nat, +parent:M.Task, call:String, branch:Nat, remaining:+List<M.Attempt>, message:Maybe<&2, String>) ->
-  {M.task_context(Commands.child(id, parent, call, branch, remaining, message)) == M.task_context(parent) : M.TaskContext}:
-  M.Task{parent_id, lineage, contract, status, history, queued, phase, operations, notified} = parent
+def inherited(id:Nat, +parent:D.Task, call:String, branch:Nat, remaining:+List<D.Attempt>, message:Maybe<&2, String>) ->
+  {D.task_context(Commands.child(id, parent, call, branch, remaining, message)) == D.task_context(parent) : D.TaskContext}:
+  D.Task{parent_id, lineage, contract, status, history, queued, phase, operations, notified} = parent
   {==}
 
-def no_rights(id:Nat, parent:M.Task, call:String, branch:Nat, remaining:+List<M.Attempt>, message:Maybe<&2, String>) ->
-  {M.task_operations(Commands.child(id, parent, call, branch, remaining, message)) == Nil{} : +List<M.Operation()>}:
-  M.Task{parent_id, lineage, contract, status, history, queued, phase, operations, notified} = parent
+def no_rights(id:Nat, parent:D.Task, call:String, branch:Nat, remaining:+List<D.Attempt>, message:Maybe<&2, String>) ->
+  {D.task_operations(Commands.child(id, parent, call, branch, remaining, message)) == Nil{} : +List<D.Operation()>}:
+  D.Task{parent_id, lineage, contract, status, history, queued, phase, operations, notified} = parent
   {==}
 
-def override_context(+context:M.TaskContext, guidance:M.ProjectContext, task:M.Task) ->
-  {M.task_context(Commands.selected_parent(W.Selection{context, guidance}, task)) == context : M.TaskContext}:
-  M.Task{id, lineage, M.Contract{M.Model{profile, reasoning, previous}, tools, max_fork, max_descendants, plugins, old_context},
+def override_context(+context:D.TaskContext, guidance:D.ProjectContext, task:D.Task) ->
+  {D.task_context(Commands.selected_parent(W.Selection{context, guidance}, task)) == context : D.TaskContext}:
+  D.Task{id, lineage, D.Contract{D.Model{profile, reasoning, previous}, tools, max_fork, max_descendants, plugins, old_context},
     status, history, queued, phase, operations, notified} = task
   {==}
 
-def project_frame(registry:M.Projects, +world:M.World) ->
-  {Commands.entries(Projects.store(registry, world)) == Commands.entries(world) : +List<M.Task>}:
-  M.World{tasks, next_task, next_ticket, environment, limits, previous, board} = world
+def project_frame(registry:D.Projects, +world:M.World()) ->
+  {Commands.entries(Projects.store(F.State(), registry, world)) == Commands.entries(world) : +List<D.Task>}:
+  C.Frame{D.State{tasks, next_task, next_ticket, environment, limits, previous}, +board} = world
   {==}
 
-def removal(registry:M.Projects, +id:Nat) ->
-  {Projects.find(Projects.remove(id, registry), id) == None{} : Maybe<&2, M.Project>}:
-  M.Projects{entries, next_id} = registry
-  Finite.removal_absence(~M.Project, entries, id)
+def removal(registry:D.Projects, +id:Nat) ->
+  {Projects.find(Projects.remove(id, registry), id) == None{} : Maybe<&2, D.Project>}:
+  D.Projects{entries, next_id} = registry
+  Finite.removal_absence(~D.Project, entries, id)
 
 def A.context_boundary():
   A.ContextBoundary{

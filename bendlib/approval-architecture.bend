@@ -1,4 +1,8 @@
 import Base
+import ./effects.bend as Effects
+import ../FEATURES.bend as F
+import ./component.bend as C
+import ./domain.bend as D
 import ../BOARD.bend as Board
 import ../MODEL.bend as M
 import ../APPROVALS.bend as A
@@ -12,31 +16,31 @@ import ./json.bend as J
 # effect type distinguishes a tool-free review from a task's model/tool effects.
 type ApprovalBoundary is Type:
   ApprovalBoundary{
-    realization: @+resolution:A.Resolution -> @+world:M.World ->
-      {P.review_result(resolution, world) == A.meaning(resolution, world) : M.Decision},
-    human_waits: @call:M.Call -> @remaining:+List<M.Attempt> -> @task:M.Task -> @world:M.World ->
-      {P.decision_effects(P.approval_request(M.HumanReviewer{}, call, remaining, task, world)) == Nil{} : +List<M.Effect>},
-    model_waits: @+profile:M.Profile -> @+call:M.Call -> @+remaining:+List<M.Attempt> -> @+task:M.Task ->
-      @tasks:+List<M.Task> -> @next_task:Nat -> @+ticket:Nat -> @environment:M.Environment -> @limits:M.ExecutionLimits -> @projects:M.Projects -> @board:Board.State ->
-      {P.decision_effects(P.approval_request(M.ModelReviewer{profile}, call, remaining, task,
-        M.World{tasks, next_task, ticket, environment, limits, projects, board})) ==
-        [M.RequestApproval{M.task_id(T.promote(Ops.awaiting(ticket, M.ModelReviewer{profile}, call, remaining, task))), ticket, profile, call,
-          M.task_context(T.promote(Ops.awaiting(ticket, M.ModelReviewer{profile}, call, remaining, task))),
-          M.task_history(T.promote(Ops.awaiting(ticket, M.ModelReviewer{profile}, call, remaining, task)))}] : +List<M.Effect>},
-    grant_preserves_context: @operation:M.Operation() -> @reviewer:M.ApprovalReviewer -> @reason:String -> @+task:M.Task ->
-      {M.task_context(A.permitted(operation, reviewer, reason, task)) == M.task_context(task) : M.TaskContext},
-    origin_separation: ((@profile:M.Profile -> @operation:M.Operation() -> @task:M.Task -> @outcome:M.ApprovalOutcome ->
-        {A.pending(M.ApprovalPending{M.ModelReviewer{profile}}, A.HumanDecision{}, operation, task, outcome) == A.stale(A.HumanDecision{}) : A.Resolution}) &
-      (@operation:M.Operation() -> @task:M.Task -> @outcome:M.ApprovalOutcome ->
-        {A.pending(M.ApprovalPending{M.HumanReviewer{}}, A.ModelDecision{}, operation, task, outcome) == A.Ignore{} : A.Resolution})),
-    consumed_grant: @reviewer:M.ApprovalReviewer -> @+origin:A.Origin -> @operation:M.Operation() -> @task:M.Task -> @outcome:M.ApprovalOutcome ->
-      {A.pending(M.ApprovalGranted{reviewer}, origin, operation, task, outcome) == A.stale(origin) : A.Resolution},
-    no_premature_callback: @id:Nat -> @call:M.Call -> @announced:Bool -> @reviewer:M.ApprovalReviewer ->
-      @task:M.Task -> @value:J.Json -> @error:Bool ->
-      {Protocol.tool_operation(Some{(id, M.OperationBody{call, announced, M.ApprovalPending{reviewer}})}, task, value, error) == Protocol.Ignore{} : Protocol.Event},
-    frozen_owner: @id:Nat -> @lineage:+List<Nat> -> @contract:M.Contract -> @history:M.History -> @queued:+List<String> ->
-      @phase:M.Phase -> @operations:+List<M.Operation()> -> @notified:Bool ->
-      {M.task_work(M.Task{id, lineage, contract, M.Frozen{}, history, queued, phase, operations, notified}) == M.NoWork{} : M.Work}
+    realization: @+resolution:A.Resolution -> @+world:M.World() ->
+      {P.review_result(resolution, world) == A.meaning(F.State(), F.Effect, resolution, world) : M.Decision()},
+    human_waits: @call:D.Call -> @remaining:+List<D.Attempt> -> @task:D.Task -> @world:M.World() ->
+      {P.decision_effects(P.approval_request(D.HumanReviewer{}, call, remaining, task, world)) == Nil{} : +List<M.Effect()>},
+    model_waits: @+profile:D.Profile -> @+call:D.Call -> @+remaining:+List<D.Attempt> -> @+task:D.Task ->
+      @tasks:+List<D.Task> -> @next_task:Nat -> @+ticket:Nat -> @environment:D.Environment -> @limits:D.ExecutionLimits -> @projects:D.Projects -> @board:F.State() ->
+      {P.decision_effects(P.approval_request(D.ModelReviewer{profile}, call, remaining, task,
+        C.Frame{D.State{tasks, next_task, ticket, environment, limits, projects}, board})) ==
+        [Effects.RequestApproval{D.task_id(T.promote(Ops.awaiting(ticket, D.ModelReviewer{profile}, call, remaining, task))), ticket, profile, call,
+          D.task_context(T.promote(Ops.awaiting(ticket, D.ModelReviewer{profile}, call, remaining, task))),
+          D.task_history(T.promote(Ops.awaiting(ticket, D.ModelReviewer{profile}, call, remaining, task)))}] : +List<M.Effect()>},
+    grant_preserves_context: @operation:D.Operation() -> @reviewer:D.ApprovalReviewer -> @reason:String -> @+task:D.Task ->
+      {D.task_context(A.permitted(operation, reviewer, reason, task)) == D.task_context(task) : D.TaskContext},
+    origin_separation: ((@profile:D.Profile -> @operation:D.Operation() -> @task:D.Task -> @outcome:D.ApprovalOutcome ->
+        {A.pending(D.ApprovalPending{D.ModelReviewer{profile}}, A.HumanDecision{}, operation, task, outcome) == A.stale(A.HumanDecision{}) : A.Resolution}) &
+      (@operation:D.Operation() -> @task:D.Task -> @outcome:D.ApprovalOutcome ->
+        {A.pending(D.ApprovalPending{D.HumanReviewer{}}, A.ModelDecision{}, operation, task, outcome) == A.Ignore{} : A.Resolution})),
+    consumed_grant: @reviewer:D.ApprovalReviewer -> @+origin:A.Origin -> @operation:D.Operation() -> @task:D.Task -> @outcome:D.ApprovalOutcome ->
+      {A.pending(D.ApprovalGranted{reviewer}, origin, operation, task, outcome) == A.stale(origin) : A.Resolution},
+    no_premature_callback: @id:Nat -> @call:D.Call -> @announced:Bool -> @reviewer:D.ApprovalReviewer ->
+      @task:D.Task -> @value:J.Json -> @error:Bool ->
+      {Protocol.tool_operation(Some{(id, D.OperationBody{call, announced, D.ApprovalPending{reviewer}})}, task, value, error) == Protocol.Ignore{} : Protocol.Event},
+    frozen_owner: @id:Nat -> @lineage:+List<Nat> -> @contract:D.Contract -> @history:D.History -> @queued:+List<String> ->
+      @phase:D.Phase -> @operations:+List<D.Operation()> -> @notified:Bool ->
+      {D.task_work(D.Task{id, lineage, contract, D.Frozen{}, history, queued, phase, operations, notified}) == D.NoWork{} : D.Work}
   }
 
 law approval_boundary:

@@ -3,6 +3,33 @@
 Read the root CONCEPTS, COMMANDS and MODEL entry points before following an
 implementation detail into this directory. INVARIANTS and LAWS constrain changes.
 
+`domain.bend` owns the task types, shared task/project resources and initial core
+state. `component.bend` combines a local state with an opaque remainder and retains
+complete replies and ordered effects. `effects.bend` leaves feature payloads as a
+type parameter. Task, approval, hook, result and reasoning implementation modules
+belong to the closed core import boundary declared in `../components.json`.
+
+`../FEATURES.bend` selects concrete feature state and vocabularies; `../MODEL.bend`
+composes them with the task component. The `feature-*` modules connect private
+commands, resolved operations, completion correlation, codecs, resource checks
+and UI updates to the application. `feature-spec.bend` receives the independent
+task-creation specification; `feature-execution.bend` receives its implementation;
+`feature-laws.bend` requires their complete-decision correspondence when composing
+the proof. `feature-architecture.bend` collects the feature guarantees.
+
+`surface.bend` owns shared presentation types. `feature-view.bend` assembles
+feature rendering using the task surface supplied at its actual interaction
+boundary. Feature cursor fields, validation and round-trip encoding belong to
+`feature-codec.bend`; the universal UI and wire modules import these contracts
+rather than a private board representation.
+
+`task-laws.bend` and `reasoning-laws.bend` prove actual task-component behavior for
+arbitrary surrounding types. `feature-frame.bend` and `feature-ui-laws.bend` bind
+board updates to their write and preservation guarantees. `locality.bend` assembles
+the production evidence required by `CONCEPTS.Harness.locality`. Pure execution
+modules do not import their proof providers, so mutation tests can independently
+check that an erroneous implementation remains type-correct.
+
 Board requirements are in `../BOARD.bend` and `board-resolution.bend`.
 `board-spec.bend` specifies complete mutations and drafting settlement;
 `board-scheduling-spec.bend` specifies the use of ordinary task execution.
@@ -42,7 +69,7 @@ It does not maintain a second recursive algebra development.
 below the CONCEPTS entry. Consumers use existing list/map/iterator theorems
 directly; there is no project-owned general algebra or simulation hierarchy.
 `association-map.bend` imports the original ExtLib association-list definitions
-and deletion-absence proof. `MODEL.Operation()` uses its key/value representation
+and deletion-absence proof. `domain.Operation()` uses its key/value representation
 directly, so `operations.bend` only adapts the domain value returned by lookup.
 `relations.bend` is generated from original relational-closure proofs and explicit
 theorem applications. `reachability.bend` binds their edges to actual inputs and

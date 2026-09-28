@@ -8,8 +8,10 @@ import { checkBundle } from './import-stdlib.mjs';
 import { checkRelations } from './import-relations.mjs';
 import { checkMaps } from './import-maps.mjs';
 import { verifyProof } from './verify-proof.mjs';
+import { checkComponents } from './check-components.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
+console.log(await checkComponents(root));
 const bend = compiler();
 await checkBundle();
 await checkRelations();

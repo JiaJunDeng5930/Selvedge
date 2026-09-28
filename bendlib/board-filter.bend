@@ -1,4 +1,6 @@
 import Base
+import ../FEATURES.bend as F
+import ./domain.bend as D
 import ../BOARD.bend as B
 import ../MODEL.bend as M
 import ../PROJECTS.bend as Projects
@@ -63,7 +65,7 @@ def text(+query: String, +id: Nat, +card: B.Card) -> Bool:
   String.contains(String.to_lower(B.identifier(id) ++ " " ++ B.title(B.draft(card)) ++ " " ++ B.description(B.draft(card))),
     String.to_lower(String.trim(query)))
 
-def matches(+filter: B.Filter, +now: U32, +id: Nat, +card: B.Card, +world: M.World) -> Bool:
+def matches(+filter: B.Filter, +now: U32, +id: Nat, +card: B.Card, +world: M.World()) -> Bool:
   B.Filter{view, search, status, priority, dates, assignee, creator, project, label} = filter
   Bool.not(B.archived(card)) && tab(view, B.assigned(B.card_owner(B.draft(card))), S.busy(S.task(card, world))) &&
     selected(status, B.stage_name(B.card_stage(B.draft(card)))) &&
@@ -77,7 +79,7 @@ def retain(+yes: Bool, +entry: Finite.Entry(B.Card), +rest: +List<Finite.Entry(B
     case True{}: entry <> rest
     case False{}: rest
 
-def filtered(+entries: +List<Finite.Entry(B.Card)>, +filter: B.Filter, +now: U32, +world: M.World) -> +List<Finite.Entry(B.Card)>:
+def filtered(+entries: +List<Finite.Entry(B.Card)>, +filter: B.Filter, +now: U32, +world: M.World()) -> +List<Finite.Entry(B.Card)>:
   match entries:
     case Nil{}: Nil{}
     case Con{(+id, +card), rest}:
@@ -93,7 +95,7 @@ def archived(+entries: +List<Finite.Entry(B.Card)>) -> +List<Finite.Entry(B.Card
     case Nil{}: Nil{}
     case Con{(id, +card), rest}: retain(B.archived(card), (id, card), archived(rest))
 
-def working(+entries: +List<Finite.Entry(B.Card)>, +world: M.World) -> Nat:
+def working(+entries: +List<Finite.Entry(B.Card)>, +world: M.World()) -> Nat:
   match entries:
     case Nil{}: 0n
     case Con{(id, card), rest}: S.count(S.busy(S.task(card, world)), working(rest, world))
@@ -110,15 +112,15 @@ def priority_choices() -> +List<J.Json>:
   [choice("none", "无优先级", "priority/none"), choice("low", "低优先级", "priority/low"),
    choice("medium", "中优先级", "priority/medium"), choice("high", "高优先级", "priority/high"), choice("urgent", "紧急优先级", "priority/urgent")]
 
-def profile_choices(+profiles: +List<M.Profile>) -> +List<J.Json>:
+def profile_choices(+profiles: +List<D.Profile>) -> +List<J.Json>:
   match profiles:
     case Nil{}: Nil{}
-    case Con{M.Profile{+key, provider, model, policy}, rest}: choice(key, key, "bot") <> profile_choices(rest)
+    case Con{D.Profile{+key, provider, model, policy}, rest}: choice(key, key, "bot") <> profile_choices(rest)
 
-def profile_owners(+profiles: +List<M.Profile>) -> +List<J.Json>:
+def profile_owners(+profiles: +List<D.Profile>) -> +List<J.Json>:
   match profiles:
     case Nil{}: Nil{}
-    case Con{M.Profile{+key, provider, model, policy}, rest}: choice("profile/" ++ key, key, "bot") <> profile_owners(rest)
+    case Con{D.Profile{+key, provider, model, policy}, rest}: choice("profile/" ++ key, key, "bot") <> profile_owners(rest)
 
 def agent_owners(+agents: +List<Finite.Entry(B.AgentProfile)>) -> +List<J.Json>:
   match agents:
@@ -126,17 +128,17 @@ def agent_owners(+agents: +List<Finite.Entry(B.AgentProfile)>) -> +List<J.Json>:
     case Con{(id, B.AgentProfile{revision, name, profile, reasoning, instructions, settings, concurrency}), rest}:
       choice("agent/" ++ Nat.show(id), name, "bot") <> agent_owners(rest)
 
-def owners(+world: M.World) -> +List<J.Json>:
+def owners(+world: M.World()) -> +List<J.Json>:
   choice("none", "未分配", "user") <> choice("self", "我", "user") <>
     List.append(&2, J.Json, agent_owners(B.agents(S.registry(world))), profile_owners(S.profiles(world)))
 
-def project_choices(+entries: +List<Finite.Entry(M.Project)>) -> +List<J.Json>:
+def project_choices(+entries: +List<Finite.Entry(D.Project)>) -> +List<J.Json>:
   match entries:
     case Nil{}: Nil{}
-    case Con{(id, M.Project{name, workspace, guidance}), rest}: choice(Nat.show(id), name, "folder") <> project_choices(rest)
+    case Con{(id, D.Project{name, workspace, guidance}), rest}: choice(Nat.show(id), name, "folder") <> project_choices(rest)
 
-def projects(+world: M.World) -> +List<J.Json>:
-  choice("", "未分配项目", "folder") <> project_choices(Projects.entries(Projects.registry(world)))
+def projects(+world: M.World()) -> +List<J.Json>:
+  choice("", "未分配项目", "folder") <> project_choices(Projects.entries(Projects.registry(F.State(), world)))
 
 def add_label(+present: Bool, +name: String, +rest: +List<String>) -> +List<String>:
   match present:
@@ -174,22 +176,22 @@ def count(+filter: B.Filter) -> Nat:
   (List.length(&2, String, status) + List.length(&2, String, priority) + List.length(&2, String, date) +
     List.length(&2, String, assignee) + List.length(&2, String, creator) + List.length(&2, String, project) + List.length(&2, String, label) : Nat)
 
-def project_name(+found: Maybe<&2, M.Project>) -> String:
+def project_name(+found: Maybe<&2, D.Project>) -> String:
   match found:
     case None{}: "未分配项目"
-    case Some{M.Project{name, workspace, guidance}}: name
+    case Some{D.Project{name, workspace, guidance}}: name
 
-def project_label(+id: Maybe<&2, Nat>, +world: M.World) -> String:
+def project_label(+id: Maybe<&2, Nat>, +world: M.World()) -> String:
   match id:
     case None{}: "未分配项目"
-    case Some{id}: project_name(Projects.find(Projects.registry(world), id))
+    case Some{id}: project_name(Projects.find(Projects.registry(F.State(), world), id))
 
 def agent_name(+found: Maybe<&2, B.AgentProfile>) -> String:
   match found:
     case None{}: "已移除的智能体"
     case Some{B.AgentProfile{revision, name, profile, reasoning, instructions, settings, concurrency}}: name
 
-def owner_label(+owner: B.Owner, +world: M.World) -> String:
+def owner_label(+owner: B.Owner, +world: M.World()) -> String:
   match owner:
     case B.Unassigned{}: "未分配"
     case B.Self{}: "我"

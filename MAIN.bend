@@ -1,4 +1,5 @@
 import Base
+import ./bendlib/domain.bend as D
 import ./MODEL.bend as M
 import ./PROGRAM.bend as P
 import ./PROOF.bend as Proof
@@ -17,17 +18,17 @@ def print_result(result: Result<&2, &2, String, String>) -> IO(Unit):
 
 # The only unchecked recursion is the lifetime of the external stdin stream.
 # It constructs no proofs. PROGRAM.transition itself always terminates.
-@unsafe def serve(packet: Maybe<&2, +List<String>>, world: M.World) -> IO(Unit):
+@unsafe def serve(packet: Maybe<&2, +List<String>>, world: M.World()) -> IO(Unit):
   match packet:
     case None{}: IO.pure(Unit, Unit{})
     case Some{tokens}:
       +output = Frontend.packet(tokens, world)
       do IO<Unit>:
         print_result(J.show(Interface.envelope(output)))
-        packet : Maybe<&2, +List<String>> <- IO.try(Maybe<&2, +List<String>>, Host.receive(M.frame_bytes()))
+        packet : Maybe<&2, +List<String>> <- IO.try(Maybe<&2, +List<String>>, Host.receive(D.frame_bytes()))
         serve(packet, Interface.state(output))
 
 def main() -> IO(Unit):
   do IO<Unit>:
-    packet : Maybe<&2, +List<String>> <- IO.try(Maybe<&2, +List<String>>, Host.receive(M.frame_bytes()))
+    packet : Maybe<&2, +List<String>> <- IO.try(Maybe<&2, +List<String>>, Host.receive(D.frame_bytes()))
     serve(packet, M.initial())

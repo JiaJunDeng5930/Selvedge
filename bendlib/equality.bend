@@ -1,7 +1,7 @@
 import Base
+import ./domain.bend as D
 import ../REASONING.bend as Reasoning
 import ./json.bend as J
-import ../MODEL.bend as M
 import ../WORKSPACE.bend as Workspace
 
 def booleans(left: Bool, right: Bool) -> Bool:
@@ -57,97 +57,97 @@ def json_go(fuel: Nat, pending: +List<Comparison>) -> Bool:
 def json(budget: Nat, left: J.Json, right: J.Json) -> Bool:
   json_go(budget, [Values{left, right}])
 
-def project(left: M.ProjectContext, right: M.ProjectContext) -> Bool:
+def project(left: D.ProjectContext, right: D.ProjectContext) -> Bool:
   match left right:
-    case M.NoProject{} M.NoProject{}: True{}
-    case M.ProjectContext{root_a, revision_a, text_a} M.ProjectContext{root_b, revision_b, text_b}:
+    case D.NoProject{} D.NoProject{}: True{}
+    case D.ProjectContext{root_a, revision_a, text_a} D.ProjectContext{root_b, revision_b, text_b}:
       String.eq(root_a, root_b) && String.eq(revision_a, revision_b) && String.eq(text_a, text_b)
     case _ _: False{}
 
-def model(left: M.Model, right: M.Model) -> Bool:
+def model(left: D.Model, right: D.Model) -> Bool:
   match left right:
-    case M.Model{M.Profile{key_a, provider_a, name_a, policy_a}, reasoning_a, project_a}
-         M.Model{M.Profile{key_b, provider_b, name_b, policy_b}, reasoning_b, project_b}:
+    case D.Model{D.Profile{key_a, provider_a, name_a, policy_a}, reasoning_a, project_a}
+         D.Model{D.Profile{key_b, provider_b, name_b, policy_b}, reasoning_b, project_b}:
       String.eq(key_a, key_b) && String.eq(provider_a, provider_b) &&
         String.eq(name_a, name_b) && Reasoning.same(policy_a, policy_b) && String.eq(reasoning_a, reasoning_b) && project(project_a, project_b)
 
-def tool(budget: Nat, left: M.Tool, right: M.Tool) -> Bool:
+def tool(budget: Nat, left: D.Tool, right: D.Tool) -> Bool:
   match left right:
-    case M.Tool{name_a, description_a, schema_a, source_a} M.Tool{name_b, description_b, schema_b, source_b}:
+    case D.Tool{name_a, description_a, schema_a, source_a} D.Tool{name_b, description_b, schema_b, source_b}:
       String.eq(name_a, name_b) && String.eq(description_a, description_b) &&
-        M.source_same(source_a, source_b) && json(budget, schema_a, schema_b)
+        D.source_same(source_a, source_b) && json(budget, schema_a, schema_b)
 
-def tools(+budget: Nat, left: +List<M.Tool>, right: +List<M.Tool>) -> Bool:
+def tools(+budget: Nat, left: +List<D.Tool>, right: +List<D.Tool>) -> Bool:
   match left right:
     case Nil{} Nil{}: True{}
     case Con{a, rest_a} Con{b, rest_b}:
       tool(budget, a, b) && tools(budget, rest_a, rest_b)
     case _ _: False{}
 
-def contract(+budget: Nat, left: M.Contract, right: M.Contract) -> Bool:
+def contract(+budget: Nat, left: D.Contract, right: D.Contract) -> Bool:
   match left right:
-    case M.Contract{model_a, tools_a, fork_a, descendants_a, plugins_a, context_a} M.Contract{model_b, tools_b, fork_b, descendants_b, plugins_b, context_b}:
-      json(budget, M.task_context_json(context_a), M.task_context_json(context_b)) && model(model_a, model_b) && tools(budget, tools_a, tools_b) &&
-        Nat.is_eq(fork_a, fork_b) && Nat.is_eq(descendants_a, descendants_b) && json(budget, M.plugins_json(plugins_a), M.plugins_json(plugins_b))
+    case D.Contract{model_a, tools_a, fork_a, descendants_a, plugins_a, context_a} D.Contract{model_b, tools_b, fork_b, descendants_b, plugins_b, context_b}:
+      json(budget, D.task_context_json(context_a), D.task_context_json(context_b)) && model(model_a, model_b) && tools(budget, tools_a, tools_b) &&
+        Nat.is_eq(fork_a, fork_b) && Nat.is_eq(descendants_a, descendants_b) && json(budget, D.plugins_json(plugins_a), D.plugins_json(plugins_b))
 
 # A branch may explicitly replace execution coordinates and their root guidance.
 # Its model identity, tool definitions, plugin routes and resource bounds remain
 # inherited. Existing tasks still use exact contract equality in retained().
-def inherited_contract(+budget: Nat, left: M.Contract, right: M.Contract) -> Bool:
-  M.Contract{M.Model{profile_a, reasoning_a, guidance_a}, tools_a, fork_a, descendants_a, plugins_a, context_a} = left
-  M.Contract{M.Model{profile_b, reasoning_b, guidance_b}, tools_b, fork_b, descendants_b, plugins_b, context_b} = right
+def inherited_contract(+budget: Nat, left: D.Contract, right: D.Contract) -> Bool:
+  D.Contract{D.Model{profile_a, reasoning_a, guidance_a}, tools_a, fork_a, descendants_a, plugins_a, context_a} = left
+  D.Contract{D.Model{profile_b, reasoning_b, guidance_b}, tools_b, fork_b, descendants_b, plugins_b, context_b} = right
   Workspace.profile_same(profile_a, profile_b) && String.eq(reasoning_a, reasoning_b) && tools(budget, tools_a, tools_b) &&
-    Nat.is_eq(fork_a, fork_b) && Nat.is_eq(descendants_a, descendants_b) && json(budget, M.plugins_json(plugins_a), M.plugins_json(plugins_b))
+    Nat.is_eq(fork_a, fork_b) && Nat.is_eq(descendants_a, descendants_b) && json(budget, D.plugins_json(plugins_a), D.plugins_json(plugins_b))
 
-def call(budget: Nat, left: M.Call, right: M.Call) -> Bool:
+def call(budget: Nat, left: D.Call, right: D.Call) -> Bool:
   match left right:
-    case M.Call{id_a, name_a, arguments_a} M.Call{id_b, name_b, arguments_b}:
+    case D.Call{id_a, name_a, arguments_a} D.Call{id_b, name_b, arguments_b}:
       String.eq(id_a, id_b) && String.eq(name_a, name_b) && json(budget, arguments_a, arguments_b)
 
-def message(+budget: Nat, left: M.Message, right: M.Message) -> Bool:
+def message(+budget: Nat, left: D.Message, right: D.Message) -> Bool:
   match left right:
-    case M.ForkResult{owner_a, id_a, branch_a} M.ForkResult{owner_b, id_b, branch_b}:
+    case D.ForkResult{owner_a, id_a, branch_a} D.ForkResult{owner_b, id_b, branch_b}:
       Nat.is_eq(owner_a, owner_b) && String.eq(id_a, id_b) && Nat.is_eq(branch_a, branch_b)
-    case M.HookRecord{owner_a, id_a, plugin_a, outcome_a} M.HookRecord{owner_b, id_b, plugin_b, outcome_b}:
-      Nat.is_eq(owner_a, owner_b) && String.eq(id_a, id_b) && M.plugin_same(plugin_a, plugin_b) && json(budget, M.hook_json(outcome_a), M.hook_json(outcome_b))
-    case M.ToolReceipt{owner_a, operation_a, call_a, a, error_a} M.ToolReceipt{owner_b, operation_b, call_b, b, error_b}:
+    case D.HookRecord{owner_a, id_a, plugin_a, outcome_a} D.HookRecord{owner_b, id_b, plugin_b, outcome_b}:
+      Nat.is_eq(owner_a, owner_b) && String.eq(id_a, id_b) && D.plugin_same(plugin_a, plugin_b) && json(budget, D.hook_json(outcome_a), D.hook_json(outcome_b))
+    case D.ToolReceipt{owner_a, operation_a, call_a, a, error_a} D.ToolReceipt{owner_b, operation_b, call_b, b, error_b}:
       Nat.is_eq(owner_a, owner_b) && Nat.is_eq(operation_a, operation_b) && call(budget, call_a, call_b) && booleans(error_a, error_b) && json(budget, a, b)
-    case M.AfterRecord{owner_a, operation_a, plugin_a, outcome_a} M.AfterRecord{owner_b, operation_b, plugin_b, outcome_b}:
-      Nat.is_eq(owner_a, owner_b) && Nat.is_eq(operation_a, operation_b) && M.plugin_same(plugin_a, plugin_b) && json(budget, M.after_json(outcome_a), M.after_json(outcome_b))
-    case M.ApprovalRecord{owner_a, operation_a, call_a, reviewer_a, outcome_a} M.ApprovalRecord{owner_b, operation_b, call_b, reviewer_b, outcome_b}:
+    case D.AfterRecord{owner_a, operation_a, plugin_a, outcome_a} D.AfterRecord{owner_b, operation_b, plugin_b, outcome_b}:
+      Nat.is_eq(owner_a, owner_b) && Nat.is_eq(operation_a, operation_b) && D.plugin_same(plugin_a, plugin_b) && json(budget, D.after_json(outcome_a), D.after_json(outcome_b))
+    case D.ApprovalRecord{owner_a, operation_a, call_a, reviewer_a, outcome_a} D.ApprovalRecord{owner_b, operation_b, call_b, reviewer_b, outcome_b}:
       Nat.is_eq(owner_a, owner_b) && Nat.is_eq(operation_a, operation_b) && call(budget, call_a, call_b) &&
-        json(budget, M.approval_reviewer_json(reviewer_a), M.approval_reviewer_json(reviewer_b)) &&
-        json(budget, M.approval_outcome_json(outcome_a), M.approval_outcome_json(outcome_b))
-    case M.UserMessage{a} M.UserMessage{b}: String.eq(a, b)
-    case M.AssistantMessage{a} M.AssistantMessage{b}: String.eq(a, b)
-    case M.FailureMessage{a} M.FailureMessage{b}: String.eq(a, b)
-    case M.FunctionCall{a} M.FunctionCall{b}: call(budget, a, b)
-    case M.FunctionOutput{id_a, a, error_a} M.FunctionOutput{id_b, b, error_b}:
+        json(budget, D.approval_reviewer_json(reviewer_a), D.approval_reviewer_json(reviewer_b)) &&
+        json(budget, D.approval_outcome_json(outcome_a), D.approval_outcome_json(outcome_b))
+    case D.UserMessage{a} D.UserMessage{b}: String.eq(a, b)
+    case D.AssistantMessage{a} D.AssistantMessage{b}: String.eq(a, b)
+    case D.FailureMessage{a} D.FailureMessage{b}: String.eq(a, b)
+    case D.FunctionCall{a} D.FunctionCall{b}: call(budget, a, b)
+    case D.FunctionOutput{id_a, a, error_a} D.FunctionOutput{id_b, b, error_b}:
       String.eq(id_a, id_b) && booleans(error_a, error_b) && json(budget, a, b)
-    case M.OperationResult{ticket_a, id_a, tool_a, a, error_a} M.OperationResult{ticket_b, id_b, tool_b, b, error_b}:
+    case D.OperationResult{ticket_a, id_a, tool_a, a, error_a} D.OperationResult{ticket_b, id_b, tool_b, b, error_b}:
       Nat.is_eq(ticket_a, ticket_b) && String.eq(id_a, id_b) && String.eq(tool_a, tool_b) &&
         booleans(error_a, error_b) && json(budget, a, b)
-    case M.ModelContext{a} M.ModelContext{b}: json(budget, a, b)
-    case M.ContextCheckpoint{a} M.ContextCheckpoint{b}: String.eq(a, b)
-    case M.ReasoningRecord{oa, ea, ra, sa} M.ReasoningRecord{ob, eb, rb, sb}:
+    case D.ModelContext{a} D.ModelContext{b}: json(budget, a, b)
+    case D.ContextCheckpoint{a} D.ContextCheckpoint{b}: String.eq(a, b)
+    case D.ReasoningRecord{oa, ea, ra, sa} D.ReasoningRecord{ob, eb, rb, sb}:
       Nat.is_eq(oa, ob) && String.eq(ea, eb) && Nat.is_eq(ra, rb) && booleans(sa, sb)
-    case M.ConfigurationUpdate{a} M.ConfigurationUpdate{b}: String.eq(a, b)
+    case D.ConfigurationUpdate{a} D.ConfigurationUpdate{b}: String.eq(a, b)
     case _ _: False{}
 
-def history(+budget: Nat, left: M.History, right: M.History) -> Bool:
+def history(+budget: Nat, left: D.History, right: D.History) -> Bool:
   match left right:
-    case M.EmptyHistory{} M.EmptyHistory{}: True{}
-    case M.HistoryNode{previous_a, a} M.HistoryNode{previous_b, b}:
+    case D.EmptyHistory{} D.EmptyHistory{}: True{}
+    case D.HistoryNode{previous_a, a} D.HistoryNode{previous_b, b}:
       message(budget, a, b) && history(budget, previous_a, previous_b)
     case _ _: False{}
 
-def drop_history(count: Nat, history: M.History) -> M.History:
+def drop_history(count: Nat, history: D.History) -> D.History:
   match count history:
     case 0n history: history
-    case 1n+p M.HistoryNode{previous, message}: drop_history(p, previous)
-    case _ _: M.EmptyHistory{}
+    case 1n+p D.HistoryNode{previous, message}: drop_history(p, previous)
+    case _ _: D.EmptyHistory{}
 
-def history_extends(budget: Nat, +previous: M.History, +candidate: M.History) -> Bool:
-  +before = M.history_length(previous)
-  +after = M.history_length(candidate)
+def history_extends(budget: Nat, +previous: D.History, +candidate: D.History) -> Bool:
+  +before = D.history_length(previous)
+  +after = D.history_length(candidate)
   Nat.is_le(before, after) && history(budget, previous, drop_history(Nat.sub(after, before), candidate))

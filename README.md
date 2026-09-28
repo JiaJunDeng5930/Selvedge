@@ -19,8 +19,11 @@ premises, not a parallel hierarchy of project-owned general algebra.
 
 [COMMANDS.bend](COMMANDS.bend) states what every command means. Its resolver owns
 the preconditions and produces an operation whose meaning fixes the complete
-post-state, reply, and effects. [MODEL.bend](MODEL.bend) defines the domain values,
-policy and client vocabulary. These three files are the conceptual entry.
+post-state, reply, and effects. [MODEL.bend](MODEL.bend) assembles the client
+vocabulary and system state. Task-domain values and policy primitives live in
+`bendlib/domain.bend`; [FEATURES.bend](FEATURES.bend) assembles independent feature
+state and input types. These entries distinguish component contracts from their
+application-wide composition.
 
 For implementation/proof details, [PROGRAM.bend](PROGRAM.bend) realizes the
 operations and runs bounded scheduling. [LAWS.bend](LAWS.bend) states the exact
@@ -44,6 +47,37 @@ provide finite-run simulation, partition and invariant lifting; the project prov
 the one-step and tape/journal correspondences. MAIN contains only the IO boundary.
 The shared proof gate rejects unsafe/foreign evidence even when a compiled kernel
 is cached; MAIN's separately reported foreign input and service loop are not proofs.
+
+## Component changes and proof reuse
+
+The task component quantifies over the type of surrounding feature state and
+effect payloads. Its implementation and local proofs do not import the assembled
+application model. `bendlib/component.bend` supplies product-state updates and
+complete decisions; `bendlib/reasoning-laws.bend` proves the production reasoning
+step for arbitrary surrounding types. `CONCEPTS.Harness.locality` additionally
+binds task updates, reasoning dispatch, board storage and board UI updates to
+their actual production paths, including both the intended update and preservation
+of unrelated state.
+
+Feature commands, queries, completions and effects cross stable outer categories.
+`bendlib/feature-*.bend` owns their resolution, interpretation, codecs, resource
+checks and proof composition. Adding a feature extends that assembly and the
+feature's own contracts. A shared-resource or scheduling change still requires
+its actual interaction proof. See [ADR 0023](docs/adr/0023-component-locality.md)
+for the supported changes and evidence boundaries.
+
+`surface.bend` supplies common presentation nodes; feature rendering and cursor
+serialization are assembled in `feature-view` and `feature-codec`. The universal
+UI and input decoder remain unchanged when the extension fixture adds its own
+view and round-tripping cursor state.
+
+`npm run check:components` checks actual source dependencies and private feature
+patterns against `components.json`; it runs during normal checks and builds,
+including cached builds. `npm run test:locality` freezes existing source files in
+temporary copies, extends state and component vocabularies, replaces a component
+without changing its contract or clients, and builds the unchanged native entry.
+It challenges the source and semantic checks separately.
+These checks constrain source changes, not human reading time or whole-build time.
 
 The existing standard-library proof terms and their checked translation live in
 [theory/README.md](theory/README.md). Normal builds need neither Rocq nor MetaRocq.

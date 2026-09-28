@@ -16,5 +16,5 @@ def implementation(tape: Spec.Tape) -> Spec.Tape:
 def actual(count: Nat, tape: Spec.Tape) -> Spec.Tape:
   Std.iter(~Spec.Tape, ~implementation, count, tape)
 
-def replay(+inputs: +List<M.Input>, world: M.World) -> M.World:
+def replay(+inputs: +List<M.Input>, world: M.World()) -> M.World():
   Spec.state(actual(List.length(&2, M.Input, inputs), Spec.Tape{world, inputs, Nil{}}))

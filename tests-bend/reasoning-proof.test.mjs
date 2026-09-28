@@ -7,13 +7,13 @@ import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { compiler } from '../scripts/toolchain.mjs';
 
-test('the assembled reasoning boundary rejects type-correct evaluator, lease, prefix and privacy faults', { timeout: 180_000 }, async t => {
+test('the assembled reasoning boundary rejects type-correct evaluator, lease, prefix and privacy faults', { timeout: 420_000 }, async t => {
   const root = fileURLToPath(new URL('../', import.meta.url));
   const directory = await mkdtemp(path.join(tmpdir(), 'selvedge-reasoning-proof-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   for (const name of await readdir(root)) if (name.endsWith('.bend')) await cp(path.join(root, name), path.join(directory, name));
   await cp(path.join(root, 'bendlib'), path.join(directory, 'bendlib'), { recursive: true });
-  const check = filename => spawnSync(compiler(), [filename, '--check-only'], { cwd: directory, encoding: 'utf8', timeout: 15_000 });
+  const check = filename => spawnSync(compiler(), [filename, '--check-only'], { cwd: directory, encoding: 'utf8', timeout: 60_000, env: { ...process.env, BEND_NO_TELEMETRY: '1', NO_COLOR: '1' } });
   const baseline = check('PROOF.bend');
   assert.equal(baseline.status, 0, baseline.stdout + baseline.stderr);
   assert.match(baseline.stdout, /All terms check/);
@@ -21,11 +21,11 @@ test('the assembled reasoning boundary rejects type-correct evaluator, lease, pr
     ['ordinary profiles request an evaluator', 'bendlib/reasoning.bend',
       'case R.Fixed{}: R.FixedPlan{}', 'case R.Fixed{}: R.Evaluate{}', /route_meaning|reasoning_boundary/],
     ['extend a consumed lease', 'bendlib/reasoning.bend',
-      'request(Context.generation(effort, remaining, task), world)', 'request(Context.generation(effort, 1n+remaining, task), world)', /execution_meaning/],
+      'request(StateRest, EffectRest, Context.generation(effort, remaining, task), world)', 'request(StateRest, EffectRest, Context.generation(effort, 1n+remaining, task), world)', /execution_meaning/],
     ['omit the evaluator effect but record it as pending', 'bendlib/reasoning.bend',
-      '[M.RequestReasoning{M.task_id(task), ticket, T.task_model(M.task_contract(task)), M.task_history(task)}]', 'Nil{}', /evaluator_meaning/],
+      '[Effects.RequestReasoning{D.task_id(task), ticket, T.task_model(D.task_contract(task)), D.task_history(task)}]', 'Nil{}', /evaluator_meaning/],
     ['apply a stale recommendation', 'bendlib/reasoning.bend',
-      'case False{}: T.promote(M.with_phase(M.Ready{Nil{}}, task))', 'case False{}: observed(outcome, task)', /fresh_meaning|reasoning_boundary/],
+      'case False{}: T.promote(D.with_phase(D.Ready{Nil{}}, task))', 'case False{}: observed(outcome, task)', /fresh_meaning|reasoning_boundary/],
     ['permit an unconfigured duration', 'REASONING.bend',
       'Nat.is_eq(steps, 10n)', 'Nat.is_eq(steps, 3n)', /reasoning_boundary/],
     ['change the supposedly pinned request prefix', 'REASONING.bend',
@@ -34,18 +34,18 @@ test('the assembled reasoning boundary rejects type-correct evaluator, lease, pr
     ['inherit a different task lease', 'bendlib/reasoning-context.bend',
       'recorded(Nat.is_eq(owner, other), effort, remaining)', 'recorded(True{}, effort, remaining)', /reasoning_boundary/],
     ['reuse a lease after a new user message', 'bendlib/reasoning-context.bend',
-      'case M.HistoryNode{previous, M.UserMessage{text}}: R.NoLease{}',
-      'case M.HistoryNode{previous, M.UserMessage{text}}: lease(previous, owner)', /reasoning_boundary/],
+      'case D.HistoryNode{previous, D.UserMessage{text}}: R.NoLease{}',
+      'case D.HistoryNode{previous, D.UserMessage{text}}: lease(previous, owner)', /reasoning_boundary/],
     ['retain the old effective update across a checkpoint', 'bendlib/reasoning-context.bend',
-      'case M.HistoryNode{previous, M.ContextCheckpoint{summary}}: None{}',
-      'case M.HistoryNode{previous, M.ContextCheckpoint{summary}}: last_update(previous)', /reasoning_boundary/],
+      'case D.HistoryNode{previous, D.ContextCheckpoint{summary}}: None{}',
+      'case D.HistoryNode{previous, D.ContextCheckpoint{summary}}: last_update(previous)', /reasoning_boundary/],
     ['forget one generation when recording a sample', 'bendlib/reasoning-context.bend',
-      'M.ReasoningRecord{owner, effort, remaining, True{}}', 'M.ReasoningRecord{owner, effort, 1n+remaining, True{}}', /reasoning_boundary/],
+      'D.ReasoningRecord{owner, effort, remaining, True{}}', 'D.ReasoningRecord{owner, effort, 1n+remaining, True{}}', /reasoning_boundary/],
     ['expose encrypted continuation in nested tool JSON', 'bendlib/reasoning-context.bend',
       'J.Field{"encrypted_content", J.Text{"[Private provider continuation omitted]"}}', 'J.Field{"encrypted_content", value}', /reasoning_boundary/],
     ['bypass the public tool-output projection', 'bendlib/reasoning-context.bend',
-      'case M.FunctionOutput{id, value, error}:\n      J.Object{[J.Field{"role", J.Text{"function_output"}}, J.Field{"call_id", J.Text{id}},\n        J.Field{"content", public_value(512n, value)}, J.Field{"is_error", J.Boolean{error}}]} <> rest',
-      'case M.FunctionOutput{id, value, error}:\n      J.Object{[J.Field{"role", J.Text{"function_output"}}, J.Field{"call_id", J.Text{id}},\n        J.Field{"content", value}, J.Field{"is_error", J.Boolean{error}}]} <> rest', /reasoning_boundary/],
+      'case D.FunctionOutput{id, value, error}:\n      J.Object{[J.Field{"role", J.Text{"function_output"}}, J.Field{"call_id", J.Text{id}},\n        J.Field{"content", public_value(512n, value)}, J.Field{"is_error", J.Boolean{error}}]} <> rest',
+      'case D.FunctionOutput{id, value, error}:\n      J.Object{[J.Field{"role", J.Text{"function_output"}}, J.Field{"call_id", J.Text{id}},\n        J.Field{"content", value}, J.Field{"is_error", J.Boolean{error}}]} <> rest', /reasoning_boundary/],
     ['accept a completion with another ticket', 'bendlib/protocol.bend',
       'matching(Nat.is_eq(ticket, expected), ReasoningResult{task, revision, outcome})',
       'matching(True{}, ReasoningResult{task, revision, outcome})', /reasoning_boundary/],

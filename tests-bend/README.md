@@ -4,6 +4,22 @@ The pure proof root is `PROOF.bend`. It checks the actual production import
 closure, the concept assembly, functional correspondence and state invariants.
 Tests do not maintain a second finite-example specification of those semantics.
 
+`locality.test.mjs` copies the actual current Bend sources and compares frozen
+files byte-for-byte after extension. It changes independent state and cursor
+representations, then adds a counter component through the feature assembly.
+That fixture extends commands, queries, completions, effects and navigation,
+checks the unchanged root proof, and runs a native decode/commit/query/effect
+encoding probe. Its notice is an effect intention; the fixture does not implement
+or claim to test a new host-side physical effect interpreter.
+
+The same suite separates structural and semantic faults. An unused global-model
+import or an unnecessary private feature case may preserve behavior and pass the
+proof, but must fail the actual-source checker. Discarded writes and reset
+remainders must remain type-correct in the operational root and fail the relevant
+proof. `scripts/check-components.mjs` also rejects missing sources, unsupported
+imports and incomplete boundary configuration. `npm test` bounds concurrent test
+files so native compilers and proof-mutation workers do not exhaust the machine.
+
 Board proof mutations require a pure production/UI type-check before rejecting
 the assembled proof. Board service tests cover real HTTP/SQLite, cancellation,
 upload authentication and order preservation through replay. File/text tests
@@ -14,6 +30,8 @@ when Chrome is unavailable instead of silently counting an unrun check as passed
 
 | Guarantee / fault model | Evidence owner |
 | --- | --- |
+| Complete local updates and arbitrary unrelated-state preservation, bound to actual task/board/UI functions | `task-laws.bend`, `reasoning-laws.bend`, `feature-frame.bend`, `feature-ui-laws.bend`, `locality.bend`, required by `CONCEPTS.Harness.locality` |
+| Concrete core imports, case/binding representation dependencies, matching-cache rejection, unchanged clients after non-definitional replacement and feature extension, native cursor round trips and feature rendering | `components.json`, `scripts/check-components.mjs`, `locality.test.mjs` and its isolated extension fixture; the full extension builds frozen `MAIN.bend` and uses the actual `Kernel` transport |
 | Commands, queue order, task lifecycle, branch inheritance, control/operation separation and recovery semantics | `LAWS.bend`, `INVARIANTS.bend`, `bendlib/architecture.bend`, discharged by `bendlib/proofs/*` and assembled in `PROOF.bend` |
 | Ordered before/after authorization and result settlement, call/error identity, audit projection | `HOOKS.bend`, `architecture.PluginBoundary` / `ResultBoundary`, `proofs/plugins.bend` / `results.bend` |
 | Adaptive routing, bounded generation leases, frozen prefix, public evaluator projection and ticket/revision correlation | `REASONING.bend`, `reasoning-spec.bend`, `reasoning-architecture.ReasoningBoundary`, discharged by `proofs/reasoning.bend` in the production proof root |

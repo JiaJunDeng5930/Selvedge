@@ -1195,3 +1195,47 @@ The final full run passed 219 tests with no skips; the real-browser run passed
 all eight check groups with no browser exceptions. These use local fixture
 services and an isolated browser profile. No live Jev or commercial ChatGPT
 request, decision-quality measurement or cache-savings measurement was made.
+
+## Component locality: testing actual boundaries
+
+Separating `World` into a task component and a parameterized remainder removed
+the unrelated record-field edits, but the first extension fixture still missed a
+boundary. It checked cursor updates in memory while the universal wire decoder
+recreated every cursor from its board projection. A new component's cursor was
+therefore reset on its next request. Cursor field encoding, decoding, validation
+and clock observation now belong to feature assembly. Shared surface types live
+below both renderers, so adding a feature view does not require a UI dependency
+cycle. The extension test builds the unchanged `MAIN.bend` and checks actual
+transport, rendering, refresh and board-navigation round trips.
+
+The task-storage replacement experiment appends the empty list to an unknown
+task list. It intentionally preserves meaning without preserving definitional
+equality. Its component proof uses the existing `Std.app_nil_r` certificate. This
+exposed a protocol client proof that reconstructed the concrete task update; it
+now applies congruence to the storage operation. The permanent fixture changes
+only task implementation and its local provider, first checks that the old local
+proof rejects the changed definition, then checks that the new local proof
+restores the complete root while all clients remain frozen. This extra append is
+a proof-boundary probe, not a production optimization.
+
+Bend distinguishes affine and reusable function parameters even for the same
+data types. Passing named rendering functions as callbacks required pointwise
+lambda adapters rather than assuming their quantity annotations were identical.
+The callbacks connect existing pure rendering to feature assembly, not to an
+independent behavioral specification that could silently become circular.
+
+Full native compilation exceeded the old fixture's 120-second synchronous limit.
+Native builds now have a separate bounded asynchronous step and cancellation
+terminates its compiler process group. A native entry's exact three declared IO
+boundary diagnostics are accepted only for that entry; the separate proof root
+still requires the pure-success report. Compiler timeout remains a failed test,
+never evidence of semantic rejection. ADR 0023 and `tests-bend/README.md` describe
+the supported changes and the division between proof and boundary-test evidence.
+
+Completion validation on the pinned Bend 2.0.27 toolchain: the full `npm test`
+run passed all 260 tests with zero failures and zero skips; the subsequently
+added matching-cache regression also passed separately. `npm run check` and the
+tracked-file index check passed. The real-browser checks passed eight general UI
+groups and eleven board groups. These runs used isolated local services and
+browser profiles. The integration suite required normal macOS process permissions
+so Selvedge could start its own Seatbelt sandbox; that isolation was not disabled.

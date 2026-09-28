@@ -1,6 +1,6 @@
 import Base
+import ./bendlib/domain.bend as D
 import ./REASONING.bend as Reasoning
-import ./MODEL.bend as M
 import ./bendlib/json.bend as J
 import ./bendlib/schema.bend as Schema
 
@@ -26,67 +26,67 @@ def primary_member(roots: +List<String>, primary: Maybe<&2, String>) -> Bool:
     case Con{root, rest} Some{primary}: Schema.contains(root <> rest, primary)
     case _ _: False{}
 
-def valid(workspace: M.Workspace) -> Bool:
-  M.Workspace{+roots, primary} = workspace
+def valid(workspace: D.Workspace) -> Bool:
+  D.Workspace{+roots, primary} = workspace
   Nat.is_le(List.length(&2, String, roots), 32n) && valid_roots(roots) && primary_member(roots, primary)
 
-def primary(workspace: M.Workspace) -> Maybe<&2, String>:
-  M.Workspace{roots, primary} = workspace
+def primary(workspace: D.Workspace) -> Maybe<&2, String>:
+  D.Workspace{roots, primary} = workspace
   primary
 
-def roots(workspace: M.Workspace) -> +List<String>:
-  M.Workspace{roots, primary} = workspace
+def roots(workspace: D.Workspace) -> +List<String>:
+  D.Workspace{roots, primary} = workspace
   roots
 
-def workspace(context: M.TaskContext) -> M.Workspace:
-  M.TaskContext{workspace, sandbox, approval, project_id} = context
+def workspace(context: D.TaskContext) -> D.Workspace:
+  D.TaskContext{workspace, sandbox, approval, project_id} = context
   workspace
 
-def sandbox(context: M.TaskContext) -> M.Sandbox:
-  M.TaskContext{workspace, sandbox, approval, project_id} = context
+def sandbox(context: D.TaskContext) -> D.Sandbox:
+  D.TaskContext{workspace, sandbox, approval, project_id} = context
   sandbox
 
-def approval(context: M.TaskContext) -> M.ApprovalPolicy:
-  M.TaskContext{workspace, sandbox, approval, project_id} = context
+def approval(context: D.TaskContext) -> D.ApprovalPolicy:
+  D.TaskContext{workspace, sandbox, approval, project_id} = context
   approval
 
-def project_id(context: M.TaskContext) -> Maybe<&2, Nat>:
-  M.TaskContext{workspace, sandbox, approval, project_id} = context
+def project_id(context: D.TaskContext) -> Maybe<&2, Nat>:
+  D.TaskContext{workspace, sandbox, approval, project_id} = context
   project_id
 
-def valid_reviewer_profile(profile: M.Profile) -> Bool:
-  M.Profile{key, provider, name, reasoning} = profile
-  M.nonempty(key) && M.nonempty(provider) && M.nonempty(name) && Bool.not(Reasoning.automatic(reasoning))
+def valid_reviewer_profile(profile: D.Profile) -> Bool:
+  D.Profile{key, provider, name, reasoning} = profile
+  D.nonempty(key) && D.nonempty(provider) && D.nonempty(name) && Bool.not(Reasoning.automatic(reasoning))
 
-def valid_approval(policy: M.ApprovalPolicy) -> Bool:
+def valid_approval(policy: D.ApprovalPolicy) -> Bool:
   match policy:
-    case M.ApprovalForMe{profile}: valid_reviewer_profile(profile)
+    case D.ApprovalForMe{profile}: valid_reviewer_profile(profile)
     case _: True{}
 
-def valid_context(context: M.TaskContext) -> Bool:
-  M.TaskContext{workspace, sandbox, approval, project_id} = context
+def valid_context(context: D.TaskContext) -> Bool:
+  D.TaskContext{workspace, sandbox, approval, project_id} = context
   valid(workspace) && valid_approval(approval)
 
-def valid_guidance(guidance: M.ProjectContext) -> Bool:
+def valid_guidance(guidance: D.ProjectContext) -> Bool:
   match guidance:
-    case M.NoProject{}: True{}
-    case M.ProjectContext{+workspace, +revision, +instructions}:
-      valid_path(workspace) && Nat.is_le(J.utf8_length(instructions), M.project_limit()) &&
+    case D.NoProject{}: True{}
+    case D.ProjectContext{+workspace, +revision, +instructions}:
+      valid_path(workspace) && Nat.is_le(J.utf8_length(instructions), D.project_limit()) &&
         ((String.eq(revision, "absent") && String.eq(instructions, "")) || Nat.is_eq(J.utf8_length(revision), 64n))
 
-def guidance_member(primary: Maybe<&2, String>, guidance: M.ProjectContext) -> Bool:
+def guidance_member(primary: Maybe<&2, String>, guidance: D.ProjectContext) -> Bool:
   match primary guidance:
-    case _ M.NoProject{}: True{}
-    case Some{primary} M.ProjectContext{root, revision, text}: String.eq(primary, root)
+    case _ D.NoProject{}: True{}
+    case Some{primary} D.ProjectContext{root, revision, text}: String.eq(primary, root)
     case _ _: False{}
 
-def default_workspace(guidance: M.ProjectContext) -> M.Workspace:
+def default_workspace(guidance: D.ProjectContext) -> D.Workspace:
   match guidance:
-    case M.NoProject{}: M.Workspace{Nil{}, None{}}
-    case M.ProjectContext{+root, revision, text}: M.Workspace{[root], Some{root}}
+    case D.NoProject{}: D.Workspace{Nil{}, None{}}
+    case D.ProjectContext{+root, revision, text}: D.Workspace{[root], Some{root}}
 
-def defaults(guidance: M.ProjectContext) -> M.TaskContext:
-  M.TaskContext{default_workspace(guidance), M.Sandbox{M.WorkspaceWrite{}, False{}}, M.AskForApproval{}, None{}}
+def defaults(guidance: D.ProjectContext) -> D.TaskContext:
+  D.TaskContext{default_workspace(guidance), D.Sandbox{D.WorkspaceWrite{}, False{}}, D.AskForApproval{}, None{}}
 
 def texts(values: +List<J.Json>) -> +List<String>:
   match values:
@@ -103,12 +103,12 @@ def selected_primary(value: J.Json, roots: +List<String>) -> Maybe<&2, String>:
     case J.Text{text}: Some{text}
     case _: List.head(&2, String, roots)
 
-def read_workspace(value: J.Json, fallback: M.Workspace) -> M.Workspace:
+def read_workspace(value: J.Json, fallback: D.Workspace) -> D.Workspace:
   match value:
     case J.Null{}: fallback
     case +value:
       +roots = texts(J.items(J.get(value, "roots")))
-      M.Workspace{roots, selected_primary(J.get(value, "primary_root"), roots)}
+      D.Workspace{roots, selected_primary(J.get(value, "primary_root"), roots)}
 
 def text_or(value: J.Json, fallback: String) -> String:
   match value:
@@ -120,87 +120,87 @@ def boolean_or(value: J.Json, fallback: Bool) -> Bool:
     case J.Boolean{value}: value
     case _: fallback
 
-def selected_sandbox(mode: String, network: Bool) -> Result<&2, &2, String, M.Sandbox>:
+def selected_sandbox(mode: String, network: Bool) -> Result<&2, &2, String, D.Sandbox>:
   match mode:
-    case "workspace-write": Done{M.Sandbox{M.WorkspaceWrite{}, network}}
-    case "read-only": Done{M.Sandbox{M.ReadOnly{}, network}}
+    case "workspace-write": Done{D.Sandbox{D.WorkspaceWrite{}, network}}
+    case "read-only": Done{D.Sandbox{D.ReadOnly{}, network}}
     case _: Fail{"Sandbox mode must be workspace-write or read-only"}
 
-def read_sandbox(value: J.Json, fallback: M.Sandbox) -> Result<&2, &2, String, M.Sandbox>:
+def read_sandbox(value: J.Json, fallback: D.Sandbox) -> Result<&2, &2, String, D.Sandbox>:
   match value:
     case J.Null{}: Done{fallback}
     case +value:
-      M.Sandbox{mode, network} = fallback
-      selected_sandbox(text_or(J.get(value, "mode"), M.sandbox_mode_name(mode)),
+      D.Sandbox{mode, network} = fallback
+      selected_sandbox(text_or(J.get(value, "mode"), D.sandbox_mode_name(mode)),
         boolean_or(J.get(value, "network_access"), network))
 
-def ordinary_reviewer(automatic: Bool, profile: M.Profile) -> Result<&2, &2, String, M.ApprovalPolicy>:
+def ordinary_reviewer(automatic: Bool, profile: D.Profile) -> Result<&2, &2, String, D.ApprovalPolicy>:
   match automatic:
     case True{}: Fail{"An approval reviewer requires an ordinary profile; automatic reasoning is configured for task generations, not approval judgments"}
-    case False{}: Done{M.ApprovalForMe{profile}}
+    case False{}: Done{D.ApprovalForMe{profile}}
 
-def reviewer(found: Maybe<&2, M.Profile>) -> Result<&2, &2, String, M.ApprovalPolicy>:
+def reviewer(found: Maybe<&2, D.Profile>) -> Result<&2, &2, String, D.ApprovalPolicy>:
   match found:
     case None{}: Fail{"Approval for me requires a configured reviewer profile"}
-    case Some{+profile}: ordinary_reviewer(Reasoning.automatic(M.profile_reasoning(profile)), profile)
+    case Some{+profile}: ordinary_reviewer(Reasoning.automatic(D.profile_reasoning(profile)), profile)
 
-def selected_approval(mode: String, key: String, profiles: +List<M.Profile>) -> Result<&2, &2, String, M.ApprovalPolicy>:
+def selected_approval(mode: String, key: String, profiles: +List<D.Profile>) -> Result<&2, &2, String, D.ApprovalPolicy>:
   match mode:
-    case "full-access": Done{M.FullAccess{}}
-    case "ask-for-approval": Done{M.AskForApproval{}}
-    case "approval-for-me": reviewer(M.find_profile(profiles, key))
+    case "full-access": Done{D.FullAccess{}}
+    case "ask-for-approval": Done{D.AskForApproval{}}
+    case "approval-for-me": reviewer(D.find_profile(profiles, key))
     case _: Fail{"Approval mode must be full-access, ask-for-approval, or approval-for-me"}
 
-def read_approval(value: J.Json, fallback: M.ApprovalPolicy, profile: M.Profile,
-  profiles: +List<M.Profile>) -> Result<&2, &2, String, M.ApprovalPolicy>:
+def read_approval(value: J.Json, fallback: D.ApprovalPolicy, profile: D.Profile,
+  profiles: +List<D.Profile>) -> Result<&2, &2, String, D.ApprovalPolicy>:
   match value:
     case J.Null{}: Done{fallback}
     case +value:
-      M.Profile{key, provider, name, reasoning} = profile
+      D.Profile{key, provider, name, reasoning} = profile
       selected_approval(J.text(J.get(value, "mode")), text_or(J.get(value, "reviewer_profile"), key), profiles)
 
-def retained_guidance(same: Bool, guidance: M.ProjectContext) -> M.ProjectContext:
+def retained_guidance(same: Bool, guidance: D.ProjectContext) -> D.ProjectContext:
   match same:
     case True{}: guidance
-    case False{}: M.NoProject{}
+    case False{}: D.NoProject{}
 
-def read_guidance(value: J.Json, workspace: M.Workspace, +fallback: M.ProjectContext) -> M.ProjectContext:
+def read_guidance(value: J.Json, workspace: D.Workspace, +fallback: D.ProjectContext) -> D.ProjectContext:
   match value:
     case J.Null{}: retained_guidance(guidance_member(primary(workspace), fallback), fallback)
     case +value:
-      M.ProjectContext{J.text(J.get(value, "workspace")), J.text(J.get(value, "revision")), J.text(J.get(value, "instructions"))}
+      D.ProjectContext{J.text(J.get(value, "workspace")), J.text(J.get(value, "revision")), J.text(J.get(value, "instructions"))}
 
 type Selection is Data:
-  Selection{context: M.TaskContext, guidance: M.ProjectContext}
+  Selection{context: D.TaskContext, guidance: D.ProjectContext}
 
 def accepted(valid: Bool, selection: Selection) -> Result<&2, &2, String, Selection>:
   match valid:
     case True{}: Done{selection}
     case False{}: Fail{"Workspace roots must be canonical absolute directories with a member primary root and matching bounded guidance"}
 
-def selected(sandbox: Result<&2, &2, String, M.Sandbox>, approval: Result<&2, &2, String, M.ApprovalPolicy>,
-  +workspace: M.Workspace, project_id: Maybe<&2, Nat>, +guidance: M.ProjectContext) -> Result<&2, &2, String, Selection>:
+def selected(sandbox: Result<&2, &2, String, D.Sandbox>, approval: Result<&2, &2, String, D.ApprovalPolicy>,
+  +workspace: D.Workspace, project_id: Maybe<&2, Nat>, +guidance: D.ProjectContext) -> Result<&2, &2, String, Selection>:
   match sandbox approval:
     case Fail{reason} _: Fail{reason}
     case _ Fail{reason}: Fail{reason}
     case Done{sandbox} Done{+approval}:
       accepted(valid(workspace) && valid_approval(approval) && valid_guidance(guidance) && guidance_member(primary(workspace), guidance),
-        Selection{M.TaskContext{workspace, sandbox, approval, project_id}, guidance})
+        Selection{D.TaskContext{workspace, sandbox, approval, project_id}, guidance})
 
-def resolve_checked(valid: Bool, +options: J.Json, base: M.TaskContext, guidance: M.ProjectContext,
-  profile: M.Profile, profiles: +List<M.Profile>) -> Result<&2, &2, String, Selection>:
+def resolve_checked(valid: Bool, +options: J.Json, base: D.TaskContext, guidance: D.ProjectContext,
+  profile: D.Profile, profiles: +List<D.Profile>) -> Result<&2, &2, String, Selection>:
   match valid:
     case False{}: Fail{"Task settings do not satisfy the declared schema"}
     case True{}:
-      M.TaskContext{workspace, sandbox, approval, project_id} = base
+      D.TaskContext{workspace, sandbox, approval, project_id} = base
       +workspace = read_workspace(J.get(options, "workspace"), workspace)
       selected(read_sandbox(J.get(options, "sandbox"), sandbox),
         read_approval(J.get(options, "approval"), approval, profile, profiles), workspace, project_id,
         read_guidance(J.get(options, "guidance"), workspace, guidance))
 
-def resolve(+options: J.Json, base: M.TaskContext, guidance: M.ProjectContext,
-  profile: M.Profile, profiles: +List<M.Profile>) -> Result<&2, &2, String, Selection>:
-  resolve_checked(absent(options) || Schema.valid(M.task_settings_schema(), options), options, base, guidance, profile, profiles)
+def resolve(+options: J.Json, base: D.TaskContext, guidance: D.ProjectContext,
+  profile: D.Profile, profiles: +List<D.Profile>) -> Result<&2, &2, String, Selection>:
+  resolve_checked(absent(options) || Schema.valid(D.task_settings_schema(), options), options, base, guidance, profile, profiles)
 
 # Directory inclusion is used only on admitted canonical observations. A model
 # may delegate equal or narrower authority, never gain permissions through fork.
@@ -217,43 +217,43 @@ def roots_within(children: +List<String>, +parents: +List<String>) -> Bool:
     case Nil{}: True{}
     case Con{child, rest}: covered(child, parents) && roots_within(rest, parents)
 
-def profile_same(a: M.Profile, b: M.Profile) -> Bool:
-  M.Profile{key_a, provider_a, name_a, reasoning_a} = a
-  M.Profile{key_b, provider_b, name_b, reasoning_b} = b
+def profile_same(a: D.Profile, b: D.Profile) -> Bool:
+  D.Profile{key_a, provider_a, name_a, reasoning_a} = a
+  D.Profile{key_b, provider_b, name_b, reasoning_b} = b
   String.eq(key_a, key_b) && String.eq(provider_a, provider_b) && String.eq(name_a, name_b) && Reasoning.same(reasoning_a, reasoning_b)
 
-def review_no_broader(child: M.ApprovalPolicy, parent: M.ApprovalPolicy) -> Bool:
+def review_no_broader(child: D.ApprovalPolicy, parent: D.ApprovalPolicy) -> Bool:
   match child parent:
-    case _ M.FullAccess{}: True{}
-    case M.AskForApproval{} _: True{}
-    case M.ApprovalForMe{a} M.ApprovalForMe{b}: profile_same(a, b)
+    case _ D.FullAccess{}: True{}
+    case D.AskForApproval{} _: True{}
+    case D.ApprovalForMe{a} D.ApprovalForMe{b}: profile_same(a, b)
     case _ _: False{}
 
-def writes_no_broader(child: M.SandboxMode, parent: M.SandboxMode, child_roots: +List<String>, parent_roots: +List<String>) -> Bool:
+def writes_no_broader(child: D.SandboxMode, parent: D.SandboxMode, child_roots: +List<String>, parent_roots: +List<String>) -> Bool:
   match child parent:
-    case M.ReadOnly{} _: True{}
-    case M.WorkspaceWrite{} M.WorkspaceWrite{}: roots_within(child_roots, parent_roots)
+    case D.ReadOnly{} _: True{}
+    case D.WorkspaceWrite{} D.WorkspaceWrite{}: roots_within(child_roots, parent_roots)
     case _ _: False{}
 
-def delegated_policy(parent: M.ApprovalPolicy, child: M.TaskContext, parent_workspace: M.Workspace, parent_sandbox: M.Sandbox) -> Bool:
+def delegated_policy(parent: D.ApprovalPolicy, child: D.TaskContext, parent_workspace: D.Workspace, parent_sandbox: D.Sandbox) -> Bool:
   match parent:
-    case M.FullAccess{}: True{}
+    case D.FullAccess{}: True{}
     case +parent:
-      M.TaskContext{M.Workspace{child_roots, child_primary}, M.Sandbox{child_mode, child_network}, child_approval, project_id} = child
-      M.Sandbox{parent_mode, parent_network} = parent_sandbox
+      D.TaskContext{D.Workspace{child_roots, child_primary}, D.Sandbox{child_mode, child_network}, child_approval, project_id} = child
+      D.Sandbox{parent_mode, parent_network} = parent_sandbox
       (Bool.not(child_network) || parent_network) &&
         writes_no_broader(child_mode, parent_mode, child_roots, roots(parent_workspace)) && review_no_broader(child_approval, parent)
 
-def may_delegate(child: M.TaskContext, parent: M.TaskContext) -> Bool:
-  M.TaskContext{workspace, sandbox, approval, project_id} = parent
+def may_delegate(child: D.TaskContext, parent: D.TaskContext) -> Bool:
+  D.TaskContext{workspace, sandbox, approval, project_id} = parent
   delegated_policy(approval, child, workspace, sandbox)
 
-def full_access(policy: M.ApprovalPolicy) -> Bool:
+def full_access(policy: D.ApprovalPolicy) -> Bool:
   match policy:
-    case M.FullAccess{}: True{}
+    case D.FullAccess{}: True{}
     case _: False{}
 
-def default_access(context: M.TaskContext) -> M.ExecutionAccess:
+def default_access(context: D.TaskContext) -> D.ExecutionAccess:
   match context:
-    case M.TaskContext{workspace, sandbox, M.FullAccess{}, project_id}: M.Unrestricted{}
-    case _: M.Sandboxed{}
+    case D.TaskContext{workspace, sandbox, D.FullAccess{}, project_id}: D.Unrestricted{}
+    case _: D.Sandboxed{}

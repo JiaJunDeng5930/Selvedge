@@ -1,10 +1,11 @@
 import Base
+import ./bendlib/locality.bend as Locality
 import ./bendlib/architecture.bend as A
 import ./bendlib/reachability.bend as Reach
 import ./bendlib/workspace-architecture.bend as Workspace
 import ./bendlib/approval-architecture.bend as Approval
 import ./bendlib/reasoning-architecture.bend as Reasoning
-import ./bendlib/board-architecture.bend as Board
+import ./bendlib/feature-architecture.bend as Features
 
 # Selvedge is a persistent command/effect protocol. Start with Harness below.
 # COMMANDS defines requested behavior; MODEL names the domain; UI defines the
@@ -70,7 +71,7 @@ type Harness is Type:
   Harness{meaning: Meaning, composition: Composition, recovery: Recovery,
     observation: Observation, concurrency: Concurrency, extensibility: Extensibility,
     working_context: Workspace.ContextBoundary, approval: Approval.ApprovalBoundary,
-    reasoning: Reasoning.ReasoningBoundary, board: Board.BoardBoundary}
+    reasoning: Reasoning.ReasoningBoundary, features: Features.Features, locality: Locality.Locality}
 
 # Construction is mandatory in PROOF. No field is an unproved assertion.
 # The OS/network/SQLite effect interpreter is an explicit external boundary;

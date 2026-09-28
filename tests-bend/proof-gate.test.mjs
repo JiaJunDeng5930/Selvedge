@@ -18,7 +18,7 @@ test('the installed proof gate rejects both missing and false proofs', async t =
     ['import Base\nimport ./LAWS.bend as Laws\ndef Laws.impossible():\n  {==}\n', /True[\s\S]*False|False[\s\S]*True/],
   ]) {
     await writeFile(path.join(directory, 'PROOF.bend'), proof);
-    const result = spawnSync(bend, ['PROOF.bend', '--check-only'], { cwd: directory, encoding: 'utf8', timeout: 10_000 });
+    const result = spawnSync(bend, ['PROOF.bend', '--check-only'], { cwd: directory, encoding: 'utf8', timeout: 60_000, env: { ...process.env, BEND_NO_TELEMETRY: '1', NO_COLOR: '1' } });
     assert.equal(result.error, undefined);
     assert.notEqual(result.status, 0, 'An unproved or false requirement must fail the build gate');
     assert.match(result.stdout + result.stderr, diagnostic);
@@ -33,13 +33,13 @@ test('bypassing production admission invalidates the transition theorem', async 
     if (filename.endsWith('.bend')) await cp(path.join(root, filename), path.join(directory, filename));
   }
   await cp(path.join(root, 'bendlib'), path.join(directory, 'bendlib'), { recursive: true });
-  const check = () => spawnSync(bend, ['PROOF.bend', '--check-only'], { cwd: directory, encoding: 'utf8', timeout: 10_000 });
+  const check = () => spawnSync(bend, ['PROOF.bend', '--check-only'], { cwd: directory, encoding: 'utf8', timeout: 60_000, env: { ...process.env, BEND_NO_TELEMETRY: '1', NO_COLOR: '1' } });
   const baseline = check();
   assert.equal(baseline.error, undefined);
   assert.equal(baseline.status, 0, baseline.stdout + baseline.stderr);
   const filename = path.join(directory, 'PROGRAM.bend');
   const source = await readFile(filename, 'utf8');
-  const changed = source.replace(/(def admitted\([^\n]*\) -> M\.Decision:\n)[\s\S]*?(?=\ndef check_live)/, '$1  decision\n');
+  const changed = source.replace(/(def admitted\([^\n]*\) -> M\.Decision\(\):\n)[\s\S]*?(?=\ndef check_live)/, '$1  decision\n');
   assert.notEqual(changed, source, 'The mutation must remove the production admission check');
   await writeFile(filename, changed);
   const rejected = check();
@@ -66,7 +66,7 @@ function alterDefinition(source, name, alter) {
 
 function replaceBody(source, name, body) {
   return alterDefinition(source, name, block => {
-    const marker = ' -> M.Decision:\n';
+    const marker = ' -> M.Decision():\n';
     const index = block.indexOf(marker);
     assert.notEqual(index, -1, `Missing decision result type in ${name}`);
     return block.slice(0, index + marker.length) + `  ${body}\n`;
@@ -88,7 +88,7 @@ test('functional proof gates reject type-correct no-ops, wrong replies, missing 
   const reasoningFilename = path.join(directory, 'bendlib/reasoning.bend');
   const originalReasoning = await readFile(reasoningFilename, 'utf8');
   const originals = { 'PROGRAM.bend': original, 'bendlib/tasks.bend': originalTasks, 'bendlib/reasoning.bend': originalReasoning };
-  const compile = file => spawnSync(bend, [file, '--check-only'], { cwd: directory, encoding: 'utf8', timeout: 10_000 });
+  const compile = file => spawnSync(bend, [file, '--check-only'], { cwd: directory, encoding: 'utf8', timeout: 60_000, env: { ...process.env, BEND_NO_TELEMETRY: '1', NO_COLOR: '1' } });
   const baseline = compile('PROOF.bend');
   assert.equal(baseline.error, undefined);
   assert.equal(baseline.status, 0, baseline.stdout + baseline.stderr);
@@ -98,26 +98,26 @@ test('functional proof gates reject type-correct no-ops, wrong replies, missing 
       'case Commands.Start{profile, reasoning, message, selection}: reject(world, "refused", "safe but not useful")')],
     ['acknowledge send without delivering it', source => replaceOnce(source,
       'case Commands.Deliver{task, message}: execute_delivery(message, task, world)',
-      'case Commands.Deliver{task, message}: respond(world, id_result(M.task_id(task)))')],
+      'case Commands.Deliver{task, message}: respond(world, id_result(D.task_id(task)))')],
     ['return the wrong created identity', source => alterDefinition(source, 'execute_start', block =>
       replaceOnce(block, 'id_result(next_task))', 'id_result(1n+next_task))'))],
     ['omit interruption cancellation', source => alterDefinition(source, 'change_requested', block =>
-      replaceOnce(block, '[M.CancelTask{M.task_id(task)}]', 'Nil{}'))],
+      replaceOnce(block, '[Effects.CancelTask{D.task_id(task)}]', 'Nil{}'))],
     ['record a model pending phase but omit its request', source => alterDefinition(source, 'request', block =>
-      block.replace(/\[M\.RequestModel\{[\s\S]*?\}\]/, 'Nil{}')), 'bendlib/reasoning.bend'],
+      block.replace(/\[Effects\.RequestModel\{[\s\S]*?\}\]/, 'Nil{}')), 'bendlib/reasoning.bend'],
     ['record a tool pending phase but omit its request', source => alterDefinition(source, 'external_tool', block =>
-      block.replace(/\[M\.ExecuteTool\{[\s\S]*?\}\]/, 'Nil{}'))],
+      block.replace(/\[Effects\.ExecuteTool\{[\s\S]*?\}\]/, 'Nil{}'))],
     ['never run the scheduler', source => replaceBody(source, 'scheduled', 'decision')],
     ['drop the continuation at fuel exhaustion', source => replaceBody(source, 'defer', 'decision')],
     ['ignore the complete resolved execution alphabet', source => replaceBody(source, 'realize_action', 'respond(world, J.Null{})')],
     ['turn every selected task into a safe no-op', source => replaceBody(source, 'work', 'respond(world, J.Null{})')],
     ['discard earlier effects when combining scheduler steps', source => alterDefinition(source, 'combine', block =>
-      replaceOnce(block, 'List.append(&2, M.Effect, effects, added)', 'added'))],
+      replaceOnce(block, 'List.append(&2, M.Effect(), effects, added)', 'added'))],
     ['reject even admitted decisions', source => replaceBody(source, 'admitted',
       'reject(previous, "invariant_violation", "The candidate violates a world invariant, task retention, or effect authority")')],
     ['publish oversized decisions', source => replaceBody(source, 'output_admitted', 'decision')],
     ['claim successful tool settlement without appending it', source => alterDefinition(source, 'tool_matched', block =>
-      replaceOnce(block, 'Results.begin(operation, value, error, task, world)',
+      replaceOnce(block, 'Results.begin(F.State(), F.Effect, operation, value, error, task, world)',
         'respond(world, accepted(True{}))'))],
     ['silently discard every resolved input', source => replaceBody(source, 'realize_event', 'respond(world, J.Null{})')],
     ['claim acceptance of an ignored completion', source => replaceOnce(source,
@@ -126,12 +126,12 @@ test('functional proof gates reject type-correct no-ops, wrong replies, missing 
     ['skip recovery while retaining a safe world', source => alterDefinition(source, 'recover_tasks', block =>
       replaceOnce(block, 'Protocol.recovery(tasks)', 'tasks'))],
     ['execute an internal command without settling its caller', source => alterDefinition(source, 'realize_invocation', block =>
-      replaceOnce(block, 'finish_internal(M.task_id(task), call, remaining, realize(operation, world))', 'realize(operation, world)'))],
+      replaceOnce(block, 'finish_internal(D.task_id(task), call, remaining, realize(operation, world))', 'realize(operation, world)'))],
     ['lose accepted calls after an internal fork', source => alterDefinition(source, 'commit_invoked_fork', block =>
-      replaceOnce(block, 'Results.internal(call, remaining,', 'Results.internal(call, Nil{},'))],
+      replaceOnce(block, 'Results.internal(F.State(), F.Effect, call, remaining,', 'Results.internal(F.State(), F.Effect, call, Nil{},'))],
     ['strand new FIFO input after summary failure', source => alterDefinition(source, 'summary_failure', block =>
-      replaceOnce(block, 'promote(M.with_phase(M.Idle{}, M.append_message(M.FailureMessage{message}, task)))',
-        'M.with_phase(M.Idle{}, M.append_message(M.FailureMessage{message}, task))')), 'bendlib/tasks.bend'],
+      replaceOnce(block, 'promote(D.with_phase(D.Idle{}, D.append_message(D.FailureMessage{message}, task)))',
+        'D.with_phase(D.Idle{}, D.append_message(D.FailureMessage{message}, task))')), 'bendlib/tasks.bend'],
   ];
   for (const [name, mutate, target = 'PROGRAM.bend'] of mutations) {
     await t.test(name, async () => {

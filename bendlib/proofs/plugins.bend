@@ -1,4 +1,7 @@
 import Base
+import ../effects.bend as Effects
+import ../component.bend as C
+import ../domain.bend as D
 import ../../MODEL.bend as M
 import ../../PROGRAM.bend as P
 import ../../LAWS.bend as Laws
@@ -18,7 +21,7 @@ def Laws.hook_before_route(plugin, pending, tool, call, remaining, task, world):
   {==}
 
 def Laws.hook_rewrite_identity(call, arguments):
-  M.Call{id, name, original} = call
+  D.Call{id, name, original} = call
   ({==}, {==})
 
 def Laws.hook_rejected_is_absorbing(plugin, outcome):
@@ -40,61 +43,61 @@ def Laws.hook_record_order(expected, actual, call, pending, outcome):
 
 def Laws.event_kind_roundtrip(kind):
   match kind:
-    case M.TaskCreated{}: {==}
-    case M.TaskChanged{}: {==}
-    case M.ModelStarted{}: {==}
-    case M.ModelSettled{}: {==}
-    case M.ToolRequested{}: {==}
-    case M.ToolDispatched{}: {==}
-    case M.ToolSettled{}: {==}
-    case M.HookSettled{}: {==}
-    case M.Recovered{}: {==}
-    case M.Configured{}: {==}
+    case D.TaskCreated{}: {==}
+    case D.TaskChanged{}: {==}
+    case D.ModelStarted{}: {==}
+    case D.ModelSettled{}: {==}
+    case D.ToolRequested{}: {==}
+    case D.ToolDispatched{}: {==}
+    case D.ToolSettled{}: {==}
+    case D.HookSettled{}: {==}
+    case D.Recovered{}: {==}
+    case D.Configured{}: {==}
 
 def Laws.child_return_serialization(owner, id, branch):
   {==}
 
-def self(+decision: M.Decision) -> Laws.ObservationExtension<decision, decision>:
+def self(+decision: M.Decision()) -> Laws.ObservationExtension<decision, decision>:
   Laws.ObservationExtension{{==}, {==}, {==}}
 
-def core_append(effects: +List<M.Effect>, +events: +List<M.Notice>) ->
-  {N.core(List.append(&2, M.Effect, effects, [M.NotifyPlugins{events}])) == N.core(effects) : +List<M.Effect>}:
+def core_append(effects: +List<M.Effect()>, +events: +List<D.Notice>) ->
+  {N.core(List.append(&2, M.Effect(), effects, [Effects.NotifyPlugins{events}])) == N.core(effects) : +List<M.Effect()>}:
   match effects:
     case Nil{}: {==}
     case Con{effect, +rest}:
-      Equal.cong(+List<M.Effect>, +List<M.Effect>, (tail => N.keep_core(effect, tail)),
-        N.core(List.append(&2, M.Effect, rest, [M.NotifyPlugins{events}])), N.core(rest), core_append(rest, events))
+      Equal.cong(+List<M.Effect()>, +List<M.Effect()>, (tail => N.keep_core(effect, tail)),
+        N.core(List.append(&2, M.Effect(), rest, [Effects.NotifyPlugins{events}])), N.core(rest), core_append(rest, events))
 
-def appended(events: +List<M.Notice>, +decision: M.Decision) -> Laws.ObservationExtension<decision, N.append(events, decision)>:
+def appended(events: +List<D.Notice>, +decision: M.Decision()) -> Laws.ObservationExtension<decision, N.append(events, decision)>:
   match events decision:
     case Nil{} _: self(decision)
-    case Con{first, rest} M.Decision{world, reply, effects}:
+    case Con{first, rest} C.Decision{world, reply, effects}:
       Laws.ObservationExtension{{==}, {==}, core_append(effects, first <> rest)}
 
-def chosen(fits: Bool, +enriched: M.Decision, +plain: M.Decision, certificate: Laws.ObservationExtension<plain, enriched>) ->
+def chosen(fits: Bool, +enriched: M.Decision(), +plain: M.Decision(), certificate: Laws.ObservationExtension<plain, enriched>) ->
   Laws.ObservationExtension<plain, N.choose(fits, enriched, plain)>:
   match fits:
     case True{}: certificate
     case False{}: self(plain)
 
-def fitted(rendered: Result<&2, &2, String, String>, bytes: U32, +enriched: M.Decision, +plain: M.Decision,
+def fitted(rendered: Result<&2, &2, String, String>, bytes: U32, +enriched: M.Decision(), +plain: M.Decision(),
   certificate: Laws.ObservationExtension<plain, enriched>) -> Laws.ObservationExtension<plain, N.fit(rendered, bytes, enriched, plain)>:
   match rendered:
     case Fail{reason}: self(plain)
     case Done{text}: chosen(Nat.is_le(J.utf8_length(text), U32.to_nat(bytes)), enriched, plain, certificate)
 
-def admitted(+durable: Bool, previous: M.World, +enriched: M.Decision, +plain: M.Decision,
+def admitted(+durable: Bool, previous: M.World(), +enriched: M.Decision(), +plain: M.Decision(),
   certificate: Laws.ObservationExtension<plain, enriched>) -> Laws.ObservationExtension<plain, N.admit(durable, previous, enriched, plain)>:
-  M.World{tasks, next_task, next_ticket, environment, M.ExecutionLimits{steps, render, +bytes}, projects, board} = previous
+  C.Frame{D.State{tasks, next_task, next_ticket, environment, D.ExecutionLimits{steps, render, +bytes}, projects}, +board} = previous
   fitted(J.render(render, J.One{View.envelope(durable, enriched)}), bytes, enriched, plain, certificate)
 
-def enrichment(+source: M.Input, +before: M.World, +decision: M.Decision) -> Laws.ObservationExtension<decision, N.enrich(source, before, decision)>:
-  M.Decision{+after, reply, +effects} = decision
-  +events = List.append(&2, M.Notice, N.input(source, before, after), List.append(&2, M.Notice,
+def enrichment(+source: M.Input, +before: M.World(), +decision: M.Decision()) -> Laws.ObservationExtension<decision, N.enrich(source, before, decision)>:
+  C.Decision{+after, reply, +effects} = decision
+  +events = List.append(&2, D.Notice, N.input(source, before, after), List.append(&2, D.Notice,
     N.tasks(N.entries(after), N.entries(before)), N.dispatched(I.live_effects(effects, N.entries(after)), N.entries(after))))
   admitted(M.durable(source), before, N.append(events, decision), decision, appended(events, decision))
 
-def enabled(enabled: Bool, source: M.Input, before: M.World, +decision: M.Decision) ->
+def enabled(enabled: Bool, source: M.Input, before: M.World(), +decision: M.Decision()) ->
   Laws.ObservationExtension<decision, N.enabled(enabled, source, before, decision)>:
   match enabled:
     case False{}: self(decision)

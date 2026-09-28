@@ -1,5 +1,5 @@
 import Base
-import ../../MODEL.bend as M
+import ../domain.bend as D
 import ../../LAWS.bend as Laws
 import ../architecture.bend as A
 import ../operations.bend as Ops
@@ -14,25 +14,25 @@ def A.operation_rights():
   A.OperationRights{
     (operations => id => {==}),
     (operations => id => {==}),
-    (+operations => +id => Equal.cong(Maybe<&2, M.OperationBody>, Maybe<&2, M.Operation()>,
-      (found => Ops.binding(found, id)), Finite.find(~M.OperationBody, Finite.remove(~M.OperationBody, operations, id), id),
-      None{}, Finite.removal_absence(~M.OperationBody, operations, id)))}
+    (+operations => +id => Equal.cong(Maybe<&2, D.OperationBody>, Maybe<&2, D.Operation()>,
+      (found => Ops.binding(found, id)), Finite.find(~D.OperationBody, Finite.remove(~D.OperationBody, operations, id), id),
+      None{}, Finite.removal_absence(~D.OperationBody, operations, id)))}
 
-def announce_projection(operation: M.Operation()) ->
-  {Ops.announce(Ops.announce(operation)) == Ops.announce(operation) : M.Operation()}:
-  (ticket, M.OperationBody{call, announced, stage}) = operation
+def announce_projection(operation: D.Operation()) ->
+  {Ops.announce(Ops.announce(operation)) == Ops.announce(operation) : D.Operation()}:
+  (ticket, D.OperationBody{call, announced, stage}) = operation
   {==}
 
-def announce_ticket(+operation: M.Operation()) -> {Ops.ticket(Ops.announce(operation)) == Ops.ticket(operation) : Nat}:
-  (ticket, M.OperationBody{call, announced, stage}) = operation
+def announce_ticket(+operation: D.Operation()) -> {Ops.ticket(Ops.announce(operation)) == Ops.ticket(operation) : Nat}:
+  (ticket, D.OperationBody{call, announced, stage}) = operation
   {==}
 
-def announce_call(+operation: M.Operation()) -> {Ops.call(Ops.announce(operation)) == Ops.call(operation) : M.Call}:
-  (ticket, M.OperationBody{call, announced, stage}) = operation
+def announce_call(+operation: D.Operation()) -> {Ops.call(Ops.announce(operation)) == Ops.call(operation) : D.Call}:
+  (ticket, D.OperationBody{call, announced, stage}) = operation
   {==}
 
-def announce_status(operation: M.Operation()) -> {Ops.announced(Ops.announce(operation)) == True{} : Bool}:
-  (ticket, M.OperationBody{call, announced, stage}) = operation
+def announce_status(operation: D.Operation()) -> {Ops.announced(Ops.announce(operation)) == True{} : Bool}:
+  (ticket, D.OperationBody{call, announced, stage}) = operation
   {==}
 
 def A.announcement():
@@ -40,79 +40,79 @@ def A.announcement():
     (operation => announce_ticket(operation)), (operation => announce_call(operation)),
     (operation => announce_status(operation))}
 
-def notification_join(+task: M.Task) ->
-  {M.task_notified(M.notify(task)) == Bool.or(M.task_notified(task), True{}) : Bool}:
-  M.Task{id, lineage, contract, status, history, queued, phase, operations, notified} = task
+def notification_join(+task: D.Task) ->
+  {D.task_notified(D.notify(task)) == Bool.or(D.task_notified(task), True{}) : Bool}:
+  D.Task{id, lineage, contract, status, history, queued, phase, operations, notified} = task
   {==}
 
-def notification_sticky(+task: M.Task) -> {M.task_notified(M.notify(task)) == True{} : Bool}:
-  Equal.trans(Bool, M.task_notified(M.notify(task)), Bool.or(M.task_notified(task), True{}), True{},
-    notification_join(task), Std.orb_true_r(M.task_notified(task)))
+def notification_sticky(+task: D.Task) -> {D.task_notified(D.notify(task)) == True{} : Bool}:
+  Equal.trans(Bool, D.task_notified(D.notify(task)), Bool.or(D.task_notified(task), True{}), True{},
+    notification_join(task), Std.orb_true_r(D.task_notified(task)))
 
-def notification_consumed(task: M.Task) -> {M.task_notified(Ops.publish(task)) == False{} : Bool}:
-  M.Task{id, lineage, contract, status, history, queued, phase, operations, notified} = task
+def notification_consumed(task: D.Task) -> {D.task_notified(Ops.publish(task)) == False{} : Bool}:
+  D.Task{id, lineage, contract, status, history, queued, phase, operations, notified} = task
   {==}
 
 def A.notifications():
   A.Notifications{ (task => notification_join(task)),
     (task => notification_sticky(task)), (task => notification_consumed(task))}
 
-def settlement_phase(operation: M.Operation(), value: J.Json, error: Bool, +task: M.Task) ->
-  {M.task_phase(Ops.completed(operation, value, error, task)) == M.wake_phase(M.task_phase(task)) : M.Phase}:
-  M.Task{id, lineage, contract, status, history, queued, phase, operations, notified} = task
+def settlement_phase(operation: D.Operation(), value: J.Json, error: Bool, +task: D.Task) ->
+  {D.task_phase(Ops.completed(operation, value, error, task)) == D.wake_phase(D.task_phase(task)) : D.Phase}:
+  D.Task{id, lineage, contract, status, history, queued, phase, operations, notified} = task
   {==}
 
-def settlement_rights(+operation: M.Operation(), value: J.Json, error: Bool, +task: M.Task) ->
-  {M.task_operations(Ops.completed(operation, value, error, task)) == Ops.remove(M.task_operations(task), Ops.ticket(operation)) : +List<M.Operation()>}:
-  M.Task{id, lineage, contract, status, history, queued, phase, operations, notified} = task
+def settlement_rights(+operation: D.Operation(), value: J.Json, error: Bool, +task: D.Task) ->
+  {D.task_operations(Ops.completed(operation, value, error, task)) == Ops.remove(D.task_operations(task), Ops.ticket(operation)) : +List<D.Operation()>}:
+  D.Task{id, lineage, contract, status, history, queued, phase, operations, notified} = task
   {==}
 
-def settlement_notifies(+operation: M.Operation(), value: J.Json, error: Bool, +task: M.Task) ->
-  {M.task_notified(Ops.completed(operation, value, error, task)) == True{} : Bool}:
-  notification_sticky(M.with_operations(Ops.remove(M.task_operations(task), Ops.ticket(operation)),
-    M.append_message(Ops.result(operation, value, error), task)))
+def settlement_notifies(+operation: D.Operation(), value: J.Json, error: Bool, +task: D.Task) ->
+  {D.task_notified(Ops.completed(operation, value, error, task)) == True{} : Bool}:
+  notification_sticky(D.with_operations(Ops.remove(D.task_operations(task), Ops.ticket(operation)),
+    D.append_message(Ops.result(operation, value, error), task)))
 
-def steering_rights(message: String, +task: M.Task) ->
-  {M.task_operations(T.steer(message, task)) == M.task_operations(task) : +List<M.Operation()>}:
-  M.Task{id, lineage, contract, status, history, queued, phase, operations, notified} = task
+def steering_rights(message: String, +task: D.Task) ->
+  {D.task_operations(T.steer(message, task)) == D.task_operations(task) : +List<D.Operation()>}:
+  D.Task{id, lineage, contract, status, history, queued, phase, operations, notified} = task
   {==}
 
-def steering_queue(message: String, +task: M.Task) ->
-  {M.task_queue(T.steer(message, task)) == M.task_queue(task) : +List<String>}:
-  M.Task{id, lineage, contract, status, history, queued, phase, operations, notified} = task
+def steering_queue(message: String, +task: D.Task) ->
+  {D.task_queue(T.steer(message, task)) == D.task_queue(task) : +List<String>}:
+  D.Task{id, lineage, contract, status, history, queued, phase, operations, notified} = task
   {==}
 
-def abandonment(task: M.Task) -> {M.task_operations(Ops.abandoned(task)) == Nil{} : +List<M.Operation()>}:
-  M.Task{id, lineage, contract, status, history, queued, phase, operations, notified} = task
+def abandonment(task: D.Task) -> {D.task_operations(Ops.abandoned(task)) == Nil{} : +List<D.Operation()>}:
+  D.Task{id, lineage, contract, status, history, queued, phase, operations, notified} = task
   {==}
 
-def publication(+task: M.Task) ->
-  {M.task_operations(Ops.publish(task)) == Std.map(~M.Operation(), ~M.Operation(), ~Ops.announce, M.task_operations(task)) : +List<M.Operation()>}:
-  M.Task{id, lineage, contract, status, history, queued, phase, operations, notified} = task
+def publication(+task: D.Task) ->
+  {D.task_operations(Ops.publish(task)) == Std.map(~D.Operation(), ~D.Operation(), ~Ops.announce, D.task_operations(task)) : +List<D.Operation()>}:
+  D.Task{id, lineage, contract, status, history, queued, phase, operations, notified} = task
   {==}
 
-def final_output(ticket: Nat, +call: M.Call, +value: J.Json, +error: Bool) ->
-  {Ops.result((ticket, M.OperationBody{call, False{}, M.Executing{}}), value, error) == M.FunctionOutput{T.call_id(call), value, error} : M.Message}:
-  M.Call{id, name, arguments} = call
+def final_output(ticket: Nat, +call: D.Call, +value: J.Json, +error: Bool) ->
+  {Ops.result((ticket, D.OperationBody{call, False{}, D.Executing{}}), value, error) == D.FunctionOutput{T.call_id(call), value, error} : D.Message}:
+  D.Call{id, name, arguments} = call
   {==}
 
-def later_output(+operation: M.Operation(), +value: J.Json, +error: Bool) ->
+def later_output(+operation: D.Operation(), +value: J.Json, +error: Bool) ->
   {Ops.result(Ops.announce(operation), value, error) ==
-    M.OperationResult{Ops.ticket(operation), T.call_id(Ops.call(operation)), T.call_name(Ops.call(operation)), value, error} : M.Message}:
-  (ticket, M.OperationBody{M.Call{id, name, arguments}, announced, stage}) = operation
+    D.OperationResult{Ops.ticket(operation), T.call_id(Ops.call(operation)), T.call_name(Ops.call(operation)), value, error} : D.Message}:
+  (ticket, D.OperationBody{D.Call{id, name, arguments}, announced, stage}) = operation
   {==}
 
-def pending_model(id: Nat, lineage: +List<Nat>, contract: M.Contract, status: M.Status,
-  history: M.History, queued: +List<String>, +ticket: Nat, +allowed: +List<String>, operations: +List<M.Operation()>,
-  notified: Bool, operation: M.Operation(), value: J.Json, error: Bool) ->
-  {M.task_phase(T.complete_operation(operation, value, error,
-    M.Task{id, lineage, contract, status, history, queued, M.ModelPending{ticket, allowed}, operations, notified})) ==
-    M.ModelPending{ticket, allowed} : M.Phase}:
+def pending_model(id: Nat, lineage: +List<Nat>, contract: D.Contract, status: D.Status,
+  history: D.History, queued: +List<String>, +ticket: Nat, +allowed: +List<String>, operations: +List<D.Operation()>,
+  notified: Bool, operation: D.Operation(), value: J.Json, error: Bool) ->
+  {D.task_phase(T.complete_operation(operation, value, error,
+    D.Task{id, lineage, contract, status, history, queued, D.ModelPending{ticket, allowed}, operations, notified})) ==
+    D.ModelPending{ticket, allowed} : D.Phase}:
   match status:
-    case M.Active{}: {==}
-    case M.Frozen{}: {==}
-    case M.Stopped{}: {==}
-    case M.Archived{}: {==}
+    case D.Active{}: {==}
+    case D.Frozen{}: {==}
+    case D.Stopped{}: {==}
+    case D.Archived{}: {==}
 
 def A.coordination():
   A.Coordination{(operation => value => error => task => settlement_phase(operation, value, error, task)),

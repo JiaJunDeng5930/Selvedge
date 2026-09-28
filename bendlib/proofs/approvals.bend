@@ -1,4 +1,6 @@
 import Base
+import ../component.bend as C
+import ../domain.bend as D
 import ../../MODEL.bend as M
 import ../../APPROVALS.bend as A
 import ../../PROGRAM.bend as P
@@ -7,14 +9,14 @@ import ../approval-architecture.bend as Boundary
 import ./protocol.bend as ProtocolProof
 import ../operations.bend as Ops
 
-def human_waits(call:M.Call, remaining:+List<M.Attempt>, task:M.Task, world:M.World) ->
-  {P.decision_effects(P.approval_request(M.HumanReviewer{}, call, remaining, task, world)) == Nil{} : +List<M.Effect>}:
-  M.World{tasks, next_task, ticket, environment, limits, projects, board} = world
+def human_waits(call:D.Call, remaining:+List<D.Attempt>, task:D.Task, world:M.World()) ->
+  {P.decision_effects(P.approval_request(D.HumanReviewer{}, call, remaining, task, world)) == Nil{} : +List<M.Effect()>}:
+  C.Frame{D.State{tasks, next_task, ticket, environment, limits, projects}, +board} = world
   {==}
 
-def context_frame(operation:M.Operation(), reviewer:M.ApprovalReviewer, reason:String, +task:M.Task) ->
-  {M.task_context(A.permitted(operation, reviewer, reason, task)) == M.task_context(task) : M.TaskContext}:
-  M.Task{id, lineage, contract, status, history, queued, phase, operations, notified} = task
+def context_frame(operation:D.Operation(), reviewer:D.ApprovalReviewer, reason:String, +task:D.Task) ->
+  {D.task_context(A.permitted(operation, reviewer, reason, task)) == D.task_context(task) : D.TaskContext}:
+  D.Task{id, lineage, contract, status, history, queued, phase, operations, notified} = task
   {==}
 
 def Boundary.approval_boundary():

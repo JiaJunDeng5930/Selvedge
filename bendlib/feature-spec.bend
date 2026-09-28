@@ -1,0 +1,19 @@
+import Base
+import ./domain.bend as D
+import ../MODEL.bend as M
+import ../WORKSPACE.bend as Workspace
+import ./feature-operations.bend as O
+import ./board-spec.bend as Board
+import ./board-state.bend as State
+
+# The caller supplies the independent task-creation specification. The
+# executable assembler supplies its implementation to feature-execution.
+def meaning(spawn: D.Profile -> String -> String -> Workspace.Selection -> M.World() -> M.Decision(), operation: O.Operation, +world: M.World()) -> M.Decision():
+  match operation:
+    case O.BoardChange{change}: Board.change(change, world)
+    case O.StartCard{id, card, now, profile, reasoning, message, selection}:
+      Board.started(id, State.task_id(world), card, now, spawn(profile, reasoning, message, selection, world))
+
+def event(event: O.Event, world: M.World()) -> M.Decision():
+  match event:
+    case O.BoardTextResult{id, card, outcome, retitle}: Board.completed(id, card, outcome, retitle, world)

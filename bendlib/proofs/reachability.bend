@@ -18,7 +18,7 @@ import ./safety.bend as SafetyProof
 def exact(+input: M.Input, +state: Reach.State) ->
   {Reach.actual(input, state) == Reach.specified(input, state) : Reach.State}:
   Reach.State{world, receipts} = state
-  Equal.cong(M.Decision, Reach.State, (decision => Reach.record(decision, receipts)),
+  Equal.cong(M.Decision(), Reach.State, (decision => Reach.record(decision, receipts)),
     P.transition(input, world), Commit.input(~Execution.scheduled, input, world),
     Laws.interaction_transition(input, world))
 
@@ -69,19 +69,19 @@ def journal(events: +List<M.Input>, state: Reach.State) -> Reach.path(state, Rea
     ~(input => rest => induction => state => prepend(input, rest, induction, state)), events)(state)
 
 def Replay(events: +List<M.Input>) -> Type:
-  @+state:Reach.State -> {Reach.world(Reach.run(events, state)) == P.replay(events, Reach.world(state)) : M.World}
+  @+state:Reach.State -> {Reach.world(Reach.run(events, state)) == P.replay(events, Reach.world(state)) : M.World()}
 
 def replay_empty(+state: Reach.State) ->
-  {Reach.world(Reach.run(Nil{}, state)) == P.replay(Nil{}, Reach.world(state)) : M.World}:
+  {Reach.world(Reach.run(Nil{}, state)) == P.replay(Nil{}, Reach.world(state)) : M.World()}:
   {==}
 
 def replay_prepend(+input: M.Input, +rest: +List<M.Input>, induction: Replay(rest), +state: Reach.State) ->
-  {Reach.world(Reach.run(input <> rest, state)) == P.replay(input <> rest, Reach.world(state)) : M.World}:
+  {Reach.world(Reach.run(input <> rest, state)) == P.replay(input <> rest, Reach.world(state)) : M.World()}:
   Reach.State{world, receipts} = state
   induction(Reach.actual(input, Reach.State{world, receipts}))
 
 def replay(events: +List<M.Input>, state: Reach.State) ->
-  {Reach.world(Reach.run(events, state)) == P.replay(events, Reach.world(state)) : M.World}:
+  {Reach.world(Reach.run(events, state)) == P.replay(events, Reach.world(state)) : M.World()}:
   Std.list_ind(~M.Input, ~Replay, ~replay_empty,
     ~(input => rest => induction => state => replay_prepend(input, rest, induction, state)), events)(state)
 

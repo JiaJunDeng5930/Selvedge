@@ -1,4 +1,6 @@
 import Base
+import ./bendlib/feature-laws.bend as FeatureLaws
+import ./bendlib/locality.bend as Locality
 import ./LAWS.bend as Laws
 import ./bendlib/architecture.bend as Concepts
 import ./CONCEPTS.bend as Entry
@@ -35,4 +37,4 @@ def Entry.harness():
     Entry.Observation{Concepts.observations(), Concepts.task_views(), Concepts.branch_results(), Concepts.surface()},
     Entry.Concurrency{Concepts.operation_rights(), Concepts.announcement(), Concepts.notifications(), Concepts.coordination()},
     Entry.Extensibility{Concepts.plugin_boundary(), Concepts.result_boundary()}, Workspace.context_boundary(), Approval.approval_boundary(),
-    Reasoning.reasoning_boundary(), Board.board_boundary()}
+    Reasoning.reasoning_boundary(), FeatureLaws.features(), Locality.locality()}
