@@ -41,7 +41,7 @@ export class Streams {
       if (session.ended <= this.revision) this.drop(key);
       return;
     }
-    if (notice.type !== 'delta' || session.ended !== null || typeof notice.text !== 'string' ||
+    if (!['delta', 'snapshot'].includes(notice.type) || session.ended !== null || typeof notice.text !== 'string' ||
         !Number.isSafeInteger(notice.output_index) || notice.output_index < 0) return;
     let item = session.items.get(notice.output_index);
     if (!item) {
@@ -49,12 +49,22 @@ export class Streams {
       item = { text: '', markdown: null, container: null, adopted: false };
       session.items.set(notice.output_index, item);
     }
-    if (this.characters + notice.text.length > 8 * 1024 * 1024 || item.text.length + notice.text.length > 4 * 1024 * 1024) {
+    const next = notice.type === 'snapshot' ? notice.text : item.text + notice.text;
+    const growth = next.length - item.text.length;
+    if (this.characters + growth > 8 * 1024 * 1024 || next.length > 4 * 1024 * 1024) {
       this.drop(key); return;
     }
-    item.text += notice.text;
-    this.characters += notice.text.length;
-    if (item.markdown) item.markdown.append(notice.text);
+    if (next.startsWith(item.text)) item.markdown?.append(next.slice(item.text.length));
+    else {
+      // Revised snapshots cannot be appended into an incremental parser whose
+      // prefix is now false. Only this disposable preview is rebuilt.
+      item.markdown?.dispose();
+      item.container?.remove();
+      item.markdown = null;
+      item.container = null;
+    }
+    item.text = next;
+    this.characters += growth;
     this.attach();
   }
   surface(root, selected, revision) {
@@ -68,7 +78,7 @@ export class Streams {
     for (const session of this.sessions.values()) {
       for (const item of session.items.values()) {
         if (item.adopted) continue;
-        if (session.task !== this.selected || !this.root) { item.container?.remove(); continue; }
+        if (session.task !== this.selected || !this.root || !item.text) { item.container?.remove(); continue; }
         if (!item.container) {
           const document = this.root.ownerDocument;
           const container = document.createElement('article'); container.className = 'live-preview message';

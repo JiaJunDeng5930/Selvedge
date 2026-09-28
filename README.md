@@ -324,6 +324,14 @@ used to filter subscription models. Discovery is bounded and a fresh catalog is
 cached for five minutes; transient failures may use a matching account's cache
 for at most 24 hours. Authentication failures never fall back to another account.
 
+The separate [ChatGPT Web backend](docs/chatgpt-web.md) uses
+`provider: "chatgpt-web"`, a model such as `chatgpt-web/high`, and the API
+application token in `CHATGPT_WEB_TOKEN`. Its default endpoint is
+`http://127.0.0.1:8787/v1/responses`. It retains explicit request/response receipts,
+supports ordinary task and tool calls through the same model interface, and
+requires the API service's `full` mode for caller tools. It is not an OAuth/Codex
+or OpenAI Responses endpoint; those profiles remain separate.
+
 Optional `chatgpt` connection settings are `endpoint`, `issuer`, `client_id`,
 `auth_file`, and `timeout_ms`; their defaults target OpenAI. `chatgpt: false`
 disables default account discovery. Explicit model profiles remain available for

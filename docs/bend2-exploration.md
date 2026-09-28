@@ -1239,3 +1239,40 @@ tracked-file index check passed. The real-browser checks passed eight general UI
 groups and eleven board groups. These runs used isolated local services and
 browser profiles. The integration suite required normal macOS process permissions
 so Selvedge could start its own Seatbelt sandbox; that isolation was not disabled.
+
+## ChatGPT Web v1 interpreter
+
+The new backend reuses `ModelItem.Context` / `Message.ModelContext` and the
+existing checked history action and context projection. A response receipt is
+opaque data with no tool-call authority, so adding a provider did not require a
+new task-state field, constructor cascade, general algebra or proof hierarchy.
+The hand-maintained changes stay in shared host preparation, external receipt
+encoding, provider dispatch, approval text normalization and disposable previews.
+The production Bend definitions and proof sources are unchanged by this task.
+
+Boundary tests exposed two important representation assumptions. Approval
+parsing had depended on a Responses message wrapper despite the unified model
+interface already admitting plain text. More subtly, an async tool result can
+be committed after the request's input snapshot but before its output receipt.
+The adapter now records exact input/output spans and verifies the retained input
+digest, so that result is delivered once rather than being mistaken for already
+sent history. Neither issue was a missing native lifecycle theorem: both belonged
+to the host's provider representation correspondence.
+
+The new tests therefore target actual HTTP/SSE, SQLite, native serialization,
+OS execution, concurrent completion, cancellation and replay boundaries. They
+do not re-prove the native state machine using finite examples. Whole-program
+proof and mutation checks continue to cover the unchanged semantics. Network,
+SQLite, digest and remote browser guarantees remain trusted external boundaries;
+there is no claim of end-to-end browser correctness from the Bend proofs.
+
+Release validation used a baseline-source snapshot with only this backend's
+changes, leaving concurrent UI work untouched. The complete suite initially ran
+289 tests: 287 passed, one new test incorrectly assumed parent/child HTTP arrival
+order, and the unchanged native feature-extension test exceeded its 300-second
+compile bound. The arrival-order assumption was removed; the extension test then
+passed independently in 200 seconds under the same bound. The final affected
+suite passed all 69 tests with no skips. Final `npm run check`, the existing
+browser regression and the new five-group real-browser snapshot check passed.
+These are separate successful reruns, not a claim that the initial complete run
+was green. All 95 baseline Bend sources remained byte-identical in this snapshot.

@@ -29,23 +29,35 @@ export async function requestJson(url, { method = 'POST', body, encoding = 'json
 
 /** SSE framing is independent of HTTP chunks, including UTF-8 and CRLF splits. */
 export async function* events(body, maximum) {
+  for await (const event of sseEvents(body, maximum)) yield event.data;
+}
+
+/** Preserve named SSE events without imposing a provider's JSON envelope. */
+export async function* sseEvents(body, maximum) {
   if (!body) throw new Error('The provider returned no response stream');
   const decoder = new TextDecoder('utf-8', { fatal: true });
   let pending = '';
   let data = [];
   let size = 0;
+  let name = 'message';
   function line(value) {
     if (value.endsWith('\r')) value = value.slice(0, -1);
+    if (value.startsWith('event:')) {
+      name = value.slice(6).replace(/^ /, '') || 'message';
+      size += Buffer.byteLength(value) + 1;
+      if (size > maximum) throw new RangeError('SSE event exceeds the configured limit');
+    }
     if (value.startsWith('data:')) {
       const part = value.slice(5).replace(/^ /, '');
       size += Buffer.byteLength(part) + 1;
       if (size > maximum) throw new RangeError('SSE event exceeds the configured limit');
       data.push(part);
     }
-    if (value !== '' || data.length === 0) return undefined;
-    const message = data.join('\n');
+    if (value !== '') return undefined;
+    const message = data.length ? { event: name, data: data.join('\n') } : undefined;
     data = [];
     size = 0;
+    name = 'message';
     return message;
   }
   for await (const chunk of body) {

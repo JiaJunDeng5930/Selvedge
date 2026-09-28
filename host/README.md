@@ -147,6 +147,16 @@ excessive `Retry-After` is a failure rather than permission to retry too early.
 An already exposed SSE stream is not retried automatically. Transport attempts
 share one committed model ticket and do not replay any tool effect.
 
+`model-request.mjs` prepares the common committed input before provider encoding.
+`chatgpt-web.mjs` implements the independent Web API v1 protocol and stores
+external request receipts in `chatgpt-web-store.mjs`. Opaque native context carries
+the explicit page identity and sent-input span, including deferred messages and
+async results committed before a model reply. It never chooses a page by matching
+message text. Native cancellation retires a specific receipt and attempts remote
+Stop; observer timeout or shutdown does not. The generic preview interface
+distinguishes replacement snapshots from append-only deltas. See
+`../docs/chatgpt-web.md` and ADR 0024 for configuration, recovery and evidence.
+
 Summary requests use the ordinary model transport but receive no tools. ChatGPT
 uses streaming remote compaction v2 and returns one unchanged encrypted checkpoint;
 API-key profiles retain text summarization. Compaction deltas are not displayed.

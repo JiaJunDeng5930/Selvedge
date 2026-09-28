@@ -108,3 +108,35 @@ test('previews require an observed start and settlement revision; cancellation r
   assert.equal(streams.sessions.size, 0);
   assert.equal(streams.characters, 0);
 });
+
+test('snapshots replace provisional text, including shrinking and clearing, without changing other output items', () => {
+  const streams = new Streams();
+  const notice = (type, text = '', index = 0) => ({ type, task_id: 2, ticket: 3, output_index: index, text });
+  streams.receive(notice('snapshot', 'unobserved'));
+  assert.equal(streams.sessions.size, 0);
+  streams.receive(notice('stream_start'));
+  streams.receive(notice('snapshot', 'long provisional answer'));
+  streams.receive(notice('delta', 'other output', 1));
+  const items = streams.sessions.get('2:3').items;
+  let disposed = 0;
+  let removed = 0;
+  let appended = '';
+  items.get(0).markdown = { dispose() { disposed++; }, append(text) { appended += text; } };
+  items.get(0).container = { remove() { removed++; } };
+  streams.receive(notice('snapshot', 'long provisional answer!'));
+  assert.equal(appended, '!');
+  streams.receive(notice('snapshot', 'short'));
+  assert.equal(disposed, 1);
+  assert.ok(removed >= 1);
+  assert.equal(items.get(0).markdown, null);
+  assert.equal(items.get(0).text, 'short');
+  assert.equal(items.get(1).text, 'other output');
+  assert.equal(streams.characters, 'shortother output'.length);
+  streams.receive(notice('snapshot', ''));
+  assert.equal(items.get(0).text, '');
+  assert.equal(streams.characters, 'other output'.length);
+  streams.receive(notice('stream_cancel'));
+  streams.receive(notice('snapshot', 'late'));
+  assert.equal(streams.sessions.size, 0);
+  assert.equal(streams.characters, 0);
+});

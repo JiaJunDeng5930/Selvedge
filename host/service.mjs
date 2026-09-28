@@ -9,13 +9,14 @@ import { snapshotProject, observeWorkspaceCommand } from './project.mjs';
 import { requestApproval } from './approvals.mjs';
 import { requestBoardText } from './board-text.mjs';
 import { observeBoardCommand, observeBoardClock } from './board-files.mjs';
-import { requestModel, ContextLimitError } from './providers.mjs';
+import { requestModel, cancelModelTask, ContextLimitError } from './providers.mjs';
 import { profileCatalog } from './config.mjs';
 import { withAccountModels } from './chatgpt-models.mjs';
 
 /** Interpret committed effects. No task lifecycle or recovery policy lives here. */
 export class Service extends EventEmitter {
   #running = new Map();
+  #providerCancellations = new Set();
   #servers = new Map();
   #catalog = new Map();
   #plugins = new Map();
@@ -136,11 +137,17 @@ export class Service extends EventEmitter {
       return;
     }
     if (effect.kind === 'cancel') {
-      for (const active of this.#running.values()) if (active.task === effect.task_id) active.controller.abort(new Error('Task work cancelled'));
+      this.#cancelProvider(effect.task_id);
+      for (const active of this.#running.values()) if (active.task === effect.task_id) {
+        if (['summary', 'approval'].includes(active.effect.kind)) this.#cancelProvider(active.effect);
+        active.controller.abort(new Error('Task work cancelled'));
+      }
       return;
     }
     if (effect.kind === 'cancel_ticket') {
-      this.#running.get(`${effect.task_id}:${effect.ticket}`)?.controller.abort(new Error('Operation or model request cancelled'));
+      const active = this.#running.get(`${effect.task_id}:${effect.ticket}`);
+      if (active && ['model', 'summary', 'approval'].includes(active.effect.kind)) this.#cancelProvider(active.effect);
+      active?.controller.abort(new Error('Operation or model request cancelled'));
       return;
     }
     if (effect.kind === 'continue') {
@@ -156,9 +163,16 @@ export class Service extends EventEmitter {
     const key = effect.kind === 'board_text' ? `board:${effect.card_id}:${effect.ticket}` : `${effect.task_id}:${effect.ticket}`;
     if (this.#running.has(key)) { this.#fatal(new Error('The kernel repeated an in-flight effect identity')); return; }
     const controller = new AbortController();
-    const active = { task: effect.task_id, controller };
+    const active = { task: effect.task_id, effect, controller };
     this.#running.set(key, active);
     active.promise = this.#perform(effect, controller.signal).catch(error => this.#fatal(error)).finally(() => this.#running.delete(key));
+  }
+
+  #cancelProvider(task) {
+    const promise = cancelModelTask(task, this.config, this.home, this.limits)
+      .catch(error => this.notify({ type: 'diagnostic', message: `Remote cancellation was not confirmed: ${error.message}` }))
+      .finally(() => this.#providerCancellations.delete(promise));
+    this.#providerCancellations.add(promise);
   }
 
   async #perform(effect, signal) {
@@ -184,6 +198,7 @@ export class Service extends EventEmitter {
       } else if (effect.kind === 'model' || effect.kind === 'summary') {
         const items = await requestModel(effect, this.config, this.home, this.limits, {
           signal, onDelta: (text, output_index) => this.notify({ type: 'delta', task_id: effect.task_id, ticket: effect.ticket, output_index, text }),
+          onSnapshot: (text, output_index) => this.notify({ type: 'snapshot', task_id: effect.task_id, ticket: effect.ticket, output_index, text }),
           onRetry: retry => this.notify({ type: 'retry', task_id: effect.task_id, ticket: effect.ticket, ...retry }),
         });
         input = { kind: 'model', task_id: effect.task_id, ticket: effect.ticket, ok: true, items };
@@ -300,6 +315,7 @@ export class Service extends EventEmitter {
     if (this.#continuation) clearImmediate(this.#continuation);
     for (const active of this.#running.values()) active.controller.abort(new Error('Server stopped'));
     await Promise.allSettled([...this.#running.values()].map(active => active.promise));
+    await Promise.allSettled([...this.#providerCancellations]);
     await Promise.allSettled([...this.#servers.values(), ...this.#plugins.values()].map(client => client.close()));
     await this.#catalogTail;
     await this.journal?.close();
