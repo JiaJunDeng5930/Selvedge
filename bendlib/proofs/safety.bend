@@ -65,6 +65,8 @@ def Laws.transition_admitted(world, input):
   match input:
     case M.UserInterface{state, event}: update_certificate(M.UserInterface{state, event}, world)
     case M.UserCommand{M.Observe{query}}: observe_certificate(query, world)
+    case M.UserCommand{M.BoardCommand{command}}:
+      update_certificate(M.UserCommand{M.BoardCommand{command}}, world)
     case M.UserCommand{M.Create{profile, reasoning, message, options}}:
       update_certificate(M.UserCommand{M.Create{profile, reasoning, message, options}}, world)
     case M.UserCommand{M.Send{id, message}}:
@@ -91,6 +93,8 @@ def Laws.transition_admitted(world, input):
       update_certificate(M.ModelCompleted{id, ticket, outcome}, world)
     case M.ReasoningCompleted{id, ticket, outcome}:
       update_certificate(M.ReasoningCompleted{id, ticket, outcome}, world)
+    case M.BoardTextCompleted{id, ticket, outcome}:
+      update_certificate(M.BoardTextCompleted{id, ticket, outcome}, world)
     case M.ToolCompleted{id, ticket, value, error}:
       update_certificate(M.ToolCompleted{id, ticket, value, error}, world)
     case M.HookCompleted{id, ticket, outcome}: update_certificate(M.HookCompleted{id, ticket, outcome}, world)

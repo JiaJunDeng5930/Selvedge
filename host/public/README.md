@@ -99,6 +99,14 @@ Compaction streams are never shown as assistant output.
 
 ## Evidence
 
+`board.mjs` and `board.css` render the native board composition. `picker.mjs`
+enhances native choices with searchable keyboard menus; `collection-fields.mjs`
+retains tags, upload/preview state and workspace input. Drag insertion fills
+native target bindings with the revision captured at pointer-down. Continuous
+creation retains only native-declared parameters. There is no browser scheduler
+or optimistic card store. `npm run test:board-browser` exercises this surface and
+writes screenshots/results to `.workpad/board-webui/`.
+
 `tests-bend/web-streaming.test.mjs` probes the scheduler, Unicode boundary, link
 policy, SSE framing, draft acknowledgement and preview correlation.
 `npm run test:browser` uses an isolated Chrome profile, a real loopback ChatGPT

@@ -7,7 +7,7 @@ import ./bendlib/association-map.bend as Finite
 # Projects are an organizational finite map. Their workspace is a birth default,
 # not a mutable reference held by a task's execution contract.
 def registry(world: M.World) -> M.Projects:
-  M.World{tasks, next_task, next_ticket, environment, limits, projects} = world
+  M.World{tasks, next_task, next_ticket, environment, limits, projects, board} = world
   projects
 
 def entries(registry: M.Projects) -> +List<Finite.Entry(M.Project)>:
@@ -119,8 +119,8 @@ def remove(id: Nat, registry: M.Projects) -> M.Projects:
   M.Projects{Finite.remove(~M.Project, entries, id), next_id}
 
 def store(registry: M.Projects, world: M.World) -> M.World:
-  M.World{tasks, next_task, next_ticket, environment, limits, previous} = world
-  M.World{tasks, next_task, next_ticket, environment, limits, registry}
+  M.World{tasks, next_task, next_ticket, environment, limits, previous, board} = world
+  M.World{tasks, next_task, next_ticket, environment, limits, registry, board}
 
 def rename(name: Maybe<&2, String>, fallback: String) -> String:
   match name:

@@ -7,6 +7,8 @@ import { Plugin } from './plugins.mjs';
 import { runBash } from './process.mjs';
 import { snapshotProject, observeWorkspaceCommand } from './project.mjs';
 import { requestApproval } from './approvals.mjs';
+import { requestBoardText } from './board-text.mjs';
+import { observeBoardCommand, observeBoardClock } from './board-files.mjs';
 import { requestModel, ContextLimitError } from './providers.mjs';
 import { profileCatalog } from './config.mjs';
 import { withAccountModels } from './chatgpt-models.mjs';
@@ -150,8 +152,8 @@ export class Service extends EventEmitter {
       });
       return;
     }
-    if (!['model', 'summary', 'reasoning', 'tool', 'hook', 'after_hook', 'approval'].includes(effect.kind)) { this.#fatal(new Error(`Unknown effect ${effect.kind}`)); return; }
-    const key = `${effect.task_id}:${effect.ticket}`;
+    if (!['model', 'summary', 'reasoning', 'tool', 'hook', 'after_hook', 'approval', 'board_text'].includes(effect.kind)) { this.#fatal(new Error(`Unknown effect ${effect.kind}`)); return; }
+    const key = effect.kind === 'board_text' ? `board:${effect.card_id}:${effect.ticket}` : `${effect.task_id}:${effect.ticket}`;
     if (this.#running.has(key)) { this.#fatal(new Error('The kernel repeated an in-flight effect identity')); return; }
     const controller = new AbortController();
     const active = { task: effect.task_id, controller };
@@ -167,7 +169,10 @@ export class Service extends EventEmitter {
       signal.addEventListener('abort', cancelPreview, { once: true });
     }
     try {
-      if (effect.kind === 'approval') {
+      if (effect.kind === 'board_text') {
+        input = { kind: 'board_text', card_id: effect.card_id, ticket: effect.ticket, ok: true,
+          ...await requestBoardText(effect, this.config, this.home, this.limits, { signal }) };
+      } else if (effect.kind === 'approval') {
         input = { kind: 'approval', task_id: effect.task_id, ticket: effect.ticket,
           outcome: await requestApproval(effect, this.config, this.home, this.limits, { signal }) };
       } else if (effect.kind === 'reasoning') {
@@ -236,6 +241,7 @@ export class Service extends EventEmitter {
 
   #failureInput(effect, message) {
     message = [...String(message || 'External execution failed').toWellFormed()].slice(0, 1024).join('');
+    if (effect.kind === 'board_text') return { kind: 'board_text', card_id: effect.card_id, ticket: effect.ticket, ok: false, message };
     if (effect.kind === 'reasoning') return { kind: 'reasoning', task_id: effect.task_id, ticket: effect.ticket, ok: false, message };
     if (effect.kind === 'hook') return { kind: 'hook', task_id: effect.task_id, ticket: effect.ticket, outcome: { decision: 'failed', reason: message } };
     if (effect.kind === 'approval') return { kind: 'approval', task_id: effect.task_id, ticket: effect.ticket,
@@ -251,7 +257,7 @@ export class Service extends EventEmitter {
   async command(command) {
     if (this.#failure) return Promise.reject(this.#failure);
     if (this.#closing) return Promise.reject(new Error('Service is stopping'));
-    const observed = await observeWorkspaceCommand(command, this.limits);
+    const observed = await observeWorkspaceCommand(await observeBoardCommand(command, this.home), this.limits);
     if (this.#failure) throw this.#failure;
     if (this.#closing) throw new Error('Service is stopping');
     return this.journal.execute({ kind: 'command', command: observed });
@@ -277,10 +283,11 @@ export class Service extends EventEmitter {
   async presentation({ state = null, event } = {}) {
     if (this.#failure) return Promise.reject(this.#failure);
     if (this.#closing) return Promise.reject(new Error('Service is stopping'));
-    if (event?.type === 'submit') event = { ...event, command: await observeWorkspaceCommand(event.command, this.limits) };
+    if (event?.type === 'submit') event = { ...event,
+      command: await observeWorkspaceCommand(await observeBoardCommand(event.command, this.home), this.limits) };
     if (this.#failure) throw this.#failure;
     if (this.#closing) throw new Error('Service is stopping');
-    return this.journal.execute({ kind: 'ui', state, event });
+    return this.journal.execute({ kind: 'ui', state, event, observed_at: observeBoardClock() });
   }
 
   close() {

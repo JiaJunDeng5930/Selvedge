@@ -81,6 +81,12 @@ test('successful submission clears only its unchanged draft snapshot', () => {
   assert.equal(drafts.get('/other/message'), 'unrelated');
 });
 
+test('continuous forms retain native-declared parameters, not submitted content or attachments', () => {
+  const drafts = new Map([['/create/title', 'submitted'], ['/create/labels', '["later edit"]'], ['/create/attachments', '["file"]']]);
+  acknowledgeDrafts(drafts, '/create', { title: 'submitted', priority: 'high', labels: '["saved"]', attachments: '["file"]' }, ['priority', 'labels']);
+  assert.deepEqual([...drafts], [['/create/labels', '["later edit"]'], ['/create/priority', 'high']]);
+});
+
 test('previews require an observed start and settlement revision; cancellation rejects late deltas', () => {
   const streams = new Streams();
   const notice = (type, rest = {}) => ({ type, task_id: 4, ticket: 9, ...rest });

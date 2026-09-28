@@ -4,6 +4,14 @@ The pure proof root is `PROOF.bend`. It checks the actual production import
 closure, the concept assembly, functional correspondence and state invariants.
 Tests do not maintain a second finite-example specification of those semantics.
 
+Board proof mutations require a pure production/UI type-check before rejecting
+the assembled proof. Board service tests cover real HTTP/SQLite, cancellation,
+upload authentication and order preservation through replay. File/text tests
+cover external bytes and provider payloads. `npm run test:board-browser` drives
+Chrome through the actual UI, including pointer insertion, compact pickers,
+continuous creation, pasted files, safe previews and responsive layouts. It fails
+when Chrome is unavailable instead of silently counting an unrun check as passed.
+
 | Guarantee / fault model | Evidence owner |
 | --- | --- |
 | Commands, queue order, task lifecycle, branch inheritance, control/operation separation and recovery semantics | `LAWS.bend`, `INVARIANTS.bend`, `bendlib/architecture.bend`, discharged by `bendlib/proofs/*` and assembled in `PROOF.bend` |

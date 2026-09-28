@@ -21,10 +21,11 @@ export class EventFrames {
   }
 }
 
-export function acknowledgeDrafts(drafts, formKey, submitted) {
+export function acknowledgeDrafts(drafts, formKey, submitted, retainedFields = []) {
   for (const [name, value] of Object.entries(submitted ?? {})) {
     const key = `${formKey}/${name}`;
     // Input typed while the request was in flight belongs to the next message.
-    if (drafts.get(key) === value) drafts.delete(key);
+    if (retainedFields.includes(name)) { if (!drafts.has(key)) drafts.set(key, value); }
+    else if (drafts.get(key) === value) drafts.delete(key);
   }
 }

@@ -17,14 +17,28 @@ export function eventForChange(change, value) {
   return bind(structuredClone(change.event), change.binding, value);
 }
 
+/** Fill only the native target binding in the native source action. */
+export function eventForDrop(source, target) {
+  const action = source.drops?.[target.source];
+  if (!source.draggable || !action?.enabled) throw new TypeError('This item cannot be dropped here');
+  const event = structuredClone(action.event);
+  for (const field of target.bindings ?? []) bind(event, field.binding, field.value);
+  return event;
+}
+
 export function eventForForm(form, values) {
   const event = structuredClone(form.event);
   for (const field of form.fields) {
+    if (field.enabled === false) continue;
     let value = values[field.name] ?? '';
-    if (field.kind === 'integer') {
+    if (field.kind === 'integer' || field.kind === 'integer-choice') {
       if (!/^\d+$/.test(value) || !Number.isSafeInteger(Number(value))) throw new TypeError(`${field.label} must be an integer`);
       value = Number(value);
-    } else if (field.kind === 'json') value = JSON.parse(value);
+    } else if (['json', 'tags', 'attachments', 'workspace'].includes(field.kind)) value = JSON.parse(value);
+    else if (field.kind === 'boolean') {
+      if (!['true', 'false'].includes(value)) throw new TypeError(`${field.label} must be a boolean`);
+      value = value === 'true';
+    }
     bind(event, field.binding, value);
   }
   return event;

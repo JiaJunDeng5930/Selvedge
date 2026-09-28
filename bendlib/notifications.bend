@@ -13,7 +13,7 @@ import ./protocol.bend as Protocol
 # occurrences and recipients; the host adds the committed sequence and attempts
 # bounded delivery. A projection cannot turn inherited history into new events.
 def entries(world: M.World) -> +List<M.Task>:
-  M.World{tasks, next_task, next_ticket, environment, limits, projects} = world
+  M.World{tasks, next_task, next_ticket, environment, limits, projects, board} = world
   tasks
 
 def subscribed(kinds: +List<M.EventKind>, +kind: M.EventKind) -> Bool:
@@ -235,7 +235,7 @@ def fit(rendered: Result<&2, &2, String, String>, bytes: U32, enriched: M.Decisi
 # Notification payloads and queueing are optional observations. Full-envelope
 # pressure can omit the entire optional batch, never reject the underlying work.
 def admit(+durable: Bool, previous: M.World, +enriched: M.Decision, plain: M.Decision) -> M.Decision:
-  M.World{tasks, next_task, next_ticket, environment, M.ExecutionLimits{steps, render, +bytes}, projects} = previous
+  M.World{tasks, next_task, next_ticket, environment, M.ExecutionLimits{steps, render, +bytes}, projects, board} = previous
   fit(J.render(render, J.One{View.envelope(durable, enriched)}), bytes, enriched, plain)
 
 def enrich(+source: M.Input, +before: M.World, +decision: M.Decision) -> M.Decision:

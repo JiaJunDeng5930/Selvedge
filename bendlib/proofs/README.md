@@ -3,6 +3,12 @@
 `PROOF.bend` only assembles `CONCEPTS.Harness`. Each module here closes one
 boundary through the shared `LAWS.bend` or architecture declarations:
 
+`board.bend` constructs the board's full decision, callback, title-only and
+dialog-transition evidence. It is assembled into the public harness with board
+dispatch refinement. `../../tests-bend/board-proof.test.mjs` challenges that
+production binding using type-correct defects, rather than treating a successful
+checker invocation as evidence that the specification detects those defects.
+
 | Module | Obligation |
 | --- | --- |
 | `protocol` | Public commands, accepted events and internal-call settlement. |

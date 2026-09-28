@@ -5,6 +5,26 @@ requirements themselves live in `LAWS.bend`, the domain in `MODEL.bend`, and the
 executed transition in `PROGRAM.bend`. Dates describe observations on this branch,
 not claims about all Bend versions.
 
+## Task-board integration
+
+The first browser pass exposed a mismatch hidden by the pure type check:
+successful creation opened a detail dialog, whereas the reference closes it
+unless continuous creation is selected. The intended create/edit transitions
+are now fields of the assembled `BoardBoundary`, challenged by semantic mutations.
+
+Column-only drag was also insufficient. Manual order now uses the finite map's
+existing association-list order, with positional insertion specified separately
+from the production helper. Stable priority/pin grouping uses Base list filtering.
+The pinned compiler requires `List.filter`'s predicate template to be closed;
+priority grouping therefore specializes the finite priority cases rather than
+capturing a runtime rank in a compile-time template. No general sorting theory
+was reintroduced for this feature.
+
+Browser fixtures wait for the native mode/form to arrive before typing into it;
+DOM presence from the preceding dialog is not an acknowledgement of navigation.
+Full OS-boundary tests must run where the platform can create its own sandbox.
+An outer-sandbox denial is recorded separately from product test results.
+
 ## 2026-09-24: establish the existing implementation
 
 The starting worktree already contained a native Bend kernel, a Node host, and

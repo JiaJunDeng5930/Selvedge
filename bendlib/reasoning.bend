@@ -18,19 +18,19 @@ def route(policy: R.Policy, lease: R.Lease) -> R.Plan:
       live_lease(R.Adaptive{evaluator, efforts, baseline, transport, maximum}, lease)
 
 def request(+task: M.Task, world: M.World) -> M.Decision:
-  M.World{tasks, next_task, +ticket, +environment, limits, projects} = world
+  M.World{tasks, next_task, +ticket, +environment, limits, projects, board} = world
   M.Environment{catalog, profiles, forks, descendants, project, plugins} = environment
   +contract = M.task_contract(task)
   +tools = T.task_tools(contract)
   +allowed = T.callable(tools, catalog)
   next = M.with_phase(M.ModelPending{ticket, allowed}, task)
-  M.Decision{M.World{T.replace(tasks, next), next_task, 1n+ticket, environment, limits, projects}, J.Null{},
+  M.Decision{M.World{T.replace(tasks, next), next_task, 1n+ticket, environment, limits, projects, board}, J.Null{},
     [M.RequestModel{M.task_id(task), ticket, T.task_model(contract), M.context_history(M.task_history(task)), tools, allowed, M.task_context(task)}]}
 
 def evaluate(+task: M.Task, world: M.World) -> M.Decision:
-  M.World{tasks, next_task, +ticket, environment, limits, projects} = world
+  M.World{tasks, next_task, +ticket, environment, limits, projects, board} = world
   next = M.with_phase(M.ReasoningPending{ticket, M.history_length(M.task_history(task))}, task)
-  M.Decision{M.World{T.replace(tasks, next), next_task, 1n+ticket, environment, limits, projects}, J.Null{},
+  M.Decision{M.World{T.replace(tasks, next), next_task, 1n+ticket, environment, limits, projects, board}, J.Null{},
     [M.RequestReasoning{M.task_id(task), ticket, T.task_model(M.task_contract(task)), M.task_history(task)}]}
 
 def execute(plan: R.Plan, task: M.Task, world: M.World) -> M.Decision:

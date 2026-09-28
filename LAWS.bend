@@ -1,4 +1,5 @@
 import Base
+import ./BOARD.bend as Board
 import ./bendlib/stdlib.bend as Std
 import ./MODEL.bend as M
 import ./PROGRAM.bend as P
@@ -9,6 +10,7 @@ import ./COMMANDS.bend as Commands
 import ./bendlib/commit.bend as Commit
 import ./bendlib/protocol.bend as Protocol
 import ./bendlib/execution.bend as Execution
+import ./bendlib/board-scheduling-spec.bend as BoardScheduling
 import ./bendlib/traces.bend as Traces
 import ./bendlib/operations.bend as Ops
 import ./bendlib/results.bend as Results
@@ -341,8 +343,8 @@ law scheduling_disabled:
 
 law scheduling_enabled:
   for +decision: M.Decision
-  {P.scheduled(True{}, decision) == P.schedule(P.scheduling_budget(P.decision_world(decision)),
-    T.runnable(P.tasks(P.decision_world(decision))), decision) : M.Decision}
+  {P.scheduled(True{}, decision) ==
+    Execution.scheduled_prepared(BoardScheduling.required_prepare(decision)) : M.Decision}
 
 law scheduling_idle:
   for fuel: Nat
@@ -401,6 +403,7 @@ law no_work:
   {P.work(M.NoWork{}, task, world) == M.Decision{world, M.success(J.Null{}), Nil{}} : M.Decision}
 
 law tool_dispatch:
+  for +board: Board.State
   for +tool: M.Tool
   for +call: M.Call
   for +remaining: +List<M.Attempt>
@@ -411,9 +414,9 @@ law tool_dispatch:
   for +environment: M.Environment
   for +limits: M.ExecutionLimits
   for +projects: M.Projects
-  {P.external_tool(tool, call, remaining, task, M.World{tasks, next_task, ticket, environment, limits, projects}) ==
+  {P.external_tool(tool, call, remaining, task, M.World{tasks, next_task, ticket, environment, limits, projects, board}) ==
     M.Decision{M.World{T.replace(tasks, T.promote(Ops.started(ticket, call, remaining, task))),
-      next_task, 1n+ticket, environment, limits, projects}, J.Null{}, [M.ExecuteTool{M.task_id(task), ticket, tool, call, M.task_context(task), Workspace.default_access(M.task_context(task))}]} : M.Decision}
+      next_task, 1n+ticket, environment, limits, projects, board}, J.Null{}, [M.ExecuteTool{M.task_id(task), ticket, tool, call, M.task_context(task), Workspace.default_access(M.task_context(task))}]} : M.Decision}
 
 law small_context_dispatch:
   for +task: M.Task

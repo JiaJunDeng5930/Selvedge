@@ -11,6 +11,9 @@ import ../WORKSPACE.bend as Workspace
 import ../APPROVALS.bend as Approvals
 import ../REASONING.bend as R
 import ./reasoning-spec.bend as Reasoning
+import ../BOARD.bend as B
+import ./board-state.bend as BoardState
+import ./board-spec.bend as BoardSpec
 
 # The other half of command meaning: an effect result is a message carrying a
 # one-use ticket, not permission to overwrite a task. Resolve against the current
@@ -20,6 +23,7 @@ type Event is Data:
   Ignore{}
   ModelResult{task: M.Task, outcome: M.Outcome, allowed: +List<String>}
   ReasoningResult{task: M.Task, revision: Nat, outcome: R.Outcome}
+  BoardTextResult{id: Nat, card: B.Card, outcome: B.Outcome, retitle: Bool}
   SummaryResult{task: M.Task, outcome: M.Outcome, resume: Bool}
   ToolResult{task: M.Task, operation: M.Operation(), value: J.Json, error: Bool}
   HookResult{task: M.Task, outcome: M.HookOutcome}
@@ -105,12 +109,39 @@ def hook(found: Maybe<&2, M.Task>, ticket: Nat, outcome: M.HookOutcome) -> Event
     case None{}: Ignore{}
     case Some{+task}: hook_phase(M.task_status(task), M.task_phase(task), task, ticket, outcome)
 
+def board_selected_callback(current: Bool, retitle: Bool) -> Maybe<&2, Bool>:
+  match current:
+    case True{}: Some{retitle}
+    case False{}: None{}
+
+def board_pending_callback(state: B.Enrichment, version: Nat, ticket: Nat) -> Maybe<&2, Bool>:
+  match state:
+    case B.Enriching{expected, revision, retitle}:
+      board_selected_callback(Nat.is_eq(ticket, expected) && Nat.is_eq(version, revision), retitle)
+    case _: None{}
+
+def board_lease(state: B.Enrichment, archived: Bool, version: Nat, ticket: Nat) -> Maybe<&2, Bool>:
+  match archived:
+    case True{}: None{}
+    case False{}: board_pending_callback(state, version, ticket)
+
+def board_callback(current: Maybe<&2, Bool>, id: Nat, card: B.Card, outcome: B.Outcome) -> Event:
+  match current:
+    case None{}: Ignore{}
+    case Some{retitle}: BoardTextResult{id, card, outcome, retitle}
+
+def board_text(found: Maybe<&2, B.Card>, id: Nat, ticket: Nat, outcome: B.Outcome) -> Event:
+  match found:
+    case None{}: Ignore{}
+    case Some{+card}: board_callback(board_lease(B.enrichment(card), B.archived(card), B.revision(card), ticket), id, card, outcome)
+
 def resolve(input: M.Input, +world: M.World) -> Event:
   match input:
     case M.UserCommand{command}: User{Commands.resolve(command, world)}
     case M.UserInterface{state, event}: User{Commands.resolve(UI.command(event), world)}
     case M.ModelCompleted{id, ticket, outcome}: model(T.find(Commands.entries(world), id), ticket, outcome)
     case M.ReasoningCompleted{id, ticket, outcome}: reasoning(T.find(Commands.entries(world), id), ticket, outcome)
+    case M.BoardTextCompleted{+id, ticket, outcome}: board_text(B.find(BoardState.registry(world), id), id, ticket, outcome)
     case M.ToolCompleted{id, ticket, value, error}: tool(T.find(Commands.entries(world), id), ticket, value, error)
     case M.HookCompleted{id, ticket, outcome}: hook(T.find(Commands.entries(world), id), ticket, outcome)
     case M.AfterCompleted{id, operation, ticket, outcome}: after(T.find(Commands.entries(world), id), operation, ticket, outcome)
@@ -138,6 +169,7 @@ def meaning(event: Event, world: M.World) -> M.Decision:
       M.Decision{Commands.replace(T.model_outcome(outcome, allowed, task), world), acknowledgement(True{}), Nil{}}
     case ReasoningResult{task, revision, outcome}:
       M.Decision{Commands.replace(Reasoning.complete(revision, outcome, task), world), acknowledgement(True{}), Nil{}}
+    case BoardTextResult{id, card, outcome, retitle}: BoardSpec.completed(id, card, outcome, retitle, world)
     case SummaryResult{task, outcome, resume}:
       M.Decision{Commands.replace(T.summary_outcome(outcome, resume, task), world), acknowledgement(True{}), Nil{}}
     case ToolResult{task, operation, value, error}:
@@ -147,11 +179,11 @@ def meaning(event: Event, world: M.World) -> M.Decision:
     case HookResult{task, outcome}:
       M.Decision{Commands.replace(T.complete_hook(outcome, task), world), acknowledgement(True{}), Nil{}}
     case Settings{environment}:
-      M.World{tasks, next_task, next_ticket, previous, limits, projects} = world
-      M.Decision{M.World{tasks, next_task, next_ticket, environment, limits, projects}, M.success(J.Null{}), Nil{}}
+      M.World{tasks, next_task, next_ticket, previous, limits, projects, board} = world
+      M.Decision{M.World{tasks, next_task, next_ticket, environment, limits, projects, board}, M.success(J.Null{}), Nil{}}
     case Restart{}:
-      M.World{tasks, next_task, next_ticket, environment, limits, projects} = world
-      M.Decision{M.World{recovery(tasks), next_task, next_ticket, environment, limits, projects}, M.success(J.Null{}), Nil{}}
+      M.World{tasks, next_task, next_ticket, environment, limits, projects, board} = world
+      M.Decision{M.World{recovery(tasks), next_task, next_ticket, environment, limits, projects, BoardState.recover(board)}, M.success(J.Null{}), Nil{}}
     case Tick{}: M.Decision{world, M.success(J.Null{}), Nil{}}
     case Review{resolution}: Approvals.meaning(resolution, world)
 
@@ -220,21 +252,21 @@ def finish(id: Nat, call: M.Call, remaining: +List<M.Attempt>, +decision: M.Deci
 
 def branched(built: Commands.Children, call: M.Call, remaining: +List<M.Attempt>, +parent: M.Task, world: M.World) -> M.Decision:
   Commands.Children{+children, end} = built
-  M.World{tasks, next_task, next_ticket, environment, limits, projects} = world
+  M.World{tasks, next_task, next_ticket, environment, limits, projects, board} = world
   caller = T.promote(M.with_notified(True{}, M.with_phase(M.Ready{remaining}, M.with_history(M.branch_history(M.task_history(parent), T.call_id(call), 0n), parent))))
-  M.Decision{M.World{List.append(&2, M.Task, T.replace(tasks, caller), children), end, next_ticket, environment, limits, projects},
+  M.Decision{M.World{List.append(&2, M.Task, T.replace(tasks, caller), children), end, next_ticket, environment, limits, projects, board},
     M.success(J.Object{[J.Field{"children", J.Array{Commands.identities(children)}}]}), Nil{}}
 
 def branched_invocation(built: Commands.Children, call: M.Call, remaining: +List<M.Attempt>, parent: M.Task, world: M.World) -> M.Decision:
   Commands.Children{+children, end} = built
-  M.World{tasks, next_task, next_ticket, environment, limits, projects} = world
+  M.World{tasks, next_task, next_ticket, environment, limits, projects, board} = world
   Results.attached(Results.internal(call, remaining, J.nat(0n), False{}, parent,
-    M.World{List.append(&2, M.Task, tasks, children), end, next_ticket, environment, limits, projects}),
+    M.World{List.append(&2, M.Task, tasks, children), end, next_ticket, environment, limits, projects, board}),
     M.success(J.Object{[J.Field{"children", J.Array{Commands.identities(children)}}]}), Nil{})
 
 def invoked(operation: Invocation, +call: M.Call, +remaining: +List<M.Attempt>, +task: M.Task, +world: M.World) -> M.Decision:
   match operation:
     case Internal{operation}: finish(M.task_id(task), call, remaining, Commands.meaning(operation, world))
     case Branch{count, texts, selection}:
-      M.World{tasks, next_task, next_ticket, environment, limits, projects} = world
+      M.World{tasks, next_task, next_ticket, environment, limits, projects, board} = world
       branched_invocation(Commands.children(count, next_task, 1n, Commands.selected_parent(selection, task), T.call_id(call), remaining, texts), call, remaining, task, world)

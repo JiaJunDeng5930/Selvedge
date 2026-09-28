@@ -79,6 +79,9 @@ function taskInstructions(instructions, settings) {
 }
 
 export function responseBody(effect, profile = { provider: effect.model.provider }) {
+  if (effect.kind === 'board_text') {
+    effect = { ...effect, instructions: '', tools: [], callable: [], history: [{ role: 'user', content: effect.prompt }] };
+  }
   if (effect.kind === 'approval') {
     effect = { ...effect, tools: [], callable: [], history: [{ role: 'user', content: stringifyJson({
       task_id: effect.task_id, request_id: effect.ticket, command: effect.call,
@@ -122,7 +125,7 @@ export function responseBody(effect, profile = { provider: effect.model.provider
     if (profile.model_info) {
       const levels = profile.model_info.supported_reasoning_levels.map(level => level.effort);
       if (!levels.length && !effect.model.adaptive_reasoning) delete body.reasoning;
-      else if (effect.kind !== 'approval' && (!levels.includes(effectiveEffort) || !levels.includes(requestEffort))) {
+      else if (!['approval', 'board_text'].includes(effect.kind) && (!levels.includes(effectiveEffort) || !levels.includes(requestEffort))) {
         throw new Error(`This account model supports these reasoning levels: ${levels.join(', ')}`);
       }
     }
@@ -132,8 +135,8 @@ export function responseBody(effect, profile = { provider: effect.model.provider
     body.instructions = taskInstructions(effect.context_instructions, effect.settings);
     body.input.push({ type: 'compaction_trigger' });
   }
-  if (effect.kind === 'approval') {
-    delete body.reasoning; // Independent request uses the review model's default, not the task's reasoning setting.
+  if (effect.kind === 'approval' || effect.kind === 'board_text') {
+    delete body.reasoning; // Independent requests use their provider default, not a task's reasoning setting.
     body.tools = [];
     body.tool_choice = profile.provider === 'chatgpt' ? 'auto' : 'none';
   }
@@ -178,6 +181,7 @@ export async function requestModel(effect, config, home, limits, { signal, onDel
   const profile = config.profiles[effect.model.profile];
   if (!profile || profile.provider !== effect.model.provider) throw new Error('The frozen model provider is no longer configured');
   if (profile.provider === 'echo') {
+    if (effect.kind === 'board_text') throw new Error('The offline echo profile cannot generate board descriptions; configure a model provider');
     if (effect.kind === 'approval') throw new Error('The offline echo profile cannot review an approval; configure a model provider');
     if (effect.kind === 'summary') throw new Error('The offline echo profile cannot summarize context; configure a model provider');
     const last = effect.history.findLast(item => item.role === 'user');
@@ -190,7 +194,8 @@ export async function requestModel(effect, config, home, limits, { signal, onDel
   }
   const request = responseBody(effect, profile);
   const session = profile.provider === 'chatgpt' ? chatgptSession(home,
-    effect.kind === 'approval' ? `${effect.task_id}:approval:${effect.ticket}` : effect.task_id) : undefined;
+    effect.kind === 'board_text' ? `board:${effect.card_id}:draft:${effect.ticket}` :
+      effect.kind === 'approval' ? `${effect.task_id}:approval:${effect.ticket}` : effect.task_id) : undefined;
   if (session) request.prompt_cache_key = session;
   const body = stringifyJson(request);
   if (Buffer.byteLength(body) > limits.frame_bytes) throw new RangeError('Provider request exceeds the configured limit');

@@ -34,9 +34,30 @@ async function api(body, signal, credential) {
   return value;
 }
 
+async function attachmentRequest(url, options = {}) {
+  const epoch = generation;
+  const response = await fetch(url, { ...options, signal: connection?.signal,
+    headers: { authorization: `Bearer ${token}` } });
+  if (epoch !== generation) { await response.body?.cancel(); throw new Error('The workspace connection changed'); }
+  if (!response.ok) {
+    const value = await response.json().catch(() => null);
+    throw new Error(value?.error?.message ?? `HTTP ${response.status}`);
+  }
+  return response;
+}
+
+async function uploadAttachment(file) {
+  const response = await attachmentRequest(`/api/board/attachments?name=${encodeURIComponent(file.name)}`, { method: 'POST', body: file });
+  return (await response.json()).result;
+}
+
+async function readAttachment(id) {
+  return (await attachmentRequest(`/api/board/attachments/${encodeURIComponent(id)}`)).blob();
+}
+
 // The cursor is opaque. All command binding, visibility and enabled decisions
 // come from the native presentation; this queue owns only browser interactions.
-function dispatch(event, formKey, submitted) {
+function dispatch(event, formKey, submitted, retainedFields) {
   const epoch = generation;
   const signal = connection?.signal;
   const credential = token;
@@ -47,12 +68,14 @@ function dispatch(event, formKey, submitted) {
     const result = value.result;
     revision = Math.max(revision, value.sequence);
     state = result.presentation.state;
-    if (formKey && result.receipt.ok) acknowledgeDrafts(drafts, formKey, submitted);
+    if (formKey && result.receipt.ok) acknowledgeDrafts(drafts, formKey, submitted,
+      typeof retainedFields === 'function' ? retainedFields() : retainedFields);
     const previousSelection = surface?.selected;
     surface = mount($('surface'), result.presentation.root, dispatch, {
-      drafts, disclosures, takeMarkdown: (text, selected) => streams.take(text, selected, value.sequence),
+      drafts, disclosures, uploadAttachment, readAttachment,
+      takeMarkdown: (text, selected) => streams.take(text, selected, value.sequence),
     });
-    if (event.type === 'select' && matchMedia('(max-width: 760px)').matches) setSidebar(false);
+    if ((event.type === 'select' || (event.type === 'board' && event.event?.action === 'pane')) && matchMedia('(max-width: 760px)').matches) setSidebar(false);
     syncSidebar();
     if (surface.selected !== previousSelection) liveFollow = true;
     if (event.type === 'history') {
@@ -156,6 +179,7 @@ function syncSidebar() {
   for (const child of document.querySelector('[data-role="screen"] > .group-content')?.children ?? []) {
     child.inert = modal && child.dataset.role !== 'navigation';
   }
+  for (const child of document.querySelectorAll('.board-workspace')) child.inert = modal;
 }
 function setSidebar(open) {
   document.body.dataset.sidebar = open ? 'open' : 'closed';

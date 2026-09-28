@@ -1,4 +1,5 @@
 import Base
+import ../BOARD.bend as Board
 import ../MODEL.bend as M
 import ../APPROVALS.bend as A
 import ../PROGRAM.bend as P
@@ -16,9 +17,9 @@ type ApprovalBoundary is Type:
     human_waits: @call:M.Call -> @remaining:+List<M.Attempt> -> @task:M.Task -> @world:M.World ->
       {P.decision_effects(P.approval_request(M.HumanReviewer{}, call, remaining, task, world)) == Nil{} : +List<M.Effect>},
     model_waits: @+profile:M.Profile -> @+call:M.Call -> @+remaining:+List<M.Attempt> -> @+task:M.Task ->
-      @tasks:+List<M.Task> -> @next_task:Nat -> @+ticket:Nat -> @environment:M.Environment -> @limits:M.ExecutionLimits -> @projects:M.Projects ->
+      @tasks:+List<M.Task> -> @next_task:Nat -> @+ticket:Nat -> @environment:M.Environment -> @limits:M.ExecutionLimits -> @projects:M.Projects -> @board:Board.State ->
       {P.decision_effects(P.approval_request(M.ModelReviewer{profile}, call, remaining, task,
-        M.World{tasks, next_task, ticket, environment, limits, projects})) ==
+        M.World{tasks, next_task, ticket, environment, limits, projects, board})) ==
         [M.RequestApproval{M.task_id(T.promote(Ops.awaiting(ticket, M.ModelReviewer{profile}, call, remaining, task))), ticket, profile, call,
           M.task_context(T.promote(Ops.awaiting(ticket, M.ModelReviewer{profile}, call, remaining, task))),
           M.task_history(T.promote(Ops.awaiting(ticket, M.ModelReviewer{profile}, call, remaining, task)))}] : +List<M.Effect>},

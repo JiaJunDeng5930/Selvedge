@@ -55,6 +55,9 @@ def effect(effect: M.Effect) -> J.Json:
     case M.RequestReasoning{task_id, ticket, model, history}:
       J.Object{[J.Field{"kind", J.Text{"reasoning"}}, J.Field{"task_id", J.nat(task_id)}, J.Field{"ticket", J.nat(ticket)},
         J.Field{"model", model_json(model)}, J.Field{"history", J.Array{ReasoningContext.public_history(history, Nil{})}}]}
+    case M.RequestBoardText{card_id, ticket, profile, prompt, retitle}:
+      J.Object{[J.Field{"kind", J.Text{"board_text"}}, J.Field{"card_id", J.nat(card_id)}, J.Field{"ticket", J.nat(ticket)},
+        J.Field{"model", model_json(M.Model{profile, "default", M.NoProject{}})}, J.Field{"prompt", J.Text{prompt}}, J.Field{"retitle", J.Boolean{retitle}}]}
     case M.ExecuteTool{task_id, ticket, tool, call, context, access}:
       J.Object{[J.Field{"kind", J.Text{"tool"}}, J.Field{"task_id", J.nat(task_id)}, J.Field{"ticket", J.nat(ticket)},
         J.Field{"tool", M.tool_json(tool)}, J.Field{"call", T.call_json(call)}, J.Field{"execution", M.execution_json(context, access)}]}

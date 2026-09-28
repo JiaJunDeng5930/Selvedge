@@ -28,10 +28,10 @@ def waiting(available: Bool, +plugin: M.PluginRef, +pending: +List<M.PluginRef>,
     case False{} _:
       failed("after_hook_unavailable", "The frozen result-processing plugin revision is unavailable; the tool has already completed",
         plugin, M.AfterFailure{"The frozen result-processing plugin revision is unavailable"}, operation, task, world)
-    case True{} M.World{tasks, next_task, +ticket, environment, limits, projects}:
+    case True{} M.World{tasks, next_task, +ticket, environment, limits, projects, board}:
       updated = M.with_operations(Ops.replace(M.task_operations(task),
         Ops.with_stage(M.ResultPending{ticket, plugin, pending, value, error}, operation)), task)
-      M.Decision{M.World{T.replace(tasks, updated), next_task, 1n+ticket, environment, limits, projects},
+      M.Decision{M.World{T.replace(tasks, updated), next_task, 1n+ticket, environment, limits, projects, board},
         M.success(J.Object{[J.Field{"accepted", J.Boolean{True{}}}]}),
         [M.CheckResult{M.task_id(task), ticket, Ops.ticket(operation), plugin, Ops.call(operation), value, error}]}
 
@@ -74,10 +74,10 @@ def internal_chain(chain: +List<M.PluginRef>, +call: M.Call, remaining: +List<M.
   match chain world:
     case Nil{} _:
       M.Decision{T.update_world(finish_status(M.task_status(task), T.complete_tool(call, remaining, value, error, task)), world), J.Null{}, Nil{}}
-    case Con{plugin, pending} M.World{tasks, next_task, +ticket, environment, limits, projects}:
+    case Con{plugin, pending} M.World{tasks, next_task, +ticket, environment, limits, projects, board}:
       +prepared = finish_status(M.task_status(task), Ops.started(ticket, call, remaining, task))
       received(plugin <> pending, (ticket, M.OperationBody{call, False{}, M.Executing{}}), value, error, prepared,
-        M.World{tasks, next_task, 1n+ticket, environment, limits, projects})
+        M.World{tasks, next_task, 1n+ticket, environment, limits, projects, board})
 
 def internal(call: M.Call, remaining: +List<M.Attempt>, value: J.Json, error: Bool, +task: M.Task, world: M.World) -> M.Decision:
   internal_chain(Hooks.after(Hooks.plugins(M.task_contract(task))), call, remaining, value, error, task, world)

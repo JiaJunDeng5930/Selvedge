@@ -11,6 +11,7 @@
     "start": "node host/cli.mjs server",
     "test": "node scripts/build.mjs && node --test tests-bend/*.test.mjs",
     "test:browser": "node scripts/build.mjs && node scripts/browser-check.mjs",
+    "test:board-browser": "node scripts/build.mjs && node scripts/board-browser-check.mjs",
     "check": "node scripts/check.mjs",
     "index": "node scripts/agents-index.mjs update",
     "index:check": "node scripts/agents-index.mjs check",

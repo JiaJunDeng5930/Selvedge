@@ -18,7 +18,7 @@ def plugins(contract: M.Contract) -> +List<M.Plugin>:
   plugins
 
 def live(world: M.World) -> +List<M.Plugin>:
-  M.World{tasks, next_task, next_ticket, M.Environment{catalog, profiles, max_fork, max_descendants, project, plugins}, limits, projects} = world
+  M.World{tasks, next_task, next_ticket, M.Environment{catalog, profiles, max_fork, max_descendants, project, plugins}, limits, projects, board} = world
   plugins
 
 def before(plugins: +List<M.Plugin>) -> +List<M.PluginRef>:

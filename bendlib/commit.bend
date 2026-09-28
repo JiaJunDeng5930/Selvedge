@@ -25,11 +25,11 @@ def schedules(input: M.Input, decision: M.Decision) -> Bool:
     case other: M.schedules(other)
 
 def render_budget(world: M.World) -> Nat:
-  M.World{tasks, next_task, next_ticket, environment, M.ExecutionLimits{steps, render, bytes}, projects} = world
+  M.World{tasks, next_task, next_ticket, environment, M.ExecutionLimits{steps, render, bytes}, projects, board} = world
   render
 
 def frame_bytes(world: M.World) -> U32:
-  M.World{tasks, next_task, next_ticket, environment, M.ExecutionLimits{steps, render, bytes}, projects} = world
+  M.World{tasks, next_task, next_ticket, environment, M.ExecutionLimits{steps, render, bytes}, projects, board} = world
   bytes
 
 def reject(previous: M.World, code: String, reason: String) -> M.Decision:
@@ -42,7 +42,7 @@ def guard(state_valid: Bool, change_valid: Bool, decision: M.Decision, previous:
 
 def live(decision: M.Decision) -> M.Decision:
   M.Decision{+world, reply, effects} = decision
-  M.World{tasks, next_task, next_ticket, environment, limits, projects} = world
+  M.World{tasks, next_task, next_ticket, environment, limits, projects, board} = world
   M.Decision{world, reply, I.live_effects(effects, tasks)}
 
 def state(decision: M.Decision) -> M.World:

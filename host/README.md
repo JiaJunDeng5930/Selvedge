@@ -14,6 +14,14 @@ compiler's effect ABI and the operating system remain trusted boundaries.
 Host integration tests exercise persistence, HTTP delivery, model transport, and
 process execution. Bend laws do not prove those implementations or their services.
 
+Board text generation is a committed `RequestBoardText` effect interpreted by
+`board-text.mjs`; native ticket/revision matching owns settlement. The
+authenticated `board-files.mjs` boundary stores content-addressed, bounded files
+and rejects forged metadata or symbolic-link storage. Paste, drop and picker
+gestures share this route. The host observes timestamps and file facts; admission,
+order, automatic dispatch and execution association remain native. See
+`../docs/adr/0022-native-task-board.md`.
+
 The suite also exercises device login and serialized credential refresh against a
 loopback issuer, interruption and restart of an actual HTTP stream, MCP catalog
 notifications during shutdown, and suppression of effects withdrawn within a
