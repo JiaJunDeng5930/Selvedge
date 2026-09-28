@@ -60,7 +60,6 @@ function dispatch(event, formKey, submitted) {
       if (liveFollow) surface.scrollToBottom(); else surface.showHistory();
     }
     streams.surface(liveFollow ? surface.liveRoot : null, surface.selected, value.sequence);
-    if (event.type === 'select' && matchMedia('(max-width: 760px)').matches) setSidebar(false);
     if (!result.receipt.ok) throw new Error(result.receipt.error?.message ?? 'Request was not accepted');
     report();
   });

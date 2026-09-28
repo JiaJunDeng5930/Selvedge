@@ -150,7 +150,7 @@ export class Service extends EventEmitter {
       });
       return;
     }
-    if (!['model', 'summary', 'tool', 'hook', 'after_hook', 'approval'].includes(effect.kind)) { this.#fatal(new Error(`Unknown effect ${effect.kind}`)); return; }
+    if (!['model', 'summary', 'reasoning', 'tool', 'hook', 'after_hook', 'approval'].includes(effect.kind)) { this.#fatal(new Error(`Unknown effect ${effect.kind}`)); return; }
     const key = `${effect.task_id}:${effect.ticket}`;
     if (this.#running.has(key)) { this.#fatal(new Error('The kernel repeated an in-flight effect identity')); return; }
     const controller = new AbortController();
@@ -170,6 +170,12 @@ export class Service extends EventEmitter {
       if (effect.kind === 'approval') {
         input = { kind: 'approval', task_id: effect.task_id, ticket: effect.ticket,
           outcome: await requestApproval(effect, this.config, this.home, this.limits, { signal }) };
+      } else if (effect.kind === 'reasoning') {
+        // A live native lease bypasses this branch entirely. The tokenizer and
+        // evaluator are loaded only for a committed external observation.
+        const { requestReasoning } = await import('./jev.mjs');
+        const selected = await requestReasoning(effect, this.config, this.limits, { signal });
+        input = { kind: 'reasoning', task_id: effect.task_id, ticket: effect.ticket, ok: true, ...selected };
       } else if (effect.kind === 'model' || effect.kind === 'summary') {
         const items = await requestModel(effect, this.config, this.home, this.limits, {
           signal, onDelta: (text, output_index) => this.notify({ type: 'delta', task_id: effect.task_id, ticket: effect.ticket, output_index, text }),
@@ -230,6 +236,7 @@ export class Service extends EventEmitter {
 
   #failureInput(effect, message) {
     message = [...String(message || 'External execution failed').toWellFormed()].slice(0, 1024).join('');
+    if (effect.kind === 'reasoning') return { kind: 'reasoning', task_id: effect.task_id, ticket: effect.ticket, ok: false, message };
     if (effect.kind === 'hook') return { kind: 'hook', task_id: effect.task_id, ticket: effect.ticket, outcome: { decision: 'failed', reason: message } };
     if (effect.kind === 'approval') return { kind: 'approval', task_id: effect.task_id, ticket: effect.ticket,
       outcome: { decision: 'failed', reason: [...message].slice(0, 400).join('') } };

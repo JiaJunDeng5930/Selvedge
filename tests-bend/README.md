@@ -8,6 +8,7 @@ Tests do not maintain a second finite-example specification of those semantics.
 | --- | --- |
 | Commands, queue order, task lifecycle, branch inheritance, control/operation separation and recovery semantics | `LAWS.bend`, `INVARIANTS.bend`, `bendlib/architecture.bend`, discharged by `bendlib/proofs/*` and assembled in `PROOF.bend` |
 | Ordered before/after authorization and result settlement, call/error identity, audit projection | `HOOKS.bend`, `architecture.PluginBoundary` / `ResultBoundary`, `proofs/plugins.bend` / `results.bend` |
+| Adaptive routing, bounded generation leases, frozen prefix, public evaluator projection and ticket/revision correlation | `REASONING.bend`, `reasoning-spec.bend`, `reasoning-architecture.ReasoningBoundary`, discharged by `proofs/reasoning.bend` in the production proof root |
 | General concatenation, map, iteration and reachability results | Original checked source certificates in `stdlib.bend`, `relations.bend`, `association-map.bend`; the application proves correspondence and domain premises |
 | Proof checker / evidence chain rejects false, missing, circular, unsafe or corrupted evidence | `pure-proof`, `proof-gate`, `whole-program-proof`, `architecture`, `stdlib`, `relations`, `association-map` tests |
 | Native compiler, framing and codec faults: Unicode, embedded controls, exact numeric lexemes, malformed completion envelopes | `native-boundaries.test.mjs`; these are targeted executable probes, not a lifecycle truth table |
@@ -22,6 +23,7 @@ Tests do not maintain a second finite-example specification of those semantics.
 | Paced Markdown, safe links, fragmented SSE, draft races and preview identity/revision | `web-streaming.test.mjs`; browser mechanics, not native-domain proofs |
 | Real browser DOM identity, focus, scroll, worker formatting, responsive layout, unobscured approve/deny pointer targets, native form/actions and account compaction | `npm run test:browser`; isolated Chrome, loopback provider, native kernel and SQLite; captures in `.workpad/chatgpt-webui/` |
 | Audited ChatGPT OAuth/Responses, account model discovery and encrypted compaction transport, restart and cancellation | `chatgpt-contract`, `chatgpt-models`, `chatgpt-compaction` tests; loopback services, not a live commercial account |
+| Typed Jev HTTP protocols, Unicode/token budgets, provider identity, evaluator cancellation, committed dispatch and restart | `reasoning.test.mjs`; `reasoning-native.test.mjs` retains exact provider/evaluator/UI wire probes, not a second lifecycle specification; `reasoning-proof.test.mjs` checks type-correct production mutations |
 | Cross-boundary create → commit → execution → callback → model delivery → restart | `service`, `service-recovery`, `context-recovery`, `after-hooks`, `coding`, `project-context` tests using real loopback servers/processes and SQLite |
 
 `npm run check` verifies the certificates, actual proof root, native entry and
@@ -43,6 +45,14 @@ still needs evidence. Keep type-correct semantic mutations: they test whether
 the proof obligations can reject an incorrect implementation, not whether a
 particular input produces the expected domain result. A timeout, syntax error or
 missing import is not an acceptable semantic-mutation success.
+
+The adaptive-reasoning work removed native-only example replays of unsupported
+choices, queued input, stale tool results, lifecycle/recovery and fork lease
+ownership. These are covered by `ReasoningBoundary`'s admissibility, ownership,
+invalidation and correlation fields, complete `start_meaning` /
+`completion_meaning`, and the existing task/protocol refinement. They exercised
+no additional external component. Exact byte/payload probes and real HTTP/SQLite
+flows remain, alongside the semantic mutations that independently test the proof.
 
 Approval mutations include accepting the wrong reviewer origin, consuming a grant
 twice, dropping the independent review effect and changing the approved command

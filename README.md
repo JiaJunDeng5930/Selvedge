@@ -133,6 +133,10 @@ example and explicit delivery/trust boundaries.
 
 ## Run
 
+Optional adaptive effort selection, its independent Jev credentials and the
+login-generated Astra Auto profile are described in
+[adaptive reasoning](docs/adaptive-reasoning.md).
+
 Install Node.js 26 or later and a C compiler on macOS or Linux, then run:
 
 ```bash
@@ -143,7 +147,8 @@ npm start
 Bootstrap uses the Bend version in `bend-version`. When necessary, it downloads
 the corresponding release into this checkout's `.build/bend` and verifies the
 archive against `bend-checksums.txt`. It changes neither the system compiler nor
-another worktree. There are no npm runtime dependencies.
+another worktree. Bootstrap installs the locked npm dependencies; `gpt-tokenizer`
+provides the local token-budget estimate used by the optional reasoning evaluator.
 
 The server prints a local URL with its access token. Open it to create a task,
 send or steer messages, and open Details for task controls, branches, context

@@ -1,4 +1,5 @@
 import Base
+import ../REASONING.bend as Reasoning
 import ./json.bend as J
 import ../MODEL.bend as M
 import ../WORKSPACE.bend as Workspace
@@ -65,10 +66,10 @@ def project(left: M.ProjectContext, right: M.ProjectContext) -> Bool:
 
 def model(left: M.Model, right: M.Model) -> Bool:
   match left right:
-    case M.Model{M.Profile{key_a, provider_a, name_a}, reasoning_a, project_a}
-         M.Model{M.Profile{key_b, provider_b, name_b}, reasoning_b, project_b}:
+    case M.Model{M.Profile{key_a, provider_a, name_a, policy_a}, reasoning_a, project_a}
+         M.Model{M.Profile{key_b, provider_b, name_b, policy_b}, reasoning_b, project_b}:
       String.eq(key_a, key_b) && String.eq(provider_a, provider_b) &&
-        String.eq(name_a, name_b) && String.eq(reasoning_a, reasoning_b) && project(project_a, project_b)
+        String.eq(name_a, name_b) && Reasoning.same(policy_a, policy_b) && String.eq(reasoning_a, reasoning_b) && project(project_a, project_b)
 
 def tool(budget: Nat, left: M.Tool, right: M.Tool) -> Bool:
   match left right:
@@ -128,6 +129,9 @@ def message(+budget: Nat, left: M.Message, right: M.Message) -> Bool:
         booleans(error_a, error_b) && json(budget, a, b)
     case M.ModelContext{a} M.ModelContext{b}: json(budget, a, b)
     case M.ContextCheckpoint{a} M.ContextCheckpoint{b}: String.eq(a, b)
+    case M.ReasoningRecord{oa, ea, ra, sa} M.ReasoningRecord{ob, eb, rb, sb}:
+      Nat.is_eq(oa, ob) && String.eq(ea, eb) && Nat.is_eq(ra, rb) && booleans(sa, sb)
+    case M.ConfigurationUpdate{a} M.ConfigurationUpdate{b}: String.eq(a, b)
     case _ _: False{}
 
 def history(+budget: Nat, left: M.History, right: M.History) -> Bool:

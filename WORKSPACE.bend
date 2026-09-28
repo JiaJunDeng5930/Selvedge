@@ -1,4 +1,5 @@
 import Base
+import ./REASONING.bend as Reasoning
 import ./MODEL.bend as M
 import ./bendlib/json.bend as J
 import ./bendlib/schema.bend as Schema
@@ -53,13 +54,13 @@ def project_id(context: M.TaskContext) -> Maybe<&2, Nat>:
   M.TaskContext{workspace, sandbox, approval, project_id} = context
   project_id
 
-def valid_profile(profile: M.Profile) -> Bool:
-  M.Profile{key, provider, name} = profile
-  M.nonempty(key) && M.nonempty(provider) && M.nonempty(name)
+def valid_reviewer_profile(profile: M.Profile) -> Bool:
+  M.Profile{key, provider, name, reasoning} = profile
+  M.nonempty(key) && M.nonempty(provider) && M.nonempty(name) && Bool.not(Reasoning.automatic(reasoning))
 
 def valid_approval(policy: M.ApprovalPolicy) -> Bool:
   match policy:
-    case M.ApprovalForMe{profile}: valid_profile(profile)
+    case M.ApprovalForMe{profile}: valid_reviewer_profile(profile)
     case _: True{}
 
 def valid_context(context: M.TaskContext) -> Bool:
@@ -133,10 +134,15 @@ def read_sandbox(value: J.Json, fallback: M.Sandbox) -> Result<&2, &2, String, M
       selected_sandbox(text_or(J.get(value, "mode"), M.sandbox_mode_name(mode)),
         boolean_or(J.get(value, "network_access"), network))
 
+def ordinary_reviewer(automatic: Bool, profile: M.Profile) -> Result<&2, &2, String, M.ApprovalPolicy>:
+  match automatic:
+    case True{}: Fail{"An approval reviewer requires an ordinary profile; automatic reasoning is configured for task generations, not approval judgments"}
+    case False{}: Done{M.ApprovalForMe{profile}}
+
 def reviewer(found: Maybe<&2, M.Profile>) -> Result<&2, &2, String, M.ApprovalPolicy>:
   match found:
     case None{}: Fail{"Approval for me requires a configured reviewer profile"}
-    case Some{profile}: Done{M.ApprovalForMe{profile}}
+    case Some{+profile}: ordinary_reviewer(Reasoning.automatic(M.profile_reasoning(profile)), profile)
 
 def selected_approval(mode: String, key: String, profiles: +List<M.Profile>) -> Result<&2, &2, String, M.ApprovalPolicy>:
   match mode:
@@ -150,7 +156,7 @@ def read_approval(value: J.Json, fallback: M.ApprovalPolicy, profile: M.Profile,
   match value:
     case J.Null{}: Done{fallback}
     case +value:
-      M.Profile{key, provider, name} = profile
+      M.Profile{key, provider, name, reasoning} = profile
       selected_approval(J.text(J.get(value, "mode")), text_or(J.get(value, "reviewer_profile"), key), profiles)
 
 def retained_guidance(same: Bool, guidance: M.ProjectContext) -> M.ProjectContext:
@@ -212,9 +218,9 @@ def roots_within(children: +List<String>, +parents: +List<String>) -> Bool:
     case Con{child, rest}: covered(child, parents) && roots_within(rest, parents)
 
 def profile_same(a: M.Profile, b: M.Profile) -> Bool:
-  M.Profile{key_a, provider_a, name_a} = a
-  M.Profile{key_b, provider_b, name_b} = b
-  String.eq(key_a, key_b) && String.eq(provider_a, provider_b) && String.eq(name_a, name_b)
+  M.Profile{key_a, provider_a, name_a, reasoning_a} = a
+  M.Profile{key_b, provider_b, name_b, reasoning_b} = b
+  String.eq(key_a, key_b) && String.eq(provider_a, provider_b) && String.eq(name_a, name_b) && Reasoning.same(reasoning_a, reasoning_b)
 
 def review_no_broader(child: M.ApprovalPolicy, parent: M.ApprovalPolicy) -> Bool:
   match child parent:

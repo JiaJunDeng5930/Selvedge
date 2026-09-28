@@ -9,6 +9,8 @@ import ./results.bend as Results
 import ../UI.bend as UI
 import ../WORKSPACE.bend as Workspace
 import ../APPROVALS.bend as Approvals
+import ../REASONING.bend as R
+import ./reasoning-spec.bend as Reasoning
 
 # The other half of command meaning: an effect result is a message carrying a
 # one-use ticket, not permission to overwrite a task. Resolve against the current
@@ -17,6 +19,7 @@ type Event is Data:
   User{operation: Commands.Operation}
   Ignore{}
   ModelResult{task: M.Task, outcome: M.Outcome, allowed: +List<String>}
+  ReasoningResult{task: M.Task, revision: Nat, outcome: R.Outcome}
   SummaryResult{task: M.Task, outcome: M.Outcome, resume: Bool}
   ToolResult{task: M.Task, operation: M.Operation(), value: J.Json, error: Bool}
   HookResult{task: M.Task, outcome: M.HookOutcome}
@@ -44,6 +47,20 @@ def model(found: Maybe<&2, M.Task>, ticket: Nat, outcome: M.Outcome) -> Event:
   match found:
     case None{}: Ignore{}
     case Some{+task}: model_phase(M.task_status(task), M.task_phase(task), task, ticket, outcome)
+
+def reasoning_phase(status: M.Status, phase: M.Phase, task: M.Task, ticket: Nat, outcome: R.Outcome) -> Event:
+  match status:
+    case M.Archived{}: Ignore{}
+    case _:
+      match phase:
+        case M.ReasoningPending{expected, revision}:
+          matching(Nat.is_eq(ticket, expected), ReasoningResult{task, revision, outcome})
+        case _: Ignore{}
+
+def reasoning(found: Maybe<&2, M.Task>, ticket: Nat, outcome: R.Outcome) -> Event:
+  match found:
+    case None{}: Ignore{}
+    case Some{+task}: reasoning_phase(M.task_status(task), M.task_phase(task), task, ticket, outcome)
 
 def tool_operation(found: Maybe<&2, M.Operation()>, task: M.Task, value: J.Json, error: Bool) -> Event:
   match found:
@@ -93,6 +110,7 @@ def resolve(input: M.Input, +world: M.World) -> Event:
     case M.UserCommand{command}: User{Commands.resolve(command, world)}
     case M.UserInterface{state, event}: User{Commands.resolve(UI.command(event), world)}
     case M.ModelCompleted{id, ticket, outcome}: model(T.find(Commands.entries(world), id), ticket, outcome)
+    case M.ReasoningCompleted{id, ticket, outcome}: reasoning(T.find(Commands.entries(world), id), ticket, outcome)
     case M.ToolCompleted{id, ticket, value, error}: tool(T.find(Commands.entries(world), id), ticket, value, error)
     case M.HookCompleted{id, ticket, outcome}: hook(T.find(Commands.entries(world), id), ticket, outcome)
     case M.AfterCompleted{id, operation, ticket, outcome}: after(T.find(Commands.entries(world), id), operation, ticket, outcome)
@@ -118,6 +136,8 @@ def meaning(event: Event, world: M.World) -> M.Decision:
     case Ignore{}: M.Decision{world, acknowledgement(False{}), Nil{}}
     case ModelResult{task, outcome, allowed}:
       M.Decision{Commands.replace(T.model_outcome(outcome, allowed, task), world), acknowledgement(True{}), Nil{}}
+    case ReasoningResult{task, revision, outcome}:
+      M.Decision{Commands.replace(Reasoning.complete(revision, outcome, task), world), acknowledgement(True{}), Nil{}}
     case SummaryResult{task, outcome, resume}:
       M.Decision{Commands.replace(T.summary_outcome(outcome, resume, task), world), acknowledgement(True{}), Nil{}}
     case ToolResult{task, operation, value, error}:

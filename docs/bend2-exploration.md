@@ -1149,3 +1149,29 @@ with no skips. The DOM fixture was extended with namespace-aware SVG creation
 and attribute toggling; the disabled-action assertion still targets the actual
 button, not its new label span. An earlier parallel run stalled in a plugin test
 process; its isolated rerun passed all 17 checks, and the final full run completed.
+
+## Adaptive reasoning: completion guards and external boundaries
+
+The production reasoning callback originally matched status and phase together.
+Although the archived branch ignored every phase, that compilation shape did
+not reduce on an unknown phase when constructing the archived-completion proof.
+Matching status first makes the unconditional archive guard explicit; the
+complete existing obligation then checks without adding assumptions or changing
+the admitted callback behavior.
+
+An initial native mutation test selected the same projection expression in both
+ordinary and asynchronous tool results. Its assertion failed before testing any
+theorem. The mutation now includes the exact FunctionOutput branch and checks
+that it is unique, remains type-correct, and is rejected by the production
+reasoning boundary. That is evidence about the proof, not another finite
+semantic replay. Redundant native lifecycle examples were removed only after
+mapping their coverage in tests-bend/README.md; real HTTP cancellation, changed
+input during evaluation, account discovery and SQLite/restart checks remain.
+
+The macOS outer command sandbox initially prohibited Seatbelt from starting,
+returning `sandbox_apply: Operation not permitted`. The tests were rerun with
+normal process permissions instead of reducing the application's isolation.
+The final full run passed 219 tests with no skips; the real-browser run passed
+all eight check groups with no browser exceptions. These use local fixture
+services and an isolated browser profile. No live Jev or commercial ChatGPT
+request, decision-quality measurement or cache-savings measurement was made.

@@ -10,6 +10,7 @@ case "$(uname -s)" in
   *) echo 'Selvedge supports Linux and macOS only' >&2; exit 1 ;;
 esac
 if ! node scripts/toolchain.mjs >/dev/null 2>&1; then bash scripts/install-bend.sh; fi
+npm ci --ignore-scripts
 npm run build
 if command -v pre-commit >/dev/null; then
   pre-commit install

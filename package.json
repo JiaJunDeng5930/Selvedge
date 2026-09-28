@@ -2,7 +2,9 @@
   "name": "selvedge",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=26" },
+  "engines": {
+    "node": ">=26"
+  },
   "scripts": {
     "build": "node scripts/build.mjs",
     "prestart": "node scripts/build.mjs",
@@ -13,5 +15,8 @@
     "index": "node scripts/agents-index.mjs update",
     "index:check": "node scripts/agents-index.mjs check",
     "bench": "node scripts/build.mjs && node scripts/benchmark.mjs"
+  },
+  "dependencies": {
+    "gpt-tokenizer": "4.0.0"
   }
 }

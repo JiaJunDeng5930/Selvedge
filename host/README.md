@@ -50,6 +50,13 @@ gate; no theorem here proves the browser's DOM implementation.
 
 ## Coding effect interpreters
 
+`jev.mjs` interprets a committed reasoning observation with a separate evaluator
+connection, bounded public context and strict typed choices. It has no lease or
+task scheduler. `reasoning-config.mjs` separates evaluator connections, endpoint
+policies and the ordinary account-discovery preset. See
+[`docs/adaptive-reasoning.md`](../docs/adaptive-reasoning.md) for configuration,
+disclosure and failure behavior.
+
 `sandbox.mjs` converts an already-authorized execution plan into a Seatbelt or
 bubblewrap/seccomp launch. It canonicalizes explicit workspace observations and
 fails closed on unavailable isolation; it does not select a task's policy or

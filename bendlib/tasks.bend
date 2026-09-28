@@ -157,6 +157,12 @@ def message_json(message: M.Message) -> J.Json:
       J.Object{[J.Field{"role", J.Text{"model_context"}}, J.Field{"content", value}]}
     case M.ContextCheckpoint{summary}:
       J.Object{[J.Field{"role", J.Text{"context_summary"}}, J.Field{"content", J.Text{summary}}]}
+    case M.ReasoningRecord{owner, effort, remaining, sampling}:
+      J.Object{[J.Field{"role", J.Text{"reasoning_record"}}, J.Field{"task_id", J.nat(owner)},
+        J.Field{"content", J.Object{[J.Field{"effort", J.Text{effort}}, J.Field{"remaining", J.nat(remaining)},
+          J.Field{"sampling", J.Boolean{sampling}}]}}]}
+    case M.ConfigurationUpdate{effort}:
+      J.Object{[J.Field{"role", J.Text{"configuration_update"}}, J.Field{"content", J.Text{effort}}]}
 
 def messages_json(messages: +List<M.Message>) -> +List<J.Json>:
   match messages:
@@ -175,10 +181,11 @@ def phase_name(phase: M.Phase) -> String:
     case M.Ready{calls}: "ready"
     case M.CompactionReady{}: "compaction_ready"
     case M.ModelPending{ticket, callable}: "model_pending"
+    case M.ReasoningPending{ticket, revision}: "reasoning_pending"
     case M.SummaryPending{ticket, resume}: "summary_pending"
 
 def summary(task: M.Task) -> J.Json:
-  M.Task{id, lineage, M.Contract{M.Model{M.Profile{profile, provider, model}, reasoning, project}, tools, max_fork, max_descendants, plugins, context}, +status, history, queued, phase, operations, notified} = task
+  M.Task{id, lineage, M.Contract{M.Model{M.Profile{profile, provider, model, policy}, reasoning, project}, tools, max_fork, max_descendants, plugins, context}, +status, history, queued, phase, operations, notified} = task
   J.Object{[J.Field{"id", J.nat(id)}, J.Field{"parent", J.optional_nat(List.head(&2, Nat, lineage))},
     J.Field{"profile", J.Text{profile}}, J.Field{"provider", J.Text{provider}}, J.Field{"model", J.Text{model}}, J.Field{"reasoning", J.Text{reasoning}},
     J.Field{"status", J.Text{M.status_name(status)}}, J.Field{"controls", M.controls(status)},
@@ -412,6 +419,8 @@ def interrupted_history(phase: M.Phase, history: M.History) -> M.History:
       M.HistoryNode{history, M.FailureMessage{"Context recovery cancelled before dispatch; original history retained"}}
     case M.ModelPending{ticket, callable}:
       M.HistoryNode{history, M.FailureMessage{"Model request interrupted by the user"}}
+    case M.ReasoningPending{ticket, revision}:
+      M.HistoryNode{history, M.FailureMessage{"Reasoning evaluation interrupted by the user; no model request was sent"}}
     case M.SummaryPending{ticket, resume}:
       M.HistoryNode{history, M.FailureMessage{"Context summary interrupted; original history retained"}}
     case M.Ready{attempts}: interrupt_attempts(attempts, history)
@@ -447,6 +456,7 @@ def steering_effects(phase: M.Phase, id: Nat) -> +List<M.Effect>:
   match phase:
     case M.HookPending{ticket, plugin, call, pending, remaining}: [M.CancelTicket{id, ticket}]
     case M.ModelPending{ticket, allowed}: [M.CancelTicket{id, ticket}]
+    case M.ReasoningPending{ticket, revision}: [M.CancelTicket{id, ticket}]
     case M.SummaryPending{ticket, resume}: [M.CancelTicket{id, ticket}]
     case _: Nil{}
 
@@ -458,6 +468,7 @@ def recover_summary(resume: Bool) -> M.Phase:
 def recover_phase(phase: M.Phase) -> M.Phase:
   match phase:
     case M.ModelPending{ticket, callable}: M.Ready{Nil{}}
+    case M.ReasoningPending{ticket, revision}: M.Ready{Nil{}}
     case M.SummaryPending{ticket, resume}: recover_summary(resume)
     case other: other
 

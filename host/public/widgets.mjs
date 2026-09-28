@@ -1,4 +1,4 @@
-import { eventForForm } from './renderer.mjs';
+import { eventForForm, eventForChange } from './renderer.mjs';
 import { Markdown } from './markdown.mjs';
 
 const surfaces = new WeakMap();
@@ -72,7 +72,7 @@ export function mount(root, tree, dispatch, options = {}) {
   function field(form, descriptor) {
     const key = `${form.key}/${descriptor.name}`;
     let item = form.inputs.get(descriptor.name);
-    if (item && item.kind !== descriptor.kind) { item.label.remove(); item = null; }
+    if (item && item.kind !== descriptor.kind) { item.label.remove(); item = null; context.drafts.delete(key); }
     if (!item) {
       const label = make('label', `field field-${descriptor.kind}`);
       const caption = make('span', 'field-label');
@@ -88,6 +88,26 @@ export function mount(root, tree, dispatch, options = {}) {
       input.addEventListener('input', () => {
         context.drafts.set(key, input.value);
         if (form.composer && descriptor.kind === 'multiline') resizeEditor(input);
+      });
+      input.addEventListener('change', async () => {
+        context.drafts.set(key, input.value);
+        const change = form.model.changes?.[descriptor.name];
+        if (!change || form.updating || form.pending || !form.model.enabled) return;
+        form.error.hidden = true;
+        try {
+          const event = eventForChange(change, input.value);
+          for (const name of change.reset_fields ?? []) {
+            if (!form.model.fields.some(field => field.name === name)) throw new TypeError('Unknown dependent field');
+            context.drafts.delete(`${form.key}/${name}`);
+          }
+          form.updating = true; form.fieldset.disabled = true; form.button.disabled = true;
+          await context.dispatch(event);
+        } catch (error) { form.error.textContent = error.message; form.error.hidden = false; }
+        finally {
+          form.updating = false; form.fieldset.disabled = !form.model.enabled;
+          form.button.disabled = form.pending || !form.model.enabled;
+          if (document.activeElement === document.body && input.isConnected) input.focus();
+        }
       });
       input.addEventListener('keydown', event => {
         const send = form.composer && descriptor.kind === 'multiline' && !event.shiftKey && !event.altKey;
@@ -113,6 +133,7 @@ export function mount(root, tree, dispatch, options = {}) {
         });
         reconcile(input, choices); item.choices = signature;
       }
+      if (context.drafts.has(key) && !descriptor.choices.some(choice => choice.value === context.drafts.get(key))) context.drafts.delete(key);
     }
     const schema = descriptor.schema ?? {};
     if (descriptor.kind === 'integer') {
@@ -205,7 +226,7 @@ export function mount(root, tree, dispatch, options = {}) {
       setText(entry.title, model.title); setText(entry.buttonLabel, model.label);
       entry.button.setAttribute('aria-label', model.label); entry.button.title = entry.composer ? `${model.label} (Enter)` : model.label;
       entry.buttonIcon.toggleAttribute('hidden', !entry.composer);
-      entry.fieldset.disabled = !model.enabled; entry.button.disabled = entry.pending || !model.enabled;
+      entry.fieldset.disabled = !model.enabled || entry.updating; entry.button.disabled = entry.pending || entry.updating || !model.enabled;
       const main = [], controls = [], options = [];
       for (const descriptor of model.fields) {
         const label = field(entry, descriptor);
@@ -219,7 +240,7 @@ export function mount(root, tree, dispatch, options = {}) {
       for (const name of entry.inputs.keys()) if (!model.fields.some(descriptor => descriptor.name === name)) entry.inputs.delete(name);
       entry.node.onsubmit = async event => {
         event.preventDefault();
-        if (!entry.model.enabled || entry.pending) return;
+        if (!entry.model.enabled || entry.pending || entry.updating) return;
         entry.error.hidden = true;
         try {
           const values = Object.fromEntries([...entry.inputs].map(([name, item]) => [name, item.input.value]));
@@ -230,7 +251,7 @@ export function mount(root, tree, dispatch, options = {}) {
           entry.error.textContent = error.message; entry.error.hidden = false;
           if (error instanceof SyntaxError && entry.optionFields.childElementCount) entry.options.open = true;
         }
-        finally { entry.pending = false; entry.button.disabled = !entry.model.enabled; }
+        finally { entry.pending = false; entry.button.disabled = entry.updating || !entry.model.enabled; }
       };
       return entry.node;
     }
