@@ -37,7 +37,11 @@ type Role is Data:
   Field{}
   Content{}
 
+type Placement is Data:
+  Placement{target: String, input: Core.Input, availability: V.Availability}
+
 type Meaning is Data:
+  MovableCard{destinations: +List<Placement>}
   Region{}
   ReadOnly{text: String}
   TaskFacts{details: V.TaskDetails}
@@ -61,6 +65,7 @@ type Surface is Data:
   Surface{content: Core.Scene, base: +List<Node>, overlays: +List<Node>, active_scope: Maybe<&2, String>}
 
 type Gesture is Data:
+  Place{target: String}
   Press{}
   Change{value: Forms.Value}
   Search{query: String}
@@ -337,7 +342,7 @@ def code_nodes(values: +List<Code.Scene>, +source: Code.Source, +parent: String)
 def groups(values: +List<Conversation.VisibleGroup>, +task: Nat, +parent: String, +state: Core.State) -> +List<Node>:
   match values:
     case Nil{}: Nil{}
-    case Con{Conversation.VisibleSpeech{+id, speaker, text}, rest}:
+    case Con{Conversation.VisibleSpeech{+id, speaker, text, source}, rest}:
       Node{parent ++ "/message/" ++ Nat.show(id), "message/" ++ Nat.show(id), "Message", Content{}, ReadOnly{text}, code_nodes(Core.code_scenes(application(state)), Code.Message{task, id}, parent ++ "/message/" ++ Nat.show(id))} <> groups(rest, task, parent, state)
     case Con{Conversation.VisibleActivity{+id, attention, +expanded, summary, audit, expand, collapse}, rest}:
       region(parent, "activity/" ++ Nat.show(id), summary, Activity{},
@@ -392,10 +397,29 @@ def projects(values: +List<V.ProjectScene>, +parent: String, +state: Core.State)
       region(parent, "project/" ++ Nat.show(id), name, Section{}, project(V.ProjectScene{id, name, workspace, guidance, tasks, actions}, parent ++ "/project/" ++ Nat.show(id), state)) <>
         projects(rest, parent, state)
 
+def placement_target(stage: B.Stage, before: Maybe<&2, Nat>) -> String:
+  match before:
+    case None{}: "/main/" ++ B.stage_name(stage)
+    case Some{id}: "/main/" ++ B.stage_name(stage) ++ "/card/" ++ Nat.show(id)
+
+def placement_control(target: String, control: Core.Control) -> Placement:
+  Core.Control{identity, label, prominence, input, availability} = control
+  Placement{target, input, availability}
+
+def placements_at(values: +List<V.MoveDestination>, +id: Nat, +revision: Nat, +now: U32, +world: M.World(), +state: Core.State) -> +List<Placement>:
+  match values:
+    case Nil{}: Nil{}
+    case Con{V.MoveDestination{+stage, +before, label, availability}, rest}:
+      placement_control(placement_target(stage, before), Core.control(state, V.board_control("move", label, B.Move{id, revision, stage, before, now}, world))) <> placements_at(rest, id, revision, now, world, state)
+
+def placements(values: +List<V.MoveDestination>, id: Nat, revision: Nat, +state: Core.State) -> +List<Placement>:
+  Core.State{E.Application{world, E.Session{route, drafts, readers, layers, attention, navigation, filter, +now, next, pending, previews, code}}, services} = state
+  placements_at(values, id, revision, now, world, state)
+
 def card(view: V.CardScene, +parent: String, +state: Core.State) -> Node:
-  V.CardScene{+id, value, open, actions, linked, destinations, candidates} = view
-  region(parent, "card/" ++ Nat.show(id), B.title(B.draft(value)), Card{},
-    [declared(parent ++ "/card/" ++ Nat.show(id), open, state), more(U.CardSubject{id}, parent ++ "/card/" ++ Nat.show(id), state)])
+  V.CardScene{+id, +value, open, actions, linked, destinations, candidates} = view
+  Node{parent ++ "/card/" ++ Nat.show(id), "card/" ++ Nat.show(id), B.title(B.draft(value)), Card{}, MovableCard{placements(destinations, id, B.revision(value), state)},
+    [declared(parent ++ "/card/" ++ Nat.show(id), open, state), more(U.CardSubject{id}, parent ++ "/card/" ++ Nat.show(id), state)]}
 
 def cards(values: +List<V.CardScene>, +parent: String, +state: Core.State) -> +List<Node>:
   match values:
@@ -622,8 +646,34 @@ def bind_node(found: Maybe<&2, Node>, gesture: Gesture) -> Maybe<&2, Core.Input>
     case None{}: None{}
     case Some{Node{key, semantic, label, role, meaning, children}}: bind(meaning, gesture)
 
-def resolve(surface: Surface, key: String, gesture: Gesture) -> Maybe<&2, Core.Input>:
-  bind_node(find_node(active_nodes(surface), key), gesture)
+def prefer_input(found: Maybe<&2, Core.Input>, fallback: Maybe<&2, Core.Input>) -> Maybe<&2, Core.Input>:
+  match found:
+    case Some{input}: Some{input}
+    case None{}: fallback
+
+def placement_input(values: +List<Placement>, +target: String) -> Maybe<&2, Core.Input>:
+  match values:
+    case Nil{}: None{}
+    case Con{Placement{key, input, availability}, rest}:
+      prefer_input(when_available(String.eq(key, target) && available(availability), input), placement_input(rest, target))
+
+def place(source: Maybe<&2, Node>, target: Maybe<&2, Node>) -> Maybe<&2, Core.Input>:
+  match source target:
+    case Some{Node{key, semantic, label, role, MovableCard{destinations}, children}} Some{Node{target, t_semantic, t_label, t_role, t_meaning, t_children}}: placement_input(destinations, target)
+    case _ _: None{}
+
+def resolve_present(+source: Node, gesture: Gesture, surface: Surface) -> Maybe<&2, Core.Input>:
+  match gesture:
+    case Place{target}: place(Some{source}, find_node(active_nodes(surface), target))
+    case other: bind_node(Some{source}, other)
+
+def resolve_source(source: Maybe<&2, Node>, gesture: Gesture, surface: Surface) -> Maybe<&2, Core.Input>:
+  match source:
+    case None{}: None{}
+    case Some{node}: resolve_present(node, gesture, surface)
+
+def resolve(+surface: Surface, key: String, gesture: Gesture) -> Maybe<&2, Core.Input>:
+  resolve_source(find_node(active_nodes(surface), key), gesture, surface)
 
 def apply_input(input: Maybe<&2, Core.Input>, state: Core.State) -> Core.Decision:
   match input:
@@ -683,9 +733,16 @@ def after_navigation(dismiss: Bool, decision: Core.Decision) -> Core.Decision:
     case False{}: decision
     case True{}: navigation_closed(decision)
 
-def perform(capacity: V.Capacity, +state: Core.State, key: String, +input: Maybe<&2, Core.Input>) -> Core.Decision:
+def perform_present(capacity: V.Capacity, +state: Core.State, key: String, +input: Maybe<&2, Core.Input>) -> Core.Decision:
   V.Capacity{navigation_beside, details_beside} = capacity
   after_navigation(Bool.not(navigation_beside) && navigates(input), record_source(state, key, apply_input(input, state)))
+def perform_input(input: Maybe<&2, Core.Input>, capacity: V.Capacity, state: Core.State, key: String) -> Core.Decision:
+  match input:
+    case None{}: apply_input(None{}, state)
+    case Some{value}: perform_present(capacity, state, key, Some{value})
+
+def perform(capacity: V.Capacity, state: Core.State, key: String, input: Maybe<&2, Core.Input>) -> Core.Decision:
+  perform_input(input, capacity, state, key)
 def interact(+capacity: V.Capacity, +key: String, gesture: Gesture, +state: Core.State) -> Core.Decision:
   perform(capacity, state, key, resolve(observe(capacity, state), key, gesture))
 
@@ -746,4 +803,41 @@ def focus_target(surface: Surface, requested: String) -> Maybe<&2, String>:
 def source_preserves_program(decision: Core.Decision, previous: String, origin: String) ->
   {Laws.runtime(source_decision(decision, previous, origin)) == Laws.runtime(decision) : M.Decision()}:
   Core.Decision{Core.State{E.Application{program, session}, services}, reply, runtime, interaction, service_effects, durable} = decision
+  {==}
+
+
+def submits(meaning: Meaning, editor: U.Editor) -> Bool:
+  match meaning:
+    case Activate{Core.ApplicationInput{E.UserInput{U.Activate{U.Submit{owner}}}}, availability}: available(availability) && U.same_editor(owner, editor)
+    case _: False{}
+
+def submission(nodes: +List<Node>, +editor: U.Editor) -> Maybe<&2, Node>:
+  match nodes:
+    case Nil{}: None{}
+    case Con{Node{key, semantic, label, role, +meaning, +children}, rest}:
+      choose_node(submits(meaning, editor), Node{key, semantic, label, role, meaning, children}, prefer_node(submission(children, editor), submission(rest, editor)))
+
+def submit_found(found: Maybe<&2, Node>, capacity: V.Capacity, state: Core.State) -> Core.Decision:
+  match found:
+    case None{}: apply_input(None{}, state)
+    case Some{Node{key, semantic, label, role, meaning, children}}: perform(capacity, state, key, bind(meaning, Press{}))
+
+def submit_composer(+capacity: V.Capacity, editor: U.Editor, +state: Core.State) -> Core.Decision:
+  submit_found(submission(active_nodes(observe(capacity, state)), editor), capacity, state)
+
+def has_submission(found: Maybe<&2, Node>) -> Bool:
+  match found:
+    case None{}: False{}
+    case Some{node}: True{}
+
+def composer_enabled(capacity: V.Capacity, editor: U.Editor, state: Core.State) -> Bool:
+  has_submission(submission(active_nodes(observe(capacity, state)), editor))
+
+def content(surface: Surface) -> Core.Scene:
+  Surface{content, base, overlays, scope} = surface
+  content
+
+def assembled_content(+scene: Core.Scene, state: Core.State) ->
+  {content(assemble(scene, state)) == scene : Core.Scene}:
+  Core.Scene{V.Scene{nav, main, views, arrangement, attention}, preferences, transfers, attachment, code} = scene
   {==}

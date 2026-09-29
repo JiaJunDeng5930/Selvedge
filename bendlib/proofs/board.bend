@@ -112,10 +112,4 @@ def A.board_boundary():
     (revision => ticket => {==}),
     (expected => revision => retitle => current => ticket => {==}),
     (id => card => ticket => outcome => {==}),
-    (navigation => {==}),
-    (state => navigation => {==}),
-    (stage => assisted => {==}),
-    (stage => assisted => {==}),
-    (id => revision => patch => now => reply => cursor => {==}),
-    (command => reply => cursor => {==}),
     (title => description => draft => title_only(title, description, draft))}

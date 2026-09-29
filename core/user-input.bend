@@ -32,7 +32,7 @@ type Body is Data:
   NewTask{message: Text, profile: String, reasoning: String, context: Context.Configuration}
   Message{task: Nat, message: Text, delivery: Delivery}
   Project{project: Maybe<&2, Nat>, name: String, workspace: D.Workspace}
-  Card{card: Maybe<&2, Nat>, revision: Nat, value: B.Draft, assist: Bool, profile: String}
+  Card{card: Maybe<&2, Nat>, revision: Nat, value: B.Draft, assist: Bool, profile: String, keep_open: Bool}
   Agent{agent: Maybe<&2, Nat>, revision: Nat, name: String, profile: String, reasoning: String,
     instructions: String, context: Context.Configuration, concurrency: Nat}
   Fork{task: Nat, count: Nat, messages: +List<String>, context: Context.Configuration}
@@ -55,6 +55,7 @@ type Edit is Data:
   NameProject{name: String}
   ConfigureProjectWorkspace{workspace: D.Workspace}
   WriteCard{patch: B.Patch}
+  KeepCaptureOpen{enabled: Bool}
   ConfigureCardAssistance{assist: Bool, profile: String}
   NameAgent{name: String}
   WriteInstructions{instructions: String}
@@ -84,7 +85,7 @@ type Panel is Data:
   TaskConfiguration{}
   ModelPicker{editor: Editor}
   DeliveryPicker{task: Nat}
-  Confirm{command: M.Command, title: String}
+  Confirm{command: M.Command, title: String, destination: Route}
 
 type Action is Data:
   Navigate{route: Route}
@@ -159,7 +160,7 @@ def owner(body: Body) -> Editor:
     case NewTask{message, profile, reasoning, context}: NewTaskEditor{}
     case Message{task, message, delivery}: MessageEditor{task}
     case Project{id, name, workspace}: ProjectEditor{id}
-    case Card{id, revision, value, assist, profile}: CardEditor{id}
+    case Card{id, revision, value, assist, profile, keep_open}: CardEditor{id}
     case Agent{id, revision, name, profile, reasoning, instructions, context, concurrency}: AgentEditor{id}
     case Fork{task, count, messages, context}: ForkEditor{task}
     case Compact{task, summary}: CompactEditor{task}
@@ -219,8 +220,9 @@ def apply_edit(change: Edit, body: Body, world: M.World()) -> Result<&2, &2, Str
       Done{Agent{id, revision, name, profile, reasoning, instructions, Context.edit(context, change), concurrency}}
     case NameProject{name} Project{id, old, workspace}: Done{Project{id, name, workspace}}
     case ConfigureProjectWorkspace{workspace} Project{id, name, old}: Done{Project{id, name, workspace}}
-    case WriteCard{patch} Card{id, revision, value, assist, profile}: Done{Card{id, revision, patch_card(patch, value), assist, profile}}
-    case ConfigureCardAssistance{assist, profile} Card{None{}, revision, value, old_assist, old_profile}: Done{Card{None{}, revision, value, assist, profile}}
+    case WriteCard{patch} Card{id, revision, value, assist, profile, keep_open}: Done{Card{id, revision, patch_card(patch, value), assist, profile, keep_open}}
+    case KeepCaptureOpen{enabled} Card{None{}, revision, value, assist, profile, previous}: Done{Card{None{}, revision, value, assist, profile, enabled}}
+    case ConfigureCardAssistance{assist, profile} Card{None{}, revision, value, old_assist, old_profile, keep_open}: Done{Card{None{}, revision, value, assist, profile, keep_open}}
     case NameAgent{name} Agent{id, revision, old, profile, reasoning, instructions, context, concurrency}:
       Done{Agent{id, revision, name, profile, reasoning, instructions, context, concurrency}}
     case WriteInstructions{instructions} Agent{id, revision, name, profile, reasoning, old, context, concurrency}:
@@ -266,7 +268,7 @@ def command(body: Body, now: U32) -> M.Command:
     case NewTask{message, profile, reasoning, context}: M.Create{profile, reasoning, text(message), Context.settings(context)}
     case Message{task, message, delivery}: message_command(delivery, task, text(message))
     case Project{id, name, workspace}: project_command(id, name, D.workspace_json(workspace), J.Null{})
-    case Card{id, revision, value, assist, profile}: M.FeatureCommand{F.BoardCommand{card_command(id, revision, value, assist, profile, now)}}
+    case Card{id, revision, value, assist, profile, keep_open}: M.FeatureCommand{F.BoardCommand{card_command(id, revision, value, assist, profile, now)}}
     case Agent{id, +revision, name, profile, reasoning, instructions, context, concurrency}:
       M.FeatureCommand{F.BoardCommand{B.SaveAgent{id, revision, B.AgentProfile{revision, name, profile, reasoning, instructions, Context.settings(context), concurrency}}}}
     case Fork{task, count, messages, context}: M.Fork{task, count, messages, Context.settings(context)}
@@ -311,10 +313,18 @@ def valid_origin(body: Body) -> Bool:
     case _: True{}
 
 
+def contents(draft: Draft) -> Body:
+  Draft{revision, body, feedback} = draft
+  body
+
+def next_capture(draft: B.Draft) -> B.Draft:
+  B.Draft{title, description, stage, priority, owner, project, labels, attachments} = draft
+  B.Draft{"", "", stage, priority, owner, project, labels, Nil{}}
 def after_accept(body: Body) -> Body:
   match body:
     case NewTask{message, profile, reasoning, context}: NewTask{initial_text(""), profile, reasoning, context}
     case Message{task, message, delivery}: Message{task, initial_text(""), delivery}
+    case Card{None{}, revision, value, assist, profile, keep_open}: Card{None{}, revision, next_capture(value), assist, profile, keep_open}
     case other: other
 
 def subject_key(subject: Subject) -> String:

@@ -7,7 +7,6 @@ import ../INVARIANTS.bend as I
 import ./json.bend as J
 import ./presentation.bend as View
 import ./protocol.bend as Protocol
-import ../UI.bend as UI
 import ./notifications.bend as Notifications
 
 # Complete command meaning includes the finite scheduling and commit boundary.
@@ -18,10 +17,6 @@ def schedules(input: M.Input, decision: M.Decision()) -> Bool:
   match input:
     case M.UserCommand{M.Observe{query}}: False{}
     case M.UserCommand{other}:
-      C.Decision{world, reply, effects} = decision
-      J.boolean(J.get(reply, "ok"))
-    case M.UserInterface{state, M.Submit{M.Observe{query}}}: False{}
-    case M.UserInterface{state, M.Submit{command}}:
       C.Decision{world, reply, effects} = decision
       J.boolean(J.get(reply, "ok"))
     case other: M.schedules(other)
@@ -74,7 +69,7 @@ def finish(durable: Bool, decision: M.Decision(), +previous: M.World()) -> M.Dec
   deliver(durable, checked(decision, previous), previous)
 
 def update(~schedule: Bool -> @+decision:M.Decision() -> M.Decision(), +input: M.Input, +decision: M.Decision(), +previous: M.World()) -> M.Decision():
-  finish(M.durable(input), Notifications.decorate(input, previous, UI.decorate(input, schedule(schedules(input, decision), decision))), previous)
+  finish(M.durable(input), Notifications.decorate(input, previous, schedule(schedules(input, decision), decision)), previous)
 
 # Scheduling is a supplied deterministic transducer, constrained by the exact
 # zero/idle/successor equations in LAWS, not a fairness or termination assumption.

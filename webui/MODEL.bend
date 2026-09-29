@@ -1,4 +1,5 @@
 import Base
+import ../UI.bend as Product
 import ../MODEL.bend as Program
 import ../core/SYSTEM.bend as Core
 import ../core/interface.bend as UI
@@ -34,7 +35,7 @@ def capacity(platform: Platform.Platform) -> View.Capacity:
 
 def surface(state: Platform.State) -> UI.Surface:
   Platform.State{core, platform} = state
-  UI.observe(capacity(platform), core)
+  Product.observe(capacity(platform), core)
 
 def resolved_focus(ticket: Nat, target: Maybe<&2, String>) -> +List<Effect>:
   match target:
@@ -63,7 +64,7 @@ def idle(+application: Platform.State, generation: Nat, realization: Rendered.St
 # measurements; streaming must not invalidate an unrelated keystroke.
 def element_input(application: Platform.State, key: String, gesture: UI.Gesture, generation: Nat) -> Decision:
   Platform.State{core, +platform} = application
-  invalidate(Platform.after_core(UI.interact(capacity(platform), key, gesture, core), platform), (generation + 1n : Nat))
+  invalidate(Platform.after_core(Product.step(Product.Element{capacity(platform), key, gesture}, core), platform), (generation + 1n : Nat))
 
 def frame_result(received: Nat, +frame: Rendered.Frame, +application: Platform.State, +generation: Nat, realization: Rendered.State) -> Decision:
   idle(application, generation, Rendered.observe(generation, received, surface(application), frame, realization))

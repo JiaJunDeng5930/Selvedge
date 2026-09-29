@@ -53,13 +53,3 @@ def command_json(command: M.Command) -> J.Json:
     case M.ReviewApproval{id, operation, +outcome}:
       J.Object{[J.Field{"op", J.Text{"review_approval"}}, J.Field{"task_id", J.nat(id)}, J.Field{"operation_id", J.nat(operation)},
         J.Field{"decision", J.Text{D.approval_decision(outcome)}}, J.Field{"reason", J.Text{D.approval_reason(outcome)}}]}
-
-def event_json(event: M.ViewEvent) -> J.Json:
-  match event:
-    case M.FeatureEvent{event}: FeatureCodec.event_json(event)
-    case M.SelectTask{id}: J.Object{[J.Field{"type", J.Text{"select"}}, J.Field{"task_id", J.optional_nat(id)}]}
-    case M.HistoryPage{after}: J.Object{[J.Field{"type", J.Text{"history"}}, J.Field{"after", J.optional_nat(after)}]}
-    case M.TaskPage{after}: J.Object{[J.Field{"type", J.Text{"tasks"}}, J.Field{"after", J.nat(after)}]}
-    case M.SelectProfile{profile}: J.Object{[J.Field{"type", J.Text{"profile"}}, J.Field{"profile", J.Text{profile}}]}
-    case M.Submit{command}: J.Object{[J.Field{"type", J.Text{"submit"}}, J.Field{"command", command_json(command)}]}
-    case M.RefreshView{}: J.Object{[J.Field{"type", J.Text{"refresh"}}]}

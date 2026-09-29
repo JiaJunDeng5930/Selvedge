@@ -13,7 +13,6 @@ import ./tasks.bend as T
 import ./stdlib.bend as Std
 import ./operations.bend as Ops
 import ./results.bend as Results
-import ../UI.bend as UI
 import ../WORKSPACE.bend as Workspace
 import ../APPROVALS.bend as Approvals
 import ../REASONING.bend as R
@@ -121,7 +120,6 @@ def feature_result(found: Maybe<&2, FeatureOps.Event>) -> Event:
 def resolve(input: M.Input, +world: M.World()) -> Event:
   match input:
     case M.UserCommand{command}: User{Commands.resolve(command, world)}
-    case M.UserInterface{state, event}: User{Commands.resolve(UI.command(event), world)}
     case M.ModelCompleted{id, ticket, outcome}: model(T.find(Commands.entries(world), id), ticket, outcome)
     case M.ReasoningCompleted{id, ticket, outcome}: reasoning(T.find(Commands.entries(world), id), ticket, outcome)
     case M.FeatureCompleted{completion}: feature_result(FeatureProtocol.resolve(completion, world))

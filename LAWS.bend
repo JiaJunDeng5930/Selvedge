@@ -1,6 +1,4 @@
 import Base
-import ./bendlib/conversation-spec.bend as ConversationSpec
-import ./bendlib/surface.bend as Surface
 import ./bendlib/effects.bend as Effects
 import ./FEATURES.bend as F
 import ./bendlib/component.bend as C
@@ -23,7 +21,6 @@ import ./bendlib/results.bend as Results
 import ./bendlib/transcript.bend as Transcript
 import ./bendlib/interface.bend as Interface
 import ./bendlib/frontend.bend as Frontend
-import ./UI.bend as UI
 import ./HOOKS.bend as Hooks
 import ./bendlib/notifications.bend as Notifications
 import ./WORKSPACE.bend as Workspace
@@ -123,89 +120,6 @@ law plugin_observation_budget_failure:
 
 # User-facing decisions are native entities too. The adapter cannot choose a
 # different command resolver or manufacture state/effects while projecting it.
-law ui_submit_semantics:
-  for state: M.ViewState
-  for +command: M.Command
-  for +world: M.World()
-  {P.apply(M.UserInterface{state, M.Submit{command}}, world) == P.apply_command(command, world) : M.Decision()}
-
-law ui_transcript_content:
-  for +messages: +List<D.Message>
-  for offset: Nat
-  {ConversationSpec.visible_speech(UI.messages(messages, offset)) == ConversationSpec.transcript(messages) : +List<ConversationSpec.Speech>}
-
-law ui_audit_content:
-  for +message: D.Message
-  for key: String
-  {ConversationSpec.audit_values(UI.audit_message(message, key)) == ConversationSpec.audit_record(message) : +List<J.Json>}
-
-law ui_result_content:
-  for +message: D.Message
-  for key: String
-  {ConversationSpec.visible_results(UI.message_nodes(message, key)) == ConversationSpec.result(message) : +List<ConversationSpec.Result>}
-
-law ui_composer_intents:
-  for +id: Nat
-  for +world: M.World()
-  {ConversationSpec.composer(UI.send_forms(id, world)) ==
-    Some{ConversationSpec.Composer{"task/" ++ Nat.show(id),
-      [ConversationSpec.Intent{M.Send{id, "message"}, UI.selected(Commands.resolve(M.Send{id, "message"}, world))},
-       ConversationSpec.Intent{M.Steer{id, "message"}, UI.selected(Commands.resolve(M.Steer{id, "message"}, world))}]}} : Maybe<&2, ConversationSpec.Composer>}
-
-law ui_action_semantics:
-  for +key: String
-  for +label: String
-  for +command: M.Command
-  for +world: M.World()
-  {UI.action(key, label, command, world) ==
-    Surface.Action{key, label, M.Submit{command}, UI.selected(Commands.resolve(command, world)), False{}} : Surface.Node}
-
-law ui_form_semantics:
-  for +key: String
-  for +title: String
-  for +label: String
-  for +command: M.Command
-  for +fields: +List<Surface.Field>
-  for +world: M.World()
-  {UI.form(key, title, label, command, fields, world) ==
-    Surface.Form{key, title, label, command, fields, UI.selected(Commands.resolve(command, world))} : Surface.Node}
-
-law ui_projection_world:
-  for input: M.Input
-  for +decision: M.Decision()
-  {P.decision_world(UI.decorate(input, decision)) == P.decision_world(decision) : M.World()}
-
-law ui_projection_effects:
-  for input: M.Input
-  for +decision: M.Decision()
-  {P.decision_effects(UI.decorate(input, decision)) == P.decision_effects(decision) : +List<M.Effect()>}
-
-law ui_current_surface:
-  for +state: M.ViewState
-  for +event: M.ViewEvent
-  for +world: M.World()
-  for +reply: J.Json
-  for effects: +List<M.Effect()>
-  {P.decision_reply(UI.decorate(M.UserInterface{state, event}, C.Decision{world, reply, effects})) ==
-    D.success(J.Object{[
-      J.Field{"presentation", UI.json(Surface.Presentation{UI.navigate(event, state, reply),
-        UI.screen(UI.navigate(event, state, reply), world, UI.receipt(event, reply))})},
-      J.Field{"receipt", UI.receipt(event, reply)}]}) : J.Json}
-
-law ui_refresh_world:
-  for +state: M.ViewState
-  for +world: M.World()
-  {P.decision_world(P.transition(M.UserInterface{state, M.RefreshView{}}, world)) == world : M.World()}
-
-law ui_refresh_effects:
-  for state: M.ViewState
-  for +world: M.World()
-  {P.decision_effects(P.transition(M.UserInterface{state, M.RefreshView{}}, world)) == Nil{} : +List<M.Effect()>}
-
-law ui_refresh_not_durable:
-  for state: M.ViewState
-  {M.durable(M.UserInterface{state, M.RefreshView{}}) == False{} : Bool}
-
 law delivery_observation_world:
   for +durable: Bool
   for +decision: M.Decision()

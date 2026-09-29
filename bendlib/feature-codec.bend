@@ -7,27 +7,6 @@ import ./json.bend as J
 import ./schema.bend as Schema
 import ./wire-shape.bend as Shape
 import ./board-codec.bend as Board
-import ./board-navigation.bend as Navigation
-
-# The outer cursor envelope keeps its stable fields; feature-owned fields and
-# their round-trip validation are assembled here, not in the universal wire/UI.
-def cursor_keys() -> +List<String>:
-  ["board"]
-
-def cursor_fields(+cursor: F.Cursor()) -> +List<J.Field>:
-  [J.Field{"board", Navigation.cursor_json(F.board_cursor(cursor))}]
-
-def cursor(+value: J.Json) -> F.Cursor():
-  F.from_board_cursor(Navigation.cursor(J.get(value, "board"), Board.word(J.get(J.get(value, "board"), "now"))))
-
-def valid_cursor(+value: J.Json) -> Bool:
-  Navigation.valid_cursor(J.get(value, "board"))
-
-def observe_cursor(+cursor: F.Cursor(), observed: J.Json) -> F.Cursor():
-  F.with_board_cursor(Navigation.with_now(Board.word(observed), F.board_cursor(cursor)), cursor)
-
-def valid_clock(observed: J.Json) -> Bool:
-  Board.valid_clock(observed)
 
 def command_json(command: F.Command) -> J.Json:
   match command:
@@ -36,10 +15,6 @@ def command_json(command: F.Command) -> J.Json:
 def query_json(query: F.Query) -> J.Json:
   match query:
     case F.BoardQuery{query}: Board.query_json(query)
-
-def event_json(event: F.Navigation) -> J.Json:
-  match event:
-    case F.BoardEvent{event}: J.Object{[J.Field{"type", J.Text{"board"}}, J.Field{"event", Navigation.event_json(event)}]}
 
 def board_command(kind: Board.EntryKind, body: J.Json) -> M.Command:
   match kind:
@@ -84,15 +59,3 @@ def completion(kind: String, +body: J.Json) -> Result<&2, &2, String, F.Completi
       board_text_valid(Schema.valid(Board.integer_schema(), J.get(body, "card_id")) && Shape.is_natural(J.get(body, "ticket")) &&
         Shape.is_bool(J.get(body, "ok")) && board_text_payload(J.boolean(J.get(body, "ok")), body), body)
     case _: Fail{"Unknown input envelope"}
-
-def navigation_valid(valid: Bool, event: F.Navigation) -> Result<&2, &2, String, F.Navigation>:
-  match valid:
-    case True{}: Done{event}
-    case False{}: Fail{"Malformed presentation event"}
-
-def navigation(kind: String, +event: J.Json) -> Result<&2, &2, String, F.Navigation>:
-  match kind:
-    case "board": navigation_valid(Shape.object_keys(event, ["type", "event"]) &&
-      Navigation.valid_event(J.text(J.get(J.get(event, "event"), "action")), J.get(event, "event")),
-      F.BoardEvent{Navigation.event(J.text(J.get(J.get(event, "event"), "action")), J.get(event, "event"))})
-    case _: Fail{"Unknown presentation event"}

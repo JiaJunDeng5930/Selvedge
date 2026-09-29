@@ -79,45 +79,13 @@ type Outcome is Data:
   SuggestionFailed{reason: String}
 
 # Navigation is an opaque observation cursor, not a second card registry.
-type Pane is Data:
-  ThreadsPane{}
-  BoardPane{}
-  AgentsPane{}
-  ProjectsPane{}
-
 type Filter is Data:
   Filter{view: String, search: String, status: +List<String>, priority: +List<String>,
     date: +List<String>, assignee: +List<String>, creator: +List<String>,
     project: +List<String>, label: +List<String>}
 
-type Dialog is Data:
-  NoDialog{}
-  CreateDialog{stage: Stage, assisted: Bool}
-  CardDialog{id: Nat}
-  ArchiveDialog{}
-  AgentDialog{id: Maybe<&2, Nat>}
-  ProjectDialog{id: Maybe<&2, Nat>}
-  DeleteDialog{id: Nat}
-  ContextDialog{id: Nat}
-
-type Cursor is Data:
-  Cursor{pane: Pane, filter: Filter, dialog: Dialog, keep_create: Bool, expanded: Bool, now: U32}
-
-type Navigation is Data:
-  ShowPane{pane: Pane}
-  ChangeView{view: String}
-  Search{query: String}
-  ToggleFilter{category: String, value: String}
-  ClearFilters{}
-  OpenDialog{dialog: Dialog}
-  KeepCreating{enabled: Bool}
-  ExpandDialog{expanded: Bool}
-
 def empty_filter() -> Filter:
   Filter{"all", "", Nil{}, Nil{}, Nil{}, Nil{}, Nil{}, Nil{}, Nil{}}
-
-def cursor() -> Cursor:
-  Cursor{ThreadsPane{}, empty_filter(), NoDialog{}, False{}, False{}, 0}
 
 def initial() -> State:
   State{Nil{}, 0, Nil{}, 0, False{}, ""}

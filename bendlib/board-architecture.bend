@@ -9,7 +9,6 @@ import ./board.bend as Actual
 import ./board-spec.bend as Spec
 import ./board-resolution.bend as R
 import ./json.bend as J
-import ./board-navigation.bend as Navigation
 
 # These equalities cover the entire decision, including cancellation, tickets,
 # replies and ordered effects. Specifications never import the interpreter.
@@ -58,18 +57,6 @@ type BoardBoundary is Type:
     callback_dispatch: @+id:Nat -> @+card:B.Card -> @+ticket:Nat -> @+outcome:B.Outcome ->
       {FeatureProtocol.board_text(Some{card}, id, ticket, outcome) ==
         FeatureProtocol.board_callback(FeatureProtocol.board_lease(B.enrichment(card), B.archived(card), B.revision(card), ticket), id, card, outcome) : Maybe<&2, FeatureOps.Event>},
-    navigation_observation: @navigation:B.Navigation ->
-      {UI.command(M.FeatureEvent{Features.BoardEvent{navigation}}) == M.Observe{M.Describe{}} : M.Command},
-    navigation_ephemeral: @state:M.ViewState -> @navigation:B.Navigation ->
-      {M.durable(M.UserInterface{state, M.FeatureEvent{Features.BoardEvent{navigation}}}) == False{} : Bool},
-    create_closes: @stage:B.Stage -> @assisted:Bool ->
-      {Navigation.after_create(False{}, stage, assisted) == B.NoDialog{} : B.Dialog},
-    continuous_create: @+stage:B.Stage -> @+assisted:Bool ->
-      {Navigation.after_create(True{}, stage, assisted) == B.CreateDialog{stage, assisted} : B.Dialog},
-    update_closes: @id:Nat -> @revision:Nat -> @patch:B.Patch -> @now:U32 -> @reply:J.Json -> @+cursor:B.Cursor ->
-      {Navigation.after_command(B.Update{id, revision, patch, now}, reply, cursor) == Navigation.with_dialog(B.NoDialog{}, cursor) : B.Cursor},
-    failed_submission_retains_cursor: @command:B.Command -> @reply:J.Json -> @+cursor:B.Cursor ->
-      {Navigation.submitted(False{}, command, reply, cursor) == cursor : B.Cursor},
     title_only: @title:String -> @description:String -> @+draft:B.Draft ->
       {B.description(Actual.suggestion_draft(True{}, title, description, draft)) == B.description(draft) : String}
   }

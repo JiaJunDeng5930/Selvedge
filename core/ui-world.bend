@@ -94,7 +94,7 @@ type CardScene is Data:
     destinations: +List<MoveDestination>, link_candidates: +List<ControlDeclaration>}
 
 type MoveDestination is Data:
-  MoveDestination{stage: B.Stage, availability: Availability}
+  MoveDestination{stage: B.Stage, before: Maybe<&2, Nat>, label: String, availability: Availability}
 
 type BoardColumn is Data:
   BoardColumn{stage: B.Stage, cards: +List<CardScene>}
@@ -295,7 +295,7 @@ def input_groups(body: U.Body, +world: M.World()) -> +List<InputGroup>:
     case U.NewTask{message, profile, reasoning, context}: [MessageInput{message}, ModelInput{profile, reasoning, Board.profiles(world)}, execution_group(U.NewTaskEditor{}, context, world)]
     case U.Message{task, message, delivery}: [MessageInput{message}, delivery_controls(task, delivery)]
     case U.Project{id, name, +workspace}: [ProjectNameInput{name}, ProjectWorkspaceInput{workspace, workspace_controls(workspace, U.ProjectEditor{id}, None{})}]
-    case U.Card{id, revision, value, assist, profile}:
+    case U.Card{id, revision, value, assist, profile, keep_open}:
       CardContentInput{value, projects(world), agents(Board.registry(world)), B.stages(),
         [B.NoPriority{}, B.Low{}, B.Medium{}, B.High{}, B.Urgent{}], B.Unassigned{} <> B.Self{} <> profile_owners(Board.profiles(world), agent_owners(agents(Board.registry(world))))} <> capture_inputs(id, assist, profile, world)
     case U.Agent{id, revision, name, profile, reasoning, instructions, context, concurrency}:
@@ -474,7 +474,7 @@ def board_control(identity: String, label: String, +command: B.Command, world: M
 def move_destinations(stages: +List<B.Stage>, +id: Nat, +revision: Nat, +now: U32, +world: M.World()) -> +List<MoveDestination>:
   match stages:
     case Nil{}: Nil{}
-    case Con{+stage, rest}: MoveDestination{stage, operation_availability(Commands.resolve(M.FeatureCommand{F.BoardCommand{B.Move{id, revision, stage, None{}, now}}}, world))} <>
+    case Con{+stage, rest}: MoveDestination{stage, None{}, "Move to end of " ++ B.stage_label(stage), operation_availability(Commands.resolve(M.FeatureCommand{F.BoardCommand{B.Move{id, revision, stage, None{}, now}}}, world))} <>
       move_destinations(rest, id, revision, now, world)
 
 def link_candidates(tasks: +List<D.Task>, +id: Nat, +revision: Nat, +now: U32, +world: M.World()) -> +List<ControlDeclaration>:
@@ -483,6 +483,18 @@ def link_candidates(tasks: +List<D.Task>, +id: Nat, +revision: Nat, +now: U32, +
     case Con{+task, rest}: board_control("card/link/" ++ Nat.show(id) ++ "/" ++ Nat.show(D.task_id(task)), Conversation.title(task),
       B.Link{id, revision, D.task_id(task), now}, world) <> link_candidates(rest, id, revision, now, world)
 
+def before_destination(eligible: Bool, +target: Nat, +value: B.Card, id: Nat, revision: Nat, now: U32, world: M.World()) -> +List<MoveDestination>:
+  match eligible:
+    case False{}: Nil{}
+    case True{}:
+      [MoveDestination{B.card_stage(B.draft(value)), Some{target}, "Move before " ++ B.title(B.draft(value)),
+        operation_availability(Commands.resolve(M.FeatureCommand{F.BoardCommand{B.Move{id, revision, B.card_stage(B.draft(value)), Some{target}, now}}}, world))}]
+
+def before_destinations(cards: +List<Finite.Entry(B.Card)>, +id: Nat, +revision: Nat, +now: U32, +world: M.World()) -> +List<MoveDestination>:
+  match cards:
+    case Nil{}: Nil{}
+    case Con{(+target, +value), rest}:
+      List.append(&2, MoveDestination, before_destination(Bool.not(B.archived(value)) && Bool.not(Nat.is_eq(target, id)), target, value, id, revision, now, world), before_destinations(rest, id, revision, now, world))
 def card_scene(+id: Nat, +card: B.Card, route: U.Route, +now: U32, +world: M.World()) -> CardScene:
   B.Card{+revision, draft, task, archived, created, updated, enrichment, error, pinned} = card
   CardScene{id, card, control("card/" ++ Nat.show(id), "Open card", U.EditCard{Some{id}}),
@@ -491,7 +503,7 @@ def card_scene(+id: Nat, +card: B.Card, route: U.Route, +now: U32, +world: M.Wor
       board_control("card/pin/" ++ Nat.show(id), "Pin or unpin", B.Pin{id, revision, Bool.not(pinned), now}, world),
       board_control("card/delete/" ++ Nat.show(id), "Delete", B.Delete{id, revision}, world),
       board_control("card/regenerate/" ++ Nat.show(id), "Regenerate title", B.Regenerate{id, revision, B.draft_profile(Board.registry(world)), now}, world)], linked_task(task, route, world),
-    move_destinations(B.stages(), id, revision, now, world), link_candidates(Commands.entries(world), id, revision, now, world)}
+    List.append(&2, MoveDestination, move_destinations(B.stages(), id, revision, now, world), before_destinations(B.cards(Board.registry(world)), id, revision, now, world)), link_candidates(Commands.entries(world), id, revision, now, world)}
 
 def archived_card(entry: Finite.Entry(B.Card)) -> Bool:
   (id, card) = entry
@@ -544,8 +556,8 @@ def task_menu(actions: TaskActions) -> +List<ControlDeclaration>:
 def card_moves(values: +List<MoveDestination>, +id: Nat, +revision: Nat, +now: U32, +world: M.World()) -> +List<ControlDeclaration>:
   match values:
     case Nil{}: Nil{}
-    case Con{MoveDestination{+stage, availability}, rest}:
-      board_control("card/move/" ++ B.stage_name(stage), "Move to " ++ B.stage_label(stage), B.Move{id, revision, stage, None{}, now}, world) <> card_moves(rest, id, revision, now, world)
+    case Con{MoveDestination{+stage, +before, label, availability}, rest}:
+      board_control("card/move/" ++ B.stage_name(stage) ++ "/" ++ U.optional_key(before), label, B.Move{id, revision, stage, before, now}, world) <> card_moves(rest, id, revision, now, world)
 def card_menu_items(card: CardScene, now: U32, world: M.World()) -> +List<ControlDeclaration>:
   CardScene{id, value, open, actions, linked, destinations, candidates} = card
   List.append(&2, ControlDeclaration, actions, List.append(&2, ControlDeclaration, card_moves(destinations, id, B.revision(value), now, world), candidates))
@@ -590,7 +602,7 @@ def layer_content(panel: U.Panel, +session: E.Session, +world: M.World()) -> Lay
     case U.TaskConfiguration{}: ExecutionSettings{U.NewTaskEditor{}, selected_fields(editor(U.NewTaskEditor{}, session, world), ExecutionFields{})}
     case U.ModelPicker{+id}: ModelSelection{id, "", selected_fields(editor(id, session, world), ModelFields{})}
     case U.DeliveryPicker{+task}: DeliverySelection{U.MessageEditor{task}, selected_fields(editor(U.MessageEditor{task}, session, world), DeliveryFields{})}
-    case U.Confirm{command, title}: Confirmation{title,
+    case U.Confirm{command, title, destination}: Confirmation{title,
       ControlDeclaration{"confirm", "Confirm", Destructive{}, U.Activate{U.ConfirmAction{}}, operation_availability(Commands.resolve(command, world))}, control("confirm/cancel", "Cancel", U.ClosePanel{})}
 
 def details_kind(beside: Bool) -> LayerKind:

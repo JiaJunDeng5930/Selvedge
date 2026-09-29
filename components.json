@@ -25,24 +25,258 @@
     "bendlib/wire-shape.bend"
   ],
   "application_dependencies": {
-    "MODEL.bend": ["FEATURES.bend", "REASONING.bend", "bendlib/component.bend", "bendlib/domain.bend", "bendlib/effects.bend", "bendlib/json.bend"],
-    "UI.bend": ["COMMANDS.bend", "FEATURES.bend", "MODEL.bend", "REASONING.bend", "bendlib/command-codec.bend", "bendlib/component.bend", "bendlib/conversation.bend", "bendlib/domain.bend", "bendlib/feature-codec.bend", "bendlib/feature-ui.bend", "bendlib/feature-view.bend", "bendlib/json.bend", "bendlib/operations.bend", "bendlib/surface.bend", "bendlib/tasks.bend"],
-    "bendlib/wire.bend": ["APPROVALS.bend", "FEATURES.bend", "HOOKS.bend", "INVARIANTS.bend", "MODEL.bend", "REASONING.bend", "UI.bend", "bendlib/domain.bend", "bendlib/feature-codec.bend", "bendlib/json.bend", "bendlib/presentation.bend", "bendlib/protocol.bend", "bendlib/schema.bend", "bendlib/tasks.bend", "bendlib/wire-shape.bend"],
-    "bendlib/surface.bend": ["MODEL.bend", "bendlib/json.bend"]
+    "MODEL.bend": [
+      "FEATURES.bend",
+      "REASONING.bend",
+      "bendlib/component.bend",
+      "bendlib/domain.bend",
+      "bendlib/effects.bend",
+      "bendlib/json.bend"
+    ],
+    "UI.bend": [
+      "BOARD.bend",
+      "MODEL.bend",
+      "core/SYSTEM.bend",
+      "core/client-services.bend",
+      "core/code-block.bend",
+      "core/interface.bend",
+      "core/live-output.bend",
+      "core/ui-world.bend",
+      "core/user-context.bend",
+      "core/user-experience.bend",
+      "core/user-input.bend"
+    ],
+    "bendlib/wire.bend": [
+      "APPROVALS.bend",
+      "FEATURES.bend",
+      "HOOKS.bend",
+      "INVARIANTS.bend",
+      "MODEL.bend",
+      "REASONING.bend",
+      "bendlib/domain.bend",
+      "bendlib/feature-codec.bend",
+      "bendlib/json.bend",
+      "bendlib/presentation.bend",
+      "bendlib/protocol.bend",
+      "bendlib/schema.bend",
+      "bendlib/tasks.bend",
+      "bendlib/wire-shape.bend"
+    ],
+    "core/user-experience.bend": [
+      "BOARD.bend",
+      "COMMANDS.bend",
+      "FEATURES.bend",
+      "MODEL.bend",
+      "PROGRAM.bend",
+      "PROJECTS.bend",
+      "REASONING.bend",
+      "WORKSPACE.bend",
+      "bendlib/association-map.bend",
+      "bendlib/board-state.bend",
+      "bendlib/component.bend",
+      "bendlib/domain.bend",
+      "bendlib/json.bend",
+      "bendlib/tasks.bend",
+      "core/code-block.bend",
+      "core/live-output.bend",
+      "core/user-context.bend",
+      "core/user-input.bend"
+    ],
+    "core/interface.bend": [
+      "BOARD.bend",
+      "COMMANDS.bend",
+      "MODEL.bend",
+      "REASONING.bend",
+      "bendlib/association-map.bend",
+      "bendlib/domain.bend",
+      "core/SYSTEM.bend",
+      "core/client-services.bend",
+      "core/code-block.bend",
+      "core/form-fields.bend",
+      "core/laws.bend",
+      "core/live-output.bend",
+      "core/ui-world.bend",
+      "core/user-context.bend",
+      "core/user-conversation.bend",
+      "core/user-experience.bend",
+      "core/user-input.bend"
+    ],
+    "core/user-experience-laws.bend": [
+      "MODEL.bend",
+      "PROGRAM.bend",
+      "bendlib/component.bend",
+      "core/user-experience.bend",
+      "core/user-input.bend"
+    ],
+    "core/live-output.bend": [
+      "COMMANDS.bend",
+      "MODEL.bend",
+      "bendlib/association-map.bend",
+      "bendlib/domain.bend",
+      "bendlib/tasks.bend"
+    ],
+    "core/contract.bend": [
+      "BOARD.bend",
+      "MODEL.bend",
+      "PROGRAM.bend",
+      "UI.bend",
+      "bendlib/conversation-spec.bend",
+      "bendlib/domain.bend",
+      "bendlib/json.bend",
+      "core/SYSTEM.bend",
+      "core/client-services.bend",
+      "core/interface.bend",
+      "core/laws.bend",
+      "core/ui-world.bend",
+      "core/user-conversation.bend",
+      "core/user-experience.bend",
+      "core/user-input.bend"
+    ],
+    "core/SYSTEM.bend": [
+      "BOARD.bend",
+      "MODEL.bend",
+      "bendlib/association-map.bend",
+      "bendlib/json.bend",
+      "core/client-services.bend",
+      "core/code-block.bend",
+      "core/form-fields.bend",
+      "core/live-output.bend",
+      "core/ui-world.bend",
+      "core/user-experience-laws.bend",
+      "core/user-experience.bend",
+      "core/user-input.bend"
+    ],
+    "core/user-input.bend": [
+      "BOARD.bend",
+      "FEATURES.bend",
+      "MODEL.bend",
+      "bendlib/domain.bend",
+      "bendlib/json.bend",
+      "core/user-context.bend"
+    ],
+    "core/laws.bend": [
+      "MODEL.bend",
+      "PROGRAM.bend",
+      "bendlib/component.bend",
+      "core/SYSTEM.bend",
+      "core/client-services.bend",
+      "core/user-experience-laws.bend",
+      "core/user-experience.bend"
+    ],
+    "core/user-conversation.bend": [
+      "COMMANDS.bend",
+      "MODEL.bend",
+      "bendlib/conversation.bend",
+      "bendlib/domain.bend",
+      "bendlib/json.bend",
+      "core/user-experience.bend",
+      "core/user-input.bend"
+    ],
+    "core/code-block.bend": [],
+    "core/form-fields.bend": [
+      "BOARD.bend",
+      "MODEL.bend",
+      "bendlib/domain.bend",
+      "core/user-context.bend",
+      "core/user-input.bend"
+    ],
+    "core/ui-world.bend": [
+      "BOARD.bend",
+      "COMMANDS.bend",
+      "FEATURES.bend",
+      "MODEL.bend",
+      "PROJECTS.bend",
+      "WORKSPACE.bend",
+      "bendlib/association-map.bend",
+      "bendlib/board-filter.bend",
+      "bendlib/board-state.bend",
+      "bendlib/conversation.bend",
+      "bendlib/domain.bend",
+      "bendlib/tasks.bend",
+      "core/form-fields.bend",
+      "core/live-output.bend",
+      "core/user-context.bend",
+      "core/user-conversation.bend",
+      "core/user-experience.bend",
+      "core/user-input.bend"
+    ],
+    "core/client-services.bend": [
+      "BOARD.bend",
+      "bendlib/association-map.bend",
+      "core/user-input.bend"
+    ],
+    "core/user-context.bend": [
+      "COMMANDS.bend",
+      "FEATURES.bend",
+      "MODEL.bend",
+      "PROJECTS.bend",
+      "WORKSPACE.bend",
+      "bendlib/domain.bend",
+      "bendlib/json.bend",
+      "bendlib/schema.bend",
+      "bendlib/tasks.bend"
+    ],
+    "webui/editor.bend": [
+      "core/user-input.bend",
+      "webui/interaction.bend"
+    ],
+    "webui/interaction.bend": [],
+    "webui/rendered.bend": [
+      "core/form-fields.bend",
+      "core/interface.bend",
+      "core/ui-world.bend",
+      "webui/interaction.bend"
+    ],
+    "webui/reading.bend": [
+      "core/user-input.bend",
+      "webui/interaction.bend"
+    ],
+    "webui/platform.bend": [
+      "MODEL.bend",
+      "UI.bend",
+      "bendlib/association-map.bend",
+      "core/SYSTEM.bend",
+      "core/client-services.bend",
+      "core/code-block.bend",
+      "core/interface.bend",
+      "core/laws.bend",
+      "core/ui-world.bend",
+      "core/user-experience.bend",
+      "core/user-input.bend",
+      "webui/editor.bend",
+      "webui/focus.bend",
+      "webui/interaction.bend",
+      "webui/reading.bend"
+    ],
+    "webui/focus.bend": [
+      "core/SYSTEM.bend",
+      "core/client-services.bend",
+      "core/interface.bend",
+      "core/ui-world.bend",
+      "core/user-experience.bend",
+      "core/user-input.bend"
+    ],
+    "webui/MODEL.bend": [
+      "MODEL.bend",
+      "UI.bend",
+      "core/SYSTEM.bend",
+      "core/interface.bend",
+      "core/ui-world.bend",
+      "webui/platform.bend",
+      "webui/rendered.bend"
+    ]
   },
   "feature_alphabet": "FEATURES.bend",
   "feature_alphabet_types": [
     "Command",
     "Query",
     "CommandKind",
-    "Navigation",
     "Completion",
     "Effect"
   ],
   "feature_match_owners": [
     "FEATURES.bend",
-    "bendlib/feature-*.bend",
-    "bendlib/board-view.bend"
+    "bendlib/feature-*.bend"
   ],
   "proof_root": "PROOF.bend",
   "runtime_root": "MAIN.bend",

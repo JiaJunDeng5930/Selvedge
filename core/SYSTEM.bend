@@ -64,7 +64,7 @@ def add_file(add: Maybe<&2, B.Attachment>, files: +List<B.Attachment>) -> +List<
 
 def attachment_edit(found: Maybe<&2, U.Draft>, add: Maybe<&2, B.Attachment>, id: String) -> Maybe<&2, U.Edit>:
   match found:
-    case Some{U.Draft{revision, U.Card{card, version, B.Draft{title, description, stage, priority, owner, project, labels, files}, assist, profile}, feedback}}:
+    case Some{U.Draft{revision, U.Card{card, version, B.Draft{title, description, stage, priority, owner, project, labels, files}, assist, profile, keep_open}, feedback}}:
       Some{U.WriteCard{B.Patch{None{}, None{}, None{}, None{}, None{}, None{}, None{}, Some{add_file(add, remove_file(files, id))}}}}
     case _: None{}
 
@@ -123,7 +123,7 @@ def apply_application(blocked: Bool, input: E.Input, application: E.Application,
 
 def is_card_draft(found: Maybe<&2, U.Draft>) -> Bool:
   match found:
-    case Some{U.Draft{revision, U.Card{id, version, value, assist, profile}, feedback}}: True{}
+    case Some{U.Draft{revision, U.Card{id, version, value, assist, profile, keep_open}, feedback}}: True{}
     case _: False{}
 
 def accepts_files(editor: U.Editor, application: E.Application) -> Bool:

@@ -6,7 +6,6 @@ import ../MODEL.bend as M
 import ../PROJECTS.bend as Projects
 import ./board-state.bend as S
 import ./board-codec.bend as C
-import ./board-navigation.bend as N
 import ./association-map.bend as Finite
 import ./schema.bend as Schema
 import ./json.bend as J

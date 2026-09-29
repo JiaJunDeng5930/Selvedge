@@ -17,7 +17,6 @@ import ./COMMANDS.bend as Commands
 import ./bendlib/commit.bend as Commit
 import ./bendlib/protocol.bend as Protocol
 import ./bendlib/execution.bend as Execution
-import ./UI.bend as UI
 import ./bendlib/notifications.bend as Notifications
 import ./WORKSPACE.bend as Workspace
 import ./PROJECTS.bend as Projects
@@ -374,7 +373,7 @@ def checked(decision: M.Decision(), previous: M.World()) -> M.Decision():
   check_live(live_decision(decision), previous)
 
 def after_apply(+input: M.Input, +decision: M.Decision(), +world: M.World()) -> M.Decision():
-  deliver(M.durable(input), checked(Notifications.decorate(input, world, UI.decorate(input, scheduled(Commit.schedules(input, decision), decision))), world), world)
+  deliver(M.durable(input), checked(Notifications.decorate(input, world, scheduled(Commit.schedules(input, decision), decision)), world), world)
 
 def update(+input: M.Input, +world: M.World()) -> M.Decision():
   after_apply(input, apply(input, world), world)

@@ -256,7 +256,7 @@ def panel_target(panel: U.Panel) -> String:
     case U.TaskConfiguration{}: "execution-configuration"
     case U.ModelPicker{editor}: "model-picker/" ++ U.editor_key(editor)
     case U.DeliveryPicker{task}: "delivery-picker/" ++ Nat.show(task)
-    case U.Confirm{command, title}: "confirm/cancel"
+    case U.Confirm{command, title, destination}: "confirm/cancel"
 
 def keep_layer(same: Bool, layer: Layer, rest: +List<Layer>) -> +List<Layer>:
   match same:
@@ -299,7 +299,7 @@ def card_found(found: Maybe<&2, B.Card>, id: Nat, application: Application) -> D
   match found:
     case None{}: refuse(application, "The card no longer exists")
     case Some{B.Card{revision, draft, task, archived, created, updated, enrichment, error, pinned}}:
-      open_editor(U.Card{Some{id}, revision, draft, False{}, ""}, application)
+      open_editor(U.Card{Some{id}, revision, draft, False{}, "", False{}}, application)
 
 def board_card(board: B.State, +id: Nat, application: Application) -> Decision:
   B.State{cards, next_card, agents, next_agent, automatic, profile} = board
@@ -307,7 +307,7 @@ def board_card(board: B.State, +id: Nat, application: Application) -> Decision:
 
 def card_editor(id: Maybe<&2, Nat>, +application: Application) -> Decision:
   match id:
-    case None{}: open_editor(U.Card{None{}, 0n, B.Draft{"", "", B.Backlog{}, B.NoPriority{}, B.Unassigned{}, None{}, Nil{}, Nil{}}, False{}, ""}, application)
+    case None{}: open_editor(U.Card{None{}, 0n, B.Draft{"", "", B.Backlog{}, B.NoPriority{}, B.Unassigned{}, None{}, Nil{}, Nil{}}, False{}, "", False{}}, application)
     case Some{id}:
       Application{program, session} = application
       board_card(Board.registry(program), id, application)
@@ -404,8 +404,8 @@ def settled_current(current: U.Draft, same: Bool, accepted: Bool, submitted: Nat
   U.Draft{revision, body, feedback} = current
   match same accepted:
     case True{} True{}: U.Draft{(revision + 1n : Nat), U.after_accept(body), U.Accepted{submitted, result}}
-    case _ True{}: U.Draft{revision, body, feedback}
-    case _ False{}: U.Draft{revision, body, U.Rejected{submitted, J.text(J.get(J.get(result, "error"), "message"))}}
+    case False{} _: U.Draft{revision, body, feedback}
+    case True{} False{}: U.Draft{revision, body, U.Rejected{submitted, J.text(J.get(J.get(result, "error"), "message"))}}
 
 def settle_found(found: Maybe<&2, U.Draft>, +revision: Nat, +result: J.Json, session: Session) -> Session:
   match found:
@@ -446,13 +446,35 @@ def finish_at_location(editor: U.Editor, route: U.Route, layers: +List<Layer>, r
       finish_layer(U.same_editor(editor, current), application)
     case _ _ _: unchanged(application)
 
+def capture_open(layers: +List<Layer>) -> Bool:
+  match layers:
+    case Con{Layer{U.EditObject{U.CardEditor{None{}}}, trigger, initial, query}, rest}: True{}
+    case _: False{}
+
+def capture_attention(open: Bool, application: Application) -> Decision:
+  match open:
+    case True{}:
+      Application{program, session} = application
+      local(program, session, [Attend{"card-title"}])
+    case False{}: unchanged(application)
+
+def continue_capture(+application: Application) -> Decision:
+  Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks}} = application
+  capture_attention(capture_open(layers), application)
+
+def finish_body(body: U.Body, route: U.Route, layers: +List<Layer>, result: J.Json, application: Application) -> Decision:
+  match body:
+    case U.Card{None{}, revision, value, assist, profile, True{}}:
+      continue_capture(application)
+    case other: finish_at_location(U.owner(other), route, layers, result, application)
+
 def finish_submission(accepted_current: Bool, draft: U.Draft, result: J.Json, +application: Application) -> Decision:
   match accepted_current:
     case False{}: unchanged(application)
     case True{}:
       U.Draft{revision, body, feedback} = draft
       Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks}} = application
-      finish_at_location(U.owner(body), route, layers, result, application)
+      finish_body(body, route, layers, result, application)
 
 def native_session(submitted: Maybe<&2, U.Draft>, program: M.World(), +result: J.Json,
   effects: +List<M.Effect()>, +session: Session, durable: Bool) -> Decision:
@@ -562,24 +584,18 @@ def observed(ticket: Nat, result: Result<&2, &2, String, Context.DirectoryObserv
   observed_pending(find_pending(pending, ticket), result, application)
 
 
-def confirmed_location(command: M.Command, application: Application) -> Decision:
-  match command:
-    case M.DeleteProject{id}: navigate(U.ProjectCollection{}, application)
-    case M.FeatureCommand{F.BoardCommand{B.Delete{id, revision}}}: navigate(U.TaskBoard{}, application)
-    case _: close_panel(application)
-
-def confirmation_outcome(ok: Bool, command: M.Command, application: Application) -> Decision:
+def confirmation_outcome(ok: Bool, destination: U.Route, application: Application) -> Decision:
   match ok:
-    case True{}: confirmed_location(command, application)
+    case True{}: navigate(destination, application)
     case False{}: unchanged(application)
 
-def finish_confirmation(result: Decision, command: M.Command) -> Decision:
+def finish_confirmation(result: Decision, destination: U.Route) -> Decision:
   Decision{application, +reply, runtime, interaction, durable} = result
-  with_native(confirmation_outcome(J.boolean(J.get(reply, "ok")), command, application), reply, runtime, durable)
+  with_native(confirmation_outcome(J.boolean(J.get(reply, "ok")), destination, application), reply, runtime, durable)
 
 def confirm(layers: +List<Layer>, application: Application) -> Decision:
   match layers:
-    case Con{Layer{U.Confirm{+command, title}, trigger, target, query}, rest}: finish_confirmation(execute(command, application, None{}), command)
+    case Con{Layer{U.Confirm{command, title, destination}, trigger, target, query}, rest}: finish_confirmation(execute(command, application, None{}), destination)
     case _: refuse(application, "No confirmation is open")
 
 def activate_selected(action: U.Action, +application: Application) -> Decision:
@@ -595,9 +611,9 @@ def activate_selected(action: U.Action, +application: Application) -> Decision:
     case U.ControlTask{task, control}: execute_direct(U.direct_command(U.ControlTask{task, control}), application)
     case U.CancelOperation{task, operation}: execute_direct(U.direct_command(U.CancelOperation{task, operation}), application)
     case U.ReviewApproval{task, operation, allow, reason}: execute_direct(U.direct_command(U.ReviewApproval{task, operation, allow, reason}), application)
-    case U.DeleteProject{+project}: open_panel(U.Confirm{M.DeleteProject{project}, "Delete project"}, "project/delete/" ++ Nat.show(project), application)
+    case U.DeleteProject{+project}: open_panel(U.Confirm{M.DeleteProject{project}, "Delete project", U.ProjectCollection{}}, "project/delete/" ++ Nat.show(project), application)
     case U.BoardCommand{B.Delete{+id, revision}}:
-      open_panel(U.Confirm{M.FeatureCommand{F.BoardCommand{B.Delete{id, revision}}}, "Delete card"}, "card/delete/" ++ Nat.show(id), application)
+      open_panel(U.Confirm{M.FeatureCommand{F.BoardCommand{B.Delete{id, revision}}}, "Delete card", U.TaskBoard{}}, "card/delete/" ++ Nat.show(id), application)
     case U.BoardCommand{command}: execute_direct(U.direct_command(U.BoardCommand{command}), application)
     case U.OpenPanel{panel, trigger}: open_panel(panel, trigger, application)
     case U.ClosePanel{}: close_panel(application)

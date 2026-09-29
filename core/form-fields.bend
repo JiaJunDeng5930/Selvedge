@@ -25,6 +25,7 @@ type Field is Data:
   CardProject{}
   CardLabels{}
   CardAttachments{}
+  ContinueCapture{}
   AssistedCapture{}
   AssistanceProfile{}
   AgentName{}
@@ -53,6 +54,7 @@ type Section is Data:
 # The value and allowed choices remain in the typed InputGroup observation.
 # This defines their product-level grouping, order and editing affordance.
 type Value is Data:
+  Toggle{enabled: Bool}
   Text{value: String}
   Count{value: Nat}
   Strings{values: +List<String>}
@@ -69,6 +71,7 @@ type Value is Data:
   Summary{value: Maybe<&2, String>}
 
 type Observed is Data:
+  ToggleValue{enabled: Bool}
   TextValue{text: String}
   CountValue{count: Nat}
   TextsValue{values: +List<String>}
@@ -98,7 +101,7 @@ def model() -> Section:
 
 def capture_structure(id: Maybe<&2, Nat>) -> +List<Section>:
   match id:
-    case None{}: [Section{"Capture assistance", [FieldScene{AssistedCapture{}, "Assist with title and description", Choice{}}, FieldScene{AssistanceProfile{}, "Assistance model", Choice{}}]}]
+    case None{}: [Section{"Creation options", [FieldScene{ContinueCapture{}, "Create another after saving", Choice{}}, FieldScene{AssistedCapture{}, "Assist with title and description", Choice{}}, FieldScene{AssistanceProfile{}, "Assistance model", Choice{}}]}]
     case Some{id}: Nil{}
 
 def structure(body: U.Body) -> +List<Section>:
@@ -110,7 +113,7 @@ def structure(body: U.Body) -> +List<Section>:
     case U.Project{id, name, workspace}:
       [Section{"Project", [FieldScene{ProjectName{}, "Name", SingleLine{}}]},
        Section{"Default workspace", [FieldScene{WorkspaceDirectories{}, "Working directories", DirectoryCollection{}}, FieldScene{WorkspacePrimary{}, "Primary directory", Choice{}}]}]
-    case U.Card{id, revision, draft, assist, profile}:
+    case U.Card{id, revision, draft, assist, profile, keep_open}:
       List.append(&2, Section, [Section{"Work", [FieldScene{CardTitle{}, "Title", SingleLine{}}, FieldScene{CardDescription{}, "Description", Multiline{}}]},
        Section{"Organization", [FieldScene{CardStage{}, "Stage", Choice{}}, FieldScene{CardPriority{}, "Priority", Choice{}},
          FieldScene{CardOwner{}, "Assignee", Choice{}}, FieldScene{CardProject{}, "Project", Choice{}}, FieldScene{CardLabels{}, "Labels", MultipleChoices{}}]},
@@ -124,6 +127,7 @@ def structure(body: U.Body) -> +List<Section>:
 
 def edit(field: Field, value: Value) -> Maybe<&2, U.Edit>:
   match field value:
+    case ContinueCapture{} Toggle{enabled}: Some{U.KeepCaptureOpen{enabled}}
     case MessageText{} Text{text}: Some{U.WriteMessage{U.Text{text}}}
     case ProjectName{} Text{text}: Some{U.NameProject{text}}
     case WorkspaceDirectories{} WorkspaceChange{Context.AddRoot{path}}: Some{U.EditWorkspace{Context.AddRoot{path}}}
@@ -174,6 +178,7 @@ def key(field: Field) -> String:
     case CardProject{}: "card-project"
     case CardLabels{}: "card-labels"
     case CardAttachments{}: "card-attachments"
+    case ContinueCapture{}: "continue-capture"
     case AssistedCapture{}: "assisted-capture"
     case AssistanceProfile{}: "assistance-profile"
     case AgentName{}: "agent-name"
@@ -226,9 +231,10 @@ def project_value(field: Field, name: String, workspace: D.Workspace) -> Observe
     case WorkspacePrimary{}: WorkspaceValue{workspace}
     case _: NotApplicable{}
 
-def card_value(draft: B.Draft, field: Field, assist: Bool, profile: String) -> Observed:
+def card_value(draft: B.Draft, field: Field, assist: Bool, profile: String, keep_open: Bool) -> Observed:
   B.Draft{title, description, stage, priority, owner, project, labels, attachments} = draft
   match field:
+    case ContinueCapture{}: ToggleValue{keep_open}
     case CardTitle{}: TextValue{title}
     case CardDescription{}: TextValue{description}
     case CardStage{}: StageValue{stage}
@@ -261,7 +267,7 @@ def observed(body: U.Body, field: Field, world: M.World()) -> Observed:
     case U.NewTask{message, profile, reasoning, config}: new_task_value(field, message, profile, reasoning, config, world)
     case U.Message{task, message, delivery}: message_value(field, message, delivery)
     case U.Project{id, name, workspace}: project_value(field, name, workspace)
-    case U.Card{id, revision, draft, assist, profile}: card_value(draft, field, assist, profile)
+    case U.Card{id, revision, draft, assist, profile, keep_open}: card_value(draft, field, assist, profile, keep_open)
     case U.Agent{id, revision, name, profile, reasoning, instructions, config, concurrency}: agent_value(field, name, profile, reasoning, instructions, config, concurrency, world)
     case U.Fork{task, count, messages, config}: fork_value(field, count, messages, config, world)
     case U.Compact{task, summary}: OptionalTextValue{summary}
@@ -316,6 +322,6 @@ def edit_for(body: U.Body, field: Field, value: Value, world: M.World()) -> Mayb
   match body:
     case U.NewTask{message, profile, reasoning, context}: configured_edit(field, value, profile, reasoning, context, world)
     case U.Agent{id, revision, name, profile, reasoning, instructions, context, concurrency}: configured_edit(field, value, profile, reasoning, context, world)
-    case U.Card{id, revision, draft, assist, profile}: card_edit(field, value, assist, profile)
+    case U.Card{id, revision, draft, assist, profile, keep_open}: card_edit(field, value, assist, profile)
     case U.Fork{task, count, messages, context}: fork_edit(field, value, count, messages, context, world)
     case _: edit(field, value)

@@ -52,7 +52,7 @@ type Observation is Type:
   Observation{queries: A.Observations(),
     tasks: A.TaskViews(),
     branches: A.BranchResults(),
-    surface: A.UserSurface}
+    surface: A.UserSurface()}
 
 # A finite map owns live operations. Announcements are idempotent projections;
 # unread notifications form a join semilattice between committed model snapshots.

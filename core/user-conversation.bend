@@ -27,11 +27,11 @@ type AuditFace is Data:
   AuditFace{occurrence: Nat, kind: AuditKind, title: String, source: D.Message}
 
 type Group is Data:
-  Speech{identity: Nat, speaker: Speaker, text: String}
+  Speech{identity: Nat, speaker: Speaker, text: String, source: D.Message}
   Activity{identity: Nat, attention: Maybe<&2, Nat>, entries: +List<Audit>}
 
 type VisibleGroup is Data:
-  VisibleSpeech{identity: Nat, speaker: Speaker, text: String}
+  VisibleSpeech{identity: Nat, speaker: Speaker, text: String, source: D.Message}
   VisibleActivity{identity: Nat, attention: Maybe<&2, Nat>, expanded: Bool,
     summary: String, audit: +List<AuditFace>, expand: U.Input, collapse: U.Input}
 
@@ -67,7 +67,7 @@ def prepend_audit(+index: Nat, failed: Bool, message: D.Message, tail: +List<Gro
 
 def provider_speech(is_assistant: Bool, index: Nat, +value: J.Json, tail: +List<Group>) -> +List<Group>:
   match is_assistant:
-    case True{}: Speech{index, AssistantSpeech{}, Content.content_parts(J.items(J.get(value, "content")))} <> tail
+    case True{}: Speech{index, AssistantSpeech{}, Content.content_parts(J.items(J.get(value, "content"))), D.ModelContext{value}} <> tail
     case False{}: prepend_audit(index, False{}, D.ModelContext{value}, tail)
 
 def provider_group(kind: Content.ContextKind, index: Nat, +value: J.Json, tail: +List<Group>) -> +List<Group>:
@@ -94,8 +94,8 @@ def after_failed(outcome: D.AfterOutcome) -> Bool:
 
 def prepend(message: D.Message, index: Nat, tail: +List<Group>) -> +List<Group>:
   match message:
-    case D.UserMessage{text}: Speech{index, UserSpeech{}, text} <> tail
-    case D.AssistantMessage{text}: Speech{index, AssistantSpeech{}, text} <> tail
+    case D.UserMessage{+text}: Speech{index, UserSpeech{}, text, D.UserMessage{text}} <> tail
+    case D.AssistantMessage{+text}: Speech{index, AssistantSpeech{}, text, D.AssistantMessage{text}} <> tail
     case D.ModelContext{+value}: provider_group(Content.context_kind(J.text(J.get(value, "type"))), index, value, tail)
     case D.FailureMessage{text}: prepend_audit(index, True{}, D.FailureMessage{text}, tail)
     case D.FunctionOutput{id, value, +error}: prepend_audit(index, error, D.FunctionOutput{id, value, error}, tail)
@@ -184,7 +184,7 @@ def expanded(disclosures: +List<E.Disclosure>, +group: Nat, +attention: Maybe<&2
 def visible(groups: +List<Group>, +task: Nat, +disclosures: +List<E.Disclosure>) -> +List<VisibleGroup>:
   match groups:
     case Nil{}: Nil{}
-    case Con{Speech{id, speaker, text}, rest}: VisibleSpeech{id, speaker, text} <> visible(rest, task, disclosures)
+    case Con{Speech{id, speaker, text, source}, rest}: VisibleSpeech{id, speaker, text, source} <> visible(rest, task, disclosures)
     case Con{Activity{+id, +attention, +entries}, rest}:
       VisibleActivity{id, attention, expanded(disclosures, id, attention), activity_summary(entries), audit_faces(entries),
         U.SetDisclosure{task, id, attention_key(attention), True{}}, U.SetDisclosure{task, id, attention_key(attention), False{}}} <> visible(rest, task, disclosures)

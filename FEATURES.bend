@@ -28,30 +28,6 @@ def rest(state: State()) -> Rest():
 def with_board(value: Board.State, state: State()) -> State():
   C.replace(Board.State, Rest(), value, state)
 
-def CursorRest() -> Data:
-  Unit
-
-def initial_cursor_rest() -> CursorRest():
-  Unit{}
-
-def Cursor() -> Data:
-  C.Frame<Board.Cursor, CursorRest()>
-
-def from_board_cursor(cursor: Board.Cursor) -> Cursor():
-  C.Frame{cursor, initial_cursor_rest()}
-
-def initial_cursor() -> Cursor():
-  from_board_cursor(Board.cursor())
-
-def board_cursor(cursor: Cursor()) -> Board.Cursor:
-  C.local(Board.Cursor, CursorRest(), cursor)
-
-def cursor_rest(cursor: Cursor()) -> CursorRest():
-  C.rest(Board.Cursor, CursorRest(), cursor)
-
-def with_board_cursor(value: Board.Cursor, cursor: Cursor()) -> Cursor():
-  C.replace(Board.Cursor, CursorRest(), value, cursor)
-
 type Effect is Data:
   RequestBoardText{card_id: Nat, ticket: Nat, profile: D.Profile, prompt: String, retitle: Bool}
 
@@ -63,9 +39,6 @@ type Query is Data:
 
 type CommandKind is Data:
   BoardKind{kind: BoardCodec.EntryKind}
-
-type Navigation is Data:
-  BoardEvent{event: Board.Navigation}
 
 type Completion is Data:
   BoardTextCompleted{card_id: Nat, ticket: Nat, outcome: Board.Outcome}

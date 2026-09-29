@@ -1,6 +1,5 @@
 import Base
-import ./conversation-spec.bend as ConversationSpec
-import ./surface.bend as Surface
+import ../core/contract.bend as ProductContract
 import ./effects.bend as Effects
 import ../FEATURES.bend as F
 import ./component.bend as C
@@ -23,7 +22,6 @@ import ./frontend.bend as Frontend
 import ./operations.bend as Ops
 import ./results.bend as Results
 import ./stdlib.bend as Std
-import ../UI.bend as UI
 import ../HOOKS.bend as Hooks
 import ../LAWS.bend as Laws
 import ./notifications.bend as Notifications
@@ -138,36 +136,11 @@ type ResultBoundary is Type:
 law result_boundary:
   ResultBoundary
 
-def user_surface(state: M.ViewState, world: M.World()) -> M.Decision():
-  P.transition(M.UserInterface{state, M.RefreshView{}}, world)
-
-type UserSurface is Type:
-  UserSurface{
-    transcript: @+messages:+List<D.Message> -> @offset:Nat ->
-      {ConversationSpec.visible_speech(UI.messages(messages, offset)) == ConversationSpec.transcript(messages) : +List<ConversationSpec.Speech>},
-    audit: @+message:D.Message -> @key:String ->
-      {ConversationSpec.audit_values(UI.audit_message(message, key)) == ConversationSpec.audit_record(message) : +List<J.Json>},
-    results: @+message:D.Message -> @key:String ->
-      {ConversationSpec.visible_results(UI.message_nodes(message, key)) == ConversationSpec.result(message) : +List<ConversationSpec.Result>},
-    composer: @+id:Nat -> @+world:M.World() ->
-      {ConversationSpec.composer(UI.send_forms(id, world)) ==
-        Some{ConversationSpec.Composer{"task/" ++ Nat.show(id),
-          [ConversationSpec.Intent{M.Send{id, "message"}, UI.selected(Commands.resolve(M.Send{id, "message"}, world))},
-           ConversationSpec.Intent{M.Steer{id, "message"}, UI.selected(Commands.resolve(M.Steer{id, "message"}, world))}]}} : Maybe<&2, ConversationSpec.Composer>},
-    observation: @+state:M.ViewState -> @+world:M.World() ->
-      ({P.decision_world(user_surface(state, world)) == world : M.World()} &
-       {P.decision_effects(user_surface(state, world)) == Nil{} : +List<M.Effect()>}),
-    submission: @state:M.ViewState -> @command:M.Command -> @world:M.World() ->
-      {P.apply(M.UserInterface{state, M.Submit{command}}, world) == P.apply_command(command, world) : M.Decision()},
-    action: @key:String -> @label:String -> @command:M.Command -> @world:M.World() ->
-      {UI.action(key, label, command, world) == Surface.Action{key, label, M.Submit{command}, UI.selected(Commands.resolve(command, world)), False{}} : Surface.Node},
-    form: @key:String -> @title:String -> @label:String -> @command:M.Command -> @fields:+List<Surface.Field> -> @world:M.World() ->
-      {UI.form(key, title, label, command, fields, world) == Surface.Form{key, title, label, command, fields, UI.selected(Commands.resolve(command, world))} : Surface.Node},
-    state: @input:M.Input -> @decision:M.Decision() -> {P.decision_world(UI.decorate(input, decision)) == P.decision_world(decision) : M.World()},
-    effects: @input:M.Input -> @decision:M.Decision() -> {P.decision_effects(UI.decorate(input, decision)) == P.decision_effects(decision) : +List<M.Effect()>}}
+def UserSurface() -> Type:
+  ProductContract.Requirements
 
 law surface:
-  UserSurface
+  UserSurface()
 
 # Concrete bindings for the conceptual entry in ../CONCEPTS.bend. These indices
 # name the actual production operations. PROOF supplies the correspondences;
