@@ -1,7 +1,14 @@
 import Base
 
+type Source is Data:
+  Message{task: Nat, message: Nat}
+  StreamingPart{task: Nat, operation: Nat, part: Nat}
+
+type Identity is Data:
+  Identity{source: Source, ordinal: Nat}
+
 type Block is Data:
-  Block{identity: String, source: String, view: CodeView, next: Nat, pending: Maybe<&2, Nat>}
+  Block{identity: Identity, source: String, view: CodeView, next: Nat, pending: Maybe<&2, Nat>}
 
 type Input is Data:
   SourceChanged{source: String}
@@ -30,7 +37,23 @@ type Control is Data:
   WrapControl{}
 
 type Scene is Data:
-  Scene{identity: String, literal: String, wrap: Bool, copy: CopyState, copy_enabled: Bool, controls: +List<Control>}
+  Scene{identity: Identity, literal: String, wrap: Bool, copy: CopyState, copy_enabled: Bool, controls: +List<Control>}
+
+def source_key(source: Source) -> String:
+  match source:
+    case Message{task, message}: "task/" ++ Nat.show(task) ++ "/message/" ++ Nat.show(message)
+    case StreamingPart{task, operation, part}: "task/" ++ Nat.show(task) ++ "/stream/" ++ Nat.show(operation) ++ "/part/" ++ Nat.show(part)
+
+def key(identity: Identity) -> String:
+  Identity{source, ordinal} = identity
+  source_key(source) ++ "/code/" ++ Nat.show(ordinal)
+
+def same(left: Identity, right: Identity) -> Bool:
+  String.eq(key(left), key(right))
+
+def belongs(identity: Identity, source: Source) -> Bool:
+  Identity{owner, ordinal} = identity
+  String.eq(source_key(owner), source_key(source))
 
 def same_ticket(pending: Maybe<&2, Nat>, ticket: Nat) -> Bool:
   match pending:
@@ -104,11 +127,11 @@ def choose_block(same: Bool, block: Block, fallback: Block) -> Block:
     case False{}: fallback
 
 
-def find_block(blocks: +List<Block>, +identity: String) -> Block:
+def find_block(blocks: +List<Block>, +identity: Identity) -> Block:
   match blocks:
     case Nil{}: Block{identity, "", initial_code_view(), 0n, None{}}
     case Con{Block{+key, source, view, next, pending}, rest}:
-      choose_block(String.eq(key, identity), Block{key, source, view, next, pending}, find_block(rest, identity))
+      choose_block(same(key, identity), Block{key, source, view, next, pending}, find_block(rest, identity))
 
 
 def replace_block(same: Bool, old: Block, rest: +List<Block>, current: Block, fallback: +List<Block>) -> +List<Block>:
@@ -117,8 +140,8 @@ def replace_block(same: Bool, old: Block, rest: +List<Block>, current: Block, fa
     case False{}: old <> fallback
 
 
-def save_block(blocks: +List<Block>, +identity: String, +current: Block) -> +List<Block>:
+def save_block(blocks: +List<Block>, +identity: Identity, +current: Block) -> +List<Block>:
   match blocks:
     case Nil{}: [current]
     case Con{Block{+key, source, view, next, pending}, +rest}:
-      replace_block(String.eq(key, identity), Block{key, source, view, next, pending}, rest, current, save_block(rest, identity, current))
+      replace_block(same(key, identity), Block{key, source, view, next, pending}, rest, current, save_block(rest, identity, current))

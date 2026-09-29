@@ -1,4 +1,5 @@
 import Base
+import ../core/interface.bend as UI
 import ../core/SYSTEM.bend as Core
 import ../core/user-experience.bend as E
 import ../core/user-input.bend as U
@@ -51,7 +52,7 @@ def preview_scope(preview: Services.Preview, fallback: Scope) -> Scope:
     case Services.ReadyPreview{file, resource, image, trigger}: Temporary{"attachment-preview", "attachment-preview/close", trigger}
     case Services.FailedPreview{file, reason, trigger}: Temporary{"attachment-preview", "attachment-preview/close", trigger}
 
-def current(state: Core.State, capacity: View.Capacity) -> Scope:
+def logical_scope(state: Core.State, capacity: View.Capacity) -> Scope:
   Core.State{E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks}},
     Services.State{access, credential, settings, appearance, next_service, transfers, preview}} = state
   View.Capacity{navigation_beside, details_beside} = capacity
@@ -74,3 +75,20 @@ def permits_composer(scope: Scope) -> Bool:
   match scope:
     case Document{}: True{}
     case _: False{}
+
+def resolved_target(found: Maybe<&2, String>) -> String:
+  match found:
+    case Some{key}: key
+    case None{}: ""
+
+def choose_scope(active: Maybe<&2, String>, surface: UI.Surface, +scope: Scope) -> Scope:
+  match active:
+    case None{}: Document{}
+    case Some{key}: Temporary{key, resolved_target(UI.focus_target(surface, initial(scope))), restore(scope)}
+
+def realized_scope(+surface: UI.Surface, scope: Scope) -> Scope:
+  UI.Surface{content, base, overlays, +active} = surface
+  choose_scope(active, surface, scope)
+
+def current(+state: Core.State, +capacity: View.Capacity) -> Scope:
+  realized_scope(UI.observe(capacity, state), logical_scope(state, capacity))

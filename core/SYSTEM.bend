@@ -143,12 +143,29 @@ def service_input(input: Services.Input, +application: E.Application, services: 
     case Services.Disconnected{reason}: service_result(Services.step(Services.Disconnected{reason}, services), attached(E.observe_preview(Live.ConnectionEnded{}, application)))
     case other: service_result(Services.step(other, services), application)
 
+def edit_body(body: U.Body, editor: U.Editor, field: Forms.Field, value: Forms.Value, application: E.Application) -> E.Decision:
+  E.Application{+program, session} = application
+  apply_edit(Forms.edit_for(body, field, value, program), editor, E.Application{program, session})
+def edit_exposed(exposed: Bool, body: U.Body, editor: U.Editor, field: Forms.Field, value: Forms.Value, application: E.Application) -> E.Decision:
+  match exposed:
+    case False{}: E.refuse(application, "This field is not part of this editor")
+    case True{}: edit_body(body, editor, field, value, application)
+
+def edit_found(found: Maybe<&2, U.Draft>, editor: U.Editor, +field: Forms.Field, value: Forms.Value, application: E.Application) -> E.Decision:
+  match found:
+    case None{}: E.refuse(application, "The editor is not open")
+    case Some{U.Draft{revision, +body, feedback}}: edit_exposed(Forms.exposed(body, field), body, editor, field, value, application)
+
+def edit_field(+editor: U.Editor, field: Forms.Field, value: Forms.Value, application: E.Application) -> E.Decision:
+  E.Application{program, E.Session{route, +drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks}} = application
+  edit_found(E.find_draft(drafts, editor), editor, field, value,
+    E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks}})
 def dispatch(state: State, +input: Input) -> Decision:
   State{application, +services} = state
   match input:
     case ApplicationInput{+input}: apply_application(submission_blocked(services, input), input, application, services)
     case ServiceInput{+input}: service_input(input, application, services)
-    case EditField{editor, field, value}: application_result(apply_edit(Forms.edit(field, value), editor, application), services)
+    case EditField{editor, field, value}: application_result(edit_field(editor, field, value, application), services)
     case RemoveAttachment{editor, id}: application_result(edit_attachment(editor, None{}, id, application), services)
 
 def code_scenes(application: E.Application) -> +List<Content.Scene>:

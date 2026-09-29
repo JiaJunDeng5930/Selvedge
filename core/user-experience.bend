@@ -46,7 +46,7 @@ type Application is Data:
   Application{program: M.World(), session: Session}
 
 type Effect is Data:
-  ContentEffect{identity: String, effect: Content.Effect}
+  ContentEffect{identity: Content.Identity, effect: Content.Effect}
   ObserveDirectories{ticket: Nat, entered: D.Workspace}
   Attend{target: String}
 
@@ -55,7 +55,7 @@ type Decision is Data:
     interaction_effects: +List<Effect>, durable: Bool}
 
 type Input is Data:
-  ContentInput{identity: String, input: Content.Input}
+  ContentInput{identity: Content.Identity, input: Content.Input}
   PreviewObserved{observation: Live.Observation}
   UserInput{input: U.Input}
   RuntimeInput{input: M.Input}
@@ -249,6 +249,7 @@ def visit(route: U.Route, application: Application) -> Decision:
 
 def panel_target(panel: U.Panel) -> String:
   match panel:
+    case U.ObjectActions{subject}: "actions/" ++ U.subject_key(subject)
     case U.ArchivedCards{}: "archived-cards"
     case U.EditObject{editor}: "editor/" ++ U.editor_key(editor)
     case U.TaskDetails{task}: "task-details/" ++ Nat.show(task)
@@ -581,7 +582,7 @@ def confirm(layers: +List<Layer>, application: Application) -> Decision:
     case Con{Layer{U.Confirm{+command, title}, trigger, target, query}, rest}: finish_confirmation(execute(command, application, None{}), command)
     case _: refuse(application, "No confirmation is open")
 
-def activate(action: U.Action, +application: Application) -> Decision:
+def activate_selected(action: U.Action, +application: Application) -> Decision:
   match action:
     case U.Navigate{route}: visit(route, application)
     case U.BeginTask{+project}: begin_task(project, application)
@@ -639,6 +640,26 @@ def search_choices(query: String, application: Application) -> Decision:
     case Con{Layer{panel, trigger, initial, previous}, rest}:
       local(program, Session{route, drafts, readers, Layer{panel, trigger, initial, query} <> rest, attention, navigation, filter, now, next, pending, previews, code_blocks}, Nil{})
 
+def action_leaves_menu(action: U.Action) -> Bool:
+  match action:
+    case U.OpenPanel{panel, trigger}: False{}
+    case U.ClosePanel{}: False{}
+    case _: True{}
+
+def remove_action_menu(layers: +List<Layer>) -> +List<Layer>:
+  match layers:
+    case Con{Layer{U.ObjectActions{subject}, trigger, initial, query}, rest}: rest
+    case other: other
+
+def dismiss_action_menu(leaves: Bool, application: Application) -> Application:
+  match leaves:
+    case False{}: application
+    case True{}:
+      Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks}} = application
+      Application{program, Session{route, drafts, readers, remove_action_menu(layers), attention, navigation, filter, now, next, pending, previews, code_blocks}}
+
+def activate(+action: U.Action, application: Application) -> Decision:
+  activate_selected(action, dismiss_action_menu(action_leaves_menu(action), application))
 def user(input: U.Input, application: Application) -> Decision:
   match input:
     case U.Activate{action}: activate(action, application)
@@ -658,17 +679,17 @@ def user(input: U.Input, application: Application) -> Decision:
 def observe_preview(observation: Live.Observation, application: Application) -> Decision:
   Application{+program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks}} = application
   local(program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, Live.observe(observation, previews, program), code_blocks}, Nil{})
-def content_effects(effects: +List<Content.Effect>, +identity: String) -> +List<Effect>:
+def content_effects(effects: +List<Content.Effect>, +identity: Content.Identity) -> +List<Effect>:
   match effects:
     case Nil{}: Nil{}
     case Con{effect, rest}: ContentEffect{identity, effect} <> content_effects(rest, identity)
 
-def content_result(result: Content.Decision, +identity: String, application: Application) -> Decision:
+def content_result(result: Content.Decision, +identity: Content.Identity, application: Application) -> Decision:
   Content.Decision{block, effects} = result
   Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks}} = application
   local(program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, Content.save_block(code_blocks, identity, block)}, content_effects(effects, identity))
 
-def content_input(+identity: String, input: Content.Input, application: Application) -> Decision:
+def content_input(+identity: Content.Identity, input: Content.Input, application: Application) -> Decision:
   Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, +code_blocks}} = application
   content_result(Content.step(Content.find_block(code_blocks, identity), input), identity,
     Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks}})

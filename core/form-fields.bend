@@ -1,4 +1,6 @@
 import Base
+import ../MODEL.bend as M
+import ../bendlib/domain.bend as D
 import ../BOARD.bend as B
 import ./user-input.bend as U
 import ./user-context.bend as Context
@@ -33,6 +35,7 @@ type Field is Data:
   CompactionSummary{}
 
 type Entry is Data:
+  DisplayOnly{}
   SingleLine{}
   Multiline{}
   Choice{}
@@ -65,6 +68,23 @@ type Value is Data:
   Fork{count: Nat, messages: +List<String>}
   Summary{value: Maybe<&2, String>}
 
+type Observed is Data:
+  TextValue{text: String}
+  CountValue{count: Nat}
+  TextsValue{values: +List<String>}
+  WorkspaceValue{workspace: D.Workspace}
+  ContextValue{preview: Context.Preview}
+  ModelValue{profile: String, reasoning: String}
+  DeliveryValue{delivery: U.Delivery}
+  StageValue{stage: B.Stage}
+  PriorityValue{priority: B.Priority}
+  OwnerValue{owner: B.Owner}
+  ProjectValue{project: Maybe<&2, Nat>}
+  AttachmentsValue{files: +List<B.Attachment>}
+  AssistanceValue{enabled: Bool, profile: String}
+  OptionalTextValue{text: Maybe<&2, String>}
+  NotApplicable{}
+
 def execution() -> Section:
   Section{"Execution context", [FieldScene{ContextOrigin{}, "Defaults from", Choice{}},
     FieldScene{WorkspaceDirectories{}, "Working directories", DirectoryCollection{}},
@@ -76,6 +96,11 @@ def execution() -> Section:
 def model() -> Section:
   Section{"Model", [FieldScene{ModelProfile{}, "Model", Choice{}}, FieldScene{ReasoningEffort{}, "Reasoning effort", Choice{}}]}
 
+def capture_structure(id: Maybe<&2, Nat>) -> +List<Section>:
+  match id:
+    case None{}: [Section{"Capture assistance", [FieldScene{AssistedCapture{}, "Assist with title and description", Choice{}}, FieldScene{AssistanceProfile{}, "Assistance model", Choice{}}]}]
+    case Some{id}: Nil{}
+
 def structure(body: U.Body) -> +List<Section>:
   match body:
     case U.NewTask{message, profile, reasoning, context}:
@@ -86,11 +111,10 @@ def structure(body: U.Body) -> +List<Section>:
       [Section{"Project", [FieldScene{ProjectName{}, "Name", SingleLine{}}]},
        Section{"Default workspace", [FieldScene{WorkspaceDirectories{}, "Working directories", DirectoryCollection{}}, FieldScene{WorkspacePrimary{}, "Primary directory", Choice{}}]}]
     case U.Card{id, revision, draft, assist, profile}:
-      [Section{"Work", [FieldScene{CardTitle{}, "Title", SingleLine{}}, FieldScene{CardDescription{}, "Description", Multiline{}}]},
+      List.append(&2, Section, [Section{"Work", [FieldScene{CardTitle{}, "Title", SingleLine{}}, FieldScene{CardDescription{}, "Description", Multiline{}}]},
        Section{"Organization", [FieldScene{CardStage{}, "Stage", Choice{}}, FieldScene{CardPriority{}, "Priority", Choice{}},
          FieldScene{CardOwner{}, "Assignee", Choice{}}, FieldScene{CardProject{}, "Project", Choice{}}, FieldScene{CardLabels{}, "Labels", MultipleChoices{}}]},
-       Section{"Attachments", [FieldScene{CardAttachments{}, "Files", FileCollection{}}]},
-       Section{"Capture assistance", [FieldScene{AssistedCapture{}, "Assist with title and description", Choice{}}, FieldScene{AssistanceProfile{}, "Assistance model", Choice{}}]}]
+       Section{"Attachments", [FieldScene{CardAttachments{}, "Files", FileCollection{}}]}], capture_structure(id))
     case U.Agent{id, revision, name, profile, reasoning, instructions, context, concurrency}:
       [Section{"Agent", [FieldScene{AgentName{}, "Name", SingleLine{}}, FieldScene{AgentInstructions{}, "Instructions", Multiline{}}, FieldScene{AgentConcurrency{}, "Concurrent tasks", PositiveInteger{}}]}, model(), execution()]
     case U.Fork{task, count, messages, context}:
@@ -102,12 +126,13 @@ def edit(field: Field, value: Value) -> Maybe<&2, U.Edit>:
   match field value:
     case MessageText{} Text{text}: Some{U.WriteMessage{U.Text{text}}}
     case ProjectName{} Text{text}: Some{U.NameProject{text}}
-    case WorkspaceDirectories{} WorkspaceChange{change}: Some{U.EditWorkspace{change}}
-    case WorkspacePrimary{} WorkspaceChange{change}: Some{U.EditWorkspace{change}}
-    case ContextOrigin{} ContextChange{change}: Some{U.ConfigureContext{change}}
-    case SandboxMode{} ContextChange{change}: Some{U.ConfigureContext{change}}
-    case NetworkAccess{} ContextChange{change}: Some{U.ConfigureContext{change}}
-    case ApprovalPolicy{} ContextChange{change}: Some{U.ConfigureContext{change}}
+    case WorkspaceDirectories{} WorkspaceChange{Context.AddRoot{path}}: Some{U.EditWorkspace{Context.AddRoot{path}}}
+    case WorkspaceDirectories{} WorkspaceChange{Context.RemoveRoot{path}}: Some{U.EditWorkspace{Context.RemoveRoot{path}}}
+    case WorkspacePrimary{} WorkspaceChange{Context.ChoosePrimary{path}}: Some{U.EditWorkspace{Context.ChoosePrimary{path}}}
+    case ContextOrigin{} ContextChange{Context.ChooseOrigin{origin}}: Some{U.ConfigureContext{Context.ChooseOrigin{origin}}}
+    case SandboxMode{} ContextChange{Context.SetSandbox{sandbox}}: Some{U.ConfigureContext{Context.SetSandbox{sandbox}}}
+    case NetworkAccess{} ContextChange{Context.SetSandbox{sandbox}}: Some{U.ConfigureContext{Context.SetSandbox{sandbox}}}
+    case ApprovalPolicy{} ContextChange{Context.SetApproval{approval}}: Some{U.ConfigureContext{Context.SetApproval{approval}}}
     case ModelProfile{} Model{profile, reasoning}: Some{U.ChooseModel{profile, reasoning}}
     case ReasoningEffort{} Model{profile, reasoning}: Some{U.ChooseModel{profile, reasoning}}
     case DeliveryIntent{} Delivery{delivery}: Some{U.ChooseDelivery{delivery}}
@@ -127,3 +152,170 @@ def edit(field: Field, value: Value) -> Maybe<&2, U.Edit>:
     case ForkMessages{} Fork{count, messages}: Some{U.SetFork{count, messages}}
     case CompactionSummary{} Summary{summary}: Some{U.WriteSummary{summary}}
     case _ _: None{}
+
+def key(field: Field) -> String:
+  match field:
+    case MessageText{}: "message-text"
+    case ProjectName{}: "project-name"
+    case WorkspaceDirectories{}: "workspace-directories"
+    case WorkspacePrimary{}: "workspace-primary"
+    case ContextOrigin{}: "context-origin"
+    case SandboxMode{}: "sandbox-mode"
+    case NetworkAccess{}: "network-access"
+    case ApprovalPolicy{}: "approval-policy"
+    case ModelProfile{}: "model-profile"
+    case ReasoningEffort{}: "reasoning-effort"
+    case DeliveryIntent{}: "delivery-intent"
+    case CardTitle{}: "card-title"
+    case CardDescription{}: "card-description"
+    case CardStage{}: "card-stage"
+    case CardPriority{}: "card-priority"
+    case CardOwner{}: "card-owner"
+    case CardProject{}: "card-project"
+    case CardLabels{}: "card-labels"
+    case CardAttachments{}: "card-attachments"
+    case AssistedCapture{}: "assisted-capture"
+    case AssistanceProfile{}: "assistance-profile"
+    case AgentName{}: "agent-name"
+    case AgentInstructions{}: "agent-instructions"
+    case AgentConcurrency{}: "agent-concurrency"
+    case ForkCount{}: "fork-count"
+    case ForkMessages{}: "fork-messages"
+    case CompactionSummary{}: "compaction-summary"
+
+def field_present(fields: +List<FieldScene>, +wanted: Field) -> Bool:
+  match fields:
+    case Nil{}: False{}
+    case Con{FieldScene{field, label, entry}, rest}: String.eq(key(field), key(wanted)) || field_present(rest, wanted)
+
+def section_present(sections: +List<Section>, +wanted: Field) -> Bool:
+  match sections:
+    case Nil{}: False{}
+    case Con{Section{title, fields}, rest}: field_present(fields, wanted) || section_present(rest, wanted)
+
+def exposed(body: U.Body, field: Field) -> Bool:
+  section_present(structure(body), field)
+
+def context_value(field: Field, config: Context.Configuration, world: M.World()) -> Observed:
+  match field:
+    case ContextOrigin{}: ContextValue{Context.preview(config, world)}
+    case WorkspaceDirectories{}: ContextValue{Context.preview(config, world)}
+    case WorkspacePrimary{}: ContextValue{Context.preview(config, world)}
+    case SandboxMode{}: ContextValue{Context.preview(config, world)}
+    case NetworkAccess{}: ContextValue{Context.preview(config, world)}
+    case ApprovalPolicy{}: ContextValue{Context.preview(config, world)}
+    case _: NotApplicable{}
+
+def new_task_value(field: Field, message: U.Text, profile: String, reasoning: String, config: Context.Configuration, world: M.World()) -> Observed:
+  match field:
+    case MessageText{}: TextValue{U.text(message)}
+    case ModelProfile{}: ModelValue{profile, reasoning}
+    case ReasoningEffort{}: ModelValue{profile, reasoning}
+    case other: context_value(other, config, world)
+
+def message_value(field: Field, message: U.Text, delivery: U.Delivery) -> Observed:
+  match field:
+    case MessageText{}: TextValue{U.text(message)}
+    case DeliveryIntent{}: DeliveryValue{delivery}
+    case _: NotApplicable{}
+
+def project_value(field: Field, name: String, workspace: D.Workspace) -> Observed:
+  match field:
+    case ProjectName{}: TextValue{name}
+    case WorkspaceDirectories{}: WorkspaceValue{workspace}
+    case WorkspacePrimary{}: WorkspaceValue{workspace}
+    case _: NotApplicable{}
+
+def card_value(draft: B.Draft, field: Field, assist: Bool, profile: String) -> Observed:
+  B.Draft{title, description, stage, priority, owner, project, labels, attachments} = draft
+  match field:
+    case CardTitle{}: TextValue{title}
+    case CardDescription{}: TextValue{description}
+    case CardStage{}: StageValue{stage}
+    case CardPriority{}: PriorityValue{priority}
+    case CardOwner{}: OwnerValue{owner}
+    case CardProject{}: ProjectValue{project}
+    case CardLabels{}: TextsValue{labels}
+    case CardAttachments{}: AttachmentsValue{attachments}
+    case AssistedCapture{}: AssistanceValue{assist, profile}
+    case AssistanceProfile{}: AssistanceValue{assist, profile}
+    case _: NotApplicable{}
+
+def agent_value(field: Field, name: String, profile: String, reasoning: String, instructions: String, config: Context.Configuration, concurrency: Nat, world: M.World()) -> Observed:
+  match field:
+    case AgentName{}: TextValue{name}
+    case AgentInstructions{}: TextValue{instructions}
+    case AgentConcurrency{}: CountValue{concurrency}
+    case ModelProfile{}: ModelValue{profile, reasoning}
+    case ReasoningEffort{}: ModelValue{profile, reasoning}
+    case other: context_value(other, config, world)
+
+def fork_value(field: Field, count: Nat, messages: +List<String>, config: Context.Configuration, world: M.World()) -> Observed:
+  match field:
+    case ForkCount{}: CountValue{count}
+    case ForkMessages{}: TextsValue{messages}
+    case other: context_value(other, config, world)
+
+def observed(body: U.Body, field: Field, world: M.World()) -> Observed:
+  match body:
+    case U.NewTask{message, profile, reasoning, config}: new_task_value(field, message, profile, reasoning, config, world)
+    case U.Message{task, message, delivery}: message_value(field, message, delivery)
+    case U.Project{id, name, workspace}: project_value(field, name, workspace)
+    case U.Card{id, revision, draft, assist, profile}: card_value(draft, field, assist, profile)
+    case U.Agent{id, revision, name, profile, reasoning, instructions, config, concurrency}: agent_value(field, name, profile, reasoning, instructions, config, concurrency, world)
+    case U.Fork{task, count, messages, config}: fork_value(field, count, messages, config, world)
+    case U.Compact{task, summary}: OptionalTextValue{summary}
+
+def effort_for_same(same: Bool, previous: String, selected: String) -> String:
+  match same:
+    case True{}: previous
+    case False{}: selected
+
+def sandbox_value(value: Context.SandboxValue) -> D.Sandbox:
+  match value:
+    case Context.InheritedSandbox{value}: value
+    case Context.ChosenSandbox{value}: value
+
+def sandbox_field(field: Field, new_mode: D.SandboxMode, new_network: Bool, mode: D.SandboxMode, network: Bool) -> Maybe<&2, U.Edit>:
+  match field:
+    case SandboxMode{}: Some{U.ConfigureContext{Context.SetSandbox{D.Sandbox{new_mode, network}}}}
+    case NetworkAccess{}: Some{U.ConfigureContext{Context.SetSandbox{D.Sandbox{mode, new_network}}}}
+    case _: None{}
+
+def update_sandbox(field: Field, requested: D.Sandbox, current: D.Sandbox) -> Maybe<&2, U.Edit>:
+  D.Sandbox{new_mode, new_network} = requested
+  D.Sandbox{mode, network} = current
+  sandbox_field(field, new_mode, new_network, mode, network)
+
+def context_sandbox(preview: Context.Preview, field: Field, requested: D.Sandbox) -> Maybe<&2, U.Edit>:
+  match preview:
+    case Context.ContextUnavailable{reason}: None{}
+    case Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}: update_sandbox(field, requested, sandbox_value(sandbox))
+
+def configured_edit(field: Field, value: Value, profile: String, reasoning: String, config: Context.Configuration, world: M.World()) -> Maybe<&2, U.Edit>:
+  match field value:
+    case ModelProfile{} Model{+selected, effort}: Some{U.ChooseModel{selected, effort_for_same(String.eq(selected, profile), reasoning, effort)}}
+    case ReasoningEffort{} Model{+selected, effort}: Some{U.ChooseModel{profile, effort}}
+    case SandboxMode{} ContextChange{Context.SetSandbox{sandbox}}: context_sandbox(Context.preview(config, world), SandboxMode{}, sandbox)
+    case NetworkAccess{} ContextChange{Context.SetSandbox{sandbox}}: context_sandbox(Context.preview(config, world), NetworkAccess{}, sandbox)
+    case other next: edit(other, next)
+
+def card_edit(field: Field, value: Value, assist: Bool, profile: String) -> Maybe<&2, U.Edit>:
+  match field value:
+    case AssistedCapture{} Assistance{enabled, selected}: Some{U.ConfigureCardAssistance{enabled, profile}}
+    case AssistanceProfile{} Assistance{enabled, selected}: Some{U.ConfigureCardAssistance{assist, selected}}
+    case other next: edit(other, next)
+
+def fork_edit(field: Field, value: Value, count: Nat, messages: +List<String>, config: Context.Configuration, world: M.World()) -> Maybe<&2, U.Edit>:
+  match field value:
+    case ForkCount{} Fork{next, text}: Some{U.SetFork{next, messages}}
+    case ForkMessages{} Fork{next, text}: Some{U.SetFork{count, text}}
+    case other next: configured_edit(other, next, "", "", config, world)
+
+def edit_for(body: U.Body, field: Field, value: Value, world: M.World()) -> Maybe<&2, U.Edit>:
+  match body:
+    case U.NewTask{message, profile, reasoning, context}: configured_edit(field, value, profile, reasoning, context, world)
+    case U.Agent{id, revision, name, profile, reasoning, instructions, context, concurrency}: configured_edit(field, value, profile, reasoning, context, world)
+    case U.Card{id, revision, draft, assist, profile}: card_edit(field, value, assist, profile)
+    case U.Fork{task, count, messages, context}: fork_edit(field, value, count, messages, context, world)
+    case _: edit(field, value)

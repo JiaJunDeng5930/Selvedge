@@ -70,7 +70,14 @@ type Route is Data:
   TaskBoard{}
   AgentCollection{}
 
+type Subject is Data:
+  TaskSubject{id: Nat}
+  ProjectSubject{id: Nat}
+  CardSubject{id: Nat}
+  AgentSubject{id: Nat}
+
 type Panel is Data:
+  ObjectActions{subject: Subject}
   ArchivedCards{}
   EditObject{editor: Editor}
   TaskDetails{task: Nat}
@@ -213,7 +220,7 @@ def apply_edit(change: Edit, body: Body, world: M.World()) -> Result<&2, &2, Str
     case NameProject{name} Project{id, old, workspace}: Done{Project{id, name, workspace}}
     case ConfigureProjectWorkspace{workspace} Project{id, name, old}: Done{Project{id, name, workspace}}
     case WriteCard{patch} Card{id, revision, value, assist, profile}: Done{Card{id, revision, patch_card(patch, value), assist, profile}}
-    case ConfigureCardAssistance{assist, profile} Card{id, revision, value, old_assist, old_profile}: Done{Card{id, revision, value, assist, profile}}
+    case ConfigureCardAssistance{assist, profile} Card{None{}, revision, value, old_assist, old_profile}: Done{Card{None{}, revision, value, assist, profile}}
     case NameAgent{name} Agent{id, revision, old, profile, reasoning, instructions, context, concurrency}:
       Done{Agent{id, revision, name, profile, reasoning, instructions, context, concurrency}}
     case WriteInstructions{instructions} Agent{id, revision, name, profile, reasoning, old, context, concurrency}:
@@ -309,3 +316,10 @@ def after_accept(body: Body) -> Body:
     case NewTask{message, profile, reasoning, context}: NewTask{initial_text(""), profile, reasoning, context}
     case Message{task, message, delivery}: Message{task, initial_text(""), delivery}
     case other: other
+
+def subject_key(subject: Subject) -> String:
+  match subject:
+    case TaskSubject{id}: "task/" ++ Nat.show(id)
+    case ProjectSubject{id}: "project/" ++ Nat.show(id)
+    case CardSubject{id}: "card/" ++ Nat.show(id)
+    case AgentSubject{id}: "agent/" ++ Nat.show(id)

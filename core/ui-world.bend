@@ -113,6 +113,7 @@ type Page is Data:
   MissingObject{message: String}
 
 type LayerContent is Data:
+  ObjectActions{actions: +List<ControlDeclaration>}
   ArchivedCards{cards: +List<CardScene>}
   ObjectEditor{editor: Maybe<&2, EditorScene>}
   ExecutionSettings{editor: U.Editor, fields: +List<InputGroup>}
@@ -285,14 +286,18 @@ def profile_owners(profiles: +List<D.Profile>, rest: +List<B.Owner>) -> +List<B.
   match profiles:
     case Nil{}: rest
     case Con{D.Profile{key, provider, name, policy}, tail}: B.Profile{key} <> profile_owners(tail, rest)
+def capture_inputs(id: Maybe<&2, Nat>, assist: Bool, profile: String, world: M.World()) -> +List<InputGroup>:
+  match id:
+    case None{}: [CardAssistanceInput{assist, profile, Board.profiles(world)}]
+    case Some{id}: Nil{}
 def input_groups(body: U.Body, +world: M.World()) -> +List<InputGroup>:
   match body:
     case U.NewTask{message, profile, reasoning, context}: [MessageInput{message}, ModelInput{profile, reasoning, Board.profiles(world)}, execution_group(U.NewTaskEditor{}, context, world)]
     case U.Message{task, message, delivery}: [MessageInput{message}, delivery_controls(task, delivery)]
     case U.Project{id, name, +workspace}: [ProjectNameInput{name}, ProjectWorkspaceInput{workspace, workspace_controls(workspace, U.ProjectEditor{id}, None{})}]
     case U.Card{id, revision, value, assist, profile}:
-      [CardContentInput{value, projects(world), agents(Board.registry(world)), B.stages(),
-        [B.NoPriority{}, B.Low{}, B.Medium{}, B.High{}, B.Urgent{}], B.Unassigned{} <> B.Self{} <> profile_owners(Board.profiles(world), agent_owners(agents(Board.registry(world))))}, CardAssistanceInput{assist, profile, Board.profiles(world)}]
+      CardContentInput{value, projects(world), agents(Board.registry(world)), B.stages(),
+        [B.NoPriority{}, B.Low{}, B.Medium{}, B.High{}, B.Urgent{}], B.Unassigned{} <> B.Self{} <> profile_owners(Board.profiles(world), agent_owners(agents(Board.registry(world))))} <> capture_inputs(id, assist, profile, world)
     case U.Agent{id, revision, name, profile, reasoning, instructions, context, concurrency}:
       [AgentIdentityInput{name, instructions, concurrency}, ModelInput{profile, reasoning, Board.profiles(world)}, execution_group(U.AgentEditor{id}, context, world)]
     case U.Fork{task, count, messages, context}: [ForkInput{count, messages}, execution_group(U.ForkEditor{task}, context, world)]
@@ -532,8 +537,51 @@ def page(+route: U.Route, +session: E.Session, +world: M.World()) -> Page:
       board_page(Board.registry(world), filter, route, now, world)
     case U.AgentCollection{}: AgentsPage{agent_scenes(agents(Board.registry(world)), world), control("agent/new", "New agent", U.EditAgent{None{}})}
 
+def task_menu(actions: TaskActions) -> +List<ControlDeclaration>:
+  TaskActions{details, overflow} = actions
+  overflow
+
+def card_moves(values: +List<MoveDestination>, +id: Nat, +revision: Nat, +now: U32, +world: M.World()) -> +List<ControlDeclaration>:
+  match values:
+    case Nil{}: Nil{}
+    case Con{MoveDestination{+stage, availability}, rest}:
+      board_control("card/move/" ++ B.stage_name(stage), "Move to " ++ B.stage_label(stage), B.Move{id, revision, stage, None{}, now}, world) <> card_moves(rest, id, revision, now, world)
+def card_menu_items(card: CardScene, now: U32, world: M.World()) -> +List<ControlDeclaration>:
+  CardScene{id, value, open, actions, linked, destinations, candidates} = card
+  List.append(&2, ControlDeclaration, actions, List.append(&2, ControlDeclaration, card_moves(destinations, id, B.revision(value), now, world), candidates))
+
+def card_menu(found: Maybe<&2, B.Card>, id: Nat, +now: U32, +world: M.World()) -> +List<ControlDeclaration>:
+  match found:
+    case None{}: Nil{}
+    case Some{card}: card_menu_items(card_scene(id, card, U.TaskBoard{}, now, world), now, world)
+
+def agent_menu_items(agent: AgentScene) -> +List<ControlDeclaration>:
+  AgentScene{id, value, edit, remove} = agent
+  [edit, remove]
+
+def agent_menu(found: Maybe<&2, B.AgentProfile>, id: Nat, world: M.World()) -> +List<ControlDeclaration>:
+  match found:
+    case None{}: Nil{}
+    case Some{agent}: agent_menu_items(agent_scene(id, agent, world))
+
+def board_cards(board: B.State) -> +List<Finite.Entry(B.Card)>:
+  B.State{cards, next_card, agents, next_agent, automatic, profile} = board
+  cards
+def subject_controls(subject: U.Subject, now: U32, +world: M.World()) -> +List<ControlDeclaration>:
+  match subject:
+    case U.TaskSubject{+id}: task_menu(task_actions(id, world))
+    case U.ProjectSubject{+id}: [control("project/edit/" ++ Nat.show(id), "Edit project", U.EditProject{Some{id}}),
+      native("project/delete/" ++ Nat.show(id), "Delete project", Destructive{}, U.DeleteProject{id}, world)]
+    case U.CardSubject{+id}: card_menu(Finite.find(~B.Card, board_cards(Board.registry(world)), id), id, now, world)
+    case U.AgentSubject{+id}: agent_menu(Finite.find(~B.AgentProfile, agents(Board.registry(world)), id), id, world)
+
+def subject_actions(subject: U.Subject, session: E.Session, world: M.World()) -> +List<ControlDeclaration>:
+  E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks} = session
+  subject_controls(subject, now, world)
+
 def layer_content(panel: U.Panel, +session: E.Session, +world: M.World()) -> LayerContent:
   match panel:
+    case U.ObjectActions{subject}: ObjectActions{subject_actions(subject, session, world)}
     case U.ArchivedCards{}:
       E.Session{route, drafts, readers, layers, focus, navigation, filter, now, next, pending, previews, code_blocks} = session
       ArchivedCards{archived_cards(Board.registry(world), route, now, world)}
@@ -552,6 +600,7 @@ def details_kind(beside: Bool) -> LayerKind:
 
 def layer_kind(panel: U.Panel, beside: Bool) -> LayerKind:
   match panel:
+    case U.ObjectActions{subject}: AnchoredMenu{}
     case U.ModelPicker{editor}: AnchoredMenu{}
     case U.DeliveryPicker{task}: AnchoredMenu{}
     case U.TaskDetails{task}: details_kind(beside)

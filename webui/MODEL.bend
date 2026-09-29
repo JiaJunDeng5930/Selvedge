@@ -1,273 +1,112 @@
 import Base
-import ../core/laws.bend as CoreLaws
-import ./focus.bend as Focus
-import ../MODEL.bend as M
+import ../MODEL.bend as Program
 import ../core/SYSTEM.bend as Core
-import ../core/user-experience.bend as E
-import ../core/user-input.bend as U
+import ../core/interface.bend as UI
 import ../core/ui-world.bend as View
-import ../core/client-services.bend as Services
-import ../bendlib/association-map.bend as Finite
-import ./reading.bend as Reading
-import ./editor.bend as Editor
-import ../core/code-block.bend as Code
-import ./interaction.bend as Physical
-import ./proofs/interaction.bend as PhysicalProof
-
-type Platform is Data:
-  Platform{readers: +List<Finite.Entry(Reading.Bookmark)>, editors: +List<Editor.Editor>,
-    focused: String, focus_ticket: Nat, reduced_motion: Bool, capacity: View.Capacity, scope: Focus.Scope}
+import ./platform.bend as Platform
+import ./rendered.bend as Rendered
 
 type State is Data:
-  State{core: Core.State, platform: Platform}
+  State{application: Platform.State, generation: Nat, realization: Rendered.State}
 
 type Input is Data:
-  ProductInput{input: Core.Input}
-  ReadingInput{task: Nat, generation: Nat, event: Reading.Event}
-  EditorInput{editor: U.Editor, event: Editor.Event}
-  CapacityObserved{capacity: View.Capacity}
-  FocusObserved{identity: String, owner: String}
-  FocusApplied{ticket: Nat, identity: String}
-  MotionPreference{reduced: Bool}
+  Mount{}
+  PlatformInput{input: Platform.Input}
+  ElementInput{key: String, gesture: UI.Gesture}
+  FrameObserved{generation: Nat, frame: Rendered.Frame}
 
 type Effect is Data:
-  Scroll{task: Nat, generation: Nat, effect: Reading.Effect}
-  Focus{ticket: Nat, target: String}
-  Clipboard{block: String, effect: Code.Effect}
+  PlatformEffect{effect: Platform.Effect}
+  MeasureFrame{generation: Nat}
 
 type Decision is Data:
-  Decision{product: Core.Decision, platform: Platform, effects: +List<Effect>}
+  Decision{state: State, product: Core.Decision, effects: +List<Effect>}
 
 type Scene is Data:
-  Scene{product: Core.Scene, editors: +List<Editor.Editor>, focused: String, scope: Focus.Scope, reduced_motion: Bool}
+  Scene{surface: UI.Surface, platform: Platform.Scene, generation: Nat, realization: Rendered.State}
 
-def initial(program: M.World()) -> State:
-  State{Core.initial(program), Platform{Nil{}, Nil{}, "", 0n, False{}, View.Capacity{False{}, False{}}, Focus.Document{}}}
+def initial(program: Program.World()) -> State:
+  State{Platform.initial(program), 0n, Rendered.AwaitingFrame{0n}}
 
-def unchanged(core: Core.State) -> Core.Decision:
-  Core.State{application, services} = core
-  Core.application_result(E.unchanged(application), services)
+def capacity(platform: Platform.Platform) -> View.Capacity:
+  Platform.Platform{readers, editors, focused, ticket, reduced, capacity, scope} = platform
+  capacity
 
-def bookmark(found: Maybe<&2, Reading.Bookmark>) -> Reading.Bookmark:
-  match found:
-    case None{}: Reading.Bookmark{None{}}
-    case Some{value}: value
+def surface(state: Platform.State) -> UI.Surface:
+  Platform.State{core, platform} = state
+  UI.observe(capacity(platform), core)
 
-def active_reader(application: E.Application, +task: Nat, generation: Nat) -> Bool:
-  E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks}} = application
-  E.route_owns(route, task) && Nat.is_eq(E.reader_generation(E.reader(readers, task)), generation)
+def resolved_focus(ticket: Nat, target: Maybe<&2, String>) -> +List<Effect>:
+  match target:
+    case None{}: Nil{}
+    case Some{key}: [PlatformEffect{Platform.Focus{ticket, key}}]
 
-def reading_intent(application: E.Application, task: Nat) -> U.ReadingIntent:
-  E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks}} = application
-  E.reader_position(E.reader(readers, task))
-
-def wrap_scroll(effects: +List<Reading.Effect>, +task: Nat, +generation: Nat) -> +List<Effect>:
+def resolved_effect(effect: Platform.Effect, surface: UI.Surface) -> +List<Effect>:
+  match effect:
+    case Platform.Focus{ticket, target}: resolved_focus(ticket, UI.focus_target(surface, target))
+    case other: [PlatformEffect{other}]
+def platform_effects(effects: +List<Platform.Effect>, +surface: UI.Surface) -> +List<Effect>:
   match effects:
     case Nil{}: Nil{}
-    case Con{effect, rest}: Scroll{task, generation, effect} <> wrap_scroll(rest, task, generation)
+    case Con{effect, rest}: List.append(&2, Effect, resolved_effect(effect, surface), platform_effects(rest, surface))
 
-def set_intent(intent: Maybe<&2, U.ReadingIntent>, task: Nat, generation: Nat, core: Core.State) -> Core.Decision:
-  match intent:
-    case None{}: unchanged(core)
-    case Some{intent}: Core.step(Core.ApplicationInput{E.UserInput{U.ReadTimeline{task, generation, intent}}}, core)
+def invalidate(decision: Platform.Decision, +generation: Nat) -> Decision:
+  Platform.Decision{+product, +platform, +effects} = decision
+  Decision{State{Platform.next(Platform.Decision{product, platform, effects}), generation, Rendered.AwaitingFrame{generation}},
+    product, List.append(&2, Effect, platform_effects(effects, surface(Platform.next(Platform.Decision{product, platform, effects}))), [MeasureFrame{generation}])}
 
-def reading_result(decision: Reading.Decision, +task: Nat, +generation: Nat, core: Core.State, platform: Platform) -> Decision:
-  Reading.Decision{bookmark, intent, effects} = decision
-  Platform{readers, editors, focused, ticket, reduced, capacity, scope} = platform
-  Decision{set_intent(intent, task, generation, core),
-    Platform{(task, bookmark) <> Finite.remove(~Reading.Bookmark, readers, task), editors, focused, ticket, reduced, capacity, scope}, wrap_scroll(effects, task, generation)}
+def idle(+application: Platform.State, generation: Nat, realization: Rendered.State) -> Decision:
+  Platform.State{+core, platform} = application
+  Decision{State{application, generation, realization}, Platform.unchanged(core), Nil{}}
 
-def read(owned: Bool, +task: Nat, generation: Nat, event: Reading.Event, core: Core.State, platform: Platform) -> Decision:
-  match owned:
-    case False{}: Decision{unchanged(core), platform, Nil{}}
-    case True{}:
-      Core.State{+application, services} = core
-      Platform{+readers, editors, focused, ticket, +reduced, capacity, scope} = platform
-      reading_result(Reading.step(event, reading_intent(application, task), bookmark(Finite.find(~Reading.Bookmark, readers, task)), reduced),
-        task, generation, Core.State{application, services}, Platform{readers, editors, focused, ticket, reduced, capacity, scope})
+# Element keys carry product identity. Rendering generations only correlate
+# measurements; streaming must not invalidate an unrelated keystroke.
+def element_input(application: Platform.State, key: String, gesture: UI.Gesture, generation: Nat) -> Decision:
+  Platform.State{core, +platform} = application
+  invalidate(Platform.after_core(UI.interact(capacity(platform), key, gesture, core), platform), (generation + 1n : Nat))
 
-def choose_editor(same: Bool, editor: Editor.Editor, fallback: Editor.Editor) -> Editor.Editor:
-  match same:
-    case True{}: editor
-    case False{}: fallback
+def frame_result(received: Nat, +frame: Rendered.Frame, +application: Platform.State, +generation: Nat, realization: Rendered.State) -> Decision:
+  idle(application, generation, Rendered.observe(generation, received, surface(application), frame, realization))
 
-def find_editor(editors: +List<Editor.Editor>, +owner: U.Editor) -> Editor.Editor:
-  match editors:
-    case Nil{}: Editor.Editor{owner, Physical.Selection{0n, 0n, "none"}, False{}}
-    case Con{Editor.Editor{+current, selection, composing}, rest}:
-      choose_editor(U.same_editor(current, owner), Editor.Editor{current, selection, composing}, find_editor(rest, owner))
-
-def replace_editor(same: Bool, old: Editor.Editor, rest: +List<Editor.Editor>, current: Editor.Editor, fallback: +List<Editor.Editor>) -> +List<Editor.Editor>:
-  match same:
-    case True{}: current <> rest
-    case False{}: old <> fallback
-
-def save_editor(editors: +List<Editor.Editor>, +owner: U.Editor, +current: Editor.Editor) -> +List<Editor.Editor>:
-  match editors:
-    case Nil{}: [current]
-    case Con{Editor.Editor{+key, selection, composing}, +rest}:
-      replace_editor(U.same_editor(key, owner), Editor.Editor{key, selection, composing}, rest, current, save_editor(rest, owner, current))
-
-def composer_body(found: Maybe<&2, U.Draft>) -> Bool:
-  match found:
-    case Some{U.Draft{revision, U.NewTask{message, profile, reasoning, context}, feedback}}: True{}
-    case Some{U.Draft{revision, U.Message{task, message, delivery}, feedback}}: True{}
-    case _: False{}
-
-def available(value: View.Availability) -> Bool:
-  match value:
-    case View.Unavailable{reason}: False{}
-    case _: True{}
-
-def submit_control(scene: Maybe<&2, View.EditorScene>) -> Bool:
-  match scene:
-    case None{}: False{}
-    case Some{View.EditorScene{id, revision, groups, sections, View.ControlDeclaration{key, label, prominence, input, availability}, feedback, pending}}:
-      available(availability) && Bool.not(pending)
-
-def editor_enabled(core: Core.State, +owner: U.Editor) -> Bool:
-  Core.State{E.Application{program, session}, services} = core
-  E.Session{route, +drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks} = session
-  composer_body(E.find_draft(drafts, owner)) && submit_control(View.editor(owner, session, program)) &&
-    Bool.not(Core.submission_blocked(services, E.UserInput{U.Activate{U.Submit{owner}}}))
-
-def submit(requested: Bool, owner: U.Editor, core: Core.State) -> Core.Decision:
-  match requested:
-    case True{}: Core.step(Core.ApplicationInput{E.UserInput{U.Activate{U.Submit{owner}}}}, core)
-    case False{}: unchanged(core)
-
-def layout_for(application: E.Application, bookmarks: +List<Finite.Entry(Reading.Bookmark)>) -> +List<Effect>:
-  E.Application{program, E.Session{route, drafts, +readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks}} = application
-  match route:
-    case U.Conversation{+task}: [Scroll{task, E.reader_generation(E.reader(readers, task)), Reading.layout(E.reader_position(E.reader(readers, task)), bookmark(Finite.find(~Reading.Bookmark, bookmarks, task)))}]
-    case _: Nil{}
-
-def focus_effects(effects: +List<E.Effect>, +ticket: Nat) -> +List<Effect>:
-  match effects:
-    case Nil{}: Nil{}
-    case Con{E.Attend{target}, rest}: Focus{ticket, target} <> focus_effects(rest, ticket)
-    case Con{E.ContentEffect{identity, effect}, rest}: Clipboard{identity, effect} <> focus_effects(rest, ticket)
-    case Con{other, rest}: focus_effects(rest, ticket)
-
-def content_effects(effects: +List<E.Effect>) -> +List<Effect>:
-  match effects:
-    case Nil{}: Nil{}
-    case Con{E.ContentEffect{identity, effect}, rest}: Clipboard{identity, effect} <> content_effects(rest)
-    case Con{other, rest}: content_effects(rest)
-
-def scope_effects(changed: Bool, previous: Focus.Scope, current: Focus.Scope, effects: +List<E.Effect>, ticket: Nat) -> +List<Effect>:
-  match changed:
-    case True{}: Focus{ticket, Focus.change_target(previous, current)} <> content_effects(effects)
-    case False{}: focus_effects(effects, ticket)
-
-def has_attention(effects: +List<E.Effect>) -> Bool:
-  match effects:
-    case Nil{}: False{}
-    case Con{E.Attend{target}, rest}: True{}
-    case Con{other, rest}: has_attention(rest)
-
-def advance_ticket(advance: Bool, ticket: Nat) -> Nat:
-  match advance:
-    case True{}: (ticket + 1n : Nat)
-    case False{}: ticket
-
-def focus_revision(scope_changed: Bool, effects: +List<E.Effect>, ticket: Nat) -> Nat:
-  advance_ticket(scope_changed || has_attention(effects), ticket)
-
-def empty_message(body: U.Body) -> Bool:
-  match body:
-    case U.NewTask{U.Text{text}, profile, reasoning, context}: String.eq(text, "")
-    case U.Message{task, U.Text{text}, delivery}: String.eq(text, "")
-    case _: False{}
-
-def clear_selection(clear: Bool, editor: Editor.Editor) -> Editor.Editor:
-  match clear:
-    case False{}: editor
-    case True{}:
-      Editor.Editor{owner, selection, composing} = editor
-      Editor.Editor{owner, Physical.Selection{0n, 0n, "none"}, False{}}
-
-def synchronize_editor(found: Maybe<&2, U.Draft>, editor: Editor.Editor) -> Editor.Editor:
-  match found:
-    case Some{U.Draft{revision, body, U.Accepted{submitted, result}}}: clear_selection(empty_message(body), editor)
-    case _: editor
-
-def synchronize_drafts(+drafts: +List<U.Draft>, editors: +List<Editor.Editor>) -> +List<Editor.Editor>:
-  match editors:
-    case Nil{}: Nil{}
-    case Con{Editor.Editor{+owner, selection, composing}, rest}:
-      synchronize_editor(E.find_draft(drafts, owner), Editor.Editor{owner, selection, composing}) <> synchronize_drafts(drafts, rest)
-
-def synchronize_editors(editors: +List<Editor.Editor>, application: E.Application) -> +List<Editor.Editor>:
-  E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks}} = application
-  synchronize_drafts(drafts, editors)
-
-def after_core_scoped(decision: Core.Decision, platform: Platform, +current_scope: Focus.Scope) -> Decision:
-  Core.Decision{Core.State{+application, services}, reply, runtime, +interaction, service, durable} = decision
-  Platform{+readers, editors, focused, +ticket, reduced, capacity, +scope} = platform
-  Decision{Core.Decision{Core.State{application, services}, reply, runtime, interaction, service, durable},
-    Platform{readers, synchronize_editors(editors, application), focused, focus_revision(Focus.changed(scope, current_scope), interaction, ticket), reduced, capacity, current_scope},
-    List.append(&2, Effect, scope_effects(Focus.changed(scope, current_scope), scope, current_scope, interaction, focus_revision(Focus.changed(scope, current_scope), interaction, ticket)), layout_for(application, readers))}
-
-def after_core(decision: Core.Decision, platform: Platform) -> Decision:
-  Core.Decision{+state, reply, runtime, interaction, services, durable} = decision
-  Platform{readers, editors, focused, ticket, reduced, +capacity, scope} = platform
-  after_core_scoped(Core.Decision{state, reply, runtime, interaction, services, durable},
-    Platform{readers, editors, focused, ticket, reduced, capacity, scope}, Focus.current(state, capacity))
-
-def editor_result(requested: Bool, owner: U.Editor, core: Core.State, platform: Platform) -> Decision:
-  match requested:
-    case True{}: after_core(submit(True{}, owner, core), platform)
-    case False{}: Decision{unchanged(core), platform, Nil{}}
-def edit_result(result: Editor.Decision, +owner: U.Editor, core: Core.State, platform: Platform) -> Decision:
-  Editor.Decision{editor, requested} = result
-  Platform{readers, editors, focused, ticket, reduced, capacity, scope} = platform
-  editor_result(requested, owner, core, Platform{readers, save_editor(editors, owner, editor), focused, ticket, reduced, capacity, scope})
-
-def focus_result(owned: Bool, identity: String, core: Core.State, platform: Platform) -> Decision:
-  match owned:
-    case False{}: Decision{unchanged(core), platform, Nil{}}
-    case True{}:
-      Platform{readers, editors, focused, ticket, reduced, capacity, scope} = platform
-      Decision{unchanged(core), Platform{readers, editors, identity, ticket, reduced, capacity, scope}, Nil{}}
-
-def observed_focus(platform: Platform, inside: Bool, identity: String, core: Core.State) -> Decision:
-  Platform{readers, editors, focused, +ticket, reduced, capacity, +scope} = platform
-  match inside:
-    case True{}: Decision{unchanged(core), Platform{readers, editors, identity, (ticket + 1n : Nat), reduced, capacity, scope}, Nil{}}
-    case False{}: Decision{unchanged(core), Platform{readers, editors, focused, (ticket + 1n : Nat), reduced, capacity, scope}, [Focus{(ticket + 1n : Nat), Focus.initial(scope)}]}
+# Measurements acknowledge an existing generation. They never request another
+# frame, so observer feedback cannot recursively invalidate the rendering.
+def mount(application: Platform.State, generation: Nat) -> Decision:
+  Platform.State{core, platform} = application
+  invalidate(Platform.after_core(Platform.unchanged(core), platform), generation)
 def dispatch(state: State, input: Input) -> Decision:
-  State{Core.State{+application, +services}, platform} = state
-  Platform{readers, +editors, +focused, +ticket, reduced, capacity, +scope} = platform
+  State{application, generation, realization} = state
   match input:
-    case ProductInput{input}: after_core(Core.step(input, Core.State{application, services}), Platform{readers, editors, focused, ticket, reduced, capacity, scope})
-    case ReadingInput{+task, +generation, event}:
-      read(active_reader(application, task, generation), task, generation, event, Core.State{application, services}, Platform{readers, editors, focused, ticket, reduced, capacity, scope})
-    case EditorInput{+owner, event}:
-      edit_result(Editor.step(find_editor(editors, owner), event, editor_enabled(Core.State{application, services}, owner) && Focus.permits_composer(scope), False{}), owner, Core.State{application, services}, Platform{readers, editors, focused, ticket, reduced, capacity, scope})
-    case CapacityObserved{value}: after_core(unchanged(Core.State{application, services}), Platform{readers, editors, focused, ticket, reduced, value, scope})
-    case FocusObserved{+identity, +owner}: observed_focus(Platform{readers, editors, focused, ticket, reduced, capacity, scope}, Focus.contains(scope, owner), identity, Core.State{application, services})
-    case FocusApplied{expected, +identity}: focus_result(Nat.is_eq(expected, ticket), identity, Core.State{application, services}, Platform{readers, editors, focused, ticket, reduced, capacity, scope})
-    case MotionPreference{value}: Decision{unchanged(Core.State{application, services}), Platform{readers, editors, focused, ticket, value, capacity, scope}, Nil{}}
+    case Mount{}: mount(application, (generation + 1n : Nat))
+    case PlatformInput{input}: invalidate(Platform.step(input, application), (generation + 1n : Nat))
+    case ElementInput{key, gesture}: element_input(application, key, gesture, generation)
+    case FrameObserved{received, frame}: frame_result(received, frame, application, generation, realization)
+
+def observe(state: State) -> Scene:
+  State{+application, generation, realization} = state
+  Scene{surface(application), Platform.observe(application), generation, realization}
+
+def effects(decision: Decision) -> +List<Effect>:
+  Decision{state, product, effects} = decision
+  effects
 
 def step(input: Input, state: State) -> Decision:
   dispatch(state, input)
-
-def next(decision: Decision) -> State:
-  Decision{Core.Decision{core, reply, runtime, interaction, services, durable}, platform, effects} = decision
-  State{core, platform}
-
-def observe(state: State) -> Scene:
-  State{core, Platform{readers, editors, focused, ticket, reduced, capacity, scope}} = state
-  Scene{Core.observe(capacity, core), editors, focused, scope, reduced}
+def frame_emits_no_effects(received: Nat, frame: Rendered.Frame, application: Platform.State, generation: Nat, realization: Rendered.State) ->
+  {effects(step(FrameObserved{received, frame}, State{application, generation, realization})) == Nil{} : +List<Effect>}:
+  Platform.State{core, platform} = application
+  {==}
 
 
 
-def retained_editors(decision: Decision) -> +List<Editor.Editor>:
-  Decision{product, Platform{readers, editors, focused, ticket, reduced, capacity, scope}, effects} = decision
-  editors
 
+def product(decision: Decision) -> Core.Decision:
+  Decision{state, product, effects} = decision
+  product
 
-def editing_retains_selection(revision: Nat, body: U.Body, editor: Editor.Editor) ->
-  {synchronize_editor(Some{U.Draft{revision, body, U.Editing{}}}, editor) == editor : Editor.Editor}:
+def platform_product(decision: Platform.Decision) -> Core.Decision:
+  Platform.Decision{product, platform, effects} = decision
+  product
+def realization_preserves_product(decision: Platform.Decision, generation: Nat) ->
+  {product(invalidate(decision, generation)) == platform_product(decision) : Core.Decision}:
+  Platform.Decision{product, platform, effects} = decision
   {==}
