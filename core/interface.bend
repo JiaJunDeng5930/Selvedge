@@ -687,33 +687,34 @@ def origin(layers: +List<E.Layer>, key: String) -> String:
     case Con{E.Layer{U.ObjectActions{subject}, trigger, initial, query}, rest}: trigger
     case _: key
 
-def previous_layer(layers: +List<E.Layer>) -> String:
-  match layers:
-    case Nil{}: ""
-    case Con{E.Layer{panel, trigger, initial, query}, rest}: E.panel_target(panel)
-
 def layer_trigger(unchanged: Bool, previous: String, origin: String) -> String:
   match unchanged:
     case True{}: previous
     case False{}: origin
 
-def record_layer(layers: +List<E.Layer>, previous: String, origin: String) -> +List<E.Layer>:
+def layer_present(layers: +List<E.Layer>, +target: String) -> Bool:
+  match layers:
+    case Nil{}: False{}
+    case Con{E.Layer{panel, trigger, initial, query}, rest}:
+      String.eq(E.panel_target(panel), target) || layer_present(rest, target)
+
+def record_layer(layers: +List<E.Layer>, previous: +List<E.Layer>, origin: String) -> +List<E.Layer>:
   match layers:
     case Nil{}: Nil{}
     case Con{E.Layer{+panel, trigger, initial, query}, rest}:
-      E.Layer{panel, layer_trigger(String.eq(E.panel_target(panel), previous), trigger, origin), initial, query} <> rest
+      E.Layer{panel, layer_trigger(layer_present(previous, E.panel_target(panel)), trigger, origin), initial, query} <> rest
 
-def source_session(session: E.Session, previous: String, origin: String) -> E.Session:
+def source_session(session: E.Session, previous: +List<E.Layer>, origin: String) -> E.Session:
   E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code} = session
   E.Session{route, drafts, readers, record_layer(layers, previous, origin), attention, navigation, filter, now, next, pending, previews, code}
 
-def source_decision(decision: Core.Decision, previous: String, origin: String) -> Core.Decision:
+def source_decision(decision: Core.Decision, previous: +List<E.Layer>, origin: String) -> Core.Decision:
   Core.Decision{Core.State{E.Application{program, session}, services}, reply, runtime, interaction, service_effects, durable} = decision
   Core.Decision{Core.State{E.Application{program, source_session(session, previous, origin)}, services}, reply, runtime, interaction, service_effects, durable}
 
 def record_source(before: Core.State, key: String, decision: Core.Decision) -> Core.Decision:
   Core.State{E.Application{program, E.Session{route, drafts, readers, +layers, attention, navigation, filter, now, next, pending, previews, code}}, services} = before
-  source_decision(decision, previous_layer(layers), origin(layers, key))
+  source_decision(decision, layers, origin(layers, key))
 def navigates(input: Maybe<&2, Core.Input>) -> Bool:
   match input:
     case Some{Core.ApplicationInput{E.UserInput{U.Activate{U.Navigate{route}}}}}: True{}
@@ -800,7 +801,7 @@ def focus_target(surface: Surface, requested: String) -> Maybe<&2, String>:
 
 
 
-def source_preserves_program(decision: Core.Decision, previous: String, origin: String) ->
+def source_preserves_program(decision: Core.Decision, previous: +List<E.Layer>, origin: String) ->
   {Laws.runtime(source_decision(decision, previous, origin)) == Laws.runtime(decision) : M.Decision()}:
   Core.Decision{Core.State{E.Application{program, session}, services}, reply, runtime, interaction, service_effects, durable} = decision
   {==}

@@ -32,6 +32,6 @@ run(process.execPath, ['scripts/theory-index.mjs', 'check']);
 // Check the obligations even when a compiled kernel is already cached.
 console.log(verifyProof({ cwd: root }));
 run(compiler(), ['MAIN.bend', '--check-only']);
-run(compiler(), ['webui/MODEL.bend', '--check-only']);
+console.log(verifyProof({ cwd: root, entry: 'webui/PROOF.bend' }));
 for (const filename of ['bootstrap.sh', 'setup-worktree.sh', 'install-bend.sh']) run('bash', ['-n', `scripts/${filename}`]);
 console.log('Host syntax and Bend proof obligations check.');

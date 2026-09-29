@@ -17,6 +17,7 @@ await checkBundle();
 await checkRelations();
 await checkMaps();
 console.log(verifyProof({ cwd: root }));
+console.log(verifyProof({ cwd: root, entry: 'webui/PROOF.bend' }));
 
 async function sources(directory, relative = '') {
   const result = [];

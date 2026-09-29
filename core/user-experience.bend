@@ -407,11 +407,16 @@ def settled_current(current: U.Draft, same: Bool, accepted: Bool, submitted: Nat
     case False{} _: U.Draft{revision, body, feedback}
     case True{} False{}: U.Draft{revision, body, U.Rejected{submitted, J.text(J.get(J.get(result, "error"), "message"))}}
 
+def settle_owned(owned: Bool, current: U.Draft, revision: Nat, +result: J.Json, session: Session) -> Session:
+  match owned:
+    case False{}: session
+    case True{}: with_draft(session, settled_current(current, True{}, J.boolean(J.get(result, "ok")), revision, result))
+
 def settle_found(found: Maybe<&2, U.Draft>, +revision: Nat, +result: J.Json, session: Session) -> Session:
   match found:
     case None{}: session
     case Some{U.Draft{+current, body, feedback}}:
-      with_draft(session, settled_current(U.Draft{current, body, feedback}, Nat.is_eq(current, revision), J.boolean(J.get(result, "ok")), revision, result))
+      settle_owned(Nat.is_eq(current, revision), U.Draft{current, body, feedback}, revision, result, session)
 
 def settle(submitted: U.Draft, +result: J.Json, +session: Session) -> Session:
   U.Draft{revision, body, feedback} = submitted

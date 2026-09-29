@@ -21,6 +21,7 @@ type Violation is Data:
   EscapedDialog{key: String}
   InvisibleFocus{}
   FocusOutsideScope{}
+  MissingModalFocus{}
   WrongTabOrder{}
 
 type State is Data:
@@ -176,9 +177,17 @@ def exists(found: Maybe<&2, UI.Node>) -> Bool:
 
 def focus_checks(focus: Maybe<&2, String>, nodes: +List<UI.Node>, elements: +List<Element>, viewport: Geometry.Rect) -> +List<Violation>:
   match focus:
-    case None{}: [InvisibleFocus{}]
+    case None{}: Nil{}
     case Some{+key}: List.append(&2, Violation, issue(Bool.not(focus_visible(find_element(elements, key), viewport)), InvisibleFocus{}),
       issue(Bool.not(exists(UI.find_node(nodes, key))), FocusOutsideScope{}))
+
+def required_focus(scope: Maybe<&2, String>, focused: Maybe<&2, String>) -> +List<Violation>:
+  match scope:
+    case None{}: Nil{}
+    case Some{scope}:
+      match focused:
+        case None{}: [MissingModalFocus{}]
+        case Some{key}: Nil{}
 
 def include_element(included: Bool, found: Maybe<&2, Element>, rest: +List<Element>) -> +List<Element>:
   match included found:
@@ -212,8 +221,10 @@ def check(+active: +List<UI.Node>, frame: Frame) -> +List<Violation>:
       List.append(&2, Violation, issue(Bool.not(same_order(expected_tabs(active, elements), tab_order)), WrongTabOrder{}),
         independent_targets(actionable_elements(active, elements)))))
 
-def violations(surface: UI.Surface, frame: Frame) -> +List<Violation>:
-  check(UI.active_nodes(surface), frame)
+def violations(+surface: UI.Surface, +frame: Frame) -> +List<Violation>:
+  UI.Surface{content, base, overlays, +scope} = surface
+  Frame{viewport, elements, +focused, tab_order} = frame
+  List.append(&2, Violation, check(UI.active_nodes(surface), frame), required_focus(scope, focused))
 
 def accepted(violations: +List<Violation>, generation: Nat, frame: Frame) -> State:
   match violations:
