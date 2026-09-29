@@ -1,0 +1,224 @@
+import Base
+import ../MODEL.bend as M
+import ../COMMANDS.bend as Commands
+import ../bendlib/domain.bend as D
+import ../bendlib/conversation.bend as Content
+import ./user-input.bend as U
+import ./user-experience.bend as E
+import ../bendlib/json.bend as J
+
+type Speaker is Data:
+  UserSpeech{}
+  AssistantSpeech{}
+
+type Audit is Data:
+  Audit{occurrence: Nat, message: D.Message}
+
+type AuditKind is Data:
+  ToolInvocation{}
+  ToolResult{}
+  Reasoning{}
+  ContextChange{}
+  PermissionDecision{}
+  Diagnostic{}
+  TaskRelation{}
+
+type AuditFace is Data:
+  AuditFace{occurrence: Nat, kind: AuditKind, title: String, source: D.Message}
+
+type Group is Data:
+  Speech{identity: Nat, speaker: Speaker, text: String}
+  Activity{identity: Nat, attention: Maybe<&2, Nat>, entries: +List<Audit>}
+
+type VisibleGroup is Data:
+  VisibleSpeech{identity: Nat, speaker: Speaker, text: String}
+  VisibleActivity{identity: Nat, attention: Maybe<&2, Nat>, expanded: Bool,
+    summary: String, audit: +List<AuditFace>, expand: U.Input, collapse: U.Input}
+
+type DecisionRequest is Data:
+  HumanDecision{operation: Nat, call: D.Call, approve: U.Input, deny: U.Input, enabled: Bool}
+  AutomaticDecision{operation: Nat, call: D.Call, reviewer: D.Profile}
+
+type LiveOperation is Data:
+  LiveOperation{id: Nat, body: D.OperationBody, cancel: U.Input, cancellable: Bool}
+
+type Timeline is Data:
+  Timeline{task: Nat, generation: Nat, groups: +List<VisibleGroup>, operations: +List<LiveOperation>,
+    decisions: +List<DecisionRequest>, reading: U.ReadingIntent,
+    return_to_latest: Maybe<&2, U.Input>}
+
+def failure_occurrence(failed: Bool, index: Nat) -> Maybe<&2, Nat>:
+  match failed:
+    case True{}: Some{index}
+    case False{}: None{}
+
+def latest_attention(later: Maybe<&2, Nat>, earlier: Maybe<&2, Nat>) -> Maybe<&2, Nat>:
+  match later:
+    case Some{id}: Some{id}
+    case None{}: earlier
+
+# Identity comes from the first audit occurrence. Attention comes from the most
+# recent failure, so ordinary growth does not reopen a deliberately folded run.
+def prepend_audit(+index: Nat, failed: Bool, message: D.Message, tail: +List<Group>) -> +List<Group>:
+  match tail:
+    case Con{Activity{id, attention, entries}, rest}:
+      Activity{index, latest_attention(attention, failure_occurrence(failed, index)), Audit{index, message} <> entries} <> rest
+    case rest: Activity{index, failure_occurrence(failed, index), [Audit{index, message}]} <> rest
+
+def provider_speech(is_assistant: Bool, index: Nat, +value: J.Json, tail: +List<Group>) -> +List<Group>:
+  match is_assistant:
+    case True{}: Speech{index, AssistantSpeech{}, Content.content_parts(J.items(J.get(value, "content")))} <> tail
+    case False{}: prepend_audit(index, False{}, D.ModelContext{value}, tail)
+
+def provider_group(kind: Content.ContextKind, index: Nat, +value: J.Json, tail: +List<Group>) -> +List<Group>:
+  match kind:
+    case Content.SpeechContext{}: provider_speech(String.eq(J.text(J.get(value, "role")), "assistant"), index, value, tail)
+    case _: prepend_audit(index, False{}, D.ModelContext{value}, tail)
+
+def approval_failed(outcome: D.ApprovalOutcome) -> Bool:
+  match outcome:
+    case D.ApprovalAllowed{reason}: False{}
+    case _: True{}
+
+def hook_failed(outcome: D.HookOutcome) -> Bool:
+  match outcome:
+    case D.DenyTool{reason}: True{}
+    case D.HookFailure{reason}: True{}
+    case _: False{}
+
+def after_failed(outcome: D.AfterOutcome) -> Bool:
+  match outcome:
+    case D.DenyResult{reason}: True{}
+    case D.AfterFailure{reason}: True{}
+    case _: False{}
+
+def prepend(message: D.Message, index: Nat, tail: +List<Group>) -> +List<Group>:
+  match message:
+    case D.UserMessage{text}: Speech{index, UserSpeech{}, text} <> tail
+    case D.AssistantMessage{text}: Speech{index, AssistantSpeech{}, text} <> tail
+    case D.ModelContext{+value}: provider_group(Content.context_kind(J.text(J.get(value, "type"))), index, value, tail)
+    case D.FailureMessage{text}: prepend_audit(index, True{}, D.FailureMessage{text}, tail)
+    case D.FunctionOutput{id, value, +error}: prepend_audit(index, error, D.FunctionOutput{id, value, error}, tail)
+    case D.OperationResult{ticket, id, tool, value, +error}: prepend_audit(index, error, D.OperationResult{ticket, id, tool, value, error}, tail)
+    case D.ToolReceipt{task, operation, call, value, +error}: prepend_audit(index, error, D.ToolReceipt{task, operation, call, value, error}, tail)
+    case D.ApprovalRecord{task, operation, call, reviewer, +outcome}:
+      prepend_audit(index, approval_failed(outcome), D.ApprovalRecord{task, operation, call, reviewer, outcome}, tail)
+    case D.HookRecord{task, call, plugin, +outcome}:
+      prepend_audit(index, hook_failed(outcome), D.HookRecord{task, call, plugin, outcome}, tail)
+    case D.AfterRecord{task, operation, plugin, +outcome}:
+      prepend_audit(index, after_failed(outcome), D.AfterRecord{task, operation, plugin, outcome}, tail)
+    case other: prepend_audit(index, False{}, other, tail)
+
+def audit_kind(message: D.Message) -> AuditKind:
+  match message:
+    case D.FunctionCall{call}: ToolInvocation{}
+    case D.FunctionOutput{id, value, error}: ToolResult{}
+    case D.OperationResult{ticket, id, tool, value, error}: ToolResult{}
+    case D.ToolReceipt{task, operation, call, value, error}: ToolResult{}
+    case D.FailureMessage{text}: Diagnostic{}
+    case D.ReasoningRecord{owner, effort, remaining, sampling}: Reasoning{}
+    case D.HookRecord{task, call, plugin, outcome}: PermissionDecision{}
+    case D.ApprovalRecord{task, operation, call, reviewer, outcome}: PermissionDecision{}
+    case D.AfterRecord{task, operation, plugin, outcome}: ToolResult{}
+    case D.ForkResult{task, call, branch}: TaskRelation{}
+    case _: ContextChange{}
+
+def call_name(call: D.Call) -> String:
+  D.Call{id, name, arguments} = call
+  name
+
+def audit_title(message: D.Message) -> String:
+  match message:
+    case D.FunctionCall{call}: call_name(call)
+    case D.FunctionOutput{id, value, error}: "Tool output"
+    case D.OperationResult{ticket, id, tool, value, error}: tool
+    case D.ToolReceipt{task, operation, call, value, error}: call_name(call)
+    case D.FailureMessage{text}: text
+    case D.ReasoningRecord{owner, effort, remaining, sampling}: "Reasoning: " ++ effort
+    case D.HookRecord{task, call, plugin, outcome}: "Tool permission check"
+    case D.ApprovalRecord{task, operation, call, reviewer, outcome}: "Approval: " ++ D.approval_decision(outcome)
+    case D.AfterRecord{task, operation, plugin, outcome}: "Tool result processing"
+    case D.ForkResult{task, call, branch}: "Task fork"
+    case D.ContextCheckpoint{summary}: "Context compacted"
+    case D.ConfigurationUpdate{effort}: "Reasoning changed to " ++ effort
+    case D.ModelContext{value}: "Model activity"
+    case _: "Conversation event"
+
+def audit_faces(entries: +List<Audit>) -> +List<AuditFace>:
+  match entries:
+    case Nil{}: Nil{}
+    case Con{Audit{index, +message}, rest}: AuditFace{index, audit_kind(message), audit_title(message), message} <> audit_faces(rest)
+
+def activity_summary(entries: +List<Audit>) -> String:
+  match entries:
+    case Nil{}: "Activity"
+    case Con{Audit{index, message}, Nil{}}: audit_title(message)
+    case Con{Audit{index, message}, rest}: audit_title(message) ++ " + " ++ Nat.show(List.length(&2, Audit, rest)) ++ " more"
+
+def groups(messages: +List<D.Message>, +index: Nat) -> +List<Group>:
+  match messages:
+    case Nil{}: Nil{}
+    case Con{message, rest}: prepend(message, index, groups(rest, (index + 1n : Nat)))
+
+def attention_key(attention: Maybe<&2, Nat>) -> Nat:
+  match attention:
+    case None{}: 0n
+    case Some{id}: (id + 1n : Nat)
+
+def has_attention(attention: Maybe<&2, Nat>) -> Bool:
+  match attention:
+    case None{}: False{}
+    case Some{id}: True{}
+
+def choose_expanded(hit: Bool, value: Bool, fallback: Bool) -> Bool:
+  match hit:
+    case True{}: value
+    case False{}: fallback
+
+def expanded(disclosures: +List<E.Disclosure>, +group: Nat, +attention: Maybe<&2, Nat>) -> Bool:
+  match disclosures:
+    case Nil{}: has_attention(attention)
+    case Con{E.Disclosure{id, seen, value}, rest}:
+      choose_expanded(Nat.is_eq(id, group) && Nat.is_eq(seen, attention_key(attention)), value, expanded(rest, group, attention))
+
+def visible(groups: +List<Group>, +task: Nat, +disclosures: +List<E.Disclosure>) -> +List<VisibleGroup>:
+  match groups:
+    case Nil{}: Nil{}
+    case Con{Speech{id, speaker, text}, rest}: VisibleSpeech{id, speaker, text} <> visible(rest, task, disclosures)
+    case Con{Activity{+id, +attention, +entries}, rest}:
+      VisibleActivity{id, attention, expanded(disclosures, id, attention), activity_summary(entries), audit_faces(entries),
+        U.SetDisclosure{task, id, attention_key(attention), True{}}, U.SetDisclosure{task, id, attention_key(attention), False{}}} <> visible(rest, task, disclosures)
+
+def permitted(command: Maybe<&2, M.Command>, world: M.World()) -> Bool:
+  match command:
+    case None{}: False{}
+    case Some{command}: Commands.admitted(Commands.resolve(command, world))
+
+def decision(reviewer: D.ApprovalReviewer, +id: Nat, call: D.Call, +task: Nat, world: M.World()) -> DecisionRequest:
+  match reviewer:
+    case D.HumanReviewer{}: HumanDecision{id, call,
+      U.Activate{U.ReviewApproval{task, id, True{}, ""}}, U.Activate{U.ReviewApproval{task, id, False{}, ""}},
+      permitted(U.direct_command(U.ReviewApproval{task, id, True{}, ""}), world)}
+    case D.ModelReviewer{profile}: AutomaticDecision{id, call, profile}
+
+def decisions(operations: +List<D.Operation()>, +task: Nat, +world: M.World()) -> +List<DecisionRequest>:
+  match operations:
+    case Nil{}: Nil{}
+    case Con{(id, D.OperationBody{call, announced, D.ApprovalPending{reviewer}}), rest}: decision(reviewer, id, call, task, world) <> decisions(rest, task, world)
+    case Con{operation, rest}: decisions(rest, task, world)
+
+def operations(entries: +List<D.Operation()>, +task: Nat, +world: M.World()) -> +List<LiveOperation>:
+  match entries:
+    case Nil{}: Nil{}
+    case Con{(+id, body), rest}: LiveOperation{id, body, U.Activate{U.CancelOperation{task, id}},
+      permitted(U.direct_command(U.CancelOperation{task, id}), world)} <> operations(rest, task, world)
+
+def latest(reading: U.ReadingIntent, task: Nat, generation: Nat) -> Maybe<&2, U.Input>:
+  match reading:
+    case U.FollowLatest{}: None{}
+    case U.ReadHistory{}: Some{U.ReadTimeline{task, generation, U.FollowLatest{}}}
+
+def timeline(reader: E.Reader, +task: D.Task, +world: M.World()) -> Timeline:
+  E.Reader{+generation, +position, disclosures} = reader
+  Timeline{D.task_id(task), generation, visible(groups(D.history_messages(D.task_history(task), Nil{}), 0n), D.task_id(task), disclosures),
+    operations(D.task_operations(task), D.task_id(task), world), decisions(D.task_operations(task), D.task_id(task), world), position, latest(position, D.task_id(task), generation)}
