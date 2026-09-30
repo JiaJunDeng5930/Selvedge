@@ -8,8 +8,9 @@ import { runBash } from './process.mjs';
 import { snapshotProject, observeWorkspaceCommand } from './project.mjs';
 import { requestApproval } from './approvals.mjs';
 import { requestBoardText } from './board-text.mjs';
-import { observeBoardCommand, observeBoardClock } from './board-files.mjs';
+import { observeBoardCommand } from './board-files.mjs';
 import { requestModel, cancelModelTask, ContextLimitError } from './providers.mjs';
+import { canonicalWorkspace } from './sandbox.mjs';
 import { profileCatalog } from './config.mjs';
 import { withAccountModels } from './chatgpt-models.mjs';
 
@@ -26,6 +27,7 @@ export class Service extends EventEmitter {
   #failure;
   #catalogTail = Promise.resolve();
   #closePromise;
+  #streams = new Map();
 
   static async open({ home, config, cwd = process.cwd(), journalOptions } = {}) {
     if (!['linux', 'darwin'].includes(process.platform)) throw new Error('Selvedge supports Linux and macOS only');
@@ -90,6 +92,17 @@ export class Service extends EventEmitter {
   }
 
   notify(event) {
+    const key = `${event.task_id}:${event.ticket}`;
+    if (event.type === 'stream_start') this.#streams.set(key, { task_id: event.task_id, ticket: event.ticket, parts: [] });
+    if (event.type === 'delta' || event.type === 'snapshot') {
+      const stream = this.#streams.get(key);
+      if (stream) {
+        let part = stream.parts.find(item => item.output_index === event.output_index);
+        if (!part) { part = { output_index: event.output_index, text: '' }; stream.parts.push(part); }
+        part.text = event.type === 'snapshot' ? event.text : part.text + event.text;
+      }
+    }
+    if (event.type === 'stream_cancel' || event.type === 'stream_end') this.#streams.delete(key);
     for (const observer of this.listeners('notice')) {
       try { observer(event); } catch { /* An observer cannot roll back a commit. */ }
     }
@@ -295,14 +308,31 @@ export class Service extends EventEmitter {
     return next;
   }
 
-  async presentation({ state = null, event } = {}) {
-    if (this.#failure) return Promise.reject(this.#failure);
-    if (this.#closing) return Promise.reject(new Error('Service is stopping'));
-    if (event?.type === 'submit') event = { ...event,
-      command: await observeWorkspaceCommand(await observeBoardCommand(event.command, this.home), this.limits) };
+  browserSnapshot() {
     if (this.#failure) throw this.#failure;
     if (this.#closing) throw new Error('Service is stopping');
-    return this.journal.execute({ kind: 'ui', state, event, observed_at: observeBoardClock() });
+    return { sequence: this.journal.sequence, program: this.journal.program };
+  }
+
+  async browserCommand(command) {
+    const result = await this.command(command);
+    return { sequence: result.sequence, program: result.program, reply: result.reply };
+  }
+
+  async browserObservation(observation) {
+    if (this.#failure) throw this.#failure;
+    if (this.#closing) throw new Error('Service is stopping');
+    if (!observation || typeof observation !== 'object' || Array.isArray(observation)) throw new TypeError('Expected an observation request');
+    if (observation.kind === 'streams' && Object.keys(observation).length === 1) {
+      return { kind: 'streams', streams: structuredClone([...this.#streams.values()]) };
+    }
+    if (observation.kind === 'directories' && Object.keys(observation).length === 2 && observation.workspace) {
+      const workspace = await canonicalWorkspace(observation.workspace);
+      const primary = workspace.primary_root ?? workspace.roots[0];
+      const guidance = primary ? await snapshotProject(primary, this.limits) : null;
+      return { kind: 'directories', workspace, guidance };
+    }
+    throw new TypeError('Unknown browser observation');
   }
 
   close() {

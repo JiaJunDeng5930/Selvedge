@@ -10,14 +10,13 @@
     "prestart": "node scripts/build.mjs",
     "start": "node host/cli.mjs server",
     "test": "node scripts/build.mjs && node --test --test-concurrency=2 tests-bend/*.test.mjs",
-    "test:browser": "node scripts/build.mjs && node scripts/browser-check.mjs",
-    "test:board-browser": "node scripts/build.mjs && node scripts/board-browser-check.mjs",
     "check": "node scripts/check.mjs",
     "check:components": "node scripts/check-components.mjs",
     "test:locality": "node --test tests-bend/locality.test.mjs",
     "index": "node scripts/agents-index.mjs update",
     "index:check": "node scripts/agents-index.mjs check",
-    "bench": "node scripts/build.mjs && node scripts/benchmark.mjs"
+    "bench": "node scripts/build.mjs && node scripts/benchmark.mjs",
+    "build:native": "node scripts/build.mjs --native"
   },
   "dependencies": {
     "gpt-tokenizer": "4.0.0"

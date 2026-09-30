@@ -155,6 +155,14 @@ export class Markdown {
     this.root = root;
     this.disposed = false;
     this.stableBlocks = 0;
+    let ordinal = 0n;
+    const codeSources = new Map();
+    const reportCode = () => {
+      for (const [node, identity] of codeSources) {
+        const text = node.textContent;
+        if (identity.text !== text) { identity.text = text; options.codeSource?.(identity.ordinal, text); }
+      }
+    };
     const document = root.ownerDocument;
     const stack = [{ node: root, type: smd.DOCUMENT }];
     const close = () => {
@@ -175,16 +183,15 @@ export class Markdown {
         if ([smd.CODE_BLOCK, smd.CODE_FENCE].includes(type)) {
           const block = document.createElement('div'); block.className = 'code-block';
           const toolbar = document.createElement('div'); toolbar.className = 'code-toolbar';
-          const label = document.createElement('span'); label.textContent = 'Code';
-          const copy = document.createElement('button'); copy.type = 'button'; copy.textContent = 'Copy';
           const pre = document.createElement('pre'); node = document.createElement('code');
-          copy.addEventListener('click', async () => {
-            try { await navigator.clipboard.writeText(node.textContent); copy.textContent = 'Copied'; }
-            catch { copy.textContent = 'Select text to copy'; }
-            setTimeout(() => { copy.textContent = 'Copy'; }, 1800);
-          });
-          toolbar.append(label, copy); pre.append(node); block.append(toolbar, pre); parent.append(block);
-          node.codeLabel = label;
+          const identity = ordinal++;
+          const key = options.codeKey?.(identity);
+          if (key) {
+            options.target?.(`${key}/toolbar`, toolbar);
+            options.target?.(`${key}/code`, node);
+          }
+          codeSources.set(node, { ordinal: identity, text: null });
+          pre.append(node); block.append(toolbar, pre); parent.append(block);
         } else {
           node = document.createElement(tags.get(type) ?? 'span');
           if (type === smd.TABLE) {
@@ -213,16 +220,15 @@ export class Markdown {
           if (href) { node.setAttribute('href', href); node.setAttribute('target', '_blank'); node.setAttribute('rel', 'noopener noreferrer'); }
         } else if (attr === smd.LANG) {
           node.dataset.language = value.split(/\s/)[0].slice(0, 40);
-          if (node.codeLabel) node.codeLabel.textContent = node.dataset.language || 'Code';
         } else if (attr === smd.CHECKED) node.checked = true;
         else if (attr === smd.START && /^\d{1,9}$/.test(value)) node.setAttribute('start', value);
       },
     };
     const parser = smd.parser(sink);
-    this.buffer = new PacedText(chunk => { smd.parser_write(parser, chunk); options.onChange?.(); }, () => {
+    this.buffer = new PacedText(chunk => { smd.parser_write(parser, chunk); reportCode(); options.onChange?.(); }, () => {
       smd.parser_end(parser);
       while (stack.length > 1) close();
-      options.onChange?.();
+      reportCode(); options.onChange?.();
     }, options);
   }
   get text() { return this.buffer.target; }

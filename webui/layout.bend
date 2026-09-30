@@ -251,7 +251,7 @@ def board_column_width(canvas: Design.Box) -> Nat:
 def main_frame(+recipe: Composition.Recipe, +main: Design.Box) -> Design.MainFrame:
   match recipe:
     case Composition.Recipe{measure, page_heading, Composition.CenteredCreation{}, composer, decisions, latest}:
-      Design.CreationFrame{main, measure_band(measure, main), centered_input(composer, main)}
+      Design.CreationFrame{heading_box(main), body_box(main), measure_band(measure, body_box(main)), centered_input(composer, body_box(main))}
     case Composition.Recipe{measure, page_heading, Composition.ChronologicalReading{}, composer, decisions, latest}:
       heading = heading_box(main)
       +canvas = body_box(main)
@@ -275,7 +275,7 @@ def main_frame(+recipe: Composition.Recipe, +main: Design.Box) -> Design.MainFra
       +canvas = body_box(main)
       Design.BoardFrame{heading, canvas, board_column_width(canvas), 12n, inline_gutter(box_width(canvas))}
     case Composition.Recipe{measure, page_heading, Composition.UnavailableNotice{}, composer, decisions, latest}:
-      Design.UnavailableFrame{main, measure_band(measure, main)}
+      Design.UnavailableFrame{heading_box(main), body_box(main), measure_band(measure, body_box(main))}
 
 def inset_box(+viewport: Design.Viewport) -> Design.Box:
   Design.Viewport{+width, +height} = viewport

@@ -23,10 +23,9 @@ files so native compilers and proof-mutation workers do not exhaust the machine.
 Board proof mutations require a pure production/UI type-check before rejecting
 the assembled proof. Board service tests cover real HTTP/SQLite, cancellation,
 upload authentication and order preservation through replay. File/text tests
-cover external bytes and provider payloads. `npm run test:board-browser` drives
-Chrome through the actual UI, including pointer insertion, compact pickers,
-continuous creation, pasted files, safe previews and responsive layouts. It fails
-when Chrome is unavailable instead of silently counting an unrun check as passed.
+cover external bytes and provider payloads. Browser geometry, focus and physical
+interaction remain external boundaries; the removed UI suites supply no current
+verification evidence.
 
 | Guarantee / fault model | Evidence owner |
 | --- | --- |
@@ -46,21 +45,17 @@ when Chrome is unavailable instead of silently counting an unrun check as passed
 | HTTP approval → SQLite grant → actual subprocess authorization; rejected/stale UI input, independent provider calls, malformed/duplicate decisions, cancellation and reopen | `approvals.test.mjs` and `fixtures/approved-tool.mjs`; the executed child checks its own prior committed grant before writing outside the workspace |
 | Provider/MCP/plugin wire formats, failures, actual cancellation and commit-before-callback | `providers`, `plugins`, `after-hooks`, `service-recovery` tests |
 | ChatGPT Web v1 explicit predecessors, durable same-key request observation, object arguments, complete tool batches, deferred/concurrent input coverage, native cancellation versus observer shutdown, tools/reviews/drafts and restart | `chatgpt-web.test.mjs`, independent `fixtures/chatgpt-web.mjs`; real loopback HTTP, SQLite and OS-sandboxed subprocesses, not a commercial account |
-| Authentication, HTTP/SSE and generic browser rendering | `auth`, `ui`, `service` tests |
-| Native conversation content, audit, result/error and composer binding evidence | `conversation-proof.test.mjs`: type-correct defects rejected by the assembled production laws |
-| Copied desktop implementation and generated artifact integrity | `desktop-source.test.mjs`, `scripts/import-desktop.mjs`; hashes are provenance evidence, not a proof of the imported implementation |
-| Paced Markdown, safe links, fragmented SSE, draft races and preview identity/revision | `web-streaming.test.mjs`; browser mechanics, not native-domain proofs |
-| Named Web API snapshots through the native service to actual Chrome, revised/shrunk Markdown, preserved composer and authoritative terminal output | `node scripts/chatgpt-web-browser-check.mjs` after building; isolated browser and local v1 fixture, captures in `.workpad/chatgpt-web-backend/` |
-| Real browser DOM identity, focus, scroll, worker formatting, responsive layout, unobscured approve/deny pointer targets, native form/actions and account compaction | `npm run test:browser`; isolated Chrome, loopback provider, native kernel and SQLite; captures in `.workpad/chatgpt-webui/` |
+| Authentication and HTTP/SSE delivery | `auth`, `service` tests |
 | Audited ChatGPT OAuth/Responses, account model discovery and encrypted compaction transport, restart and cancellation | `chatgpt-contract`, `chatgpt-models`, `chatgpt-compaction` tests; loopback services, not a live commercial account |
 | Typed Jev HTTP protocols, Unicode/token budgets, provider identity, evaluator cancellation, committed dispatch and restart | `reasoning.test.mjs`; `reasoning-native.test.mjs` retains exact provider/evaluator/UI wire probes, not a second lifecycle specification; `reasoning-proof.test.mjs` checks type-correct production mutations |
 | Cross-boundary create → commit → execution → callback → model delivery → restart | `service`, `service-recovery`, `context-recovery`, `after-hooks`, `coding`, `project-context` tests using real loopback servers/processes and SQLite |
 
-`npm run check` verifies the certificates, actual proof root, native entry and
-script syntax. `npm test` always checks those proof prerequisites before using a
-cached native binary, then runs the component, end-to-end and evidence-chain
-tests. Loopback services exercise real protocols, not a commercial model's
-reasoning quality or a production service's availability.
+`npm run check` verifies certificates, the production proof root and script
+syntax. The default build produces the kernel and browser JavaScript libraries;
+`npm run build:native` is the optional native entry build. The remaining tests
+exercise their stated component, integration and evidence-chain responsibilities.
+Their presence is not a claim that they have passed for the current checkout.
+Loopback services do not establish commercial model quality or availability.
 
 The former `commands`, `async-operations`, `hooks-native`, `notifications` and
 large `kernel` semantic example suites, plus native-only UI state examples, were
@@ -75,14 +70,6 @@ still needs evidence. Keep type-correct semantic mutations: they test whether
 the proof obligations can reject an incorrect implementation, not whether a
 particular input produces the expected domain result. A timeout, syntax error or
 missing import is not an acceptable semantic-mutation success.
-
-The old `ui.test.mjs` fake DOM was removed because it could not exercise layout,
-native focus or default browser events. Its literal-content, disabled-action and
-draft checks now run through the real browser/HTTP boundary. The event-binding
-and prototype-route tests remain. `conversation-browser-check.mjs` uses the real
-production `ThreadSurface` and actual wheel/pointer events to measure preserved
-rows during transcript and footer growth; it does not maintain another scroll
-implementation or infer success from `scrollTop === 0` while reading history.
 
 The adaptive-reasoning work removed native-only example replays of unsupported
 choices, queued input, stale tool results, lifecycle/recovery and fork lease

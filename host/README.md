@@ -1,15 +1,18 @@
 # Host effects
 
-The native Bend process owns task state. The host accepts JSON commands, performs
-the effects returned by that process, and sends their results back as inputs.
-It must commit an input and its decision to SQLite before publishing a reply or
-starting an effect. A failed commit terminates the process; committed inputs are
-replayed through the same Bend transition at the next start.
+The compiled Bend kernel owns authoritative task state. `KERNEL.bend` is compiled
+with the pinned compiler's official `js_lib` backend into
+`.build/kernel-model.mjs`; `kernel-worker.mjs` executes it in a Node Worker.
+The host accepts authenticated public commands, interprets committed effects,
+and sends their results back as inputs. It commits an input and its decision to
+SQLite before publishing replies, world snapshots or starting effects. A failed
+commit terminates the kernel; committed inputs replay through the same Bend
+transition at the next start.
 
-`transport.c` only receives bounded, length-prefixed UTF-8 tokens. It constructs
-the generic token list consumed by the checked JSON decoder. It has no task
-constructors, persistence operations, lifecycle rules, or tool policy. The native
-compiler's effect ABI and the operating system remain trusted boundaries.
+The compiler's JavaScript backend, Worker transport and operating system remain
+external boundaries. `transport.c` belongs to the optional `MAIN.bend` native
+build; it receives bounded, length-prefixed UTF-8 tokens for the checked decoder
+without owning task state or policy.
 
 Host integration tests exercise persistence, HTTP delivery, model transport, and
 process execution. Bend laws do not prove those implementations or their services.
@@ -37,29 +40,22 @@ account matching belong to this external transport boundary. The CLI login
 integration test exercises discovery, live native selector refresh and restart
 against a loopback issuer/model server, not a commercial account.
 
-`POST /api/ui` accepts only an opaque navigation cursor and a public presentation
-event. Bend produces the entire typed surface in `UI.bend`: content, titles,
-actions, fields, bindings and enabled flags. `public/renderer.mjs` fills declared
-event bindings; `public/widgets.mjs` renders the generic widgets with keyed DOM
-reconciliation and safe Markdown.
-`public/app.mjs` handles authentication, serialized requests and commit invalidation.
-`public/conversation.mjs` places named native regions; `public/desktop.mjs` binds
-their descriptors to the actual copied desktop components. The source manifest
-and importer pin those external implementations separately from the unchanged
-Markdown dependencies. Neither copied code nor source hashing is a Bend proof
-of browser behavior; the real-browser suites exercise this boundary.
-The browser adapter does not interpret task state or provider message roles. Unsubmitted field
-drafts and disclosure/focus state are presentation mechanics, not a domain cache.
-Uncommitted model deltas do not replace the native conversation surface. A
-separately labelled, bounded streaming preview is correlated with host execution
-identity and retired after its native settlement revision. Exact settled text
-can retain its already-rendered DOM. See `public/README.md` and ADR 0018 for the
-display scheduler, worker formatting, draft retention and evidence boundaries.
-The existing command endpoint remains available to CLI and API callers. Both
-endpoints revalidate against the current native world; a stale enabled button is
-never authority to execute. Navigation/refresh has no journal entry or effects.
-The exploration record distinguishes adapter test evidence from the native proof
-gate; no theorem here proves the browser's DOM implementation.
+`BROWSER.bend` compiles to `public/generated/browser-model.mjs` and runs the UI
+production functions in the browser. Bend owns interaction state, layout and
+Document construction. `public/renderer.mjs` interprets the Document as DOM;
+`public/app.mjs` performs authentication, network requests and physical effects.
+The browser submits only public commands through `/api/browser/command`.
+The server authenticates those commands and resolves them against the current
+kernel world; a local enabled control is not authority to execute. Snapshots are
+published only after the authoritative commit. Draft settlement uses the real
+command completion and draft revision.
+
+Uncommitted model deltas remain correlated transport observations. Bend decides
+their presentation and retirement; JavaScript does not interpret provider roles
+or maintain a task lifecycle model. DOM behavior, Markdown formatting, focus,
+clipboard and network delivery remain external component boundaries. See
+[`public/README.md`](public/README.md) and
+[ADR 0026](../docs/adr/0026-browser-executed-bend-ui.md).
 
 ## Coding effect interpreters
 

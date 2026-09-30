@@ -9,6 +9,7 @@ import ./rendered.bend as Rendered
 import ./design.bend as Design
 import ./layout.bend as Layout
 import ./appearance.bend as Appearance
+import ./visibility.bend as Visibility
 
 type State is Data:
   State{application: Platform.State, generation: Nat, realization: Rendered.State,
@@ -84,9 +85,12 @@ def element_input(application: Platform.State, key: String, gesture: UI.Gesture,
   invalidate(Platform.after_core(Product.step(Product.Element{capacity(platform), key, gesture}, core), platform),
     (generation + 1n : Nat), environment)
 
+def frame_surface(environment: Design.Environment, +surface: UI.Surface) -> UI.Surface:
+  Visibility.project(surface, Layout.present(environment_viewport(environment), surface))
+
 def frame_result(received: Nat, +frame: Rendered.Frame, +application: Platform.State, +generation: Nat,
-  realization: Rendered.State, environment: Design.Environment) -> Decision:
-  idle(application, generation, Rendered.observe(generation, received, surface(application), frame, realization), environment)
+  realization: Rendered.State, +environment: Design.Environment) -> Decision:
+  idle(application, generation, Rendered.observe(generation, received, frame_surface(environment, surface(application)), frame, realization), environment)
 
 # Measurements acknowledge an existing generation. They never request another
 # frame, so observer feedback cannot recursively invalidate the rendering.

@@ -136,13 +136,13 @@ def frame_silent(received: Nat, frame: Rendered.Frame, application: Platform.Sta
   generation: Nat, realization: Rendered.State, environment: Design.Environment) ->
   {Model.step(Model.FrameObserved{received, frame}, Model.State{application, generation, realization, environment}) ==
     Model.Decision{
-      Model.State{application, generation, Rendered.observe(generation, received, Model.surface(application), frame, realization), environment},
+      Model.State{application, generation, Rendered.observe(generation, received, Model.frame_surface(environment, Model.surface(application)), frame, realization), environment},
       Platform.unchanged(model_core(application)), Nil{}} : Model.Decision}:
   match application:
     case Platform.State{Core.State{application, services}, platform}: {==}
 
 def stale_frame(+received: Nat, +frame: Rendered.Frame, +application: Platform.State,
-  +generation: Nat, +realization: Rendered.State, environment: Design.Environment,
+  +generation: Nat, +realization: Rendered.State, +environment: Design.Environment,
   stale: {Nat.is_eq(generation, received) == False{} : Bool}) ->
   {Model.step(Model.FrameObserved{received, frame}, Model.State{application, generation, realization, environment}) ==
     Model.Decision{Model.State{application, generation, realization, environment},
@@ -151,16 +151,16 @@ def stale_frame(+received: Nat, +frame: Rendered.Frame, +application: Platform.S
   Equal.trans(Model.Decision,
     Model.step(Model.FrameObserved{received, frame}, Model.State{application, generation, realization, environment}),
     Model.Decision{Model.State{application, generation,
-      Rendered.observe(generation, received, Model.surface(application), frame, realization), environment},
+      Rendered.observe(generation, received, Model.frame_surface(environment, Model.surface(application)), frame, realization), environment},
       Platform.unchanged(core), Nil{}},
     Model.Decision{Model.State{application, generation, realization, environment}, Platform.unchanged(core), Nil{}},
     frame_silent(received, frame, application, generation, realization, environment),
     Equal.cong(Rendered.State, Model.Decision,
       (frame_state => Model.Decision{Model.State{application, generation, frame_state, environment},
         Platform.unchanged(core), Nil{}}),
-      Rendered.observe(generation, received, Model.surface(application), frame, realization),
+      Rendered.observe(generation, received, Model.frame_surface(environment, Model.surface(application)), frame, realization),
       realization,
-      Rendered.stale_frame_retains_state(generation, received, Model.surface(application), frame, realization, stale)))
+      Rendered.stale_frame_retains_state(generation, received, Model.frame_surface(environment, Model.surface(application)), frame, realization, stale)))
 
 def stale_reading(application: E.Application, services: Services.State, platform: Platform.Platform,
   task: Nat, generation: Nat, event: Reading.Event,
@@ -681,7 +681,7 @@ type Requirements is Type:
       @environment:Design.Environment -> @generation:Nat -> @realization:Rendered.State ->
       {Model.step(Model.FrameObserved{received, frame}, Model.State{application, generation, realization, environment}) ==
         Model.Decision{Model.State{application, generation,
-          Rendered.observe(generation, received, Model.surface(application), frame, realization), environment},
+          Rendered.observe(generation, received, Model.frame_surface(environment, Model.surface(application)), frame, realization), environment},
           Platform.unchanged(model_core(application)), Nil{}} : Model.Decision},
     stale_frame: @received:Nat -> @frame:Rendered.Frame -> @application:Platform.State ->
       @environment:Design.Environment -> @generation:Nat -> @realization:Rendered.State ->

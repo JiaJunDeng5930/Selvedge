@@ -37,16 +37,22 @@ def bounded_region(found: Maybe<&2, Rendered.Element>, viewport: Geometry.Rect) 
     case Some{Rendered.Element{key, +visible, enabled, tab, keyboard, scroll, +bounds, hit}}:
       visible && Geometry.contains(viewport, bounds)
 
+def reachable_toolbar(found: Maybe<&2, Rendered.Element>) -> Bool:
+  match found:
+    case None{}: False{}
+    case Some{Rendered.Element{id, visible, enabled, tab, keyboard, scroll, bounds, hit}}:
+      visible || scroll
+
 def region_geometry_valid(role: UI.Role, found: Maybe<&2, Rendered.Element>, viewport: Geometry.Rect) -> Bool:
   match role:
-    case UI.Navigation{}: True{}
-    case UI.Main{}: True{}
+    case UI.Navigation{}: bounded_region(found, viewport)
+    case UI.Main{}: bounded_region(found, viewport)
     case UI.Heading{}: True{}
     case UI.Timeline{}: True{}
     case UI.Activity{}: True{}
-    case UI.Composer{}: True{}
+    case UI.Composer{}: bounded_region(found, viewport)
     case UI.Approval{}: True{}
-    case UI.Toolbar{}: True{}
+    case UI.Toolbar{}: reachable_toolbar(found)
     case UI.CodeBlock{}: True{}
     case UI.ApprovalQueue{}: bounded_region(found, viewport)
     case UI.Section{}: True{}

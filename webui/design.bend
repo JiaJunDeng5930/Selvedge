@@ -43,11 +43,11 @@ type Dock is Data:
 
 type MainFrame is Data:
   # Center the intrinsic input group in this canvas, subject to its height bound.
-  CreationFrame{canvas: Box, band: Band, input: Maybe<&2, InputMetrics>}
+  CreationFrame{heading: Box, canvas: Box, band: Band, input: Maybe<&2, InputMetrics>}
   ConversationFrame{heading: Box, viewport: Box, reading: Band, dock: Maybe<&2, Dock>}
   OverviewFrame{heading: Box, viewport: Box, content: Band, organization: Composition.Body}
   BoardFrame{heading: Box, viewport: Box, column_width: Nat, column_gap: Nat, inset: Nat}
-  UnavailableFrame{canvas: Box, band: Band}
+  UnavailableFrame{heading: Box, canvas: Box, band: Band}
 
 type OverlayPlacement is Data:
   CenteredDialog{available: Box, maximum_width: Nat}

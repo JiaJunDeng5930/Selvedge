@@ -11,6 +11,28 @@ type Json is Data:
 type Field is Data:
   Field{name: String, value: Json}
 
+# Identity compares the canonical encoded structure without a rendering budget.
+def same_bool(left: Bool, right: Bool) -> Bool:
+  match left right:
+    case True{} True{}: True{}
+    case False{} False{}: True{}
+    case _ _: False{}
+
+def same(left: Json, right: Json) -> Bool:
+  match left right:
+    case Null{} Null{}: True{}
+    case Boolean{left} Boolean{right}: same_bool(left, right)
+    case Number{left} Number{right}: String.eq(left, right)
+    case Text{left} Text{right}: String.eq(left, right)
+    case Array{Nil{}} Array{Nil{}}: True{}
+    case Array{Con{left_item, left_rest}} Array{Con{right_item, right_rest}}:
+      same(left_item, right_item) && same(Array{left_rest}, Array{right_rest})
+    case Object{Nil{}} Object{Nil{}}: True{}
+    case Object{Con{Field{left_name, left_value}, left_rest}} Object{Con{Field{right_name, right_value}, right_rest}}:
+      String.eq(left_name, right_name) && same(left_value, right_value) && same(Object{left_rest}, Object{right_rest})
+    case _ _: False{}
+    case _ _: False{}
+
 type StackItem is Data:
   Value{value: Json}
   ArrayStart{}

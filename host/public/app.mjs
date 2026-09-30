@@ -1,233 +1,376 @@
-import { mount } from './widgets.mjs';
-import { Streams } from './streams.mjs';
-import { EventFrames, acknowledgeDrafts } from './events.mjs';
+import * as Bend from './generated/browser-model.mjs';
+import { decodeBendValue } from './bend-value.mjs';
+import { Renderer, list } from './renderer.mjs';
+import { EventFrames } from './events.mjs';
 
-const $ = id => document.getElementById(id);
-const stored = key => { try { return sessionStorage.getItem(key); } catch { return null; } };
-const store = (key, value) => { try { sessionStorage.setItem(key, value); } catch { /* Private browsing can forbid persistence. */ } };
-let token = new URLSearchParams(location.hash.slice(1)).get('token') || stored('selvedge-token') || '';
-if (location.hash) history.replaceState(null, '', location.pathname);
-let state = null;
-let revision = 0;
-let requests = Promise.resolve();
-let refreshState = { queued: false, again: false };
+const value = ($, fields = {}) => ({ $, ...fields });
+const bool = enabled => value(enabled ? 'True' : 'False');
+const linked = items => items.reduceRight((tail, head) => value('Con', { head, tail }), value('Nil'));
+function json(input) {
+  if (input === null) return value('Null');
+  if (typeof input === 'boolean') return value('Boolean', { value: bool(input) });
+  if (typeof input === 'number') return value('Number', { lexeme: String(input) });
+  if (typeof input === 'string') return value('Text', { value: input });
+  if (Array.isArray(input)) return value('Array', { items: linked(input.map(json)) });
+  return value('Object', { fields: linked(Object.entries(input).map(([name, item]) => value('Field', { name, value: json(item) }))) });
+}
+function showJson(input) {
+  switch (input.$) {
+    case 'Null': return 'null';
+    case 'Boolean': return input.value.$ === 'True' ? 'true' : 'false';
+    case 'Number': return input.lexeme;
+    case 'Text': return JSON.stringify(input.value);
+    case 'Array': return `[${list(input.items).map(showJson).join(',')}]`;
+    case 'Object': return `{${list(input.fields).map(field => `${JSON.stringify(field.name)}:${showJson(field.value)}`).join(',')}}`;
+    default: throw new TypeError('Expected Bend JSON');
+  }
+}
+const root = document.getElementById('surface');
+let state = Bend.initial(Bend.empty(), 0n);
+let token = sessionStorage.getItem('selvedge-token') ?? '';
 let connection;
-let generation = 0;
-let surface;
-let liveFollow = true;
-const streams = new Streams();
-const drafts = new Map();
-const disclosures = new Map();
-
-function report(message = '') { $('error').textContent = message; $('error').hidden = !message; }
-function status(text, state) { $('connection').textContent = text; $('connection').dataset.status = state; }
-
-async function api(body, signal, credential) {
-  const response = await fetch('/api/ui', { method: 'POST', signal,
-    headers: { authorization: `Bearer ${credential}`, 'content-type': 'application/json' }, body: JSON.stringify(body) });
-  const value = await response.json();
-  if (!response.ok || !value.ok) {
-    const error = new Error(value.error?.message ?? `HTTP ${response.status}`);
-    error.status = response.status;
-    throw error;
-  }
-  return value;
-}
-
-async function attachmentRequest(url, options = {}) {
-  const epoch = generation;
-  const response = await fetch(url, { ...options, signal: connection?.signal,
-    headers: { authorization: `Bearer ${token}` } });
-  if (epoch !== generation) { await response.body?.cancel(); throw new Error('The workspace connection changed'); }
-  if (!response.ok) {
-    const value = await response.json().catch(() => null);
-    throw new Error(value?.error?.message ?? `HTTP ${response.status}`);
-  }
-  return response;
-}
-
-async function uploadAttachment(file) {
-  const response = await attachmentRequest(`/api/board/attachments?name=${encodeURIComponent(file.name)}`, { method: 'POST', body: file });
-  return (await response.json()).result;
-}
-
-async function readAttachment(id) {
-  return (await attachmentRequest(`/api/board/attachments/${encodeURIComponent(id)}`)).blob();
-}
-
-// The cursor is opaque. All command binding, visibility and enabled decisions
-// come from the native presentation; this queue owns only browser interactions.
-function dispatch(event, formKey, submitted, retainedFields) {
-  const epoch = generation;
-  const signal = connection?.signal;
-  const credential = token;
-  const next = requests.then(async () => {
-    if (epoch !== generation) return;
-    const value = await api({ state, event }, signal, credential);
-    if (epoch !== generation) return;
-    const result = value.result;
-    revision = Math.max(revision, value.sequence);
-    state = result.presentation.state;
-    if (formKey && result.receipt.ok) acknowledgeDrafts(drafts, formKey, submitted,
-      typeof retainedFields === 'function' ? retainedFields() : retainedFields);
-    const previousSelection = surface?.selected;
-    surface = mount($('surface'), result.presentation.root, dispatch, {
-      drafts, disclosures, uploadAttachment, readAttachment,
-      takeMarkdown: (text, selected) => streams.take(text, selected, value.sequence),
-    });
-    if ((event.type === 'select' || (event.type === 'board' && event.event?.action === 'pane')) && matchMedia('(max-width: 760px)').matches) setSidebar(false);
-    syncSidebar();
-    if (surface.selected !== previousSelection) liveFollow = true;
-    if (event.type === 'history') {
-      liveFollow = event.after === null;
-      if (liveFollow) surface.scrollToBottom(); else surface.showHistory();
-    }
-    streams.surface(liveFollow ? surface.liveRoot : null, surface.selected, value.sequence);
-    if (!result.receipt.ok) throw new Error(result.receipt.error?.message ?? 'Request was not accepted');
-    report();
-  });
-  // Keep the queue usable after failures, but propagate rejection to the form
-  // so its draft is retained and the error appears beside the submitted input.
-  requests = next.catch(error => {
-    if (epoch !== generation || error.name === 'AbortError') return;
-    if (error.status === 401) { setAccess(true); status('Access token required', 'disconnected'); }
-    report(error.message);
-  });
-  return next;
-}
-
-function refresh() {
-  const flags = refreshState;
-  const epoch = generation;
-  flags.again = true;
-  if (flags.queued) return;
-  flags.queued = true;
-  (async () => {
-    do { flags.again = false; await dispatch({ type: 'refresh' }); }
-    while (flags.again && epoch === generation);
-  })().catch(() => {}).finally(() => { flags.queued = false; });
-}
-
-async function watch(signal, epoch, credential) {
-  while (!signal.aborted && epoch === generation) {
-    try {
-      const response = await fetch(`/api/events?after=${revision}`, {
-        headers: { authorization: `Bearer ${credential}` }, signal });
-      if (!response.ok || !response.body) throw new Error(`Event connection: HTTP ${response.status}`);
-      if (epoch !== generation) { await response.body.cancel(); return; }
-      status('Connected', 'connected');
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      const frames = new EventFrames(notice => {
-        if (epoch !== generation) return;
-        if (notice.type === 'commit') {
-          if (!Number.isSafeInteger(notice.sequence) || notice.sequence < 0) throw new Error('Invalid event revision');
-          revision = Math.max(revision, notice.sequence);
-          refresh();
-        } else if (notice.type === 'fatal') throw new Error(notice.message);
-        else streams.receive(notice);
-      });
-      try {
-        for (;;) {
-          const { value, done } = await reader.read();
-          if (done) { frames.write(decoder.decode()); break; }
-          frames.write(decoder.decode(value, { stream: true }));
+let revision = 0;
+let dragged = null;
+let renderQueued = false;
+const files = new Map();
+const transfers = new Map();
+const resources = new Set();
+const streams = new Map();
+const renderer = new Renderer(root, {
+  event(binding, event, node) {
+    switch (binding.$) {
+      case 'Activate': event.preventDefault(); commit(Bend.activate(binding.key, state)); break;
+      case 'EditText': commit(Bend.edit_text(binding.key, node.value, state)); break;
+      case 'EditToggle': commit(Bend.edit_toggle(binding.key, bool(node.checked), state)); break;
+      case 'SelectFiles':
+        for (const file of node.files ?? []) {
+          const handle = crypto.randomUUID(); files.set(handle, file);
+          commit(Bend.attach(binding.key, value('File', { handle, name: file.name, mime: file.type, bytes: file.size }), state));
         }
-      } finally { await reader.cancel().catch(() => {}); reader.releaseLock(); }
-      if (!signal.aborted) throw new Error('Event connection closed');
-    } catch (error) {
-      if (signal.aborted || epoch !== generation) return;
-      streams.clear();
-      status('Reconnecting', 'connecting');
-      report(error.message);
-      await new Promise(resolve => {
-        const finish = () => { clearTimeout(timer); signal.removeEventListener('abort', finish); resolve(); };
-        const timer = setTimeout(finish, 1000);
-        signal.addEventListener('abort', finish, { once: true });
+        node.value = ''; break;
+      case 'DragCard': dragged = binding.key; event.dataTransfer?.setData('text/plain', binding.key); break;
+      case 'DropCard': if (dragged) commit(Bend.place(dragged, binding.key, state)); dragged = null; break;
+      case 'PlaceCard': event.preventDefault(); commit(Bend.place(binding.key, binding.target, state)); break;
+      default: throw new TypeError(`Unknown document event ${binding.$}`);
+    }
+  },
+  codeKey: (source, ordinal) => Bend.code_key(source, ordinal),
+  codeSource(source, ordinal, text) { queueMicrotask(() => commit(Bend.code_source(source, ordinal, text, state))); },
+  changed() {
+    if (!renderQueued) { renderQueued = true; queueMicrotask(() => { renderQueued = false; render(); }); }
+  },
+});
+function render() { renderer.render(Bend.observe(state)); }
+function commit(decision) {
+  state = decision.state; render();
+  for (const effect of list(decision.effects)) Promise.resolve(execute(effect)).catch(error => console.error(error));
+}
+function step(input) { commit(Bend.step(input, state)); }
+function native(input) { step(value('Native', { input })); }
+function platform(input) { native(value('PlatformInput', { input })); }
+function product(input) { platform(value('ProductInput', { input })); }
+async function request(url, options = {}, credential = token) {
+  const response = await fetch(url, { ...options, headers: { authorization: `Bearer ${credential}`, ...options.headers } });
+  const body = await response.json();
+  if (!response.ok) { const error = new Error(body.error?.message ?? body.error ?? `HTTP ${response.status}`); error.body = body; throw error; }
+  return body;
+}
+function snapshot(body) {
+  revision = Math.max(revision, body.sequence);
+  step(value('Snapshot', { sequence: BigInt(body.sequence), program: decodeBendValue(body.program) }));
+}
+async function refresh() { snapshot(await request('/api/browser/state')); }
+function post(url, body) { return request(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body }); }
+function result(ok, payload) { return ok ? value('Done', { value: payload }) : value('Fail', { error: payload }); }
+async function execute(effect) {
+  switch (effect.$) {
+    case 'Command': {
+      try {
+        const body = await post('/api/browser/command', `{"command":${showJson(effect.command)}}`);
+        revision = Math.max(revision, body.sequence);
+        step(value('Completed', { ticket: effect.ticket, sequence: BigInt(body.sequence), program: decodeBendValue(body.program), reply: json(body.reply) }));
+      } catch (error) {
+        if (error.body?.program && error.body?.reply) {
+          const body = error.body;
+          step(value('Completed', { ticket: effect.ticket, sequence: BigInt(body.sequence), program: decodeBendValue(body.program), reply: json(body.reply) }));
+        } else step(value('Failed', { ticket: effect.ticket, error: error.message }));
+      }
+      break;
+    }
+    case 'Service': await service(effect.effect); break;
+    case 'Directories': {
+      const workspace = { roots: list(effect.workspace.roots), primary_root: effect.workspace.primary.$ === 'Some' ? effect.workspace.primary.value : null };
+      try { commit(Bend.directories_completed(effect.ticket, bool(true), json(await post('/api/browser/observation', JSON.stringify({ kind: 'directories', workspace }))), state)); }
+      catch (error) { commit(Bend.directories_completed(effect.ticket, bool(false), json({ error: error.message }), state)); }
+      break;
+    }
+    case 'BrowserEffect': await browserEffect(effect.effect); break;
+    case 'RenderingFailed': console.error('Bend browser failure', effect); break;
+    default: throw new TypeError(`Unknown browser effect ${effect.$}`);
+  }
+}
+async function service(effect) {
+  switch (effect.$) {
+    case 'Authenticate': {
+      try {
+        const body = await request('/api/browser/state', {}, effect.credential);
+        token = effect.credential; sessionStorage.setItem('selvedge-token', token);
+        snapshot(body); product(value('Authenticated', { ticket: effect.ticket, result: result(true, value('Unit')) }));
+        connection?.abort(); connection = new AbortController();
+        void observeStreams().catch(error => console.error('Stream observation failed', error));
+        void watch(connection.signal, token);
+      } catch (error) { product(value('Authenticated', { ticket: effect.ticket, result: result(false, error.message) })); }
+      break;
+    }
+    case 'StoreAppearance': {
+      const appearance = effect.appearance.$;
+      localStorage.setItem('selvedge-appearance', appearance);
+      document.documentElement.style.colorScheme = appearance === 'DarkAppearance' ? 'dark' : appearance === 'LightAppearance' ? 'light' : 'light dark';
+      break;
+    }
+    case 'Upload': {
+      const controller = new AbortController(); transfers.set(effect.ticket, controller);
+      try {
+        const file = files.get(effect.file.handle);
+        if (!file) throw new Error('Selected file handle is unavailable');
+        const body = await request(`/api/board/attachments?name=${encodeURIComponent(file.name)}`, { method: 'POST', body: file, signal: controller.signal });
+        product(value('Uploaded', { ticket: effect.ticket, result: result(true, value('Attachment', body.result)) }));
+        files.delete(effect.file.handle);
+      } catch (error) { product(value('Uploaded', { ticket: effect.ticket, result: result(false, error.message) })); }
+      finally { transfers.delete(effect.ticket); }
+      break;
+    }
+    case 'CancelTransfer': transfers.get(effect.ticket)?.abort(); transfers.delete(effect.ticket); break;
+    case 'ReadAttachment': {
+      try {
+        const response = await fetch(`/api/board/attachments/${encodeURIComponent(effect.file.id)}`, { headers: { authorization: `Bearer ${token}` } });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const resource = URL.createObjectURL(await response.blob()); resources.add(resource);
+        product(value('AttachmentRead', { ticket: effect.ticket, result: result(true, resource) }));
+      } catch (error) { product(value('AttachmentRead', { ticket: effect.ticket, result: result(false, error.message) })); }
+      break;
+    }
+    case 'DownloadAttachment': {
+      const response = await fetch(`/api/board/attachments/${encodeURIComponent(effect.file.id)}`, { headers: { authorization: `Bearer ${token}` } });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const url = URL.createObjectURL(await response.blob());
+      const link = document.createElement('a'); link.href = url; link.download = effect.file.name; link.click(); setTimeout(() => URL.revokeObjectURL(url), 0); break;
+    }
+    default: throw new TypeError(`Unknown client service effect ${effect.$}`);
+  }
+}
+const rect = node => { const r = node.getBoundingClientRect(); return value('Rect', { left: r.left, top: r.top, right: r.right, bottom: r.bottom }); };
+const owner = node => node?.closest?.('[data-native-key]')?.getAttribute('data-native-key') ?? '';
+const hasArea = bounds => bounds.right > bounds.left && bounds.bottom > bounds.top;
+function frameGeometry(node, bounds) {
+  let painted = hasArea(bounds);
+  if (node.checkVisibility) painted &&= node.checkVisibility({ opacityProperty: true, visibilityProperty: true, contentVisibilityAuto: true });
+  const intersection = { left: Math.max(0, bounds.left), top: Math.max(0, bounds.top), right: Math.min(innerWidth, bounds.right), bottom: Math.min(innerHeight, bounds.bottom) };
+  let scrollable = false;
+  for (let ancestor = node; ancestor; ancestor = ancestor.parentElement) {
+    const style = getComputedStyle(ancestor);
+    if (ancestor.hidden || style.display === 'none' || style.visibility === 'hidden' || style.visibility === 'collapse' || style.contentVisibility === 'hidden' || Number(style.opacity) === 0) painted = false;
+    if (ancestor === node) continue;
+    const clip = ancestor.getBoundingClientRect();
+    if (style.overflowX !== 'visible') {
+      intersection.left = Math.max(intersection.left, clip.left);
+      intersection.right = Math.min(intersection.right, clip.right);
+    }
+    if (style.overflowY !== 'visible') {
+      intersection.top = Math.max(intersection.top, clip.top);
+      intersection.bottom = Math.min(intersection.bottom, clip.bottom);
+    }
+    if ((['auto', 'scroll'].includes(style.overflowX) && ancestor.scrollWidth > ancestor.clientWidth)
+      || (['auto', 'scroll'].includes(style.overflowY) && ancestor.scrollHeight > ancestor.clientHeight)) scrollable = true;
+  }
+  const visible = painted && hasArea(intersection);
+  const control = node.tabIndex >= 0 || node.matches('button,input,select,textarea,a[href],area[href],summary,[contenteditable="true"]');
+  return { visible, scrollReachable: painted && control && scrollable,
+    hitOwner: visible ? owner(document.elementFromPoint((intersection.left + intersection.right) / 2, (intersection.top + intersection.bottom) / 2)) : '' };
+}
+function frame() {
+  const nodes = [...root.querySelectorAll('[data-native-key]')];
+  const elements = nodes.map(node => {
+    const bounds = rect(node); const geometry = frameGeometry(node, bounds);
+    const enabled = !node.disabled && !node.closest('[inert]') && node.getAttribute('aria-disabled') !== 'true';
+    const tab = enabled && node.tabIndex >= 0;
+    return value('Element', { key: owner(node), visible: bool(geometry.visible), enabled: bool(enabled), tab_stop: bool(tab), keyboard_reachable: bool(tab), scroll_reachable: bool(geometry.scrollReachable), bounds,
+      center_hit_owner: geometry.hitOwner });
+  });
+  const focused = owner(document.activeElement);
+  const tabOrder = nodes.filter(node => node.tabIndex >= 0 && !node.disabled && !node.closest('[inert],[hidden]'));
+  tabOrder.sort((a, b) => (a.tabIndex > 0 ? a.tabIndex : Infinity) - (b.tabIndex > 0 ? b.tabIndex : Infinity));
+  return value('Frame', { viewport: value('Rect', { left: 0, top: 0, right: innerWidth, bottom: innerHeight }), elements: linked(elements),
+    focused: focused ? value('Some', { value: focused }) : value('None'), tab_order: linked(tabOrder.map(owner)) });
+}
+async function browserEffect(effect) {
+  if (effect.$ === 'MeasureFrame') {
+    requestAnimationFrame(() => {
+      if (root.firstElementChild?.getAttribute('data-frame-observation') !== 'off') native(value('FrameObserved', { generation: effect.generation, frame: frame() }));
+    }); return;
+  }
+  if (effect.$ !== 'PlatformEffect') throw new TypeError(`Unknown web effect ${effect.$}`);
+  const physical = effect.effect;
+  switch (physical.$) {
+    case 'Focus': {
+      if (physical.ticket !== state.web.application.platform.focus_ticket) return;
+      const node = renderer.target(physical.target); if (!node) return;
+      node.focus({ preventScroll: true });
+      platform(value('FocusApplied', { ticket: physical.ticket, identity: owner(document.activeElement) })); break;
+    }
+    case 'Clipboard': {
+      let success = false;
+      try { await navigator.clipboard.writeText(physical.effect.text); success = true; } catch { /* Completion preserves failure. */ }
+      product(value('ClipboardCompleted', { identity: physical.block, ticket: physical.effect.ticket, success: bool(success) }));
+      setTimeout(() => product(value('ClipboardFeedbackExpired', { identity: physical.block })), 1800); break;
+    }
+    case 'Scroll': applyReading(physical); break;
+    default: throw new TypeError(`Unknown platform effect ${physical.$}`);
+  }
+}
+function readingSurface(task, generation) {
+  return root.querySelector(`[data-reading-scroll][data-reading-task="${task}"][data-reading-generation="${generation}"]`);
+}
+function readingInput(surface, event) {
+  commit(Bend.reading(BigInt(surface.dataset.readingTask), BigInt(surface.dataset.readingGeneration), event, state));
+}
+function anchor(surface) {
+  const viewport = surface.getBoundingClientRect();
+  const node = [...surface.querySelectorAll('[data-reading-key]')].find(item => { const r = item.getBoundingClientRect(); return r.bottom > viewport.top && r.top < viewport.bottom; });
+  return node ? value('Anchor', { identity: node.dataset.readingKey, offset: node.getBoundingClientRect().top - viewport.top }) : null;
+}
+function applyReading(physical) {
+  const surface = readingSurface(physical.task, physical.generation); if (!surface) return;
+  const effect = physical.effect;
+  switch (effect.$) {
+    case 'LeaveViewport': break;
+    case 'AlignLatest': surface.scrollTo({ top: surface.scrollHeight, behavior: effect.animate.$ === 'True' ? 'smooth' : 'instant' }); break;
+    case 'PreserveAnchor': {
+      const node = [...surface.querySelectorAll('[data-reading-key]')].find(item => item.dataset.readingKey === effect.anchor.identity);
+      if (node) surface.scrollTop += node.getBoundingClientRect().top - surface.getBoundingClientRect().top - effect.anchor.offset; break;
+    }
+    case 'MeasureAnchor': { const observed = anchor(surface); if (observed) readingInput(surface, value('AnchorObserved', { anchor: observed })); break; }
+    case 'ReserveComposer': { const content = root.querySelector(`[data-reading-content][data-reading-task="${physical.task}"]`); if (content) content.style.paddingBottom = `${effect.height}px`; break; }
+    default: throw new TypeError(`Unknown reading effect ${effect.$}`);
+  }
+}
+function streamFacts() {
+  const facts = [...streams.values()].map(entry => ({ task_id: entry.task, ticket: entry.ticket,
+    parts: [...entry.parts].map(([output_index, text]) => ({ output_index, text })) }));
+  commit(Bend.streams(json({ kind: 'streams', streams: facts }), state));
+}
+function streamNotice(notice) {
+  if (!Number.isSafeInteger(notice.task_id) || !Number.isSafeInteger(notice.ticket)) return;
+  const key = `${notice.task_id}:${notice.ticket}`;
+  if (notice.type === 'stream_start') { streams.set(key, { task: notice.task_id, ticket: notice.ticket, parts: new Map() }); streamFacts(); return; }
+  if (notice.type === 'stream_end' || notice.type === 'stream_cancel') { streams.delete(key); streamFacts(); return; }
+  const parts = streams.get(key)?.parts;
+  if (!parts || !['delta', 'snapshot'].includes(notice.type) || typeof notice.text !== 'string' || !Number.isSafeInteger(notice.output_index)) return;
+  const text = notice.type === 'delta' ? (parts.get(notice.output_index) ?? '') + notice.text : notice.text;
+  if (text.length > 4 * 1024 * 1024 || parts.size >= 32 && !parts.has(notice.output_index)) return;
+  parts.set(notice.output_index, text); streamFacts();
+}
+async function observeStreams() {
+  const body = await post('/api/browser/observation', JSON.stringify({ kind: 'streams' }));
+  streams.clear();
+  for (const entry of body.streams) streams.set(`${entry.task_id}:${entry.ticket}`, { task: entry.task_id, ticket: entry.ticket, parts: new Map(entry.parts.map(part => [part.output_index, part.text])) });
+  commit(Bend.streams(json(body), state));
+}
+async function watch(signal, credential) {
+  while (!signal.aborted) {
+    try {
+      const response = await fetch(`/api/events?after=${revision}`, { headers: { authorization: `Bearer ${credential}` }, signal });
+      if (!response.ok || !response.body) throw new Error(`Event connection: HTTP ${response.status}`);
+      const reader = response.body.getReader(); const decoder = new TextDecoder();
+      const frames = new EventFrames(notice => {
+        if (signal.aborted) return;
+        if (notice.type === 'commit') { revision = Math.max(revision, notice.sequence); void refresh().catch(error => product(value('Disconnected', { reason: error.message }))); }
+        else if (notice.type === 'fatal') throw new Error(notice.message);
+        else streamNotice(notice);
       });
+      for (;;) { const { done, value: chunk } = await reader.read(); if (done) break; frames.write(decoder.decode(chunk, { stream: true })); }
+      throw new Error('Event connection ended');
+    } catch (error) {
+      if (signal.aborted) return;
+      product(value('Disconnected', { reason: error.message }));
+      streams.clear(); streamFacts();
+      await new Promise(resolve => setTimeout(resolve, 1000));
     }
   }
 }
+function environment() {
+  native(value('EnvironmentObserved', { environment: value('Environment', { viewport: value('Viewport', { width: BigInt(innerWidth), height: BigInt(innerHeight) }), system_dark: bool(matchMedia('(prefers-color-scheme: dark)').matches) }) }));
+}
+window.addEventListener('resize', environment);
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', environment);
+const motion = matchMedia('(prefers-reduced-motion: reduce)');
+motion.addEventListener('change', () => platform(value('MotionPreference', { reduced: bool(motion.matches) })));
+root.addEventListener('focusin', () => platform(value('FocusObserved', { identity: owner(document.activeElement) })));
+window.addEventListener('pagehide', () => { connection?.abort(); for (const resource of resources) URL.revokeObjectURL(resource); });
+const bootEffects = [];
+for (const input of [
+  value('EnvironmentObserved', { environment: value('Environment', { viewport: value('Viewport', { width: BigInt(innerWidth), height: BigInt(innerHeight) }), system_dark: bool(matchMedia('(prefers-color-scheme: dark)').matches) }) }),
+  value('PlatformInput', { input: value('MotionPreference', { reduced: bool(motion.matches) }) }),
+]) {
+  const decision = Bend.step(value('Native', { input }), state);
+  state = decision.state; bootEffects.push(...list(decision.effects));
+}
+render();
+for (const effect of bootEffects) Promise.resolve(execute(effect)).catch(error => console.error(error));
+native(value('Mount'));
+const hash = new URLSearchParams(location.hash.slice(1));
+if (hash.has('token')) { token = hash.get('token'); history.replaceState(null, '', location.pathname + location.search); }
+if (token) commit(Bend.connect(token, state));
 
-async function connect() {
-  connection?.abort();
-  connection = new AbortController();
-  generation += 1;
-  const epoch = generation;
-  const signal = connection.signal;
-  requests = Promise.resolve();
-  refreshState = { queued: false, again: false };
-  state = null;
-  revision = 0;
-  streams.clear();
-  surface?.dispose();
-  surface = null;
-  $('surface').replaceChildren();
-  drafts.clear();
-  disclosures.clear();
-  if (!token) { setAccess(true); status('Access token required', 'disconnected'); return; }
-  store('selvedge-token', token);
-  setAccess(false);
-  status('Connecting…', 'connecting');
-  await dispatch({ type: 'refresh' });
-  if (epoch === generation) watch(signal, epoch, token).catch(error => report(error.message));
+function editorEvent(node, event) {
+  const key = node?.getAttribute?.('data-native-editor-key');
+  if (key) commit(Bend.editor_event(key, event, state));
 }
-
-function syncSidebar() {
-  const modal = document.body.dataset.sidebar === 'open' && matchMedia('(max-width: 760px)').matches;
-  $('sidebar-dismiss').hidden = !modal;
-  for (const child of document.querySelector('[data-role="screen"] > .group-content')?.children ?? []) {
-    child.inert = modal && child.dataset.role !== 'navigation';
-  }
-  for (const child of document.querySelectorAll('.board-workspace')) child.inert = modal;
-}
-function setSidebar(open) {
-  document.body.dataset.sidebar = open ? 'open' : 'closed';
-  $('sidebar-toggle').setAttribute('aria-expanded', String(open));
-  syncSidebar();
-}
-setSidebar(!matchMedia('(max-width: 760px)').matches);
-$('sidebar-toggle').onclick = () => setSidebar(document.body.dataset.sidebar !== 'open');
-$('sidebar-dismiss').onclick = () => { setSidebar(false); $('sidebar-toggle').focus(); };
-matchMedia('(max-width: 760px)').addEventListener('change', event => setSidebar(!event.matches));
-$('theme-toggle').onclick = () => {
-  const current = document.documentElement.dataset.theme ?? (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
-  const next = current === 'dark' ? 'light' : 'dark';
-  document.documentElement.dataset.theme = next; store('selvedge-theme', next);
-};
-const theme = stored('selvedge-theme');
-document.documentElement.dataset.theme = ['light', 'dark'].includes(theme) ? theme : matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-matchMedia('(prefers-color-scheme: dark)').addEventListener('change', event => {
-  if (!['light', 'dark'].includes(stored('selvedge-theme'))) document.documentElement.dataset.theme = event.matches ? 'dark' : 'light';
-});
-function setAccess(open) {
-  const dialog = $('access');
-  if (open) { dialog.hidden = false; if (!dialog.open) dialog.showModal(); $('token').focus(); }
-  else { if (dialog.open) dialog.close(); dialog.hidden = true; }
-}
-$('access-toggle').onclick = () => setAccess(!$('access').open);
-$('access-close').onclick = () => setAccess(false);
-$('access').addEventListener('close', () => { $('access').hidden = true; });
-$('access-form').onsubmit = event => {
-  event.preventDefault(); token = $('token').value.trim(); connect().catch(error => report(error.message));
-};
-window.addEventListener('keydown', event => {
-  if (event.key === 'Escape') {
-    if (matchMedia('(max-width: 760px)').matches) setSidebar(false);
-    document.querySelector('.thread-header button[aria-expanded="true"]')?.click();
-    setAccess(false);
-    for (const popup of document.querySelectorAll('.compose-mode[open], .form-options[open]')) { popup.open = false; popup.querySelector('summary')?.focus(); }
-  }
-  if (event.key === 'Tab' && !$('access').open && !$('sidebar-dismiss').hidden) {
-    const focusable = [$('sidebar-toggle'), document.querySelector('.brand'), ...document.querySelectorAll('[data-role="navigation"] button:not(:disabled), .app-tools button')].filter(node => node?.getClientRects().length);
-    const index = focusable.indexOf(document.activeElement);
-    event.preventDefault();
-    focusable[(index + (event.shiftKey ? -1 : 1) + focusable.length) % focusable.length]?.focus();
+root.addEventListener('compositionstart', event => editorEvent(event.target, value('CompositionChanged', { composing: bool(true) })));
+root.addEventListener('compositionend', event => editorEvent(event.target, value('CompositionChanged', { composing: bool(false) })));
+root.addEventListener('keydown', event => {
+  if (event.key === 'Enter' && event.target.hasAttribute('data-native-editor-key')) {
+    if (!event.isComposing && !event.shiftKey && !event.altKey) event.preventDefault();
+    editorEvent(event.target, value('Enter', { shift: bool(event.shiftKey), alt: bool(event.altKey), modified: bool(event.ctrlKey || event.metaKey) }));
   }
 });
-document.addEventListener('pointerdown', event => {
-  for (const popup of document.querySelectorAll('.compose-mode[open], .form-options[open]')) if (!popup.contains(event.target)) popup.open = false;
+root.addEventListener('select', event => {
+  const node = event.target;
+  if (typeof node.selectionStart === 'number') editorEvent(node, value('SelectionChanged', { selection: value('Selection', {
+    start: BigInt(node.selectionStart), end: BigInt(node.selectionEnd), direction: node.selectionDirection ?? 'none',
+  }) }));
+}, true);
+let layoutFrame = null;
+function observeReadingLayout() {
+  if (layoutFrame !== null) return;
+  layoutFrame = requestAnimationFrame(() => {
+    layoutFrame = null;
+    for (const surface of root.querySelectorAll('[data-reading-scroll]')) {
+      const dock = root.querySelector(`[data-reading-dock][data-reading-task="${surface.dataset.readingTask}"]`);
+      const signature = `${dock?.getBoundingClientRect().height ?? 0}:${surface.clientHeight}`;
+      if (surface.dataset.observedLayout === signature) continue;
+      surface.dataset.observedLayout = signature;
+      readingInput(surface, value('LayoutChanged', { composer_height: dock?.getBoundingClientRect().height ?? 0, viewport_height: surface.clientHeight }));
+    }
+  });
+}
+const resizeObserver = new ResizeObserver(observeReadingLayout);
+const observed = new WeakSet();
+new MutationObserver(() => {
+  for (const node of root.querySelectorAll('[data-reading-scroll],[data-reading-content],[data-reading-dock]')) if (!observed.has(node)) { observed.add(node); resizeObserver.observe(node); }
+  observeReadingLayout();
+}).observe(root, { childList: true, subtree: true });
+function observeUserScroll(event) {
+  const surface = event.target.closest('[data-reading-scroll]');
+  if (surface) requestAnimationFrame(() => {
+    const observed = anchor(surface);
+    if (observed) readingInput(surface, value('ReadHistory', { anchor: observed }));
+  });
+}
+root.addEventListener('wheel', observeUserScroll, { passive: true });
+root.addEventListener('touchmove', observeUserScroll, { passive: true });
+root.addEventListener('keydown', event => {
+  if (['PageUp', 'PageDown', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key) && !event.target.matches('input,textarea,select')) observeUserScroll(event);
 });
-window.addEventListener('pagehide', () => { connection?.abort(); streams.clear(); surface?.dispose(); });
-window.addEventListener('pageshow', event => { if (event.persisted) connect().catch(error => report(error.message)); });
-connect().catch(error => report(error.message));
+for (const node of root.querySelectorAll('[data-reading-scroll],[data-reading-content],[data-reading-dock]')) { observed.add(node); resizeObserver.observe(node); }
+observeReadingLayout();

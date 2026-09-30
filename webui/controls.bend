@@ -595,6 +595,7 @@ def widget_for(+entry: Forms.Entry, field: Forms.Field, value: Forms.Observed) -
   match entry field:
     case Forms.DisplayOnly{} _: PlainValue{}
     case Forms.Multiline{} Forms.MessageText{}: MessageInput{}
+    case _ Forms.NetworkAccess{}: ToggleInput{}
     case _ _: value_widget(value, entry)
 
 def label_placement(widget: Widget) -> LabelPlacement:

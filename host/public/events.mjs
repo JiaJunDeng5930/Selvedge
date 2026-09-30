@@ -20,12 +20,3 @@ export class EventFrames {
     if (this.pending.length > this.limit) throw new RangeError('Event frame is too large');
   }
 }
-
-export function acknowledgeDrafts(drafts, formKey, submitted, retainedFields = []) {
-  for (const [name, value] of Object.entries(submitted ?? {})) {
-    const key = `${formKey}/${name}`;
-    // Input typed while the request was in flight belongs to the next message.
-    if (retainedFields.includes(name)) { if (!drafts.has(key)) drafts.set(key, value); }
-    else if (drafts.get(key) === value) drafts.delete(key);
-  }
-}

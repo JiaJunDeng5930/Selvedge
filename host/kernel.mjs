@@ -1,80 +1,48 @@
-import { spawn } from 'node:child_process';
+import { Worker } from 'node:worker_threads';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
-import { parseJson, encodeFrame } from './codec.mjs';
+import { encodeFrame, parseJson } from './codec.mjs';
 
-const defaultBinary = fileURLToPath(new URL('../.build/selvedge-kernel', import.meta.url));
+const defaultModule = fileURLToPath(new URL('../.build/kernel-model.mjs', import.meta.url));
 
-/** One serialized conversation with the native, state-owning Bend process. */
+/** One serialized conversation with the compiled pure Bend worker. */
 export class Kernel {
-  #process;
+  #worker;
   #tail = Promise.resolve();
   #pending;
   #failure;
-  #output = [];
-  #outputBytes = 0;
-  #stderr = '';
   #closing = false;
 
-  constructor({ binary = defaultBinary, timeout = 30_000 } = {}) {
+  constructor({ module = defaultModule, timeout = 30_000 } = {}) {
     this.timeout = timeout;
-    // Bootstrap is deliberately small; describe supplies the domain's actual bound.
     this.maximum = 128 * 1024;
-    this.#process = spawn(binary, [], { stdio: ['pipe', 'pipe', 'pipe'] });
-    this.#process.stdout.on('data', chunk => this.#read(chunk));
-    this.#process.stderr.on('data', chunk => { this.#stderr = (this.#stderr + chunk.toString()).slice(-8192); });
-    this.#process.on('error', error => this.#fail(error));
-    this.#process.stdin.on('error', error => this.#fail(error));
-    this.exited = new Promise(resolve => {
-      this.#process.once('close', (code, signal) => {
-        if (!this.#closing || this.#pending) this.#fail(new Error(`Bend kernel exited (${signal ?? code}): ${this.#stderr.trim()}`));
-        resolve({ code, signal });
-      });
-    });
-  }
-
-  async initialize() {
-    const { value } = await this.request({ kind: 'command', command: { op: 'describe' } });
-    if (!value.reply?.ok || !Number.isInteger(value.reply.result?.limits?.frame_bytes)) {
-      throw new Error('Kernel did not provide its boundary contract');
-    }
-    this.description = value.reply.result;
-    this.maximum = this.description.limits.frame_bytes;
-    return this.description;
-  }
-
-  #read(chunk) {
-    let offset = 0;
-    while (offset < chunk.length) {
-      const newline = chunk.indexOf(10, offset);
-      const end = newline < 0 ? chunk.length : newline;
-      const piece = chunk.subarray(offset, end);
-      this.#output.push(piece);
-      this.#outputBytes += piece.length;
-      if (this.#outputBytes > this.maximum) {
-        this.#fail(new Error('Kernel output exceeds its frame limit'));
-        return;
-      }
-      if (newline < 0) return;
-      const text = Buffer.concat(this.#output, this.#outputBytes).toString('utf8');
-      this.#output = [];
-      this.#outputBytes = 0;
+    this.#worker = new Worker(new URL('./kernel-worker.mjs', import.meta.url), { workerData: { module } });
+    this.#worker.on('message', message => {
+      if (message.error) { this.#fail(new Error(message.error)); return; }
       const pending = this.#pending;
       if (!pending) { this.#fail(new Error('Unexpected kernel output')); return; }
       this.#pending = undefined;
       clearTimeout(pending.timer);
-      try {
-        const value = parseJson(text);
-        if (typeof value.durable !== 'boolean' || typeof value.reply?.ok !== 'boolean' || !Array.isArray(value.effects)) {
-          throw new Error('Malformed kernel decision');
-        }
-        pending.resolve({ value, text });
-      } catch (error) {
-        pending.reject(error);
-        this.#fail(error);
-      }
-      offset = newline + 1;
+      try { pending.resolve({ ...message, value: parseJson(message.text) }); }
+      catch (error) { pending.reject(error); this.#fail(error); }
+    });
+    this.#worker.on('error', error => this.#fail(error));
+    this.exited = new Promise(resolve => this.#worker.once('exit', code => {
+      if (!this.#closing || this.#pending) this.#fail(new Error(`Bend worker exited (${code})`));
+      resolve({ code, signal: null });
+    }));
+  }
+
+  async initialize() {
+    const { value, program } = await this.request({ kind: 'command', command: { op: 'describe' } });
+    if (!value.reply?.ok || !Number.isInteger(value.reply.result?.limits?.frame_bytes)) {
+      this.abort(new Error('Kernel did not provide its boundary contract'));
+      throw new Error('Kernel did not provide its boundary contract');
     }
+    this.initialProgram = program;
+    this.description = value.reply.result;
+    this.maximum = this.description.limits.frame_bytes;
+    return this.description;
   }
 
   #fail(error) {
@@ -83,7 +51,7 @@ export class Kernel {
     const pending = this.#pending;
     this.#pending = undefined;
     if (pending) { clearTimeout(pending.timer); pending.reject(error); }
-    this.#process.kill('SIGKILL');
+    void this.#worker.terminate();
   }
 
   request(input) {
@@ -94,7 +62,8 @@ export class Kernel {
       return new Promise((resolve, reject) => {
         const timer = setTimeout(() => this.#fail(new Error('Kernel transition timed out')), this.timeout);
         this.#pending = { resolve, reject, timer };
-        this.#process.stdin.write(frame, error => { if (error) this.#fail(error); });
+        try { this.#worker.postMessage({ frame, maximum: this.maximum }); }
+        catch (error) { this.#fail(error); }
       });
     });
     this.#tail = result.catch(() => {});
@@ -107,11 +76,8 @@ export class Kernel {
     if (this.#closing) return this.exited;
     this.#closing = true;
     await this.#tail;
-    this.#process.stdin.end();
-    const timeout = setTimeout(() => this.#process.kill('SIGKILL'), 2000);
-    const result = await this.exited;
-    clearTimeout(timeout);
-    return result;
+    await this.#worker.terminate();
+    return this.exited;
   }
 }
 

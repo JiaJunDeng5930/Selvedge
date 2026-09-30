@@ -15,6 +15,7 @@ import ../bendlib/association-map.bend as Finite
 import ../bendlib/board-state.bend as Board
 import ../bendlib/tasks.bend as Tasks
 import ../bendlib/json.bend as J
+import ../bendlib/command-codec.bend as CommandCodec
 import ./user-context.bend as Context
 import ./user-input.bend as U
 
@@ -45,7 +46,13 @@ type NavigationIntent is Data:
 type Application is Data:
   Application{program: M.World(), session: Session}
 
+type Completion is Data:
+  DirectCompletion{}
+  DraftCompletion{draft: U.Draft}
+  ConfirmationCompletion{command: M.Command, trigger: String, destination: U.Route}
+
 type Effect is Data:
+  RequestCommand{command: M.Command, completion: Completion}
   ContentEffect{identity: Content.Identity, effect: Content.Effect}
   ObserveDirectories{ticket: Nat, entered: D.Workspace}
   Attend{target: String}
@@ -59,6 +66,8 @@ type Input is Data:
   PreviewObserved{observation: Live.Observation}
   UserInput{input: U.Input}
   RuntimeInput{input: M.Input}
+  ProgramObserved{program: M.World()}
+  CommandCompleted{program: M.World(), reply: J.Json, completion: Completion}
   DirectoriesObserved{ticket: Nat, result: Result<&2, &2, String, Context.DirectoryObservation>}
   ClockObserved{now: U32}
 
@@ -496,9 +505,16 @@ def native_result(decision: M.Decision(), session: Session, submitted: Maybe<&2,
   C.Decision{+program, +result, effects} = decision
   native_session(submitted, program, result, effects, retain_previews(session, program), durable)
 
-def execute(+command: M.Command, application: Application, submitted: Maybe<&2, U.Draft>) -> Decision:
-  Application{program, session} = application
-  native_result(Program.transition(M.UserCommand{command}, program), session, submitted, M.durable(M.UserCommand{command}))
+def submission_completion(submitted: Maybe<&2, U.Draft>) -> Completion:
+  match submitted:
+    case None{}: DirectCompletion{}
+    case Some{draft}: DraftCompletion{draft}
+
+def request_command(command: M.Command, completion: Completion, application: Application) -> Decision:
+  Decision{application, D.success(J.Null{}), Nil{}, [RequestCommand{command, completion}], False{}}
+
+def execute(command: M.Command, application: Application, submitted: Maybe<&2, U.Draft>) -> Decision:
+  request_command(command, submission_completion(submitted), application)
 
 def execute_direct(command: Maybe<&2, M.Command>, application: Application) -> Decision:
   match command:
@@ -594,13 +610,38 @@ def confirmation_outcome(ok: Bool, destination: U.Route, application: Applicatio
     case True{}: navigate(destination, application)
     case False{}: unchanged(application)
 
-def finish_confirmation(result: Decision, destination: U.Route) -> Decision:
-  Decision{application, +reply, runtime, interaction, durable} = result
-  with_native(confirmation_outcome(J.boolean(J.get(reply, "ok")), destination, application), reply, runtime, durable)
+def confirmation_owned(layers: +List<Layer>, +command: M.Command, +trigger: String) -> Bool:
+  match layers:
+    case Con{Layer{U.Confirm{current, title, destination}, current_trigger, target, query}, rest}:
+      String.eq(current_trigger, trigger) && J.same(CommandCodec.command_json(current), CommandCodec.command_json(command))
+    case _: False{}
+
+def complete_confirmation(owned: Bool, +result: J.Json, destination: U.Route, application: Application) -> Decision:
+  match owned:
+    case False{}: reply(application, result)
+    case True{}: with_native(confirmation_outcome(J.boolean(J.get(result, "ok")), destination, application), result, Nil{}, False{})
+
+def observe_program(+program: M.World(), application: Application) -> Decision:
+  Application{previous, session} = application
+  unchanged(Application{program, retain_previews(session, program)})
+
+def complete_command(+program: M.World(), result: J.Json, completion: Completion, application: Application) -> Decision:
+  match completion:
+    case DirectCompletion{}:
+      Application{previous, session} = application
+      native_session(None{}, program, result, Nil{}, retain_previews(session, program), False{})
+    case DraftCompletion{draft}:
+      Application{previous, session} = application
+      native_session(Some{draft}, program, result, Nil{}, retain_previews(session, program), False{})
+    case ConfirmationCompletion{command, trigger, destination}:
+      Application{previous, session} = application
+      Session{route, drafts, readers, +layers, attention, navigation, filter, now, next, pending, previews, code_blocks} = session
+      complete_confirmation(confirmation_owned(layers, command, trigger), result, destination,
+        Application{program, retain_previews(session, program)})
 
 def confirm(layers: +List<Layer>, application: Application) -> Decision:
   match layers:
-    case Con{Layer{U.Confirm{command, title, destination}, trigger, target, query}, rest}: finish_confirmation(execute(command, application, None{}), destination)
+    case Con{Layer{U.Confirm{+command, title, destination}, trigger, target, query}, rest}: request_command(command, ConfirmationCompletion{command, trigger, destination}, application)
     case _: refuse(application, "No confirmation is open")
 
 def activate_selected(action: U.Action, +application: Application) -> Decision:
@@ -722,6 +763,8 @@ def step(input: Input, application: Application) -> Decision:
     case RuntimeInput{+input}:
       Application{program, session} = application
       native_result(Program.transition(input, program), session, None{}, M.durable(input))
+    case ProgramObserved{program}: observe_program(program, application)
+    case CommandCompleted{program, result, completion}: complete_command(program, result, completion, application)
     case DirectoriesObserved{ticket, result}: observed(ticket, result, application)
     case ClockObserved{now}:
       Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, previous, next, pending, previews, code_blocks}} = application

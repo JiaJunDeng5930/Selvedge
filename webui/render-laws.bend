@@ -117,17 +117,24 @@ def clear_bounded_dialog(key: String, found: Maybe<&2, Rendered.Element>, viewpo
     case Some{Rendered.Element{observed_key, +visible, enabled, tab, keyboard, scroll, +bounds, hit}}:
       clear_issue_positive(visible && Geometry.contains(viewport, bounds), Rendered.EscapedDialog{key})
 
+def clear_reachable_toolbar(key: String, found: Maybe<&2, Rendered.Element>) ->
+  {clear(Rendered.reachable_toolbar(key, found)) == Spec.reachable_toolbar(found) : Bool}:
+  match found:
+    case None{}: {==}
+    case Some{Rendered.Element{observed_key, +visible, enabled, tab, keyboard, +scroll, bounds, hit}}:
+      clear_issue_positive(visible || scroll, Rendered.EscapedDialog{key})
+
 def clear_region_geometry(role: UI.Role, key: String, found: Maybe<&2, Rendered.Element>, viewport: Geometry.Rect) ->
   {clear(Rendered.region_geometry(role, key, found, viewport)) == Spec.region_geometry_valid(role, found, viewport) : Bool}:
   match role:
-    case UI.Navigation{}: {==}
-    case UI.Main{}: {==}
+    case UI.Navigation{}: clear_bounded_dialog(key, found, viewport)
+    case UI.Main{}: clear_bounded_dialog(key, found, viewport)
     case UI.Heading{}: {==}
     case UI.Timeline{}: {==}
     case UI.Activity{}: {==}
-    case UI.Composer{}: {==}
+    case UI.Composer{}: clear_bounded_dialog(key, found, viewport)
     case UI.Approval{}: {==}
-    case UI.Toolbar{}: {==}
+    case UI.Toolbar{}: clear_reachable_toolbar(key, found)
     case UI.CodeBlock{}: {==}
     case UI.ApprovalQueue{}: clear_bounded_dialog(key, found, viewport)
     case UI.Section{}: {==}

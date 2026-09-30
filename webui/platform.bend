@@ -40,7 +40,7 @@ type Decision is Data:
   Decision{product: Core.Decision, platform: Platform, effects: +List<Effect>}
 
 type Scene is Data:
-  Scene{editors: +List<Editor.Editor>, focused: String, scope: Focus.Scope, reduced_motion: Bool}
+  Scene{editors: +List<Editor.Editor>, focused: String, focus_ticket: Nat, scope: Focus.Scope, reduced_motion: Bool}
 
 def initial(program: M.World()) -> State:
   State{Core.initial(program), Platform{Nil{}, Nil{}, "", 0n, False{}, View.Capacity{False{}, False{}}, Focus.Document{}}}
@@ -250,7 +250,7 @@ def next(decision: Decision) -> State:
 
 def observe(state: State) -> Scene:
   State{core, Platform{readers, editors, focused, ticket, reduced, capacity, scope}} = state
-  Scene{editors, focused, scope, reduced}
+  Scene{editors, focused, ticket, scope, reduced}
 
 
 

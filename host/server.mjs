@@ -2,6 +2,7 @@ import http from 'node:http';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { readFile, unlink } from 'node:fs/promises';
 import path from 'node:path';
+import { encodeBendValue } from './public/bend-value.mjs';
 import { Service } from './service.mjs';
 import { stringifyJson, parseJson } from './codec.mjs';
 import { readText } from './network.mjs';
@@ -12,7 +13,7 @@ const assets = new Map([
   ['/', ['index.html', 'text/html; charset=utf-8']],
   ['/app.mjs', ['app.mjs', 'text/javascript; charset=utf-8']],
   ['/renderer.mjs', ['renderer.mjs', 'text/javascript; charset=utf-8']],
-  ...['widgets.mjs', 'dom.mjs', 'desktop.mjs', 'conversation.mjs', 'board.mjs', 'collection-fields.mjs', 'picker.mjs', 'streams.mjs', 'events.mjs', 'markdown.mjs', 'markdown-worker.mjs',
+  ...['bend-value.mjs', 'widgets.mjs', 'dom.mjs', 'desktop.mjs', 'conversation.mjs', 'board.mjs', 'collection-fields.mjs', 'picker.mjs', 'streams.mjs', 'events.mjs', 'markdown.mjs', 'markdown-worker.mjs',
     'vendor/desktop-ui.mjs', 'vendor/desktop-scroll.mjs', 'vendor/streaming-markdown.mjs', 'vendor/highlight.mjs', 'vendor/katex.mjs']
     .map(file => [`/${file}`, [file, 'text/javascript; charset=utf-8']]),
   ['/style.css', ['style.css', 'text/css; charset=utf-8']],
@@ -99,14 +100,21 @@ export async function startServer(options) {
       const body = parseJson(await readText(request, 1024));
       if (!body || Array.isArray(body) || typeof body !== 'object' || Object.keys(body).length) throw new TypeError('Account refresh takes an empty object');
       json(response, 200, { ok: true, result: await service.refreshAccounts() });
-    } else if (request.method === 'POST' && url.pathname === '/api/ui') {
+    } else if (request.method === 'GET' && url.pathname === '/api/browser/state') {
+      const snapshot = service.browserSnapshot();
+      json(response, 200, { ...snapshot, program: encodeBendValue(snapshot.program) });
+    } else if (request.method === 'POST' && ['/api/browser/command', '/api/browser/observation'].includes(url.pathname)) {
       if (!request.headers['content-type']?.toLowerCase().startsWith('application/json')) { json(response, 415, { ok: false, error: { code: 'content_type', message: 'Send application/json' } }); return; }
       const body = parseJson(await readText(request, service.limits.frame_bytes));
-      if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).some(key => !['state', 'event'].includes(key))) {
-        throw new TypeError('A presentation request contains only state and event');
+      if (url.pathname === '/api/browser/observation') {
+        json(response, 200, await service.browserObservation(body));
+      } else {
+        if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).length !== 1 || !Object.hasOwn(body, 'command')) {
+          throw new TypeError('A browser command contains only command');
+        }
+        const result = await service.browserCommand(body.command);
+        json(response, result.reply.ok ? 200 : 400, { ...result, program: encodeBendValue(result.program) });
       }
-      const result = await service.presentation(body);
-      json(response, result.reply.ok ? 200 : 400, { sequence: result.sequence, ...result.reply });
     } else if (request.method === 'POST' && url.pathname === '/api/commands') {
       if (!request.headers['content-type']?.toLowerCase().startsWith('application/json')) { json(response, 415, { ok: false, error: { code: 'content_type', message: 'Send application/json' } }); return; }
       const command = parseJson(await readText(request, service.limits.frame_bytes));

@@ -115,8 +115,18 @@ def node_controls(is_control: Bool, meaning: UI.Meaning, key: String, found: May
     case False{}: Nil{}
     case True{}: control_geometry(required_enabled(meaning), key, found, persistent, viewport)
 
+def reachable_toolbar(key: String, found: Maybe<&2, Element>) -> +List<Violation>:
+  match found:
+    case None{}: [MissingElement{key}]
+    case Some{Element{id, visible, enabled, tab, keyboard, scroll, bounds, hit}}:
+      issue(Bool.not(visible || scroll), EscapedDialog{key})
+
 def region_geometry(role: UI.Role, key: String, found: Maybe<&2, Element>, viewport: Geometry.Rect) -> +List<Violation>:
   match role:
+    case UI.Navigation{}: bounded_dialog(key, found, viewport)
+    case UI.Main{}: bounded_dialog(key, found, viewport)
+    case UI.Composer{}: bounded_dialog(key, found, viewport)
+    case UI.Toolbar{}: reachable_toolbar(key, found)
     case UI.ApprovalQueue{}: bounded_dialog(key, found, viewport)
     case other: dialog_geometry(other, key, found, viewport)
 

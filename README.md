@@ -145,23 +145,22 @@ the operating-system boundary; [bendlib/README.md](bendlib/README.md) locates su
 [The exploration record](docs/bend2-exploration.md) explains the findings and their
 limits. Architectural reasons live in [docs/adr](docs/adr).
 
-[UI.bend](UI.bend) is the platform-independent interaction entry. It defines a
-typed presentation tree, form bindings, navigation events, conversation visibility
-and action availability against the live command resolver. The Web client renders
-that tree through `/api/ui`; it has no task snapshot, lifecycle table or provider
-message interpreter. It retains an opaque navigation cursor, unsubmitted drafts
-and local display state, not a second task model. Presentation is generated after
-scheduling and admitted
-with the same atomic decision. SwiftUI, Windows UI and TUI adapters are not required
-to reinterpret the domain and are not implemented in this checkout.
+[UI.bend](UI.bend) is the platform-independent interaction entry. Its typed
+presentation, form bindings, navigation and action availability are evaluated
+against the command resolver. [BROWSER.bend](BROWSER.bend) compiles these production
+functions into JavaScript that runs directly in the browser. Bend owns local UI
+state, layout and document construction; JavaScript interprets DOM, network and
+physical capabilities. Authenticated public commands reach the authoritative
+kernel, and the browser observes world snapshots only after journal commit.
+Drafts settle against the actual command completion and their revision.
 
-The native `Thread`, `Composer` and `Activity` vocabulary separates conversation
-content, execution feedback, audit details and submission intent. The production
-surface carries proofs for ordered speech, audit data, result values/errors and
-Send/Steer draft ownership. The Web adapter directly uses the installed desktop's
-menu components, scroll callbacks and theme rules, with a reproducible source
-import rather than a second implementation of those interactions. See
-[ADR 0025](docs/adr/0025-native-conversation-and-desktop-source.md).
+The `Thread`, `Composer` and `Activity` vocabulary separates conversation content,
+execution feedback, audit details and submission intent. The production surface
+carries proofs for ordered speech, audit data, result values/errors and Send/Steer
+draft ownership. The browser uses the pinned desktop theme tokens; its product
+interaction and document structure come from Bend. See
+[the browser adapter](host/public/README.md) and
+[ADR 0026](docs/adr/0026-browser-executed-bend-ui.md).
 
 [HOOKS.bend](HOOKS.bend) is the unified extension entry. All accepted model tools,
 including internal task operations, pass through its ordered before-tool protocol.
@@ -182,12 +181,18 @@ Optional adaptive effort selection, its independent Jev credentials and the
 login-generated Astra Auto profile are described in
 [adaptive reasoning](docs/adaptive-reasoning.md).
 
-Install Node.js 26 or later and a C compiler on macOS or Linux, then run:
+Install Node.js 26 or later on macOS or Linux, then run:
 
 ```bash
 bash scripts/bootstrap.sh
 npm start
 ```
+
+The default build checks proofs and compiles two libraries with Bend 2.0.27's
+official `js_lib` backend: `KERNEL.bend` to `.build/kernel-model.mjs`, executed
+in a Node Worker, and `BROWSER.bend` to
+`host/public/generated/browser-model.mjs`, executed by the browser.
+`npm run build:native` optionally builds `MAIN.bend` and requires a C compiler.
 
 Bootstrap uses the Bend version in `bend-version`. When necessary, it downloads
 the corresponding release into this checkout's `.build/bend` and verifies the
@@ -392,8 +397,9 @@ scheduler is fair, or that an operating system or remote service obeys the model
 Host-owned atomic writes do not make arbitrary Bash edits transactional.
 Concurrent commands and editors can change the same files; any required locking,
 revision checks or atomic replacement belong in the project's commands or scripts.
-The Bend checker/compiler, native transport, Node, SQLite, OS, and remote protocols
-remain explicit trust boundaries. Local integration tests exercise those paths;
+The Bend checker/compiler, generated JavaScript, Node Worker, browser DOM,
+SQLite, OS and remote protocols remain explicit external boundaries. The optional
+native transport is also outside the proof boundary. Local integration tests exercise those paths;
 live provider acceptance and physical history sharing are not claimed.
 
 ## Develop and verify
@@ -401,22 +407,19 @@ live provider acceptance and physical history sharing are not claimed.
 ```bash
 npm run check
 npm test
-npm run test:browser
 npm run index:check
 npm run bench
 ```
 
-`check` verifies the pinned compiler, every proof obligation, and host/script
-syntax. Tests run the native kernel, real loopback HTTP/SSE services, SQLite,
-Bash, workspace isolation, approval commit-before-execution, cancellation and
-restart, an actual coding/test loop, compaction, stdio MCP, credential-flow
-fixtures, and negative proof mutations. The browser check uses an isolated Chrome
-or Chromium profile and loopback services, including real approve/deny clicks on
-desktop and narrow screens. Tests require a working platform sandbox; do not
-disable isolation to run them inside another restrictive sandbox. The
-benchmark measures committed transitions and replay on reproducible task trees;
-it imposes no machine-dependent CI threshold. CI is configured to run checks and
-tests on macOS and Linux. `just` provides aliases for these commands.
+`check` verifies the pinned compiler, proof obligations and host/script syntax.
+The default build also produces the kernel and browser JavaScript libraries.
+The remaining tests cover compiler and external component boundaries, integration
+flows and negative proof mutations; their evidence responsibilities are recorded
+in [tests-bend/README.md](tests-bend/README.md). Test commands listed here do not
+claim that a particular checkout has passed them. Tests that exercise workspace
+isolation require a working platform sandbox. The benchmark measures committed
+transitions and replay without a machine-dependent CI threshold. `just` provides
+aliases for the development commands.
 
 After adding or deleting files, stage the changed paths, run `npm run index`, and
 stage `AGENTS.md`. The index contains only Git-tracked files. When `pre-commit` is

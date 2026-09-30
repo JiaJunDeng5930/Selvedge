@@ -13,8 +13,8 @@ def conversation_recipe(composer: Composition.Composer, decisions: Composition.D
 def expected_main_frame(+recipe: Composition.Recipe, +main: Design.Box) -> Design.MainFrame:
   match recipe:
     case Composition.Recipe{measure, page_heading, Composition.CenteredCreation{}, composer, decisions, latest}:
-      Design.CreationFrame{main, Layout.measure_band(measure, main),
-        Layout.centered_input(composer, main)}
+      Design.CreationFrame{Layout.heading_box(main), Layout.body_box(main), Layout.measure_band(measure, Layout.body_box(main)),
+        Layout.centered_input(composer, Layout.body_box(main))}
     case Composition.Recipe{measure, page_heading, Composition.ChronologicalReading{}, composer, decisions, latest}:
       heading = Layout.heading_box(main)
       +body_viewport = Layout.body_box(main)
@@ -39,7 +39,7 @@ def expected_main_frame(+recipe: Composition.Recipe, +main: Design.Box) -> Desig
       Design.BoardFrame{heading, body_viewport, Layout.board_column_width(body_viewport),
         12n, Layout.inline_gutter(Layout.box_width(body_viewport))}
     case Composition.Recipe{measure, page_heading, Composition.UnavailableNotice{}, composer, decisions, latest}:
-      Design.UnavailableFrame{main, Layout.measure_band(measure, main)}
+      Design.UnavailableFrame{Layout.heading_box(main), Layout.body_box(main), Layout.measure_band(measure, Layout.body_box(main))}
 
 def explicit_main_frame(+recipe: Composition.Recipe, +main: Design.Box) ->
   {Layout.main_frame(recipe, main) == expected_main_frame(recipe, main) : Design.MainFrame}:

@@ -1,6 +1,7 @@
 import Base
 import ./MODEL.bend as M
 import ./BOARD.bend as B
+import ./bendlib/json.bend as J
 import ./core/SYSTEM.bend as Core
 import ./core/user-experience.bend as E
 import ./core/user-input.bend as U
@@ -15,6 +16,8 @@ import ./core/interface.bend as Interface
 # current product element; runtime receipts cannot impersonate element input.
 type Input is Data:
   Engine{input: M.Input}
+  ProgramObserved{program: M.World()}
+  CommandCompleted{program: M.World(), reply: J.Json, completion: E.Completion}
   Element{capacity: View.Capacity, key: String, gesture: Interface.Gesture}
   SubmitComposer{capacity: View.Capacity, editor: U.Editor}
   Reading{task: Nat, generation: Nat, intent: U.ReadingIntent}
@@ -37,6 +40,8 @@ def observe(capacity: View.Capacity, state: Core.State) -> Interface.Surface:
 
 def step(input: Input, state: Core.State) -> Core.Decision:
   match input:
+    case ProgramObserved{program}: Core.step(Core.ApplicationInput{E.ProgramObserved{program}}, state)
+    case CommandCompleted{program, result, completion}: Core.step(Core.ApplicationInput{E.CommandCompleted{program, result, completion}}, state)
     case Engine{input}: Core.step(Core.ApplicationInput{E.RuntimeInput{input}}, state)
     case Element{capacity, key, gesture}: Interface.interact(capacity, key, gesture, state)
     case SubmitComposer{capacity, editor}: Interface.submit_composer(capacity, editor, state)
