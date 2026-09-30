@@ -4,6 +4,7 @@ import ../core/interface.bend as UI
 import ../core/SYSTEM.bend as Core
 import ../core/form-fields.bend as Forms
 import ./design.bend as Design
+import ./controls.bend as Controls
 
 # Codex Desktop 26.917.71314 supplies the semantic theme tokens, 4px spacing,
 # compact 12px text, and 20px/44px composer line/minimum. Selvedge uses 13/20
@@ -211,16 +212,61 @@ def style_in_context(role: UI.Role, meaning: UI.Meaning,
     case UI.SelectedButton{} True{}: navigation_row(style(role, meaning))
     case _ _: style(role, meaning)
 
-def nodes_in(values: +List<UI.Node>, +inside_navigation: Bool) -> +List<Design.Appearance>:
+def navigation_context(context: Controls.Context) -> Bool:
+  match context:
+    case Controls.Context{Controls.NavigationArea{}, selection, code, appearance, access, open, layers}: True{}
+    case _: False{}
+
+def rounded_chrome(value: Design.Chrome, radius: Nat) -> Design.Chrome:
+  Design.Chrome{foreground, background, border, width, old_radius, shadow} = value
+  Design.Chrome{foreground, background, border, width, radius, shadow}
+
+def rounded_states(value: Design.ControlStates, +radius: Nat) -> Design.ControlStates:
+  match value:
+    case Design.Passive{}: Design.Passive{}
+    case Design.Interactive{hover, pressed, opacity, ring, width, offset}:
+      Design.Interactive{rounded_chrome(hover, radius), rounded_chrome(pressed, radius),
+        opacity, ring, width, offset}
+
+def face_padding(face: Controls.Face) -> Nat:
+  match face:
+    case Controls.IconFace{icon}: 4n
+    case _: 8n
+
+def action_style(value: Design.Style, face: Controls.Face, geometry: Controls.Geometry) -> Design.Style:
+  Design.Style{text, style_chrome, alignment, flow, overflow, padding_inline,
+    padding_block, gap, old_height, maximum_width_percent, states} = value
+  Controls.Geometry{minimum_width, minimum_height, icon_size, +radius, leading_slot} = geometry
+  fields(text, rounded_chrome(style_chrome, radius), alignment, Design.RowFlow{},
+    overflow, face_padding(face), 4n, gap, minimum_height, maximum_width_percent,
+    rounded_states(states, radius))
+
+def selection_style(value: Design.Style, behavior: Controls.Behavior) -> Design.Style:
+  match behavior:
+    case Controls.Radio{True{}}: selected_button()
+    case Controls.Toggle{True{}}: selected_button()
+    case _: value
+
+def feedback_style(value: Design.Style, feedback: Controls.Feedback) -> Design.Style:
+  match feedback:
+    case Controls.Failed{message}: destructive_button()
+    case _: value
+
+def control_style(value: Design.Style, representation: Controls.Representation) -> Design.Style:
+  match representation:
+    case Controls.Action{input, availability, name, face, behavior, geometry, placement, help, feedback}:
+      action_style(feedback_style(selection_style(value, behavior), feedback), face, geometry)
+    case _: value
+
+def nodes_at(values: +List<UI.Node>, +context: Controls.Context) -> +List<Design.Appearance>:
   match values:
     case Nil{}: Nil{}
-    case Con{UI.Node{+key, semantic, label, +role, +meaning, +children}, +rest}:
-      +navigation = inside_navigation || String.eq(semantic, "navigation")
-      Con{Design.Appearance{key, style_in_context(role, meaning, navigation),
-        nodes_in(children, navigation)}, nodes_in(rest, inside_navigation)}
-
-def nodes(values: +List<UI.Node>) -> +List<Design.Appearance>:
-  nodes_in(values, False{})
+    case Con{UI.Node{+key, semantic, label, +role, +meaning, children}, rest}:
+      +local = Controls.enter(key, role, meaning, context)
+      +control = Controls.represent(key, meaning, label, role, local)
+      Con{Design.Appearance{key,
+        control_style(style_in_context(role, meaning, navigation_context(local)), control),
+        control, nodes_at(children, local)}, nodes_at(rest, context)}
 
 def theme(appearance: Services.Appearance, system_dark: Bool) -> Design.Theme:
   match appearance system_dark:
@@ -229,10 +275,14 @@ def theme(appearance: Services.Appearance, system_dark: Bool) -> Design.Theme:
     case Services.LightAppearance{} _: Design.Light{}
     case Services.DarkAppearance{} _: Design.Dark{}
 
-def present(surface: UI.Surface, system_dark: Bool) -> Design.Visuals:
-  UI.Surface{content, base, overlays, active_scope} = surface
+def present_fields(content: Core.Scene, base: +List<UI.Node>, overlays: +List<UI.Node>,
+  +context: Controls.Context, system_dark: Bool) -> Design.Visuals:
   Core.Scene{view, settings, transfers, preview, code} = content
   Core.Settings{open, access, credential_entered, appearance, open_action,
     close_action, connect_action} = settings
   Design.Visuals{theme(appearance, system_dark),
-    Design.Rhythm{16n, 24n, 16n, 4n, 29n, 12n}, nodes(base), nodes(overlays)}
+    Design.Rhythm{16n, 24n, 16n, 4n, 29n, 12n}, nodes_at(base, context), nodes_at(overlays, context)}
+
+def present(surface: UI.Surface, system_dark: Bool) -> Design.Visuals:
+  UI.Surface{+content, base, overlays, active_scope} = surface
+  present_fields(content, base, overlays, Controls.initial(content), system_dark)

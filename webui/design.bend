@@ -1,5 +1,6 @@
 import Base
 import ../core/composition.bend as Composition
+import ./controls.bend as Controls
 
 # CSS pixels describe the Web viewport; product composition remains unit-free.
 type Viewport is Data:
@@ -112,7 +113,8 @@ type Style is Data:
     minimum_height: Nat, maximum_width_percent: Nat, states: ControlStates}
 
 type Appearance is Data:
-  Appearance{key: String, style: Style, children: +List<Appearance>}
+  Appearance{key: String, style: Style, control: Controls.Representation,
+    children: +List<Appearance>}
 
 type Rhythm is Data:
   Rhythm{page_inset: Nat, section_gap: Nat, message_gap: Nat, activity_gap: Nat,

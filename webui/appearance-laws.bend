@@ -4,6 +4,7 @@ import ../core/interface.bend as UI
 import ../core/SYSTEM.bend as Core
 import ./design.bend as Design
 import ./appearance.bend as Appearance
+import ./controls.bend as Controls
 
 type Keyed is Data:
   Keyed{key: String, children: +List<Keyed>}
@@ -17,42 +18,34 @@ def source_keys(values: +List<UI.Node>) -> +List<Keyed>:
 def appearance_keys(values: +List<Design.Appearance>) -> +List<Keyed>:
   match values:
     case Nil{}: Nil{}
-    case Con{Design.Appearance{key, style, children}, rest}:
+    case Con{Design.Appearance{key, style, control, children}, rest}:
       Con{Keyed{key, appearance_keys(children)}, appearance_keys(rest)}
 
-def nodes_preserve_keys_in(values: +List<UI.Node>, +parent_navigation: Bool) ->
-  {appearance_keys(Appearance.nodes_in(values, parent_navigation)) == source_keys(values) : +List<Keyed>}:
+def nodes_preserve_keys_at(values: +List<UI.Node>, +context: Controls.Context) ->
+  {appearance_keys(Appearance.nodes_at(values, context)) == source_keys(values) : +List<Keyed>}:
   match values:
     case Nil{}: {==}
     case Con{UI.Node{+key, semantic, label, +role, +meaning, +children}, +rest}:
-      +navigation = parent_navigation || String.eq(semantic, "navigation")
+      +local = Controls.enter(key, role, meaning, context)
       +children_step = Equal.cong(+List<Keyed>, +List<Keyed>,
         (child_keys => Con{Keyed{key, child_keys},
-          appearance_keys(Appearance.nodes_in(rest, parent_navigation))}),
-        appearance_keys(Appearance.nodes_in(children, navigation)), source_keys(children),
-        nodes_preserve_keys_in(children, navigation))
+          appearance_keys(Appearance.nodes_at(rest, context))}),
+        appearance_keys(Appearance.nodes_at(children, local)), source_keys(children),
+        nodes_preserve_keys_at(children, local))
       +rest_step = Equal.cong(+List<Keyed>, +List<Keyed>,
         (rest_keys => Con{Keyed{key, source_keys(children)}, rest_keys}),
-        appearance_keys(Appearance.nodes_in(rest, parent_navigation)), source_keys(rest),
-        nodes_preserve_keys_in(rest, parent_navigation))
+        appearance_keys(Appearance.nodes_at(rest, context)), source_keys(rest),
+        nodes_preserve_keys_at(rest, context))
       +components = Equal.trans(+List<Keyed>,
-        Con{Keyed{key, appearance_keys(Appearance.nodes_in(children, navigation))},
-          appearance_keys(Appearance.nodes_in(rest, parent_navigation))},
-        Con{Keyed{key, source_keys(children)},
-          appearance_keys(Appearance.nodes_in(rest, parent_navigation))},
-        Con{Keyed{key, source_keys(children)}, source_keys(rest)},
-        children_step, rest_step)
+        Con{Keyed{key, appearance_keys(Appearance.nodes_at(children, local))},
+          appearance_keys(Appearance.nodes_at(rest, context))},
+        Con{Keyed{key, source_keys(children)}, appearance_keys(Appearance.nodes_at(rest, context))},
+        Con{Keyed{key, source_keys(children)}, source_keys(rest)}, children_step, rest_step)
       Equal.trans(+List<Keyed>,
-        appearance_keys(Appearance.nodes_in(
-          Con{UI.Node{key, semantic, label, role, meaning, children}, rest}, parent_navigation)),
-        Con{Keyed{key, appearance_keys(Appearance.nodes_in(children, navigation))},
-          appearance_keys(Appearance.nodes_in(rest, parent_navigation))},
-        Con{Keyed{key, source_keys(children)}, source_keys(rest)},
-        {==}, components)
-
-def nodes_preserve_keys(values: +List<UI.Node>) ->
-  {appearance_keys(Appearance.nodes(values)) == source_keys(values) : +List<Keyed>}:
-  nodes_preserve_keys_in(values, False{})
+        appearance_keys(Appearance.nodes_at(Con{UI.Node{key, semantic, label, role, meaning, children}, rest}, context)),
+        Con{Keyed{key, appearance_keys(Appearance.nodes_at(children, local))},
+          appearance_keys(Appearance.nodes_at(rest, context))},
+        Con{Keyed{key, source_keys(children)}, source_keys(rest)}, {==}, components)
 
 def configured_appearance(surface: UI.Surface) -> Services.Appearance:
   UI.Surface{content, base, overlays, active_scope} = surface
@@ -177,8 +170,8 @@ def primary_button_keeps_interaction_states(meaning: UI.Meaning) ->
 
 type Requirements is Type:
   Requirements{
-    nodes_preserve_keys: @+values:+List<UI.Node> ->
-      {appearance_keys(Appearance.nodes(values)) == source_keys(values) : +List<Keyed>},
+    nodes_preserve_keys_at: @+values:+List<UI.Node> -> @+context:Controls.Context ->
+      {appearance_keys(Appearance.nodes_at(values, context)) == source_keys(values) : +List<Keyed>},
     present_uses_configured_appearance: @surface:UI.Surface -> @system_dark:Bool ->
       {presented_theme(surface, system_dark) ==
         Appearance.theme(configured_appearance(surface), system_dark) : Design.Theme},
@@ -237,7 +230,7 @@ type Requirements is Type:
 
 def evidence() -> Requirements:
   Requirements{
-    values => nodes_preserve_keys(values),
+    values => context => nodes_preserve_keys_at(values, context),
     surface => system_dark => present_uses_configured_appearance(surface, system_dark),
     system_dark => light_appearance_wins(system_dark),
     system_dark => dark_appearance_wins(system_dark),
