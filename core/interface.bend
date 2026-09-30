@@ -21,8 +21,14 @@ type Role is Data:
   Navigation{}
   Main{}
   Heading{}
+  PrimaryButton{}
+  DestructiveButton{}
+  SelectedButton{}
+  ComposerActions{}
   Timeline{}
   Activity{}
+  UserMessage{}
+  AssistantMessage{}
   Composer{}
   Approval{}
   Toolbar{}
@@ -78,9 +84,24 @@ type Gesture is Data:
 def region(parent: String, +identity: String, label: String, role: Role, children: +List<Node>) -> Node:
   Node{parent ++ "/" ++ identity, identity, label, role, Region{}, children}
 
+def action_role(prominence: V.Prominence) -> Role:
+  match prominence:
+    case V.Primary{}: PrimaryButton{}
+    case V.Destructive{}: DestructiveButton{}
+    case V.Secondary{}: Button{}
+
 def action(parent: String, control: Core.Control) -> Node:
   Core.Control{+identity, label, prominence, input, availability} = control
-  Node{parent ++ "/" ++ identity, identity, label, Button{}, Activate{input, availability}, Nil{}}
+  Node{parent ++ "/" ++ identity, identity, label, action_role(prominence), Activate{input, availability}, Nil{}}
+
+def replace_role(node: Node, role: Role) -> Node:
+  Node{key, semantic, label, old_role, meaning, children} = node
+  Node{key, semantic, label, role, meaning, children}
+
+def selected_node(selected: Bool, node: Node) -> Node:
+  match selected:
+    case True{}: replace_role(node, SelectedButton{})
+    case False{}: node
 
 def declared(parent: String, declaration: V.ControlDeclaration, state: Core.State) -> Node:
   action(parent, Core.control(state, declaration))
@@ -109,14 +130,14 @@ def task_entries(entries: +List<V.TaskEntry>, +parent: String, +state: Core.Stat
   match entries:
     case Nil{}: Nil{}
     case Con{V.TaskEntry{id, title, status, selected, open}, rest}:
-      declared(parent, open, state) <> task_entries(rest, parent, state)
+      selected_node(selected, declared(parent, open, state)) <> task_entries(rest, parent, state)
 
 def project_entries(entries: +List<V.ProjectEntry>, +parent: String, +state: Core.State) -> +List<Node>:
   match entries:
     case Nil{}: Nil{}
     case Con{V.ProjectEntry{+id, name, workspace, selected, tasks, open, create}, rest}:
       region(parent, "project/" ++ Nat.show(id), name, Section{},
-        declared(parent ++ "/project/" ++ Nat.show(id), open, state) <>
+        selected_node(selected, declared(parent ++ "/project/" ++ Nat.show(id), open, state)) <>
         declared(parent ++ "/project/" ++ Nat.show(id), create, state) <>
         task_entries(tasks, parent ++ "/project/" ++ Nat.show(id), state)) <> project_entries(rest, parent, state)
 
@@ -291,13 +312,59 @@ def editor(view: Maybe<&2, V.EditorScene>, +parent: String, +state: Core.State) 
     case Some{V.EditorScene{identity, revision, groups, structure, submit, feedback, pending}}:
       List.append(&2, Node, sections(structure, identity, parent, 0n, state), [declared(parent, submit, state)])
 
+def composer_choices(footer: +List<V.ControlDeclaration>, +parent: String, +state: Core.State) -> +List<Node>:
+  match footer:
+    case Nil{}: Nil{}
+    case Con{first, rest}:
+      [region(parent, "choices", "Choices", Toolbar{}, controls(first <> rest, parent, state))]
+
+def composer_actions(footer: +List<V.ControlDeclaration>, submit: V.ControlDeclaration, +parent: String, +state: Core.State) -> Node:
+  region(parent, "actions", "Actions", ComposerActions{},
+    List.append(&2, Node, composer_choices(footer, parent, state), [declared(parent, submit, state)]))
+
+def expected_composer_choices(footer: +List<V.ControlDeclaration>, +parent: String, +state: Core.State) -> +List<Node>:
+  match footer:
+    case Nil{}: Nil{}
+    case Con{first, rest}:
+      [Node{parent ++ "/choices", "choices", "Choices", Toolbar{}, Region{}, controls(first <> rest, parent, state)}]
+
+def expected_composer_actions(footer: +List<V.ControlDeclaration>, submit: V.ControlDeclaration, +parent: String, +state: Core.State) -> Node:
+  Node{parent ++ "/actions", "actions", "Actions", ComposerActions{}, Region{},
+    List.append(&2, Node, expected_composer_choices(footer, parent, state), [declared(parent, submit, state)])}
+
+def expected_composer(view: Maybe<&2, V.ComposerScene>, +parent: String, +state: Core.State) -> +List<Node>:
+  match view:
+    case None{}: Nil{}
+    case Some{V.ComposerScene{+identity, revision, message, footer, context, submit, feedback, pending}}:
+      +key = parent ++ "/composer/" ++ U.editor_key(identity)
+      [Node{key, "composer/" ++ U.editor_key(identity), "Message", Composer{}, Region{},
+        field_node(Forms.FieldScene{Forms.MessageText{}, "Message", Forms.Multiline{}}, identity, key, state) <>
+          [expected_composer_actions(footer, submit, key, state)]}]
+
 def composer(view: Maybe<&2, V.ComposerScene>, +parent: String, +state: Core.State) -> +List<Node>:
   match view:
     case None{}: Nil{}
     case Some{V.ComposerScene{+identity, revision, message, footer, context, submit, feedback, pending}}:
+      +composer_key = parent ++ "/composer/" ++ U.editor_key(identity)
       [region(parent, "composer/" ++ U.editor_key(identity), "Message", Composer{},
-        field_node(Forms.FieldScene{Forms.MessageText{}, "Message", Forms.Multiline{}}, identity, parent ++ "/composer/" ++ U.editor_key(identity), state) <>
-          List.append(&2, Node, controls(footer, parent ++ "/composer/" ++ U.editor_key(identity), state), [declared(parent ++ "/composer/" ++ U.editor_key(identity), submit, state)]))]
+        field_node(Forms.FieldScene{Forms.MessageText{}, "Message", Forms.Multiline{}}, identity, composer_key, state) <>
+          [composer_actions(footer, submit, composer_key, state)])]
+
+def composer_tree_present_agreement(+identity: U.Editor, revision: Nat, message: U.Text,
+    footer: +List<V.ControlDeclaration>, context: Maybe<&2, Context.Preview>, submit: V.ControlDeclaration,
+    feedback: U.Feedback, pending: Bool, +parent: String, +state: Core.State)
+  -> {composer(Some{V.ComposerScene{identity, revision, message, footer, context, submit, feedback, pending}}, parent, state) ==
+      expected_composer(Some{V.ComposerScene{identity, revision, message, footer, context, submit, feedback, pending}}, parent, state) : +List<Node>}:
+  match footer:
+    case Nil{}: {==}
+    case Con{first, rest}: {==}
+
+def composer_tree_agreement(view: Maybe<&2, V.ComposerScene>, +parent: String, +state: Core.State)
+  -> {composer(view, parent, state) == expected_composer(view, parent, state) : +List<Node>}:
+  match view:
+    case None{}: {==}
+    case Some{V.ComposerScene{+identity, revision, message, footer, context, submit, feedback, pending}}:
+      composer_tree_present_agreement(identity, revision, message, footer, context, submit, feedback, pending, parent, state)
 
 def approvals(values: +List<Conversation.DecisionRequest>, +parent: String, +state: Core.State) -> +List<Node>:
   match values:
@@ -339,11 +406,16 @@ def code_nodes(values: +List<Code.Scene>, +source: Code.Source, +parent: String)
     case Nil{}: Nil{}
     case Con{Code.Scene{+identity, literal, wrap, copy, enabled, controls}, rest}:
       List.append(&2, Node, code_node(Code.belongs(identity, source), Code.Scene{identity, literal, wrap, copy, enabled, controls}, parent), code_nodes(rest, source, parent))
+def speaker_role(speaker: Conversation.Speaker) -> Role:
+  match speaker:
+    case Conversation.UserSpeech{}: UserMessage{}
+    case Conversation.AssistantSpeech{}: AssistantMessage{}
+
 def groups(values: +List<Conversation.VisibleGroup>, +task: Nat, +parent: String, +state: Core.State) -> +List<Node>:
   match values:
     case Nil{}: Nil{}
     case Con{Conversation.VisibleSpeech{+id, speaker, text, source}, rest}:
-      Node{parent ++ "/message/" ++ Nat.show(id), "message/" ++ Nat.show(id), "Message", Content{}, ReadOnly{text}, code_nodes(Core.code_scenes(application(state)), Code.Message{task, id}, parent ++ "/message/" ++ Nat.show(id))} <> groups(rest, task, parent, state)
+      Node{parent ++ "/message/" ++ Nat.show(id), "message/" ++ Nat.show(id), "Message", speaker_role(speaker), ReadOnly{text}, code_nodes(Core.code_scenes(application(state)), Code.Message{task, id}, parent ++ "/message/" ++ Nat.show(id))} <> groups(rest, task, parent, state)
     case Con{Conversation.VisibleActivity{+id, attention, +expanded, summary, audit, expand, collapse}, rest}:
       region(parent, "activity/" ++ Nat.show(id), summary, Activity{},
         [user_action(parent ++ "/activity/" ++ Nat.show(id), "disclosure", disclosure_label(expanded), disclosure_input(expanded, expand, collapse), True{}, state)]) <> groups(rest, task, parent, state)
@@ -511,12 +583,15 @@ def layer_role(kind: V.LayerKind) -> Role:
     case V.AnchoredMenu{}: Menu{}
     case V.TrailingDetails{}: Details{}
 
+def layer_key(initial_attention: String) -> String:
+  "/layers/" ++ initial_attention
+
 def layers(values: +List<V.Layer>, +state: Core.State) -> +List<Node>:
   match values:
     case Nil{}: Nil{}
     case Con{V.Layer{kind, content, +initial, restore, close}, rest}:
-      region("/layers", initial, initial, layer_role(kind), List.append(&2, Node,
-        layer_content(content, "/layers/" ++ initial, state), [declared("/layers/" ++ initial, close, state)])) <> layers(rest, state)
+      Node{layer_key(initial), initial, initial, layer_role(kind), Region{}, List.append(&2, Node,
+        layer_content(content, layer_key(initial), state), [declared(layer_key(initial), close, state)])} <> layers(rest, state)
 
 def settings_visible(open: Bool, +entered: Bool, close: Core.Input, connect: Core.Input) -> +List<Node>:
   match open:
@@ -560,7 +635,7 @@ def base_navigation_at(placement: V.NavigationPlacement, nav: V.Navigation, stat
     case _: [navigation(nav, state)]
 
 def base_navigation(arrangement: V.Arrangement, nav: V.Navigation, state: Core.State) -> +List<Node>:
-  V.Arrangement{placement, main, conversation, composer, relations} = arrangement
+  V.Arrangement{placement, page} = arrangement
   base_navigation_at(placement, nav, state)
 
 def navigation_dialog(node: Node) -> Node:
@@ -572,7 +647,7 @@ def modal_navigation_at(placement: V.NavigationPlacement, nav: V.Navigation, sta
     case _: Nil{}
 
 def modal_navigation(arrangement: V.Arrangement, nav: V.Navigation, state: Core.State) -> +List<Node>:
-  V.Arrangement{placement, main, conversation, composer, relations} = arrangement
+  V.Arrangement{placement, page} = arrangement
   modal_navigation_at(placement, nav, state)
 
 def assemble(content: Core.Scene, +state: Core.State) -> Surface:

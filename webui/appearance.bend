@@ -1,0 +1,238 @@
+import Base
+import ../core/client-services.bend as Services
+import ../core/interface.bend as UI
+import ../core/SYSTEM.bend as Core
+import ../core/form-fields.bend as Forms
+import ./design.bend as Design
+
+# Codex Desktop 26.917.71314 supplies the semantic theme tokens, 4px spacing,
+# compact 12px text, and 20px/44px composer line/minimum. Selvedge uses 13/20
+# for ordinary UI text, 12/18 for secondary text, and 20/28 for headings.
+def paint(name: String) -> Design.Paint:
+  Design.ThemeToken{name}
+
+def text_style(font: Design.Font, size: Nat, line_height: Nat, weight: Nat) -> Design.TextStyle:
+  Design.TextStyle{font, size, line_height, weight}
+
+def chrome(foreground: Design.Paint, background: Design.Paint, border: Design.Paint,
+  border_width: Nat, radius: Nat, shadow: Bool) -> Design.Chrome:
+  Design.Chrome{foreground, background, border, border_width, radius, shadow}
+
+def fields(text: Design.TextStyle, style_chrome: Design.Chrome, alignment: Design.Alignment,
+  flow: Design.Flow, overflow: Design.Overflow, padding_inline: Nat, padding_block: Nat,
+  gap: Nat, minimum_height: Nat, maximum_width_percent: Nat,
+  states: Design.ControlStates) -> Design.Style:
+  Design.Style{text, style_chrome, alignment, flow, overflow, padding_inline,
+    padding_block, gap, minimum_height, maximum_width_percent, states}
+
+def ordinary_text() -> Design.TextStyle:
+  text_style(Design.InterfaceFont{}, 13n, 20n, 400n)
+
+def primary_foreground() -> Design.Paint:
+  paint("--color-token-text-primary")
+
+def subdued_foreground() -> Design.Paint:
+  paint("--color-token-text-secondary")
+
+def transparent() -> Design.Paint:
+  Design.Transparent{}
+
+def base_chrome() -> Design.Chrome:
+  chrome(primary_foreground(), transparent(), transparent(), 0n, 0n, False{})
+
+def surface_chrome(radius: Nat, shadow: Bool) -> Design.Chrome:
+  chrome(primary_foreground(), paint("--color-token-main-surface-primary"),
+    paint("--color-token-border-default"), 1n, radius, shadow)
+
+def passive() -> Design.ControlStates:
+  Design.Passive{}
+
+def interactive(style_chrome: Design.Chrome, hover_background: Design.Paint,
+  pressed_background: Design.Paint) -> Design.ControlStates:
+  Design.Chrome{+foreground, background, +border, +border_width, +radius, +shadow} = style_chrome
+  Design.Interactive{
+    chrome(foreground, hover_background, border, border_width, radius, shadow),
+    chrome(foreground, pressed_background, border, border_width, radius, shadow),
+    40n,
+    paint("--color-token-focus-border"),
+    2n,
+    2n
+  }
+
+def base_style() -> Design.Style:
+  fields(ordinary_text(), base_chrome(), Design.Stretch{}, Design.BlockFlow{},
+    Design.ContentFlow{}, 0n, 0n, 0n, 0n, 100n, passive())
+
+def surface_style(flow: Design.Flow, overflow: Design.Overflow, padding_inline: Nat,
+  padding_block: Nat, gap: Nat, radius: Nat, shadow: Bool) -> Design.Style:
+  fields(ordinary_text(), surface_chrome(radius, shadow), Design.Stretch{}, flow, overflow,
+    padding_inline, padding_block, gap, 0n, 100n, passive())
+
+def toolbar_style(flow: Design.Flow) -> Design.Style:
+  fields(ordinary_text(), base_chrome(), Design.Stretch{}, flow,
+    Design.ContentFlow{}, 0n, 0n, 4n, 32n, 100n, passive())
+
+def button_style(foreground: Design.Paint, background: Design.Paint,
+  hover_background: Design.Paint, pressed_background: Design.Paint,
+  weight: Nat) -> Design.Style:
+  +style_chrome = chrome(foreground, background, transparent(), 0n, 8n, False{})
+  fields(text_style(Design.InterfaceFont{}, 13n, 20n, weight), style_chrome,
+    Design.Stretch{}, Design.RowFlow{}, Design.ContentFlow{}, 8n, 4n, 4n, 32n, 100n,
+    interactive(style_chrome, hover_background, pressed_background))
+
+def ordinary_button() -> Design.Style:
+  button_style(paint("--app-color-text-button-tertiary"),
+    paint("--app-color-background-button-tertiary"),
+    paint("--app-color-background-button-tertiary-hover"),
+    paint("--app-color-background-button-tertiary-active"), 400n)
+
+def primary_button() -> Design.Style:
+  button_style(paint("--app-color-text-button-primary"),
+    paint("--app-color-background-button-primary"),
+    paint("--app-color-background-button-primary-hover"),
+    paint("--app-color-background-button-primary-active"), 500n)
+
+def destructive_button() -> Design.Style:
+  button_style(paint("--color-text-danger-ghost"), transparent(),
+    paint("--color-background-danger-ghost-hover"),
+    paint("--color-background-danger-ghost-active"), 400n)
+
+def selected_button() -> Design.Style:
+  button_style(paint("--app-color-text-button-tertiary"),
+    paint("--color-token-list-hover-background"),
+    paint("--app-color-background-button-tertiary-hover"),
+    paint("--app-color-background-button-tertiary-active"), 500n)
+
+def display_only_field() -> Design.Style:
+  +style_chrome = chrome(primary_foreground(), transparent(), transparent(), 0n, 8n, False{})
+  fields(ordinary_text(), style_chrome, Design.Stretch{}, Design.BlockFlow{},
+    Design.ContentFlow{}, 8n, 6n, 0n, 32n, 100n, passive())
+
+def editable_field() -> Design.Style:
+  +style_chrome = chrome(primary_foreground(), paint("--color-token-main-surface-primary"),
+    paint("--color-token-input-border"), 1n, 8n, False{})
+  fields(ordinary_text(), style_chrome, Design.Stretch{}, Design.BlockFlow{},
+    Design.ContentFlow{}, 8n, 6n, 0n, 32n, 100n,
+    interactive(style_chrome, paint("--app-color-background-button-tertiary-hover"),
+      paint("--app-color-background-button-tertiary-active")))
+
+def field_style(meaning: UI.Meaning) -> Design.Style:
+  match meaning:
+    case UI.Edit{editor, field, entry, value}:
+      match entry:
+        case Forms.DisplayOnly{}: display_only_field()
+        case Forms.FileCollection{}: display_only_field()
+        case Forms.DirectoryCollection{}: display_only_field()
+        case _: editable_field()
+    case _: editable_field()
+
+def style(role: UI.Role, meaning: UI.Meaning) -> Design.Style:
+  match role:
+    case UI.Navigation{}:
+      fields(ordinary_text(), chrome(primary_foreground(),
+        paint("--color-token-side-bar-background"), transparent(), 0n, 0n, False{}),
+        Design.Stretch{}, Design.ColumnFlow{}, Design.ScrollFlow{}, 8n, 8n, 4n,
+        0n, 100n, passive())
+    case UI.Main{}:
+      fields(ordinary_text(), surface_chrome(0n, False{}), Design.Stretch{},
+        Design.ColumnFlow{}, Design.ScrollFlow{}, 0n, 0n, 0n, 0n, 100n, passive())
+    case UI.Heading{}:
+      fields(text_style(Design.InterfaceFont{}, 20n, 28n, 500n), base_chrome(),
+        Design.Stretch{}, Design.SplitRowFlow{}, Design.ContentFlow{}, 0n, 0n, 8n,
+        46n, 100n, passive())
+    case UI.Timeline{}:
+      fields(ordinary_text(), base_chrome(), Design.Stretch{}, Design.ColumnFlow{},
+        Design.ContentFlow{}, 0n, 0n, 16n, 0n, 100n, passive())
+    case UI.Activity{}:
+      fields(text_style(Design.InterfaceFont{}, 12n, 18n, 400n),
+        chrome(subdued_foreground(), transparent(), transparent(), 0n, 0n, False{}),
+        Design.Stretch{}, Design.ColumnFlow{}, Design.ContentFlow{}, 0n, 0n, 4n,
+        0n, 100n, passive())
+    case UI.UserMessage{}:
+      fields(ordinary_text(), chrome(primary_foreground(), paint("--color-surface-secondary"),
+        transparent(), 0n, 16n, False{}), Design.Trailing{}, Design.BlockFlow{},
+        Design.ContentFlow{}, 12n, 8n, 0n, 0n, 70n, passive())
+    case UI.AssistantMessage{}:
+      fields(ordinary_text(), base_chrome(), Design.Leading{}, Design.BlockFlow{},
+        Design.ContentFlow{}, 0n, 0n, 0n, 0n, 100n, passive())
+    case UI.Composer{}:
+      fields(ordinary_text(), surface_chrome(16n, True{}), Design.Stretch{},
+        Design.ColumnFlow{}, Design.ContentFlow{}, 12n, 8n, 4n, 0n, 100n, passive())
+    case UI.ComposerActions{}: toolbar_style(Design.SplitRowFlow{})
+    case UI.Approval{}:
+      fields(ordinary_text(), chrome(primary_foreground(),
+        paint("--color-token-main-surface-primary"),
+        paint("--color-token-editor-warning-foreground"), 1n, 12n, False{}),
+        Design.Stretch{}, Design.ColumnFlow{}, Design.ContentFlow{}, 12n, 12n, 8n,
+        0n, 100n, passive())
+    case UI.Toolbar{}: toolbar_style(Design.RowFlow{})
+    case UI.CodeBlock{}:
+      fields(text_style(Design.MonospaceFont{}, 12n, 22n, 400n),
+        chrome(primary_foreground(), paint("--color-surface-secondary"),
+          paint("--color-token-border-default"), 1n, 8n, False{}),
+        Design.Stretch{}, Design.ColumnFlow{}, Design.CodeOverflow{}, 12n, 12n, 4n,
+        0n, 100n, passive())
+    case UI.ApprovalQueue{}:
+      fields(ordinary_text(), base_chrome(), Design.Stretch{}, Design.ColumnFlow{},
+        Design.ScrollFlow{}, 0n, 0n, 8n, 0n, 100n, passive())
+    case UI.Section{}:
+      fields(ordinary_text(), base_chrome(), Design.Stretch{}, Design.ColumnFlow{},
+        Design.ContentFlow{}, 0n, 0n, 12n, 0n, 100n, passive())
+    case UI.Dialog{}:
+      surface_style(Design.ColumnFlow{}, Design.ScrollFlow{}, 24n, 24n, 16n, 16n, True{})
+    case UI.Menu{}:
+      fields(ordinary_text(), chrome(primary_foreground(),
+        paint("--color-token-dropdown-background"),
+        paint("--color-token-border-default"), 1n, 12n, True{}),
+        Design.Stretch{}, Design.ColumnFlow{}, Design.ScrollFlow{}, 4n, 4n, 2n,
+        0n, 100n, passive())
+    case UI.Details{}:
+      surface_style(Design.ColumnFlow{}, Design.ScrollFlow{}, 16n, 16n, 16n, 0n, False{})
+    case UI.Card{}:
+      surface_style(Design.ColumnFlow{}, Design.ContentFlow{}, 12n, 12n, 8n, 12n, False{})
+    case UI.PrimaryButton{}: primary_button()
+    case UI.DestructiveButton{}: destructive_button()
+    case UI.SelectedButton{}: selected_button()
+    case UI.Button{}: ordinary_button()
+    case UI.Field{}: field_style(meaning)
+    case UI.Content{}: base_style()
+
+def navigation_row(style_value: Design.Style) -> Design.Style:
+  Design.Style{Design.TextStyle{font, size, line_height, weight}, style_chrome, alignment, flow, overflow, padding_inline,
+    padding_block, gap, minimum_height, maximum_width_percent, states} = style_value
+  fields(text_style(font, 12n, 18n, weight), style_chrome,
+    alignment, flow, overflow, padding_inline, padding_block, gap, 29n,
+    maximum_width_percent, states)
+
+def style_in_context(role: UI.Role, meaning: UI.Meaning,
+  inside_navigation: Bool) -> Design.Style:
+  match role inside_navigation:
+    case UI.Button{} True{}: navigation_row(style(role, meaning))
+    case UI.SelectedButton{} True{}: navigation_row(style(role, meaning))
+    case _ _: style(role, meaning)
+
+def nodes_in(values: +List<UI.Node>, +inside_navigation: Bool) -> +List<Design.Appearance>:
+  match values:
+    case Nil{}: Nil{}
+    case Con{UI.Node{+key, semantic, label, +role, +meaning, +children}, +rest}:
+      +navigation = inside_navigation || String.eq(semantic, "navigation")
+      Con{Design.Appearance{key, style_in_context(role, meaning, navigation),
+        nodes_in(children, navigation)}, nodes_in(rest, inside_navigation)}
+
+def nodes(values: +List<UI.Node>) -> +List<Design.Appearance>:
+  nodes_in(values, False{})
+
+def theme(appearance: Services.Appearance, system_dark: Bool) -> Design.Theme:
+  match appearance system_dark:
+    case Services.SystemAppearance{} True{}: Design.Dark{}
+    case Services.SystemAppearance{} False{}: Design.Light{}
+    case Services.LightAppearance{} _: Design.Light{}
+    case Services.DarkAppearance{} _: Design.Dark{}
+
+def present(surface: UI.Surface, system_dark: Bool) -> Design.Visuals:
+  UI.Surface{content, base, overlays, active_scope} = surface
+  Core.Scene{view, settings, transfers, preview, code} = content
+  Core.Settings{open, access, credential_entered, appearance, open_action,
+    close_action, connect_action} = settings
+  Design.Visuals{theme(appearance, system_dark),
+    Design.Rhythm{16n, 24n, 16n, 4n, 29n, 12n}, nodes(base), nodes(overlays)}

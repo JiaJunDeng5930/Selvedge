@@ -10,6 +10,7 @@ import ../core/ui-world.bend as View
 import ../core/user-experience.bend as E
 import ../core/user-input.bend as U
 import ./MODEL.bend as Model
+import ./design.bend as Design
 import ./editor.bend as Editor
 import ./focus.bend as Focus
 import ./interaction.bend as Physical
@@ -88,16 +89,16 @@ def product_input_result(input: Product.Input, +core: Core.State, +platform: Pla
             Platform.Platform{readers, editors, focused, ticket, reduced, capacity, scope})
 
 def product_refinement(+input: Product.Input, +core: Core.State, +platform: Platform.Platform,
-  generation: Nat, realization: Rendered.State) ->
+  generation: Nat, realization: Rendered.State, environment: Design.Environment) ->
   {Model.product(Model.step(Model.PlatformInput{Platform.ProductInput{input}},
-    Model.State{Platform.State{core, platform}, generation, realization})) == Product.step(input, core) : Core.Decision}:
+    Model.State{Platform.State{core, platform}, generation, realization, environment})) == Product.step(input, core) : Core.Decision}:
   Equal.trans(Core.Decision,
     Model.product(Model.step(Model.PlatformInput{Platform.ProductInput{input}},
-      Model.State{Platform.State{core, platform}, generation, realization})),
+      Model.State{Platform.State{core, platform}, generation, realization, environment})),
     Model.platform_product(Platform.step(Platform.ProductInput{input}, Platform.State{core, platform})),
     Product.step(input, core),
     Model.realization_preserves_product(Platform.step(Platform.ProductInput{input},
-      Platform.State{core, platform}), (generation + 1n : Nat)),
+      Platform.State{core, platform}), (generation + 1n : Nat), environment),
     product_input_result(input, core, platform))
 
 def model_capacity_matches_platform(platform: Platform.Platform) ->
@@ -106,19 +107,20 @@ def model_capacity_matches_platform(platform: Platform.Platform) ->
     case Platform.Platform{readers, editors, focused, ticket, reduced, capacity, scope}: {==}
 
 def element_refinement(+key: String, +gesture: Interface.Gesture, +core: Core.State,
-  +platform: Platform.Platform, generation: Nat, realization: Rendered.State) ->
+  +platform: Platform.Platform, generation: Nat, realization: Rendered.State,
+  environment: Design.Environment) ->
   {Model.product(Model.step(Model.ElementInput{key, gesture},
-    Model.State{Platform.State{core, platform}, generation, realization})) ==
+    Model.State{Platform.State{core, platform}, generation, realization, environment})) ==
     Product.step(Product.Element{platform_capacity(platform), key, gesture}, core) : Core.Decision}:
   Equal.trans(Core.Decision,
     Model.product(Model.step(Model.ElementInput{key, gesture},
-      Model.State{Platform.State{core, platform}, generation, realization})),
+      Model.State{Platform.State{core, platform}, generation, realization, environment})),
     Model.platform_product(Platform.after_core(
       Product.step(Product.Element{Model.capacity(platform), key, gesture}, core), platform)),
     Product.step(Product.Element{platform_capacity(platform), key, gesture}, core),
     Model.realization_preserves_product(Platform.after_core(
       Product.step(Product.Element{Model.capacity(platform), key, gesture}, core), platform),
-      (generation + 1n : Nat)),
+      (generation + 1n : Nat), environment),
     Equal.trans(Core.Decision,
       Model.platform_product(Platform.after_core(
         Product.step(Product.Element{Model.capacity(platform), key, gesture}, core), platform)),
@@ -131,30 +133,30 @@ def element_refinement(+key: String, +gesture: Interface.Gesture, +core: Core.St
         Model.capacity(platform), platform_capacity(platform), model_capacity_matches_platform(platform))))
 
 def frame_silent(received: Nat, frame: Rendered.Frame, application: Platform.State,
-  generation: Nat, realization: Rendered.State) ->
-  {Model.step(Model.FrameObserved{received, frame}, Model.State{application, generation, realization}) ==
+  generation: Nat, realization: Rendered.State, environment: Design.Environment) ->
+  {Model.step(Model.FrameObserved{received, frame}, Model.State{application, generation, realization, environment}) ==
     Model.Decision{
-      Model.State{application, generation, Rendered.observe(generation, received, Model.surface(application), frame, realization)},
+      Model.State{application, generation, Rendered.observe(generation, received, Model.surface(application), frame, realization), environment},
       Platform.unchanged(model_core(application)), Nil{}} : Model.Decision}:
   match application:
     case Platform.State{Core.State{application, services}, platform}: {==}
 
 def stale_frame(+received: Nat, +frame: Rendered.Frame, +application: Platform.State,
-  +generation: Nat, +realization: Rendered.State,
+  +generation: Nat, +realization: Rendered.State, environment: Design.Environment,
   stale: {Nat.is_eq(generation, received) == False{} : Bool}) ->
-  {Model.step(Model.FrameObserved{received, frame}, Model.State{application, generation, realization}) ==
-    Model.Decision{Model.State{application, generation, realization},
+  {Model.step(Model.FrameObserved{received, frame}, Model.State{application, generation, realization, environment}) ==
+    Model.Decision{Model.State{application, generation, realization, environment},
       Platform.unchanged(model_core(application)), Nil{}} : Model.Decision}:
   Platform.State{core, platform} = application
   Equal.trans(Model.Decision,
-    Model.step(Model.FrameObserved{received, frame}, Model.State{application, generation, realization}),
+    Model.step(Model.FrameObserved{received, frame}, Model.State{application, generation, realization, environment}),
     Model.Decision{Model.State{application, generation,
-      Rendered.observe(generation, received, Model.surface(application), frame, realization)},
+      Rendered.observe(generation, received, Model.surface(application), frame, realization), environment},
       Platform.unchanged(core), Nil{}},
-    Model.Decision{Model.State{application, generation, realization}, Platform.unchanged(core), Nil{}},
-    frame_silent(received, frame, application, generation, realization),
+    Model.Decision{Model.State{application, generation, realization, environment}, Platform.unchanged(core), Nil{}},
+    frame_silent(received, frame, application, generation, realization, environment),
     Equal.cong(Rendered.State, Model.Decision,
-      (frame_state => Model.Decision{Model.State{application, generation, frame_state},
+      (frame_state => Model.Decision{Model.State{application, generation, frame_state, environment},
         Platform.unchanged(core), Nil{}}),
       Rendered.observe(generation, received, Model.surface(application), frame, realization),
       realization,
@@ -667,25 +669,25 @@ def inactive_focus(core: Core.State, platform: Platform.Platform, identity: Stri
 type Requirements is Type:
   Requirements{
     product_refinement: @input:Product.Input -> @core:Core.State -> @platform:Platform.Platform ->
-      @generation:Nat -> @realization:Rendered.State ->
+      @environment:Design.Environment -> @generation:Nat -> @realization:Rendered.State ->
       {Model.product(Model.step(Model.PlatformInput{Platform.ProductInput{input}},
-        Model.State{Platform.State{core, platform}, generation, realization})) == Product.step(input, core) : Core.Decision},
+        Model.State{Platform.State{core, platform}, generation, realization, environment})) == Product.step(input, core) : Core.Decision},
     element_refinement: @key:String -> @gesture:Interface.Gesture -> @core:Core.State ->
-      @platform:Platform.Platform -> @generation:Nat -> @realization:Rendered.State ->
+      @platform:Platform.Platform -> @environment:Design.Environment -> @generation:Nat -> @realization:Rendered.State ->
       {Model.product(Model.step(Model.ElementInput{key, gesture},
-        Model.State{Platform.State{core, platform}, generation, realization})) ==
+        Model.State{Platform.State{core, platform}, generation, realization, environment})) ==
         Product.step(Product.Element{platform_capacity(platform), key, gesture}, core) : Core.Decision},
     frame_silent: @received:Nat -> @frame:Rendered.Frame -> @application:Platform.State ->
-      @generation:Nat -> @realization:Rendered.State ->
-      {Model.step(Model.FrameObserved{received, frame}, Model.State{application, generation, realization}) ==
+      @environment:Design.Environment -> @generation:Nat -> @realization:Rendered.State ->
+      {Model.step(Model.FrameObserved{received, frame}, Model.State{application, generation, realization, environment}) ==
         Model.Decision{Model.State{application, generation,
-          Rendered.observe(generation, received, Model.surface(application), frame, realization)},
+          Rendered.observe(generation, received, Model.surface(application), frame, realization), environment},
           Platform.unchanged(model_core(application)), Nil{}} : Model.Decision},
     stale_frame: @received:Nat -> @frame:Rendered.Frame -> @application:Platform.State ->
-      @generation:Nat -> @realization:Rendered.State ->
+      @environment:Design.Environment -> @generation:Nat -> @realization:Rendered.State ->
       @stale:{Nat.is_eq(generation, received) == False{} : Bool} ->
-      {Model.step(Model.FrameObserved{received, frame}, Model.State{application, generation, realization}) ==
-        Model.Decision{Model.State{application, generation, realization},
+      {Model.step(Model.FrameObserved{received, frame}, Model.State{application, generation, realization, environment}) ==
+        Model.Decision{Model.State{application, generation, realization, environment},
           Platform.unchanged(model_core(application)), Nil{}} : Model.Decision},
     stale_reading: @application:E.Application -> @services:Services.State -> @platform:Platform.Platform ->
       @task:Nat -> @generation:Nat -> @event:Reading.Event ->
@@ -760,14 +762,14 @@ type Requirements is Type:
 
 def evidence() -> Requirements:
   Requirements{
-    input => core => platform => generation => realization =>
-      product_refinement(input, core, platform, generation, realization),
-    key => gesture => core => platform => generation => realization =>
-      element_refinement(key, gesture, core, platform, generation, realization),
-    received => frame => application => generation => realization =>
-      frame_silent(received, frame, application, generation, realization),
-    received => frame => application => generation => realization => stale =>
-      stale_frame(received, frame, application, generation, realization, stale),
+    input => core => platform => environment => generation => realization =>
+      product_refinement(input, core, platform, generation, realization, environment),
+    key => gesture => core => platform => environment => generation => realization =>
+      element_refinement(key, gesture, core, platform, generation, realization, environment),
+    received => frame => application => environment => generation => realization =>
+      frame_silent(received, frame, application, generation, realization, environment),
+    received => frame => application => environment => generation => realization => stale =>
+      stale_frame(received, frame, application, generation, realization, environment, stale),
     application => services => platform => task => generation => event => inactive =>
       stale_reading(application, services, platform, task, generation, event, inactive),
     height => viewport => anchor => reduced => history_layout_changed(height, viewport, anchor, reduced),

@@ -55,8 +55,14 @@ def region_geometry_valid(role: UI.Role, found: Maybe<&2, Rendered.Element>, vie
     case UI.Details{}: True{}
     case UI.Card{}: True{}
     case UI.Button{}: True{}
+    case UI.PrimaryButton{}: True{}
+    case UI.DestructiveButton{}: True{}
+    case UI.SelectedButton{}: True{}
     case UI.Field{}: True{}
     case UI.Content{}: True{}
+    case UI.UserMessage{}: True{}
+    case UI.AssistantMessage{}: True{}
+    case UI.ComposerActions{}: True{}
 
 def node_geometry_valid(found: Maybe<&2, Rendered.Element>, is_control: Bool,
   meaning: UI.Meaning, role: UI.Role, key: String, must_be_visible: Bool,

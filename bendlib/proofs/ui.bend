@@ -9,10 +9,11 @@ import ../../core/surface-laws.bend as SurfaceLaws
 import ../../core/session-laws.bend as SessionLaws
 import ../../core/submission-laws.bend as SubmissionLaws
 import ../../core/boundary-laws.bend as BoundaryLaws
+import ../../core/composition-laws.bend as CompositionLaws
 
 def Architecture.surface():
   Contract.Requirements{
-    SurfaceLaws.evidence(), SessionLaws.evidence(), SubmissionLaws.evidence(), BoundaryLaws.evidence(),
+    SurfaceLaws.evidence(), SessionLaws.evidence(), SubmissionLaws.evidence(), BoundaryLaws.evidence(), CompositionLaws.evidence(),
     input => program => session => services => CoreLaws.runtime_input(input, program, session, services),
     capacity => +state => Interface.assembled_content(Core.observe(capacity, state), state),
     reader => task => world => Conversation.timeline_history(reader, task, world),

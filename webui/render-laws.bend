@@ -136,8 +136,14 @@ def clear_region_geometry(role: UI.Role, key: String, found: Maybe<&2, Rendered.
     case UI.Details{}: {==}
     case UI.Card{}: {==}
     case UI.Button{}: {==}
+    case UI.PrimaryButton{}: {==}
+    case UI.DestructiveButton{}: {==}
+    case UI.SelectedButton{}: {==}
     case UI.Field{}: {==}
     case UI.Content{}: {==}
+    case UI.UserMessage{}: {==}
+    case UI.AssistantMessage{}: {==}
+    case UI.ComposerActions{}: {==}
 
 def clear_node_geometry(found: Maybe<&2, Rendered.Element>, +meaning: UI.Meaning,
   +role: UI.Role, +key: String, +must_be_visible: Bool, +viewport: Geometry.Rect) ->

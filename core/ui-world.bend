@@ -13,6 +13,7 @@ import ../bendlib/board-state.bend as Board
 import ../bendlib/board-filter.bend as Filter
 import ../bendlib/conversation.bend as Conversation
 import ../bendlib/tasks.bend as Tasks
+import ./composition.bend as Composition
 import ./user-input.bend as U
 import ./user-context.bend as Context
 import ./user-experience.bend as E
@@ -139,37 +140,8 @@ type NavigationPlacement is Data:
   ModalNavigation{}
   CollapsedNavigation{}
 
-type MainPlacement is Data:
-  CenteredCreation{}
-  ConversationWithBottomComposer{}
-  ProjectOverview{}
-  HorizontalBoard{}
-  Collection{}
-
-type ConversationRegion is Data:
-  TaskHeading{}
-  ReadingTimeline{}
-  LiveOutputRegion{}
-  PendingDecisions{}
-  ReturnToLatest{}
-  MessageComposer{}
-  ExecutionDetailsRegion{}
-
-type ComposerRegion is Data:
-  MessageEntry{}
-  ContextAndModelControls{}
-  SubmissionControl{}
-
-type SpatialRelation is Data:
-  SharedReadableWidth{}
-  ComposerAtViewportEnd{}
-  DecisionsOutsideCollapsedAudit{}
-  DetailsUseRemainingWidth{}
-  NavigationPrecedesContent{}
-
 type Arrangement is Data:
-  Arrangement{navigation: NavigationPlacement, main: MainPlacement,
-    conversation_regions: +List<ConversationRegion>, composer_regions: +List<ComposerRegion>, relations: +List<SpatialRelation>}
+  Arrangement{navigation: NavigationPlacement, page: Composition.Page}
 
 type Scene is Data:
   Scene{navigation: Navigation, main: Page, layers: +List<Layer>, arrangement: Arrangement, attention: String}
@@ -660,36 +632,77 @@ def navigation_placement(beside: Bool, expanded: Bool) -> NavigationPlacement:
     case False{} True{}: ModalNavigation{}
     case _ False{}: CollapsedNavigation{}
 
-def main_placement(route: U.Route) -> MainPlacement:
-  match route:
-    case U.Start{}: CenteredCreation{}
-    case U.Conversation{task}: ConversationWithBottomComposer{}
-    case U.ProjectHome{project}: ProjectOverview{}
-    case U.TaskBoard{}: HorizontalBoard{}
-    case _: Collection{}
+def has_composer(composer: Maybe<&2, ComposerScene>) -> Bool:
+  match composer:
+    case None{}: False{}
+    case Some{scene}: True{}
 
-def conversation_regions(route: U.Route) -> +List<ConversationRegion>:
-  match route:
-    case U.Conversation{task}: [TaskHeading{}, ReadingTimeline{}, LiveOutputRegion{}, PendingDecisions{}, ReturnToLatest{}, MessageComposer{}, ExecutionDetailsRegion{}]
-    case _: Nil{}
+def has_decisions(decisions: +List<ConversationWorld.DecisionRequest>) -> Bool:
+  match decisions:
+    case Nil{}: False{}
+    case Con{decision, rest}: True{}
 
-def composer_regions(route: U.Route) -> +List<ComposerRegion>:
-  match route:
-    case U.Start{}: [MessageEntry{}, ContextAndModelControls{}, SubmissionControl{}]
-    case U.Conversation{task}: [MessageEntry{}, ContextAndModelControls{}, SubmissionControl{}]
-    case _: Nil{}
+def has_return_latest(action: Maybe<&2, U.Input>) -> Bool:
+  match action:
+    case None{}: False{}
+    case Some{input}: True{}
 
-def spatial_relations(route: U.Route) -> +List<SpatialRelation>:
-  match route:
-    case U.Conversation{task}: [SharedReadableWidth{}, ComposerAtViewportEnd{}, DecisionsOutsideCollapsedAudit{}, DetailsUseRemainingWidth{}, NavigationPrecedesContent{}]
-    case _: [NavigationPrecedesContent{}]
+def page_composition(page: Page) -> Composition.Page:
+  match page:
+    case StartPage{composer}: Composition.Creation{has_composer(composer)}
+    case TaskPage{task}:
+      TaskScene{task_id, title, status, context, timeline, previews, composer, details, actions} = task
+      ConversationWorld.Timeline{id, generation, groups, operations, decisions, reading, return_to_latest} = timeline
+      Composition.Conversation{has_composer(composer), has_decisions(decisions), has_return_latest(return_to_latest)}
+    case ProjectPage{project}: Composition.ProjectOverview{}
+    case ProjectsPage{projects, create}: Composition.ProjectCollection{}
+    case BoardPage{filter, columns, create, automatic, profile, automation, profiles, archive}: Composition.TaskBoard{}
+    case AgentsPage{agents, create}: Composition.AgentCollection{}
+    case MissingObject{message}: Composition.Unavailable{}
 
-def arrangement(beside: Bool, +route: U.Route, expanded: Bool) -> Arrangement:
-  Arrangement{navigation_placement(beside, expanded), main_placement(route), conversation_regions(route), composer_regions(route), spatial_relations(route)}
+def arrangement(beside: Bool, page: Page, expanded: Bool) -> Arrangement:
+  Arrangement{navigation_placement(beside, expanded), page_composition(page)}
 
-def observe(capacity: Capacity, application: E.Application) -> Scene:
+def observed_main_page(+scene: Scene) -> Composition.Page:
+  Scene{navigation, +main, layers, arrangement, attention} = scene
+  page_composition(main)
+
+def observed_arrangement_page(+scene: Scene) -> Composition.Page:
+  Scene{navigation, main, layers, +arrangement, attention} = scene
+  Arrangement{navigation, page} = arrangement
+  page
+
+def finish_scene(navigation: Navigation, +main: Page, +layers: +List<Layer>, beside: Bool, expanded: Bool, attention: String) -> Scene:
+  Scene{navigation, main, layers, arrangement(beside, main, expanded), attention}
+
+def finish_scene_page_agreement(navigation: Navigation, +main: Page, +layers: +List<Layer>, beside: Bool, expanded: Bool, attention: String)
+  -> {observed_main_page(finish_scene(navigation, main, layers, beside, expanded, attention)) ==
+      observed_arrangement_page(finish_scene(navigation, main, layers, beside, expanded, attention)) : Composition.Page}:
+  {==}
+
+def observe_session(capacity: Capacity, +program: M.World(), +session: E.Session) -> Scene:
   Capacity{+navigation_beside, details_beside} = capacity
-  E.Application{+program, +session} = application
   E.Session{+route, drafts, readers, open_layers, focus, +expanded, filter, now, next, pending, previews, code_blocks} = session
   +visible = navigation_visible(expanded, navigation_beside)
-  Scene{navigation(visible, route, program), page(route, session, program), layers(open_layers, session, program, details_beside), arrangement(navigation_beside, route, visible), focus}
+  +main = page(route, session, program)
+  finish_scene(navigation(visible, route, program), main, layers(open_layers, session, program, details_beside), navigation_beside, visible, focus)
+
+def observe_session_page_agreement(capacity: Capacity, +program: M.World(), +session: E.Session)
+  -> {observed_main_page(observe_session(capacity, program, session)) ==
+      observed_arrangement_page(observe_session(capacity, program, session)) : Composition.Page}:
+  Capacity{+navigation_beside, details_beside} = capacity
+  E.Session{+route, drafts, readers, open_layers, focus, +expanded, filter, now, next, pending, previews, code_blocks} = session
+  +visible = navigation_visible(expanded, navigation_beside)
+  +main = page(route, session, program)
+  finish_scene_page_agreement(navigation(visible, route, program), main,
+    layers(open_layers, session, program, details_beside), navigation_beside, visible, focus)
+
+def observe(capacity: Capacity, application: E.Application) -> Scene:
+  E.Application{+program, +session} = application
+  observe_session(capacity, program, session)
+
+def observed_page_agreement(capacity: Capacity, application: E.Application)
+  -> {observed_main_page(observe(capacity, application)) ==
+      observed_arrangement_page(observe(capacity, application)) : Composition.Page}:
+  E.Application{+program, +session} = application
+  observe_session_page_agreement(capacity, program, session)

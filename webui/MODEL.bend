@@ -6,13 +6,18 @@ import ../core/interface.bend as UI
 import ../core/ui-world.bend as View
 import ./platform.bend as Platform
 import ./rendered.bend as Rendered
+import ./design.bend as Design
+import ./layout.bend as Layout
+import ./appearance.bend as Appearance
 
 type State is Data:
-  State{application: Platform.State, generation: Nat, realization: Rendered.State}
+  State{application: Platform.State, generation: Nat, realization: Rendered.State,
+    environment: Design.Environment}
 
 type Input is Data:
   Mount{}
   PlatformInput{input: Platform.Input}
+  EnvironmentObserved{environment: Design.Environment}
   ElementInput{key: String, gesture: UI.Gesture}
   FrameObserved{generation: Nat, frame: Rendered.Frame}
 
@@ -24,10 +29,12 @@ type Decision is Data:
   Decision{state: State, product: Core.Decision, effects: +List<Effect>}
 
 type Scene is Data:
-  Scene{surface: UI.Surface, platform: Platform.Scene, generation: Nat, realization: Rendered.State}
+  Scene{surface: UI.Surface, platform: Platform.Scene, generation: Nat, realization: Rendered.State,
+    presentation: Design.Presentation}
 
 def initial(program: Program.World()) -> State:
-  State{Platform.initial(program), 0n, Rendered.AwaitingFrame{0n}}
+  State{Platform.initial(program), 0n, Rendered.AwaitingFrame{0n},
+    Design.Environment{Design.Viewport{0n, 0n}, False{}}}
 
 def capacity(platform: Platform.Platform) -> View.Capacity:
   Platform.Platform{readers, editors, focused, ticket, reduced, capacity, scope} = platform
@@ -51,40 +58,68 @@ def platform_effects(effects: +List<Platform.Effect>, +surface: UI.Surface) -> +
     case Nil{}: Nil{}
     case Con{effect, rest}: List.append(&2, Effect, resolved_effect(effect, surface), platform_effects(rest, surface))
 
-def invalidate(decision: Platform.Decision, +generation: Nat) -> Decision:
+def presentation(environment: Design.Environment, +surface: UI.Surface) -> Design.Presentation:
+  Design.Environment{viewport, system_dark} = environment
+  Design.Presentation{Layout.present(viewport, surface), Appearance.present(surface, system_dark)}
+
+def environment_viewport(environment: Design.Environment) -> Design.Viewport:
+  Design.Environment{viewport, system_dark} = environment
+  viewport
+
+def invalidate(decision: Platform.Decision, +generation: Nat, environment: Design.Environment) -> Decision:
   Platform.Decision{+product, +platform, +effects} = decision
-  Decision{State{Platform.next(Platform.Decision{product, platform, effects}), generation, Rendered.AwaitingFrame{generation}},
+  Decision{State{Platform.next(Platform.Decision{product, platform, effects}), generation, Rendered.AwaitingFrame{generation}, environment},
     product, List.append(&2, Effect, platform_effects(effects, surface(Platform.next(Platform.Decision{product, platform, effects}))), [MeasureFrame{generation}])}
 
-def idle(+application: Platform.State, generation: Nat, realization: Rendered.State) -> Decision:
+def idle(+application: Platform.State, generation: Nat, realization: Rendered.State,
+  environment: Design.Environment) -> Decision:
   Platform.State{+core, platform} = application
-  Decision{State{application, generation, realization}, Platform.unchanged(core), Nil{}}
+  Decision{State{application, generation, realization, environment}, Platform.unchanged(core), Nil{}}
 
 # Element keys carry product identity. Rendering generations only correlate
 # measurements; streaming must not invalidate an unrelated keystroke.
-def element_input(application: Platform.State, key: String, gesture: UI.Gesture, generation: Nat) -> Decision:
+def element_input(application: Platform.State, key: String, gesture: UI.Gesture, generation: Nat,
+  environment: Design.Environment) -> Decision:
   Platform.State{core, +platform} = application
-  invalidate(Platform.after_core(Product.step(Product.Element{capacity(platform), key, gesture}, core), platform), (generation + 1n : Nat))
+  invalidate(Platform.after_core(Product.step(Product.Element{capacity(platform), key, gesture}, core), platform),
+    (generation + 1n : Nat), environment)
 
-def frame_result(received: Nat, +frame: Rendered.Frame, +application: Platform.State, +generation: Nat, realization: Rendered.State) -> Decision:
-  idle(application, generation, Rendered.observe(generation, received, surface(application), frame, realization))
+def frame_result(received: Nat, +frame: Rendered.Frame, +application: Platform.State, +generation: Nat,
+  realization: Rendered.State, environment: Design.Environment) -> Decision:
+  idle(application, generation, Rendered.observe(generation, received, surface(application), frame, realization), environment)
 
 # Measurements acknowledge an existing generation. They never request another
 # frame, so observer feedback cannot recursively invalidate the rendering.
-def mount(application: Platform.State, generation: Nat) -> Decision:
+def mount(application: Platform.State, generation: Nat, environment: Design.Environment) -> Decision:
   Platform.State{core, platform} = application
-  invalidate(Platform.after_core(Platform.unchanged(core), platform), generation)
-def dispatch(state: State, input: Input) -> Decision:
-  State{application, generation, realization} = state
+  invalidate(Platform.after_core(Platform.unchanged(core), platform), generation, environment)
+
+def observed_platform_input(input: Platform.Input, environment: Design.Environment) -> Platform.Input:
   match input:
-    case Mount{}: mount(application, (generation + 1n : Nat))
-    case PlatformInput{input}: invalidate(Platform.step(input, application), (generation + 1n : Nat))
-    case ElementInput{key, gesture}: element_input(application, key, gesture, generation)
-    case FrameObserved{received, frame}: frame_result(received, frame, application, generation, realization)
+    case Platform.CapacityObserved{capacity}:
+      Platform.CapacityObserved{Layout.capacity(environment_viewport(environment))}
+    case other: other
+
+def dispatch(state: State, input: Input) -> Decision:
+  State{application, generation, realization, +environment} = state
+  match input:
+    case Mount{}: mount(application, (generation + 1n : Nat), environment)
+    case PlatformInput{input}:
+      invalidate(Platform.step(observed_platform_input(input, environment), application),
+        (generation + 1n : Nat), environment)
+    case EnvironmentObserved{+environment}:
+      invalidate(Platform.step(Platform.CapacityObserved{Layout.capacity(environment_viewport(environment))}, application),
+        (generation + 1n : Nat), environment)
+    case ElementInput{key, gesture}: element_input(application, key, gesture, generation, environment)
+    # The observed generation tags the prescribed plan; physical renderer fidelity remains external.
+    case FrameObserved{received, frame}:
+      frame_result(received, frame, application, generation, realization, environment)
 
 def observe(state: State) -> Scene:
-  State{+application, generation, realization} = state
-  Scene{surface(application), Platform.observe(application), generation, realization}
+  State{+application, generation, realization, environment} = state
+  +current_surface = surface(application)
+  Scene{current_surface, Platform.observe(application), generation, realization,
+    presentation(environment, current_surface)}
 
 def effects(decision: Decision) -> +List<Effect>:
   Decision{state, product, effects} = decision
@@ -92,8 +127,9 @@ def effects(decision: Decision) -> +List<Effect>:
 
 def step(input: Input, state: State) -> Decision:
   dispatch(state, input)
-def frame_emits_no_effects(received: Nat, frame: Rendered.Frame, application: Platform.State, generation: Nat, realization: Rendered.State) ->
-  {effects(step(FrameObserved{received, frame}, State{application, generation, realization})) == Nil{} : +List<Effect>}:
+def frame_emits_no_effects(received: Nat, frame: Rendered.Frame, application: Platform.State,
+  generation: Nat, realization: Rendered.State, environment: Design.Environment) ->
+  {effects(step(FrameObserved{received, frame}, State{application, generation, realization, environment})) == Nil{} : +List<Effect>}:
   Platform.State{core, platform} = application
   {==}
 
@@ -107,7 +143,8 @@ def product(decision: Decision) -> Core.Decision:
 def platform_product(decision: Platform.Decision) -> Core.Decision:
   Platform.Decision{product, platform, effects} = decision
   product
-def realization_preserves_product(decision: Platform.Decision, generation: Nat) ->
-  {product(invalidate(decision, generation)) == platform_product(decision) : Core.Decision}:
+def realization_preserves_product(decision: Platform.Decision, generation: Nat,
+  environment: Design.Environment) ->
+  {product(invalidate(decision, generation, environment)) == platform_product(decision) : Core.Decision}:
   Platform.Decision{product, platform, effects} = decision
   {==}

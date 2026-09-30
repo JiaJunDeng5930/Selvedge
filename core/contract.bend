@@ -18,6 +18,7 @@ import ./surface-laws.bend as SurfaceLaws
 import ./session-laws.bend as SessionLaws
 import ./submission-laws.bend as SubmissionLaws
 import ./boundary-laws.bend as BoundaryLaws
+import ./composition-laws.bend as CompositionLaws
 
 # Evidence about the public product entry, not a parallel presentation engine.
 # Platform realization requirements belong to webui and do not enter this type.
@@ -27,6 +28,7 @@ type Requirements is Type:
     sessions: SessionLaws.Requirements,
     submissions: SubmissionLaws.Requirements,
     boundaries: BoundaryLaws.Requirements,
+    composition: CompositionLaws.Requirements,
     runtime: @+input:M.Input -> @+program:M.World() -> @+session:E.Session -> @+services:Services.State ->
       {CoreLaws.runtime(UI.step(UI.Engine{input}, Core.State{E.Application{program, session}, services})) == Program.transition(input, program) : M.Decision()},
     observation: @+capacity:View.Capacity -> @+state:Core.State ->
