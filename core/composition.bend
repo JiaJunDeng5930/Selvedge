@@ -52,6 +52,8 @@ type Region is Data:
   StreamingOutput{}
   LatestAction{}
   ApprovalDecisions{}
+  CreationIntroduction{}
+  CreationContext{}
   ComposerInput{}
   ProjectTitle{}
   ProjectActions{}
@@ -69,6 +71,36 @@ type Region is Data:
 
 type Structure is Data:
   Structure{heading: +List<Region>, body: +List<Region>, dock: +List<Region>}
+
+type Position is Data:
+  HeadingPosition{}
+  BodyPosition{}
+  DockPosition{}
+
+def region_name(region: Region) -> String:
+  match region:
+    case ConversationTitle{}: "conversation-title"
+    case TaskActions{}: "task-actions"
+    case TimelineContent{}: "timeline-content"
+    case StreamingOutput{}: "streaming-output"
+    case LatestAction{}: "latest-action"
+    case ApprovalDecisions{}: "approval-decisions"
+    case CreationIntroduction{}: "creation-introduction"
+    case CreationContext{}: "creation-context"
+    case ComposerInput{}: "composer-input"
+    case ProjectTitle{}: "project-title"
+    case ProjectActions{}: "project-actions"
+    case DefaultWorkspace{}: "default-workspace"
+    case ProjectGuidance{}: "project-guidance"
+    case ProjectTasks{}: "project-tasks"
+    case CollectionTitle{}: "collection-title"
+    case CollectionActions{}: "collection-actions"
+    case ProjectEntries{}: "project-entries"
+    case BoardTitle{}: "board-title"
+    case BoardControls{}: "board-controls"
+    case BoardStages{}: "board-stages"
+    case AgentEntries{}: "agent-entries"
+    case UnavailableMessage{}: "unavailable-message"
 
 def centered_composer(present: Bool) -> Composer:
   match present:
@@ -124,7 +156,7 @@ def bottom_composer_region(composer: Composer) -> +List<Region>:
 def structure(recipe: Recipe) -> Structure:
   match recipe:
     case Recipe{measure, heading, CenteredCreation{}, composer, decisions, latest}:
-      Structure{Nil{}, centered_composer_region(composer), Nil{}}
+      Structure{Nil{}, CreationIntroduction{} <> CreationContext{} <> centered_composer_region(composer), Nil{}}
     case Recipe{measure, heading, ChronologicalReading{}, composer, decisions, latest}:
       Structure{[ConversationTitle{}, TaskActions{}], [TimelineContent{}, StreamingOutput{}],
         List.append(&2, Region, latest_region(latest),
@@ -139,3 +171,16 @@ def structure(recipe: Recipe) -> Structure:
       Structure{[CollectionTitle{}, CollectionActions{}], [AgentEntries{}], Nil{}}
     case Recipe{measure, heading, UnavailableNotice{}, composer, decisions, latest}:
       Structure{Nil{}, [UnavailableMessage{}], Nil{}}
+
+type PositionedRegion is Data:
+  PositionedRegion{position: Position, region: Region}
+
+def positioned_regions(regions: +List<Region>, +position: Position) -> +List<PositionedRegion>:
+  match regions:
+    case Nil{}: Nil{}
+    case Con{region, rest}: PositionedRegion{position, region} <> positioned_regions(rest, position)
+
+def ordered_regions(structure: Structure) -> +List<PositionedRegion>:
+  Structure{heading, body, dock} = structure
+  List.append(&2, PositionedRegion, positioned_regions(heading, HeadingPosition{}),
+    List.append(&2, PositionedRegion, positioned_regions(body, BodyPosition{}), positioned_regions(dock, DockPosition{})))

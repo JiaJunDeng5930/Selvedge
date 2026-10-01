@@ -64,6 +64,11 @@ type ComposerScene is Data:
   ComposerScene{identity: U.Editor, revision: Nat, message: U.Text, footer: +List<ControlDeclaration>,
     context: Maybe<&2, Context.Preview>, submit: ControlDeclaration, feedback: U.Feedback, pending: Bool}
 
+# Derived from the current composer; this is not another mutable draft.
+type CreationIntroduction is Data:
+  CreationIntroduction{heading: String, context_summary: String,
+    context: Maybe<&2, Context.Preview>, project: Maybe<&2, ProjectChoice>}
+
 type TaskActions is Data:
   TaskActions{details: ControlDeclaration, overflow: +List<ControlDeclaration>}
 
@@ -131,6 +136,31 @@ type LayerKind is Data:
 type Layer is Data:
   Layer{kind: LayerKind, content: LayerContent, initial_attention: String, return_attention: String, close: ControlDeclaration}
 
+def editor_title(editor: U.Editor) -> String:
+  match editor:
+    case U.NewTaskEditor{}: "New task"
+    case U.MessageEditor{task}: "Message"
+    case U.ProjectEditor{None{}}: "New project"
+    case U.ProjectEditor{Some{id}}: "Edit project"
+    case U.CardEditor{None{}}: "New card"
+    case U.CardEditor{Some{id}}: "Edit card"
+    case U.AgentEditor{None{}}: "New agent"
+    case U.AgentEditor{Some{id}}: "Edit agent"
+    case U.ForkEditor{task}: "Fork task"
+    case U.CompactEditor{task}: "Compact history"
+
+def layer_title(content: LayerContent) -> String:
+  match content:
+    case ObjectActions{actions}: "Actions"
+    case ArchivedCards{cards}: "Archived cards"
+    case ObjectEditor{None{}}: "Editor unavailable"
+    case ObjectEditor{Some{EditorScene{identity, revision, groups, sections, submit, feedback, pending}}}: editor_title(identity)
+    case ExecutionSettings{editor, fields}: "Workspace and permissions"
+    case ModelSelection{editor, query, fields}: "Choose model"
+    case DeliverySelection{editor, fields}: "Delivery options"
+    case ExecutionDetails{task}: "Task details"
+    case Confirmation{title, confirm, cancel}: title
+
 # Capacity describes available simultaneous regions, not a device or toolkit.
 type Capacity is Data:
   Capacity{navigation_beside_content: Bool, details_beside_timeline: Bool}
@@ -175,8 +205,75 @@ def selected_fields(editor: Maybe<&2, EditorScene>, selection: FieldSelection) -
 
 def profile_label(profile: Maybe<&2, D.Profile>, fallback: String) -> String:
   match profile:
-    case None{}: fallback
+    case None{}: "Choose model"
     case Some{D.Profile{key, provider, name, reasoning}}: name
+
+def creation_project(found: Maybe<&2, D.Project>, id: Nat) -> Maybe<&2, ProjectChoice>:
+  match found:
+    case None{}: None{}
+    case Some{D.Project{name, workspace, guidance}}: Some{ProjectChoice{id, name, workspace}}
+
+def creation_selected_project(context: Maybe<&2, Context.Preview>, world: M.World()) -> Maybe<&2, ProjectChoice>:
+  match context:
+    case Some{Context.ProspectiveContext{origin, Some{+id}, workspace, sandbox, approval, guidance}}:
+      creation_project(Projects.find(Projects.registry(F.State(), world), id), id)
+    case _: None{}
+
+def creation_heading(project: Maybe<&2, ProjectChoice>) -> String:
+  match project:
+    case None{}: "What would you like to build?"
+    case Some{ProjectChoice{id, name, workspace}}: "Work on " ++ name
+
+def creation_last_segment(parts: +List<String>, latest: String) -> String:
+  match parts:
+    case Nil{}: latest
+    case Con{"", rest}: creation_last_segment(rest, latest)
+    case Con{part, rest}: creation_last_segment(rest, part)
+
+def creation_basename(+path: String) -> String:
+  creation_last_segment(String.split(path, '/'), path)
+
+def creation_folder_count(count: Nat) -> String:
+  match count:
+    case 0n: ""
+    case 1n: ""
+    case 2n+rest: " + " ++ Nat.show((1n + rest : Nat)) ++ " folders"
+
+def creation_workspace_root(primary: Maybe<&2, String>, roots: +List<String>) -> Maybe<&2, String>:
+  match primary:
+    case Some{path}: Some{path}
+    case None{}: List.head(&2, String, roots)
+
+def creation_workspace_summary(root: Maybe<&2, String>, count: Nat) -> String:
+  match root:
+    case None{}: ""
+    case Some{path}: "Workspace: " ++ creation_basename(path) ++ creation_folder_count(count)
+
+def creation_workspace(+value: D.Workspace) -> String:
+  D.Workspace{+roots, primary} = value
+  creation_workspace_summary(creation_workspace_root(primary, roots), List.length(&2, String, roots))
+
+def creation_project_summary(project: Maybe<&2, ProjectChoice>, workspace: Context.WorkspaceValue) -> String:
+  match project:
+    case Some{ProjectChoice{id, name, defaults}}: name
+    case None{}: creation_workspace(Context.selected_workspace(workspace))
+
+def creation_context_summary(context: Maybe<&2, Context.Preview>, project: Maybe<&2, ProjectChoice>) -> String:
+  match context:
+    case None{}: ""
+    case Some{Context.ContextUnavailable{reason}}: reason
+    case Some{Context.ProspectiveContext{origin, selected, workspace, sandbox, approval, guidance}}:
+      creation_project_summary(project, workspace)
+
+def creation_introduction_fields(+context: Maybe<&2, Context.Preview>, world: M.World()) -> CreationIntroduction:
+  +project = creation_selected_project(context, world)
+  CreationIntroduction{creation_heading(project), creation_context_summary(context, project), context, project}
+
+def creation_introduction(composer: Maybe<&2, ComposerScene>, world: M.World()) -> CreationIntroduction:
+  match composer:
+    case None{}: creation_introduction_fields(None{}, world)
+    case Some{ComposerScene{identity, revision, message, footer, context, submit, feedback, pending}}:
+      creation_introduction_fields(context, world)
 
 def delivery_label(delivery: U.Delivery) -> String:
   match delivery:

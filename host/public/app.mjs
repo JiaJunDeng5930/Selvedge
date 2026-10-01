@@ -243,17 +243,58 @@ function anchor(surface) {
   const node = [...surface.querySelectorAll('[data-reading-key]')].find(item => { const r = item.getBoundingClientRect(); return r.bottom > viewport.top && r.top < viewport.bottom; });
   return node ? value('Anchor', { identity: node.dataset.readingKey, offset: node.getBoundingClientRect().top - viewport.top }) : null;
 }
+// This tracks an in-flight physical measurement, not a second reading policy.
+const readingMeasurements = new WeakMap();
+const readingPointers = new Map();
+const readingUserOwned = new WeakSet();
+const readingCorrections = new WeakMap();
+function markReadingCorrection(surface) {
+  const correction = Symbol();
+  readingCorrections.set(surface, correction);
+  requestAnimationFrame(() => { if (readingCorrections.get(surface) === correction) readingCorrections.delete(surface); });
+}
+function measureUserAnchor(surface) {
+  const pending = readingMeasurements.get(surface);
+  if (!pending || pending.frame !== null) return;
+  pending.frame = requestAnimationFrame(() => {
+    pending.frame = null;
+    if (!surface.isConnected) { readingMeasurements.delete(surface); return; }
+    const observed = anchor(surface);
+    if (pending.pointers.size === 0) readingMeasurements.delete(surface);
+    if (observed) readingInput(surface, value('AnchorObserved', { anchor: observed }));
+  });
+}
+function beginUserScroll(surface, pointerId) {
+  readingUserOwned.add(surface);
+  let pending = readingMeasurements.get(surface);
+  if (!pending) { pending = { frame: null, pointers: new Set() }; readingMeasurements.set(surface, pending); }
+  if (pointerId !== undefined) { pending.pointers.add(pointerId); readingPointers.set(pointerId, surface); }
+  readingInput(surface, value('BeginUserScroll'));
+  measureUserAnchor(surface);
+}
 function applyReading(physical) {
   const surface = readingSurface(physical.task, physical.generation); if (!surface) return;
   const effect = physical.effect;
   switch (effect.$) {
-    case 'LeaveViewport': break;
-    case 'AlignLatest': surface.scrollTo({ top: surface.scrollHeight, behavior: effect.animate ? 'smooth' : 'instant' }); break;
+    case 'LeaveViewport':
+      markReadingCorrection(surface);
+      // An instant move to the current offset cancels an earlier smooth correction.
+      surface.scrollTo({ top: surface.scrollTop, left: surface.scrollLeft, behavior: 'instant' }); break;
+    case 'AlignLatest':
+      if (!readingMeasurements.has(surface)) {
+        readingUserOwned.delete(surface); markReadingCorrection(surface);
+        surface.scrollTo({ top: surface.scrollHeight, behavior: effect.animate ? 'smooth' : 'instant' });
+      }
+      break;
     case 'PreserveAnchor': {
+      if (readingMeasurements.has(surface)) break;
       const node = [...surface.querySelectorAll('[data-reading-key]')].find(item => item.dataset.readingKey === effect.anchor.identity);
-      if (node) surface.scrollTop += node.getBoundingClientRect().top - surface.getBoundingClientRect().top - effect.anchor.offset; break;
+      if (node) { markReadingCorrection(surface); surface.scrollTop += node.getBoundingClientRect().top - surface.getBoundingClientRect().top - effect.anchor.offset; } break;
     }
-    case 'MeasureAnchor': { const observed = anchor(surface); if (observed) readingInput(surface, value('AnchorObserved', { anchor: observed })); break; }
+    case 'MeasureAnchor': {
+      if (readingMeasurements.has(surface)) { measureUserAnchor(surface); break; }
+      const observed = anchor(surface); if (observed) readingInput(surface, value('AnchorObserved', { anchor: observed })); break;
+    }
     case 'ReserveComposer': { const content = root.querySelector(`[data-reading-content][data-reading-task="${physical.task}"]`); if (content) content.style.paddingBottom = `${effect.height}px`; break; }
     default: throw new TypeError(`Unknown reading effect ${effect.$}`);
   }
@@ -333,6 +374,12 @@ function editorEvent(node, event) {
 root.addEventListener('compositionstart', event => editorEvent(event.target, value('CompositionChanged', { composing: bool(true) })));
 root.addEventListener('compositionend', event => editorEvent(event.target, value('CompositionChanged', { composing: bool(false) })));
 root.addEventListener('keydown', event => {
+  if (event.key === 'Tab' || event.key === 'Escape') {
+    const result = Bend.key_event(event.key, bool(event.shiftKey), state);
+    if (result.handled) event.preventDefault();
+    commit(result.decision);
+    return;
+  }
   if (event.key === 'Enter' && event.target.hasAttribute('data-native-editor-key')) {
     if (!event.isComposing && !event.shiftKey && !event.altKey) event.preventDefault();
     editorEvent(event.target, value('Enter', { shift: bool(event.shiftKey), alt: bool(event.altKey), modified: bool(event.ctrlKey || event.metaKey) }));
@@ -366,15 +413,42 @@ new MutationObserver(() => {
 }).observe(root, { childList: true, subtree: true });
 function observeUserScroll(event) {
   const surface = event.target.closest('[data-reading-scroll]');
-  if (surface) requestAnimationFrame(() => {
-    const observed = anchor(surface);
-    if (observed) readingInput(surface, value('ReadHistory', { anchor: observed }));
-  });
+  if (surface) beginUserScroll(surface);
 }
 root.addEventListener('wheel', observeUserScroll, { passive: true });
 root.addEventListener('touchmove', observeUserScroll, { passive: true });
 root.addEventListener('keydown', event => {
   if (['PageUp', 'PageDown', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key) && !event.target.matches('input,textarea,select')) observeUserScroll(event);
 });
+root.addEventListener('pointerdown', event => {
+  const surface = event.target.closest('[data-reading-scroll]');
+  if (!surface || surface.scrollHeight <= surface.clientHeight) return;
+  const rect = surface.getBoundingClientRect();
+  const style = getComputedStyle(surface);
+  const borderLeft = Number.parseFloat(style.borderLeftWidth) || 0;
+  const borderRight = Number.parseFloat(style.borderRightWidth) || 0;
+  const contentLeft = rect.left + surface.clientLeft;
+  const contentRight = contentLeft + surface.clientWidth;
+  const inLeftGutter = event.clientX >= rect.left + borderLeft && event.clientX < contentLeft;
+  const inRightGutter = event.clientX >= contentRight && event.clientX < rect.right - borderRight;
+  if ((inLeftGutter || inRightGutter) && event.clientY >= rect.top && event.clientY <= rect.bottom) beginUserScroll(surface, event.pointerId);
+});
+function endReadingPointer(event) {
+  const surface = readingPointers.get(event.pointerId);
+  if (!surface) return;
+  readingPointers.delete(event.pointerId);
+  const pending = readingMeasurements.get(surface);
+  if (pending) { pending.pointers.delete(event.pointerId); measureUserAnchor(surface); }
+}
+window.addEventListener('pointerup', endReadingPointer, true);
+window.addEventListener('pointercancel', endReadingPointer, true);
+root.addEventListener('scroll', event => {
+  const surface = event.target;
+  if (!surface.matches?.('[data-reading-scroll]')) return;
+  if (!readingMeasurements.has(surface) && readingUserOwned.has(surface) && !readingCorrections.has(surface)) {
+    readingMeasurements.set(surface, { frame: null, pointers: new Set() });
+  }
+  if (readingMeasurements.has(surface)) measureUserAnchor(surface);
+}, true);
 for (const node of root.querySelectorAll('[data-reading-scroll],[data-reading-content],[data-reading-dock]')) { observed.add(node); resizeObserver.observe(node); }
 observeReadingLayout();

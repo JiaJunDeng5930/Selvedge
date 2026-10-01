@@ -154,6 +154,10 @@ physical capabilities. Authenticated public commands reach the authoritative
 kernel, and the browser observes world snapshots only after journal commit.
 Drafts settle against the actual command completion and their revision.
 
+The production Interface tree carries populated page regions. Existing core and
+Web proof aggregates bind region order and preservation to the actual page and
+renderer functions; see [ADR 0028](docs/adr/0028-populated-page-regions.md).
+
 The `Thread`, `Composer` and `Activity` vocabulary separates conversation content,
 execution feedback, audit details and submission intent. The production surface
 carries proofs for ordered speech, audit data, result values/errors and Send/Steer

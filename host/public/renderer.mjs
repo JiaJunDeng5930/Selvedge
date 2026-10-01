@@ -20,7 +20,10 @@ export class Renderer {
     this.deferred = [];
     this.document = null;
   }
-  target(key) { return this.targets.get(key) ?? this.records.get(key)?.node; }
+  target(key) {
+    if (key === '@document/root') return this.root.ownerDocument.documentElement;
+    return this.targets.get(key) ?? this.records.get(key)?.node;
+  }
   properties(record, attributes, styles) {
     const node = record.node;
     const next = new Map(list(attributes).map(value => [value.name, value.value]));

@@ -267,10 +267,21 @@ def board_column_width(canvas: Design.Box) -> Nat:
   +gutter = inline_gutter(width)
   Nat.min(300n, Nat.max(0n, Nat.sub(width, Nat.mul(2n, gutter))))
 
+def creation_flow_choice(compact: Bool) -> Design.CreationFlow:
+  match compact:
+    case True{}: Design.Compact{}
+    case False{}: Design.Balanced{}
+
+def creation_flow_for_height(height: Nat) -> Design.CreationFlow:
+  creation_flow_choice(Nat.is_lt(height, 420n))
+
+def creation_flow(canvas: Design.Box) -> Design.CreationFlow:
+  creation_flow_for_height(box_height(canvas))
+
 def main_frame(+recipe: Composition.Recipe, +main: Design.Box) -> Design.MainFrame:
   match recipe:
     case Composition.Recipe{measure, page_heading, Composition.CenteredCreation{}, composer, decisions, latest}:
-      Design.CreationFrame{heading_box(main), body_box(main), measure_band(measure, body_box(main)), centered_input(composer, body_box(main))}
+      Design.CreationFrame{heading_box(main), body_box(main), measure_band(measure, body_box(main)), centered_input(composer, body_box(main)), creation_flow(body_box(main))}
     case Composition.Recipe{measure, page_heading, Composition.ChronologicalReading{}, composer, decisions, latest}:
       heading = heading_box(main)
       +canvas = body_box(main)
@@ -278,21 +289,17 @@ def main_frame(+recipe: Composition.Recipe, +main: Design.Box) -> Design.MainFra
       Design.ConversationFrame{heading, canvas, reading,
         conversation_dock(recipe_dock(recipe), canvas, reading, composer)}
     case Composition.Recipe{measure, page_heading, Composition.ProjectSections{}, composer, decisions, latest}:
-      heading = heading_box(main)
       +canvas = body_box(main)
-      Design.OverviewFrame{heading, canvas, measure_band(measure, canvas), Composition.ProjectSections{}}
+      Design.OverviewFrame{canvas, measure_band(measure, canvas), Composition.ProjectSections{}}
     case Composition.Recipe{measure, page_heading, Composition.ProjectRows{}, composer, decisions, latest}:
-      heading = heading_box(main)
       +canvas = body_box(main)
-      Design.OverviewFrame{heading, canvas, measure_band(measure, canvas), Composition.ProjectRows{}}
+      Design.OverviewFrame{canvas, measure_band(measure, canvas), Composition.ProjectRows{}}
     case Composition.Recipe{measure, page_heading, Composition.AgentRows{}, composer, decisions, latest}:
-      heading = heading_box(main)
       +canvas = body_box(main)
-      Design.OverviewFrame{heading, canvas, measure_band(measure, canvas), Composition.AgentRows{}}
+      Design.OverviewFrame{canvas, measure_band(measure, canvas), Composition.AgentRows{}}
     case Composition.Recipe{measure, page_heading, Composition.StageColumns{}, composer, decisions, latest}:
-      heading = heading_box(main)
       +canvas = body_box(main)
-      Design.BoardFrame{heading, canvas, board_column_width(canvas), 12n, inline_gutter(box_width(canvas))}
+      Design.BoardFrame{canvas, board_column_width(canvas), 12n, inline_gutter(box_width(canvas))}
     case Composition.Recipe{measure, page_heading, Composition.UnavailableNotice{}, composer, decisions, latest}:
       Design.UnavailableFrame{heading_box(main), body_box(main), measure_band(measure, body_box(main))}
 
@@ -421,7 +428,7 @@ def layout_with_shell(+viewport: Design.Viewport, +surface: UI.Surface, +overlay
   Design.Shell{shell_navigation, main, +details} = shell
   +recipe = Composition.recipe(page)
   Design.Layout{viewport, shell, main_frame(recipe, main),
-    projected_overlays(viewport, overlays, layers, surface, shell, navigation), Composition.structure(recipe)}
+    projected_overlays(viewport, overlays, layers, surface, shell, navigation)}
 
 def capacity_allows_details(capacity: V.Capacity) -> Bool:
   V.Capacity{navigation_beside_content, details_beside_timeline} = capacity

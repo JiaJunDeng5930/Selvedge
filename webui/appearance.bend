@@ -117,13 +117,17 @@ def editable_field() -> Design.Style:
     interactive(style_chrome, paint("--app-color-background-button-tertiary-hover"),
       paint("--app-color-background-button-tertiary-active")))
 
+def compound_field_style() -> Design.Style:
+  fields(ordinary_text(), base_chrome(), Design.Stretch{}, Design.ColumnFlow{},
+    Design.ContentFlow{}, 0n, 0n, 8n, 0n, 100n, passive())
+
 def field_style(meaning: UI.Meaning) -> Design.Style:
   match meaning:
     case UI.Edit{editor, field, entry, value}:
       match entry:
         case Forms.DisplayOnly{}: display_only_field()
-        case Forms.FileCollection{}: display_only_field()
-        case Forms.DirectoryCollection{}: display_only_field()
+        case Forms.FileCollection{}: compound_field_style()
+        case Forms.DirectoryCollection{}: compound_field_style()
         case _: editable_field()
     case _: editable_field()
 
@@ -135,10 +139,10 @@ def style(role: UI.Role, meaning: UI.Meaning) -> Design.Style:
         Design.Stretch{}, Design.ColumnFlow{}, Design.ScrollFlow{}, 8n, 8n, 4n,
         0n, 100n, passive())
     case UI.Main{}:
-      fields(ordinary_text(), surface_chrome(0n, False{}), Design.Stretch{},
+      fields(ordinary_text(), chrome(primary_foreground(), paint("--app-color-background-surface"), transparent(), 0n, 0n, False{}), Design.Stretch{},
         Design.ColumnFlow{}, Design.ScrollFlow{}, 0n, 0n, 0n, 0n, 100n, passive())
     case UI.Heading{}:
-      fields(text_style(Design.InterfaceFont{}, 20n, 28n, 500n), base_chrome(),
+      fields(text_style(Design.InterfaceFont{}, 14n, 20n, 500n), base_chrome(),
         Design.Stretch{}, Design.SplitRowFlow{}, Design.ContentFlow{}, 0n, 0n, 8n,
         46n, 100n, passive())
     case UI.Timeline{}:
@@ -258,6 +262,22 @@ def control_style(value: Design.Style, representation: Controls.Representation) 
       action_style(feedback_style(selection_style(value, behavior), feedback), face, geometry)
     case _: value
 
+def semantic_style(semantic: String, fallback: Design.Style) -> Design.Style:
+  match semantic:
+    case "creation/introduction":
+      fields(ordinary_text(), base_chrome(), Design.Stretch{}, Design.ColumnFlow{},
+        Design.ContentFlow{}, 0n, 0n, 12n, 0n, 100n, passive())
+    case "creation/title":
+      fields(text_style(Design.InterfaceFont{}, 28n, 36n, 500n), base_chrome(),
+        Design.Centered{}, Design.BlockFlow{}, Design.ContentFlow{}, 0n, 0n, 0n,
+        0n, 100n, passive())
+    case "creation/context":
+      fields(text_style(Design.InterfaceFont{}, 12n, 18n, 400n),
+        chrome(subdued_foreground(), transparent(), transparent(), 0n, 0n, False{}),
+        Design.Centered{}, Design.ColumnFlow{}, Design.ContentFlow{}, 0n, 0n, 8n,
+        0n, 100n, passive())
+    case _: fallback
+
 def nodes_at(values: +List<UI.Node>, +context: Controls.Context) -> +List<Design.Appearance>:
   match values:
     case Nil{}: Nil{}
@@ -265,7 +285,7 @@ def nodes_at(values: +List<UI.Node>, +context: Controls.Context) -> +List<Design
       +local = Controls.enter(key, role, meaning, context)
       +control = Controls.represent(key, meaning, label, role, local)
       Con{Design.Appearance{key,
-        control_style(style_in_context(role, meaning, navigation_context(local)), control),
+        control_style(semantic_style(semantic, style_in_context(role, meaning, navigation_context(local))), control),
         control, nodes_at(children, local)}, nodes_at(rest, context)}
 
 def theme(appearance: Services.Appearance, system_dark: Bool) -> Design.Theme:

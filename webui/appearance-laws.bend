@@ -168,6 +168,28 @@ def primary_button_keeps_interaction_states(meaning: UI.Meaning) ->
   } : Design.Style}:
   {==}
 
+def style_text(value: Design.Style) -> Design.TextStyle:
+  Design.Style{text, chrome, alignment, flow, overflow, inline, block, gap, minimum, maximum, states} = value
+  text
+
+def style_border(value: Design.Style) -> Nat:
+  Design.Style{text, Design.Chrome{foreground, background, border, width, radius, shadow}, alignment, flow, overflow, inline, block, gap, minimum, maximum, states} = value
+  width
+
+def creation_title_metrics(fallback: Design.Style) ->
+  {style_text(Appearance.semantic_style("creation/title", fallback)) ==
+    Design.TextStyle{Design.InterfaceFont{}, 28n, 36n, 500n} : Design.TextStyle}:
+  {==}
+
+def creation_context_metrics(fallback: Design.Style) ->
+  {style_text(Appearance.semantic_style("creation/context", fallback)) ==
+    Design.TextStyle{Design.InterfaceFont{}, 12n, 18n, 400n} : Design.TextStyle}:
+  {==}
+
+def main_omits_outer_border(meaning: UI.Meaning) ->
+  {style_border(Appearance.style(UI.Main{}, meaning)) == 0n : Nat}:
+  {==}
+
 type Requirements is Type:
   Requirements{
     nodes_preserve_keys_at: @+values:+List<UI.Node> -> @+context:Controls.Context ->
@@ -225,7 +247,12 @@ type Requirements is Type:
         ButtonMetrics{12n, 18n, 500n, 29n} : ButtonMetrics},
     ordinary_button_metrics: @meaning:UI.Meaning ->
       {button_metrics(Appearance.style_in_context(UI.Button{}, meaning, False{})) ==
-        ButtonMetrics{13n, 20n, 400n, 32n} : ButtonMetrics}
+        ButtonMetrics{13n, 20n, 400n, 32n} : ButtonMetrics},
+    creation_title_metrics: @fallback:Design.Style ->
+      {style_text(Appearance.semantic_style("creation/title", fallback)) == Design.TextStyle{Design.InterfaceFont{}, 28n, 36n, 500n} : Design.TextStyle},
+    creation_context_metrics: @fallback:Design.Style ->
+      {style_text(Appearance.semantic_style("creation/context", fallback)) == Design.TextStyle{Design.InterfaceFont{}, 12n, 18n, 400n} : Design.TextStyle},
+    main_omits_outer_border: @meaning:UI.Meaning -> {style_border(Appearance.style(UI.Main{}, meaning)) == 0n : Nat}
   }
 
 def evidence() -> Requirements:
@@ -241,5 +268,8 @@ def evidence() -> Requirements:
     meaning => primary_button_keeps_interaction_states(meaning),
     meaning => navigation_button_metrics(meaning),
     meaning => navigation_selected_button_metrics(meaning),
-    meaning => ordinary_button_metrics(meaning)
+    meaning => ordinary_button_metrics(meaning),
+    fallback => creation_title_metrics(fallback),
+    fallback => creation_context_metrics(fallback),
+    meaning => main_omits_outer_border(meaning)
   }

@@ -415,3 +415,43 @@ def evidence() -> Requirements:
     program => route => drafts => readers => layers => attention => navigation => filter => now => next => pending => previews => code_blocks => workspace => draft =>
       preparation_snapshot(program, route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, workspace, draft)
   }
+
+# Reopening is a new edit of the same work, never a reuse of an old revision.
+def reopen_accepted(previous: Nat, body: U.Body, submitted: Nat, reply: J.Json, fallback: U.Body, session: E.Session) ->
+  {E.ensure(Some{U.Draft{previous, body, U.Accepted{submitted, reply}}}, fallback, session) ==
+    E.with_draft(session, U.Draft{(previous + 1n : Nat), fallback, U.Editing{}}) : E.Session}:
+  {==}
+
+def reopened_older_ownership(+previous: Nat, body: U.Body, submitted: Nat, reply: J.Json, +fallback: U.Body,
+  +older: Nat, +old_body: U.Body, feedback: U.Feedback, session: E.Session,
+  same: {U.same_editor(U.owner(fallback), U.owner(old_body)) == True{} : Bool},
+  before: {Nat.cmp((previous + 1n : Nat), older) == GT{} : Cmp}) ->
+  {E.owns_submission(U.Draft{older, old_body, feedback},
+    E.ensure(Some{U.Draft{previous, body, U.Accepted{submitted, reply}}}, fallback, session)) == False{} : Bool}:
+  E.Session{route, +drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks} = session
+  Equal.trans(Bool,
+    E.same_revision(E.select_draft(U.same_editor(U.owner(fallback), U.owner(old_body)),
+      U.Draft{(previous + 1n : Nat), fallback, U.Editing{}},
+      E.find_draft(E.without_draft(drafts, U.owner(fallback)), U.owner(old_body))), older),
+    Nat.is_eq((previous + 1n : Nat), older), False{},
+    Equal.cong(Bool, Bool,
+      (hit => E.same_revision(E.select_draft(hit, U.Draft{(previous + 1n : Nat), fallback, U.Editing{}},
+        E.find_draft(E.without_draft(drafts, U.owner(fallback)), U.owner(old_body))), older)),
+      U.same_editor(U.owner(fallback), U.owner(old_body)), True{}, same),
+    Equal.cong(Cmp, Bool, Cmp.is_eq, Nat.cmp((previous + 1n : Nat), older), GT{}, before))
+
+type ReopenRequirements is Type:
+  ReopenRequirements{
+    revision: @previous:Nat -> @body:U.Body -> @submitted:Nat -> @reply:J.Json -> @fallback:U.Body -> @session:E.Session ->
+      {E.ensure(Some{U.Draft{previous, body, U.Accepted{submitted, reply}}}, fallback, session) ==
+        E.with_draft(session, U.Draft{(previous + 1n : Nat), fallback, U.Editing{}}) : E.Session},
+    older: @+previous:Nat -> @body:U.Body -> @submitted:Nat -> @reply:J.Json -> @+fallback:U.Body ->
+      @+old:Nat -> @+old_body:U.Body -> @feedback:U.Feedback -> @session:E.Session ->
+      @same:{U.same_editor(U.owner(fallback), U.owner(old_body)) == True{} : Bool} ->
+      @before:{Nat.cmp((previous + 1n : Nat), old) == GT{} : Cmp} ->
+      {E.owns_submission(U.Draft{old, old_body, feedback},
+        E.ensure(Some{U.Draft{previous, body, U.Accepted{submitted, reply}}}, fallback, session)) == False{} : Bool}
+  }
+
+def reopen_evidence() -> ReopenRequirements:
+  ReopenRequirements{reopen_accepted, reopened_older_ownership}

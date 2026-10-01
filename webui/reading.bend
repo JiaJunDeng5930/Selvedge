@@ -6,6 +6,7 @@ type Bookmark is Data:
   Bookmark{anchor: Maybe<&2, Physical.Anchor>}
 
 type Event is Data:
+  BeginUserScroll{}
   ReadHistory{anchor: Physical.Anchor}
   FollowLatest{}
   LayoutChanged{composer_height: F32, viewport_height: F32}
@@ -36,6 +37,7 @@ def reserve(height: F32, viewport: F32) -> F32:
 
 def step(event: Event, intent: U.ReadingIntent, +bookmark: Bookmark, reduced_motion: Bool) -> Decision:
   match event:
+    case BeginUserScroll{}: Decision{Bookmark{None{}}, Some{U.ReadHistory{}}, [LeaveViewport{}]}
     case ReadHistory{anchor}: Decision{Bookmark{Some{anchor}}, Some{U.ReadHistory{}}, [LeaveViewport{}]}
     case FollowLatest{}: Decision{Bookmark{None{}}, Some{U.FollowLatest{}}, [AlignLatest{Bool.not(reduced_motion)}]}
     case LayoutChanged{height, viewport}: Decision{bookmark, None{}, [ReserveComposer{reserve(height, viewport)}, layout(intent, bookmark)]}
@@ -50,3 +52,19 @@ def history_layout(anchor: Physical.Anchor) ->
 def missing_history_anchor() ->
   {layout(U.ReadHistory{}, Bookmark{None{}}) == MeasureAnchor{} : Effect}:
   {==}
+
+# The user takes ownership before the host can measure the new viewport.
+def begin_user_scroll(intent: U.ReadingIntent, bookmark: Bookmark, reduced: Bool) ->
+  {step(BeginUserScroll{}, intent, bookmark, reduced) ==
+    Decision{Bookmark{None{}}, Some{U.ReadHistory{}}, [LeaveViewport{}]} : Decision}:
+  {==}
+
+type ScrollOwnershipRequirements is Type:
+  ScrollOwnershipRequirements{
+    takeover: @intent:U.ReadingIntent -> @bookmark:Bookmark -> @reduced:Bool ->
+      {step(BeginUserScroll{}, intent, bookmark, reduced) ==
+        Decision{Bookmark{None{}}, Some{U.ReadHistory{}}, [LeaveViewport{}]} : Decision}
+  }
+
+def scroll_ownership_evidence() -> ScrollOwnershipRequirements:
+  ScrollOwnershipRequirements{begin_user_scroll}

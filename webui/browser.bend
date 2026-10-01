@@ -12,6 +12,7 @@ import ../core/client-services.bend as Services
 import ../core/user-context.bend as Context
 import ../core/code-block.bend as Code
 import ../core/live-output.bend as Live
+import ./focus.bend as Focus
 import ./editor.bend as Editor
 import ./reading.bend as Reading
 import ../WORKSPACE.bend as Workspace
@@ -24,8 +25,12 @@ import ./rendered.bend as Rendered
 import ./document.bend as Document
 import ./renderer.bend as Renderer
 
+type RequestStatus is Data:
+  AwaitingReceipt{}
+  OutcomeUnknown{reason: String}
+
 type Pending is Data:
-  Pending{ticket: Nat, completion: E.Completion, command: J.Json, origin: String}
+  Pending{ticket: Nat, completion: E.Completion, command: J.Json, origin: String, status: RequestStatus}
 type State is Data:
   State{web: Web.State, sequence: Nat, next_ticket: Nat, pending: +List<Pending>}
 type Input is Data:
@@ -42,6 +47,9 @@ type Effect is Data:
 type Decision is Data:
   Decision{state: State, effects: +List<Effect>}
 
+type KeyResult is Data:
+  KeyResult{handled: Bool, decision: Decision}
+
 def initial(program: M.World(), sequence: Nat) -> State:
   State{Web.initial(program), sequence, 0n, Nil{}}
 def program(state: State) -> M.World():
@@ -56,16 +64,16 @@ def find(pending: +List<Pending>, +ticket: Nat) -> Maybe<&2, Pending>:
   match pending:
     case Nil{}: None{}
     case Con{+entry, rest}:
-      Pending{current, completion, text, origin} = entry
+      Pending{current, completion, text, origin, status} = entry
       choose_found(Nat.is_eq(current, ticket), entry, find(rest, ticket))
 def contains_command(pending: +List<Pending>, +command: J.Json) -> Bool:
   match pending:
     case Nil{}: False{}
-    case Con{Pending{ticket, completion, current, origin}, rest}: J.same(current, command) || contains_command(rest, command)
+    case Con{Pending{ticket, completion, current, origin, status}, rest}: J.same(current, command) || contains_command(rest, command)
 def busy(pending: +List<Pending>, +key: String) -> Bool:
   match pending:
     case Nil{}: False{}
-    case Con{Pending{ticket, completion, text, origin}, rest}: String.eq(origin, key) || busy(rest, key)
+    case Con{Pending{ticket, completion, text, origin, status}, rest}: String.eq(origin, key) || busy(rest, key)
 
 def mask_meaning(blocked: Bool, meaning: UI.Meaning) -> UI.Meaning:
   match blocked meaning:
@@ -148,14 +156,14 @@ def remove(pending: +List<Pending>, +ticket: Nat) -> +List<Pending>:
   match pending:
     case Nil{}: Nil{}
     case Con{+entry, rest}:
-      Pending{current, completion, text, origin} = entry
+      Pending{current, completion, text, origin, status} = entry
       choose_removed(Nat.is_eq(current, ticket), entry, remove(rest, ticket))
 def request_ready(duplicate: Bool, +command: J.Json, completion: E.Completion, origin: String, state: State) -> Decision:
   match duplicate:
     case True{}: Decision{state, Nil{}}
     case False{}:
       State{web, sequence, +next, pending} = state
-      Decision{State{web, sequence, (next + 1n : Nat), List.append(&2, Pending, pending, [Pending{next, completion, command, origin}])}, [Command{next, command}]}
+      Decision{State{web, sequence, (next + 1n : Nat), List.append(&2, Pending, pending, [Pending{next, completion, command, origin, AwaitingReceipt{}}])}, [Command{next, command}]}
 def count_gesture(value: Maybe<&2, Nat>) -> Maybe<&2, UI.Gesture>:
   match value:
     case None{}: None{}
@@ -174,9 +182,48 @@ def mask_scene(scene: Web.Scene, pending: +List<Pending>) -> Web.Scene:
 def scene(state: State) -> Web.Scene:
   State{web, sequence, next, +pending} = state
   mask_scene(Web.observe(web), pending)
-def mark_document(document: Document.Document, pending: +List<Pending>) -> Document.Document:
+# Unknown receipt status is local browser feedback; it never enters task history.
+def unknown_notice(ticket: Nat, reason: String) -> Document.Node:
+  Document.Element{"@browser/unknown/" ++ Nat.show(ticket), "p",
+    [Document.Property{"role", "status"}],
+    [Document.Property{"margin", "0"}, Document.Property{"padding", "8px 16px"}], Nil{},
+    [Document.Text{"Connection interrupted. Submission status is unknown. " ++ reason}]}
+
+def pending_notice(entry: Pending, rest: +List<Document.Node>) -> +List<Document.Node>:
+  Pending{ticket, completion, command, origin, status} = entry
+  match status:
+    case AwaitingReceipt{}: rest
+    case OutcomeUnknown{reason}: unknown_notice(ticket, reason) <> rest
+
+def unknown_notices(pending: +List<Pending>) -> +List<Document.Node>:
+  match pending:
+    case Nil{}: Nil{}
+    case Con{entry, rest}: pending_notice(entry, unknown_notices(rest))
+
+def inset_document(root: Document.Node) -> Document.Node:
+  match root:
+    case Document.Element{key, tag, attrs, styles, events, children}:
+      Document.Element{key, tag, attrs, List.append(&2, Document.Property, styles,
+        [Document.Property{"top", "4rem"}, Document.Property{"height", "calc(100dvh - 4rem)"}, Document.Property{"min-height", "0"}]), events, children}
+    case other: other
+
+def with_notices(notices: +List<Document.Node>, root: Document.Node, title: String) -> Document.Document:
+  match notices:
+    case Nil{}: Document.Document{root, title}
+    case Con{notice, rest}:
+      Document.Document{Document.Element{"@browser/interaction", "div", Nil{},
+        [Document.Property{"height", "100dvh"}, Document.Property{"overflow", "hidden"}], Nil{},
+        [Document.Element{"@browser/unknown-status", "aside", Nil{},
+          [Document.Property{"height", "4rem"}, Document.Property{"overflow", "auto"},
+           Document.Property{"background", "var(--color-surface)"}, Document.Property{"color", "var(--color-text)"}], Nil{}, notice <> rest}, inset_document(root)]}, title}
+
+def uncertainty_document(document: Document.Document, pending: +List<Pending>) -> Document.Document:
   Document.Document{root, title} = document
-  Document.Document{mark_node(root, pending), title}
+  with_notices(unknown_notices(pending), root, title)
+
+def mark_document(document: Document.Document, +pending: +List<Pending>) -> Document.Document:
+  Document.Document{root, title} = document
+  uncertainty_document(Document.Document{mark_node(root, pending), title}, pending)
 def render_document(+state: State) -> Document.Document:
   State{web, sequence, next, pending} = state
   mark_document(Renderer.render(scene(state)), pending)
@@ -414,15 +461,30 @@ def complete_ticket(ticket: Nat, +received: Nat, supplied: M.World(), reply: J.J
 def completed(found: Maybe<&2, Pending>, received: Nat, supplied: M.World(), reply: J.Json, +state: State) -> Decision:
   match found:
     case None{}: Decision{state, Nil{}}
-    case Some{Pending{+ticket, completion, text, origin}}:
+    case Some{Pending{+ticket, completion, text, origin, status}}:
       complete_ticket(ticket, received, supplied, reply, completion, state)
 def received_completion(+ticket: Nat, received: Nat, world: M.World(), reply: J.Json, state: State) -> Decision:
   State{web, sequence, next, +pending} = state
   completed(find(pending, ticket), received, world, reply, State{web, sequence, next, pending})
-def failed_completion(+ticket: Nat, error: String, state: State) -> Decision:
-  State{+web, +sequence, +next, +pending} = state
-  completed(find(pending, ticket), sequence, program(State{web, sequence, next, pending}),
-    J.Object{[J.Field{"ok", J.Boolean{False{}}}, J.Field{"error", J.Text{error}}]}, State{web, sequence, next, pending})
+def ticket_of(pending: Pending) -> Nat:
+  Pending{ticket, completion, command, origin, status} = pending
+  ticket
+def mark_uncertain(hit: Bool, entry: Pending, reason: String) -> Pending:
+  match hit:
+    case False{}: entry
+    case True{}:
+      Pending{ticket, completion, command, origin, status} = entry
+      Pending{ticket, completion, command, origin, OutcomeUnknown{reason}}
+
+def uncertain_pending(pending: +List<Pending>, +ticket: Nat, +reason: String) -> +List<Pending>:
+  match pending:
+    case Nil{}: Nil{}
+    case Con{+entry, rest}:
+      mark_uncertain(Nat.is_eq(ticket_of(entry), ticket), entry, reason) <> uncertain_pending(rest, ticket, reason)
+
+def failed_completion(ticket: Nat, error: String, state: State) -> Decision:
+  State{web, sequence, next, pending} = state
+  Decision{State{web, sequence, next, uncertain_pending(pending, ticket, error)}, Nil{}}
 
 def step(event: Input, state: State) -> Decision:
   match event:
@@ -430,9 +492,6 @@ def step(event: Input, state: State) -> Decision:
     case Snapshot{received, world}: snapshot(received, world, state)
     case Completed{ticket, received, world, reply}: received_completion(ticket, received, world, reply, state)
     case Failed{ticket, error}: failed_completion(ticket, error, state)
-def ticket_of(pending: Pending) -> Nat:
-  Pending{ticket, completion, command, origin} = pending
-  ticket
 def owned_choice(same: Bool, rest: Bool) -> Bool:
   match same:
     case True{}: True{}
@@ -496,3 +555,73 @@ def connect_credential(found: Maybe<&2, String>, credential: String, state: Stat
       entered_connect(edit_text(key, credential, state))
 def connect(credential: String, +state: State) -> Decision:
   connect_credential(credential_key(nodes(state)), credential, state)
+
+
+def dismiss_input(input: Core.Input) -> Bool:
+  match input:
+    case Core.ServiceInput{Services.ClosePreview{}}: True{}
+    case Core.ServiceInput{Services.CloseSettings{}}: True{}
+    case Core.ApplicationInput{E.UserInput{U.Activate{U.ClosePanel{}}}}: True{}
+    case Core.ApplicationInput{E.UserInput{U.SetNavigation{False{}}}}: True{}
+    case _: False{}
+
+def dismiss_selected(eligible: Bool, key: String, fallback: Maybe<&2, String>) -> Maybe<&2, String>:
+  match eligible:
+    case True{}: Some{key}
+    case False{}: fallback
+
+def dismiss_key(values: +List<UI.Node>) -> Maybe<&2, String>:
+  match values:
+    case Nil{}: None{}
+    case Con{UI.Node{+key, semantic, label, role, UI.Activate{input, availability}, +children}, rest}:
+      dismiss_selected(UI.available(availability) && dismiss_input(input), key, prefer_key(dismiss_key(children), dismiss_key(rest)))
+    case Con{UI.Node{key, semantic, label, role, meaning, children}, rest}:
+      prefer_key(dismiss_key(children), dismiss_key(rest))
+
+def dismiss_found(found: Maybe<&2, String>, state: State) -> Decision:
+  match found:
+    case None{}: Decision{state, Nil{}}
+    case Some{key}: activate(key, state)
+
+def cycle_found(found: Maybe<&2, String>, state: State) -> Decision:
+  match found:
+    case None{}: Decision{state, Nil{}}
+    case Some{target}:
+      State{Web.State{Platform.State{core, Platform.Platform{readers, editors, focused, +ticket, reduced, capacity, scope}}, generation, realization, environment}, sequence, next, pending} = state
+      Decision{State{Web.State{Platform.State{core, Platform.Platform{readers, editors, focused, (ticket + 1n : Nat), reduced, capacity, scope}}, generation, realization, environment}, sequence, next, pending},
+        [BrowserEffect{Web.PlatformEffect{Platform.Focus{(ticket + 1n : Nat), target}}}]}
+
+def frame_cycle(realization: Rendered.State, scope: Focus.Scope, reverse: Bool) -> Maybe<&2, String>:
+  match realization:
+    case Rendered.Realized{generation, Rendered.Frame{viewport, elements, focused, order}}:
+      Focus.cycle(scope, order, focused, reverse)
+    case _: None{}
+
+def temporary_action(scope: Focus.Scope, tab: Bool, escape: Bool, reverse: Bool, realization: Rendered.State, +state: State) -> Decision:
+  match tab escape:
+    case True{} _: cycle_found(frame_cycle(realization, scope, reverse), state)
+    case False{} True{}: dismiss_found(dismiss_key(nodes(state)), state)
+    case False{} False{}: Decision{state, Nil{}}
+
+def key_scoped(scope: Focus.Scope, tab: Bool, escape: Bool, reverse: Bool, realization: Rendered.State, state: State) -> Decision:
+  match scope:
+    case Focus.Document{}: Decision{state, Nil{}}
+    case Focus.Temporary{identity, initial, restore}:
+      temporary_action(Focus.Temporary{identity, initial, restore}, tab, escape, reverse, realization, state)
+
+def temporary_key(tab: Bool, escape: Bool, reverse: Bool, +state: State) -> Decision:
+  State{Web.State{Platform.State{core, Platform.Platform{readers, editors, focused, ticket, reduced, capacity, scope}}, generation, realization, environment}, sequence, next, pending} = state
+  key_scoped(scope, tab, escape, reverse, realization, state)
+
+def key_input(+key: String, shift: Bool, state: State) -> Decision:
+  temporary_key(String.eq(key, "Tab"), String.eq(key, "Escape"), shift, state)
+
+
+def key_handled(scope: Focus.Scope, +key: String) -> Bool:
+  match scope:
+    case Focus.Document{}: False{}
+    case Focus.Temporary{identity, initial, restore}: String.eq(key, "Tab") || String.eq(key, "Escape")
+
+def key_event(+key: String, shift: Bool, +state: State) -> KeyResult:
+  State{Web.State{Platform.State{core, Platform.Platform{readers, editors, focused, ticket, reduced, capacity, scope}}, generation, realization, environment}, sequence, next, pending} = state
+  KeyResult{key_handled(scope, key), key_input(key, shift, state)}

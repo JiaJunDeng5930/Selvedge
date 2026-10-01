@@ -58,7 +58,7 @@ def latest_attention(later: Maybe<&2, Nat>, earlier: Maybe<&2, Nat>) -> Maybe<&2
     case None{}: earlier
 
 # Identity comes from the first audit occurrence. Attention comes from the most
-# recent failure, so ordinary growth does not reopen a deliberately folded run.
+# recent failure. Explicit disclosure choices remain owned by the reader.
 def prepend_audit(+index: Nat, failed: Bool, message: D.Message, tail: +List<Group>) -> +List<Group>:
   match tail:
     case Con{Activity{id, attention, entries}, rest}:
@@ -149,11 +149,77 @@ def audit_faces(entries: +List<Audit>) -> +List<AuditFace>:
     case Nil{}: Nil{}
     case Con{Audit{index, +message}, rest}: AuditFace{index, audit_kind(message), audit_title(message), message} <> audit_faces(rest)
 
-def activity_summary(entries: +List<Audit>) -> String:
+def audit_failed(message: D.Message) -> Bool:
+  match message:
+    case D.FailureMessage{text}: True{}
+    case D.FunctionOutput{id, value, error}: error
+    case D.OperationResult{ticket, id, tool, value, error}: error
+    case D.ToolReceipt{task, operation, call, value, error}: error
+    case D.ApprovalRecord{task, operation, call, reviewer, outcome}: approval_failed(outcome)
+    case D.HookRecord{task, call, plugin, outcome}: hook_failed(outcome)
+    case D.AfterRecord{task, operation, plugin, outcome}: after_failed(outcome)
+    case _: False{}
+
+def failure_candidate(failed: Bool, entry: Audit) -> Maybe<&2, Audit>:
+  match failed:
+    case True{}: Some{entry}
+    case False{}: None{}
+
+def prefer_failure(later: Maybe<&2, Audit>, earlier: Maybe<&2, Audit>) -> Maybe<&2, Audit>:
+  match later:
+    case Some{entry}: Some{entry}
+    case None{}: earlier
+
+def latest_failure(entries: +List<Audit>) -> Maybe<&2, Audit>:
+  match entries:
+    case Nil{}: None{}
+    case Con{Audit{+index, +message}, rest}:
+      prefer_failure(latest_failure(rest), failure_candidate(audit_failed(message), Audit{index, message}))
+
+def operation_count(entries: +List<Audit>) -> Nat:
+  match entries:
+    case Nil{}: 0n
+    case Con{Audit{index, D.FunctionCall{call}}, rest}: (1n + operation_count(rest) : Nat)
+    case Con{other, rest}: operation_count(rest)
+
+def current_activity(entries: +List<Audit>) -> String:
   match entries:
     case Nil{}: "Activity"
     case Con{Audit{index, message}, Nil{}}: audit_title(message)
-    case Con{Audit{index, message}, rest}: audit_title(message) ++ " + " ++ Nat.show(List.length(&2, Audit, rest)) ++ " more"
+    case Con{entry, rest}: current_activity(rest)
+
+def summarized_activity(failure: Maybe<&2, Audit>, +entries: +List<Audit>) -> String:
+  match failure:
+    case Some{Audit{index, message}}:
+      "Failure: " ++ audit_title(message) ++ " · " ++ Nat.show(List.length(&2, Audit, entries)) ++ " events"
+    case None{}: current_activity(entries) ++ " · " ++ Nat.show(operation_count(entries)) ++ " operations"
+
+def activity_summary(+entries: +List<Audit>) -> String:
+  summarized_activity(latest_failure(entries), entries)
+
+def json_detail(result: Result<&2, &2, String, String>) -> String:
+  match result:
+    case Done{text}: text
+    case Fail{reason}: "Unable to display JSON: " ++ reason
+
+def result_detail(error: Bool, value: J.Json) -> String:
+  match error:
+    case True{}: "Error\n" ++ json_detail(J.show(value))
+    case False{}: "Result\n" ++ json_detail(J.show(value))
+
+def audit_detail(message: D.Message) -> String:
+  match message:
+    case D.FunctionCall{D.Call{id, name, arguments}}: name ++ "\n" ++ json_detail(J.show(arguments))
+    case D.FunctionOutput{id, value, error}: result_detail(error, value)
+    case D.OperationResult{ticket, id, tool, value, error}: tool ++ "\n" ++ result_detail(error, value)
+    case D.ToolReceipt{task, operation, D.Call{id, name, arguments}, value, error}: name ++ "\n" ++ result_detail(error, value)
+    case D.ApprovalRecord{task, operation, call, reviewer, outcome}: json_detail(J.show(D.approval_outcome_json(outcome)))
+    case D.HookRecord{task, call, plugin, outcome}: json_detail(J.show(D.hook_json(outcome)))
+    case D.AfterRecord{task, operation, plugin, outcome}: json_detail(J.show(D.after_json(outcome)))
+    case D.FailureMessage{text}: text
+    case D.ContextCheckpoint{summary}: summary
+    case D.ModelContext{value}: json_detail(J.show(value))
+    case other: audit_title(other)
 
 def groups(messages: +List<D.Message>, +index: Nat) -> +List<Group>:
   match messages:
@@ -179,7 +245,7 @@ def expanded(disclosures: +List<E.Disclosure>, +group: Nat, +attention: Maybe<&2
   match disclosures:
     case Nil{}: has_attention(attention)
     case Con{E.Disclosure{id, seen, value}, rest}:
-      choose_expanded(Nat.is_eq(id, group) && Nat.is_eq(seen, attention_key(attention)), value, expanded(rest, group, attention))
+      choose_expanded(Nat.is_eq(id, group), value, expanded(rest, group, attention))
 
 def visible(groups: +List<Group>, +task: Nat, +disclosures: +List<E.Disclosure>) -> +List<VisibleGroup>:
   match groups:

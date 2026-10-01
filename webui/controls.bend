@@ -436,7 +436,7 @@ def icon_only(purpose: Purpose, area: Area) -> Bool:
     case ToggleNavigation{expanded} _: True{}
     case ProjectTaskCreation{} NavigationArea{}: True{}
     case OpenPanel{Inspector{}, menu, expanded} ToolbarArea{}: True{}
-    case OpenPanel{Settings{}, menu, expanded} ToolbarArea{}: True{}
+    case OpenPanel{Settings{}, menu, expanded} _: True{}
     case CopyCode{state} CodeArea{}: True{}
     case WrapCode{enabled} CodeArea{}: True{}
     case RemoveValue{} CollectionArea{}: True{}
@@ -564,12 +564,22 @@ def placement_for(purpose: Purpose, area: Area) -> Placement:
     case ProjectTaskCreation{} NavigationArea{}: GroupHeadingEnd{}
     case _ _: InFlow{}
 
-def make_action(key: String, +input: Core.Input, +availability: View.Availability, label: String,
+def workspace_face(key: String, expanded: Bool, label: String, area: Area) -> Face:
+  match key:
+    case "/main/creation/introduction/creation/context/composer/context": PickerFace{Some{Folder{}}, "Context"}
+    case _: face_for(WorkspacePicker{expanded}, label, area)
+
+def keyed_face(key: String, purpose: Purpose, label: String, area: Area) -> Face:
+  match purpose:
+    case WorkspacePicker{expanded}: workspace_face(key, expanded, label, area)
+    case other: face_for(other, label, area)
+
+def make_action(+key: String, +input: Core.Input, +availability: View.Availability, label: String,
   role: UI.Role, +context: Context) -> Representation:
   Context{+area, selection, code, appearance, access, settings_open, layers} = context
   +intent = purpose_fields(key, input, selection, code, appearance, access, settings_open, layers)
   +control_name = name_for(intent, label)
-  +control_face = face_for(intent, control_name, area)
+  +control_face = keyed_face(key, intent, control_name, area)
   +response = feedback_for(intent)
   Action{input, availability, control_name, control_face,
     behavior_for(intent, selected_role(role)), geometry_for(intent, control_face, area),
@@ -618,6 +628,8 @@ def field_availability(entry: Forms.Entry) -> View.Availability:
 def represent(key: String, +meaning: UI.Meaning, +label: String, role: UI.Role, +context: Context) -> Representation:
   match meaning:
     case UI.Activate{input, availability}: make_action(key, input, availability, label, role, context)
+    case UI.Edit{editor, field, Forms.DirectoryCollection{}, value}: NoControl{}
+    case UI.Edit{editor, field, Forms.FileCollection{}, value}: NoControl{}
     case UI.Edit{editor, field, +entry, value}: make_input(meaning, label, widget_for(entry, field, value), field_availability(entry))
     case UI.SearchChoices{query}: make_input(meaning, label, SearchInput{}, View.Available{})
     case UI.EnterCredential{entered}: make_input(meaning, label, SecretInput{}, View.Available{})

@@ -41,12 +41,16 @@ type Dock is Data:
   Dock{band: Band, bottom_inset: Nat, maximum_height: Nat,
     regions: +List<DockRegion>, input: Maybe<&2, InputMetrics>, reservation: Reservation}
 
+type CreationFlow is Data:
+  Balanced{}
+  Compact{}
+
 type MainFrame is Data:
   # Center the intrinsic input group in this canvas, subject to its height bound.
-  CreationFrame{heading: Box, canvas: Box, band: Band, input: Maybe<&2, InputMetrics>}
+  CreationFrame{heading: Box, canvas: Box, band: Band, input: Maybe<&2, InputMetrics>, flow: CreationFlow}
   ConversationFrame{heading: Box, viewport: Box, reading: Band, dock: Maybe<&2, Dock>}
-  OverviewFrame{heading: Box, viewport: Box, content: Band, organization: Composition.Body}
-  BoardFrame{heading: Box, viewport: Box, column_width: Nat, column_gap: Nat, inset: Nat}
+  OverviewFrame{canvas: Box, band: Band, organization: Composition.Body}
+  BoardFrame{canvas: Box, column_width: Nat, column_gap: Nat, inset: Nat}
   UnavailableFrame{heading: Box, canvas: Box, band: Band}
 
 type OverlayPlacement is Data:
@@ -60,8 +64,7 @@ type Overlay is Data:
   Overlay{key: String, level: Nat, placement: OverlayPlacement}
 
 type Layout is Data:
-  Layout{viewport: Viewport, shell: Shell, main: MainFrame, overlays: +List<Overlay>,
-    structure: Composition.Structure}
+  Layout{viewport: Viewport, shell: Shell, main: MainFrame, overlays: +List<Overlay>}
 
 type Theme is Data:
   Light{}
@@ -84,6 +87,7 @@ type Alignment is Data:
   Stretch{}
   Leading{}
   Trailing{}
+  Centered{}
 
 type Flow is Data:
   BlockFlow{}

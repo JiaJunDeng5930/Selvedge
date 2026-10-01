@@ -9,6 +9,7 @@ import ./laws.bend as Laws
 import ./user-experience.bend as E
 import ./user-input.bend as U
 import ./ui-world.bend as V
+import ./composition.bend as Composition
 import ./user-conversation.bend as Conversation
 import ./form-fields.bend as Forms
 import ./client-services.bend as Services
@@ -49,6 +50,7 @@ type Placement is Data:
 type Meaning is Data:
   MovableCard{destinations: +List<Placement>}
   Region{}
+  PageRegion{region: Composition.Region, position: Composition.Position}
   ReadOnly{text: String}
   TaskFacts{details: V.TaskDetails}
   CodeFacts{view: Code.Scene}
@@ -435,12 +437,6 @@ def approval_queue(values: +List<Conversation.DecisionRequest>, +parent: String,
   match values:
     case Nil{}: Nil{}
     case other: [region(parent, "pending-decisions", "Pending approvals", ApprovalQueue{}, approvals(other, parent ++ "/pending-decisions", state))]
-def timeline(view: Conversation.Timeline, +parent: String, +state: Core.State) -> +List<Node>:
-  Conversation.Timeline{task, generation, entries, live, decisions, reading, return_latest} = view
-  region(parent, "timeline", "Conversation", Timeline{}, groups(entries, task, parent ++ "/timeline", state)) <>
-    List.append(&2, Node, approval_queue(decisions, parent, state),
-      List.append(&2, Node, operations(live, parent, state), latest(return_latest, parent, state)))
-
 def live_parts(parts: +List<Live.Part>, +task: Nat, +operation: Nat, +parent: String, +state: Core.State) -> +List<Node>:
   match parts:
     case Nil{}: Nil{}
@@ -452,11 +448,6 @@ def live_outputs(outputs: +List<Live.Output>, +parent: String, +state: Core.Stat
     case Nil{}: Nil{}
     case Con{Live.Output{task, +operation, parts}, rest}:
       region(parent, "stream/" ++ Nat.show(operation), "Agent output", Content{}, live_parts(parts, task, operation, parent ++ "/stream/" ++ Nat.show(operation), state)) <> live_outputs(rest, parent, state)
-
-def task(view: V.TaskScene, +parent: String, +state: Core.State) -> +List<Node>:
-  V.TaskScene{id, title, status, context, entries, previews, input, details, V.TaskActions{detail, overflow}} = view
-  region(parent, "heading", title, Heading{}, [declared(parent ++ "/heading", detail, state), more(U.TaskSubject{id}, parent ++ "/heading", state)]) <>
-    List.append(&2, Node, timeline(entries, parent, state), List.append(&2, Node, live_outputs(previews, parent, state), composer(input, parent, state)))
 
 def project(view: V.ProjectScene, +parent: String, +state: Core.State) -> +List<Node>:
   V.ProjectScene{id, name, workspace, guidance, tasks, actions} = view
@@ -510,9 +501,71 @@ def agents(values: +List<V.AgentScene>, +parent: String, +state: Core.State) -> 
     case Con{V.AgentScene{+id, value, edit, remove}, rest}:
       region(parent, "agent/" ++ Nat.show(id), "Agent", Section{}, [declared(parent ++ "/agent/" ++ Nat.show(id), edit, state), more(U.AgentSubject{id}, parent ++ "/agent/" ++ Nat.show(id), state)]) <> agents(rest, parent, state)
 
-def task_page(value: V.TaskScene, +parent: String, state: Core.State) -> +List<Node>:
-  V.TaskScene{+id, +title, status, context, entries, previews, composer, details, actions} = value
-  [region(parent, "task/" ++ Nat.show(id), title, Section{}, task(value, parent ++ "/task/" ++ Nat.show(id), state))]
+def page_region(+parent: String, +part: Composition.Region, position: Composition.Position, children: +List<Node>) -> Node:
+  +name = Composition.region_name(part)
+  Node{parent ++ "/region/" ++ name, name, "", Section{}, PageRegion{part, position}, children}
+
+def page_composer(+input: Maybe<&2, V.ComposerScene>, +parent: String, +owner: String, +state: Core.State, +position: Composition.Position) -> +List<Node>:
+  match input:
+    case None{}: Nil{}
+    case Some{scene}: [page_region(parent, Composition.ComposerInput{}, position, composer(Some{scene}, owner, state))]
+
+def page_latest(+input: Maybe<&2, U.Input>, +parent: String, +owner: String, +state: Core.State) -> +List<Node>:
+  match input:
+    case None{}: Nil{}
+    case Some{value}: [page_region(parent, Composition.LatestAction{}, Composition.DockPosition{}, latest(Some{value}, owner, state))]
+
+def page_approvals(+values: +List<Conversation.DecisionRequest>, +parent: String, +owner: String, +state: Core.State) -> +List<Node>:
+  match values:
+    case Nil{}: Nil{}
+    case Con{first, rest}: [page_region(parent, Composition.ApprovalDecisions{}, Composition.DockPosition{}, approval_queue(first <> rest, owner, state))]
+
+def task_page_fields(+id: Nat, +title: String, page_timeline: Conversation.Timeline, previews: +List<Live.Output>, input: Maybe<&2, V.ComposerScene>, actions: V.TaskActions, +parent: String, +state: Core.State) -> +List<Node>:
+  Conversation.Timeline{task, generation, groups_value, live, decisions, reading, return_latest} = page_timeline
+  V.TaskActions{detail, overflow} = actions
+  +owner = parent ++ "/task/" ++ Nat.show(id)
+  page_region(parent, Composition.ConversationTitle{}, Composition.HeadingPosition{},
+    [region(owner, "heading", title, Heading{}, Nil{})]) <>
+  page_region(parent, Composition.TaskActions{}, Composition.HeadingPosition{},
+    [declared(owner ++ "/heading", detail, state), more(U.TaskSubject{id}, owner ++ "/heading", state)]) <>
+  page_region(parent, Composition.TimelineContent{}, Composition.BodyPosition{},
+    [region(owner, "timeline", "Conversation", Timeline{}, groups(groups_value, id, owner ++ "/timeline", state))]) <>
+  page_region(parent, Composition.StreamingOutput{}, Composition.BodyPosition{},
+    List.append(&2, Node, live_outputs(previews, owner, state), operations(live, owner, state))) <>
+  List.append(&2, Node, page_latest(return_latest, parent, owner, state),
+    List.append(&2, Node, page_approvals(decisions, parent, owner, state), page_composer(input, parent, owner, state, Composition.DockPosition{})))
+
+def task_page(value: V.TaskScene, parent: String, state: Core.State) -> +List<Node>:
+  V.TaskScene{id, title, status, context, page_timeline, previews, input, details, actions} = value
+  task_page_fields(id, title, page_timeline, previews, input, actions, parent, state)
+
+def workspace_roots(values: +List<String>) -> String:
+  match values:
+    case Nil{}: ""
+    case Con{value, Nil{}}: value
+    case Con{value, rest}: value ++ "\n" ++ workspace_roots(rest)
+
+def workspace_primary(value: Maybe<&2, String>) -> String:
+  match value:
+    case None{}: ""
+    case Some{text}: text
+
+def guidance_text(value: D.ProjectContext) -> String:
+  match value:
+    case D.NoProject{}: "No project guidance"
+    case D.ProjectContext{workspace, revision, instructions}: instructions
+
+def project_fact(+key: String, +label: String, text: String) -> Node:
+  Node{key, key, label, Content{}, ReadOnly{label ++ "\n" ++ text}, Nil{}}
+
+def project_page(value: V.ProjectScene, +parent: String, +state: Core.State) -> +List<Node>:
+  V.ProjectScene{id, +name, D.Workspace{roots, primary}, guidance, tasks, actions} = value
+  [page_region(parent, Composition.ProjectTitle{}, Composition.HeadingPosition{}, [region(parent, "heading", name, Heading{}, Nil{})]),
+   page_region(parent, Composition.ProjectActions{}, Composition.HeadingPosition{}, controls(actions, parent ++ "/heading", state)),
+   page_region(parent, Composition.DefaultWorkspace{}, Composition.BodyPosition{},
+     [project_fact("project/default-workspace", "Default workspace", workspace_roots(roots)), project_fact("project/primary", "Primary directory", workspace_primary(primary))]),
+   page_region(parent, Composition.ProjectGuidance{}, Composition.BodyPosition{}, [project_fact("project/guidance", "Project guidance", guidance_text(guidance))]),
+   page_region(parent, Composition.ProjectTasks{}, Composition.BodyPosition{}, task_entries(tasks, parent, state))]
 
 def available(value: V.Availability) -> Bool:
   match value:
@@ -528,17 +581,43 @@ def board_profile(+automatic: Bool, +selected: String, choices: +List<D.Profile>
   Node{parent ++ "/drafting-model", "drafting-model", "Drafting model", Field{},
     BoardProfile{automatic, selected, choices, enabled_control(Core.control(state, V.board_control("board/profile", "Drafting model", B.Settings{automatic, selected}, world)))}, Nil{}}
 
+def creation_title_node(value: V.CreationIntroduction, parent: String) -> Node:
+  V.CreationIntroduction{+heading, summary, context, project} = value
+  Node{parent ++ "/creation/introduction/creation/title", "creation/title", heading, Heading{}, ReadOnly{heading}, Nil{}}
+
+def creation_context_node(value: V.CreationIntroduction, parent: String) -> Node:
+  V.CreationIntroduction{heading, summary, context, project} = value
+  Node{parent ++ "/creation/introduction/creation/context", "creation/context", "Workspace configuration", Content{}, ReadOnly{summary}, Nil{}}
+
+def creation_introduction_nodes(+value: V.CreationIntroduction, +parent: String, state: Core.State) -> +List<Node>:
+  [page_region(parent, Composition.CreationIntroduction{}, Composition.BodyPosition{}, [creation_title_node(value, parent)]),
+   page_region(parent, Composition.CreationContext{}, Composition.BodyPosition{}, [creation_context_node(value, parent)])]
+
+def creation_page(+input: Maybe<&2, V.ComposerScene>, +parent: String, +state: Core.State) -> +List<Node>:
+  Core.State{E.Application{world, session}, services} = state
+  List.append(&2, Node, creation_introduction_nodes(V.creation_introduction(input, world), parent, state), page_composer(input, parent, parent, state, Composition.BodyPosition{}))
+
 def page_contents(view: V.Page, +parent: String, +state: Core.State) -> +List<Node>:
   match view:
-    case V.StartPage{input}: composer(input, parent, state)
+    case V.StartPage{input}: creation_page(input, parent, state)
     case V.TaskPage{value}: task_page(value, parent, state)
-    case V.ProjectPage{value}: project(value, parent, state)
-    case V.ProjectsPage{values, create}: declared(parent, create, state) <> projects(values, parent, state)
+    case V.ProjectPage{value}: project_page(value, parent, state)
+    case V.ProjectsPage{values, create}:
+      [page_region(parent, Composition.CollectionTitle{}, Composition.HeadingPosition{}, [region(parent, "heading", "Projects", Heading{}, Nil{})]),
+       page_region(parent, Composition.CollectionActions{}, Composition.HeadingPosition{}, [declared(parent, create, state)]),
+       page_region(parent, Composition.ProjectEntries{}, Composition.BodyPosition{}, projects(values, parent, state))]
     case V.BoardPage{filter, values, create, automatic, profile, automation, profiles, archive}:
-      Node{parent ++ "/filter", "filter", "Filter cards", Field{}, BoardFilter{filter}, Nil{}} <>
-        declared(parent, create, state) <> board_profile(automatic, profile, profiles, parent, state) <> declared(parent, automation, state) <> declared(parent, archive, state) <> columns(values, parent, state)
-    case V.AgentsPage{values, create}: declared(parent, create, state) <> agents(values, parent, state)
-    case V.MissingObject{message}: [Node{parent ++ "/missing", "missing", "Unavailable", Content{}, ReadOnly{message}, Nil{}}]
+      [page_region(parent, Composition.BoardTitle{}, Composition.HeadingPosition{}, [region(parent, "heading", "Board", Heading{}, Nil{})]),
+       page_region(parent, Composition.BoardControls{}, Composition.HeadingPosition{},
+         [Node{parent ++ "/filter", "filter", "Filter cards", Field{}, BoardFilter{filter}, Nil{}},
+          declared(parent, create, state), board_profile(automatic, profile, profiles, parent, state), declared(parent, automation, state), declared(parent, archive, state)]),
+       page_region(parent, Composition.BoardStages{}, Composition.BodyPosition{}, columns(values, parent, state))]
+    case V.AgentsPage{values, create}:
+      [page_region(parent, Composition.CollectionTitle{}, Composition.HeadingPosition{}, [region(parent, "heading", "Agents", Heading{}, Nil{})]),
+       page_region(parent, Composition.CollectionActions{}, Composition.HeadingPosition{}, [declared(parent, create, state)]),
+       page_region(parent, Composition.AgentEntries{}, Composition.BodyPosition{}, agents(values, parent, state))]
+    case V.MissingObject{message}:
+      [page_region(parent, Composition.UnavailableMessage{}, Composition.BodyPosition{}, [Node{parent ++ "/missing", "missing", "Unavailable", Content{}, ReadOnly{message}, Nil{}}])]
 
 def page(view: V.Page, state: Core.State) -> Node:
   region("", "main", "Content", Main{}, page_contents(view, "/main", state))
@@ -589,8 +668,8 @@ def layer_key(initial_attention: String) -> String:
 def layers(values: +List<V.Layer>, +state: Core.State) -> +List<Node>:
   match values:
     case Nil{}: Nil{}
-    case Con{V.Layer{kind, content, +initial, restore, close}, rest}:
-      Node{layer_key(initial), initial, initial, layer_role(kind), Region{}, List.append(&2, Node,
+    case Con{V.Layer{kind, +content, +initial, restore, close}, rest}:
+      Node{layer_key(initial), initial, V.layer_title(content), layer_role(kind), Region{}, List.append(&2, Node,
         layer_content(content, layer_key(initial), state), [declared(layer_key(initial), close, state)])} <> layers(rest, state)
 
 def settings_visible(open: Bool, +entered: Bool, close: Core.Input, connect: Core.Input) -> +List<Node>:

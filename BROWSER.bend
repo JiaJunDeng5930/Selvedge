@@ -27,3 +27,7 @@ def code_source(source: Code.Source, ordinal: Nat, text: String, state: Browser.
 def editor_event(key: String, event: Editor.Event, state: Browser.State) -> Browser.Decision: Browser.editor_event(key, event, state)
 def reading(task: Nat, generation: Nat, event: Reading.Event, state: Browser.State) -> Browser.Decision: Browser.reading(task, generation, event, state)
 def streams(body: J.Json, state: Browser.State) -> Browser.Decision: Browser.streams(body, state)
+
+def key_input(key: String, shift: Bool, state: Browser.State) -> Browser.Decision: Browser.key_input(key, shift, state)
+
+def key_event(key: String, shift: Bool, state: Browser.State) -> Browser.KeyResult: Browser.key_event(key, shift, state)

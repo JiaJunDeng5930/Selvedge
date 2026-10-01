@@ -243,7 +243,7 @@ def read_current(+task: Nat, generation: Nat, intent: U.ReadingIntent, +applicat
 
 def ensure(found: Maybe<&2, U.Draft>, fallback: U.Body, session: Session) -> Session:
   match found:
-    case Some{U.Draft{revision, body, U.Accepted{submitted, result}}}: with_draft(session, U.Draft{0n, fallback, U.Editing{}})
+    case Some{U.Draft{revision, body, U.Accepted{submitted, result}}}: with_draft(session, U.Draft{(revision + 1n : Nat), fallback, U.Editing{}})
     case Some{draft}: session
     case None{}: with_draft(session, U.Draft{0n, fallback, U.Editing{}})
 

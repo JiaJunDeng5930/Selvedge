@@ -14,7 +14,7 @@ def expected_main_frame(+recipe: Composition.Recipe, +main: Design.Box) -> Desig
   match recipe:
     case Composition.Recipe{measure, page_heading, Composition.CenteredCreation{}, composer, decisions, latest}:
       Design.CreationFrame{Layout.heading_box(main), Layout.body_box(main), Layout.measure_band(measure, Layout.body_box(main)),
-        Layout.centered_input(composer, Layout.body_box(main))}
+        Layout.centered_input(composer, Layout.body_box(main)), Layout.creation_flow(Layout.body_box(main))}
     case Composition.Recipe{measure, page_heading, Composition.ChronologicalReading{}, composer, decisions, latest}:
       heading = Layout.heading_box(main)
       +body_viewport = Layout.body_box(main)
@@ -22,21 +22,17 @@ def expected_main_frame(+recipe: Composition.Recipe, +main: Design.Box) -> Desig
       Design.ConversationFrame{heading, body_viewport, reading,
         Layout.conversation_dock(Layout.recipe_dock(recipe), body_viewport, reading, composer)}
     case Composition.Recipe{measure, page_heading, Composition.ProjectSections{}, composer, decisions, latest}:
-      heading = Layout.heading_box(main)
       +body_viewport = Layout.body_box(main)
-      Design.OverviewFrame{heading, body_viewport, Layout.measure_band(measure, body_viewport), Composition.ProjectSections{}}
+      Design.OverviewFrame{body_viewport, Layout.measure_band(measure, body_viewport), Composition.ProjectSections{}}
     case Composition.Recipe{measure, page_heading, Composition.ProjectRows{}, composer, decisions, latest}:
-      heading = Layout.heading_box(main)
       +body_viewport = Layout.body_box(main)
-      Design.OverviewFrame{heading, body_viewport, Layout.measure_band(measure, body_viewport), Composition.ProjectRows{}}
+      Design.OverviewFrame{body_viewport, Layout.measure_band(measure, body_viewport), Composition.ProjectRows{}}
     case Composition.Recipe{measure, page_heading, Composition.AgentRows{}, composer, decisions, latest}:
-      heading = Layout.heading_box(main)
       +body_viewport = Layout.body_box(main)
-      Design.OverviewFrame{heading, body_viewport, Layout.measure_band(measure, body_viewport), Composition.AgentRows{}}
+      Design.OverviewFrame{body_viewport, Layout.measure_band(measure, body_viewport), Composition.AgentRows{}}
     case Composition.Recipe{measure, page_heading, Composition.StageColumns{}, composer, decisions, latest}:
-      heading = Layout.heading_box(main)
       +body_viewport = Layout.body_box(main)
-      Design.BoardFrame{heading, body_viewport, Layout.board_column_width(body_viewport),
+      Design.BoardFrame{body_viewport, Layout.board_column_width(body_viewport),
         12n, Layout.inline_gutter(Layout.box_width(body_viewport))}
     case Composition.Recipe{measure, page_heading, Composition.UnavailableNotice{}, composer, decisions, latest}:
       Design.UnavailableFrame{Layout.heading_box(main), Layout.body_box(main), Layout.measure_band(measure, Layout.body_box(main))}
@@ -384,8 +380,20 @@ type Requirements is Type:
       @matched:{Layout.anchor(surface, return_attention) == Some{origin} : Maybe<&2, String>} ->
       {Layout.menu_for_layer(viewport,
         Some{anchored_layer(initial_attention, return_attention, content, close)}, surface) ==
-        expected_anchored_menu(viewport, origin) : Design.OverlayPlacement}
+        expected_anchored_menu(viewport, origin) : Design.OverlayPlacement},
+    compact_creation: @height:Nat -> @below:{Nat.is_lt(height, 420n) == True{} : Bool} ->
+      {Layout.creation_flow_for_height(height) == Design.Compact{} : Design.CreationFlow},
+    balanced_creation: @height:Nat -> @enough:{Nat.is_lt(height, 420n) == False{} : Bool} ->
+      {Layout.creation_flow_for_height(height) == Design.Balanced{} : Design.CreationFlow}
   }
+
+def compact_creation(height: Nat, below: {Nat.is_lt(height, 420n) == True{} : Bool}) ->
+  {Layout.creation_flow_for_height(height) == Design.Compact{} : Design.CreationFlow}:
+  Equal.cong(Bool, Design.CreationFlow, Layout.creation_flow_choice, Nat.is_lt(height, 420n), True{}, below)
+
+def balanced_creation(height: Nat, enough: {Nat.is_lt(height, 420n) == False{} : Bool}) ->
+  {Layout.creation_flow_for_height(height) == Design.Balanced{} : Design.CreationFlow}:
+  Equal.cong(Bool, Design.CreationFlow, Layout.creation_flow_choice, Nat.is_lt(height, 420n), False{}, enough)
 
 def evidence() -> Requirements:
   Requirements{
@@ -410,5 +418,7 @@ def evidence() -> Requirements:
     surface => trigger => scope => found => exact_trigger_node_in_base(surface, trigger, scope, found),
     surface => requested => scope => empty_tree_anchor_is_absent(surface, requested, scope),
     viewport => initial_attention => return_attention => content => close => surface => origin => matched =>
-      menu_uses_resolved_origin(viewport, initial_attention, return_attention, content, close, surface, origin, matched)
+      menu_uses_resolved_origin(viewport, initial_attention, return_attention, content, close, surface, origin, matched),
+    height => below => compact_creation(height, below),
+    height => enough => balanced_creation(height, enough)
   }

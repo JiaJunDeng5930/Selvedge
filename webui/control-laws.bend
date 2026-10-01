@@ -19,10 +19,13 @@ type Bindings is Data:
 
 def source_binding(+meaning: UI.Meaning) -> UI.Meaning:
   match meaning:
+    case UI.PageRegion{region, position}: UI.Region{}
     case UI.Region{}: UI.Region{}
     case UI.ReadOnly{text}: UI.Region{}
     case UI.TaskFacts{details}: UI.Region{}
     case UI.CodeFacts{view}: UI.Region{}
+    case UI.Edit{editor, field, Forms.DirectoryCollection{}, value}: UI.Region{}
+    case UI.Edit{editor, field, Forms.FileCollection{}, value}: UI.Region{}
     case _: meaning
 
 def binding(representation: Controls.Representation) -> UI.Meaning:
@@ -45,7 +48,16 @@ def representation_retains_binding(+key: String, +meaning: UI.Meaning, label: St
   {binding(Controls.represent(key, meaning, label, role, context)) == source_binding(meaning) : UI.Meaning}:
   match meaning:
     case UI.Activate{input, availability}: action_retains_binding(key, input, availability, label, role, context)
-    case UI.Edit{editor, field, entry, value}: {==}
+    case UI.Edit{editor, field, entry, value}:
+      match entry:
+        case Forms.DisplayOnly{}: {==}
+        case Forms.SingleLine{}: {==}
+        case Forms.Multiline{}: {==}
+        case Forms.Choice{}: {==}
+        case Forms.MultipleChoices{}: {==}
+        case Forms.PositiveInteger{}: {==}
+        case Forms.DirectoryCollection{}: {==}
+        case Forms.FileCollection{}: {==}
     case UI.SearchChoices{query}: {==}
     case UI.EnterCredential{entered}: {==}
     case UI.BoardFilter{value}: {==}
@@ -53,6 +65,7 @@ def representation_retains_binding(+key: String, +meaning: UI.Meaning, label: St
     case UI.EnterDirectory{editor}: {==}
     case UI.BoardProfile{automatic, selected, choices, enabled}: {==}
     case UI.MovableCard{destinations}: {==}
+    case UI.PageRegion{region, position}: {==}
     case UI.Region{}: {==}
     case UI.ReadOnly{text}: {==}
     case UI.TaskFacts{details}: {==}
@@ -315,6 +328,25 @@ def input_label_is_accessible_only(value: Forms.Observed) ->
     Controls.AccessibleOnly{} : Controls.LabelPlacement}:
   {==}
 
+def settings_uses_gear(expanded: Bool, label: String) ->
+  {Controls.face_for(Controls.OpenPanel{Controls.Settings{}, False{}, expanded}, label, Controls.PageArea{}) == Controls.IconFace{Controls.Settings{}} : Controls.Face}:
+  {==}
+
+def introduction_uses_context_label(expanded: Bool, label: String, area: Controls.Area) ->
+  {Controls.keyed_face("/main/creation/introduction/creation/context/composer/context", Controls.WorkspacePicker{expanded}, label, area) ==
+    Controls.PickerFace{Some{Controls.Folder{}}, "Context"} : Controls.Face}:
+  {==}
+
+def directory_parent_has_no_control(key: String, editor: User.Editor, field: Forms.Field,
+  value: Forms.Observed, label: String, role: UI.Role, context: Controls.Context) ->
+  {Controls.represent(key, UI.Edit{editor, field, Forms.DirectoryCollection{}, value}, label, role, context) == Controls.NoControl{} : Controls.Representation}:
+  {==}
+
+def file_parent_has_no_control(key: String, editor: User.Editor, field: Forms.Field,
+  value: Forms.Observed, label: String, role: UI.Role, context: Controls.Context) ->
+  {Controls.represent(key, UI.Edit{editor, field, Forms.FileCollection{}, value}, label, role, context) == Controls.NoControl{} : Controls.Representation}:
+  {==}
+
 type Requirements is Type:
   Requirements{
     present_retains_bindings: @surface:UI.Surface -> @system_dark:Bool ->
@@ -366,7 +398,15 @@ type Requirements is Type:
         HelpAccess{True{}, True{}, False{}} : HelpAccess},
     input_label_is_accessible_only: @value:Forms.Observed ->
       {Controls.label_placement(Controls.widget_for(Forms.Multiline{}, Forms.MessageText{}, value)) ==
-        Controls.AccessibleOnly{} : Controls.LabelPlacement}
+        Controls.AccessibleOnly{} : Controls.LabelPlacement},
+    settings_uses_gear: @expanded:Bool -> @label:String ->
+      {Controls.face_for(Controls.OpenPanel{Controls.Settings{}, False{}, expanded}, label, Controls.PageArea{}) == Controls.IconFace{Controls.Settings{}} : Controls.Face},
+    introduction_uses_context_label: @expanded:Bool -> @label:String -> @area:Controls.Area ->
+      {Controls.keyed_face("/main/creation/introduction/creation/context/composer/context", Controls.WorkspacePicker{expanded}, label, area) == Controls.PickerFace{Some{Controls.Folder{}}, "Context"} : Controls.Face},
+    directory_parent_has_no_control: @key:String -> @editor:User.Editor -> @field:Forms.Field -> @value:Forms.Observed -> @label:String -> @role:UI.Role -> @context:Controls.Context ->
+      {Controls.represent(key, UI.Edit{editor, field, Forms.DirectoryCollection{}, value}, label, role, context) == Controls.NoControl{} : Controls.Representation},
+    file_parent_has_no_control: @key:String -> @editor:User.Editor -> @field:Forms.Field -> @value:Forms.Observed -> @label:String -> @role:UI.Role -> @context:Controls.Context ->
+      {Controls.represent(key, UI.Edit{editor, field, Forms.FileCollection{}, value}, label, role, context) == Controls.NoControl{} : Controls.Representation}
   }
 
 def evidence() -> Requirements:
@@ -386,5 +426,9 @@ def evidence() -> Requirements:
     key => task => operation => allow => reason => availability => label => role => selection => code => appearance => access => open => layers =>
       approval_keeps_label(key, task, operation, allow, reason, availability, label, role, selection, code, appearance, access, open, layers),
     icon => availability => feedback => label => icon_help_supports_focus(icon, availability, feedback, label),
-    value => input_label_is_accessible_only(value)
+    value => input_label_is_accessible_only(value),
+    expanded => label => settings_uses_gear(expanded, label),
+    expanded => label => area => introduction_uses_context_label(expanded, label, area),
+    key => editor => field => value => label => role => context => directory_parent_has_no_control(key, editor, field, value, label, role, context),
+    key => editor => field => value => label => role => context => file_parent_has_no_control(key, editor, field, value, label, role, context)
   }
