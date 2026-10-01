@@ -7,13 +7,7 @@
   <title>Selvedge</title>
   <link rel="stylesheet" href="/vendor/desktop-tokens.css">
   <link rel="stylesheet" href="/style.css">
-  <script type="module">
-    import('/app.mjs').catch(error => {
-      const message = document.createElement('p'); message.setAttribute('role', 'alert');
-      message.textContent = `Unable to load the browser program: ${error.message}`;
-      document.getElementById('surface').append(message);
-    });
-  </script>
+  <script type="module" src="/bootstrap.mjs"></script>
 </head>
 <body><div id="surface"><p>Loading the browser program…</p></div></body>
 </html>

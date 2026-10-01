@@ -11,7 +11,9 @@ import { saveBoardAttachment, readBoardAttachment, BOARD_FILE_LIMIT } from './bo
 
 const assets = new Map([
   ['/', ['index.html', 'text/html; charset=utf-8']],
+  ['/bootstrap.mjs', ['bootstrap.mjs', 'text/javascript; charset=utf-8']],
   ['/app.mjs', ['app.mjs', 'text/javascript; charset=utf-8']],
+  ['/generated/browser-model.mjs', ['generated/browser-model.mjs', 'text/javascript; charset=utf-8']],
   ['/renderer.mjs', ['renderer.mjs', 'text/javascript; charset=utf-8']],
   ...['bend-value.mjs', 'widgets.mjs', 'dom.mjs', 'desktop.mjs', 'conversation.mjs', 'board.mjs', 'collection-fields.mjs', 'picker.mjs', 'streams.mjs', 'events.mjs', 'markdown.mjs', 'markdown-worker.mjs',
     'vendor/desktop-ui.mjs', 'vendor/desktop-scroll.mjs', 'vendor/streaming-markdown.mjs', 'vendor/highlight.mjs', 'vendor/katex.mjs']

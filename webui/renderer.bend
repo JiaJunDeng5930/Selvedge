@@ -2,6 +2,7 @@ import Base
 import ./document.bend as Doc
 import ./MODEL.bend as Web
 import ./design.bend as Design
+import ./layout.bend as Layout
 import ./controls.bend as Controls
 import ../core/interface.bend as UI
 import ../core/form-fields.bend as Forms
@@ -429,13 +430,6 @@ def theme_class(value: Design.Theme) -> String:
 
 
 
-def native_stylesheet() -> Doc.Node:
-  Doc.Element{"native-control-states", "style", Nil{}, Nil{}, Nil{}, [Doc.Text{".native-control:hover:enabled{background:var(--native-hover-background);color:var(--native-hover-color)}.native-control:active:enabled{background:var(--native-pressed-background);color:var(--native-pressed-color)}.native-control:disabled{opacity:var(--native-disabled-opacity)}.native-control:focus-visible{outline:var(--native-focus-width) solid var(--native-focus-ring);outline-offset:var(--native-focus-offset)}"}]}
-
-
-
-
-
 def selected_nodes(found: Bool, value: Doc.Node, descendants: +List<Doc.Node>) -> +List<Doc.Node>:
   match found:
     case True{}: [value]
@@ -780,14 +774,24 @@ def css_anchor(key: String) -> String:
 
 
 
-def modal_properties(active: Maybe<&2, String>, key: String) -> +List<Doc.Property>:
+def background_properties(active: Maybe<&2, String>) -> +List<Doc.Property>:
   match active:
-    case Some{current}: [property("role", "dialog"), property("aria-modal", boolean(String.eq(current, key)))]
+    case Some{current}: [property("inert", "true"), property("aria-hidden", "true")]
     case None{}: Nil{}
 
+def modal_active_properties(owns_focus: Bool) -> +List<Doc.Property>:
+  match owns_focus:
+    case True{}: [property("role", "dialog"), property("aria-modal", "true")]
+    case False{}: [property("inert", "true"), property("aria-hidden", "true")]
 
+def modal_properties(active: Maybe<&2, String>, key: String) -> +List<Doc.Property>:
+  match active:
+    case Some{current}: modal_active_properties(String.eq(current, key))
+    case None{}: Nil{}
 
-
+def base_scope(active: Maybe<&2, String>, children: +List<Doc.Node>) -> Doc.Node:
+  Doc.Element{"application-base", "div", background_properties(active),
+    [property("display", "contents")], Nil{}, children}
 
 def meaning_properties(value: UI.Meaning) -> +List<Doc.Property>:
   match value:
@@ -892,8 +896,8 @@ def context_text(value: Context.Preview) -> String:
 def navigation_styles(value: Design.Navigation) -> +List<Doc.Property>:
   match value:
     case Design.HiddenNavigation{}: [property("display", "none")]
-    case Design.BesideNavigation{box}: bounds(box)
-    case Design.OverlayNavigation{box}: List.append(&2, Doc.Property, bounds(box), [property("z-index", "30")])
+    case Design.BesideNavigation{box}: List.append(&2, Doc.Property, bounds(box), [property("padding-bottom", "56px"), property("box-sizing", "border-box")])
+    case Design.OverlayNavigation{box}: List.append(&2, Doc.Property, bounds(box), [property("z-index", "30"), property("padding-bottom", "56px"), property("box-sizing", "border-box")])
 
 
 
@@ -1031,8 +1035,13 @@ def choose_nodes(values: +List<Doc.Node>, +region: String) -> +List<Doc.Node>:
 
 
 
-def frame_region(key: String, region: String, box: Design.Box, children: +List<Doc.Node>) -> Doc.Node:
-  Doc.Element{key, "div", [property("data-region", region)], bounds(box), Nil{}, children}
+def heading_reservation(region: String) -> +List<Doc.Property>:
+  match region:
+    case "heading": [property("padding-right", "56px"), property("box-sizing", "border-box")]
+    case _: Nil{}
+
+def frame_region(key: String, +region: String, box: Design.Box, children: +List<Doc.Node>) -> Doc.Node:
+  Doc.Element{key, "div", [property("data-region", region)], List.append(&2, Doc.Property, bounds(box), heading_reservation(region)), Nil{}, children}
 
 
 
@@ -1263,7 +1272,7 @@ def render_base(role: UI.Role, value: Doc.Node, navigation: Design.Navigation, m
 
 def frame_styles(region: String, +frame: Design.MainFrame) -> +List<Doc.Property>:
   match region:
-    case "heading": List.append(&2, Doc.Property, bounds(frame_heading(frame)), [property("display", "flex"), property("justify-content", "space-between"), property("align-items", "center"), property("padding", "0 16px"), property("z-index", "5")])
+    case "heading": List.append(&2, Doc.Property, bounds(frame_heading(frame)), [property("display", "flex"), property("justify-content", "space-between"), property("align-items", "center"), property("padding", "0 16px"), property("padding-right", "56px"), property("box-sizing", "border-box"), property("z-index", "5")])
     case "timeline": timeline_styles(frame)
     case "composer": composer_styles(frame)
     case _: Nil{}
@@ -1620,10 +1629,19 @@ def enrich_nodes(values: +List<Doc.Node>, +groups: +List<View.InputGroup>, +acti
 
 
 
+def render_base_node(+value: UI.Node, appearance: Design.Appearance, +shell: Design.Shell) -> Doc.Node:
+  UI.Node{key, semantic, label, role, meaning, children} = value
+  match semantic:
+    case "settings/open":
+      Design.Shell{navigation, main, details} = shell
+      replace_styles(render_node(value, appearance), List.append(&2, Doc.Property,
+        bounds(Layout.settings_bounds(navigation, main)), [property("z-index", "6")]))
+    case _: render_shell(role, render_node(value, appearance), shell)
+
 def base_nodes(values: +List<UI.Node>, appearances: +List<Design.Appearance>, +shell: Design.Shell) -> +List<Doc.Node>:
   match values appearances:
     case Con{+value, rest} Con{appearance, tail}:
-      render_shell(node_role(value), render_node(value, appearance), shell) <> base_nodes(rest, tail, shell)
+      render_base_node(value, appearance, shell) <> base_nodes(rest, tail, shell)
     case _ _: Nil{}
 
 
@@ -1642,9 +1660,9 @@ def overlays(values: +List<UI.Node>, appearances: +List<Design.Appearance>, plac
 
 
 def render(scene: Web.Scene) -> Doc.Document:
-  Web.Scene{UI.Surface{+content, base, overlays_value, active}, platform, generation, realization,
+  Web.Scene{UI.Surface{+content, base, overlays_value, +active}, platform, generation, realization,
     Design.Presentation{Design.Layout{Design.Viewport{width, height}, shell, main, placements, structure},
     Design.Visuals{theme, rhythm, base_appearance, overlay_appearance}}} = scene
   Doc.Document{Doc.Element{"application", "div", [property("data-document", "application"), property("class", theme_class(theme))],
     [property("position", "fixed"), property("inset", "0"), property("overflow", "hidden"), property("background", "var(--color-token-main-surface-primary)"), property("color", "var(--color-token-text-primary)")], Nil{},
-    native_stylesheet() <> supplement_project(enrich_nodes(List.append(&2, Doc.Node, reading_nodes(position_main(base_nodes(base, base_appearance, shell), main), reading_identity(content)), overlays(overlays_value, overlay_appearance, placements, active)), scene_groups(content), scene_activities(content)), project_details(content))}, "Selvedge"}
+    supplement_project(enrich_nodes(List.append(&2, Doc.Node, [base_scope(active, reading_nodes(position_main(base_nodes(base, base_appearance, shell), main), reading_identity(content)))], overlays(overlays_value, overlay_appearance, placements, active)), scene_groups(content), scene_activities(content)), project_details(content))}, "Selvedge"}

@@ -30,7 +30,8 @@ def bounds_refinement(box: Design.Box) ->
 
 def region_bounds(+key: String, +region: String, +box: Design.Box, +children: +List<Doc.Node>) ->
   {observed_box(Render.frame_region(key, region, box, children)) == specified_box(box) : (String & (String & (String & String)))}:
-  bounds_refinement(box)
+  match box:
+    case Design.Box{left, top, width, height}: {==}
 
 def node_events(node: Doc.Node) -> +List<Doc.Event>:
   match node:
@@ -85,12 +86,14 @@ def creation_canvas(+children: +List<Doc.Node>, +heading: Design.Box, +canvas: D
   +band: Design.Band, +input: Maybe<&2, Design.InputMetrics>) ->
   {observed_box(second_node(Render.main_children(children, Design.CreationFrame{heading, canvas, band, input}))) ==
     specified_box(canvas) : (String & (String & (String & String)))}:
-  bounds_refinement(canvas)
+  match canvas:
+    case Design.Box{left, top, width, height}: {==}
 
 def unavailable_canvas(+children: +List<Doc.Node>, +heading: Design.Box, +canvas: Design.Box, +band: Design.Band) ->
   {observed_box(second_node(Render.main_children(children, Design.UnavailableFrame{heading, canvas, band}))) ==
     specified_box(canvas) : (String & (String & (String & String)))}:
-  bounds_refinement(canvas)
+  match canvas:
+    case Design.Box{left, top, width, height}: {==}
 
 # The appearance traversal is the production traversal, so this statement rules
 # out silently truncating a surface merely because the renderer zips two lists.
@@ -108,8 +111,49 @@ def rendered_region_count(+values: +List<Interface.Node>, +context: Controls.Con
 
 # This instance contains the checked production theorems, with their original
 # quantifiers and conclusions retained verbatim.
+def background_without_modal() ->
+  {Render.background_properties(None{}) == Nil{} : +List<Doc.Property>}:
+  {==}
+
+def background_with_modal(current: String) ->
+  {Render.background_properties(Some{current}) ==
+    [Doc.Property{"inert", "true"}, Doc.Property{"aria-hidden", "true"}] : +List<Doc.Property>}:
+  {==}
+
+def overlay_without_modal(key: String) ->
+  {Render.modal_properties(None{}, key) == Nil{} : +List<Doc.Property>}:
+  {==}
+
+def overlay_with_modal(+current: String, +key: String) ->
+  {Render.modal_properties(Some{current}, key) ==
+    Render.modal_active_properties(String.eq(current, key)) : +List<Doc.Property>}:
+  {==}
+
+def active_overlay_properties() ->
+  {Render.modal_active_properties(True{}) ==
+    [Doc.Property{"role", "dialog"}, Doc.Property{"aria-modal", "true"}] : +List<Doc.Property>}:
+  {==}
+
+def inactive_overlay_properties() ->
+  {Render.modal_active_properties(False{}) ==
+    [Doc.Property{"inert", "true"}, Doc.Property{"aria-hidden", "true"}] : +List<Doc.Property>}:
+  {==}
+
 type Requirements is Type:
   Requirements{
+    background_without_modal: {Render.background_properties(None{}) == Nil{} : +List<Doc.Property>},
+    background_with_modal: @current:String ->
+      {Render.background_properties(Some{current}) ==
+        [Doc.Property{"inert", "true"}, Doc.Property{"aria-hidden", "true"}] : +List<Doc.Property>},
+    overlay_without_modal: @key:String ->
+      {Render.modal_properties(None{}, key) == Nil{} : +List<Doc.Property>},
+    overlay_with_modal: @+current:String -> @+key:String ->
+      {Render.modal_properties(Some{current}, key) ==
+        Render.modal_active_properties(String.eq(current, key)) : +List<Doc.Property>},
+    active_overlay_properties: {Render.modal_active_properties(True{}) ==
+      [Doc.Property{"role", "dialog"}, Doc.Property{"aria-modal", "true"}] : +List<Doc.Property>},
+    inactive_overlay_properties: {Render.modal_active_properties(False{}) ==
+      [Doc.Property{"inert", "true"}, Doc.Property{"aria-hidden", "true"}] : +List<Doc.Property>},
     bounds_refinement: @box:Design.Box ->
       {css_box(Render.bounds(box)) == specified_box(box) : (String & (String & (String & String)))},
     region_bounds: @+key:String -> @+region:String -> @+box:Design.Box -> @+children:+List<Doc.Node> ->
@@ -140,6 +184,12 @@ type Requirements is Type:
 
 def evidence() -> Requirements:
   Requirements{
+    background_without_modal(),
+    current => background_with_modal(current),
+    key => overlay_without_modal(key),
+    current => key => overlay_with_modal(current, key),
+    active_overlay_properties(),
+    inactive_overlay_properties(),
     box => bounds_refinement(box),
     key => region => box => children => region_bounds(key, region, box, children),
     key => style => input => availability => name => face => behavior => geometry => placement => help => feedback => action_event(key, style, input, availability, name, face, behavior, geometry, placement, help, feedback),

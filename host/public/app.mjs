@@ -1,10 +1,10 @@
 import * as Bend from './generated/browser-model.mjs';
-import { decodeBendValue } from './bend-value.mjs';
+import { decodeBendValue, encodeBendValue } from './bend-value.mjs';
 import { Renderer, list } from './renderer.mjs';
 import { EventFrames } from './events.mjs';
 
 const value = ($, fields = {}) => ({ $, ...fields });
-const bool = enabled => value(enabled ? 'True' : 'False');
+const bool = enabled => Boolean(enabled);
 const linked = items => items.reduceRight((tail, head) => value('Con', { head, tail }), value('Nil'));
 function json(input) {
   if (input === null) return value('Null');
@@ -17,7 +17,7 @@ function json(input) {
 function showJson(input) {
   switch (input.$) {
     case 'Null': return 'null';
-    case 'Boolean': return input.value.$ === 'True' ? 'true' : 'false';
+    case 'Boolean': return input.value ? 'true' : 'false';
     case 'Number': return input.lexeme;
     case 'Text': return JSON.stringify(input.value);
     case 'Array': return `[${list(input.items).map(showJson).join(',')}]`;
@@ -105,7 +105,7 @@ async function execute(effect) {
       break;
     }
     case 'BrowserEffect': await browserEffect(effect.effect); break;
-    case 'RenderingFailed': console.error('Bend browser failure', effect); break;
+    case 'RenderingFailed': console.error('Bend browser failure', JSON.stringify(encodeBendValue(effect))); break;
     default: throw new TypeError(`Unknown browser effect ${effect.$}`);
   }
 }
@@ -198,7 +198,11 @@ function frame() {
       center_hit_owner: geometry.hitOwner });
   });
   const focused = owner(document.activeElement);
-  const tabOrder = nodes.filter(node => node.tabIndex >= 0 && !node.disabled && !node.closest('[inert],[hidden]'));
+  const tabOrder = nodes.filter(node => {
+    if (node.tabIndex < 0 || node.disabled || node.closest('[inert],[hidden]')) return false;
+    const geometry = frameGeometry(node, rect(node));
+    return geometry.visible || geometry.scrollReachable;
+  });
   tabOrder.sort((a, b) => (a.tabIndex > 0 ? a.tabIndex : Infinity) - (b.tabIndex > 0 ? b.tabIndex : Infinity));
   return value('Frame', { viewport: value('Rect', { left: 0, top: 0, right: innerWidth, bottom: innerHeight }), elements: linked(elements),
     focused: focused ? value('Some', { value: focused }) : value('None'), tab_order: linked(tabOrder.map(owner)) });
@@ -244,7 +248,7 @@ function applyReading(physical) {
   const effect = physical.effect;
   switch (effect.$) {
     case 'LeaveViewport': break;
-    case 'AlignLatest': surface.scrollTo({ top: surface.scrollHeight, behavior: effect.animate.$ === 'True' ? 'smooth' : 'instant' }); break;
+    case 'AlignLatest': surface.scrollTo({ top: surface.scrollHeight, behavior: effect.animate ? 'smooth' : 'instant' }); break;
     case 'PreserveAnchor': {
       const node = [...surface.querySelectorAll('[data-reading-key]')].find(item => item.dataset.readingKey === effect.anchor.identity);
       if (node) surface.scrollTop += node.getBoundingClientRect().top - surface.getBoundingClientRect().top - effect.anchor.offset; break;

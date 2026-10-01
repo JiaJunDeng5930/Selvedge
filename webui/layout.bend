@@ -112,6 +112,25 @@ def shell(+viewport: Design.Viewport, +navigation: V.NavigationPlacement, +detai
   Design.Shell{shell_navigation(viewport, navigation), main,
     requested_side_pane(main, height, pane_width, details)}
 
+# Clamp the shell control and its inset together for viewports smaller than the slot.
+def settings_in_navigation(box: Design.Box) -> Design.Box:
+  Design.Box{left, top, +width, +height} = box
+  +size = Nat.min(32n, Nat.min(width, height))
+  Design.Box{Nat.add(left, Nat.min(16n, Nat.sub(width, size))),
+    Nat.add(top, Nat.min(Nat.sub(height, 48n), Nat.sub(height, size))), size, size}
+
+def settings_in_heading(box: Design.Box) -> Design.Box:
+  Design.Box{left, top, +width, +height} = box
+  +size = Nat.min(32n, Nat.min(width, height))
+  Design.Box{Nat.add(left, Nat.min(Nat.sub(width, 48n), Nat.sub(width, size))),
+    Nat.add(top, Nat.min(7n, Nat.sub(height, size))), size, size}
+
+def settings_bounds(navigation: Design.Navigation, main: Design.Box) -> Design.Box:
+  match navigation:
+    case Design.BesideNavigation{box}: settings_in_navigation(box)
+    case Design.OverlayNavigation{box}: settings_in_navigation(box)
+    case Design.HiddenNavigation{}: settings_in_heading(main)
+
 def header_height(main: Design.Box) -> Nat:
   Design.Box{+left, +top, +width, height} = main
   Nat.min(toolbar_height(), height)

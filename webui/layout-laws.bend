@@ -285,8 +285,50 @@ def input_metrics_follow_consistent_bounds(canvas: Design.Box) ->
   match canvas:
     case Design.Box{+left, +top, +width, height}: {==}
 
+def settings_beside(+box: Design.Box, main: Design.Box) ->
+  {Layout.settings_bounds(Design.BesideNavigation{box}, main) == Layout.settings_in_navigation(box) : Design.Box}:
+  {==}
+
+def settings_overlay(+box: Design.Box, main: Design.Box) ->
+  {Layout.settings_bounds(Design.OverlayNavigation{box}, main) == Layout.settings_in_navigation(box) : Design.Box}:
+  {==}
+
+def settings_hidden(+main: Design.Box) ->
+  {Layout.settings_bounds(Design.HiddenNavigation{}, main) == Layout.settings_in_heading(main) : Design.Box}:
+  {==}
+
+def settings_navigation_coordinates(+left: Nat, +top: Nat, +width: Nat, +height: Nat) ->
+  {Layout.settings_in_navigation(Design.Box{left, top, width, height}) ==
+    Design.Box{Nat.add(left, Nat.min(16n, Nat.sub(width, Nat.min(32n, Nat.min(width, height))))),
+      Nat.add(top, Nat.min(Nat.sub(height, 48n), Nat.sub(height, Nat.min(32n, Nat.min(width, height))))),
+      Nat.min(32n, Nat.min(width, height)), Nat.min(32n, Nat.min(width, height))} : Design.Box}:
+  {==}
+
+def settings_heading_coordinates(+left: Nat, +top: Nat, +width: Nat, +height: Nat) ->
+  {Layout.settings_in_heading(Design.Box{left, top, width, height}) ==
+    Design.Box{Nat.add(left, Nat.min(Nat.sub(width, 48n), Nat.sub(width, Nat.min(32n, Nat.min(width, height))))),
+      Nat.add(top, Nat.min(7n, Nat.sub(height, Nat.min(32n, Nat.min(width, height))))),
+      Nat.min(32n, Nat.min(width, height)), Nat.min(32n, Nat.min(width, height))} : Design.Box}:
+  {==}
+
 type Requirements is Type:
   Requirements{
+    settings_beside: @+box:Design.Box -> @main:Design.Box ->
+      {Layout.settings_bounds(Design.BesideNavigation{box}, main) == Layout.settings_in_navigation(box) : Design.Box},
+    settings_overlay: @+box:Design.Box -> @main:Design.Box ->
+      {Layout.settings_bounds(Design.OverlayNavigation{box}, main) == Layout.settings_in_navigation(box) : Design.Box},
+    settings_hidden: @+main:Design.Box ->
+      {Layout.settings_bounds(Design.HiddenNavigation{}, main) == Layout.settings_in_heading(main) : Design.Box},
+    settings_navigation_coordinates: @+left:Nat -> @+top:Nat -> @+width:Nat -> @+height:Nat ->
+      {Layout.settings_in_navigation(Design.Box{left, top, width, height}) ==
+        Design.Box{Nat.add(left, Nat.min(16n, Nat.sub(width, Nat.min(32n, Nat.min(width, height))))),
+          Nat.add(top, Nat.min(Nat.sub(height, 48n), Nat.sub(height, Nat.min(32n, Nat.min(width, height))))),
+          Nat.min(32n, Nat.min(width, height)), Nat.min(32n, Nat.min(width, height))} : Design.Box},
+    settings_heading_coordinates: @+left:Nat -> @+top:Nat -> @+width:Nat -> @+height:Nat ->
+      {Layout.settings_in_heading(Design.Box{left, top, width, height}) ==
+        Design.Box{Nat.add(left, Nat.min(Nat.sub(width, 48n), Nat.sub(width, Nat.min(32n, Nat.min(width, height))))),
+          Nat.add(top, Nat.min(7n, Nat.sub(height, Nat.min(32n, Nat.min(width, height))))),
+          Nat.min(32n, Nat.min(width, height)), Nat.min(32n, Nat.min(width, height))} : Design.Box},
     explicit_main_frame: @recipe:Composition.Recipe -> @main:Design.Box ->
       {Layout.main_frame(recipe, main) == expected_main_frame(recipe, main) : Design.MainFrame},
     conversation_dock_band: @main:Design.Box -> @composer:Composition.Composer ->
@@ -347,6 +389,11 @@ type Requirements is Type:
 
 def evidence() -> Requirements:
   Requirements{
+    box => main => settings_beside(box, main),
+    box => main => settings_overlay(box, main),
+    main => settings_hidden(main),
+    left => top => width => height => settings_navigation_coordinates(left, top, width, height),
+    left => top => width => height => settings_heading_coordinates(left, top, width, height),
     recipe => main => explicit_main_frame(recipe, main),
     main => composer => decisions => latest => conversation_band_uses_reading_band(main, composer, decisions, latest),
     viewport => capacity_selects_named_thresholds(viewport),

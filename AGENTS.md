@@ -88,7 +88,7 @@ This file is for coding agents working in this repository.
 |examples:{plugins/}
 |examples/plugins:{audit.mjs}
 |host:{README.md,approvals.mjs,auth.mjs,board-files.mjs,board-text.mjs,chatgpt-contract.mjs,chatgpt-models.mjs,chatgpt-web-store.mjs,chatgpt-web.mjs,cli.mjs,codec.mjs,config.mjs,files.mjs,jev.mjs,journal.mjs,kernel-worker.mjs,kernel.mjs,mcp.mjs,model-request.mjs,network.mjs,plugins.mjs,process.mjs,project.mjs,providers.mjs,public/,reasoning-config.mjs,sandbox.mjs,server.mjs,service.mjs,stdio-rpc.mjs,transport.c}
-|host/public:{README.md,app.mjs,bend-value.mjs,events.mjs,index.html,markdown-worker.mjs,markdown.mjs,renderer.mjs,style.css,vendor/}
+|host/public:{README.md,app.mjs,bend-value.mjs,bootstrap.mjs,events.mjs,index.html,markdown-worker.mjs,markdown.mjs,renderer.mjs,style.css,vendor/}
 |host/public/vendor:{README.md,desktop-scroll.mjs,desktop-source.json,desktop-tokens.css,desktop-ui.mjs,desktop.css,highlight.LICENSE,highlight.mjs,katex.LICENSE,katex.mjs,manifest.json,streaming-markdown.LICENSE,streaming-markdown.mjs}
 |scripts:{ExportMaps.v,ExportRelations.v,ExportStdlib.v,QuoteCertificate.v,agents-index.mjs,benchmark.mjs,bootstrap.sh,build.mjs,check-components.mjs,check-web-vendor.mjs,check.mjs,compile-javascript.mjs,desktop/,import-desktop.mjs,import-maps.mjs,import-relations.mjs,import-stdlib.mjs,install-bend.sh,setup-worktree.sh,theory-index.mjs,toolchain.mjs,verify-proof.mjs}
 |scripts/desktop:{README.md,entry.mjs.in,scroll.mjs.in}
