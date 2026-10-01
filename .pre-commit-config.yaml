@@ -3,21 +3,21 @@ repos:
     hooks:
       - id: bend-check
         name: Bend proofs and host syntax
-        entry: node scripts/check.mjs
+        entry: bun scripts/check.mjs
         language: system
         pass_filenames: false
         always_run: true
         stages: [pre-commit, manual]
       - id: agents-md-project-index
         name: AGENTS.md project index
-        entry: node scripts/agents-index.mjs check
+        entry: bun scripts/agents-index.mjs check
         language: system
         pass_filenames: false
         always_run: true
         stages: [pre-commit, manual]
       - id: bend-test
         name: Native Bend and host integration
-        entry: npm test
+        entry: bun run test
         language: system
         pass_filenames: false
         always_run: true

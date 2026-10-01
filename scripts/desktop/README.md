@@ -26,7 +26,7 @@ Ordinary checks verify committed output hashes without accessing an installed
 application. To reproduce into a temporary directory:
 
 ```sh
-node scripts/import-desktop.mjs \
+bun scripts/import-desktop.mjs \
   --asar /Applications/ChatGPT.app/Contents/Resources/app.asar \
   --esbuild /path/to/esbuild-0.25.10 \
   --out .workpad/reproduced-desktop

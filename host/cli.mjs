@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 import { readFile, mkdir, open } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -113,7 +113,7 @@ export async function main(args = process.argv.slice(2)) {
     return;
   }
   if (operation === 'help' && rest.length === 0) {
-    console.log('Usage: node host/cli.mjs [--home PATH] [--config FILE] server|init|login [PROFILE]|models [--refresh]|describe|watch|COMMAND [--field value]\nRun describe against a running server for its executable command schemas. Array arguments use JSON.\nRun login to use your ChatGPT account models without writing model profiles. The demo profile is offline.');
+    console.log('Usage: bun host/cli.mjs [--home PATH] [--config FILE] server|init|login [PROFILE]|models [--refresh]|describe|watch|COMMAND [--field value]\nRun describe against a running server for its executable command schemas. Array arguments use JSON.\nRun login to use your ChatGPT account models without writing model profiles. The demo profile is offline.');
     return;
   }
   const local = await connection(global.home);

@@ -6,7 +6,7 @@ export const expectedVersion = readFileSync(new URL('../bend-version', import.me
 const local = fileURLToPath(new URL('../.build/bend/bin/bend', import.meta.url));
 
 export function compiler() {
-  if (Number(process.versions.node.split('.')[0]) < 26) throw new Error('Selvedge requires Node.js 26 or later');
+  if (!process.versions.bun) throw new Error('Selvedge requires Bun');
   const binary = existsSync(local) ? local : 'bend';
   const version = spawnSync(binary, ['version'], { encoding: 'utf8', env: { ...process.env, BEND_NO_TELEMETRY: '1' } });
   if (version.error || version.status !== 0 || version.stdout.trim() !== `bend ${expectedVersion}`) {

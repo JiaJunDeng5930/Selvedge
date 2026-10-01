@@ -2,7 +2,7 @@
 
 The compiled Bend kernel owns authoritative task state. `KERNEL.bend` is compiled
 with the pinned compiler's official `js_lib` backend into
-`.build/kernel-model.mjs`; `kernel-worker.mjs` executes it in a Node Worker.
+`.build/kernel-model.mjs`; `kernel-worker.mjs` executes it in a Bun Worker.
 The host accepts authenticated public commands, interprets committed effects,
 and sends their results back as inputs. It commits an input and its decision to
 SQLite before publishing replies, world snapshots or starting effects. A failed
@@ -29,7 +29,7 @@ The suite also exercises device login and serialized credential refresh against 
 loopback issuer, interruption and restart of an actual HTTP stream, MCP catalog
 notifications during shutdown, and suppression of effects withdrawn within a
 commit. Credential parsing errors must not quote file contents into task history.
-Use `npm test` to run these checks; they require no real credentials or model calls.
+Use `bun run test` to run these checks; they require no real credentials or model calls.
 
 `chatgpt-contract.mjs` fixes the audited wire version and connection identity.
 `chatgpt-models.mjs` reads only this service's credential store, validates the

@@ -1,11 +1,12 @@
 import { spawnSync } from 'node:child_process';
-import { readdir } from 'node:fs/promises';
+import { readFile, readdir } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { compiler } from './toolchain.mjs';
 import { build } from './build.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
+const syntax = new Bun.Transpiler({ loader: 'js' });
 
 function run(command, args) {
   const result = spawnSync(command, args, { cwd: root, stdio: 'inherit', env: { ...process.env, BEND_NO_TELEMETRY: '1' } });
@@ -17,7 +18,14 @@ async function checkDirectory(directory) {
   for (const entry of await readdir(path.join(root, directory), { withFileTypes: true })) {
     const filename = path.join(directory, entry.name);
     if (entry.isDirectory()) await checkDirectory(filename);
-    else if (entry.name.endsWith('.mjs')) run(process.execPath, ['--check', filename]);
+    else if (entry.name.endsWith('.mjs')) {
+      const source = await readFile(path.join(root, filename), 'utf8');
+      try {
+        syntax.transformSync(source);
+      } catch (error) {
+        throw new Error(`JavaScript syntax check failed: ${filename}`, { cause: error });
+      }
+    }
   }
 }
 

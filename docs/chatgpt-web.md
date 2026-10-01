@@ -33,7 +33,7 @@ silently switching to a browser-only task. Then select `web-high` in the ordinar
 model picker, or run:
 
 ```bash
-node host/cli.mjs create --profile web-high --message "Inspect the project."
+bun host/cli.mjs create --profile web-high --message "Inspect the project."
 ```
 
 Supported model IDs are `chatgpt-web/light`, `chatgpt-web/medium`,
@@ -116,8 +116,8 @@ retires local execution authority. Shutdown never issues this explicit Stop.
 To abandon an uncertain turn and continue normally:
 
 ```bash
-node host/cli.mjs interrupt --task-id 0
-node host/cli.mjs send --task-id 0 --message "Continue using the recorded results; do not repeat uncertain effects."
+bun host/cli.mjs interrupt --task-id 0
+bun host/cli.mjs send --task-id 0 --message "Continue using the recorded results; do not repeat uncertain effects."
 ```
 
 Alternatively, inspect the original webpage and response first. The exported
@@ -140,10 +140,6 @@ and its `runtime/response-resource.schema.json`. ADR 0024 describes the boundary
 
 `tests-bend/chatgpt-web.test.mjs` uses a strict independent loopback protocol
 fixture, actual SQLite, native effects, process sandboxes, restart, cancellation
-and concurrent tool completion. `web-streaming.test.mjs` checks snapshot
-replacement and preview ownership. After building, run
-`node scripts/chatgpt-web-browser-check.mjs` for the real Chrome/SSE snapshot,
-draft-preservation and terminal-output check; captures go to
-`.workpad/chatgpt-web-backend/`. These checks do not access a commercial
-account or claim that browser behavior, the remote service, HTTP, SQLite or the
-OS is proved by Bend.
+and concurrent tool completion. These checks do not access a commercial account
+or claim that browser behavior, the remote service, HTTP, SQLite or the OS is
+proved by Bend.

@@ -16,7 +16,7 @@ const hash = value => createHash('sha256').update(value).digest('hex');
 
 async function prepareCompiler() {
   if (expectedVersion !== sourceVersion) throw new Error('JavaScript compiler version must match bend-version');
-  if (Number(process.versions.node.split('.')[0]) < 26) throw new Error('JavaScript compilation requires Node.js 26 or later');
+  if (!process.versions.bun) throw new Error('JavaScript compilation requires Bun');
   let archive;
   try { archive = await readFile(`${compilerDirectory}.tar.gz`); } catch {}
   if (!archive || hash(archive) !== sourceHash) {
@@ -57,7 +57,7 @@ export async function compileJavaScript({ entry, exports: publicExports, output 
     const request = path.join(temporary, 'request.json');
     const response = path.join(temporary, 'response.json');
     await writeFile(request, JSON.stringify({ entry: path.resolve(root, entry), exports: Object.fromEntries(entries), output: path.resolve(root, output), response }));
-    const result = spawnSync(process.execPath, ['--max-old-space-size=8192', '--stack-size=4096', driver, '--emit', request], {
+    const result = spawnSync(process.execPath, [driver, '--emit', request], {
       cwd: root, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024, env: { ...process.env, BEND_NO_TELEMETRY: '1' },
     });
     if (result.error || result.status !== 0) throw new Error(`JavaScript compilation failed: ${result.error?.message ?? result.stderr.trim() ?? result.status}`);
@@ -68,6 +68,7 @@ export async function compileJavaScript({ entry, exports: publicExports, output 
 }
 
 async function emit(requestPath) {
+  if (!process.versions.bun) throw new Error('JavaScript compilation requires Bun');
   const request = JSON.parse(await readFile(requestPath, 'utf8'));
   const Bend = await import(pathToFileURL(path.join(compilerDirectory, 'bend2/bend.ts')).href);
   const Comp = await import(pathToFileURL(path.join(compilerDirectory, 'bend2/comp.ts')).href);
@@ -86,7 +87,7 @@ async function emit(requestPath) {
       }
     }
     const sources = await Promise.all([...seen.keys()].sort().map(async file => ({ path: path.relative(root, file), sha256: hash(await readFile(file)) })));
-    const compiler = { version: sourceVersion, sourceSha256: sourceHash, driverSha256: hash(await readFile(driver)), nodeVersion: process.versions.node };
+    const compiler = { version: sourceVersion, sourceSha256: sourceHash, driverSha256: hash(await readFile(driver)), runtime: { name: 'bun', version: process.versions.bun } };
     const fingerprint = hash(JSON.stringify({ entry: path.relative(root, request.entry), exports: request.exports, compiler, sources }));
     let previous;
     try { previous = JSON.parse(await readFile(`${request.output}.json`, 'utf8')); } catch {}

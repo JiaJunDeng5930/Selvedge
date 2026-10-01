@@ -19,18 +19,20 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Install Node.js
-        uses: actions/setup-node@v4
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
         with:
-          node-version: '26'
+          bun-version: '1.4.2'
+      - name: Install frozen dependencies
+        run: bun install --frozen-lockfile --ignore-scripts
       - name: Install the pinned Bend release
         run: bash scripts/install-bend.sh
       - name: Install Linux process isolation
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install --yes bubblewrap
       - name: Check proof obligations and syntax
-        run: npm run check
+        run: bun run check
       - name: Run native integration and negative proof tests
-        run: npm test
+        run: bun run test
       - name: Check tracked-file index
-        run: npm run index:check
+        run: bun run index:check

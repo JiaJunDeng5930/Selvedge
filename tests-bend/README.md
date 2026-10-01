@@ -17,8 +17,8 @@ import or an unnecessary private feature case may preserve behavior and pass the
 proof, but must fail the actual-source checker. Discarded writes and reset
 remainders must remain type-correct in the operational root and fail the relevant
 proof. `scripts/check-components.mjs` also rejects missing sources, unsupported
-imports and incomplete boundary configuration. `npm test` bounds concurrent test
-files so native compilers and proof-mutation workers do not exhaust the machine.
+imports and incomplete boundary configuration. `bun run test` uses `--parallel=2` to limit concurrent test files to two so
+native compilers and proof-mutation workers do not exhaust the machine.
 
 Board proof mutations require a pure production/UI type-check before rejecting
 the assembled proof. Board service tests cover real HTTP/SQLite, cancellation,

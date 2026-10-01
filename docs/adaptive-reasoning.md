@@ -39,7 +39,7 @@ Public task and tool content still leaves this computer for the chosen evaluator
 
 ## Use the login preset
 
-Sign in with the existing `node host/cli.mjs login` command. When the account
+Sign in with the existing `bun host/cli.mjs login` command. When the account
 catalog advertises `gpt-6-astra`, discovery also materializes
 `chatgpt/<account-namespace>/gpt-6-astra-auto`. It keeps the same account and
 underlying model. Its only selectable reasoning setting is `auto`; the ordinary

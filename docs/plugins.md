@@ -3,7 +3,7 @@
 The extension entry is `HOOKS.bend`, bound by `CONCEPTS.Extensibility`. Plugins are
 trusted local executables speaking newline-delimited UTF-8 JSON-RPC 2.0 over stdio.
 They do not need to be JavaScript modules or share a runtime with the Bend binary.
-The included Node example only demonstrates that wire contract.
+The included Bun example only demonstrates that wire contract.
 
 ## Configure and run
 
@@ -13,7 +13,7 @@ Add an entry to the existing configuration's `plugins` object and restart:
 {
   "plugins": {
     "audit": {
-      "command": "node",
+      "command": "bun",
       "args": ["/absolute/path/to/Selvedge/examples/plugins/audit.mjs"],
       "env": {
         "SELVEDGE_BASH_DEADLINE_MS": "10000",

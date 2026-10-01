@@ -71,9 +71,9 @@ serialization are assembled in `feature-view` and `feature-codec`. The universal
 UI and input decoder remain unchanged when the extension fixture adds its own
 view and round-tripping cursor state.
 
-`npm run check:components` checks actual source dependencies and private feature
+`bun run check:components` checks actual source dependencies and private feature
 patterns against `components.json`; it runs during normal checks and builds,
-including cached builds. `npm run test:locality` freezes existing source files in
+including cached builds. `bun run test:locality` freezes existing source files in
 temporary copies, extends state and component vocabularies, replaces a component
 without changing its contract or clients, and builds the unchanged native entry.
 It challenges the source and semantic checks separately.
@@ -181,23 +181,23 @@ Optional adaptive effort selection, its independent Jev credentials and the
 login-generated Astra Auto profile are described in
 [adaptive reasoning](docs/adaptive-reasoning.md).
 
-Install Node.js 26 or later on macOS or Linux, then run:
+Install Bun 1.4.2 or later on macOS or Linux, then run:
 
 ```bash
 bash scripts/bootstrap.sh
-npm start
+bun run start
 ```
 
 The default build checks proofs and compiles two libraries with Bend 2.0.27's
 official `js_lib` backend: `KERNEL.bend` to `.build/kernel-model.mjs`, executed
-in a Node Worker, and `BROWSER.bend` to
+in a Bun Worker, and `BROWSER.bend` to
 `host/public/generated/browser-model.mjs`, executed by the browser.
-`npm run build:native` optionally builds `MAIN.bend` and requires a C compiler.
+`bun run build:native` optionally builds `MAIN.bend` and requires a C compiler.
 
 Bootstrap uses the Bend version in `bend-version`. When necessary, it downloads
 the corresponding release into this checkout's `.build/bend` and verifies the
 archive against `bend-checksums.txt`. It changes neither the system compiler nor
-another worktree. Bootstrap installs the locked npm dependencies; `gpt-tokenizer`
+another worktree. Bootstrap installs the locked Bun dependencies; `gpt-tokenizer`
 provides the local token-budget estimate used by the optional reasoning evaluator.
 
 The server prints a local URL with its access token. Open it to create a task,
@@ -211,14 +211,14 @@ The default `demo` profile runs without credentials or an external model request
 With the server running, the same operations are available through the CLI:
 
 ```bash
-node host/cli.mjs describe
-node host/cli.mjs create --profile demo --message "Hello"
-node host/cli.mjs read --task-id 0
-node host/cli.mjs watch
+bun host/cli.mjs describe
+bun host/cli.mjs create --profile demo --message "Hello"
+bun host/cli.mjs read --task-id 0
+bun host/cli.mjs watch
 ```
 
 Use `describe` for the current command fields instead of maintaining a second
-command specification. `node host/cli.mjs help` lists host-level commands.
+command specification. `bun host/cli.mjs help` lists host-level commands.
 
 ## Use it on a project
 
@@ -228,7 +228,7 @@ or a permission boundary. For example, after building this checkout:
 
 ```bash
 cd /absolute/path/to/project
-node /absolute/path/to/Selvedge/host/cli.mjs --home /absolute/path/to/task-home server
+bun /absolute/path/to/Selvedge/host/cli.mjs --home /absolute/path/to/task-home server
 ```
 
 The journal records each task's canonical roots and execution settings. Restarting
@@ -279,8 +279,8 @@ than the whole task; the model can also call this tool. Neither operation undoes
 side effects. Late or duplicate results cannot reacquire a consumed ticket.
 
 ```bash
-node host/cli.mjs steer --task-id 0 --message 'Prioritize this instruction.'
-node host/cli.mjs cancel_operation --task-id 0 --operation-id 12
+bun host/cli.mjs steer --task-id 0 --message 'Prioritize this instruction.'
+bun host/cli.mjs cancel_operation --task-id 0 --operation-id 12
 ```
 
 An operation is reported as `running` only when another model request needs its
@@ -298,10 +298,10 @@ without starting another assistant turn. A supplied summary requires no provider
 and also works on stopped or frozen idle tasks:
 
 ```bash
-node host/cli.mjs compact --task-id 0
-node host/cli.mjs interrupt --task-id 0
-node host/cli.mjs compact --task-id 0 --summary 'Completed work, verified results, unresolved problems, and next steps.'
-node host/cli.mjs send --task-id 0 --message 'Continue from the checkpoint.'
+bun host/cli.mjs compact --task-id 0
+bun host/cli.mjs interrupt --task-id 0
+bun host/cli.mjs compact --task-id 0 --summary 'Completed work, verified results, unresolved problems, and next steps.'
+bun host/cli.mjs send --task-id 0 --message 'Continue from the checkpoint.'
 ```
 
 Summaries are fallible continuation data, not verified equivalents of the original
@@ -317,16 +317,16 @@ new input they stop rather than starting an unbounded retry loop.
 
 ## Model and tool configuration
 
-The default home is `~/.selvedge-bend`. `node host/cli.mjs init` creates its
+The default home is `~/.selvedge-bend`. `bun host/cli.mjs init` creates its
 `config.json` without overwriting an existing file. `--home PATH` and `--config
-FILE` select explicit locations; both options also work with `npm start -- ...`.
+FILE` select explicit locations; both options also work with `bun run start ...`.
 Configuration is read at server startup.
 
 To use your ChatGPT subscription, sign in. No model configuration is required:
 
 ```bash
-node host/cli.mjs login
-node host/cli.mjs models
+bun host/cli.mjs login
+bun host/cli.mjs models
 ```
 
 Complete the device-code flow at the displayed OpenAI address. Login fetches
@@ -397,7 +397,7 @@ scheduler is fair, or that an operating system or remote service obeys the model
 Host-owned atomic writes do not make arbitrary Bash edits transactional.
 Concurrent commands and editors can change the same files; any required locking,
 revision checks or atomic replacement belong in the project's commands or scripts.
-The Bend checker/compiler, generated JavaScript, Node Worker, browser DOM,
+The Bend checker/compiler, generated JavaScript, Bun Worker, browser DOM,
 SQLite, OS and remote protocols remain explicit external boundaries. The optional
 native transport is also outside the proof boundary. Local integration tests exercise those paths;
 live provider acceptance and physical history sharing are not claimed.
@@ -405,10 +405,10 @@ live provider acceptance and physical history sharing are not claimed.
 ## Develop and verify
 
 ```bash
-npm run check
-npm test
-npm run index:check
-npm run bench
+bun run check
+bun run test
+bun run index:check
+bun run bench
 ```
 
 `check` verifies the pinned compiler, proof obligations and host/script syntax.
@@ -421,7 +421,7 @@ isolation require a working platform sandbox. The benchmark measures committed
 transitions and replay without a machine-dependent CI threshold. `just` provides
 aliases for the development commands.
 
-After adding or deleting files, stage the changed paths, run `npm run index`, and
+After adding or deleting files, stage the changed paths, run `bun run index`, and
 stage `AGENTS.md`. The index contains only Git-tracked files. When `pre-commit` is
 installed, bootstrap installs the configured commit and push hooks. See
 [CONTRIBUTING.md](CONTRIBUTING.md) for the change workflow.
