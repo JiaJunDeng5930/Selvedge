@@ -32,22 +32,37 @@ function literal(value) {
 }
 
 /** Interpret an already-authorized filesystem/network plan as a Seatbelt policy. */
-export function seatbeltProfile({ writableRoots, scratch, readOnlyPaths = [], networkAccess }) {
+export function seatbeltProfile({ writableRoots, scratch, readOnlyPaths = [], networkAccess, readableRoots }) {
   const writes = [...writableRoots, scratch].map(root => `(subpath ${literal(root)})`).join('\n  ');
   const protectedRules = readOnlyPaths.flatMap(root => {
     const rules = [`(deny file-write* (subpath ${literal(root)}))`];
+    if (readableRoots) rules.push(`(deny file-read* (subpath ${literal(root)}))`);
     // A writable ancestor must not rename a protected subtree out of its deny rule.
     for (let ancestor = root; ancestor !== path.dirname(ancestor); ancestor = path.dirname(ancestor)) {
       rules.push(`(deny file-write-unlink (literal ${literal(ancestor)}))`);
     }
     return rules;
   });
+  const reads = readableRoots ? [...readableRoots, scratch] : undefined;
+  const ancestors = new Set();
+  for (const root of reads ?? []) {
+    for (let parent = path.dirname(root);; parent = path.dirname(parent)) {
+      ancestors.add(parent);
+      if (parent === path.dirname(parent)) break;
+    }
+  }
   return [
     '(version 1)', '(deny default)',
     '(allow process-exec process-fork)',
     '(allow signal (target same-sandbox))',
     '(allow process-info* (target same-sandbox))',
-    '(allow file-read*)', '(allow sysctl-read)',
+    ...(reads ? [
+      // dyld opens the filesystem root during shared-cache lookup. A literal
+      // directory grant is not a grant to any descendant's contents.
+      '(allow file-read-data (literal "/"))',
+      `(allow file-read* ${reads.map(root => `(subpath ${literal(root)})`).join(' ')})`,
+      `(allow file-read-metadata ${[...ancestors].map(root => `(literal ${literal(root)})`).join(' ')})`,
+    ] : ['(allow file-read*)']), '(allow sysctl-read)',
     '(allow mach-lookup (global-name "com.apple.system.opendirectoryd.libinfo"))',
     '(allow ipc-posix-sem)',
     '(allow file-write-data (require-all (literal "/dev/null") (vnode-type CHARACTER-DEVICE)))',
@@ -117,7 +132,12 @@ export function seccompFilter(architecture, networkAccess) {
   return bytes;
 }
 
-function environment(scratch) {
+function environment(scratch, projectOnly = false) {
+  if (projectOnly) return {
+    PATH: process.platform === 'darwin' ? '/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin' : '/usr/bin:/bin:/usr/sbin:/sbin',
+    HOME: scratch, TMPDIR: scratch, TMP: scratch, TEMP: scratch, HISTFILE: '/dev/null',
+    LANG: 'C', TERM: 'dumb', GIT_CONFIG_NOSYSTEM: '1',
+  };
   const env = { ...process.env, TMPDIR: scratch, TMP: scratch, TEMP: scratch, HISTFILE: '/dev/null' };
   for (const key of Object.keys(env)) {
     if (key === 'BASH_ENV' || key === 'ENV' || key.startsWith('LD_') || key.startsWith('DYLD_')) delete env[key];
@@ -133,6 +153,31 @@ async function executable(candidates) {
   throw new Error(`Sandbox executable unavailable (${candidates.join(', ')}); refusing to run without isolation`);
 }
 
+async function runtimeReads(platform) {
+  // Do not grant /System (its Data-volume alias contains user files), /usr,
+  // /opt/homebrew, or /etc wholesale. Runtime code/certificates are read-only;
+  // package-manager databases, user homes and service state are not runtimes.
+  const candidates = platform === 'darwin' ? [
+    '/System/Library', '/System/Volumes/Preboot/Cryptexes/OS',
+    '/usr/bin', '/usr/lib', '/usr/libexec', '/usr/share', '/bin', '/sbin', '/usr/sbin',
+    '/opt/homebrew/bin', '/opt/homebrew/sbin', '/opt/homebrew/lib', '/opt/homebrew/opt', '/opt/homebrew/Cellar', '/opt/homebrew/share',
+    '/Library/Developer/CommandLineTools', '/Library/Apple',
+    '/private/etc/passwd', '/private/etc/group', '/private/etc/localtime', '/private/etc/hosts',
+    '/private/etc/resolv.conf', '/private/etc/ssl/cert.pem', '/private/etc/ssl/certs',
+    '/dev/null', '/dev/zero', '/dev/random', '/dev/urandom', '/dev/fd',
+  ] : [
+    '/usr/bin', '/usr/sbin', '/usr/lib', '/usr/lib64', '/usr/libexec', '/usr/share', '/bin', '/sbin', '/lib', '/lib64',
+    '/etc/ld.so.cache', '/etc/nsswitch.conf', '/etc/passwd', '/etc/group', '/etc/localtime',
+    '/etc/hosts', '/etc/resolv.conf', '/etc/ssl/certs', '/etc/os-release',
+  ];
+  const paths = [];
+  for (const root of candidates) {
+    try { paths.push({ root, canonical: await realpath(root) }); }
+    catch (error) { if (error.code !== 'ENOENT') throw error; }
+  }
+  return paths;
+}
+
 /**
  * Produce a process launch from a committed native plan. Failure never falls back
  * to unrestricted execution. Policy selection/approval is not implemented here.
@@ -142,7 +187,8 @@ export async function prepareSandbox(plan, { platform = process.platform, archit
   signal?.throwIfAborted();
   if (!['linux', 'darwin'].includes(platform)) throw new Error('Selvedge supports Linux and macOS only');
   if (!plan || !['sandboxed', 'unrestricted'].includes(plan.access) ||
-      !['workspace-write', 'read-only'].includes(plan.sandbox?.mode) || typeof plan.sandbox.network_access !== 'boolean') {
+      !['workspace-write', 'read-only'].includes(plan.sandbox?.mode) || typeof plan.sandbox.network_access !== 'boolean' ||
+      (plan.scope !== undefined && plan.scope !== 'project') || (plan.scope === 'project' && plan.access !== 'sandboxed')) {
     throw new TypeError('Malformed committed sandbox execution plan');
   }
   const workspace = await canonicalWorkspace(plan.workspace);
@@ -150,6 +196,8 @@ export async function prepareSandbox(plan, { platform = process.platform, archit
     throw new Error('A workspace root changed after it was committed; reselect the workspace before executing');
   }
   const cwd = workspace.primary_root ?? '/';
+  const projectOnly = plan.scope === 'project';
+  if (projectOnly && !workspace.primary_root) throw new Error('Project execution requires a primary Workspace root');
   if (plan.access === 'unrestricted') {
     return { file: '/bin/bash', prefix: ['--noprofile', '--norc'], cwd, env: environment(tmpdir()),
       descriptors: [], cleanup: async () => {} };
@@ -163,19 +211,27 @@ export async function prepareSandbox(plan, { platform = process.platform, archit
   try {
     const writableRoots = plan.sandbox.mode === 'workspace-write' ? workspace.roots : [];
     const protectedRoots = await Promise.all(readOnlyPaths.map(root => realpath(root)));
+    if (projectOnly && workspace.roots.some(root => protectedRoots.some(protectedRoot =>
+      root === protectedRoot || root.startsWith(`${protectedRoot}${path.sep}`)))) {
+      throw new Error('A ChatGPT Workspace cannot be inside the private service home');
+    }
     signal?.throwIfAborted();
     if (platform === 'darwin') {
       return { file: await executable(['/usr/bin/sandbox-exec']), prefix: ['-p', seatbeltProfile({
         writableRoots, scratch, readOnlyPaths: protectedRoots, networkAccess: plan.sandbox.network_access,
-      }), '/bin/bash', '--noprofile', '--norc'], cwd, env: environment(scratch), descriptors: [], cleanup };
+        ...(projectOnly ? { readableRoots: [...workspace.roots, ...(await runtimeReads(platform)).map(entry => entry.canonical)] } : {}),
+      }), '/bin/bash', '--noprofile', '--norc'], cwd, env: environment(scratch, projectOnly), descriptors: [], cleanup };
     }
     const file = await executable(['/usr/bin/bwrap', '/bin/bwrap']);
     const policyPath = path.join(scratch, 'seccomp.bpf');
     await writeFile(policyPath, seccompFilter(architecture, plan.sandbox.network_access), { mode: 0o600, flag: 'wx' });
     handles.push(await open(policyPath, constants.O_RDONLY | constants.O_NOFOLLOW));
     const prefix = ['--die-with-parent', '--new-session', '--unshare-user', '--unshare-pid',
-      '--unshare-ipc', '--unshare-uts', '--cap-drop', 'ALL', '--ro-bind', '/', '/'];
+      '--unshare-ipc', '--unshare-uts', '--cap-drop', 'ALL', ...(projectOnly ? ['--tmpfs', '/'] : ['--ro-bind', '/', '/'])];
     if (!plan.sandbox.network_access) prefix.push('--unshare-net');
+    if (projectOnly) {
+      for (const { root, canonical } of await runtimeReads(platform)) prefix.push('--ro-bind', canonical, root);
+    }
     const bind = async (root, readonly) => {
       // Pin the source directory. Replacing its name with a symlink between
       // validation and exec cannot give bwrap a different writable subtree.
@@ -183,10 +239,16 @@ export async function prepareSandbox(plan, { platform = process.platform, archit
       handles.push(handle);
       prefix.push(readonly ? '--ro-bind' : '--bind', `/proc/self/fd/${handles.length + 2}`, root);
     };
-    for (const root of [...writableRoots, scratch]) await bind(root, false);
-    for (const root of protectedRoots) await bind(root, true);
+    if (projectOnly) {
+      for (const root of workspace.roots) await bind(root, plan.sandbox.mode === 'read-only');
+      await bind(scratch, false);
+      for (const root of protectedRoots) prefix.push('--tmpfs', root, '--remount-ro', root);
+    } else {
+      for (const root of [...writableRoots, scratch]) await bind(root, false);
+      for (const root of protectedRoots) await bind(root, true);
+    }
     prefix.push('--proc', '/proc', '--dev', '/dev', '--seccomp', '3', '--chdir', cwd,
       '--', '/bin/bash', '--noprofile', '--norc');
-    return { file, prefix, cwd, env: environment(scratch), descriptors: handles.map(handle => handle.fd), cleanup };
+    return { file, prefix, cwd, env: environment(scratch, projectOnly), descriptors: handles.map(handle => handle.fd), cleanup };
   } catch (error) { await cleanup(); throw error; }
 }

@@ -12,6 +12,7 @@ import { observeBoardCommand, observeBoardClock } from './board-files.mjs';
 import { requestModel, ContextLimitError } from './providers.mjs';
 import { profileCatalog } from './config.mjs';
 import { withAccountModels } from './chatgpt-models.mjs';
+import { connectionGrants } from './chatgpt-plugin.mjs';
 
 /** Interpret committed effects. No task lifecycle or recovery policy lives here. */
 export class Service extends EventEmitter {
@@ -81,6 +82,8 @@ export class Service extends EventEmitter {
       await service.#configure();
       const recovery = await service.journal.execute({ kind: 'recover' });
       if (!recovery.reply.ok) throw new Error(`Recovery rejected: ${recovery.reply.error.message}`);
+      const grants = await service.command({ op: 'configure_chatgpt_connections', connections: connectionGrants(config.chatgpt_plugin) });
+      if (!grants.reply.ok) throw new Error(`ChatGPT connection configuration rejected: ${grants.reply.error.message}`);
       return service;
     } catch (error) {
       await service.close();
@@ -152,8 +155,13 @@ export class Service extends EventEmitter {
       });
       return;
     }
-    if (!['model', 'summary', 'reasoning', 'tool', 'hook', 'after_hook', 'approval', 'board_text'].includes(effect.kind)) { this.#fatal(new Error(`Unknown effect ${effect.kind}`)); return; }
-    const key = effect.kind === 'board_text' ? `board:${effect.card_id}:${effect.ticket}` : `${effect.task_id}:${effect.ticket}`;
+    if (effect.kind === 'chatgpt_cancel') {
+      this.#running.get(`chatgpt:${effect.operation_id}`)?.controller.abort(new Error('ChatGPT operation cancelled'));
+      return;
+    }
+    if (!['model', 'summary', 'reasoning', 'tool', 'hook', 'after_hook', 'approval', 'board_text', 'chatgpt_exec'].includes(effect.kind)) { this.#fatal(new Error(`Unknown effect ${effect.kind}`)); return; }
+    const key = effect.kind === 'chatgpt_exec' ? `chatgpt:${effect.operation_id}` :
+      effect.kind === 'board_text' ? `board:${effect.card_id}:${effect.ticket}` : `${effect.task_id}:${effect.ticket}`;
     if (this.#running.has(key)) { this.#fatal(new Error('The kernel repeated an in-flight effect identity')); return; }
     const controller = new AbortController();
     const active = { task: effect.task_id, controller };
@@ -169,7 +177,10 @@ export class Service extends EventEmitter {
       signal.addEventListener('abort', cancelPreview, { once: true });
     }
     try {
-      if (effect.kind === 'board_text') {
+      if (effect.kind === 'chatgpt_exec') {
+        const result = await runBash(effect.arguments, this.limits, { signal, execution: effect.execution, readOnlyPaths: [this.home] });
+        input = { kind: 'chatgpt_result', operation_id: effect.operation_id, ...result };
+      } else if (effect.kind === 'board_text') {
         input = { kind: 'board_text', card_id: effect.card_id, ticket: effect.ticket, ok: true,
           ...await requestBoardText(effect, this.config, this.home, this.limits, { signal }) };
       } else if (effect.kind === 'approval') {
@@ -241,6 +252,8 @@ export class Service extends EventEmitter {
 
   #failureInput(effect, message) {
     message = [...String(message || 'External execution failed').toWellFormed()].slice(0, 1024).join('');
+    if (effect.kind === 'chatgpt_exec') return { kind: 'chatgpt_result', operation_id: effect.operation_id,
+      error: true, value: { error: { code: 'external_execution_failed', message } } };
     if (effect.kind === 'board_text') return { kind: 'board_text', card_id: effect.card_id, ticket: effect.ticket, ok: false, message };
     if (effect.kind === 'reasoning') return { kind: 'reasoning', task_id: effect.task_id, ticket: effect.ticket, ok: false, message };
     if (effect.kind === 'hook') return { kind: 'hook', task_id: effect.task_id, ticket: effect.ticket, outcome: { decision: 'failed', reason: message } };

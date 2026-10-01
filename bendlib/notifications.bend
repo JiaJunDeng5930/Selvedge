@@ -183,7 +183,7 @@ def model_outcome(outcome: D.Outcome) -> J.Json:
     case D.ModelFailure{message}: J.Object{[J.Field{"ok", J.Boolean{False{}}}, J.Field{"error", J.Text{message}}]}
     case D.ContextLimit{}: J.Object{[J.Field{"ok", J.Boolean{False{}}}, J.Field{"error", J.Text{"context_limit"}}]}
 
-def model_settled(event: Protocol.Event, ticket: Nat) -> +List<D.Notice>:
+def model_settled(event: Protocol.ResolvedEvent, ticket: Nat) -> +List<D.Notice>:
   match event:
     case Protocol.ModelResult{task, outcome, allowed}:
       task_event(D.ModelSettled{}, None{}, J.Object{[J.Field{"ticket", J.nat(ticket)}, J.Field{"kind", J.Text{"model"}}, J.Field{"outcome", model_outcome(outcome)}]}, task)

@@ -17,7 +17,7 @@ def A.result_boundary():
     (reason => call => value => error => pending => ({==}, {==})),
     (plugin => outcome => {==}),
     (expected => ticket => plugin => pending => value => error => task => operation => outcome => different =>
-      Equal.cong(Bool, Protocol.Event, (same => Protocol.matching(same, Protocol.AfterResult{task, operation, outcome})),
+      Equal.cong(Bool, Protocol.ResolvedEvent, (same => Protocol.matching(same, Protocol.AfterResult{task, operation, outcome})),
         Nat.is_eq(ticket, expected), False{}, different)),
     (id => call => announced => ticket => plugin => pending => value => error => task => duplicate => duplicate_error => {==}),
     (history => owner => operation => call => value => error => plugin => outcome => ({==}, {==})),

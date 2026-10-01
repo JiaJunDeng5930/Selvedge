@@ -8,6 +8,11 @@ planned work, execution roles, drag ordering, files and assisted capture without
 creating a second task scheduler. The default profile is an offline echo
 demonstration, not a coding model or summarizer.
 
+The independent [ChatGPT plugin](plugins/selvedge-chatgpt/README.md) exposes
+explicitly shared projects through OpenAI Secure MCP Tunnel. Its connection grants
+apply across conversations, and local operations run in the selected project's
+Workspace.
+
 ## Read the program
 
 Start with `Harness` in [CONCEPTS.bend](CONCEPTS.bend): a proof-carrying program

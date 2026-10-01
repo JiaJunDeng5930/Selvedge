@@ -24,8 +24,8 @@ def exact(+input: M.Input, +state: Reach.State) ->
 
 def simulation(-start: Reach.State, -end: Reach.State, edge: Reach.actual_edge(start, end)) ->
   Reach.specification_path(start, end):
-  Reach.Event{+input, +source, before, after} = edge
-  R.Step{Reach.Event{input, source, before,
+  Reach.ResolvedEvent{+input, +source, before, after} = edge
+  R.Step{Reach.ResolvedEvent{input, source, before,
     Equal.trans(Reach.State, end, Reach.actual(input, source), Reach.specified(input, source),
       after, exact(input, source))}}
 
@@ -38,7 +38,7 @@ def input_safe(input: M.Input, +state: Reach.State, evidence: Reach.valid(state)
   Laws.transition_preserves_world(world, input, evidence)
 
 def preserves(-start: Reach.State, -end: Reach.State, evidence: Reach.valid(start), edge: Reach.actual_edge(start, end)) -> Reach.valid(end):
-  Reach.Event{+input, +source, before, after} = edge
+  Reach.ResolvedEvent{+input, +source, before, after} = edge
   validity(Reach.actual(input, source), end,
     Equal.sym(Reach.State, end, Reach.actual(input, source), after),
     input_safe(input, source, validity(start, source, before, evidence)))

@@ -41,7 +41,7 @@ export function check(directory, entry = 'PROOF.bend') {
 export function checked(result) {
   assert.equal(result.error, undefined, 'A timeout or execution error is not proof evidence');
   assert.equal(result.status, 0, result.stdout + result.stderr);
-  assert.equal(result.stdout.trim(), 'All terms check.');
+  assert.equal(result.stdout.trim(), 'ALL PROOFS CHECK\nUse --verdict for mathematical validity.');
   assert.equal(result.stderr, '');
 }
 
@@ -77,7 +77,6 @@ export function replaceDefinition(source, name, definition) {
 // fixture cannot leave clang running after its temporary sources are removed.
 export async function nativeBuild(directory, entry = 'MAIN.bend', { signal, timeout = 300_000 } = {}) {
   signal?.throwIfAborted();
-  const boundaryReport = 'All terms check, but 3 defs rely on unsafe or foreign code:\n- Host.receive\n- serve\n- main';
   const executable = path.join(directory, 'locality-native');
   await new Promise((resolve, reject) => {
     const grouped = process.platform !== 'win32';
@@ -107,7 +106,7 @@ export async function nativeBuild(directory, entry = 'MAIN.bend', { signal, time
       clearTimeout(timer);
       signal?.removeEventListener('abort', abort);
       if (failure) reject(failure);
-      else if (code !== 0 || (stderr.trim() !== '' && !(entry === 'MAIN.bend' && stderr.trim() === boundaryReport))) {
+      else if (code !== 0 || stderr.trim() !== '') {
         reject(new Error(`Native compilation failed (${exitSignal ?? code}):\n${output}`));
       }
       else resolve();

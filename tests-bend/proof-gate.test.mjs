@@ -142,7 +142,7 @@ test('functional proof gates reject type-correct no-ops, wrong replies, missing 
       const wellTyped = compile('PROGRAM.bend');
       assert.equal(wellTyped.error, undefined);
       assert.equal(wellTyped.status, 0, `The mutant must be well-typed:\n${wellTyped.stdout}${wellTyped.stderr}`);
-      assert.match(wellTyped.stdout, /All terms check/);
+      assert.match(wellTyped.stdout, /ALL PROOFS CHECK/);
       const rejected = compile('PROOF.bend');
       assert.equal(rejected.error, undefined, `${name} must fail a proof, not time out`);
       assert.notEqual(rejected.status, 0, `${name} was not rejected by the functional specification`);

@@ -25,6 +25,7 @@ def navigate(event: F.Navigation, previous: M.ViewState) -> M.ViewState:
 
 def submitted(command: F.Command, +reply: J.Json, previous: M.ViewState) -> M.ViewState:
   match command previous:
+    case F.ChatGPTCommand{command} previous: previous
     case F.BoardCommand{command} M.ViewState{selected, after, tasks_after, profile, +cursor}:
       M.ViewState{selected, after, tasks_after, profile,
         F.with_board_cursor(Navigation.submitted(J.boolean(J.get(reply, "ok")), command, reply, F.board_cursor(cursor)), cursor)}

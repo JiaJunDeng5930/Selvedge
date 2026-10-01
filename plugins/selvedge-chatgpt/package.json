@@ -1,0 +1,11 @@
+{
+  "name": "@selvedge/chatgpt-plugin",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Project-scoped Selvedge tools for ChatGPT over OpenAI Secure MCP Tunnel",
+  "engines": { "node": ">=26" },
+  "bin": { "selvedge-chatgpt": "./bin/server.mjs", "selvedge-chatgpt-tunnel": "./bin/tunnel.mjs", "selvedge-chatgpt-setup": "./bin/setup.mjs" },
+  "scripts": { "start": "node bin/server.mjs" },
+  "dependencies": { "@modelcontextprotocol/sdk": "1.31.0", "zod": "4.6.5" }
+}

@@ -39,7 +39,7 @@ def specified(input: M.Input, state: State) -> State:
   record(Commit.input(~Execution.scheduled, input, world), receipts)
 
 type Edge<-step: M.Input -> State -> State, -start: State, -end: State> is Type:
-  Event{input: M.Input, source: State,
+  ResolvedEvent{input: M.Input, source: State,
     before: {start == source : State}, after: {end == step(input, source) : State}}
 
 def actual_edge(-start: State, -end: State) -> Type:
@@ -58,7 +58,7 @@ def valid(-state: State) -> Type:
   {I.world(world(state)) == True{} : Bool}
 
 def one(input: M.Input, state: State) -> path(state, actual(input, state)):
-  R.Step{Event{input, state, {==}, {==}}}
+  R.Step{ResolvedEvent{input, state, {==}, {==}}}
 
 def advance(state: State, input: M.Input) -> State:
   actual(input, state)

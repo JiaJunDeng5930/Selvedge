@@ -255,7 +255,7 @@ def construct_fields(kind: WriteKind, +body: J.Json, +id: Nat, +revision: Nat, +
   match kind:
     case CreateKind{}: B.Create{draft(body), now, J.boolean(J.get(body, "assisted")), J.text(J.get(body, "draft_profile"))}
     case UpdateKind{}: B.Update{id, revision, patch(body), now}
-    case MoveKind{}: B.Move{id, revision, B.stage(J.text(J.get(body, "status"))), optional_id(J.text(J.get(body, "before_card"))), now}
+    case MoveKind{}: B.MoveCard{id, revision, B.stage(J.text(J.get(body, "status"))), optional_id(J.text(J.get(body, "before_card"))), now}
     case ArchiveKind{}: B.Archive{id, revision, True{}, now}
     case RestoreKind{}: B.Archive{id, revision, False{}, now}
     case DeleteKind{}: B.Delete{id, revision}
@@ -300,7 +300,7 @@ def command_json(input: B.Command) -> J.Json:
         [J.Field{"observed_at", word_json(now)}, J.Field{"assisted", J.Boolean{assist}}, J.Field{"draft_profile", J.Text{profile}}]))
     case B.Update{id, revision, patch, now}:
       command("update_card", List.append(&2, J.Field, identity_fields(id, revision, now), patch_fields(patch)))
-    case B.Move{id, revision, stage, before, now}: command("move_card",
+    case B.MoveCard{id, revision, stage, before, now}: command("move_card",
       J.Field{"status", J.Text{B.stage_name(stage)}} <> J.Field{"before_card", J.Text{id_text(before)}} <> identity_fields(id, revision, now))
     case B.Archive{id, revision, archived, now}: command(archive_name(archived), identity_fields(id, revision, now))
     case B.Delete{id, revision}: command("delete_card", identity_fields(id, revision, 0))

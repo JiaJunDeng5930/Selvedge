@@ -4,6 +4,11 @@ The pure proof root is `PROOF.bend`. It checks the actual production import
 closure, the concept assembly, functional correspondence and state invariants.
 Tests do not maintain a second finite-example specification of those semantics.
 
+The full suite runs test files serially. Native feature-extension compilation
+has a large working set; running it alongside proof-mutation compilers caused
+resource-sensitive timeouts on the development machine. Serialization retains
+the same cases, isolation, proof requirements and bounded native compilation.
+
 `locality.test.mjs` copies the actual current Bend sources and compares frozen
 files byte-for-byte after extension. It changes independent state and cursor
 representations, then adds a counter component through the feature assembly.
@@ -30,6 +35,8 @@ when Chrome is unavailable instead of silently counting an unrun check as passed
 
 | Guarantee / fault model | Evidence owner |
 | --- | --- |
+| Connection authentication, standalone MCP discovery, private installed settings, project-scoped physical execution, retry deduplication and restart | `chatgpt-plugin*.test.mjs`; local fixtures, not live OpenAI Tunnel or ChatGPT |
+| Type-correct loss of dispatch/cancellation, replay, cross-connection ownership, restart replay and unrelated feature damage | `chatgpt-plugin-proof.test.mjs`; mutated operational root must type-check before production proof rejection |
 | Complete local updates and arbitrary unrelated-state preservation, bound to actual task/board/UI functions | `task-laws.bend`, `reasoning-laws.bend`, `feature-frame.bend`, `feature-ui-laws.bend`, `locality.bend`, required by `CONCEPTS.Harness.locality` |
 | Concrete core imports, case/binding representation dependencies, matching-cache rejection, unchanged clients after non-definitional replacement and feature extension, native cursor round trips and feature rendering | `components.json`, `scripts/check-components.mjs`, `locality.test.mjs` and its isolated extension fixture; the full extension builds frozen `MAIN.bend` and uses the actual `Kernel` transport |
 | Commands, queue order, task lifecycle, branch inheritance, control/operation separation and recovery semantics | `LAWS.bend`, `INVARIANTS.bend`, `bendlib/architecture.bend`, discharged by `bendlib/proofs/*` and assembled in `PROOF.bend` |
