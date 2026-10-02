@@ -20,7 +20,8 @@ pre, code { font-family: var(--font-mono, ui-monospace, monospace); }
 .markdown th, .markdown td { border: 1px solid var(--border-primary, GrayText); padding: .5em; }
 .math-source { white-space: pre-wrap; }
 
-.native-control:hover:enabled { background: var(--native-hover-background); color: var(--native-hover-color); }
-.native-control:active:enabled { background: var(--native-pressed-background); color: var(--native-pressed-color); }
+.native-control, .native-surface { background: var(--native-rest-background); color: var(--native-rest-color); }
+.native-surface:hover, .native-control:hover:enabled { background: var(--native-hover-background); color: var(--native-hover-color); }
+.native-surface:active, .native-control:active:enabled { background: var(--native-pressed-background); color: var(--native-pressed-color); }
 .native-control:disabled { opacity: var(--native-disabled-opacity); }
 .native-control:focus-visible { outline: var(--native-focus-width) solid var(--native-focus-ring); outline-offset: var(--native-focus-offset); }

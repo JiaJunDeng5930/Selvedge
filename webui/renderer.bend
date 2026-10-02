@@ -3,6 +3,7 @@ import ../bendlib/stdlib.bend as Std
 import ./document.bend as Doc
 import ./MODEL.bend as Web
 import ./design.bend as Design
+import ./surfaces.bend as Surfaces
 import ./appearance.bend as Appearance
 import ./layout.bend as Layout
 import ./controls.bend as Controls
@@ -44,13 +45,22 @@ def px(value: Nat) -> String:
 
 
 
+def surface_color(value: Surfaces.Color) -> String:
+  match value:
+    case Surfaces.Clear{}: "transparent"
+    case Surfaces.Token{name}: "var(" ++ name ++ ")"
+    case Surfaces.Blend{foreground, percent, background}:
+      "color-mix(in srgb, var(" ++ foreground ++ ") " ++ Nat.show(percent) ++ "%, var(" ++ background ++ "))"
+
+def surface_background(role: Surfaces.Role, phase: Surfaces.Phase) -> String:
+  surface_color(Surfaces.background(role, phase))
+
 def paint(value: Design.Paint) -> String:
   match value:
     case Design.Transparent{}: "transparent"
     case Design.ThemeToken{name}: "var(" ++ name ++ ")"
-
-
-
+    case Design.SurfacePaint{role, phase}: surface_background(role, phase)
+    case Design.SurfaceForeground{role}: surface_color(Surfaces.foreground(role))
 
 
 def font(value: Design.Font) -> String:
@@ -618,7 +628,7 @@ def composer_styles(value: Design.MainFrame) -> +List<Doc.Property>:
 
 def input_style(value: Controls.Widget) -> +List<Doc.Property>:
   match value:
-    case Controls.MessageInput{}: [property("width", "100%"), property("min-height", "44px"), property("max-height", "240px"), property("line-height", "20px"), property("resize", "none"), property("border", "none"), property("outline", "none"), property("background", "transparent"), property("field-sizing", "content")]
+    case Controls.MessageInput{}: [property("width", "100%"), property("min-height", "44px"), property("max-height", "240px"), property("line-height", "20px"), property("resize", "none"), property("border", "none"), property("outline", "none"), property("field-sizing", "content")]
     case Controls.ToggleInput{}:
       [property("width", px(Appearance.toggle_extent())), property("height", px(Appearance.toggle_extent())),
        property("margin", "0"), property("flex", "none")]
@@ -628,7 +638,7 @@ def input_style_for(meaning: UI.Meaning, widget: Controls.Widget) -> +List<Doc.P
   match meaning:
     case UI.BoardSearch{filter}:
       [property("width", "168px"), property("max-width", "100%"), property("min-width", "0"), property("height", "32px"),
-       property("padding", "4px 8px"), property("border-radius", "6px"), property("background", "var(--color-surface-secondary)"),
+       property("padding", "4px 8px"), property("border-radius", "6px"),
        property("font-size", "13px")]
     case _: input_style(widget)
 
@@ -799,21 +809,19 @@ def board_group_node(+key: String, +grouping: UI.BoardGrouping, children: +List<
   Doc.Element{key, "div", [property("data-native-key", key), property("data-board-group", board_group_name(grouping)),
     property("role", "group"), property("aria-label", board_group_label(grouping))], board_group_styles(grouping), Nil{}, children}
 
-def stage_tone(stage: Board.Stage) -> String:
+def stage_surface_tone(stage: Board.Stage) -> Surfaces.Tone:
   match stage:
-    case Board.InProgress{}: "var(--color-text-warning)"
-    case Board.InReview{}: "var(--color-text-success)"
-    case Board.Completed{}: "var(--color-text-info)"
-    case Board.Blocked{}: "var(--color-text-danger)"
-    case _: "var(--color-token-text-secondary)"
+    case Board.InProgress{}: Surfaces.Warning{}
+    case Board.InReview{}: Surfaces.Success{}
+    case Board.Completed{}: Surfaces.Info{}
+    case Board.Blocked{}: Surfaces.Danger{}
+    case _: Surfaces.Neutral{}
+
+def stage_tone(stage: Board.Stage) -> String:
+  surface_color(Surfaces.tone(stage_surface_tone(stage)))
 
 def stage_surface(stage: Board.Stage) -> String:
-  match stage:
-    case Board.InProgress{}: "color-mix(in srgb, var(--color-text-warning) 7%, var(--color-surface-secondary))"
-    case Board.InReview{}: "color-mix(in srgb, var(--color-text-success) 7%, var(--color-surface-secondary))"
-    case Board.Completed{}: "color-mix(in srgb, var(--color-text-info) 7%, var(--color-surface-secondary))"
-    case Board.Blocked{}: "color-mix(in srgb, var(--color-text-danger) 7%, var(--color-surface-secondary))"
-    case _: "var(--color-surface-secondary)"
+  surface_background(Surfaces.Lane{stage_surface_tone(stage)}, Surfaces.Rest{})
 
 def board_lane_styles(stage: Board.Stage) -> +List<Doc.Property>:
   [property("display", "flex"), property("flex-direction", "column"), property("gap", "8px"),
@@ -898,28 +906,28 @@ def board_lane_node(+key: String, +label: String, +stage: Board.Stage, +count: N
        property("overscroll-behavior", "contain"), property("padding", "4px 2px 6px")], Nil{},
       List.append(&2, Doc.Node, empty_lane(count, key), cards)}])}
 
-def card_chip(key: String, kind: String, text: String, +tone: String) -> Doc.Node:
+def card_chip(key: String, kind: String, text: String, +tone: Surfaces.Tone) -> Doc.Node:
   Doc.Element{key, "span", [property("data-card-chip", kind)],
     [property("display", "inline-flex"), property("align-items", "center"), property("max-width", "100%"),
-     property("padding", "2px 6px"), property("border-radius", "4px"), property("background", "color-mix(in srgb, " ++ tone ++ " 9%, var(--color-surface-secondary))"),
-     property("color", tone), property("font-size", "10px"), property("line-height", "15px"), property("white-space", "nowrap"),
+     property("padding", "2px 6px"), property("border-radius", "4px"), property("background", surface_background(Surfaces.Chip{tone}, Surfaces.Rest{})),
+     property("color", surface_color(Surfaces.tone(tone))), property("font-size", "10px"), property("line-height", "15px"), property("white-space", "nowrap"),
      property("overflow", "hidden"), property("text-overflow", "ellipsis")], Nil{}, [Doc.Text{text}]}
 
-def priority_tone(priority: Board.Priority) -> String:
+def priority_tone(priority: Board.Priority) -> Surfaces.Tone:
   match priority:
-    case Board.Urgent{}: "var(--color-text-danger)"
-    case Board.High{}: "var(--color-text-warning)"
-    case _: "var(--color-token-text-secondary)"
+    case Board.Urgent{}: Surfaces.Danger{}
+    case Board.High{}: Surfaces.Warning{}
+    case _: Surfaces.Neutral{}
 
 def card_pin_chip(found: Bool, owner: String) -> +List<Doc.Node>:
   match found:
-    case True{}: [card_chip(generated_identity(owner, "pin"), "pin", "已置顶", "var(--color-text-warning)")]
+    case True{}: [card_chip(generated_identity(owner, "pin"), "pin", "已置顶", Surfaces.Warning{})]
     case False{}: Nil{}
 
 def card_status_chip_when(empty: Bool, +status: String, +owner: String) -> +List<Doc.Node>:
   match empty:
     case True{}: Nil{}
-    case False{}: [card_chip(generated_identity(owner, "status"), "status", status, "var(--color-token-text-secondary)")]
+    case False{}: [card_chip(generated_identity(owner, "status"), "status", status, Surfaces.Neutral{})]
 
 def card_status_chip(+status: String, +owner: String) -> +List<Doc.Node>:
   card_status_chip_when(String.is_empty(status), status, owner)
@@ -930,7 +938,7 @@ def card_metadata(+card_key: String, face: View.CardFace, status_empty: Bool) ->
     [property("display", "flex"), property("align-items", "center"), property("flex-wrap", "wrap"), property("gap", "5px"),
      property("min-width", "0"), property("color", "var(--color-token-text-secondary)"), property("font-size", "10px")], Nil{},
     List.append(&2, Doc.Node,
-      [card_chip(generated_identity(card_key, "reference"), "reference", "SV-" ++ Nat.show(id), "var(--color-token-text-secondary)"),
+      [card_chip(generated_identity(card_key, "reference"), "reference", "SV-" ++ Nat.show(id), Surfaces.Neutral{}),
        card_chip(generated_identity(card_key, "priority"), "priority", Board.priority_label(priority), priority_tone(priority))],
       List.append(&2, Doc.Node, card_pin_chip(pinned, card_key), card_status_chip_when(status_empty, status, card_key)))}
 
@@ -1017,13 +1025,13 @@ def card_label_nodes(+owner: String, +values: +List<String>, +index: Nat) -> +Li
   match values:
     case Nil{}: Nil{}
     case Con{+value, rest}:
-      card_chip(generated_identity(owner, "label/" ++ Nat.show(index)), "label", value, "var(--color-token-text-secondary)") <>
+      card_chip(generated_identity(owner, "label/" ++ Nat.show(index)), "label", value, Surfaces.Neutral{}) <>
       card_label_nodes(owner, rest, Nat.add(index, 1n))
 
 def card_project_nodes_when(empty: Bool, +owner: String, +project: String) -> +List<Doc.Node>:
   match empty:
     case True{}: Nil{}
-    case False{}: [card_chip(generated_identity(owner, "project"), "project", project, "var(--color-token-text-secondary)")]
+    case False{}: [card_chip(generated_identity(owner, "project"), "project", project, Surfaces.Neutral{})]
 
 def card_project_nodes(+owner: String, +project: String) -> +List<Doc.Node>:
   card_project_nodes_when(String.is_empty(project), owner, project)
@@ -1719,7 +1727,7 @@ def card_node(+key: String, +face: View.CardFace, destinations: +List<UI.Placeme
     property("data-card-title", title), property("aria-label", title), property("draggable", "true")],
     List.append(&2, Doc.Property, style(visual), [property("display", "flex"), property("flex-direction", "column"),
       property("gap", "8px"), property("min-width", "0"), property("border", "1px solid var(--color-token-border-default)"),
-      property("border-radius", "9px"), property("background", "var(--color-token-main-surface-primary)"), property("box-shadow", "var(--shadow-sm)")]),
+      property("border-radius", "9px"), property("box-shadow", "var(--shadow-sm)")]),
     [Doc.DragCard{key}, Doc.DropCard{key}], card_children(key, face, source, rendered)}
 
 
@@ -1727,13 +1735,37 @@ def card_node(+key: String, +face: View.CardFace, destinations: +List<UI.Placeme
 
 
 
+def pointer_property(name: String, value: String) -> Doc.Property:
+  match name:
+    case "background": property("--native-rest-background", value)
+    case "color": property("--native-rest-color", value)
+    case other: property(other, value)
+
+def pointer_styles(values: +List<Doc.Property>) -> +List<Doc.Property>:
+  match values:
+    case Nil{}: Nil{}
+    case Con{Doc.Property{name, value}, rest}: pointer_property(name, value) <> pointer_styles(rest)
+
+def embedded_action_properties() -> +List<Doc.Property>:
+  [property("--native-rest-background", surface_background(Surfaces.EmbeddedAction{}, Surfaces.Rest{})),
+   property("--native-hover-background", surface_background(Surfaces.EmbeddedAction{}, Surfaces.Hovered{})),
+   property("--native-pressed-background", surface_background(Surfaces.EmbeddedAction{}, Surfaces.Pressed{}))]
+
+def native_surface_properties(+role: Surfaces.Role) -> +List<Doc.Property>:
+  [property("--native-rest-background", surface_background(role, Surfaces.Rest{})),
+   property("--native-hover-background", surface_background(role, Surfaces.Hovered{})),
+   property("--native-pressed-background", surface_background(role, Surfaces.Pressed{})),
+   property("--native-rest-color", paint(Design.ThemeToken{"--color-token-text-primary"})),
+   property("--native-hover-color", paint(Design.ThemeToken{"--color-token-text-primary"})),
+   property("--native-pressed-color", paint(Design.ThemeToken{"--color-token-text-primary"}))]
+
 def action(+key: String, +appearance: Design.Appearance, value: Controls.Representation) -> Doc.Node:
   Design.Appearance{identity, visual, representation, children} = appearance
   match value:
     case Controls.Action{input, availability, name, +face_value, response, +size, placement, hint, feedback}:
       Doc.Element{key, "button", List.append(&2, Doc.Property, [property("type", "button"), property("class", "native-control"), property("aria-label", name), property("data-native-key", key)],
         List.append(&2, Doc.Property, unavailable(availability), List.append(&2, Doc.Property, behavior(response), help(hint)))),
-        List.append(&2, Doc.Property, style(visual), List.append(&2, Doc.Property, geometry(size), List.append(&2, Doc.Property, placement_styles(placement), List.append(&2, Doc.Property, [property("anchor-name", css_anchor(key))], content_geometry(face_value, size))))), [Doc.Activate{key}], face(key, face_value)}
+        pointer_styles(List.append(&2, Doc.Property, style(visual), List.append(&2, Doc.Property, geometry(size), List.append(&2, Doc.Property, placement_styles(placement), List.append(&2, Doc.Property, [property("anchor-name", css_anchor(key))], content_geometry(face_value, size)))))), [Doc.Activate{key}], face(key, face_value)}
     case _: Doc.Element{key, "span", Nil{}, style(visual), Nil{}, Nil{}}
 
 
@@ -2424,9 +2456,7 @@ def project_chevron(expanded: Bool) -> Controls.Icon:
     case False{}: Controls.ChevronRight{}
 
 def project_selected_background(selected: Bool) -> String:
-  match selected:
-    case True{}: "var(--color-background-segmented-selected)"
-    case False{}: "transparent"
+  surface_background(Surfaces.Choice{selected}, Surfaces.Rest{})
 
 def project_icon_styles(+width: String) -> +List<Doc.Property>:
   [property("display", "inline-flex"), property("align-items", "center"), property("justify-content", "center"),
@@ -2434,9 +2464,9 @@ def project_icon_styles(+width: String) -> +List<Doc.Property>:
    property("min-height", width), property("padding", "0"), property("border", "0")]
 
 def project_name_styles() -> +List<Doc.Property>:
-  [property("display", "block"), property("flex", "1 1 0"), property("min-width", "0"), property("width", "auto"),
+  List.append(&2, Doc.Property, [property("display", "block"), property("flex", "1 1 0"), property("min-width", "0"), property("width", "auto"),
    property("overflow", "hidden"), property("text-overflow", "ellipsis"), property("white-space", "nowrap"),
-   property("text-align", "start"), property("padding-inline", "8px"), property("border", "0"), property("background", "transparent")]
+   property("text-align", "start"), property("padding-inline", "8px"), property("border", "0")], embedded_action_properties())
 
 def project_button_face(node: Doc.Node, extra: +List<Doc.Property>, added: +List<Doc.Property>, children: +List<Doc.Node>) -> Doc.Node:
   match node:
@@ -2479,14 +2509,13 @@ def project_has_disclosure(values: +List<Design.Appearance>) -> Bool:
       Bool.or(project_disclosure_test(project_control_kind(representation)), project_has_disclosure(rest))
 
 def project_header_styles(selected: Bool) -> +List<Doc.Property>:
-  [property("display", "flex"), property("flex-direction", "row"), property("align-items", "center"), property("gap", "2px"),
-   property("min-width", "0"), property("padding", "0"), property("border-radius", "6px"), property("border", "0"),
-   property("background", project_selected_background(selected))]
+  List.append(&2, Doc.Property, [property("display", "flex"), property("flex-direction", "row"), property("align-items", "center"), property("gap", "2px"),
+   property("min-width", "0"), property("padding", "0"), property("border-radius", "6px"), property("border", "0")], native_surface_properties(Surfaces.Choice{selected}))
 
 def project_header_node(node: Doc.Node, appearances: +List<Design.Appearance>, selected: Bool, expanded: Bool) -> Doc.Node:
   match node:
     case Doc.Element{key, tag, attrs, styles, events, children}:
-      Doc.Element{key, tag, attrs, List.append(&2, Doc.Property, styles, project_header_styles(selected)), events,
+      Doc.Element{key, tag, List.append(&2, Doc.Property, attrs, [property("class", "native-surface")]), List.append(&2, Doc.Property, pointer_styles(styles), project_header_styles(selected)), events,
         project_header_controls(children, appearances, expanded)}
     case other: other
 
@@ -2534,9 +2563,9 @@ def task_row_children(values: +List<Doc.Node>, appearances: +List<Design.Appeara
     case _ _: values
 
 def task_row_node(+key: String, task: Nat, +status: String, +selected: Bool, children: +List<Doc.Node>, appearances: +List<Design.Appearance>) -> Doc.Node:
-  Doc.Element{key, "div", [property("data-native-key", key), property("data-task", Nat.show(task)), property("data-status", status)],
-    [property("display", "flex"), property("align-items", "center"), property("gap", "6px"), property("min-width", "0"),
-     property("border-radius", "5px"), property("background", project_selected_background(selected)), property("padding-inline", "0")], Nil{}, task_row_children(children, appearances, status)}
+  Doc.Element{key, "div", [property("data-native-key", key), property("data-task", Nat.show(task)), property("data-status", status), property("class", "native-surface")],
+    List.append(&2, Doc.Property, [property("display", "flex"), property("align-items", "center"), property("gap", "6px"), property("min-width", "0"),
+     property("border-radius", "5px"), property("padding-inline", "0")], native_surface_properties(Surfaces.Choice{selected})), Nil{}, task_row_children(children, appearances, status)}
 
 def creation_heading_styles(text: Design.TextStyle) -> +List<Doc.Property>:
   Design.TextStyle{family, size, line_height, weight} = text
@@ -2550,8 +2579,8 @@ def project_chooser_styles(selected: Maybe<&2, Nat>) -> +List<Doc.Property>:
 def project_chooser_control(node: Doc.Node, +key: String, representation: Controls.Representation, selected: Maybe<&2, Nat>) -> Doc.Node:
   match representation:
     case Controls.Action{Core.ApplicationInput{Experience.UserInput{User.Activate{User.OpenPanel{User.ProjectPicker{}, trigger}}}}, availability, name, face, behavior, geometry, placement, help, feedback}:
-      project_button_face(node, List.append(&2, Doc.Property, project_chooser_styles(selected),
-        [property("display", "inline-flex"), property("align-items", "center"), property("gap", "4px"), property("width", "auto"), property("padding-inline", "0"), property("border", "0"), property("background", "transparent")]), Nil{},
+      project_button_face(node, List.append(&2, Doc.Property, List.append(&2, Doc.Property, project_chooser_styles(selected),
+        [property("display", "inline-flex"), property("align-items", "center"), property("gap", "4px"), property("width", "auto"), property("padding-inline", "0"), property("border", "0")]), embedded_action_properties()), Nil{},
         [icon(key ++ "/folder", Controls.Folder{}), face_label(key, name), icon(key ++ "/disclosure", Controls.ChevronDown{})])
     case _: node
 
@@ -2697,5 +2726,5 @@ def render(scene: Web.Scene) -> Doc.Document:
     Design.Presentation{Design.Layout{Design.Viewport{width, height}, shell, main, placements},
     Design.Visuals{+theme, rhythm, base_appearance, overlay_appearance}}} = scene
   Doc.Document{Doc.Element{"application", "div", [property("data-document", "application"), property("class", theme_class(theme))],
-    [property("position", "fixed"), property("inset", "0"), property("overflow", "hidden"), property("background", "var(--color-token-main-surface-primary)"), property("color", "var(--color-token-text-primary)")], Nil{},
+    [property("position", "fixed"), property("inset", "0"), property("overflow", "hidden"), property("background", surface_background(Surfaces.Canvas{}, Surfaces.Rest{})), property("color", "var(--color-token-text-primary)")], Nil{},
     document_theme(theme) <> enrich_nodes(List.append(&2, Doc.Node, [base_scope(active, reading_nodes(position_main(base_nodes(base, base_appearance, shell), main), reading_identity(content)))], overlays(overlays_value, overlay_appearance, placements, active)), scene_groups(content), scene_activities(content))}, "Selvedge"}

@@ -290,11 +290,13 @@
       "core/form-fields.bend",
       "core/interface.bend",
       "webui/controls.bend",
-      "webui/design.bend"
+      "webui/design.bend",
+      "webui/surfaces.bend"
     ],
     "webui/design.bend": [
       "core/composition.bend",
-      "webui/controls.bend"
+      "webui/controls.bend",
+      "webui/surfaces.bend"
     ],
     "webui/layout.bend": [
       "core/SYSTEM.bend",
@@ -416,6 +418,8 @@
       "webui/request-laws.bend",
       "webui/shell-spatial-laws.bend",
       "webui/submission-feedback-laws.bend",
+      "webui/surface-laws.bend",
+      "webui/surface-render-laws.bend",
       "webui/visibility.bend"
     ],
     "webui/appearance-laws.bend": [
@@ -424,7 +428,8 @@
       "core/interface.bend",
       "webui/appearance.bend",
       "webui/controls.bend",
-      "webui/design.bend"
+      "webui/design.bend",
+      "webui/surfaces.bend"
     ],
     "webui/laws.bend": [
       "MODEL.bend",
@@ -584,7 +589,8 @@
       "webui/design.bend",
       "webui/document.bend",
       "webui/editor-layout.bend",
-      "webui/layout.bend"
+      "webui/layout.bend",
+      "webui/surfaces.bend"
     ],
     "webui/renderer-laws.bend": [
       "BOARD.bend",
@@ -601,7 +607,8 @@
       "webui/document.bend",
       "webui/editor-layout.bend",
       "webui/renderer.bend",
-      "webui/shell-spatial-laws.bend"
+      "webui/shell-spatial-laws.bend",
+      "webui/surfaces.bend"
     ],
     "webui/visibility.bend": [
       "core/SYSTEM.bend",
@@ -839,7 +846,8 @@
       "webui/controls.bend",
       "webui/design.bend",
       "webui/document.bend",
-      "webui/renderer.bend"
+      "webui/renderer.bend",
+      "webui/surfaces.bend"
     ],
     "webui/document.bend": [
       "core/code-block.bend"
@@ -977,6 +985,28 @@
       "webui/document.bend",
       "webui/renderer-laws.bend",
       "webui/renderer.bend"
+    ],
+    "webui/surfaces.bend": [],
+    "webui/surface-laws.bend": [
+      "BOARD.bend",
+      "core/form-fields.bend",
+      "core/interface.bend",
+      "webui/appearance.bend",
+      "webui/controls.bend",
+      "webui/design.bend",
+      "webui/surfaces.bend"
+    ],
+    "webui/surface-render-laws.bend": [
+      "BOARD.bend",
+      "core/SYSTEM.bend",
+      "core/interface.bend",
+      "core/ui-world.bend",
+      "webui/MODEL.bend",
+      "webui/controls.bend",
+      "webui/design.bend",
+      "webui/document.bend",
+      "webui/renderer.bend",
+      "webui/surfaces.bend"
     ]
   },
   "feature_alphabet": "FEATURES.bend",

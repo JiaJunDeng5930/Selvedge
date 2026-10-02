@@ -4,6 +4,7 @@ import ../bendlib/stdlib.bend as Std
 import ./document.bend as Doc
 import ./renderer.bend as Render
 import ./design.bend as Design
+import ./surfaces.bend as Surfaces
 import ./controls.bend as Controls
 import ../core/interface.bend as UI
 import ../core/composition.bend as Composition
@@ -23,10 +24,9 @@ def group_production(+key: String, label: String, role: UI.Role, +project: Nat, 
 def header_production(+key: String, +tag: String, +attrs: +List<Doc.Property>, +styles: +List<Doc.Property>, +events: +List<Doc.Event>,
   +children: +List<Doc.Node>, +appearances: +List<Design.Appearance>, +selected: Bool, +expanded: Bool) ->
   {Render.project_header_node(Doc.Element{key, tag, attrs, styles, events, children}, appearances, selected, expanded) ==
-    Doc.Element{key, tag, attrs, List.append(&2, Doc.Property, styles,
-      [Render.property("display", "flex"), Render.property("flex-direction", "row"), Render.property("align-items", "center"), Render.property("gap", "2px"),
-       Render.property("min-width", "0"), Render.property("padding", "0"), Render.property("border-radius", "6px"), Render.property("border", "0"),
-       Render.property("background", Render.project_selected_background(selected))]), events,
+    Doc.Element{key, tag, List.append(&2, Doc.Property, attrs, [Render.property("class", "native-surface")]), List.append(&2, Doc.Property, Render.pointer_styles(styles),
+      List.append(&2, Doc.Property, [Render.property("display", "flex"), Render.property("flex-direction", "row"), Render.property("align-items", "center"), Render.property("gap", "2px"),
+       Render.property("min-width", "0"), Render.property("padding", "0"), Render.property("border-radius", "6px"), Render.property("border", "0")], Render.native_surface_properties(Surfaces.Choice{selected}))), events,
       Render.project_header_controls(children, appearances, expanded)} : Doc.Node}:
   {==}
 
@@ -68,17 +68,17 @@ def icon_geometry(+width: String) ->
 
 def name_geometry() ->
   {Render.project_name_styles() ==
-    [Render.property("display", "block"), Render.property("flex", "1 1 0"), Render.property("min-width", "0"), Render.property("width", "auto"),
+    List.append(&2, Doc.Property, [Render.property("display", "block"), Render.property("flex", "1 1 0"), Render.property("min-width", "0"), Render.property("width", "auto"),
      Render.property("overflow", "hidden"), Render.property("text-overflow", "ellipsis"), Render.property("white-space", "nowrap"),
-     Render.property("text-align", "start"), Render.property("padding-inline", "8px"), Render.property("border", "0"), Render.property("background", "transparent")] : +List<Doc.Property>}:
+     Render.property("text-align", "start"), Render.property("padding-inline", "8px"), Render.property("border", "0")], Render.embedded_action_properties()) : +List<Doc.Property>}:
   {==}
 
 def task_production(+key: String, label: String, role: UI.Role, +task: Nat, +status: String, +selected: Bool,
   source: +List<UI.Node>, +children: +List<Doc.Node>, visual: Design.Style, representation: Controls.Representation, +appearances: +List<Design.Appearance>) ->
   {Render.match_node(key, label, role, UI.TaskRow{task, status, selected}, source, children, visual, representation, appearances) ==
-    Doc.Element{key, "div", [Render.property("data-native-key", key), Render.property("data-task", Nat.show(task)), Render.property("data-status", status)],
-      [Render.property("display", "flex"), Render.property("align-items", "center"), Render.property("gap", "6px"), Render.property("min-width", "0"),
-       Render.property("border-radius", "5px"), Render.property("background", Render.project_selected_background(selected)), Render.property("padding-inline", "0")], Nil{},
+    Doc.Element{key, "div", [Render.property("data-native-key", key), Render.property("data-task", Nat.show(task)), Render.property("data-status", status), Render.property("class", "native-surface")],
+      List.append(&2, Doc.Property, [Render.property("display", "flex"), Render.property("align-items", "center"), Render.property("gap", "6px"), Render.property("min-width", "0"),
+       Render.property("border-radius", "5px"), Render.property("padding-inline", "0")], Render.native_surface_properties(Surfaces.Choice{selected})), Nil{},
       Render.task_row_children(children, appearances, status)} : Doc.Node}:
   {==}
 
@@ -109,9 +109,9 @@ def chooser_value_binding(+key: String, +tag: String, +attrs: +List<Doc.Property
   {Render.project_chooser_control(Doc.Element{key, tag, attrs, styles, events, children}, appearance_key,
     Controls.Action{Core.ApplicationInput{Experience.UserInput{User.Activate{User.OpenPanel{User.ProjectPicker{}, trigger}}}}, availability, name, face, behavior, geometry, placement, help, feedback}, selected) ==
     Doc.Element{key, tag, List.append(&2, Doc.Property, attrs, Nil{}), List.append(&2, Doc.Property, styles,
-      List.append(&2, Doc.Property, Render.project_chooser_styles(selected),
+      List.append(&2, Doc.Property, List.append(&2, Doc.Property, Render.project_chooser_styles(selected),
         [Render.property("display", "inline-flex"), Render.property("align-items", "center"), Render.property("gap", "4px"), Render.property("width", "auto"),
-         Render.property("padding-inline", "0"), Render.property("border", "0"), Render.property("background", "transparent")])), events,
+         Render.property("padding-inline", "0"), Render.property("border", "0")]), Render.embedded_action_properties())), events,
       [Render.icon(appearance_key ++ "/folder", Controls.Folder{}), Render.face_label(appearance_key, name), Render.icon(appearance_key ++ "/disclosure", Controls.ChevronDown{})]} : Doc.Node}:
   {==}
 
@@ -160,10 +160,9 @@ type Requirements is Type:
       Render.project_group_children(children, appearances, selected, expanded)} : Doc.Node},
     header_production: @+key:String -> @+tag:String -> @+attrs:+List<Doc.Property> -> @+styles:+List<Doc.Property> -> @+events:+List<Doc.Event> -> @+children:+List<Doc.Node> -> @+appearances:+List<Design.Appearance> -> @+selected:Bool -> @+expanded:Bool ->
       {Render.project_header_node(Doc.Element{key, tag, attrs, styles, events, children}, appearances, selected, expanded) ==
-    Doc.Element{key, tag, attrs, List.append(&2, Doc.Property, styles,
-      [Render.property("display", "flex"), Render.property("flex-direction", "row"), Render.property("align-items", "center"), Render.property("gap", "2px"),
-       Render.property("min-width", "0"), Render.property("padding", "0"), Render.property("border-radius", "6px"), Render.property("border", "0"),
-       Render.property("background", Render.project_selected_background(selected))]), events,
+    Doc.Element{key, tag, List.append(&2, Doc.Property, attrs, [Render.property("class", "native-surface")]), List.append(&2, Doc.Property, Render.pointer_styles(styles),
+      List.append(&2, Doc.Property, [Render.property("display", "flex"), Render.property("flex-direction", "row"), Render.property("align-items", "center"), Render.property("gap", "2px"),
+       Render.property("min-width", "0"), Render.property("padding", "0"), Render.property("border-radius", "6px"), Render.property("border", "0")], Render.native_surface_properties(Surfaces.Choice{selected}))), events,
       Render.project_header_controls(children, appearances, expanded)} : Doc.Node},
     disclosure_typed: @+project:Nat ->
       {Render.project_control_input(Core.ApplicationInput{Experience.UserInput{User.Activate{User.ToggleProjectGroup{project}}}}) == Render.ProjectDisclosure{} : Render.ProjectControl},
@@ -186,14 +185,14 @@ type Requirements is Type:
      Render.property("min-height", width), Render.property("padding", "0"), Render.property("border", "0")] : +List<Doc.Property>},
     name_geometry:
       {Render.project_name_styles() ==
-    [Render.property("display", "block"), Render.property("flex", "1 1 0"), Render.property("min-width", "0"), Render.property("width", "auto"),
+    List.append(&2, Doc.Property, [Render.property("display", "block"), Render.property("flex", "1 1 0"), Render.property("min-width", "0"), Render.property("width", "auto"),
      Render.property("overflow", "hidden"), Render.property("text-overflow", "ellipsis"), Render.property("white-space", "nowrap"),
-     Render.property("text-align", "start"), Render.property("padding-inline", "8px"), Render.property("border", "0"), Render.property("background", "transparent")] : +List<Doc.Property>},
+     Render.property("text-align", "start"), Render.property("padding-inline", "8px"), Render.property("border", "0")], Render.embedded_action_properties()) : +List<Doc.Property>},
     task_production: @+key:String -> @label:String -> @role:UI.Role -> @+task:Nat -> @+status:String -> @+selected:Bool -> @source:+List<UI.Node> -> @+children:+List<Doc.Node> -> @visual:Design.Style -> @representation:Controls.Representation -> @+appearances:+List<Design.Appearance> ->
       {Render.match_node(key, label, role, UI.TaskRow{task, status, selected}, source, children, visual, representation, appearances) ==
-    Doc.Element{key, "div", [Render.property("data-native-key", key), Render.property("data-task", Nat.show(task)), Render.property("data-status", status)],
-      [Render.property("display", "flex"), Render.property("align-items", "center"), Render.property("gap", "6px"), Render.property("min-width", "0"),
-       Render.property("border-radius", "5px"), Render.property("background", Render.project_selected_background(selected)), Render.property("padding-inline", "0")], Nil{},
+    Doc.Element{key, "div", [Render.property("data-native-key", key), Render.property("data-task", Nat.show(task)), Render.property("data-status", status), Render.property("class", "native-surface")],
+      List.append(&2, Doc.Property, [Render.property("display", "flex"), Render.property("align-items", "center"), Render.property("gap", "6px"), Render.property("min-width", "0"),
+       Render.property("border-radius", "5px"), Render.property("padding-inline", "0")], Render.native_surface_properties(Surfaces.Choice{selected})), Nil{},
       Render.task_row_children(children, appearances, status)} : Doc.Node},
     status_visible: @+key:String -> @tag:String -> @+attrs:+List<Doc.Property> -> @styles:+List<Doc.Property> -> @+events:+List<Doc.Event> -> @children:+List<Doc.Node> -> @+status:String ->
       {Render.task_status_node(Doc.Element{key, tag, attrs, styles, events, children}, status) ==
@@ -212,9 +211,9 @@ type Requirements is Type:
       {Render.project_chooser_control(Doc.Element{key, tag, attrs, styles, events, children}, appearance_key,
     Controls.Action{Core.ApplicationInput{Experience.UserInput{User.Activate{User.OpenPanel{User.ProjectPicker{}, trigger}}}}, availability, name, face, behavior, geometry, placement, help, feedback}, selected) ==
     Doc.Element{key, tag, List.append(&2, Doc.Property, attrs, Nil{}), List.append(&2, Doc.Property, styles,
-      List.append(&2, Doc.Property, Render.project_chooser_styles(selected),
+      List.append(&2, Doc.Property, List.append(&2, Doc.Property, Render.project_chooser_styles(selected),
         [Render.property("display", "inline-flex"), Render.property("align-items", "center"), Render.property("gap", "4px"), Render.property("width", "auto"),
-         Render.property("padding-inline", "0"), Render.property("border", "0"), Render.property("background", "transparent")])), events,
+         Render.property("padding-inline", "0"), Render.property("border", "0")]), Render.embedded_action_properties())), events,
       [Render.icon(appearance_key ++ "/folder", Controls.Folder{}), Render.face_label(appearance_key, name), Render.icon(appearance_key ++ "/disclosure", Controls.ChevronDown{})]} : Doc.Node},
     create_typed: @project:Maybe<&2, Nat> ->
       {Render.project_control_input(Core.ApplicationInput{Experience.UserInput{User.Activate{User.BeginTask{project}}}}) == Render.ProjectCreate{} : Render.ProjectControl},

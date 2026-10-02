@@ -1,4 +1,5 @@
 import Base
+import ./surfaces.bend as Surfaces
 import ../core/composition.bend as Composition
 import ./controls.bend as Controls
 
@@ -90,6 +91,8 @@ type TextStyle is Data:
 type Paint is Data:
   Transparent{}
   ThemeToken{name: String}
+  SurfacePaint{role: Surfaces.Role, phase: Surfaces.Phase}
+  SurfaceForeground{role: Surfaces.Role}
 
 type Alignment is Data:
   Stretch{}

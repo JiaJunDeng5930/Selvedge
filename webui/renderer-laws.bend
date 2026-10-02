@@ -8,6 +8,7 @@ import ./dialog-spatial-laws.bend as DialogSpatial
 import ./editor-layout.bend as EditorLayout
 import ./shell-spatial-laws.bend as ShellSpatial
 import ./design.bend as Design
+import ./surfaces.bend as Surfaces
 import ./controls.bend as Controls
 import ../core/SYSTEM.bend as Core
 import ../core/ui-world.bend as View
@@ -378,7 +379,7 @@ def card_face_status(+face: View.CardFace) -> String:
   View.CardFace{id, title, description, priority, pinned, status, project, labels, owner, updated} = face
   status
 
-def card_chip_text_slots(+key: String, +kind: String, +value: String, +tone: String) ->
+def card_chip_text_slots(+key: String, +kind: String, +value: String, +tone: Surfaces.Tone) ->
   {direct_text_slots([Render.card_chip(key, kind, value, tone)]) == [value] : +List<String>}:
   {==}
 
@@ -435,11 +436,11 @@ def card_label_slots(+owner: String, +labels: +List<String>, +index: Nat) ->
     case Nil{}: {==}
     case Con{+value, +rest}:
       +head: +List<Doc.Node> = [Render.card_chip(Render.generated_identity(owner, "label/" ++ Nat.show(index)), "label", value,
-        "var(--color-token-text-secondary)")]
+        Surfaces.Neutral{})]
       +tail = Render.card_label_nodes(owner, rest, Nat.add(index, 1n))
       +mapped_append = Std.map_app(~Doc.Node, ~String, ~direct_text, head, tail)
       +head_slots = card_chip_text_slots(Render.generated_identity(owner, "label/" ++ Nat.show(index)), "label",
-        value, "var(--color-token-text-secondary)")
+        value, Surfaces.Neutral{})
       +tail_slots = card_label_slots(owner, rest, Nat.add(index, 1n))
       +replace_tail = Equal.cong(+List<String>, +List<String>,
         (slots => List.append(&2, String, direct_text_slots(head), slots)),

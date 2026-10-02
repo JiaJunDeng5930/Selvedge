@@ -3,6 +3,7 @@ import ../core/client-services.bend as Services
 import ../core/interface.bend as UI
 import ../core/SYSTEM.bend as Core
 import ./design.bend as Design
+import ./surfaces.bend as Surfaces
 import ./appearance.bend as Appearance
 import ./controls.bend as Controls
 
@@ -99,7 +100,7 @@ def user_message_style_is_exact(meaning: UI.Meaning) ->
   {Appearance.style(UI.UserMessage{}, meaning) == Design.Style{
     Design.TextStyle{Design.InterfaceFont{}, 13n, 20n, 400n},
     Design.Chrome{Design.ThemeToken{"--color-token-text-primary"},
-      Design.ThemeToken{"--color-surface-secondary"}, Design.Transparent{}, 0n, 16n, False{}},
+      Design.SurfacePaint{Surfaces.Inset{}, Surfaces.Rest{}}, Design.Transparent{}, 0n, 16n, False{}},
     Design.Trailing{}, Design.BlockFlow{}, Design.ContentFlow{},
     12n, 8n, 0n, 0n, 70n, Design.Passive{}
   } : Design.Style}:
@@ -109,7 +110,7 @@ def assistant_message_style_is_exact(meaning: UI.Meaning) ->
   {Appearance.style(UI.AssistantMessage{}, meaning) == Design.Style{
     Design.TextStyle{Design.InterfaceFont{}, 13n, 20n, 400n},
     Design.Chrome{Design.ThemeToken{"--color-token-text-primary"},
-      Design.Transparent{}, Design.Transparent{}, 0n, 0n, False{}},
+      Design.SurfacePaint{Surfaces.EmbeddedAction{}, Surfaces.Rest{}}, Design.Transparent{}, 0n, 0n, False{}},
     Design.Leading{}, Design.BlockFlow{}, Design.ContentFlow{},
     0n, 0n, 0n, 0n, 100n, Design.Passive{}
   } : Design.Style}:
@@ -119,7 +120,7 @@ def composer_actions_style_is_exact(meaning: UI.Meaning) ->
   {Appearance.style(UI.ComposerActions{}, meaning) == Design.Style{
     Design.TextStyle{Design.InterfaceFont{}, 13n, 20n, 400n},
     Design.Chrome{Design.ThemeToken{"--color-token-text-primary"},
-      Design.Transparent{}, Design.Transparent{}, 0n, 0n, False{}},
+      Design.SurfacePaint{Surfaces.EmbeddedAction{}, Surfaces.Rest{}}, Design.Transparent{}, 0n, 0n, False{}},
     Design.Stretch{}, Design.SplitRowFlow{}, Design.ContentFlow{},
     0n, 0n, 4n, 32n, 100n, Design.Passive{}
   } : Design.Style}:
@@ -152,16 +153,16 @@ def ordinary_button_metrics(meaning: UI.Meaning) ->
 def primary_button_keeps_interaction_states(meaning: UI.Meaning) ->
   {Appearance.style(UI.PrimaryButton{}, meaning) == Design.Style{
     Design.TextStyle{Design.InterfaceFont{}, 13n, 20n, 500n},
-    Design.Chrome{Design.ThemeToken{"--app-color-text-button-primary"},
-      Design.ThemeToken{"--app-color-background-button-primary"},
+    Design.Chrome{Design.SurfaceForeground{Surfaces.PrimaryAction{}},
+      Design.SurfacePaint{Surfaces.PrimaryAction{}, Surfaces.Rest{}},
       Design.Transparent{}, 0n, 8n, False{}},
     Design.Stretch{}, Design.RowFlow{}, Design.ContentFlow{}, 8n, 4n, 4n, 32n, 100n,
     Design.Interactive{
-      Design.Chrome{Design.ThemeToken{"--app-color-text-button-primary"},
-        Design.ThemeToken{"--app-color-background-button-primary-hover"},
+      Design.Chrome{Design.SurfaceForeground{Surfaces.PrimaryAction{}},
+        Design.SurfacePaint{Surfaces.PrimaryAction{}, Surfaces.Hovered{}},
         Design.Transparent{}, 0n, 8n, False{}},
-      Design.Chrome{Design.ThemeToken{"--app-color-text-button-primary"},
-        Design.ThemeToken{"--app-color-background-button-primary-active"},
+      Design.Chrome{Design.SurfaceForeground{Surfaces.PrimaryAction{}},
+        Design.SurfacePaint{Surfaces.PrimaryAction{}, Surfaces.Pressed{}},
         Design.Transparent{}, 0n, 8n, False{}},
       40n, Design.ThemeToken{"--color-token-focus-border"}, 2n, 2n
     }
@@ -207,35 +208,35 @@ type Requirements is Type:
       {Appearance.style(UI.UserMessage{}, meaning) == Design.Style{
         Design.TextStyle{Design.InterfaceFont{}, 13n, 20n, 400n},
         Design.Chrome{Design.ThemeToken{"--color-token-text-primary"},
-          Design.ThemeToken{"--color-surface-secondary"}, Design.Transparent{}, 0n, 16n, False{}},
+          Design.SurfacePaint{Surfaces.Inset{}, Surfaces.Rest{}}, Design.Transparent{}, 0n, 16n, False{}},
         Design.Trailing{}, Design.BlockFlow{}, Design.ContentFlow{}, 12n, 8n, 0n, 0n, 70n,
         Design.Passive{}} : Design.Style},
     assistant_message_style_is_exact: @meaning:UI.Meaning ->
       {Appearance.style(UI.AssistantMessage{}, meaning) == Design.Style{
         Design.TextStyle{Design.InterfaceFont{}, 13n, 20n, 400n},
         Design.Chrome{Design.ThemeToken{"--color-token-text-primary"},
-          Design.Transparent{}, Design.Transparent{}, 0n, 0n, False{}},
+          Design.SurfacePaint{Surfaces.EmbeddedAction{}, Surfaces.Rest{}}, Design.Transparent{}, 0n, 0n, False{}},
         Design.Leading{}, Design.BlockFlow{}, Design.ContentFlow{}, 0n, 0n, 0n, 0n, 100n,
         Design.Passive{}} : Design.Style},
     composer_actions_style_is_exact: @meaning:UI.Meaning ->
       {Appearance.style(UI.ComposerActions{}, meaning) == Design.Style{
         Design.TextStyle{Design.InterfaceFont{}, 13n, 20n, 400n},
         Design.Chrome{Design.ThemeToken{"--color-token-text-primary"},
-          Design.Transparent{}, Design.Transparent{}, 0n, 0n, False{}},
+          Design.SurfacePaint{Surfaces.EmbeddedAction{}, Surfaces.Rest{}}, Design.Transparent{}, 0n, 0n, False{}},
         Design.Stretch{}, Design.SplitRowFlow{}, Design.ContentFlow{}, 0n, 0n, 4n, 32n, 100n,
         Design.Passive{}} : Design.Style},
     primary_button_keeps_interaction_states: @meaning:UI.Meaning ->
       {Appearance.style(UI.PrimaryButton{}, meaning) == Design.Style{
         Design.TextStyle{Design.InterfaceFont{}, 13n, 20n, 500n},
-        Design.Chrome{Design.ThemeToken{"--app-color-text-button-primary"},
-          Design.ThemeToken{"--app-color-background-button-primary"}, Design.Transparent{}, 0n, 8n, False{}},
+        Design.Chrome{Design.SurfaceForeground{Surfaces.PrimaryAction{}},
+          Design.SurfacePaint{Surfaces.PrimaryAction{}, Surfaces.Rest{}}, Design.Transparent{}, 0n, 8n, False{}},
         Design.Stretch{}, Design.RowFlow{}, Design.ContentFlow{}, 8n, 4n, 4n, 32n, 100n,
         Design.Interactive{
-          Design.Chrome{Design.ThemeToken{"--app-color-text-button-primary"},
-            Design.ThemeToken{"--app-color-background-button-primary-hover"},
+          Design.Chrome{Design.SurfaceForeground{Surfaces.PrimaryAction{}},
+            Design.SurfacePaint{Surfaces.PrimaryAction{}, Surfaces.Hovered{}},
             Design.Transparent{}, 0n, 8n, False{}},
-          Design.Chrome{Design.ThemeToken{"--app-color-text-button-primary"},
-            Design.ThemeToken{"--app-color-background-button-primary-active"},
+          Design.Chrome{Design.SurfaceForeground{Surfaces.PrimaryAction{}},
+            Design.SurfacePaint{Surfaces.PrimaryAction{}, Surfaces.Pressed{}},
             Design.Transparent{}, 0n, 8n, False{}},
           40n, Design.ThemeToken{"--color-token-focus-border"}, 2n, 2n
         }} : Design.Style},

@@ -48,7 +48,7 @@ def search_projection(+key: String, +filter: Board.Filter, +name: String, +visua
 def search_styles_expected(visual: Design.Style) -> +List<Doc.Property>:
   List.append(&2, Doc.Property, Render.style(visual),
     [Doc.Property{"width", "168px"}, Doc.Property{"max-width", "100%"}, Doc.Property{"min-width", "0"}, Doc.Property{"height", "32px"},
-     Doc.Property{"padding", "4px 8px"}, Doc.Property{"border-radius", "6px"}, Doc.Property{"background", "var(--color-surface-secondary)"}, Doc.Property{"font-size", "13px"}])
+     Doc.Property{"padding", "4px 8px"}, Doc.Property{"border-radius", "6px"}, Doc.Property{"font-size", "13px"}])
 
 def search_hint_boundary(+key: String, +filter: Board.Filter, +name: String, +visual: Design.Style) ->
   {search_projection(key, filter, name, visual) == ("搜索任务", (name, (search_styles_expected(visual), [Doc.EditText{key}]))) :
