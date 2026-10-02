@@ -48,15 +48,22 @@ def settings_scope(open: Bool, fallback: Scope) -> Scope:
 def preview_scope(preview: Services.Preview, fallback: Scope) -> Scope:
   match preview:
     case Services.NoPreview{}: fallback
-    case Services.LoadingPreview{ticket, file, trigger}: Temporary{"attachment-preview", "attachment-preview/close", trigger}
-    case Services.ReadyPreview{file, resource, image, trigger}: Temporary{"attachment-preview", "attachment-preview/close", trigger}
-    case Services.FailedPreview{file, reason, trigger}: Temporary{"attachment-preview", "attachment-preview/close", trigger}
+    case Services.LoadingPreview{ticket, file, trigger}: Temporary{"attachment-preview", "attachment-preview", trigger}
+    case Services.ReadyPreview{file, resource, image, trigger}: Temporary{"attachment-preview", "attachment-preview", trigger}
+    case Services.FailedPreview{file, reason, trigger}: Temporary{"attachment-preview", "attachment-preview", trigger}
+
+def directory_scope(picker: Services.DirectoryPicker, fallback: Scope) -> Scope:
+  match picker:
+    case Services.NoDirectoryPicker{}: fallback
+    case Services.ReadyDirectory{ticket, editor, catalog, location, trigger}: Temporary{"directory-picker", "directory-picker/location", trigger}
+    case Services.LoadingDirectory{ticket, editor, path, trigger}: Temporary{"directory-picker", "directory-picker", trigger}
+    case Services.FailedDirectory{ticket, editor, path, reason, trigger}: Temporary{"directory-picker", "directory-picker", trigger}
 
 def logical_scope(state: Core.State, capacity: View.Capacity) -> Scope:
   Core.State{E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks}},
-    Services.State{access, credential, settings, appearance, next_service, transfers, preview}} = state
+    Services.State{access, credential, settings, appearance, next_service, transfers, preview, directory_picker}} = state
   View.Capacity{navigation_beside, details_beside} = capacity
-  preview_scope(preview, settings_scope(settings, layer_scope(layers, details_beside)))
+  preview_scope(preview, directory_scope(directory_picker, settings_scope(settings, layer_scope(layers, details_beside))))
 
 def changed(previous: Scope, current: Scope) -> Bool:
   Bool.not(String.eq(identity(previous), identity(current)))

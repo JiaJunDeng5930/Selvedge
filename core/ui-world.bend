@@ -152,8 +152,12 @@ type LayerKind is Data:
   AnchoredMenu{}
   TrailingDetails{}
 
+type Dismissal is Data:
+  OutsideOrEscape{action: U.Action}
+  ByTrigger{action: U.Action}
+
 type Layer is Data:
-  Layer{kind: LayerKind, content: LayerContent, initial_attention: String, return_attention: String, close: ControlDeclaration}
+  Layer{kind: LayerKind, content: LayerContent, initial_attention: String, return_attention: String, dismissal: Dismissal}
 
 def editor_title(editor: U.Editor) -> String:
   match editor:
@@ -709,7 +713,7 @@ def lifecycle(+id: Nat, +value: D.Control, +label: String, world: M.World()) -> 
   native("task/" ++ Nat.show(id) ++ "/" ++ label, label, Secondary{}, U.ControlTask{id, value}, world)
 
 def task_actions(+id: Nat, +world: M.World()) -> TaskActions:
-  TaskActions{control("details/" ++ Nat.show(id), "Task details", U.OpenPanel{U.TaskDetails{id}, "details/" ++ Nat.show(id)}),
+  TaskActions{control("details/" ++ Nat.show(id), "Task details", U.TogglePanel{U.TaskDetails{id}, "details/" ++ Nat.show(id)}),
     [lifecycle(id, D.Interrupt{}, "Interrupt", world), lifecycle(id, D.Freeze{}, "Freeze", world), lifecycle(id, D.Unfreeze{}, "Resume", world),
     lifecycle(id, D.Stop{}, "Stop", world), lifecycle(id, D.Archive{}, "Archive", world),
     control("fork/" ++ Nat.show(id), "Fork", U.ForkTask{id}), control("compact/" ++ Nat.show(id), "Compact", U.CompactTask{id})]}
@@ -1037,11 +1041,16 @@ def search_content(content: LayerContent, +query: String) -> LayerContent:
     case ProjectSelection{old, selected, projects}: ProjectSelection{query, selected, matching_projects(projects, query)}
     case ModelSelection{editor, old, fields}: ModelSelection{editor, query, search_fields(fields, query)}
     case other: other
+def layer_dismissal(panel: U.Panel, trigger: String) -> Dismissal:
+  match panel:
+    case U.TaskDetails{task}: ByTrigger{U.TogglePanel{U.TaskDetails{task}, trigger}}
+    case _: OutsideOrEscape{U.ClosePanel{}}
+
 def layers(entries: +List<E.Layer>, +session: E.Session, +world: M.World(), +beside: Bool) -> +List<Layer>:
   match entries:
     case Nil{}: Nil{}
-    case Con{E.Layer{+panel, trigger, initial, +query}, rest}:
-      Layer{layer_kind(panel, beside), search_content(layer_content(panel, session, world), query), initial, trigger, control("close-layer", "Close", U.ClosePanel{})} <> layers(rest, session, world, beside)
+    case Con{E.Layer{+panel, +trigger, initial, +query}, rest}:
+      Layer{layer_kind(panel, beside), search_content(layer_content(panel, session, world), query), initial, trigger, layer_dismissal(panel, trigger)} <> layers(rest, session, world, beside)
 
 def navigation_visible(intent: E.NavigationIntent, beside: Bool) -> Bool:
   match intent:

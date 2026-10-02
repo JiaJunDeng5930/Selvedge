@@ -1,6 +1,7 @@
 import ../core/interface.bend as Interface
 import ./appearance.bend as Appearance
 import Base
+import ./enclosure.bend as Enclosure
 import ../bendlib/stdlib.bend as Std
 import ./document.bend as Doc
 import ./renderer.bend as Render
@@ -630,13 +631,9 @@ def rest_nodes(values: +List<Doc.Node>) -> +List<Doc.Node>:
 
 def rendered_dialog(+key: String, +label: String, +source: +List<Interface.Node>,
   +children: +List<Doc.Node>, +visual: Design.Style, appearances: +List<Design.Appearance>) -> Doc.Node:
-  Design.Style{Design.TextStyle{family, size, line_height, weight},
-    Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment,
-    direction, overflow, content_area, gap, minimum, maximum, states} = visual
+  Design.Style{Design.TextStyle{family, size, line_height, weight}, Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment, direction, overflow, +content_frame, minimum, maximum, states} = visual
   Render.match_node(key, label, Interface.Dialog{}, Interface.Region{}, source, children,
-    Design.Style{Design.TextStyle{family, size, line_height, weight},
-      Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment,
-      direction, overflow, content_area, gap, minimum, maximum, states},
+    Design.Style{Design.TextStyle{family, size, line_height, weight}, Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment, direction, overflow, content_frame, minimum, maximum, states},
     Controls.NoControl{}, appearances)
 
 def dialog_header_node(node: Doc.Node) -> Doc.Node:
@@ -651,186 +648,71 @@ def dialog_content_node(node: Doc.Node) -> Doc.Node:
 def dialog_title_node(node: Doc.Node) -> Doc.Node:
   first_node(node_children(dialog_header_node(node)))
 
+def dialog_header_keep(is_header: Bool, +child: Doc.Node, rest: +List<Doc.Node>) -> +List<Doc.Node>:
+  match is_header:
+    case True{}: child <> rest
+    case False{}: rest
+
+def dialog_body_keep(is_header: Bool, +child: Doc.Node, rest: +List<Doc.Node>) -> +List<Doc.Node>:
+  match is_header:
+    case True{}: rest
+    case False{}: child <> rest
+
 def expected_dialog_header_prepend(appearance: Design.Appearance, +child: Doc.Node,
   +rest: +List<Doc.Node>) -> +List<Doc.Node>:
-  Design.Appearance{identity, visual, representation, children} = appearance
-  match representation:
-    case Controls.Action{input, availability, name, face, behavior, geometry, Controls.PanelHeaderEnd{}, help, feedback}: child <> rest
-    case _: rest
+  Design.Appearance{identity, visual, +representation, children} = appearance
+  dialog_header_keep(Controls.panel_header(representation) || Render.persistent_details_header(representation), child, rest)
 
 def expected_dialog_body_prepend(appearance: Design.Appearance, +child: Doc.Node,
   +rest: +List<Doc.Node>) -> +List<Doc.Node>:
-  Design.Appearance{identity, visual, representation, children} = appearance
-  match representation:
-    case Controls.Action{input, availability, name, face, behavior, geometry, Controls.PanelHeaderEnd{}, help, feedback}: rest
-    case _: child <> rest
+  Design.Appearance{identity, visual, +representation, children} = appearance
+  dialog_body_keep(Controls.panel_header(representation) || Render.persistent_details_header(representation), child, rest)
 
-def dialog_partition_header_step(+appearance: Design.Appearance, +child: Doc.Node,
-  +parts: Render.DialogParts) ->
-  {Render.dialog_header_projection(Render.dialog_partition_prepend(appearance, child, parts)) ==
-    expected_dialog_header_prepend(appearance, child, Render.dialog_header_projection(parts)) : +List<Doc.Node>}:
-  Design.Appearance{identity, visual, representation, children} = appearance
-  match representation:
-    case Controls.Action{input, availability, name, face, behavior, geometry, placement, help, feedback}:
-      match placement:
-        case Controls.InFlow{}:
-          match parts:
-            case Render.DialogParts{+header, +body, +layouts}: {==}
-        case Controls.ComposerEnd{}:
-          match parts:
-            case Render.DialogParts{+header, +body, +layouts}: {==}
-        case Controls.PanelHeaderEnd{}:
-          match parts:
-            case Render.DialogParts{+header, +body, +layouts}: {==}
-        case Controls.CodeToolbar{}:
-          match parts:
-            case Render.DialogParts{+header, +body, +layouts}: {==}
-        case Controls.BesideValue{}:
-          match parts:
-            case Render.DialogParts{+header, +body, +layouts}: {==}
-        case Controls.GroupHeadingEnd{}:
-          match parts:
-            case Render.DialogParts{+header, +body, +layouts}: {==}
-    case Controls.NoControl{}:
-      match parts:
-        case Render.DialogParts{+header, +body, +layouts}: {==}
-    case Controls.Input{binding, name, widget, label, availability}:
-      match parts:
-        case Render.DialogParts{+header, +body, +layouts}: {==}
-    case Controls.Movable{destinations, face, name, handle, geometry, help}:
-      match parts:
-        case Render.DialogParts{+header, +body, +layouts}: {==}
+def dialog_header_classified(+is_header: Bool, +child: Doc.Node, +header: +List<Doc.Node>, body: +List<Doc.Node>, layouts: +List<EditorLayout.SectionKind>, kind: EditorLayout.SectionKind) ->
+  {Render.dialog_header_projection(Render.dialog_partition_child_by_header(child, is_header, header, body, layouts, kind)) == dialog_header_keep(is_header, child, header) : +List<Doc.Node>}:
+  match is_header:
+    case True{}: {==}
+    case False{}: {==}
 
-def dialog_partition_body_step(+appearance: Design.Appearance, +child: Doc.Node,
-  +parts: Render.DialogParts) ->
-  {Render.dialog_body_projection(Render.dialog_partition_prepend(appearance, child, parts)) ==
-    expected_dialog_body_prepend(appearance, child, Render.dialog_body_projection(parts)) : +List<Doc.Node>}:
-  Design.Appearance{identity, visual, representation, children} = appearance
-  match representation:
-    case Controls.Action{input, availability, name, face, behavior, geometry, placement, help, feedback}:
-      match placement:
-        case Controls.InFlow{}:
-          match parts:
-            case Render.DialogParts{+header, +body, +layouts}: {==}
-        case Controls.ComposerEnd{}:
-          match parts:
-            case Render.DialogParts{+header, +body, +layouts}: {==}
-        case Controls.PanelHeaderEnd{}:
-          match parts:
-            case Render.DialogParts{+header, +body, +layouts}: {==}
-        case Controls.CodeToolbar{}:
-          match parts:
-            case Render.DialogParts{+header, +body, +layouts}: {==}
-        case Controls.BesideValue{}:
-          match parts:
-            case Render.DialogParts{+header, +body, +layouts}: {==}
-        case Controls.GroupHeadingEnd{}:
-          match parts:
-            case Render.DialogParts{+header, +body, +layouts}: {==}
-    case Controls.NoControl{}:
-      match parts:
-        case Render.DialogParts{+header, +body, +layouts}: {==}
-    case Controls.Input{binding, name, widget, label, availability}:
-      match parts:
-        case Render.DialogParts{+header, +body, +layouts}: {==}
-    case Controls.Movable{destinations, face, name, handle, geometry, help}:
-      match parts:
-        case Render.DialogParts{+header, +body, +layouts}: {==}
+def dialog_body_classified(+is_header: Bool, +child: Doc.Node, header: +List<Doc.Node>, +body: +List<Doc.Node>, layouts: +List<EditorLayout.SectionKind>, kind: EditorLayout.SectionKind) ->
+  {Render.dialog_body_projection(Render.dialog_partition_child_by_header(child, is_header, header, body, layouts, kind)) == dialog_body_keep(is_header, child, body) : +List<Doc.Node>}:
+  match is_header:
+    case True{}: {==}
+    case False{}: {==}
+
+def dialog_partition_header_step(+appearance: Design.Appearance, +child: Doc.Node, +parts: Render.DialogParts) ->
+  {Render.dialog_header_projection(Render.dialog_partition_prepend(appearance, child, parts)) == expected_dialog_header_prepend(appearance, child, Render.dialog_header_projection(parts)) : +List<Doc.Node>}:
+  Design.Appearance{identity, visual, +representation, children} = appearance
+  Render.DialogParts{header, body, layouts} = parts
+  dialog_header_classified(Controls.panel_header(representation) || Render.persistent_details_header(representation), child, header, body, layouts, EditorLayout.appearance_kind(appearance))
+
+def dialog_partition_body_step(+appearance: Design.Appearance, +child: Doc.Node, +parts: Render.DialogParts) ->
+  {Render.dialog_body_projection(Render.dialog_partition_prepend(appearance, child, parts)) == expected_dialog_body_prepend(appearance, child, Render.dialog_body_projection(parts)) : +List<Doc.Node>}:
+  Design.Appearance{identity, visual, +representation, children} = appearance
+  Render.DialogParts{header, body, layouts} = parts
+  dialog_body_classified(Controls.panel_header(representation) || Render.persistent_details_header(representation), child, header, body, layouts, EditorLayout.appearance_kind(appearance))
 
 def expected_dialog_header(children: +List<Doc.Node>, appearances: +List<Design.Appearance>) -> +List<Doc.Node>:
   match children appearances:
-    case Con{+child, rest} Con{+appearance, visual_rest}:
-      expected_dialog_header_prepend(appearance, child, expected_dialog_header(rest, visual_rest))
+    case Con{+child, rest} Con{+appearance, visual_rest}: expected_dialog_header_prepend(appearance, child, expected_dialog_header(rest, visual_rest))
     case _ _: Nil{}
 
 def expected_dialog_body(children: +List<Doc.Node>, appearances: +List<Design.Appearance>) -> +List<Doc.Node>:
   match children appearances:
-    case Con{+child, rest} Con{+appearance, visual_rest}:
-      expected_dialog_body_prepend(appearance, child, expected_dialog_body(rest, visual_rest))
+    case Con{+child, rest} Con{+appearance, visual_rest}: expected_dialog_body_prepend(appearance, child, expected_dialog_body(rest, visual_rest))
     case _ _: Nil{}
 
 def dialog_header_partition(children: +List<Doc.Node>, appearances: +List<Design.Appearance>) ->
   {Render.dialog_header_children(children, appearances) == expected_dialog_header(children, appearances) : +List<Doc.Node>}:
   match children appearances:
     case Con{+child, +rest} Con{+appearance, +visual_rest}:
-      Design.Appearance{identity, visual, representation, children} = appearance
-      match representation:
-        case Controls.Action{input, availability, name, face, behavior, geometry, placement, help, feedback}:
-          match placement:
-            case Controls.PanelHeaderEnd{}:
-              Equal.trans(+List<Doc.Node>,
-                Render.dialog_header_projection(Render.dialog_partition_prepend(appearance, child,
-                  Render.dialog_partition(rest, visual_rest))),
-                child <> Render.dialog_header_projection(Render.dialog_partition(rest, visual_rest)),
-                child <> expected_dialog_header(rest, visual_rest),
-                dialog_partition_header_step(appearance, child, Render.dialog_partition(rest, visual_rest)),
-                Equal.cong(+List<Doc.Node>, +List<Doc.Node>, (tail => child <> tail),
-                  Render.dialog_header_projection(Render.dialog_partition(rest, visual_rest)),
-                  expected_dialog_header(rest, visual_rest), dialog_header_partition(rest, visual_rest)))
-            case Controls.InFlow{}:
-              Equal.trans(+List<Doc.Node>,
-                Render.dialog_header_projection(Render.dialog_partition_prepend(appearance, child,
-                  Render.dialog_partition(rest, visual_rest))),
-                Render.dialog_header_projection(Render.dialog_partition(rest, visual_rest)),
-                expected_dialog_header(rest, visual_rest),
-                dialog_partition_header_step(appearance, child, Render.dialog_partition(rest, visual_rest)),
-                dialog_header_partition(rest, visual_rest))
-            case Controls.ComposerEnd{}:
-              Equal.trans(+List<Doc.Node>,
-                Render.dialog_header_projection(Render.dialog_partition_prepend(appearance, child,
-                  Render.dialog_partition(rest, visual_rest))),
-                Render.dialog_header_projection(Render.dialog_partition(rest, visual_rest)),
-                expected_dialog_header(rest, visual_rest),
-                dialog_partition_header_step(appearance, child, Render.dialog_partition(rest, visual_rest)),
-                dialog_header_partition(rest, visual_rest))
-            case Controls.CodeToolbar{}:
-              Equal.trans(+List<Doc.Node>,
-                Render.dialog_header_projection(Render.dialog_partition_prepend(appearance, child,
-                  Render.dialog_partition(rest, visual_rest))),
-                Render.dialog_header_projection(Render.dialog_partition(rest, visual_rest)),
-                expected_dialog_header(rest, visual_rest),
-                dialog_partition_header_step(appearance, child, Render.dialog_partition(rest, visual_rest)),
-                dialog_header_partition(rest, visual_rest))
-            case Controls.BesideValue{}:
-              Equal.trans(+List<Doc.Node>,
-                Render.dialog_header_projection(Render.dialog_partition_prepend(appearance, child,
-                  Render.dialog_partition(rest, visual_rest))),
-                Render.dialog_header_projection(Render.dialog_partition(rest, visual_rest)),
-                expected_dialog_header(rest, visual_rest),
-                dialog_partition_header_step(appearance, child, Render.dialog_partition(rest, visual_rest)),
-                dialog_header_partition(rest, visual_rest))
-            case Controls.GroupHeadingEnd{}:
-              Equal.trans(+List<Doc.Node>,
-                Render.dialog_header_projection(Render.dialog_partition_prepend(appearance, child,
-                  Render.dialog_partition(rest, visual_rest))),
-                Render.dialog_header_projection(Render.dialog_partition(rest, visual_rest)),
-                expected_dialog_header(rest, visual_rest),
-                dialog_partition_header_step(appearance, child, Render.dialog_partition(rest, visual_rest)),
-                dialog_header_partition(rest, visual_rest))
-        case Controls.NoControl{}:
-          Equal.trans(+List<Doc.Node>,
-            Render.dialog_header_projection(Render.dialog_partition_prepend(appearance, child,
-              Render.dialog_partition(rest, visual_rest))),
-            Render.dialog_header_projection(Render.dialog_partition(rest, visual_rest)),
-            expected_dialog_header(rest, visual_rest),
-            dialog_partition_header_step(appearance, child, Render.dialog_partition(rest, visual_rest)),
-            dialog_header_partition(rest, visual_rest))
-        case Controls.Input{binding, name, widget, label, availability}:
-          Equal.trans(+List<Doc.Node>,
-            Render.dialog_header_projection(Render.dialog_partition_prepend(appearance, child,
-              Render.dialog_partition(rest, visual_rest))),
-            Render.dialog_header_projection(Render.dialog_partition(rest, visual_rest)),
-            expected_dialog_header(rest, visual_rest),
-            dialog_partition_header_step(appearance, child, Render.dialog_partition(rest, visual_rest)),
-            dialog_header_partition(rest, visual_rest))
-        case Controls.Movable{destinations, face, name, handle, geometry, help}:
-          Equal.trans(+List<Doc.Node>,
-            Render.dialog_header_projection(Render.dialog_partition_prepend(appearance, child,
-              Render.dialog_partition(rest, visual_rest))),
-            Render.dialog_header_projection(Render.dialog_partition(rest, visual_rest)),
-            expected_dialog_header(rest, visual_rest),
-            dialog_partition_header_step(appearance, child, Render.dialog_partition(rest, visual_rest)),
-            dialog_header_partition(rest, visual_rest))
+      Equal.trans(+List<Doc.Node>,
+        Render.dialog_header_projection(Render.dialog_partition_prepend(appearance, child, Render.dialog_partition(rest, visual_rest))),
+        expected_dialog_header_prepend(appearance, child, Render.dialog_header_projection(Render.dialog_partition(rest, visual_rest))),
+        expected_dialog_header_prepend(appearance, child, expected_dialog_header(rest, visual_rest)),
+        dialog_partition_header_step(appearance, child, Render.dialog_partition(rest, visual_rest)),
+        Equal.cong(+List<Doc.Node>, +List<Doc.Node>, tail => expected_dialog_header_prepend(appearance, child, tail),
+          Render.dialog_header_children(rest, visual_rest), expected_dialog_header(rest, visual_rest), dialog_header_partition(rest, visual_rest)))
     case Nil{} Nil{}: {==}
     case Con{first, rest} Nil{}: {==}
     case Nil{} Con{first, rest}: {==}
@@ -839,98 +721,13 @@ def dialog_body_partition(children: +List<Doc.Node>, appearances: +List<Design.A
   {Render.dialog_body_children(children, appearances) == expected_dialog_body(children, appearances) : +List<Doc.Node>}:
   match children appearances:
     case Con{+child, +rest} Con{+appearance, +visual_rest}:
-      Design.Appearance{identity, visual, representation, children} = appearance
-      match representation:
-        case Controls.Action{input, availability, name, face, behavior, geometry, placement, help, feedback}:
-          match placement:
-            case Controls.PanelHeaderEnd{}:
-              Equal.trans(+List<Doc.Node>,
-                Render.dialog_body_projection(Render.dialog_partition_prepend(appearance, child,
-                  Render.dialog_partition(rest, visual_rest))),
-                Render.dialog_body_projection(Render.dialog_partition(rest, visual_rest)),
-                expected_dialog_body(rest, visual_rest),
-                dialog_partition_body_step(appearance, child, Render.dialog_partition(rest, visual_rest)),
-                dialog_body_partition(rest, visual_rest))
-            case Controls.InFlow{}:
-              Equal.trans(+List<Doc.Node>,
-                Render.dialog_body_projection(Render.dialog_partition_prepend(appearance, child,
-                  Render.dialog_partition(rest, visual_rest))),
-                child <> Render.dialog_body_projection(Render.dialog_partition(rest, visual_rest)),
-                child <> expected_dialog_body(rest, visual_rest),
-                dialog_partition_body_step(appearance, child, Render.dialog_partition(rest, visual_rest)),
-                Equal.cong(+List<Doc.Node>, +List<Doc.Node>, (tail => child <> tail),
-                  Render.dialog_body_projection(Render.dialog_partition(rest, visual_rest)),
-                  expected_dialog_body(rest, visual_rest), dialog_body_partition(rest, visual_rest)))
-            case Controls.ComposerEnd{}:
-              Equal.trans(+List<Doc.Node>,
-                Render.dialog_body_projection(Render.dialog_partition_prepend(appearance, child,
-                  Render.dialog_partition(rest, visual_rest))),
-                child <> Render.dialog_body_projection(Render.dialog_partition(rest, visual_rest)),
-                child <> expected_dialog_body(rest, visual_rest),
-                dialog_partition_body_step(appearance, child, Render.dialog_partition(rest, visual_rest)),
-                Equal.cong(+List<Doc.Node>, +List<Doc.Node>, (tail => child <> tail),
-                  Render.dialog_body_projection(Render.dialog_partition(rest, visual_rest)),
-                  expected_dialog_body(rest, visual_rest), dialog_body_partition(rest, visual_rest)))
-            case Controls.CodeToolbar{}:
-              Equal.trans(+List<Doc.Node>,
-                Render.dialog_body_projection(Render.dialog_partition_prepend(appearance, child,
-                  Render.dialog_partition(rest, visual_rest))),
-                child <> Render.dialog_body_projection(Render.dialog_partition(rest, visual_rest)),
-                child <> expected_dialog_body(rest, visual_rest),
-                dialog_partition_body_step(appearance, child, Render.dialog_partition(rest, visual_rest)),
-                Equal.cong(+List<Doc.Node>, +List<Doc.Node>, (tail => child <> tail),
-                  Render.dialog_body_projection(Render.dialog_partition(rest, visual_rest)),
-                  expected_dialog_body(rest, visual_rest), dialog_body_partition(rest, visual_rest)))
-            case Controls.BesideValue{}:
-              Equal.trans(+List<Doc.Node>,
-                Render.dialog_body_projection(Render.dialog_partition_prepend(appearance, child,
-                  Render.dialog_partition(rest, visual_rest))),
-                child <> Render.dialog_body_projection(Render.dialog_partition(rest, visual_rest)),
-                child <> expected_dialog_body(rest, visual_rest),
-                dialog_partition_body_step(appearance, child, Render.dialog_partition(rest, visual_rest)),
-                Equal.cong(+List<Doc.Node>, +List<Doc.Node>, (tail => child <> tail),
-                  Render.dialog_body_projection(Render.dialog_partition(rest, visual_rest)),
-                  expected_dialog_body(rest, visual_rest), dialog_body_partition(rest, visual_rest)))
-            case Controls.GroupHeadingEnd{}:
-              Equal.trans(+List<Doc.Node>,
-                Render.dialog_body_projection(Render.dialog_partition_prepend(appearance, child,
-                  Render.dialog_partition(rest, visual_rest))),
-                child <> Render.dialog_body_projection(Render.dialog_partition(rest, visual_rest)),
-                child <> expected_dialog_body(rest, visual_rest),
-                dialog_partition_body_step(appearance, child, Render.dialog_partition(rest, visual_rest)),
-                Equal.cong(+List<Doc.Node>, +List<Doc.Node>, (tail => child <> tail),
-                  Render.dialog_body_projection(Render.dialog_partition(rest, visual_rest)),
-                  expected_dialog_body(rest, visual_rest), dialog_body_partition(rest, visual_rest)))
-        case Controls.NoControl{}:
-          Equal.trans(+List<Doc.Node>,
-            Render.dialog_body_projection(Render.dialog_partition_prepend(appearance, child,
-              Render.dialog_partition(rest, visual_rest))),
-            child <> Render.dialog_body_projection(Render.dialog_partition(rest, visual_rest)),
-            child <> expected_dialog_body(rest, visual_rest),
-            dialog_partition_body_step(appearance, child, Render.dialog_partition(rest, visual_rest)),
-            Equal.cong(+List<Doc.Node>, +List<Doc.Node>, (tail => child <> tail),
-              Render.dialog_body_projection(Render.dialog_partition(rest, visual_rest)),
-              expected_dialog_body(rest, visual_rest), dialog_body_partition(rest, visual_rest)))
-        case Controls.Input{binding, name, widget, label, availability}:
-          Equal.trans(+List<Doc.Node>,
-            Render.dialog_body_projection(Render.dialog_partition_prepend(appearance, child,
-              Render.dialog_partition(rest, visual_rest))),
-            child <> Render.dialog_body_projection(Render.dialog_partition(rest, visual_rest)),
-            child <> expected_dialog_body(rest, visual_rest),
-            dialog_partition_body_step(appearance, child, Render.dialog_partition(rest, visual_rest)),
-            Equal.cong(+List<Doc.Node>, +List<Doc.Node>, (tail => child <> tail),
-              Render.dialog_body_projection(Render.dialog_partition(rest, visual_rest)),
-              expected_dialog_body(rest, visual_rest), dialog_body_partition(rest, visual_rest)))
-        case Controls.Movable{destinations, face, name, handle, geometry, help}:
-          Equal.trans(+List<Doc.Node>,
-            Render.dialog_body_projection(Render.dialog_partition_prepend(appearance, child,
-              Render.dialog_partition(rest, visual_rest))),
-            child <> Render.dialog_body_projection(Render.dialog_partition(rest, visual_rest)),
-            child <> expected_dialog_body(rest, visual_rest),
-            dialog_partition_body_step(appearance, child, Render.dialog_partition(rest, visual_rest)),
-            Equal.cong(+List<Doc.Node>, +List<Doc.Node>, (tail => child <> tail),
-              Render.dialog_body_projection(Render.dialog_partition(rest, visual_rest)),
-              expected_dialog_body(rest, visual_rest), dialog_body_partition(rest, visual_rest)))
+      Equal.trans(+List<Doc.Node>,
+        Render.dialog_body_projection(Render.dialog_partition_prepend(appearance, child, Render.dialog_partition(rest, visual_rest))),
+        expected_dialog_body_prepend(appearance, child, Render.dialog_body_projection(Render.dialog_partition(rest, visual_rest))),
+        expected_dialog_body_prepend(appearance, child, expected_dialog_body(rest, visual_rest)),
+        dialog_partition_body_step(appearance, child, Render.dialog_partition(rest, visual_rest)),
+        Equal.cong(+List<Doc.Node>, +List<Doc.Node>, tail => expected_dialog_body_prepend(appearance, child, tail),
+          Render.dialog_body_children(rest, visual_rest), expected_dialog_body(rest, visual_rest), dialog_body_partition(rest, visual_rest)))
     case Nil{} Nil{}: {==}
     case Con{first, rest} Nil{}: {==}
     case Nil{} Con{first, rest}: {==}
@@ -960,13 +757,9 @@ def dialog_branch_header_projection(+key: String, +label: String, +source: +List
   +children: +List<Doc.Node>, +visual: Design.Style, appearances: +List<Design.Appearance>) ->
   {rest_nodes(node_children(dialog_header_node(rendered_dialog(key, label, source, children, visual, appearances)))) ==
     Render.dialog_header_children(children, appearances) : +List<Doc.Node>}:
-  Design.Style{Design.TextStyle{family, size, line_height, weight},
-    Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment,
-    direction, overflow, content_area, gap, minimum, maximum, states} = visual
+  Design.Style{Design.TextStyle{family, size, line_height, weight}, Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment, direction, overflow, +content_frame, minimum, maximum, states} = visual
   dialog_region_header_projection(key, label,
-    Design.Style{Design.TextStyle{family, size, line_height, weight},
-      Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment,
-      direction, overflow, content_area, gap, minimum, maximum, states},
+    Design.Style{Design.TextStyle{family, size, line_height, weight}, Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment, direction, overflow, content_frame, minimum, maximum, states},
     Render.dialog_partition(children, appearances))
 
 def dialog_branch_header_partition(+key: String, +label: String, +source: +List<Interface.Node>,
@@ -984,13 +777,9 @@ def dialog_branch_body_projection(+key: String, +label: String, +source: +List<I
   +children: +List<Doc.Node>, +visual: Design.Style, appearances: +List<Design.Appearance>) ->
   {DialogSpatial.original_children(rendered_dialog(key, label, source, children, visual, appearances)) ==
     Render.dialog_body_children(children, appearances) : +List<Doc.Node>}:
-  Design.Style{Design.TextStyle{family, size, line_height, weight},
-    Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment,
-    direction, overflow, content_area, gap, minimum, maximum, states} = visual
+  Design.Style{Design.TextStyle{family, size, line_height, weight}, Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment, direction, overflow, +content_frame, minimum, maximum, states} = visual
   dialog_region_body_projection(key, label,
-    Design.Style{Design.TextStyle{family, size, line_height, weight},
-      Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment,
-      direction, overflow, content_area, gap, minimum, maximum, states},
+    Design.Style{Design.TextStyle{family, size, line_height, weight}, Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment, direction, overflow, content_frame, minimum, maximum, states},
     Render.dialog_partition(children, appearances))
 
 def dialog_branch_body_partition(+key: String, +label: String, +source: +List<Interface.Node>,
@@ -1035,13 +824,9 @@ def dialog_branch_wrapper_keys(+key: String, +label: String, +source: +List<Inte
    (Render.generated_identity(key, "dialog-header"),
     (Render.generated_identity(key, "dialog-body"), Render.generated_identity(key, "dialog-content"))) :
    (String & (String & String))}:
-  Design.Style{Design.TextStyle{family, size, line_height, weight},
-    Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment,
-    direction, overflow, content_area, gap, minimum, maximum, states} = visual
+  Design.Style{Design.TextStyle{family, size, line_height, weight}, Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment, direction, overflow, +content_frame, minimum, maximum, states} = visual
   dialog_region_wrapper_keys(key, label,
-    Design.Style{Design.TextStyle{family, size, line_height, weight},
-      Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment,
-      direction, overflow, content_area, gap, minimum, maximum, states},
+    Design.Style{Design.TextStyle{family, size, line_height, weight}, Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment, direction, overflow, content_frame, minimum, maximum, states},
     Render.dialog_partition(children, appearances))
 
 def dialog_region_outer_identity_suffix(+key: String, +label: String, visual: Design.Style,
@@ -1086,13 +871,9 @@ def dialog_branch_outer_identity(+key: String, +label: String, +source: +List<In
     (Render.attr(node_attributes(rendered_dialog(key, label, source, children, visual, appearances)), "aria-label"),
      Render.attr(node_attributes(rendered_dialog(key, label, source, children, visual, appearances)), "data-native-key"))) ==
    (key, (label, key)) : (String & (String & String))}:
-  Design.Style{Design.TextStyle{family, size, line_height, weight},
-    Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment,
-    direction, overflow, content_area, gap, minimum, maximum, states} = visual
+  Design.Style{Design.TextStyle{family, size, line_height, weight}, Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment, direction, overflow, +content_frame, minimum, maximum, states} = visual
   dialog_region_outer_identity(key, label,
-    Design.Style{Design.TextStyle{family, size, line_height, weight},
-      Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment,
-      direction, overflow, content_area, gap, minimum, maximum, states},
+    Design.Style{Design.TextStyle{family, size, line_height, weight}, Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment, direction, overflow, content_frame, minimum, maximum, states},
     Render.dialog_partition(children, appearances))
 
 def dialog_branch_title_identity(+key: String, +label: String, +source: +List<Interface.Node>,
@@ -1100,13 +881,9 @@ def dialog_branch_title_identity(+key: String, +label: String, +source: +List<In
   {(node_key(dialog_title_node(rendered_dialog(key, label, source, children, visual, appearances))),
     direct_text(dialog_title_node(rendered_dialog(key, label, source, children, visual, appearances)))) ==
    (Render.generated_identity(key, "title"), label) : (String & String)}:
-  Design.Style{Design.TextStyle{family, size, line_height, weight},
-    Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment,
-    direction, overflow, content_area, gap, minimum, maximum, states} = visual
+  Design.Style{Design.TextStyle{family, size, line_height, weight}, Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment, direction, overflow, +content_frame, minimum, maximum, states} = visual
   dialog_region_title_identity(key, label,
-    Design.Style{Design.TextStyle{family, size, line_height, weight},
-      Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment,
-      direction, overflow, content_area, gap, minimum, maximum, states},
+    Design.Style{Design.TextStyle{family, size, line_height, weight}, Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment, direction, overflow, content_frame, minimum, maximum, states},
     Render.dialog_partition(children, appearances))
 
 def dialog_region_flow_properties_suffix(+key: String, +label: String, visual: Design.Style,
@@ -1149,13 +926,9 @@ def dialog_flow_properties(+key: String, +label: String, +source: +List<Interfac
          Render.attr(node_styles(dialog_content_node(rendered_dialog(key, label, source, children, visual, appearances))), "max-height"))))))) ==
    ("0 0 auto", ("1 1 auto", ("0", ("auto", ("0 0 auto", ("", "")))))) :
    (String & (String & (String & (String & (String & (String & String))))))}:
-  Design.Style{Design.TextStyle{family, size, line_height, weight},
-    Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment,
-    direction, overflow, content_area, gap, minimum, maximum, states} = visual
+  Design.Style{Design.TextStyle{family, size, line_height, weight}, Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment, direction, overflow, +content_frame, minimum, maximum, states} = visual
   dialog_region_flow_properties(key, label,
-    Design.Style{Design.TextStyle{family, size, line_height, weight},
-      Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment,
-      direction, overflow, content_area, gap, minimum, maximum, states},
+    Design.Style{Design.TextStyle{family, size, line_height, weight}, Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment, direction, overflow, content_frame, minimum, maximum, states},
     Render.dialog_partition(children, appearances))
 
 def centered_dialog_hides_overflow(+available: Design.Box, maximum_width: Nat) ->

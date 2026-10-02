@@ -1,4 +1,5 @@
 import Base
+import ./enclosure.bend as Enclosure
 import ../core/SYSTEM.bend as Core
 import ../core/ui-world.bend as V
 import ../core/interface.bend as UI
@@ -318,7 +319,7 @@ def main_frame(+recipe: Composition.Recipe, +main: Design.Box) -> Design.MainFra
       Design.OverviewFrame{canvas, measure_band(measure, canvas), Composition.AgentRows{}}
     case Composition.Recipe{measure, page_heading, Composition.StageColumns{}, composer, decisions, latest}:
       +canvas = main
-      Design.BoardFrame{canvas, board_column_width(canvas), 12n, 16n}
+      Design.BoardFrame{canvas, board_column_width(canvas), Enclosure.separation(Enclosure.BoardColumns{}), 16n}
     case Composition.Recipe{measure, page_heading, Composition.UnavailableNotice{}, composer, decisions, latest}:
       Design.UnavailableFrame{heading_box(main), body_box(main), measure_band(measure, body_box(main))}
 
@@ -455,7 +456,7 @@ def capacity_allows_details(capacity: V.Capacity) -> Bool:
 
 def present(+viewport: Design.Viewport, +surface: UI.Surface) -> Design.Layout:
   UI.Surface{content, base, +overlays, active_scope} = surface
-  Core.Scene{V.Scene{world_navigation, world_main, layers, arrangement, attention}, settings, transfers, preview, code} = content
+  Core.Scene{V.Scene{world_navigation, world_main, layers, arrangement, attention}, settings, transfers, preview, code, directory_picker} = content
   V.Arrangement{navigation, page} = arrangement
   requested_side_pane = actual_details(overlays) && capacity_allows_details(capacity(viewport))
   current_shell = shell(viewport, navigation, requested_side_pane)

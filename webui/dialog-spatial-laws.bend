@@ -214,8 +214,8 @@ def concrete_field_kinds() ->
   {==}
 
 def style_insets(value: Design.Style) -> (Nat & (Nat & Nat)):
-  Design.Style{text, chrome, alignment, flow, overflow, +content_area, gap, minimum, maximum, states} = value
-  (Enclosure.inline(content_area), (Enclosure.block(content_area), gap))
+  Design.Style{text, chrome, alignment, flow, overflow, +content_frame, minimum, maximum, states} = value
+  (Enclosure.inline(Enclosure.frame_content(content_frame)), (Enclosure.block(Enclosure.frame_content(content_frame)), Enclosure.frame_gap(content_frame)))
 
 def dialog_outer_inset() ->
   {style_insets(Appearance.style(UI.Dialog{}, UI.Region{})) == (0n, (0n, 0n)) : (Nat & (Nat & Nat))}:

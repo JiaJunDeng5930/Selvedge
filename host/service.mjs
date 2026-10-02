@@ -11,6 +11,7 @@ import { requestBoardText } from './board-text.mjs';
 import { observeBoardCommand } from './board-files.mjs';
 import { requestModel, cancelModelTask, ContextLimitError } from './providers.mjs';
 import { canonicalWorkspace } from './sandbox.mjs';
+import { browseDirectories } from './directories.mjs';
 import { profileCatalog } from './config.mjs';
 import { withAccountModels } from './chatgpt-models.mjs';
 
@@ -335,6 +336,18 @@ export class Service extends EventEmitter {
     if (!observation || typeof observation !== 'object' || Array.isArray(observation)) throw new TypeError('Expected an observation request');
     if (observation.kind === 'streams' && Object.keys(observation).length === 1) {
       return { kind: 'streams', streams: structuredClone([...this.#streams.values()]) };
+    }
+    if (observation.kind === 'browse-directories' && Object.keys(observation).length === 2) {
+      try {
+        let location = observation.path;
+        if (location === '') {
+          const workspace = await canonicalWorkspace({ roots: [this.project.workspace] });
+          location = workspace.primary_root;
+        }
+        return await browseDirectories(location, this.limits.frame_bytes);
+      } catch (error) {
+        return { ok: false, error: error.message };
+      }
     }
     if (observation.kind === 'directories' && Object.keys(observation).length === 2 && observation.workspace) {
       const workspace = await canonicalWorkspace(observation.workspace);

@@ -31,7 +31,7 @@ type Settings is Data:
 
 type Scene is Data:
   Scene{surface: View.Scene, settings: Settings,
-    transfers: +List<Finite.Entry(Services.Transfer)>, preview: Services.Preview, code: +List<Content.Scene>}
+    transfers: +List<Finite.Entry(Services.Transfer)>, preview: Services.Preview, code: +List<Content.Scene>, directory_picker: Services.DirectoryPicker}
 
 type Control is Data:
   Control{identity: String, label: String, prominence: View.Prominence, input: Input, availability: View.Availability}
@@ -82,16 +82,37 @@ def attached(decision: E.Decision) -> E.Application:
   E.Decision{application, reply, effects, interaction, durable} = decision
   application
 
+def workspace_draft(found: Maybe<&2, U.Draft>) -> Bool:
+  match found:
+    case Some{U.Draft{revision, body, feedback, directory_entry}}: U.workspace_capable(body)
+    case None{}: False{}
+
+def accepts_directory(+editor: U.Editor, application: E.Application) -> Bool:
+  E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks}} = application
+  workspace_draft(E.find_draft(drafts, editor)) && Bool.not(E.busy(pending, editor))
+
+def directory_chosen_accepted(accepted: Bool, +editor: U.Editor, path: String, application: E.Application) -> E.Application:
+  match accepted:
+    case False{}: application
+    case True{}:
+      written = attached(E.step(E.UserInput{U.EditDraft{editor, U.WriteDirectory{path}}}, application))
+      attached(E.step(E.UserInput{U.EditDraft{editor, U.ConfirmDirectory{}}}, written))
+
+def directory_chosen(+editor: U.Editor, path: String, +application: E.Application) -> E.Application:
+  directory_chosen_accepted(accepts_directory(editor, application), editor, path, application)
+
 def service_effects(effects: +List<Services.Effect>, application: E.Application) -> E.Application:
   match effects:
     case Nil{}: application
     case Con{Services.AttachToDraft{editor, +file}, rest}:
       service_effects(rest, attached(edit_attachment(editor, Some{file}, file_id(file), application)))
+    case Con{Services.DirectoryChosen{editor, path}, rest}: service_effects(rest, directory_chosen(editor, path, application))
     case Con{other, rest}: service_effects(rest, application)
 
 def external_effect(effect: Services.Effect) -> Bool:
   match effect:
     case Services.AttachToDraft{editor, file}: False{}
+    case Services.DirectoryChosen{editor, path}: False{}
     case _: True{}
 
 def application_result_with_services(decision: E.Decision, services: Services.State, effects: +List<Services.Effect>) -> Decision:
@@ -109,7 +130,7 @@ def command_offline(command: Maybe<&2, M.Command>, access: Services.Access) -> B
     case None{}: False{}
 
 def submission_blocked(services: Services.State, input: E.Input) -> Bool:
-  Services.State{access, credential, settings, appearance, next, transfers, preview} = services
+  Services.State{access, credential, settings, appearance, next, transfers, preview, directory_picker} = services
   match input:
     case E.UserInput{U.Activate{U.Submit{editor}}}: Services.blocks(editor, transfers) || Bool.not(Services.connected(access))
     case E.UserInput{U.Activate{U.ConfirmAction{}}}: Bool.not(Services.connected(access))
@@ -135,8 +156,15 @@ def add_allowed(allowed: Bool, input: Services.Input, application: E.Application
     case True{}: service_result(Services.step(input, services), application)
     case False{}: application_result(E.refuse(application, "Attachments belong to a card draft"), services)
 
+def directory_allowed(allowed: Bool, input: Services.Input, application: E.Application, services: Services.State) -> Decision:
+  match allowed:
+    case True{}: service_result(Services.step(input, services), application)
+    case False{}: application_result(E.refuse(application, "The workspace editor is not available"), services)
+
 def service_input(input: Services.Input, +application: E.Application, services: Services.State) -> Decision:
   match input:
+    case Services.OpenDirectoryPicker{+editor, path, trigger}:
+      directory_allowed(accepts_directory(editor, application), Services.OpenDirectoryPicker{editor, path, trigger}, application, services)
     case Services.AddFile{+editor, file}:
       add_allowed(accepts_files(editor, application), Services.AddFile{editor, file}, application, services)
     case Services.Connect{}: service_result(Services.step(Services.Connect{}, services), attached(E.observe_preview(Live.ConnectionEnded{}, application)))
@@ -172,10 +200,10 @@ def code_scenes(application: E.Application) -> +List<Content.Scene>:
   E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks}} = application
   List.foldr(~&2, ~Content.Block, ~(+List<Content.Scene>), ~(block => rest => Content.observe(block) <> rest), code_blocks, Nil{})
 def observe(capacity: View.Capacity, state: State) -> Scene:
-  State{+application, Services.State{access, credential, settings, appearance, next, transfers, preview}} = state
+  State{+application, Services.State{access, credential, settings, appearance, next, transfers, preview, directory_picker}} = state
   Scene{View.observe(capacity, application),
     Settings{settings, access, Bool.not(String.eq(credential, "")), appearance,
-      ServiceInput{Services.OpenSettings{}}, ServiceInput{Services.CloseSettings{}}, ServiceInput{Services.Connect{}}}, transfers, preview, code_scenes(application)}
+      ServiceInput{Services.OpenSettings{}}, ServiceInput{Services.CloseSettings{}}, ServiceInput{Services.Connect{}}}, transfers, preview, code_scenes(application), directory_picker}
 
 def step(input: Input, state: State) -> Decision:
   dispatch(state, input)

@@ -60,7 +60,7 @@ type Requirements is Type:
           Interface.creation_introduction_nodes(View.creation_introduction(input, world), parent, Core.State{Experience.Application{world, session}, services}),
           Interface.page_composer(input, parent, parent, Core.State{Experience.Application{world, session}, services}, Composition.BodyPosition{})) : +List<Interface.Node>},
     context_admission: @+declaration:View.ControlDeclaration -> @+rest:+List<View.ControlDeclaration> -> @+parent:String -> @+state:Core.State ->
-      {Interface.controls(declaration <> rest, parent, state) == Interface.action(parent, Core.control(state, declaration)) <> Interface.controls(rest, parent, state) : +List<Interface.Node>},
+      {Interface.controls(declaration <> rest, parent, state) == Interface.declared(parent, declaration, state) <> Interface.controls(rest, parent, state) : +List<Interface.Node>},
     composer_context: @+message:U.Text -> @+profile:String -> @reasoning:String -> @+context:Context.Configuration -> @+scene:View.EditorScene -> @+world:M.World() ->
       {composer_footer(View.composer_scene(U.NewTask{message, profile, reasoning, context}, scene, world)) ==
         [View.ComposerControl{View.ModelSubject{}, View.control("composer/model", View.profile_label(D.find_profile(Board.profiles(world), profile), profile), U.OpenPanel{U.ModelPicker{U.NewTaskEditor{}}, "composer/model"})},
@@ -256,7 +256,7 @@ def creation_page_keeps_composer(+input: Maybe<&2, View.ComposerScene>, +parent:
 
 def context_action_admission(+declaration: View.ControlDeclaration, +rest: +List<View.ControlDeclaration>, +parent: String, +state: Core.State) ->
   {Interface.controls(declaration <> rest, parent, state) ==
-    Interface.action(parent, Core.control(state, declaration)) <> Interface.controls(rest, parent, state) : +List<Interface.Node>}:
+    Interface.declared(parent, declaration, state) <> Interface.controls(rest, parent, state) : +List<Interface.Node>}:
   {==}
 
 def composer_footer(view: Maybe<&2, View.ComposerScene>) -> +List<View.ComposerControl>:

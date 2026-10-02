@@ -53,12 +53,12 @@ def execution_observation(context: Controls.Context) -> Maybe<&2, Context.Observ
   execution
 
 def page_observation(content: Core.Scene) -> Maybe<&2, Context.Observation>:
-  Core.Scene{View.Scene{navigation, main, layers, arrangement, attention}, settings, transfers, preview, code} = content
+  Core.Scene{View.Scene{navigation, main, layers, arrangement, attention}, settings, transfers, preview, code, directory_picker} = content
   Controls.page_execution(main)
 
 def initial_execution(+content: Core.Scene) ->
   {execution_observation(Controls.initial(content)) == page_observation(content) : Maybe<&2, Context.Observation>}:
-  Core.Scene{View.Scene{navigation, main, layers, arrangement, attention}, settings, transfers, preview, code} = content
+  Core.Scene{View.Scene{navigation, main, layers, arrangement, attention}, settings, transfers, preview, code, directory_picker} = content
   Core.Settings{open, access, entered, appearance, open_action, close_action, connect} = settings
   {==}
 
@@ -112,6 +112,7 @@ def choice_native_event(+key: String, label: String, selected: Bool, description
   {events(Render.choice_node(key, label, selected, description, visual,
     Controls.Action{input, availability, name, face, behavior, geometry, placement, help, feedback}, visual_children)) ==
     [Doc.Activate{key}] : +List<Doc.Event>}:
+  Controls.Geometry{width, height, icon, radius, leading} = geometry
   {==}
 
 def filesystem_write_icon() -> {Controls.filesystem_icon(Domain.WorkspaceWrite{}) == Controls.Pencil{} : Controls.Icon}:

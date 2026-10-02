@@ -80,17 +80,17 @@ type Requirements is Type:
       @preview:Services.Preview -> @ticket:Nat -> @+result:Result<&2, &2, String, Unit> ->
       @stale:{Services.expected_access(access, ticket) == False{} : Bool} ->
       {Services.step(Services.Authenticated{ticket, result}, Services.State{access, credential,
-        settings_open, appearance, next, transfers, preview}) ==
+        settings_open, appearance, next, transfers, preview, Services.NoDirectoryPicker{}}) ==
         Services.Decision{Services.State{access, credential, settings_open, appearance,
-          next, transfers, preview}, Nil{}} : Services.Decision},
+          next, transfers, preview, Services.NoDirectoryPicker{}}, Nil{}} : Services.Decision},
     missing_upload: @+access:Services.Access -> @credential:String -> @settings_open:Bool ->
       @appearance:Services.Appearance -> @next:Nat -> @+transfers:+List<Finite.Entry(Services.Transfer)> ->
       @preview:Services.Preview -> @ticket:Nat -> @+result:Result<&2, &2, String, B.Attachment> ->
       @missing:{Finite.find(~Services.Transfer, transfers, ticket) == None{} : Maybe<&2, Services.Transfer>} ->
       {Services.step(Services.Uploaded{ticket, result}, Services.State{access, credential,
-        settings_open, appearance, next, transfers, preview}) ==
+        settings_open, appearance, next, transfers, preview, Services.NoDirectoryPicker{}}) ==
         Services.Decision{Services.State{access, credential, settings_open, appearance,
-          next, transfers, preview}, Nil{}} : Services.Decision},
+          next, transfers, preview, Services.NoDirectoryPicker{}}, Nil{}} : Services.Decision},
     upload_destination: @+access:Services.Access -> @credential:String -> @settings_open:Bool ->
       @appearance:Services.Appearance -> @next:Nat -> @+transfers:+List<Finite.Entry(Services.Transfer)> ->
       @preview:Services.Preview -> @ticket:Nat -> @+editor:U.Editor -> @+file:Services.File ->
@@ -98,26 +98,26 @@ type Requirements is Type:
       @found:{Finite.find(~Services.Transfer, transfers, ticket) ==
         Some{Services.Uploading{editor, file}} : Maybe<&2, Services.Transfer>} ->
       {Services.step(Services.Uploaded{ticket, Done{attachment}}, Services.State{access, credential,
-        settings_open, appearance, next, transfers, preview}) ==
+        settings_open, appearance, next, transfers, preview, Services.NoDirectoryPicker{}}) ==
         Services.Decision{Services.State{access, credential, settings_open, appearance, next,
-          Finite.remove(~Services.Transfer, transfers, ticket), preview},
+          Finite.remove(~Services.Transfer, transfers, ticket), preview, Services.NoDirectoryPicker{}},
           [Services.AttachToDraft{editor, attachment}]} : Services.Decision},
     closed_preview: @+access:Services.Access -> @credential:String -> @settings_open:Bool ->
       @appearance:Services.Appearance -> @next:Nat -> @+transfers:+List<Finite.Entry(Services.Transfer)> ->
       @ticket:Nat -> @+result:Result<&2, &2, String, String> ->
       {Services.step(Services.Previewed{ticket, result}, Services.State{access, credential,
-        settings_open, appearance, next, transfers, Services.NoPreview{}}) ==
+        settings_open, appearance, next, transfers, Services.NoPreview{}, Services.NoDirectoryPicker{}}) ==
         Services.Decision{Services.State{access, credential, settings_open, appearance,
-          next, transfers, Services.NoPreview{}}, Nil{}} : Services.Decision},
+          next, transfers, Services.NoPreview{}, Services.NoDirectoryPicker{}}, Nil{}} : Services.Decision},
     stale_preview: @+access:Services.Access -> @credential:String -> @settings_open:Bool ->
       @appearance:Services.Appearance -> @next:Nat -> @+transfers:+List<Finite.Entry(Services.Transfer)> ->
       @current:Nat -> @+file:B.Attachment -> @trigger:String -> @ticket:Nat ->
       @+result:Result<&2, &2, String, String> ->
       @different:{Nat.is_eq(current, ticket) == False{} : Bool} ->
       {Services.step(Services.Previewed{ticket, result}, Services.State{access, credential,
-        settings_open, appearance, next, transfers, Services.LoadingPreview{current, file, trigger}}) ==
+        settings_open, appearance, next, transfers, Services.LoadingPreview{current, file, trigger}, Services.NoDirectoryPicker{}}) ==
         Services.Decision{Services.State{access, credential, settings_open, appearance, next,
-          transfers, Services.LoadingPreview{current, file, trigger}}, Nil{}} : Services.Decision},
+          transfers, Services.LoadingPreview{current, file, trigger}, Services.NoDirectoryPicker{}}, Nil{}} : Services.Decision},
     stale_copy: @+identity:Code.Identity -> @source:String -> @+wrap:Bool -> @copy:Code.CopyState ->
       @next:Nat -> @pending:Maybe<&2, Nat> -> @ticket:Nat -> @success:Bool ->
       @stale:{Code.same_ticket(pending, ticket) == False{} : Bool} ->
@@ -188,26 +188,26 @@ def evidence() -> Requirements:
     access => credential => settings_open => appearance => next => transfers => preview => ticket => result => stale =>
       Equal.cong(Bool, Services.Decision,
         owned => Services.authentication(owned,
-          Services.State{access, credential, settings_open, appearance, next, transfers, preview}, result),
+          Services.State{access, credential, settings_open, appearance, next, transfers, preview, Services.NoDirectoryPicker{}}, result),
         Services.expected_access(access, ticket), False{}, stale),
     access => credential => settings_open => appearance => next => transfers => preview => ticket => result => missing =>
       Equal.cong(Maybe<&2, Services.Transfer>, Services.Decision,
         found => Services.upload_finished(found,
-          Services.State{access, credential, settings_open, appearance, next, transfers, preview}, ticket, result),
+          Services.State{access, credential, settings_open, appearance, next, transfers, preview, Services.NoDirectoryPicker{}}, ticket, result),
         Finite.find(~Services.Transfer, transfers, ticket), None{}, missing),
     access => credential => settings_open => appearance => next => transfers => preview => ticket => editor => file => attachment => found =>
       Equal.trans(Services.Decision,
         Services.step(Services.Uploaded{ticket, Done{attachment}},
-          Services.State{access, credential, settings_open, appearance, next, transfers, preview}),
+          Services.State{access, credential, settings_open, appearance, next, transfers, preview, Services.NoDirectoryPicker{}}),
         Services.upload_finished(Some{Services.Uploading{editor, file}},
-          Services.State{access, credential, settings_open, appearance, next, transfers, preview},
+          Services.State{access, credential, settings_open, appearance, next, transfers, preview, Services.NoDirectoryPicker{}},
           ticket, Done{attachment}),
         Services.Decision{Services.State{access, credential, settings_open, appearance, next,
-          Finite.remove(~Services.Transfer, transfers, ticket), preview},
+          Finite.remove(~Services.Transfer, transfers, ticket), preview, Services.NoDirectoryPicker{}},
           [Services.AttachToDraft{editor, attachment}]},
         Equal.cong(Maybe<&2, Services.Transfer>, Services.Decision,
           found => Services.upload_finished(found,
-            Services.State{access, credential, settings_open, appearance, next, transfers, preview},
+            Services.State{access, credential, settings_open, appearance, next, transfers, preview, Services.NoDirectoryPicker{}},
             ticket, Done{attachment}),
           Finite.find(~Services.Transfer, transfers, ticket),
           Some{Services.Uploading{editor, file}}, found),
@@ -218,7 +218,7 @@ def evidence() -> Requirements:
       Equal.cong(Bool, Services.Decision,
         owned => Services.finish_preview(owned,
           Services.State{access, credential, settings_open, appearance, next, transfers,
-            Services.LoadingPreview{current, file, trigger}}, file, trigger, result),
+            Services.LoadingPreview{current, file, trigger}, Services.NoDirectoryPicker{}}, file, trigger, result),
         Nat.is_eq(current, ticket), False{}, different),
     identity => source => wrap => copy => next => pending => ticket => success => stale =>
       Equal.cong(Bool, Code.Decision,

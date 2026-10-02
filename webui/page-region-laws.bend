@@ -515,7 +515,7 @@ def text(node: Doc.Node) -> String:
 
 def fact_contents(key: String, values: +List<Doc.Node>) -> FactObservation:
   match values:
-    case Con{+label, Con{value, Nil{}}}: FactObservation{key, node_key(label), text(first(children(label))), text(value)}
+    case Con{+label, Con{value, Nil{}}}: FactObservation{key, node_key(label), text(first(children(label))), text(first(children(value)))}
     case _: FactObservation{key, "", "", ""}
 
 def observed_fact(node: Doc.Node) -> FactObservation:
@@ -548,8 +548,8 @@ def specified_task_facts(+owner: String, value: View.TaskDetails) -> +List<FactO
 def task_facts_owner(+owner: String, +details: View.TaskDetails, label: String, role: UI.Role,
   source_children: +List<UI.Node>, rendered: +List<Doc.Node>, visual: Design.Style,
   representation: Controls.Representation, appearances: +List<Design.Appearance>) ->
-  {observed_facts(children(Render.match_node(owner, label, role, UI.TaskFacts{details}, source_children,
-    rendered, visual, representation, appearances))) == specified_task_facts(owner, details) : +List<FactObservation>}:
+  {observed_facts(children(first(children(Render.match_node(owner, label, role, UI.TaskFacts{details}, source_children,
+    rendered, visual, representation, appearances))))) == specified_task_facts(owner, details) : +List<FactObservation>}:
   View.TaskDetails{Context.EffectiveContext{task, Domain.TaskContext{Domain.Workspace{roots, primary}, Domain.Sandbox{mode, network}, approval, project}, guidance, access}, Domain.Model{Domain.Profile{id, provider, name, policy}, reasoning, model_guidance}, tools, lineage, queued, status, phase} = details
   {==}
 
@@ -568,7 +568,7 @@ type Requirements is Type:
       {node_key(first(children(Render.match_node(owner, label, UI.Activity{}, UI.Region{}, source_children, Nil{}, visual, representation, appearances)))) == Render.generated_identity(owner, "summary") : String},
     activity_label_owner: @+owner:String -> @label:String -> {node_key(first(Render.region_label(owner, UI.Activity{}, label))) == Render.generated_identity(owner, "summary") : String},
     task_facts_owner: @+owner:String -> @+details:View.TaskDetails -> @label:String -> @role:UI.Role -> @source_children:+List<UI.Node> -> @rendered:+List<Doc.Node> -> @visual:Design.Style -> @representation:Controls.Representation -> @appearances:+List<Design.Appearance> ->
-      {observed_facts(children(Render.match_node(owner, label, role, UI.TaskFacts{details}, source_children, rendered, visual, representation, appearances))) == specified_task_facts(owner, details) : +List<FactObservation>},
+      {observed_facts(children(first(children(Render.match_node(owner, label, role, UI.TaskFacts{details}, source_children, rendered, visual, representation, appearances))))) == specified_task_facts(owner, details) : +List<FactObservation>},
     board_select_bounds: @+key:String -> @+attrs:+List<Doc.Property> -> @+styles_value:+List<Doc.Property> -> @+events:+List<Doc.Event> -> @+children_value:+List<Doc.Node> ->
       {Render.board_input(Doc.Element{key, "select", attrs, styles_value, events, children_value}) == Doc.Element{key, "select", attrs, List.append(&2, Doc.Property, styles_value, [Doc.Property{"width", "auto"}, Doc.Property{"max-width", "100%"}, Doc.Property{"min-width", "0"}]), events, children_value} : Doc.Node},
     board_input_bounds: @+key:String -> @+attrs:+List<Doc.Property> -> @+styles_value:+List<Doc.Property> -> @+events:+List<Doc.Event> -> @+children_value:+List<Doc.Node> ->

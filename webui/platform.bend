@@ -142,6 +142,24 @@ def scope_attention(explicit: Bool, previous: Focus.Scope, current: Focus.Scope,
     case True{}: focus_effects(effects, ticket)
     case False{}: Focus{ticket, Focus.change_target(previous, current)} <> content_effects(effects)
 
+def retained_root_handoff(retained: Bool, previous_root: Bool, next_input: Bool) -> Bool:
+  match retained:
+    case False{}: False{}
+    case True{}: previous_root && next_input
+
+# NOTE: A loading layer keeps its root eligible after content arrives; transfer only
+# while that root still owns focus, so an intervening user choice is preserved.
+def scope_handoff(previous: Focus.Scope, current: Focus.Scope, focused: String) -> Bool:
+  match previous current:
+    case Focus.Temporary{+old_identity, +old_initial, old_restore} Focus.Temporary{new_identity, new_initial, new_restore}:
+      retained_root_handoff(String.eq(focused, old_initial),
+        String.eq(old_identity, new_identity) && String.eq(old_initial, old_identity),
+        Bool.not(String.eq(old_initial, new_initial)))
+    case _ _: False{}
+
+def focus_transition(+previous: Focus.Scope, +current: Focus.Scope, focused: String, eligible: Bool) -> Bool:
+  Focus.transition(previous, current, eligible) || scope_handoff(previous, current, focused)
+
 def scope_effects(changed: Bool, previous: Focus.Scope, current: Focus.Scope, +effects: +List<E.Effect>, +ticket: Nat) -> +List<Effect>:
   match changed:
     case True{}: scope_attention(has_attention(effects), previous, current, effects, ticket)
@@ -193,7 +211,7 @@ def active_focus(core: Core.State, capacity: View.Capacity, identity: String) ->
 def after_core_scoped(decision: Core.Decision, platform: Platform, +current_scope: Focus.Scope) -> Decision:
   Core.Decision{Core.State{+application, +services}, reply, runtime, +interaction, service, durable} = decision
   Platform{+readers, editors, +focused, +ticket, reduced, +capacity, +scope} = platform
-  +transition = Focus.transition(scope, current_scope, active_focus(Core.State{application, services}, capacity, focused))
+  +transition = focus_transition(scope, current_scope, focused, active_focus(Core.State{application, services}, capacity, focused))
   Decision{Core.Decision{Core.State{application, services}, reply, runtime, interaction, service, durable},
     Platform{readers, synchronize_editors(editors, application), focused, focus_revision(transition, interaction, ticket), reduced, capacity, current_scope},
     List.append(&2, Effect, scope_effects(transition, scope, current_scope, interaction, focus_revision(transition, interaction, ticket)), layout_for(application, readers))}

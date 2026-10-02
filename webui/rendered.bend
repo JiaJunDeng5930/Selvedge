@@ -45,6 +45,7 @@ def interactive(meaning: UI.Meaning) -> Bool:
   match meaning:
     case UI.ComposerAction{subject, input, availability}: True{}
     case UI.Activate{input, availability}: True{}
+    case UI.PanelToggle{expanded, input, availability}: True{}
     case UI.Choice{selected, description, input, availability}: True{}
     case UI.Edit{editor, field, entry, value}: field_control(entry)
     case UI.SearchChoices{query}: True{}
@@ -52,6 +53,7 @@ def interactive(meaning: UI.Meaning) -> Bool:
     case UI.BoardSearch{filter}: True{}
     case UI.ReceiveFile{editor, enabled}: True{}
     case UI.EnterDirectory{editor, text}: True{}
+    case UI.DirectoryBrowserLocation{value}: True{}
     case UI.BoardProfile{automatic, selected, choices, enabled}: True{}
     case _: False{}
 
@@ -59,6 +61,7 @@ def required_enabled(meaning: UI.Meaning) -> Bool:
   match meaning:
     case UI.ComposerAction{subject, input, availability}: enabled(availability)
     case UI.Activate{input, availability}: enabled(availability)
+    case UI.PanelToggle{expanded, input, availability}: enabled(availability)
     case UI.Choice{selected, description, input, availability}: enabled(availability)
     case UI.ReceiveFile{editor, enabled}: enabled
     case UI.BoardProfile{automatic, selected, choices, enabled}: enabled

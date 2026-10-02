@@ -22,7 +22,7 @@ def chrome_background(value: Design.Chrome) -> Design.Paint:
   background
 
 def style_background(value: Design.Style) -> Design.Paint:
-  Design.Style{text, chrome, alignment, flow, overflow, content_area, gap, height, maximum, states} = value
+  Design.Style{text, chrome, alignment, flow, overflow, +content_frame, height, maximum, states} = value
   chrome_background(chrome)
 
 def states_background(chrome: Design.Chrome, states: Design.ControlStates, phase: Surfaces.Phase) -> Design.Paint:
@@ -32,7 +32,7 @@ def states_background(chrome: Design.Chrome, states: Design.ControlStates, phase
     case _ _: chrome_background(chrome)
 
 def phase_background(value: Design.Style, phase: Surfaces.Phase) -> Design.Paint:
-  Design.Style{text, +chrome, alignment, flow, overflow, content_area, gap, height, maximum, +states} = value
+  Design.Style{text, +chrome, alignment, flow, overflow, +content_frame, height, maximum, +states} = value
   states_background(chrome, states, phase)
 
 def text_style(font: Design.Font, size: Nat, line_height: Nat, weight: Nat) -> Design.TextStyle:
@@ -55,11 +55,15 @@ def fields(text: Design.TextStyle, style_chrome: Design.Chrome, alignment: Desig
   flow: Design.Flow, overflow: Design.Overflow, padding_inline: Nat, padding_block: Nat,
   gap: Nat, minimum_height: Nat, maximum_width_percent: Nat,
   states: Design.ControlStates) -> Design.Style:
-  Design.Style{text, style_chrome, alignment, flow, overflow, Enclosure.ambient(padding_inline, padding_block), gap, minimum_height, maximum_width_percent, states}
+  Design.Style{text, style_chrome, alignment, flow, overflow, Enclosure.Frame{Enclosure.ambient(padding_inline, padding_block), Enclosure.EmbeddedContent{gap}}, minimum_height, maximum_width_percent, states}
 
 def with_content_area(value: Design.Style, content_area: Enclosure.ContentArea) -> Design.Style:
-  Design.Style{text, chrome, alignment, flow, overflow, old_area, gap, minimum, maximum, states} = value
-  Design.Style{text, chrome, alignment, flow, overflow, content_area, gap, minimum, maximum, states}
+  Design.Style{text, chrome, alignment, flow, overflow, Enclosure.Frame{old_area, arrangement}, minimum, maximum, states} = value
+  Design.Style{text, chrome, alignment, flow, overflow, Enclosure.Frame{content_area, arrangement}, minimum, maximum, states}
+
+def with_arrangement(value: Design.Style, arrangement: Enclosure.Arrangement) -> Design.Style:
+  Design.Style{text, chrome, alignment, flow, overflow, Enclosure.Frame{content, old_arrangement}, minimum, maximum, states} = value
+  Design.Style{text, chrome, alignment, flow, overflow, Enclosure.Frame{content, arrangement}, minimum, maximum, states}
 
 def ordinary_text() -> Design.TextStyle:
   text_style(Design.InterfaceFont{}, 13n, 20n, 400n)
@@ -184,10 +188,10 @@ def field_style(meaning: UI.Meaning) -> Design.Style:
 def style(role: UI.Role, meaning: UI.Meaning) -> Design.Style:
   match role:
     case UI.Navigation{}:
-      with_content_area(fields(ordinary_text(), chrome(primary_foreground(),
+      with_arrangement(with_content_area(fields(ordinary_text(), chrome(primary_foreground(),
         surface(Surfaces.Navigation{}, Surfaces.Rest{}), transparent(), 0n, 0n, False{}),
         Design.Stretch{}, Design.ColumnFlow{}, Design.ScrollFlow{}, 8n, 8n, 4n,
-        0n, 100n, passive()), Enclosure.area(Enclosure.Navigation{}))
+        0n, 100n, passive()), Enclosure.area(Enclosure.Navigation{})), Enclosure.SeparateFrames{Enclosure.NavigationRows{}})
     case UI.NavigationHeader{}:
       fields(text_style(Design.InterfaceFont{}, 13n, 20n, 500n), base_chrome(),
         Design.Stretch{}, Design.RowFlow{}, Design.ContentFlow{}, 0n, 4n, 8n,
@@ -200,8 +204,8 @@ def style(role: UI.Role, meaning: UI.Meaning) -> Design.Style:
         Design.Stretch{}, Design.SplitRowFlow{}, Design.ContentFlow{}, 0n, 0n, 8n,
         46n, 100n, passive())
     case UI.Timeline{}:
-      fields(ordinary_text(), base_chrome(), Design.Stretch{}, Design.ColumnFlow{},
-        Design.ContentFlow{}, 0n, 0n, 16n, 0n, 100n, passive())
+      with_arrangement(fields(ordinary_text(), base_chrome(), Design.Stretch{}, Design.ColumnFlow{},
+        Design.ContentFlow{}, 0n, 0n, 16n, 0n, 100n, passive()), Enclosure.SeparateFrames{Enclosure.Messages{}})
     case UI.Activity{}:
       fields(text_style(Design.InterfaceFont{}, 12n, 18n, 400n),
         chrome(subdued_foreground(), surface(Surfaces.EmbeddedAction{}, Surfaces.Rest{}), transparent(), 0n, 0n, False{}),
@@ -235,20 +239,20 @@ def style(role: UI.Role, meaning: UI.Meaning) -> Design.Style:
       fields(ordinary_text(), base_chrome(), Design.Stretch{}, Design.ColumnFlow{},
         Design.ScrollFlow{}, 0n, 0n, 8n, 0n, 100n, passive())
     case UI.Section{}:
-      fields(ordinary_text(), base_chrome(), Design.Stretch{}, Design.ColumnFlow{},
-        Design.ContentFlow{}, 0n, 0n, 12n, 0n, 100n, passive())
+      with_arrangement(fields(ordinary_text(), base_chrome(), Design.Stretch{}, Design.ColumnFlow{},
+        Design.ContentFlow{}, 0n, 0n, 12n, 0n, 100n, passive()), Enclosure.SeparateFrames{Enclosure.Sections{}})
     case UI.Dialog{}:
-      with_content_area(surface_style(Design.ColumnFlow{}, Design.ContentFlow{}, 0n, 0n, 0n, 16n, True{}), Enclosure.DialogPartitions{})
+      with_arrangement(with_content_area(surface_style(Design.ColumnFlow{}, Design.ContentFlow{}, 0n, 0n, 0n, 16n, True{}), Enclosure.DialogPartitions{}), Enclosure.JoinedPartitions{})
     case UI.Menu{}:
-      with_content_area(fields(ordinary_text(), chrome(primary_foreground(),
+      with_arrangement(with_content_area(fields(ordinary_text(), chrome(primary_foreground(),
         surface(Surfaces.Floating{}, Surfaces.Rest{}),
         paint("--color-token-border-default"), 1n, 12n, True{}),
         Design.Stretch{}, Design.ColumnFlow{}, Design.ScrollFlow{}, popup_content_inset(), popup_content_inset(), 2n,
-        0n, 100n, passive()), Enclosure.area(Enclosure.Menu{}))
+        0n, 100n, passive()), Enclosure.area(Enclosure.Menu{})), Enclosure.SeparateFrames{Enclosure.MenuItems{}})
     case UI.Details{}:
-      with_content_area(surface_style(Design.ColumnFlow{}, Design.ScrollFlow{}, 16n, 16n, 16n, 0n, False{}), Enclosure.area(Enclosure.Details{}))
+      with_arrangement(with_content_area(surface_style(Design.ColumnFlow{}, Design.ScrollFlow{}, 16n, 16n, 16n, 0n, False{}), Enclosure.area(Enclosure.Details{})), Enclosure.SeparateFrames{Enclosure.Sections{}})
     case UI.Card{}:
-      with_content_area(surface_style(Design.ColumnFlow{}, Design.ContentFlow{}, 12n, 12n, 8n, 9n, True{}), Enclosure.area(Enclosure.Card{}))
+      with_arrangement(with_content_area(surface_style(Design.ColumnFlow{}, Design.ContentFlow{}, 12n, 12n, 8n, 9n, True{}), Enclosure.area(Enclosure.Card{})), Enclosure.SeparateFrames{Enclosure.CardSections{}})
     case UI.PrimaryButton{}: primary_button()
     case UI.DestructiveButton{}: destructive_button()
     case UI.SelectedButton{}: selected_button()
@@ -258,9 +262,8 @@ def style(role: UI.Role, meaning: UI.Meaning) -> Design.Style:
     case UI.Alert{}: base_style()
 
 def navigation_row(style_value: Design.Style) -> Design.Style:
-  Design.Style{Design.TextStyle{font, size, line_height, weight}, style_chrome, alignment, flow, overflow, content_area, gap, minimum_height, maximum_width_percent, states} = style_value
-  Design.Style{text_style(font, 12n, 18n, weight), style_chrome,
-    alignment, flow, overflow, content_area, gap, 29n, maximum_width_percent, states}
+  Design.Style{Design.TextStyle{font, size, line_height, weight}, style_chrome, alignment, flow, overflow, +content_frame, minimum_height, maximum_width_percent, states} = style_value
+  Design.Style{text_style(font, 12n, 18n, weight), style_chrome, alignment, flow, overflow, content_frame, 29n, maximum_width_percent, states}
 
 def style_in_context(role: UI.Role, meaning: UI.Meaning,
   inside_navigation: Bool) -> Design.Style:
@@ -305,13 +308,11 @@ def extent_height(value: Enclosure.Extent) -> Nat:
   height
 
 def action_style_insets(value: Design.Style, geometry: Controls.Geometry, +content_area: Enclosure.ContentArea, content_gap: Nat) -> Design.Style:
-  Design.Style{+text, +style_chrome, alignment, flow, overflow, old_area, gap, old_height, maximum_width_percent, states} = value
+  Design.Style{+text, +style_chrome, alignment, flow, overflow, +content_frame, old_height, maximum_width_percent, states} = value
   Controls.Geometry{minimum_width, minimum_height, icon_size, +radius, leading_slot} = geometry
   required_height = extent_height(Enclosure.required_extent(0n, text_line_height(text),
     chrome_border_width(style_chrome), content_area))
-  Design.Style{text, rounded_chrome(style_chrome, radius), alignment, Design.RowFlow{},
-    overflow, content_area, content_gap, Nat.max(minimum_height, required_height), maximum_width_percent,
-    rounded_states(states, radius)}
+  Design.Style{text, rounded_chrome(style_chrome, radius), alignment, Design.RowFlow{}, overflow, Enclosure.Frame{content_area, Enclosure.EmbeddedContent{content_gap}}, Nat.max(minimum_height, required_height), maximum_width_percent, rounded_states(states, radius)}
 
 def action_content_style(value: Design.Style, layout: Controls.ContentLayout, geometry: Controls.Geometry) -> Design.Style:
   Controls.ContentLayout{content_alignment, content_area, content_gap} = layout
@@ -370,7 +371,7 @@ def theme(appearance: Services.Appearance, system_dark: Bool) -> Design.Theme:
 
 def present_fields(content: Core.Scene, base: +List<UI.Node>, overlays: +List<UI.Node>,
   +context: Controls.Context, system_dark: Bool) -> Design.Visuals:
-  Core.Scene{view, settings, transfers, preview, code} = content
+  Core.Scene{view, settings, transfers, preview, code, directory_picker} = content
   Core.Settings{open, access, credential_entered, appearance, open_action,
     close_action, connect_action} = settings
   Design.Visuals{theme(appearance, system_dark),

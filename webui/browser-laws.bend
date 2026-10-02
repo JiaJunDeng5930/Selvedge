@@ -239,8 +239,23 @@ def notice_identity(notices: +List<Doc.Node>, root: Doc.Node, title: String) ->
     case Nil{}: {==}
     case Con{notice, rest}: {==}
 
+def dismissal_allowed(+input: Core.Input, +state: Browser.State) ->
+  {Browser.dismiss_permitted(True{}, input, state) ==
+    Browser.product_input(Product.InterfaceInput{input}, state) : Browser.Decision}:
+  {==}
+
+def dismissal_refused(input: Core.Input, +state: Browser.State) ->
+  {Browser.dismiss_permitted(False{}, input, state) == Browser.Decision{state, Nil{}} : Browser.Decision}:
+  {==}
+
 type Requirements is Type:
   Requirements{
+    interface_bridge: Product.InterfaceRequirements,
+    dismissal_allowed: @+input:Core.Input -> @+state:Browser.State ->
+      {Browser.dismiss_permitted(True{}, input, state) ==
+        Browser.product_input(Product.InterfaceInput{input}, state) : Browser.Decision},
+    dismissal_refused: @input:Core.Input -> @+state:Browser.State ->
+      {Browser.dismiss_permitted(False{}, input, state) == Browser.Decision{state, Nil{}} : Browser.Decision},
     notice_identity: @notices:+List<Doc.Node> -> @root:Doc.Node -> @title:String ->
       {node_identity(first_node(node_children(document_root(Browser.with_notices(notices, root, title))))) == Some{RootIdentity{"@browser/unknown-status", "aside"}} : Maybe<&2, RootIdentity>},
     notice_root_identity: @notices: +List<Doc.Node> -> @root: Doc.Node -> @title: String -> {node_identity(document_root(Browser.with_notices(notices, root, title))) ==
@@ -288,4 +303,4 @@ type Requirements is Type:
           Browser.State{web, current, next, Browser.remove(pending, ticket)}) : Browser.Decision}
   }
 def evidence() -> Requirements:
-  Requirements{notice_identity, notice_root_identity, notice_children, notice_title, application_identity, application_content, empty_application_unchanged, empty_notice_hidden, notice_contents, document_key_event, failed_transition, document_key, failed_preserves_web, failed_retains_ticket, consumed_ticket, stale_snapshot, admitted_request, stale_completion_uses_current}
+  Requirements{Product.interface_evidence(), dismissal_allowed, dismissal_refused, notice_identity, notice_root_identity, notice_children, notice_title, application_identity, application_content, empty_application_unchanged, empty_notice_hidden, notice_contents, document_key_event, failed_transition, document_key, failed_preserves_web, failed_retains_ticket, consumed_ticket, stale_snapshot, admitted_request, stale_completion_uses_current}

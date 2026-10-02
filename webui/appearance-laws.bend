@@ -51,7 +51,7 @@ def nodes_preserve_keys_at(values: +List<UI.Node>, +context: Controls.Context) -
 
 def configured_appearance(surface: UI.Surface) -> Services.Appearance:
   UI.Surface{content, base, overlays, active_scope} = surface
-  Core.Scene{view, settings, transfers, preview, code} = content
+  Core.Scene{view, settings, transfers, preview, code, directory_picker} = content
   Core.Settings{open, access, credential_entered, appearance, open_action,
     close_action, connect_action} = settings
   appearance
@@ -69,7 +69,7 @@ def present_uses_configured_appearance(surface: UI.Surface, system_dark: Bool) -
   match surface:
     case UI.Surface{content, base, overlays, active_scope}:
       match content:
-        case Core.Scene{view, settings, transfers, preview, code}:
+        case Core.Scene{view, settings, transfers, preview, code, directory_picker}:
           match settings:
             case Core.Settings{open, access, credential_entered, appearance,
               open_action, close_action, connect_action}: {==}
@@ -98,42 +98,25 @@ def system_appearance_follows_os(system_dark: Bool) ->
     case False{}: {==}
 
 def user_message_style_is_exact(meaning: UI.Meaning) ->
-  {Appearance.style(UI.UserMessage{}, meaning) == Design.Style{
-    Design.TextStyle{Design.InterfaceFont{}, 13n, 20n, 400n},
-    Design.Chrome{Design.ThemeToken{"--color-token-text-primary"},
-      Design.SurfacePaint{Surfaces.Inset{}, Surfaces.Rest{}}, Design.Transparent{}, 0n, 16n, False{}},
-    Design.Trailing{}, Design.BlockFlow{}, Design.ContentFlow{},
-    Enclosure.area(Enclosure.UserMessage{}), 0n, 0n, 70n, Design.Passive{}
-  } : Design.Style}:
+  {Appearance.style(UI.UserMessage{}, meaning) == Design.Style{Design.TextStyle{Design.InterfaceFont{}, 13n, 20n, 400n}, Design.Chrome{Design.ThemeToken{"--color-token-text-primary"},
+      Design.SurfacePaint{Surfaces.Inset{}, Surfaces.Rest{}}, Design.Transparent{}, 0n, 16n, False{}}, Design.Trailing{}, Design.BlockFlow{}, Design.ContentFlow{}, Enclosure.Frame{Enclosure.area(Enclosure.UserMessage{}), Enclosure.EmbeddedContent{0n}}, 0n, 70n, Design.Passive{}} : Design.Style}:
   {==}
 
 def assistant_message_style_is_exact(meaning: UI.Meaning) ->
-  {Appearance.style(UI.AssistantMessage{}, meaning) == Design.Style{
-    Design.TextStyle{Design.InterfaceFont{}, 13n, 20n, 400n},
-    Design.Chrome{Design.ThemeToken{"--color-token-text-primary"},
-      Design.SurfacePaint{Surfaces.EmbeddedAction{}, Surfaces.Rest{}}, Design.Transparent{}, 0n, 0n, False{}},
-    Design.Leading{}, Design.BlockFlow{}, Design.ContentFlow{},
-    Enclosure.ambient(0n, 0n), 0n, 0n, 100n, Design.Passive{}
-  } : Design.Style}:
+  {Appearance.style(UI.AssistantMessage{}, meaning) == Design.Style{Design.TextStyle{Design.InterfaceFont{}, 13n, 20n, 400n}, Design.Chrome{Design.ThemeToken{"--color-token-text-primary"},
+      Design.SurfacePaint{Surfaces.EmbeddedAction{}, Surfaces.Rest{}}, Design.Transparent{}, 0n, 0n, False{}}, Design.Leading{}, Design.BlockFlow{}, Design.ContentFlow{}, Enclosure.Frame{Enclosure.ambient(0n, 0n), Enclosure.EmbeddedContent{0n}}, 0n, 100n, Design.Passive{}} : Design.Style}:
   {==}
 
 def composer_actions_style_is_exact(meaning: UI.Meaning) ->
-  {Appearance.style(UI.ComposerActions{}, meaning) == Design.Style{
-    Design.TextStyle{Design.InterfaceFont{}, 13n, 20n, 400n},
-    Design.Chrome{Design.ThemeToken{"--color-token-text-primary"},
-      Design.SurfacePaint{Surfaces.EmbeddedAction{}, Surfaces.Rest{}}, Design.Transparent{}, 0n, 0n, False{}},
-    Design.Stretch{}, Design.SplitRowFlow{}, Design.ContentFlow{},
-    Enclosure.ambient(0n, 0n), 4n, 32n, 100n, Design.Passive{}
-  } : Design.Style}:
+  {Appearance.style(UI.ComposerActions{}, meaning) == Design.Style{Design.TextStyle{Design.InterfaceFont{}, 13n, 20n, 400n}, Design.Chrome{Design.ThemeToken{"--color-token-text-primary"},
+      Design.SurfacePaint{Surfaces.EmbeddedAction{}, Surfaces.Rest{}}, Design.Transparent{}, 0n, 0n, False{}}, Design.Stretch{}, Design.SplitRowFlow{}, Design.ContentFlow{}, Enclosure.Frame{Enclosure.ambient(0n, 0n), Enclosure.EmbeddedContent{4n}}, 32n, 100n, Design.Passive{}} : Design.Style}:
   {==}
 
 type ButtonMetrics is Data:
   ButtonMetrics{size: Nat, line_height: Nat, weight: Nat, minimum_height: Nat}
 
 def button_metrics(style: Design.Style) -> ButtonMetrics:
-  Design.Style{Design.TextStyle{font, size, line_height, weight}, chrome,
-    alignment, flow, overflow, content_area, gap, minimum_height,
-    maximum_width_percent, states} = style
+  Design.Style{Design.TextStyle{font, size, line_height, weight}, chrome, alignment, flow, overflow, +content_frame, minimum_height, maximum_width_percent, states} = style
   ButtonMetrics{size, line_height, weight, minimum_height}
 
 def navigation_button_metrics(meaning: UI.Meaning) ->
@@ -152,13 +135,9 @@ def ordinary_button_metrics(meaning: UI.Meaning) ->
   {==}
 
 def primary_button_keeps_interaction_states(meaning: UI.Meaning) ->
-  {Appearance.style(UI.PrimaryButton{}, meaning) == Design.Style{
-    Design.TextStyle{Design.InterfaceFont{}, 13n, 20n, 500n},
-    Design.Chrome{Design.SurfaceForeground{Surfaces.PrimaryAction{}},
+  {Appearance.style(UI.PrimaryButton{}, meaning) == Design.Style{Design.TextStyle{Design.InterfaceFont{}, 13n, 20n, 500n}, Design.Chrome{Design.SurfaceForeground{Surfaces.PrimaryAction{}},
       Design.SurfacePaint{Surfaces.PrimaryAction{}, Surfaces.Rest{}},
-      Design.Transparent{}, 0n, 8n, False{}},
-    Design.Stretch{}, Design.RowFlow{}, Design.ContentFlow{}, Enclosure.area(Enclosure.TextControl{}), 4n, 32n, 100n,
-    Design.Interactive{
+      Design.Transparent{}, 0n, 8n, False{}}, Design.Stretch{}, Design.RowFlow{}, Design.ContentFlow{}, Enclosure.Frame{Enclosure.area(Enclosure.TextControl{}), Enclosure.EmbeddedContent{4n}}, 32n, 100n, Design.Interactive{
       Design.Chrome{Design.SurfaceForeground{Surfaces.PrimaryAction{}},
         Design.SurfacePaint{Surfaces.PrimaryAction{}, Surfaces.Hovered{}},
         Design.Transparent{}, 0n, 8n, False{}},
@@ -166,16 +145,15 @@ def primary_button_keeps_interaction_states(meaning: UI.Meaning) ->
         Design.SurfacePaint{Surfaces.PrimaryAction{}, Surfaces.Pressed{}},
         Design.Transparent{}, 0n, 8n, False{}},
       40n, Design.ThemeToken{"--color-token-focus-border"}, 2n, 2n
-    }
-  } : Design.Style}:
+    }} : Design.Style}:
   {==}
 
 def style_text(value: Design.Style) -> Design.TextStyle:
-  Design.Style{text, chrome, alignment, flow, overflow, content_area, gap, minimum, maximum, states} = value
+  Design.Style{text, chrome, alignment, flow, overflow, +content_frame, minimum, maximum, states} = value
   text
 
 def style_border(value: Design.Style) -> Nat:
-  Design.Style{text, Design.Chrome{foreground, background, border, width, radius, shadow}, alignment, flow, overflow, content_area, gap, minimum, maximum, states} = value
+  Design.Style{text, Design.Chrome{foreground, background, border, width, radius, shadow}, alignment, flow, overflow, +content_frame, minimum, maximum, states} = value
   width
 
 def creation_title_metrics(fallback: Design.Style) ->
@@ -206,33 +184,17 @@ type Requirements is Type:
     system_appearance_follows_os: @system_dark:Bool ->
       {Appearance.theme(Services.SystemAppearance{}, system_dark) == system_theme(system_dark) : Design.Theme},
     user_message_style_is_exact: @meaning:UI.Meaning ->
-      {Appearance.style(UI.UserMessage{}, meaning) == Design.Style{
-        Design.TextStyle{Design.InterfaceFont{}, 13n, 20n, 400n},
-        Design.Chrome{Design.ThemeToken{"--color-token-text-primary"},
-          Design.SurfacePaint{Surfaces.Inset{}, Surfaces.Rest{}}, Design.Transparent{}, 0n, 16n, False{}},
-        Design.Trailing{}, Design.BlockFlow{}, Design.ContentFlow{}, Enclosure.area(Enclosure.UserMessage{}), 0n, 0n, 70n,
-        Design.Passive{}} : Design.Style},
+      {Appearance.style(UI.UserMessage{}, meaning) == Design.Style{Design.TextStyle{Design.InterfaceFont{}, 13n, 20n, 400n}, Design.Chrome{Design.ThemeToken{"--color-token-text-primary"},
+          Design.SurfacePaint{Surfaces.Inset{}, Surfaces.Rest{}}, Design.Transparent{}, 0n, 16n, False{}}, Design.Trailing{}, Design.BlockFlow{}, Design.ContentFlow{}, Enclosure.Frame{Enclosure.area(Enclosure.UserMessage{}), Enclosure.EmbeddedContent{0n}}, 0n, 70n, Design.Passive{}} : Design.Style},
     assistant_message_style_is_exact: @meaning:UI.Meaning ->
-      {Appearance.style(UI.AssistantMessage{}, meaning) == Design.Style{
-        Design.TextStyle{Design.InterfaceFont{}, 13n, 20n, 400n},
-        Design.Chrome{Design.ThemeToken{"--color-token-text-primary"},
-          Design.SurfacePaint{Surfaces.EmbeddedAction{}, Surfaces.Rest{}}, Design.Transparent{}, 0n, 0n, False{}},
-        Design.Leading{}, Design.BlockFlow{}, Design.ContentFlow{}, Enclosure.ambient(0n, 0n), 0n, 0n, 100n,
-        Design.Passive{}} : Design.Style},
+      {Appearance.style(UI.AssistantMessage{}, meaning) == Design.Style{Design.TextStyle{Design.InterfaceFont{}, 13n, 20n, 400n}, Design.Chrome{Design.ThemeToken{"--color-token-text-primary"},
+          Design.SurfacePaint{Surfaces.EmbeddedAction{}, Surfaces.Rest{}}, Design.Transparent{}, 0n, 0n, False{}}, Design.Leading{}, Design.BlockFlow{}, Design.ContentFlow{}, Enclosure.Frame{Enclosure.ambient(0n, 0n), Enclosure.EmbeddedContent{0n}}, 0n, 100n, Design.Passive{}} : Design.Style},
     composer_actions_style_is_exact: @meaning:UI.Meaning ->
-      {Appearance.style(UI.ComposerActions{}, meaning) == Design.Style{
-        Design.TextStyle{Design.InterfaceFont{}, 13n, 20n, 400n},
-        Design.Chrome{Design.ThemeToken{"--color-token-text-primary"},
-          Design.SurfacePaint{Surfaces.EmbeddedAction{}, Surfaces.Rest{}}, Design.Transparent{}, 0n, 0n, False{}},
-        Design.Stretch{}, Design.SplitRowFlow{}, Design.ContentFlow{}, Enclosure.ambient(0n, 0n), 4n, 32n, 100n,
-        Design.Passive{}} : Design.Style},
+      {Appearance.style(UI.ComposerActions{}, meaning) == Design.Style{Design.TextStyle{Design.InterfaceFont{}, 13n, 20n, 400n}, Design.Chrome{Design.ThemeToken{"--color-token-text-primary"},
+          Design.SurfacePaint{Surfaces.EmbeddedAction{}, Surfaces.Rest{}}, Design.Transparent{}, 0n, 0n, False{}}, Design.Stretch{}, Design.SplitRowFlow{}, Design.ContentFlow{}, Enclosure.Frame{Enclosure.ambient(0n, 0n), Enclosure.EmbeddedContent{4n}}, 32n, 100n, Design.Passive{}} : Design.Style},
     primary_button_keeps_interaction_states: @meaning:UI.Meaning ->
-      {Appearance.style(UI.PrimaryButton{}, meaning) == Design.Style{
-        Design.TextStyle{Design.InterfaceFont{}, 13n, 20n, 500n},
-        Design.Chrome{Design.SurfaceForeground{Surfaces.PrimaryAction{}},
-          Design.SurfacePaint{Surfaces.PrimaryAction{}, Surfaces.Rest{}}, Design.Transparent{}, 0n, 8n, False{}},
-        Design.Stretch{}, Design.RowFlow{}, Design.ContentFlow{}, Enclosure.area(Enclosure.TextControl{}), 4n, 32n, 100n,
-        Design.Interactive{
+      {Appearance.style(UI.PrimaryButton{}, meaning) == Design.Style{Design.TextStyle{Design.InterfaceFont{}, 13n, 20n, 500n}, Design.Chrome{Design.SurfaceForeground{Surfaces.PrimaryAction{}},
+          Design.SurfacePaint{Surfaces.PrimaryAction{}, Surfaces.Rest{}}, Design.Transparent{}, 0n, 8n, False{}}, Design.Stretch{}, Design.RowFlow{}, Design.ContentFlow{}, Enclosure.Frame{Enclosure.area(Enclosure.TextControl{}), Enclosure.EmbeddedContent{4n}}, 32n, 100n, Design.Interactive{
           Design.Chrome{Design.SurfaceForeground{Surfaces.PrimaryAction{}},
             Design.SurfacePaint{Surfaces.PrimaryAction{}, Surfaces.Hovered{}},
             Design.Transparent{}, 0n, 8n, False{}},

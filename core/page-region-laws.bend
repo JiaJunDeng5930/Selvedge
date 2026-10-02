@@ -163,18 +163,18 @@ def layer_semantic(nodes: +List<Interface.Node>) -> Maybe<&2, String>:
     case Con{Interface.Node{key, semantic, label, role, meaning, children}, rest}: Some{semantic}
 
 def single_layer_title(+kind: View.LayerKind, +content: View.LayerContent, +initial: String, +restore: String,
-  +close: View.ControlDeclaration, +state: Core.State) ->
+  +close: View.Dismissal, +state: Core.State) ->
   {layer_label(Interface.layers([View.Layer{kind, content, initial, restore, close}], state)) == Some{View.layer_title(content)} : Maybe<&2, String>}:
   {==}
 
 def layer_title_ignores_attention(+kind: View.LayerKind, +content: View.LayerContent, +first: String, +second: String,
-  +restore: String, +close: View.ControlDeclaration, +state: Core.State) ->
+  +restore: String, +close: View.Dismissal, +state: Core.State) ->
   {layer_label(Interface.layers([View.Layer{kind, content, first, restore, close}], state)) ==
     layer_label(Interface.layers([View.Layer{kind, content, second, restore, close}], state)) : Maybe<&2, String>}:
   {==}
 
 def single_layer_semantic(+kind: View.LayerKind, +content: View.LayerContent, +initial: String, +restore: String,
-  +close: View.ControlDeclaration, +state: Core.State) ->
+  +close: View.Dismissal, +state: Core.State) ->
   {layer_semantic(Interface.layers([View.Layer{kind, content, initial, restore, close}], state)) == Some{initial} : Maybe<&2, String>}:
   {==}
 
@@ -242,11 +242,11 @@ def navigation_head(values: +List<Interface.Node>) -> Interface.Node:
     case Nil{}: Interface.Node{"", "", "", Interface.Section{}, Interface.Region{}, Nil{}}
 
 def content_navigation(value: Core.Scene) -> View.Navigation:
-  Core.Scene{View.Scene{nav, main, layers, arrangement, attention}, settings, transfers, preview, code} = value
+  Core.Scene{View.Scene{nav, main, layers, arrangement, attention}, settings, transfers, preview, code, directory_picker} = value
   nav
 
 def content_navigation_placement(value: Core.Scene) -> View.NavigationPlacement:
-  Core.Scene{View.Scene{nav, main, layers, View.Arrangement{placement, page}, attention}, settings, transfers, preview, code} = value
+  Core.Scene{View.Scene{nav, main, layers, View.Arrangement{placement, page}, attention}, settings, transfers, preview, code, directory_picker} = value
   placement
 
 def collapsed_navigation_single(+toggle: View.ControlDeclaration, expanded: Bool, create: View.ControlDeclaration,
@@ -260,11 +260,11 @@ def collapsed_assembly(+content: Core.Scene, +state: Core.State,
   {navigation_head(surface_base(Interface.assemble(content, state))) ==
     navigation_head(Interface.collapsed_navigation_toggle(content_navigation(content), state)) : Interface.Node}:
   match content:
-    case Core.Scene{View.Scene{View.Navigation{+expanded, +create, +destinations, +projects, +tasks, +toggle}, +main, +layers, View.Arrangement{+placement, +page}, +attention}, +settings, +transfers, +preview, +code}:
+    case Core.Scene{View.Scene{View.Navigation{+expanded, +create, +destinations, +projects, +tasks, +toggle}, +main, +layers, View.Arrangement{+placement, +page}, +attention}, +settings, +transfers, +preview, +code, directory_picker}:
       +nav: View.Navigation = View.Navigation{expanded, create, destinations, projects, tasks, toggle}
       Equal.cong(View.NavigationPlacement, Interface.Node,
         (position => navigation_head(surface_base(Interface.assemble(Core.Scene{View.Scene{nav, main, layers,
-          View.Arrangement{position, page}, attention}, settings, transfers, preview, code}, state)))),
+          View.Arrangement{position, page}, attention}, settings, transfers, preview, code, directory_picker}, state)))),
         placement, View.CollapsedNavigation{}, collapsed)
 
 type Requirements is Type:
@@ -275,12 +275,12 @@ type Requirements is Type:
     navigation_head(Interface.collapsed_navigation_toggle(content_navigation(content), state)) : Interface.Node},
 
     layer_titles: LayerTitleRequirements,
-    layer_name: @+kind:View.LayerKind -> @+content:View.LayerContent -> @+initial:String -> @+restore:String -> @+close:View.ControlDeclaration -> @+state:Core.State ->
+    layer_name: @+kind:View.LayerKind -> @+content:View.LayerContent -> @+initial:String -> @+restore:String -> @+close:View.Dismissal -> @+state:Core.State ->
       {layer_label(Interface.layers([View.Layer{kind, content, initial, restore, close}], state)) == Some{View.layer_title(content)} : Maybe<&2, String>},
-    attention_independent: @+kind:View.LayerKind -> @+content:View.LayerContent -> @+first:String -> @+second:String -> @+restore:String -> @+close:View.ControlDeclaration -> @+state:Core.State ->
+    attention_independent: @+kind:View.LayerKind -> @+content:View.LayerContent -> @+first:String -> @+second:String -> @+restore:String -> @+close:View.Dismissal -> @+state:Core.State ->
       {layer_label(Interface.layers([View.Layer{kind, content, first, restore, close}], state)) ==
         layer_label(Interface.layers([View.Layer{kind, content, second, restore, close}], state)) : Maybe<&2, String>},
-    attention_identity: @+kind:View.LayerKind -> @+content:View.LayerContent -> @+initial:String -> @+restore:String -> @+close:View.ControlDeclaration -> @+state:Core.State ->
+    attention_identity: @+kind:View.LayerKind -> @+content:View.LayerContent -> @+initial:String -> @+restore:String -> @+close:View.Dismissal -> @+state:Core.State ->
       {layer_semantic(Interface.layers([View.Layer{kind, content, initial, restore, close}], state)) == Some{initial} : Maybe<&2, String>},
     page_sequence: @+page:View.Page -> @+parent:String -> @+state:Core.State ->
       {observed_regions(Interface.page_contents(page, parent, state)) == required_regions(page) : +List<Composition.PositionedRegion>},

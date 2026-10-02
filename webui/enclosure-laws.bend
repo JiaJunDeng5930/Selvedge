@@ -7,15 +7,15 @@ import ../core/interface.bend as UI
 import ../core/form-fields.bend as Forms
 
 def area(value: D.Style) -> E.ContentArea:
-  D.Style{text, chrome, alignment, flow, overflow, area, gap, height, maximum, states} = value
-  area
+  D.Style{text, chrome, alignment, flow, overflow, +content_frame, height, maximum, states} = value
+  E.frame_content(content_frame)
 
 def typography(value: D.Style) -> D.TextStyle:
-  D.Style{text, chrome, alignment, flow, overflow, area, gap, height, maximum, states} = value
+  D.Style{text, chrome, alignment, flow, overflow, +content_frame, height, maximum, states} = value
   text
 
 def minimum(value: D.Style) -> Nat:
-  D.Style{text, chrome, alignment, flow, overflow, area, gap, height, maximum, states} = value
+  D.Style{text, chrome, alignment, flow, overflow, +content_frame, height, maximum, states} = value
   height
 
 def layout_area(value: C.ContentLayout) -> E.ContentArea:
@@ -23,7 +23,7 @@ def layout_area(value: C.ContentLayout) -> E.ContentArea:
   area
 
 def chrome(value: D.Style) -> D.Chrome:
-  D.Style{text, chrome, alignment, flow, overflow, area, gap, height, maximum, states} = value
+  D.Style{text, chrome, alignment, flow, overflow, +content_frame, height, maximum, states} = value
   chrome
 
 def geometry_height(value: C.Geometry) -> Nat:
@@ -31,7 +31,7 @@ def geometry_height(value: C.Geometry) -> Nat:
   height
 
 def interaction(value: D.Style) -> D.ControlStates:
-  D.Style{text, chrome, alignment, flow, overflow, area, gap, height, maximum, states} = value
+  D.Style{text, chrome, alignment, flow, overflow, +content_frame, height, maximum, states} = value
   states
 
 def positive(+profile: E.Profile) ->
@@ -51,6 +51,8 @@ def positive(+profile: E.Profile) ->
     case E.Navigation{}: {==}
     case E.Approval{}: {==}
     case E.CodeBlock{}: {==}
+    case E.Lane{}: {==}
+    case E.ArchiveGroup{}: {==}
 
 def extent(+width: Nat, +height: Nat, +border: Nat, +space: E.ContentArea) ->
   {E.required_extent(width, height, border, space) == E.Extent{Nat.add(width, Nat.mul(2n, Nat.add(border, E.inline(space)))), Nat.add(height, Nat.mul(2n, Nat.add(border, E.block(space))))} : E.Extent}:
@@ -62,7 +64,7 @@ def borderless(+width: Nat, +height: Nat, +profile: E.Profile) ->
 
 def action_insets(+value: D.Style, +geometry: C.Geometry, +space: E.ContentArea, +gap: Nat) ->
   {area(A.action_style_insets(value, geometry, space, gap)) == space : E.ContentArea}:
-  D.Style{text, chrome, alignment, flow, overflow, old_area, old_gap, height, maximum, states} = value
+  D.Style{text, chrome, alignment, flow, overflow, +content_frame, height, maximum, states} = value
   C.Geometry{width, height, icon, radius, leading} = geometry
   {==}
 
@@ -77,7 +79,7 @@ def action_copied(+value: D.Style, +face: C.Face, +geometry: C.Geometry) ->
 
 def minimum_extent(+value: D.Style, +geometry: C.Geometry, +space: E.ContentArea, +gap: Nat) ->
   {minimum(A.action_style_insets(value, geometry, space, gap)) == Nat.max(geometry_height(geometry), A.extent_height(E.required_extent(0n, A.text_line_height(typography(value)), A.chrome_border_width(chrome(value)), space))) : Nat}:
-  D.Style{text, chrome, alignment, flow, overflow, old_area, old_gap, height, maximum, states} = value
+  D.Style{text, chrome, alignment, flow, overflow, +content_frame, height, maximum, states} = value
   C.Geometry{width, height, icon, radius, leading} = geometry
   {==}
 
@@ -147,7 +149,8 @@ def part_footer() ->
 
 def state_allocation(+value: D.Style, +space: E.ContentArea) ->
   {interaction(A.with_content_area(value, space)) == interaction(value) : D.ControlStates}:
-  D.Style{text, chrome, alignment, flow, overflow, old_area, old_gap, height, maximum, states} = value
+  D.Style{text, chrome, alignment, flow, overflow, +content_frame, height, maximum, states} = value
+  E.Frame{old_area, old_arrangement} = content_frame
   {==}
 
 def icon_layout(+icon: C.Icon) ->

@@ -22,6 +22,8 @@ def source_binding(+meaning: UI.Meaning) -> UI.Meaning:
   match meaning:
     case UI.PageRegion{region, position}: UI.Region{}
     case UI.Region{}: UI.Region{}
+    case UI.LayerRegion{dismiss, outside, escape}: UI.Region{}
+    case UI.PanelToggle{expanded, input, availability}: UI.Activate{input, availability}
     case UI.ProjectGroup{project, selected, expanded}: UI.Region{}
     case UI.TaskRow{task, status, selected}: UI.Region{}
     case UI.ProjectChooser{selected}: UI.Region{}
@@ -55,6 +57,20 @@ def action_retains_binding(+key: String, +input: Core.Input, +availability: View
   match context:
     case Controls.Context{area, selection, code, appearance, access, open, layers, execution}: {==}
 
+def panel_toggle_fields_retains_binding(+expanded: Bool, value: Controls.Representation) ->
+  {binding(Controls.panel_toggle_fields(expanded, value)) == binding(value) : UI.Meaning}:
+  match value:
+    case Controls.Action{input, availability, name, face, behavior, geometry, placement, help, feedback}: {==}
+    case Controls.NoControl{}: {==}
+    case Controls.Input{meaning, name, widget, label, availability}: {==}
+    case Controls.Movable{destinations, face, name, handle, geometry, help}: {==}
+
+def panel_toggle_retains_binding(+key: String, expanded: Bool, +input: Core.Input, +availability: View.Availability,
+  label: String, role: UI.Role, context: Controls.Context) ->
+  {binding(Controls.make_panel_toggle(key, expanded, input, availability, label, role, context)) == UI.Activate{input, availability} : UI.Meaning}:
+  match context:
+    case Controls.Context{area, selection, code, appearance, access, open, layers, execution}: {==}
+
 def choice_retains_binding(+key: String, selected: Bool, +input: Core.Input, +availability: View.Availability,
   label: String, role: UI.Role, context: Controls.Context) ->
   {binding(Controls.make_choice(key, selected, input, availability, label, role, context)) ==
@@ -75,6 +91,7 @@ def representation_retains_binding(+key: String, +meaning: UI.Meaning, label: St
   match meaning:
     case UI.ComposerAction{subject, input, availability}: composer_action_retains_binding(key, subject, input, availability, label, role, context)
     case UI.Activate{input, availability}: action_retains_binding(key, input, availability, label, role, context)
+    case UI.PanelToggle{expanded, input, availability}: panel_toggle_retains_binding(key, expanded, input, availability, label, role, context)
     case UI.Choice{selected, description, input, availability}: choice_retains_binding(key, selected, input, availability, label, role, context)
     case UI.ProjectGroup{project, selected, expanded}: {==}
     case UI.TaskRow{task, status, selected}: {==}
@@ -98,6 +115,7 @@ def representation_retains_binding(+key: String, +meaning: UI.Meaning, label: St
     case UI.BoardSearch{filter}: {==}
     case UI.ReceiveFile{editor, enabled}: {==}
     case UI.EnterDirectory{editor, text}: {==}
+    case UI.DirectoryBrowserLocation{value}: {==}
     case UI.BoardProfile{automatic, selected, choices, enabled}: {==}
     case UI.MovableCard{destinations, face}: {==}
     case UI.BoardLane{stage, count}: {==}
@@ -105,6 +123,7 @@ def representation_retains_binding(+key: String, +meaning: UI.Meaning, label: St
     case UI.BoardGroup{grouping}: {==}
     case UI.PageRegion{region, position}: {==}
     case UI.Region{}: {==}
+    case UI.LayerRegion{dismiss, outside, escape}: {==}
     case UI.ReadOnly{text}: {==}
     case UI.TaskFacts{details}: {==}
     case UI.CodeFacts{view}: {==}
@@ -173,7 +192,7 @@ def fields_retain_bindings(content: Core.Scene, +base: +List<UI.Node>, +overlays
   {visual_bindings(Appearance.present_fields(content, base, overlays, context, system_dark)) ==
     Bindings{source_nodes(base), source_nodes(overlays)} : Bindings}:
   match content:
-    case Core.Scene{view, settings, transfers, preview, code}:
+    case Core.Scene{view, settings, transfers, preview, code, directory_picker}:
       match settings:
         case Core.Settings{open, access, entered, appearance, open_action, close_action, connect}:
           +base_step = Equal.cong(+List<BoundNode>, Bindings,

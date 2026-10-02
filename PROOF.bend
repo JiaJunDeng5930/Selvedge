@@ -1,4 +1,5 @@
 import Base
+import ./UI.bend as Product
 import ./bendlib/feature-laws.bend as FeatureLaws
 import ./bendlib/locality.bend as Locality
 import ./LAWS.bend as Laws
@@ -38,3 +39,7 @@ def Entry.harness():
     Entry.Concurrency{Concepts.operation_rights(), Concepts.announcement(), Concepts.notifications(), Concepts.coordination()},
     Entry.Extensibility{Concepts.plugin_boundary(), Concepts.result_boundary()}, Workspace.context_boundary(), Approval.approval_boundary(),
     Reasoning.reasoning_boundary(), FeatureLaws.features(), Locality.locality()}
+
+# The native product bridge carries all trusted interface decisions unchanged.
+def product_interface_evidence() -> Product.InterfaceRequirements:
+  Product.interface_evidence()

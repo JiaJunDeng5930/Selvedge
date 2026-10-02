@@ -15,6 +15,8 @@ import ./core/interface.bend as Interface
 # Commands and observations name their origin. A renderer can invoke only a
 # current product element; runtime receipts cannot impersonate element input.
 type Input is Data:
+  # Trusted assembled interface commands stay typed through the platform bridge.
+  InterfaceInput{input: Core.Input}
   Engine{input: M.Input}
   ProgramObserved{program: M.World()}
   CommandCompleted{program: M.World(), reply: J.Json, completion: E.Completion}
@@ -30,6 +32,7 @@ type Input is Data:
   Authenticated{ticket: Nat, result: Result<&2, &2, String, Unit>}
   Disconnected{reason: String}
   Uploaded{ticket: Nat, result: Result<&2, &2, String, B.Attachment>}
+  DirectoryListed{ticket: Nat, result: Result<&2, &2, String, Services.DirectoryCatalog>}
   AttachmentRead{ticket: Nat, result: Result<&2, &2, String, String>}
 
 def initial(program: M.World()) -> Core.State:
@@ -40,6 +43,7 @@ def observe(capacity: View.Capacity, state: Core.State) -> Interface.Surface:
 
 def step(input: Input, state: Core.State) -> Core.Decision:
   match input:
+    case InterfaceInput{input}: Core.step(input, state)
     case ProgramObserved{program}: Core.step(Core.ApplicationInput{E.ProgramObserved{program}}, state)
     case CommandCompleted{program, result, completion}: Core.step(Core.ApplicationInput{E.CommandCompleted{program, result, completion}}, state)
     case Engine{input}: Core.step(Core.ApplicationInput{E.RuntimeInput{input}}, state)
@@ -55,4 +59,19 @@ def step(input: Input, state: Core.State) -> Core.Decision:
     case Authenticated{ticket, result}: Core.step(Core.ServiceInput{Services.Authenticated{ticket, result}}, state)
     case Disconnected{reason}: Core.step(Core.ServiceInput{Services.Disconnected{reason}}, state)
     case Uploaded{ticket, result}: Core.step(Core.ServiceInput{Services.Uploaded{ticket, result}}, state)
+    case DirectoryListed{ticket, result}: Core.step(Core.ServiceInput{Services.DirectoryListed{ticket, result}}, state)
     case AttachmentRead{ticket, result}: Core.step(Core.ServiceInput{Services.Previewed{ticket, result}}, state)
+
+# Preserve the entire Core decision, including every effect channel.
+def interface_input(+input: Core.Input, +state: Core.State) ->
+  {step(InterfaceInput{input}, state) == Core.step(input, state) : Core.Decision}:
+  {==}
+
+type InterfaceRequirements is Type:
+  InterfaceRequirements{
+    interface_input: @+input:Core.Input -> @+state:Core.State ->
+      {step(InterfaceInput{input}, state) == Core.step(input, state) : Core.Decision}
+  }
+
+def interface_evidence() -> InterfaceRequirements:
+  InterfaceRequirements{interface_input}

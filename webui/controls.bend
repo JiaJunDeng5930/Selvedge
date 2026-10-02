@@ -25,6 +25,7 @@ type Icon is Data:
   CloseCross{}
   MoreDots{}
   Sidebar{}
+  SidebarClose{}
   Folder{}
   Conversation{}
   Columns{}
@@ -36,6 +37,7 @@ type Icon is Data:
   Settings{}
   FilterFunnel{}
   Inspector{}
+  InspectorClose{}
   Eye{}
   Globe{}
   GlobeOff{}
@@ -239,7 +241,7 @@ def page_execution(page: View.Page) -> Maybe<&2, Workspace.Observation>:
 def initial(content: Core.Scene) -> Context:
   Core.Scene{View.Scene{navigation, main, layers, arrangement, attention},
     Core.Settings{open, access, entered, appearance, open_action, close_action, connect},
-    transfers, preview, code} = content
+    transfers, preview, code, directory_picker} = content
   Context{PageArea{}, NoSelection{}, None{}, appearance, access, open, layers, page_execution(main)}
 
 def area_for(role: UI.Role, inherited: Area) -> Area:
@@ -406,6 +408,7 @@ def action_purpose(+key: String, action: User.Action, selection: Selection, +lay
     case User.DeleteProject{project}: DeleteItem{}
     case User.BoardCommand{command}: board_command(command)
     case User.OpenPanel{panel, trigger}: panel_purpose(panel, panel_open(layers, key))
+    case User.TogglePanel{panel, trigger}: panel_purpose(panel, panel_open(layers, key))
     case User.ClosePanel{}: Dismiss{}
     case User.ConfirmAction{}: NamedAction{}
     case User.SelectProject{project}: NamedAction{}
@@ -438,6 +441,8 @@ def content_purpose(input: Code.Input, code: Maybe<&2, Code.Scene>) -> Purpose:
 
 def service_purpose(input: Services.Input, appearance: Services.Appearance, access: Services.Access, settings_open: Bool) -> Purpose:
   match input:
+    case Services.OpenDirectoryPicker{editor, path, trigger}: OpenPanel{Folder{}, False{}, False{}}
+    case Services.VisitDirectory{path}: NavigateTo{Folder{}}
     case Services.OpenSettings{}: OpenPanel{Settings{}, False{}, settings_open}
     case Services.CloseSettings{}: Dismiss{}
     case Services.ClosePreview{}: Dismiss{}
@@ -462,6 +467,16 @@ def purpose_fields(key: String, event: Core.Input, selection: Selection, code: M
 def purpose_for(key: String, event: Core.Input, context: Context) -> Purpose:
   Context{area, selection, code, appearance, access, settings_open, layers, execution} = context
   purpose_fields(key, event, selection, code, appearance, access, settings_open, layers)
+
+def navigation_icon(expanded: Bool) -> Icon:
+  match expanded:
+    case False{}: Sidebar{}
+    case True{}: SidebarClose{}
+
+def inspector_icon(expanded: Bool) -> Icon:
+  match expanded:
+    case False{}: Inspector{}
+    case True{}: InspectorClose{}
 
 def purpose_icon(purpose: Purpose) -> Maybe<&2, Icon>:
   match purpose:
@@ -492,7 +507,7 @@ def purpose_icon(purpose: Purpose) -> Maybe<&2, Icon>:
     case CopyCode{Code.CopyFailed{}}: Some{Warning{}}
     case WrapCode{enabled}: Some{WrapLines{}}
     case Latest{}: Some{ArrowDown{}}
-    case ToggleNavigation{expanded}: Some{Sidebar{}}
+    case ToggleNavigation{expanded}: Some{navigation_icon(expanded)}
     case ResetDefaults{}: Some{Undo{}}
     case RemoveValue{}: Some{CloseCross{}}
     case RetryTransfer{}: Some{Refresh{}}
@@ -553,6 +568,7 @@ def face_for(purpose: Purpose, label: String, area: Area) -> Face:
 
 def input_face(input: Core.Input, purpose: Purpose, label: String, area: Area) -> Face:
   match input:
+    case Core.ApplicationInput{Experience.UserInput{User.Activate{User.ClosePanel{}}}}: TextFace{label}
     case Core.ApplicationInput{Experience.UserInput{User.Activate{User.OpenPanel{User.ProjectPicker{}, trigger}}}}: PickerFace{Some{Folder{}}, label}
     case Core.ApplicationInput{Experience.UserInput{User.EditDraft{editor, User.EditWorkspace{Workspace.RemoveRoot{path}}}}}:
       IconFace{CloseCross{}}
@@ -633,17 +649,22 @@ def help_for(face: Face, availability: View.Availability, feedback: Feedback, na
     case PermissionFace{filesystem, network, approval}: tooltip(help_text(availability, feedback, name))
     case _: labelled_help(feedback, availability)
 
-def geometry_for(purpose: Purpose, face: Face, area: Area) -> Geometry:
+def geometry_nonchoice(purpose: Purpose, face: Face, area: Area) -> Geometry:
   match purpose face area:
     case MessageSubmission{} IconFace{icon} ComposerArea{}: Geometry{32n, 32n, 16n, 16n, 0n}
     case ProjectTaskCreation{} IconFace{icon} NavigationArea{}: Geometry{24n, 24n, 16n, 6n, 0n}
     case _ IconFace{icon} _: Geometry{32n, 32n, 16n, 8n, 0n}
     case _ _ NavigationArea{}: Geometry{0n, 29n, 16n, 6n, 20n}
     case _ _ MenuArea{}: Geometry{0n, 28n, 16n, 6n, 20n}
-    case _ ChoiceFace{text, checked} _: Geometry{0n, 28n, 16n, 6n, 20n}
     case _ PickerFace{icon, text} ComposerArea{}: Geometry{0n, 28n, 16n, 6n, 0n}
     case _ PermissionFace{filesystem, network, approval} _: Geometry{0n, 28n, 16n, 6n, 0n}
     case _ _ _: Geometry{0n, 32n, 16n, 8n, 0n}
+
+def geometry_for(purpose: Purpose, face: Face, area: Area) -> Geometry:
+  match face:
+    case ChoiceFace{text, checked}: Geometry{0n, 28n, 16n, 6n, 20n}
+    case other: geometry_nonchoice(purpose, other, area)
+
 
 def placement_for(purpose: Purpose, area: Area) -> Placement:
   match purpose area:
@@ -725,20 +746,52 @@ def make_action(+key: String, +input: Core.Input, +availability: View.Availabili
     contextual_behavior(intent, selected_role(role), area), geometry_for(intent, control_face, area),
     placement_for(intent, area), help_for(control_face, availability, response, control_name), response}
 
+def panel_toggle_face(input: Core.Input, expanded: Bool, fallback: Face) -> Face:
+  match input:
+    case Core.ApplicationInput{Experience.UserInput{User.Activate{User.TogglePanel{User.TaskDetails{task}, trigger}}}}:
+      IconFace{inspector_icon(expanded)}
+    case _: fallback
+
+def panel_toggle_fields(+expanded: Bool, value: Representation) -> Representation:
+  match value:
+    case Action{+input, availability, name, current, behavior, geometry, placement, help, feedback}:
+      Action{input, availability, name, panel_toggle_face(input, expanded, current), Disclosure{expanded},
+        geometry, placement, help, feedback}
+    case _: value
+
+def make_panel_toggle(key: String, expanded: Bool, input: Core.Input, availability: View.Availability,
+  label: String, role: UI.Role, context: Context) -> Representation:
+  panel_toggle_fields(expanded, make_action(key, input, availability, label, role, context))
+
 def make_composer_action(key: String, subject: View.ComposerSubject, input: Core.Input,
   availability: View.Availability, +label: String, role: UI.Role, +context: Context) -> Representation:
   Context{area, selection, code, appearance, access, settings_open, layers, +execution} = context
   composer_action_fields(subject, label, execution, area, make_action(key, input, availability, label, role, context))
 
-def choice_action(+selected: Bool, value: Representation) -> Representation:
+def choice_action(+selected: Bool, +purpose: Purpose, +area: Area, value: Representation) -> Representation:
   match value:
     case Action{input, availability, +name, face, behavior, geometry, placement, help, feedback}:
-      Action{input, availability, name, ChoiceFace{name, selected}, ChoiceRadio{selected}, geometry, placement, help, feedback}
+      +actual_face: Face = ChoiceFace{name, selected}
+      Action{input, availability, name, actual_face, ChoiceRadio{selected}, geometry_for(purpose, actual_face, area), placement, help, feedback}
     case other: other
 
-def make_choice(key: String, selected: Bool, input: Core.Input, availability: View.Availability,
-  label: String, role: UI.Role, context: Context) -> Representation:
-  choice_action(selected, make_action(key, input, availability, label, role, context))
+def make_choice(+key: String, selected: Bool, +input: Core.Input, availability: View.Availability,
+  label: String, role: UI.Role, +context: Context) -> Representation:
+  Context{area, selection, code, appearance, access, settings_open, layers, execution} = context
+  intent = purpose_fields(key, input, selection, code, appearance, access, settings_open, layers)
+  choice_action(selected, intent, area, make_action(key, input, availability, label, role, context))
+
+type ChoiceContentLayout is Data:
+  ChoiceContentLayout{text_gap: Nat, region_gap: Nat, mark_extent: Nat, mark_icon_extent: Nat}
+
+def choice_content_layout(geometry: Geometry) -> ChoiceContentLayout:
+  Geometry{width, height, icon, radius, leading} = geometry
+  ChoiceContentLayout{2n, 8n, leading, icon}
+
+def choice_layout(value: Representation) -> ChoiceContentLayout:
+  match value:
+    case Action{input, availability, name, face, behavior, geometry, placement, help, feedback}: choice_content_layout(geometry)
+    case _: choice_content_layout(Geometry{0n, 28n, 16n, 6n, 20n})
 
 def entry_widget(entry: Forms.Entry) -> Widget:
   match entry:
@@ -789,11 +842,13 @@ def represent(key: String, +meaning: UI.Meaning, +label: String, role: UI.Role, 
   match meaning:
     case UI.ComposerAction{subject, input, availability}: make_composer_action(key, subject, input, availability, label, role, context)
     case UI.Activate{input, availability}: make_action(key, input, availability, label, role, context)
+    case UI.PanelToggle{expanded, input, availability}: make_panel_toggle(key, expanded, input, availability, label, role, context)
     case UI.Choice{selected, description, input, availability}: make_choice(key, selected, input, availability, label, role, context)
     case UI.Edit{editor, field, Forms.DirectoryCollection{}, value}: NoControl{}
     case UI.Edit{editor, field, Forms.FileCollection{}, value}: NoControl{}
     case UI.Edit{editor, field, +entry, value}: make_input(meaning, label, widget_for(entry, field, value), field_availability(entry))
     case UI.SearchChoices{query}: make_input(meaning, label, SearchInput{}, View.Available{})
+    case UI.DirectoryBrowserLocation{value}: make_input(meaning, label, DirectoryChooser{TextFace{label}}, View.Available{})
     case UI.EnterCredential{entered}: make_input(meaning, label, SecretInput{}, View.Available{})
     case UI.ReceiveFile{editor, enabled}: make_input(meaning, label, FileChooser{IconTextFace{Paperclip{}, label}}, UI.availability(enabled))
     case UI.EnterDirectory{editor, text}: make_input(meaning, label, DirectoryChooser{IconTextFace{Folder{}, label}}, View.Available{})

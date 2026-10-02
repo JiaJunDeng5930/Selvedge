@@ -19,9 +19,9 @@ def lifted(decision: E.Decision, services: Services.State) ->
 def runtime_input(+input: M.Input, +program: M.World(), +session: E.Session, services: Services.State) ->
   {runtime(Core.step(Core.ApplicationInput{E.RuntimeInput{input}}, Core.State{E.Application{program, session}, services})) ==
     Program.transition(input, program) : M.Decision()}:
-  Services.State{access, credential, settings, appearance, next, transfers, preview} = services
+  Services.State{access, credential, settings, appearance, next, transfers, preview, directory_picker} = services
   Equal.trans(M.Decision(),
-    runtime(Core.application_result(E.step(E.RuntimeInput{input}, E.Application{program, session}), Services.State{access, credential, settings, appearance, next, transfers, preview})),
+    runtime(Core.application_result(E.step(E.RuntimeInput{input}, E.Application{program, session}), Services.State{access, credential, settings, appearance, next, transfers, preview, directory_picker})),
     Existing.runtime_observation(E.step(E.RuntimeInput{input}, E.Application{program, session})), Program.transition(input, program),
-    lifted(E.step(E.RuntimeInput{input}, E.Application{program, session}), Services.State{access, credential, settings, appearance, next, transfers, preview}),
+    lifted(E.step(E.RuntimeInput{input}, E.Application{program, session}), Services.State{access, credential, settings, appearance, next, transfers, preview, directory_picker}),
     Existing.runtime_input(input, program, session))

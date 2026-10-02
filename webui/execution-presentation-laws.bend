@@ -104,7 +104,7 @@ def choice_content_projection(+key: String, +label: String, +description: String
       [Doc.Text{label}, Doc.Element{key ++ "/description", "span", Nil{},
         [Render.property("font-size", "12px"), Render.property("color", "var(--color-token-text-secondary)"),
          Render.property("white-space", "normal")], Nil{}, [Doc.Text{description}]}]},
-     Render.check_slot(key, selected)] : +List<Doc.Node>}:
+     Render.choice_mark(key, selected, 20n, 16n)] : +List<Doc.Node>}:
   {==}
 
 def choice_group_native(+key: String, +label: String, +visual: Design.Style, +children: +List<Doc.Node>) ->
@@ -179,7 +179,7 @@ type Requirements is Type:
       [Doc.Text{label}, Doc.Element{key ++ "/description", "span", Nil{},
         [Render.property("font-size", "12px"), Render.property("color", "var(--color-token-text-secondary)"),
          Render.property("white-space", "normal")], Nil{}, [Doc.Text{description}]}]},
-     Render.check_slot(key, selected)] : +List<Doc.Node>},
+     Render.choice_mark(key, selected, 20n, 16n)] : +List<Doc.Node>},
     choice_group_native: @+key: String -> @+label: String -> @+visual: Design.Style -> @+children: +List<Doc.Node> ->
       {Render.choice_group_node(key, label, visual, children) ==
     Doc.Element{key, "section", [Render.property("data-native-key", key), Render.property("role", "radiogroup"), Render.property("aria-label", label)],

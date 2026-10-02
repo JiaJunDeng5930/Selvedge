@@ -141,8 +141,8 @@ def excluded_style_tail(+mode: AttributeMode, +flow: D.Flow, +overflow: D.Overfl
 
 def excluded_geometry(+mode: AttributeMode, +size: C.Geometry, +visual: D.Style) -> Excluded(mode, R.action_geometry(size, visual)):
   match mode size visual:
-    case RawBackground{} C.Geometry{width, height, icon, radius, leading} D.Style{text, chrome, alignment, flow, overflow, area, gap, minimum, maximum, states}: ({==}, ({==}, ({==}, ({==}, ({==}, ({==}, ({==}, Unit{})))))))
-    case PointerBackground{} C.Geometry{width, height, icon, radius, leading} D.Style{text, chrome, alignment, flow, overflow, area, gap, minimum, maximum, states}: ({==}, ({==}, ({==}, ({==}, ({==}, ({==}, ({==}, Unit{})))))))
+    case RawBackground{} C.Geometry{width, height, icon, radius, leading} D.Style{text, chrome, alignment, flow, overflow, +content_frame, minimum, maximum, states}: ({==}, ({==}, ({==}, ({==}, ({==}, ({==}, ({==}, Unit{})))))))
+    case PointerBackground{} C.Geometry{width, height, icon, radius, leading} D.Style{text, chrome, alignment, flow, overflow, +content_frame, minimum, maximum, states}: ({==}, ({==}, ({==}, ({==}, ({==}, ({==}, ({==}, Unit{})))))))
 
 def excluded_placement(+mode: AttributeMode, +placement: C.Placement) -> Excluded(mode, R.placement_styles(placement)):
   match mode placement:
@@ -204,9 +204,8 @@ def excluded_geometry_tail(+mode: AttributeMode, +visual: D.Style, +face: C.Face
 def action_background_preserved(+key: String, +visual: D.Style, +input: Core.Input, +availability: View.Availability,
   +name: String, +face: C.Face, +behavior: C.Behavior, +geometry: C.Geometry, +placement: C.Placement, +help: C.Help, +feedback: C.Feedback) ->
   {R.attr(Renderer.node_styles(R.action(key, D.Appearance{key, visual, C.NoControl{}, Nil{}}, C.Action{input, availability, name, face, behavior, geometry, placement, help, feedback})), "--native-rest-background") == R.attr(R.style(visual), "background") : String}:
-  D.Style{D.TextStyle{+font, +size, +line_height, +weight}, D.Chrome{+foreground, +background, +border, +border_width, +radius, +shadow},
-    +alignment, +flow, +overflow, +content_area, +gap, +height, +maximum, +states} = visual
-  +value: D.Style = D.Style{D.TextStyle{font, size, line_height, weight}, D.Chrome{foreground, background, border, border_width, radius, shadow}, alignment, flow, overflow, content_area, gap, height, maximum, states}
+  D.Style{D.TextStyle{+font, +size, +line_height, +weight}, D.Chrome{+foreground, +background, +border, +border_width, +radius, +shadow}, +alignment, +flow, +overflow, +content_frame, +height, +maximum, +states} = visual
+  +value: D.Style = D.Style{D.TextStyle{font, size, line_height, weight}, D.Chrome{foreground, background, border, border_width, radius, shadow}, alignment, flow, overflow, content_frame, height, maximum, states}
   +tail: +List<Doc.Property> = style_tail(flow, overflow, shadow, alignment, states)
   +extra: +List<Doc.Property> = geometry_tail(value, face, geometry, placement, key)
   Equal.trans(String,
@@ -358,10 +357,10 @@ def area_properties(+area: E.ContentArea) ->
 
 def style_allocation(+value: D.Style, +axis: Axis) ->
   {R.attr(R.style(value), axis_name(axis)) == R.px(axis_space(axis, Model.area(value))) : String}:
-  D.Style{D.TextStyle{font, size, line_height, weight}, D.Chrome{fg, bg, border, border_width, radius, shadow}, alignment, flow, overflow, area, gap, minimum, maximum, states} = value
+  D.Style{D.TextStyle{font, size, line_height, weight}, D.Chrome{fg, bg, border, border_width, radius, shadow}, alignment, flow, overflow, +content_frame, minimum, maximum, states} = value
   match axis:
-    case Inline{}: preserve_suffix(flow, overflow, shadow, alignment, states, Inline{}, R.px(E.inline(area)))
-    case Block{}: preserve_suffix(flow, overflow, shadow, alignment, states, Block{}, R.px(E.block(area)))
+    case Inline{}: preserve_suffix(flow, overflow, shadow, alignment, states, Inline{}, R.px(E.inline(E.frame_content(content_frame))))
+    case Block{}: preserve_suffix(flow, overflow, shadow, alignment, states, Block{}, R.px(E.block(E.frame_content(content_frame))))
 
 def duplicate(+name: String, +old: String, +new: String) ->
   {R.attr([R.property(name, old), R.property(name, new)], name) == new : String}:
@@ -370,7 +369,7 @@ def duplicate(+name: String, +old: String, +new: String) ->
 def geometry_height(+size: C.Geometry, +visual: D.Style) ->
   {R.attr(R.action_geometry(size, visual), "min-height") == R.px(Model.minimum(visual)) : String}:
   C.Geometry{width, height, icon, radius, leading} = size
-  D.Style{text, chrome, alignment, flow, overflow, area, gap, minimum, maximum, states} = visual
+  D.Style{text, chrome, alignment, flow, overflow, +content_frame, minimum, maximum, states} = visual
   {==}
 
 def navigation_header(+selected: Bool) ->
@@ -451,7 +450,7 @@ def dialog_outer() ->
 
 def geometry_complete(+width: Nat, +height: Nat, +icon: Nat, +radius: Nat, +leading: Nat, +visual: D.Style) ->
   {R.action_geometry(C.Geometry{width, height, icon, radius, leading}, visual) == [R.property("min-width", R.px(width)), R.property("min-height", R.px(Model.minimum(visual))), R.property("border-radius", R.px(radius)), R.property("display", "inline-flex"), R.property("align-items", "center"), R.property("--native-icon-size", R.px(icon)), R.property("--native-leading-slot", R.px(leading))] : +List<Doc.Property>}:
-  D.Style{text, chrome, alignment, flow, overflow, area, gap, minimum, maximum, states} = visual
+  D.Style{text, chrome, alignment, flow, overflow, +content_frame, minimum, maximum, states} = visual
   {==}
 
 type Requirements is Type:

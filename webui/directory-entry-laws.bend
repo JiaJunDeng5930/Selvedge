@@ -1,4 +1,10 @@
 import Base
+import ../core/client-services.bend as Services
+import ../core/directory-entry-laws.bend as CoreDirectory
+import ../core/form-fields.bend as Forms
+import ../core/SYSTEM.bend as Core
+import ../core/user-experience.bend as E
+import ../core/ui-world.bend as V
 import ../core/interface.bend as UI
 import ../core/user-input.bend as U
 import ./browser.bend as Browser
@@ -86,3 +92,89 @@ type Requirements is Type:
 
 def evidence() -> Requirements:
   Requirements{events, independent_editor, observed_value, enter_key(), composing_key, denied_gesture, directory_gesture, unmatched_confirmation, rejected_confirmation}
+
+def selection_widget(widget: Controls.Widget) -> Bool:
+  match widget:
+    case Controls.SelectInput{}: True{}
+    case Controls.ToggleInput{}: True{}
+    case _: False{}
+
+def ordinary_choice(value: Forms.Observed) ->
+  {selection_widget(Controls.value_widget(value, Forms.Choice{})) == True{} : Bool}:
+  match value:
+    case Forms.ToggleValue{enabled}: {==}
+    case Forms.TextValue{text}: {==}
+    case Forms.CountValue{count}: {==}
+    case Forms.TextsValue{values}: {==}
+    case Forms.WorkspaceValue{workspace}: {==}
+    case Forms.ContextValue{preview}: {==}
+    case Forms.ModelValue{profile, reasoning}: {==}
+    case Forms.DeliveryValue{delivery}: {==}
+    case Forms.StageValue{stage}: {==}
+    case Forms.PriorityValue{priority}: {==}
+    case Forms.OwnerValue{owner}: {==}
+    case Forms.ProjectValue{project}: {==}
+    case Forms.AttachmentsValue{files}: {==}
+    case Forms.AssistanceValue{enabled, profile}: {==}
+    case Forms.OptionalTextValue{text}: {==}
+    case Forms.NotApplicable{}: {==}
+
+def finite_choice(+field: Forms.Field, +value: Forms.Observed) ->
+  {selection_widget(Controls.widget_for(Forms.Choice{}, field, value)) == True{} : Bool}:
+  match field:
+    case Forms.MessageText{}: ordinary_choice(value)
+    case Forms.ProjectName{}: ordinary_choice(value)
+    case Forms.WorkspaceDirectories{}: ordinary_choice(value)
+    case Forms.WorkspacePrimary{}: ordinary_choice(value)
+    case Forms.ContextOrigin{}: ordinary_choice(value)
+    case Forms.SandboxMode{}: ordinary_choice(value)
+    case Forms.NetworkAccess{}: {==}
+    case Forms.ApprovalPolicy{}: ordinary_choice(value)
+    case Forms.ModelProfile{}: ordinary_choice(value)
+    case Forms.ReasoningEffort{}: ordinary_choice(value)
+    case Forms.DeliveryIntent{}: ordinary_choice(value)
+    case Forms.CardTitle{}: ordinary_choice(value)
+    case Forms.CardDescription{}: ordinary_choice(value)
+    case Forms.CardStage{}: ordinary_choice(value)
+    case Forms.CardPriority{}: ordinary_choice(value)
+    case Forms.CardOwner{}: ordinary_choice(value)
+    case Forms.CardProject{}: ordinary_choice(value)
+    case Forms.CardLabels{}: ordinary_choice(value)
+    case Forms.CardAttachments{}: ordinary_choice(value)
+    case Forms.ContinueCapture{}: ordinary_choice(value)
+    case Forms.AssistedCapture{}: {==}
+    case Forms.AssistanceProfile{}: ordinary_choice(value)
+    case Forms.AgentName{}: ordinary_choice(value)
+    case Forms.AgentInstructions{}: ordinary_choice(value)
+    case Forms.AgentConcurrency{}: ordinary_choice(value)
+    case Forms.ForkCount{}: ordinary_choice(value)
+    case Forms.ForkMessages{}: ordinary_choice(value)
+    case Forms.CompactionSummary{}: ordinary_choice(value)
+
+def browser_location_binding(value: String, +path: String) ->
+  {UI.bind(UI.DirectoryBrowserLocation{value}, UI.Directory{path}) == Some{Core.ServiceInput{Services.WriteDirectoryLocation{path}}} : Maybe<&2, Core.Input>}:
+  {==}
+
+def browse_availability(+editor: U.Editor, +parent: String, +state: Core.State) ->
+  {UI.directory_browse(editor, parent, state) == UI.product_action(parent, "workspace/browse", "Browse folders",
+    Core.ServiceInput{Services.OpenDirectoryPicker{editor, UI.browse_start(editor, state), parent ++ "/workspace/browse"}},
+    Core.accepts_directory(editor, UI.application_of(state))) : UI.Node}:
+  {==}
+
+def directory_open_and_browse(+editor: U.Editor, +parent: String, +state: Core.State) ->
+  {UI.field_children(Forms.WorkspaceDirectories{}, editor, parent, state) ==
+    UI.Node{parent ++ "/instruction", "workspace/instruction", "Enter a directory path to add it. Listed directories define the workspace; choose the primary working directory.", UI.Content{}, UI.ReadOnly{"Enter a directory path to add it. Listed directories define the workspace; choose the primary working directory."}, Nil{}} <>
+    UI.Node{parent ++ "/add", "workspace/add", "Add working directory", UI.Field{}, UI.EnterDirectory{editor, UI.pending_directory(state, editor)}, Nil{}} <>
+    UI.directory_confirm(editor, parent, state) <> UI.directory_browse(editor, parent, state) <>
+    UI.directory_values(UI.workspace_observed(UI.field_value(state, editor, Forms.WorkspaceDirectories{})), editor, parent, state) : +List<UI.Node>}:
+  {==}
+
+type PickerRequirements is Type:
+  PickerRequirements{service: CoreDirectory.DirectoryPickerRequirements,
+    open_and_browse: @+editor:U.Editor -> @+parent:String -> @+state:Core.State -> {UI.field_children(Forms.WorkspaceDirectories{}, editor, parent, state) == UI.Node{parent ++ "/instruction", "workspace/instruction", "Enter a directory path to add it. Listed directories define the workspace; choose the primary working directory.", UI.Content{}, UI.ReadOnly{"Enter a directory path to add it. Listed directories define the workspace; choose the primary working directory."}, Nil{}} <> UI.Node{parent ++ "/add", "workspace/add", "Add working directory", UI.Field{}, UI.EnterDirectory{editor, UI.pending_directory(state, editor)}, Nil{}} <> UI.directory_confirm(editor, parent, state) <> UI.directory_browse(editor, parent, state) <> UI.directory_values(UI.workspace_observed(UI.field_value(state, editor, Forms.WorkspaceDirectories{})), editor, parent, state) : +List<UI.Node>},
+    finite_choice: @+field:Forms.Field -> @+value:Forms.Observed -> {selection_widget(Controls.widget_for(Forms.Choice{}, field, value)) == True{} : Bool},
+    location_binding: @value:String -> @+path:String -> {UI.bind(UI.DirectoryBrowserLocation{value}, UI.Directory{path}) == Some{Core.ServiceInput{Services.WriteDirectoryLocation{path}}} : Maybe<&2, Core.Input>},
+    browse: @+editor:U.Editor -> @+parent:String -> @+state:Core.State -> {UI.directory_browse(editor, parent, state) == UI.product_action(parent, "workspace/browse", "Browse folders", Core.ServiceInput{Services.OpenDirectoryPicker{editor, UI.browse_start(editor, state), parent ++ "/workspace/browse"}}, Core.accepts_directory(editor, UI.application_of(state))) : UI.Node}}
+
+def picker_requirements() -> PickerRequirements:
+  PickerRequirements{CoreDirectory.directory_picker_requirements(), directory_open_and_browse, finite_choice, browser_location_binding, browse_availability}

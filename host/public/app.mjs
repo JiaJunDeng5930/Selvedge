@@ -144,6 +144,15 @@ async function service(effect) {
       break;
     }
     case 'CancelTransfer': transfers.get(effect.ticket)?.abort(); transfers.delete(effect.ticket); break;
+    case 'ReadDirectories': {
+      try {
+        const body = await post('/api/browser/observation', JSON.stringify({ kind: 'browse-directories', path: effect.path }));
+        commit(Bend.directory_listed(effect.ticket, bool(true), json(body), state));
+      } catch (error) {
+        commit(Bend.directory_listed(effect.ticket, bool(false), json({ error: error.message }), state));
+      }
+      break;
+    }
     case 'ReadAttachment': {
       try {
         const response = await fetch(`/api/board/attachments/${encodeURIComponent(effect.file.id)}`, { headers: { authorization: `Bearer ${token}` } });
@@ -425,6 +434,25 @@ root.addEventListener('keydown', event => {
   if (['PageUp', 'PageDown', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key) && !event.target.matches('input,textarea,select')) observeUserScroll(event);
 });
 root.addEventListener('pointerdown', event => {
+  const scope = state.web.application.platform.scope;
+  const layerKey = Bend.active_layer_key(state);
+  const layer = scope.$ === 'Temporary' && layerKey.$ === 'Some'
+    ? [...root.querySelectorAll('[data-layer-key]')].find(node => node.dataset.layerKey === layerKey.value)
+    : null;
+  if (layer?.dataset.layerOutside === 'true') {
+    const path = event.composedPath();
+    const onTrigger = path.some(node => {
+      const key = node?.getAttribute?.('data-native-key');
+      return key && (key === scope.restore || key.endsWith(`/${scope.restore}`));
+    });
+    if (!path.includes(layer) && !onTrigger) {
+      const result = Bend.outside_event(layer.dataset.layerKey, state);
+      if (result.handled) {
+        event.preventDefault();
+        commit(result.decision);
+      }
+    }
+  }
   const surface = event.target.closest('[data-reading-scroll]');
   if (!surface || surface.scrollHeight <= surface.clientHeight) return;
   const rect = surface.getBoundingClientRect();
@@ -436,7 +464,7 @@ root.addEventListener('pointerdown', event => {
   const inLeftGutter = event.clientX >= rect.left + borderLeft && event.clientX < contentLeft;
   const inRightGutter = event.clientX >= contentRight && event.clientX < rect.right - borderRight;
   if ((inLeftGutter || inRightGutter) && event.clientY >= rect.top && event.clientY <= rect.bottom) beginUserScroll(surface, event.pointerId);
-});
+}, { capture: true });
 function endReadingPointer(event) {
   const surface = readingPointers.get(event.pointerId);
   if (!surface) return;

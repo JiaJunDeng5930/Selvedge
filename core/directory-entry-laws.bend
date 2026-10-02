@@ -1,5 +1,7 @@
 import Base
+import ./client-services.bend as Services
 import ../MODEL.bend as M
+import ../bendlib/domain.bend as D
 import ../bendlib/json.bend as J
 import ./user-context.bend as Context
 import ./user-input.bend as U
@@ -17,6 +19,18 @@ def typing(+revision: Nat, +body: U.Body, feedback: U.Feedback, old: String, +pa
 
 def literal_entry(revision: Nat, body: U.Body, feedback: U.Feedback, +path: String) ->
   {UI.draft_directory(Some{U.Draft{revision, body, feedback, path}}) == path : String}:
+  {==}
+
+def browse_primary(roots: +List<String>, +path: String) ->
+  {UI.browse_workspace(Some{D.Workspace{roots, Some{path}}}) == path : String}:
+  {==}
+
+def browse_no_primary(roots: +List<String>) ->
+  {UI.browse_workspace(Some{D.Workspace{roots, None{}}}) == "" : String}:
+  {==}
+
+def browse_unobserved() ->
+  {UI.browse_workspace(None{}) == "" : String}:
   {==}
 
 def confirmed(+revision: Nat, +body: U.Body, feedback: U.Feedback, +path: String, +world: M.World(),
@@ -97,6 +111,11 @@ type Requirements is Type:
       {U.edit_draft(U.WriteDirectory{path}, U.Draft{revision, body, feedback, old}, world) == Done{U.Draft{(revision + 1n : Nat), body, U.Editing{}, path}} : Result<&2, &2, String, U.Draft>},
     literal_entry: @revision:Nat -> @body:U.Body -> @feedback:U.Feedback -> @+path:String ->
       {UI.draft_directory(Some{U.Draft{revision, body, feedback, path}}) == path : String},
+    browse_primary: @roots:+List<String> -> @+path:String ->
+      {UI.browse_workspace(Some{D.Workspace{roots, Some{path}}}) == path : String},
+    browse_no_primary: @roots:+List<String> ->
+      {UI.browse_workspace(Some{D.Workspace{roots, None{}}}) == "" : String},
+    browse_unobserved: {UI.browse_workspace(None{}) == "" : String},
     confirmed: @+revision:Nat -> @+body:U.Body -> @feedback:U.Feedback -> @+path:String -> @+world:M.World() ->
       @admitted:{U.can_confirm_directory(U.Draft{revision, body, feedback, path}) == True{} : Bool} ->
       {U.edit_draft(U.ConfirmDirectory{}, U.Draft{revision, body, feedback, path}, world) == U.edited_body(U.apply_edit(U.EditWorkspace{Context.AddRoot{path}}, body, world), revision, "") : Result<&2, &2, String, U.Draft>},
@@ -125,4 +144,72 @@ type Requirements is Type:
   }
 
 def evidence() -> Requirements:
-  Requirements{typing, literal_entry, confirmed, unconfirmed, model_entry, project_entry, empty_entry, unsupported_entry, selected_project_entry, production_noop, input_binding, button_declaration, button_activation, confirm_binding}
+  Requirements{typing, literal_entry, browse_primary, browse_no_primary, browse_unobserved(), confirmed, unconfirmed, model_entry, project_entry, empty_entry, unsupported_entry, selected_project_entry, production_noop, input_binding, button_declaration, button_activation, confirm_binding}
+
+# Service completion ownership and selection use the actual production functions.
+def picker_closed(+state: Services.State) ->
+  {Services.step(Services.CloseDirectoryPicker{}, state) == Services.Decision{Services.replace_directory(state, Services.NoDirectoryPicker{}), Nil{}} : Services.Decision}:
+  Services.State{access, credential, settings, appearance, next, transfers, preview, picker} = state
+  {==}
+
+def picker_closed_completion(+ticket: Nat, +result: Result<&2, &2, String, Services.DirectoryCatalog>, +state: Services.State) ->
+  {Services.directory_listed(Services.NoDirectoryPicker{}, ticket, result, state) == Services.Decision{state, Nil{}} : Services.Decision}:
+  {==}
+
+def picker_stale(+current: Nat, editor: U.Editor, path: String, trigger: String, +ticket: Nat,
+  +result: Result<&2, &2, String, Services.DirectoryCatalog>, +state: Services.State,
+  stale: {Nat.is_eq(current, ticket) == False{} : Bool}) ->
+  {Services.directory_listed(Services.LoadingDirectory{current, editor, path, trigger}, ticket, result, state) == Services.Decision{state, Nil{}} : Services.Decision}:
+  Equal.cong(Bool, Services.Decision, (owned => Services.finish_directory(owned, current, editor, path, trigger, result, state)),
+    Nat.is_eq(current, ticket), False{}, stale)
+
+def picker_owned(ticket: Nat, +editor: U.Editor, entered: String, +trigger: String, +path: String,
+  +parent: Maybe<&2, String>, +entries: +List<Services.DirectoryEntry>, +truncated: Bool, +state: Services.State) ->
+  {Services.finish_directory(True{}, ticket, editor, entered, trigger, Done{Services.DirectoryCatalog{path, parent, entries, truncated}}, state) ==
+    Services.Decision{Services.replace_directory(state, Services.ReadyDirectory{ticket, editor, Services.DirectoryCatalog{path, parent, entries, truncated}, path, trigger}), Nil{}} : Services.Decision}:
+  {==}
+
+def picker_catalog_selection(ticket: Nat, +editor: U.Editor, +path: String, parent: Maybe<&2, String>,
+  entries: +List<Services.DirectoryEntry>, truncated: Bool, location: String, trigger: String, +state: Services.State) ->
+  {Services.choose_directory(Services.ReadyDirectory{ticket, editor, Services.DirectoryCatalog{path, parent, entries, truncated}, location, trigger}, state) ==
+    Services.Decision{Services.replace_directory(state, Services.NoDirectoryPicker{}), [Services.DirectoryChosen{editor, path}]} : Services.Decision}:
+  {==}
+
+def picker_internal(editor: U.Editor, path: String) ->
+  {Core.external_effect(Services.DirectoryChosen{editor, path}) == False{} : Bool}:
+  {==}
+
+def picker_bridge(+editor: U.Editor, +path: String, +application: E.Application, rest: +List<Services.Effect>) ->
+  {Core.service_effects(Services.DirectoryChosen{editor, path} <> rest, application) ==
+    Core.service_effects(rest, Core.directory_chosen(editor, path, application)) : E.Application}:
+  {==}
+
+def picker_unavailable(+editor: U.Editor, path: String, +application: E.Application,
+  unavailable: {Core.accepts_directory(editor, application) == False{} : Bool}) ->
+  {Core.directory_chosen(editor, path, application) == application : E.Application}:
+  Equal.cong(Bool, E.Application,
+    (accepted => Core.directory_chosen_accepted(accepted, editor, path, application)),
+    Core.accepts_directory(editor, application), False{}, unavailable)
+
+def picker_draft_bridge(+editor: U.Editor, +path: String, +application: E.Application,
+  accepted: {Core.accepts_directory(editor, application) == True{} : Bool}) ->
+  {Core.directory_chosen(editor, path, application) ==
+    Core.attached(E.step(E.UserInput{U.EditDraft{editor, U.ConfirmDirectory{}}}, Core.attached(E.step(E.UserInput{U.EditDraft{editor, U.WriteDirectory{path}}}, application)))) : E.Application}:
+  Equal.cong(Bool, E.Application,
+    (allowed => Core.directory_chosen_accepted(allowed, editor, path, application)),
+    Core.accepts_directory(editor, application), True{}, accepted)
+
+type DirectoryPickerRequirements is Type:
+  DirectoryPickerRequirements{
+    closed: @+state:Services.State -> {Services.step(Services.CloseDirectoryPicker{}, state) == Services.Decision{Services.replace_directory(state, Services.NoDirectoryPicker{}), Nil{}} : Services.Decision},
+    closed_completion: @+ticket:Nat -> @+result:Result<&2, &2, String, Services.DirectoryCatalog> -> @+state:Services.State -> {Services.directory_listed(Services.NoDirectoryPicker{}, ticket, result, state) == Services.Decision{state, Nil{}} : Services.Decision},
+    stale: @+current:Nat -> @editor:U.Editor -> @path:String -> @trigger:String -> @+ticket:Nat -> @+result:Result<&2, &2, String, Services.DirectoryCatalog> -> @+state:Services.State -> @stale:{Nat.is_eq(current, ticket) == False{} : Bool} -> {Services.directory_listed(Services.LoadingDirectory{current, editor, path, trigger}, ticket, result, state) == Services.Decision{state, Nil{}} : Services.Decision},
+    owned: @ticket:Nat -> @+editor:U.Editor -> @entered:String -> @+trigger:String -> @+path:String -> @+parent:Maybe<&2, String> -> @+entries:+List<Services.DirectoryEntry> -> @+truncated:Bool -> @+state:Services.State -> {Services.finish_directory(True{}, ticket, editor, entered, trigger, Done{Services.DirectoryCatalog{path, parent, entries, truncated}}, state) == Services.Decision{Services.replace_directory(state, Services.ReadyDirectory{ticket, editor, Services.DirectoryCatalog{path, parent, entries, truncated}, path, trigger}), Nil{}} : Services.Decision},
+    selected_catalog: @ticket:Nat -> @+editor:U.Editor -> @+path:String -> @parent:Maybe<&2, String> -> @entries:+List<Services.DirectoryEntry> -> @truncated:Bool -> @location:String -> @trigger:String -> @+state:Services.State -> {Services.choose_directory(Services.ReadyDirectory{ticket, editor, Services.DirectoryCatalog{path, parent, entries, truncated}, location, trigger}, state) == Services.Decision{Services.replace_directory(state, Services.NoDirectoryPicker{}), [Services.DirectoryChosen{editor, path}]} : Services.Decision},
+    internal: @editor:U.Editor -> @path:String -> {Core.external_effect(Services.DirectoryChosen{editor, path}) == False{} : Bool},
+    bridge: @+editor:U.Editor -> @+path:String -> @+application:E.Application -> @rest:+List<Services.Effect> -> {Core.service_effects(Services.DirectoryChosen{editor, path} <> rest, application) == Core.service_effects(rest, Core.directory_chosen(editor, path, application)) : E.Application},
+    unavailable: @+editor:U.Editor -> @path:String -> @+application:E.Application -> @unavailable:{Core.accepts_directory(editor, application) == False{} : Bool} -> {Core.directory_chosen(editor, path, application) == application : E.Application},
+    draft: @+editor:U.Editor -> @+path:String -> @+application:E.Application -> @accepted:{Core.accepts_directory(editor, application) == True{} : Bool} -> {Core.directory_chosen(editor, path, application) == Core.attached(E.step(E.UserInput{U.EditDraft{editor, U.ConfirmDirectory{}}}, Core.attached(E.step(E.UserInput{U.EditDraft{editor, U.WriteDirectory{path}}}, application)))) : E.Application}}
+
+def directory_picker_requirements() -> DirectoryPickerRequirements:
+  DirectoryPickerRequirements{picker_closed, picker_closed_completion, picker_stale, picker_owned, picker_catalog_selection, picker_internal, picker_bridge, picker_unavailable, picker_draft_bridge}

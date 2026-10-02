@@ -33,3 +33,9 @@ def streams(body: J.Json, state: Browser.State) -> Browser.Decision: Browser.str
 def key_input(key: String, shift: Bool, state: Browser.State) -> Browser.Decision: Browser.key_input(key, shift, state)
 
 def key_event(key: String, shift: Bool, state: Browser.State) -> Browser.KeyResult: Browser.key_event(key, shift, state)
+
+def directory_listed(ticket: Nat, ok: Bool, body: J.Json, state: Browser.State) -> Browser.Decision: Browser.directory_listed(ticket, ok, body, state)
+
+def outside_event(identity: String, state: Browser.State) -> Browser.OutsideDecision: Browser.outside_event(identity, state)
+
+def active_layer_key(state: Browser.State) -> Maybe<&2, String>: Browser.active_layer_key(state)

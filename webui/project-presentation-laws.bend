@@ -18,7 +18,7 @@ def group_production(+key: String, label: String, role: UI.Role, +project: Nat, 
   source: +List<UI.Node>, +children: +List<Doc.Node>, visual: Design.Style, representation: Controls.Representation, +appearances: +List<Design.Appearance>) ->
   {Render.match_node(key, label, role, UI.ProjectGroup{project, selected, expanded}, source, children, visual, representation, appearances) ==
     Doc.Element{key, "div", [Render.property("data-native-key", key), Render.property("data-project", Nat.show(project)), Render.property("data-expanded", Render.boolean(expanded))],
-      [Render.property("display", "flex"), Render.property("flex-direction", "column"), Render.property("gap", "2px"), Render.property("min-width", "0")], Nil{},
+      [Render.property("display", "flex"), Render.property("flex-direction", "column"), Render.property("gap", "4px"), Render.property("min-width", "0")], Nil{},
       Render.project_group_children(children, appearances, selected, expanded)} : Doc.Node}:
   {==}
 
@@ -144,7 +144,7 @@ def children_indent(+node: Doc.Node, appearances: +List<Design.Appearance>, sele
   {==}
 
 def creation_heading_observed(value: Design.Style) -> Design.TextStyle:
-  Design.Style{text, chrome, alignment, flow, overflow, content_area, gap, minimum, maximum, states} = value
+  Design.Style{text, chrome, alignment, flow, overflow, +content_frame, minimum, maximum, states} = value
   text
 
 def chooser_draft_observation(+id: Nat, +fallback: Design.Style) ->
@@ -157,7 +157,7 @@ type Requirements is Type:
     group_production: @+key:String -> @label:String -> @role:UI.Role -> @+project:Nat -> @+selected:Bool -> @+expanded:Bool -> @source:+List<UI.Node> -> @+children:+List<Doc.Node> -> @visual:Design.Style -> @representation:Controls.Representation -> @+appearances:+List<Design.Appearance> ->
       {Render.match_node(key, label, role, UI.ProjectGroup{project, selected, expanded}, source, children, visual, representation, appearances) ==
     Doc.Element{key, "div", [Render.property("data-native-key", key), Render.property("data-project", Nat.show(project)), Render.property("data-expanded", Render.boolean(expanded))],
-      [Render.property("display", "flex"), Render.property("flex-direction", "column"), Render.property("gap", "2px"), Render.property("min-width", "0")], Nil{},
+      [Render.property("display", "flex"), Render.property("flex-direction", "column"), Render.property("gap", "4px"), Render.property("min-width", "0")], Nil{},
       Render.project_group_children(children, appearances, selected, expanded)} : Doc.Node},
     header_production: @+key:String -> @+tag:String -> @+attrs:+List<Doc.Property> -> @+styles:+List<Doc.Property> -> @+events:+List<Doc.Event> -> @+children:+List<Doc.Node> -> @+appearances:+List<Design.Appearance> -> @+selected:Bool -> @+expanded:Bool ->
       {Render.project_header_node(Doc.Element{key, tag, attrs, styles, events, children}, appearances, selected, expanded) ==

@@ -49,6 +49,9 @@ type Effect is Data:
 type Decision is Data:
   Decision{state: State, effects: +List<Effect>}
 
+type OutsideDecision is Data:
+  OutsideDecision{handled: Bool, decision: Decision}
+
 type KeyResult is Data:
   KeyResult{handled: Bool, decision: Decision}
 
@@ -417,6 +420,93 @@ def place(key: String, target: String, state: State) -> Decision:
 
 def code_source(source: Code.Source, ordinal: Nat, text: String, state: State) -> Decision:
   product_input(Product.CodeSource{Code.Identity{source, ordinal}, text}, state)
+def directory_count_same(same: Bool, rest: Nat) -> Nat:
+  match same:
+    case True{}: (rest + 1n : Nat)
+    case False{}: rest
+
+def directory_field_count(fields: +List<J.Field>, +name: String) -> Nat:
+  match fields:
+    case Nil{}: 0n
+    case Con{J.Field{key, value}, rest}: directory_count_same(String.eq(key, name), directory_field_count(rest, name))
+
+def directory_fields_present(+fields: +List<J.Field>, names: +List<String>) -> Bool:
+  match names:
+    case Nil{}: True{}
+    case Con{name, rest}: Nat.is_eq(directory_field_count(fields, name), 1n) && directory_fields_present(fields, rest)
+
+def directory_shape(value: J.Json, +names: +List<String>) -> Bool:
+  match value:
+    case J.Object{+fields}: Nat.is_eq(List.length(&2, J.Field, fields), List.length(&2, String, names)) && directory_fields_present(fields, names)
+    case _: False{}
+
+def directory_entry_valid(valid: Bool, name: String, path: String) -> Result<&2, &2, String, Services.DirectoryEntry>:
+  match valid:
+    case True{}: Done{Services.DirectoryEntry{name, path}}
+    case False{}: Fail{"Invalid folder entry"}
+
+def directory_entry_fields(shape: Bool, name: J.Json, path: J.Json) -> Result<&2, &2, String, Services.DirectoryEntry>:
+  match shape name path:
+    case True{} J.Text{+name} J.Text{+path}:
+      directory_entry_valid(Bool.not(String.is_empty(name)) && String.starts_with(path, "/"), name, path)
+    case _ _ _: Fail{"Invalid folder entry"}
+
+def directory_entry(+value: J.Json) -> Result<&2, &2, String, Services.DirectoryEntry>:
+  directory_entry_fields(directory_shape(value, ["name", "path"]), J.get(value, "name"), J.get(value, "path"))
+
+def directory_entry_cons(entry: Result<&2, &2, String, Services.DirectoryEntry>,
+  rest: Result<&2, &2, String, +List<Services.DirectoryEntry>>) -> Result<&2, &2, String, +List<Services.DirectoryEntry>>:
+  match entry rest:
+    case Done{value} Done{values}: Done{value <> values}
+    case Fail{reason} _: Fail{reason}
+    case _ Fail{reason}: Fail{reason}
+
+def directory_entries(values: +List<J.Json>) -> Result<&2, &2, String, +List<Services.DirectoryEntry>>:
+  match values:
+    case Nil{}: Done{Nil{}}
+    case Con{value, rest}: directory_entry_cons(directory_entry(value), directory_entries(rest))
+
+def directory_parent_valid(valid: Bool, path: String, up: String, entries: +List<Services.DirectoryEntry>, truncated: Bool) -> Result<&2, &2, String, Services.DirectoryCatalog>:
+  match valid:
+    case True{}: Done{Services.DirectoryCatalog{path, Some{up}, entries, truncated}}
+    case False{}: Fail{"Invalid parent folder"}
+
+def directory_catalog_valid(valid: Bool, path: String, parent: J.Json, values: Result<&2, &2, String, +List<Services.DirectoryEntry>>,
+  truncated: Bool) -> Result<&2, &2, String, Services.DirectoryCatalog>:
+  match valid parent values:
+    case True{} J.Null{} Done{entries}: Done{Services.DirectoryCatalog{path, None{}, entries, truncated}}
+    case True{} J.Text{+up} Done{entries}: directory_parent_valid(String.starts_with(up, "/"), path, up, entries, truncated)
+    case _ _ Fail{reason}: Fail{reason}
+    case _ _ _: Fail{"Invalid folder catalog"}
+
+def directory_catalog(+path: String, parent: J.Json, values: Result<&2, &2, String, +List<Services.DirectoryEntry>>,
+  truncated: Bool) -> Result<&2, &2, String, Services.DirectoryCatalog>:
+  directory_catalog_valid(String.starts_with(path, "/"), path, parent, values, truncated)
+
+def directory_response_failure(shape: Bool, error: J.Json) -> Result<&2, &2, String, Services.DirectoryCatalog>:
+  match shape error:
+    case True{} J.Text{reason}: Fail{reason}
+    case _ _: Fail{"Invalid folder listing failure"}
+
+def directory_response_success(shape: Bool, path: J.Json, entries: J.Json, truncated: J.Json, parent: J.Json) -> Result<&2, &2, String, Services.DirectoryCatalog>:
+  match shape path entries truncated:
+    case True{} J.Text{path} J.Array{entries} J.Boolean{truncated}: directory_catalog(path, parent, directory_entries(entries), truncated)
+    case _ _ _ _: Fail{"Invalid folder listing"}
+
+def directory_response_ok(ok: J.Json, +body: J.Json) -> Result<&2, &2, String, Services.DirectoryCatalog>:
+  match ok:
+    case J.Boolean{False{}}: directory_response_failure(directory_shape(body, ["ok", "error"]), J.get(body, "error"))
+    case J.Boolean{True{}}: directory_response_success(directory_shape(body, ["ok", "path", "parent", "entries", "truncated"]), J.get(body, "path"), J.get(body, "entries"), J.get(body, "truncated"), J.get(body, "parent"))
+    case _: Fail{"Invalid folder listing"}
+
+def directory_response(+body: J.Json) -> Result<&2, &2, String, Services.DirectoryCatalog>:
+  directory_response_ok(J.get(body, "ok"), body)
+
+def directory_listed(ticket: Nat, ok: Bool, +body: J.Json, state: State) -> Decision:
+  match ok:
+    case False{}: product_input(Product.DirectoryListed{ticket, Fail{J.text(J.get(body, "error"))}}, state)
+    case True{}: product_input(Product.DirectoryListed{ticket, directory_response(body)}, state)
+
 def directories_completed(ticket: Nat, ok: Bool, +body: J.Json, state: State) -> Decision:
   match ok:
     case False{}: product_input(Product.Directories{ticket, Fail{J.text(J.get(body, "error"))}}, state)
@@ -568,6 +658,7 @@ def gesture_text(meaning: UI.Meaning, text: String, state: State) -> Maybe<&2, U
     case UI.SearchChoices{query}: Some{UI.Search{text}}
     case UI.EnterCredential{entered}: Some{UI.Credential{text}}
     case UI.EnterDirectory{editor, current}: Some{UI.Directory{text}}
+    case UI.DirectoryBrowserLocation{value}: Some{UI.Directory{text}}
     case UI.BoardProfile{automatic, selected, choices, enabled}: Some{UI.SelectBoardProfile{text}}
     case UI.BoardSearch{filter}: Some{UI.Filter{search_filter(filter, text)}}
     case UI.Edit{editor, field, entry, value}: field_text(editor, field, entry, value, text, state)
@@ -584,6 +675,7 @@ def confirmation_key(keyboard: String, composing: Bool, control: Bool, alt: Bool
 
 def confirm_source(found: Maybe<&2, UI.Node>) -> Maybe<&2, UI.Gesture>:
   match found:
+    case Some{UI.Node{key, semantic, label, role, UI.DirectoryBrowserLocation{value}, children}}: Some{UI.ConfirmDirectory{}}
     case Some{UI.Node{key, semantic, label, role, UI.EnterDirectory{editor, text}, children}}: Some{UI.ConfirmDirectory{}}
     case _: None{}
 
@@ -604,33 +696,91 @@ def connect(credential: String, +state: State) -> Decision:
   connect_credential(credential_key(nodes(state)), credential, state)
 
 
-def dismiss_input(input: Core.Input) -> Bool:
-  match input:
-    case Core.ServiceInput{Services.ClosePreview{}}: True{}
-    case Core.ServiceInput{Services.CloseSettings{}}: True{}
-    case Core.ApplicationInput{E.UserInput{U.Activate{U.ClosePanel{}}}}: True{}
-    case Core.ApplicationInput{E.UserInput{U.SetNavigation{False{}}}}: True{}
-    case _: False{}
+type DismissTarget is Data:
+  DismissTarget{identity: String, input: Core.Input, outside: Bool, escape: Bool}
 
-def dismiss_selected(eligible: Bool, key: String, fallback: Maybe<&2, String>) -> Maybe<&2, String>:
-  match eligible:
-    case True{}: Some{key}
-    case False{}: fallback
+def first_dismiss_target(found: Maybe<&2, DismissTarget>, fallback: Maybe<&2, DismissTarget>) -> Maybe<&2, DismissTarget>:
+  match found:
+    case Some{target}: Some{target}
+    case None{}: fallback
 
-def dismiss_key(values: +List<UI.Node>) -> Maybe<&2, String>:
+def dismiss_target(values: +List<UI.Node>) -> Maybe<&2, DismissTarget>:
   match values:
     case Nil{}: None{}
-    case Con{UI.Node{+key, semantic, label, role, UI.ComposerAction{subject, input, availability}, +children}, rest}:
-      dismiss_selected(UI.available(availability) && dismiss_input(input), key, prefer_key(dismiss_key(children), dismiss_key(rest)))
-    case Con{UI.Node{+key, semantic, label, role, UI.Activate{input, availability}, +children}, rest}:
-      dismiss_selected(UI.available(availability) && dismiss_input(input), key, prefer_key(dismiss_key(children), dismiss_key(rest)))
+    case Con{UI.Node{key, semantic, label, role, UI.LayerRegion{input, outside, escape}, children}, rest}:
+      Some{DismissTarget{key, input, outside, escape}}
     case Con{UI.Node{key, semantic, label, role, meaning, children}, rest}:
-      prefer_key(dismiss_key(children), dismiss_key(rest))
+      first_dismiss_target(dismiss_target(children), dismiss_target(rest))
 
-def dismiss_found(found: Maybe<&2, String>, state: State) -> Decision:
+def dismiss_permitted(allowed: Bool, input: Core.Input, state: State) -> Decision:
+  match allowed:
+    case False{}: Decision{state, Nil{}}
+    case True{}: product_input(Product.InterfaceInput{input}, state)
+
+def active_focus_scope(state: State) -> Focus.Scope:
+  State{Web.State{Platform.State{core, Platform.Platform{readers, editors, focused, ticket, reduced, capacity, scope}}, generation, realization, environment}, sequence, next, pending} = state
+  scope
+
+def scene_layer_key(value: Web.Scene) -> Maybe<&2, String>:
+  Web.Scene{UI.Surface{content, base, overlays, scope}, platform, generation, realization, presentation} = value
+  scope
+
+def active_layer_key(state: State) -> Maybe<&2, String>:
+  scene_layer_key(scene(state))
+
+def outside_layer_owned(+identity: String, key: Maybe<&2, String>) -> Bool:
+  match key:
+    case None{}: False{}
+    case Some{current}: String.eq(identity, current)
+
+def same_temporary(+identity: String, scope: Focus.Scope) -> Bool:
+  match scope:
+    case Focus.Document{}: False{}
+    case Focus.Temporary{current, initial, restore}: String.eq(identity, current)
+
+# NOTE: A refused dismissal must discard the candidate and its effects so
+# the browser can retain the original pointer action without committing work.
+def outside_completed(closed: Bool, candidate: Decision, state: State) -> OutsideDecision:
+  match closed:
+    case True{}: OutsideDecision{True{}, candidate}
+    case False{}: OutsideDecision{False{}, Decision{state, Nil{}}}
+
+def outside_closed(identity: String, candidate: Decision) -> Bool:
+  Decision{next, effects} = candidate
+  Bool.not(same_temporary(identity, active_focus_scope(next)))
+
+def outside_transition(+identity: String, +candidate: Decision, state: State) -> OutsideDecision:
+  outside_completed(outside_closed(identity, candidate), candidate, state)
+
+def outside_scoped(scope: Focus.Scope, input: Core.Input, +state: State) -> OutsideDecision:
+  match scope:
+    case Focus.Document{}: OutsideDecision{False{}, Decision{state, Nil{}}}
+    case Focus.Temporary{identity, initial, restore}:
+      outside_transition(identity, product_input(Product.InterfaceInput{input}, state), state)
+
+def outside_permitted(allowed: Bool, input: Core.Input, +state: State) -> OutsideDecision:
+  match allowed:
+    case False{}: OutsideDecision{False{}, Decision{state, Nil{}}}
+    case True{}: outside_scoped(active_focus_scope(state), input, state)
+
+def outside_target(+identity: String, found: Maybe<&2, DismissTarget>, +state: State) -> OutsideDecision:
+  match found:
+    case None{}: OutsideDecision{False{}, Decision{state, Nil{}}}
+    case Some{DismissTarget{key, input, outside, escape}}:
+      outside_permitted((String.eq(identity, key) && outside) && outside_layer_owned(identity, active_layer_key(state)), input, state)
+
+def outside_event(identity: String, +state: State) -> OutsideDecision:
+  outside_target(identity, dismiss_target(nodes(state)), state)
+
+def escape_target(found: Maybe<&2, DismissTarget>, state: State) -> Decision:
   match found:
     case None{}: Decision{state, Nil{}}
-    case Some{key}: activate(key, state)
+    case Some{DismissTarget{key, input, outside, escape}}: dismiss_permitted(escape, input, state)
+
+def accepts_escape(found: Maybe<&2, DismissTarget>) -> Bool:
+  match found:
+    case None{}: False{}
+    case Some{DismissTarget{key, input, outside, escape}}: escape
 
 def cycle_found(found: Maybe<&2, String>, state: State) -> Decision:
   match found:
@@ -649,7 +799,7 @@ def frame_cycle(realization: Rendered.State, scope: Focus.Scope, reverse: Bool) 
 def temporary_action(scope: Focus.Scope, tab: Bool, escape: Bool, reverse: Bool, realization: Rendered.State, +state: State) -> Decision:
   match tab escape:
     case True{} _: cycle_found(frame_cycle(realization, scope, reverse), state)
-    case False{} True{}: dismiss_found(dismiss_key(nodes(state)), state)
+    case False{} True{}: escape_target(dismiss_target(nodes(state)), state)
     case False{} False{}: Decision{state, Nil{}}
 
 def key_scoped(scope: Focus.Scope, tab: Bool, escape: Bool, reverse: Bool, realization: Rendered.State, state: State) -> Decision:
@@ -666,11 +816,11 @@ def key_input(+key: String, shift: Bool, state: State) -> Decision:
   temporary_key(String.eq(key, "Tab"), String.eq(key, "Escape"), shift, state)
 
 
-def key_handled(scope: Focus.Scope, +key: String) -> Bool:
+def key_handled(scope: Focus.Scope, +key: String, escape: Bool) -> Bool:
   match scope:
     case Focus.Document{}: False{}
-    case Focus.Temporary{identity, initial, restore}: String.eq(key, "Tab") || String.eq(key, "Escape")
+    case Focus.Temporary{identity, initial, restore}: String.eq(key, "Tab") || (String.eq(key, "Escape") && escape)
 
 def key_event(+key: String, shift: Bool, +state: State) -> KeyResult:
   State{Web.State{Platform.State{core, Platform.Platform{readers, editors, focused, ticket, reduced, capacity, scope}}, generation, realization, environment}, sequence, next, pending} = state
-  KeyResult{key_handled(scope, key), key_input(key, shift, state)}
+  KeyResult{key_handled(scope, key, accepts_escape(dismiss_target(nodes(state)))), key_input(key, shift, state)}

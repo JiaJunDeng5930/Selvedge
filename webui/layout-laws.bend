@@ -34,7 +34,7 @@ def expected_main_frame(+recipe: Composition.Recipe, +main: Design.Box) -> Desig
     case Composition.Recipe{measure, page_heading, Composition.StageColumns{}, composer, decisions, latest}:
       +body_viewport = main
       Design.BoardFrame{body_viewport, Layout.board_column_width(body_viewport),
-        12n, 16n}
+        16n, 16n}
     case Composition.Recipe{measure, page_heading, Composition.UnavailableNotice{}, composer, decisions, latest}:
       Design.UnavailableFrame{Layout.heading_box(main), Layout.body_box(main), Layout.measure_band(measure, Layout.body_box(main))}
 
@@ -160,7 +160,7 @@ def empty_tree_anchor_is_absent(+surface: UI.Surface, +requested: String, scope:
     case UI.Surface{content, +base, +overlays, +previous_scope}: {==}
 
 def anchored_layer(initial_attention: String, return_attention: String,
-  content: V.LayerContent, close: V.ControlDeclaration) -> V.Layer:
+  content: V.LayerContent, close: V.Dismissal) -> V.Layer:
   V.Layer{V.AnchoredMenu{}, content, initial_attention, return_attention, close}
 
 def expected_anchored_menu(viewport: Design.Viewport, origin: String) -> Design.OverlayPlacement:
@@ -179,7 +179,7 @@ def anchored_menu_prefers_block_space(+viewport: Design.Viewport, +origin: Strin
     case Design.Viewport{width, height}: {==}
 
 def menu_uses_resolved_origin(viewport: Design.Viewport, initial_attention: String,
-  return_attention: String, content: V.LayerContent, close: V.ControlDeclaration,
+  return_attention: String, content: V.LayerContent, close: V.Dismissal,
   +surface: UI.Surface, origin: String,
   matched: {Layout.anchor(surface, return_attention) == Some{origin} : Maybe<&2, String>}) ->
   {Layout.menu_for_layer(viewport, Some{anchored_layer(initial_attention, return_attention, content, close)}, surface) ==
@@ -386,7 +386,7 @@ type Requirements is Type:
       {Layout.anchor(surface_with_empty_trees(surface, scope), requested) ==
         None{} : Maybe<&2, String>},
     menu_uses_matched_origin: @viewport:Design.Viewport -> @initial_attention:String ->
-      @return_attention:String -> @content:V.LayerContent -> @close:V.ControlDeclaration ->
+      @return_attention:String -> @content:V.LayerContent -> @close:V.Dismissal ->
       @+surface:UI.Surface -> @origin:String ->
       @matched:{Layout.anchor(surface, return_attention) == Some{origin} : Maybe<&2, String>} ->
       {Layout.menu_for_layer(viewport,

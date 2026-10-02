@@ -63,6 +63,9 @@ type BoardGrouping is Data:
   PrimaryAction{}
 
 type Meaning is Data:
+  LayerRegion{dismiss: Core.Input, outside: Bool, escape: Bool}
+  DirectoryBrowserLocation{value: String}
+  PanelToggle{expanded: Bool, input: Core.Input, availability: V.Availability}
   MovableCard{destinations: +List<Placement>, face: V.CardFace}
   Region{}
   ProjectGroup{project: Nat, selected: Bool, expanded: Bool}
@@ -132,8 +135,21 @@ def selected_node(selected: Bool, node: Node) -> Node:
     case True{}: replace_role(node, SelectedButton{})
     case False{}: node
 
-def declared(parent: String, declaration: V.ControlDeclaration, state: Core.State) -> Node:
-  action(parent, Core.control(state, declaration))
+def declared_panel_toggle_layers(parent: String, control: Core.Control, panel: U.Panel, layers: +List<E.Layer>) -> Node:
+  Core.Control{+identity, label, prominence, input, availability} = control
+  Node{parent ++ "/" ++ identity, identity, label, action_role(prominence),
+    PanelToggle{E.panel_present(layers, E.panel_target(panel)), input, availability}, Nil{}}
+
+def declared_panel_toggle(parent: String, control: Core.Control, panel: U.Panel, state: Core.State) -> Node:
+  Core.State{E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks}}, services} = state
+  declared_panel_toggle_layers(parent, control, panel, layers)
+
+def declared(parent: String, +declaration: V.ControlDeclaration, +state: Core.State) -> Node:
+  match declaration:
+    case V.ControlDeclaration{identity, label, prominence, U.Activate{U.TogglePanel{+panel, trigger}}, availability}:
+      declared_panel_toggle(parent, Core.control(state,
+        V.ControlDeclaration{identity, label, prominence, U.Activate{U.TogglePanel{panel, trigger}}, availability}), panel, state)
+    case other: action(parent, Core.control(state, other))
 
 def controls(values: +List<V.ControlDeclaration>, +parent: String, +state: Core.State) -> +List<Node>:
   match values:
@@ -265,7 +281,7 @@ def files_observed(value: Forms.Observed) -> +List<B.Attachment>:
     case _: Nil{}
 
 def file_field(+editor: U.Editor, +parent: String, state: Core.State) -> +List<Node>:
-  Core.State{application, Services.State{+access, credential, settings, appearance, next, +transfers, preview}} = state
+  Core.State{application, Services.State{+access, credential, settings, appearance, next, +transfers, preview, directory_picker}} = state
   Node{parent ++ "/add", "attachment/add", "Add attachment", Field{}, ReceiveFile{editor, Services.connected(access)}, Nil{}} <>
     List.append(&2, Node, attachment_nodes(files_observed(field_value(state, editor, Forms.CardAttachments{})), editor, parent), transfer_nodes(transfers, editor, parent))
 
@@ -331,6 +347,34 @@ def directory_ready(state: Core.State, editor: U.Editor) -> Bool:
 def directory_confirm(+editor: U.Editor, parent: String, +state: Core.State) -> Node:
   user_action(parent, "workspace/confirm", "Add folder", U.EditDraft{editor, U.ConfirmDirectory{}}, directory_ready(state, editor), state)
 
+def browse_workspace(workspace: Maybe<&2, D.Workspace>) -> String:
+  match workspace:
+    case None{}: ""
+    case Some{D.Workspace{roots, primary}}:
+      match primary:
+        case Some{path}: path
+        case None{}: ""
+
+def browse_start_empty(empty: Bool, entered: String, +editor: U.Editor, state: Core.State) -> String:
+  match empty:
+    case False{}: entered
+    case True{}: browse_workspace(workspace_observed(field_value(state, editor, Forms.WorkspaceDirectories{})))
+
+def browse_start(+editor: U.Editor, +state: Core.State) -> String:
+  +entered = pending_directory(state, editor)
+  browse_start_empty(String.is_empty(entered), entered, editor, state)
+
+def application_of(state: Core.State) -> E.Application:
+  Core.State{application, services} = state
+  application
+
+
+def directory_browse(+editor: U.Editor, +parent: String, +state: Core.State) -> Node:
+  product_action(parent, "workspace/browse", "Browse folders",
+    Core.ServiceInput{Services.OpenDirectoryPicker{editor, browse_start(editor, state), parent ++ "/workspace/browse"}},
+    Core.accepts_directory(editor, application_of(state)))
+
+
 def field_children(field: Forms.Field, +editor: U.Editor, +parent: String, +state: Core.State) -> +List<Node>:
   match field:
     case Forms.CardAttachments{}: file_field(editor, parent, state)
@@ -339,6 +383,7 @@ def field_children(field: Forms.Field, +editor: U.Editor, +parent: String, +stat
         ReadOnly{"Enter a directory path to add it. Listed directories define the workspace; choose the primary working directory."}, Nil{}} <>
       Node{parent ++ "/add", "workspace/add", "Add working directory", Field{}, EnterDirectory{editor, pending_directory(state, editor)}, Nil{}} <>
       directory_confirm(editor, parent, state) <>
+      directory_browse(editor, parent, state) <>
         directory_values(workspace_observed(field_value(state, editor, Forms.WorkspaceDirectories{})), editor, parent, state)
     case _: Nil{}
 
@@ -1098,6 +1143,7 @@ def workspace_menu_group(+editor: U.Editor, group: V.InputGroup, +parent: String
       Node{parent ++ "/instruction", "workspace/instruction", "Add directories and choose the primary working directory.", Content{}, ReadOnly{"Add directories and choose the primary working directory."}, Nil{}} <>
       Node{parent ++ "/add", "workspace/add", "Add working directory", Field{}, EnterDirectory{editor, pending_directory(state, editor)}, Nil{}} <>
       directory_confirm(editor, parent, state) <>
+      directory_browse(editor, parent, state) <>
       List.append(&2, Node, directory_root_nodes(roots, parent, state), optional_control(inherit, parent, state))
     case _: Nil{}
 
@@ -1219,32 +1265,36 @@ def layer_role(kind: V.LayerKind) -> Role:
 def layer_key(initial_attention: String) -> String:
   "/layers/" ++ initial_attention
 
+def dismissal_meaning(value: V.Dismissal) -> Meaning:
+  match value:
+    case V.OutsideOrEscape{action}: LayerRegion{Core.ApplicationInput{E.UserInput{U.Activate{action}}}, True{}, True{}}
+    case V.ByTrigger{action}: LayerRegion{Core.ApplicationInput{E.UserInput{U.Activate{action}}}, False{}, False{}}
+
 def layers(values: +List<V.Layer>, +state: Core.State) -> +List<Node>:
   match values:
     case Nil{}: Nil{}
-    case Con{V.Layer{kind, +content, +initial, restore, close}, rest}:
-      Node{layer_key(initial), initial, V.layer_title(content), layer_role(kind), Region{}, List.append(&2, Node,
-        layer_content(content, layer_key(initial), state), [declared(layer_key(initial), close, state)])} <> layers(rest, state)
+    case Con{V.Layer{kind, +content, +initial, restore, dismissal}, rest}:
+      Node{layer_key(initial), initial, V.layer_title(content), layer_role(kind), dismissal_meaning(dismissal),
+        layer_content(content, layer_key(initial), state)} <> layers(rest, state)
 
 def settings_visible(open: Bool, +entered: Bool, close: Core.Input, connect: Core.Input) -> +List<Node>:
   match open:
     case False{}: Nil{}
-    case True{}: [region("/layers", "settings", "Settings", Dialog{},
+    case True{}: [Node{"/layers/settings", "settings", "Settings", Dialog{}, LayerRegion{close, True{}, True{}},
       [Node{"/layers/settings/credential", "settings/credential", "Access token", Field{}, EnterCredential{entered}, Nil{}},
        product_action("/layers/settings", "connect", "Connect", connect, entered),
        product_action("/layers/settings", "light", "Light appearance", Core.ServiceInput{Services.ChooseAppearance{Services.LightAppearance{}}}, True{}),
        product_action("/layers/settings", "dark", "Dark appearance", Core.ServiceInput{Services.ChooseAppearance{Services.DarkAppearance{}}}, True{}),
-       product_action("/layers/settings", "system", "System appearance", Core.ServiceInput{Services.ChooseAppearance{Services.SystemAppearance{}}}, True{}),
-       product_action("/layers/settings", "close", "Close settings", close, True{})])]
+       product_action("/layers/settings", "system", "System appearance", Core.ServiceInput{Services.ChooseAppearance{Services.SystemAppearance{}}}, True{})]}]
 
 def settings(view: Core.Settings) -> +List<Node>:
   Core.Settings{open, access, entered, appearance, open_action, close_action, connect_action} = view
   settings_visible(open, entered, close_action, connect_action)
 
 def preview_controls(file: B.Attachment, ready: Bool) -> +List<Node>:
-  [region("/layers", "attachment-preview", "Attachment preview", Dialog{},
-    [product_action("/layers/attachment-preview", "download", "Download", Core.ServiceInput{Services.Download{file}}, ready),
-     product_action("/layers/attachment-preview", "attachment-preview/close", "Close preview", Core.ServiceInput{Services.ClosePreview{}}, True{})])]
+  [Node{"/layers/attachment-preview", "attachment-preview", "Attachment preview", Dialog{},
+    LayerRegion{Core.ServiceInput{Services.ClosePreview{}}, True{}, True{}},
+    [product_action("/layers/attachment-preview", "download", "Download", Core.ServiceInput{Services.Download{file}}, ready)]}]
 
 def preview(value: Services.Preview) -> +List<Node>:
   match value:
@@ -1252,6 +1302,54 @@ def preview(value: Services.Preview) -> +List<Node>:
     case Services.LoadingPreview{ticket, file, trigger}: preview_controls(file, False{})
     case Services.ReadyPreview{file, resource, image, trigger}: preview_controls(file, True{})
     case Services.FailedPreview{file, reason, trigger}: preview_controls(file, False{})
+
+def directory_visit(parent: String, id: String, label: String, path: String) -> Node:
+  product_action(parent, id, label, Core.ServiceInput{Services.VisitDirectory{path}}, True{})
+
+def directory_parent(parent: Maybe<&2, String>) -> +List<Node>:
+  match parent:
+    case None{}: Nil{}
+    case Some{path}: [directory_visit("/layers/directory-picker", "parent", "Parent folder", path)]
+
+def directory_entries(values: +List<Services.DirectoryEntry>) -> +List<Node>:
+  match values:
+    case Nil{}: Nil{}
+    case Con{Services.DirectoryEntry{name, +path}, rest}:
+      directory_visit("/layers/directory-picker", "entry/" ++ path, name, path) <> directory_entries(rest)
+
+def directory_truncated(truncated: Bool) -> +List<Node>:
+  match truncated:
+    case False{}: Nil{}
+    case True{}: [Node{"/layers/directory-picker/truncated", "directory-picker/truncated", "More folders are available", Content{},
+      ReadOnly{"The folder list is incomplete. Enter a path to visit another folder."}, Nil{}}]
+
+def directory_picker_content(picker: Services.DirectoryPicker) -> +List<Node>:
+  match picker:
+    case Services.NoDirectoryPicker{}: Nil{}
+    case Services.LoadingDirectory{ticket, editor, path, trigger}:
+      [Node{"/layers/directory-picker/status", "directory-picker/status", "Loading folders", Content{}, ReadOnly{"Loading folders…"}, Nil{}}]
+    case Services.FailedDirectory{ticket, editor, path, reason, trigger}:
+      [Node{"/layers/directory-picker/error", "directory-picker/error", "Folder listing failed", Content{}, ReadOnly{reason}, Nil{}},
+       directory_visit("/layers/directory-picker", "retry", "Retry", path)]
+    case Services.ReadyDirectory{ticket, editor, Services.DirectoryCatalog{path, +parent, entries, truncated}, location, trigger}:
+      [Node{"/layers/directory-picker/location", "directory-picker/location", "Folder path", Field{}, DirectoryBrowserLocation{location}, Nil{}},
+       product_action("/layers/directory-picker", "go", "Go", Core.ServiceInput{Services.GoDirectory{}}, True{})]
+
+def directory_ready_content(picker: Services.DirectoryPicker) -> +List<Node>:
+  match picker:
+    case Services.ReadyDirectory{ticket, editor, Services.DirectoryCatalog{path, parent, entries, truncated}, location, trigger}:
+      List.append(&2, Node, directory_parent(parent), List.append(&2, Node, directory_entries(entries),
+        List.append(&2, Node, directory_truncated(truncated), [Node{"/layers/directory-picker/use", "directory-picker/use", "Use this folder", PrimaryButton{},
+          Activate{Core.ServiceInput{Services.ChooseDirectory{}}, V.Available{}}, Nil{}}])))
+    case _: Nil{}
+
+def directory_picker(value: Services.DirectoryPicker) -> +List<Node>:
+  match value:
+    case Services.NoDirectoryPicker{}: Nil{}
+    case +other:
+      [Node{"/layers/directory-picker", "directory-picker", "Choose folder", Dialog{},
+        LayerRegion{Core.ServiceInput{Services.CloseDirectoryPicker{}}, True{}, True{}},
+        List.append(&2, Node, directory_picker_content(other), directory_ready_content(other))}]
 
 def active_scope(overlays: +List<Node>) -> Maybe<&2, String>:
   match overlays:
@@ -1288,16 +1386,57 @@ def modal_navigation(arrangement: V.Arrangement, nav: V.Navigation, state: Core.
   V.Arrangement{placement, page} = arrangement
   modal_navigation_at(placement, nav, state)
 
-def assemble(content: Core.Scene, +state: Core.State) -> Surface:
-  Core.Scene{V.Scene{+nav, +main, +views, +arrangement, attention}, +preferences, transfers, +attachment, code} = content
-  finish(content, List.append(&2, Node, base_navigation(arrangement, nav, state), [page(main, state),
-    product_action("", "settings/open", "Settings", Core.ServiceInput{Services.OpenSettings{}}, True{})]),
-    List.append(&2, Node, preview(attachment), List.append(&2, Node, settings(preferences), List.append(&2, Node, layers(views, state), modal_navigation(arrangement, nav, state)))))
+type PersistentTrigger is Data:
+  PersistentTrigger{task: Nat, trigger: String}
 
-def observe(capacity: V.Capacity, +state: Core.State) -> Surface:
-  assemble(Core.observe(capacity, state), state)
+def persistent_details_trigger(overlays: +List<Node>) -> Maybe<&2, PersistentTrigger>:
+  match overlays:
+    case Nil{}: None{}
+    case Con{Node{key, semantic, label, Dialog{},
+      LayerRegion{Core.ApplicationInput{E.UserInput{U.Activate{U.TogglePanel{U.TaskDetails{task}, trigger}}}}, False{}, False{}}, children}, rest}: Some{PersistentTrigger{task, trigger}}
+    case Con{Node{key, semantic, label, Dialog{}, meaning, children}, rest}: None{}
+    case Con{Node{key, semantic, label, Menu{}, meaning, children}, rest}: None{}
+    case Con{other, rest}: persistent_details_trigger(rest)
 
+def retain_node(keep: Bool, node: Node, rest: +List<Node>) -> +List<Node>:
+  match keep:
+    case True{}: node <> rest
+    case False{}: rest
 
+def without_node(nodes: +List<Node>, +key: String) -> +List<Node>:
+  match nodes:
+    case Nil{}: Nil{}
+    case Con{Node{+current, semantic, label, role, meaning, children}, rest}:
+      retain_node(Bool.not(String.eq(current, key)),
+        Node{current, semantic, label, role, meaning, without_node(children, key)}, without_node(rest, key))
+
+def prepend_persistent_trigger(overlays: +List<Node>, +trigger: Node) -> +List<Node>:
+  match overlays:
+    case Nil{}: Nil{}
+    case Con{Node{key, semantic, label, Dialog{}, meaning, children}, rest}:
+      Node{key, semantic, label, Dialog{}, meaning, trigger <> children} <> rest
+    case Con{other, rest}: other <> prepend_persistent_trigger(rest, trigger)
+
+def relocate_valid_trigger(valid: Bool, +node: Node, content: Core.Scene,
+  +base: +List<Node>, +overlays: +List<Node>) -> Surface:
+  match valid:
+    case False{}: finish(content, base, overlays)
+    case True{}:
+      Node{key, semantic, label, role, meaning, children} = node
+      finish(content, without_node(base, key), prepend_persistent_trigger(overlays, node))
+
+def persistent_trigger_source(meaning: Meaning, target: Nat) -> Bool:
+  match meaning:
+    case PanelToggle{expanded, Core.ApplicationInput{E.UserInput{U.Activate{U.TogglePanel{U.TaskDetails{source}, trigger}}}}, availability}: Nat.is_eq(source, target)
+    case _: False{}
+
+def relocate_found_trigger(found: Maybe<&2, Node>, +target: Nat, content: Core.Scene,
+  +base: +List<Node>, +overlays: +List<Node>) -> Surface:
+  match found:
+    case None{}: finish(content, base, overlays)
+    case Some{Node{key, semantic, label, role, +meaning, children}}:
+      relocate_valid_trigger(persistent_trigger_source(meaning, target),
+        Node{key, semantic, label, role, meaning, children}, content, base, overlays)
 
 def choose_node(same: Bool, node: Node, fallback: Maybe<&2, Node>) -> Maybe<&2, Node>:
   match same:
@@ -1345,6 +1484,7 @@ def bind(meaning: Meaning, gesture: Gesture) -> Maybe<&2, Core.Input>:
   match meaning gesture:
     case ComposerAction{subject, input, availability} Press{}: when_available(available(availability), input)
     case Activate{input, availability} Press{}: when_available(available(availability), input)
+    case PanelToggle{expanded, input, availability} Press{}: when_available(available(availability), input)
     case Choice{selected, description, input, availability} Press{}: when_available(available(availability), input)
     case Edit{+editor, +field, Forms.DisplayOnly{}, +value} Change{+next}: None{}
     case Edit{+editor, +field, entry, +value} Change{+next}: Some{Core.EditField{editor, field, next}}
@@ -1353,6 +1493,8 @@ def bind(meaning: Meaning, gesture: Gesture) -> Maybe<&2, Core.Input>:
     case BoardSearch{+filter} Search{+next}: Some{Core.ApplicationInput{E.UserInput{U.FilterBoard{with_search(next, filter)}}}}
     case ReceiveFile{+editor, +enabled} Attach{file}: when_available(enabled, Core.ServiceInput{Services.AddFile{editor, file}})
     case BoardProfile{automatic, selected, choices, +enabled} SelectBoardProfile{+profile}: when_available(enabled && profile_exists(D.find_profile(choices, profile)), Core.ApplicationInput{E.UserInput{U.Activate{U.BoardCommand{B.Settings{automatic, profile}}}}})
+    case DirectoryBrowserLocation{value} Directory{path}: Some{Core.ServiceInput{Services.WriteDirectoryLocation{path}}}
+    case DirectoryBrowserLocation{value} ConfirmDirectory{}: Some{Core.ServiceInput{Services.GoDirectory{}}}
     case EnterDirectory{+editor, text} Directory{path}: Some{Core.ApplicationInput{E.UserInput{U.EditDraft{editor, U.WriteDirectory{path}}}}}
     case EnterDirectory{editor, text} ConfirmDirectory{}: Some{Core.ApplicationInput{E.UserInput{U.EditDraft{editor, U.ConfirmDirectory{}}}}}
     case _ _: None{}
@@ -1461,16 +1603,12 @@ def perform_input(input: Maybe<&2, Core.Input>, capacity: V.Capacity, state: Cor
 
 def perform(capacity: V.Capacity, state: Core.State, key: String, input: Maybe<&2, Core.Input>) -> Core.Decision:
   perform_input(input, capacity, state, key)
-def interact(+capacity: V.Capacity, +key: String, gesture: Gesture, +state: Core.State) -> Core.Decision:
-  perform(capacity, state, key, resolve(observe(capacity, state), key, gesture))
-
-
-
-
 def focusable(meaning: Meaning) -> Bool:
   match meaning:
     case ComposerAction{subject, input, availability}: available(availability)
     case Activate{input, availability}: available(availability)
+    case PanelToggle{expanded, input, availability}: available(availability)
+    case LayerRegion{dismiss, outside, escape}: True{}
     case Choice{selected, description, input, availability}: available(availability)
     case Edit{editor, field, Forms.DisplayOnly{}, value}: False{}
     case Edit{editor, field, Forms.FileCollection{}, value}: False{}
@@ -1481,6 +1619,7 @@ def focusable(meaning: Meaning) -> Bool:
     case BoardSearch{filter}: True{}
     case ReceiveFile{editor, enabled}: enabled
     case EnterDirectory{editor, text}: True{}
+    case DirectoryBrowserLocation{value}: True{}
     case BoardProfile{automatic, selected, choices, enabled}: enabled
     case _: False{}
 
@@ -1497,6 +1636,8 @@ def candidate_focus(accepted: Bool, key: String, fallback: Maybe<&2, String>) ->
 def first_focus(nodes: +List<Node>) -> Maybe<&2, String>:
   match nodes:
     case Nil{}: None{}
+    case Con{Node{key, semantic, label, role, LayerRegion{dismiss, outside, escape}, children}, rest}:
+      preferred_key(first_focus(children), Some{key})
     case Con{Node{key, semantic, label, role, meaning, children}, rest}:
       candidate_focus(focusable(meaning), key, preferred_key(first_focus(children), first_focus(rest)))
 
@@ -1511,6 +1652,55 @@ def matching_focus(nodes: +List<Node>, +requested: String) -> Maybe<&2, String>:
     case Con{Node{+key, +semantic, label, role, meaning, +children}, rest}:
       preferred_key(at_focus(String.eq(key, requested) || String.eq(semantic, requested), Node{key, semantic, label, role, meaning, children}),
         preferred_key(matching_focus(children, requested), matching_focus(rest, requested)))
+
+def relocate_trigger_key(found: Maybe<&2, String>, +target: Nat, content: Core.Scene,
+  +base: +List<Node>, +overlays: +List<Node>) -> Surface:
+  match found:
+    case None{}: finish(content, base, overlays)
+    case Some{key}: relocate_found_trigger(find_node(base, key), target, content, base, overlays)
+
+def relocate_persistent_trigger(trigger: Maybe<&2, PersistentTrigger>, content: Core.Scene,
+  +base: +List<Node>, +overlays: +List<Node>) -> Surface:
+  match trigger:
+    case None{}: finish(content, base, overlays)
+    case Some{PersistentTrigger{target, requested}}: relocate_trigger_key(matching_focus(base, requested), target, content, base, overlays)
+
+def finish_reachable(content: Core.Scene, +base: +List<Node>, +overlays: +List<Node>) -> Surface:
+  # NOTE: A modal makes the page inert; move its existing toggle into the
+  # active scope rather than creating a second activation authority.
+  relocate_persistent_trigger(persistent_details_trigger(overlays), content, base, overlays)
+
+def surface_base(surface: Surface) -> +List<Node>:
+  Surface{content, base, overlays, scope} = surface
+  base
+
+def surface_overlays(surface: Surface) -> +List<Node>:
+  Surface{content, base, overlays, scope} = surface
+  overlays
+
+def with_navigation(content: Core.Scene, nav: +List<Node>, +reachable: Surface,
+  settings: Node, scope: Maybe<&2, String>) -> Surface:
+  Surface{content, List.append(&2, Node, nav,
+    List.append(&2, Node, surface_base(reachable), [settings])), surface_overlays(reachable), scope}
+
+def assemble(+content: Core.Scene, +state: Core.State) -> Surface:
+  Core.Scene{V.Scene{+nav, +main, +views, +arrangement, attention}, +preferences, transfers, +attachment, code, +folder_picker} = content
+  +overlays = List.append(&2, Node, preview(attachment), List.append(&2, Node, directory_picker(folder_picker), List.append(&2, Node, settings(preferences), List.append(&2, Node, layers(views, state), modal_navigation(arrangement, nav, state)))))
+  # NOTE: Saved trigger identities can alias navigation; only main owns relocation.
+  +reachable = finish_reachable(content, [page(main, state)], overlays)
+  with_navigation(content, base_navigation(arrangement, nav, state), reachable,
+    product_action("", "settings/open", "Settings", Core.ServiceInput{Services.OpenSettings{}}, True{}), active_scope(overlays))
+
+def observe(capacity: V.Capacity, +state: Core.State) -> Surface:
+  assemble(Core.observe(capacity, state), state)
+
+
+
+def interact(+capacity: V.Capacity, +key: String, gesture: Gesture, +state: Core.State) -> Core.Decision:
+  perform(capacity, state, key, resolve(observe(capacity, state), key, gesture))
+
+
+
 
 def focus_in(+nodes: +List<Node>, requested: String) -> Maybe<&2, String>:
   preferred_key(matching_focus(nodes, requested), first_focus(nodes))
@@ -1558,7 +1748,35 @@ def content(surface: Surface) -> Core.Scene:
   Surface{content, base, overlays, scope} = surface
   content
 
-def assembled_content(+scene: Core.Scene, state: Core.State) ->
+def relocated_valid_content(valid: Bool, +node: Node, +scene: Core.Scene, +base: +List<Node>, +overlays: +List<Node>) ->
+  {content(relocate_valid_trigger(valid, node, scene, base, overlays)) == scene : Core.Scene}:
+  match valid:
+    case False{}: {==}
+    case True{}:
+      Node{key, semantic, label, role, meaning, children} = node
+      {==}
+
+def relocated_found_content(found: Maybe<&2, Node>, +target: Nat, +scene: Core.Scene, +base: +List<Node>, +overlays: +List<Node>) ->
+  {content(relocate_found_trigger(found, target, scene, base, overlays)) == scene : Core.Scene}:
+  match found:
+    case None{}: {==}
+    case Some{Node{key, semantic, label, role, +meaning, children}}:
+      relocated_valid_content(persistent_trigger_source(meaning, target),
+        Node{key, semantic, label, role, meaning, children}, scene, base, overlays)
+
+def relocated_key_content(found: Maybe<&2, String>, +target: Nat, +scene: Core.Scene, +base: +List<Node>, +overlays: +List<Node>) ->
+  {content(relocate_trigger_key(found, target, scene, base, overlays)) == scene : Core.Scene}:
+  match found:
+    case None{}: {==}
+    case Some{key}: relocated_found_content(find_node(base, key), target, scene, base, overlays)
+
+def relocated_content(trigger: Maybe<&2, PersistentTrigger>, +scene: Core.Scene, +base: +List<Node>, +overlays: +List<Node>) ->
+  {content(relocate_persistent_trigger(trigger, scene, base, overlays)) == scene : Core.Scene}:
+  match trigger:
+    case None{}: {==}
+    case Some{PersistentTrigger{target, requested}}: relocated_key_content(matching_focus(base, requested), target, scene, base, overlays)
+
+def assembled_content(+scene: Core.Scene, +state: Core.State) ->
   {content(assemble(scene, state)) == scene : Core.Scene}:
-  Core.Scene{V.Scene{nav, main, views, arrangement, attention}, preferences, transfers, attachment, code} = scene
+  Core.Scene{V.Scene{nav, main, views, arrangement, attention}, preferences, transfers, attachment, code, folder_picker} = scene
   {==}

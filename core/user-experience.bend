@@ -347,6 +347,25 @@ def open_panel(+panel: U.Panel, trigger: String, application: Application) -> De
   local(program, Session{route, drafts, readers, Layer{panel, trigger, target, ""} <> without_panel(layers, panel_target(panel)),
     target, navigation, filter, now, next, pending, previews, code_blocks}, [Attend{target}])
 
+def panel_present(layers: +List<Layer>, +target: String) -> Bool:
+  match layers:
+    case Nil{}: False{}
+    case Con{Layer{panel, trigger, initial, query}, rest}:
+      String.eq(panel_target(panel), target) || panel_present(rest, target)
+
+def toggle_panel_selected(present: Bool, +panel: U.Panel, +trigger: String, application: Application) -> Decision:
+  match present:
+    case False{}: open_panel(panel, trigger, application)
+    case True{}:
+      Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks}} = application
+      local(program, Session{route, drafts, readers, without_panel(layers, panel_target(panel)), trigger,
+        navigation, filter, now, next, pending, previews, code_blocks}, [Attend{trigger}])
+
+def toggle_panel(+panel: U.Panel, trigger: String, application: Application) -> Decision:
+  Application{program, Session{route, drafts, readers, +layers, attention, navigation, filter, now, next, pending, previews, code_blocks}} = application
+  toggle_panel_selected(panel_present(layers, panel_target(panel)), panel, trigger,
+    Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks}})
+
 def open_editor_found(found: Maybe<&2, U.Draft>, +body: U.Body, program: M.World(), session: Session) -> Decision:
   open_panel(U.EditObject{U.owner(body)}, U.editor_trigger(U.owner(body)), Application{program, ensure(found, body, session)})
 
@@ -731,6 +750,7 @@ def activate_selected(action: U.Action, +application: Application) -> Decision:
       open_panel(U.Confirm{M.FeatureCommand{F.BoardCommand{B.Delete{id, revision}}}, "Delete card", U.TaskBoard{}}, "card/delete/" ++ Nat.show(id), application)
     case U.BoardCommand{command}: execute_direct(U.direct_command(U.BoardCommand{command}), application)
     case U.OpenPanel{panel, trigger}: open_panel(panel, trigger, application)
+    case U.TogglePanel{panel, trigger}: toggle_panel(panel, trigger, application)
     case U.ClosePanel{}: close_panel(application)
     case U.ConfirmAction{}:
       Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks}} = application
@@ -770,6 +790,7 @@ def search_choices(query: String, application: Application) -> Decision:
 def action_leaves_menu(action: U.Action) -> Bool:
   match action:
     case U.OpenPanel{panel, trigger}: False{}
+    case U.TogglePanel{panel, trigger}: False{}
     case U.ClosePanel{}: False{}
     case _: True{}
 

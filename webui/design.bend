@@ -4,6 +4,27 @@ import ./surfaces.bend as Surfaces
 import ../core/composition.bend as Composition
 import ./controls.bend as Controls
 
+type FactContentLayout is Data:
+  FactContentLayout{content: Enclosure.Frame, facts: Enclosure.Frame}
+
+def fact_content_layout() -> FactContentLayout:
+  FactContentLayout{Enclosure.Frame{Enclosure.ambient(0n, 0n), Enclosure.EmbeddedContent{4n}},
+    Enclosure.Frame{Enclosure.ambient(0n, 0n), Enclosure.SeparateFrames{Enclosure.Sections{}}}}
+
+def fact_content_frame(value: FactContentLayout) -> Enclosure.Frame:
+  FactContentLayout{content, facts} = value
+  content
+
+def fact_collection_frame(value: FactContentLayout) -> Enclosure.Frame:
+  FactContentLayout{content, facts} = value
+  facts
+
+def fact_frame() -> Enclosure.Frame:
+  fact_content_frame(fact_content_layout())
+
+def facts_frame() -> Enclosure.Frame:
+  fact_collection_frame(fact_content_layout())
+
 # CSS pixels describe the Web viewport; product composition remains unit-free.
 type Viewport is Data:
   Viewport{width: Nat, height: Nat}
@@ -125,7 +146,7 @@ type ControlStates is Data:
 
 type Style is Data:
   Style{text: TextStyle, chrome: Chrome, alignment: Alignment, flow: Flow,
-    overflow: Overflow, content_area: Enclosure.ContentArea, gap: Nat,
+    overflow: Overflow, frame: Enclosure.Frame,
     minimum_height: Nat, maximum_width_percent: Nat, states: ControlStates}
 
 type Appearance is Data:

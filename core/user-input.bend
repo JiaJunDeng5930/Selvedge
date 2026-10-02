@@ -113,6 +113,7 @@ type Action is Data:
   DeleteProject{project: Nat}
   BoardCommand{command: B.Command}
   OpenPanel{panel: Panel, trigger: String}
+  TogglePanel{panel: Panel, trigger: String}
   ClosePanel{}
   ConfirmAction{}
 

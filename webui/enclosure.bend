@@ -16,6 +16,8 @@ type Profile is Data:
   Navigation{}
   Approval{}
   CodeBlock{}
+  Lane{}
+  ArchiveGroup{}
 
 type Insets is Data:
   Insets{inline: Nat, block: Nat}
@@ -49,6 +51,8 @@ def spacing(profile: Profile) -> Insets:
     case Navigation{}: Insets{8n, 8n}
     case Approval{}: Insets{12n, 12n}
     case CodeBlock{}: Insets{12n, 12n}
+    case Lane{}: Insets{8n, 8n}
+    case ArchiveGroup{}: Insets{2n, 2n}
 
 def area(profile: Profile) -> ContentArea:
   Inset{profile}
@@ -87,3 +91,56 @@ def required_extent(content_width: Nat, content_height: Nat, +border: Nat,
   +area: ContentArea) -> Extent:
   Extent{Nat.add(content_width, Nat.mul(2n, Nat.add(border, inline(area)))),
     Nat.add(content_height, Nat.mul(2n, Nat.add(border, block(area))))}
+
+# Child relationships belong to the enclosing frame, independently of its paint.
+type Separation is Data:
+  NavigationRows{}
+  MenuItems{}
+  InlineControls{}
+  ComposerControls{}
+  CardSections{}
+  Cards{}
+  BoardColumns{}
+  DialogSections{}
+  DialogActions{}
+  Sections{}
+  Messages{}
+
+def separation(value: Separation) -> Nat:
+  match value:
+    case NavigationRows{}: 4n
+    case MenuItems{}: 4n
+    case InlineControls{}: 4n
+    case ComposerControls{}: 8n
+    case CardSections{}: 8n
+    case Cards{}: 12n
+    case BoardColumns{}: 16n
+    case DialogSections{}: 16n
+    case DialogActions{}: 12n
+    case Sections{}: 12n
+    case Messages{}: 16n
+
+type Arrangement is Data:
+  EmbeddedContent{gap: Nat}
+  SeparateFrames{spacing: Separation}
+  JoinedPartitions{}
+
+type Frame is Data:
+  Frame{content: ContentArea, arrangement: Arrangement}
+
+def frame(content: ContentArea, arrangement: Arrangement) -> Frame:
+  Frame{content, arrangement}
+
+def frame_content(value: Frame) -> ContentArea:
+  Frame{content, arrangement} = value
+  content
+
+def arrangement_gap(value: Arrangement) -> Nat:
+  match value:
+    case EmbeddedContent{gap}: gap
+    case SeparateFrames{spacing}: separation(spacing)
+    case JoinedPartitions{}: 0n
+
+def frame_gap(value: Frame) -> Nat:
+  Frame{content, arrangement} = value
+  arrangement_gap(arrangement)
