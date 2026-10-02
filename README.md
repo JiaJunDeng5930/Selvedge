@@ -407,7 +407,9 @@ it imposes no machine-dependent CI threshold. CI is configured to run checks and
 tests on macOS and Linux after installing locked workspace dependencies. On
 Ubuntu, CI loads a user-namespace AppArmor rule for `/usr/bin/bwrap` and checks
 network namespace setup before integration tests. Each platform runs independently
-so one failure does not cancel the other. `just` provides aliases for these commands.
+so one failure does not cancel the other. The macOS job uses the standard 14 GB
+Intel runner to accommodate the native compiler's working set without relaxing
+subprocess deadlines. `just` provides aliases for these commands.
 
 After adding or deleting files, stage the changed paths, run `npm run index`, and
 stage `AGENTS.md`. The index contains only Git-tracked files. When `pre-commit` is

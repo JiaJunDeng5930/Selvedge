@@ -44,3 +44,10 @@ Bun's `--smol` mode on the old compiler produced byte-identical C but took
 151.628 s; its small RSS reduction did not justify adopting it. The compiler
 upgrade requires the workspace-local install and changes the build fingerprint,
 so an old cached binary cannot count as a current build.
+
+The hosted `macos-latest` label moved to macOS 26 ARM64 with 7 GB RAM. Its complete
+extension fixture took 320.726 s and failed with the existing native deadline.
+Select the standard `macos-26-intel` runner with 14 GB RAM so the measured
+compiler working set fits the job's resource budget. Keep macOS 26 coverage and
+the existing deadline. These standard runner specifications are published in
+the [GitHub hosted-runner reference](https://docs.github.com/en/actions/reference/runners/github-hosted-runners).

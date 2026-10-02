@@ -13,7 +13,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        # NOTE: Native emission needs more memory than the 7 GB macOS ARM runners provide.
+        os: [ubuntu-latest, macos-26-intel]
     runs-on: ${{ matrix.os }}
     env:
       BEND_NO_TELEMETRY: '1'
