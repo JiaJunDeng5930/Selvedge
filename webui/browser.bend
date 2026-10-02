@@ -261,9 +261,9 @@ def native_frame(received: Nat, frame: Rendered.Frame, web: Web.State, sequence:
   +realization = Rendered.observe(generation, received, mask_surface(Web.frame_surface(environment, Web.surface(application)), pending), frame, previous)
   Decision{State{Web.State{application, generation, realization, environment}, sequence, next, pending}, rendering_faults(realization)}
 
-def filter_text(filter: Board.Filter, text: String) -> Board.Filter:
+def search_filter(filter: Board.Filter, text: String) -> Board.Filter:
   Board.Filter{view, search, status, priority, date, assignee, creator, project, label} = filter
-  Board.Filter{text, search, status, priority, date, assignee, creator, project, label}
+  Board.Filter{view, text, status, priority, date, assignee, creator, project, label}
 def project_origin(value: Maybe<&2, Nat>) -> Maybe<&2, UI.Gesture>:
   match value:
     case Some{id}: Some{UI.Change{Forms.ContextChange{Context.ChooseOrigin{Context.ProjectDefaults{id}}}}}
@@ -539,7 +539,7 @@ def gesture_text(meaning: UI.Meaning, text: String, state: State) -> Maybe<&2, U
     case UI.EnterCredential{entered}: Some{UI.Credential{text}}
     case UI.EnterDirectory{editor}: Some{UI.Directory{text}}
     case UI.BoardProfile{automatic, selected, choices, enabled}: Some{UI.SelectBoardProfile{text}}
-    case UI.BoardFilter{value}: Some{UI.Filter{filter_text(value, text)}}
+    case UI.BoardSearch{filter}: Some{UI.Filter{search_filter(filter, text)}}
     case UI.Edit{editor, field, entry, value}: field_text(editor, field, entry, value, text, state)
     case _: None{}
 def edit_gesture(found: Maybe<&2, UI.Node>, text: String, state: State) -> Maybe<&2, UI.Gesture>:

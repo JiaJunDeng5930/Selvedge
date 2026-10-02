@@ -128,6 +128,7 @@ def clear_region_geometry(role: UI.Role, key: String, found: Maybe<&2, Rendered.
   {clear(Rendered.region_geometry(role, key, found, viewport)) == Spec.region_geometry_valid(role, found, viewport) : Bool}:
   match role:
     case UI.Navigation{}: clear_bounded_dialog(key, found, viewport)
+    case UI.NavigationHeader{}: clear_bounded_dialog(key, found, viewport)
     case UI.Main{}: clear_bounded_dialog(key, found, viewport)
     case UI.Heading{}: {==}
     case UI.Timeline{}: {==}

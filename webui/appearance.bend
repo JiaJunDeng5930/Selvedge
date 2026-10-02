@@ -121,14 +121,32 @@ def compound_field_style() -> Design.Style:
   fields(ordinary_text(), base_chrome(), Design.Stretch{}, Design.ColumnFlow{},
     Design.ContentFlow{}, 0n, 0n, 8n, 0n, 100n, passive())
 
+def toggle_extent() -> Nat:
+  16n
+
+def toggle_field() -> Design.Style:
+  +style_chrome = base_chrome()
+  fields(ordinary_text(), style_chrome, Design.Centered{}, Design.BlockFlow{},
+    Design.ContentFlow{}, 0n, 0n, 0n, toggle_extent(), 100n,
+    interactive(style_chrome, paint("--app-color-background-button-tertiary-hover"),
+      paint("--app-color-background-button-tertiary-active")))
+
+def ordinary_field_style(entry: Forms.Entry) -> Design.Style:
+  match entry:
+    case Forms.DisplayOnly{}: display_only_field()
+    case Forms.FileCollection{}: compound_field_style()
+    case Forms.DirectoryCollection{}: compound_field_style()
+    case _: editable_field()
+
+def widget_field_style(widget: Controls.Widget, entry: Forms.Entry) -> Design.Style:
+  match widget:
+    case Controls.ToggleInput{}: toggle_field()
+    case _: ordinary_field_style(entry)
+
 def field_style(meaning: UI.Meaning) -> Design.Style:
   match meaning:
-    case UI.Edit{editor, field, entry, value}:
-      match entry:
-        case Forms.DisplayOnly{}: display_only_field()
-        case Forms.FileCollection{}: compound_field_style()
-        case Forms.DirectoryCollection{}: compound_field_style()
-        case _: editable_field()
+    case UI.Edit{editor, +field, +entry, +value}:
+      widget_field_style(Controls.widget_for(entry, field, value), entry)
     case _: editable_field()
 
 def style(role: UI.Role, meaning: UI.Meaning) -> Design.Style:
@@ -138,6 +156,10 @@ def style(role: UI.Role, meaning: UI.Meaning) -> Design.Style:
         paint("--color-token-side-bar-background"), transparent(), 0n, 0n, False{}),
         Design.Stretch{}, Design.ColumnFlow{}, Design.ScrollFlow{}, 8n, 8n, 4n,
         0n, 100n, passive())
+    case UI.NavigationHeader{}:
+      fields(text_style(Design.InterfaceFont{}, 13n, 20n, 500n), base_chrome(),
+        Design.Stretch{}, Design.RowFlow{}, Design.ContentFlow{}, 8n, 4n, 8n,
+        36n, 100n, passive())
     case UI.Main{}:
       fields(ordinary_text(), chrome(primary_foreground(), paint("--app-color-background-surface"), transparent(), 0n, 0n, False{}), Design.Stretch{},
         Design.ColumnFlow{}, Design.ScrollFlow{}, 0n, 0n, 0n, 0n, 100n, passive())
@@ -184,7 +206,7 @@ def style(role: UI.Role, meaning: UI.Meaning) -> Design.Style:
       fields(ordinary_text(), base_chrome(), Design.Stretch{}, Design.ColumnFlow{},
         Design.ContentFlow{}, 0n, 0n, 12n, 0n, 100n, passive())
     case UI.Dialog{}:
-      surface_style(Design.ColumnFlow{}, Design.ScrollFlow{}, 24n, 24n, 16n, 16n, True{})
+      surface_style(Design.ColumnFlow{}, Design.ContentFlow{}, 0n, 0n, 0n, 16n, True{})
     case UI.Menu{}:
       fields(ordinary_text(), chrome(primary_foreground(),
         paint("--color-token-dropdown-background"),
@@ -194,7 +216,7 @@ def style(role: UI.Role, meaning: UI.Meaning) -> Design.Style:
     case UI.Details{}:
       surface_style(Design.ColumnFlow{}, Design.ScrollFlow{}, 16n, 16n, 16n, 0n, False{})
     case UI.Card{}:
-      surface_style(Design.ColumnFlow{}, Design.ContentFlow{}, 12n, 12n, 8n, 12n, False{})
+      surface_style(Design.ColumnFlow{}, Design.ContentFlow{}, 12n, 12n, 8n, 9n, True{})
     case UI.PrimaryButton{}: primary_button()
     case UI.DestructiveButton{}: destructive_button()
     case UI.SelectedButton{}: selected_button()

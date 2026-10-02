@@ -398,10 +398,11 @@ function observeReadingLayout() {
     layoutFrame = null;
     for (const surface of root.querySelectorAll('[data-reading-scroll]')) {
       const dock = root.querySelector(`[data-reading-dock][data-reading-task="${surface.dataset.readingTask}"]`);
-      const signature = `${dock?.getBoundingClientRect().height ?? 0}:${surface.clientHeight}`;
+      const dockExtent = dock ? Math.max(0, surface.getBoundingClientRect().bottom - dock.getBoundingClientRect().top) : 0;
+      const signature = `${dockExtent}:${surface.clientHeight}`;
       if (surface.dataset.observedLayout === signature) continue;
       surface.dataset.observedLayout = signature;
-      readingInput(surface, value('LayoutChanged', { composer_height: dock?.getBoundingClientRect().height ?? 0, viewport_height: surface.clientHeight }));
+      readingInput(surface, value('LayoutChanged', { dock_extent: dockExtent, viewport_height: surface.clientHeight }));
     }
   });
 }

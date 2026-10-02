@@ -34,15 +34,8 @@ export class Renderer {
       }
     }
     for (const [name, value] of next) {
-      if (name === 'value' && 'value' in node) {
-        if (!this.composing.has(node) && node.value !== value) {
-          const active = node === node.ownerDocument.activeElement;
-          const selection = active && typeof node.selectionStart === 'number'
-            ? [node.selectionStart, node.selectionEnd, node.selectionDirection] : null;
-          node.value = value;
-          if (selection) node.setSelectionRange(Math.min(selection[0], value.length), Math.min(selection[1], value.length), selection[2]);
-        }
-      } else if (booleans.has(name)) {
+      if (name === 'value' && 'value' in node) continue;
+      if (booleans.has(name)) {
         const enabled = value !== 'false';
         if (node[name] !== enabled) node[name] = enabled;
         if (enabled && !node.hasAttribute(name)) node.setAttribute(name, '');
@@ -54,6 +47,19 @@ export class Renderer {
     for (const [name, value] of nextStyles) if (node.style.getPropertyValue(name) !== value) node.style.setProperty(name, value);
     record.attributes = next;
     record.styles = nextStyles;
+  }
+  controlledValue(record) {
+    const node = record.node;
+    if (!record.attributes.has('value') || !('value' in node)) return;
+    const value = record.attributes.get('value');
+    // Options must exist before assigning a select value, including an empty value.
+    if (node.localName === 'select') { node.value = value; return; }
+    if (this.composing.has(node) || node.value === value) return;
+    const active = node === node.ownerDocument.activeElement;
+    const selection = active && typeof node.selectionStart === 'number'
+      ? [node.selectionStart, node.selectionEnd, node.selectionDirection] : null;
+    node.value = value;
+    if (selection) node.setSelectionRange(Math.min(selection[0], value.length), Math.min(selection[1], value.length), selection[2]);
   }
   events(record, bindings) {
     record.bindings = list(bindings);
@@ -108,6 +114,7 @@ export class Renderer {
       this.properties(record, value.attributes, value.styles);
       this.events(record, value.events);
       this.children(record.node, value.children, key, record.node.namespaceURI === svg && value.tag !== 'foreignObject' ? svg : undefined);
+      this.controlledValue(record);
     } else {
       if (!record.markdown || record.text !== value.value) {
         record.markdown?.dispose();
@@ -142,6 +149,7 @@ export class Renderer {
         let record = this.records.get(value.key);
         if (!record || record.node !== target) { record = { node: target, kind: 'TargetProperties', key: value.key }; this.records.set(value.key, record); }
         this.used.add(value.key); this.properties(record, value.attributes, value.styles);
+        this.controlledValue(record);
       }
     }
     for (const [key, record] of this.records) if (!this.used.has(key)) {

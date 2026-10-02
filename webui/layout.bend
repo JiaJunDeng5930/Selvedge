@@ -4,6 +4,8 @@ import ../core/ui-world.bend as V
 import ../core/interface.bend as UI
 import ../core/composition.bend as Composition
 import ./design.bend as Design
+import ./appearance.bend as Appearance
+import ./controls.bend as Controls
 
 # Toolbar and reading measurements follow the imported Desktop source.
 def toolbar_height() -> Nat:
@@ -206,11 +208,14 @@ def measure_band(selected_measure: Composition.Measure, +box: Design.Box) -> Des
     case Composition.OverviewMeasure{}: centered_band(box, overview_maximum_width())
     case Composition.AvailableMeasure{}: centered_band(box, box_width(box))
 
+def composer_content_inset() -> Nat:
+  Appearance.face_padding(Controls.TextFace{""})
+
 def input_metrics(canvas: Design.Box) -> Design.InputMetrics:
   Design.Box{+left, +top, +width, height} = canvas
   # The remaining line and spacing values follow the imported Desktop component tokens.
   +maximum = Nat.min(240n, Nat.div(height, 3n))
-  Design.InputMetrics{Nat.min(44n, maximum), maximum, 20n, 12n, 4n, 8n}
+  Design.InputMetrics{Nat.min(44n, maximum), maximum, 20n, composer_content_inset(), 4n, 8n}
 
 def centered_input(composer: Composition.Composer, canvas: Design.Box) -> Maybe<&2, Design.InputMetrics>:
   match composer:
@@ -281,7 +286,7 @@ def creation_flow(canvas: Design.Box) -> Design.CreationFlow:
 def main_frame(+recipe: Composition.Recipe, +main: Design.Box) -> Design.MainFrame:
   match recipe:
     case Composition.Recipe{measure, page_heading, Composition.CenteredCreation{}, composer, decisions, latest}:
-      Design.CreationFrame{heading_box(main), body_box(main), measure_band(measure, body_box(main)), centered_input(composer, body_box(main)), creation_flow(body_box(main))}
+      Design.CreationFrame{heading_box(main), main, measure_band(measure, main), centered_input(composer, main), creation_flow(main)}
     case Composition.Recipe{measure, page_heading, Composition.ChronologicalReading{}, composer, decisions, latest}:
       heading = heading_box(main)
       +canvas = body_box(main)
@@ -289,17 +294,17 @@ def main_frame(+recipe: Composition.Recipe, +main: Design.Box) -> Design.MainFra
       Design.ConversationFrame{heading, canvas, reading,
         conversation_dock(recipe_dock(recipe), canvas, reading, composer)}
     case Composition.Recipe{measure, page_heading, Composition.ProjectSections{}, composer, decisions, latest}:
-      +canvas = body_box(main)
+      +canvas = main
       Design.OverviewFrame{canvas, measure_band(measure, canvas), Composition.ProjectSections{}}
     case Composition.Recipe{measure, page_heading, Composition.ProjectRows{}, composer, decisions, latest}:
-      +canvas = body_box(main)
+      +canvas = main
       Design.OverviewFrame{canvas, measure_band(measure, canvas), Composition.ProjectRows{}}
     case Composition.Recipe{measure, page_heading, Composition.AgentRows{}, composer, decisions, latest}:
-      +canvas = body_box(main)
+      +canvas = main
       Design.OverviewFrame{canvas, measure_band(measure, canvas), Composition.AgentRows{}}
     case Composition.Recipe{measure, page_heading, Composition.StageColumns{}, composer, decisions, latest}:
-      +canvas = body_box(main)
-      Design.BoardFrame{canvas, board_column_width(canvas), 12n, inline_gutter(box_width(canvas))}
+      +canvas = main
+      Design.BoardFrame{canvas, board_column_width(canvas), 12n, 16n}
     case Composition.Recipe{measure, page_heading, Composition.UnavailableNotice{}, composer, decisions, latest}:
       Design.UnavailableFrame{heading_box(main), body_box(main), measure_band(measure, body_box(main))}
 

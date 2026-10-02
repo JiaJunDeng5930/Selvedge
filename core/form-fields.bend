@@ -116,7 +116,7 @@ def structure(body: U.Body) -> +List<Section>:
     case U.Card{id, revision, draft, assist, profile, keep_open}:
       List.append(&2, Section, [Section{"Work", [FieldScene{CardTitle{}, "Title", SingleLine{}}, FieldScene{CardDescription{}, "Description", Multiline{}}]},
        Section{"Organization", [FieldScene{CardStage{}, "Stage", Choice{}}, FieldScene{CardPriority{}, "Priority", Choice{}},
-         FieldScene{CardOwner{}, "Assignee", Choice{}}, FieldScene{CardProject{}, "Project", Choice{}}, FieldScene{CardLabels{}, "Labels", MultipleChoices{}}]},
+         FieldScene{CardOwner{}, "Assignee", Choice{}}, FieldScene{CardProject{}, "Project", Choice{}}, FieldScene{CardLabels{}, "Labels", Multiline{}}]},
        Section{"Attachments", [FieldScene{CardAttachments{}, "Files", FileCollection{}}]}], capture_structure(id))
     case U.Agent{id, revision, name, profile, reasoning, instructions, context, concurrency}:
       [Section{"Agent", [FieldScene{AgentName{}, "Name", SingleLine{}}, FieldScene{AgentInstructions{}, "Instructions", Multiline{}}, FieldScene{AgentConcurrency{}, "Concurrent tasks", PositiveInteger{}}]}, model(), execution()]

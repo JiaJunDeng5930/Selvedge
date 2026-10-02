@@ -80,6 +80,9 @@ type Subject is Data:
 type Panel is Data:
   ObjectActions{subject: Subject}
   ArchivedCards{}
+  BoardSettings{}
+  BoardFilters{}
+  CardDetails{card: Nat}
   EditObject{editor: Editor}
   TaskDetails{task: Nat}
   TaskConfiguration{}
@@ -91,7 +94,8 @@ type Action is Data:
   Navigate{route: Route}
   BeginTask{project: Maybe<&2, Nat>}
   EditProject{project: Maybe<&2, Nat>}
-  EditCard{card: Maybe<&2, Nat>}
+  NewCard{stage: B.Stage}
+  EditCard{card: Nat}
   EditAgent{agent: Maybe<&2, Nat>}
   ForkTask{task: Nat}
   CompactTask{task: Nat}

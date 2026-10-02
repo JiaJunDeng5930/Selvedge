@@ -63,6 +63,9 @@ def message_finish_location_preserves_drafts(+task: Nat, +route: U.Route, +layer
       finish_layer_preserves_drafts(U.same_editor(U.MessageEditor{task}, current), application)
     case U.Start{} Con{E.Layer{U.ObjectActions{subject}, trigger, initial, query}, rest}: {==}
     case U.Start{} Con{E.Layer{U.ArchivedCards{}, trigger, initial, query}, rest}: {==}
+    case U.Start{} Con{E.Layer{U.BoardSettings{}, trigger, initial, query}, rest}: {==}
+    case U.Start{} Con{E.Layer{U.BoardFilters{}, trigger, initial, query}, rest}: {==}
+    case U.Start{} Con{E.Layer{U.CardDetails{card}, trigger, initial, query}, rest}: {==}
     case U.Start{} Con{E.Layer{U.TaskDetails{task}, trigger, initial, query}, rest}: {==}
     case U.Start{} Con{E.Layer{U.TaskConfiguration{}, trigger, initial, query}, rest}: {==}
     case U.Start{} Con{E.Layer{U.ModelPicker{editor}, trigger, initial, query}, rest}: {==}
@@ -73,6 +76,9 @@ def message_finish_location_preserves_drafts(+task: Nat, +route: U.Route, +layer
       finish_layer_preserves_drafts(U.same_editor(U.MessageEditor{task}, current), application)
     case U.Conversation{route_task} Con{E.Layer{U.ObjectActions{subject}, trigger, initial, query}, rest}: {==}
     case U.Conversation{route_task} Con{E.Layer{U.ArchivedCards{}, trigger, initial, query}, rest}: {==}
+    case U.Conversation{route_task} Con{E.Layer{U.BoardSettings{}, trigger, initial, query}, rest}: {==}
+    case U.Conversation{route_task} Con{E.Layer{U.BoardFilters{}, trigger, initial, query}, rest}: {==}
+    case U.Conversation{route_task} Con{E.Layer{U.CardDetails{card}, trigger, initial, query}, rest}: {==}
     case U.Conversation{route_task} Con{E.Layer{U.TaskDetails{task}, trigger, initial, query}, rest}: {==}
     case U.Conversation{route_task} Con{E.Layer{U.TaskConfiguration{}, trigger, initial, query}, rest}: {==}
     case U.Conversation{route_task} Con{E.Layer{U.ModelPicker{editor}, trigger, initial, query}, rest}: {==}
@@ -83,6 +89,9 @@ def message_finish_location_preserves_drafts(+task: Nat, +route: U.Route, +layer
       finish_layer_preserves_drafts(U.same_editor(U.MessageEditor{task}, current), application)
     case U.ProjectHome{project} Con{E.Layer{U.ObjectActions{subject}, trigger, initial, query}, rest}: {==}
     case U.ProjectHome{project} Con{E.Layer{U.ArchivedCards{}, trigger, initial, query}, rest}: {==}
+    case U.ProjectHome{project} Con{E.Layer{U.BoardSettings{}, trigger, initial, query}, rest}: {==}
+    case U.ProjectHome{project} Con{E.Layer{U.BoardFilters{}, trigger, initial, query}, rest}: {==}
+    case U.ProjectHome{project} Con{E.Layer{U.CardDetails{card}, trigger, initial, query}, rest}: {==}
     case U.ProjectHome{project} Con{E.Layer{U.TaskDetails{task}, trigger, initial, query}, rest}: {==}
     case U.ProjectHome{project} Con{E.Layer{U.TaskConfiguration{}, trigger, initial, query}, rest}: {==}
     case U.ProjectHome{project} Con{E.Layer{U.ModelPicker{editor}, trigger, initial, query}, rest}: {==}
@@ -93,6 +102,9 @@ def message_finish_location_preserves_drafts(+task: Nat, +route: U.Route, +layer
       finish_layer_preserves_drafts(U.same_editor(U.MessageEditor{task}, current), application)
     case U.ProjectCollection{} Con{E.Layer{U.ObjectActions{subject}, trigger, initial, query}, rest}: {==}
     case U.ProjectCollection{} Con{E.Layer{U.ArchivedCards{}, trigger, initial, query}, rest}: {==}
+    case U.ProjectCollection{} Con{E.Layer{U.BoardSettings{}, trigger, initial, query}, rest}: {==}
+    case U.ProjectCollection{} Con{E.Layer{U.BoardFilters{}, trigger, initial, query}, rest}: {==}
+    case U.ProjectCollection{} Con{E.Layer{U.CardDetails{card}, trigger, initial, query}, rest}: {==}
     case U.ProjectCollection{} Con{E.Layer{U.TaskDetails{task}, trigger, initial, query}, rest}: {==}
     case U.ProjectCollection{} Con{E.Layer{U.TaskConfiguration{}, trigger, initial, query}, rest}: {==}
     case U.ProjectCollection{} Con{E.Layer{U.ModelPicker{editor}, trigger, initial, query}, rest}: {==}
@@ -103,6 +115,9 @@ def message_finish_location_preserves_drafts(+task: Nat, +route: U.Route, +layer
       finish_layer_preserves_drafts(U.same_editor(U.MessageEditor{task}, current), application)
     case U.TaskBoard{} Con{E.Layer{U.ObjectActions{subject}, trigger, initial, query}, rest}: {==}
     case U.TaskBoard{} Con{E.Layer{U.ArchivedCards{}, trigger, initial, query}, rest}: {==}
+    case U.TaskBoard{} Con{E.Layer{U.BoardSettings{}, trigger, initial, query}, rest}: {==}
+    case U.TaskBoard{} Con{E.Layer{U.BoardFilters{}, trigger, initial, query}, rest}: {==}
+    case U.TaskBoard{} Con{E.Layer{U.CardDetails{card}, trigger, initial, query}, rest}: {==}
     case U.TaskBoard{} Con{E.Layer{U.TaskDetails{task}, trigger, initial, query}, rest}: {==}
     case U.TaskBoard{} Con{E.Layer{U.TaskConfiguration{}, trigger, initial, query}, rest}: {==}
     case U.TaskBoard{} Con{E.Layer{U.ModelPicker{editor}, trigger, initial, query}, rest}: {==}
@@ -113,6 +128,9 @@ def message_finish_location_preserves_drafts(+task: Nat, +route: U.Route, +layer
       finish_layer_preserves_drafts(U.same_editor(U.MessageEditor{task}, current), application)
     case U.AgentCollection{} Con{E.Layer{U.ObjectActions{subject}, trigger, initial, query}, rest}: {==}
     case U.AgentCollection{} Con{E.Layer{U.ArchivedCards{}, trigger, initial, query}, rest}: {==}
+    case U.AgentCollection{} Con{E.Layer{U.BoardSettings{}, trigger, initial, query}, rest}: {==}
+    case U.AgentCollection{} Con{E.Layer{U.BoardFilters{}, trigger, initial, query}, rest}: {==}
+    case U.AgentCollection{} Con{E.Layer{U.CardDetails{card}, trigger, initial, query}, rest}: {==}
     case U.AgentCollection{} Con{E.Layer{U.TaskDetails{task}, trigger, initial, query}, rest}: {==}
     case U.AgentCollection{} Con{E.Layer{U.TaskConfiguration{}, trigger, initial, query}, rest}: {==}
     case U.AgentCollection{} Con{E.Layer{U.ModelPicker{editor}, trigger, initial, query}, rest}: {==}

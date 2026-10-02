@@ -10,6 +10,7 @@ import ./design.bend as Design
 import ./layout.bend as Layout
 import ./appearance.bend as Appearance
 import ./visibility.bend as Visibility
+import ./presentation-order.bend as Order
 
 type State is Data:
   State{application: Platform.State, generation: Nat, realization: Rendered.State,
@@ -86,7 +87,8 @@ def element_input(application: Platform.State, key: String, gesture: UI.Gesture,
     (generation + 1n : Nat), environment)
 
 def frame_surface(environment: Design.Environment, +surface: UI.Surface) -> UI.Surface:
-  Visibility.project(surface, Layout.present(environment_viewport(environment), surface))
+  +ordered = Order.ordered_surface(surface)
+  Visibility.project(ordered, Layout.present(environment_viewport(environment), ordered))
 
 def frame_result(received: Nat, +frame: Rendered.Frame, +application: Platform.State, +generation: Nat,
   realization: Rendered.State, +environment: Design.Environment) -> Decision:
@@ -121,7 +123,8 @@ def dispatch(state: State, input: Input) -> Decision:
 
 def observe(state: State) -> Scene:
   State{+application, generation, realization, environment} = state
-  +current_surface = surface(application)
+  +raw_surface = surface(application)
+  +current_surface = Order.ordered_surface(raw_surface)
   Scene{current_surface, Platform.observe(application), generation, realization,
     presentation(environment, current_surface)}
 

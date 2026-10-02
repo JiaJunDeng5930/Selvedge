@@ -9,7 +9,7 @@ type Event is Data:
   BeginUserScroll{}
   ReadHistory{anchor: Physical.Anchor}
   FollowLatest{}
-  LayoutChanged{composer_height: F32, viewport_height: F32}
+  LayoutChanged{dock_extent: F32, viewport_height: F32}
   AnchorObserved{anchor: Physical.Anchor}
 
 type Effect is Data:

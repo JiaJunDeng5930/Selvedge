@@ -99,11 +99,15 @@ type CardScene is Data:
   CardScene{id: Nat, value: B.Card, open: ControlDeclaration, actions: +List<ControlDeclaration>, linked_task: Maybe<&2, TaskEntry>,
     destinations: +List<MoveDestination>, link_candidates: +List<ControlDeclaration>}
 
+type CardFace is Data:
+  CardFace{id: Nat, title: String, description: String, priority: B.Priority, pinned: Bool,
+    status: String, project: String, labels: +List<String>, owner: String, updated: String}
+
 type MoveDestination is Data:
   MoveDestination{stage: B.Stage, before: Maybe<&2, Nat>, label: String, availability: Availability}
 
 type BoardColumn is Data:
-  BoardColumn{stage: B.Stage, cards: +List<CardScene>}
+  BoardColumn{stage: B.Stage, cards: +List<CardScene>, create: ControlDeclaration}
 
 type AgentScene is Data:
   AgentScene{id: Nat, value: B.AgentProfile, edit: ControlDeclaration, remove: ControlDeclaration}
@@ -113,14 +117,17 @@ type Page is Data:
   TaskPage{task: TaskScene}
   ProjectPage{project: ProjectScene}
   ProjectsPage{projects: +List<ProjectScene>, create: ControlDeclaration}
-  BoardPage{filter: B.Filter, columns: +List<BoardColumn>, create: ControlDeclaration, automatic: Bool, draft_profile: String,
-    automation: ControlDeclaration, assistance_profiles: +List<D.Profile>, archive: ControlDeclaration}
+  BoardPage{filter: B.Filter, columns: +List<BoardColumn>, create: ControlDeclaration, working: Nat,
+    settings: ControlDeclaration, filters: ControlDeclaration, archive: ControlDeclaration}
   AgentsPage{agents: +List<AgentScene>, create: ControlDeclaration}
   MissingObject{message: String}
 
 type LayerContent is Data:
   ObjectActions{actions: +List<ControlDeclaration>}
   ArchivedCards{cards: +List<CardScene>}
+  BoardSettings{automatic: Bool, draft_profile: String, assistance_profiles: +List<D.Profile>, automation: ControlDeclaration}
+  BoardFilters{filter: B.Filter}
+  CardDetails{card: Maybe<&2, CardScene>}
   ObjectEditor{editor: Maybe<&2, EditorScene>}
   ExecutionSettings{editor: U.Editor, fields: +List<InputGroup>}
   ModelSelection{editor: U.Editor, query: String, fields: +List<InputGroup>}
@@ -153,6 +160,9 @@ def layer_title(content: LayerContent) -> String:
   match content:
     case ObjectActions{actions}: "Actions"
     case ArchivedCards{cards}: "Archived cards"
+    case BoardSettings{automatic, draft_profile, assistance_profiles, automation}: "看板设置"
+    case BoardFilters{filter}: "筛选任务"
+    case CardDetails{card}: "任务详情"
     case ObjectEditor{None{}}: "Editor unavailable"
     case ObjectEditor{Some{EditorScene{identity, revision, groups, sections, submit, feedback, pending}}}: editor_title(identity)
     case ExecutionSettings{editor, fields}: "Workspace and permissions"
@@ -477,8 +487,8 @@ def project_entries(entries: +List<Finite.Entry(D.Project)>, +tasks: +List<D.Tas
     case Con{(id, project), rest}: project_entry(id, project, tasks, route) <> project_entries(rest, tasks, route)
 
 def navigation(+expanded: Bool, +route: U.Route, +world: M.World()) -> Navigation:
-  Navigation{expanded, control("new-task", "New task", U.BeginTask{None{}}),
-    [control("board", "Board", U.Navigate{U.TaskBoard{}}), control("projects", "Projects", U.Navigate{U.ProjectCollection{}}), control("agents", "Agents", U.Navigate{U.AgentCollection{}})],
+  Navigation{expanded, control("new-task", "新任务", U.BeginTask{None{}}),
+    [control("board", "任务看板", U.Navigate{U.TaskBoard{}}), control("projects", "项目", U.Navigate{U.ProjectCollection{}}), control("agents", "智能体", U.Navigate{U.AgentCollection{}})],
     project_entries(Projects.entries(Projects.registry(F.State(), world)), Commands.entries(world), route), task_entries(project_tasks(Commands.entries(world), None{}), route),
     ControlDeclaration{"navigation/toggle", "Toggle sidebar", Secondary{}, U.SetNavigation{Bool.not(expanded)}, Available{}}}
 
@@ -566,7 +576,7 @@ def before_destinations(cards: +List<Finite.Entry(B.Card)>, +id: Nat, +revision:
       List.append(&2, MoveDestination, before_destination(Bool.not(B.archived(value)) && Bool.not(Nat.is_eq(target, id)), target, value, id, revision, now, world), before_destinations(rest, id, revision, now, world))
 def card_scene(+id: Nat, +card: B.Card, route: U.Route, +now: U32, +world: M.World()) -> CardScene:
   B.Card{+revision, draft, task, archived, created, updated, enrichment, error, pinned} = card
-  CardScene{id, card, control("card/" ++ Nat.show(id), "Open card", U.EditCard{Some{id}}),
+  CardScene{id, card, control("card/" ++ Nat.show(id), "打开 " ++ B.title(B.draft(card)), U.OpenPanel{U.CardDetails{id}, "card/" ++ Nat.show(id)}),
     [board_control("card/run/" ++ Nat.show(id), "Run", B.Run{id, revision, now}, world),
       board_control("card/archive/" ++ Nat.show(id), "Archive or restore", B.Archive{id, revision, Bool.not(archived), now}, world),
       board_control("card/pin/" ++ Nat.show(id), "Pin or unpin", B.Pin{id, revision, Bool.not(pinned), now}, world),
@@ -586,17 +596,71 @@ def card_scenes(cards: +List<Finite.Entry(B.Card)>, +route: U.Route, +now: U32, 
 def columns(stages: +List<B.Stage>, +cards: +List<Finite.Entry(B.Card)>, +route: U.Route, +now: U32, +world: M.World()) -> +List<BoardColumn>:
   match stages:
     case Nil{}: Nil{}
-    case Con{+stage, rest}: BoardColumn{stage, card_scenes(Filter.column(cards, B.stage_name(stage)), route, now, world)} <> columns(rest, cards, route, now, world)
+    case Con{+stage, rest}: BoardColumn{stage, card_scenes(Filter.column(cards, B.stage_name(stage)), route, now, world),
+      control("card/new", "新建任务", U.NewCard{stage})} <> columns(rest, cards, route, now, world)
 
-def board_page(board: B.State, +filter: B.Filter, +route: U.Route, +now: U32, +world: M.World()) -> Page:
-  B.State{+cards, next_card, agents, next_agent, +automatic, +draft_profile} = board
-  BoardPage{filter, columns(B.stages(), Filter.filtered(cards, filter, now, world), route, now, world), control("card/new", "New card", U.EditCard{None{}}), automatic, draft_profile,
-    board_control("board/automatic", "Automatic scheduling", B.Settings{Bool.not(automatic), draft_profile}, world), Board.profiles(world),
-    control("board/archive", "Archived cards", U.OpenPanel{U.ArchivedCards{}, "board/archive"})}
+def face_project_name(found: Maybe<&2, D.Project>, id: Nat) -> String:
+  match found:
+    case None{}: "项目 #" ++ Nat.show(id) ++ " 不可用"
+    case Some{D.Project{name, workspace, guidance}}: name
+
+def face_project(found: Maybe<&2, Nat>, +world: M.World()) -> String:
+  match found:
+    case None{}: ""
+    case Some{+id}: face_project_name(Projects.find(Projects.registry(F.State(), world), id), id)
+
+def face_profile_name(found: Maybe<&2, D.Profile>, +key: String) -> String:
+  match found:
+    case None{}: "配置 " ++ key ++ " 不可用"
+    case Some{D.Profile{key, provider, name, reasoning}}: name
+
+def face_agent_name(found: Maybe<&2, B.AgentProfile>, id: Nat) -> String:
+  match found:
+    case None{}: "智能体 #" ++ Nat.show(id) ++ " 不可用"
+    case Some{B.AgentProfile{revision, name, profile, reasoning, instructions, settings, concurrency}}: name
+
+def face_owner(+owner: B.Owner, +world: M.World()) -> String:
+  match owner:
+    case B.Unassigned{}: "未分配"
+    case B.Self{}: "我"
+    case B.Profile{+key}: face_profile_name(D.find_profile(Board.profiles(world), key), key)
+    case B.Agent{+id}: face_agent_name(B.find_agent(Board.registry(world), id), id)
+
+def elapsed_label_days(recent: Bool, +seconds: U32) -> String:
+  match recent:
+    case True{}: U32.show(U32.div(seconds, 3600)) ++ "小时前"
+    case False{}: U32.show(U32.div(seconds, 86400)) ++ "天前"
+
+def elapsed_label_hours(recent: Bool, +seconds: U32) -> String:
+  match recent:
+    case True{}: U32.show(U32.div(seconds, 60)) ++ "分钟前"
+    case False{}: elapsed_label_days(U32.is_lt(seconds, 86400), seconds)
+
+def elapsed_label_minutes(recent: Bool, +seconds: U32) -> String:
+  match recent:
+    case True{}: "刚刚"
+    case False{}: elapsed_label_hours(U32.is_lt(seconds, 3600), seconds)
+
+def elapsed_label(+seconds: U32) -> String:
+  elapsed_label_minutes(U32.is_lt(seconds, 60), seconds)
+
+def card_face(+id: Nat, +card: B.Card, +now: U32, +world: M.World()) -> CardFace:
+  +draft = B.draft(card)
+  CardFace{id, B.title(draft), B.description(draft), B.card_priority(draft), B.pinned(card),
+    Board.activity_label(Board.activity(card, world)), face_project(B.project(draft), world), B.labels(draft),
+    face_owner(B.card_owner(draft), world), elapsed_label(Filter.elapsed(now, B.updated(card)))}
 
 def archived_cards(board: B.State, route: U.Route, now: U32, world: M.World()) -> +List<CardScene>:
   B.State{cards, next_card, agents, next_agent, automatic, profile} = board
   card_scenes(List.filter(~Finite.Entry(B.Card), archived_card, cards), route, now, world)
+
+def board_page(+board: B.State, +filter: B.Filter, +route: U.Route, +now: U32, +world: M.World()) -> Page:
+  BoardPage{filter, columns(B.stages(), Filter.filtered(Board.display_cards(board), filter, now, world), route, now, world),
+    ControlDeclaration{"card/new", "新建任务", Primary{}, U.Activate{U.NewCard{B.Todo{}}}, Available{}},
+    Filter.working(B.cards(Board.registry(world)), world),
+    control("board/settings", "看板设置", U.OpenPanel{U.BoardSettings{}, "board/settings"}),
+    control("board/filters", "筛选任务", U.OpenPanel{U.BoardFilters{}, "board/filters"}),
+    control("board/archive", "归档任务 " ++ Nat.show(List.length(&2, CardScene, archived_cards(board, route, now, world))), U.OpenPanel{U.ArchivedCards{}, "board/archive"})}
 
 def agent_scene(+id: Nat, +agent: B.AgentProfile, world: M.World()) -> AgentScene:
   B.AgentProfile{revision, name, profile, reasoning, instructions, settings, concurrency} = agent
@@ -660,12 +724,29 @@ def subject_actions(subject: U.Subject, session: E.Session, world: M.World()) ->
   E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks} = session
   subject_controls(subject, now, world)
 
+def board_settings(board: B.State, +world: M.World()) -> LayerContent:
+  B.State{cards, next_card, agents, next_agent, +automatic, +draft_profile} = board
+  BoardSettings{automatic, draft_profile, Board.profiles(world),
+    board_control("board/automatic", "自动排期", B.Settings{Bool.not(automatic), draft_profile}, world)}
+
+def found_card_details(found: Maybe<&2, B.Card>, id: Nat, route: U.Route, now: U32, world: M.World()) -> Maybe<&2, CardScene>:
+  match found:
+    case None{}: None{}
+    case Some{card}: Some{card_scene(id, card, route, now, world)}
+
 def layer_content(panel: U.Panel, +session: E.Session, +world: M.World()) -> LayerContent:
   match panel:
     case U.ObjectActions{subject}: ObjectActions{subject_actions(subject, session, world)}
     case U.ArchivedCards{}:
       E.Session{route, drafts, readers, layers, focus, navigation, filter, now, next, pending, previews, code_blocks} = session
       ArchivedCards{archived_cards(Board.registry(world), route, now, world)}
+    case U.CardDetails{+card}:
+      E.Session{+route, drafts, readers, layers, attention, navigation, filter, +now, next, pending, previews, code} = session
+      CardDetails{found_card_details(B.find(Board.registry(world), card), card, route, now, world)}
+    case U.BoardSettings{}: board_settings(Board.registry(world), world)
+    case U.BoardFilters{}:
+      E.Session{route, drafts, readers, layers, attention, navigation, +filter, now, next, pending, previews, code_blocks} = session
+      BoardFilters{filter}
     case U.EditObject{id}: ObjectEditor{editor(id, session, world)}
     case U.TaskDetails{task}: ExecutionDetails{optional_task(Tasks.find(Commands.entries(world), task), session, world)}
     case U.TaskConfiguration{}: ExecutionSettings{U.NewTaskEditor{}, selected_fields(editor(U.NewTaskEditor{}, session, world), ExecutionFields{})}
@@ -753,7 +834,7 @@ def page_composition(page: Page) -> Composition.Page:
       Composition.Conversation{has_composer(composer), has_decisions(decisions), has_return_latest(return_to_latest)}
     case ProjectPage{project}: Composition.ProjectOverview{}
     case ProjectsPage{projects, create}: Composition.ProjectCollection{}
-    case BoardPage{filter, columns, create, automatic, profile, automation, profiles, archive}: Composition.TaskBoard{}
+    case BoardPage{filter, columns, create, working, settings, filters, archive}: Composition.TaskBoard{}
     case AgentsPage{agents, create}: Composition.AgentCollection{}
     case MissingObject{message}: Composition.Unavailable{}
 

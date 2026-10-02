@@ -260,6 +260,9 @@ def panel_target(panel: U.Panel) -> String:
   match panel:
     case U.ObjectActions{subject}: "actions/" ++ U.subject_key(subject)
     case U.ArchivedCards{}: "archived-cards"
+    case U.BoardSettings{}: "board-settings"
+    case U.BoardFilters{}: "board-filters"
+    case U.CardDetails{card}: "card-details/" ++ Nat.show(card)
     case U.EditObject{editor}: "editor/" ++ U.editor_key(editor)
     case U.TaskDetails{task}: "task-details/" ++ Nat.show(task)
     case U.TaskConfiguration{}: "execution-configuration"
@@ -314,12 +317,15 @@ def board_card(board: B.State, +id: Nat, application: Application) -> Decision:
   B.State{cards, next_card, agents, next_agent, automatic, profile} = board
   card_found(Finite.find(~B.Card, cards, id), id, application)
 
-def card_editor(id: Maybe<&2, Nat>, +application: Application) -> Decision:
-  match id:
-    case None{}: open_editor(U.Card{None{}, 0n, B.Draft{"", "", B.Backlog{}, B.NoPriority{}, B.Unassigned{}, None{}, Nil{}, Nil{}}, False{}, "", False{}}, application)
-    case Some{id}:
-      Application{program, session} = application
-      board_card(Board.registry(program), id, application)
+def new_card_body(+stage: B.Stage) -> U.Body:
+  U.Card{None{}, 0n, B.Draft{"", "", stage, B.NoPriority{}, B.Unassigned{}, None{}, Nil{}, Nil{}}, False{}, "", False{}}
+
+def new_card(+stage: B.Stage, +application: Application) -> Decision:
+  open_editor(new_card_body(stage), application)
+
+def card_editor(id: Nat, +application: Application) -> Decision:
+  Application{program, session} = application
+  board_card(Board.registry(program), id, application)
 
 def context_project(project: Maybe<&2, Nat>) -> Context.Origin:
   match project:
@@ -649,6 +655,7 @@ def activate_selected(action: U.Action, +application: Application) -> Decision:
     case U.Navigate{route}: visit(route, application)
     case U.BeginTask{+project}: begin_task(project, application)
     case U.EditProject{+project}: project_editor(project, application)
+    case U.NewCard{stage}: new_card(stage, application)
     case U.EditCard{card}: card_editor(card, application)
     case U.EditAgent{agent}: agent_editor(application, agent)
     case U.ForkTask{+task}: open_editor(U.Fork{task, 1n, Nil{}, Context.defaults(Context.ParentTask{task})}, application)

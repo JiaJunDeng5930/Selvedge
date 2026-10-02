@@ -11,11 +11,13 @@ import ../../core/submission-laws.bend as SubmissionLaws
 import ../../core/boundary-laws.bend as BoundaryLaws
 import ../../core/composition-laws.bend as CompositionLaws
 import ../../core/conversation-presentation-laws.bend as ConversationPresentationLaws
+import ../../core/board-presentation-laws.bend as BoardPresentationLaws
+import ../../core/board-capability-laws.bend as BoardCapabilityLaws
 
 def Architecture.surface():
   Contract.Requirements{
     SurfaceLaws.evidence(), SessionLaws.evidence(), SubmissionLaws.evidence(), BoundaryLaws.evidence(), CompositionLaws.evidence(),
-    ConversationPresentationLaws.evidence(), SubmissionLaws.reopen_evidence(),
+    ConversationPresentationLaws.evidence(), BoardPresentationLaws.evidence(), BoardCapabilityLaws.evidence(), SubmissionLaws.reopen_evidence(),
     input => program => session => services => CoreLaws.runtime_input(input, program, session, services),
     capacity => +state => Interface.assembled_content(Core.observe(capacity, state), state),
     reader => task => world => Conversation.timeline_history(reader, task, world),

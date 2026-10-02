@@ -42,7 +42,7 @@ def page_sequence(+page: View.Page, +parent: String, +state: Core.State) ->
     case View.TaskPage{View.TaskScene{id, title, status, context, Conversation.Timeline{task, generation, groups, operations, Con{first, rest}, reading, Some{input}}, previews, Some{scene}, details, View.TaskActions{detail, overflow}}}: {==}
     case View.ProjectPage{View.ProjectScene{id, name, D.Workspace{roots, primary}, guidance, tasks, actions}}: {==}
     case View.ProjectsPage{projects, create}: {==}
-    case View.BoardPage{filter, columns, create, automatic, profile, automation, profiles, archive}: {==}
+    case View.BoardPage{filter, columns, create, working, settings, filters, archive}: {==}
     case View.AgentsPage{agents, create}: {==}
     case View.MissingObject{message}: {==}
 
@@ -71,7 +71,7 @@ def page_only_regions(+page: View.Page, +parent: String, +state: Core.State) ->
     case View.TaskPage{View.TaskScene{id, title, status, context, Conversation.Timeline{task, generation, groups, operations, Con{first, rest}, reading, Some{input}}, previews, Some{scene}, details, View.TaskActions{detail, overflow}}}: {==}
     case View.ProjectPage{View.ProjectScene{id, name, D.Workspace{roots, primary}, guidance, tasks, actions}}: {==}
     case View.ProjectsPage{projects, create}: {==}
-    case View.BoardPage{filter, columns, create, automatic, profile, automation, profiles, archive}: {==}
+    case View.BoardPage{filter, columns, create, working, settings, filters, archive}: {==}
     case View.AgentsPage{agents, create}: {==}
     case View.MissingObject{message}: {==}
 
@@ -113,9 +113,9 @@ def agents_title(+agents: +List<View.AgentScene>, +create: View.ControlDeclarati
     Some{[Interface.region(parent, "heading", "Agents", Interface.Heading{}, Nil{})]} : Maybe<&2, +List<Interface.Node>>}:
   {==}
 
-def board_title(+filter: B.Filter, +columns: +List<View.BoardColumn>, +create: View.ControlDeclaration, +automatic: Bool,
-  +profile: String, +automation: View.ControlDeclaration, +profiles: +List<D.Profile>, +archive: View.ControlDeclaration, +parent: String, +state: Core.State) ->
-  {find_region(Interface.page_contents(View.BoardPage{filter, columns, create, automatic, profile, automation, profiles, archive}, parent, state), Composition.BoardTitle{}) ==
+def board_title(+filter: B.Filter, +columns: +List<View.BoardColumn>, +create: View.ControlDeclaration, working: Nat,
+  +settings: View.ControlDeclaration, +filters: View.ControlDeclaration, +archive: View.ControlDeclaration, +parent: String, +state: Core.State) ->
+  {find_region(Interface.page_contents(View.BoardPage{filter, columns, create, working, settings, filters, archive}, parent, state), Composition.BoardTitle{}) ==
     Some{[Interface.region(parent, "heading", "Board", Interface.Heading{}, Nil{})]} : Maybe<&2, +List<Interface.Node>>}:
   {==}
 
@@ -192,6 +192,9 @@ type LayerTitleRequirements is Type:
     compact: @task:Nat -> {View.editor_title(U.CompactEditor{task}) == "Compact history" : String},
     actions: @actions:+List<View.ControlDeclaration> -> {View.layer_title(View.ObjectActions{actions}) == "Actions" : String},
     archived: @cards:+List<View.CardScene> -> {View.layer_title(View.ArchivedCards{cards}) == "Archived cards" : String},
+    board_settings: @automatic:Bool -> @selected:String -> @profiles:+List<D.Profile> -> @automation:View.ControlDeclaration ->
+      {View.layer_title(View.BoardSettings{automatic, selected, profiles, automation}) == "看板设置" : String},
+    board_filters: @filter:B.Filter -> {View.layer_title(View.BoardFilters{filter}) == "筛选任务" : String},
     unavailable: {View.layer_title(View.ObjectEditor{None{}}) == "Editor unavailable" : String},
     editor: @identity:U.Editor -> @revision:Nat -> @groups:+List<View.InputGroup> -> @sections:+List<Forms.Section> -> @submit:View.ControlDeclaration -> @feedback:U.Feedback -> @pending:Bool -> {View.layer_title(View.ObjectEditor{Some{View.EditorScene{identity, revision, groups, sections, submit, feedback, pending}}}) == View.editor_title(identity) : String},
     execution: @editor:U.Editor -> @fields:+List<View.InputGroup> -> {View.layer_title(View.ExecutionSettings{editor, fields}) == "Workspace and permissions" : String},
@@ -215,6 +218,8 @@ def layer_title_evidence() -> LayerTitleRequirements:
     task => {==},
     actions => {==},
     cards => {==},
+    automatic => selected => profiles => automation => {==},
+    filter => {==},
     {==},
     identity => revision => groups => sections => submit => feedback => pending => {==},
     editor => fields => {==},
@@ -243,9 +248,9 @@ type Requirements is Type:
     agents_title: @+agents:+List<View.AgentScene> -> @+create:View.ControlDeclaration -> @+parent:String -> @+state:Core.State ->
       {find_region(Interface.page_contents(View.AgentsPage{agents, create}, parent, state), Composition.CollectionTitle{}) ==
         Some{[Interface.region(parent, "heading", "Agents", Interface.Heading{}, Nil{})]} : Maybe<&2, +List<Interface.Node>>},
-    board_title: @+filter:B.Filter -> @+columns:+List<View.BoardColumn> -> @+create:View.ControlDeclaration -> @+automatic:Bool ->
-      @+profile:String -> @+automation:View.ControlDeclaration -> @+profiles:+List<D.Profile> -> @+archive:View.ControlDeclaration -> @+parent:String -> @+state:Core.State ->
-      {find_region(Interface.page_contents(View.BoardPage{filter, columns, create, automatic, profile, automation, profiles, archive}, parent, state), Composition.BoardTitle{}) ==
+    board_title: @+filter:B.Filter -> @+columns:+List<View.BoardColumn> -> @+create:View.ControlDeclaration -> @working:Nat ->
+      @+settings:View.ControlDeclaration -> @+filters:View.ControlDeclaration -> @+archive:View.ControlDeclaration -> @+parent:String -> @+state:Core.State ->
+      {find_region(Interface.page_contents(View.BoardPage{filter, columns, create, working, settings, filters, archive}, parent, state), Composition.BoardTitle{}) ==
         Some{[Interface.region(parent, "heading", "Board", Interface.Heading{}, Nil{})]} : Maybe<&2, +List<Interface.Node>>},
     creation_title: @+heading:String -> @+summary:String -> @+context:Maybe<&2, Context.Preview> -> @+project:Maybe<&2, View.ProjectChoice> -> @+parent:String -> @+state:Core.State ->
       {find_region(Interface.creation_introduction_nodes(View.CreationIntroduction{heading, summary, context, project}, parent, state), Composition.CreationIntroduction{}) ==
@@ -274,7 +279,7 @@ def evidence() -> Requirements:
     page => parent => state => page_only_regions(page, parent, state),
     projects => create => parent => state => projects_title(projects, create, parent, state),
     agents => create => parent => state => agents_title(agents, create, parent, state),
-    filter => columns => create => automatic => profile => automation => profiles => archive => parent => state => board_title(filter, columns, create, automatic, profile, automation, profiles, archive, parent, state),
+    filter => columns => create => working => settings => filters => archive => parent => state => board_title(filter, columns, create, working, settings, filters, archive, parent, state),
     heading => summary => context => project => parent => state => creation_introduction_title(heading, summary, context, project, parent, state),
     value => parent => state => task_title(value, parent, state),
     value => parent => state => project_title(value, parent, state),

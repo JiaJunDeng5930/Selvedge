@@ -31,6 +31,7 @@ type Icon is Data:
   Branch{}
   Compact{}
   Settings{}
+  FilterFunnel{}
   Inspector{}
   CopySheets{}
   WrapLines{}
@@ -59,6 +60,9 @@ type Area is Data:
   MenuArea{}
   DialogArea{}
   CollectionArea{}
+  CardArea{}
+  BoardViewArea{}
+  BoardLaneArea{}
 
 type Selection is Data:
   NoSelection{}
@@ -141,8 +145,13 @@ type Representation is Data:
     label: LabelPlacement, availability: View.Availability}
   # The grip opens the same destination list for keyboard users that supplies
   # pointer dragging. Each destination retains its own product command/status.
-  Movable{destinations: +List<UI.Placement>, name: String, handle: Icon,
+  Movable{destinations: +List<UI.Placement>, face: View.CardFace, name: String, handle: Icon,
     geometry: Geometry, help: Help}
+
+def panel_header(representation: Representation) -> Bool:
+  match representation:
+    case Action{input, availability, name, face, behavior, geometry, PanelHeaderEnd{}, help, feedback}: True{}
+    case _: False{}
 
 type Purpose is Data:
   MessageSubmission{}
@@ -189,6 +198,8 @@ def initial(content: Core.Scene) -> Context:
 def area_for(role: UI.Role, inherited: Area) -> Area:
   match role:
     case UI.Navigation{}: NavigationArea{}
+    case UI.NavigationHeader{}: NavigationArea{}
+    case UI.Card{}: CardArea{}
     case UI.Composer{}: ComposerArea{}
     case UI.ComposerActions{}: ComposerArea{}
     case UI.Heading{}: ToolbarArea{}
@@ -236,9 +247,17 @@ def code_at(meaning: UI.Meaning, inherited: Maybe<&2, Code.Scene>) -> Maybe<&2, 
     case UI.CodeFacts{scene}: Some{scene}
     case _: inherited
 
-def enter(key: String, role: UI.Role, meaning: UI.Meaning, context: Context) -> Context:
+def area_for_node(role: UI.Role, meaning: UI.Meaning, inherited: Area) -> Area:
+  match meaning:
+    case UI.BoardGroup{UI.ViewChoices{}}: BoardViewArea{}
+    case UI.BoardGroup{UI.SecondaryActions{}}: ToolbarArea{}
+    case UI.BoardGroup{UI.PrimaryAction{}}: ToolbarArea{}
+    case UI.BoardLane{stage, count}: BoardLaneArea{}
+    case _: area_for(role, inherited)
+
+def enter(key: String, role: UI.Role, +meaning: UI.Meaning, context: Context) -> Context:
   Context{parent_area, selection, code, appearance, access, settings_open, +layers} = context
-  Context{area_for(role, parent_area), selection_at(layers, key, selection),
+  Context{area_for_node(role, meaning, parent_area), selection_at(layers, key, selection),
     code_at(meaning, code), appearance, access, settings_open, layers}
 
 def panel_open(layers: +List<View.Layer>, +trigger: String) -> Bool:
@@ -286,7 +305,10 @@ def route_icon(route: User.Route) -> Icon:
 
 def panel_purpose(panel: User.Panel, expanded: Bool) -> Purpose:
   match panel:
+    case User.CardDetails{card}: OpenPanel{Inspector{}, False{}, expanded}
     case User.ObjectActions{subject}: MoreActions{expanded}
+    case User.BoardSettings{}: OpenPanel{Settings{}, False{}, expanded}
+    case User.BoardFilters{}: OpenPanel{FilterFunnel{}, False{}, expanded}
     case User.ModelPicker{editor}: ChooseValue{expanded}
     case User.DeliveryPicker{task}: ChooseValue{expanded}
     case User.TaskConfiguration{}: WorkspacePicker{expanded}
@@ -322,8 +344,8 @@ def action_purpose(+key: String, action: User.Action, selection: Selection, +lay
     case User.BeginTask{Some{project}}: ProjectTaskCreation{}
     case User.EditProject{None{}}: CreateItem{}
     case User.EditProject{Some{project}}: EditItem{}
-    case User.EditCard{None{}}: CreateItem{}
-    case User.EditCard{Some{card}}: EditItem{}
+    case User.NewCard{stage}: CreateItem{}
+    case User.EditCard{card}: EditItem{}
     case User.EditAgent{None{}}: CreateItem{}
     case User.EditAgent{Some{agent}}: EditItem{}
     case User.ForkTask{task}: OpenPanel{Branch{}, False{}, panel_open(layers, key)}
@@ -435,8 +457,11 @@ def icon_only(purpose: Purpose, area: Area) -> Bool:
     case Latest{} _: True{}
     case ToggleNavigation{expanded} _: True{}
     case ProjectTaskCreation{} NavigationArea{}: True{}
+    case CreateItem{} BoardLaneArea{}: True{}
     case OpenPanel{Inspector{}, menu, expanded} ToolbarArea{}: True{}
     case OpenPanel{Settings{}, menu, expanded} _: True{}
+    case OpenPanel{FilterFunnel{}, menu, expanded} _: True{}
+    case OpenPanel{ArchiveBox{}, menu, expanded} ToolbarArea{}: True{}
     case CopyCode{state} CodeArea{}: True{}
     case WrapCode{enabled} CodeArea{}: True{}
     case RemoveValue{} CollectionArea{}: True{}
@@ -453,12 +478,13 @@ def named_face(icon: Maybe<&2, Icon>, text: String, compact: Bool) -> Face:
     case None{} _: TextFace{text}
 
 def contextual_face(+purpose: Purpose, label: String, +area: Area) -> Face:
-  match purpose:
-    case ChooseValue{expanded}: PickerFace{None{}, label}
-    case WorkspacePicker{expanded}: PickerFace{Some{Folder{}}, "Workspace"}
-    case SelectedOption{checked}: ChoiceFace{label, checked}
-    case ShowActivity{expanded}: DisclosureFace{label, expanded}
-    case _: named_face(purpose_icon(purpose), label, icon_only(purpose, area))
+  match purpose area:
+    case EditItem{} CardArea{}: TextFace{label}
+    case ChooseValue{expanded} _: PickerFace{None{}, label}
+    case WorkspacePicker{expanded} _: PickerFace{Some{Folder{}}, "Workspace"}
+    case SelectedOption{checked} _: ChoiceFace{label, checked}
+    case ShowActivity{expanded} _: DisclosureFace{label, expanded}
+    case _ _: named_face(purpose_icon(purpose), label, icon_only(purpose, area))
 
 def menu_face(purpose: Purpose, label: String) -> Face:
   match purpose:
@@ -487,6 +513,11 @@ def behavior_for(purpose: Purpose, selected_role: Bool) -> Behavior:
     case OpenPanel{icon, menu, expanded}: Popup{menu, expanded}
     case NavigateTo{icon}: Destination{selected_role}
     case _: Push{}
+
+def contextual_behavior(purpose: Purpose, selected: Bool, area: Area) -> Behavior:
+  match area:
+    case BoardViewArea{}: Toggle{selected}
+    case _: behavior_for(purpose, selected)
 
 def selected_role(role: UI.Role) -> Bool:
   match role:
@@ -582,7 +613,7 @@ def make_action(+key: String, +input: Core.Input, +availability: View.Availabili
   +control_face = keyed_face(key, intent, control_name, area)
   +response = feedback_for(intent)
   Action{input, availability, control_name, control_face,
-    behavior_for(intent, selected_role(role)), geometry_for(intent, control_face, area),
+    contextual_behavior(intent, selected_role(role), area), geometry_for(intent, control_face, area),
     placement_for(intent, area), help_for(control_face, availability, response, control_name), response}
 
 def entry_widget(entry: Forms.Entry) -> Widget:
@@ -601,12 +632,17 @@ def value_widget(value: Forms.Observed, entry: Forms.Entry) -> Widget:
     case Forms.ToggleValue{enabled}: ToggleInput{}
     case _: entry_widget(entry)
 
+def field_widget(field: Forms.Field, entry: Forms.Entry, value: Forms.Observed) -> Widget:
+  match field:
+    case Forms.AssistedCapture{}: ToggleInput{}
+    case _: value_widget(value, entry)
+
 def widget_for(+entry: Forms.Entry, field: Forms.Field, value: Forms.Observed) -> Widget:
   match entry field:
     case Forms.DisplayOnly{} _: PlainValue{}
     case Forms.Multiline{} Forms.MessageText{}: MessageInput{}
     case _ Forms.NetworkAccess{}: ToggleInput{}
-    case _ _: value_widget(value, entry)
+    case _ _: field_widget(field, entry, value)
 
 def label_placement(widget: Widget) -> LabelPlacement:
   match widget:
@@ -635,9 +671,10 @@ def represent(key: String, +meaning: UI.Meaning, +label: String, role: UI.Role, 
     case UI.EnterCredential{entered}: make_input(meaning, label, SecretInput{}, View.Available{})
     case UI.ReceiveFile{editor, enabled}: make_input(meaning, label, FileChooser{IconTextFace{Paperclip{}, label}}, UI.availability(enabled))
     case UI.EnterDirectory{editor}: make_input(meaning, label, DirectoryChooser{IconTextFace{Folder{}, label}}, View.Available{})
-    case UI.BoardFilter{value}: make_input(meaning, label, SelectInput{}, View.Available{})
+    case UI.BoardSearch{filter}: make_input(meaning, label, SearchInput{}, View.Available{})
     case UI.BoardProfile{automatic, selected, choices, enabled}: make_input(meaning, label, SelectInput{}, UI.availability(enabled))
-    case UI.MovableCard{destinations}:
-      Movable{destinations, "Move " ++ label, Grip{}, Geometry{32n, 32n, 16n, 8n, 0n},
+    case UI.CardArchive{count}: NoControl{}
+    case UI.MovableCard{destinations, face}:
+      Movable{destinations, face, "Move " ++ label, Grip{}, Geometry{32n, 32n, 16n, 8n, 0n},
         Tooltip{"Move card", 300n, True{}, True{}, False{}}}
     case _: NoControl{}

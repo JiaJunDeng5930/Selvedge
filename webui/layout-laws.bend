@@ -13,8 +13,8 @@ def conversation_recipe(composer: Composition.Composer, decisions: Composition.D
 def expected_main_frame(+recipe: Composition.Recipe, +main: Design.Box) -> Design.MainFrame:
   match recipe:
     case Composition.Recipe{measure, page_heading, Composition.CenteredCreation{}, composer, decisions, latest}:
-      Design.CreationFrame{Layout.heading_box(main), Layout.body_box(main), Layout.measure_band(measure, Layout.body_box(main)),
-        Layout.centered_input(composer, Layout.body_box(main)), Layout.creation_flow(Layout.body_box(main))}
+      Design.CreationFrame{Layout.heading_box(main), main, Layout.measure_band(measure, main),
+        Layout.centered_input(composer, main), Layout.creation_flow(main)}
     case Composition.Recipe{measure, page_heading, Composition.ChronologicalReading{}, composer, decisions, latest}:
       heading = Layout.heading_box(main)
       +body_viewport = Layout.body_box(main)
@@ -22,18 +22,18 @@ def expected_main_frame(+recipe: Composition.Recipe, +main: Design.Box) -> Desig
       Design.ConversationFrame{heading, body_viewport, reading,
         Layout.conversation_dock(Layout.recipe_dock(recipe), body_viewport, reading, composer)}
     case Composition.Recipe{measure, page_heading, Composition.ProjectSections{}, composer, decisions, latest}:
-      +body_viewport = Layout.body_box(main)
+      +body_viewport = main
       Design.OverviewFrame{body_viewport, Layout.measure_band(measure, body_viewport), Composition.ProjectSections{}}
     case Composition.Recipe{measure, page_heading, Composition.ProjectRows{}, composer, decisions, latest}:
-      +body_viewport = Layout.body_box(main)
+      +body_viewport = main
       Design.OverviewFrame{body_viewport, Layout.measure_band(measure, body_viewport), Composition.ProjectRows{}}
     case Composition.Recipe{measure, page_heading, Composition.AgentRows{}, composer, decisions, latest}:
-      +body_viewport = Layout.body_box(main)
+      +body_viewport = main
       Design.OverviewFrame{body_viewport, Layout.measure_band(measure, body_viewport), Composition.AgentRows{}}
     case Composition.Recipe{measure, page_heading, Composition.StageColumns{}, composer, decisions, latest}:
-      +body_viewport = Layout.body_box(main)
+      +body_viewport = main
       Design.BoardFrame{body_viewport, Layout.board_column_width(body_viewport),
-        12n, Layout.inline_gutter(Layout.box_width(body_viewport))}
+        12n, 16n}
     case Composition.Recipe{measure, page_heading, Composition.UnavailableNotice{}, composer, decisions, latest}:
       Design.UnavailableFrame{Layout.heading_box(main), Layout.body_box(main), Layout.measure_band(measure, Layout.body_box(main))}
 
@@ -277,7 +277,7 @@ def approval_without_composer_retains_dock(main: Design.Box) ->
 def input_metrics_follow_consistent_bounds(canvas: Design.Box) ->
   {Layout.input_metrics(canvas) == Design.InputMetrics{
     Nat.min(44n, Nat.min(240n, Nat.div(Layout.box_height(canvas), 3n))),
-    Nat.min(240n, Nat.div(Layout.box_height(canvas), 3n)), 20n, 12n, 4n, 8n} : Design.InputMetrics}:
+    Nat.min(240n, Nat.div(Layout.box_height(canvas), 3n)), 20n, Layout.composer_content_inset(), 4n, 8n} : Design.InputMetrics}:
   match canvas:
     case Design.Box{+left, +top, +width, height}: {==}
 
@@ -362,7 +362,7 @@ type Requirements is Type:
     input_metrics: @canvas:Design.Box ->
       {Layout.input_metrics(canvas) == Design.InputMetrics{
         Nat.min(44n, Nat.min(240n, Nat.div(Layout.box_height(canvas), 3n))),
-        Nat.min(240n, Nat.div(Layout.box_height(canvas), 3n)), 20n, 12n, 4n, 8n} : Design.InputMetrics},
+        Nat.min(240n, Nat.div(Layout.box_height(canvas), 3n)), 20n, Layout.composer_content_inset(), 4n, 8n} : Design.InputMetrics},
     anchor_scope_independence: @+surface:UI.Surface -> @requested:String -> @scope:Maybe<&2, String> ->
       {Layout.anchor(surface, requested) ==
         Layout.anchor(surface_with_scope(surface, scope), requested) : Maybe<&2, String>},

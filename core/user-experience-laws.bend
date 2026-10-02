@@ -131,6 +131,9 @@ def confirmation_identity_refinement(+layers: +List<E.Layer>, +command: M.Comman
         case U.Confirm{current, title, destination}: {==}
         case U.ObjectActions{subject}: {==}
         case U.ArchivedCards{}: {==}
+        case U.BoardSettings{}: {==}
+        case U.BoardFilters{}: {==}
+        case U.CardDetails{card}: {==}
         case U.EditObject{editor}: {==}
         case U.TaskDetails{task}: {==}
         case U.TaskConfiguration{}: {==}

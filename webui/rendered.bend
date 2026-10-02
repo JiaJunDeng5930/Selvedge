@@ -47,7 +47,7 @@ def interactive(meaning: UI.Meaning) -> Bool:
     case UI.Edit{editor, field, entry, value}: field_control(entry)
     case UI.SearchChoices{query}: True{}
     case UI.EnterCredential{entered}: True{}
-    case UI.BoardFilter{value}: True{}
+    case UI.BoardSearch{filter}: True{}
     case UI.ReceiveFile{editor, enabled}: True{}
     case UI.EnterDirectory{editor}: True{}
     case UI.BoardProfile{automatic, selected, choices, enabled}: True{}
@@ -124,6 +124,7 @@ def reachable_toolbar(key: String, found: Maybe<&2, Element>) -> +List<Violation
 def region_geometry(role: UI.Role, key: String, found: Maybe<&2, Element>, viewport: Geometry.Rect) -> +List<Violation>:
   match role:
     case UI.Navigation{}: bounded_dialog(key, found, viewport)
+    case UI.NavigationHeader{}: bounded_dialog(key, found, viewport)
     case UI.Main{}: bounded_dialog(key, found, viewport)
     case UI.Composer{}: bounded_dialog(key, found, viewport)
     case UI.Toolbar{}: reachable_toolbar(key, found)

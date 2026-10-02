@@ -21,6 +21,9 @@ def source_binding(+meaning: UI.Meaning) -> UI.Meaning:
   match meaning:
     case UI.PageRegion{region, position}: UI.Region{}
     case UI.Region{}: UI.Region{}
+    case UI.BoardLane{stage, count}: UI.Region{}
+    case UI.CardArchive{count}: UI.Region{}
+    case UI.BoardGroup{grouping}: UI.Region{}
     case UI.ReadOnly{text}: UI.Region{}
     case UI.TaskFacts{details}: UI.Region{}
     case UI.CodeFacts{view}: UI.Region{}
@@ -34,7 +37,7 @@ def binding(representation: Controls.Representation) -> UI.Meaning:
     case Controls.Action{input, availability, name, face, behavior, geometry, placement, help, feedback}:
       UI.Activate{input, availability}
     case Controls.Input{meaning, name, widget, label, availability}: meaning
-    case Controls.Movable{destinations, name, handle, geometry, help}: UI.MovableCard{destinations}
+    case Controls.Movable{destinations, face, name, handle, geometry, help}: UI.MovableCard{destinations, face}
 
 def action_retains_binding(+key: String, +input: Core.Input, +availability: View.Availability,
   label: String, role: UI.Role, context: Controls.Context) ->
@@ -60,11 +63,14 @@ def representation_retains_binding(+key: String, +meaning: UI.Meaning, label: St
         case Forms.FileCollection{}: {==}
     case UI.SearchChoices{query}: {==}
     case UI.EnterCredential{entered}: {==}
-    case UI.BoardFilter{value}: {==}
+    case UI.BoardSearch{filter}: {==}
     case UI.ReceiveFile{editor, enabled}: {==}
     case UI.EnterDirectory{editor}: {==}
     case UI.BoardProfile{automatic, selected, choices, enabled}: {==}
-    case UI.MovableCard{destinations}: {==}
+    case UI.MovableCard{destinations, face}: {==}
+    case UI.BoardLane{stage, count}: {==}
+    case UI.CardArchive{count}: {==}
+    case UI.BoardGroup{grouping}: {==}
     case UI.PageRegion{region, position}: {==}
     case UI.Region{}: {==}
     case UI.ReadOnly{text}: {==}

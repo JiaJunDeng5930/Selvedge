@@ -46,6 +46,7 @@ def reachable_toolbar(found: Maybe<&2, Rendered.Element>) -> Bool:
 def region_geometry_valid(role: UI.Role, found: Maybe<&2, Rendered.Element>, viewport: Geometry.Rect) -> Bool:
   match role:
     case UI.Navigation{}: bounded_region(found, viewport)
+    case UI.NavigationHeader{}: bounded_region(found, viewport)
     case UI.Main{}: bounded_region(found, viewport)
     case UI.Heading{}: True{}
     case UI.Timeline{}: True{}

@@ -8,6 +8,7 @@ import ./layout.bend as Layout
 import ./appearance.bend as Appearance
 import ./platform.bend as Platform
 import ./rendered.bend as Rendered
+import ./presentation-order.bend as Order
 
 def scene_presentation(scene: Model.Scene) -> Design.Presentation:
   Model.Scene{surface, platform, generation, realization, presentation} = scene
@@ -53,8 +54,8 @@ def observes_presentation(environment: Design.Environment, application: Platform
   generation: Nat, realization: Rendered.State) ->
   {scene_presentation(Model.observe(Model.State{application, generation, realization, environment})) ==
     Design.Presentation{
-      Layout.present(viewport_of(environment), Model.surface(application)),
-      Appearance.present(Model.surface(application), system_dark_of(environment))
+      Layout.present(viewport_of(environment), Order.ordered_surface(Model.surface(application))),
+      Appearance.present(Order.ordered_surface(Model.surface(application)), system_dark_of(environment))
     } : Design.Presentation}:
   match environment:
     case Design.Environment{viewport, system_dark}: {==}
@@ -143,8 +144,8 @@ type Requirements is Type:
       @generation:Nat -> @realization:Rendered.State ->
       {scene_presentation(Model.observe(Model.State{application, generation, realization, environment})) ==
         Design.Presentation{
-          Layout.present(viewport_of(environment), Model.surface(application)),
-          Appearance.present(Model.surface(application), system_dark_of(environment))
+          Layout.present(viewport_of(environment), Order.ordered_surface(Model.surface(application))),
+          Appearance.present(Order.ordered_surface(Model.surface(application)), system_dark_of(environment))
         } : Design.Presentation},
     environment_observed_preserves_core: @environment:Design.Environment -> @current_environment:Design.Environment ->
       @application:Platform.State -> @generation:Nat -> @realization:Rendered.State ->

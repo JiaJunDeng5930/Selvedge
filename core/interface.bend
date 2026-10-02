@@ -2,8 +2,14 @@ import Base
 import ../MODEL.bend as M
 import ../COMMANDS.bend as Commands
 import ../BOARD.bend as B
+import ../PROJECTS.bend as Projects
+import ../FEATURES.bend as F
 import ../REASONING.bend as Reasoning
 import ../bendlib/domain.bend as D
+import ../bendlib/board-state.bend as Board
+import ../bendlib/board-filter.bend as BoardFilter
+import ../bendlib/json.bend as J
+import ../bendlib/schema.bend as Schema
 import ./SYSTEM.bend as Core
 import ./laws.bend as Laws
 import ./user-experience.bend as E
@@ -20,6 +26,7 @@ import ../bendlib/association-map.bend as Finite
 
 type Role is Data:
   Navigation{}
+  NavigationHeader{}
   Main{}
   Heading{}
   PrimaryButton{}
@@ -47,10 +54,21 @@ type Role is Data:
 type Placement is Data:
   Placement{target: String, input: Core.Input, availability: V.Availability}
 
+type BoardGrouping is Data:
+  ViewChoices{}
+  SearchArea{}
+  WorkStatus{}
+  SecondaryActions{}
+  PrimaryAction{}
+
 type Meaning is Data:
-  MovableCard{destinations: +List<Placement>}
+  MovableCard{destinations: +List<Placement>, face: V.CardFace}
   Region{}
   PageRegion{region: Composition.Region, position: Composition.Position}
+  BoardLane{stage: B.Stage, count: Nat}
+  CardArchive{count: Nat}
+  BoardSearch{filter: B.Filter}
+  BoardGroup{grouping: BoardGrouping}
   ReadOnly{text: String}
   TaskFacts{details: V.TaskDetails}
   CodeFacts{view: Code.Scene}
@@ -58,7 +76,6 @@ type Meaning is Data:
   Edit{editor: U.Editor, field: Forms.Field, entry: Forms.Entry, value: Forms.Observed}
   SearchChoices{query: String}
   EnterCredential{entered: Bool}
-  BoardFilter{value: B.Filter}
   ReceiveFile{editor: U.Editor, enabled: Bool}
   EnterDirectory{editor: U.Editor}
   BoardProfile{automatic: Bool, selected: String, choices: +List<D.Profile>, enabled: Bool}
@@ -143,17 +160,50 @@ def project_entries(entries: +List<V.ProjectEntry>, +parent: String, +state: Cor
         declared(parent ++ "/project/" ++ Nat.show(id), create, state) <>
         task_entries(tasks, parent ++ "/project/" ++ Nat.show(id), state)) <> project_entries(rest, parent, state)
 
-def navigation_contents(expanded: Bool, create: V.ControlDeclaration, destinations: +List<V.ControlDeclaration>, projects: +List<V.ProjectEntry>, tasks: +List<V.TaskEntry>, +state: Core.State) -> +List<Node>:
+def same_route(left: U.Route, right: U.Route) -> Bool:
+  match left right:
+    case U.Start{} U.Start{}: True{}
+    case U.Conversation{left} U.Conversation{right}: Nat.is_eq(left, right)
+    case U.ProjectHome{left} U.ProjectHome{right}: Nat.is_eq(left, right)
+    case U.ProjectCollection{} U.ProjectCollection{}: True{}
+    case U.TaskBoard{} U.TaskBoard{}: True{}
+    case U.AgentCollection{} U.AgentCollection{}: True{}
+    case _ _: False{}
+
+def is_start_route(route: U.Route) -> Bool:
+  match route:
+    case U.Start{}: True{}
+    case _: False{}
+
+def navigation_action_selected(+route: U.Route, input: U.Input) -> Bool:
+  match input:
+    case U.Activate{U.Navigate{target}}: same_route(route, target)
+    case U.Activate{U.BeginTask{None{}}}: is_start_route(route)
+    case _: False{}
+
+def selected_declaration(+route: U.Route, +parent: String, declaration: V.ControlDeclaration, +state: Core.State) -> Node:
+  V.ControlDeclaration{identity, label, prominence, +input, availability} = declaration
+  selected_node(navigation_action_selected(route, input), declared(parent, declaration, state))
+
+def selected_controls(+route: U.Route, +values: +List<V.ControlDeclaration>, +parent: String, +state: Core.State) -> +List<Node>:
+  match values:
+    case Nil{}: Nil{}
+    case Con{value, rest}: selected_declaration(route, parent, value, state) <> selected_controls(route, rest, parent, state)
+
+def navigation_contents(expanded: Bool, +route: U.Route, create: V.ControlDeclaration, destinations: +List<V.ControlDeclaration>, projects: +List<V.ProjectEntry>, tasks: +List<V.TaskEntry>, +state: Core.State) -> +List<Node>:
   match expanded:
     case False{}: Nil{}
     case True{}:
-      declared("/navigation", create, state) <> List.append(&2, Node, controls(destinations, "/navigation", state),
+      selected_declaration(route, "/navigation", create, state) <> List.append(&2, Node, selected_controls(route, destinations, "/navigation", state),
         List.append(&2, Node, project_entries(projects, "/navigation", state), task_entries(tasks, "/navigation", state)))
 
 def navigation(view: V.Navigation, +state: Core.State) -> Node:
   V.Navigation{expanded, create, destinations, projects, tasks, toggle} = view
-  region("", "navigation", "Navigation", Navigation{}, declared("/navigation", toggle, state) <>
-    navigation_contents(expanded, create, destinations, projects, tasks, state))
+  Core.State{E.Application{world, E.Session{+route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code}}, services} = state
+  +header: Node = Node{"/navigation/header", "navigation-header", "Selvedge", NavigationHeader{}, Region{},
+    [declared("/navigation", toggle, state)]}
+  region("", "navigation", "Navigation", Navigation{}, header <>
+    navigation_contents(expanded, route, create, destinations, projects, tasks, state))
 
 def observed_field(found: Maybe<&2, U.Draft>, field: Forms.Field, world: M.World()) -> Forms.Observed:
   match found:
@@ -479,9 +529,17 @@ def placements(values: +List<V.MoveDestination>, id: Nat, revision: Nat, +state:
   Core.State{E.Application{world, E.Session{route, drafts, readers, layers, attention, navigation, filter, +now, next, pending, previews, code}}, services} = state
   placements_at(values, id, revision, now, world, state)
 
+def archive_placement(archived: Bool, id: Nat, revision: Nat, +state: Core.State) -> +List<Placement>:
+  match archived:
+    case True{}: Nil{}
+    case False{}:
+      Core.State{E.Application{+world, E.Session{route, drafts, readers, layers, attention, navigation, filter, +now, next, pending, previews, code}}, services} = state
+      [placement_control("/main/archive-destination", Core.control(state, V.board_control("archive", "归档任务", B.Archive{id, revision, True{}, now}, world)))]
+
 def card(view: V.CardScene, +parent: String, +state: Core.State) -> Node:
   V.CardScene{+id, +value, open, actions, linked, destinations, candidates} = view
-  Node{parent ++ "/card/" ++ Nat.show(id), "card/" ++ Nat.show(id), B.title(B.draft(value)), Card{}, MovableCard{placements(destinations, id, B.revision(value), state)},
+  Core.State{E.Application{world, E.Session{route, drafts, readers, layers, attention, navigation, filter, +now, next, pending, previews, code}}, services} = state
+  Node{parent ++ "/card/" ++ Nat.show(id), "card/" ++ Nat.show(id), B.title(B.draft(value)), Card{}, MovableCard{List.append(&2, Placement, placements(destinations, id, B.revision(value), state), archive_placement(B.archived(value), id, B.revision(value), state)), V.card_face(id, value, now, world)},
     [declared(parent ++ "/card/" ++ Nat.show(id), open, state), more(U.CardSubject{id}, parent ++ "/card/" ++ Nat.show(id), state)]}
 
 def cards(values: +List<V.CardScene>, +parent: String, +state: Core.State) -> +List<Node>:
@@ -489,17 +547,37 @@ def cards(values: +List<V.CardScene>, +parent: String, +state: Core.State) -> +L
     case Nil{}: Nil{}
     case Con{value, rest}: card(value, parent, state) <> cards(rest, parent, state)
 
+def board_lane(+stage: B.Stage, +parent: String, count: Nat, +children: +List<Node>) -> Node:
+  +key = parent ++ "/" ++ B.stage_name(stage)
+  Node{key, B.stage_name(stage), B.stage_label(stage), Section{}, BoardLane{stage, count}, children}
+
 def columns(values: +List<V.BoardColumn>, +parent: String, +state: Core.State) -> +List<Node>:
   match values:
     case Nil{}: Nil{}
-    case Con{V.BoardColumn{+stage, entries}, rest}:
-      region(parent, B.stage_name(stage), B.stage_label(stage), Section{}, cards(entries, parent ++ "/" ++ B.stage_name(stage), state)) <> columns(rest, parent, state)
+    case Con{V.BoardColumn{+stage, +entries, create}, rest}:
+      +key = parent ++ "/" ++ B.stage_name(stage)
+      +lane_children: +List<Node> = List.append(&2, Node, [declared(key, create, state)], cards(entries, key, state))
+      +lane: Node = board_lane(stage, parent, List.length(&2, V.CardScene, entries), lane_children)
+      lane <> columns(rest, parent, state)
+
+def project_fact(+key: String, +label: String, text: String) -> Node:
+  Node{key, key, label, Content{}, ReadOnly{label ++ "\n" ++ text}, Nil{}}
+
+def agent_observation(+id: Nat, value: B.AgentProfile, edit: V.ControlDeclaration, +parent: String, +state: Core.State) -> Node:
+  B.AgentProfile{revision, +name, profile, reasoning, instructions, settings, concurrency} = value
+  Core.State{E.Application{+world, session}, services} = state
+  +key = parent ++ "/agent/" ++ Nat.show(id)
+  region(parent, "agent/" ++ Nat.show(id), name, Section{},
+    [project_fact(key ++ "/profile", "模型", profile), project_fact(key ++ "/reasoning", "推理", reasoning),
+     project_fact(key ++ "/instructions", "指令", instructions), project_fact(key ++ "/concurrency", "并发上限", Nat.show(concurrency)),
+     project_fact(key ++ "/active", "工作中", Nat.show(Board.active_for(B.cards(Board.registry(world)), B.Agent{id}, world))),
+     declared(key, edit, state), more(U.AgentSubject{id}, key, state)])
 
 def agents(values: +List<V.AgentScene>, +parent: String, +state: Core.State) -> +List<Node>:
   match values:
     case Nil{}: Nil{}
     case Con{V.AgentScene{+id, value, edit, remove}, rest}:
-      region(parent, "agent/" ++ Nat.show(id), "Agent", Section{}, [declared(parent ++ "/agent/" ++ Nat.show(id), edit, state), more(U.AgentSubject{id}, parent ++ "/agent/" ++ Nat.show(id), state)]) <> agents(rest, parent, state)
+      agent_observation(id, value, edit, parent, state) <> agents(rest, parent, state)
 
 def page_region(+parent: String, +part: Composition.Region, position: Composition.Position, children: +List<Node>) -> Node:
   +name = Composition.region_name(part)
@@ -555,9 +633,6 @@ def guidance_text(value: D.ProjectContext) -> String:
     case D.NoProject{}: "No project guidance"
     case D.ProjectContext{workspace, revision, instructions}: instructions
 
-def project_fact(+key: String, +label: String, text: String) -> Node:
-  Node{key, key, label, Content{}, ReadOnly{label ++ "\n" ++ text}, Nil{}}
-
 def project_page(value: V.ProjectScene, +parent: String, +state: Core.State) -> +List<Node>:
   V.ProjectScene{id, +name, D.Workspace{roots, primary}, guidance, tasks, actions} = value
   [page_region(parent, Composition.ProjectTitle{}, Composition.HeadingPosition{}, [region(parent, "heading", name, Heading{}, Nil{})]),
@@ -578,8 +653,106 @@ def enabled_control(control: Core.Control) -> Bool:
 
 def board_profile(+automatic: Bool, +selected: String, choices: +List<D.Profile>, parent: String, +state: Core.State) -> Node:
   Core.State{E.Application{+world, session}, services} = state
-  Node{parent ++ "/drafting-model", "drafting-model", "Drafting model", Field{},
-    BoardProfile{automatic, selected, choices, enabled_control(Core.control(state, V.board_control("board/profile", "Drafting model", B.Settings{automatic, selected}, world)))}, Nil{}}
+  Node{parent ++ "/drafting-model", "drafting-model", "草稿模型", Field{},
+    BoardProfile{automatic, selected, choices, enabled_control(Core.control(state, V.board_control("board/profile", "草稿模型", B.Settings{automatic, selected}, world)))}, Nil{}}
+
+def with_view(+view: String, +filter: B.Filter) -> B.Filter:
+  B.Filter{old, search, status, priority, date, assignee, creator, project, label} = filter
+  B.Filter{view, search, status, priority, date, assignee, creator, project, label}
+
+def with_search(+search: String, +filter: B.Filter) -> B.Filter:
+  B.Filter{view, old, status, priority, date, assignee, creator, project, label} = filter
+  B.Filter{view, search, status, priority, date, assignee, creator, project, label}
+
+def retain_filter_value(keep: Bool, +value: String, +rest: +List<String>) -> +List<String>:
+  match keep:
+    case True{}: value <> rest
+    case False{}: rest
+
+def without_filter(+values: +List<String>, +value: String) -> +List<String>:
+  match values:
+    case Nil{}: Nil{}
+    case Con{+head, rest}: retain_filter_value(Bool.not(String.eq(head, value)), head, without_filter(rest, value))
+
+def toggle_filters(present: Bool, +value: String, +values: +List<String>) -> +List<String>:
+  match present:
+    case True{}: without_filter(values, value)
+    case False{}: value <> values
+
+def toggled_filter(+values: +List<String>, +value: String) -> +List<String>:
+  toggle_filters(Schema.contains(values, value), value, values)
+
+def toggle_filter(category: String, +value: String, +filter: B.Filter) -> B.Filter:
+  match category filter:
+    case "status" B.Filter{view, search, status, priority, date, assignee, creator, project, label}:
+      B.Filter{view, search, toggled_filter(status, value), priority, date, assignee, creator, project, label}
+    case "priority" B.Filter{view, search, status, priority, date, assignee, creator, project, label}:
+      B.Filter{view, search, status, toggled_filter(priority, value), date, assignee, creator, project, label}
+    case "date" B.Filter{view, search, status, priority, date, assignee, creator, project, label}:
+      B.Filter{view, search, status, priority, toggled_filter(date, value), assignee, creator, project, label}
+    case "assignee" B.Filter{view, search, status, priority, date, assignee, creator, project, label}:
+      B.Filter{view, search, status, priority, date, toggled_filter(assignee, value), creator, project, label}
+    case "creator" B.Filter{view, search, status, priority, date, assignee, creator, project, label}:
+      B.Filter{view, search, status, priority, date, assignee, toggled_filter(creator, value), project, label}
+    case "project" B.Filter{view, search, status, priority, date, assignee, creator, project, label}:
+      B.Filter{view, search, status, priority, date, assignee, creator, toggled_filter(project, value), label}
+    case "label" B.Filter{view, search, status, priority, date, assignee, creator, project, label}:
+      B.Filter{view, search, status, priority, date, assignee, creator, project, toggled_filter(label, value)}
+    case _ filter: filter
+
+def board_group(parent: String, +identity: String, grouping: BoardGrouping, +children: +List<Node>) -> Node:
+  Node{parent ++ "/" ++ identity, "board-group/" ++ identity, "", Toolbar{}, BoardGroup{grouping}, children}
+
+def view_choice(+view: String, label: String, filter: B.Filter, +parent: String, +state: Core.State) -> Node:
+  B.Filter{current_view, search, status, priority, date, assignee, creator, project, labels} = filter
+  +declaration: V.ControlDeclaration = V.ControlDeclaration{"view/" ++ view, label, V.Secondary{}, U.FilterBoard{B.Filter{view, search, status, priority, date, assignee, creator, project, labels}}, V.Available{}}
+  selected_node(String.eq(current_view, view), declared(parent, declaration, state))
+
+def view_choices(+filter: B.Filter, +parent: String, +state: Core.State) -> +List<Node>:
+  B.Filter{view, search, status, priority, date, assignee, creator, project, label} = filter
+  [view_choice("all", "全部", filter, parent, state), view_choice("assigned", "已分配", filter, parent, state),
+   view_choice("unassigned", "未分配", filter, parent, state)]
+
+def filter_option_nodes(+choices: +List<J.Json>, +category: String, +filter: B.Filter, +parent: String, +state: Core.State) -> +List<Node>:
+  match choices:
+    case Nil{}: Nil{}
+    case Con{+choice, rest}:
+      +value = J.text(J.get(choice, "value"))
+      +label = J.text(J.get(choice, "label"))
+      +declaration: V.ControlDeclaration = V.ControlDeclaration{"filter/" ++ category ++ "/" ++ value, label, V.Secondary{},
+        U.FilterBoard{toggle_filter(category, value, filter)}, V.Available{}}
+      selected_node(Schema.contains(BoardFilter.values(category, filter), value), declared(parent, declaration, state)) <>
+        filter_option_nodes(rest, category, filter, parent, state)
+
+def filter_group(+category: String, label: String, +choices: +List<J.Json>, +filter: B.Filter, +parent: String, +state: Core.State) -> Node:
+  region(parent, "filter/" ++ category, label, Section{}, filter_option_nodes(choices, category, filter, parent ++ "/filter/" ++ category, state))
+
+def board_filter_nodes(+filter: B.Filter, +parent: String, +state: Core.State) -> +List<Node>:
+  Core.State{E.Application{+world, session}, services} = state
+  +cards = B.cards(Board.registry(world))
+  filter_group("status", "状态", BoardFilter.stages(B.stages()), filter, parent, state) <>
+  filter_group("priority", "优先级", BoardFilter.priority_choices(), filter, parent, state) <>
+  filter_group("date", "更新时间", [BoardFilter.choice("1", "最近 24 小时", "clock"), BoardFilter.choice("7", "最近 7 天", "clock"), BoardFilter.choice("30", "最近 30 天", "clock")], filter, parent, state) <>
+  filter_group("assignee", "负责人", BoardFilter.owners(world), filter, parent, state) <>
+  filter_group("creator", "创建人", [BoardFilter.choice("self", "我", "user")], filter, parent, state) <>
+  filter_group("project", "项目", BoardFilter.projects(world), filter, parent, state) <>
+  filter_group("label", "标签", BoardFilter.label_choices(BoardFilter.collect_labels(cards, Nil{})), filter, parent, state) <>
+  [declared(parent, V.ControlDeclaration{"filters/clear", "清除筛选", V.Secondary{}, U.FilterBoard{B.empty_filter()}, V.Available{}}, state)]
+
+def archive_destination(control: V.ControlDeclaration, +parent: String, +state: Core.State) -> Node:
+  Core.State{E.Application{+world, E.Session{+route, drafts, readers, layers, attention, navigation, filter, +now, next, pending, previews, code}}, services} = state
+  Node{parent ++ "/archive-destination", "archive-destination", "归档任务", Section{},
+    CardArchive{List.length(&2, V.CardScene, V.archived_cards(Board.registry(world), route, now, world))}, [declared(parent, control, state)]}
+
+def board_toolbar(+filter: B.Filter, +working: Nat, create: V.ControlDeclaration, settings: V.ControlDeclaration,
+  filters: V.ControlDeclaration, archive: V.ControlDeclaration, +parent: String, +state: Core.State) -> +List<Node>:
+  [board_group(parent, "view-choices", ViewChoices{}, view_choices(filter, parent ++ "/view-choices", state)),
+   board_group(parent, "search-area", SearchArea{},
+     [Node{parent ++ "/search", "board-search", "搜索任务", Field{}, BoardSearch{filter}, Nil{}}]),
+   board_group(parent, "work-status", WorkStatus{},
+     [view_choice("working", "正在运行的任务 " ++ Nat.show(working), filter, parent ++ "/work-status", state)]),
+   board_group(parent, "secondary-actions", SecondaryActions{}, [declared(parent, filters, state), declared(parent, settings, state), archive_destination(archive, parent, state)]),
+   board_group(parent, "primary-action", PrimaryAction{}, [declared(parent, create, state)])]
 
 def creation_title_node(value: V.CreationIntroduction, parent: String) -> Node:
   V.CreationIntroduction{+heading, summary, context, project} = value
@@ -606,11 +779,10 @@ def page_contents(view: V.Page, +parent: String, +state: Core.State) -> +List<No
       [page_region(parent, Composition.CollectionTitle{}, Composition.HeadingPosition{}, [region(parent, "heading", "Projects", Heading{}, Nil{})]),
        page_region(parent, Composition.CollectionActions{}, Composition.HeadingPosition{}, [declared(parent, create, state)]),
        page_region(parent, Composition.ProjectEntries{}, Composition.BodyPosition{}, projects(values, parent, state))]
-    case V.BoardPage{filter, values, create, automatic, profile, automation, profiles, archive}:
+    case V.BoardPage{filter, values, create, working, settings, filters, archive}:
       [page_region(parent, Composition.BoardTitle{}, Composition.HeadingPosition{}, [region(parent, "heading", "Board", Heading{}, Nil{})]),
        page_region(parent, Composition.BoardControls{}, Composition.HeadingPosition{},
-         [Node{parent ++ "/filter", "filter", "Filter cards", Field{}, BoardFilter{filter}, Nil{}},
-          declared(parent, create, state), board_profile(automatic, profile, profiles, parent, state), declared(parent, automation, state), declared(parent, archive, state)]),
+         board_toolbar(filter, working, create, settings, filters, archive, parent, state)),
        page_region(parent, Composition.BoardStages{}, Composition.BodyPosition{}, columns(values, parent, state))]
     case V.AgentsPage{values, create}:
       [page_region(parent, Composition.CollectionTitle{}, Composition.HeadingPosition{}, [region(parent, "heading", "Agents", Heading{}, Nil{})]),
@@ -644,10 +816,65 @@ def execution_details(value: Maybe<&2, V.TaskScene>, parent: String) -> +List<No
     case None{}: [Node{parent ++ "/missing", "missing", "Task unavailable", Content{}, ReadOnly{"The task no longer exists"}, Nil{}}]
     case Some{V.TaskScene{id, title, status, context, timeline, previews, composer, details, actions}}:
       [Node{parent ++ "/execution", "execution", "Execution context", Content{}, TaskFacts{details}, Nil{}}]
+def enrichment_observation(value: B.Enrichment) -> String:
+  match value:
+    case B.NoEnrichment{}: ""
+    case B.Enriching{ticket, revision, retitle}: "正在生成。原始请求已保存；本次生成完成前不能编辑或移动任务。"
+    case B.EnrichmentFailed{reason}: reason
+
+def detail_labels(values: +List<String>) -> String:
+  match values:
+    case Nil{}: ""
+    case Con{value, rest}: value ++ "\n" ++ detail_labels(rest)
+
+def detail_files(values: +List<B.Attachment>, +parent: String) -> +List<Node>:
+  match values:
+    case Nil{}: Nil{}
+    case Con{B.Attachment{+id, +name, +mime, +path, +bytes}, rest}:
+      region(parent, id, name, Section{},
+        [product_action(parent ++ "/" ++ id, "preview", "Preview " ++ name, Core.ServiceInput{Services.OpenPreview{B.Attachment{id, name, mime, path, bytes}, parent ++ "/" ++ id ++ "/preview"}}, True{})]) <>
+        detail_files(rest, parent)
+
+def linked_card_controls(value: Maybe<&2, V.TaskEntry>, parent: String, state: Core.State) -> +List<Node>:
+  match value:
+    case None{}: Nil{}
+    case Some{V.TaskEntry{id, title, status, selected, open}}: [declared(parent, open, state)]
+
+def card_error_observations(+card: B.Card, +parent: String) -> +List<Node>:
+  [project_fact(parent ++ "/enrichment", "生成", enrichment_observation(B.enrichment(card))),
+   project_fact(parent ++ "/start-error", "启动错误", B.start_error(card))]
+
+def card_detail_draft(value: B.Draft, +id: Nat, +card: B.Card, actions: +List<V.ControlDeclaration>, linked: Maybe<&2, V.TaskEntry>, +parent: String, +state: Core.State) -> +List<Node>:
+  B.Draft{title, description, stage, priority, owner, project, labels, files} = value
+  Core.State{E.Application{+world, session}, services} = state
+  List.append(&2, Node, [project_fact(parent ++ "/identifier", "任务", B.identifier(id)), project_fact(parent ++ "/title", "标题", title),
+   project_fact(parent ++ "/description", "描述", description), project_fact(parent ++ "/stage", "状态", B.stage_label(stage)),
+   project_fact(parent ++ "/priority", "优先级", B.priority_label(priority)), project_fact(parent ++ "/owner", "负责人", V.face_owner(owner, world)),
+   project_fact(parent ++ "/project", "项目", V.face_project(project, world)), project_fact(parent ++ "/labels", "标签", detail_labels(labels)),
+   project_fact(parent ++ "/activity", "执行", Board.activity_label(Board.activity(card, world))),
+   declared(parent, V.control("card/edit/" ++ Nat.show(id), "编辑任务", U.EditCard{id}), state)],
+   List.append(&2, Node, card_error_observations(card, parent), List.append(&2, Node, detail_files(files, parent ++ "/attachments"),
+     List.append(&2, Node, linked_card_controls(linked, parent, state), controls(actions, parent, state)))))
+
+
+def card_details_scene(value: V.CardScene, parent: String, state: Core.State) -> +List<Node>:
+  V.CardScene{id, +card, open, actions, linked, destinations, candidates} = value
+  card_detail_draft(B.draft(card), id, card, actions, linked, parent, state)
+
+def card_details_nodes(value: Maybe<&2, V.CardScene>, +parent: String, +state: Core.State) -> +List<Node>:
+  match value:
+    case None{}: [project_fact(parent ++ "/missing", "Unavailable", "The card no longer exists")]
+    case Some{card}: card_details_scene(card, parent, state)
+
 def layer_content(view: V.LayerContent, +parent: String, +state: Core.State) -> +List<Node>:
   match view:
     case V.ObjectActions{actions}: controls(actions, parent, state)
     case V.ArchivedCards{values}: cards(values, parent, state)
+    case V.BoardSettings{+automatic, draft_profile, assistance_profiles, automation}:
+      selected_node(automatic, declared(parent, automation, state)) <>
+        [board_profile(automatic, draft_profile, assistance_profiles, parent, state)]
+    case V.BoardFilters{filter}: board_filter_nodes(filter, parent, state)
+    case V.CardDetails{card}: card_details_nodes(card, parent, state)
     case V.ObjectEditor{value}: editor(value, parent, state)
     case V.ExecutionSettings{identity, values}: sections([Forms.execution()], identity, parent, 0n, state)
     case V.ModelSelection{identity, query, values}:
@@ -789,7 +1016,7 @@ def bind(meaning: Meaning, gesture: Gesture) -> Maybe<&2, Core.Input>:
     case Edit{+editor, +field, entry, +value} Change{+next}: Some{Core.EditField{editor, field, next}}
     case SearchChoices{query} Search{+next}: Some{Core.ApplicationInput{E.UserInput{U.SearchChoices{next}}}}
     case EnterCredential{entered} Credential{+value}: Some{Core.ServiceInput{Services.EnterCredential{value}}}
-    case BoardFilter{+value} Filter{+next}: Some{Core.ApplicationInput{E.UserInput{U.FilterBoard{next}}}}
+    case BoardSearch{+filter} Search{+next}: Some{Core.ApplicationInput{E.UserInput{U.FilterBoard{with_search(next, filter)}}}}
     case ReceiveFile{+editor, +enabled} Attach{file}: when_available(enabled, Core.ServiceInput{Services.AddFile{editor, file}})
     case BoardProfile{automatic, selected, choices, +enabled} SelectBoardProfile{+profile}: when_available(enabled && profile_exists(D.find_profile(choices, profile)), Core.ApplicationInput{E.UserInput{U.Activate{U.BoardCommand{B.Settings{automatic, profile}}}}})
     case EnterDirectory{+editor} Directory{path}: Some{Core.EditField{editor, Forms.WorkspaceDirectories{}, Forms.WorkspaceChange{Context.AddRoot{path}}}}
@@ -813,7 +1040,7 @@ def placement_input(values: +List<Placement>, +target: String) -> Maybe<&2, Core
 
 def place(source: Maybe<&2, Node>, target: Maybe<&2, Node>) -> Maybe<&2, Core.Input>:
   match source target:
-    case Some{Node{key, semantic, label, role, MovableCard{destinations}, children}} Some{Node{target, t_semantic, t_label, t_role, t_meaning, t_children}}: placement_input(destinations, target)
+    case Some{Node{key, semantic, label, role, MovableCard{destinations, face}, children}} Some{Node{target, t_semantic, t_label, t_role, t_meaning, t_children}}: placement_input(destinations, target)
     case _ _: None{}
 
 def resolve_present(+source: Node, gesture: Gesture, surface: Surface) -> Maybe<&2, Core.Input>:
@@ -913,7 +1140,7 @@ def focusable(meaning: Meaning) -> Bool:
     case Edit{editor, field, entry, value}: True{}
     case SearchChoices{query}: True{}
     case EnterCredential{entered}: True{}
-    case BoardFilter{value}: True{}
+    case BoardSearch{filter}: True{}
     case ReceiveFile{editor, enabled}: enabled
     case EnterDirectory{editor}: True{}
     case BoardProfile{automatic, selected, choices, enabled}: enabled
