@@ -5,12 +5,12 @@ import { accountAutoPreset, accountConnection } from './reasoning-config.mjs';
 import { resolveAuth } from './auth.mjs';
 import { requestJson } from './network.mjs';
 import { writeAtomic } from './files.mjs';
-import { chatgptHeaders, modelsURL, codexContractVersion, defaultChatGPTAccount } from './chatgpt-contract.mjs';
+import { chatgptHeaders, modelsURL, defaultChatGPTAccount } from './chatgpt-contract.mjs';
 
 const maximum = 1024 * 1024;
 const freshFor = 5 * 60_000;
 const usableFor = 24 * 60 * 60_000;
-const cacheFormat = 'selvedge-chatgpt-models-1';
+const cacheFormat = 'selvedge-siwc-models-1';
 const hash = text => createHash('sha256').update(text).digest('hex').slice(0, 16);
 const text = value => typeof value === 'string' && value.trim().length > 0 && value.length <= 256;
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -22,27 +22,31 @@ export function accountModels(value) {
   }
   const slugs = new Set();
   const models = value.models.map(model => {
-    if (!object(model) || !text(model.slug) || !/^[A-Za-z0-9][A-Za-z0-9._:/-]*$/.test(model.slug) ||
-        slugs.has(model.slug) || !['list', 'hide', 'none'].includes(model.visibility) ||
-        !Number.isSafeInteger(model.priority) || !Array.isArray(model.supported_reasoning_levels) ||
-        model.supported_reasoning_levels.length > 32 || model.supported_reasoning_levels.some(level =>
-          !object(level) || !text(level.effort)) ||
+    if (!object(model) || !text(model.slug) || !text(model.display_name) ||
+        !/^[A-Za-z0-9][A-Za-z0-9._:/-]*$/.test(model.slug) || slugs.has(model.slug) ||
+        !['list', 'hide', 'none'].includes(model.visibility) ||
+        (Object.hasOwn(model, 'priority') && !Number.isSafeInteger(model.priority)) ||
+        (Object.hasOwn(model, 'supported_reasoning_levels') && (!Array.isArray(model.supported_reasoning_levels) ||
+          model.supported_reasoning_levels.length > 32 || model.supported_reasoning_levels.some(level =>
+            !object(level) || !text(level.effort)))) ||
         (model.default_reasoning_level != null && !text(model.default_reasoning_level))) {
       throw new Error('ChatGPT returned an invalid model descriptor');
     }
     slugs.add(model.slug);
     return {
-      slug: model.slug, display_name: text(model.display_name) ? model.display_name : model.slug,
-      priority: model.priority, visibility: model.visibility,
-      default_reasoning_level: model.default_reasoning_level ?? null,
-      supported_reasoning_levels: model.supported_reasoning_levels.map(level => ({ effort: level.effort })),
+      slug: model.slug, display_name: model.display_name, visibility: model.visibility,
+      ...(Object.hasOwn(model, 'priority') ? { priority: model.priority } : {}),
+      ...(Object.hasOwn(model, 'default_reasoning_level') ? { default_reasoning_level: model.default_reasoning_level } : {}),
+      ...(Object.hasOwn(model, 'supported_reasoning_levels') ? {
+        supported_reasoning_levels: model.supported_reasoning_levels.map(level => ({ effort: level.effort })),
+      } : {}),
     };
   });
-  return models.sort((a, b) => a.priority - b.priority || a.slug.localeCompare(b.slug));
+  return models;
 }
 
 function connectionIdentity(profile) {
-  return `${modelsURL(profile.endpoint)}\0${profile.issuer}\0${profile.client_id}`;
+  return `${modelsURL(profile.endpoint)}\0${profile.issuer}`;
 }
 
 export function modelCacheFile(profile, home) {
@@ -56,7 +60,7 @@ async function readCache(profile, home, account, now) {
     const cache = JSON.parse(await readFile(filename, 'utf8'));
     const age = now - Date.parse(cache.fetched_at);
     if (cache.format !== cacheFormat || cache.account_id !== account ||
-        cache.connection !== connectionIdentity(profile) || cache.client_version !== codexContractVersion ||
+        cache.connection !== connectionIdentity(profile) ||
         !Number.isFinite(age) || age < 0 || age > usableFor) return undefined;
     return { models: accountModels(cache), age };
   } catch (error) {
@@ -96,10 +100,10 @@ export async function discoverAccount(profile, home, { signal, force = false, no
     throw new Error(`ChatGPT model discovery failed with HTTP ${response.status}`);
   }
   const models = accountModels(response.value);
-  if (!models.some(model => model.visibility === 'list')) throw new Error('This ChatGPT account advertised no selectable Codex models');
+  if (!models.some(model => model.visibility === 'list')) throw new Error('This ChatGPT account advertised no selectable models');
   await writeAtomic(modelCacheFile(profile, home), {
     format: cacheFormat, account_id: credential.account_id, connection: connectionIdentity(profile),
-    client_version: codexContractVersion, fetched_at: new Date(now).toISOString(), models,
+    fetched_at: new Date(now).toISOString(), models,
   });
   return { account_id: credential.account_id, models, cached: false, stale: false };
 }
@@ -138,7 +142,7 @@ export async function withAccountModels(config, home, { signal, force = false, o
         if (Object.hasOwn(config.profiles, key)) throw new Error('A configured profile conflicts with an account model');
         generated[key] = Object.freeze({ ...accountConnection(profile), model: model.slug, bound_account_id: result.account_id,
           model_info: Object.freeze(model) });
-        const auto = accountAutoPreset(generated[key], model);
+        const auto = Array.isArray(model.supported_reasoning_levels) ? accountAutoPreset(generated[key], model) : undefined;
         const autoKey = `${namespace}/${model.slug}-auto`;
         // A manually configured profile overrides the login convenience. Its
         // evaluator connection remains independent of the ChatGPT credentials.

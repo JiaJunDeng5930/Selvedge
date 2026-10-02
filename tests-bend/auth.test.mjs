@@ -1,98 +1,98 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import http from 'node:http';
-import { readFile, writeFile, stat } from 'node:fs/promises';
+import { readFile, writeFile, stat, rm } from 'node:fs/promises';
 import path from 'node:path';
+import { generateKeyPair } from 'jose';
 import { login, resolveAuth } from '../host/auth.mjs';
 import { home } from './support.mjs';
+import { chatgptFixture } from './fixtures/chatgpt.mjs';
 
-const jwt = (account, exp = Math.floor(Date.now() / 1000) + 3600) =>
-  `fixture.${Buffer.from(JSON.stringify({ exp, 'https://api.openai.com/auth': { chatgpt_account_id: account } })).toString('base64url')}.fixture`;
-const tokens = (account, exp) => ({ access_token: jwt(account, exp), id_token: jwt(account), refresh_token: 'fixture-refresh-token' });
+const filename = upstream => path.join(upstream.directory, upstream.profile.auth_file);
+const grants = upstream => upstream.oauthRequests.filter(request => request.url === '/oauth/token');
+const fresh = async upstream => {
+  await rm(filename(upstream));
+  await rm(`${filename(upstream)}.registration.json`);
+};
 
-async function issuer(t, handler) {
-  const requests = [];
-  const failures = [];
-  const server = http.createServer((request, response) => {
-    void (async () => {
-      const chunks = [];
-      for await (const chunk of request) chunks.push(chunk);
-      const raw = Buffer.concat(chunks).toString('utf8');
-      const form = request.headers['content-type'] === 'application/x-www-form-urlencoded';
-      const body = form ? Object.fromEntries(new URLSearchParams(raw)) : JSON.parse(raw);
-      // The two OAuth grants intentionally have different upstream encodings.
-      assert.equal(form, body.grant_type === 'authorization_code');
-      requests.push({ path: request.url, body });
-      const result = handler(request.url, body);
-      response.writeHead(200, { 'content-type': 'application/json' });
-      response.end(JSON.stringify(result));
-    })().catch(error => { failures.push(error); response.destroy(error); });
-  });
-  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
-  t.after(() => new Promise(resolve => { server.closeAllConnections(); server.close(resolve); }));
-  return { address: `http://127.0.0.1:${server.address().port}`, requests, failures };
-}
-
-test('device login persists a private credential and uses the received authorization grant', async t => {
-  const directory = await home(t);
-  const upstream = await issuer(t, (url, body) => {
-    assert.equal(body.client_id ?? 'fixture-client', 'fixture-client');
-    if (url.endsWith('/usercode')) return { device_auth_id: 'device-fixture', user_code: 'USER-CODE', interval: 1 };
-    if (url.endsWith('/deviceauth/token')) {
-      assert.deepEqual(body, { device_auth_id: 'device-fixture', user_code: 'USER-CODE' });
-      return { authorization_code: 'grant-fixture', code_verifier: 'verifier-fixture' };
-    }
-    assert.equal(url, '/oauth/token');
-    assert.equal(body.grant_type, 'authorization_code');
-    assert.equal(body.code, 'grant-fixture');
-    assert.equal(body.code_verifier, 'verifier-fixture');
-    assert.equal(body.redirect_uri, `${upstream.address}/deviceauth/callback`);
-    return tokens('account-fixture');
-  });
-  const profile = { issuer: upstream.address, client_id: 'fixture-client', auth_file: 'auth/chatgpt.json' };
-  const codes = [];
-  const result = await login(profile, directory, { onCode: code => codes.push(code) });
-  assert.equal(result.account_id, 'account-fixture');
-  assert.deepEqual(codes, [{ url: `${upstream.address}/codex/device`, code: 'USER-CODE' }]);
-  assert.equal((await stat(result.filename)).mode & 0o777, 0o600);
-  assert.equal((await resolveAuth(profile, directory)).account_id, 'account-fixture');
-  assert.equal(upstream.requests.length, 3);
+test('loopback OAuth verifies signed identity and persists private credentials and registration', async t => {
+  const upstream = await chatgptFixture(t);
+  await fresh(upstream);
+  const result = await login(upstream.profile, upstream.directory, { onAuthorize: upstream.authorize });
+  assert.equal(result.account_id, upstream.accountId('fixture-account'));
+  const saved = JSON.parse(await readFile(filename(upstream), 'utf8'));
+  assert.equal(saved.subject, 'fixture-account');
+  assert.equal(saved.access_token, 'opaque-access-original', 'Opaque access tokens supply no identity claims');
+  assert.equal(saved.client_id, 'fixture-issued-client');
+  assert.equal(saved.format, 'selvedge-chatgpt-2');
+  assert.equal((await stat(filename(upstream))).mode & 0o777, 0o600);
+  assert.equal((await stat(`${filename(upstream)}.registration.json`)).mode & 0o777, 0o600);
+  assert.equal((await stat(path.join(upstream.directory, 'auth/chatgpt-host.json'))).mode & 0o777, 0o600);
+  assert.equal((await resolveAuth(upstream.profile, upstream.directory)).account_id, result.account_id);
+  await login(upstream.profile, upstream.directory, { onAuthorize: upstream.authorize });
+  const attempts = upstream.oauthRequests.filter(request => request.url.startsWith('/authorize?'));
+  assert.equal(attempts.length, 2);
+  assert.equal(new URL(attempts[0].url, upstream.address).searchParams.get('client_id'), 'dynamic_agent_client');
+  assert.equal(new URL(attempts[1].url, upstream.address).searchParams.get('client_id'), 'fixture-issued-client');
   assert.deepEqual(upstream.failures, []);
 });
 
-test('concurrent refreshes reuse one result and cannot replace the account identity', async t => {
-  const directory = await home(t);
-  const filename = path.join(directory, 'credential.json');
-  const current = { format: 'selvedge-chatgpt-1', ...tokens('original', 0), account_id: 'original', last_refresh: new Date(0).toISOString() };
-  await writeFile(filename, JSON.stringify(current), { mode: 0o600 });
-  let account = 'original';
-  const upstream = await issuer(t, (url, body) => {
-    assert.equal(url, '/oauth/token');
-    assert.equal(body.grant_type, 'refresh_token');
-    assert.equal(body.refresh_token, 'fixture-refresh-token');
-    return tokens(account);
-  });
-  const profile = { issuer: upstream.address, client_id: 'fixture-client', auth_file: filename };
-  const refreshed = await Promise.all([1, 2, 3].map(() => resolveAuth(profile, directory)));
-  assert.equal(upstream.requests.length, 1);
-  assert.deepEqual(refreshed[0], refreshed[1]);
-  assert.deepEqual(refreshed[1], refreshed[2]);
-  const before = await readFile(filename, 'utf8');
-  account = 'different-account';
-  await assert.rejects(resolveAuth(profile, directory, { rejectedToken: refreshed[0].access_token }), /changed the ChatGPT account/);
-  assert.equal(await readFile(filename, 'utf8'), before);
-  assert.equal(upstream.requests.length, 2);
+test('concurrent refreshes rotate one credential and cannot replace verified identity', async t => {
+  const upstream = await chatgptFixture(t);
+  await upstream.save('fixture-account', 'original', { expires_at: new Date(0).toISOString() });
+  const refreshed = await Promise.all([1, 2, 3].map(() => resolveAuth(upstream.profile, upstream.directory)));
+  assert.equal(grants(upstream).length, 1);
+  assert.deepEqual(refreshed[0], refreshed[1]); assert.deepEqual(refreshed[1], refreshed[2]);
+  assert.equal(refreshed[0].refresh_token, 'fixture-refresh-renewed');
+  const before = await readFile(filename(upstream), 'utf8');
+  upstream.options.subject = 'different-account';
+  await assert.rejects(resolveAuth(upstream.profile, upstream.directory, { rejectedToken: refreshed[0].access_token }), /identity verification/i);
+  assert.equal(await readFile(filename(upstream), 'utf8'), before);
+  assert.equal(grants(upstream).length, 2);
   assert.deepEqual(upstream.failures, []);
 });
 
-test('malformed credential contents cannot escape in an error message', async t => {
-  const directory = await home(t);
-  const filename = path.join(directory, 'credential.json');
-  const marker = 'SECRET-CREDENTIAL-MATERIAL';
-  await writeFile(filename, marker, { mode: 0o600 });
-  await assert.rejects(resolveAuth({ auth_file: filename }, directory), error => {
-    assert.equal(error.message.includes('SECRET'), false);
-    assert.match(error.message, /credential/i);
-    return true;
+test('invalid signed identity and missing plan scope never replace credentials', async t => {
+  for (const [name, options] of [
+    ['audience', { audience: 'foreign-client' }],
+    ['nonce', { nonce: 'foreign-nonce' }],
+    ['scope', { scope: 'openid profile email offline_access' }],
+    ['signature', { privateKey: (await generateKeyPair('RS256')).privateKey }],
+  ]) await t.test(name, async t => {
+    const upstream = await chatgptFixture(t);
+    const before = await readFile(filename(upstream), 'utf8');
+    Object.assign(upstream.options, options);
+    await assert.rejects(login(upstream.profile, upstream.directory, { onAuthorize: upstream.authorize }));
+    assert.equal(await readFile(filename(upstream), 'utf8'), before);
+    assert.equal(grants(upstream).length, 1);
+    assert.deepEqual(upstream.failures, []);
   });
+});
+
+test('state mismatch makes no token exchange and a pending issued registration survives failure', async t => {
+  const upstream = await chatgptFixture(t);
+  await fresh(upstream);
+  upstream.options.callbackState = 'wrong-state';
+  await assert.rejects(login(upstream.profile, upstream.directory, { onAuthorize: upstream.authorize }));
+  assert.equal(grants(upstream).length, 0);
+  delete upstream.options.callbackState;
+  upstream.options.tokenStatus = 503;
+  await assert.rejects(login(upstream.profile, upstream.directory, { onAuthorize: upstream.authorize }));
+  const pending = JSON.parse(await readFile(`${filename(upstream)}.registration.json`, 'utf8'));
+  assert.equal(pending.client_id, 'fixture-issued-client'); assert.equal(pending.subject, null);
+  await assert.rejects(stat(filename(upstream)), { code: 'ENOENT' });
+  delete upstream.options.tokenStatus;
+  await login(upstream.profile, upstream.directory, { onAuthorize: upstream.authorize });
+  const attempts = upstream.oauthRequests.filter(request => request.url.startsWith('/authorize?'));
+  assert.equal(new URL(attempts.at(-1).url, upstream.address).searchParams.get('client_id'), pending.client_id);
+  assert.deepEqual(upstream.failures, []);
+});
+
+test('obsolete and malformed credentials fail without leaking material', async t => {
+  const directory = await home(t), file = path.join(directory, 'credential.json');
+  for (const value of ['SECRET-CREDENTIAL-MATERIAL', JSON.stringify({ format: 'selvedge-chatgpt-1', access_token: 'SECRET' })]) {
+    await writeFile(file, value, { mode: 0o600 });
+    await assert.rejects(resolveAuth({ auth_file: file }, directory), error => {
+      assert.equal(error.message.includes('SECRET'), false); assert.match(error.message, /credential|authentication record/i); return true;
+    });
+  }
 });

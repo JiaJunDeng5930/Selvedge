@@ -22,13 +22,20 @@ gestures share this route. The host observes timestamps and file facts; admissio
 order, automatic dispatch and execution association remain native. See
 `../docs/adr/0022-native-task-board.md`.
 
-The suite also exercises device login and serialized credential refresh against a
+The suite also exercises browser OAuth login and serialized credential refresh against a
 loopback issuer, interruption and restart of an actual HTTP stream, MCP catalog
 notifications during shutdown, and suppression of effects withdrawn within a
 commit. Credential parsing errors must not quote file contents into task history.
 Use `npm test` to run these checks; they require no real credentials or model calls.
 
-`chatgpt-contract.mjs` fixes the audited wire version and connection identity.
+`chatgpt-contract.mjs` defines the official Sign in with ChatGPT public transport
+and registration identity. `auth.mjs` discovers the issuer's OIDC endpoints,
+validates signed ID tokens with JWKS and binds credentials to the issued client ID
+and verified subject. A stable host record and a per-credential registration record
+retain dynamic registration across login attempts and restarts. Local atomic
+writes and shared locks cover registration and token rotation. The previous
+Codex-derived credential format is rejected; users must sign in again. See
+[ADR 0024](../docs/adr/0024-official-chatgpt-sign-in.md).
 `chatgpt-models.mjs` reads only this service's credential store, validates the
 account catalog and materializes account-bound profiles. Login works without a
 model profile. Its authenticated catalog refresh commits the ordinary Configure
@@ -147,11 +154,15 @@ excessive `Retry-After` is a failure rather than permission to retry too early.
 An already exposed SSE stream is not retried automatically. Transport attempts
 share one committed model ticket and do not replay any tool effect.
 
+ChatGPT inference uses the public `/v1/responses` route with OAuth Bearer
+credentials. Callable tools are grouped under the `selvedge` namespace; local
+execution remains subject to the committed native tool contract. Full completed
+response items, including encrypted reasoning, remain available in model history.
+
 Summary requests use the ordinary model transport but receive no tools. ChatGPT
-uses streaming remote compaction v2 and returns one unchanged encrypted checkpoint;
-API-key profiles retain text summarization. Compaction deltas are not displayed.
-The host
-does not decide when to compact, which history to retain, or whether a completion
+and API-key profiles use bounded text summarization; Sign in with ChatGPT does not
+use the former `compaction_trigger` transport or an undocumented compact route.
+The host does not decide when to compact, which history to retain, or whether a completion
 is current. Bend performs those decisions, validates summaries, and commits a
 checkpoint before using its context projection. Supplied checkpoints need no
 host/model effect. Model retries and text deltas are notices, not extra task

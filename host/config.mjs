@@ -28,15 +28,29 @@ function endpoint(value, label) {
   if (url.protocol !== 'https:' && !['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)) throw new TypeError(`${label} requires HTTPS except on loopback`);
 }
 
+function loopback(url) { return ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname); }
+function chatgptEndpoint(value) {
+  const url = new URL(value);
+  modelsURL(value);
+  if (!loopback(url) && (url.origin !== 'https://api.openai.com' || url.pathname !== '/v1/responses')) {
+    throw new TypeError('ChatGPT requires the official public Responses endpoint');
+  }
+}
+function chatgptIssuer(value) {
+  endpoint(value, 'ChatGPT issuer');
+  const url = new URL(value);
+  if (!loopback(url) && url.origin !== 'https://auth.openai.com') throw new TypeError('ChatGPT requires the official issuer');
+  if (url.pathname !== '/' || url.search) throw new TypeError('ChatGPT issuer must be an origin');
+}
+
 export function accountConfig(value = {}) {
-  object(value, 'ChatGPT account', ['provider', 'endpoint', 'auth_file', 'issuer', 'client_id', 'timeout_ms']);
+  object(value, 'ChatGPT account', ['provider', 'endpoint', 'auth_file', 'issuer', 'timeout_ms']);
   const account = { ...defaultChatGPTAccount, ...value };
   if (account.provider !== 'chatgpt') throw new TypeError('The account provider must be chatgpt');
   endpoint(account.endpoint, 'ChatGPT endpoint');
-  modelsURL(account.endpoint);
-  endpoint(account.issuer, 'ChatGPT issuer');
+  chatgptEndpoint(account.endpoint);
+  chatgptIssuer(account.issuer);
   text(account.auth_file, 'ChatGPT auth_file');
-  text(account.client_id, 'ChatGPT client_id');
   number(account.timeout_ms, 'ChatGPT timeout', 100, 1_800_000);
   account.issuer = account.issuer.replace(/\/+$/, '');
   return Object.freeze(account);
@@ -55,7 +69,7 @@ export function validateConfig(value) {
   if (!config.profiles || typeof config.profiles !== 'object' || Array.isArray(config.profiles)) throw new TypeError('profiles must be an object');
   config.profiles = Object.fromEntries(Object.entries(config.profiles).map(([key, source]) => {
     text(key, 'profile key');
-    object(source, `profile ${key}`, ['provider', 'model', 'endpoint', 'api_key_env', 'auth_file', 'issuer', 'client_id', 'timeout_ms', 'adaptive_reasoning']);
+    object(source, `profile ${key}`, ['provider', 'model', 'endpoint', 'api_key_env', 'auth_file', 'issuer', 'timeout_ms', 'adaptive_reasoning']);
     if (!['echo', 'responses', 'chatgpt'].includes(source.provider)) throw new TypeError(`Unknown provider for ${key}`);
     text(source.model, `model for ${key}`);
     const profile = { timeout_ms: 300_000, ...source };
@@ -65,7 +79,7 @@ export function validateConfig(value) {
     else delete profile.adaptive_reasoning;
     number(profile.timeout_ms, `timeout for ${key}`, 100, 1_800_000);
     if (profile.provider !== 'echo') {
-      profile.endpoint ??= profile.provider === 'chatgpt' ? 'https://chatgpt.com/backend-api/codex/responses' : 'https://api.openai.com/v1/responses';
+      profile.endpoint ??= profile.provider === 'chatgpt' ? defaultChatGPTAccount.endpoint : 'https://api.openai.com/v1/responses';
       endpoint(profile.endpoint, `endpoint for ${key}`);
     }
     if (profile.provider === 'responses') {
@@ -75,9 +89,9 @@ export function validateConfig(value) {
     if (profile.provider === 'chatgpt') {
       profile.auth_file ??= 'auth/chatgpt.json';
       profile.issuer ??= 'https://auth.openai.com';
-      profile.client_id ??= 'app_EMoamEEZ73f0CkXaXp7hrann';
+      chatgptEndpoint(profile.endpoint);
+      chatgptIssuer(profile.issuer);
       text(profile.auth_file, `auth_file for ${key}`);
-      text(profile.client_id, `client_id for ${key}`);
       endpoint(profile.issuer, `issuer for ${key}`);
       profile.issuer = profile.issuer.replace(/\/+$/, '');
     }

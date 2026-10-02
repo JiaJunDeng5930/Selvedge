@@ -308,29 +308,50 @@ The default home is `~/.selvedge-bend`. `node host/cli.mjs init` creates its
 FILE` select explicit locations; both options also work with `npm start -- ...`.
 Configuration is read at server startup.
 
-To use your ChatGPT subscription, sign in. No model configuration is required:
+To use an eligible ChatGPT Plus or Pro plan, sign in with the official
+[Sign in with ChatGPT](https://developers.openai.com/siwc/token-sharing-open-source)
+flow. No model configuration or API key is required:
 
 ```bash
 node host/cli.mjs login
 node host/cli.mjs models
 ```
 
-Complete the device-code flow at the displayed OpenAI address. Login fetches
-the account's Codex model catalog and refreshes an already-running server. At
-startup the server also loads these models into the existing native selector;
-advertised account models precede the offline demo. `models --refresh` fetches
-a fresh catalog. Model names are not hardcoded and API-key availability is not
-used to filter subscription models. Discovery is bounded and a fresh catalog is
-cached for five minutes; transient failures may use a matching account's cache
-for at most 24 hours. Authentication failures never fall back to another account.
+Open the displayed authorization URL in your browser and complete **Continue with
+ChatGPT**. The browser returns to a temporary `127.0.0.1` callback on this host.
+Login fetches the account's model catalog from `https://api.openai.com/v1/models`
+and refreshes an already-running server. At startup the server also loads these
+models into the existing native selector; advertised account models precede the
+offline demo. `models --refresh` fetches a fresh catalog. Model names are not
+hardcoded and API-key availability is not used to filter subscription models.
+Discovery is bounded and a fresh catalog is cached for five minutes; transient
+failures may use a matching account's cache for at most 24 hours. Authentication
+failures never fall back to another account.
 
-Optional `chatgpt` connection settings are `endpoint`, `issuer`, `client_id`,
-`auth_file`, and `timeout_ms`; their defaults target OpenAI. `chatgpt: false`
-disables default account discovery. Explicit model profiles remain available for
-custom routing; `login PROFILE` selects a configured ChatGPT connection. Generated
-profile identities bind the account and endpoint so changing credentials cannot
-silently run an old task under a different account. Reasoning levels are checked
-against the selected account model; use an advertised level in the native field.
+Requests use `https://api.openai.com/v1/responses` with the authorized plan token.
+Plus usage is shared across participating apps; Pro has different plan limits.
+Manage app access and usage in [ChatGPT usage settings](https://chatgpt.com/settings/usage).
+Sign-in does not grant access to ChatGPT conversations.
+
+Optional `chatgpt` connection settings are `endpoint`, `issuer`, `auth_file`, and
+`timeout_ms`; their defaults target OpenAI. OAuth client IDs are issued during
+registration, not configured. `chatgpt: false` disables default account discovery.
+Explicit model profiles remain available for custom routing; `login PROFILE`
+selects a configured ChatGPT connection. Each credential file has a separate
+`<auth_file>.registration.json` record retaining its issued client ID and verified
+identity. `auth/chatgpt-host.json` under the home stores a stable local host ID;
+default credentials are in `auth/chatgpt.json`. Tokens stay in protected local
+files and are never stored in the browser. Profiles needing distinct registrations
+must use distinct `auth_file` paths.
+
+Credentials from the former Codex-derived login format are rejected. Run `login`
+again to create an official registration; remove a previously configured
+`client_id` or ChatGPT `backend-api` endpoint from `config.json`. Generated profile
+identities bind the issuer, issued client ID, verified subject and endpoint so
+changing credentials cannot silently run an old task under a different account.
+Reasoning levels are checked against the selected account model; use an advertised
+level in the native field. See [ADR 0024](docs/adr/0024-official-chatgpt-sign-in.md)
+for the external contract and validation boundary.
 
 A Responses API profile uses `provider: "responses"`, `model`, and optionally
 `endpoint` and `api_key_env` (default `OPENAI_API_KEY`). A stdio MCP entry under

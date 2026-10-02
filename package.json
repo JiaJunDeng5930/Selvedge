@@ -20,6 +20,7 @@
     "bench": "node scripts/build.mjs && node scripts/benchmark.mjs"
   },
   "dependencies": {
-    "gpt-tokenizer": "4.0.0"
+    "gpt-tokenizer": "4.0.0",
+    "jose": "6.1.0"
   }
 }

@@ -2,8 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import { readFile, writeFile, rm, stat } from 'node:fs/promises';
-import { promisify } from 'node:util';
-import { execFile } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { defaultConfig, validateConfig } from '../host/config.mjs';
 import { accountModels, discoverAccount, withAccountModels, modelCacheFile, loginAccount } from '../host/chatgpt-models.mjs';
@@ -11,7 +10,7 @@ import { defaultChatGPTAccount } from '../host/chatgpt-contract.mjs';
 import { requestModel } from '../host/providers.mjs';
 import { startServer } from '../host/server.mjs';
 import { taskIdle, home } from './support.mjs';
-import { chatgptFixture, fakeTokens, jsonResponse, modelResponse, modelEffect, wireLimits } from './fixtures/chatgpt.mjs';
+import { chatgptFixture, jsonResponse, modelResponse, modelEffect, wireLimits } from './fixtures/chatgpt.mjs';
 
 const model = (slug = 'account-model', priority = 0, visibility = 'list') => ({
   slug, priority, visibility, display_name: `Model ${slug}`, supported_in_api: false,
@@ -34,16 +33,16 @@ test('login needs no model profile, and a logged-out home makes no model request
 test('the account catalog is authenticated, ordered, cached and not filtered by API-key support', async t => {
   const upstream = await chatgptFixture(t, (request, response) => {
     assert.equal(request.method, 'GET');
-    assert.equal(request.url, '/backend-api/codex/models?client_version=0.157.1');
-    assert.equal(request.headers['chatgpt-account-id'], 'fixture-account');
+    assert.equal(request.url, '/v1/models');
+    assert.equal(request.headers.authorization, 'Bearer opaque-access-original');
     jsonResponse(response, { models: [model('second', 2), model('hidden', -1, 'hide'), model('first', 0), model('unavailable', -2, 'none')] });
   });
   const config = configFor(upstream.profile);
   const first = await withAccountModels(config, upstream.directory);
-  assert.deepEqual(Object.values(first.config.profiles).map(profile => profile.model), ['first', 'second', 'echo']);
+  assert.deepEqual(Object.values(first.config.profiles).map(profile => profile.model), ['second', 'first', 'echo']);
   const key = Object.keys(first.config.profiles)[0];
-  assert.match(key, /^chatgpt\/[a-f0-9]{16}\/first$/);
-  assert.equal(first.config.profiles[key].bound_account_id, 'fixture-account');
+  assert.match(key, /^chatgpt\/[a-f0-9]{16}\/second$/);
+  assert.equal(first.config.profiles[key].bound_account_id, upstream.accountId('fixture-account'));
   assert.equal((await stat(modelCacheFile(upstream.profile, upstream.directory))).mode & 0o777, 0o600);
   const second = await withAccountModels(config, upstream.directory);
   assert.deepEqual(first.config.profiles, second.config.profiles);
@@ -116,6 +115,11 @@ test('cache fallback is bounded and cannot mask invalid data, authorization fail
   await assert.rejects(discoverAccount(upstream.profile, upstream.directory), /HTTP 503/);
 });
 
+test('minimal official descriptors are usable without optional capability metadata', () => {
+  const models = accountModels({ models: [{ slug: 'minimal', display_name: 'Minimal', visibility: 'list' }] });
+  assert.equal(models[0].slug, 'minimal');
+});
+
 test('catalog decode rejects wrong envelopes, duplicate models, malformed capabilities, and hidden-only accounts', async t => {
   assert.throws(() => accountModels({ data: [] }), /catalog/);
   for (const models of [[model(), model()], [{ ...model(), supported_reasoning_levels: null }], [{ ...model(), slug: '../ bad' }]]) {
@@ -129,22 +133,29 @@ test('catalog decode rejects wrong envelopes, duplicate models, malformed capabi
 
 test('login CLI discovers models and hot-refreshes a running native UI without editing model configuration', { timeout: 20_000 }, async t => {
   const upstream = await chatgptFixture(t, (request, response) => {
-    if (request.url.endsWith('/usercode')) jsonResponse(response, { device_auth_id: 'device', user_code: 'TEST-CODE', interval: 1 });
-    else if (request.url.endsWith('/deviceauth/token')) jsonResponse(response, { authorization_code: 'code', code_verifier: 'verifier' });
-    else if (request.url === '/oauth/token') {
-      assert.equal(request.headers['content-type'], 'application/x-www-form-urlencoded');
-      jsonResponse(response, fakeTokens());
-    } else if (request.method === 'GET') jsonResponse(response, { models: [model()] });
+    if (request.method === 'GET') jsonResponse(response, { models: [model()] });
     else modelResponse(response, [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'Discovered model answered.' }] }]);
   });
   await rm(path.join(upstream.directory, upstream.profile.auth_file));
+  await rm(path.join(upstream.directory, `${upstream.profile.auth_file}.registration.json`));
   const config = configFor(upstream.profile);
   const filename = path.join(upstream.directory, 'config.json');
   await writeFile(filename, JSON.stringify(config));
   let server = await startServer({ home: upstream.directory, config, cwd: upstream.directory });
   t.after(() => server.close());
   const initialSequence = server.service.journal.sequence;
-  const { stdout } = await promisify(execFile)(process.execPath, [fileURLToPath(new URL('../host/cli.mjs', import.meta.url)), '--home', upstream.directory, 'login']);
+  const child = spawn(process.execPath, [fileURLToPath(new URL('../host/cli.mjs', import.meta.url)), '--home', upstream.directory, 'login']);
+  t.after(() => child.kill());
+  let stdout = '', stderr = '', authorizing;
+  child.stderr.on('data', chunk => { stderr += chunk; });
+  child.stdout.on('data', chunk => {
+    stdout += chunk;
+    const url = stdout.match(/Continue with ChatGPT: (http[^\s]+)/)?.[1];
+    if (url && !authorizing) authorizing = upstream.authorize({ url });
+  });
+  const exit = await new Promise((resolve, reject) => { child.once('error', reject); child.once('exit', resolve); });
+  if (authorizing) await authorizing;
+  assert.equal(exit, 0, stderr);
   assert.match(stdout, /Available account models: account-model/);
   assert.match(stdout, /model selector has been refreshed/);
   assert.equal(await readFile(filename, 'utf8'), JSON.stringify(config));

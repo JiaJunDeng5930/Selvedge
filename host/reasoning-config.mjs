@@ -62,6 +62,6 @@ export function accountAutoPreset(profile, descriptor) {
 }
 
 export function accountConnection(profile) {
-  return Object.fromEntries(['provider', 'endpoint', 'auth_file', 'issuer', 'client_id', 'timeout_ms']
+  return Object.fromEntries(['provider', 'endpoint', 'auth_file', 'issuer', 'timeout_ms']
     .filter(key => Object.hasOwn(profile, key)).map(key => [key, profile[key]]));
 }
