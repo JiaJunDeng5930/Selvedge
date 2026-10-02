@@ -11,6 +11,7 @@ permissions:
 jobs:
   checks:
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
@@ -23,11 +24,27 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '26'
+          cache: npm
+      - name: Install locked workspace dependencies
+        run: npm ci
       - name: Install the pinned Bend release
         run: bash scripts/install-bend.sh
       - name: Install Linux process isolation
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install --yes bubblewrap
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes bubblewrap apparmor
+          # NOTE: Ubuntu restricts unprofiled user namespaces, including bwrap's loopback setup.
+          sudo tee /etc/apparmor.d/selvedge-ci-bwrap > /dev/null <<'PROFILE'
+          abi <abi/4.0>,
+          include <tunables/global>
+          profile selvedge-ci-bwrap /usr/bin/bwrap flags=(unconfined) {
+            userns,
+          }
+          PROFILE
+          sudo apparmor_parser --replace /etc/apparmor.d/selvedge-ci-bwrap
+          bwrap --unshare-user --unshare-pid --unshare-net --cap-drop ALL \
+            --ro-bind / / --proc /proc --dev /dev -- /bin/true
       - name: Check proof obligations and syntax
         run: npm run check
       - name: Run native integration and negative proof tests
