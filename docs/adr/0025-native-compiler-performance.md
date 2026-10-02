@@ -47,15 +47,9 @@ so an old cached binary cannot count as a current build.
 
 The hosted `macos-latest` label moved to macOS 26 ARM64 with 7 GB RAM. Its complete
 extension fixture took 320.726 s and failed with the existing native deadline.
-Select the standard `macos-26-intel` runner with 14 GB RAM so the measured
-compiler working set fits the job's resource budget. Keep macOS 26 coverage and
-the existing deadline. These standard runner specifications are published in
-the [GitHub hosted-runner reference](https://docs.github.com/en/actions/reference/runners/github-hosted-runners).
-
-The first 14 GB Intel run still exceeded the native deadline, so additional RAM
-alone did not resolve the hosted compilation problem. Select the image's installed
-upstream Clang 20 through Bend's supported `CC` setting and retain `-O3`. Native
-build diagnostics sample only process-group IDs, CPU, RSS and command names to
-distinguish Bend emission from C compilation without logging arguments. Validate
-this toolchain choice against the same production fixture and 300 s deadline;
-the failing Intel run does not count as readiness evidence.
+A trial on the standard 14 GB `macos-26-intel` runner still exceeded the deadline,
+so additional RAM alone did not resolve the hosted problem. An upstream Clang 20
+trial stopped earlier at the pure proof gate's 60 s limit, leaving native compiler
+performance unverified. These trials did not establish hosted macOS readiness.
+[ADR 0026](0026-ci-validation-scope.md) moves full validation out of automatic
+PR CI and removes the unverified compiler override.

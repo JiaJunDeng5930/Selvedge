@@ -11,6 +11,7 @@
     "prestart": "node scripts/build.mjs",
     "start": "node host/cli.mjs server",
     "test": "node scripts/build.mjs && node --test --test-concurrency=1 tests-bend/*.test.mjs",
+    "test:ci": "node scripts/build.mjs && node scripts/test-ci.mjs",
     "test:browser": "node scripts/build.mjs && node scripts/browser-check.mjs",
     "test:board-browser": "node scripts/build.mjs && node scripts/board-browser-check.mjs",
     "check": "node scripts/check.mjs",

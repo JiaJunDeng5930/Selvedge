@@ -403,14 +403,16 @@ or Chromium profile and loopback services, including real approve/deny clicks on
 desktop and narrow screens. Tests require a working platform sandbox; do not
 disable isolation to run them inside another restrictive sandbox. The
 benchmark measures committed transitions and replay on reproducible task trees;
-it imposes no machine-dependent CI threshold. CI is configured to run checks and
-tests on macOS and Linux after installing locked workspace dependencies. On
-Ubuntu, CI loads a user-namespace AppArmor rule for `/usr/bin/bwrap` and checks
-network namespace setup before integration tests. Each platform runs independently
-so one failure does not cancel the other. The macOS job uses the standard 14 GB
-Intel runner and its installed upstream Clang 20 for native compilation. Compiler
-calls retain their deadlines; the proof mutation group's watchdog covers the sum
-of its individual call budgets. `just` provides aliases for these commands.
+it imposes no machine-dependent CI threshold. CI runs production proofs, syntax, a native build, regular
+integration tests and
+the tracked-file index on Linux for each PR and main update. `npm run test:ci`
+retains real sandbox, SQLite, process and protocol tests; repeated whole-program
+proof mutations and native extension builds stay in `npm test` and the pre-push
+hook. Select `full` when manually running CI to run the complete suite on Linux
+and macOS. GitHub enables that manual entry after this workflow reaches the
+default branch. Ubuntu CI loads a user-namespace AppArmor rule for `/usr/bin/bwrap`
+and checks network namespace setup before integration tests. `just` provides
+aliases for these commands.
 
 After adding or deleting files, stage the changed paths, run `npm run index`, and
 stage `AGENTS.md`. The index contains only Git-tracked files. When `pre-commit` is

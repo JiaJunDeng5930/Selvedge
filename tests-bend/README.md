@@ -91,3 +91,14 @@ Approval mutations include accepting the wrong reviewer origin, consuming a gran
 twice, dropping the independent review effect and changing the approved command
 at dispatch. Each mutation must type-check under the production module root and
 then be rejected by `approval_boundary` or `LAWS.execution_semantics`.
+
+## CI scope
+
+`npm run test:ci` builds the production kernel and runs regular integration tests
+on Linux. The six files listed in `scripts/test-ci.mjs` remain in `npm test` and
+the pre-push hook: their repeated whole-program proof checks and native extension
+builds dominated hosted test time. Production proofs and certificate checks still
+run in every PR. Pure-proof trust-boundary rejection tests and certificate mutation
+tests remain in the regular CI suite. The workflow's manual `full` input runs the
+unchanged complete suite on Linux and macOS; this entry is available once the
+workflow is present on the default branch.

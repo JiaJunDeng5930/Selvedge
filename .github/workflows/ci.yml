@@ -4,18 +4,28 @@ on:
   pull_request:
   push:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      full:
+        description: Run full validation on Linux and macOS
+        type: boolean
+        default: false
 
 permissions:
   contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   checks:
     strategy:
       fail-fast: false
       matrix:
-        # NOTE: Native emission needs more memory than the 7 GB macOS ARM runners provide.
-        os: [ubuntu-latest, macos-26-intel]
+        os: ${{ inputs.full && fromJSON('["ubuntu-latest","macos-26-intel"]') || fromJSON('["ubuntu-latest"]') }}
     runs-on: ${{ matrix.os }}
+    timeout-minutes: ${{ inputs.full && 90 || 15 }}
     env:
       BEND_NO_TELEMETRY: '1'
     steps:
@@ -30,13 +40,6 @@ jobs:
         run: npm ci
       - name: Install the pinned Bend release
         run: bash scripts/install-bend.sh
-      - name: Select upstream Clang on macOS
-        if: runner.os == 'macOS'
-        run: |
-          compiler="$(brew --prefix llvm@20)/bin/clang"
-          "$compiler" --version
-          echo "CC=$compiler" >> "$GITHUB_ENV"
-          echo "SELVEDGE_NATIVE_BUILD_DIAGNOSTICS=1" >> "$GITHUB_ENV"
       - name: Install Linux process isolation
         if: runner.os == 'Linux'
         run: |
@@ -55,7 +58,7 @@ jobs:
             --ro-bind / / --proc /proc --dev /dev -- /bin/true
       - name: Check proof obligations and syntax
         run: npm run check
-      - name: Run native integration and negative proof tests
-        run: npm test
+      - name: Run native integration tests
+        run: ${{ inputs.full && 'npm test' || 'npm run test:ci' }}
       - name: Check tracked-file index
         run: npm run index:check
