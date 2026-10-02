@@ -408,8 +408,9 @@ tests on macOS and Linux after installing locked workspace dependencies. On
 Ubuntu, CI loads a user-namespace AppArmor rule for `/usr/bin/bwrap` and checks
 network namespace setup before integration tests. Each platform runs independently
 so one failure does not cancel the other. The macOS job uses the standard 14 GB
-Intel runner to accommodate the native compiler's working set without relaxing
-subprocess deadlines. `just` provides aliases for these commands.
+Intel runner and its installed upstream Clang 20 for native compilation. Compiler
+calls retain their deadlines; the proof mutation group's watchdog covers the sum
+of its individual call budgets. `just` provides aliases for these commands.
 
 After adding or deleting files, stage the changed paths, run `npm run index`, and
 stage `AGENTS.md`. The index contains only Git-tracked files. When `pre-commit` is

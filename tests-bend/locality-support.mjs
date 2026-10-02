@@ -84,6 +84,14 @@ export async function nativeBuild(directory, entry = 'MAIN.bend', { signal, time
       cwd: directory, env: environment, detached: grouped, stdio: ['ignore', 'pipe', 'pipe'],
     });
     let output = '', stderr = '', failure;
+    const started = Date.now();
+    const diagnostics = process.env.SELVEDGE_NATIVE_BUILD_DIAGNOSTICS === '1'
+      ? setInterval(() => {
+        // Report command names, not arguments: compiler diagnostics must not expose credentials.
+        const sample = spawnSync('ps', ['-axo', 'pid,pgid,%cpu,rss,comm'], { encoding: 'utf8', timeout: 1000 });
+        const rows = sample.stdout?.split('\n').filter(line => Number(line.trim().split(/\s+/)[1]) === child.pid);
+        console.log(`Native compiler process group after ${Date.now() - started}ms:\n${rows?.join('\n') ?? ''}`);
+      }, 30_000) : undefined;
     const stop = error => {
       failure ??= error;
       try {
@@ -104,6 +112,7 @@ export async function nativeBuild(directory, entry = 'MAIN.bend', { signal, time
     signal?.addEventListener('abort', abort, { once: true });
     child.once('close', (code, exitSignal) => {
       clearTimeout(timer);
+      clearInterval(diagnostics);
       signal?.removeEventListener('abort', abort);
       if (failure) reject(failure);
       else if (code !== 0 || stderr.trim() !== '') {

@@ -7,7 +7,27 @@ import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { compiler } from '../scripts/toolchain.mjs';
 
-test('ChatGPT production evidence rejects type-correct lost effects, cross-connection ownership and replay', { timeout: 180_000 }, async t => {
+const compilerCallBudget = 45_000;
+const mutations = [
+  ['drop the executable effect', 'bendlib/chatgpt.bend',
+    'D.success(G.receipt(id, job)), [G.Execute{id, job}]', 'D.success(G.receipt(id, job)), Nil{}'],
+  ['repeat an already accepted operation', 'bendlib/chatgpt.bend',
+    'case G.Reuse{id, job}: respond(state, G.receipt(id, job))',
+    'case G.Reuse{+id, +job}: C.Decision{state, D.success(G.receipt(id, job)), [G.Execute{id, job}]}'],
+  ['give another connection ownership', 'CHATGPT.bend',
+    'Nat.is_eq(connection, owner) && Nat.is_eq(project, target)', 'Nat.is_eq(project, target)'],
+  ['leave unknown work running on restart', 'CHATGPT.bend',
+    'case True{}: with_outcome(Interrupted{"Service restarted; execution may have happened and will not be replayed"}, job)',
+    'case True{}: job'],
+  ['skip cancelling the physical operation', 'bendlib/chatgpt.bend',
+    'D.success(G.receipt(id, job)), [G.Stop{id}]', 'D.success(G.receipt(id, job)), Nil{}'],
+  ['silently clear another feature when updating the board', 'FEATURES.bend',
+    'C.replace(Board.State, Modules(), value, state)',
+    'C.Frame{value, C.Frame{ChatGPT.initial(), rest(state)}}'],
+];
+
+// Cover every individual call budget, including the baseline and file cleanup.
+test('ChatGPT production evidence rejects type-correct lost effects, cross-connection ownership and replay', { timeout: (1 + 2 * mutations.length) * compilerCallBudget + 15_000 }, async t => {
   const root = fileURLToPath(new URL('../', import.meta.url));
   const directory = await mkdtemp(path.join(tmpdir(), 'selvedge-chatgpt-proof-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
@@ -15,27 +35,10 @@ test('ChatGPT production evidence rejects type-correct lost effects, cross-conne
   await cp(path.join(root, 'bendlib'), path.join(directory, 'bendlib'), { recursive: true });
   const binary = compiler();
   const check = entry => spawnSync(binary, [entry, '--check-only'], { cwd: directory, encoding: 'utf8',
-    timeout: 45_000, env: { ...process.env, BEND_NO_TELEMETRY: '1' } });
+    timeout: compilerCallBudget, env: { ...process.env, BEND_NO_TELEMETRY: '1' } });
   const baseline = check('PROOF.bend');
   assert.equal(baseline.status, 0, baseline.stdout + baseline.stderr);
   assert.equal(baseline.stdout.trim(), 'ALL PROOFS CHECK\nUse --verdict for mathematical validity.');
-  const mutations = [
-    ['drop the executable effect', 'bendlib/chatgpt.bend',
-      'D.success(G.receipt(id, job)), [G.Execute{id, job}]', 'D.success(G.receipt(id, job)), Nil{}'],
-    ['repeat an already accepted operation', 'bendlib/chatgpt.bend',
-      'case G.Reuse{id, job}: respond(state, G.receipt(id, job))',
-      'case G.Reuse{+id, +job}: C.Decision{state, D.success(G.receipt(id, job)), [G.Execute{id, job}]}'],
-    ['give another connection ownership', 'CHATGPT.bend',
-      'Nat.is_eq(connection, owner) && Nat.is_eq(project, target)', 'Nat.is_eq(project, target)'],
-    ['leave unknown work running on restart', 'CHATGPT.bend',
-      'case True{}: with_outcome(Interrupted{"Service restarted; execution may have happened and will not be replayed"}, job)',
-      'case True{}: job'],
-    ['skip cancelling the physical operation', 'bendlib/chatgpt.bend',
-      'D.success(G.receipt(id, job)), [G.Stop{id}]', 'D.success(G.receipt(id, job)), Nil{}'],
-    ['silently clear another feature when updating the board', 'FEATURES.bend',
-      'C.replace(Board.State, Modules(), value, state)',
-      'C.Frame{value, C.Frame{ChatGPT.initial(), rest(state)}}'],
-  ];
   for (const [label, name, before, after] of mutations) await t.test(label, async () => {
     const filename = path.join(directory, name), original = await readFile(filename, 'utf8');
     assert.equal(original.split(before).length, 2, `${label}: mutation must affect exactly one production expression`);

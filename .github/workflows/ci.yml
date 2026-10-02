@@ -30,6 +30,13 @@ jobs:
         run: npm ci
       - name: Install the pinned Bend release
         run: bash scripts/install-bend.sh
+      - name: Select upstream Clang on macOS
+        if: runner.os == 'macOS'
+        run: |
+          compiler="$(brew --prefix llvm@20)/bin/clang"
+          "$compiler" --version
+          echo "CC=$compiler" >> "$GITHUB_ENV"
+          echo "SELVEDGE_NATIVE_BUILD_DIAGNOSTICS=1" >> "$GITHUB_ENV"
       - name: Install Linux process isolation
         if: runner.os == 'Linux'
         run: |
