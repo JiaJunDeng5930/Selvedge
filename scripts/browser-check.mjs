@@ -28,10 +28,12 @@ try {
   const upstream = await chatgptFixture(t, (request, response) => {
     if (request.method === 'GET') return jsonResponse(response, { models: [{ slug: 'gui-fixture', display_name: 'GUI fixture', visibility: 'list',
       priority: 0, default_reasoning_level: 'medium', supported_reasoning_levels: [{ effort: 'medium' }] }] });
-    if (request.body.input.at(-1)?.type === 'compaction_trigger') return modelResponse(response, [{ type: 'compaction', encrypted_content: 'fixture-checkpoint' }]);
+    if (request.body.instructions?.startsWith('Summarize this task for continuation')) return modelResponse(response, [
+      { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'Browser continuation summary.' }] },
+    ]);
     if (nextToolCall) {
       const call = nextToolCall; nextToolCall = undefined;
-      return modelResponse(response, [call]);
+      return modelResponse(response, [{ ...call, namespace: 'selvedge' }]);
     }
     if (++calls !== 1) return modelResponse(response, [reply('Follow-up accepted. Your workspace is ready.')]);
     response.writeHead(200, { 'content-type': 'text/event-stream' });
@@ -149,7 +151,7 @@ try {
   await wait('!document.querySelector(".thread-header h2").textContent.includes("frozen")');
   await evaluate(`document.querySelector('[data-key$="/advanced"]').open = true;`);
   await command('compact/0');
-  await wait('document.querySelector("[data-role=transcript]").textContent.includes("Provider context retained")');
+  await wait('document.querySelector("[data-role=transcript]").textContent.includes("Browser continuation summary.")');
   await browserUI.screenshot(path.join(output, 'webui-details.png'));
   checks.push('IME-safe Enter-to-send and Shift-Enter, pointer-driven send/steer menu, native action binding, manual account compaction');
 

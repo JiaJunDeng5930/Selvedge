@@ -55,7 +55,7 @@ when Chrome is unavailable instead of silently counting an unrun check as passed
 | Authentication, HTTP/SSE and generic browser rendering | `auth`, `ui`, `service` tests |
 | Paced Markdown, safe links, fragmented SSE, draft races and preview identity/revision | `web-streaming.test.mjs`; browser mechanics, not native-domain proofs |
 | Real browser DOM identity, focus, scroll, worker formatting, responsive layout, unobscured approve/deny pointer targets, native form/actions and account compaction | `npm run test:browser`; isolated Chrome, loopback provider, native kernel and SQLite; captures in `.workpad/chatgpt-webui/` |
-| Audited ChatGPT OAuth/Responses, account model discovery and encrypted compaction transport, restart and cancellation | `chatgpt-contract`, `chatgpt-models`, `chatgpt-compaction` tests; loopback services, not a live commercial account |
+| ChatGPT account authorization, public Responses/model discovery, tools, summaries, restart and cancellation | `auth.test.mjs`, `chatgpt.test.mjs`, `chatgpt-models.test.mjs`, `chatgpt-compaction.test.mjs`; signed loopback issuer and HTTP/SSE fixtures, not a live ChatGPT account |
 | Typed Jev HTTP protocols, Unicode/token budgets, provider identity, evaluator cancellation, committed dispatch and restart | `reasoning.test.mjs`; `reasoning-native.test.mjs` retains exact provider/evaluator/UI wire probes, not a second lifecycle specification; `reasoning-proof.test.mjs` checks type-correct production mutations |
 | Cross-boundary create → commit → execution → callback → model delivery → restart | `service`, `service-recovery`, `context-recovery`, `after-hooks`, `coding`, `project-context` tests using real loopback servers/processes and SQLite |
 
@@ -91,6 +91,9 @@ Approval mutations include accepting the wrong reviewer origin, consuming a gran
 twice, dropping the independent review effect and changing the approved command
 at dispatch. Each mutation must type-check under the production module root and
 then be rejected by `approval_boundary` or `LAWS.execution_semantics`.
+
+ChatGPT integration tests use signed loopback OAuth/OIDC and HTTP/SSE fixtures.
+They do not establish live-account authorization, plan eligibility or summary quality.
 
 ## CI scope
 

@@ -23,6 +23,10 @@
     "bench": "node scripts/build.mjs && node scripts/benchmark.mjs"
   },
   "dependencies": {
-    "gpt-tokenizer": "4.0.0"
+    "gpt-tokenizer": "4.0.0",
+    "openid-client": "6.8.8"
+  },
+  "devDependencies": {
+    "jose": "6.2.12"
   }
 }

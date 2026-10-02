@@ -1,5 +1,9 @@
 # ChatGPT account transport and model discovery
 
+Superseded by [ADR 0027](0027-official-chatgpt-sign-in.md). The following records
+the former Codex-derived contract and its provenance; it is not the current login
+or transport configuration.
+
 The external contract was checked against OpenAI Codex `rust-v0.157.1`, released
 2026-09-26. These HTTP/OAuth assumptions are tested at the host boundary, not
 claimed as Bend theorems. The application identifies itself as Selvedge.

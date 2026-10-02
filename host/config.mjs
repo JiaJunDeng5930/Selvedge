@@ -2,7 +2,7 @@ import { readFile, access } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import { validPluginName } from './plugins.mjs';
-import { defaultChatGPTAccount, modelsURL } from './chatgpt-contract.mjs';
+import { accountConfig, accountConnection, chatgptAccountFields } from './chatgpt-account.mjs';
 import { adaptivePolicy, evaluatorConnections } from './reasoning-config.mjs';
 import { connectionConfig } from './chatgpt-plugin.mjs';
 
@@ -29,20 +29,6 @@ function endpoint(value, label) {
   if (url.protocol !== 'https:' && !['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)) throw new TypeError(`${label} requires HTTPS except on loopback`);
 }
 
-export function accountConfig(value = {}) {
-  object(value, 'ChatGPT account', ['provider', 'endpoint', 'auth_file', 'issuer', 'client_id', 'timeout_ms']);
-  const account = { ...defaultChatGPTAccount, ...value };
-  if (account.provider !== 'chatgpt') throw new TypeError('The account provider must be chatgpt');
-  endpoint(account.endpoint, 'ChatGPT endpoint');
-  modelsURL(account.endpoint);
-  endpoint(account.issuer, 'ChatGPT issuer');
-  text(account.auth_file, 'ChatGPT auth_file');
-  text(account.client_id, 'ChatGPT client_id');
-  number(account.timeout_ms, 'ChatGPT timeout', 100, 1_800_000);
-  account.issuer = account.issuer.replace(/\/+$/, '');
-  return Object.freeze(account);
-}
-
 export function validateConfig(value) {
   object(value, 'configuration', ['format', 'host', 'port', 'max_fork', 'max_descendants', 'profiles', 'chatgpt', 'mcp', 'plugins', 'reasoning_evaluators', 'chatgpt_plugin']);
   if (value.format !== format) throw new Error('The configuration is not in the current Bend format');
@@ -57,7 +43,7 @@ export function validateConfig(value) {
   if (!config.profiles || typeof config.profiles !== 'object' || Array.isArray(config.profiles)) throw new TypeError('profiles must be an object');
   config.profiles = Object.fromEntries(Object.entries(config.profiles).map(([key, source]) => {
     text(key, 'profile key');
-    object(source, `profile ${key}`, ['provider', 'model', 'endpoint', 'api_key_env', 'auth_file', 'issuer', 'client_id', 'timeout_ms', 'adaptive_reasoning']);
+    object(source, `profile ${key}`, [...chatgptAccountFields, 'model', 'api_key_env', 'adaptive_reasoning']);
     if (!['echo', 'responses', 'chatgpt'].includes(source.provider)) throw new TypeError(`Unknown provider for ${key}`);
     text(source.model, `model for ${key}`);
     const profile = { timeout_ms: 300_000, ...source };
@@ -66,23 +52,15 @@ export function validateConfig(value) {
     if (adaptive) profile.adaptive_reasoning = adaptive;
     else delete profile.adaptive_reasoning;
     number(profile.timeout_ms, `timeout for ${key}`, 100, 1_800_000);
-    if (profile.provider !== 'echo') {
-      profile.endpoint ??= profile.provider === 'chatgpt' ? 'https://chatgpt.com/backend-api/codex/responses' : 'https://api.openai.com/v1/responses';
+    if (profile.provider === 'responses') {
+      profile.endpoint ??= 'https://api.openai.com/v1/responses';
       endpoint(profile.endpoint, `endpoint for ${key}`);
     }
     if (profile.provider === 'responses') {
       profile.api_key_env ??= 'OPENAI_API_KEY';
       if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(profile.api_key_env)) throw new TypeError(`Invalid API key environment variable for ${key}`);
     }
-    if (profile.provider === 'chatgpt') {
-      profile.auth_file ??= 'auth/chatgpt.json';
-      profile.issuer ??= 'https://auth.openai.com';
-      profile.client_id ??= 'app_EMoamEEZ73f0CkXaXp7hrann';
-      text(profile.auth_file, `auth_file for ${key}`);
-      text(profile.client_id, `client_id for ${key}`);
-      endpoint(profile.issuer, `issuer for ${key}`);
-      profile.issuer = profile.issuer.replace(/\/+$/, '');
-    }
+    if (profile.provider === 'chatgpt') Object.assign(profile, accountConnection(profile));
     return [key, Object.freeze(profile)];
   }));
   if (!config.mcp || typeof config.mcp !== 'object' || Array.isArray(config.mcp)) throw new TypeError('mcp must be an object');
