@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile, writeFile, stat, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { generateKeyPair } from 'jose';
-import { login, resolveAuth } from '../host/auth.mjs';
+import { login, authorize } from '../host/chatgpt-account.mjs';
 import { home } from './support.mjs';
 import { chatgptFixture } from './fixtures/chatgpt.mjs';
 
@@ -27,7 +27,7 @@ test('loopback OAuth verifies signed identity and persists private credentials a
   assert.equal((await stat(filename(upstream))).mode & 0o777, 0o600);
   assert.equal((await stat(`${filename(upstream)}.registration.json`)).mode & 0o777, 0o600);
   assert.equal((await stat(path.join(upstream.directory, 'auth/chatgpt-host.json'))).mode & 0o777, 0o600);
-  assert.equal((await resolveAuth(upstream.profile, upstream.directory)).account_id, result.account_id);
+  assert.equal((await authorize(upstream.profile, upstream.directory)).account_id, result.account_id);
   await login(upstream.profile, upstream.directory, { onAuthorize: upstream.authorize });
   const attempts = upstream.oauthRequests.filter(request => request.url.startsWith('/authorize?'));
   assert.equal(attempts.length, 2);
@@ -39,13 +39,17 @@ test('loopback OAuth verifies signed identity and persists private credentials a
 test('concurrent refreshes rotate one credential and cannot replace verified identity', async t => {
   const upstream = await chatgptFixture(t);
   await upstream.save('fixture-account', 'original', { expires_at: new Date(0).toISOString() });
-  const refreshed = await Promise.all([1, 2, 3].map(() => resolveAuth(upstream.profile, upstream.directory)));
+  const refreshed = await Promise.all([1, 2, 3].map(() => authorize(upstream.profile, upstream.directory)));
   assert.equal(grants(upstream).length, 1);
-  assert.deepEqual(refreshed[0], refreshed[1]); assert.deepEqual(refreshed[1], refreshed[2]);
-  assert.equal(refreshed[0].refresh_token, 'fixture-refresh-renewed');
+  for (const authorization of refreshed) {
+    assert.equal(authorization.account_id, refreshed[0].account_id);
+    assert.deepEqual(authorization.headers, refreshed[0].headers);
+  }
+  const saved = JSON.parse(await readFile(filename(upstream), 'utf8'));
+  assert.equal(saved.refresh_token, 'fixture-refresh-renewed');
   const before = await readFile(filename(upstream), 'utf8');
   upstream.options.subject = 'different-account';
-  await assert.rejects(resolveAuth(upstream.profile, upstream.directory, { rejectedToken: refreshed[0].access_token }), /identity verification/i);
+  await assert.rejects(refreshed[0].refreshAfterRejection(), /identity verification/i);
   assert.equal(await readFile(filename(upstream), 'utf8'), before);
   assert.equal(grants(upstream).length, 2);
   assert.deepEqual(upstream.failures, []);
@@ -92,7 +96,7 @@ test('obsolete and malformed credentials fail without leaking material', async t
   const directory = await home(t), file = path.join(directory, 'credential.json');
   for (const value of ['SECRET-CREDENTIAL-MATERIAL', JSON.stringify({ format: 'selvedge-chatgpt-1', access_token: 'SECRET' })]) {
     await writeFile(file, value, { mode: 0o600 });
-    await assert.rejects(resolveAuth({ auth_file: file }, directory), error => {
+    await assert.rejects(authorize({ auth_file: file }, directory), error => {
       assert.equal(error.message.includes('SECRET'), false); assert.match(error.message, /credential|authentication record/i); return true;
     });
   }
@@ -103,7 +107,8 @@ test('refresh without optional identity or scope retains verified account fields
   const upstream = await chatgptFixture(t);
   const before = await upstream.save('fixture-account', 'original', { expires_at: new Date(0).toISOString() });
   upstream.options.tokenOmissions = ['id_token', 'scope'];
-  const renewed = await resolveAuth(upstream.profile, upstream.directory);
+  await authorize(upstream.profile, upstream.directory);
+  const renewed = JSON.parse(await readFile(filename(upstream), 'utf8'));
   for (const key of ['subject', 'account_id', 'client_id', 'id_token', 'scope', 'name', 'email']) assert.equal(renewed[key], before[key]);
   assert.equal(renewed.refresh_token, 'fixture-refresh-renewed');
   assert.ok(Date.parse(renewed.expires_at) > Date.now());
@@ -116,7 +121,7 @@ test('a refresh without the required rotating token leaves credentials unchanged
   await upstream.save('fixture-account', 'original', { expires_at: new Date(0).toISOString() });
   const before = await readFile(filename(upstream), 'utf8');
   upstream.options.tokenOmissions = ['refresh_token'];
-  await assert.rejects(resolveAuth(upstream.profile, upstream.directory));
+  await assert.rejects(authorize(upstream.profile, upstream.directory));
   assert.equal(await readFile(filename(upstream), 'utf8'), before);
   assert.equal(grants(upstream).length, 1);
   assert.deepEqual(upstream.failures, []);

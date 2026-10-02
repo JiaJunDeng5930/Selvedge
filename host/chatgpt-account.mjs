@@ -1,11 +1,76 @@
 import { DatabaseSync } from 'node:sqlite';
 import { readFile, mkdir } from 'node:fs/promises';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
 import http from 'node:http';
 import path from 'node:path';
 import * as oidc from 'openid-client';
 import { writeAtomic } from './files.mjs';
-import { chatgptAccountIdentity, chatgptOAuthResource, chatgptScopes } from './chatgpt-contract.mjs';
+import { modelsURL } from './chatgpt-contract.mjs';
+
+const chatgptOAuthResource = 'https://api.openai.com/v1';
+const chatgptScopes = 'openid profile email offline_access resource.invoke chatgpt.tokens.use.direct';
+export const defaultChatGPTAccount = Object.freeze({
+  provider: 'chatgpt', endpoint: 'https://api.openai.com/v1/responses',
+  auth_file: 'auth/chatgpt.json', issuer: 'https://auth.openai.com', timeout_ms: 300_000,
+});
+
+export function chatgptAccountIdentity(issuer, clientId, subject) {
+  return createHash('sha256').update(`${issuer}\0${clientId}\0${subject}`).digest('hex');
+}
+
+export const chatgptAccountFields = Object.freeze(Object.keys(defaultChatGPTAccount));
+
+function object(value, label, keys) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new TypeError(`${label} must be an object`);
+  for (const key of Object.keys(value)) if (!keys.includes(key)) throw new TypeError(`Unknown ${label} field: ${key}`);
+}
+function requiredText(value, label) {
+  if (typeof value !== 'string' || !value.trim()) throw new TypeError(`${label} must be a nonempty string`);
+}
+function number(value, label, lower, upper) {
+  if (!Number.isSafeInteger(value) || value < lower || value > upper) throw new TypeError(`${label} must be in ${lower}..${upper}`);
+}
+function endpoint(value, label) {
+  requiredText(value, label);
+  const url = new URL(value);
+  if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.hash) throw new TypeError(`Invalid ${label}`);
+  if (url.protocol !== 'https:' && !['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)) throw new TypeError(`${label} requires HTTPS except on loopback`);
+}
+
+function loopback(url) { return ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname); }
+function chatgptEndpoint(value) {
+  const url = new URL(value);
+  modelsURL(value);
+  if (!loopback(url) && (url.origin !== 'https://api.openai.com' || url.pathname !== '/v1/responses')) {
+    throw new TypeError('ChatGPT requires the official public Responses endpoint');
+  }
+}
+function chatgptIssuer(value) {
+  endpoint(value, 'ChatGPT issuer');
+  const url = new URL(value);
+  if (!loopback(url) && url.origin !== 'https://auth.openai.com') throw new TypeError('ChatGPT requires the official issuer');
+  if (url.pathname !== '/' || url.search) throw new TypeError('ChatGPT issuer must be an origin');
+}
+
+export function accountConfig(value = {}) {
+  object(value, 'ChatGPT account', chatgptAccountFields);
+  const account = { ...defaultChatGPTAccount, ...value };
+  if (account.provider !== 'chatgpt') throw new TypeError('The account provider must be chatgpt');
+  endpoint(account.endpoint, 'ChatGPT endpoint');
+  chatgptEndpoint(account.endpoint);
+  chatgptIssuer(account.issuer);
+  requiredText(account.auth_file, 'ChatGPT auth_file');
+  number(account.timeout_ms, 'ChatGPT timeout', 100, 1_800_000);
+  account.issuer = account.issuer.replace(/\/+$/, '');
+  return Object.freeze(account);
+}
+
+export function accountConnection(profile) {
+  const connection = Object.fromEntries(chatgptAccountFields
+    .filter(key => Object.hasOwn(profile, key)).map(key => [key, profile[key]]));
+  for (const key of ['endpoint', 'auth_file', 'issuer']) connection[key] ??= defaultChatGPTAccount[key];
+  return accountConfig(connection);
+}
 
 const format = 'selvedge-chatgpt-2';
 const locks = new Map();
@@ -14,7 +79,7 @@ const date = value => typeof value === 'string' && Number.isFinite(Date.parse(va
 const planScope = scope => text(scope) && scope.split(/\s+/).includes('chatgpt.tokens.use.direct');
 const issuedClient = value => text(value) && value !== 'dynamic_agent_client';
 
-export function validateCredential(value) {
+function validateCredential(value) {
   const fields = ['format', 'issuer', 'client_id', 'subject', 'account_id', 'access_token', 'refresh_token', 'id_token',
     'scope', 'expires_at', 'earliest_refresh_at', 'last_refresh', 'name', 'email'];
   if (!value || value.format !== format || Object.keys(value).length !== fields.length || fields.some(key => !Object.hasOwn(value, key)) ||
@@ -130,7 +195,7 @@ function tokenCredential(tokens, metadata, clientId, { previous, subject } = {})
     earliest_refresh_at: earliest(tokens.earliest_refresh_at), last_refresh: new Date().toISOString() });
 }
 
-export async function resolveAuth(profile, home, { signal, rejectedToken } = {}) {
+async function resolveCredential(profile, home, { signal, rejectedToken } = {}) {
   const filename = path.resolve(home, profile.auth_file);
   return locked(filename, async () => {
     const current = validateCredential(await readRecord(filename));
@@ -147,6 +212,24 @@ export async function resolveAuth(profile, home, { signal, rejectedToken } = {})
     await writeAtomic(filename, next);
     return next;
   });
+}
+
+function authorizationView(credential, connection, home) {
+  return Object.freeze({
+    account_id: credential.account_id,
+    headers: Object.freeze({ authorization: `Bearer ${credential.access_token}` }),
+    async refreshAfterRejection({ signal } = {}) {
+      // Keep the rejected token private so concurrent refreshes can reuse a newer credential.
+      const next = await resolveCredential(connection, home, { signal, rejectedToken: credential.access_token });
+      return authorizationView(next, connection, home);
+    },
+  });
+}
+
+export async function authorize(profile, home, { signal } = {}) {
+  const connection = accountConnection(profile);
+  const credential = await resolveCredential(connection, home, { signal });
+  return authorizationView(credential, connection, home);
 }
 
 async function hostIdentity(home) {

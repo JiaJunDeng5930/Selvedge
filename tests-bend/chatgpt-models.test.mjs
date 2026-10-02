@@ -6,7 +6,7 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { defaultConfig, validateConfig } from '../host/config.mjs';
 import { accountModels, discoverAccount, withAccountModels, modelCacheFile, loginAccount } from '../host/chatgpt-models.mjs';
-import { defaultChatGPTAccount } from '../host/chatgpt-contract.mjs';
+import { defaultChatGPTAccount } from '../host/chatgpt-account.mjs';
 import { requestModel } from '../host/providers.mjs';
 import { startServer } from '../host/server.mjs';
 import { taskIdle, home } from './support.mjs';

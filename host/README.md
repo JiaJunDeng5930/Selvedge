@@ -28,31 +28,16 @@ notifications during shutdown, and suppression of effects withdrawn within a
 commit. Credential parsing errors must not quote file contents into task history.
 Use `npm test` to run these checks; they require no real credentials or model calls.
 
-`chatgpt-contract.mjs` defines the official Sign in with ChatGPT public transport
-and registration identity. `auth.mjs` uses published MIT `openid-client` 6.8.8 for
-issuer discovery, authorization URL/PKCE construction, form grant exchanges and
-OIDC claim validation. Every grant configuration explicitly enables
-`enableNonRepudiationChecks` so ID-token validation includes JWKS signature checks.
-The host retains the bounded loopback callback, endpoint policy, dynamic issued
-client registration, private storage and locking, ChatGPT plan-grant admission,
-and verified subject/client binding. A stable host record and a per-credential
-registration record retain registration across attempts and restarts; atomic
-writes and shared locks cover token rotation. The previous Codex-derived
-credential format is rejected; users must sign in again. See
-[ADR 0024](../docs/adr/0024-official-chatgpt-sign-in.md).
+`chatgpt-account.mjs` owns ChatGPT connection configuration, identity, login and
+credentials. Consumers obtain account-bound authorization without accessing stored
+credential records. `chatgpt-contract.mjs` contains the Responses tool namespace
+and model-catalog URL helper. See [ADR 0024](../docs/adr/0024-official-chatgpt-sign-in.md)
+for the ownership and protocol choices.
 
-The browser login protocol is a host backend responsibility. Bend receives the
-ordinary Configure input when discovered profiles change and emits committed model
-effects consumed by the host. This OAuth client replacement changes neither that
-native interface nor the task/account binding contract.
-
-`chatgpt-models.mjs` reads only this service's credential store, validates the
-account catalog and materializes account-bound profiles. Login works without a
-model profile. Its authenticated catalog refresh commits the ordinary Configure
-input; it does not mutate existing task contracts. Cache freshness, endpoint and
-account matching belong to this external transport boundary. The CLI login
-integration test exercises discovery, live native selector refresh and restart
-against a loopback issuer/model server, not a commercial account.
+`chatgpt-models.mjs` discovers account models and materializes account-bound
+profiles. Its catalog refresh commits the ordinary Configure input without
+mutating existing task contracts. Cache freshness and account matching belong to
+this external transport boundary.
 
 `POST /api/ui` accepts only an opaque navigation cursor and a public presentation
 event. Bend produces the entire typed surface in `UI.bend`: content, titles,
@@ -164,14 +149,8 @@ excessive `Retry-After` is a failure rather than permission to retry too early.
 An already exposed SSE stream is not retried automatically. Transport attempts
 share one committed model ticket and do not replay any tool effect.
 
-ChatGPT inference uses the public `/v1/responses` route with OAuth Bearer
-credentials. Callable tools are grouped under the `selvedge` namespace; local
-execution remains subject to the committed native tool contract. Full completed
-response items, including encrypted reasoning, remain available in model history.
-
 Summary requests use the ordinary model transport but receive no tools. ChatGPT
-and API-key profiles use bounded text summarization; Sign in with ChatGPT does not
-use the former `compaction_trigger` transport or an undocumented compact route.
+and API-key profiles use bounded text summarization.
 The host does not decide when to compact, which history to retain, or whether a completion
 is current. Bend performs those decisions, validates summaries, and commits a
 checkpoint before using its context projection. Supplied checkpoints need no

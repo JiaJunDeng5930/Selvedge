@@ -1,11 +1,11 @@
 import { access, readFile, stat } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
-import { accountAutoPreset, accountConnection } from './reasoning-config.mjs';
-import { resolveAuth } from './auth.mjs';
+import { accountAutoPreset } from './reasoning-config.mjs';
+import { accountConnection, authorize, defaultChatGPTAccount } from './chatgpt-account.mjs';
 import { requestJson } from './network.mjs';
 import { writeAtomic } from './files.mjs';
-import { chatgptHeaders, modelsURL, defaultChatGPTAccount } from './chatgpt-contract.mjs';
+import { modelsURL } from './chatgpt-contract.mjs';
 
 const maximum = 1024 * 1024;
 const freshFor = 5 * 60_000;
@@ -73,11 +73,11 @@ async function readCache(profile, home, account, now) {
 /** Discovery never performs interactive login and never reads a different app's credentials. */
 export async function discoverAccount(profile, home, { signal, force = false, now = Date.now() } = {}) {
   const lifetime = signal ? AbortSignal.any([signal, AbortSignal.timeout(profile.timeout_ms)]) : AbortSignal.timeout(profile.timeout_ms);
-  let credential = await resolveAuth(profile, home, { signal: lifetime });
-  const cached = await readCache(profile, home, credential.account_id, now);
-  if (!force && cached && cached.age < freshFor) return { account_id: credential.account_id, models: cached.models, cached: true, stale: false };
+  let authorization = await authorize(profile, home, { signal: lifetime });
+  const cached = await readCache(profile, home, authorization.account_id, now);
+  if (!force && cached && cached.age < freshFor) return { account_id: authorization.account_id, models: cached.models, cached: true, stale: false };
   const fetchCatalog = () => requestJson(modelsURL(profile.endpoint), {
-    method: 'GET', headers: chatgptHeaders(credential), signal: lifetime, maximum,
+    method: 'GET', headers: authorization.headers, signal: lifetime, maximum,
   });
   let response;
   try {
@@ -85,27 +85,27 @@ export async function discoverAccount(profile, home, { signal, force = false, no
   } catch (error) {
     signal?.throwIfAborted();
     if (!force && cached && (error instanceof TypeError || error.name === 'TimeoutError')) {
-      return { account_id: credential.account_id, models: cached.models, cached: true, stale: true };
+      return { account_id: authorization.account_id, models: cached.models, cached: true, stale: true };
     }
     throw new Error('Could not fetch the ChatGPT model catalog', { cause: error });
   }
   if (response.status === 401) {
-    credential = await resolveAuth(profile, home, { signal: lifetime, rejectedToken: credential.access_token });
+    authorization = await authorization.refreshAfterRejection({ signal: lifetime });
     response = await fetchCatalog();
   }
   if (!response.ok) {
     if (!force && cached && (response.status === 429 || response.status >= 500)) {
-      return { account_id: credential.account_id, models: cached.models, cached: true, stale: true };
+      return { account_id: authorization.account_id, models: cached.models, cached: true, stale: true };
     }
     throw new Error(`ChatGPT model discovery failed with HTTP ${response.status}`);
   }
   const models = accountModels(response.value);
   if (!models.some(model => model.visibility === 'list')) throw new Error('This ChatGPT account advertised no selectable models');
   await writeAtomic(modelCacheFile(profile, home), {
-    format: cacheFormat, account_id: credential.account_id, connection: connectionIdentity(profile),
+    format: cacheFormat, account_id: authorization.account_id, connection: connectionIdentity(profile),
     fetched_at: new Date(now).toISOString(), models,
   });
-  return { account_id: credential.account_id, models, cached: false, stale: false };
+  return { account_id: authorization.account_id, models, cached: false, stale: false };
 }
 
 export function loginAccount(config, key) {

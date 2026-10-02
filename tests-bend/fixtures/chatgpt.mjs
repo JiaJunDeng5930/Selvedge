@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { generateKeyPair, exportJWK, SignJWT } from 'jose';
 import { writeAtomic } from '../../host/files.mjs';
-import { defaultChatGPTAccount, chatgptAccountIdentity } from '../../host/chatgpt-contract.mjs';
+import { defaultChatGPTAccount, chatgptAccountIdentity } from '../../host/chatgpt-account.mjs';
 import { home } from '../support.mjs';
 
 const resource = 'https://api.openai.com/v1';

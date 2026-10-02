@@ -1,7 +1,7 @@
 import { parseJson, stringifyJson } from './codec.mjs';
 import { events, readText } from './network.mjs';
-import { resolveAuth } from './auth.mjs';
-import { chatgptHeaders, chatgptToolNamespace } from './chatgpt-contract.mjs';
+import { authorize } from './chatgpt-account.mjs';
+import { chatgptToolNamespace } from './chatgpt-contract.mjs';
 import { setTimeout as delay } from 'node:timers/promises';
 
 const text = value => typeof value === 'string' && value.trim().length > 0;
@@ -208,14 +208,14 @@ export async function requestModel(effect, config, home, limits, { signal, onDel
   const request = responseBody(effect, profile);
   const body = stringifyJson(request);
   if (Buffer.byteLength(body) > limits.frame_bytes) throw new RangeError('Provider request exceeds the configured limit');
-  let credential;
+  let authorization;
   const headers = { 'content-type': 'application/json', accept: 'text/event-stream' };
   if (profile.provider === 'chatgpt') {
-    credential = await resolveAuth(profile, home, { signal: lifetime });
-    if (profile.bound_account_id && profile.bound_account_id !== credential.account_id) {
+    authorization = await authorize(profile, home, { signal: lifetime });
+    if (profile.bound_account_id && profile.bound_account_id !== authorization.account_id) {
       throw new Error('This task belongs to a different ChatGPT account; restore that account or create a new task');
     }
-    Object.assign(headers, chatgptHeaders(credential));
+    Object.assign(headers, authorization.headers);
   } else {
     const key = process.env[profile.api_key_env];
     if (!key) throw new Error(`Set ${profile.api_key_env} to use this provider`);
@@ -223,10 +223,10 @@ export async function requestModel(effect, config, home, limits, { signal, onDel
   }
   const send = () => fetch(profile.endpoint, { method: 'POST', headers, body, signal: lifetime, redirect: 'error' });
   let response = await requestHeaders(send, limits.model_retry, lifetime, onRetry);
-  if (response.status === 401 && credential) {
+  if (response.status === 401 && authorization) {
     await response.body?.cancel();
-    credential = await resolveAuth(profile, home, { signal: lifetime, rejectedToken: credential.access_token });
-    Object.assign(headers, chatgptHeaders(credential));
+    authorization = await authorization.refreshAfterRejection({ signal: lifetime });
+    Object.assign(headers, authorization.headers);
     response = await send();
   }
   if (!response.ok) {

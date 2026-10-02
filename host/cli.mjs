@@ -3,7 +3,7 @@ import { readFile, mkdir, open } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { loadConfig, homeDirectory, defaultConfig } from './config.mjs';
-import { login } from './auth.mjs';
+import { login } from './chatgpt-account.mjs';
 import { loginAccount, discoverAccount, withAccountModels } from './chatgpt-models.mjs';
 import { startServer } from './server.mjs';
 import { requestJson, events } from './network.mjs';

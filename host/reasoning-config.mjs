@@ -60,8 +60,3 @@ export function accountAutoPreset(profile, descriptor) {
     evaluator: 'jev', efforts, baseline, transport: 'configuration_update', max_lease: 10,
   }) });
 }
-
-export function accountConnection(profile) {
-  return Object.fromEntries(['provider', 'endpoint', 'auth_file', 'issuer', 'timeout_ms']
-    .filter(key => Object.hasOwn(profile, key)).map(key => [key, profile[key]]));
-}
