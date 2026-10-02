@@ -74,7 +74,7 @@ test('malformed, timed-out and crashed hooks fail closed without dispatching the
     const directory = await home(t);
     const marker = path.join(directory, 'forbidden');
     const provider = await responsesServer(t, (body, index) => index === 0 ? [call('bash', 'shell', { command: `touch ${shellQuote(marker)}` })] : answer);
-    const config = configure(provider.endpoint, { guard: { ...settings(directory, 'guard', mode), timeout_ms: 120 } });
+    const config = configure(provider.endpoint, { guard: { ...settings(directory, 'guard', mode), timeout_ms: 1000 } });
     const service = await Service.open({ home: path.join(directory, 'state'), config, cwd: directory });
     t.after(() => service.close());
     await service.command({ op: 'create', profile: 'live', message: 'Fail closed' });

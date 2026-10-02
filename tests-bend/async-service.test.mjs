@@ -6,6 +6,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { Service } from '../host/service.mjs';
 import { validateConfig, defaultConfig } from '../host/config.mjs';
 import { home, taskIdle, responsesServer } from './support.mjs';
+import { longRunningCommand, readHostPid } from './process-identity.mjs';
 
 const call = (id, command) => ({ type: 'function_call', call_id: id, name: 'bash', arguments: JSON.stringify({ command }) });
 const answer = text => [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text }] }];
@@ -21,10 +22,7 @@ async function eventual(predicate, message) {
 }
 
 async function pidFile(directory, name) {
-  return eventual(async () => {
-    try { const pid = Number(await readFile(path.join(directory, name), 'utf8')); return Number.isSafeInteger(pid) && pid > 0 ? pid : false; }
-    catch (error) { if (error.code !== 'ENOENT') throw error; return false; }
-  }, `Missing process identity ${name}`);
+  return eventual(() => readHostPid(directory, name), `Missing process identity ${name}`);
 }
 
 async function gone(pid) {
@@ -85,8 +83,8 @@ test('real operation cancellation and model steering preserve an unrelated runni
   const oldRequest = new Promise(resolve => { releaseOld = resolve; });
   t.after(() => releaseOld());
   const { model, service } = await fixture(t, directory, async (_, index) => {
-    if (index === 0) return [call('left', 'printf "%s" "$$" > left.pid; exec sleep 60'),
-      call('right', 'printf "%s" "$$" > right.pid; exec sleep 60')];
+    if (index === 0) return [call('left', longRunningCommand('left.pid')),
+      call('right', longRunningCommand('right.pid'))];
     if (index === 1) { await oldRequest; return answer('STALE MODEL REPLY MUST NOT APPEAR'); }
     if (index === 2) { releaseOld(); return answer('The higher-priority instruction is current.'); }
     assert.equal(index, 3);

@@ -50,7 +50,7 @@ test('the target checker rejects a corrupted imported deletion proof rather than
   const source = translateMaps(bundle.entities);
   const valid = await check('valid', source);
   assert.equal(valid.status, 0, valid.stdout + valid.stderr);
-  assert.equal(valid.stdout.trim(), 'All terms check.');
+  assert.equal(valid.stdout.trim(), 'ALL PROOFS CHECK\nUse --verdict for mathematical validity.');
   for (const [name, before, after] of [
     ['forged-proof', 'case True{}: induction', 'case True{}: {==}'],
     ['incorrect-removal', 'case False{}: tail\n\ndef remove', 'case False{}: (key, value) <> tail\n\ndef remove'],

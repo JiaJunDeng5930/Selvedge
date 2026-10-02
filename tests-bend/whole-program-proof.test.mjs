@@ -20,11 +20,11 @@ test('whole-program proofs reject type-correct loss of input, durability, receip
   assert.equal(baseline.status, 0, baseline.stdout + baseline.stderr);
   for (const [filename, before, after, law] of [
     ['bendlib/reachability.bend', 'record(P.transition(input, world), receipts)',
-      'record(P.transition(input, world), Nil{})', /reachability.exact|receipts_prepend/],
+      'record(P.transition(input, world), Nil{})', /Location: exact\b|receipts_prepend/],
     ['bendlib/reachability.bend', 'decision <> receipts}',
       '[decision]}', /receipts_prepend/],
     ['bendlib/reachability.bend', 'List.foldl(~&2, ~M.Input, ~State, ~advance, events, state)',
-      'List.foldl(~&2, ~M.Input, ~State, ~advance, Nil{}, state)', /reachability.prepend|replay_prepend|receipts_prepend/],
+      'List.foldl(~&2, ~M.Input, ~State, ~advance, Nil{}, state)', /Location: prepend\b|replay_prepend|receipts_prepend/],
     ['bendlib/execution.bend',
       'authorization(D.may_execute(D.recovery(D.tool_source(tool)), attempt), tool, attempt, remaining, task, world)',
       'authorization(True{}, tool, D.CheckedAttempt{D.attempt_call(attempt), Nil{}}, remaining, task, world)', /hook_gateway/],

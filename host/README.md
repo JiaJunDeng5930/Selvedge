@@ -31,7 +31,7 @@ Use `npm test` to run these checks; they require no real credentials or model ca
 `chatgpt-account.mjs` owns ChatGPT connection configuration, identity, login and
 credentials. Consumers obtain account-bound authorization without accessing stored
 credential records. `chatgpt-contract.mjs` contains the Responses tool namespace
-and model-catalog URL helper. See [ADR 0024](../docs/adr/0024-official-chatgpt-sign-in.md)
+and model-catalog URL helper. See [ADR 0027](../docs/adr/0027-official-chatgpt-sign-in.md)
 for the ownership and protocol choices.
 
 `chatgpt-models.mjs` discovers account models and materializes account-bound
@@ -59,6 +59,12 @@ The exploration record distinguishes adapter test evidence from the native proof
 gate; no theorem here proves the browser's DOM implementation.
 
 ## Coding effect interpreters
+
+`chatgpt-plugin.mjs` validates dedicated loopback connection credentials and
+translates only the plugin's tool envelopes. Project grants and operation policy
+are native feature decisions; `service.mjs` interprets committed execution and
+cancellation effects. See the [plugin setup guide](../plugins/selvedge-chatgpt/README.md)
+and [ADR 0024](../docs/adr/0024-project-scoped-chatgpt-plugin.md).
 
 `jev.mjs` interprets a committed reasoning observation with a separate evaluator
 connection, bounded public context and strict typed choices. It has no lease or

@@ -84,11 +84,11 @@ type ResultBoundary is Type:
     stale: @+expected: Nat -> @+ticket: Nat -> @plugin: D.PluginRef -> @pending: +List<D.PluginRef> ->
       @value: J.Json -> @error: Bool -> @task: D.Task -> @operation: D.Operation() -> @outcome: D.AfterOutcome ->
       @different: {Nat.is_eq(ticket, expected) == False{} : Bool} ->
-      {Protocol.after_stage(D.ResultPending{expected, plugin, pending, value, error}, task, operation, ticket, outcome) == Protocol.Ignore{} : Protocol.Event},
+      {Protocol.after_stage(D.ResultPending{expected, plugin, pending, value, error}, task, operation, ticket, outcome) == Protocol.Ignore{} : Protocol.ResolvedEvent},
     execution_retired: @id: Nat -> @call: D.Call -> @announced: Bool -> @ticket: Nat -> @plugin: D.PluginRef ->
       @pending: +List<D.PluginRef> -> @value: J.Json -> @error: Bool -> @task: D.Task -> @duplicate: J.Json -> @duplicate_error: Bool ->
       {Protocol.tool_operation(Some{(id, D.OperationBody{call, announced, D.ResultPending{ticket, plugin, pending, value, error}})},
-        task, duplicate, duplicate_error) == Protocol.Ignore{} : Protocol.Event},
+        task, duplicate, duplicate_error) == Protocol.Ignore{} : Protocol.ResolvedEvent},
     audit: @+history: D.History -> @+owner: Nat -> @+operation: Nat -> @call: D.Call -> @value: J.Json -> @error: Bool ->
       @plugin: D.PluginRef -> @outcome: D.AfterOutcome ->
       ({D.context_node(history, D.ToolReceipt{owner, operation, call, value, error}) == history : D.History} &

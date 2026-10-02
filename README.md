@@ -8,6 +8,11 @@ planned work, execution roles, drag ordering, files and assisted capture without
 creating a second task scheduler. The default profile is an offline echo
 demonstration, not a coding model or summarizer.
 
+The independent [ChatGPT plugin](plugins/selvedge-chatgpt/README.md) exposes
+explicitly shared projects through OpenAI Secure MCP Tunnel. Its connection grants
+apply across conversations, and local operations run in the selected project's
+Workspace.
+
 ## Read the program
 
 Start with `Harness` in [CONCEPTS.bend](CONCEPTS.bend): a proof-carrying program
@@ -333,7 +338,7 @@ again and remove any configured `client_id` or ChatGPT `backend-api` endpoint fr
 
 Manage app access and shared plan usage in
 [ChatGPT usage settings](https://chatgpt.com/settings/usage). Sign-in does not grant
-access to ChatGPT conversations. See [ADR 0024](docs/adr/0024-official-chatgpt-sign-in.md)
+access to ChatGPT conversations. See [ADR 0027](docs/adr/0027-official-chatgpt-sign-in.md)
 for the account integration choices.
 
 A Responses API profile uses `provider: "responses"`, `model`, and optionally
@@ -402,8 +407,16 @@ or Chromium profile and loopback services, including real approve/deny clicks on
 desktop and narrow screens. Tests require a working platform sandbox; do not
 disable isolation to run them inside another restrictive sandbox. The
 benchmark measures committed transitions and replay on reproducible task trees;
-it imposes no machine-dependent CI threshold. CI is configured to run checks and
-tests on macOS and Linux. `just` provides aliases for these commands.
+it imposes no machine-dependent CI threshold. CI runs production proofs, syntax, a native build, regular
+integration tests and
+the tracked-file index on Linux for each PR and main update. `npm run test:ci`
+retains real sandbox, SQLite, process and protocol tests; repeated whole-program
+proof mutations and native extension builds stay in `npm test` and the pre-push
+hook. Select `full` when manually running CI to run the complete suite on Linux
+and macOS. GitHub enables that manual entry after this workflow reaches the
+default branch. Ubuntu CI loads a user-namespace AppArmor rule for `/usr/bin/bwrap`
+and checks network namespace setup before integration tests. `just` provides
+aliases for these commands.
 
 After adding or deleting files, stage the changed paths, run `npm run index`, and
 stage `AGENTS.md`. The index contains only Git-tracked files. When `pre-commit` is

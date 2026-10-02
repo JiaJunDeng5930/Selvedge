@@ -4,6 +4,7 @@ import path from 'node:path';
 import { validPluginName } from './plugins.mjs';
 import { accountConfig, accountConnection, chatgptAccountFields } from './chatgpt-account.mjs';
 import { adaptivePolicy, evaluatorConnections } from './reasoning-config.mjs';
+import { connectionConfig } from './chatgpt-plugin.mjs';
 
 export const format = 'selvedge-bend-config-1';
 export const defaultConfig = {
@@ -29,9 +30,10 @@ function endpoint(value, label) {
 }
 
 export function validateConfig(value) {
-  object(value, 'configuration', ['format', 'host', 'port', 'max_fork', 'max_descendants', 'profiles', 'chatgpt', 'mcp', 'plugins', 'reasoning_evaluators']);
+  object(value, 'configuration', ['format', 'host', 'port', 'max_fork', 'max_descendants', 'profiles', 'chatgpt', 'mcp', 'plugins', 'reasoning_evaluators', 'chatgpt_plugin']);
   if (value.format !== format) throw new Error('The configuration is not in the current Bend format');
   const config = { ...defaultConfig, ...value };
+  config.chatgpt_plugin = connectionConfig(value.chatgpt_plugin);
   config.chatgpt = value.chatgpt === false ? false : accountConfig(value.chatgpt);
   config.reasoning_evaluators = evaluatorConnections(value.reasoning_evaluators);
   if (!['127.0.0.1', '::1'].includes(config.host)) throw new TypeError('The local server requires a loopback address');

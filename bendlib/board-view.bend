@@ -149,7 +149,7 @@ def create_form(+stage: B.Stage, +assisted: Bool, +now: U32, +world: M.World()) 
 
 def drop_sources(+id: Nat, +card: B.Card, +now: U32, +world: M.World()) -> J.Json:
   J.Object{[J.Field{"move", board_action("move", "移动任务", "move",
-      B.Move{id, B.revision(card), B.card_stage(B.draft(card)), None{}, now}, world)},
+      B.MoveCard{id, B.revision(card), B.card_stage(B.draft(card)), None{}, now}, world)},
     J.Field{"archive", board_action("archive", "归档", "archive", B.Archive{id, B.revision(card), True{}, now}, world)}]}
 
 def drop_target(stage: B.Stage, before: Maybe<&2, Nat>) -> J.Json:

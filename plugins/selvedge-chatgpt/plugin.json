@@ -1,0 +1,20 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "selvedge",
+  "version": "0.1.0",
+  "description": "Read, edit and run commands in explicitly shared local Selvedge projects.",
+  "keywords": ["coding", "local-files", "projects"],
+  "extensions": {
+    "com.openai": {
+      "interface": {
+        "displayName": "Selvedge",
+        "shortDescription": "Work in shared local projects",
+        "longDescription": "Use a private OpenAI Secure MCP Tunnel to work in the local projects granted to this connection. Operations are durable and run under the selected project's Workspace sandbox.",
+        "developerName": "Selvedge",
+        "category": "Productivity",
+        "capabilities": ["Read", "Write"],
+        "defaultPrompt": ["List my shared projects", "Inspect this project's files", "Run this project's tests"]
+      }
+    }
+  }
+}

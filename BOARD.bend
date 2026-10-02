@@ -58,7 +58,7 @@ type Patch is Data:
 type Command is Data:
   Create{draft: Draft, now: U32, assist: Bool, draft_profile: String}
   Update{id: Nat, revision: Nat, patch: Patch, now: U32}
-  Move{id: Nat, revision: Nat, stage: Stage, before: Maybe<&2, Nat>, now: U32}
+  MoveCard{id: Nat, revision: Nat, stage: Stage, before: Maybe<&2, Nat>, now: U32}
   Archive{id: Nat, revision: Nat, archived: Bool, now: U32}
   Delete{id: Nat, revision: Nat}
   Run{id: Nat, revision: Nat, now: U32}

@@ -1,6 +1,6 @@
 # ChatGPT account transport and model discovery
 
-Superseded by [ADR 0024](0024-official-chatgpt-sign-in.md). The following records
+Superseded by [ADR 0027](0027-official-chatgpt-sign-in.md). The following records
 the former Codex-derived contract and its provenance; it is not the current login
 or transport configuration.
 

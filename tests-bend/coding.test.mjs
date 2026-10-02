@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { longRunningCommand, readHostPid } from './process-identity.mjs';
 import assert from 'node:assert/strict';
 import { readFile, writeFile } from 'node:fs/promises';
 import { DatabaseSync } from 'node:sqlite';
@@ -93,7 +94,7 @@ test('interrupt kills a live Bash process without archiving or accepting its lat
   const directory = await home(t);
   const api_key_env = credentials(t);
   const model = await responsesServer(t, (_, index) => index === 0
-    ? call('long-command', 'bash', { command: 'printf "%s" "$$" > child.pid; exec sleep 60' })
+    ? call('long-command', 'bash', { command: longRunningCommand('child.pid') })
     : answer('Resumed without repeating the interrupted command.'));
   const config = validateConfig({ ...defaultConfig, profiles: { fixture: {
     provider: 'responses', model: 'fixture', endpoint: model.endpoint, api_key_env,
@@ -104,8 +105,7 @@ test('interrupt kills a live Bash process without archiving or accepting its lat
   let pid;
   const deadline = Date.now() + 3000;
   while (!pid && Date.now() < deadline) {
-    try { pid = Number(await readFile(path.join(directory, 'child.pid'), 'utf8')); }
-    catch (error) { if (error.code !== 'ENOENT') throw error; }
+    pid = await readHostPid(directory, 'child.pid');
     if (!pid) await delay(10);
   }
   assert.ok(Number.isSafeInteger(pid) && pid > 0);

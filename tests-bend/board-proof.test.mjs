@@ -19,7 +19,7 @@ test('board evidence rejects type-correct loss of ordering, effects, freshness a
   });
   const baseline = check('PROOF.bend');
   assert.equal(baseline.status, 0, baseline.stdout + baseline.stderr);
-  assert.equal(baseline.stdout.trim(), 'All terms check.');
+  assert.equal(baseline.stdout.trim(), 'ALL PROOFS CHECK\nUse --verdict for mathematical validity.');
   const mutations = [
     ['ignore the insertion position', 'bendlib/board.bend',
       'B.reposition(id, card, position, S.registry(world))', 'B.reposition(id, card, 0n, S.registry(world))', /change_meaning|reposition_meaning|relocate_meaning/],
@@ -47,7 +47,7 @@ test('board evidence rejects type-correct loss of ordering, effects, freshness a
       const runtime = check('UI.bend');
       assert.equal(runtime.error, undefined, `${label}: operational check must finish`);
       assert.equal(runtime.status, 0, runtime.stdout + runtime.stderr);
-      assert.equal(runtime.stdout.trim(), 'All terms check.');
+      assert.equal(runtime.stdout.trim(), 'ALL PROOFS CHECK\nUse --verdict for mathematical validity.');
       const proof = check('PROOF.bend');
       assert.equal(proof.error, undefined, `${label}: a timeout is not a rejected proof`);
       assert.notEqual(proof.status, 0, `${label}: assembled proof accepted the defect`);
