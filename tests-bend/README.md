@@ -46,7 +46,7 @@ when Chrome is unavailable instead of silently counting an unrun check as passed
 | Proof checker / evidence chain rejects false, missing, circular, unsafe or corrupted evidence | `pure-proof`, `proof-gate`, `whole-program-proof`, `architecture`, `stdlib`, `relations`, `association-map` tests |
 | Native compiler, framing and codec faults: Unicode, embedded controls, exact numeric lexemes, malformed completion envelopes | `native-boundaries.test.mjs`; these are targeted executable probes, not a lifecycle truth table |
 | SQLite journal transactions, persistence format, locking and corruption | `journal.test.mjs` |
-| Physical processes, cancellation, descendants, output files and UTF-8 capture | `process.test.mjs`, `coding.test.mjs`, `async-service.test.mjs` |
+| Physical processes, cancellation, descendants, output files and UTF-8 capture | `process.test.mjs`, `coding.test.mjs`, `async-service.test.mjs`; `process-identity.mjs` maps Linux PID-namespace receipts to host process IDs before liveness checks |
 | Workspace path observations, Seatbelt quoting, seccomp ABI encoding and real OS write boundaries | `sandbox.test.mjs`; native policy proofs do not prove OS isolation |
 | Canonical project/workspace observations → committed task plan → real subprocess cwd/permissions → journal reopen | `workspaces.test.mjs`; pure context properties are in `workspace-architecture.bend` / `proofs/workspaces.bend` |
 | Approval command/completion encoding, strict reviewer payloads, stable operation IDs and fresh execution-ticket serialization | `approvals-native.test.mjs`; native review properties are bound in `approval-architecture.bend` / `proofs/approvals.bend` |
