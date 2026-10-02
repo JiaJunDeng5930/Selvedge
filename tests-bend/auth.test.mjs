@@ -54,6 +54,7 @@ test('concurrent refreshes rotate one credential and cannot replace verified ide
 test('invalid signed identity and missing plan scope never replace credentials', async t => {
   for (const [name, options] of [
     ['audience', { audience: 'foreign-client' }],
+    ['authorized party', { claims: { azp: 'foreign-client' } }],
     ['nonce', { nonce: 'foreign-nonce' }],
     ['scope', { scope: 'openid profile email offline_access' }],
     ['signature', { privateKey: (await generateKeyPair('RS256')).privateKey }],
@@ -95,4 +96,64 @@ test('obsolete and malformed credentials fail without leaking material', async t
       assert.equal(error.message.includes('SECRET'), false); assert.match(error.message, /credential|authentication record/i); return true;
     });
   }
+});
+
+
+test('refresh without optional identity or scope retains verified account fields', async t => {
+  const upstream = await chatgptFixture(t);
+  const before = await upstream.save('fixture-account', 'original', { expires_at: new Date(0).toISOString() });
+  upstream.options.tokenOmissions = ['id_token', 'scope'];
+  const renewed = await resolveAuth(upstream.profile, upstream.directory);
+  for (const key of ['subject', 'account_id', 'client_id', 'id_token', 'scope', 'name', 'email']) assert.equal(renewed[key], before[key]);
+  assert.equal(renewed.refresh_token, 'fixture-refresh-renewed');
+  assert.ok(Date.parse(renewed.expires_at) > Date.now());
+  assert.equal(grants(upstream).length, 1);
+  assert.deepEqual(upstream.failures, []);
+});
+
+test('a refresh without the required rotating token leaves credentials unchanged', async t => {
+  const upstream = await chatgptFixture(t);
+  await upstream.save('fixture-account', 'original', { expires_at: new Date(0).toISOString() });
+  const before = await readFile(filename(upstream), 'utf8');
+  upstream.options.tokenOmissions = ['refresh_token'];
+  await assert.rejects(resolveAuth(upstream.profile, upstream.directory));
+  assert.equal(await readFile(filename(upstream), 'utf8'), before);
+  assert.equal(grants(upstream).length, 1);
+  assert.deepEqual(upstream.failures, []);
+});
+
+test('aborting login closes its callback listener without exchanging or replacing credentials', async t => {
+  const upstream = await chatgptFixture(t);
+  const before = await readFile(filename(upstream), 'utf8');
+  const controller = new AbortController();
+  let redirect;
+  await assert.rejects(login(upstream.profile, upstream.directory, { signal: controller.signal, onAuthorize: ({ redirect_uri }) => {
+    redirect = redirect_uri; controller.abort();
+  } }), error => error.name === 'AbortError');
+  assert.ok(redirect);
+  await assert.rejects(fetch(redirect));
+  assert.equal(grants(upstream).length, 0);
+  assert.equal(await readFile(filename(upstream), 'utf8'), before);
+  assert.deepEqual(upstream.failures, []);
+});
+
+test('aborting an in-flight grant cancels issuer HTTP and leaves credentials unchanged', { timeout: 5000 }, async t => {
+  const upstream = await chatgptFixture(t);
+  const before = await readFile(filename(upstream), 'utf8');
+  const controller = new AbortController();
+  let started, closed;
+  const requested = new Promise(resolve => { started = resolve; });
+  const disconnected = new Promise(resolve => { closed = resolve; });
+  upstream.options.holdToken = (_, response) => {
+    response.once('close', closed); started();
+  };
+  const attempt = login(upstream.profile, upstream.directory, { signal: controller.signal, onAuthorize: upstream.authorize });
+  const rejected = assert.rejects(attempt, error => error.name === 'AbortError');
+  await requested;
+  controller.abort();
+  await rejected;
+  await disconnected;
+  assert.equal(grants(upstream).length, 1);
+  assert.equal(await readFile(filename(upstream), 'utf8'), before);
+  assert.deepEqual(upstream.failures, []);
 });

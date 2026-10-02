@@ -25,23 +25,29 @@ export async function chatgptFixture(t, handler = (_, response) => jsonResponse(
       ...(value.claims ?? {}) }).setProtectedHeader({ alg: 'RS256', kid: 'fixture-key' })
       .setIssuer(address).setSubject(value.subject).setAudience(value.audience ?? value.client_id)
       .setIssuedAt().setExpirationTime('1h').sign(value.privateKey ?? privateKey);
-    return { access_token: `opaque-access-${value.marker}`, refresh_token: `fixture-refresh-${value.marker}`,
+    const response = { access_token: `opaque-access-${value.marker}`, refresh_token: `fixture-refresh-${value.marker}`,
       token_type: 'Bearer', id_token, scope: value.scope, expires_in: value.expires_in,
       ...(value.earliest_refresh_at === null ? {} : { earliest_refresh_at: value.earliest_refresh_at }) };
+    for (const key of value.tokenOmissions ?? []) delete response[key];
+    return response;
   };
   const server = http.createServer((request, response) => {
     void (async () => {
       const chunks = [];
       for await (const chunk of request) chunks.push(chunk);
       const raw = Buffer.concat(chunks).toString('utf8');
-      const body = raw ? request.headers['content-type'] === 'application/x-www-form-urlencoded'
+      const mediaType = request.headers['content-type']?.split(';')[0].trim().toLowerCase();
+      const body = raw ? mediaType === 'application/x-www-form-urlencoded'
         ? Object.fromEntries(new URLSearchParams(raw)) : JSON.parse(raw) : undefined;
       const entry = { method: request.method, url: request.url, headers: request.headers, body };
       const url = new URL(request.url, address);
       if (url.pathname === '/.well-known/openid-configuration') {
         oauthRequests.push(entry);
         return jsonResponse(response, { issuer: address, authorization_endpoint: `${address}/authorize`,
-          token_endpoint: `${address}/oauth/token`, jwks_uri: `${address}/jwks` });
+          token_endpoint: `${address}/oauth/token`, jwks_uri: `${address}/jwks`,
+          response_types_supported: ['code'], subject_types_supported: ['public'],
+          id_token_signing_alg_values_supported: ['RS256'], token_endpoint_auth_methods_supported: ['none'],
+          code_challenge_methods_supported: ['S256'], scopes_supported: scope.split(' ') });
       }
       if (url.pathname === '/jwks') { oauthRequests.push(entry); return jsonResponse(response, { keys: [jwk] }); }
       if (url.pathname === '/authorize') {
@@ -70,7 +76,7 @@ export async function chatgptFixture(t, handler = (_, response) => jsonResponse(
       if (url.pathname === '/oauth/token') {
         oauthRequests.push(entry);
         assert.equal(request.method, 'POST');
-        assert.equal(request.headers['content-type'], 'application/x-www-form-urlencoded');
+        assert.equal(mediaType, 'application/x-www-form-urlencoded');
         assert.equal(body.client_id, options.client_id);
         assert.equal(body.resource, resource);
         let nonce;
@@ -86,6 +92,7 @@ export async function chatgptFixture(t, handler = (_, response) => jsonResponse(
           assert.equal(body.scope, undefined);
           options.marker = 'renewed';
         }
+        if (options.holdToken) return options.holdToken(entry, response);
         if (options.tokenStatus) return jsonResponse(response, { error: 'fixture rejection' }, options.tokenStatus);
         return jsonResponse(response, await tokens({ nonce }));
       }

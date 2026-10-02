@@ -88,6 +88,11 @@ then be rejected by `approval_boundary` or `LAWS.execution_semantics`.
 The ChatGPT fixtures enforce the public Sign in with ChatGPT contract and reject
 the superseded Codex transport. They exercise invalid OAuth/OIDC inputs and
 old-format credential rejection without exchanging real account credentials.
+They cross the published `openid-client` boundary with independent signed-token
+fixtures, including signature validation enabled through
+`enableNonRepudiationChecks`; rejected grants must preserve stored credentials
+and keep token material out of diagnostics. Library implementation tests do not
+replace these host integration assertions.
 Native checkpoint checks establish admission and history preservation; neither
 fixtures nor Bend proofs establish remote account eligibility, plan limits, or
 summary quality. Live account authorization has not been validated by this suite.

@@ -21,6 +21,9 @@
   },
   "dependencies": {
     "gpt-tokenizer": "4.0.0",
-    "jose": "6.1.0"
+    "openid-client": "6.8.8"
+  },
+  "devDependencies": {
+    "jose": "6.2.12"
   }
 }

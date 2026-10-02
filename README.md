@@ -310,7 +310,8 @@ Configuration is read at server startup.
 
 To use an eligible ChatGPT Plus or Pro plan, sign in with the official
 [Sign in with ChatGPT](https://developers.openai.com/siwc/token-sharing-open-source)
-flow. No model configuration or API key is required:
+flow. The host uses the published `openid-client` 6.8.8 protocol library for
+OAuth/OIDC; it is not an OpenAI SDK. No model configuration or API key is required:
 
 ```bash
 node host/cli.mjs login

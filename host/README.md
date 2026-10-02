@@ -29,13 +29,23 @@ commit. Credential parsing errors must not quote file contents into task history
 Use `npm test` to run these checks; they require no real credentials or model calls.
 
 `chatgpt-contract.mjs` defines the official Sign in with ChatGPT public transport
-and registration identity. `auth.mjs` discovers the issuer's OIDC endpoints,
-validates signed ID tokens with JWKS and binds credentials to the issued client ID
-and verified subject. A stable host record and a per-credential registration record
-retain dynamic registration across login attempts and restarts. Local atomic
-writes and shared locks cover registration and token rotation. The previous
-Codex-derived credential format is rejected; users must sign in again. See
+and registration identity. `auth.mjs` uses published MIT `openid-client` 6.8.8 for
+issuer discovery, authorization URL/PKCE construction, form grant exchanges and
+OIDC claim validation. Every grant configuration explicitly enables
+`enableNonRepudiationChecks` so ID-token validation includes JWKS signature checks.
+The host retains the bounded loopback callback, endpoint policy, dynamic issued
+client registration, private storage and locking, ChatGPT plan-grant admission,
+and verified subject/client binding. A stable host record and a per-credential
+registration record retain registration across attempts and restarts; atomic
+writes and shared locks cover token rotation. The previous Codex-derived
+credential format is rejected; users must sign in again. See
 [ADR 0024](../docs/adr/0024-official-chatgpt-sign-in.md).
+
+The browser login protocol is a host backend responsibility. Bend receives the
+ordinary Configure input when discovered profiles change and emits committed model
+effects consumed by the host. This OAuth client replacement changes neither that
+native interface nor the task/account binding contract.
+
 `chatgpt-models.mjs` reads only this service's credential store, validates the
 account catalog and materializes account-bound profiles. Login works without a
 model profile. Its authenticated catalog refresh commits the ordinary Configure
