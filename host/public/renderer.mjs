@@ -67,7 +67,7 @@ export class Renderer {
     record.bound = true;
     const node = record.node;
     const dispatch = (kind, native) => {
-      for (const event of record.bindings) if (event.$ === kind) this.callbacks.event(event, native, node);
+      for (const event of record.bindings) if (event.$ === kind) this.callbacks.event(event, native, node, this.composing.has(node));
     };
     node.addEventListener('compositionstart', () => this.composing.add(node));
     node.addEventListener('compositionend', event => { this.composing.delete(node); dispatch('EditText', event); });
@@ -75,6 +75,7 @@ export class Renderer {
       if (record.bindings.some(binding => binding.$ === 'Activate')) event.preventDefault();
       dispatch('Activate', event); dispatch('PlaceCard', event);
     });
+    node.addEventListener('keydown', event => dispatch('ConfirmText', event));
     node.addEventListener('input', event => { if (!event.isComposing) dispatch('EditText', event); });
     node.addEventListener('change', event => { dispatch('EditToggle', event); dispatch('SelectFiles', event); });
     node.addEventListener('dragstart', event => dispatch('DragCard', event));

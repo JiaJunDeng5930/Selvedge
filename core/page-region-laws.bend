@@ -119,9 +119,9 @@ def board_title(+filter: B.Filter, +columns: +List<View.BoardColumn>, +create: V
     Some{[Interface.region(parent, "heading", "Board", Interface.Heading{}, Nil{})]} : Maybe<&2, +List<Interface.Node>>}:
   {==}
 
-def creation_introduction_title(+heading: String, +summary: String, +context: Maybe<&2, Context.Preview>, +project: Maybe<&2, View.ProjectChoice>, +parent: String, +state: Core.State) ->
-  {find_region(Interface.creation_introduction_nodes(View.CreationIntroduction{heading, summary, context, project}, parent, state), Composition.CreationIntroduction{}) ==
-    Some{[Interface.Node{parent ++ "/creation/introduction/creation/title", "creation/title", heading, Interface.Heading{}, Interface.ReadOnly{heading}, Nil{}}]} : Maybe<&2, +List<Interface.Node>>}:
+def creation_introduction_title(+heading: String, +summary: String, +context: Maybe<&2, Context.Preview>, +project: Maybe<&2, View.ProjectChoice>, +choose: View.ControlDeclaration, +parent: String, +state: Core.State) ->
+  {find_region(Interface.creation_introduction_nodes(View.CreationIntroduction{heading, summary, context, project, choose}, parent, state), Composition.CreationIntroduction{}) ==
+    Some{[Interface.Node{parent ++ "/creation/introduction/creation/title", "creation/title", heading, Interface.Heading{}, Interface.ReadOnly{heading}, Nil{}}, Interface.creation_project_node(View.CreationIntroduction{heading, summary, context, project, choose}, parent, state)]} : Maybe<&2, +List<Interface.Node>>}:
   {==}
 
 def task_title_text(value: View.TaskScene) -> String:
@@ -197,7 +197,9 @@ type LayerTitleRequirements is Type:
     board_filters: @filter:B.Filter -> {View.layer_title(View.BoardFilters{filter}) == "筛选任务" : String},
     unavailable: {View.layer_title(View.ObjectEditor{None{}}) == "Editor unavailable" : String},
     editor: @identity:U.Editor -> @revision:Nat -> @groups:+List<View.InputGroup> -> @sections:+List<Forms.Section> -> @submit:View.ControlDeclaration -> @feedback:U.Feedback -> @pending:Bool -> {View.layer_title(View.ObjectEditor{Some{View.EditorScene{identity, revision, groups, sections, submit, feedback, pending}}}) == View.editor_title(identity) : String},
-    execution: @editor:U.Editor -> @fields:+List<View.InputGroup> -> {View.layer_title(View.ExecutionSettings{editor, fields}) == "Workspace and permissions" : String},
+    workspace: @editor:U.Editor -> @fields:+List<View.InputGroup> -> {View.layer_title(View.WorkspaceSettings{editor, fields}) == "Working directories" : String},
+    permissions: @editor:U.Editor -> @fields:+List<View.InputGroup> -> {View.layer_title(View.PermissionSettings{editor, fields}) == "Permissions" : String},
+    committed: @context:Maybe<&2, Context.EffectiveContext> -> {View.layer_title(View.CommittedContext{context}) == "Execution context" : String},
     models: @editor:U.Editor -> @query:String -> @fields:+List<View.InputGroup> -> {View.layer_title(View.ModelSelection{editor, query, fields}) == "Choose model" : String},
     delivery: @editor:U.Editor -> @fields:+List<View.InputGroup> -> {View.layer_title(View.DeliverySelection{editor, fields}) == "Delivery options" : String},
     details: @task:Maybe<&2, View.TaskScene> -> {View.layer_title(View.ExecutionDetails{task}) == "Task details" : String},
@@ -223,6 +225,8 @@ def layer_title_evidence() -> LayerTitleRequirements:
     {==},
     identity => revision => groups => sections => submit => feedback => pending => {==},
     editor => fields => {==},
+    editor => fields => {==},
+    context => {==},
     editor => query => fields => {==},
     editor => fields => {==},
     task => {==},
@@ -252,9 +256,9 @@ type Requirements is Type:
       @+settings:View.ControlDeclaration -> @+filters:View.ControlDeclaration -> @+archive:View.ControlDeclaration -> @+parent:String -> @+state:Core.State ->
       {find_region(Interface.page_contents(View.BoardPage{filter, columns, create, working, settings, filters, archive}, parent, state), Composition.BoardTitle{}) ==
         Some{[Interface.region(parent, "heading", "Board", Interface.Heading{}, Nil{})]} : Maybe<&2, +List<Interface.Node>>},
-    creation_title: @+heading:String -> @+summary:String -> @+context:Maybe<&2, Context.Preview> -> @+project:Maybe<&2, View.ProjectChoice> -> @+parent:String -> @+state:Core.State ->
-      {find_region(Interface.creation_introduction_nodes(View.CreationIntroduction{heading, summary, context, project}, parent, state), Composition.CreationIntroduction{}) ==
-        Some{[Interface.Node{parent ++ "/creation/introduction/creation/title", "creation/title", heading, Interface.Heading{}, Interface.ReadOnly{heading}, Nil{}}]} : Maybe<&2, +List<Interface.Node>>},
+    creation_title: @+heading:String -> @+summary:String -> @+context:Maybe<&2, Context.Preview> -> @+project:Maybe<&2, View.ProjectChoice> -> @+choose:View.ControlDeclaration -> @+parent:String -> @+state:Core.State ->
+      {find_region(Interface.creation_introduction_nodes(View.CreationIntroduction{heading, summary, context, project, choose}, parent, state), Composition.CreationIntroduction{}) ==
+        Some{[Interface.Node{parent ++ "/creation/introduction/creation/title", "creation/title", heading, Interface.Heading{}, Interface.ReadOnly{heading}, Nil{}}, Interface.creation_project_node(View.CreationIntroduction{heading, summary, context, project, choose}, parent, state)]} : Maybe<&2, +List<Interface.Node>>},
     task_title: @+value:View.TaskScene -> @+parent:String -> @+state:Core.State ->
       {find_region(Interface.page_contents(View.TaskPage{value}, parent, state), Composition.ConversationTitle{}) ==
         Some{[Interface.region(task_title_key(value, parent), "heading", task_title_text(value), Interface.Heading{}, Nil{})]} : Maybe<&2, +List<Interface.Node>>},
@@ -280,7 +284,7 @@ def evidence() -> Requirements:
     projects => create => parent => state => projects_title(projects, create, parent, state),
     agents => create => parent => state => agents_title(agents, create, parent, state),
     filter => columns => create => working => settings => filters => archive => parent => state => board_title(filter, columns, create, working, settings, filters, archive, parent, state),
-    heading => summary => context => project => parent => state => creation_introduction_title(heading, summary, context, project, parent, state),
+    heading => summary => context => project => choose => parent => state => creation_introduction_title(heading, summary, context, project, choose, parent, state),
     value => parent => state => task_title(value, parent, state),
     value => parent => state => project_title(value, parent, state),
     region => position => gesture => passive_region(region, position, gesture),

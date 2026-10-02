@@ -52,7 +52,7 @@ type Requirements is Type:
       {introduction_project(View.creation_introduction_fields(context, world)) == View.creation_selected_project(context, world) : Maybe<&2, View.ProjectChoice>},
     creation_context: @+identity:U.Editor -> @revision:Nat -> @message:U.Text -> @+footer:+List<View.ControlDeclaration> ->
       @+context:Maybe<&2, Context.Preview> -> @submit:View.ControlDeclaration -> @feedback:U.Feedback -> @pending:Bool -> @+world:M.World() ->
-      {introduction_context(View.creation_introduction(Some{View.ComposerScene{identity, revision, message, footer, context, submit, feedback, pending}}, world)) == context : Maybe<&2, Context.Preview>},
+      {introduction_context(View.creation_introduction(Some{View.ComposerScene{identity, revision, message, footer, View.preview_observation(context), submit, feedback, pending}}, world)) == context : Maybe<&2, Context.Preview>},
     creation_page: @+input:Maybe<&2, View.ComposerScene> -> @+parent:String -> @+world:M.World() ->
       @+session:Experience.Session -> @+services:Services.State ->
       {Interface.page_contents(View.StartPage{input}, parent, Core.State{Experience.Application{world, session}, services}) ==
@@ -61,10 +61,11 @@ type Requirements is Type:
           Interface.page_composer(input, parent, parent, Core.State{Experience.Application{world, session}, services}, Composition.BodyPosition{})) : +List<Interface.Node>},
     context_admission: @+declaration:View.ControlDeclaration -> @+rest:+List<View.ControlDeclaration> -> @+parent:String -> @+state:Core.State ->
       {Interface.controls(declaration <> rest, parent, state) == Interface.action(parent, Core.control(state, declaration)) <> Interface.controls(rest, parent, state) : +List<Interface.Node>},
-    composer_context: @+message:U.Text -> @+profile:String -> @reasoning:String -> @context:Context.Configuration -> @+scene:View.EditorScene -> @+world:M.World() ->
+    composer_context: @+message:U.Text -> @+profile:String -> @reasoning:String -> @+context:Context.Configuration -> @+scene:View.EditorScene -> @+world:M.World() ->
       {composer_footer(View.composer_scene(U.NewTask{message, profile, reasoning, context}, scene, world)) ==
         [View.control("composer/model", View.profile_label(D.find_profile(Board.profiles(world), profile), profile), U.OpenPanel{U.ModelPicker{U.NewTaskEditor{}}, "composer/model"}),
-         View.control("composer/context", "Workspace and permissions", U.OpenPanel{U.TaskConfiguration{}, "composer/context"})] : +List<View.ControlDeclaration>},
+         View.context_control("composer/workspace/new-task", View.observation_workspace(Context.DraftExecution{Context.preview(context, world)}), U.WorkspaceConfiguration{U.NewTaskEditor{}}),
+         View.context_control("composer/permissions/new-task", View.observation_permissions(Context.DraftExecution{Context.preview(context, world)}, Board.profiles(world)), U.PermissionsConfiguration{U.NewTaskEditor{}})] : +List<View.ControlDeclaration>},
     model_label: @fallback:String -> {View.profile_label(None{}, fallback) == "Choose model" : String}
   }
 
@@ -216,18 +217,20 @@ def creation_structure_order(composer: Bool) ->
   {==}
 
 def introduction_context(value: View.CreationIntroduction) -> Maybe<&2, Context.Preview>:
-  View.CreationIntroduction{heading, summary, context, project} = value
+  View.CreationIntroduction{heading, summary, context, project, choose} = value
   context
 
 def introduction_project(value: View.CreationIntroduction) -> Maybe<&2, View.ProjectChoice>:
-  View.CreationIntroduction{heading, summary, context, project} = value
+  View.CreationIntroduction{heading, summary, context, project, choose} = value
   project
 
 def current_composer_context(+identity: U.Editor, revision: Nat, message: U.Text,
   +footer: +List<View.ControlDeclaration>, +context: Maybe<&2, Context.Preview>, submit: View.ControlDeclaration,
   feedback: U.Feedback, pending: Bool, +world: M.World()) ->
-  {introduction_context(View.creation_introduction(Some{View.ComposerScene{identity, revision, message, footer, context, submit, feedback, pending}}, world)) == context : Maybe<&2, Context.Preview>}:
-  {==}
+  {introduction_context(View.creation_introduction(Some{View.ComposerScene{identity, revision, message, footer, View.preview_observation(context), submit, feedback, pending}}, world)) == context : Maybe<&2, Context.Preview>}:
+  match context:
+    case None{}: {==}
+    case Some{preview}: {==}
 
 def current_composer_project(+context: Maybe<&2, Context.Preview>, +world: M.World()) ->
   {introduction_project(View.creation_introduction_fields(context, world)) == View.creation_selected_project(context, world) : Maybe<&2, View.ProjectChoice>}:
@@ -240,7 +243,7 @@ def selected_project_registry(origin: Context.Origin, +id: Nat, workspace: Conte
   {==}
 
 def selected_project_heading(+id: Nat, +name: String, +workspace: D.Workspace) ->
-  {View.creation_heading(Some{View.ProjectChoice{id, name, workspace}}) == "Work on " ++ name : String}:
+  {View.creation_heading(Some{View.ProjectChoice{id, name, workspace}}) == "Work on" : String}:
   {==}
 
 def creation_page_keeps_composer(+input: Maybe<&2, View.ComposerScene>, +parent: String,
@@ -261,11 +264,12 @@ def composer_footer(view: Maybe<&2, View.ComposerScene>) -> +List<View.ControlDe
     case None{}: Nil{}
     case Some{View.ComposerScene{identity, revision, message, footer, context, submit, feedback, pending}}: footer
 
-def composer_has_context(+message: U.Text, +profile: String, reasoning: String, context: Context.Configuration,
+def composer_has_context(+message: U.Text, +profile: String, reasoning: String, +context: Context.Configuration,
   scene: View.EditorScene, +world: M.World()) ->
   {composer_footer(View.composer_scene(U.NewTask{message, profile, reasoning, context}, scene, world)) ==
     [View.control("composer/model", View.profile_label(D.find_profile(Board.profiles(world), profile), profile), U.OpenPanel{U.ModelPicker{U.NewTaskEditor{}}, "composer/model"}),
-     View.control("composer/context", "Workspace and permissions", U.OpenPanel{U.TaskConfiguration{}, "composer/context"})] : +List<View.ControlDeclaration>}:
+     View.context_control("composer/workspace/new-task", View.observation_workspace(Context.DraftExecution{Context.preview(context, world)}), U.WorkspaceConfiguration{U.NewTaskEditor{}}),
+         View.context_control("composer/permissions/new-task", View.observation_permissions(Context.DraftExecution{Context.preview(context, world)}, Board.profiles(world)), U.PermissionsConfiguration{U.NewTaskEditor{}})] : +List<View.ControlDeclaration>}:
   View.EditorScene{identity, revision, groups, sections, submit, feedback, pending} = scene
   {==}
 

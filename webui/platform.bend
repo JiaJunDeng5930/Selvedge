@@ -170,7 +170,7 @@ def clear_selection(clear: Bool, editor: Editor.Editor) -> Editor.Editor:
 
 def synchronize_editor(found: Maybe<&2, U.Draft>, editor: Editor.Editor) -> Editor.Editor:
   match found:
-    case Some{U.Draft{revision, body, U.Accepted{submitted, result}}}: clear_selection(empty_message(body), editor)
+    case Some{U.Draft{revision, body, U.Accepted{submitted, result}, directory_entry}}: clear_selection(empty_message(body), editor)
     case _: editor
 
 def synchronize_drafts(+drafts: +List<U.Draft>, editors: +List<Editor.Editor>) -> +List<Editor.Editor>:
@@ -183,12 +183,20 @@ def synchronize_editors(editors: +List<Editor.Editor>, application: E.Applicatio
   E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks}} = application
   synchronize_drafts(drafts, editors)
 
+def found_focus(found: Maybe<&2, UI.Node>) -> Bool:
+  match found:
+    case None{}: False{}
+    case Some{UI.Node{key, semantic, label, role, meaning, children}}: UI.focusable(meaning)
+
+def active_focus(core: Core.State, capacity: View.Capacity, identity: String) -> Bool:
+  found_focus(UI.find_node(UI.active_nodes(UI.observe(capacity, core)), identity))
 def after_core_scoped(decision: Core.Decision, platform: Platform, +current_scope: Focus.Scope) -> Decision:
-  Core.Decision{Core.State{+application, services}, reply, runtime, +interaction, service, durable} = decision
-  Platform{+readers, editors, focused, +ticket, reduced, capacity, +scope} = platform
+  Core.Decision{Core.State{+application, +services}, reply, runtime, +interaction, service, durable} = decision
+  Platform{+readers, editors, +focused, +ticket, reduced, +capacity, +scope} = platform
+  +transition = Focus.transition(scope, current_scope, active_focus(Core.State{application, services}, capacity, focused))
   Decision{Core.Decision{Core.State{application, services}, reply, runtime, interaction, service, durable},
-    Platform{readers, synchronize_editors(editors, application), focused, focus_revision(Focus.changed(scope, current_scope), interaction, ticket), reduced, capacity, current_scope},
-    List.append(&2, Effect, scope_effects(Focus.changed(scope, current_scope), scope, current_scope, interaction, focus_revision(Focus.changed(scope, current_scope), interaction, ticket)), layout_for(application, readers))}
+    Platform{readers, synchronize_editors(editors, application), focused, focus_revision(transition, interaction, ticket), reduced, capacity, current_scope},
+    List.append(&2, Effect, scope_effects(transition, scope, current_scope, interaction, focus_revision(transition, interaction, ticket)), layout_for(application, readers))}
 
 def after_core(decision: Core.Decision, platform: Platform) -> Decision:
   Core.Decision{+state, reply, runtime, interaction, services, durable} = decision
@@ -220,13 +228,6 @@ def observed_focus(platform: Platform, inside: Bool, identity: String, core: Cor
   match inside:
     case True{}: Decision{unchanged(core), Platform{readers, editors, identity, (ticket + 1n : Nat), reduced, capacity, scope}, Nil{}}
     case False{}: Decision{unchanged(core), Platform{readers, editors, focused, (ticket + 1n : Nat), reduced, capacity, scope}, [Focus{(ticket + 1n : Nat), Focus.initial(scope)}]}
-def found_focus(found: Maybe<&2, UI.Node>) -> Bool:
-  match found:
-    case None{}: False{}
-    case Some{node}: True{}
-
-def active_focus(core: Core.State, capacity: View.Capacity, identity: String) -> Bool:
-  found_focus(UI.find_node(UI.active_nodes(UI.observe(capacity, core)), identity))
 def dispatch(state: State, +input: Input) -> Decision:
   State{Core.State{+application, +services}, platform} = state
   Platform{readers, +editors, +focused, +ticket, reduced, +capacity, +scope} = platform
@@ -259,6 +260,6 @@ def retained_editors(decision: Decision) -> +List<Editor.Editor>:
   editors
 
 
-def editing_retains_selection(revision: Nat, body: U.Body, editor: Editor.Editor) ->
-  {synchronize_editor(Some{U.Draft{revision, body, U.Editing{}}}, editor) == editor : Editor.Editor}:
+def editing_retains_selection(revision: Nat, body: U.Body, directory_entry: String, editor: Editor.Editor) ->
+  {synchronize_editor(Some{U.Draft{revision, body, U.Editing{}, directory_entry}}, editor) == editor : Editor.Editor}:
   {==}

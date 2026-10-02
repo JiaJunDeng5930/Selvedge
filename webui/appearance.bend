@@ -15,6 +15,9 @@ def paint(name: String) -> Design.Paint:
 def text_style(font: Design.Font, size: Nat, line_height: Nat, weight: Nat) -> Design.TextStyle:
   Design.TextStyle{font, size, line_height, weight}
 
+def creation_heading_text() -> Design.TextStyle:
+  text_style(Design.InterfaceFont{}, 28n, 36n, 500n)
+
 def chrome(foreground: Design.Paint, background: Design.Paint, border: Design.Paint,
   border_width: Nat, radius: Nat, shadow: Bool) -> Design.Chrome:
   Design.Chrome{foreground, background, border, border_width, radius, shadow}
@@ -223,6 +226,7 @@ def style(role: UI.Role, meaning: UI.Meaning) -> Design.Style:
     case UI.Button{}: ordinary_button()
     case UI.Field{}: field_style(meaning)
     case UI.Content{}: base_style()
+    case UI.Alert{}: base_style()
 
 def navigation_row(style_value: Design.Style) -> Design.Style:
   Design.Style{Design.TextStyle{font, size, line_height, weight}, style_chrome, alignment, flow, overflow, padding_inline,
@@ -270,6 +274,7 @@ def action_style(value: Design.Style, face: Controls.Face, geometry: Controls.Ge
 def selection_style(value: Design.Style, behavior: Controls.Behavior) -> Design.Style:
   match behavior:
     case Controls.Radio{True{}}: selected_button()
+    case Controls.ChoiceRadio{True{}}: selected_button()
     case Controls.Toggle{True{}}: selected_button()
     case _: value
 
@@ -290,7 +295,7 @@ def semantic_style(semantic: String, fallback: Design.Style) -> Design.Style:
       fields(ordinary_text(), base_chrome(), Design.Stretch{}, Design.ColumnFlow{},
         Design.ContentFlow{}, 0n, 0n, 12n, 0n, 100n, passive())
     case "creation/title":
-      fields(text_style(Design.InterfaceFont{}, 28n, 36n, 500n), base_chrome(),
+      fields(creation_heading_text(), base_chrome(),
         Design.Centered{}, Design.BlockFlow{}, Design.ContentFlow{}, 0n, 0n, 0n,
         0n, 100n, passive())
     case "creation/context":

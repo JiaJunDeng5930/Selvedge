@@ -129,6 +129,7 @@ def confirmation_identity_refinement(+layers: +List<E.Layer>, +command: M.Comman
     case Con{E.Layer{panel, current_trigger, target, query}, rest}:
       match panel:
         case U.Confirm{current, title, destination}: {==}
+        case U.ProjectPicker{}: {==}
         case U.ObjectActions{subject}: {==}
         case U.ArchivedCards{}: {==}
         case U.BoardSettings{}: {==}
@@ -136,7 +137,9 @@ def confirmation_identity_refinement(+layers: +List<E.Layer>, +command: M.Comman
         case U.CardDetails{card}: {==}
         case U.EditObject{editor}: {==}
         case U.TaskDetails{task}: {==}
-        case U.TaskConfiguration{}: {==}
+        case U.WorkspaceConfiguration{editor}: {==}
+        case U.PermissionsConfiguration{editor}: {==}
+        case U.TaskContext{task}: {==}
         case U.ModelPicker{editor}: {==}
         case U.DeliveryPicker{task}: {==}
 

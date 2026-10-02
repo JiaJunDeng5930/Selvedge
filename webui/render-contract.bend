@@ -67,6 +67,7 @@ def region_geometry_valid(role: UI.Role, found: Maybe<&2, Rendered.Element>, vie
     case UI.SelectedButton{}: True{}
     case UI.Field{}: True{}
     case UI.Content{}: True{}
+    case UI.Alert{}: True{}
     case UI.UserMessage{}: True{}
     case UI.AssistantMessage{}: True{}
     case UI.ComposerActions{}: True{}

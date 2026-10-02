@@ -9,6 +9,7 @@ type Property is Data:
 type Event is Data:
   Activate{key: String}
   EditText{key: String}
+  ConfirmText{key: String}
   EditToggle{key: String}
   SelectFiles{key: String}
   DragCard{key: String}

@@ -531,52 +531,60 @@ def selected_control(found: Maybe<&2, View.ControlDeclaration>, route: U.Route) 
     case None{}: False{}
     case Some{control}: Interface.navigation_action_selected(route, declaration_input(control))
 
-def board_navigation_selected(+route: U.Route, +world: M.World()) -> Bool:
-  selected_control(navigation_board_control(View.navigation(True{}, route, world)), route)
+def board_navigation_selected(+route: U.Route, +world: M.World(), +session: E.Session) -> Bool:
+  selected_control(navigation_board_control(View.navigation(True{}, route, world, session)), route)
 
-def projects_navigation_selected(+route: U.Route, +world: M.World()) -> Bool:
-  selected_control(navigation_projects_control(View.navigation(True{}, route, world)), route)
+def projects_navigation_selected(+route: U.Route, +world: M.World(), +session: E.Session) -> Bool:
+  selected_control(navigation_projects_control(View.navigation(True{}, route, world, session)), route)
 
-def agents_navigation_selected(+route: U.Route, +world: M.World()) -> Bool:
-  selected_control(navigation_agents_control(View.navigation(True{}, route, world)), route)
+def agents_navigation_selected(+route: U.Route, +world: M.World(), +session: E.Session) -> Bool:
+  selected_control(navigation_agents_control(View.navigation(True{}, route, world, session)), route)
 
-def create_navigation_selected(+route: U.Route, +world: M.World()) -> Bool:
-  Interface.navigation_action_selected(route, declaration_input(navigation_create_control(View.navigation(True{}, route, world))))
+def create_navigation_selected(+route: U.Route, +world: M.World(), +session: E.Session) -> Bool:
+  Interface.navigation_action_selected(route, declaration_input(navigation_create_control(View.navigation(True{}, route, world, session))))
 
-def board_route_selects_board_nav(+world: M.World()) ->
-  {board_navigation_selected(U.TaskBoard{}, world) == True{} : Bool}:
+def board_route_selects_board_nav(+world: M.World(), +session: E.Session) ->
+  {board_navigation_selected(U.TaskBoard{}, world, session) == True{} : Bool}:
+  E.Session{route, drafts, readers, layers, focus, navigation, filter, now, next, pending, previews, code} = session
   {==}
 
-def projects_route_selects_projects_nav(+world: M.World()) ->
-  {projects_navigation_selected(U.ProjectCollection{}, world) == True{} : Bool}:
+def projects_route_selects_projects_nav(+world: M.World(), +session: E.Session) ->
+  {projects_navigation_selected(U.ProjectCollection{}, world, session) == True{} : Bool}:
+  E.Session{route, drafts, readers, layers, focus, navigation, filter, now, next, pending, previews, code} = session
   {==}
 
-def agents_route_selects_agents_nav(+world: M.World()) ->
-  {agents_navigation_selected(U.AgentCollection{}, world) == True{} : Bool}:
+def agents_route_selects_agents_nav(+world: M.World(), +session: E.Session) ->
+  {agents_navigation_selected(U.AgentCollection{}, world, session) == True{} : Bool}:
+  E.Session{route, drafts, readers, layers, focus, navigation, filter, now, next, pending, previews, code} = session
   {==}
 
-def start_route_selects_create_nav(+world: M.World()) ->
-  {create_navigation_selected(U.Start{}, world) == True{} : Bool}:
+def start_route_selects_create_nav(+world: M.World(), +session: E.Session) ->
+  {create_navigation_selected(U.Start{}, world, session) == True{} : Bool}:
+  E.Session{route, drafts, readers, layers, focus, navigation, filter, now, next, pending, previews, code} = session
   {==}
 
-def board_route_rejects_other_nav(+world: M.World()) ->
-  {(projects_navigation_selected(U.TaskBoard{}, world), agents_navigation_selected(U.TaskBoard{}, world)) ==
+def board_route_rejects_other_nav(+world: M.World(), +session: E.Session) ->
+  {(projects_navigation_selected(U.TaskBoard{}, world, session), agents_navigation_selected(U.TaskBoard{}, world, session)) ==
     (False{}, False{}) : Bool & Bool}:
+  E.Session{route, drafts, readers, layers, focus, navigation, filter, now, next, pending, previews, code} = session
   {==}
 
-def projects_route_rejects_other_nav(+world: M.World()) ->
-  {(board_navigation_selected(U.ProjectCollection{}, world), agents_navigation_selected(U.ProjectCollection{}, world)) ==
+def projects_route_rejects_other_nav(+world: M.World(), +session: E.Session) ->
+  {(board_navigation_selected(U.ProjectCollection{}, world, session), agents_navigation_selected(U.ProjectCollection{}, world, session)) ==
     (False{}, False{}) : Bool & Bool}:
+  E.Session{route, drafts, readers, layers, focus, navigation, filter, now, next, pending, previews, code} = session
   {==}
 
-def agents_route_rejects_other_nav(+world: M.World()) ->
-  {(board_navigation_selected(U.AgentCollection{}, world), projects_navigation_selected(U.AgentCollection{}, world)) ==
+def agents_route_rejects_other_nav(+world: M.World(), +session: E.Session) ->
+  {(board_navigation_selected(U.AgentCollection{}, world, session), projects_navigation_selected(U.AgentCollection{}, world, session)) ==
     (False{}, False{}) : Bool & Bool}:
+  E.Session{route, drafts, readers, layers, focus, navigation, filter, now, next, pending, previews, code} = session
   {==}
 
-def start_route_rejects_destination_nav(+world: M.World()) ->
-  {(board_navigation_selected(U.Start{}, world), projects_navigation_selected(U.Start{}, world), agents_navigation_selected(U.Start{}, world)) ==
+def start_route_rejects_destination_nav(+world: M.World(), +session: E.Session) ->
+  {(board_navigation_selected(U.Start{}, world, session), projects_navigation_selected(U.Start{}, world, session), agents_navigation_selected(U.Start{}, world, session)) ==
     (False{}, (False{}, False{})) : Bool & (Bool & Bool)}:
+  E.Session{route, drafts, readers, layers, focus, navigation, filter, now, next, pending, previews, code} = session
   {==}
 
 def role_of_node(node: Interface.Node) -> Interface.Role:
@@ -679,18 +687,18 @@ type Requirements is Type:
       {first_lane_create_stage(View.columns([stage], Nil{}, route, now, world)) == Some{stage} : Maybe<&2, B.Stage>},
     lane_create_prominence: @stage:B.Stage -> @+route:U.Route -> @+now:U32 -> @+world:M.World() ->
       {first_lane_create_prominence(View.columns([stage], Nil{}, route, now, world)) == Some{View.Secondary{}} : Maybe<&2, View.Prominence>},
-    board_nav_selected: @+world:M.World() -> {board_navigation_selected(U.TaskBoard{}, world) == True{} : Bool},
-    projects_nav_selected: @+world:M.World() -> {projects_navigation_selected(U.ProjectCollection{}, world) == True{} : Bool},
-    agents_nav_selected: @+world:M.World() -> {agents_navigation_selected(U.AgentCollection{}, world) == True{} : Bool},
-    start_nav_selected: @+world:M.World() -> {create_navigation_selected(U.Start{}, world) == True{} : Bool},
-    board_nav_mismatch: @+world:M.World() ->
-      {(projects_navigation_selected(U.TaskBoard{}, world), agents_navigation_selected(U.TaskBoard{}, world)) == (False{}, False{}) : Bool & Bool},
-    projects_nav_mismatch: @+world:M.World() ->
-      {(board_navigation_selected(U.ProjectCollection{}, world), agents_navigation_selected(U.ProjectCollection{}, world)) == (False{}, False{}) : Bool & Bool},
-    agents_nav_mismatch: @+world:M.World() ->
-      {(board_navigation_selected(U.AgentCollection{}, world), projects_navigation_selected(U.AgentCollection{}, world)) == (False{}, False{}) : Bool & Bool},
-    start_nav_mismatch: @+world:M.World() ->
-      {(board_navigation_selected(U.Start{}, world), projects_navigation_selected(U.Start{}, world), agents_navigation_selected(U.Start{}, world)) ==
+    board_nav_selected: @+world:M.World() -> @+session:E.Session -> {board_navigation_selected(U.TaskBoard{}, world, session) == True{} : Bool},
+    projects_nav_selected: @+world:M.World() -> @+session:E.Session -> {projects_navigation_selected(U.ProjectCollection{}, world, session) == True{} : Bool},
+    agents_nav_selected: @+world:M.World() -> @+session:E.Session -> {agents_navigation_selected(U.AgentCollection{}, world, session) == True{} : Bool},
+    start_nav_selected: @+world:M.World() -> @+session:E.Session -> {create_navigation_selected(U.Start{}, world, session) == True{} : Bool},
+    board_nav_mismatch: @+world:M.World() -> @+session:E.Session ->
+      {(projects_navigation_selected(U.TaskBoard{}, world, session), agents_navigation_selected(U.TaskBoard{}, world, session)) == (False{}, False{}) : Bool & Bool},
+    projects_nav_mismatch: @+world:M.World() -> @+session:E.Session ->
+      {(board_navigation_selected(U.ProjectCollection{}, world, session), agents_navigation_selected(U.ProjectCollection{}, world, session)) == (False{}, False{}) : Bool & Bool},
+    agents_nav_mismatch: @+world:M.World() -> @+session:E.Session ->
+      {(board_navigation_selected(U.AgentCollection{}, world, session), projects_navigation_selected(U.AgentCollection{}, world, session)) == (False{}, False{}) : Bool & Bool},
+    start_nav_mismatch: @+world:M.World() -> @+session:E.Session ->
+      {(board_navigation_selected(U.Start{}, world, session), projects_navigation_selected(U.Start{}, world, session), agents_navigation_selected(U.Start{}, world, session)) ==
         (False{}, (False{}, False{})) : Bool & (Bool & Bool)},
     selected_navigation_role: @route:U.Route -> @+parent:String -> @+declaration:View.ControlDeclaration -> @+state:Core.State ->
       {role_of_node(Interface.selected_declaration(route, parent, declaration, state)) ==
@@ -748,14 +756,14 @@ def evidence() -> Requirements:
     board => filter => route => now => world => global_create_is_primary(board, filter, route, now, world),
     stage => route => now => world => lane_create_targets_requested_stage(stage, route, now, world),
     stage => route => now => world => lane_create_is_secondary(stage, route, now, world),
-    world => board_route_selects_board_nav(world),
-    world => projects_route_selects_projects_nav(world),
-    world => agents_route_selects_agents_nav(world),
-    world => start_route_selects_create_nav(world),
-    world => board_route_rejects_other_nav(world),
-    world => projects_route_rejects_other_nav(world),
-    world => agents_route_rejects_other_nav(world),
-    world => start_route_rejects_destination_nav(world),
+    world => session => board_route_selects_board_nav(world, session),
+    world => session => projects_route_selects_projects_nav(world, session),
+    world => session => agents_route_selects_agents_nav(world, session),
+    world => session => start_route_selects_create_nav(world, session),
+    world => session => board_route_rejects_other_nav(world, session),
+    world => session => projects_route_rejects_other_nav(world, session),
+    world => session => agents_route_rejects_other_nav(world, session),
+    world => session => start_route_rejects_destination_nav(world, session),
     route => parent => declaration => state => selected_declaration_role_tracks_predicate(route, parent, declaration, state),
     board => world => board_settings_preserve_state(board, world),
     session => world => settings_layer_uses_registry(session, world),

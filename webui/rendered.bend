@@ -44,18 +44,20 @@ def field_control(entry: Forms.Entry) -> Bool:
 def interactive(meaning: UI.Meaning) -> Bool:
   match meaning:
     case UI.Activate{input, availability}: True{}
+    case UI.Choice{selected, description, input, availability}: True{}
     case UI.Edit{editor, field, entry, value}: field_control(entry)
     case UI.SearchChoices{query}: True{}
     case UI.EnterCredential{entered}: True{}
     case UI.BoardSearch{filter}: True{}
     case UI.ReceiveFile{editor, enabled}: True{}
-    case UI.EnterDirectory{editor}: True{}
+    case UI.EnterDirectory{editor, text}: True{}
     case UI.BoardProfile{automatic, selected, choices, enabled}: True{}
     case _: False{}
 
 def required_enabled(meaning: UI.Meaning) -> Bool:
   match meaning:
     case UI.Activate{input, availability}: enabled(availability)
+    case UI.Choice{selected, description, input, availability}: enabled(availability)
     case UI.ReceiveFile{editor, enabled}: enabled
     case UI.BoardProfile{automatic, selected, choices, enabled}: enabled
     case other: interactive(other)

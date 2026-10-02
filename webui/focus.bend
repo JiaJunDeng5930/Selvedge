@@ -61,6 +61,14 @@ def logical_scope(state: Core.State, capacity: View.Capacity) -> Scope:
 def changed(previous: Scope, current: Scope) -> Bool:
   Bool.not(String.eq(identity(previous), identity(current)))
 
+def invalid_retained(scope: Scope, eligible: Bool) -> Bool:
+  match scope:
+    case Document{}: False{}
+    case Temporary{identity, initial, restore}: Bool.not(eligible)
+
+def transition(previous: Scope, +current: Scope, eligible: Bool) -> Bool:
+  changed(previous, current) || invalid_retained(current, eligible)
+
 def change_target(previous: Scope, current: Scope) -> String:
   match current:
     case Document{}: restore(previous)

@@ -14,6 +14,8 @@ import ../BOARD.bend as Board
 # The visible face never determines the command. The binding below is retained
 # from the product observation, including unavailable actions and their reasons.
 type Icon is Data:
+  ChevronRight{}
+  ChevronDown{}
   ArrowUp{}
   ArrowDown{}
   StopSquare{}
@@ -88,6 +90,7 @@ type Behavior is Data:
   Push{}
   Toggle{pressed: Bool}
   Radio{checked: Bool}
+  ChoiceRadio{checked: Bool}
   Disclosure{expanded: Bool}
   Popup{menu: Bool, expanded: Bool}
   Destination{current: Bool}
@@ -311,7 +314,10 @@ def panel_purpose(panel: User.Panel, expanded: Bool) -> Purpose:
     case User.BoardFilters{}: OpenPanel{FilterFunnel{}, False{}, expanded}
     case User.ModelPicker{editor}: ChooseValue{expanded}
     case User.DeliveryPicker{task}: ChooseValue{expanded}
-    case User.TaskConfiguration{}: WorkspacePicker{expanded}
+    case User.ProjectPicker{}: ChooseValue{expanded}
+    case User.WorkspaceConfiguration{editor}: WorkspacePicker{expanded}
+    case User.PermissionsConfiguration{editor}: ChooseValue{expanded}
+    case User.TaskContext{task}: OpenPanel{Inspector{}, False{}, expanded}
     case User.TaskDetails{task}: OpenPanel{Inspector{}, False{}, expanded}
     case User.ArchivedCards{}: OpenPanel{ArchiveBox{}, False{}, expanded}
     case User.EditObject{editor}: OpenPanel{Pencil{}, False{}, expanded}
@@ -358,6 +364,8 @@ def action_purpose(+key: String, action: User.Action, selection: Selection, +lay
     case User.OpenPanel{panel, trigger}: panel_purpose(panel, panel_open(layers, key))
     case User.ClosePanel{}: Dismiss{}
     case User.ConfirmAction{}: NamedAction{}
+    case User.SelectProject{project}: NamedAction{}
+    case User.ToggleProjectGroup{project}: NamedAction{}
 
 def user_purpose(key: String, input: User.Input, selection: Selection, layers: +List<View.Layer>) -> Purpose:
   match input:
@@ -481,7 +489,7 @@ def contextual_face(+purpose: Purpose, label: String, +area: Area) -> Face:
   match purpose area:
     case EditItem{} CardArea{}: TextFace{label}
     case ChooseValue{expanded} _: PickerFace{None{}, label}
-    case WorkspacePicker{expanded} _: PickerFace{Some{Folder{}}, "Workspace"}
+    case WorkspacePicker{expanded} _: PickerFace{Some{Folder{}}, label}
     case SelectedOption{checked} _: ChoiceFace{label, checked}
     case ShowActivity{expanded} _: DisclosureFace{label, expanded}
     case _ _: named_face(purpose_icon(purpose), label, icon_only(purpose, area))
@@ -498,6 +506,12 @@ def face_for(purpose: Purpose, label: String, area: Area) -> Face:
   match area:
     case MenuArea{}: menu_face(purpose, label)
     case _: contextual_face(purpose, label, area)
+
+def input_face(input: Core.Input, purpose: Purpose, label: String, area: Area) -> Face:
+  match input:
+    case Core.ApplicationInput{Experience.UserInput{User.EditDraft{editor, User.EditWorkspace{Workspace.RemoveRoot{path}}}}}:
+      IconFace{CloseCross{}}
+    case _: face_for(purpose, label, area)
 
 def behavior_for(purpose: Purpose, selected_role: Bool) -> Behavior:
   match purpose:
@@ -595,26 +609,26 @@ def placement_for(purpose: Purpose, area: Area) -> Placement:
     case ProjectTaskCreation{} NavigationArea{}: GroupHeadingEnd{}
     case _ _: InFlow{}
 
-def workspace_face(key: String, expanded: Bool, label: String, area: Area) -> Face:
-  match key:
-    case "/main/creation/introduction/creation/context/composer/context": PickerFace{Some{Folder{}}, "Context"}
-    case _: face_for(WorkspacePicker{expanded}, label, area)
-
-def keyed_face(key: String, purpose: Purpose, label: String, area: Area) -> Face:
-  match purpose:
-    case WorkspacePicker{expanded}: workspace_face(key, expanded, label, area)
-    case other: face_for(other, label, area)
-
 def make_action(+key: String, +input: Core.Input, +availability: View.Availability, label: String,
   role: UI.Role, +context: Context) -> Representation:
   Context{+area, selection, code, appearance, access, settings_open, layers} = context
   +intent = purpose_fields(key, input, selection, code, appearance, access, settings_open, layers)
   +control_name = name_for(intent, label)
-  +control_face = keyed_face(key, intent, control_name, area)
+  +control_face = input_face(input, intent, control_name, area)
   +response = feedback_for(intent)
   Action{input, availability, control_name, control_face,
     contextual_behavior(intent, selected_role(role), area), geometry_for(intent, control_face, area),
     placement_for(intent, area), help_for(control_face, availability, response, control_name), response}
+
+def choice_action(+selected: Bool, value: Representation) -> Representation:
+  match value:
+    case Action{input, availability, +name, face, behavior, geometry, placement, help, feedback}:
+      Action{input, availability, name, ChoiceFace{name, selected}, ChoiceRadio{selected}, geometry, placement, help, feedback}
+    case other: other
+
+def make_choice(key: String, selected: Bool, input: Core.Input, availability: View.Availability,
+  label: String, role: UI.Role, context: Context) -> Representation:
+  choice_action(selected, make_action(key, input, availability, label, role, context))
 
 def entry_widget(entry: Forms.Entry) -> Widget:
   match entry:
@@ -664,13 +678,14 @@ def field_availability(entry: Forms.Entry) -> View.Availability:
 def represent(key: String, +meaning: UI.Meaning, +label: String, role: UI.Role, +context: Context) -> Representation:
   match meaning:
     case UI.Activate{input, availability}: make_action(key, input, availability, label, role, context)
+    case UI.Choice{selected, description, input, availability}: make_choice(key, selected, input, availability, label, role, context)
     case UI.Edit{editor, field, Forms.DirectoryCollection{}, value}: NoControl{}
     case UI.Edit{editor, field, Forms.FileCollection{}, value}: NoControl{}
     case UI.Edit{editor, field, +entry, value}: make_input(meaning, label, widget_for(entry, field, value), field_availability(entry))
     case UI.SearchChoices{query}: make_input(meaning, label, SearchInput{}, View.Available{})
     case UI.EnterCredential{entered}: make_input(meaning, label, SecretInput{}, View.Available{})
     case UI.ReceiveFile{editor, enabled}: make_input(meaning, label, FileChooser{IconTextFace{Paperclip{}, label}}, UI.availability(enabled))
-    case UI.EnterDirectory{editor}: make_input(meaning, label, DirectoryChooser{IconTextFace{Folder{}, label}}, View.Available{})
+    case UI.EnterDirectory{editor, text}: make_input(meaning, label, DirectoryChooser{IconTextFace{Folder{}, label}}, View.Available{})
     case UI.BoardSearch{filter}: make_input(meaning, label, SearchInput{}, View.Available{})
     case UI.BoardProfile{automatic, selected, choices, enabled}: make_input(meaning, label, SelectInput{}, UI.availability(enabled))
     case UI.CardArchive{count}: NoControl{}

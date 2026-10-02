@@ -15,6 +15,13 @@ import { profileCatalog } from './config.mjs';
 import { withAccountModels } from './chatgpt-models.mjs';
 
 /** Interpret committed effects. No task lifecycle or recovery policy lives here. */
+export class CommandNotSubmitted extends Error {
+  constructor(cause) {
+    super(cause.message, { cause });
+    this.name = 'CommandNotSubmitted';
+  }
+}
+
 export class Service extends EventEmitter {
   #running = new Map();
   #providerCancellations = new Set();
@@ -285,7 +292,10 @@ export class Service extends EventEmitter {
   async command(command) {
     if (this.#failure) return Promise.reject(this.#failure);
     if (this.#closing) return Promise.reject(new Error('Service is stopping'));
-    const observed = await observeWorkspaceCommand(await observeBoardCommand(command, this.home), this.limits);
+    const boardObserved = await observeBoardCommand(command, this.home);
+    let observed;
+    try { observed = await observeWorkspaceCommand(boardObserved, this.limits); }
+    catch (cause) { throw new CommandNotSubmitted(cause); }
     if (this.#failure) throw this.#failure;
     if (this.#closing) throw new Error('Service is stopping');
     return this.journal.execute({ kind: 'command', command: observed });

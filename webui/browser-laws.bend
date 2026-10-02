@@ -1,5 +1,6 @@
 import Base
 import ./browser.bend as Browser
+import ./document.bend as Doc
 import ./MODEL.bend as Web
 import ./focus.bend as Focus
 import ./rendered.bend as Rendered
@@ -143,8 +144,116 @@ def document_key_event(+key: String, +shift: Bool, +core: Core.State, platform: 
   Platform.Platform{readers, editors, focused, ticket, reduced, capacity, scope} = platform
   {==}
 
+def document_root(value: Doc.Document) -> Doc.Node:
+  Doc.Document{root, title} = value
+  root
+
+def document_title(value: Doc.Document) -> String:
+  Doc.Document{root, title} = value
+  title
+
+type RootIdentity is Data:
+  RootIdentity{key: String, tag: String}
+
+def node_identity(value: Doc.Node) -> Maybe<&2, RootIdentity>:
+  match value:
+    case Doc.Element{key, tag, attrs, styles, events, children}: Some{RootIdentity{key, tag}}
+    case _: None{}
+
+def node_children(value: Doc.Node) -> +List<Doc.Node>:
+  match value:
+    case Doc.Element{key, tag, attrs, styles, events, children}: children
+    case _: Nil{}
+
+def first_node(values: +List<Doc.Node>) -> Doc.Node:
+  match values:
+    case Con{node, rest}: node
+    case Nil{}: Doc.Text{""}
+
+def second_node(values: +List<Doc.Node>) -> Doc.Node:
+  match values:
+    case Con{first, Con{second, rest}}: second
+    case _: Doc.Text{""}
+
+def application_node(value: Doc.Document) -> Doc.Node:
+  second_node(node_children(document_root(value)))
+
+def without_root_layout(value: Doc.Node) -> Doc.Node:
+  match value:
+    case Doc.Element{key, tag, attrs, styles, events, children}: Doc.Element{key, tag, attrs, Nil{}, events, children}
+    case other: other
+
+def notice_root_identity(notices: +List<Doc.Node>, root: Doc.Node, title: String) ->
+  {node_identity(document_root(Browser.with_notices(notices, root, title))) ==
+    Some{RootIdentity{"@browser/interaction", "div"}} : Maybe<&2, RootIdentity>}:
+  {==}
+
+def notice_children(+notices: +List<Doc.Node>, root: Doc.Node, title: String) ->
+  {node_children(document_root(Browser.with_notices(notices, root, title))) ==
+    [Browser.notice_region(notices), Browser.application_for_notices(notices, root)] : +List<Doc.Node>}:
+  {==}
+
+def notice_title(notices: +List<Doc.Node>, root: Doc.Node, +title: String) ->
+  {document_title(Browser.with_notices(notices, root, title)) == title : String}:
+  {==}
+
+def application_identity(notices: +List<Doc.Node>, +root: Doc.Node, title: String) ->
+  {node_identity(application_node(Browser.with_notices(notices, root, title))) == node_identity(root) : Maybe<&2, RootIdentity>}:
+  match notices root:
+    case Nil{} _: {==}
+    case Con{notice, rest} Doc.Element{key, tag, attrs, styles, events, children}: {==}
+    case Con{notice, rest} Doc.Text{text}: {==}
+    case Con{notice, rest} Doc.Markdown{key, source, text}: {==}
+    case Con{notice, rest} Doc.Portal{key, target, children}: {==}
+    case Con{notice, rest} Doc.TargetProperties{key, target, attributes, styles}: {==}
+
+def application_content(notices: +List<Doc.Node>, +root: Doc.Node, title: String) ->
+  {without_root_layout(application_node(Browser.with_notices(notices, root, title))) == without_root_layout(root) : Doc.Node}:
+  match notices root:
+    case Nil{} _: {==}
+    case Con{notice, rest} Doc.Element{key, tag, attrs, styles, events, children}: {==}
+    case Con{notice, rest} Doc.Text{text}: {==}
+    case Con{notice, rest} Doc.Markdown{key, source, text}: {==}
+    case Con{notice, rest} Doc.Portal{key, target, children}: {==}
+    case Con{notice, rest} Doc.TargetProperties{key, target, attributes, styles}: {==}
+
+def empty_application_unchanged(+root: Doc.Node, title: String) ->
+  {application_node(Browser.with_notices(Nil{}, root, title)) == root : Doc.Node}:
+  {==}
+
+def empty_notice_hidden(root: Doc.Node, title: String) ->
+  {first_node(node_children(document_root(Browser.with_notices(Nil{}, root, title)))) ==
+    Doc.Element{"@browser/unknown-status", "aside", [Doc.Property{"hidden", ""}], [Doc.Property{"display", "none"}], Nil{}, Nil{}} : Doc.Node}:
+  {==}
+
+def notice_contents(notices: +List<Doc.Node>, root: Doc.Node, title: String) ->
+  {node_children(first_node(node_children(document_root(Browser.with_notices(notices, root, title))))) == notices : +List<Doc.Node>}:
+  match notices:
+    case Nil{}: {==}
+    case Con{notice, rest}: {==}
+
+def notice_identity(notices: +List<Doc.Node>, root: Doc.Node, title: String) ->
+  {node_identity(first_node(node_children(document_root(Browser.with_notices(notices, root, title))))) ==
+    Some{RootIdentity{"@browser/unknown-status", "aside"}} : Maybe<&2, RootIdentity>}:
+  match notices:
+    case Nil{}: {==}
+    case Con{notice, rest}: {==}
+
 type Requirements is Type:
   Requirements{
+    notice_identity: @notices:+List<Doc.Node> -> @root:Doc.Node -> @title:String ->
+      {node_identity(first_node(node_children(document_root(Browser.with_notices(notices, root, title))))) == Some{RootIdentity{"@browser/unknown-status", "aside"}} : Maybe<&2, RootIdentity>},
+    notice_root_identity: @notices: +List<Doc.Node> -> @root: Doc.Node -> @title: String -> {node_identity(document_root(Browser.with_notices(notices, root, title))) ==
+    Some{RootIdentity{"@browser/interaction", "div"}} : Maybe<&2, RootIdentity>},
+    notice_children: @+notices: +List<Doc.Node> -> @root: Doc.Node -> @title: String -> {node_children(document_root(Browser.with_notices(notices, root, title))) ==
+    [Browser.notice_region(notices), Browser.application_for_notices(notices, root)] : +List<Doc.Node>},
+    notice_title: @notices: +List<Doc.Node> -> @root: Doc.Node -> @+title: String -> {document_title(Browser.with_notices(notices, root, title)) == title : String},
+    application_identity: @notices: +List<Doc.Node> -> @+root: Doc.Node -> @title: String -> {node_identity(application_node(Browser.with_notices(notices, root, title))) == node_identity(root) : Maybe<&2, RootIdentity>},
+    application_content: @notices: +List<Doc.Node> -> @+root: Doc.Node -> @title: String -> {without_root_layout(application_node(Browser.with_notices(notices, root, title))) == without_root_layout(root) : Doc.Node},
+    empty_application_unchanged: @+root: Doc.Node -> @title: String -> {application_node(Browser.with_notices(Nil{}, root, title)) == root : Doc.Node},
+    empty_notice_hidden: @root: Doc.Node -> @title: String -> {first_node(node_children(document_root(Browser.with_notices(Nil{}, root, title)))) ==
+    Doc.Element{"@browser/unknown-status", "aside", [Doc.Property{"hidden", ""}], [Doc.Property{"display", "none"}], Nil{}, Nil{}} : Doc.Node},
+    notice_contents: @notices: +List<Doc.Node> -> @root: Doc.Node -> @title: String -> {node_children(first_node(node_children(document_root(Browser.with_notices(notices, root, title))))) == notices : +List<Doc.Node>},
     document_key_event: @+key:String -> @+shift:Bool -> @+core:Core.State -> @platform:Platform.Platform -> @+generation:Nat ->
       @+realization:Rendered.State -> @+environment:Design.Environment -> @+sequence:Nat -> @+next:Nat -> @+requests:+List<Browser.Pending> ->
       {Browser.key_event(key, shift, document_state(core, platform, generation, realization, environment, sequence, next, requests)) ==
@@ -179,4 +288,4 @@ type Requirements is Type:
           Browser.State{web, current, next, Browser.remove(pending, ticket)}) : Browser.Decision}
   }
 def evidence() -> Requirements:
-  Requirements{document_key_event, failed_transition, document_key, failed_preserves_web, failed_retains_ticket, consumed_ticket, stale_snapshot, admitted_request, stale_completion_uses_current}
+  Requirements{notice_identity, notice_root_identity, notice_children, notice_title, application_identity, application_content, empty_application_unchanged, empty_notice_hidden, notice_contents, document_key_event, failed_transition, document_key, failed_preserves_web, failed_retains_ticket, consumed_ticket, stale_snapshot, admitted_request, stale_completion_uses_current}

@@ -7,6 +7,7 @@ import ../core/ui-world.bend as View
 import ../core/client-services.bend as Services
 import ../core/form-fields.bend as Forms
 import ../core/code-block.bend as Code
+import ../bendlib/domain.bend as Domain
 import ./controls.bend as Controls
 import ./design.bend as Design
 import ./appearance.bend as Appearance
@@ -21,6 +22,13 @@ def source_binding(+meaning: UI.Meaning) -> UI.Meaning:
   match meaning:
     case UI.PageRegion{region, position}: UI.Region{}
     case UI.Region{}: UI.Region{}
+    case UI.ProjectGroup{project, selected, expanded}: UI.Region{}
+    case UI.TaskRow{task, status, selected}: UI.Region{}
+    case UI.ProjectChooser{selected}: UI.Region{}
+    case UI.DirectoryRow{path, primary}: UI.Region{}
+    case UI.ContextSummary{observation}: UI.Region{}
+    case UI.ChoiceGroup{}: UI.Region{}
+    case UI.Choice{selected, description, input, availability}: UI.Activate{input, availability}
     case UI.BoardLane{stage, count}: UI.Region{}
     case UI.CardArchive{count}: UI.Region{}
     case UI.BoardGroup{grouping}: UI.Region{}
@@ -46,11 +54,26 @@ def action_retains_binding(+key: String, +input: Core.Input, +availability: View
   match context:
     case Controls.Context{area, selection, code, appearance, access, open, layers}: {==}
 
+def choice_retains_binding(+key: String, selected: Bool, +input: Core.Input, +availability: View.Availability,
+  label: String, role: UI.Role, context: Controls.Context) ->
+  {binding(Controls.make_choice(key, selected, input, availability, label, role, context)) ==
+    UI.Activate{input, availability} : UI.Meaning}:
+  match context:
+    case Controls.Context{area, selection, code, appearance, access, open, layers}: {==}
+
 def representation_retains_binding(+key: String, +meaning: UI.Meaning, label: String,
   role: UI.Role, context: Controls.Context) ->
   {binding(Controls.represent(key, meaning, label, role, context)) == source_binding(meaning) : UI.Meaning}:
   match meaning:
     case UI.Activate{input, availability}: action_retains_binding(key, input, availability, label, role, context)
+    case UI.Choice{selected, description, input, availability}: choice_retains_binding(key, selected, input, availability, label, role, context)
+    case UI.ProjectGroup{project, selected, expanded}: {==}
+    case UI.TaskRow{task, status, selected}: {==}
+    case UI.ProjectChooser{selected}: {==}
+    case UI.DirectoryRow{path, primary}: {==}
+    case UI.ContextSummary{observation}: {==}
+    case UI.ChoiceGroup{}: {==}
+
     case UI.Edit{editor, field, entry, value}:
       match entry:
         case Forms.DisplayOnly{}: {==}
@@ -65,7 +88,7 @@ def representation_retains_binding(+key: String, +meaning: UI.Meaning, label: St
     case UI.EnterCredential{entered}: {==}
     case UI.BoardSearch{filter}: {==}
     case UI.ReceiveFile{editor, enabled}: {==}
-    case UI.EnterDirectory{editor}: {==}
+    case UI.EnterDirectory{editor, text}: {==}
     case UI.BoardProfile{automatic, selected, choices, enabled}: {==}
     case UI.MovableCard{destinations, face}: {==}
     case UI.BoardLane{stage, count}: {==}
@@ -302,6 +325,34 @@ def action_text(representation: Controls.Representation) -> Maybe<&2, String>:
     case Controls.Action{input, availability, name, face, behavior, geometry, placement, help, feedback}: menu_text(face)
     case _: None{}
 
+def action_face(representation: Controls.Representation) -> Maybe<&2, Controls.Face>:
+  match representation:
+    case Controls.Action{input, availability, name, face, behavior, geometry, placement, help, feedback}: Some{face}
+    case _: None{}
+
+def declared_action_face(node: UI.Node, context: Controls.Context) -> Maybe<&2, Controls.Face>:
+  UI.Node{key, semantic, label, role, meaning, children} = node
+  action_face(Controls.represent(key, meaning, label, role, context))
+
+def root_removal_faces(roots: +List<View.WorkspaceRoot>, +parent: String, +state: Core.State,
+  +context: Controls.Context) -> +List<Maybe<&2, Controls.Face>>:
+  match roots:
+    case Nil{}: Nil{}
+    case Con{View.WorkspaceRoot{path, primary, choose, remove}, rest}:
+      declared_action_face(UI.declared(parent, remove, state), context) <> root_removal_faces(rest, parent, state, context)
+
+def workspace_removal_faces(workspace: View.WorkspaceControls, parent: String, state: Core.State,
+  context: Controls.Context) -> +List<Maybe<&2, Controls.Face>>:
+  View.WorkspaceControls{editor, roots, inherit} = workspace
+  root_removal_faces(roots, parent, state, context)
+
+def directory_removal_uses_cross(+parent: String, +editor: User.Editor, +path: String,
+  primary: Maybe<&2, String>, state: Core.State, context: Controls.Context) ->
+  {workspace_removal_faces(View.workspace_controls(Domain.Workspace{[path], primary}, editor, None{}),
+    parent, state, context) == [Some{Controls.IconFace{Controls.CloseCross{}}}] : +List<Maybe<&2, Controls.Face>>}:
+  match state context:
+    case Core.State{application, services} Controls.Context{area, selection, code, appearance, access, open, layers}: {==}
+
 def approval_keeps_label(key: String, task: Nat, operation: Nat, allow: Bool, reason: String,
   availability: View.Availability, +label: String, role: UI.Role, selection: Controls.Selection,
   code: Maybe<&2, Code.Scene>, appearance: Services.Appearance, access: Services.Access, open: Bool,
@@ -338,9 +389,9 @@ def settings_uses_gear(expanded: Bool, label: String) ->
   {Controls.face_for(Controls.OpenPanel{Controls.Settings{}, False{}, expanded}, label, Controls.PageArea{}) == Controls.IconFace{Controls.Settings{}} : Controls.Face}:
   {==}
 
-def introduction_uses_context_label(expanded: Bool, label: String, area: Controls.Area) ->
-  {Controls.keyed_face("/main/creation/introduction/creation/context/composer/context", Controls.WorkspacePicker{expanded}, label, area) ==
-    Controls.PickerFace{Some{Controls.Folder{}}, "Context"} : Controls.Face}:
+def introduction_uses_context_label(expanded: Bool, +label: String) ->
+  {Controls.face_for(Controls.WorkspacePicker{expanded}, label, Controls.ComposerArea{}) ==
+    Controls.PickerFace{Some{Controls.Folder{}}, label} : Controls.Face}:
   {==}
 
 def directory_parent_has_no_control(key: String, editor: User.Editor, field: Forms.Field,
@@ -407,8 +458,12 @@ type Requirements is Type:
         Controls.AccessibleOnly{} : Controls.LabelPlacement},
     settings_uses_gear: @expanded:Bool -> @label:String ->
       {Controls.face_for(Controls.OpenPanel{Controls.Settings{}, False{}, expanded}, label, Controls.PageArea{}) == Controls.IconFace{Controls.Settings{}} : Controls.Face},
-    introduction_uses_context_label: @expanded:Bool -> @label:String -> @area:Controls.Area ->
-      {Controls.keyed_face("/main/creation/introduction/creation/context/composer/context", Controls.WorkspacePicker{expanded}, label, area) == Controls.PickerFace{Some{Controls.Folder{}}, "Context"} : Controls.Face},
+    introduction_uses_context_label: @expanded:Bool -> @+label:String ->
+      {Controls.face_for(Controls.WorkspacePicker{expanded}, label, Controls.ComposerArea{}) == Controls.PickerFace{Some{Controls.Folder{}}, label} : Controls.Face},
+    directory_removal_uses_cross: @+parent:String -> @+editor:User.Editor -> @+path:String ->
+      @primary:Maybe<&2, String> -> @state:Core.State -> @context:Controls.Context ->
+      {workspace_removal_faces(View.workspace_controls(Domain.Workspace{[path], primary}, editor, None{}),
+        parent, state, context) == [Some{Controls.IconFace{Controls.CloseCross{}}}] : +List<Maybe<&2, Controls.Face>>},
     directory_parent_has_no_control: @key:String -> @editor:User.Editor -> @field:Forms.Field -> @value:Forms.Observed -> @label:String -> @role:UI.Role -> @context:Controls.Context ->
       {Controls.represent(key, UI.Edit{editor, field, Forms.DirectoryCollection{}, value}, label, role, context) == Controls.NoControl{} : Controls.Representation},
     file_parent_has_no_control: @key:String -> @editor:User.Editor -> @field:Forms.Field -> @value:Forms.Observed -> @label:String -> @role:UI.Role -> @context:Controls.Context ->
@@ -434,7 +489,8 @@ def evidence() -> Requirements:
     icon => availability => feedback => label => icon_help_supports_focus(icon, availability, feedback, label),
     value => input_label_is_accessible_only(value),
     expanded => label => settings_uses_gear(expanded, label),
-    expanded => label => area => introduction_uses_context_label(expanded, label, area),
+    expanded => label => introduction_uses_context_label(expanded, label),
+    parent => editor => path => primary => state => context => directory_removal_uses_cross(parent, editor, path, primary, state, context),
     key => editor => field => value => label => role => context => directory_parent_has_no_control(key, editor, field, value, label, role, context),
     key => editor => field => value => label => role => context => file_parent_has_no_control(key, editor, field, value, label, role, context)
   }

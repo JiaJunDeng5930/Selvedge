@@ -50,6 +50,7 @@ type Role is Data:
   Button{}
   Field{}
   Content{}
+  Alert{}
 
 type Placement is Data:
   Placement{target: String, input: Core.Input, availability: V.Availability}
@@ -64,6 +65,13 @@ type BoardGrouping is Data:
 type Meaning is Data:
   MovableCard{destinations: +List<Placement>, face: V.CardFace}
   Region{}
+  ProjectGroup{project: Nat, selected: Bool, expanded: Bool}
+  TaskRow{task: Nat, status: String, selected: Bool}
+  ProjectChooser{selected: Maybe<&2, Nat>}
+  DirectoryRow{path: String, primary: Bool}
+  ContextSummary{observation: Context.Observation}
+  ChoiceGroup{}
+  Choice{selected: Bool, description: String, input: Core.Input, availability: V.Availability}
   PageRegion{region: Composition.Region, position: Composition.Position}
   BoardLane{stage: B.Stage, count: Nat}
   CardArchive{count: Nat}
@@ -77,7 +85,7 @@ type Meaning is Data:
   SearchChoices{query: String}
   EnterCredential{entered: Bool}
   ReceiveFile{editor: U.Editor, enabled: Bool}
-  EnterDirectory{editor: U.Editor}
+  EnterDirectory{editor: U.Editor, text: String}
   BoardProfile{automatic: Bool, selected: String, choices: +List<D.Profile>, enabled: Bool}
 
 type Node is Data:
@@ -98,6 +106,7 @@ type Gesture is Data:
   Filter{value: B.Filter}
   Attach{file: Services.File}
   Directory{path: String}
+  ConfirmDirectory{}
   SelectBoardProfile{profile: String}
 
 def region(parent: String, +identity: String, label: String, role: Role, children: +List<Node>) -> Node:
@@ -148,17 +157,25 @@ def more(+subject: U.Subject, parent: String, state: Core.State) -> Node:
 def task_entries(entries: +List<V.TaskEntry>, +parent: String, +state: Core.State) -> +List<Node>:
   match entries:
     case Nil{}: Nil{}
-    case Con{V.TaskEntry{id, title, status, selected, open}, rest}:
-      selected_node(selected, declared(parent, open, state)) <> task_entries(rest, parent, state)
+    case Con{V.TaskEntry{+id, title, +status, +selected, open}, rest}:
+      Node{parent ++ "/task/" ++ Nat.show(id), "task-row", "", Section{}, TaskRow{id, status, selected},
+        [selected_node(selected, declared(parent ++ "/task/" ++ Nat.show(id), open, state)),
+         Node{parent ++ "/task/" ++ Nat.show(id) ++ "/status", "task-status", "Task status", Content{}, ReadOnly{status}, Nil{}}]} <> task_entries(rest, parent, state)
+
+def disclosed_tasks(expanded: Bool, tasks: +List<V.TaskEntry>, parent: String, state: Core.State) -> +List<Node>:
+  match expanded:
+    case False{}: Nil{}
+    case True{}: task_entries(tasks, parent, state)
 
 def project_entries(entries: +List<V.ProjectEntry>, +parent: String, +state: Core.State) -> +List<Node>:
   match entries:
     case Nil{}: Nil{}
-    case Con{V.ProjectEntry{+id, name, workspace, selected, tasks, open, create}, rest}:
-      region(parent, "project/" ++ Nat.show(id), name, Section{},
-        selected_node(selected, declared(parent ++ "/project/" ++ Nat.show(id), open, state)) <>
-        declared(parent ++ "/project/" ++ Nat.show(id), create, state) <>
-        task_entries(tasks, parent ++ "/project/" ++ Nat.show(id), state)) <> project_entries(rest, parent, state)
+    case Con{V.ProjectEntry{+id, name, workspace, +selected, +expanded, tasks, open, create, toggle, more}, rest}:
+      Node{parent ++ "/project/" ++ Nat.show(id), "project-group", "", Section{}, ProjectGroup{id, selected, expanded},
+        region(parent ++ "/project/" ++ Nat.show(id), "actions", "", Section{},
+          [declared(parent ++ "/project/" ++ Nat.show(id), toggle, state), selected_node(selected, declared(parent ++ "/project/" ++ Nat.show(id), open, state)),
+           declared(parent ++ "/project/" ++ Nat.show(id), create, state), declared(parent ++ "/project/" ++ Nat.show(id), more, state)]) <>
+        disclosed_tasks(expanded, tasks, parent ++ "/project/" ++ Nat.show(id), state)} <> project_entries(rest, parent, state)
 
 def same_route(left: U.Route, right: U.Route) -> Bool:
   match left right:
@@ -208,7 +225,7 @@ def navigation(view: V.Navigation, +state: Core.State) -> Node:
 def observed_field(found: Maybe<&2, U.Draft>, field: Forms.Field, world: M.World()) -> Forms.Observed:
   match found:
     case None{}: Forms.NotApplicable{}
-    case Some{U.Draft{revision, body, feedback}}: Forms.observed(body, field, world)
+    case Some{U.Draft{revision, body, feedback, directory_entry}}: Forms.observed(body, field, world)
 
 def field_value(state: Core.State, editor: U.Editor, field: Forms.Field) -> Forms.Observed:
   Core.State{E.Application{world, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code}}, services} = state
@@ -267,23 +284,61 @@ def workspace_observed(value: Forms.Observed) -> Maybe<&2, D.Workspace>:
     case Forms.ContextValue{value}: context_workspace(value)
     case _: None{}
 
-def directory_nodes(roots: +List<String>, +editor: U.Editor, +parent: String) -> +List<Node>:
+def directory_primary_controls(primary: Bool, control: V.ControlDeclaration, parent: String, state: Core.State) -> +List<Node>:
+  match primary:
+    case True{}: [Node{parent ++ "/primary", "directory/primary", "Primary working directory", Content{}, ReadOnly{"Primary working directory"}, Nil{}}]
+    case False{}: [declared(parent, control, state)]
+
+def directory_node(value: V.WorkspaceRoot, parent: String, +state: Core.State) -> Node:
+  V.WorkspaceRoot{+path, +primary, choose, remove} = value
+  +key = parent ++ "/directory/" ++ path
+  Node{key, "directory/" ++ path, path, Content{}, DirectoryRow{path, primary},
+    List.append(&2, Node, directory_primary_controls(primary, choose, key, state), [declared(key, remove, state)])}
+
+def directory_root_nodes(roots: +List<V.WorkspaceRoot>, +parent: String, +state: Core.State) -> +List<Node>:
   match roots:
     case Nil{}: Nil{}
-    case Con{+path, rest}:
-      product_action(parent, "remove/" ++ path, "Remove " ++ path, Core.EditField{editor, Forms.WorkspaceDirectories{}, Forms.WorkspaceChange{Context.RemoveRoot{path}}}, True{}) <> directory_nodes(rest, editor, parent)
+    case Con{root, rest}: directory_node(root, parent, state) <> directory_root_nodes(rest, parent, state)
 
-def directory_values(found: Maybe<&2, D.Workspace>, editor: U.Editor, parent: String) -> +List<Node>:
+def directory_controls(controls: V.WorkspaceControls, parent: String, state: Core.State) -> +List<Node>:
+  V.WorkspaceControls{identity, roots, inherit} = controls
+  directory_root_nodes(roots, parent, state)
+
+def directory_values(found: Maybe<&2, D.Workspace>, +editor: U.Editor, parent: String, state: Core.State) -> +List<Node>:
   match found:
     case None{}: Nil{}
-    case Some{D.Workspace{roots, primary}}: directory_nodes(roots, editor, parent)
+    case Some{workspace}: directory_controls(V.workspace_controls(workspace, editor, None{}), parent, state)
 
-def field_children(field: Forms.Field, +editor: U.Editor, +parent: String, state: Core.State) -> +List<Node>:
+def draft_directory(found: Maybe<&2, U.Draft>) -> String:
+  match found:
+    case None{}: ""
+    case Some{draft}: U.directory_entry(draft)
+
+def pending_directory(state: Core.State, editor: U.Editor) -> String:
+  Core.State{E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code}}, services} = state
+  draft_directory(E.find_draft(drafts, editor))
+
+def directory_can_confirm(found: Maybe<&2, U.Draft>) -> Bool:
+  match found:
+    case None{}: False{}
+    case Some{draft}: U.can_confirm_directory(draft)
+
+def directory_ready(state: Core.State, editor: U.Editor) -> Bool:
+  Core.State{E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code}}, services} = state
+  directory_can_confirm(E.find_draft(drafts, editor))
+
+def directory_confirm(+editor: U.Editor, parent: String, +state: Core.State) -> Node:
+  user_action(parent, "workspace/confirm", "Add folder", U.EditDraft{editor, U.ConfirmDirectory{}}, directory_ready(state, editor), state)
+
+def field_children(field: Forms.Field, +editor: U.Editor, +parent: String, +state: Core.State) -> +List<Node>:
   match field:
     case Forms.CardAttachments{}: file_field(editor, parent, state)
     case Forms.WorkspaceDirectories{}:
-      Node{parent ++ "/add", "workspace/add", "Add working directory", Field{}, EnterDirectory{editor}, Nil{}} <>
-        directory_values(workspace_observed(field_value(state, editor, Forms.WorkspaceDirectories{})), editor, parent)
+      Node{parent ++ "/instruction", "workspace/instruction", "Enter a directory path to add it. Listed directories define the workspace; choose the primary working directory.", Content{},
+        ReadOnly{"Enter a directory path to add it. Listed directories define the workspace; choose the primary working directory."}, Nil{}} <>
+      Node{parent ++ "/add", "workspace/add", "Add working directory", Field{}, EnterDirectory{editor, pending_directory(state, editor)}, Nil{}} <>
+      directory_confirm(editor, parent, state) <>
+        directory_values(workspace_observed(field_value(state, editor, Forms.WorkspaceDirectories{})), editor, parent, state)
     case _: Nil{}
 
 def policy_entry(policy: Reasoning.Policy) -> Forms.Entry:
@@ -319,7 +374,7 @@ def configuration(body: U.Body) -> Maybe<&2, Context.Configuration>:
 def draft_configuration(draft: Maybe<&2, U.Draft>) -> Maybe<&2, Context.Configuration>:
   match draft:
     case None{}: None{}
-    case Some{U.Draft{revision, body, feedback}}: configuration(body)
+    case Some{U.Draft{revision, body, feedback, directory_entry}}: configuration(body)
 
 def reset_fields(field: Forms.Field, workspace: Maybe<&2, D.Workspace>, sandbox: Maybe<&2, D.Sandbox>, approval: Maybe<&2, Context.ApprovalChoice>) -> Maybe<&2, Context.Change>:
   match field workspace sandbox approval:
@@ -358,11 +413,16 @@ def sections(values: +List<Forms.Section>, +editor: U.Editor, +parent: String, +
       region(parent, "section/" ++ Nat.show(ordinal), title, Section{}, fields(entries, editor, parent ++ "/section/" ++ Nat.show(ordinal), state)) <>
         sections(rest, editor, parent, (ordinal + 1n : Nat), state)
 
+def feedback_nodes(+parent: String, feedback: U.Feedback) -> +List<Node>:
+  match feedback:
+    case U.Rejected{revision, +reason}: [Node{parent ++ "/feedback", "submission-feedback", "Submission failed", Alert{}, ReadOnly{reason}, Nil{}}]
+    case _: Nil{}
+
 def editor(view: Maybe<&2, V.EditorScene>, +parent: String, +state: Core.State) -> +List<Node>:
   match view:
     case None{}: Nil{}
     case Some{V.EditorScene{identity, revision, groups, structure, submit, feedback, pending}}:
-      List.append(&2, Node, sections(structure, identity, parent, 0n, state), [declared(parent, submit, state)])
+      List.append(&2, Node, sections(structure, identity, parent, 0n, state), List.append(&2, Node, feedback_nodes(parent, feedback), [declared(parent, submit, state)]))
 
 def composer_choices(footer: +List<V.ControlDeclaration>, +parent: String, +state: Core.State) -> +List<Node>:
   match footer:
@@ -391,7 +451,7 @@ def expected_composer(view: Maybe<&2, V.ComposerScene>, +parent: String, +state:
       +key = parent ++ "/composer/" ++ U.editor_key(identity)
       [Node{key, "composer/" ++ U.editor_key(identity), "Message", Composer{}, Region{},
         field_node(Forms.FieldScene{Forms.MessageText{}, "Message", Forms.Multiline{}}, identity, key, state) <>
-          [expected_composer_actions(footer, submit, key, state)]}]
+          List.append(&2, Node, feedback_nodes(key, feedback), [expected_composer_actions(footer, submit, key, state)])}]
 
 def composer(view: Maybe<&2, V.ComposerScene>, +parent: String, +state: Core.State) -> +List<Node>:
   match view:
@@ -400,10 +460,10 @@ def composer(view: Maybe<&2, V.ComposerScene>, +parent: String, +state: Core.Sta
       +composer_key = parent ++ "/composer/" ++ U.editor_key(identity)
       [region(parent, "composer/" ++ U.editor_key(identity), "Message", Composer{},
         field_node(Forms.FieldScene{Forms.MessageText{}, "Message", Forms.Multiline{}}, identity, composer_key, state) <>
-          [composer_actions(footer, submit, composer_key, state)])]
+          List.append(&2, Node, feedback_nodes(composer_key, feedback), [composer_actions(footer, submit, composer_key, state)]))]
 
 def composer_tree_present_agreement(+identity: U.Editor, revision: Nat, message: U.Text,
-    footer: +List<V.ControlDeclaration>, context: Maybe<&2, Context.Preview>, submit: V.ControlDeclaration,
+    footer: +List<V.ControlDeclaration>, context: Maybe<&2, Context.Observation>, submit: V.ControlDeclaration,
     feedback: U.Feedback, pending: Bool, +parent: String, +state: Core.State)
   -> {composer(Some{V.ComposerScene{identity, revision, message, footer, context, submit, feedback, pending}}, parent, state) ==
       expected_composer(Some{V.ComposerScene{identity, revision, message, footer, context, submit, feedback, pending}}, parent, state) : +List<Node>}:
@@ -504,11 +564,16 @@ def project(view: V.ProjectScene, +parent: String, +state: Core.State) -> +List<
   region(parent, "heading", name, Heading{}, controls(actions, parent ++ "/heading", state)) <> task_entries(tasks, parent, state)
 
 def projects(values: +List<V.ProjectScene>, +parent: String, +state: Core.State) -> +List<Node>:
+  Core.State{E.Application{+world, +session}, services} = state
+  E.Session{+route, drafts, readers, layers, focus, +navigation, filter, now, next, pending, previews, code} = session
+  project_entries(V.project_entries(Projects.entries(Projects.registry(F.State(), world)), Commands.entries(world), route, V.active_project(route, session, world), navigation), parent, state)
+
+def project_collection_entries(values: +List<V.ProjectScene>, +parent: String, +state: Core.State) -> +List<Node>:
   match values:
-    case Nil{}: Nil{}
-    case Con{V.ProjectScene{+id, +name, workspace, guidance, tasks, actions}, rest}:
-      region(parent, "project/" ++ Nat.show(id), name, Section{}, project(V.ProjectScene{id, name, workspace, guidance, tasks, actions}, parent ++ "/project/" ++ Nat.show(id), state)) <>
-        projects(rest, parent, state)
+    case Nil{}:
+      [Node{parent ++ "/projects/empty", "projects/empty", "", Content{},
+        ReadOnly{"Create a project to group tasks and choose default working folders."}, Nil{}}]
+    case Con{first, rest}: projects(Con{first, rest}, parent, state)
 
 def placement_target(stage: B.Stage, before: Maybe<&2, Nat>) -> String:
   match before:
@@ -755,15 +820,19 @@ def board_toolbar(+filter: B.Filter, +working: Nat, create: V.ControlDeclaration
    board_group(parent, "primary-action", PrimaryAction{}, [declared(parent, create, state)])]
 
 def creation_title_node(value: V.CreationIntroduction, parent: String) -> Node:
-  V.CreationIntroduction{+heading, summary, context, project} = value
+  V.CreationIntroduction{+heading, summary, context, project, choose} = value
   Node{parent ++ "/creation/introduction/creation/title", "creation/title", heading, Heading{}, ReadOnly{heading}, Nil{}}
 
+def creation_project_node(value: V.CreationIntroduction, +parent: String, state: Core.State) -> Node:
+  V.CreationIntroduction{heading, summary, context, project, choose} = value
+  Node{parent ++ "/creation/project", "project-chooser", "", Section{}, ProjectChooser{V.project_choice_id(project)}, [declared(parent, choose, state)]}
+
 def creation_context_node(value: V.CreationIntroduction, parent: String) -> Node:
-  V.CreationIntroduction{heading, summary, context, project} = value
+  V.CreationIntroduction{heading, summary, context, project, choose} = value
   Node{parent ++ "/creation/introduction/creation/context", "creation/context", "Workspace configuration", Content{}, ReadOnly{summary}, Nil{}}
 
 def creation_introduction_nodes(+value: V.CreationIntroduction, +parent: String, state: Core.State) -> +List<Node>:
-  [page_region(parent, Composition.CreationIntroduction{}, Composition.BodyPosition{}, [creation_title_node(value, parent)]),
+  [page_region(parent, Composition.CreationIntroduction{}, Composition.BodyPosition{}, [creation_title_node(value, parent), creation_project_node(value, parent, state)]),
    page_region(parent, Composition.CreationContext{}, Composition.BodyPosition{}, [creation_context_node(value, parent)])]
 
 def creation_page(+input: Maybe<&2, V.ComposerScene>, +parent: String, +state: Core.State) -> +List<Node>:
@@ -778,7 +847,7 @@ def page_contents(view: V.Page, +parent: String, +state: Core.State) -> +List<No
     case V.ProjectsPage{values, create}:
       [page_region(parent, Composition.CollectionTitle{}, Composition.HeadingPosition{}, [region(parent, "heading", "Projects", Heading{}, Nil{})]),
        page_region(parent, Composition.CollectionActions{}, Composition.HeadingPosition{}, [declared(parent, create, state)]),
-       page_region(parent, Composition.ProjectEntries{}, Composition.BodyPosition{}, projects(values, parent, state))]
+       page_region(parent, Composition.ProjectEntries{}, Composition.BodyPosition{}, project_collection_entries(values, parent, state))]
     case V.BoardPage{filter, values, create, working, settings, filters, archive}:
       [page_region(parent, Composition.BoardTitle{}, Composition.HeadingPosition{}, [region(parent, "heading", "Board", Heading{}, Nil{})]),
        page_region(parent, Composition.BoardControls{}, Composition.HeadingPosition{},
@@ -866,8 +935,242 @@ def card_details_nodes(value: Maybe<&2, V.CardScene>, +parent: String, +state: C
     case None{}: [project_fact(parent ++ "/missing", "Unavailable", "The card no longer exists")]
     case Some{card}: card_details_scene(card, parent, state)
 
+def context_network_text(network: Bool) -> String:
+  match network:
+    case True{}: "Network enabled"
+    case False{}: "Network disabled"
+
+def sandbox_facts(value: D.Sandbox) -> String:
+  D.Sandbox{mode, network} = value
+  D.sandbox_mode_name(mode) ++ "; " ++ context_network_text(network)
+
+def observation_facts(value: Context.Observation, profiles: +List<D.Profile>) -> String:
+  match value:
+    case Context.DraftExecution{Context.ContextUnavailable{reason}}: reason
+    case Context.DraftExecution{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}}:
+      sandbox_facts(V.execution_sandbox(sandbox)) ++ "; " ++ V.value_approval_summary(approval, profiles)
+    case Context.CommittedExecution{Context.EffectiveContext{task, D.TaskContext{workspace, sandbox, approval, project}, guidance, access}}:
+      sandbox_facts(sandbox) ++ "; " ++ V.policy_approval_summary(approval)
+
+def context_summary_node(+value: Context.Observation, +parent: String, state: Core.State) -> Node:
+  Core.State{E.Application{+world, session}, services} = state
+  +source = V.execution_source_summary(value, world)
+  +facts = observation_facts(value, Board.profiles(world))
+  Node{parent ++ "/source", "context/source", source, Content{}, ContextSummary{value},
+    [Node{parent ++ "/source/facts", "context/facts", facts, Content{}, ReadOnly{facts}, Nil{}}]}
+
+def choice_control(selected: Bool, description: String, control: Core.Control, parent: String) -> Node:
+  Core.Control{+identity, label, prominence, input, availability} = control
+  Node{parent ++ "/" ++ identity, identity, label, Button{}, Choice{selected, description, input, availability}, Nil{}}
+
+def declared_choice(selected: Bool, description: String, declaration: V.ControlDeclaration, parent: String, state: Core.State) -> Node:
+  choice_control(selected, description, Core.control(state, declaration), parent)
+
+def sandbox_selected(selected: D.SandboxMode, candidate: D.SandboxMode) -> Bool:
+  match selected candidate:
+    case D.WorkspaceWrite{} D.WorkspaceWrite{}: True{}
+    case D.ReadOnly{} D.ReadOnly{}: True{}
+    case _ _: False{}
+
+def approval_selected(selected: Context.ApprovalChoice, candidate: Context.ApprovalChoice) -> Bool:
+  match selected candidate:
+    case Context.Ask{} Context.Ask{}: True{}
+    case Context.Unrestricted{} Context.Unrestricted{}: True{}
+    case Context.AutomaticReview{current} Context.AutomaticReview{next}: String.eq(current, next)
+    case _ _: False{}
+
+def sandbox_label(mode: D.SandboxMode) -> String:
+  match mode:
+    case D.WorkspaceWrite{}: "Workspace write"
+    case D.ReadOnly{}: "Read only"
+
+def sandbox_description(mode: D.SandboxMode) -> String:
+  match mode:
+    case D.WorkspaceWrite{}: "Allow edits in the working directories."
+    case D.ReadOnly{}: "Read files without modifying them."
+
+def sandbox_choice(+mode: D.SandboxMode, +current: D.SandboxMode, +network: Bool, +editor: U.Editor, parent: String, state: Core.State) -> Node:
+  declared_choice(sandbox_selected(current, mode), sandbox_description(mode),
+    V.ControlDeclaration{"filesystem/" ++ D.sandbox_mode_name(mode), sandbox_label(mode), V.Secondary{},
+      U.EditDraft{editor, U.ConfigureContext{Context.SetSandbox{D.Sandbox{mode, network}}}}, V.Available{}}, parent, state)
+
+def sandbox_choices(+sandbox: D.Sandbox, +editor: U.Editor, +parent: String, +state: Core.State) -> Node:
+  D.Sandbox{+mode, +network} = sandbox
+  Node{parent ++ "/filesystem", "permissions/filesystem", "Filesystem access", Section{}, ChoiceGroup{},
+    [sandbox_choice(D.WorkspaceWrite{}, mode, network, editor, parent ++ "/filesystem", state),
+     sandbox_choice(D.ReadOnly{}, mode, network, editor, parent ++ "/filesystem", state)]}
+
+def approval_profile_key(choice: Context.ApprovalChoice) -> String:
+  match choice:
+    case Context.AutomaticReview{profile}: profile
+    case _: ""
+
+def approval_description(choice: Context.ApprovalChoice) -> String:
+  match choice:
+    case Context.Ask{}: "Ask before running actions that require approval."
+    case Context.Unrestricted{}: "Run actions without approval prompts."
+    case Context.AutomaticReview{profile}: "Use this model to review approval requests."
+
+def approval_choice_node(+choice: Context.ApprovalChoice, +current: Context.ApprovalChoice, reviewer: Maybe<&2, D.Profile>, editor: U.Editor, parent: String, state: Core.State) -> Node:
+  declared_choice(approval_selected(current, choice), approval_description(choice),
+    V.ControlDeclaration{"approval/" ++ Context.approval_option(choice) ++ "/" ++ approval_profile_key(choice), V.execution_approval_summary(choice, reviewer), V.Secondary{},
+      U.EditDraft{editor, U.ConfigureContext{Context.SetApproval{choice}}}, V.Available{}}, parent, state)
+
+def reviewer_choices(profiles: +List<D.Profile>, +current: Context.ApprovalChoice, +editor: U.Editor, +parent: String, +state: Core.State) -> +List<Node>:
+  match profiles:
+    case Nil{}: Nil{}
+    case Con{D.Profile{+key, provider, name, policy}, rest}:
+      approval_choice_node(Context.AutomaticReview{key}, current, Some{D.Profile{key, provider, name, policy}}, editor, parent, state) <> reviewer_choices(rest, current, editor, parent, state)
+
+def approval_choices(+current: Context.ApprovalChoice, reviewers: +List<D.Profile>, +editor: U.Editor, +parent: String, +state: Core.State) -> Node:
+  Node{parent ++ "/approval", "permissions/approval", "Approval policy", Section{}, ChoiceGroup{},
+    approval_choice_node(Context.Ask{}, current, None{}, editor, parent ++ "/approval", state) <>
+    approval_choice_node(Context.Unrestricted{}, current, None{}, editor, parent ++ "/approval", state) <>
+    reviewer_choices(reviewers, current, editor, parent ++ "/approval", state)}
+
+def network_description(network: Bool) -> String:
+  match network:
+    case False{}: "Keep network access off."
+    case True{}: "Allow network access."
+
+def network_key(network: Bool) -> String:
+  match network:
+    case False{}: "disabled"
+    case True{}: "enabled"
+
+def network_label(network: Bool) -> String:
+  match network:
+    case False{}: "Disabled"
+    case True{}: "Enabled"
+
+def network_selected(current: Bool, target: Bool) -> Bool:
+  match current target:
+    case False{} False{}: True{}
+    case True{} True{}: True{}
+    case _ _: False{}
+
+def network_choice(+mode: D.SandboxMode, current: Bool, +target: Bool, editor: U.Editor, parent: String, state: Core.State) -> Node:
+  declared_choice(network_selected(current, target), network_description(target),
+    V.ControlDeclaration{"permissions/network/" ++ network_key(target), network_label(target), V.Secondary{},
+      U.EditDraft{editor, U.ConfigureContext{Context.SetSandbox{D.Sandbox{mode, target}}}}, V.Available{}}, parent, state)
+
+def network_choices(sandbox: D.Sandbox, +editor: U.Editor, +parent: String, +state: Core.State) -> Node:
+  D.Sandbox{+mode, +network} = sandbox
+  Node{parent ++ "/network", "permissions/network", "Network access", Section{}, ChoiceGroup{},
+    [network_choice(mode, network, False{}, editor, parent ++ "/network", state),
+     network_choice(mode, network, True{}, editor, parent ++ "/network", state)]}
+
+def unavailable_context(+reason: String, parent: String) -> +List<Node>:
+  [Node{parent ++ "/unavailable", "context/unavailable", reason, Content{}, ReadOnly{reason}, Nil{}}]
+
+def optional_control(value: Maybe<&2, V.ControlDeclaration>, parent: String, state: Core.State) -> +List<Node>:
+  match value:
+    case None{}: Nil{}
+    case Some{control}: [declared(parent, control, state)]
+
+def workspace_menu_group(+editor: U.Editor, group: V.InputGroup, +parent: String, +state: Core.State) -> +List<Node>:
+  match group:
+    case V.ExecutionInput{config, Context.ContextUnavailable{reason}, controls, projects, reviewers}: unavailable_context(reason, parent)
+    case V.ExecutionInput{config, +preview, V.WorkspaceControls{identity, roots, inherit}, projects, reviewers}:
+      context_summary_node(Context.DraftExecution{preview}, parent, state) <>
+      Node{parent ++ "/instruction", "workspace/instruction", "Add directories and choose the primary working directory.", Content{}, ReadOnly{"Add directories and choose the primary working directory."}, Nil{}} <>
+      Node{parent ++ "/add", "workspace/add", "Add working directory", Field{}, EnterDirectory{editor, pending_directory(state, editor)}, Nil{}} <>
+      directory_confirm(editor, parent, state) <>
+      List.append(&2, Node, directory_root_nodes(roots, parent, state), optional_control(inherit, parent, state))
+    case _: Nil{}
+
+def workspace_menu(groups: +List<V.InputGroup>, +editor: U.Editor, +parent: String, +state: Core.State) -> +List<Node>:
+  match groups:
+    case Nil{}: Nil{}
+    case Con{group, rest}: List.append(&2, Node, workspace_menu_group(editor, group, parent, state), workspace_menu(rest, editor, parent, state))
+
+def permission_menu_group(+editor: U.Editor, group: V.InputGroup, +parent: String, +state: Core.State) -> +List<Node>:
+  match group:
+    case V.ExecutionInput{config, Context.ContextUnavailable{reason}, controls, projects, reviewers}: unavailable_context(reason, parent)
+    case V.ExecutionInput{+config, Context.ProspectiveContext{+origin, +project, +workspace, +sandbox, +approval, +guidance}, controls, projects, reviewers}:
+      context_summary_node(Context.DraftExecution{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}}, parent, state) <>
+      sandbox_choices(V.execution_sandbox(sandbox), editor, parent, state) <>
+      network_choices(V.execution_sandbox(sandbox), editor, parent, state) <>
+      approval_choices(Context.observed_approval(approval), reviewers, editor, parent, state) <>
+      List.append(&2, Node, reset_control(reset_change(config, Forms.SandboxMode{}), editor, Forms.SandboxMode{}, "filesystem and network access", parent, state),
+        reset_control(reset_change(config, Forms.ApprovalPolicy{}), editor, Forms.ApprovalPolicy{}, "approval policy", parent, state))
+    case _: Nil{}
+
+def permission_menu(groups: +List<V.InputGroup>, +editor: U.Editor, +parent: String, +state: Core.State) -> +List<Node>:
+  match groups:
+    case Nil{}: Nil{}
+    case Con{group, rest}: List.append(&2, Node, permission_menu_group(editor, group, parent, state), permission_menu(rest, editor, parent, state))
+
+def committed_primary_text(primary: Bool) -> String:
+  match primary:
+    case True{}: "Primary working directory"
+    case False{}: "Additional directory"
+
+def committed_project_name(found: Maybe<&2, D.Project>, id: Nat) -> String:
+  match found:
+    case None{}: "Project unavailable (ID " ++ Nat.show(id) ++ ")"
+    case Some{D.Project{name, workspace, guidance}}: name
+
+def committed_project_text(project: Maybe<&2, Nat>, world: M.World()) -> String:
+  match project:
+    case None{}: "Projectless task"
+    case Some{+id}: committed_project_name(Projects.find(Projects.registry(F.State(), world), id), id)
+
+def committed_project_node(project: Maybe<&2, Nat>, +parent: String, state: Core.State) -> Node:
+  Core.State{E.Application{world, session}, services} = state
+  +label = committed_project_text(project, world)
+  Node{parent ++ "/project", "context/project", label, Content{}, ReadOnly{label}, Nil{}}
+
+def committed_working_directory(primary: Maybe<&2, String>) -> String:
+  match primary:
+    case None{}: "No working directory"
+    case Some{path}: "Working directory: " ++ path
+
+def committed_working_directory_extra(covered: Bool, +primary: Maybe<&2, String>, +parent: String) -> +List<Node>:
+  match covered:
+    case True{}: Nil{}
+    case False{}:
+      [Node{parent ++ "/working-directory", "context/working-directory", committed_working_directory(primary), Content{}, ReadOnly{committed_working_directory(primary)}, Nil{}}]
+
+def committed_directory_nodes(roots: +List<String>, +primary: Maybe<&2, String>, +parent: String) -> +List<Node>:
+  match roots:
+    case Nil{}: Nil{}
+    case Con{+path, rest}:
+      Node{parent ++ "/directory/" ++ path, "directory/" ++ path, path, Content{}, DirectoryRow{path, V.is_primary(primary, path)},
+        [Node{parent ++ "/directory/" ++ path ++ "/primary", "directory/primary", committed_primary_text(V.is_primary(primary, path)), Content{}, ReadOnly{committed_primary_text(V.is_primary(primary, path))}, Nil{}}]} <>
+        committed_directory_nodes(rest, primary, parent)
+
+def committed_context_nodes(context: Maybe<&2, Context.EffectiveContext>, +parent: String, +state: Core.State) -> +List<Node>:
+  match context:
+    case None{}: unavailable_context("Task execution context is unavailable", parent)
+    case Some{Context.EffectiveContext{+task, D.TaskContext{D.Workspace{+roots, +primary}, +sandbox, +approval, +project}, +guidance, +access}}:
+      context_summary_node(Context.CommittedExecution{Context.EffectiveContext{task, D.TaskContext{D.Workspace{roots, primary}, sandbox, approval, project}, guidance, access}}, parent, state) <>
+      committed_project_node(project, parent, state) <>
+      List.append(&2, Node, committed_working_directory_extra(Context.member_primary(primary, roots), primary, parent), committed_directory_nodes(roots, primary, parent))
+
+def project_picker_control(control: Core.Control, selected: Bool, description: String, parent: String) -> Node:
+  Core.Control{+key, label, prominence, input, availability} = control
+  Node{parent ++ "/" ++ key, key, label, Button{}, Choice{selected, description, input, availability}, Nil{}}
+
+def project_picker_choice(declaration: V.ControlDeclaration, selected: Bool, description: String, parent: String, state: Core.State) -> Node:
+  project_picker_control(Core.control(state, declaration), selected, description, parent)
+
+def project_registered_choices(values: +List<V.ProjectChoice>, +selected: Maybe<&2, Nat>, +parent: String, +state: Core.State) -> +List<Node>:
+  match values:
+    case Nil{}: Nil{}
+    case Con{V.ProjectChoice{+id, name, +workspace}, rest}:
+      project_picker_choice(V.control("project/select/" ++ Nat.show(id), name, U.SelectProject{Some{id}}), V.same_project(selected, Some{id}), V.project_folder_description(workspace), parent, state) <>
+        project_registered_choices(rest, selected, parent, state)
+
+def project_choice_nodes(values: +List<V.ProjectChoice>, +selected: Maybe<&2, Nat>, +parent: String, +state: Core.State) -> +List<Node>:
+  project_picker_choice(V.control("project/select/none", "No project", U.SelectProject{None{}}), V.same_project(selected, None{}), "Use environment defaults", parent, state) <>
+    List.append(&2, Node, project_registered_choices(values, selected, parent, state), [declared(parent, V.control("project/create", "New project", U.EditProject{None{}}), state)])
+
 def layer_content(view: V.LayerContent, +parent: String, +state: Core.State) -> +List<Node>:
   match view:
+    case V.ProjectSelection{query, selected, projects}:
+      Node{parent ++ "/search", "search", "Search projects", Field{}, SearchChoices{query}, Nil{}} <>
+        project_choice_nodes(projects, selected, parent, state)
     case V.ObjectActions{actions}: controls(actions, parent, state)
     case V.ArchivedCards{values}: cards(values, parent, state)
     case V.BoardSettings{+automatic, draft_profile, assistance_profiles, automation}:
@@ -876,7 +1179,9 @@ def layer_content(view: V.LayerContent, +parent: String, +state: Core.State) -> 
     case V.BoardFilters{filter}: board_filter_nodes(filter, parent, state)
     case V.CardDetails{card}: card_details_nodes(card, parent, state)
     case V.ObjectEditor{value}: editor(value, parent, state)
-    case V.ExecutionSettings{identity, values}: sections([Forms.execution()], identity, parent, 0n, state)
+    case V.WorkspaceSettings{identity, values}: workspace_menu(values, identity, parent, state)
+    case V.PermissionSettings{identity, values}: permission_menu(values, identity, parent, state)
+    case V.CommittedContext{context}: committed_context_nodes(context, parent, state)
     case V.ModelSelection{identity, query, values}:
       Node{parent ++ "/search", "search", "Search models", Field{}, SearchChoices{query}, Nil{}} <> picker_fields(values, identity, parent, state)
     case V.DeliverySelection{identity, values}: picker_fields(values, identity, parent, state)
@@ -1012,6 +1317,7 @@ def profile_exists(profile: Maybe<&2, D.Profile>) -> Bool:
 def bind(meaning: Meaning, gesture: Gesture) -> Maybe<&2, Core.Input>:
   match meaning gesture:
     case Activate{input, availability} Press{}: when_available(available(availability), input)
+    case Choice{selected, description, input, availability} Press{}: when_available(available(availability), input)
     case Edit{+editor, +field, Forms.DisplayOnly{}, +value} Change{+next}: None{}
     case Edit{+editor, +field, entry, +value} Change{+next}: Some{Core.EditField{editor, field, next}}
     case SearchChoices{query} Search{+next}: Some{Core.ApplicationInput{E.UserInput{U.SearchChoices{next}}}}
@@ -1019,7 +1325,8 @@ def bind(meaning: Meaning, gesture: Gesture) -> Maybe<&2, Core.Input>:
     case BoardSearch{+filter} Search{+next}: Some{Core.ApplicationInput{E.UserInput{U.FilterBoard{with_search(next, filter)}}}}
     case ReceiveFile{+editor, +enabled} Attach{file}: when_available(enabled, Core.ServiceInput{Services.AddFile{editor, file}})
     case BoardProfile{automatic, selected, choices, +enabled} SelectBoardProfile{+profile}: when_available(enabled && profile_exists(D.find_profile(choices, profile)), Core.ApplicationInput{E.UserInput{U.Activate{U.BoardCommand{B.Settings{automatic, profile}}}}})
-    case EnterDirectory{+editor} Directory{path}: Some{Core.EditField{editor, Forms.WorkspaceDirectories{}, Forms.WorkspaceChange{Context.AddRoot{path}}}}
+    case EnterDirectory{+editor, text} Directory{path}: Some{Core.ApplicationInput{E.UserInput{U.EditDraft{editor, U.WriteDirectory{path}}}}}
+    case EnterDirectory{editor, text} ConfirmDirectory{}: Some{Core.ApplicationInput{E.UserInput{U.EditDraft{editor, U.ConfirmDirectory{}}}}}
     case _ _: None{}
 
 def bind_node(found: Maybe<&2, Node>, gesture: Gesture) -> Maybe<&2, Core.Input>:
@@ -1100,11 +1407,12 @@ def navigates(input: Maybe<&2, Core.Input>) -> Bool:
   match input:
     case Some{Core.ApplicationInput{E.UserInput{U.Activate{U.Navigate{route}}}}}: True{}
     case Some{Core.ApplicationInput{E.UserInput{U.Activate{U.BeginTask{project}}}}}: True{}
+    case Some{Core.ApplicationInput{E.UserInput{U.Activate{U.SelectProject{project}}}}}: True{}
     case _: False{}
 
 def dismiss_navigation(session: E.Session) -> E.Session:
   E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code} = session
-  E.Session{route, drafts, readers, layers, attention, E.ClosedNavigation{}, filter, now, next, pending, previews, code}
+  E.Session{route, drafts, readers, layers, attention, E.set_navigation(False{}, navigation), filter, now, next, pending, previews, code}
 
 def navigation_closed(decision: Core.Decision) -> Core.Decision:
   Core.Decision{Core.State{E.Application{program, session}, services}, reply, runtime, interaction, service_effects, durable} = decision
@@ -1134,6 +1442,7 @@ def interact(+capacity: V.Capacity, +key: String, gesture: Gesture, +state: Core
 def focusable(meaning: Meaning) -> Bool:
   match meaning:
     case Activate{input, availability}: available(availability)
+    case Choice{selected, description, input, availability}: available(availability)
     case Edit{editor, field, Forms.DisplayOnly{}, value}: False{}
     case Edit{editor, field, Forms.FileCollection{}, value}: False{}
     case Edit{editor, field, Forms.DirectoryCollection{}, value}: False{}
@@ -1142,7 +1451,7 @@ def focusable(meaning: Meaning) -> Bool:
     case EnterCredential{entered}: True{}
     case BoardSearch{filter}: True{}
     case ReceiveFile{editor, enabled}: enabled
-    case EnterDirectory{editor}: True{}
+    case EnterDirectory{editor, text}: True{}
     case BoardProfile{automatic, selected, choices, enabled}: enabled
     case _: False{}
 

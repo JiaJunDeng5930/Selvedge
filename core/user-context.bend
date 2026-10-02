@@ -57,6 +57,27 @@ type Preview is Data:
 type EffectiveContext is Data:
   EffectiveContext{task: Nat, context: D.TaskContext, guidance: D.ProjectContext, default_access: D.ExecutionAccess}
 
+type Observation is Data:
+  DraftExecution{preview: Preview}
+  CommittedExecution{context: EffectiveContext}
+
+def approval_choice(policy: D.ApprovalPolicy) -> ApprovalChoice:
+  match policy:
+    case D.AskForApproval{}: Ask{}
+    case D.FullAccess{}: Unrestricted{}
+    case D.ApprovalForMe{D.Profile{key, provider, name, reasoning}}: AutomaticReview{key}
+
+def observed_approval(value: ApprovalValue) -> ApprovalChoice:
+  match value:
+    case InheritedApproval{policy}: approval_choice(policy)
+    case ChosenApproval{choice}: choice
+
+def approval_option(choice: ApprovalChoice) -> String:
+  match choice:
+    case Ask{}: "ask"
+    case Unrestricted{}: "full-access"
+    case AutomaticReview{profile}: "automatic"
+
 type DirectoryObservation is Data:
   DirectoryObservation{workspace: D.Workspace, guidance: D.ProjectContext}
 

@@ -4,6 +4,7 @@ import ../core/interface.bend as UI
 import ../core/composition.bend as Composition
 import ./design.bend as Design
 import ./layout.bend as Layout
+import ./renderer.bend as Render
 
 def conversation_recipe(composer: Composition.Composer, decisions: Composition.Decisions,
   latest: Composition.Latest) -> Composition.Recipe:
@@ -166,6 +167,16 @@ def expected_anchored_menu(viewport: Design.Viewport, origin: String) -> Design.
   +available = Layout.inset_box(viewport)
   Design.AnchoredPopover{origin, available, Nat.min(320n, Layout.box_width(available)),
     Nat.min(400n, Layout.box_height(available)), 4n}
+
+
+# The browser evaluates real anchor space; this production projection requires
+# all anchored menus to prefer larger block space before fitting a scrollport.
+def anchored_menu_prefers_block_space(+viewport: Design.Viewport, +origin: String) ->
+  {(Render.attr(Render.overlay_styles(Layout.anchored_menu_placement(viewport, Some{origin})), "position-try-order"),
+    Render.attr(Render.overlay_styles(Layout.anchored_menu_placement(viewport, Some{origin})), "position-try-fallbacks")) ==
+    ("most-block-size", "flip-block, flip-inline, flip-block flip-inline") : (String & String)}:
+  match viewport:
+    case Design.Viewport{width, height}: {==}
 
 def menu_uses_resolved_origin(viewport: Design.Viewport, initial_attention: String,
   return_attention: String, content: V.LayerContent, close: V.ControlDeclaration,
@@ -381,6 +392,10 @@ type Requirements is Type:
       {Layout.menu_for_layer(viewport,
         Some{anchored_layer(initial_attention, return_attention, content, close)}, surface) ==
         expected_anchored_menu(viewport, origin) : Design.OverlayPlacement},
+    anchored_menu_prefers_block_space: @+viewport:Design.Viewport -> @+origin:String ->
+      {(Render.attr(Render.overlay_styles(Layout.anchored_menu_placement(viewport, Some{origin})), "position-try-order"),
+        Render.attr(Render.overlay_styles(Layout.anchored_menu_placement(viewport, Some{origin})), "position-try-fallbacks")) ==
+        ("most-block-size", "flip-block, flip-inline, flip-block flip-inline") : (String & String)},
     compact_creation: @height:Nat -> @below:{Nat.is_lt(height, 420n) == True{} : Bool} ->
       {Layout.creation_flow_for_height(height) == Design.Compact{} : Design.CreationFlow},
     balanced_creation: @height:Nat -> @enough:{Nat.is_lt(height, 420n) == False{} : Bool} ->
@@ -419,6 +434,7 @@ def evidence() -> Requirements:
     surface => requested => scope => empty_tree_anchor_is_absent(surface, requested, scope),
     viewport => initial_attention => return_attention => content => close => surface => origin => matched =>
       menu_uses_resolved_origin(viewport, initial_attention, return_attention, content, close, surface, origin, matched),
+    viewport => origin => anchored_menu_prefers_block_space(viewport, origin),
     height => below => compact_creation(height, below),
     height => enough => balanced_creation(height, enough)
   }

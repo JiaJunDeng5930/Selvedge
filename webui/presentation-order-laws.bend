@@ -223,6 +223,7 @@ def ordered_children_matches_specification(+values: +List<UI.Node>, role: UI.Rol
     case UI.Button{}: {==}
     case UI.Field{}: {==}
     case UI.Content{}: {==}
+    case UI.Alert{}: {==}
 
 def node_key(value: UI.Node) -> String:
   UI.Node{key, semantic, label, role, meaning, children} = value
@@ -261,6 +262,7 @@ def non_dialog_order(role: UI.Role, +values: +List<UI.Node>, +context: Controls.
     case UI.Button{}: {==}
     case UI.Field{}: {==}
     case UI.Content{}: {==}
+    case UI.Alert{}: {==}
 
 def specified_header_append_step(value: UI.Node, rest: +List<UI.Node>, right: +List<UI.Node>, include: Bool,
   +context: Controls.Context,

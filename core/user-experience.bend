@@ -1,3 +1,4 @@
+import ../bendlib/stdlib.bend as Std
 import Base
 import ./code-block.bend as Content
 import ./live-output.bend as Live
@@ -33,13 +34,16 @@ type Pending is Data:
 
 type Session is Data:
   Session{route: U.Route, drafts: +List<U.Draft>, readers: +List<Finite.Entry(Reader)>,
-    layers: +List<Layer>, attention: String, navigation: NavigationIntent, filter: B.Filter,
+    layers: +List<Layer>, attention: String, navigation: NavigationState, filter: B.Filter,
     now: U32, next_ticket: Nat, pending: +List<Pending>, previews: +List<Live.Output>, code_blocks: +List<Content.Block>}
 
 type NavigationIntent is Data:
   AutomaticNavigation{}
   OpenNavigation{}
   ClosedNavigation{}
+
+type NavigationState is Data:
+  NavigationState{intent: NavigationIntent, collapsed_projects: +List<Nat>}
 
 # Execution and human participation form one system. Observations are projections
 # of this value, not an independently supplied tree of enabled widgets.
@@ -129,8 +133,8 @@ def new_task(profile: Sigma<&2, &2, String, (_ => String)>, origin: Context.Orig
   U.NewTask{U.initial_text(""), profile, reasoning, Context.defaults(origin)}
 
 def initial(+program: M.World()) -> Application:
-  Application{program, Session{U.Start{}, [U.Draft{0n, new_task(first_profile(Board.profiles(program)), Context.EnvironmentDefaults{}), U.Editing{}}],
-    Nil{}, Nil{}, "composer/new-task", AutomaticNavigation{}, B.empty_filter(), 0, 0n, Nil{}, Nil{}, Nil{}}}
+  Application{program, Session{U.Start{}, [U.Draft{0n, new_task(first_profile(Board.profiles(program)), Context.EnvironmentDefaults{}), U.Editing{}, ""}],
+    Nil{}, Nil{}, "composer/new-task", NavigationState{AutomaticNavigation{}, Nil{}}, B.empty_filter(), 0, 0n, Nil{}, Nil{}, Nil{}}}
 
 def select_draft(hit: Bool, value: U.Draft, rest: Maybe<&2, U.Draft>) -> Maybe<&2, U.Draft>:
   match hit:
@@ -140,8 +144,8 @@ def select_draft(hit: Bool, value: U.Draft, rest: Maybe<&2, U.Draft>) -> Maybe<&
 def find_draft(drafts: +List<U.Draft>, +editor: U.Editor) -> Maybe<&2, U.Draft>:
   match drafts:
     case Nil{}: None{}
-    case Con{U.Draft{revision, +body, feedback}, rest}:
-      select_draft(U.same_editor(U.owner(body), editor), U.Draft{revision, body, feedback}, find_draft(rest, editor))
+    case Con{U.Draft{revision, +body, feedback, directory_entry}, rest}:
+      select_draft(U.same_editor(U.owner(body), editor), U.Draft{revision, body, feedback, directory_entry}, find_draft(rest, editor))
 
 def keep_draft(hit: Bool, draft: U.Draft, rest: +List<U.Draft>) -> +List<U.Draft>:
   match hit:
@@ -151,11 +155,11 @@ def keep_draft(hit: Bool, draft: U.Draft, rest: +List<U.Draft>) -> +List<U.Draft
 def without_draft(drafts: +List<U.Draft>, +editor: U.Editor) -> +List<U.Draft>:
   match drafts:
     case Nil{}: Nil{}
-    case Con{U.Draft{revision, +body, feedback}, rest}:
-      keep_draft(U.same_editor(U.owner(body), editor), U.Draft{revision, body, feedback}, without_draft(rest, editor))
+    case Con{U.Draft{revision, +body, feedback, directory_entry}, rest}:
+      keep_draft(U.same_editor(U.owner(body), editor), U.Draft{revision, body, feedback, directory_entry}, without_draft(rest, editor))
 
 def put_draft(+draft: U.Draft, drafts: +List<U.Draft>) -> +List<U.Draft>:
-  U.Draft{revision, body, feedback} = draft
+  U.Draft{revision, body, feedback, directory_entry} = draft
   draft <> without_draft(drafts, U.owner(body))
 
 def with_draft(session: Session, draft: U.Draft) -> Session:
@@ -165,15 +169,25 @@ def with_draft(session: Session, draft: U.Draft) -> Session:
 def refuse(application: Application, reason: String) -> Decision:
   reply(application, D.failure("interaction_refused", reason))
 
-def edit_result(result: Result<&2, &2, String, U.Body>, revision: Nat, program: M.World(), session: Session) -> Decision:
+def edit_result(result: Result<&2, &2, String, U.Draft>, program: M.World(), session: Session) -> Decision:
   match result:
     case Fail{reason}: refuse(Application{program, session}, reason)
-    case Done{body}: local(program, with_draft(session, U.Draft{(revision + 1n : Nat), body, U.Editing{}}), Nil{})
+    case Done{draft}: local(program, with_draft(session, draft), Nil{})
+
+def confirm_found(admitted: Bool, draft: U.Draft, +program: M.World(), session: Session) -> Decision:
+  match admitted:
+    case False{}: unchanged(Application{program, session})
+    case True{}: edit_result(U.edit_draft(U.ConfirmDirectory{}, draft, program), program, session)
+
+def edit_existing(change: U.Edit, +draft: U.Draft, +program: M.World(), session: Session) -> Decision:
+  match change:
+    case U.ConfirmDirectory{}: confirm_found(U.can_confirm_directory(draft), draft, program, session)
+    case other: edit_result(U.edit_draft(other, draft, program), program, session)
 
 def edit_found(found: Maybe<&2, U.Draft>, change: U.Edit, +program: M.World(), session: Session) -> Decision:
   match found:
     case None{}: refuse(Application{program, session}, "The editor is not open")
-    case Some{U.Draft{revision, body, feedback}}: edit_result(U.apply_edit(change, body, program), revision, program, session)
+    case Some{draft}: edit_existing(change, draft, program, session)
 
 def edit(editor: U.Editor, change: U.Edit, application: Application) -> Decision:
   Application{program, +session} = application
@@ -204,10 +218,50 @@ def read(+task: Nat, intent: U.ReadingIntent, application: Application) -> Decis
   reading_decision(intent, old, task, program, session)
 
 
-def navigation_after_visit(intent: NavigationIntent) -> NavigationIntent:
+def navigation_intent_after_visit(intent: NavigationIntent) -> NavigationIntent:
   match intent:
     case OpenNavigation{}: AutomaticNavigation{}
     case other: other
+
+def navigation_after_visit(state: NavigationState) -> NavigationState:
+  NavigationState{intent, collapsed} = state
+  NavigationState{navigation_intent_after_visit(intent), collapsed}
+
+def navigation_visibility(state: NavigationState) -> NavigationIntent:
+  NavigationState{intent, collapsed} = state
+  intent
+
+def navigation_intent(expanded: Bool) -> NavigationIntent:
+  match expanded:
+    case True{}: OpenNavigation{}
+    case False{}: ClosedNavigation{}
+def set_navigation(expanded: Bool, state: NavigationState) -> NavigationState:
+  NavigationState{intent, collapsed} = state
+  NavigationState{navigation_intent(expanded), collapsed}
+
+def project_collapsed(state: NavigationState, +id: Nat) -> Bool:
+  NavigationState{intent, collapsed} = state
+  List.contains(~Nat, ~Nat.is_eq, collapsed, id)
+
+def project_disclosure_value(entry: Finite.Entry(Nat)) -> Nat:
+  (id, value) = entry
+  id
+
+def without_collapsed_project(collapsed: +List<Nat>, id: Nat) -> +List<Nat>:
+  Std.map(~Finite.Entry(Nat), ~Nat, ~(entry => project_disclosure_value(entry)), Finite.remove(~Nat, Std.map(~Nat, ~Finite.Entry(Nat), ~(current => (current, 0n)), collapsed), id))
+
+def toggle_collapsed(present: Bool, +id: Nat, collapsed: +List<Nat>) -> +List<Nat>:
+  match present:
+    case True{}: without_collapsed_project(collapsed, id)
+    case False{}: id <> collapsed
+
+def toggle_project_navigation(+id: Nat, +state: NavigationState) -> NavigationState:
+  NavigationState{intent, collapsed} = state
+  NavigationState{intent, toggle_collapsed(project_collapsed(state, id), id, collapsed)}
+
+def toggle_project(id: Nat, application: Application) -> Decision:
+  Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code}} = application
+  local(program, Session{route, drafts, readers, layers, attention, toggle_project_navigation(id, navigation), filter, now, next, pending, previews, code}, Nil{})
 
 def new_visit(reader: Reader) -> Reader:
   Reader{generation, position, disclosures} = reader
@@ -218,11 +272,14 @@ def visit_readers(route: U.Route, +readers: +List<Finite.Entry(Reader)>) -> +Lis
     case U.Conversation{+task}: (task, new_visit(reader(readers, task))) <> Finite.remove(~Reader, readers, task)
     case _: readers
 
-def navigate(+route: U.Route, application: Application) -> Decision:
+def navigate_with_attention(+route: U.Route, +target: String, application: Application) -> Decision:
   Application{program, Session{old, drafts, +readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks}} = application
   +current_readers = visit_readers(route, readers)
-  local(program, Session{route, drafts, current_readers, Nil{}, "page-heading", navigation_after_visit(navigation), filter, now, next, pending, previews, code_blocks},
-    [Attend{"page-heading"}])
+  local(program, Session{route, drafts, current_readers, Nil{}, target, navigation_after_visit(navigation), filter, now, next, pending, previews, code_blocks},
+    [Attend{target}])
+
+def navigate(route: U.Route, application: Application) -> Decision:
+  navigate_with_attention(route, "page-heading", application)
 
 def reader_generation(reader: Reader) -> Nat:
   Reader{generation, position, disclosures} = reader
@@ -243,9 +300,9 @@ def read_current(+task: Nat, generation: Nat, intent: U.ReadingIntent, +applicat
 
 def ensure(found: Maybe<&2, U.Draft>, fallback: U.Body, session: Session) -> Session:
   match found:
-    case Some{U.Draft{revision, body, U.Accepted{submitted, result}}}: with_draft(session, U.Draft{(revision + 1n : Nat), fallback, U.Editing{}})
+    case Some{U.Draft{revision, body, U.Accepted{submitted, result}, directory_entry}}: with_draft(session, U.Draft{(revision + 1n : Nat), fallback, U.Editing{}, ""})
     case Some{draft}: session
-    case None{}: with_draft(session, U.Draft{0n, fallback, U.Editing{}})
+    case None{}: with_draft(session, U.Draft{0n, fallback, U.Editing{}, ""})
 
 def visit(route: U.Route, application: Application) -> Decision:
   match route:
@@ -258,6 +315,7 @@ def visit(route: U.Route, application: Application) -> Decision:
 
 def panel_target(panel: U.Panel) -> String:
   match panel:
+    case U.ProjectPicker{}: "project-picker"
     case U.ObjectActions{subject}: "actions/" ++ U.subject_key(subject)
     case U.ArchivedCards{}: "archived-cards"
     case U.BoardSettings{}: "board-settings"
@@ -265,7 +323,9 @@ def panel_target(panel: U.Panel) -> String:
     case U.CardDetails{card}: "card-details/" ++ Nat.show(card)
     case U.EditObject{editor}: "editor/" ++ U.editor_key(editor)
     case U.TaskDetails{task}: "task-details/" ++ Nat.show(task)
-    case U.TaskConfiguration{}: "execution-configuration"
+    case U.WorkspaceConfiguration{editor}: "workspace-configuration/" ++ U.editor_key(editor)
+    case U.PermissionsConfiguration{editor}: "permissions-configuration/" ++ U.editor_key(editor)
+    case U.TaskContext{task}: "task-context/" ++ Nat.show(task)
     case U.ModelPicker{editor}: "model-picker/" ++ U.editor_key(editor)
     case U.DeliveryPicker{task}: "delivery-picker/" ++ Nat.show(task)
     case U.Confirm{command, title, destination}: "confirm/cancel"
@@ -387,22 +447,22 @@ def agent_editor(+application: Application, id: Maybe<&2, Nat>) -> Decision:
     case None{}: new_agent(first_profile(Board.profiles(program)), application)
     case Some{id}: board_agent(Board.registry(program), id, application)
 
-def begin_changed(body: Result<&2, &2, String, U.Body>, revision: Nat, application: Application) -> Decision:
+def begin_changed(body: Result<&2, &2, String, U.Body>, revision: Nat, directory_entry: String, application: Application) -> Decision:
   match body:
     case Fail{reason}: refuse(application, reason)
     case Done{body}:
       Application{program, session} = application
-      navigate(U.Start{}, Application{program, with_draft(session, U.Draft{(revision + 1n : Nat), body, U.Editing{}})})
+      navigate_with_attention(U.Start{}, "composer/" ++ U.editor_key(U.NewTaskEditor{}), Application{program, with_draft(session, U.Draft{(revision + 1n : Nat), body, U.Editing{}, directory_entry})})
 
-def begin_context_change(origin: Context.Origin, body: U.Body, revision: Nat, +application: Application) -> Decision:
+def begin_context_change(origin: Context.Origin, body: U.Body, revision: Nat, directory_entry: String, +application: Application) -> Decision:
   Application{program, session} = application
-  begin_changed(U.apply_edit(U.ConfigureContext{Context.ChooseOrigin{origin}}, body, program), revision, application)
+  begin_changed(U.apply_edit(U.ConfigureContext{Context.ChooseOrigin{origin}}, body, program), revision, directory_entry, application)
 
 def begin_existing(found: Maybe<&2, U.Draft>, origin: Context.Origin, application: Application) -> Decision:
   match found:
-    case None{}: navigate(U.Start{}, application)
-    case Some{U.Draft{revision, body, feedback}}:
-      begin_context_change(origin, body, revision, application)
+    case None{}: navigate_with_attention(U.Start{}, "composer/" ++ U.editor_key(U.NewTaskEditor{}), application)
+    case Some{U.Draft{revision, body, feedback, directory_entry}}:
+      begin_context_change(origin, body, revision, directory_entry, application)
 
 def begin_task(project: Maybe<&2, Nat>, application: Application) -> Decision:
   Application{program, +session} = application
@@ -412,15 +472,15 @@ def begin_task(project: Maybe<&2, Nat>, application: Application) -> Decision:
 def busy(pending: +List<Pending>, +editor: U.Editor) -> Bool:
   match pending:
     case Nil{}: False{}
-    case Con{Pending{ticket, U.Draft{revision, body, feedback}, now}, rest}:
+    case Con{Pending{ticket, U.Draft{revision, body, feedback, directory_entry}, now}, rest}:
       U.same_editor(U.owner(body), editor) || busy(rest, editor)
 
 def settled_current(current: U.Draft, same: Bool, accepted: Bool, submitted: Nat, +result: J.Json) -> U.Draft:
-  U.Draft{revision, body, feedback} = current
+  U.Draft{revision, body, feedback, directory_entry} = current
   match same accepted:
-    case True{} True{}: U.Draft{(revision + 1n : Nat), U.after_accept(body), U.Accepted{submitted, result}}
-    case False{} _: U.Draft{revision, body, feedback}
-    case True{} False{}: U.Draft{revision, body, U.Rejected{submitted, J.text(J.get(J.get(result, "error"), "message"))}}
+    case True{} True{}: U.Draft{(revision + 1n : Nat), U.after_accept(body), U.Accepted{submitted, result}, directory_entry}
+    case False{} _: U.Draft{revision, body, feedback, directory_entry}
+    case True{} False{}: U.Draft{revision, body, U.Rejected{submitted, J.text(J.get(J.get(result, "error"), "message"))}, directory_entry}
 
 def settle_owned(owned: Bool, current: U.Draft, revision: Nat, +result: J.Json, session: Session) -> Session:
   match owned:
@@ -430,21 +490,21 @@ def settle_owned(owned: Bool, current: U.Draft, revision: Nat, +result: J.Json, 
 def settle_found(found: Maybe<&2, U.Draft>, +revision: Nat, +result: J.Json, session: Session) -> Session:
   match found:
     case None{}: session
-    case Some{U.Draft{+current, body, feedback}}:
-      settle_owned(Nat.is_eq(current, revision), U.Draft{current, body, feedback}, revision, result, session)
+    case Some{U.Draft{+current, body, feedback, directory_entry}}:
+      settle_owned(Nat.is_eq(current, revision), U.Draft{current, body, feedback, directory_entry}, revision, result, session)
 
 def settle(submitted: U.Draft, +result: J.Json, +session: Session) -> Session:
-  U.Draft{revision, body, feedback} = submitted
+  U.Draft{revision, body, feedback, directory_entry} = submitted
   Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks} = session
   settle_found(find_draft(drafts, U.owner(body)), revision, result, session)
 
 def same_revision(found: Maybe<&2, U.Draft>, expected: Nat) -> Bool:
   match found:
     case None{}: False{}
-    case Some{U.Draft{actual, body, feedback}}: Nat.is_eq(actual, expected)
+    case Some{U.Draft{actual, body, feedback, directory_entry}}: Nat.is_eq(actual, expected)
 
 def owns_submission(draft: U.Draft, session: Session) -> Bool:
-  U.Draft{revision, body, feedback} = draft
+  U.Draft{revision, body, feedback, directory_entry} = draft
   Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks} = session
   same_revision(find_draft(drafts, U.owner(body)), revision)
 
@@ -492,7 +552,7 @@ def finish_submission(accepted_current: Bool, draft: U.Draft, result: J.Json, +a
   match accepted_current:
     case False{}: unchanged(application)
     case True{}:
-      U.Draft{revision, body, feedback} = draft
+      U.Draft{revision, body, feedback, directory_entry} = draft
       Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks}} = application
       finish_body(body, route, layers, result, application)
 
@@ -531,7 +591,7 @@ def prepare(application: Application, workspace: Maybe<&2, D.Workspace>, +draft:
   Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, +now, +next, pending, previews, code_blocks}} = application
   match workspace:
     case None{}:
-      U.Draft{revision, body, feedback} = draft
+      U.Draft{revision, body, feedback, directory_entry} = draft
       execute(U.command(body, now), Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks}}, Some{draft})
     case Some{workspace}:
       local(program, Session{route, drafts, readers, layers, attention, navigation, filter, now, (next + 1n : Nat),
@@ -541,16 +601,16 @@ def submit_ready(ready: Bool, +draft: U.Draft, application: Application) -> Deci
   match ready:
     case False{}: refuse(application, "Submission is pending, composition is active, or the context origin is invalid")
     case True{}:
-      U.Draft{revision, body, feedback} = draft
+      U.Draft{revision, body, feedback, directory_entry} = draft
       prepare(application, U.required_workspace(body), draft)
 
 def submit_found(found: Maybe<&2, U.Draft>, +application: Application) -> Decision:
   match found:
     case None{}: refuse(application, "The editor is not open")
-    case Some{U.Draft{revision, +body, feedback}}:
+    case Some{U.Draft{revision, +body, feedback, directory_entry}}:
       Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks}} = application
       submit_ready(Bool.not(busy(pending, U.owner(body))) && U.valid_origin(body),
-        U.Draft{revision, body, feedback}, application)
+        U.Draft{revision, body, feedback, directory_entry}, application)
 
 def submit(editor: U.Editor, +application: Application) -> Decision:
   Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks}} = application
@@ -589,7 +649,7 @@ def observed_valid(valid: Bool, observation: Context.DirectoryObservation, +draf
   match valid:
     case False{}: preparation_failure(draft, "The directory observation does not satisfy the workspace contract", application)
     case True{}:
-      U.Draft{revision, body, feedback} = draft
+      U.Draft{revision, body, feedback, directory_entry} = draft
       execute(U.prepared_command(body, observation, now), application, Some{draft})
 
 def observation_result(result: Result<&2, &2, String, Context.DirectoryObservation>, pending: Pending, application: Application) -> Decision:
@@ -652,6 +712,8 @@ def confirm(layers: +List<Layer>, application: Application) -> Decision:
 
 def activate_selected(action: U.Action, +application: Application) -> Decision:
   match action:
+    case U.SelectProject{project}: begin_task(project, application)
+    case U.ToggleProjectGroup{project}: toggle_project(project, application)
     case U.Navigate{route}: visit(route, application)
     case U.BeginTask{+project}: begin_task(project, application)
     case U.EditProject{+project}: project_editor(project, application)
@@ -694,10 +756,6 @@ def disclose(+task: Nat, group: Nat, occurrence: Nat, expanded: Bool, applicatio
     layers, attention, navigation, filter, now, next, pending, previews, code_blocks}, Nil{})
 
 
-def navigation_intent(expanded: Bool) -> NavigationIntent:
-  match expanded:
-    case True{}: OpenNavigation{}
-    case False{}: ClosedNavigation{}
 def navigation_focus(expanded: Bool) -> String:
   match expanded:
     case True{}: "new-task"
@@ -738,7 +796,7 @@ def user(input: U.Input, application: Application) -> Decision:
     case U.SetNavigation{+expanded}:
       Application{program, Session{route, drafts, readers, layers, attention, previous, filter, now, next, pending, previews, code_blocks}} = application
       +target = navigation_focus(expanded)
-      local(program, Session{route, drafts, readers, layers, target, navigation_intent(expanded), filter, now, next, pending, previews, code_blocks}, [Attend{target}])
+      local(program, Session{route, drafts, readers, layers, target, set_navigation(expanded, previous), filter, now, next, pending, previews, code_blocks}, [Attend{target}])
     case U.SearchChoices{query}: search_choices(query, application)
     case U.FilterBoard{filter}:
       Application{program, Session{route, drafts, readers, layers, attention, navigation, previous, now, next, pending, previews, code_blocks}} = application

@@ -149,6 +149,7 @@ def clear_region_geometry(role: UI.Role, key: String, found: Maybe<&2, Rendered.
     case UI.SelectedButton{}: {==}
     case UI.Field{}: {==}
     case UI.Content{}: {==}
+    case UI.Alert{}: {==}
     case UI.UserMessage{}: {==}
     case UI.AssistantMessage{}: {==}
     case UI.ComposerActions{}: {==}

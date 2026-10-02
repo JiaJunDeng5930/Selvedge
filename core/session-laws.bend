@@ -15,14 +15,14 @@ import ./user-input.bend as U
 type Residence is Data:
   Residence{program: M.World(), drafts: +List<U.Draft>, readers: +List<Finite.Entry(E.Reader)>,
     pending: +List<E.Pending>, previews: +List<Live.Output>, code_blocks: +List<Content.Block>,
-    route: U.Route, navigation: E.NavigationIntent, filter: B.Filter, now: U32, next_ticket: Nat}
+    route: U.Route, navigation: E.NavigationState, filter: B.Filter, now: U32, next_ticket: Nat}
 
 type SessionContent is Data:
   SessionContent{drafts: +List<U.Draft>, readers: +List<Finite.Entry(E.Reader)>}
 
 type NativeFrame is Data:
   NativeFrame{program: M.World(), route: U.Route, drafts: +List<U.Draft>, readers: +List<Finite.Entry(E.Reader)>,
-    layers: +List<E.Layer>, attention: String, navigation: E.NavigationIntent, filter: B.Filter, now: U32,
+    layers: +List<E.Layer>, attention: String, navigation: E.NavigationState, filter: B.Filter, now: U32,
     next_ticket: Nat, pending: +List<E.Pending>, code_blocks: +List<Content.Block>}
 
 type ReadingLocation is Data:
@@ -104,7 +104,7 @@ def close_residence(application: E.Application) ->
 
 def close_nonempty(program: M.World(), route: U.Route, drafts: +List<U.Draft>, readers: +List<Finite.Entry(E.Reader)>,
   panel: U.Panel, +trigger: String, initial: String, query: String, rest: +List<E.Layer>, old_attention: String,
-  navigation: E.NavigationIntent, filter: B.Filter, now: U32, next: Nat, pending: +List<E.Pending>,
+  navigation: E.NavigationState, filter: B.Filter, now: U32, next: Nat, pending: +List<E.Pending>,
   previews: +List<Live.Output>, code_blocks: +List<Content.Block>) ->
   {E.close_panel(E.Application{program, E.Session{route, drafts, readers,
       E.Layer{panel, trigger, initial, query} <> rest, old_attention, navigation, filter, now, next, pending, previews, code_blocks}}) ==
@@ -113,7 +113,7 @@ def close_nonempty(program: M.World(), route: U.Route, drafts: +List<U.Draft>, r
   {==}
 
 def close_empty(program: M.World(), route: U.Route, drafts: +List<U.Draft>, readers: +List<Finite.Entry(E.Reader)>,
-  attention_value: String, navigation: E.NavigationIntent, filter: B.Filter, now: U32, next: Nat,
+  attention_value: String, navigation: E.NavigationState, filter: B.Filter, now: U32, next: Nat,
   pending: +List<E.Pending>, previews: +List<Live.Output>, code_blocks: +List<Content.Block>) ->
   {E.close_panel(E.Application{program, E.Session{route, drafts, readers, Nil{}, attention_value, navigation, filter, now, next, pending, previews, code_blocks}}) ==
     E.unchanged(E.Application{program, E.Session{route, drafts, readers, Nil{}, attention_value, navigation, filter, now, next, pending, previews, code_blocks}}) : E.Decision}:
@@ -186,18 +186,18 @@ def obsolete_reading(+task: Nat, +generation: Nat, +intent: U.ReadingIntent, +ap
 
 def model_choice(program: M.World(), route: U.Route, drafts: +List<U.Draft>, readers: +List<Finite.Entry(E.Reader)>,
   +trigger: String, initial: String, query: String, rest: +List<E.Layer>, old_attention: String,
-  navigation: E.NavigationIntent, filter: B.Filter, now: U32, next: Nat, pending: +List<E.Pending>,
+  navigation: E.NavigationState, filter: B.Filter, now: U32, next: Nat, pending: +List<E.Pending>,
   previews: +List<Live.Output>, code_blocks: +List<Content.Block>, revision: Nat, text: U.Text,
-  old_profile: String, old_reasoning: String, context: Context.Configuration, feedback: U.Feedback,
+  old_profile: String, old_reasoning: String, context: Context.Configuration, feedback: U.Feedback, +directory_entry: String,
   +new_profile: String, +new_reasoning: String,
   found: {E.find_draft(drafts, U.NewTaskEditor{}) ==
-    Some{U.Draft{revision, U.NewTask{text, old_profile, old_reasoning, context}, feedback}} : Maybe<&2, U.Draft>}) ->
+    Some{U.Draft{revision, U.NewTask{text, old_profile, old_reasoning, context}, feedback, directory_entry}} : Maybe<&2, U.Draft>}) ->
   {E.step(E.UserInput{U.EditDraft{U.NewTaskEditor{}, U.ChooseModel{new_profile, new_reasoning}}},
       E.Application{program, E.Session{route, drafts, readers,
         E.Layer{U.ModelPicker{U.NewTaskEditor{}}, trigger, initial, query} <> rest,
         old_attention, navigation, filter, now, next, pending, previews, code_blocks}}) ==
     E.Decision{E.Application{program, E.Session{route,
-      U.Draft{(revision + 1n : Nat), U.NewTask{text, new_profile, new_reasoning, context}, U.Editing{}} <>
+      U.Draft{(revision + 1n : Nat), U.NewTask{text, new_profile, new_reasoning, context}, U.Editing{}, directory_entry} <>
         E.without_draft(drafts, U.NewTaskEditor{}),
       readers, rest, trigger, navigation, filter, now, next, pending, previews, code_blocks}},
       D.success(J.Null{}), Nil{}, [E.Attend{trigger}], False{}} : E.Decision}:
@@ -208,7 +208,7 @@ def model_choice(program: M.World(), route: U.Route, drafts: +List<U.Draft>, rea
     (found_draft => E.close_selected_choice(U.ChooseModel{new_profile, new_reasoning}, U.NewTaskEditor{},
       E.edit_found(found_draft, U.ChooseModel{new_profile, new_reasoning}, program, session))),
     E.find_draft(drafts, U.NewTaskEditor{}),
-    Some{U.Draft{revision, U.NewTask{text, old_profile, old_reasoning, context}, feedback}}, found)
+    Some{U.Draft{revision, U.NewTask{text, old_profile, old_reasoning, context}, feedback, directory_entry}}, found)
 
 type Requirements is Type:
   Requirements{
@@ -222,7 +222,7 @@ type Requirements is Type:
       {residence(post(E.close_panel(application))) == residence(application) : Residence},
     modal_close_nonempty: @+program:M.World() -> @+route:U.Route -> @+drafts:+List<U.Draft> ->
       @+readers:+List<Finite.Entry(E.Reader)> -> @+panel:U.Panel -> @+trigger:String -> @initial:String ->
-      @query:String -> @+rest:+List<E.Layer> -> @old_attention:String -> @navigation:E.NavigationIntent ->
+      @query:String -> @+rest:+List<E.Layer> -> @old_attention:String -> @navigation:E.NavigationState ->
       @filter:B.Filter -> @now:U32 -> @next:Nat -> @+pending:+List<E.Pending> -> @+previews:+List<Live.Output> ->
       @+code_blocks:+List<Content.Block> ->
       {E.close_panel(E.Application{program, E.Session{route, drafts, readers,
@@ -230,7 +230,7 @@ type Requirements is Type:
        E.Decision{E.Application{program, E.Session{route, drafts, readers, rest, trigger, navigation, filter, now, next, pending, previews, code_blocks}},
         D.success(J.Null{}), Nil{}, [E.Attend{trigger}], False{}} : E.Decision},
     modal_close_empty: @+program:M.World() -> @+route:U.Route -> @+drafts:+List<U.Draft> ->
-      @+readers:+List<Finite.Entry(E.Reader)> -> @attention_value:String -> @navigation:E.NavigationIntent ->
+      @+readers:+List<Finite.Entry(E.Reader)> -> @attention_value:String -> @navigation:E.NavigationState ->
       @filter:B.Filter -> @now:U32 -> @next:Nat -> @+pending:+List<E.Pending> -> @+previews:+List<Live.Output> ->
       @+code_blocks:+List<Content.Block> ->
       {E.close_panel(E.Application{program, E.Session{route, drafts, readers, Nil{}, attention_value, navigation, filter, now, next, pending, previews, code_blocks}}) ==
@@ -258,19 +258,19 @@ type Requirements is Type:
       {E.step(E.UserInput{U.ReadTimeline{task, generation, intent}}, application) == E.unchanged(application) : E.Decision},
     model_choice: @+program:M.World() -> @+route:U.Route -> @+drafts:+List<U.Draft> ->
       @+readers:+List<Finite.Entry(E.Reader)> -> @+trigger:String -> @initial:String -> @query:String ->
-      @+rest:+List<E.Layer> -> @old_attention:String -> @navigation:E.NavigationIntent -> @filter:B.Filter ->
+      @+rest:+List<E.Layer> -> @old_attention:String -> @navigation:E.NavigationState -> @filter:B.Filter ->
       @now:U32 -> @next:Nat -> @+pending:+List<E.Pending> -> @+previews:+List<Live.Output> ->
       @+code_blocks:+List<Content.Block> -> @revision:Nat -> @+text:U.Text -> @old_profile:String ->
-      @old_reasoning:String -> @context:Context.Configuration -> @feedback:U.Feedback ->
+      @old_reasoning:String -> @context:Context.Configuration -> @feedback:U.Feedback -> @+directory_entry:String ->
       @+new_profile:String -> @+new_reasoning:String ->
       @found:{E.find_draft(drafts, U.NewTaskEditor{}) ==
-        Some{U.Draft{revision, U.NewTask{text, old_profile, old_reasoning, context}, feedback}} : Maybe<&2, U.Draft>} ->
+        Some{U.Draft{revision, U.NewTask{text, old_profile, old_reasoning, context}, feedback, directory_entry}} : Maybe<&2, U.Draft>} ->
       {E.step(E.UserInput{U.EditDraft{U.NewTaskEditor{}, U.ChooseModel{new_profile, new_reasoning}}},
         E.Application{program, E.Session{route, drafts, readers,
           E.Layer{U.ModelPicker{U.NewTaskEditor{}}, trigger, initial, query} <> rest,
           old_attention, navigation, filter, now, next, pending, previews, code_blocks}}) ==
        E.Decision{E.Application{program, E.Session{route,
-         U.Draft{(revision + 1n : Nat), U.NewTask{text, new_profile, new_reasoning, context}, U.Editing{}} <>
+         U.Draft{(revision + 1n : Nat), U.NewTask{text, new_profile, new_reasoning, context}, U.Editing{}, directory_entry} <>
            E.without_draft(drafts, U.NewTaskEditor{}),
          readers, rest, trigger, navigation, filter, now, next, pending, previews, code_blocks}},
          D.success(J.Null{}), Nil{}, [E.Attend{trigger}], False{}} : E.Decision}
@@ -295,6 +295,6 @@ def evidence() -> Requirements:
     route => application => navigate_keeps_drafts(route, application),
     reader => visit_preserves_location(reader),
     task => generation => intent => application => not_owner => obsolete_reading(task, generation, intent, application, not_owner),
-    program => route => drafts => readers => trigger => initial => query => rest => old_attention => navigation => filter => now => next => pending => previews => code_blocks => revision => text => old_profile => old_reasoning => context => feedback => new_profile => new_reasoning => found =>
-      model_choice(program, route, drafts, readers, trigger, initial, query, rest, old_attention, navigation, filter, now, next, pending, previews, code_blocks, revision, text, old_profile, old_reasoning, context, feedback, new_profile, new_reasoning, found)
+    program => route => drafts => readers => trigger => initial => query => rest => old_attention => navigation => filter => now => next => pending => previews => code_blocks => revision => text => old_profile => old_reasoning => context => feedback => directory_entry => new_profile => new_reasoning => found =>
+      model_choice(program, route, drafts, readers, trigger, initial, query, rest, old_attention, navigation, filter, now, next, pending, previews, code_blocks, revision, text, old_profile, old_reasoning, context, feedback, directory_entry, new_profile, new_reasoning, found)
   }

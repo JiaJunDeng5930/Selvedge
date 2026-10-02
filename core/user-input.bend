@@ -44,9 +44,11 @@ type Feedback is Data:
   Rejected{revision: Nat, reason: String}
 
 type Draft is Data:
-  Draft{revision: Nat, body: Body, feedback: Feedback}
+  Draft{revision: Nat, body: Body, feedback: Feedback, directory_entry: String}
 
 type Edit is Data:
+  WriteDirectory{path: String}
+  ConfirmDirectory{}
   EditWorkspace{change: Context.WorkspaceEdit}
   WriteMessage{message: Text}
   ChooseDelivery{delivery: Delivery}
@@ -78,6 +80,7 @@ type Subject is Data:
   AgentSubject{id: Nat}
 
 type Panel is Data:
+  ProjectPicker{}
   ObjectActions{subject: Subject}
   ArchivedCards{}
   BoardSettings{}
@@ -85,13 +88,17 @@ type Panel is Data:
   CardDetails{card: Nat}
   EditObject{editor: Editor}
   TaskDetails{task: Nat}
-  TaskConfiguration{}
+  WorkspaceConfiguration{editor: Editor}
+  PermissionsConfiguration{editor: Editor}
+  TaskContext{task: Nat}
   ModelPicker{editor: Editor}
   DeliveryPicker{task: Nat}
   Confirm{command: M.Command, title: String, destination: Route}
 
 type Action is Data:
   Navigate{route: Route}
+  SelectProject{project: Maybe<&2, Nat>}
+  ToggleProjectGroup{project: Nat}
   BeginTask{project: Maybe<&2, Nat>}
   EditProject{project: Maybe<&2, Nat>}
   NewCard{stage: B.Stage}
@@ -318,7 +325,7 @@ def valid_origin(body: Body) -> Bool:
 
 
 def contents(draft: Draft) -> Body:
-  Draft{revision, body, feedback} = draft
+  Draft{revision, body, feedback, directory_entry} = draft
   body
 
 def next_capture(draft: B.Draft) -> B.Draft:
@@ -337,3 +344,42 @@ def subject_key(subject: Subject) -> String:
     case ProjectSubject{id}: "project/" ++ Nat.show(id)
     case CardSubject{id}: "card/" ++ Nat.show(id)
     case AgentSubject{id}: "agent/" ++ Nat.show(id)
+
+
+def workspace_capable(body: Body) -> Bool:
+  match body:
+    case NewTask{message, profile, reasoning, context}: True{}
+    case Project{id, name, workspace}: True{}
+    case Agent{id, revision, name, profile, reasoning, instructions, context, concurrency}: True{}
+    case Fork{task, count, messages, context}: True{}
+    case _: False{}
+
+def directory_entry(draft: Draft) -> String:
+  Draft{revision, body, feedback, entry} = draft
+  entry
+
+def edited_body(result: Result<&2, &2, String, Body>, revision: Nat, entry: String) -> Result<&2, &2, String, Draft>:
+  match result:
+    case Fail{reason}: Fail{reason}
+    case Done{body}: Done{Draft{(revision + 1n : Nat), body, Editing{}, entry}}
+
+def confirm_directory(admitted: Bool, +draft: Draft, world: M.World()) -> Result<&2, &2, String, Draft>:
+  match admitted:
+    case False{}: Done{draft}
+    case True{}:
+      Draft{revision, body, feedback, entry} = draft
+      edited_body(apply_edit(EditWorkspace{Context.AddRoot{entry}}, body, world), revision, "")
+
+def can_confirm_directory(draft: Draft) -> Bool:
+  Draft{revision, body, feedback, entry} = draft
+  Bool.not(String.eq(entry, "")) && workspace_capable(body)
+
+def edit_draft(change: Edit, +draft: Draft, world: M.World()) -> Result<&2, &2, String, Draft>:
+  match change:
+    case WriteDirectory{path}:
+      Draft{revision, body, feedback, old} = draft
+      Done{Draft{(revision + 1n : Nat), body, Editing{}, path}}
+    case ConfirmDirectory{}: confirm_directory(can_confirm_directory(draft), draft, world)
+    case other:
+      Draft{revision, body, feedback, entry} = draft
+      edited_body(apply_edit(other, body, world), revision, entry)

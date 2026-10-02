@@ -503,9 +503,9 @@ def modal_enter_decision(+owner: U.Editor, +shift: Bool, +alt: Bool, +modified: 
 def RetainedEntry(found: Maybe<&2, U.Draft>) -> Type:
   match found:
     case None{}: Unit
-    case Some{U.Draft{revision, body, U.Editing{}}}: Unit
-    case Some{U.Draft{revision, body, U.Rejected{revision, reason}}}: Unit
-    case Some{U.Draft{revision, body, U.Accepted{revision, reply}}}: Empty
+    case Some{U.Draft{revision, body, U.Editing{}, directory_entry}}: Unit
+    case Some{U.Draft{revision, body, U.Rejected{revision, reason}, directory_entry}}: Unit
+    case Some{U.Draft{revision, body, U.Accepted{revision, reply}, directory_entry}}: Empty
 
 def Retained(drafts: +List<U.Draft>, editors: +List<Editor.Editor>) -> Type:
   match editors:
@@ -518,9 +518,9 @@ def synchronize_retained_entry(found: Maybe<&2, U.Draft>, editor: Editor.Editor,
   {Platform.synchronize_editor(found, editor) == editor : Editor.Editor}:
   match found evidence:
     case None{} Unit{}: {==}
-    case Some{U.Draft{revision, body, U.Editing{}}} Unit{}: {==}
-    case Some{U.Draft{revision, body, U.Rejected{revision, reason}}} Unit{}: {==}
-    case Some{U.Draft{revision, body, U.Accepted{revision, reply}}} impossible:
+    case Some{U.Draft{revision, body, U.Editing{}, directory_entry}} Unit{}: {==}
+    case Some{U.Draft{revision, body, U.Rejected{revision, reason}, directory_entry}} Unit{}: {==}
+    case Some{U.Draft{revision, body, U.Accepted{revision, reply}, directory_entry}} impossible:
       match impossible:
 
 def synchronize_retained(+drafts: +List<U.Draft>, +editors: +List<Editor.Editor>,

@@ -24,6 +24,7 @@ import ./platform.bend as Platform
 import ./rendered.bend as Rendered
 import ./document.bend as Document
 import ./renderer.bend as Renderer
+import ./request.bend as Request
 
 type RequestStatus is Data:
   AwaitingReceipt{}
@@ -38,6 +39,7 @@ type Input is Data:
   Snapshot{sequence: Nat, program: M.World()}
   Completed{ticket: Nat, sequence: Nat, program: M.World(), reply: J.Json}
   Failed{ticket: Nat, error: String}
+  Rejected{ticket: Nat, error: String}
 type Effect is Data:
   BrowserEffect{effect: Web.Effect}
   Command{ticket: Nat, command: J.Json}
@@ -78,6 +80,7 @@ def busy(pending: +List<Pending>, +key: String) -> Bool:
 def mask_meaning(blocked: Bool, meaning: UI.Meaning) -> UI.Meaning:
   match blocked meaning:
     case True{} UI.Activate{input, availability}: UI.Activate{input, View.Unavailable{"Request pending"}}
+    case True{} UI.Choice{selected, description, input, availability}: UI.Choice{selected, description, input, View.Unavailable{"Request pending"}}
     case _ other: other
 def mask_nodes(nodes: +List<UI.Node>, +pending: +List<Pending>) -> +List<UI.Node>:
   match nodes:
@@ -207,15 +210,26 @@ def inset_document(root: Document.Node) -> Document.Node:
         [Document.Property{"top", "4rem"}, Document.Property{"height", "calc(100dvh - 4rem)"}, Document.Property{"min-height", "0"}]), events, children}
     case other: other
 
-def with_notices(notices: +List<Document.Node>, root: Document.Node, title: String) -> Document.Document:
+def notice_region(notices: +List<Document.Node>) -> Document.Node:
   match notices:
-    case Nil{}: Document.Document{root, title}
+    case Nil{}:
+      Document.Element{"@browser/unknown-status", "aside", [Document.Property{"hidden", ""}],
+        [Document.Property{"display", "none"}], Nil{}, Nil{}}
     case Con{notice, rest}:
-      Document.Document{Document.Element{"@browser/interaction", "div", Nil{},
-        [Document.Property{"height", "100dvh"}, Document.Property{"overflow", "hidden"}], Nil{},
-        [Document.Element{"@browser/unknown-status", "aside", Nil{},
-          [Document.Property{"height", "4rem"}, Document.Property{"overflow", "auto"},
-           Document.Property{"background", "var(--color-surface)"}, Document.Property{"color", "var(--color-text)"}], Nil{}, notice <> rest}, inset_document(root)]}, title}
+      Document.Element{"@browser/unknown-status", "aside", Nil{},
+        [Document.Property{"height", "4rem"}, Document.Property{"overflow", "auto"},
+         Document.Property{"background", "var(--color-surface)"}, Document.Property{"color", "var(--color-text)"}],
+        Nil{}, notice <> rest}
+
+def application_for_notices(notices: +List<Document.Node>, root: Document.Node) -> Document.Node:
+  match notices:
+    case Nil{}: root
+    case Con{notice, rest}: inset_document(root)
+
+def with_notices(+notices: +List<Document.Node>, root: Document.Node, title: String) -> Document.Document:
+  Document.Document{Document.Element{"@browser/interaction", "div", Nil{},
+    [Document.Property{"height", "100dvh"}, Document.Property{"overflow", "hidden"}], Nil{},
+    [notice_region(notices), application_for_notices(notices, root)]}, title}
 
 def uncertainty_document(document: Document.Document, pending: +List<Pending>) -> Document.Document:
   Document.Document{root, title} = document
@@ -327,7 +341,7 @@ def retained_messages(messages: Maybe<&2, +List<String>>, fallback: +List<String
     case Some{values}: values
 def fork_gesture(draft: Maybe<&2, U.Draft>, count: Maybe<&2, Nat>, messages: Maybe<&2, +List<String>>) -> Maybe<&2, UI.Gesture>:
   match draft:
-    case Some{U.Draft{revision, U.Fork{task, old_count, old_messages, config}, feedback}}:
+    case Some{U.Draft{revision, U.Fork{task, old_count, old_messages, config}, feedback, directory_entry}}:
       Some{UI.Change{Forms.Fork{J.natural_or(count, old_count), retained_messages(messages, old_messages)}}}
     case _: None{}
 def network_gesture(sandbox: D.Sandbox, enabled: Bool) -> Maybe<&2, UI.Gesture>:
@@ -344,10 +358,13 @@ def pending_of(state: State) -> +List<Pending>:
   State{web, sequence, next, pending} = state
   pending
 
+def request_payload(command: M.Command) -> J.Json:
+  Request.client(Codec.command_json(command))
+
 def collect_one(effect: E.Effect, origin: String, +state: State) -> Decision:
   match effect:
     case E.RequestCommand{command, completion}:
-      +wire = Codec.command_json(command)
+      +wire = request_payload(command)
       request_ready(contains_command(pending_of(state), wire), wire, completion, origin, state)
     case E.ObserveDirectories{ticket, entered}: Decision{state, [Directories{ticket, entered}]}
     case _: Decision{state, Nil{}}
@@ -486,12 +503,23 @@ def failed_completion(ticket: Nat, error: String, state: State) -> Decision:
   State{web, sequence, next, pending} = state
   Decision{State{web, sequence, next, uncertain_pending(pending, ticket, error)}, Nil{}}
 
+def rejected_pending(found: Maybe<&2, Pending>, reason: String, state: State) -> Decision:
+  match found:
+    case None{}: Decision{state, Nil{}}
+    case Some{Pending{ticket, completion, command, origin, status}}:
+      settle_old(ticket, D.failure("command_not_submitted", reason), completion, state)
+
+def command_rejected(+ticket: Nat, reason: String, state: State) -> Decision:
+  State{web, sequence, next, +pending} = state
+  rejected_pending(find(pending, ticket), reason, State{web, sequence, next, pending})
+
 def step(event: Input, state: State) -> Decision:
   match event:
     case Native{input}: native(input, state)
     case Snapshot{received, world}: snapshot(received, world, state)
     case Completed{ticket, received, world, reply}: received_completion(ticket, received, world, reply, state)
     case Failed{ticket, error}: failed_completion(ticket, error, state)
+    case Rejected{ticket, error}: command_rejected(ticket, error, state)
 def owned_choice(same: Bool, rest: Bool) -> Bool:
   match same:
     case True{}: True{}
@@ -537,7 +565,7 @@ def gesture_text(meaning: UI.Meaning, text: String, state: State) -> Maybe<&2, U
   match meaning:
     case UI.SearchChoices{query}: Some{UI.Search{text}}
     case UI.EnterCredential{entered}: Some{UI.Credential{text}}
-    case UI.EnterDirectory{editor}: Some{UI.Directory{text}}
+    case UI.EnterDirectory{editor, current}: Some{UI.Directory{text}}
     case UI.BoardProfile{automatic, selected, choices, enabled}: Some{UI.SelectBoardProfile{text}}
     case UI.BoardSearch{filter}: Some{UI.Filter{search_filter(filter, text)}}
     case UI.Edit{editor, field, entry, value}: field_text(editor, field, entry, value, text, state)
@@ -548,6 +576,23 @@ def edit_gesture(found: Maybe<&2, UI.Node>, text: String, state: State) -> Maybe
     case Some{UI.Node{key, semantic, label, role, meaning, children}}: gesture_text(meaning, text, state)
 def edit_text(+key: String, text: String, +state: State) -> Decision:
   apply_gesture(edit_gesture(found_node(key, state), text, state), key, state)
+
+def confirmation_key(keyboard: String, composing: Bool, control: Bool, alt: Bool, shift: Bool, meta: Bool) -> Bool:
+  String.eq(keyboard, "Enter") && Bool.not(composing) && Bool.not(control) && Bool.not(alt) && Bool.not(shift) && Bool.not(meta)
+
+def confirm_source(found: Maybe<&2, UI.Node>) -> Maybe<&2, UI.Gesture>:
+  match found:
+    case Some{UI.Node{key, semantic, label, role, UI.EnterDirectory{editor, text}, children}}: Some{UI.ConfirmDirectory{}}
+    case _: None{}
+
+def confirm_gesture(found: Maybe<&2, UI.Node>, admitted: Bool) -> Maybe<&2, UI.Gesture>:
+  match admitted:
+    case True{}: confirm_source(found)
+    case False{}: None{}
+
+def confirm_text(+key: String, keyboard: String, composing: Bool, control: Bool, alt: Bool, shift: Bool, meta: Bool, +state: State) -> Decision:
+  apply_gesture(confirm_gesture(found_node(key, state), confirmation_key(keyboard, composing, control, alt, shift, meta)), key, state)
+
 def connect_credential(found: Maybe<&2, String>, credential: String, state: State) -> Decision:
   match found:
     case None{}: Decision{state, Nil{}}

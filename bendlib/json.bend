@@ -277,8 +277,17 @@ def char_width(ascii: Bool, two: Bool, three: Bool) -> Nat:
     case False{} False{} True{}: 3n
     case _ _ _: 4n
 
-def utf8_length(text: String) -> Nat:
+def utf8_length_spec(text: String) -> Nat:
   match text:
     case SNil{}: 0n
     case SCon{Chr{+code}, rest}:
-      Nat.add(char_width(U32.is_lt(code, 128), U32.is_lt(code, 2048), U32.is_lt(code, 65536)), utf8_length(rest))
+      Nat.add(char_width(U32.is_lt(code, 128), U32.is_lt(code, 2048), U32.is_lt(code, 65536)), utf8_length_spec(rest))
+
+def utf8_length_acc(text: String, total: Nat) -> Nat:
+  match text:
+    case SNil{}: total
+    case SCon{Chr{+code}, rest}:
+      utf8_length_acc(rest, Nat.add(total, char_width(U32.is_lt(code, 128), U32.is_lt(code, 2048), U32.is_lt(code, 65536))))
+
+def utf8_length(text: String) -> Nat:
+  utf8_length_acc(text, 0n)

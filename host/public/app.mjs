@@ -37,10 +37,11 @@ const transfers = new Map();
 const resources = new Set();
 const streams = new Map();
 const renderer = new Renderer(root, {
-  event(binding, event, node) {
+  event(binding, event, node, composing) {
     switch (binding.$) {
       case 'Activate': event.preventDefault(); commit(Bend.activate(binding.key, state)); break;
       case 'EditText': commit(Bend.edit_text(binding.key, node.value, state)); break;
+      case 'ConfirmText': commit(Bend.confirm_text(binding.key, event.key, bool(event.isComposing || composing || event.keyCode === 229), bool(event.ctrlKey), bool(event.altKey), bool(event.shiftKey), bool(event.metaKey), state)); break;
       case 'EditToggle': commit(Bend.edit_toggle(binding.key, bool(node.checked), state)); break;
       case 'SelectFiles':
         for (const file of node.files ?? []) {
@@ -90,7 +91,9 @@ async function execute(effect) {
         revision = Math.max(revision, body.sequence);
         step(value('Completed', { ticket: effect.ticket, sequence: BigInt(body.sequence), program: decodeBendValue(body.program), reply: json(body.reply) }));
       } catch (error) {
-        if (error.body?.program && error.body?.reply) {
+        if (error.body?.error?.code === 'command_not_submitted') {
+          commit(Bend.command_rejected(effect.ticket, error.body.error.message, state));
+        } else if (error.body?.program && error.body?.reply) {
           const body = error.body;
           step(value('Completed', { ticket: effect.ticket, sequence: BigInt(body.sequence), program: decodeBendValue(body.program), reply: json(body.reply) }));
         } else step(value('Failed', { ticket: effect.ticket, error: error.message }));

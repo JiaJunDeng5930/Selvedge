@@ -1127,6 +1127,39 @@ def anchored_popover_keeps_scroll(+anchor: String, +available: Design.Box,
   match available:
     case Design.Box{left, top, width, height}: {==}
 
+
+def expected_popover_styles(anchor: String, available: Design.Box,
+  maximum_width: Nat, maximum_height: Nat, gap: Nat) -> +List<Doc.Property>:
+  Design.Box{left, top, width, height} = available
+  [Render.property("position", "fixed"), Render.property("position-anchor", Render.css_anchor(anchor)),
+   Render.property("position-area", "bottom span-left"),
+   Render.property("position-try-fallbacks", "flip-block, flip-inline, flip-block flip-inline"),
+   Render.property("position-try-order", "most-block-size"), Render.property("align-self", "normal"),
+   Render.property("height", "max-content"), Render.property("margin", Render.px(gap)),
+   Render.property("max-width", Render.px(Nat.min(width, maximum_width))),
+   Render.property("max-height", Render.px(Nat.min(height, maximum_height))), Render.property("overflow", "auto")]
+
+def anchored_popover_placement_styles(+anchor: String, +available: Design.Box,
+  +maximum_width: Nat, +maximum_height: Nat, +gap: Nat) ->
+  {Render.overlay_styles(Design.AnchoredPopover{anchor, available, maximum_width, maximum_height, gap}) ==
+    expected_popover_styles(anchor, available, maximum_width, maximum_height, gap) : +List<Doc.Property>}:
+  match available:
+    case Design.Box{left, top, width, height}: {==}
+
+def anchored_popover_normal_alignment(+anchor: String, +available: Design.Box,
+  maximum_width: Nat, maximum_height: Nat, gap: Nat) ->
+  {Render.attr(Render.overlay_styles(Design.AnchoredPopover{anchor, available,
+      maximum_width, maximum_height, gap}), "align-self") == "normal" : String}:
+  match available:
+    case Design.Box{left, top, width, height}: {==}
+
+def anchored_popover_content_height(+anchor: String, +available: Design.Box,
+  maximum_width: Nat, maximum_height: Nat, gap: Nat) ->
+  {Render.attr(Render.overlay_styles(Design.AnchoredPopover{anchor, available,
+      maximum_width, maximum_height, gap}), "height") == "max-content" : String}:
+  match available:
+    case Design.Box{left, top, width, height}: {==}
+
 def board_search_placeholder(+filter: Board.Filter) ->
   {Render.attr(Render.field_hint(Interface.BoardSearch{filter}), "placeholder") == "搜索任务" : String}:
   {==}
@@ -1307,6 +1340,16 @@ type Requirements is Type:
     anchored_popover_keeps_scroll: @+anchor:String -> @+available:Design.Box ->
       @maximum_width:Nat -> @maximum_height:Nat -> @gap:Nat ->
       {Render.attr(Render.overlay_styles(Design.AnchoredPopover{anchor, available, maximum_width, maximum_height, gap}), "overflow") == "auto" : String},
+    anchored_popover_placement_styles: @+anchor:String -> @+available:Design.Box ->
+      @+maximum_width:Nat -> @+maximum_height:Nat -> @+gap:Nat ->
+      {Render.overlay_styles(Design.AnchoredPopover{anchor, available, maximum_width, maximum_height, gap}) ==
+        expected_popover_styles(anchor, available, maximum_width, maximum_height, gap) : +List<Doc.Property>},
+    anchored_popover_normal_alignment: @+anchor:String -> @+available:Design.Box ->
+      @maximum_width:Nat -> @maximum_height:Nat -> @gap:Nat ->
+      {Render.attr(Render.overlay_styles(Design.AnchoredPopover{anchor, available, maximum_width, maximum_height, gap}), "align-self") == "normal" : String},
+    anchored_popover_content_height: @+anchor:String -> @+available:Design.Box ->
+      @maximum_width:Nat -> @maximum_height:Nat -> @gap:Nat ->
+      {Render.attr(Render.overlay_styles(Design.AnchoredPopover{anchor, available, maximum_width, maximum_height, gap}), "height") == "max-content" : String},
     board_search_placeholder: @+filter:Board.Filter ->
       {Render.attr(Render.field_hint(Interface.BoardSearch{filter}), "placeholder") == "搜索任务" : String}
   }
@@ -1382,5 +1425,11 @@ def evidence() -> Requirements:
     available => maximum_width => centered_dialog_hides_overflow(available, maximum_width),
     anchor => available => maximum_width => maximum_height => gap =>
       anchored_popover_keeps_scroll(anchor, available, maximum_width, maximum_height, gap),
+    anchor => available => maximum_width => maximum_height => gap =>
+      anchored_popover_placement_styles(anchor, available, maximum_width, maximum_height, gap),
+    anchor => available => maximum_width => maximum_height => gap =>
+      anchored_popover_normal_alignment(anchor, available, maximum_width, maximum_height, gap),
+    anchor => available => maximum_width => maximum_height => gap =>
+      anchored_popover_content_height(anchor, available, maximum_width, maximum_height, gap),
     filter => board_search_placeholder(filter)
   }

@@ -9,6 +9,8 @@ import ../../COMMANDS.bend as Commands
 import ../workspace-architecture.bend as A
 import ../association-map.bend as Finite
 import ../protocol.bend as Protocol
+import ./json.bend as JsonProof
+import ./equality.bend as EqualityProof
 
 def inherited(id:Nat, +parent:D.Task, call:String, branch:Nat, remaining:+List<D.Attempt>, message:Maybe<&2, String>) ->
   {D.task_context(Commands.child(id, parent, call, branch, remaining, message)) == D.task_context(parent) : D.TaskContext}:
@@ -38,6 +40,8 @@ def removal(registry:D.Projects, +id:Nat) ->
 
 def A.context_boundary():
   A.ContextBoundary{
+    EqualityProof.public_refines,
+    JsonProof.public_refines,
     (workspace => sandbox => approval => project => {==}),
     (id => parent => call => branch => remaining => message => inherited(id, parent, call, branch, remaining, message)),
     (id => parent => call => branch => remaining => message => no_rights(id, parent, call, branch, remaining, message)),

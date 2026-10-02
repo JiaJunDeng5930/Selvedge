@@ -13,11 +13,15 @@ import ../../core/composition-laws.bend as CompositionLaws
 import ../../core/conversation-presentation-laws.bend as ConversationPresentationLaws
 import ../../core/board-presentation-laws.bend as BoardPresentationLaws
 import ../../core/board-capability-laws.bend as BoardCapabilityLaws
+import ../../core/execution-context-laws.bend as ExecutionContextLaws
+import ../../core/project-interaction-laws.bend as ProjectInteractionLaws
+import ../../core/directory-entry-laws.bend as DirectoryEntryLaws
+import ../../core/submission-feedback-laws.bend as SubmissionFeedbackLaws
 
 def Architecture.surface():
   Contract.Requirements{
     SurfaceLaws.evidence(), SessionLaws.evidence(), SubmissionLaws.evidence(), BoundaryLaws.evidence(), CompositionLaws.evidence(),
-    ConversationPresentationLaws.evidence(), BoardPresentationLaws.evidence(), BoardCapabilityLaws.evidence(), SubmissionLaws.reopen_evidence(),
+    ConversationPresentationLaws.evidence(), BoardPresentationLaws.evidence(), BoardCapabilityLaws.evidence(), ExecutionContextLaws.evidence(), ProjectInteractionLaws.evidence(), DirectoryEntryLaws.evidence(), SubmissionFeedbackLaws.evidence(), SubmissionLaws.reopen_evidence(),
     input => program => session => services => CoreLaws.runtime_input(input, program, session, services),
     capacity => +state => Interface.assembled_content(Core.observe(capacity, state), state),
     reader => task => world => Conversation.timeline_history(reader, task, world),
@@ -25,5 +29,5 @@ def Architecture.surface():
     groups => task => disclosures => Conversation.visible_history(groups, task, disclosures),
     messages => offset => task => disclosures => Conversation.observed_text(messages, offset, task, disclosures),
     task => text => previous => selected => world => {==},
-    revision => body => feedback => submitted => reply => {==},
+    directory_entry => revision => body => feedback => submitted => reply => {==},
     revision => title => description => stage => priority => owner => project => labels => attachments => assist => profile => {==}}

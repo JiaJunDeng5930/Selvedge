@@ -3,7 +3,7 @@ import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { readFile, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { encodeBendValue } from './public/bend-value.mjs';
-import { Service } from './service.mjs';
+import { Service, CommandNotSubmitted } from './service.mjs';
 import { stringifyJson, parseJson } from './codec.mjs';
 import { readText } from './network.mjs';
 import { writeAtomic } from './files.mjs';
@@ -34,6 +34,8 @@ export async function startServer(options) {
   const server = http.createServer({ maxHeaderSize: service.limits.header_bytes }, (request, response) => {
     route(request, response).catch(error => {
       if (response.headersSent) response.destroy();
+      else if (error instanceof CommandNotSubmitted) json(response, 400,
+        { ok: false, error: { code: 'command_not_submitted', message: error.message } });
       else json(response, error instanceof RangeError || error instanceof SyntaxError || error instanceof TypeError ? 400 : 503,
         { ok: false, error: { code: 'request_failed', message: error.message } });
     });

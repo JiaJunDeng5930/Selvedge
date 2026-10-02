@@ -1,4 +1,5 @@
 import Base
+import ./request-laws.bend as RequestLaws
 import ./laws.bend as Interaction
 import ./render-laws.bend as Rendering
 import ./layout-laws.bend as LayoutLaws
@@ -19,23 +20,31 @@ import ./card-destination-laws.bend as CardDestinationLaws
 import ./board-spatial-laws.bend as BoardSpatialLaws
 import ./shell-spatial-laws.bend as ShellSpatialLaws
 import ./dialog-spatial-laws.bend as DialogSpatialLaws
+import ./context-control-laws.bend as ContextControlLaws
+import ./project-presentation-laws.bend as ProjectPresentationLaws
+import ./execution-presentation-laws.bend as ExecutionPresentationLaws
+import ./directory-entry-laws.bend as DirectoryEntryLaws
+import ./focus-retention-laws.bend as FocusRetentionLaws
+import ./submission-feedback-laws.bend as SubmissionFeedbackLaws
 
 # These witnesses bind interaction, rendered geometry, and the complete
 # prescribed presentation to the Web model.
 type Realization is Type:
-  Realization{interaction: Interaction.Requirements, rendering: Rendering.Requirements,
+  Realization{requests: RequestLaws.Requirements, interaction: Interaction.Requirements, rendering: Rendering.Requirements,
     layout: LayoutLaws.Requirements, appearance: AppearanceLaws.Requirements,
     presentation: PresentationLaws.Requirements, presentation_order: PresentationOrderLaws.Requirements,
     controls: ControlLaws.Requirements,
     commands: UserExperienceLaws.CommandRequirements, browser: BrowserLaws.Requirements, renderer: RendererLaws.Requirements, page_regions: PageRegionLaws.Requirements, visibility: Visibility.Requirements,
     focus_cycle: Focus.CycleRequirements, scroll_ownership: Reading.ScrollOwnershipRequirements,
     form_inputs: FormInputLaws.Requirements, dock: DockLaws.Requirements, card_destinations: CardDestinationLaws.Requirements,
-    board_space: BoardSpatialLaws.Requirements, shell_space: ShellSpatialLaws.Requirements, dialog_space: DialogSpatialLaws.Requirements}
+    board_space: BoardSpatialLaws.Requirements, shell_space: ShellSpatialLaws.Requirements, dialog_space: DialogSpatialLaws.Requirements,
+    context_controls: ContextControlLaws.Requirements, project_presentation: ProjectPresentationLaws.Requirements,
+    execution_presentation: ExecutionPresentationLaws.Requirements, directory_entry: DirectoryEntryLaws.Requirements, focus_retention: FocusRetentionLaws.Requirements, submission_feedback: SubmissionFeedbackLaws.Requirements}
 
 def realization() -> Realization:
-  Realization{Interaction.evidence(), Rendering.evidence(), LayoutLaws.evidence(),
+  Realization{RequestLaws.evidence(), Interaction.evidence(), Rendering.evidence(), LayoutLaws.evidence(),
     AppearanceLaws.evidence(), PresentationLaws.evidence(), PresentationOrderLaws.evidence(), ControlLaws.evidence(),
     UserExperienceLaws.command_evidence(), BrowserLaws.evidence(), RendererLaws.evidence(), PageRegionLaws.evidence(), Visibility.evidence(),
     Focus.cycle_evidence(), Reading.scroll_ownership_evidence(),
     FormInputLaws.evidence(), DockLaws.evidence(), CardDestinationLaws.evidence(),
-    BoardSpatialLaws.evidence(), ShellSpatialLaws.evidence(), DialogSpatialLaws.evidence()}
+    BoardSpatialLaws.evidence(), ShellSpatialLaws.evidence(), DialogSpatialLaws.evidence(), ContextControlLaws.evidence(), ProjectPresentationLaws.evidence(), ExecutionPresentationLaws.evidence(), DirectoryEntryLaws.evidence(), FocusRetentionLaws.evidence(), SubmissionFeedbackLaws.evidence()}

@@ -64,6 +64,8 @@ def font(value: Design.Font) -> String:
 
 def icon_path(value: Controls.Icon) -> String:
   match value:
+    case Controls.ChevronRight{}: "M7.5 4.5 L13 10 L7.5 15.5"
+    case Controls.ChevronDown{}: "M4.5 7.5 L10 13 L15.5 7.5"
     case Controls.StopSquare{}: "M6 5h8a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1Z"
     case Controls.PauseBars{}: "M7 5v10M13 5v10"
     case Controls.PlayTriangle{}: "m7 4 9 6-9 6Z"
@@ -172,10 +174,11 @@ def widget_tag(value: Controls.Widget) -> String:
 
 
 
-def input_events(key: String, widget: Controls.Widget) -> +List<Doc.Event>:
+def input_events(+key: String, widget: Controls.Widget) -> +List<Doc.Event>:
   match widget:
     case Controls.PlainValue{}: Nil{}
     case Controls.ToggleInput{}: [Doc.EditToggle{key}]
+    case Controls.DirectoryChooser{face}: [Doc.EditText{key}, Doc.ConfirmText{key}]
     case Controls.FileChooser{face}: [Doc.SelectFiles{key}]
     case Controls.AttachmentList{}: [Doc.SelectFiles{key}]
     case _: [Doc.EditText{key}]
@@ -323,11 +326,7 @@ def origin_text(value: Context.Origin) -> String:
 
 
 def approval_text(value: Context.ApprovalValue) -> String:
-  match value:
-    case Context.InheritedApproval{policy}: Domain.approval_name(policy)
-    case Context.ChosenApproval{Context.Ask{}}: "ask"
-    case Context.ChosenApproval{Context.Unrestricted{}}: "full-access"
-    case Context.ChosenApproval{Context.AutomaticReview{profile}}: "automatic"
+  Context.approval_option(Context.observed_approval(value))
 
 
 
@@ -376,7 +375,8 @@ def css_characters(value: String) -> String:
 def content_groups(value: View.LayerContent) -> +List<View.InputGroup>:
   match value:
     case View.ObjectEditor{Some{View.EditorScene{identity, revision, groups, sections, submit, feedback, pending}}}: groups
-    case View.ExecutionSettings{editor, groups}: groups
+    case View.WorkspaceSettings{editor, groups}: groups
+    case View.PermissionSettings{editor, groups}: groups
     case View.ModelSelection{editor, query, groups}: groups
     case View.DeliverySelection{editor, groups}: groups
     case _: Nil{}
@@ -511,6 +511,7 @@ def behavior(value: Controls.Behavior) -> +List<Doc.Property>:
     case Controls.Push{}: Nil{}
     case Controls.Toggle{pressed}: [property("aria-pressed", boolean(pressed))]
     case Controls.Radio{checked}: [property("role", "menuitemradio"), property("aria-checked", boolean(checked))]
+    case Controls.ChoiceRadio{checked}: [property("role", "radio"), property("aria-checked", boolean(checked))]
     case Controls.Disclosure{expanded}: [property("aria-expanded", boolean(expanded))]
     case Controls.Popup{menu, expanded}: [property("aria-haspopup", "true"), property("aria-expanded", boolean(expanded))]
     case Controls.Destination{current}: [property("aria-current", boolean(current))]
@@ -1191,7 +1192,7 @@ def overlay_styles(value: Design.OverlayPlacement) -> +List<Doc.Property>:
        property("transform", "translate(-50%, -50%)"), property("width", px(Nat.min(width, maximum))), property("max-height", px(height)), property("overflow", "hidden")]
     case Design.AnchoredPopover{anchor, available, maximum_width, maximum_height, gap}:
       Design.Box{left, top, +width, +height} = available
-      [property("position", "fixed"), property("position-anchor", css_anchor(anchor)), property("position-area", "bottom span-left"), property("position-try-fallbacks", "flip-block, flip-inline"), property("margin", px(gap)), property("max-width", px(Nat.min(width, maximum_width))),
+      [property("position", "fixed"), property("position-anchor", css_anchor(anchor)), property("position-area", "bottom span-left"), property("position-try-fallbacks", "flip-block, flip-inline, flip-block flip-inline"), property("position-try-order", "most-block-size"), property("align-self", "normal"), property("height", "max-content"), property("margin", px(gap)), property("max-width", px(Nat.min(width, maximum_width))),
        property("max-height", px(Nat.min(height, maximum_height))), property("overflow", "auto")]
     case Design.TrailingPane{box}: bounds(box)
     case Design.NavigationDrawer{box}: bounds(box)
@@ -1790,6 +1791,8 @@ def page_region_attributes(+key: String, region: Composition.Region, position: C
 
 def page_region_styles(region: Composition.Region) -> +List<Doc.Property>:
   match region:
+    case Composition.CreationIntroduction{}:
+      [property("display", "flex"), property("flex-direction", "row"), property("flex-wrap", "wrap"), property("align-items", "center"), property("gap", "6px"), property("min-width", "0")]
     case Composition.BoardControls{}:
       [property("display", "flex"), property("flex", "1 1 560px"), property("flex-wrap", "wrap"), property("align-items", "center"), property("gap", "8px"), property("min-width", "0"), property("max-width", "100%")]
     case Composition.BoardTitle{}:
@@ -2025,6 +2028,7 @@ def node_value(value: UI.Meaning) -> String:
     case UI.Edit{editor, field, entry, observed_value}: field_text(field, observed_value)
     case UI.BoardSearch{filter}: filter_search(filter)
     case UI.SearchChoices{query}: query
+    case UI.EnterDirectory{editor, text}: text
     case UI.BoardProfile{automatic, selected, choices, enabled}: selected
     case _: ""
 
@@ -2232,17 +2236,269 @@ def compound_field(+key: String, label: String, field: Forms.Field,
   Doc.Element{key, "section", [property("data-native-key", key), property("aria-label", label),
     property("data-field", Forms.key(field)), property("tabindex", "-1")], style(visual), Nil{}, children}
 
+def directory_path_node(+key: String, +path: String) -> Doc.Node:
+  Doc.Element{key ++ "/path", "span", [property("title", path)],
+    [property("width", "100%"), property("flex", "0 0 auto"), property("min-width", "0"), property("overflow", "hidden"),
+     property("text-overflow", "ellipsis"), property("white-space", "nowrap")], Nil{}, [Doc.Text{path}]}
+
+def directory_row_node(+key: String, +path: String, primary: Bool, visual: Design.Style,
+  children: +List<Doc.Node>) -> Doc.Node:
+  Doc.Element{key, "div", [property("data-native-key", key), property("aria-label", path),
+    property("data-primary", boolean(primary))], List.append(&2, Doc.Property, style(visual),
+    [property("display", "flex"), property("flex-direction", "column"), property("align-items", "stretch"),
+     property("gap", "8px"), property("min-width", "0"), property("flex", "0 0 auto")]), Nil{},
+    [directory_path_node(key, path), Doc.Element{key ++ "/controls", "div", Nil{},
+      [property("display", "flex"), property("flex", "none"), property("width", "100%"), property("min-width", "0"), property("align-items", "center"),
+       property("gap", "4px")], Nil{}, children}]}
+
+def context_draft_kind(workspace: Context.WorkspaceValue, sandbox: Context.SandboxValue,
+  approval: Context.ApprovalValue) -> String:
+  match workspace sandbox approval:
+    case Context.InheritedWorkspace{value} Context.InheritedSandbox{permissions} Context.InheritedApproval{policy}: "inherited"
+    case _ _ _: "custom"
+
+def context_observation_kind(observation: Context.Observation) -> String:
+  match observation:
+    case Context.DraftExecution{Context.ContextUnavailable{reason}}: "unavailable"
+    case Context.DraftExecution{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}}:
+      context_draft_kind(workspace, sandbox, approval)
+    case Context.CommittedExecution{context}: "committed"
+
+def context_summary_node(+key: String, +label: String, role: UI.Role, observation: Context.Observation,
+  visual: Design.Style, children: +List<Doc.Node>, appearances: +List<Design.Appearance>) -> Doc.Node:
+  Doc.Element{key, "div", [property("data-native-key", key), property("aria-label", label),
+    property("data-context-kind", context_observation_kind(observation))], List.append(&2, Doc.Property, style(visual),
+    [property("display", "flex"), property("flex-direction", "column"), property("gap", "4px"),
+     property("min-width", "0"), property("flex", "0 0 auto")]), Nil{},
+    Doc.Element{key ++ "/provenance", "div", Nil{},
+      [property("font-size", "12px"), property("color", "var(--color-token-text-secondary)")], Nil{}, [Doc.Text{label}]} <> children}
+
+def choice_group_node(+key: String, +label: String, visual: Design.Style, children: +List<Doc.Node>) -> Doc.Node:
+  Doc.Element{key, "section", [property("data-native-key", key), property("role", "radiogroup"), property("aria-label", label)],
+    List.append(&2, Doc.Property, style(visual), [property("display", "flex"), property("flex-direction", "column"),
+      property("gap", "4px"), property("min-width", "0"), property("flex-shrink", "0"), property("height", "auto")]), Nil{},
+    Doc.Element{key ++ "/label", "div", Nil{}, [property("font-size", "12px"),
+      property("color", "var(--color-token-text-secondary)")], Nil{}, [Doc.Text{label}]} <> children}
+
+def choice_content(+key: String, label: String, description: String, selected: Bool) -> +List<Doc.Node>:
+  [Doc.Element{key ++ "/content", "span", Nil{}, [property("display", "flex"), property("flex-direction", "column"),
+    property("flex", "1 1 0"), property("min-width", "0"), property("text-align", "start"), property("gap", "2px")], Nil{},
+    [Doc.Text{label}, Doc.Element{key ++ "/description", "span", Nil{},
+      [property("font-size", "12px"), property("color", "var(--color-token-text-secondary)"),
+       property("white-space", "normal")], Nil{}, [Doc.Text{description}]}]},
+   Doc.Element{key ++ "/check-slot", "span", [property("aria-hidden", "true")],
+     [property("width", "20px"), property("flex", "0 0 20px"), property("text-align", "center")], Nil{}, [Doc.Text{choice_mark(selected)}]}]
+
+def choice_face(value: Doc.Node, label: String, description: String, selected: Bool) -> Doc.Node:
+  match value:
+    case Doc.Element{+key, tag, attrs, styles, events, children}:
+      Doc.Element{key, tag, attrs, List.append(&2, Doc.Property, styles,
+        [property("display", "flex"), property("flex-direction", "row"), property("align-items", "center"),
+         property("gap", "8px"), property("width", "100%"), property("min-width", "0"),
+         property("height", "auto"), property("flex-shrink", "0"), property("padding", "8px"), property("justify-content", "space-between")]), events,
+        choice_content(key, label, description, selected)}
+    case other: other
+
+def choice_node(+key: String, label: String, selected: Bool, description: String, +visual: Design.Style,
+  +representation: Controls.Representation, visual_children: +List<Design.Appearance>) -> Doc.Node:
+  choice_face(action(key, Design.Appearance{key, visual, representation, visual_children}, representation), label, description, selected)
+
+type ProjectControl is Data:
+  ProjectDisclosure{}
+  ProjectName{}
+  ProjectCreate{}
+  ProjectMore{}
+  ProjectOther{}
+
+def project_control_input(input: Core.Input) -> ProjectControl:
+  match input:
+    case Core.ApplicationInput{Experience.UserInput{User.Activate{User.ToggleProjectGroup{project}}}}: ProjectDisclosure{}
+    case Core.ApplicationInput{Experience.UserInput{User.Activate{User.SelectProject{project}}}}: ProjectName{}
+    case Core.ApplicationInput{Experience.UserInput{User.Activate{User.BeginTask{project}}}}: ProjectCreate{}
+    case Core.ApplicationInput{Experience.UserInput{User.Activate{User.OpenPanel{User.ObjectActions{User.ProjectSubject{project}}, trigger}}}}: ProjectMore{}
+    case _: ProjectOther{}
+
+def project_control_kind(representation: Controls.Representation) -> ProjectControl:
+  match representation:
+    case Controls.Action{input, availability, name, face, behavior, geometry, placement, help, feedback}: project_control_input(input)
+    case _: ProjectOther{}
+
+def project_chevron(expanded: Bool) -> Controls.Icon:
+  match expanded:
+    case True{}: Controls.ChevronDown{}
+    case False{}: Controls.ChevronRight{}
+
+def project_selected_background(selected: Bool) -> String:
+  match selected:
+    case True{}: "var(--color-background-segmented-selected)"
+    case False{}: "transparent"
+
+def project_icon_styles(+width: String) -> +List<Doc.Property>:
+  [property("display", "inline-flex"), property("align-items", "center"), property("justify-content", "center"),
+   property("flex", "0 0 " ++ width), property("width", width), property("min-width", width), property("height", width),
+   property("min-height", width), property("padding", "0"), property("border", "0")]
+
+def project_name_styles() -> +List<Doc.Property>:
+  [property("display", "block"), property("flex", "1 1 0"), property("min-width", "0"), property("width", "auto"),
+   property("overflow", "hidden"), property("text-overflow", "ellipsis"), property("white-space", "nowrap"),
+   property("text-align", "start"), property("padding-inline", "4px"), property("border", "0"), property("background", "transparent")]
+
+def project_button_face(node: Doc.Node, extra: +List<Doc.Property>, added: +List<Doc.Property>, children: +List<Doc.Node>) -> Doc.Node:
+  match node:
+    case Doc.Element{key, tag, attrs, styles, events, previous}:
+      Doc.Element{key, tag, List.append(&2, Doc.Property, attrs, added), List.append(&2, Doc.Property, styles, extra), events, children}
+    case other: other
+
+def project_control_face(kind: ProjectControl, +node: Doc.Node, +key: String, name: String, +expanded: Bool) -> Doc.Node:
+  match kind:
+    case ProjectDisclosure{}: project_button_face(node, project_icon_styles("24px"), [property("aria-expanded", boolean(expanded))], [icon(key, project_chevron(expanded))])
+    case ProjectName{}: project_button_face(node, project_name_styles(), Nil{}, [Doc.Text{name}])
+    case ProjectCreate{}: project_button_face(node, project_icon_styles("28px"), Nil{}, [icon(key, Controls.Plus{})])
+    case ProjectMore{}: project_button_face(node, project_icon_styles("28px"), Nil{}, [icon(key, Controls.MoreDots{})])
+    case ProjectOther{}: node
+
+def project_header_representation(node: Doc.Node, key: String, +representation: Controls.Representation, expanded: Bool) -> Doc.Node:
+  match representation:
+    case Controls.Action{input, availability, name, face, behavior, geometry, placement, help, feedback}:
+      project_control_face(project_control_input(input), node, key, name, expanded)
+    case _: node
+
+def project_header_control(node: Doc.Node, appearance: Design.Appearance, expanded: Bool) -> Doc.Node:
+  Design.Appearance{+key, visual, representation, children} = appearance
+  project_header_representation(node, key, representation, expanded)
+
+def project_header_controls(values: +List<Doc.Node>, appearances: +List<Design.Appearance>, +expanded: Bool) -> +List<Doc.Node>:
+  match values appearances:
+    case Con{node, rest} Con{appearance, visual_rest}: project_header_control(node, appearance, expanded) <> project_header_controls(rest, visual_rest, expanded)
+    case _ _: values
+
+def project_disclosure_test(kind: ProjectControl) -> Bool:
+  match kind:
+    case ProjectDisclosure{}: True{}
+    case _: False{}
+
+def project_has_disclosure(values: +List<Design.Appearance>) -> Bool:
+  match values:
+    case Nil{}: False{}
+    case Con{Design.Appearance{key, visual, representation, children}, rest}:
+      Bool.or(project_disclosure_test(project_control_kind(representation)), project_has_disclosure(rest))
+
+def project_header_styles(selected: Bool) -> +List<Doc.Property>:
+  [property("display", "flex"), property("flex-direction", "row"), property("align-items", "center"), property("gap", "2px"),
+   property("min-width", "0"), property("padding", "2px"), property("border-radius", "6px"), property("border", "0"),
+   property("background", project_selected_background(selected))]
+
+def project_header_node(node: Doc.Node, appearances: +List<Design.Appearance>, selected: Bool, expanded: Bool) -> Doc.Node:
+  match node:
+    case Doc.Element{key, tag, attrs, styles, events, children}:
+      Doc.Element{key, tag, attrs, List.append(&2, Doc.Property, styles, project_header_styles(selected)), events,
+        project_header_controls(children, appearances, expanded)}
+    case other: other
+
+def project_child(header: Bool, node: Doc.Node, appearances: +List<Design.Appearance>, selected: Bool, expanded: Bool) -> Doc.Node:
+  match header:
+    case True{}: project_header_node(node, appearances, selected, expanded)
+    case False{}: replace_styles(node, [property("margin-inline-start", "20px"), property("min-width", "0")])
+
+def project_group_children(values: +List<Doc.Node>, appearances: +List<Design.Appearance>, +selected: Bool, +expanded: Bool) -> +List<Doc.Node>:
+  match values appearances:
+    case Con{node, rest} Con{Design.Appearance{key, visual, representation, +children}, visual_rest}:
+      project_child(project_has_disclosure(children), node, children, selected, expanded) <> project_group_children(rest, visual_rest, selected, expanded)
+    case _ _: values
+
+def project_group_node(+key: String, project: Nat, selected: Bool, +expanded: Bool, children: +List<Doc.Node>, appearances: +List<Design.Appearance>) -> Doc.Node:
+  Doc.Element{key, "div", [property("data-native-key", key), property("data-project", Nat.show(project)), property("data-expanded", boolean(expanded))],
+    [property("display", "flex"), property("flex-direction", "column"), property("gap", "2px"), property("min-width", "0")], Nil{},
+    project_group_children(children, appearances, selected, expanded)}
+
+def task_status_tone(status: String) -> String:
+  match status:
+    case "Working": "var(--color-text-info)"
+    case "Paused": "var(--color-text-warning)"
+    case _: "var(--color-text-secondary)"
+
+def task_status_node(node: Doc.Node, +status: String) -> Doc.Node:
+  match node:
+    case Doc.Element{+key, tag, attrs, styles, events, children}:
+      Doc.Element{key, "span", List.append(&2, Doc.Property, attrs, [property("aria-label", status), property("title", status)]),
+        [property("display", "inline-flex"), property("flex", "0 0 auto"), property("align-items", "center"), property("gap", "4px"),
+         property("order", "-1"), property("font-size", "11px"), property("color", task_status_tone(status)), property("white-space", "nowrap")], events,
+        [Doc.Element{key ++ "/indicator", "span", [property("aria-hidden", "true")], Nil{}, Nil{}, [Doc.Text{"●"}]}, Doc.Text{status}]}
+    case other: other
+
+def task_row_control(node: Doc.Node, representation: Controls.Representation, status: String) -> Doc.Node:
+  match representation:
+    case Controls.Action{input, availability, name, face, behavior, geometry, placement, help, feedback}:
+      project_button_face(node, project_name_styles(), Nil{}, [Doc.Text{name}])
+    case _: task_status_node(node, status)
+
+def task_row_children(values: +List<Doc.Node>, appearances: +List<Design.Appearance>, +status: String) -> +List<Doc.Node>:
+  match values appearances:
+    case Con{node, rest} Con{Design.Appearance{key, visual, representation, children}, visual_rest}:
+      task_row_control(node, representation, status) <> task_row_children(rest, visual_rest, status)
+    case _ _: values
+
+def task_row_node(+key: String, task: Nat, +status: String, +selected: Bool, children: +List<Doc.Node>, appearances: +List<Design.Appearance>) -> Doc.Node:
+  Doc.Element{key, "div", [property("data-native-key", key), property("data-task", Nat.show(task)), property("data-status", status)],
+    [property("display", "flex"), property("align-items", "center"), property("gap", "6px"), property("min-width", "0"),
+     property("border-radius", "5px"), property("background", project_selected_background(selected)), property("padding-inline", "4px")], Nil{}, task_row_children(children, appearances, status)}
+
+def creation_heading_styles(text: Design.TextStyle) -> +List<Doc.Property>:
+  Design.TextStyle{family, size, line_height, weight} = text
+  [property("font-family", font(family)), property("font-size", px(size)), property("line-height", px(line_height)), property("font-weight", Nat.show(weight))]
+
+def project_chooser_styles(selected: Maybe<&2, Nat>) -> +List<Doc.Property>:
+  match selected:
+    case None{}: [property("font-size", "13px"), property("font-weight", "400")]
+    case Some{id}: creation_heading_styles(Appearance.creation_heading_text())
+
+def project_chooser_control(node: Doc.Node, key: String, representation: Controls.Representation, selected: Maybe<&2, Nat>) -> Doc.Node:
+  match representation:
+    case Controls.Action{Core.ApplicationInput{Experience.UserInput{User.Activate{User.OpenPanel{User.ProjectPicker{}, trigger}}}}, availability, name, face, behavior, geometry, placement, help, feedback}:
+      project_button_face(node, List.append(&2, Doc.Property, project_chooser_styles(selected),
+        [property("display", "inline-flex"), property("align-items", "center"), property("gap", "4px"), property("width", "auto"), property("padding-inline", "0"), property("border", "0"), property("background", "transparent")]), Nil{},
+        [Doc.Text{name}, icon(key, Controls.ChevronDown{})])
+    case _: node
+
+def project_chooser_children(values: +List<Doc.Node>, appearances: +List<Design.Appearance>, +selected: Maybe<&2, Nat>) -> +List<Doc.Node>:
+  match values appearances:
+    case Con{node, rest} Con{Design.Appearance{key, visual, representation, children}, visual_rest}:
+      project_chooser_control(node, key, representation, selected) <> project_chooser_children(rest, visual_rest, selected)
+    case _ _: values
+
+def project_chooser_node(+key: String, selected: Maybe<&2, Nat>, children: +List<Doc.Node>, appearances: +List<Design.Appearance>) -> Doc.Node:
+  Doc.Element{key, "div", [property("data-native-key", key)], [property("display", "inline-flex"), property("align-items", "center"), property("min-width", "0")], Nil{},
+    project_chooser_children(children, appearances, selected)}
+
+def submission_alert_styles() -> +List<Doc.Property>:
+  [property("color", "var(--color-text-danger)"), property("font-size", "13px"), property("line-height", "20px"),
+   property("white-space", "pre-wrap"), property("overflow-wrap", "anywhere"), property("min-width", "0"), property("flex", "0 0 auto")]
+
+def read_only_node(+key: String, role: UI.Role, label: String, text: String, visual: Design.Style, source: +List<UI.Node>, children: +List<Doc.Node>) -> Doc.Node:
+  match role:
+    case UI.Alert{}:
+      Doc.Element{key, "div", [property("data-native-key", key), property("role", "alert"), property("aria-label", label)],
+        List.append(&2, Doc.Property, style(visual), submission_alert_styles()), Nil{}, Doc.Text{text} <> children}
+    case +other:
+      Doc.Element{key, tag(other), [property("data-native-key", key)], style(visual), Nil{}, Doc.Markdown{key ++ "/markdown", markdown_source(source), text} <> children}
+
 def match_node(+key: String, +label: String, +role: UI.Role, meaning: UI.Meaning, +children: +List<UI.Node>, +rendered_children: +List<Doc.Node>, +visual: Design.Style, +representation: Controls.Representation, visual_children: +List<Design.Appearance>) -> Doc.Node:
   match meaning:
     case UI.Edit{editor, field, Forms.DirectoryCollection{}, value}: compound_field(key, label, field, visual, rendered_children)
     case UI.Edit{editor, field, Forms.FileCollection{}, value}: compound_field(key, label, field, visual, rendered_children)
     case UI.Activate{input_value, availability}: action(key, Design.Appearance{key, visual, representation, visual_children}, representation)
+    case UI.Choice{selected, description, input, availability}: choice_node(key, label, selected, description, visual, representation, visual_children)
+    case UI.ProjectGroup{project, selected, expanded}: project_group_node(key, project, selected, expanded, rendered_children, visual_children)
+    case UI.TaskRow{task, status, selected}: task_row_node(key, task, status, selected, rendered_children, visual_children)
+    case UI.ProjectChooser{selected}: project_chooser_node(key, selected, rendered_children, visual_children)
+    case UI.DirectoryRow{path, primary}: directory_row_node(key, path, primary, visual, rendered_children)
+    case UI.ContextSummary{observation}: context_summary_node(key, label, role, observation, visual, rendered_children, visual_children)
+    case UI.ChoiceGroup{}: choice_group_node(key, label, visual, rendered_children)
     case UI.PageRegion{region, position}: page_region(key, region, position, rendered_children)
     case UI.BoardGroup{grouping}: board_group_node(key, grouping, rendered_children)
     case UI.BoardLane{stage, count}: board_lane_node(key, label, stage, count, children, rendered_children)
     case UI.Region{}: region_node(key, label, role, visual, rendered_children, visual_children)
-    case UI.ReadOnly{text}: Doc.Element{key, tag(role), [property("data-native-key", key)], style(visual), Nil{},
-      Doc.Markdown{key ++ "/markdown", markdown_source(children), text} <> rendered_children}
+    case UI.ReadOnly{text}: read_only_node(key, role, label, text, visual, children, rendered_children)
     case UI.CodeFacts{Code.Scene{+identity, literal, wrap, copy, enabled, controls}}:
       Doc.Element{key, "div", Nil{}, [property("display", "contents")], Nil{}, [
         Doc.Portal{key ++ "/toolbar", Code.key(identity) ++ "/toolbar", rendered_children},
