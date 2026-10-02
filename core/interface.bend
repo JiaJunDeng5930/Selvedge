@@ -81,6 +81,7 @@ type Meaning is Data:
   TaskFacts{details: V.TaskDetails}
   CodeFacts{view: Code.Scene}
   Activate{input: Core.Input, availability: V.Availability}
+  ComposerAction{subject: V.ComposerSubject, input: Core.Input, availability: V.Availability}
   Edit{editor: U.Editor, field: Forms.Field, entry: Forms.Entry, value: Forms.Observed}
   SearchChoices{query: String}
   EnterCredential{entered: Bool}
@@ -424,23 +425,36 @@ def editor(view: Maybe<&2, V.EditorScene>, +parent: String, +state: Core.State) 
     case Some{V.EditorScene{identity, revision, groups, structure, submit, feedback, pending}}:
       List.append(&2, Node, sections(structure, identity, parent, 0n, state), List.append(&2, Node, feedback_nodes(parent, feedback), [declared(parent, submit, state)]))
 
-def composer_choices(footer: +List<V.ControlDeclaration>, +parent: String, +state: Core.State) -> +List<Node>:
+def composer_control_resolved(subject: V.ComposerSubject, parent: String, control: Core.Control) -> Node:
+  Core.Control{+identity, label, prominence, input, availability} = control
+  Node{parent ++ "/" ++ identity, identity, label, action_role(prominence), ComposerAction{subject, input, availability}, Nil{}}
+
+def composer_control(parent: String, value: V.ComposerControl, state: Core.State) -> Node:
+  V.ComposerControl{subject, declaration} = value
+  composer_control_resolved(subject, parent, Core.control(state, declaration))
+
+def composer_controls(values: +List<V.ComposerControl>, +parent: String, +state: Core.State) -> +List<Node>:
+  match values:
+    case Nil{}: Nil{}
+    case Con{control, rest}: composer_control(parent, control, state) <> composer_controls(rest, parent, state)
+
+def composer_choices(footer: +List<V.ComposerControl>, +parent: String, +state: Core.State) -> +List<Node>:
   match footer:
     case Nil{}: Nil{}
     case Con{first, rest}:
-      [region(parent, "choices", "Choices", Toolbar{}, controls(first <> rest, parent, state))]
+      [region(parent, "choices", "Choices", Toolbar{}, composer_controls(first <> rest, parent, state))]
 
-def composer_actions(footer: +List<V.ControlDeclaration>, submit: V.ControlDeclaration, +parent: String, +state: Core.State) -> Node:
+def composer_actions(footer: +List<V.ComposerControl>, submit: V.ControlDeclaration, +parent: String, +state: Core.State) -> Node:
   region(parent, "actions", "Actions", ComposerActions{},
     List.append(&2, Node, composer_choices(footer, parent, state), [declared(parent, submit, state)]))
 
-def expected_composer_choices(footer: +List<V.ControlDeclaration>, +parent: String, +state: Core.State) -> +List<Node>:
+def expected_composer_choices(footer: +List<V.ComposerControl>, +parent: String, +state: Core.State) -> +List<Node>:
   match footer:
     case Nil{}: Nil{}
     case Con{first, rest}:
-      [Node{parent ++ "/choices", "choices", "Choices", Toolbar{}, Region{}, controls(first <> rest, parent, state)}]
+      [Node{parent ++ "/choices", "choices", "Choices", Toolbar{}, Region{}, composer_controls(first <> rest, parent, state)}]
 
-def expected_composer_actions(footer: +List<V.ControlDeclaration>, submit: V.ControlDeclaration, +parent: String, +state: Core.State) -> Node:
+def expected_composer_actions(footer: +List<V.ComposerControl>, submit: V.ControlDeclaration, +parent: String, +state: Core.State) -> Node:
   Node{parent ++ "/actions", "actions", "Actions", ComposerActions{}, Region{},
     List.append(&2, Node, expected_composer_choices(footer, parent, state), [declared(parent, submit, state)])}
 
@@ -463,7 +477,7 @@ def composer(view: Maybe<&2, V.ComposerScene>, +parent: String, +state: Core.Sta
           List.append(&2, Node, feedback_nodes(composer_key, feedback), [composer_actions(footer, submit, composer_key, state)]))]
 
 def composer_tree_present_agreement(+identity: U.Editor, revision: Nat, message: U.Text,
-    footer: +List<V.ControlDeclaration>, context: Maybe<&2, Context.Observation>, submit: V.ControlDeclaration,
+    footer: +List<V.ComposerControl>, context: Maybe<&2, Context.Observation>, submit: V.ControlDeclaration,
     feedback: U.Feedback, pending: Bool, +parent: String, +state: Core.State)
   -> {composer(Some{V.ComposerScene{identity, revision, message, footer, context, submit, feedback, pending}}, parent, state) ==
       expected_composer(Some{V.ComposerScene{identity, revision, message, footer, context, submit, feedback, pending}}, parent, state) : +List<Node>}:
@@ -867,17 +881,32 @@ def selected_effort(same: Bool, effort: String, policy: Reasoning.Policy) -> Str
   match same:
     case True{}: effort
     case False{}: Reasoning.default_selection(policy)
+def choice_control(selected: Bool, description: String, control: Core.Control, parent: String) -> Node:
+  Core.Control{+identity, label, prominence, input, availability} = control
+  Node{parent ++ "/" ++ identity, identity, label, Button{}, Choice{selected, description, input, availability}, Nil{}}
+
+def declared_choice(selected: Bool, description: String, declaration: V.ControlDeclaration, parent: String, state: Core.State) -> Node:
+  choice_control(selected, description, Core.control(state, declaration), parent)
+
 def model_choices(profiles: +List<D.Profile>, +selected: String, +effort: String, +editor: U.Editor, +parent: String, +state: Core.State) -> +List<Node>:
   match profiles:
     case Nil{}: Nil{}
     case Con{D.Profile{+key, provider, name, policy}, rest}:
-      user_action(parent, "model/" ++ key, name, U.EditDraft{editor, U.ChooseModel{key, selected_effort(String.eq(key, selected), effort, policy)}}, True{}, state) <> model_choices(rest, selected, effort, editor, parent, state)
+      declared_choice(String.eq(key, selected), provider, V.ControlDeclaration{"model/" ++ key, name, V.Secondary{}, U.EditDraft{editor, U.ChooseModel{key, selected_effort(String.eq(key, selected), effort, policy)}}, V.Available{}}, parent, state) <> model_choices(rest, selected, effort, editor, parent, state)
+
+def delivery_selected(current: U.Delivery, candidate: U.Delivery) -> Bool:
+  match current candidate:
+    case U.Send{} U.Send{}: True{}
+    case U.Steer{} U.Steer{}: True{}
+    case _ _: False{}
 
 def picker_fields(values: +List<V.InputGroup>, +editor: U.Editor, +parent: String, +state: Core.State) -> +List<Node>:
   match values:
     case Nil{}: Nil{}
     case Con{V.ModelInput{profile, reasoning, choices}, rest}: List.append(&2, Node, model_choices(choices, profile, reasoning, editor, parent, state), picker_fields(rest, editor, parent, state))
-    case Con{V.DeliveryInput{selected, send, steer}, rest}: declared(parent, send, state) <> declared(parent, steer, state) <> picker_fields(rest, editor, parent, state)
+    case Con{V.DeliveryInput{+selected, send, steer}, rest}:
+      declared_choice(delivery_selected(selected, U.Send{}), "Send a new message to this task.", send, parent, state) <>
+      declared_choice(delivery_selected(selected, U.Steer{}), "Guide the current run with this message.", steer, parent, state) <> picker_fields(rest, editor, parent, state)
     case Con{other, rest}: picker_fields(rest, editor, parent, state)
 
 def execution_details(value: Maybe<&2, V.TaskScene>, parent: String) -> +List<Node>:
@@ -958,13 +987,6 @@ def context_summary_node(+value: Context.Observation, +parent: String, state: Co
   +facts = observation_facts(value, Board.profiles(world))
   Node{parent ++ "/source", "context/source", source, Content{}, ContextSummary{value},
     [Node{parent ++ "/source/facts", "context/facts", facts, Content{}, ReadOnly{facts}, Nil{}}]}
-
-def choice_control(selected: Bool, description: String, control: Core.Control, parent: String) -> Node:
-  Core.Control{+identity, label, prominence, input, availability} = control
-  Node{parent ++ "/" ++ identity, identity, label, Button{}, Choice{selected, description, input, availability}, Nil{}}
-
-def declared_choice(selected: Bool, description: String, declaration: V.ControlDeclaration, parent: String, state: Core.State) -> Node:
-  choice_control(selected, description, Core.control(state, declaration), parent)
 
 def sandbox_selected(selected: D.SandboxMode, candidate: D.SandboxMode) -> Bool:
   match selected candidate:
@@ -1240,10 +1262,15 @@ def active_scope(overlays: +List<Node>) -> Maybe<&2, String>:
 
 def finish(content: Core.Scene, base: +List<Node>, +overlays: +List<Node>) -> Surface:
   Surface{content, base, overlays, active_scope(overlays)}
+def collapsed_navigation_toggle(nav: V.Navigation, state: Core.State) -> +List<Node>:
+  V.Navigation{expanded, create, destinations, projects, tasks, toggle} = nav
+  [declared("/navigation", toggle, state)]
+
 def base_navigation_at(placement: V.NavigationPlacement, nav: V.Navigation, state: Core.State) -> +List<Node>:
   match placement:
     case V.ModalNavigation{}: Nil{}
-    case _: [navigation(nav, state)]
+    case V.CollapsedNavigation{}: collapsed_navigation_toggle(nav, state)
+    case V.LeadingNavigation{}: [navigation(nav, state)]
 
 def base_navigation(arrangement: V.Arrangement, nav: V.Navigation, state: Core.State) -> +List<Node>:
   V.Arrangement{placement, page} = arrangement
@@ -1316,6 +1343,7 @@ def profile_exists(profile: Maybe<&2, D.Profile>) -> Bool:
 
 def bind(meaning: Meaning, gesture: Gesture) -> Maybe<&2, Core.Input>:
   match meaning gesture:
+    case ComposerAction{subject, input, availability} Press{}: when_available(available(availability), input)
     case Activate{input, availability} Press{}: when_available(available(availability), input)
     case Choice{selected, description, input, availability} Press{}: when_available(available(availability), input)
     case Edit{+editor, +field, Forms.DisplayOnly{}, +value} Change{+next}: None{}
@@ -1441,6 +1469,7 @@ def interact(+capacity: V.Capacity, +key: String, gesture: Gesture, +state: Core
 
 def focusable(meaning: Meaning) -> Bool:
   match meaning:
+    case ComposerAction{subject, input, availability}: available(availability)
     case Activate{input, availability}: available(availability)
     case Choice{selected, description, input, availability}: available(availability)
     case Edit{editor, field, Forms.DisplayOnly{}, value}: False{}
@@ -1499,6 +1528,7 @@ def source_preserves_program(decision: Core.Decision, previous: +List<E.Layer>, 
 
 def submits(meaning: Meaning, editor: U.Editor) -> Bool:
   match meaning:
+    case ComposerAction{subject, Core.ApplicationInput{E.UserInput{U.Activate{U.Submit{owner}}}}, availability}: available(availability) && U.same_editor(owner, editor)
     case Activate{Core.ApplicationInput{E.UserInput{U.Activate{U.Submit{owner}}}}, availability}: available(availability) && U.same_editor(owner, editor)
     case _: False{}
 

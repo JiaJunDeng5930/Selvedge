@@ -42,3 +42,10 @@ rather than changing trusted content or weakening admission checks.
 
 The executable model and production proof aggregates define the requirements.
 Physical browser behavior and external execution remain their own boundaries.
+
+Composer controls retain their display subject alongside the original declaration.
+The working-directory and permissions controls can open the same task-context
+inspector, so their shared command cannot recover which execution fact each
+control presents. Carrying that subject through the typed UI projection preserves
+the distinction; the original declaration and `Core.control` remain the single
+authority for the executed input and its availability.

@@ -25,7 +25,7 @@ def header_production(+key: String, +tag: String, +attrs: +List<Doc.Property>, +
   {Render.project_header_node(Doc.Element{key, tag, attrs, styles, events, children}, appearances, selected, expanded) ==
     Doc.Element{key, tag, attrs, List.append(&2, Doc.Property, styles,
       [Render.property("display", "flex"), Render.property("flex-direction", "row"), Render.property("align-items", "center"), Render.property("gap", "2px"),
-       Render.property("min-width", "0"), Render.property("padding", "2px"), Render.property("border-radius", "6px"), Render.property("border", "0"),
+       Render.property("min-width", "0"), Render.property("padding", "0"), Render.property("border-radius", "6px"), Render.property("border", "0"),
        Render.property("background", Render.project_selected_background(selected))]), events,
       Render.project_header_controls(children, appearances, expanded)} : Doc.Node}:
   {==}
@@ -70,7 +70,7 @@ def name_geometry() ->
   {Render.project_name_styles() ==
     [Render.property("display", "block"), Render.property("flex", "1 1 0"), Render.property("min-width", "0"), Render.property("width", "auto"),
      Render.property("overflow", "hidden"), Render.property("text-overflow", "ellipsis"), Render.property("white-space", "nowrap"),
-     Render.property("text-align", "start"), Render.property("padding-inline", "4px"), Render.property("border", "0"), Render.property("background", "transparent")] : +List<Doc.Property>}:
+     Render.property("text-align", "start"), Render.property("padding-inline", "8px"), Render.property("border", "0"), Render.property("background", "transparent")] : +List<Doc.Property>}:
   {==}
 
 def task_production(+key: String, label: String, role: UI.Role, +task: Nat, +status: String, +selected: Bool,
@@ -78,7 +78,7 @@ def task_production(+key: String, label: String, role: UI.Role, +task: Nat, +sta
   {Render.match_node(key, label, role, UI.TaskRow{task, status, selected}, source, children, visual, representation, appearances) ==
     Doc.Element{key, "div", [Render.property("data-native-key", key), Render.property("data-task", Nat.show(task)), Render.property("data-status", status)],
       [Render.property("display", "flex"), Render.property("align-items", "center"), Render.property("gap", "6px"), Render.property("min-width", "0"),
-       Render.property("border-radius", "5px"), Render.property("background", Render.project_selected_background(selected)), Render.property("padding-inline", "4px")], Nil{},
+       Render.property("border-radius", "5px"), Render.property("background", Render.project_selected_background(selected)), Render.property("padding-inline", "0")], Nil{},
       Render.task_row_children(children, appearances, status)} : Doc.Node}:
   {==}
 
@@ -112,7 +112,7 @@ def chooser_value_binding(+key: String, +tag: String, +attrs: +List<Doc.Property
       List.append(&2, Doc.Property, Render.project_chooser_styles(selected),
         [Render.property("display", "inline-flex"), Render.property("align-items", "center"), Render.property("gap", "4px"), Render.property("width", "auto"),
          Render.property("padding-inline", "0"), Render.property("border", "0"), Render.property("background", "transparent")])), events,
-      [Doc.Text{name}, Render.icon(appearance_key, Controls.ChevronDown{})]} : Doc.Node}:
+      [Render.icon(appearance_key ++ "/folder", Controls.Folder{}), Render.face_label(appearance_key, name), Render.icon(appearance_key ++ "/disclosure", Controls.ChevronDown{})]} : Doc.Node}:
   {==}
 
 def create_typed(project: Maybe<&2, Nat>) ->
@@ -162,7 +162,7 @@ type Requirements is Type:
       {Render.project_header_node(Doc.Element{key, tag, attrs, styles, events, children}, appearances, selected, expanded) ==
     Doc.Element{key, tag, attrs, List.append(&2, Doc.Property, styles,
       [Render.property("display", "flex"), Render.property("flex-direction", "row"), Render.property("align-items", "center"), Render.property("gap", "2px"),
-       Render.property("min-width", "0"), Render.property("padding", "2px"), Render.property("border-radius", "6px"), Render.property("border", "0"),
+       Render.property("min-width", "0"), Render.property("padding", "0"), Render.property("border-radius", "6px"), Render.property("border", "0"),
        Render.property("background", Render.project_selected_background(selected))]), events,
       Render.project_header_controls(children, appearances, expanded)} : Doc.Node},
     disclosure_typed: @+project:Nat ->
@@ -188,12 +188,12 @@ type Requirements is Type:
       {Render.project_name_styles() ==
     [Render.property("display", "block"), Render.property("flex", "1 1 0"), Render.property("min-width", "0"), Render.property("width", "auto"),
      Render.property("overflow", "hidden"), Render.property("text-overflow", "ellipsis"), Render.property("white-space", "nowrap"),
-     Render.property("text-align", "start"), Render.property("padding-inline", "4px"), Render.property("border", "0"), Render.property("background", "transparent")] : +List<Doc.Property>},
+     Render.property("text-align", "start"), Render.property("padding-inline", "8px"), Render.property("border", "0"), Render.property("background", "transparent")] : +List<Doc.Property>},
     task_production: @+key:String -> @label:String -> @role:UI.Role -> @+task:Nat -> @+status:String -> @+selected:Bool -> @source:+List<UI.Node> -> @+children:+List<Doc.Node> -> @visual:Design.Style -> @representation:Controls.Representation -> @+appearances:+List<Design.Appearance> ->
       {Render.match_node(key, label, role, UI.TaskRow{task, status, selected}, source, children, visual, representation, appearances) ==
     Doc.Element{key, "div", [Render.property("data-native-key", key), Render.property("data-task", Nat.show(task)), Render.property("data-status", status)],
       [Render.property("display", "flex"), Render.property("align-items", "center"), Render.property("gap", "6px"), Render.property("min-width", "0"),
-       Render.property("border-radius", "5px"), Render.property("background", Render.project_selected_background(selected)), Render.property("padding-inline", "4px")], Nil{},
+       Render.property("border-radius", "5px"), Render.property("background", Render.project_selected_background(selected)), Render.property("padding-inline", "0")], Nil{},
       Render.task_row_children(children, appearances, status)} : Doc.Node},
     status_visible: @+key:String -> @tag:String -> @+attrs:+List<Doc.Property> -> @styles:+List<Doc.Property> -> @+events:+List<Doc.Event> -> @children:+List<Doc.Node> -> @+status:String ->
       {Render.task_status_node(Doc.Element{key, tag, attrs, styles, events, children}, status) ==
@@ -215,7 +215,7 @@ type Requirements is Type:
       List.append(&2, Doc.Property, Render.project_chooser_styles(selected),
         [Render.property("display", "inline-flex"), Render.property("align-items", "center"), Render.property("gap", "4px"), Render.property("width", "auto"),
          Render.property("padding-inline", "0"), Render.property("border", "0"), Render.property("background", "transparent")])), events,
-      [Doc.Text{name}, Render.icon(appearance_key, Controls.ChevronDown{})]} : Doc.Node},
+      [Render.icon(appearance_key ++ "/folder", Controls.Folder{}), Render.face_label(appearance_key, name), Render.icon(appearance_key ++ "/disclosure", Controls.ChevronDown{})]} : Doc.Node},
     create_typed: @project:Maybe<&2, Nat> ->
       {Render.project_control_input(Core.ApplicationInput{Experience.UserInput{User.Activate{User.BeginTask{project}}}}) == Render.ProjectCreate{} : Render.ProjectControl},
     more_typed: @project:Nat -> @trigger:String ->

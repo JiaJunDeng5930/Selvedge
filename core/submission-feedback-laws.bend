@@ -27,7 +27,7 @@ def editor_rejected_visible(+identity: U.Editor, revision: Nat, groups: +List<Vi
       [Interface.Node{parent ++ "/feedback", "submission-feedback", "Submission failed", Interface.Alert{}, Interface.ReadOnly{reason}, Nil{}}, Interface.declared(parent, submit, state)]) : +List<Interface.Node>}:
   {==}
 
-def composer_rejected_visible(+identity: U.Editor, revision: Nat, message: U.Text, +footer: +List<View.ControlDeclaration>,
+def composer_rejected_visible(+identity: U.Editor, revision: Nat, message: U.Text, +footer: +List<View.ComposerControl>,
   context: Maybe<&2, Context.Observation>, +submit: View.ControlDeclaration, submitted: Nat, +reason: String, pending: Bool, +parent: String, +state: Core.State) ->
   {Interface.composer(Some{View.ComposerScene{identity, revision, message, footer, context, submit, U.Rejected{submitted, reason}, pending}}, parent, state) ==
     [Interface.Node{parent ++ "/composer/" ++ U.editor_key(identity), "composer/" ++ U.editor_key(identity), "Message", Interface.Composer{}, Interface.Region{},
@@ -49,7 +49,7 @@ type Requirements is Type:
       {Interface.editor(Some{View.EditorScene{identity, revision, groups, structure, submit, U.Rejected{submitted, reason}, pending}}, parent, state) ==
     List.append(&2, Interface.Node, Interface.sections(structure, identity, parent, 0n, state),
       [Interface.Node{parent ++ "/feedback", "submission-feedback", "Submission failed", Interface.Alert{}, Interface.ReadOnly{reason}, Nil{}}, Interface.declared(parent, submit, state)]) : +List<Interface.Node>},
-    composer_rejected_visible: @+identity:U.Editor -> @revision:Nat -> @message:U.Text -> @+footer:+List<View.ControlDeclaration> -> @context:Maybe<&2, Context.Observation> -> @+submit:View.ControlDeclaration -> @submitted:Nat -> @+reason:String -> @pending:Bool -> @+parent:String -> @+state:Core.State ->
+    composer_rejected_visible: @+identity:U.Editor -> @revision:Nat -> @message:U.Text -> @+footer:+List<View.ComposerControl> -> @context:Maybe<&2, Context.Observation> -> @+submit:View.ControlDeclaration -> @submitted:Nat -> @+reason:String -> @pending:Bool -> @+parent:String -> @+state:Core.State ->
       {Interface.composer(Some{View.ComposerScene{identity, revision, message, footer, context, submit, U.Rejected{submitted, reason}, pending}}, parent, state) ==
     [Interface.Node{parent ++ "/composer/" ++ U.editor_key(identity), "composer/" ++ U.editor_key(identity), "Message", Interface.Composer{}, Interface.Region{},
       Interface.field_node(Forms.FieldScene{Forms.MessageText{}, "Message", Forms.Multiline{}}, identity, parent ++ "/composer/" ++ U.editor_key(identity), state) <>

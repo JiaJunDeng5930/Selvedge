@@ -18,6 +18,12 @@ def text_style(font: Design.Font, size: Nat, line_height: Nat, weight: Nat) -> D
 def creation_heading_text() -> Design.TextStyle:
   text_style(Design.InterfaceFont{}, 28n, 36n, 500n)
 
+def dialog_inline_inset() -> Nat:
+  24n
+
+def popup_content_inset() -> Nat:
+  8n
+
 def chrome(foreground: Design.Paint, background: Design.Paint, border: Design.Paint,
   border_width: Nat, radius: Nat, shadow: Bool) -> Design.Chrome:
   Design.Chrome{foreground, background, border, border_width, radius, shadow}
@@ -161,7 +167,7 @@ def style(role: UI.Role, meaning: UI.Meaning) -> Design.Style:
         0n, 100n, passive())
     case UI.NavigationHeader{}:
       fields(text_style(Design.InterfaceFont{}, 13n, 20n, 500n), base_chrome(),
-        Design.Stretch{}, Design.RowFlow{}, Design.ContentFlow{}, 8n, 4n, 8n,
+        Design.Stretch{}, Design.RowFlow{}, Design.ContentFlow{}, 0n, 4n, 8n,
         36n, 100n, passive())
     case UI.Main{}:
       fields(ordinary_text(), chrome(primary_foreground(), paint("--app-color-background-surface"), transparent(), 0n, 0n, False{}), Design.Stretch{},
@@ -214,7 +220,7 @@ def style(role: UI.Role, meaning: UI.Meaning) -> Design.Style:
       fields(ordinary_text(), chrome(primary_foreground(),
         paint("--color-token-dropdown-background"),
         paint("--color-token-border-default"), 1n, 12n, True{}),
-        Design.Stretch{}, Design.ColumnFlow{}, Design.ScrollFlow{}, 4n, 4n, 2n,
+        Design.Stretch{}, Design.ColumnFlow{}, Design.ScrollFlow{}, popup_content_inset(), popup_content_inset(), 2n,
         0n, 100n, passive())
     case UI.Details{}:
       surface_style(Design.ColumnFlow{}, Design.ScrollFlow{}, 16n, 16n, 16n, 0n, False{})
@@ -244,7 +250,7 @@ def style_in_context(role: UI.Role, meaning: UI.Meaning,
 
 def navigation_context(context: Controls.Context) -> Bool:
   match context:
-    case Controls.Context{Controls.NavigationArea{}, selection, code, appearance, access, open, layers}: True{}
+    case Controls.Context{Controls.NavigationArea{}, selection, code, appearance, access, open, layers, execution}: True{}
     case _: False{}
 
 def rounded_chrome(value: Design.Chrome, radius: Nat) -> Design.Chrome:
@@ -258,18 +264,27 @@ def rounded_states(value: Design.ControlStates, +radius: Nat) -> Design.ControlS
       Design.Interactive{rounded_chrome(hover, radius), rounded_chrome(pressed, radius),
         opacity, ring, width, offset}
 
-def face_padding(face: Controls.Face) -> Nat:
-  match face:
-    case Controls.IconFace{icon}: 4n
-    case _: 8n
+def layout_inline_inset(layout: Controls.ContentLayout) -> Nat:
+  Controls.ContentLayout{alignment, inline_inset, block_inset, gap} = layout
+  inline_inset
 
-def action_style(value: Design.Style, face: Controls.Face, geometry: Controls.Geometry) -> Design.Style:
+def face_padding(face: Controls.Face) -> Nat:
+  layout_inline_inset(Controls.content_layout(face))
+
+def action_style_insets(value: Design.Style, geometry: Controls.Geometry, inline_inset: Nat, block_inset: Nat, content_gap: Nat) -> Design.Style:
   Design.Style{text, style_chrome, alignment, flow, overflow, padding_inline,
     padding_block, gap, old_height, maximum_width_percent, states} = value
   Controls.Geometry{minimum_width, minimum_height, icon_size, +radius, leading_slot} = geometry
   fields(text, rounded_chrome(style_chrome, radius), alignment, Design.RowFlow{},
-    overflow, face_padding(face), 4n, gap, minimum_height, maximum_width_percent,
+    overflow, inline_inset, block_inset, content_gap, minimum_height, maximum_width_percent,
     rounded_states(states, radius))
+
+def action_content_style(value: Design.Style, layout: Controls.ContentLayout, geometry: Controls.Geometry) -> Design.Style:
+  Controls.ContentLayout{content_alignment, inline_inset, block_inset, content_gap} = layout
+  action_style_insets(value, geometry, inline_inset, block_inset, content_gap)
+
+def action_style(value: Design.Style, face: Controls.Face, geometry: Controls.Geometry) -> Design.Style:
+  action_content_style(value, Controls.content_layout(face), geometry)
 
 def selection_style(value: Design.Style, behavior: Controls.Behavior) -> Design.Style:
   match behavior:
@@ -291,9 +306,6 @@ def control_style(value: Design.Style, representation: Controls.Representation) 
 
 def semantic_style(semantic: String, fallback: Design.Style) -> Design.Style:
   match semantic:
-    case "creation/introduction":
-      fields(ordinary_text(), base_chrome(), Design.Stretch{}, Design.ColumnFlow{},
-        Design.ContentFlow{}, 0n, 0n, 12n, 0n, 100n, passive())
     case "creation/title":
       fields(creation_heading_text(), base_chrome(),
         Design.Centered{}, Design.BlockFlow{}, Design.ContentFlow{}, 0n, 0n, 0n,

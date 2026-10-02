@@ -1,12 +1,14 @@
 import Base
 import ../core/interface.bend as UI
 import ../core/user-context.bend as Context
+import ../core/ui-world.bend as View
 import ../core/user-input.bend as User
 import ../bendlib/domain.bend as Domain
 import ./renderer.bend as Render
 import ./controls.bend as Controls
 import ./document.bend as Doc
 import ./design.bend as Design
+import ./appearance.bend as Appearance
 
 # These obligations bind the actual semantic dispatch and preserve the Core
 # children. Menu placement, dismissal and committed facts keep their existing owners.
@@ -63,7 +65,7 @@ def summary_passive_facts(+key: String, +label: String, role: UI.Role, +observat
     Doc.Element{key, "div", [Render.property("data-native-key", key), Render.property("aria-label", label),
       Render.property("data-context-kind", Render.context_observation_kind(observation))], List.append(&2, Doc.Property, Render.style(visual),
       [Render.property("display", "flex"), Render.property("flex-direction", "column"), Render.property("gap", "4px"),
-       Render.property("min-width", "0"), Render.property("flex", "0 0 auto")]), Nil{},
+       Render.property("min-width", "0"), Render.property("flex", "0 0 auto"), Render.property("padding-inline", Render.px(Appearance.popup_content_inset()))]), Nil{},
       Doc.Element{key ++ "/provenance", "div", Nil{}, [Render.property("font-size", "12px"),
         Render.property("color", "var(--color-token-text-secondary)")], Nil{}, [Doc.Text{label}]} <> children} : Doc.Node}:
   {==}
@@ -86,9 +88,8 @@ def workspace_label(+label: String, expanded: Bool) ->
   {Controls.face_for(Controls.WorkspacePicker{expanded}, label, Controls.ComposerArea{}) == Controls.PickerFace{Some{Controls.Folder{}}, label} : Controls.Face}:
   {==}
 
-def permissions_label(+label: String, expanded: Bool) ->
-  {Controls.face_for(Controls.panel_purpose(User.PermissionsConfiguration{User.NewTaskEditor{}}, expanded), label, Controls.ComposerArea{}) ==
-    Controls.PickerFace{None{}, label} : Controls.Face}:
+def permissions_label(+label: String, current: Controls.Face, +execution: Maybe<&2, Context.Observation>) ->
+  {Controls.composer_face(View.PermissionsSubject{}, label, current, execution) == Controls.permission_face(execution) : Controls.Face}:
   {==}
 
 def approval_canonical(+value: Context.ApprovalValue) ->
@@ -103,8 +104,7 @@ def choice_content_projection(+key: String, +label: String, +description: String
       [Doc.Text{label}, Doc.Element{key ++ "/description", "span", Nil{},
         [Render.property("font-size", "12px"), Render.property("color", "var(--color-token-text-secondary)"),
          Render.property("white-space", "normal")], Nil{}, [Doc.Text{description}]}]},
-     Doc.Element{key ++ "/check-slot", "span", [Render.property("aria-hidden", "true")],
-       [Render.property("width", "20px"), Render.property("flex", "0 0 20px"), Render.property("text-align", "center")], Nil{}, [Doc.Text{Render.choice_mark(selected)}]}] : +List<Doc.Node>}:
+     Render.check_slot(key, selected)] : +List<Doc.Node>}:
   {==}
 
 def choice_group_native(+key: String, +label: String, +visual: Design.Style, +children: +List<Doc.Node>) ->
@@ -113,7 +113,7 @@ def choice_group_native(+key: String, +label: String, +visual: Design.Style, +ch
       List.append(&2, Doc.Property, Render.style(visual), [Render.property("display", "flex"), Render.property("flex-direction", "column"),
         Render.property("gap", "4px"), Render.property("min-width", "0"), Render.property("flex-shrink", "0"), Render.property("height", "auto")]), Nil{},
       Doc.Element{key ++ "/label", "div", Nil{}, [Render.property("font-size", "12px"),
-        Render.property("color", "var(--color-token-text-secondary)")], Nil{}, [Doc.Text{label}]} <> children} : Doc.Node}:
+        Render.property("color", "var(--color-token-text-secondary)"), Render.property("padding-inline", Render.px(Appearance.popup_content_inset()))], Nil{}, [Doc.Text{label}]} <> children} : Doc.Node}:
   {==}
 
 def custom_workspace_provenance(workspace: Domain.Workspace, sandbox: Context.SandboxValue, approval: Context.ApprovalValue) ->
@@ -156,7 +156,7 @@ type Requirements is Type:
     Doc.Element{key, "div", [Render.property("data-native-key", key), Render.property("aria-label", label),
       Render.property("data-context-kind", Render.context_observation_kind(observation))], List.append(&2, Doc.Property, Render.style(visual),
       [Render.property("display", "flex"), Render.property("flex-direction", "column"), Render.property("gap", "4px"),
-       Render.property("min-width", "0"), Render.property("flex", "0 0 auto")]), Nil{},
+       Render.property("min-width", "0"), Render.property("flex", "0 0 auto"), Render.property("padding-inline", Render.px(Appearance.popup_content_inset()))]), Nil{},
       Doc.Element{key ++ "/provenance", "div", Nil{}, [Render.property("font-size", "12px"),
         Render.property("color", "var(--color-token-text-secondary)")], Nil{}, [Doc.Text{label}]} <> children} : Doc.Node},
     committed_provenance: @context: Context.EffectiveContext ->
@@ -168,9 +168,8 @@ type Requirements is Type:
     Context.InheritedWorkspace{workspace}, Context.InheritedSandbox{sandbox}, Context.InheritedApproval{approval}, guidance}}) == "inherited" : String},
     workspace_label: @+label: String -> @expanded: Bool ->
       {Controls.face_for(Controls.WorkspacePicker{expanded}, label, Controls.ComposerArea{}) == Controls.PickerFace{Some{Controls.Folder{}}, label} : Controls.Face},
-    permissions_label: @+label: String -> @expanded: Bool ->
-      {Controls.face_for(Controls.panel_purpose(User.PermissionsConfiguration{User.NewTaskEditor{}}, expanded), label, Controls.ComposerArea{}) ==
-    Controls.PickerFace{None{}, label} : Controls.Face},
+    permissions_label: @+label: String -> @current: Controls.Face -> @+execution: Maybe<&2, Context.Observation> ->
+      {Controls.composer_face(View.PermissionsSubject{}, label, current, execution) == Controls.permission_face(execution) : Controls.Face},
     approval_canonical: @+value: Context.ApprovalValue ->
       {Render.approval_text(value) == Context.approval_option(Context.observed_approval(value)) : String},
     choice_content_projection: @+key: String -> @+label: String -> @+description: String -> @+selected: Bool ->
@@ -180,15 +179,14 @@ type Requirements is Type:
       [Doc.Text{label}, Doc.Element{key ++ "/description", "span", Nil{},
         [Render.property("font-size", "12px"), Render.property("color", "var(--color-token-text-secondary)"),
          Render.property("white-space", "normal")], Nil{}, [Doc.Text{description}]}]},
-     Doc.Element{key ++ "/check-slot", "span", [Render.property("aria-hidden", "true")],
-       [Render.property("width", "20px"), Render.property("flex", "0 0 20px"), Render.property("text-align", "center")], Nil{}, [Doc.Text{Render.choice_mark(selected)}]}] : +List<Doc.Node>},
+     Render.check_slot(key, selected)] : +List<Doc.Node>},
     choice_group_native: @+key: String -> @+label: String -> @+visual: Design.Style -> @+children: +List<Doc.Node> ->
       {Render.choice_group_node(key, label, visual, children) ==
     Doc.Element{key, "section", [Render.property("data-native-key", key), Render.property("role", "radiogroup"), Render.property("aria-label", label)],
       List.append(&2, Doc.Property, Render.style(visual), [Render.property("display", "flex"), Render.property("flex-direction", "column"),
         Render.property("gap", "4px"), Render.property("min-width", "0"), Render.property("flex-shrink", "0"), Render.property("height", "auto")]), Nil{},
       Doc.Element{key ++ "/label", "div", Nil{}, [Render.property("font-size", "12px"),
-        Render.property("color", "var(--color-token-text-secondary)")], Nil{}, [Doc.Text{label}]} <> children} : Doc.Node},
+        Render.property("color", "var(--color-token-text-secondary)"), Render.property("padding-inline", Render.px(Appearance.popup_content_inset()))], Nil{}, [Doc.Text{label}]} <> children} : Doc.Node},
     custom_workspace_provenance: @workspace: Domain.Workspace -> @sandbox: Context.SandboxValue -> @approval: Context.ApprovalValue ->
       {Render.context_draft_kind(Context.EnteredWorkspace{workspace}, sandbox, approval) == "custom" : String}}
 

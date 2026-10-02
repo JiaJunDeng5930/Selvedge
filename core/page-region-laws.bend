@@ -232,8 +232,48 @@ def layer_title_evidence() -> LayerTitleRequirements:
     task => {==},
     title => confirm => cancel => {==}}
 
+def surface_base(value: Interface.Surface) -> +List<Interface.Node>:
+  Interface.Surface{content, base, overlays, active} = value
+  base
+
+def navigation_head(values: +List<Interface.Node>) -> Interface.Node:
+  match values:
+    case Con{node, rest}: node
+    case Nil{}: Interface.Node{"", "", "", Interface.Section{}, Interface.Region{}, Nil{}}
+
+def content_navigation(value: Core.Scene) -> View.Navigation:
+  Core.Scene{View.Scene{nav, main, layers, arrangement, attention}, settings, transfers, preview, code} = value
+  nav
+
+def content_navigation_placement(value: Core.Scene) -> View.NavigationPlacement:
+  Core.Scene{View.Scene{nav, main, layers, View.Arrangement{placement, page}, attention}, settings, transfers, preview, code} = value
+  placement
+
+def collapsed_navigation_single(+toggle: View.ControlDeclaration, expanded: Bool, create: View.ControlDeclaration,
+  destinations: +List<View.ControlDeclaration>, projects: +List<View.ProjectEntry>, tasks: +List<View.TaskEntry>, +state: Core.State) ->
+  {Interface.base_navigation_at(View.CollapsedNavigation{}, View.Navigation{expanded, create, destinations, projects, tasks, toggle}, state) ==
+    [Interface.declared("/navigation", toggle, state)] : +List<Interface.Node>}:
+  {==}
+
+def collapsed_assembly(+content: Core.Scene, +state: Core.State,
+  collapsed: {content_navigation_placement(content) == View.CollapsedNavigation{} : View.NavigationPlacement}) ->
+  {navigation_head(surface_base(Interface.assemble(content, state))) ==
+    navigation_head(Interface.collapsed_navigation_toggle(content_navigation(content), state)) : Interface.Node}:
+  match content:
+    case Core.Scene{View.Scene{View.Navigation{+expanded, +create, +destinations, +projects, +tasks, +toggle}, +main, +layers, View.Arrangement{+placement, +page}, +attention}, +settings, +transfers, +preview, +code}:
+      +nav: View.Navigation = View.Navigation{expanded, create, destinations, projects, tasks, toggle}
+      Equal.cong(View.NavigationPlacement, Interface.Node,
+        (position => navigation_head(surface_base(Interface.assemble(Core.Scene{View.Scene{nav, main, layers,
+          View.Arrangement{position, page}, attention}, settings, transfers, preview, code}, state)))),
+        placement, View.CollapsedNavigation{}, collapsed)
+
 type Requirements is Type:
   Requirements{
+    collapsed_navigation_single: @+toggle: View.ControlDeclaration -> @expanded: Bool -> @create: View.ControlDeclaration -> @destinations: +List<View.ControlDeclaration> -> @projects: +List<View.ProjectEntry> -> @tasks: +List<View.TaskEntry> -> @+state: Core.State -> {Interface.base_navigation_at(View.CollapsedNavigation{}, View.Navigation{expanded, create, destinations, projects, tasks, toggle}, state) ==
+    [Interface.declared("/navigation", toggle, state)] : +List<Interface.Node>},
+    collapsed_assembly: @+content: Core.Scene -> @+state: Core.State -> @collapsed: {content_navigation_placement(content) == View.CollapsedNavigation{} : View.NavigationPlacement} -> {navigation_head(surface_base(Interface.assemble(content, state))) ==
+    navigation_head(Interface.collapsed_navigation_toggle(content_navigation(content), state)) : Interface.Node},
+
     layer_titles: LayerTitleRequirements,
     layer_name: @+kind:View.LayerKind -> @+content:View.LayerContent -> @+initial:String -> @+restore:String -> @+close:View.ControlDeclaration -> @+state:Core.State ->
       {layer_label(Interface.layers([View.Layer{kind, content, initial, restore, close}], state)) == Some{View.layer_title(content)} : Maybe<&2, String>},
@@ -274,7 +314,7 @@ type Requirements is Type:
   }
 
 def evidence() -> Requirements:
-  Requirements{
+  Requirements{collapsed_navigation_single, collapsed_assembly,
     layer_title_evidence(),
     kind => content => initial => restore => close => state => single_layer_title(kind, content, initial, restore, close, state),
     kind => content => first => second => restore => close => state => layer_title_ignores_attention(kind, content, first, second, restore, close, state),

@@ -7,6 +7,7 @@ import ./appearance-laws.bend as AppearanceLaws
 import ./presentation-laws.bend as PresentationLaws
 import ./presentation-order-laws.bend as PresentationOrderLaws
 import ./control-laws.bend as ControlLaws
+import ./control-content-laws.bend as ControlContentLaws
 import ../core/user-experience-laws.bend as UserExperienceLaws
 import ./browser-laws.bend as BrowserLaws
 import ./renderer-laws.bend as RendererLaws
@@ -33,7 +34,7 @@ type Realization is Type:
   Realization{requests: RequestLaws.Requirements, interaction: Interaction.Requirements, rendering: Rendering.Requirements,
     layout: LayoutLaws.Requirements, appearance: AppearanceLaws.Requirements,
     presentation: PresentationLaws.Requirements, presentation_order: PresentationOrderLaws.Requirements,
-    controls: ControlLaws.Requirements,
+    controls: ControlLaws.Requirements, control_contents: ControlContentLaws.Requirements,
     commands: UserExperienceLaws.CommandRequirements, browser: BrowserLaws.Requirements, renderer: RendererLaws.Requirements, page_regions: PageRegionLaws.Requirements, visibility: Visibility.Requirements,
     focus_cycle: Focus.CycleRequirements, scroll_ownership: Reading.ScrollOwnershipRequirements,
     form_inputs: FormInputLaws.Requirements, dock: DockLaws.Requirements, card_destinations: CardDestinationLaws.Requirements,
@@ -43,7 +44,7 @@ type Realization is Type:
 
 def realization() -> Realization:
   Realization{RequestLaws.evidence(), Interaction.evidence(), Rendering.evidence(), LayoutLaws.evidence(),
-    AppearanceLaws.evidence(), PresentationLaws.evidence(), PresentationOrderLaws.evidence(), ControlLaws.evidence(),
+    AppearanceLaws.evidence(), PresentationLaws.evidence(), PresentationOrderLaws.evidence(), ControlLaws.evidence(), ControlContentLaws.evidence(),
     UserExperienceLaws.command_evidence(), BrowserLaws.evidence(), RendererLaws.evidence(), PageRegionLaws.evidence(), Visibility.evidence(),
     Focus.cycle_evidence(), Reading.scroll_ownership_evidence(),
     FormInputLaws.evidence(), DockLaws.evidence(), CardDestinationLaws.evidence(),

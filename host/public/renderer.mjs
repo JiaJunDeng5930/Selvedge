@@ -83,14 +83,18 @@ export class Renderer {
     node.addEventListener('drop', event => { event.preventDefault(); dispatch('DropCard', event); });
   }
   children(parent, values, path, namespace) {
-    let cursor = parent.firstChild;
-    list(values).forEach((value, index) => {
-      const node = this.node(value, `${path}/${index}`, namespace);
+    const expected = new Set();
+    let index = 0;
+    list(values).forEach((value, descriptorIndex) => {
+      const node = this.node(value, `${path}/${descriptorIndex}`, namespace);
       if (!node) return;
-      if (node !== cursor) parent.insertBefore(node, cursor);
-      cursor = node.nextSibling;
+      expected.add(node);
+      // NOTE: Recursive construction can reparent siblings and invalidate a saved cursor.
+      const reference = parent.childNodes[index] ?? null;
+      if (node !== reference) parent.insertBefore(node, reference);
+      index++;
     });
-    while (cursor) { const next = cursor.nextSibling; cursor.remove(); cursor = next; }
+    for (const node of [...parent.childNodes]) if (!expected.has(node)) node.remove();
   }
   node(value, path, namespace) {
     if (value.$ === 'Portal' || value.$ === 'TargetProperties') { this.deferred.push(value); return null; }

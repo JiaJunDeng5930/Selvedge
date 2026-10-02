@@ -395,6 +395,7 @@
       "webui/browser-laws.bend",
       "webui/card-destination-laws.bend",
       "webui/context-control-laws.bend",
+      "webui/control-content-laws.bend",
       "webui/control-laws.bend",
       "webui/dialog-spatial-laws.bend",
       "webui/directory-entry-laws.bend",
@@ -762,7 +763,12 @@
     ],
     "webui/shell-spatial-laws.bend": [
       "bendlib/stdlib.bend",
+      "core/SYSTEM.bend",
       "core/composition.bend",
+      "core/interface.bend",
+      "core/ui-world.bend",
+      "core/user-experience.bend",
+      "core/user-input.bend",
       "webui/appearance.bend",
       "webui/controls.bend",
       "webui/design.bend",
@@ -808,9 +814,11 @@
       "core/user-input.bend"
     ],
     "webui/context-control-laws.bend": [
+      "bendlib/domain.bend",
       "core/SYSTEM.bend",
       "core/interface.bend",
       "core/ui-world.bend",
+      "core/user-context.bend",
       "core/user-input.bend",
       "webui/control-laws.bend",
       "webui/controls.bend",
@@ -850,8 +858,10 @@
     "webui/execution-presentation-laws.bend": [
       "bendlib/domain.bend",
       "core/interface.bend",
+      "core/ui-world.bend",
       "core/user-context.bend",
       "core/user-input.bend",
+      "webui/appearance.bend",
       "webui/controls.bend",
       "webui/design.bend",
       "webui/document.bend",
@@ -957,6 +967,16 @@
     ],
     "bendlib/proofs/equality.bend": [
       "bendlib/equality.bend"
+    ],
+    "webui/control-content-laws.bend": [
+      "core/SYSTEM.bend",
+      "core/ui-world.bend",
+      "webui/appearance.bend",
+      "webui/controls.bend",
+      "webui/design.bend",
+      "webui/document.bend",
+      "webui/renderer-laws.bend",
+      "webui/renderer.bend"
     ]
   },
   "feature_alphabet": "FEATURES.bend",

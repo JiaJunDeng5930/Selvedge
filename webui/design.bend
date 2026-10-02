@@ -45,6 +45,14 @@ type CreationFlow is Data:
   Balanced{}
   Compact{}
 
+type BlockMargin is Data:
+  AutomaticMargin{}
+  NoMargin{}
+
+type CreationArrangement is Data:
+  CreationArrangement{canvas_inset: Nat, region_gap: Nat, footer_gap: Nat,
+    introduction_alignment: Alignment, block_margin: BlockMargin}
+
 type MainFrame is Data:
   # Center the intrinsic input group in this canvas, subject to its height bound.
   CreationFrame{heading: Box, canvas: Box, band: Band, input: Maybe<&2, InputMetrics>, flow: CreationFlow}

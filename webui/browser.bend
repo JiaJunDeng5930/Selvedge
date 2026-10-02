@@ -79,6 +79,7 @@ def busy(pending: +List<Pending>, +key: String) -> Bool:
 
 def mask_meaning(blocked: Bool, meaning: UI.Meaning) -> UI.Meaning:
   match blocked meaning:
+    case True{} UI.ComposerAction{subject, input, availability}: UI.ComposerAction{subject, input, View.Unavailable{"Request pending"}}
     case True{} UI.Activate{input, availability}: UI.Activate{input, View.Unavailable{"Request pending"}}
     case True{} UI.Choice{selected, description, input, availability}: UI.Choice{selected, description, input, View.Unavailable{"Request pending"}}
     case _ other: other
@@ -149,6 +150,7 @@ def credential_key(nodes: +List<UI.Node>) -> Maybe<&2, String>:
 def connect_key(nodes: +List<UI.Node>) -> Maybe<&2, String>:
   match nodes:
     case Nil{}: None{}
+    case Con{UI.Node{key, semantic, label, role, UI.ComposerAction{subject, Core.ServiceInput{Services.Connect{}}, availability}, children}, rest}: Some{key}
     case Con{UI.Node{key, semantic, label, role, UI.Activate{Core.ServiceInput{Services.Connect{}}, availability}, children}, rest}: Some{key}
     case Con{UI.Node{key, semantic, label, role, meaning, children}, rest}: prefer_key(connect_key(children), connect_key(rest))
 def choose_removed(same: Bool, entry: Pending, rest: +List<Pending>) -> +List<Pending>:
@@ -618,6 +620,8 @@ def dismiss_selected(eligible: Bool, key: String, fallback: Maybe<&2, String>) -
 def dismiss_key(values: +List<UI.Node>) -> Maybe<&2, String>:
   match values:
     case Nil{}: None{}
+    case Con{UI.Node{+key, semantic, label, role, UI.ComposerAction{subject, input, availability}, +children}, rest}:
+      dismiss_selected(UI.available(availability) && dismiss_input(input), key, prefer_key(dismiss_key(children), dismiss_key(rest)))
     case Con{UI.Node{+key, semantic, label, role, UI.Activate{input, availability}, +children}, rest}:
       dismiss_selected(UI.available(availability) && dismiss_input(input), key, prefer_key(dismiss_key(children), dismiss_key(rest)))
     case Con{UI.Node{key, semantic, label, role, meaning, children}, rest}:

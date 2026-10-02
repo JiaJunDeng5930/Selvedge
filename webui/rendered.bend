@@ -43,6 +43,7 @@ def field_control(entry: Forms.Entry) -> Bool:
 
 def interactive(meaning: UI.Meaning) -> Bool:
   match meaning:
+    case UI.ComposerAction{subject, input, availability}: True{}
     case UI.Activate{input, availability}: True{}
     case UI.Choice{selected, description, input, availability}: True{}
     case UI.Edit{editor, field, entry, value}: field_control(entry)
@@ -56,6 +57,7 @@ def interactive(meaning: UI.Meaning) -> Bool:
 
 def required_enabled(meaning: UI.Meaning) -> Bool:
   match meaning:
+    case UI.ComposerAction{subject, input, availability}: enabled(availability)
     case UI.Activate{input, availability}: enabled(availability)
     case UI.Choice{selected, description, input, availability}: enabled(availability)
     case UI.ReceiveFile{editor, enabled}: enabled

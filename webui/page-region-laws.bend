@@ -374,9 +374,9 @@ def board_region_preservation(+nodes: +List<Doc.Node>, +canvas: Design.Box, +wid
 
 def creation_region_preservation(+nodes: +List<Doc.Node>, +heading: Design.Box, +canvas: Design.Box,
   +band: Design.Band, +input: Maybe<&2, Design.InputMetrics>, +flow: Design.CreationFlow) ->
-  {ShellSpatial.creation_region_children(children(first(Render.main_children(nodes, Design.CreationFrame{heading, canvas, band, input, flow})))) == nodes : +List<Doc.Node>}:
+  {ShellSpatial.creation_canvas_children(first(Render.main_children(nodes, Design.CreationFrame{heading, canvas, band, input, flow}))) == nodes : +List<Doc.Node>}:
   Design.Box{left, top, width, height} = canvas
-  ShellSpatial.creation_regions_keep_order(nodes, band, flow)
+  ShellSpatial.creation_group_order(nodes, band, flow)
 
 def unavailable_region_preservation(+nodes: +List<Doc.Node>, +heading: Design.Box, +canvas: Design.Box, +band: Design.Band) ->
   {children(first(Render.main_children(nodes, Design.UnavailableFrame{heading, canvas, band}))) == nodes : +List<Doc.Node>}:
@@ -581,7 +581,7 @@ type Requirements is Type:
     board_regions: @+nodes:+List<Doc.Node> -> @+canvas:Design.Box -> @+width:Nat -> @+gap:Nat -> @+inset:Nat ->
       {receipt_partition(groups(children(first(Render.main_children(nodes, Design.BoardFrame{canvas, width, gap, inset}))))) == receipt_partition(partition(nodes)) : (+List<RegionReceipt> & (+List<RegionReceipt> & +List<RegionReceipt>))},
     creation_regions: @+nodes:+List<Doc.Node> -> @+heading:Design.Box -> @+canvas:Design.Box -> @+band:Design.Band -> @+input:Maybe<&2, Design.InputMetrics> -> @+flow:Design.CreationFlow ->
-      {ShellSpatial.creation_region_children(children(first(Render.main_children(nodes, Design.CreationFrame{heading, canvas, band, input, flow})))) == nodes : +List<Doc.Node>},
+      {ShellSpatial.creation_canvas_children(first(Render.main_children(nodes, Design.CreationFrame{heading, canvas, band, input, flow}))) == nodes : +List<Doc.Node>},
     unavailable_regions: @+nodes:+List<Doc.Node> -> @+heading:Design.Box -> @+canvas:Design.Box -> @+band:Design.Band ->
       {children(first(Render.main_children(nodes, Design.UnavailableFrame{heading, canvas, band}))) == nodes : +List<Doc.Node>},
     overview_main: @+nodes:+List<Doc.Node> -> @+canvas:Design.Box -> @+band:Design.Band -> @+organization:Composition.Body ->

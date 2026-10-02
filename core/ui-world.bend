@@ -60,8 +60,17 @@ type EditorScene is Data:
   EditorScene{identity: U.Editor, revision: Nat, groups: +List<InputGroup>, sections: +List<Forms.Section>,
     submit: ControlDeclaration, feedback: U.Feedback, pending: Bool}
 
+type ComposerSubject is Data:
+  ModelSubject{}
+  WorkspaceSubject{}
+  PermissionsSubject{}
+  DeliverySubject{delivery: U.Delivery}
+
+type ComposerControl is Data:
+  ComposerControl{subject: ComposerSubject, declaration: ControlDeclaration}
+
 type ComposerScene is Data:
-  ComposerScene{identity: U.Editor, revision: Nat, message: U.Text, footer: +List<ControlDeclaration>,
+  ComposerScene{identity: U.Editor, revision: Nat, message: U.Text, footer: +List<ComposerControl>,
     context: Maybe<&2, Context.Observation>, submit: ControlDeclaration, feedback: U.Feedback, pending: Bool}
 
 # Derived from the current composer; this is not another mutable draft.
@@ -316,9 +325,14 @@ def value_approval_summary(value: Context.ApprovalValue, profiles: +List<D.Profi
     case Context.InheritedApproval{policy}: policy_approval_summary(policy)
     case Context.ChosenApproval{+choice}: execution_approval_summary(choice, choice_reviewer(choice, profiles))
 
+def execution_network_summary(network: Bool) -> String:
+  match network:
+    case True{}: "Network enabled"
+    case False{}: "Network disabled"
+
 def execution_permissions_summary(sandbox: D.Sandbox, approval: String) -> String:
   D.Sandbox{mode, network} = sandbox
-  D.sandbox_mode_name(mode) ++ "; " ++ approval
+  D.sandbox_mode_name(mode) ++ "; " ++ execution_network_summary(network) ++ "; " ++ approval
 
 def observation_workspace(observation: Context.Observation) -> String:
   match observation:
@@ -434,16 +448,16 @@ def delivery_label(delivery: U.Delivery) -> String:
     case U.Send{}: "Send"
     case U.Steer{}: "Steer"
 
-def draft_context_footer(+editor: U.Editor, +observation: Context.Observation, profiles: +List<D.Profile>) -> +List<ControlDeclaration>:
-  [context_control("composer/workspace/" ++ U.editor_key(editor), observation_workspace(observation), U.WorkspaceConfiguration{editor}),
-   context_control("composer/permissions/" ++ U.editor_key(editor), observation_permissions(observation, profiles), U.PermissionsConfiguration{editor})]
+def draft_context_footer(+editor: U.Editor, +observation: Context.Observation, profiles: +List<D.Profile>) -> +List<ComposerControl>:
+  [ComposerControl{WorkspaceSubject{}, context_control("composer/workspace/" ++ U.editor_key(editor), observation_workspace(observation), U.WorkspaceConfiguration{editor})},
+   ComposerControl{PermissionsSubject{}, context_control("composer/permissions/" ++ U.editor_key(editor), observation_permissions(observation, profiles), U.PermissionsConfiguration{editor})}]
 
-def committed_context_footer(+task: Nat, observation: Maybe<&2, Context.Observation>, profiles: +List<D.Profile>) -> +List<ControlDeclaration>:
+def committed_context_footer(+task: Nat, observation: Maybe<&2, Context.Observation>, profiles: +List<D.Profile>) -> +List<ComposerControl>:
   match observation:
     case None{}: Nil{}
     case Some{+value}:
-      [context_control("composer/workspace/message/" ++ Nat.show(task), observation_workspace(value), U.TaskContext{task}),
-       context_control("composer/permissions/message/" ++ Nat.show(task), observation_permissions(value, profiles), U.TaskContext{task})]
+      [ComposerControl{WorkspaceSubject{}, context_control("composer/workspace/message/" ++ Nat.show(task), observation_workspace(value), U.TaskContext{task})},
+       ComposerControl{PermissionsSubject{}, context_control("composer/permissions/message/" ++ Nat.show(task), observation_permissions(value, profiles), U.TaskContext{task})}]
 
 def composer_scene(body: U.Body, scene: EditorScene, +world: M.World()) -> Maybe<&2, ComposerScene>:
   match body:
@@ -451,13 +465,13 @@ def composer_scene(body: U.Body, scene: EditorScene, +world: M.World()) -> Maybe
       EditorScene{identity, revision, groups, sections, submit, feedback, pending} = scene
       +observation: Context.Observation = Context.DraftExecution{Context.preview(context, world)}
       Some{ComposerScene{identity, revision, message,
-        control("composer/model", profile_label(D.find_profile(Board.profiles(world), profile), profile), U.OpenPanel{U.ModelPicker{U.NewTaskEditor{}}, "composer/model"}) <>
+        ComposerControl{ModelSubject{}, control("composer/model", profile_label(D.find_profile(Board.profiles(world), profile), profile), U.OpenPanel{U.ModelPicker{U.NewTaskEditor{}}, "composer/model"})} <>
           draft_context_footer(U.NewTaskEditor{}, observation, Board.profiles(world)), Some{observation}, submit, feedback, pending}}
-    case U.Message{+task, message, delivery}:
+    case U.Message{+task, message, +delivery}:
       EditorScene{identity, revision, groups, sections, submit, feedback, pending} = scene
       +observation: Maybe<&2, Context.Observation> = committed_observation(committed_context(Tasks.find(Commands.entries(world), task)))
       Some{ComposerScene{identity, revision, message,
-        control("composer/delivery/" ++ Nat.show(task), delivery_label(delivery), U.OpenPanel{U.DeliveryPicker{task}, "composer/delivery/" ++ Nat.show(task)}) <>
+        ComposerControl{DeliverySubject{delivery}, control("composer/delivery/" ++ Nat.show(task), delivery_label(delivery), U.OpenPanel{U.DeliveryPicker{task}, "composer/delivery/" ++ Nat.show(task)})} <>
           committed_context_footer(task, observation, Board.profiles(world)), observation, submit, feedback, pending}}
     case _: None{}
 

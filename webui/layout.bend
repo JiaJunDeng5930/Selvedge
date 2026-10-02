@@ -127,6 +127,12 @@ def settings_in_heading(box: Design.Box) -> Design.Box:
   Design.Box{Nat.add(left, Nat.min(Nat.sub(width, 48n), Nat.sub(width, size))),
     Nat.add(top, Nat.min(7n, Nat.sub(height, size))), size, size}
 
+def navigation_toggle_bounds(shell: Design.Shell) -> Design.Box:
+  Design.Shell{navigation, Design.Box{left, top, +width, +height}, details} = shell
+  +size = Nat.min(32n, Nat.min(width, height))
+  Design.Box{Nat.add(left, Nat.min(8n, Nat.sub(width, size))),
+    Nat.add(top, Nat.min(7n, Nat.sub(height, size))), size, size}
+
 def settings_bounds(navigation: Design.Navigation, main: Design.Box) -> Design.Box:
   match navigation:
     case Design.BesideNavigation{box}: settings_in_navigation(box)
@@ -282,6 +288,14 @@ def creation_flow_for_height(height: Nat) -> Design.CreationFlow:
 
 def creation_flow(canvas: Design.Box) -> Design.CreationFlow:
   creation_flow_for_height(box_height(canvas))
+
+def creation_block_margin(flow: Design.CreationFlow) -> Design.BlockMargin:
+  match flow:
+    case Design.Balanced{}: Design.AutomaticMargin{}
+    case Design.Compact{}: Design.NoMargin{}
+
+def creation_arrangement(flow: Design.CreationFlow) -> Design.CreationArrangement:
+  Design.CreationArrangement{24n, 24n, 16n, Design.Centered{}, creation_block_margin(flow)}
 
 def main_frame(+recipe: Composition.Recipe, +main: Design.Box) -> Design.MainFrame:
   match recipe:

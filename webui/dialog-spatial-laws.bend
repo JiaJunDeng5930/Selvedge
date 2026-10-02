@@ -165,8 +165,11 @@ def region_owned_insets() ->
      (Render.attr(Render.dialog_footer_styles(), "padding"),
       (Render.attr(Render.dialog_header_styles(), "flex"),
        Render.attr(Render.dialog_footer_styles(), "flex"))))) ==
-   ("14px 18px", ("20px 24px", ("12px 24px", ("0 0 auto", "0 0 auto")))) :
+   ("14px " ++ Render.px(Appearance.dialog_inline_inset()), ("20px " ++ Render.px(Appearance.dialog_inline_inset()), ("12px " ++ Render.px(Appearance.dialog_inline_inset()), ("0 0 auto", "0 0 auto")))) :
    (String & (String & (String & (String & String))))}:
+  {==}
+
+def shared_inline_inset() -> {Appearance.dialog_inline_inset() == 24n : Nat}:
   {==}
 
 def above_input_margin(+key: String, +name: String, input: Doc.Node) ->
@@ -352,11 +355,12 @@ type Requirements is Type:
          node_events(Render.editor_field(EditorLayout.WorkDescription{}, Controls.AboveInput{}, key, name,
           Doc.Element{key, tag, attributes, styles, events, children})))) ==
        (key, (attributes, events)) : (String & (+List<Doc.Property> & +List<Doc.Event>))},
+    shared_inline_inset: {Appearance.dialog_inline_inset() == 24n : Nat},
     region_owned_insets: {(Render.attr(Render.dialog_header_styles(), "padding"),
       (Render.attr(Render.dialog_body_styles(), "padding"),
        (Render.attr(Render.dialog_footer_styles(), "padding"),
         (Render.attr(Render.dialog_header_styles(), "flex"), Render.attr(Render.dialog_footer_styles(), "flex"))))) ==
-      ("14px 18px", ("20px 24px", ("12px 24px", ("0 0 auto", "0 0 auto")))) :
+      ("14px " ++ Render.px(Appearance.dialog_inline_inset()), ("20px " ++ Render.px(Appearance.dialog_inline_inset()), ("12px " ++ Render.px(Appearance.dialog_inline_inset()), ("0 0 auto", "0 0 auto")))) :
       (String & (String & (String & (String & String))))},
     above_input_margin: @key:String -> @name:String -> @input:Doc.Node ->
       {Render.attr(node_styles(Render.label_input(Controls.AboveInput{}, key, name, input)), "margin") == "0" : String},
@@ -387,7 +391,7 @@ def evidence() -> Requirements:
     card => field => entry => value => field_layout_binding(card, field, entry, value),
     key => tag => attributes => styles => events => children => name => title_identity(key, tag, attributes, styles, events, children, name),
     key => tag => attributes => styles => events => children => name => description_identity(key, tag, attributes, styles, events, children, name),
-    region_owned_insets(),
+    shared_inline_inset(), region_owned_insets(),
     key => name => input => above_input_margin(key, name, input),
     owner => name => section_heading_margin(owner, name),
     key => absent_footer(key),

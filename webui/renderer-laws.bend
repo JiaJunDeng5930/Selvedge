@@ -193,7 +193,7 @@ def creation_regions_keep_order(+children: +List<Doc.Node>, +band: Design.Band, 
 
 def creation_canvas_retains_regions(+canvas: Design.Box, +band: Design.Band, +flow: Design.CreationFlow, +children: +List<Doc.Node>) ->
   {node_children(first_node(Render.creation_canvas_nodes(canvas, band, flow, children))) ==
-    Render.creation_regions(band, flow, Render.creation_partition(children)) : +List<Doc.Node>}:
+    [Render.creation_group(band, flow, children)] : +List<Doc.Node>}:
   match canvas:
     case Design.Box{left, top, width, height}: {==}
 
@@ -1208,7 +1208,7 @@ type Requirements is Type:
     creation_regions_keep_order: @+children:+List<Doc.Node> -> @+band:Design.Band -> @+flow:Design.CreationFlow ->
       {ShellSpatial.creation_region_children(Render.creation_regions(band, flow, Render.creation_partition(children))) == children : +List<Doc.Node>},
     creation_canvas_retains_regions: @+canvas:Design.Box -> @+band:Design.Band -> @+flow:Design.CreationFlow -> @+children:+List<Doc.Node> ->
-      {node_children(first_node(Render.creation_canvas_nodes(canvas, band, flow, children))) == Render.creation_regions(band, flow, Render.creation_partition(children)) : +List<Doc.Node>},
+      {node_children(first_node(Render.creation_canvas_nodes(canvas, band, flow, children))) == [Render.creation_group(band, flow, children)] : +List<Doc.Node>},
     creation_composer_flows: @heading:Design.Box -> @canvas:Design.Box -> @band:Design.Band -> @input:Maybe<&2, Design.InputMetrics> -> @flow:Design.CreationFlow ->
       {Render.attr(Render.composer_styles(Design.CreationFrame{heading, canvas, band, input, flow}), "position") == "" : String},
     composer_actions_keep_order: @+key:String -> @+children:+List<Doc.Node> ->

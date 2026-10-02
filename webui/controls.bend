@@ -35,6 +35,12 @@ type Icon is Data:
   Settings{}
   FilterFunnel{}
   Inspector{}
+  Eye{}
+  Globe{}
+  GlobeOff{}
+  Hand{}
+  Shield{}
+  ShieldCode{}
   CopySheets{}
   WrapLines{}
   Check{}
@@ -74,7 +80,7 @@ type Selection is Data:
 type Context is Data:
   Context{area: Area, selection: Selection, code: Maybe<&2, Code.Scene>,
     appearance: Services.Appearance, access: Services.Access, settings_open: Bool,
-    layers: +List<View.Layer>}
+    layers: +List<View.Layer>, execution: Maybe<&2, Workspace.Observation>}
 
 type Face is Data:
   IconFace{icon: Icon}
@@ -85,6 +91,7 @@ type Face is Data:
   # Every option reserves the check column, including unselected options.
   ChoiceFace{text: String, checked: Bool}
   DisclosureFace{text: String, expanded: Bool}
+  PermissionFace{filesystem: Icon, network: Icon, approval: Icon}
 
 type Behavior is Data:
   Push{}
@@ -98,6 +105,31 @@ type Behavior is Data:
 type Geometry is Data:
   Geometry{minimum_width: Nat, minimum_height: Nat, icon_size: Nat,
     radius: Nat, leading_slot: Nat}
+
+type ContentAlignment is Data:
+  CenterContents{}
+  LeadingContents{}
+
+type ContentLayout is Data:
+  ContentLayout{alignment: ContentAlignment, inline_inset: Nat,
+    block_inset: Nat, gap: Nat}
+
+def content_layout(face: Face) -> ContentLayout:
+  match face:
+    case IconFace{icon}: ContentLayout{CenterContents{}, 4n, 4n, 0n}
+    case _: ContentLayout{LeadingContents{}, 8n, 4n, 6n}
+
+type IconPaint is Data:
+  FilledIcon{}
+  StrokedIcon{}
+
+def icon_paint(icon: Icon) -> IconPaint:
+  match icon:
+    case ArrowUp{}: FilledIcon{}
+    case Hand{}: FilledIcon{}
+    case Shield{}: FilledIcon{}
+    case ShieldCode{}: FilledIcon{}
+    case _: StrokedIcon{}
 
 type Placement is Data:
   InFlow{}
@@ -192,11 +224,22 @@ type Purpose is Data:
   DownloadFile{}
   Connect{access: Services.Access}
 
+def composer_execution(value: Maybe<&2, View.ComposerScene>) -> Maybe<&2, Workspace.Observation>:
+  match value:
+    case None{}: None{}
+    case Some{View.ComposerScene{identity, revision, message, footer, observation, submit, feedback, pending}}: observation
+
+def page_execution(page: View.Page) -> Maybe<&2, Workspace.Observation>:
+  match page:
+    case View.StartPage{composer}: composer_execution(composer)
+    case View.TaskPage{View.TaskScene{task, title, status, context, timeline, previews, composer, details, actions}}: composer_execution(composer)
+    case _: None{}
+
 def initial(content: Core.Scene) -> Context:
   Core.Scene{View.Scene{navigation, main, layers, arrangement, attention},
     Core.Settings{open, access, entered, appearance, open_action, close_action, connect},
     transfers, preview, code} = content
-  Context{PageArea{}, NoSelection{}, None{}, appearance, access, open, layers}
+  Context{PageArea{}, NoSelection{}, None{}, appearance, access, open, layers, page_execution(main)}
 
 def area_for(role: UI.Role, inherited: Area) -> Area:
   match role:
@@ -259,9 +302,9 @@ def area_for_node(role: UI.Role, meaning: UI.Meaning, inherited: Area) -> Area:
     case _: area_for(role, inherited)
 
 def enter(key: String, role: UI.Role, +meaning: UI.Meaning, context: Context) -> Context:
-  Context{parent_area, selection, code, appearance, access, settings_open, +layers} = context
+  Context{parent_area, selection, code, appearance, access, settings_open, +layers, execution} = context
   Context{area_for_node(role, meaning, parent_area), selection_at(layers, key, selection),
-    code_at(meaning, code), appearance, access, settings_open, layers}
+    code_at(meaning, code), appearance, access, settings_open, layers, execution}
 
 def panel_open(layers: +List<View.Layer>, +trigger: String) -> Bool:
   match layers:
@@ -416,7 +459,7 @@ def purpose_fields(key: String, event: Core.Input, selection: Selection, code: M
     case _: NamedAction{}
 
 def purpose_for(key: String, event: Core.Input, context: Context) -> Purpose:
-  Context{area, selection, code, appearance, access, settings_open, layers} = context
+  Context{area, selection, code, appearance, access, settings_open, layers, execution} = context
   purpose_fields(key, event, selection, code, appearance, access, settings_open, layers)
 
 def purpose_icon(purpose: Purpose) -> Maybe<&2, Icon>:
@@ -509,6 +552,7 @@ def face_for(purpose: Purpose, label: String, area: Area) -> Face:
 
 def input_face(input: Core.Input, purpose: Purpose, label: String, area: Area) -> Face:
   match input:
+    case Core.ApplicationInput{Experience.UserInput{User.Activate{User.OpenPanel{User.ProjectPicker{}, trigger}}}}: PickerFace{Some{Folder{}}, label}
     case Core.ApplicationInput{Experience.UserInput{User.EditDraft{editor, User.EditWorkspace{Workspace.RemoveRoot{path}}}}}:
       IconFace{CloseCross{}}
     case _: face_for(purpose, label, area)
@@ -585,6 +629,7 @@ def labelled_help(feedback: Feedback, availability: View.Availability) -> Help:
 def help_for(face: Face, availability: View.Availability, feedback: Feedback, name: String) -> Help:
   match face:
     case IconFace{icon}: tooltip(help_text(availability, feedback, name))
+    case PermissionFace{filesystem, network, approval}: tooltip(help_text(availability, feedback, name))
     case _: labelled_help(feedback, availability)
 
 def geometry_for(purpose: Purpose, face: Face, area: Area) -> Geometry:
@@ -596,6 +641,7 @@ def geometry_for(purpose: Purpose, face: Face, area: Area) -> Geometry:
     case _ _ MenuArea{}: Geometry{0n, 28n, 16n, 6n, 20n}
     case _ ChoiceFace{text, checked} _: Geometry{0n, 28n, 16n, 6n, 20n}
     case _ PickerFace{icon, text} ComposerArea{}: Geometry{0n, 28n, 16n, 6n, 0n}
+    case _ PermissionFace{filesystem, network, approval} _: Geometry{0n, 28n, 16n, 6n, 0n}
     case _ _ _: Geometry{0n, 32n, 16n, 8n, 0n}
 
 def placement_for(purpose: Purpose, area: Area) -> Placement:
@@ -609,9 +655,67 @@ def placement_for(purpose: Purpose, area: Area) -> Placement:
     case ProjectTaskCreation{} NavigationArea{}: GroupHeadingEnd{}
     case _ _: InFlow{}
 
+def filesystem_icon(mode: Domain.SandboxMode) -> Icon:
+  match mode:
+    case Domain.WorkspaceWrite{}: Pencil{}
+    case Domain.ReadOnly{}: Eye{}
+
+def network_icon(enabled: Bool) -> Icon:
+  match enabled:
+    case True{}: Globe{}
+    case False{}: GlobeOff{}
+
+def approval_icon(choice: Workspace.ApprovalChoice) -> Icon:
+  match choice:
+    case Workspace.Ask{}: Hand{}
+    case Workspace.Unrestricted{}: Shield{}
+    case Workspace.AutomaticReview{profile}: ShieldCode{}
+
+def permission_values_face(sandbox: Domain.Sandbox, approval: Workspace.ApprovalChoice) -> Face:
+  Domain.Sandbox{mode, network} = sandbox
+  PermissionFace{filesystem_icon(mode), network_icon(network), approval_icon(approval)}
+
+def permission_face(observation: Maybe<&2, Workspace.Observation>) -> Face:
+  match observation:
+    case Some{Workspace.DraftExecution{Workspace.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}}}:
+      permission_values_face(View.execution_sandbox(sandbox), Workspace.observed_approval(approval))
+    case Some{Workspace.CommittedExecution{Workspace.EffectiveContext{task, Domain.TaskContext{workspace, sandbox, approval, project}, guidance, access}}}:
+      permission_values_face(sandbox, Workspace.approval_choice(approval))
+    case _: IconFace{Warning{}}
+
+def delivery_name(delivery: User.Delivery) -> String:
+  match delivery:
+    case User.Send{}: "Send a new message"
+    case User.Steer{}: "Steer the running task"
+
+def composer_face(subject: View.ComposerSubject, label: String, current: Face,
+  execution: Maybe<&2, Workspace.Observation>) -> Face:
+  match subject:
+    case View.ModelSubject{}: current
+    case View.WorkspaceSubject{}: PickerFace{Some{Folder{}}, label}
+    case View.PermissionsSubject{}: permission_face(execution)
+    case View.DeliverySubject{User.Send{}}: IconFace{ArrowUp{}}
+    case View.DeliverySubject{User.Steer{}}: IconFace{Branch{}}
+
+def composer_name(subject: View.ComposerSubject, label: String) -> String:
+  match subject:
+    case View.PermissionsSubject{}: "Permissions: " ++ label
+    case View.DeliverySubject{delivery}: delivery_name(delivery)
+    case _: label
+
+def composer_action_fields(+subject: View.ComposerSubject, +label: String,
+  execution: Maybe<&2, Workspace.Observation>, area: Area, value: Representation) -> Representation:
+  match value:
+    case Action{input, +availability, old_name, current, behavior, geometry, placement, help, +feedback}:
+      +name = composer_name(subject, label)
+      +face = composer_face(subject, label, current, execution)
+      Action{input, availability, name, face, behavior, geometry_for(ChooseValue{False{}}, face, area), placement,
+        help_for(face, availability, feedback, name), feedback}
+    case _: value
+
 def make_action(+key: String, +input: Core.Input, +availability: View.Availability, label: String,
   role: UI.Role, +context: Context) -> Representation:
-  Context{+area, selection, code, appearance, access, settings_open, layers} = context
+  Context{+area, selection, code, appearance, access, settings_open, layers, execution} = context
   +intent = purpose_fields(key, input, selection, code, appearance, access, settings_open, layers)
   +control_name = name_for(intent, label)
   +control_face = input_face(input, intent, control_name, area)
@@ -619,6 +723,11 @@ def make_action(+key: String, +input: Core.Input, +availability: View.Availabili
   Action{input, availability, control_name, control_face,
     contextual_behavior(intent, selected_role(role), area), geometry_for(intent, control_face, area),
     placement_for(intent, area), help_for(control_face, availability, response, control_name), response}
+
+def make_composer_action(key: String, subject: View.ComposerSubject, input: Core.Input,
+  availability: View.Availability, +label: String, role: UI.Role, +context: Context) -> Representation:
+  Context{area, selection, code, appearance, access, settings_open, layers, +execution} = context
+  composer_action_fields(subject, label, execution, area, make_action(key, input, availability, label, role, context))
 
 def choice_action(+selected: Bool, value: Representation) -> Representation:
   match value:
@@ -677,6 +786,7 @@ def field_availability(entry: Forms.Entry) -> View.Availability:
 
 def represent(key: String, +meaning: UI.Meaning, +label: String, role: UI.Role, +context: Context) -> Representation:
   match meaning:
+    case UI.ComposerAction{subject, input, availability}: make_composer_action(key, subject, input, availability, label, role, context)
     case UI.Activate{input, availability}: make_action(key, input, availability, label, role, context)
     case UI.Choice{selected, description, input, availability}: make_choice(key, selected, input, availability, label, role, context)
     case UI.Edit{editor, field, Forms.DirectoryCollection{}, value}: NoControl{}
