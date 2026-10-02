@@ -1,4 +1,5 @@
 import Base
+import ./enclosure.bend as Enclosure
 import ../bendlib/stdlib.bend as Std
 import ./document.bend as Doc
 import ./MODEL.bend as Web
@@ -445,6 +446,10 @@ def activity_summary(owner: String, label: String, values: +List<Doc.Node>) -> +
     case Nil{}: [Doc.Element{generated_identity(owner, "summary"), "summary", Nil{}, Nil{}, Nil{}, [Doc.Text{label}]}]
     case Con{other, rest}: other <> rest
 
+def content_area_properties(+area: Enclosure.ContentArea) -> +List<Doc.Property>:
+  [property("padding-inline", px(Enclosure.inline(area))),
+   property("padding-block", px(Enclosure.block(area))), property("box-sizing", "border-box")]
+
 def bounds(box: Design.Box) -> +List<Doc.Property>:
   Design.Box{left, top, width, height} = box
   [property("position", "fixed"), property("left", px(left)), property("top", px(top)),
@@ -530,6 +535,12 @@ def geometry(value: Controls.Geometry) -> +List<Doc.Property>:
 
 
 
+def action_geometry(size: Controls.Geometry, visual: Design.Style) -> +List<Doc.Property>:
+  Controls.Geometry{width, height, icon_size, radius, leading} = size
+  Design.Style{text, chrome, alignment, flow, overflow, area, gap, minimum, maximum, states} = visual
+  [property("min-width", px(width)), property("min-height", px(minimum)), property("border-radius", px(radius)),
+   property("display", "inline-flex"), property("align-items", "center"), property("--native-icon-size", px(icon_size)), property("--native-leading-slot", px(leading))]
+
 def content_alignment(value: Controls.ContentAlignment) -> String:
   match value:
     case Controls.CenterContents{}: "center"
@@ -553,7 +564,7 @@ def content_extent(face: Controls.Face, size: Controls.Geometry) -> +List<Doc.Pr
     case _: [property("min-width", "0"), property("max-width", "100%"), property("text-align", "left")]
 
 def content_geometry_layout(face: Controls.Face, size: Controls.Geometry, layout: Controls.ContentLayout) -> +List<Doc.Property>:
-  Controls.ContentLayout{alignment, inline_inset, block_inset, gap} = layout
+  Controls.ContentLayout{alignment, content_area, gap} = layout
   List.append(&2, Doc.Property,
     [property("justify-content", content_alignment(alignment)), property("align-items", "center"), property("gap", px(gap))],
     content_extent(face, size))
@@ -605,10 +616,13 @@ def region_styles(value: String) -> +List<Doc.Property>:
     case "navigation-header": [property("flex-shrink", "0"), property("padding-bottom", "8px"), property("border-bottom", "1px solid var(--color-token-border-light)")]
     case _: Nil{}
 
-def attr(values: +List<Doc.Property>, +name: String) -> String:
+def attr_last(values: +List<Doc.Property>, +name: String, previous: String) -> String:
   match values:
-    case Nil{}: ""
-    case Con{Doc.Property{key, value}, rest}: attr_found(String.eq(key, name), value, attr(rest, name))
+    case Nil{}: previous
+    case Con{Doc.Property{key, value}, rest}: attr_last(rest, name, attr_found(String.eq(key, name), value, previous))
+
+def attr(values: +List<Doc.Property>, name: String) -> String:
+  attr_last(values, name, "")
 
 
 
@@ -637,14 +651,10 @@ def input_style(value: Controls.Widget) -> +List<Doc.Property>:
 def input_style_for(meaning: UI.Meaning, widget: Controls.Widget) -> +List<Doc.Property>:
   match meaning:
     case UI.BoardSearch{filter}:
-      [property("width", "168px"), property("max-width", "100%"), property("min-width", "0"), property("height", "32px"),
-       property("padding", "4px 8px"), property("border-radius", "6px"),
-       property("font-size", "13px")]
+      List.append(&2, Doc.Property,
+        [property("width", "168px"), property("max-width", "100%"), property("min-width", "0"), property("height", "32px"),
+         property("border-radius", "6px"), property("font-size", "13px")], content_area_properties(Enclosure.area(Enclosure.SearchField{})))
     case _: input_style(widget)
-
-
-
-
 
 def workspace_text(value: Context.WorkspaceValue) -> String:
   match value:
@@ -954,9 +964,10 @@ def card_action_selected(+want_more: Bool, meaning: UI.Meaning) -> Bool:
     case False{}: Bool.not(card_more_action(meaning))
 
 def card_title_styles() -> +List<Doc.Property>:
-  [property("width", "100%"), property("min-width", "0"), property("display", "block"),
-   property("text-align", "start"), property("font-weight", "580"), property("padding-inline", "0"),
-   property("padding-block", "0"), property("white-space", "normal"), property("overflow-wrap", "anywhere"), property("min-height", "32px")]
+  List.append(&2, Doc.Property,
+    [property("width", "100%"), property("min-width", "0"), property("display", "block"),
+     property("text-align", "start"), property("font-weight", "580"), property("white-space", "normal"),
+     property("overflow-wrap", "anywhere"), property("min-height", "32px")], content_area_properties(Enclosure.area(Enclosure.TextControl{})))
 
 def card_title_control(+title: String, node: Doc.Node) -> Doc.Node:
   match node:
@@ -1449,12 +1460,12 @@ def region_children(owner: String, role: UI.Role, label: String, children: +List
 def style(value: Design.Style) -> +List<Doc.Property>:
   Design.Style{Design.TextStyle{family, size, line_height, weight},
     Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment,
-    direction, overflow, inline, block, gap, minimum, maximum, states} = value
+    direction, overflow, +content_area, gap, minimum, maximum, states} = value
   List.append(&2, Doc.Property,
     [property("font-family", font(family)), property("font-size", px(size)), property("line-height", px(line_height)),
      property("font-weight", Nat.show(weight)), property("color", paint(foreground)), property("background", paint(background)),
      property("border-color", paint(border)), property("border-width", px(border_width)), property("border-style", "solid"),
-     property("border-radius", px(radius)), property("padding-inline", px(inline)), property("padding-block", px(block)),
+     property("border-radius", px(radius)), property("padding-inline", px(Enclosure.inline(content_area))), property("padding-block", px(Enclosure.block(content_area))),
      property("gap", px(gap)), property("min-height", px(minimum)), property("max-width", Nat.show(maximum) ++ "%"),
      property("box-sizing", "border-box"), property("min-width", "0")],
     List.append(&2, Doc.Property, flow(direction), List.append(&2, Doc.Property, overflow_style(overflow), style_details(shadow, alignment, states))))
@@ -1499,9 +1510,9 @@ def dialog_body_children(children: +List<Doc.Node>, appearances: +List<Design.Ap
   dialog_body_projection(dialog_partition(children, appearances))
 
 def dialog_header_styles() -> +List<Doc.Property>:
-  [property("display", "flex"), property("flex", "0 0 auto"),
-   property("align-items", "center"), property("gap", "12px"),
-   property("padding", "14px " ++ px(Appearance.dialog_inline_inset())), property("border-bottom", "1px solid var(--color-token-border-default)")]
+  List.append(&2, Doc.Property,
+    [property("display", "flex"), property("flex", "0 0 auto"), property("align-items", "center"), property("gap", "12px"),
+     property("border-bottom", "1px solid var(--color-token-border-default)")], content_area_properties(Enclosure.partition(Enclosure.Header{})))
 
 def dialog_header_title(+owner: String, +label: String) -> Doc.Node:
   Doc.Element{generated_identity(owner, "title"), "h2", Nil{},
@@ -1509,18 +1520,19 @@ def dialog_header_title(+owner: String, +label: String) -> Doc.Node:
      property("min-width", "0"), property("flex", "1"), property("overflow-wrap", "anywhere")], Nil{}, [Doc.Text{label}]}
 
 def dialog_body_styles() -> +List<Doc.Property>:
-  [property("display", "flex"), property("flex-direction", "column"),
-   property("flex", "1 1 auto"), property("min-height", "0"), property("overflow", "auto"),
-   property("padding", "20px " ++ px(Appearance.dialog_inline_inset()))]
+  List.append(&2, Doc.Property,
+    [property("display", "flex"), property("flex-direction", "column"), property("flex", "1 1 auto"),
+     property("min-height", "0"), property("overflow", "auto")], content_area_properties(Enclosure.partition(Enclosure.Body{})))
 
 def dialog_content_styles() -> +List<Doc.Property>:
   [property("display", "flex"), property("flex-direction", "column"),
    property("flex", "0 0 auto"), property("gap", "16px")]
 
 def dialog_footer_styles() -> +List<Doc.Property>:
-  [property("display", "flex"), property("flex-wrap", "wrap"), property("align-items", "center"),
-   property("flex", "0 0 auto"), property("gap", "12px"), property("padding", "12px " ++ px(Appearance.dialog_inline_inset())),
-   property("border-top", "1px solid var(--color-token-border-default)")]
+  List.append(&2, Doc.Property,
+    [property("display", "flex"), property("flex-wrap", "wrap"), property("align-items", "center"),
+     property("flex", "0 0 auto"), property("gap", "12px"), property("border-top", "1px solid var(--color-token-border-default)")],
+    content_area_properties(Enclosure.partition(Enclosure.Footer{})))
 
 def dialog_footer_items(owner: String, values: +List<Doc.Node>) -> +List<Doc.Node>:
   match values:
@@ -1760,12 +1772,12 @@ def native_surface_properties(+role: Surfaces.Role) -> +List<Doc.Property>:
    property("--native-pressed-color", paint(Design.ThemeToken{"--color-token-text-primary"}))]
 
 def action(+key: String, +appearance: Design.Appearance, value: Controls.Representation) -> Doc.Node:
-  Design.Appearance{identity, visual, representation, children} = appearance
+  Design.Appearance{identity, +visual, representation, children} = appearance
   match value:
     case Controls.Action{input, availability, name, +face_value, response, +size, placement, hint, feedback}:
       Doc.Element{key, "button", List.append(&2, Doc.Property, [property("type", "button"), property("class", "native-control"), property("aria-label", name), property("data-native-key", key)],
         List.append(&2, Doc.Property, unavailable(availability), List.append(&2, Doc.Property, behavior(response), help(hint)))),
-        pointer_styles(List.append(&2, Doc.Property, style(visual), List.append(&2, Doc.Property, geometry(size), List.append(&2, Doc.Property, placement_styles(placement), List.append(&2, Doc.Property, [property("anchor-name", css_anchor(key))], content_geometry(face_value, size)))))), [Doc.Activate{key}], face(key, face_value)}
+        pointer_styles(List.append(&2, Doc.Property, style(visual), List.append(&2, Doc.Property, action_geometry(size, visual), List.append(&2, Doc.Property, placement_styles(placement), List.append(&2, Doc.Property, [property("anchor-name", css_anchor(key))], content_geometry(face_value, size)))))), [Doc.Activate{key}], face(key, face_value)}
     case _: Doc.Element{key, "span", Nil{}, style(visual), Nil{}, Nil{}}
 
 
@@ -2294,10 +2306,9 @@ def model_group_options(+key: String, field: String, profile: String, choices: +
 def editor_input_styles(kind: EditorLayout.FieldKind, name: String) -> +List<Doc.Property>:
   match kind:
     case EditorLayout.WorkTitle{}:
-      [property("font-size", "20px"), property("font-weight", "550"), property("border", "0"),
-       property("padding-inline", "0")]
+      [property("font-size", "20px"), property("font-weight", "550"), property("border", "0")]
     case EditorLayout.WorkDescription{}:
-      [property("border", "0"), property("padding-inline", "0"), property("min-height", "110px")]
+      [property("border", "0"), property("min-height", "110px")]
     case _: Nil{}
 
 def editor_placeholder(kind: EditorLayout.FieldKind, name: String) -> +List<Doc.Property>:
@@ -2422,7 +2433,7 @@ def choice_face(value: Doc.Node, label: String, description: String, selected: B
       Doc.Element{key, tag, attrs, List.append(&2, Doc.Property, styles,
         [property("display", "flex"), property("flex-direction", "row"), property("align-items", "center"),
          property("gap", "8px"), property("width", "100%"), property("min-width", "0"),
-         property("height", "auto"), property("flex-shrink", "0"), property("padding", "8px"), property("justify-content", "space-between")]), events,
+         property("height", "auto"), property("flex-shrink", "0"), property("justify-content", "space-between")]), events,
         choice_content(key, label, description, selected)}
     case other: other
 
@@ -2459,14 +2470,16 @@ def project_selected_background(selected: Bool) -> String:
   surface_background(Surfaces.Choice{selected}, Surfaces.Rest{})
 
 def project_icon_styles(+width: String) -> +List<Doc.Property>:
-  [property("display", "inline-flex"), property("align-items", "center"), property("justify-content", "center"),
-   property("flex", "0 0 " ++ width), property("width", width), property("min-width", width), property("height", width),
-   property("min-height", width), property("padding", "0"), property("border", "0")]
+  List.append(&2, Doc.Property,
+    [property("display", "inline-flex"), property("align-items", "center"), property("justify-content", "center"),
+     property("flex", "0 0 " ++ width), property("width", width), property("min-width", width), property("height", width),
+     property("min-height", width), property("border", "0")], content_area_properties(Enclosure.area(Enclosure.IconControl{})))
 
 def project_name_styles() -> +List<Doc.Property>:
-  List.append(&2, Doc.Property, [property("display", "block"), property("flex", "1 1 0"), property("min-width", "0"), property("width", "auto"),
-   property("overflow", "hidden"), property("text-overflow", "ellipsis"), property("white-space", "nowrap"),
-   property("text-align", "start"), property("padding-inline", "8px"), property("border", "0")], embedded_action_properties())
+  List.append(&2, Doc.Property, List.append(&2, Doc.Property,
+    [property("display", "block"), property("flex", "1 1 0"), property("min-width", "0"), property("width", "auto"),
+     property("overflow", "hidden"), property("text-overflow", "ellipsis"), property("white-space", "nowrap"),
+     property("text-align", "start"), property("border", "0")], content_area_properties(Enclosure.ambient(0n, 0n))), embedded_action_properties())
 
 def project_button_face(node: Doc.Node, extra: +List<Doc.Property>, added: +List<Doc.Property>, children: +List<Doc.Node>) -> Doc.Node:
   match node:
@@ -2509,8 +2522,10 @@ def project_has_disclosure(values: +List<Design.Appearance>) -> Bool:
       Bool.or(project_disclosure_test(project_control_kind(representation)), project_has_disclosure(rest))
 
 def project_header_styles(selected: Bool) -> +List<Doc.Property>:
-  List.append(&2, Doc.Property, [property("display", "flex"), property("flex-direction", "row"), property("align-items", "center"), property("gap", "2px"),
-   property("min-width", "0"), property("padding", "0"), property("border-radius", "6px"), property("border", "0")], native_surface_properties(Surfaces.Choice{selected}))
+  List.append(&2, Doc.Property, List.append(&2, Doc.Property,
+    [property("display", "flex"), property("flex-direction", "row"), property("align-items", "center"), property("gap", "2px"),
+     property("min-width", "0"), property("border-radius", "6px"), property("border", "0")],
+    content_area_properties(Enclosure.area(Enclosure.NavigationRow{}))), native_surface_properties(Surfaces.Choice{selected}))
 
 def project_header_node(node: Doc.Node, appearances: +List<Design.Appearance>, selected: Bool, expanded: Bool) -> Doc.Node:
   match node:
@@ -2564,8 +2579,9 @@ def task_row_children(values: +List<Doc.Node>, appearances: +List<Design.Appeara
 
 def task_row_node(+key: String, task: Nat, +status: String, +selected: Bool, children: +List<Doc.Node>, appearances: +List<Design.Appearance>) -> Doc.Node:
   Doc.Element{key, "div", [property("data-native-key", key), property("data-task", Nat.show(task)), property("data-status", status), property("class", "native-surface")],
-    List.append(&2, Doc.Property, [property("display", "flex"), property("align-items", "center"), property("gap", "6px"), property("min-width", "0"),
-     property("border-radius", "5px"), property("padding-inline", "0")], native_surface_properties(Surfaces.Choice{selected})), Nil{}, task_row_children(children, appearances, status)}
+    List.append(&2, Doc.Property, List.append(&2, Doc.Property,
+      [property("display", "flex"), property("align-items", "center"), property("gap", "6px"), property("min-width", "0"), property("border-radius", "5px")],
+      content_area_properties(Enclosure.area(Enclosure.NavigationRow{}))), native_surface_properties(Surfaces.Choice{selected})), Nil{}, task_row_children(children, appearances, status)}
 
 def creation_heading_styles(text: Design.TextStyle) -> +List<Doc.Property>:
   Design.TextStyle{family, size, line_height, weight} = text

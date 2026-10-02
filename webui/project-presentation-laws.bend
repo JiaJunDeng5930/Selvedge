@@ -1,4 +1,5 @@
 import Base
+import ./enclosure.bend as Enclosure
 import ./appearance.bend as Appearance
 import ../bendlib/stdlib.bend as Std
 import ./document.bend as Doc
@@ -25,8 +26,8 @@ def header_production(+key: String, +tag: String, +attrs: +List<Doc.Property>, +
   +children: +List<Doc.Node>, +appearances: +List<Design.Appearance>, +selected: Bool, +expanded: Bool) ->
   {Render.project_header_node(Doc.Element{key, tag, attrs, styles, events, children}, appearances, selected, expanded) ==
     Doc.Element{key, tag, List.append(&2, Doc.Property, attrs, [Render.property("class", "native-surface")]), List.append(&2, Doc.Property, Render.pointer_styles(styles),
-      List.append(&2, Doc.Property, [Render.property("display", "flex"), Render.property("flex-direction", "row"), Render.property("align-items", "center"), Render.property("gap", "2px"),
-       Render.property("min-width", "0"), Render.property("padding", "0"), Render.property("border-radius", "6px"), Render.property("border", "0")], Render.native_surface_properties(Surfaces.Choice{selected}))), events,
+      List.append(&2, Doc.Property, List.append(&2, Doc.Property, [Render.property("display", "flex"), Render.property("flex-direction", "row"), Render.property("align-items", "center"), Render.property("gap", "2px"),
+       Render.property("min-width", "0"), Render.property("border-radius", "6px"), Render.property("border", "0")], Render.content_area_properties(Enclosure.area(Enclosure.NavigationRow{}))), Render.native_surface_properties(Surfaces.Choice{selected}))), events,
       Render.project_header_controls(children, appearances, expanded)} : Doc.Node}:
   {==}
 
@@ -61,24 +62,24 @@ def header_control_actual_input(+node: Doc.Node, +key: String, visual: Design.St
 
 def icon_geometry(+width: String) ->
   {Render.project_icon_styles(width) ==
-    [Render.property("display", "inline-flex"), Render.property("align-items", "center"), Render.property("justify-content", "center"),
+    List.append(&2, Doc.Property, [Render.property("display", "inline-flex"), Render.property("align-items", "center"), Render.property("justify-content", "center"),
      Render.property("flex", "0 0 " ++ width), Render.property("width", width), Render.property("min-width", width), Render.property("height", width),
-     Render.property("min-height", width), Render.property("padding", "0"), Render.property("border", "0")] : +List<Doc.Property>}:
+     Render.property("min-height", width), Render.property("border", "0")], Render.content_area_properties(Enclosure.area(Enclosure.IconControl{}))) : +List<Doc.Property>}:
   {==}
 
 def name_geometry() ->
   {Render.project_name_styles() ==
-    List.append(&2, Doc.Property, [Render.property("display", "block"), Render.property("flex", "1 1 0"), Render.property("min-width", "0"), Render.property("width", "auto"),
+    List.append(&2, Doc.Property, List.append(&2, Doc.Property, [Render.property("display", "block"), Render.property("flex", "1 1 0"), Render.property("min-width", "0"), Render.property("width", "auto"),
      Render.property("overflow", "hidden"), Render.property("text-overflow", "ellipsis"), Render.property("white-space", "nowrap"),
-     Render.property("text-align", "start"), Render.property("padding-inline", "8px"), Render.property("border", "0")], Render.embedded_action_properties()) : +List<Doc.Property>}:
+     Render.property("text-align", "start"), Render.property("border", "0")], Render.content_area_properties(Enclosure.ambient(0n, 0n))), Render.embedded_action_properties()) : +List<Doc.Property>}:
   {==}
 
 def task_production(+key: String, label: String, role: UI.Role, +task: Nat, +status: String, +selected: Bool,
   source: +List<UI.Node>, +children: +List<Doc.Node>, visual: Design.Style, representation: Controls.Representation, +appearances: +List<Design.Appearance>) ->
   {Render.match_node(key, label, role, UI.TaskRow{task, status, selected}, source, children, visual, representation, appearances) ==
     Doc.Element{key, "div", [Render.property("data-native-key", key), Render.property("data-task", Nat.show(task)), Render.property("data-status", status), Render.property("class", "native-surface")],
-      List.append(&2, Doc.Property, [Render.property("display", "flex"), Render.property("align-items", "center"), Render.property("gap", "6px"), Render.property("min-width", "0"),
-       Render.property("border-radius", "5px"), Render.property("padding-inline", "0")], Render.native_surface_properties(Surfaces.Choice{selected})), Nil{},
+      List.append(&2, Doc.Property, List.append(&2, Doc.Property, [Render.property("display", "flex"), Render.property("align-items", "center"), Render.property("gap", "6px"), Render.property("min-width", "0"),
+       Render.property("border-radius", "5px")], Render.content_area_properties(Enclosure.area(Enclosure.NavigationRow{}))), Render.native_surface_properties(Surfaces.Choice{selected})), Nil{},
       Render.task_row_children(children, appearances, status)} : Doc.Node}:
   {==}
 
@@ -143,7 +144,7 @@ def children_indent(+node: Doc.Node, appearances: +List<Design.Appearance>, sele
   {==}
 
 def creation_heading_observed(value: Design.Style) -> Design.TextStyle:
-  Design.Style{text, chrome, alignment, flow, overflow, inline, block, gap, minimum, maximum, states} = value
+  Design.Style{text, chrome, alignment, flow, overflow, content_area, gap, minimum, maximum, states} = value
   text
 
 def chooser_draft_observation(+id: Nat, +fallback: Design.Style) ->
@@ -161,8 +162,8 @@ type Requirements is Type:
     header_production: @+key:String -> @+tag:String -> @+attrs:+List<Doc.Property> -> @+styles:+List<Doc.Property> -> @+events:+List<Doc.Event> -> @+children:+List<Doc.Node> -> @+appearances:+List<Design.Appearance> -> @+selected:Bool -> @+expanded:Bool ->
       {Render.project_header_node(Doc.Element{key, tag, attrs, styles, events, children}, appearances, selected, expanded) ==
     Doc.Element{key, tag, List.append(&2, Doc.Property, attrs, [Render.property("class", "native-surface")]), List.append(&2, Doc.Property, Render.pointer_styles(styles),
-      List.append(&2, Doc.Property, [Render.property("display", "flex"), Render.property("flex-direction", "row"), Render.property("align-items", "center"), Render.property("gap", "2px"),
-       Render.property("min-width", "0"), Render.property("padding", "0"), Render.property("border-radius", "6px"), Render.property("border", "0")], Render.native_surface_properties(Surfaces.Choice{selected}))), events,
+      List.append(&2, Doc.Property, List.append(&2, Doc.Property, [Render.property("display", "flex"), Render.property("flex-direction", "row"), Render.property("align-items", "center"), Render.property("gap", "2px"),
+       Render.property("min-width", "0"), Render.property("border-radius", "6px"), Render.property("border", "0")], Render.content_area_properties(Enclosure.area(Enclosure.NavigationRow{}))), Render.native_surface_properties(Surfaces.Choice{selected}))), events,
       Render.project_header_controls(children, appearances, expanded)} : Doc.Node},
     disclosure_typed: @+project:Nat ->
       {Render.project_control_input(Core.ApplicationInput{Experience.UserInput{User.Activate{User.ToggleProjectGroup{project}}}}) == Render.ProjectDisclosure{} : Render.ProjectControl},
@@ -180,19 +181,19 @@ type Requirements is Type:
     Render.project_control_face(Render.project_control_input(input), node, key, name, expanded) : Doc.Node},
     icon_geometry: @+width:String ->
       {Render.project_icon_styles(width) ==
-    [Render.property("display", "inline-flex"), Render.property("align-items", "center"), Render.property("justify-content", "center"),
+    List.append(&2, Doc.Property, [Render.property("display", "inline-flex"), Render.property("align-items", "center"), Render.property("justify-content", "center"),
      Render.property("flex", "0 0 " ++ width), Render.property("width", width), Render.property("min-width", width), Render.property("height", width),
-     Render.property("min-height", width), Render.property("padding", "0"), Render.property("border", "0")] : +List<Doc.Property>},
+     Render.property("min-height", width), Render.property("border", "0")], Render.content_area_properties(Enclosure.area(Enclosure.IconControl{}))) : +List<Doc.Property>},
     name_geometry:
       {Render.project_name_styles() ==
-    List.append(&2, Doc.Property, [Render.property("display", "block"), Render.property("flex", "1 1 0"), Render.property("min-width", "0"), Render.property("width", "auto"),
+    List.append(&2, Doc.Property, List.append(&2, Doc.Property, [Render.property("display", "block"), Render.property("flex", "1 1 0"), Render.property("min-width", "0"), Render.property("width", "auto"),
      Render.property("overflow", "hidden"), Render.property("text-overflow", "ellipsis"), Render.property("white-space", "nowrap"),
-     Render.property("text-align", "start"), Render.property("padding-inline", "8px"), Render.property("border", "0")], Render.embedded_action_properties()) : +List<Doc.Property>},
+     Render.property("text-align", "start"), Render.property("border", "0")], Render.content_area_properties(Enclosure.ambient(0n, 0n))), Render.embedded_action_properties()) : +List<Doc.Property>},
     task_production: @+key:String -> @label:String -> @role:UI.Role -> @+task:Nat -> @+status:String -> @+selected:Bool -> @source:+List<UI.Node> -> @+children:+List<Doc.Node> -> @visual:Design.Style -> @representation:Controls.Representation -> @+appearances:+List<Design.Appearance> ->
       {Render.match_node(key, label, role, UI.TaskRow{task, status, selected}, source, children, visual, representation, appearances) ==
     Doc.Element{key, "div", [Render.property("data-native-key", key), Render.property("data-task", Nat.show(task)), Render.property("data-status", status), Render.property("class", "native-surface")],
-      List.append(&2, Doc.Property, [Render.property("display", "flex"), Render.property("align-items", "center"), Render.property("gap", "6px"), Render.property("min-width", "0"),
-       Render.property("border-radius", "5px"), Render.property("padding-inline", "0")], Render.native_surface_properties(Surfaces.Choice{selected})), Nil{},
+      List.append(&2, Doc.Property, List.append(&2, Doc.Property, [Render.property("display", "flex"), Render.property("align-items", "center"), Render.property("gap", "6px"), Render.property("min-width", "0"),
+       Render.property("border-radius", "5px")], Render.content_area_properties(Enclosure.area(Enclosure.NavigationRow{}))), Render.native_surface_properties(Surfaces.Choice{selected})), Nil{},
       Render.task_row_children(children, appearances, status)} : Doc.Node},
     status_visible: @+key:String -> @tag:String -> @+attrs:+List<Doc.Property> -> @styles:+List<Doc.Property> -> @+events:+List<Doc.Event> -> @children:+List<Doc.Node> -> @+status:String ->
       {Render.task_status_node(Doc.Element{key, tag, attrs, styles, events, children}, status) ==

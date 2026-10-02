@@ -1,4 +1,5 @@
 import Base
+import ./enclosure.bend as Enclosure
 import ./surfaces.bend as Surfaces
 import ../core/composition.bend as Composition
 import ./controls.bend as Controls
@@ -124,7 +125,7 @@ type ControlStates is Data:
 
 type Style is Data:
   Style{text: TextStyle, chrome: Chrome, alignment: Alignment, flow: Flow,
-    overflow: Overflow, padding_inline: Nat, padding_block: Nat, gap: Nat,
+    overflow: Overflow, content_area: Enclosure.ContentArea, gap: Nat,
     minimum_height: Nat, maximum_width_percent: Nat, states: ControlStates}
 
 type Appearance is Data:

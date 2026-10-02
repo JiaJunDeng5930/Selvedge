@@ -1,4 +1,5 @@
 import Base
+import ./enclosure.bend as Enclosure
 import ../core/client-services.bend as Services
 import ../core/interface.bend as UI
 import ../core/SYSTEM.bend as Core
@@ -21,7 +22,7 @@ def chrome_background(value: Design.Chrome) -> Design.Paint:
   background
 
 def style_background(value: Design.Style) -> Design.Paint:
-  Design.Style{text, chrome, alignment, flow, overflow, inline, block, gap, height, maximum, states} = value
+  Design.Style{text, chrome, alignment, flow, overflow, content_area, gap, height, maximum, states} = value
   chrome_background(chrome)
 
 def states_background(chrome: Design.Chrome, states: Design.ControlStates, phase: Surfaces.Phase) -> Design.Paint:
@@ -31,7 +32,7 @@ def states_background(chrome: Design.Chrome, states: Design.ControlStates, phase
     case _ _: chrome_background(chrome)
 
 def phase_background(value: Design.Style, phase: Surfaces.Phase) -> Design.Paint:
-  Design.Style{text, +chrome, alignment, flow, overflow, inline, block, gap, height, maximum, +states} = value
+  Design.Style{text, +chrome, alignment, flow, overflow, content_area, gap, height, maximum, +states} = value
   states_background(chrome, states, phase)
 
 def text_style(font: Design.Font, size: Nat, line_height: Nat, weight: Nat) -> Design.TextStyle:
@@ -54,8 +55,11 @@ def fields(text: Design.TextStyle, style_chrome: Design.Chrome, alignment: Desig
   flow: Design.Flow, overflow: Design.Overflow, padding_inline: Nat, padding_block: Nat,
   gap: Nat, minimum_height: Nat, maximum_width_percent: Nat,
   states: Design.ControlStates) -> Design.Style:
-  Design.Style{text, style_chrome, alignment, flow, overflow, padding_inline,
-    padding_block, gap, minimum_height, maximum_width_percent, states}
+  Design.Style{text, style_chrome, alignment, flow, overflow, Enclosure.ambient(padding_inline, padding_block), gap, minimum_height, maximum_width_percent, states}
+
+def with_content_area(value: Design.Style, content_area: Enclosure.ContentArea) -> Design.Style:
+  Design.Style{text, chrome, alignment, flow, overflow, old_area, gap, minimum, maximum, states} = value
+  Design.Style{text, chrome, alignment, flow, overflow, content_area, gap, minimum, maximum, states}
 
 def ordinary_text() -> Design.TextStyle:
   text_style(Design.InterfaceFont{}, 13n, 20n, 400n)
@@ -109,9 +113,9 @@ def role_interactive(style_chrome: Design.Chrome, +role: Surfaces.Role) -> Desig
 
 def button_style(foreground: Design.Paint, +role: Surfaces.Role, weight: Nat) -> Design.Style:
   +style_chrome = chrome(foreground, surface(role, Surfaces.Rest{}), transparent(), 0n, 8n, False{})
-  fields(text_style(Design.InterfaceFont{}, 13n, 20n, weight), style_chrome,
+  with_content_area(fields(text_style(Design.InterfaceFont{}, 13n, 20n, weight), style_chrome,
     Design.Stretch{}, Design.RowFlow{}, Design.ContentFlow{}, 8n, 4n, 4n, 32n, 100n,
-    role_interactive(style_chrome, role))
+    role_interactive(style_chrome, role)), Enclosure.area(Enclosure.TextControl{}))
 
 def ordinary_button() -> Design.Style:
   button_style(Design.SurfaceForeground{Surfaces.QuietAction{}}, Surfaces.QuietAction{}, 400n)
@@ -124,7 +128,7 @@ def destructive_button() -> Design.Style:
 
 def choice_button(selected: Bool) -> Design.Style:
   match selected:
-    case True{}: button_style(Design.SurfaceForeground{Surfaces.Choice{True{}}}, Surfaces.Choice{True{}}, 500n)
+    case True{}: button_style(Design.SurfaceForeground{Surfaces.Choice{True{}}}, Surfaces.Choice{True{}}, 400n)
     case False{}: button_style(Design.SurfaceForeground{Surfaces.Choice{False{}}}, Surfaces.Choice{False{}}, 400n)
 
 def selected_button() -> Design.Style:
@@ -138,8 +142,8 @@ def display_only_field() -> Design.Style:
 def field_surface(+role: Surfaces.Role) -> Design.Style:
   +style_chrome = chrome(primary_foreground(), surface(role, Surfaces.Rest{}),
     paint("--color-token-input-border"), 1n, 8n, False{})
-  fields(ordinary_text(), style_chrome, Design.Stretch{}, Design.BlockFlow{},
-    Design.ContentFlow{}, 8n, 6n, 0n, 32n, 100n, role_interactive(style_chrome, role))
+  with_content_area(fields(ordinary_text(), style_chrome, Design.Stretch{}, Design.BlockFlow{},
+    Design.ContentFlow{}, 8n, 6n, 0n, 32n, 100n, role_interactive(style_chrome, role)), Enclosure.area(Enclosure.Field{}))
 
 def editable_field() -> Design.Style:
   field_surface(Surfaces.Field{})
@@ -167,12 +171,12 @@ def ordinary_field_style(entry: Forms.Entry) -> Design.Style:
 def widget_field_style(widget: Controls.Widget, entry: Forms.Entry) -> Design.Style:
   match widget:
     case Controls.ToggleInput{}: toggle_field()
-    case Controls.MessageInput{}: field_surface(Surfaces.EmbeddedField{})
+    case Controls.MessageInput{}: with_content_area(field_surface(Surfaces.EmbeddedField{}), Enclosure.ambient(8n, 6n))
     case _: ordinary_field_style(entry)
 
 def field_style(meaning: UI.Meaning) -> Design.Style:
   match meaning:
-    case UI.BoardSearch{filter}: field_surface(Surfaces.Inset{})
+    case UI.BoardSearch{filter}: with_content_area(field_surface(Surfaces.Inset{}), Enclosure.area(Enclosure.SearchField{}))
     case UI.Edit{editor, +field, +entry, +value}:
       widget_field_style(Controls.widget_for(entry, field, value), entry)
     case _: editable_field()
@@ -180,10 +184,10 @@ def field_style(meaning: UI.Meaning) -> Design.Style:
 def style(role: UI.Role, meaning: UI.Meaning) -> Design.Style:
   match role:
     case UI.Navigation{}:
-      fields(ordinary_text(), chrome(primary_foreground(),
+      with_content_area(fields(ordinary_text(), chrome(primary_foreground(),
         surface(Surfaces.Navigation{}, Surfaces.Rest{}), transparent(), 0n, 0n, False{}),
         Design.Stretch{}, Design.ColumnFlow{}, Design.ScrollFlow{}, 8n, 8n, 4n,
-        0n, 100n, passive())
+        0n, 100n, passive()), Enclosure.area(Enclosure.Navigation{}))
     case UI.NavigationHeader{}:
       fields(text_style(Design.InterfaceFont{}, 13n, 20n, 500n), base_chrome(),
         Design.Stretch{}, Design.RowFlow{}, Design.ContentFlow{}, 0n, 4n, 8n,
@@ -204,29 +208,29 @@ def style(role: UI.Role, meaning: UI.Meaning) -> Design.Style:
         Design.Stretch{}, Design.ColumnFlow{}, Design.ContentFlow{}, 0n, 0n, 4n,
         0n, 100n, passive())
     case UI.UserMessage{}:
-      fields(ordinary_text(), chrome(primary_foreground(), surface(Surfaces.Inset{}, Surfaces.Rest{}),
+      with_content_area(fields(ordinary_text(), chrome(primary_foreground(), surface(Surfaces.Inset{}, Surfaces.Rest{}),
         transparent(), 0n, 16n, False{}), Design.Trailing{}, Design.BlockFlow{},
-        Design.ContentFlow{}, 12n, 8n, 0n, 0n, 70n, passive())
+        Design.ContentFlow{}, 12n, 8n, 0n, 0n, 70n, passive()), Enclosure.area(Enclosure.UserMessage{}))
     case UI.AssistantMessage{}:
       fields(ordinary_text(), base_chrome(), Design.Leading{}, Design.BlockFlow{},
         Design.ContentFlow{}, 0n, 0n, 0n, 0n, 100n, passive())
     case UI.Composer{}:
-      fields(ordinary_text(), surface_chrome(16n, True{}), Design.Stretch{},
-        Design.ColumnFlow{}, Design.ContentFlow{}, 12n, 8n, 4n, 0n, 100n, passive())
+      with_content_area(fields(ordinary_text(), surface_chrome(16n, True{}), Design.Stretch{},
+        Design.ColumnFlow{}, Design.ContentFlow{}, 12n, 8n, 4n, 0n, 100n, passive()), Enclosure.area(Enclosure.Composer{}))
     case UI.ComposerActions{}: toolbar_style(Design.SplitRowFlow{})
     case UI.Approval{}:
-      fields(ordinary_text(), chrome(primary_foreground(),
+      with_content_area(fields(ordinary_text(), chrome(primary_foreground(),
         surface(Surfaces.Content{}, Surfaces.Rest{}),
         paint("--color-token-editor-warning-foreground"), 1n, 12n, False{}),
         Design.Stretch{}, Design.ColumnFlow{}, Design.ContentFlow{}, 12n, 12n, 8n,
-        0n, 100n, passive())
+        0n, 100n, passive()), Enclosure.area(Enclosure.Approval{}))
     case UI.Toolbar{}: toolbar_style(Design.RowFlow{})
     case UI.CodeBlock{}:
-      fields(text_style(Design.MonospaceFont{}, 12n, 22n, 400n),
+      with_content_area(fields(text_style(Design.MonospaceFont{}, 12n, 22n, 400n),
         chrome(primary_foreground(), surface(Surfaces.Inset{}, Surfaces.Rest{}),
           paint("--color-token-border-default"), 1n, 8n, False{}),
         Design.Stretch{}, Design.ColumnFlow{}, Design.CodeOverflow{}, 12n, 12n, 4n,
-        0n, 100n, passive())
+        0n, 100n, passive()), Enclosure.area(Enclosure.CodeBlock{}))
     case UI.ApprovalQueue{}:
       fields(ordinary_text(), base_chrome(), Design.Stretch{}, Design.ColumnFlow{},
         Design.ScrollFlow{}, 0n, 0n, 8n, 0n, 100n, passive())
@@ -234,17 +238,17 @@ def style(role: UI.Role, meaning: UI.Meaning) -> Design.Style:
       fields(ordinary_text(), base_chrome(), Design.Stretch{}, Design.ColumnFlow{},
         Design.ContentFlow{}, 0n, 0n, 12n, 0n, 100n, passive())
     case UI.Dialog{}:
-      surface_style(Design.ColumnFlow{}, Design.ContentFlow{}, 0n, 0n, 0n, 16n, True{})
+      with_content_area(surface_style(Design.ColumnFlow{}, Design.ContentFlow{}, 0n, 0n, 0n, 16n, True{}), Enclosure.DialogPartitions{})
     case UI.Menu{}:
-      fields(ordinary_text(), chrome(primary_foreground(),
+      with_content_area(fields(ordinary_text(), chrome(primary_foreground(),
         surface(Surfaces.Floating{}, Surfaces.Rest{}),
         paint("--color-token-border-default"), 1n, 12n, True{}),
         Design.Stretch{}, Design.ColumnFlow{}, Design.ScrollFlow{}, popup_content_inset(), popup_content_inset(), 2n,
-        0n, 100n, passive())
+        0n, 100n, passive()), Enclosure.area(Enclosure.Menu{}))
     case UI.Details{}:
-      surface_style(Design.ColumnFlow{}, Design.ScrollFlow{}, 16n, 16n, 16n, 0n, False{})
+      with_content_area(surface_style(Design.ColumnFlow{}, Design.ScrollFlow{}, 16n, 16n, 16n, 0n, False{}), Enclosure.area(Enclosure.Details{}))
     case UI.Card{}:
-      surface_style(Design.ColumnFlow{}, Design.ContentFlow{}, 12n, 12n, 8n, 9n, True{})
+      with_content_area(surface_style(Design.ColumnFlow{}, Design.ContentFlow{}, 12n, 12n, 8n, 9n, True{}), Enclosure.area(Enclosure.Card{}))
     case UI.PrimaryButton{}: primary_button()
     case UI.DestructiveButton{}: destructive_button()
     case UI.SelectedButton{}: selected_button()
@@ -254,11 +258,9 @@ def style(role: UI.Role, meaning: UI.Meaning) -> Design.Style:
     case UI.Alert{}: base_style()
 
 def navigation_row(style_value: Design.Style) -> Design.Style:
-  Design.Style{Design.TextStyle{font, size, line_height, weight}, style_chrome, alignment, flow, overflow, padding_inline,
-    padding_block, gap, minimum_height, maximum_width_percent, states} = style_value
-  fields(text_style(font, 12n, 18n, weight), style_chrome,
-    alignment, flow, overflow, padding_inline, padding_block, gap, 29n,
-    maximum_width_percent, states)
+  Design.Style{Design.TextStyle{font, size, line_height, weight}, style_chrome, alignment, flow, overflow, content_area, gap, minimum_height, maximum_width_percent, states} = style_value
+  Design.Style{text_style(font, 12n, 18n, weight), style_chrome,
+    alignment, flow, overflow, content_area, gap, 29n, maximum_width_percent, states}
 
 def style_in_context(role: UI.Role, meaning: UI.Meaning,
   inside_navigation: Bool) -> Design.Style:
@@ -284,23 +286,36 @@ def rounded_states(value: Design.ControlStates, +radius: Nat) -> Design.ControlS
         opacity, ring, width, offset}
 
 def layout_inline_inset(layout: Controls.ContentLayout) -> Nat:
-  Controls.ContentLayout{alignment, inline_inset, block_inset, gap} = layout
-  inline_inset
+  Controls.ContentLayout{alignment, content_area, gap} = layout
+  Enclosure.inline(content_area)
 
 def face_padding(face: Controls.Face) -> Nat:
   layout_inline_inset(Controls.content_layout(face))
 
-def action_style_insets(value: Design.Style, geometry: Controls.Geometry, inline_inset: Nat, block_inset: Nat, content_gap: Nat) -> Design.Style:
-  Design.Style{text, style_chrome, alignment, flow, overflow, padding_inline,
-    padding_block, gap, old_height, maximum_width_percent, states} = value
+def text_line_height(value: Design.TextStyle) -> Nat:
+  Design.TextStyle{font, size, line_height, weight} = value
+  line_height
+
+def chrome_border_width(value: Design.Chrome) -> Nat:
+  Design.Chrome{foreground, background, border, border_width, radius, shadow} = value
+  border_width
+
+def extent_height(value: Enclosure.Extent) -> Nat:
+  Enclosure.Extent{width, height} = value
+  height
+
+def action_style_insets(value: Design.Style, geometry: Controls.Geometry, +content_area: Enclosure.ContentArea, content_gap: Nat) -> Design.Style:
+  Design.Style{+text, +style_chrome, alignment, flow, overflow, old_area, gap, old_height, maximum_width_percent, states} = value
   Controls.Geometry{minimum_width, minimum_height, icon_size, +radius, leading_slot} = geometry
-  fields(text, rounded_chrome(style_chrome, radius), alignment, Design.RowFlow{},
-    overflow, inline_inset, block_inset, content_gap, minimum_height, maximum_width_percent,
-    rounded_states(states, radius))
+  required_height = extent_height(Enclosure.required_extent(0n, text_line_height(text),
+    chrome_border_width(style_chrome), content_area))
+  Design.Style{text, rounded_chrome(style_chrome, radius), alignment, Design.RowFlow{},
+    overflow, content_area, content_gap, Nat.max(minimum_height, required_height), maximum_width_percent,
+    rounded_states(states, radius)}
 
 def action_content_style(value: Design.Style, layout: Controls.ContentLayout, geometry: Controls.Geometry) -> Design.Style:
-  Controls.ContentLayout{content_alignment, inline_inset, block_inset, content_gap} = layout
-  action_style_insets(value, geometry, inline_inset, block_inset, content_gap)
+  Controls.ContentLayout{content_alignment, content_area, content_gap} = layout
+  action_style_insets(value, geometry, content_area, content_gap)
 
 def action_style(value: Design.Style, face: Controls.Face, geometry: Controls.Geometry) -> Design.Style:
   action_content_style(value, Controls.content_layout(face), geometry)

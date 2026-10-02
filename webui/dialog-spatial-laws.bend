@@ -1,4 +1,5 @@
 import Base
+import ./enclosure.bend as Enclosure
 import ../bendlib/stdlib.bend as Std
 import ./document.bend as Doc
 import ./design.bend as Design
@@ -159,10 +160,13 @@ def description_identity(+key: String, +tag: String, +attributes: +List<Doc.Prop
    (key, (attributes, events)) : (String & (+List<Doc.Property> & +List<Doc.Event>))}:
   {==}
 
+def partition_inset(+properties: +List<Doc.Property>) -> String:
+  Render.attr(properties, "padding-block") ++ " " ++ Render.attr(properties, "padding-inline")
+
 def region_owned_insets() ->
-  {(Render.attr(Render.dialog_header_styles(), "padding"),
-    (Render.attr(Render.dialog_body_styles(), "padding"),
-     (Render.attr(Render.dialog_footer_styles(), "padding"),
+  {(partition_inset(Render.dialog_header_styles()),
+    (partition_inset(Render.dialog_body_styles()),
+     (partition_inset(Render.dialog_footer_styles()),
       (Render.attr(Render.dialog_header_styles(), "flex"),
        Render.attr(Render.dialog_footer_styles(), "flex"))))) ==
    ("14px " ++ Render.px(Appearance.dialog_inline_inset()), ("20px " ++ Render.px(Appearance.dialog_inline_inset()), ("12px " ++ Render.px(Appearance.dialog_inline_inset()), ("0 0 auto", "0 0 auto")))) :
@@ -210,8 +214,8 @@ def concrete_field_kinds() ->
   {==}
 
 def style_insets(value: Design.Style) -> (Nat & (Nat & Nat)):
-  Design.Style{text, chrome, alignment, flow, overflow, inline, block, gap, minimum, maximum, states} = value
-  (inline, (block, gap))
+  Design.Style{text, chrome, alignment, flow, overflow, +content_area, gap, minimum, maximum, states} = value
+  (Enclosure.inline(content_area), (Enclosure.block(content_area), gap))
 
 def dialog_outer_inset() ->
   {style_insets(Appearance.style(UI.Dialog{}, UI.Region{})) == (0n, (0n, 0n)) : (Nat & (Nat & Nat))}:
@@ -356,9 +360,9 @@ type Requirements is Type:
           Doc.Element{key, tag, attributes, styles, events, children})))) ==
        (key, (attributes, events)) : (String & (+List<Doc.Property> & +List<Doc.Event>))},
     shared_inline_inset: {Appearance.dialog_inline_inset() == 24n : Nat},
-    region_owned_insets: {(Render.attr(Render.dialog_header_styles(), "padding"),
-      (Render.attr(Render.dialog_body_styles(), "padding"),
-       (Render.attr(Render.dialog_footer_styles(), "padding"),
+    region_owned_insets: {(partition_inset(Render.dialog_header_styles()),
+      (partition_inset(Render.dialog_body_styles()),
+       (partition_inset(Render.dialog_footer_styles()),
         (Render.attr(Render.dialog_header_styles(), "flex"), Render.attr(Render.dialog_footer_styles(), "flex"))))) ==
       ("14px " ++ Render.px(Appearance.dialog_inline_inset()), ("20px " ++ Render.px(Appearance.dialog_inline_inset()), ("12px " ++ Render.px(Appearance.dialog_inline_inset()), ("0 0 auto", "0 0 auto")))) :
       (String & (String & (String & (String & String))))},

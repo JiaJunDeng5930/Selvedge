@@ -1,5 +1,6 @@
 import Base
 import ./surfaces.bend as Surfaces
+import ./enclosure-render-laws.bend as EnclosureRender
 import ./design.bend as Design
 import ./document.bend as Doc
 import ./renderer.bend as Render
@@ -82,9 +83,7 @@ def action_rest_background(+key: String, +visual: Design.Style, input: Core.Inpu
   {Render.attr(node_styles(Render.action(key, Design.Appearance{key, visual, Controls.NoControl{}, Nil{}},
     Controls.Action{input, availability, name, face, behavior, geometry, placement, help, feedback})),
     "--native-rest-background") == Render.attr(Render.style(visual), "background") : String}:
-  match visual:
-    case Design.Style{Design.TextStyle{font, size, line_height, weight}, Design.Chrome{foreground, background, border, border_width, radius, shadow},
-      alignment, flow, overflow, inline, block, gap, height, maximum, states}: {==}
+  EnclosureRender.action_background_preserved(key, visual, input, availability, name, face, behavior, geometry, placement, help, feedback)
 
 def surface_foreground(+role: Surfaces.Role) ->
   {Render.paint(Design.SurfaceForeground{role}) == Render.surface_color(Surfaces.foreground(role)) : String}:

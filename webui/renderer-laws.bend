@@ -71,7 +71,49 @@ def action_accessible_name(+key: String, +style: Design.Style, +input: Core.Inpu
   +help: Controls.Help, +feedback: Controls.Feedback) ->
   {Render.attr(node_attributes(Render.action(key, Design.Appearance{key, style, Controls.NoControl{}, Nil{}},
     Controls.Action{input, availability, name, face, behavior, geometry, placement, help, feedback})), "aria-label") == name : String}:
-  {==}
+  match availability behavior help:
+    case View.Available{} Controls.Push{} Controls.NoHelp{}: {==}
+    case View.Available{} Controls.Push{} Controls.Tooltip{text, delay, pointer, keyboard, takes_focus}: {==}
+    case View.Available{} Controls.Toggle{pressed} Controls.NoHelp{}: {==}
+    case View.Available{} Controls.Toggle{pressed} Controls.Tooltip{text, delay, pointer, keyboard, takes_focus}: {==}
+    case View.Available{} Controls.Radio{checked} Controls.NoHelp{}: {==}
+    case View.Available{} Controls.Radio{checked} Controls.Tooltip{text, delay, pointer, keyboard, takes_focus}: {==}
+    case View.Available{} Controls.ChoiceRadio{checked} Controls.NoHelp{}: {==}
+    case View.Available{} Controls.ChoiceRadio{checked} Controls.Tooltip{text, delay, pointer, keyboard, takes_focus}: {==}
+    case View.Available{} Controls.Disclosure{expanded} Controls.NoHelp{}: {==}
+    case View.Available{} Controls.Disclosure{expanded} Controls.Tooltip{text, delay, pointer, keyboard, takes_focus}: {==}
+    case View.Available{} Controls.Popup{menu, expanded} Controls.NoHelp{}: {==}
+    case View.Available{} Controls.Popup{menu, expanded} Controls.Tooltip{text, delay, pointer, keyboard, takes_focus}: {==}
+    case View.Available{} Controls.Destination{current} Controls.NoHelp{}: {==}
+    case View.Available{} Controls.Destination{current} Controls.Tooltip{text, delay, pointer, keyboard, takes_focus}: {==}
+    case View.NeedsDirectoryObservation{} Controls.Push{} Controls.NoHelp{}: {==}
+    case View.NeedsDirectoryObservation{} Controls.Push{} Controls.Tooltip{text, delay, pointer, keyboard, takes_focus}: {==}
+    case View.NeedsDirectoryObservation{} Controls.Toggle{pressed} Controls.NoHelp{}: {==}
+    case View.NeedsDirectoryObservation{} Controls.Toggle{pressed} Controls.Tooltip{text, delay, pointer, keyboard, takes_focus}: {==}
+    case View.NeedsDirectoryObservation{} Controls.Radio{checked} Controls.NoHelp{}: {==}
+    case View.NeedsDirectoryObservation{} Controls.Radio{checked} Controls.Tooltip{text, delay, pointer, keyboard, takes_focus}: {==}
+    case View.NeedsDirectoryObservation{} Controls.ChoiceRadio{checked} Controls.NoHelp{}: {==}
+    case View.NeedsDirectoryObservation{} Controls.ChoiceRadio{checked} Controls.Tooltip{text, delay, pointer, keyboard, takes_focus}: {==}
+    case View.NeedsDirectoryObservation{} Controls.Disclosure{expanded} Controls.NoHelp{}: {==}
+    case View.NeedsDirectoryObservation{} Controls.Disclosure{expanded} Controls.Tooltip{text, delay, pointer, keyboard, takes_focus}: {==}
+    case View.NeedsDirectoryObservation{} Controls.Popup{menu, expanded} Controls.NoHelp{}: {==}
+    case View.NeedsDirectoryObservation{} Controls.Popup{menu, expanded} Controls.Tooltip{text, delay, pointer, keyboard, takes_focus}: {==}
+    case View.NeedsDirectoryObservation{} Controls.Destination{current} Controls.NoHelp{}: {==}
+    case View.NeedsDirectoryObservation{} Controls.Destination{current} Controls.Tooltip{text, delay, pointer, keyboard, takes_focus}: {==}
+    case View.Unavailable{reason} Controls.Push{} Controls.NoHelp{}: {==}
+    case View.Unavailable{reason} Controls.Push{} Controls.Tooltip{text, delay, pointer, keyboard, takes_focus}: {==}
+    case View.Unavailable{reason} Controls.Toggle{pressed} Controls.NoHelp{}: {==}
+    case View.Unavailable{reason} Controls.Toggle{pressed} Controls.Tooltip{text, delay, pointer, keyboard, takes_focus}: {==}
+    case View.Unavailable{reason} Controls.Radio{checked} Controls.NoHelp{}: {==}
+    case View.Unavailable{reason} Controls.Radio{checked} Controls.Tooltip{text, delay, pointer, keyboard, takes_focus}: {==}
+    case View.Unavailable{reason} Controls.ChoiceRadio{checked} Controls.NoHelp{}: {==}
+    case View.Unavailable{reason} Controls.ChoiceRadio{checked} Controls.Tooltip{text, delay, pointer, keyboard, takes_focus}: {==}
+    case View.Unavailable{reason} Controls.Disclosure{expanded} Controls.NoHelp{}: {==}
+    case View.Unavailable{reason} Controls.Disclosure{expanded} Controls.Tooltip{text, delay, pointer, keyboard, takes_focus}: {==}
+    case View.Unavailable{reason} Controls.Popup{menu, expanded} Controls.NoHelp{}: {==}
+    case View.Unavailable{reason} Controls.Popup{menu, expanded} Controls.Tooltip{text, delay, pointer, keyboard, takes_focus}: {==}
+    case View.Unavailable{reason} Controls.Destination{current} Controls.NoHelp{}: {==}
+    case View.Unavailable{reason} Controls.Destination{current} Controls.Tooltip{text, delay, pointer, keyboard, takes_focus}: {==}
 
 def textarea_event(+key: String) ->
   {Render.input_events(key, Controls.MessageInput{}) == [Doc.EditText{key}] : +List<Doc.Event>}:
@@ -590,11 +632,11 @@ def rendered_dialog(+key: String, +label: String, +source: +List<Interface.Node>
   +children: +List<Doc.Node>, +visual: Design.Style, appearances: +List<Design.Appearance>) -> Doc.Node:
   Design.Style{Design.TextStyle{family, size, line_height, weight},
     Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment,
-    direction, overflow, inline, block, gap, minimum, maximum, states} = visual
+    direction, overflow, content_area, gap, minimum, maximum, states} = visual
   Render.match_node(key, label, Interface.Dialog{}, Interface.Region{}, source, children,
     Design.Style{Design.TextStyle{family, size, line_height, weight},
       Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment,
-      direction, overflow, inline, block, gap, minimum, maximum, states},
+      direction, overflow, content_area, gap, minimum, maximum, states},
     Controls.NoControl{}, appearances)
 
 def dialog_header_node(node: Doc.Node) -> Doc.Node:
@@ -920,11 +962,11 @@ def dialog_branch_header_projection(+key: String, +label: String, +source: +List
     Render.dialog_header_children(children, appearances) : +List<Doc.Node>}:
   Design.Style{Design.TextStyle{family, size, line_height, weight},
     Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment,
-    direction, overflow, inline, block, gap, minimum, maximum, states} = visual
+    direction, overflow, content_area, gap, minimum, maximum, states} = visual
   dialog_region_header_projection(key, label,
     Design.Style{Design.TextStyle{family, size, line_height, weight},
       Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment,
-      direction, overflow, inline, block, gap, minimum, maximum, states},
+      direction, overflow, content_area, gap, minimum, maximum, states},
     Render.dialog_partition(children, appearances))
 
 def dialog_branch_header_partition(+key: String, +label: String, +source: +List<Interface.Node>,
@@ -944,11 +986,11 @@ def dialog_branch_body_projection(+key: String, +label: String, +source: +List<I
     Render.dialog_body_children(children, appearances) : +List<Doc.Node>}:
   Design.Style{Design.TextStyle{family, size, line_height, weight},
     Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment,
-    direction, overflow, inline, block, gap, minimum, maximum, states} = visual
+    direction, overflow, content_area, gap, minimum, maximum, states} = visual
   dialog_region_body_projection(key, label,
     Design.Style{Design.TextStyle{family, size, line_height, weight},
       Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment,
-      direction, overflow, inline, block, gap, minimum, maximum, states},
+      direction, overflow, content_area, gap, minimum, maximum, states},
     Render.dialog_partition(children, appearances))
 
 def dialog_branch_body_partition(+key: String, +label: String, +source: +List<Interface.Node>,
@@ -995,11 +1037,11 @@ def dialog_branch_wrapper_keys(+key: String, +label: String, +source: +List<Inte
    (String & (String & String))}:
   Design.Style{Design.TextStyle{family, size, line_height, weight},
     Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment,
-    direction, overflow, inline, block, gap, minimum, maximum, states} = visual
+    direction, overflow, content_area, gap, minimum, maximum, states} = visual
   dialog_region_wrapper_keys(key, label,
     Design.Style{Design.TextStyle{family, size, line_height, weight},
       Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment,
-      direction, overflow, inline, block, gap, minimum, maximum, states},
+      direction, overflow, content_area, gap, minimum, maximum, states},
     Render.dialog_partition(children, appearances))
 
 def dialog_region_outer_identity_suffix(+key: String, +label: String, visual: Design.Style,
@@ -1046,11 +1088,11 @@ def dialog_branch_outer_identity(+key: String, +label: String, +source: +List<In
    (key, (label, key)) : (String & (String & String))}:
   Design.Style{Design.TextStyle{family, size, line_height, weight},
     Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment,
-    direction, overflow, inline, block, gap, minimum, maximum, states} = visual
+    direction, overflow, content_area, gap, minimum, maximum, states} = visual
   dialog_region_outer_identity(key, label,
     Design.Style{Design.TextStyle{family, size, line_height, weight},
       Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment,
-      direction, overflow, inline, block, gap, minimum, maximum, states},
+      direction, overflow, content_area, gap, minimum, maximum, states},
     Render.dialog_partition(children, appearances))
 
 def dialog_branch_title_identity(+key: String, +label: String, +source: +List<Interface.Node>,
@@ -1060,11 +1102,11 @@ def dialog_branch_title_identity(+key: String, +label: String, +source: +List<In
    (Render.generated_identity(key, "title"), label) : (String & String)}:
   Design.Style{Design.TextStyle{family, size, line_height, weight},
     Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment,
-    direction, overflow, inline, block, gap, minimum, maximum, states} = visual
+    direction, overflow, content_area, gap, minimum, maximum, states} = visual
   dialog_region_title_identity(key, label,
     Design.Style{Design.TextStyle{family, size, line_height, weight},
       Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment,
-      direction, overflow, inline, block, gap, minimum, maximum, states},
+      direction, overflow, content_area, gap, minimum, maximum, states},
     Render.dialog_partition(children, appearances))
 
 def dialog_region_flow_properties_suffix(+key: String, +label: String, visual: Design.Style,
@@ -1109,11 +1151,11 @@ def dialog_flow_properties(+key: String, +label: String, +source: +List<Interfac
    (String & (String & (String & (String & (String & (String & String))))))}:
   Design.Style{Design.TextStyle{family, size, line_height, weight},
     Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment,
-    direction, overflow, inline, block, gap, minimum, maximum, states} = visual
+    direction, overflow, content_area, gap, minimum, maximum, states} = visual
   dialog_region_flow_properties(key, label,
     Design.Style{Design.TextStyle{family, size, line_height, weight},
       Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment,
-      direction, overflow, inline, block, gap, minimum, maximum, states},
+      direction, overflow, content_area, gap, minimum, maximum, states},
     Render.dialog_partition(children, appearances))
 
 def centered_dialog_hides_overflow(+available: Design.Box, maximum_width: Nat) ->

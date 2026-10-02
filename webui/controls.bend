@@ -1,4 +1,5 @@
 import Base
+import ./enclosure.bend as Enclosure
 import ../core/interface.bend as UI
 import ../core/SYSTEM.bend as Core
 import ../core/user-input.bend as User
@@ -111,13 +112,13 @@ type ContentAlignment is Data:
   LeadingContents{}
 
 type ContentLayout is Data:
-  ContentLayout{alignment: ContentAlignment, inline_inset: Nat,
-    block_inset: Nat, gap: Nat}
+  ContentLayout{alignment: ContentAlignment, content_area: Enclosure.ContentArea, gap: Nat}
 
 def content_layout(face: Face) -> ContentLayout:
   match face:
-    case IconFace{icon}: ContentLayout{CenterContents{}, 4n, 4n, 0n}
-    case _: ContentLayout{LeadingContents{}, 8n, 4n, 6n}
+    case IconFace{icon}: ContentLayout{CenterContents{}, Enclosure.area(Enclosure.IconControl{}), 0n}
+    case ChoiceFace{text, checked}: ContentLayout{LeadingContents{}, Enclosure.area(Enclosure.OptionControl{}), 6n}
+    case _: ContentLayout{LeadingContents{}, Enclosure.area(Enclosure.TextControl{}), 6n}
 
 type IconPaint is Data:
   FilledIcon{}

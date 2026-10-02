@@ -42,7 +42,7 @@ def choice_binding_retained(+key: String, +tag: String, +attrs: +List<Doc.Proper
     Doc.Element{key, tag, attrs, List.append(&2, Doc.Property, styles,
       [Render.property("display", "flex"), Render.property("flex-direction", "row"), Render.property("align-items", "center"),
        Render.property("gap", "8px"), Render.property("width", "100%"), Render.property("min-width", "0"),
-       Render.property("height", "auto"), Render.property("flex-shrink", "0"), Render.property("padding", "8px"), Render.property("justify-content", "space-between")]), events,
+       Render.property("height", "auto"), Render.property("flex-shrink", "0"), Render.property("justify-content", "space-between")]), events,
        Render.choice_content(key, label, description, selected)} : Doc.Node}:
   {==}
 
@@ -143,7 +143,7 @@ type Requirements is Type:
     Doc.Element{key, tag, attrs, List.append(&2, Doc.Property, styles,
       [Render.property("display", "flex"), Render.property("flex-direction", "row"), Render.property("align-items", "center"),
        Render.property("gap", "8px"), Render.property("width", "100%"), Render.property("min-width", "0"),
-       Render.property("height", "auto"), Render.property("flex-shrink", "0"), Render.property("padding", "8px"), Render.property("justify-content", "space-between")]), events,
+       Render.property("height", "auto"), Render.property("flex-shrink", "0"), Render.property("justify-content", "space-between")]), events,
        Render.choice_content(key, label, description, selected)} : Doc.Node},
     choice_group_production: @+key: String -> @+label: String -> @role: UI.Role -> @source: +List<UI.Node> -> @+children: +List<Doc.Node> -> @+visual: Design.Style -> @representation: Controls.Representation -> @appearances: +List<Design.Appearance> ->
       {Render.match_node(key, label, role, UI.ChoiceGroup{}, source, children, visual, representation, appearances) ==

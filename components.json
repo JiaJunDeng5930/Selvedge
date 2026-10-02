@@ -291,11 +291,13 @@
       "core/interface.bend",
       "webui/controls.bend",
       "webui/design.bend",
+      "webui/enclosure.bend",
       "webui/surfaces.bend"
     ],
     "webui/design.bend": [
       "core/composition.bend",
       "webui/controls.bend",
+      "webui/enclosure.bend",
       "webui/surfaces.bend"
     ],
     "webui/layout.bend": [
@@ -402,6 +404,8 @@
       "webui/dialog-spatial-laws.bend",
       "webui/directory-entry-laws.bend",
       "webui/dock-laws.bend",
+      "webui/enclosure-laws.bend",
+      "webui/enclosure-render-laws.bend",
       "webui/execution-presentation-laws.bend",
       "webui/focus-retention-laws.bend",
       "webui/focus.bend",
@@ -429,6 +433,7 @@
       "webui/appearance.bend",
       "webui/controls.bend",
       "webui/design.bend",
+      "webui/enclosure.bend",
       "webui/surfaces.bend"
     ],
     "webui/laws.bend": [
@@ -494,7 +499,8 @@
       "core/ui-world.bend",
       "core/user-context.bend",
       "core/user-experience.bend",
-      "core/user-input.bend"
+      "core/user-input.bend",
+      "webui/enclosure.bend"
     ],
     "webui/control-laws.bend": [
       "bendlib/domain.bend",
@@ -589,6 +595,7 @@
       "webui/design.bend",
       "webui/document.bend",
       "webui/editor-layout.bend",
+      "webui/enclosure.bend",
       "webui/layout.bend",
       "webui/surfaces.bend"
     ],
@@ -742,6 +749,7 @@
       "webui/controls.bend",
       "webui/design.bend",
       "webui/document.bend",
+      "webui/enclosure.bend",
       "webui/renderer.bend"
     ],
     "webui/dialog-spatial-laws.bend": [
@@ -756,6 +764,7 @@
       "webui/design.bend",
       "webui/document.bend",
       "webui/editor-layout.bend",
+      "webui/enclosure.bend",
       "webui/renderer.bend"
     ],
     "webui/editor-layout.bend": [
@@ -846,6 +855,7 @@
       "webui/controls.bend",
       "webui/design.bend",
       "webui/document.bend",
+      "webui/enclosure.bend",
       "webui/renderer.bend",
       "webui/surfaces.bend"
     ],
@@ -983,6 +993,7 @@
       "webui/controls.bend",
       "webui/design.bend",
       "webui/document.bend",
+      "webui/enclosure.bend",
       "webui/renderer-laws.bend",
       "webui/renderer.bend"
     ],
@@ -1005,8 +1016,35 @@
       "webui/controls.bend",
       "webui/design.bend",
       "webui/document.bend",
+      "webui/enclosure-render-laws.bend",
       "webui/renderer.bend",
       "webui/surfaces.bend"
+    ],
+    "webui/enclosure.bend": [],
+    "webui/enclosure-laws.bend": [
+      "core/form-fields.bend",
+      "core/interface.bend",
+      "webui/appearance.bend",
+      "webui/controls.bend",
+      "webui/design.bend",
+      "webui/enclosure.bend"
+    ],
+    "webui/enclosure-render-laws.bend": [
+      "BOARD.bend",
+      "core/SYSTEM.bend",
+      "core/form-fields.bend",
+      "core/interface.bend",
+      "core/ui-world.bend",
+      "core/user-input.bend",
+      "webui/appearance.bend",
+      "webui/board-spatial-laws.bend",
+      "webui/controls.bend",
+      "webui/design.bend",
+      "webui/document.bend",
+      "webui/enclosure-laws.bend",
+      "webui/enclosure.bend",
+      "webui/renderer-laws.bend",
+      "webui/renderer.bend"
     ]
   },
   "feature_alphabet": "FEATURES.bend",

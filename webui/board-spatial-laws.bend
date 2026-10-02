@@ -1,4 +1,5 @@
 import Base
+import ./enclosure.bend as Enclosure
 import ./document.bend as Doc
 import ./renderer.bend as Render
 import ./appearance.bend as Appearance
@@ -47,8 +48,8 @@ def search_projection(+key: String, +filter: Board.Filter, +name: String, +visua
 
 def search_styles_expected(visual: Design.Style) -> +List<Doc.Property>:
   List.append(&2, Doc.Property, Render.style(visual),
-    [Doc.Property{"width", "168px"}, Doc.Property{"max-width", "100%"}, Doc.Property{"min-width", "0"}, Doc.Property{"height", "32px"},
-     Doc.Property{"padding", "4px 8px"}, Doc.Property{"border-radius", "6px"}, Doc.Property{"font-size", "13px"}])
+    List.append(&2, Doc.Property, [Doc.Property{"width", "168px"}, Doc.Property{"max-width", "100%"}, Doc.Property{"min-width", "0"}, Doc.Property{"height", "32px"},
+     Doc.Property{"border-radius", "6px"}, Doc.Property{"font-size", "13px"}], Render.content_area_properties(Enclosure.area(Enclosure.SearchField{}))))
 
 def search_hint_boundary(+key: String, +filter: Board.Filter, +name: String, +visual: Design.Style) ->
   {search_projection(key, filter, name, visual) == ("搜索任务", (name, (search_styles_expected(visual), [Doc.EditText{key}]))) :
@@ -65,12 +66,15 @@ def title_action(+title: String, +key: String, +attrs: +List<Doc.Property>,
     Doc.Element{key, "button", attrs, List.append(&2, Doc.Property, original_styles, Render.card_title_styles()), events, [Doc.Text{title}]} : Doc.Node}:
   {==}
 
+def title_production_styles() -> +List<Doc.Property>:
+  styles(Render.card_title_control("title", Doc.Element{"title", "button", Nil{}, Render.style(Appearance.ordinary_button()), Nil{}, [Doc.Text{"title"}]}))
+
 def title_content_inset() ->
-  {(Render.attr(Render.card_title_styles(), "padding-inline"),
-    (Render.attr(Render.card_title_styles(), "padding-block"),
-     (Render.attr(Render.card_title_styles(), "font-weight"),
-      (Render.attr(Render.card_title_styles(), "white-space"), Render.attr(Render.card_title_styles(), "min-height"))))) ==
-    ("0", ("0", ("580", ("normal", "32px")))) : (String & (String & (String & (String & String))))}:
+  {(Render.attr(title_production_styles(), "padding-inline"),
+    (Render.attr(title_production_styles(), "padding-block"),
+     (Render.attr(title_production_styles(), "font-weight"),
+      (Render.attr(title_production_styles(), "white-space"), Render.attr(title_production_styles(), "min-height"))))) ==
+    ("8px", ("4px", ("580", ("normal", "32px")))) : (String & (String & (String & (String & String))))}:
   {==}
 
 def title_group_binding(+owner: String, +title: String, +node: Doc.Node, +rest: +List<Doc.Node>) ->
@@ -114,7 +118,7 @@ type Requirements is Type:
   Requirements{
     title_action: @+title:String -> @+key:String -> @+attrs:+List<Doc.Property> -> @+original_styles:+List<Doc.Property> -> @+events:+List<Doc.Event> -> @original_children:+List<Doc.Node> ->
       {Render.card_title_control(title, Doc.Element{key, "button", attrs, original_styles, events, original_children}) == Doc.Element{key, "button", attrs, List.append(&2, Doc.Property, original_styles, Render.card_title_styles()), events, [Doc.Text{title}]} : Doc.Node},
-    title_inset: {(Render.attr(Render.card_title_styles(), "padding-inline"), (Render.attr(Render.card_title_styles(), "padding-block"), (Render.attr(Render.card_title_styles(), "font-weight"), (Render.attr(Render.card_title_styles(), "white-space"), Render.attr(Render.card_title_styles(), "min-height"))))) == ("0", ("0", ("580", ("normal", "32px")))) : (String & (String & (String & (String & String))))},
+    title_inset: {(Render.attr(title_production_styles(), "padding-inline"), (Render.attr(title_production_styles(), "padding-block"), (Render.attr(title_production_styles(), "font-weight"), (Render.attr(title_production_styles(), "white-space"), Render.attr(title_production_styles(), "min-height"))))) == ("8px", ("4px", ("580", ("normal", "32px")))) : (String & (String & (String & (String & String))))},
     title_group: @+owner:String -> @+title:String -> @+node:Doc.Node -> @+rest:+List<Doc.Node> -> {children(first(Render.card_title_nodes(owner, title, node <> rest))) == Render.card_title_control(title, node) <> Render.card_title_actions(title, rest) : +List<Doc.Node>},
     card_inset: {(Render.attr(Render.style(Appearance.style(UI.Card{}, UI.Region{})), "padding-inline"), Render.attr(Render.style(Appearance.style(UI.Card{}, UI.Region{})), "padding-block")) == ("12px", "12px") : (String & String)},
     lane_groups: @+owner:String -> @+label:String -> @+stage:Board.Stage -> @+count:Nat -> @+create:+List<Doc.Node> ->

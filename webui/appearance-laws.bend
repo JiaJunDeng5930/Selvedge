@@ -1,4 +1,5 @@
 import Base
+import ./enclosure.bend as Enclosure
 import ../core/client-services.bend as Services
 import ../core/interface.bend as UI
 import ../core/SYSTEM.bend as Core
@@ -102,7 +103,7 @@ def user_message_style_is_exact(meaning: UI.Meaning) ->
     Design.Chrome{Design.ThemeToken{"--color-token-text-primary"},
       Design.SurfacePaint{Surfaces.Inset{}, Surfaces.Rest{}}, Design.Transparent{}, 0n, 16n, False{}},
     Design.Trailing{}, Design.BlockFlow{}, Design.ContentFlow{},
-    12n, 8n, 0n, 0n, 70n, Design.Passive{}
+    Enclosure.area(Enclosure.UserMessage{}), 0n, 0n, 70n, Design.Passive{}
   } : Design.Style}:
   {==}
 
@@ -112,7 +113,7 @@ def assistant_message_style_is_exact(meaning: UI.Meaning) ->
     Design.Chrome{Design.ThemeToken{"--color-token-text-primary"},
       Design.SurfacePaint{Surfaces.EmbeddedAction{}, Surfaces.Rest{}}, Design.Transparent{}, 0n, 0n, False{}},
     Design.Leading{}, Design.BlockFlow{}, Design.ContentFlow{},
-    0n, 0n, 0n, 0n, 100n, Design.Passive{}
+    Enclosure.ambient(0n, 0n), 0n, 0n, 100n, Design.Passive{}
   } : Design.Style}:
   {==}
 
@@ -122,7 +123,7 @@ def composer_actions_style_is_exact(meaning: UI.Meaning) ->
     Design.Chrome{Design.ThemeToken{"--color-token-text-primary"},
       Design.SurfacePaint{Surfaces.EmbeddedAction{}, Surfaces.Rest{}}, Design.Transparent{}, 0n, 0n, False{}},
     Design.Stretch{}, Design.SplitRowFlow{}, Design.ContentFlow{},
-    0n, 0n, 4n, 32n, 100n, Design.Passive{}
+    Enclosure.ambient(0n, 0n), 4n, 32n, 100n, Design.Passive{}
   } : Design.Style}:
   {==}
 
@@ -131,7 +132,7 @@ type ButtonMetrics is Data:
 
 def button_metrics(style: Design.Style) -> ButtonMetrics:
   Design.Style{Design.TextStyle{font, size, line_height, weight}, chrome,
-    alignment, flow, overflow, padding_inline, padding_block, gap, minimum_height,
+    alignment, flow, overflow, content_area, gap, minimum_height,
     maximum_width_percent, states} = style
   ButtonMetrics{size, line_height, weight, minimum_height}
 
@@ -142,7 +143,7 @@ def navigation_button_metrics(meaning: UI.Meaning) ->
 
 def navigation_selected_button_metrics(meaning: UI.Meaning) ->
   {button_metrics(Appearance.style_in_context(UI.SelectedButton{}, meaning, True{})) ==
-    ButtonMetrics{12n, 18n, 500n, 29n} : ButtonMetrics}:
+    ButtonMetrics{12n, 18n, 400n, 29n} : ButtonMetrics}:
   {==}
 
 def ordinary_button_metrics(meaning: UI.Meaning) ->
@@ -156,7 +157,7 @@ def primary_button_keeps_interaction_states(meaning: UI.Meaning) ->
     Design.Chrome{Design.SurfaceForeground{Surfaces.PrimaryAction{}},
       Design.SurfacePaint{Surfaces.PrimaryAction{}, Surfaces.Rest{}},
       Design.Transparent{}, 0n, 8n, False{}},
-    Design.Stretch{}, Design.RowFlow{}, Design.ContentFlow{}, 8n, 4n, 4n, 32n, 100n,
+    Design.Stretch{}, Design.RowFlow{}, Design.ContentFlow{}, Enclosure.area(Enclosure.TextControl{}), 4n, 32n, 100n,
     Design.Interactive{
       Design.Chrome{Design.SurfaceForeground{Surfaces.PrimaryAction{}},
         Design.SurfacePaint{Surfaces.PrimaryAction{}, Surfaces.Hovered{}},
@@ -170,11 +171,11 @@ def primary_button_keeps_interaction_states(meaning: UI.Meaning) ->
   {==}
 
 def style_text(value: Design.Style) -> Design.TextStyle:
-  Design.Style{text, chrome, alignment, flow, overflow, inline, block, gap, minimum, maximum, states} = value
+  Design.Style{text, chrome, alignment, flow, overflow, content_area, gap, minimum, maximum, states} = value
   text
 
 def style_border(value: Design.Style) -> Nat:
-  Design.Style{text, Design.Chrome{foreground, background, border, width, radius, shadow}, alignment, flow, overflow, inline, block, gap, minimum, maximum, states} = value
+  Design.Style{text, Design.Chrome{foreground, background, border, width, radius, shadow}, alignment, flow, overflow, content_area, gap, minimum, maximum, states} = value
   width
 
 def creation_title_metrics(fallback: Design.Style) ->
@@ -209,28 +210,28 @@ type Requirements is Type:
         Design.TextStyle{Design.InterfaceFont{}, 13n, 20n, 400n},
         Design.Chrome{Design.ThemeToken{"--color-token-text-primary"},
           Design.SurfacePaint{Surfaces.Inset{}, Surfaces.Rest{}}, Design.Transparent{}, 0n, 16n, False{}},
-        Design.Trailing{}, Design.BlockFlow{}, Design.ContentFlow{}, 12n, 8n, 0n, 0n, 70n,
+        Design.Trailing{}, Design.BlockFlow{}, Design.ContentFlow{}, Enclosure.area(Enclosure.UserMessage{}), 0n, 0n, 70n,
         Design.Passive{}} : Design.Style},
     assistant_message_style_is_exact: @meaning:UI.Meaning ->
       {Appearance.style(UI.AssistantMessage{}, meaning) == Design.Style{
         Design.TextStyle{Design.InterfaceFont{}, 13n, 20n, 400n},
         Design.Chrome{Design.ThemeToken{"--color-token-text-primary"},
           Design.SurfacePaint{Surfaces.EmbeddedAction{}, Surfaces.Rest{}}, Design.Transparent{}, 0n, 0n, False{}},
-        Design.Leading{}, Design.BlockFlow{}, Design.ContentFlow{}, 0n, 0n, 0n, 0n, 100n,
+        Design.Leading{}, Design.BlockFlow{}, Design.ContentFlow{}, Enclosure.ambient(0n, 0n), 0n, 0n, 100n,
         Design.Passive{}} : Design.Style},
     composer_actions_style_is_exact: @meaning:UI.Meaning ->
       {Appearance.style(UI.ComposerActions{}, meaning) == Design.Style{
         Design.TextStyle{Design.InterfaceFont{}, 13n, 20n, 400n},
         Design.Chrome{Design.ThemeToken{"--color-token-text-primary"},
           Design.SurfacePaint{Surfaces.EmbeddedAction{}, Surfaces.Rest{}}, Design.Transparent{}, 0n, 0n, False{}},
-        Design.Stretch{}, Design.SplitRowFlow{}, Design.ContentFlow{}, 0n, 0n, 4n, 32n, 100n,
+        Design.Stretch{}, Design.SplitRowFlow{}, Design.ContentFlow{}, Enclosure.ambient(0n, 0n), 4n, 32n, 100n,
         Design.Passive{}} : Design.Style},
     primary_button_keeps_interaction_states: @meaning:UI.Meaning ->
       {Appearance.style(UI.PrimaryButton{}, meaning) == Design.Style{
         Design.TextStyle{Design.InterfaceFont{}, 13n, 20n, 500n},
         Design.Chrome{Design.SurfaceForeground{Surfaces.PrimaryAction{}},
           Design.SurfacePaint{Surfaces.PrimaryAction{}, Surfaces.Rest{}}, Design.Transparent{}, 0n, 8n, False{}},
-        Design.Stretch{}, Design.RowFlow{}, Design.ContentFlow{}, 8n, 4n, 4n, 32n, 100n,
+        Design.Stretch{}, Design.RowFlow{}, Design.ContentFlow{}, Enclosure.area(Enclosure.TextControl{}), 4n, 32n, 100n,
         Design.Interactive{
           Design.Chrome{Design.SurfaceForeground{Surfaces.PrimaryAction{}},
             Design.SurfacePaint{Surfaces.PrimaryAction{}, Surfaces.Hovered{}},
@@ -245,7 +246,7 @@ type Requirements is Type:
         ButtonMetrics{12n, 18n, 400n, 29n} : ButtonMetrics},
     navigation_selected_button_metrics: @meaning:UI.Meaning ->
       {button_metrics(Appearance.style_in_context(UI.SelectedButton{}, meaning, True{})) ==
-        ButtonMetrics{12n, 18n, 500n, 29n} : ButtonMetrics},
+        ButtonMetrics{12n, 18n, 400n, 29n} : ButtonMetrics},
     ordinary_button_metrics: @meaning:UI.Meaning ->
       {button_metrics(Appearance.style_in_context(UI.Button{}, meaning, False{})) ==
         ButtonMetrics{13n, 20n, 400n, 32n} : ButtonMetrics},

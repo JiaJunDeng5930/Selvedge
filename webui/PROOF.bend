@@ -5,6 +5,8 @@ import ./render-laws.bend as Rendering
 import ./layout-laws.bend as LayoutLaws
 import ./appearance-laws.bend as AppearanceLaws
 import ./surface-laws.bend as SurfaceLaws
+import ./enclosure-laws.bend as EnclosureLaws
+import ./enclosure-render-laws.bend as EnclosureRenderLaws
 import ./surface-render-laws.bend as SurfaceRenderLaws
 import ./presentation-laws.bend as PresentationLaws
 import ./presentation-order-laws.bend as PresentationOrderLaws
@@ -34,7 +36,7 @@ import ./submission-feedback-laws.bend as SubmissionFeedbackLaws
 # prescribed presentation to the Web model.
 type Realization is Type:
   Realization{requests: RequestLaws.Requirements, interaction: Interaction.Requirements, rendering: Rendering.Requirements,
-    layout: LayoutLaws.Requirements, appearance: AppearanceLaws.Requirements, surfaces: SurfaceLaws.Requirements, surface_rendering: SurfaceRenderLaws.Requirements,
+    layout: LayoutLaws.Requirements, appearance: AppearanceLaws.Requirements, surfaces: SurfaceLaws.Requirements, enclosures: EnclosureLaws.Requirements, enclosure_rendering: EnclosureRenderLaws.Requirements, surface_rendering: SurfaceRenderLaws.Requirements,
     presentation: PresentationLaws.Requirements, presentation_order: PresentationOrderLaws.Requirements,
     controls: ControlLaws.Requirements, control_contents: ControlContentLaws.Requirements,
     commands: UserExperienceLaws.CommandRequirements, browser: BrowserLaws.Requirements, renderer: RendererLaws.Requirements, page_regions: PageRegionLaws.Requirements, visibility: Visibility.Requirements,
@@ -46,7 +48,7 @@ type Realization is Type:
 
 def realization() -> Realization:
   Realization{RequestLaws.evidence(), Interaction.evidence(), Rendering.evidence(), LayoutLaws.evidence(),
-    AppearanceLaws.evidence(), SurfaceLaws.evidence(), SurfaceRenderLaws.evidence(), PresentationLaws.evidence(), PresentationOrderLaws.evidence(), ControlLaws.evidence(), ControlContentLaws.evidence(),
+    AppearanceLaws.evidence(), SurfaceLaws.evidence(), EnclosureLaws.evidence(), EnclosureRenderLaws.evidence(), SurfaceRenderLaws.evidence(), PresentationLaws.evidence(), PresentationOrderLaws.evidence(), ControlLaws.evidence(), ControlContentLaws.evidence(),
     UserExperienceLaws.command_evidence(), BrowserLaws.evidence(), RendererLaws.evidence(), PageRegionLaws.evidence(), Visibility.evidence(),
     Focus.cycle_evidence(), Reading.scroll_ownership_evidence(),
     FormInputLaws.evidence(), DockLaws.evidence(), CardDestinationLaws.evidence(),
