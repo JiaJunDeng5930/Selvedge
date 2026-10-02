@@ -81,8 +81,7 @@ def effects(values: +List<Counter.Effect>) -> +List<M.Effect()>:
 
 def embed(decision: C.Decision<Counter.State, Counter.Effect>, world: M.World()) -> M.Decision():
   C.Decision{state, reply, emitted} = decision
-  C.Frame{core, C.Frame{board, previous}} = world
-  C.Decision{C.Frame{core, C.Frame{board, state}}, reply, effects(emitted)}
+  C.Decision{C.map_rest(D.State, F.State(), features => F.with_rest(state, features), world), reply, effects(emitted)}
 
 def observation(+world: M.World()) -> M.Decision():
   C.Decision{world, D.success(J.nat(Counter.read(state(world)))), Nil{}}
@@ -128,7 +127,7 @@ def full_meaning(+value: Nat, +world: M.World()) ->
       ['Navigation', '  CounterFocus{}'], ['Completion', '  CounterObserved{}'],
     ]) result = replaceOnce(result, `type ${type} is Data:\n`, `type ${type} is Data:\n${constructors}\n`);
     result = replaceDefinition(result, 'specs', `def specs(settings_schema: J.Json) -> +List<CommandSpec>:
-  List.append(&2, CommandSpec, board_specs(BoardCodec.specs(settings_schema)),
+  List.append(&2, CommandSpec, List.append(&2, CommandSpec, board_specs(BoardCodec.specs(settings_schema)), chatgpt_specs(ChatGPTCodec.specs())),
     [CommandSpec{"counter_set", "Store the independent counter.", CounterSetKind{},
        D.command_schema([J.Field{"value", BoardCodec.integer_schema()}], [J.Text{"value"}])},
      CommandSpec{"counter_read", "Read the independent counter.", CounterReadKind{}, D.command_schema(Nil{}, Nil{})}])`);
@@ -141,7 +140,7 @@ def focus_counter(cursor: Cursor()) -> Cursor():
 
   await modify(directory, 'bendlib/feature-operations.bend', source => source
     .replace('type Operation is Data:\n', 'type Operation is Data:\n  CounterSet{value: Nat}\n')
-    .replace('type Event is Data:\n', 'type Event is Data:\n  CounterObserved{}\n'));
+    .replace('type ResolvedEvent is Data:\n', 'type ResolvedEvent is Data:\n  CounterObserved{}\n'));
   await modify(directory, 'bendlib/feature-resolution.bend', source => clause(source, 'resolve',
     '    case F.CounterSet{value}: Accept{O.CounterSet{value}}'));
 

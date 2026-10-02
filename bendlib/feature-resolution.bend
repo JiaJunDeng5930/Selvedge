@@ -7,6 +7,9 @@ import ../BOARD.bend as B
 import ../WORKSPACE.bend as Workspace
 import ./feature-operations.bend as O
 import ./board-resolution.bend as Board
+import ../CHATGPT.bend as ChatGPT
+import ../PROJECTS.bend as Projects
+import ./chatgpt-state.bend as ChatGPTState
 
 type Start is Data:
   Start{profile: D.Profile, reasoning: String, message: String, selection: Workspace.Selection}
@@ -47,6 +50,12 @@ def board(start: String -> String -> String -> J.Json -> @+world:M.World() -> St
       card_start(start(profile, reasoning, B.prompt(id, B.draft(card), instructions),
         card_options(B.project(B.draft(card)), options), world), id, card, now)
 
+def chatgpt(resolution: ChatGPT.Resolution) -> Resolution:
+  match resolution:
+    case ChatGPT.Refuse{code, reason}: Refuse{code, reason}
+    case ChatGPT.Accept{change}: Accept{O.ChatGPTChange{change}}
+
 def resolve(start: String -> String -> String -> J.Json -> @+world:M.World() -> Start, command: F.Command, +world: M.World()) -> Resolution:
   match command:
+    case F.ChatGPTCommand{command}: chatgpt(ChatGPT.resolve(command, ChatGPTState.registry(world), Projects.registry(F.State(), world)))
     case F.BoardCommand{command}: board(start, Board.resolve(command, world), world)

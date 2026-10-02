@@ -57,7 +57,7 @@ type BoardBoundary is Type:
         FeatureProtocol.board_selected_callback(Nat.is_eq(ticket, expected) && Nat.is_eq(current, revision), retitle) : Maybe<&2, Bool>},
     callback_dispatch: @+id:Nat -> @+card:B.Card -> @+ticket:Nat -> @+outcome:B.Outcome ->
       {FeatureProtocol.board_text(Some{card}, id, ticket, outcome) ==
-        FeatureProtocol.board_callback(FeatureProtocol.board_lease(B.enrichment(card), B.archived(card), B.revision(card), ticket), id, card, outcome) : Maybe<&2, FeatureOps.Event>},
+        FeatureProtocol.board_callback(FeatureProtocol.board_lease(B.enrichment(card), B.archived(card), B.revision(card), ticket), id, card, outcome) : Maybe<&2, FeatureOps.ResolvedEvent>},
     navigation_observation: @navigation:B.Navigation ->
       {UI.command(M.FeatureEvent{Features.BoardEvent{navigation}}) == M.Observe{M.Describe{}} : M.Command},
     navigation_ephemeral: @state:M.ViewState -> @navigation:B.Navigation ->

@@ -143,7 +143,7 @@ def create_checked(+draft: B.Draft, +now: U32, assist: Bool, profile: String, +w
 def modify(command: B.Command, +card: B.Card, +world: M.World()) -> Resolution:
   match command:
     case B.Update{id, revision, patch, now}: update(id, card, patch, now, world)
-    case B.Move{id, revision, stage, before, now}: move(id, card, stage, before, now, world)
+    case B.MoveCard{id, revision, stage, before, now}: move(id, card, stage, before, now, world)
     case B.Archive{id, revision, archived, now}: archive(id, card, archived, now)
     case B.Delete{id, revision}: remove(id, card, world)
     case B.Run{id, revision, now}: run(id, card, now, world)
@@ -223,7 +223,7 @@ def resolve(+command: B.Command, +world: M.World()) -> Resolution:
         "invalid_agent", "Check the agent's name, endpoint, reasoning effort, sandbox/approval settings and concurrency (1–64)")
     case B.DeleteAgent{+id, revision}: delete_agent(B.find_agent(S.registry(world), id), id, revision, world)
     case B.Update{+id, +revision, patch, now}: with_card(B.find(S.registry(world), id), revision, command, world)
-    case B.Move{+id, +revision, stage, before, now}: with_card(B.find(S.registry(world), id), revision, command, world)
+    case B.MoveCard{+id, +revision, stage, before, now}: with_card(B.find(S.registry(world), id), revision, command, world)
     case B.Archive{+id, +revision, archived, now}: with_card(B.find(S.registry(world), id), revision, command, world)
     case B.Delete{+id, +revision}: with_card(B.find(S.registry(world), id), revision, command, world)
     case B.Run{+id, +revision, now}: with_card(B.find(S.registry(world), id), revision, command, world)

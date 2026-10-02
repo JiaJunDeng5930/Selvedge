@@ -2,8 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { readdir } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import { compiler } from './toolchain.mjs';
-import { verifyProof } from './verify-proof.mjs';
+import { verifyProof, verifyNativeEntry } from './verify-proof.mjs';
 import { checkComponents } from './check-components.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
@@ -17,13 +16,14 @@ function run(command, args) {
 
 async function checkDirectory(directory) {
   for (const entry of await readdir(path.join(root, directory), { withFileTypes: true })) {
+    if (entry.name === 'node_modules') continue;
     const filename = path.join(directory, entry.name);
     if (entry.isDirectory()) await checkDirectory(filename);
     else if (entry.name.endsWith('.mjs')) run(process.execPath, ['--check', filename]);
   }
 }
 
-for (const directory of ['host', 'scripts', 'tests-bend', 'examples']) await checkDirectory(directory);
+for (const directory of ['host', 'scripts', 'tests-bend', 'examples', 'plugins']) await checkDirectory(directory);
 run(process.execPath, ['scripts/check-web-vendor.mjs']);
 run(process.execPath, ['scripts/import-stdlib.mjs', '--check']);
 run(process.execPath, ['scripts/import-relations.mjs', '--check']);
@@ -31,6 +31,6 @@ run(process.execPath, ['scripts/import-maps.mjs', '--check']);
 run(process.execPath, ['scripts/theory-index.mjs', 'check']);
 // Check the obligations even when a compiled kernel is already cached.
 console.log(verifyProof({ cwd: root }));
-run(compiler(), ['MAIN.bend', '--check-only']);
+console.log(verifyNativeEntry({ cwd: root }));
 for (const filename of ['bootstrap.sh', 'setup-worktree.sh', 'install-bend.sh']) run('bash', ['-n', `scripts/${filename}`]);
 console.log('Host syntax and Bend proof obligations check.');

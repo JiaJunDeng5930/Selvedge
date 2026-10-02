@@ -22,12 +22,12 @@ import ./reasoning-spec.bend as Reasoning
 # The other half of command meaning: an effect result is a message carrying a
 # one-use ticket, not permission to overwrite a task. Resolve against the current
 # phase before realization. Public commands still use COMMANDS' one resolver.
-type Event is Data:
+type ResolvedEvent is Data:
   User{operation: Commands.Operation}
   Ignore{}
   ModelResult{task: D.Task, outcome: D.Outcome, allowed: +List<String>}
   ReasoningResult{task: D.Task, revision: Nat, outcome: R.Outcome}
-  FeatureEvent{event: FeatureOps.Event}
+  FeatureEvent{event: FeatureOps.ResolvedEvent}
   SummaryResult{task: D.Task, outcome: D.Outcome, resume: Bool}
   ToolResult{task: D.Task, operation: D.Operation(), value: J.Json, error: Bool}
   HookResult{task: D.Task, outcome: D.HookOutcome}
@@ -37,12 +37,12 @@ type Event is Data:
   Restart{}
   Tick{}
 
-def matching(same: Bool, event: Event) -> Event:
+def matching(same: Bool, event: ResolvedEvent) -> ResolvedEvent:
   match same:
     case True{}: event
     case False{}: Ignore{}
 
-def model_phase(status: D.Status, phase: D.Phase, +task: D.Task, +ticket: Nat, +outcome: D.Outcome) -> Event:
+def model_phase(status: D.Status, phase: D.Phase, +task: D.Task, +ticket: Nat, +outcome: D.Outcome) -> ResolvedEvent:
   match status phase:
     case D.Archived{} _: Ignore{}
     case _ D.ModelPending{expected, allowed}:
@@ -51,12 +51,12 @@ def model_phase(status: D.Status, phase: D.Phase, +task: D.Task, +ticket: Nat, +
       matching(Nat.is_eq(ticket, expected), SummaryResult{task, outcome, resume})
     case _ _: Ignore{}
 
-def model(found: Maybe<&2, D.Task>, ticket: Nat, outcome: D.Outcome) -> Event:
+def model(found: Maybe<&2, D.Task>, ticket: Nat, outcome: D.Outcome) -> ResolvedEvent:
   match found:
     case None{}: Ignore{}
     case Some{+task}: model_phase(D.task_status(task), D.task_phase(task), task, ticket, outcome)
 
-def reasoning_phase(status: D.Status, phase: D.Phase, task: D.Task, ticket: Nat, outcome: R.Outcome) -> Event:
+def reasoning_phase(status: D.Status, phase: D.Phase, task: D.Task, ticket: Nat, outcome: R.Outcome) -> ResolvedEvent:
   match status:
     case D.Archived{}: Ignore{}
     case _:
@@ -65,60 +65,60 @@ def reasoning_phase(status: D.Status, phase: D.Phase, task: D.Task, ticket: Nat,
           matching(Nat.is_eq(ticket, expected), ReasoningResult{task, revision, outcome})
         case _: Ignore{}
 
-def reasoning(found: Maybe<&2, D.Task>, ticket: Nat, outcome: R.Outcome) -> Event:
+def reasoning(found: Maybe<&2, D.Task>, ticket: Nat, outcome: R.Outcome) -> ResolvedEvent:
   match found:
     case None{}: Ignore{}
     case Some{+task}: reasoning_phase(D.task_status(task), D.task_phase(task), task, ticket, outcome)
 
-def tool_operation(found: Maybe<&2, D.Operation()>, task: D.Task, value: J.Json, error: Bool) -> Event:
+def tool_operation(found: Maybe<&2, D.Operation()>, task: D.Task, value: J.Json, error: Bool) -> ResolvedEvent:
   match found:
     case None{}: Ignore{}
     case Some{+operation}: matching(Ops.executing(Ops.stage(operation)), ToolResult{task, operation, value, error})
 
-def after_stage(stage: D.OperationStage, task: D.Task, operation: D.Operation(), ticket: Nat, outcome: D.AfterOutcome) -> Event:
+def after_stage(stage: D.OperationStage, task: D.Task, operation: D.Operation(), ticket: Nat, outcome: D.AfterOutcome) -> ResolvedEvent:
   match stage:
     case D.ResultPending{expected, plugin, pending, value, error}:
       matching(Nat.is_eq(ticket, expected), AfterResult{task, operation, outcome})
     case _: Ignore{}
 
-def after_operation(found: Maybe<&2, D.Operation()>, task: D.Task, ticket: Nat, outcome: D.AfterOutcome) -> Event:
+def after_operation(found: Maybe<&2, D.Operation()>, task: D.Task, ticket: Nat, outcome: D.AfterOutcome) -> ResolvedEvent:
   match found:
     case None{}: Ignore{}
     case Some{+operation}: after_stage(Ops.stage(operation), task, operation, ticket, outcome)
 
-def after(found: Maybe<&2, D.Task>, operation: Nat, ticket: Nat, outcome: D.AfterOutcome) -> Event:
+def after(found: Maybe<&2, D.Task>, operation: Nat, ticket: Nat, outcome: D.AfterOutcome) -> ResolvedEvent:
   match found:
     case None{}: Ignore{}
     case Some{+task}: after_operation(Ops.find(D.task_operations(task), operation), task, ticket, outcome)
 
-def tool_status(status: D.Status, +task: D.Task, ticket: Nat, value: J.Json, error: Bool) -> Event:
+def tool_status(status: D.Status, +task: D.Task, ticket: Nat, value: J.Json, error: Bool) -> ResolvedEvent:
   match status:
     case D.Archived{}: Ignore{}
     case _: tool_operation(Ops.find_callback(D.task_operations(task), ticket), task, value, error)
 
-def tool(found: Maybe<&2, D.Task>, ticket: Nat, value: J.Json, error: Bool) -> Event:
+def tool(found: Maybe<&2, D.Task>, ticket: Nat, value: J.Json, error: Bool) -> ResolvedEvent:
   match found:
     case None{}: Ignore{}
     case Some{+task}: tool_status(D.task_status(task), task, ticket, value, error)
 
-def hook_phase(status: D.Status, phase: D.Phase, task: D.Task, ticket: Nat, outcome: D.HookOutcome) -> Event:
+def hook_phase(status: D.Status, phase: D.Phase, task: D.Task, ticket: Nat, outcome: D.HookOutcome) -> ResolvedEvent:
   match status phase:
     case D.Archived{} _: Ignore{}
     case _ D.HookPending{expected, reference, call, pending, remaining}:
       matching(Nat.is_eq(ticket, expected), HookResult{task, outcome})
     case _ _: Ignore{}
 
-def hook(found: Maybe<&2, D.Task>, ticket: Nat, outcome: D.HookOutcome) -> Event:
+def hook(found: Maybe<&2, D.Task>, ticket: Nat, outcome: D.HookOutcome) -> ResolvedEvent:
   match found:
     case None{}: Ignore{}
     case Some{+task}: hook_phase(D.task_status(task), D.task_phase(task), task, ticket, outcome)
 
-def feature_result(found: Maybe<&2, FeatureOps.Event>) -> Event:
+def feature_result(found: Maybe<&2, FeatureOps.ResolvedEvent>) -> ResolvedEvent:
   match found:
     case None{}: Ignore{}
     case Some{event}: FeatureEvent{event}
 
-def resolve(input: M.Input, +world: M.World()) -> Event:
+def resolve(input: M.Input, +world: M.World()) -> ResolvedEvent:
   match input:
     case M.UserCommand{command}: User{Commands.resolve(command, world)}
     case M.UserInterface{state, event}: User{Commands.resolve(UI.command(event), world)}
@@ -144,7 +144,7 @@ def recover(task: D.Task) -> D.Task:
 def recovery(tasks: +List<D.Task>) -> +List<D.Task>:
   Std.map(~D.Task, ~D.Task, ~recover, tasks)
 
-def meaning(event: Event, world: M.World()) -> M.Decision():
+def meaning(event: ResolvedEvent, world: M.World()) -> M.Decision():
   match event:
     case User{operation}: Commands.meaning(operation, world)
     case Ignore{}: C.Decision{world, acknowledgement(False{}), Nil{}}

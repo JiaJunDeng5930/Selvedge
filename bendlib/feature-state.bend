@@ -8,23 +8,28 @@ import ./board-state.bend as Board
 import ./association-map.bend as Finite
 import ./equality.bend as Same
 import ./json.bend as J
+import ../CHATGPT.bend as ChatGPT
+import ./chatgpt-state.bend as ChatGPTState
+import ./chatgpt-view.bend as ChatGPTView
+import ../PROJECTS.bend as Projects
 
 # State and resource obligations are assembled here. Adding a component must
 # provide its own validity, evolution, recovery and effect-authority clauses.
-def valid(world: M.World()) -> Bool:
-  Board.valid(world)
+def valid(+world: M.World()) -> Bool:
+  Board.valid(world) && ChatGPTState.valid(world)
 
-def evolution(previous: F.State(), candidate: F.State()) -> Bool:
-  Board.evolution(F.board(previous), F.board(candidate))
+def evolution(+previous: F.State(), +candidate: F.State()) -> Bool:
+  Board.evolution(F.board(previous), F.board(candidate)) && Nat.is_le(ChatGPT.next(F.chatgpt(previous)), ChatGPT.next(F.chatgpt(candidate)))
 
 def recover(+state: F.State()) -> F.State():
-  F.with_board(Board.recover(F.board(state)), state)
+  F.with_chatgpt(ChatGPT.recover(F.chatgpt(state)), F.with_board(Board.recover(F.board(state)), state))
 
-def project_used(id: Nat, world: M.World()) -> Bool:
-  Board.project_used(B.cards(Board.registry(world)), id)
+def project_used(+id: Nat, +world: M.World()) -> Bool:
+  Board.project_used(B.cards(Board.registry(world)), id) || ChatGPT.project_used(ChatGPTState.registry(world), id)
 
-def query(query: F.Query, world: M.World()) -> J.Json:
+def query(query: F.Query, +world: M.World()) -> J.Json:
   match query:
+    case F.ChatGPTQuery{query}: ChatGPTView.query(query, ChatGPTState.registry(world), Projects.registry(F.State(), world))
     case F.BoardQuery{query}: Board.query(query, world)
 
 def prepend_ticket(pending: B.Enrichment, rest: +List<Nat>) -> +List<Nat>:
@@ -42,6 +47,7 @@ def pending_tickets(state: F.State()) -> +List<Nat>:
 
 def effect_ticket(effect: F.Effect) -> Maybe<&2, Nat>:
   match effect:
+    case F.ChatGPTEffect{effect}: None{}
     case F.RequestBoardText{id, ticket, profile, prompt, retitle}: Some{ticket}
 
 def configured_board_profile(found: Maybe<&2, D.Profile>, +profile: D.Profile) -> Bool:
@@ -58,6 +64,7 @@ def board_request(found: Maybe<&2, B.Card>, ticket: Nat, prompt: String, +retitl
 
 def effect_valid(effect: F.Effect, state: F.State(), profiles: +List<D.Profile>) -> Bool:
   match effect:
+    case F.ChatGPTEffect{effect}: ChatGPT.effect_valid(effect, F.chatgpt(state))
     case F.RequestBoardText{id, ticket, D.Profile{+key, +provider, +name, +policy}, prompt, retitle}:
       configured_board_profile(D.find_profile(profiles, key), D.Profile{key, provider, name, policy}) &&
         board_request(B.find(F.board(state), id), ticket, prompt, retitle)

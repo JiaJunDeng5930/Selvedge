@@ -69,6 +69,7 @@ test('source boundaries reject feature case analysis outside its owner', { timeo
 def unwanted_case(command: FeatureAlphabet.Command) -> Unit:
   match command:
     case FeatureAlphabet.BoardCommand{command}: Unit{}
+    case _: Unit{}
 `);
   checked(check(copy.directory));
   const result = await auditComponents(copy.directory);
@@ -80,9 +81,9 @@ test('source boundaries also reject multiline constructor bindings and keep feat
   const copy = await specimen(t);
   await modify(copy.directory, 'bendlib/commit.bend', source => source.replace('import Base\n',
     'import Base\nimport ../FEATURES.bend as Private\n') + `
-def unwanted_binding(value: Private.Command) -> Unit:
-  Private.BoardCommand{
-    command} = value
+def unwanted_binding(value: Private.Navigation) -> Unit:
+  Private.BoardEvent{
+    event} = value
   Unit{}
 `);
   checked(check(copy.directory));
@@ -104,7 +105,7 @@ test('locality proofs reject type-correct forgotten updates and damaged remainde
   const baseline = await readFile(target, 'utf8');
   for (const [label, name, definition, obligation] of [
     ['discard the written board', 'with_board', 'def with_board(value: Board.State, state: State()) -> State():\n  state', /board_written|change_meaning|archive_saved/],
-    ['reset unrelated persistent state', 'with_board', 'def with_board(value: Board.State, state: State()) -> State():\n  C.Frame{value, initial_rest()}', /board_frame|change_meaning|archive_saved/],
+    ['reset unrelated persistent state', 'with_board', 'def with_board(value: Board.State, state: State()) -> State():\n  C.Frame{value, C.Frame{ChatGPT.initial(), initial_rest()}}', /board_frame|board_preserves|change_meaning|archive_saved/],
     ['discard the written cursor', 'with_board_cursor', 'def with_board_cursor(value: Board.Cursor, cursor: Cursor()) -> Cursor():\n  cursor', /cursor_written/],
     ['reset unrelated view state', 'with_board_cursor', 'def with_board_cursor(value: Board.Cursor, cursor: Cursor()) -> Cursor():\n  C.Frame{value, initial_cursor_rest()}', /cursor_frame|navigation_frame/],
   ]) await t.test(label, async () => {
@@ -169,7 +170,7 @@ test('contract-preserving replacement changes only the implementation and its lo
     'D.State{replace(tasks, task), next_task, next_ticket, environment, limits, projects}',
     'D.State{List.append(&2, D.Task, replace(tasks, task), Nil{}), next_task, next_ticket, environment, limits, projects}'));
   checked(check(copy.directory, 'PROGRAM.bend'));
-  rejected(check(copy.directory), /task-laws.update_meaning/);
+  rejected(check(copy.directory), /Location: update_meaning\b/);
   await modify(copy.directory, provider, source => replaceDefinition(
     source.replace('import Base\n', 'import Base\nimport ./stdlib.bend as Std\n'), 'update_meaning',
     `def update_meaning(-R: Data, +task: D.Task, +state: D.State, +rest: R) ->

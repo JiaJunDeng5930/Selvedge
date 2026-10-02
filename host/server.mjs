@@ -7,6 +7,7 @@ import { stringifyJson, parseJson } from './codec.mjs';
 import { readText } from './network.mjs';
 import { writeAtomic } from './files.mjs';
 import { saveBoardAttachment, readBoardAttachment, BOARD_FILE_LIMIT } from './board-files.mjs';
+import { connectionCredentials, connectionAuthorized, connectionCommand } from './chatgpt-plugin.mjs';
 
 const assets = new Map([
   ['/', ['index.html', 'text/html; charset=utf-8']],
@@ -20,6 +21,7 @@ const assets = new Map([
 ]);
 
 export async function startServer(options) {
+  const connections = connectionCredentials(options.config.chatgpt_plugin);
   const service = await Service.open(options);
   const token = randomBytes(32).toString('hex');
   const clients = new Set();
@@ -67,6 +69,21 @@ export async function startServer(options) {
         'content-security-policy': "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' blob:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
         'x-content-type-options': 'nosniff', 'referrer-policy': 'no-referrer' });
       response.end(data);
+      return;
+    }
+    if (url.pathname.startsWith('/api/chatgpt/')) {
+      const id = url.pathname.slice('/api/chatgpt/'.length);
+      if (!connectionAuthorized(connections, id, request.headers.authorization)) {
+        json(response, 401, { ok: false, error: { code: 'unauthorized', message: 'A connection credential is required' } }); return;
+      }
+      if (request.method !== 'POST') { json(response, 405, { ok: false, error: { code: 'method', message: 'Use POST' } }); return; }
+      if (request.headers.origin || url.search) { json(response, 403, { ok: false, error: { code: 'origin', message: 'Browser origins and query parameters are not accepted' } }); return; }
+      if (!request.headers['content-type']?.toLowerCase().startsWith('application/json')) {
+        json(response, 415, { ok: false, error: { code: 'content_type', message: 'Send application/json' } }); return;
+      }
+      const body = parseJson(await readText(request, service.limits.frame_bytes));
+      const result = await service.command(connectionCommand(Number(id), body));
+      json(response, result.reply.ok ? 200 : 400, { sequence: result.sequence, ...result.reply });
       return;
     }
     if (!authorized(request)) { json(response, 401, { ok: false, error: { code: 'unauthorized', message: 'A local access token is required' } }); return; }

@@ -58,6 +58,12 @@ gate; no theorem here proves the browser's DOM implementation.
 
 ## Coding effect interpreters
 
+`chatgpt-plugin.mjs` validates dedicated loopback connection credentials and
+translates only the plugin's tool envelopes. Project grants and operation policy
+are native feature decisions; `service.mjs` interprets committed execution and
+cancellation effects. See the [plugin setup guide](../plugins/selvedge-chatgpt/README.md)
+and [ADR 0024](../docs/adr/0024-project-scoped-chatgpt-plugin.md).
+
 `jev.mjs` interprets a committed reasoning observation with a separate evaluator
 connection, bounded public context and strict typed choices. It has no lease or
 task scheduler. `reasoning-config.mjs` separates evaluator connections, endpoint

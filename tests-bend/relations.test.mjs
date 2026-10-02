@@ -65,7 +65,7 @@ test('Bend checks the actual imported closure branches and rejects invented reac
   await writeFile(baseline, source);
   const checked = spawnSync(compiler(), [baseline, '--check-only'], { encoding: 'utf8', timeout: 10_000 });
   assert.equal(checked.status, 0, checked.stdout + checked.stderr);
-  assert.equal(checked.stdout.trim(), 'All terms check.');
+  assert.equal(checked.stdout.trim(), 'ALL PROOFS CHECK\nUse --verdict for mathematical validity.');
   const mutants = [
     ['wrong-reflexive-endpoint', source.replace('same: {x == y : A}', 'same: {x == x : A}')],
     ['wrong-transitive-middle', source.replace('left: Closure<A, R, x, middle>', 'left: Closure<A, R, x, x>')],

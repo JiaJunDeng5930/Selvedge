@@ -2,6 +2,7 @@
   "name": "selvedge",
   "private": true,
   "type": "module",
+  "workspaces": ["plugins/selvedge-chatgpt"],
   "engines": {
     "node": ">=26"
   },
@@ -9,12 +10,14 @@
     "build": "node scripts/build.mjs",
     "prestart": "node scripts/build.mjs",
     "start": "node host/cli.mjs server",
-    "test": "node scripts/build.mjs && node --test --test-concurrency=2 tests-bend/*.test.mjs",
+    "test": "node scripts/build.mjs && node --test --test-concurrency=1 tests-bend/*.test.mjs",
+    "test:ci": "node scripts/build.mjs && node scripts/test-ci.mjs",
     "test:browser": "node scripts/build.mjs && node scripts/browser-check.mjs",
     "test:board-browser": "node scripts/build.mjs && node scripts/board-browser-check.mjs",
     "check": "node scripts/check.mjs",
     "check:components": "node scripts/check-components.mjs",
     "test:locality": "node --test tests-bend/locality.test.mjs",
+    "test:chatgpt-plugin": "node scripts/build.mjs && node --test --test-concurrency=2 tests-bend/chatgpt-plugin*.test.mjs",
     "index": "node scripts/agents-index.mjs update",
     "index:check": "node scripts/agents-index.mjs check",
     "bench": "node scripts/build.mjs && node scripts/benchmark.mjs"
