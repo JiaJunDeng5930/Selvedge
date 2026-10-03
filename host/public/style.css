@@ -7,7 +7,7 @@ button { cursor: pointer; }
 button:disabled { cursor: default; }
 [hidden] { display: none !important; }
 :focus-visible { outline: 2px solid var(--border-focus, Highlight); outline-offset: 2px; }
-pre, code { font-family: var(--font-mono, ui-monospace, monospace); }
+pre, code { font-family: var(--rich-code-font); }
 .markdown p { margin: 0 0 1em; }
 .markdown p:last-child { margin-bottom: 0; }
 .markdown blockquote { border-inline-start: 3px solid var(--border-primary, GrayText); margin-inline: 0; padding-inline-start: 1em; }
@@ -25,3 +25,11 @@ pre, code { font-family: var(--font-mono, ui-monospace, monospace); }
 .native-surface:active, .native-control:active:enabled { background: var(--native-pressed-background); color: var(--native-pressed-color); }
 .native-control:disabled { opacity: var(--native-disabled-opacity); }
 .native-control:focus-visible { outline: var(--native-focus-width) solid var(--native-focus-ring); outline-offset: var(--native-focus-offset); }
+
+.markdown { font-size: var(--rich-body-size); line-height: var(--rich-body-line); font-weight: var(--rich-body-weight); }
+.markdown h1 { font-size: var(--rich-title-size); line-height: var(--rich-title-line); font-weight: var(--rich-title-weight); }
+.markdown h2 { font-size: var(--rich-section-size); line-height: var(--rich-section-line); font-weight: var(--rich-section-weight); }
+.markdown h3 { font-size: var(--rich-body-strong-size); line-height: var(--rich-body-strong-line); font-weight: var(--rich-body-strong-weight); }
+.markdown h4, .markdown h5, .markdown h6 { font-size: var(--rich-support-size); line-height: var(--rich-support-line); font-weight: var(--rich-support-weight); }
+.markdown pre, .markdown code { font-family: var(--rich-code-font); font-size: var(--rich-code-size); line-height: var(--rich-code-line); font-weight: var(--rich-code-weight); }
+.markdown header, .code-toolbar, .markdown .metadata { font-size: var(--rich-support-size); line-height: var(--rich-support-line); }

@@ -1,4 +1,5 @@
 import Base
+import ./typography.bend as T
 import ../core/interface.bend as UI
 import ../core/SYSTEM.bend as Core
 import ../core/user-input.bend as User
@@ -168,43 +169,47 @@ def presented_nodes(values: +List<Design.Node>) -> +List<BoundNode>:
     case Con{Design.Node{key, semantic, label, role, meaning, style, control, children}, rest}:
       Con{BoundNode{key, binding(control), presented_nodes(children)}, presented_nodes(rest)}
 
-def nodes_retain_bindings(values: +List<UI.Node>, +context: Controls.Context) ->
-  {presented_nodes(Appearance.nodes_at(values, context)) == source_nodes(values) : +List<BoundNode>}:
+def nodes_retain_bindings(values: +List<UI.Node>, +context: Controls.Context, +typography: T.Presentation, +in_main: Bool, +start: Bool) ->
+  {presented_nodes(Appearance.nodes_at(values, context, typography, in_main, start)) == source_nodes(values) : +List<BoundNode>}:
   match values:
     case Nil{}: {==}
-    case Con{UI.Node{+key, semantic, +label, +role, +meaning, +children}, +rest}:
+    case Con{UI.Node{+key, +semantic, +label, +role, +meaning, +children}, +rest}:
       +local = Controls.enter(key, role, meaning, context)
+      +inside = Appearance.enters_main(role, in_main)
+      +inherited_text = Appearance.information_role(role, meaning, typography, inside, start)
+      +child_text = Appearance.style_text(Appearance.prepared_style(key, semantic, role, meaning, local,
+        Controls.represent(key, meaning, label, role, local), inherited_text))
       +meaning_step = Equal.cong(UI.Meaning, +List<BoundNode>,
-        (bound => Con{BoundNode{key, bound, presented_nodes(Appearance.nodes_at(children, local))},
-          presented_nodes(Appearance.nodes_at(rest, context))}),
+        (bound => Con{BoundNode{key, bound, presented_nodes(Appearance.nodes_at(children, local, child_text, inside, start))},
+          presented_nodes(Appearance.nodes_at(rest, context, typography, in_main, start))}),
         binding(Controls.represent(key, meaning, label, role, local)), source_binding(meaning),
         representation_retains_binding(key, meaning, label, role, local))
       +child_step = Equal.cong(+List<BoundNode>, +List<BoundNode>,
         (bound_children => Con{BoundNode{key, source_binding(meaning), bound_children},
-          presented_nodes(Appearance.nodes_at(rest, context))}),
-        presented_nodes(Appearance.nodes_at(children, local)), source_nodes(children),
-        nodes_retain_bindings(children, local))
+          presented_nodes(Appearance.nodes_at(rest, context, typography, in_main, start))}),
+        presented_nodes(Appearance.nodes_at(children, local, child_text, inside, start)), source_nodes(children),
+        nodes_retain_bindings(children, local, child_text, inside, start))
       +rest_step = Equal.cong(+List<BoundNode>, +List<BoundNode>,
         (bound_rest => Con{BoundNode{key, source_binding(meaning), source_nodes(children)}, bound_rest}),
-        presented_nodes(Appearance.nodes_at(rest, context)), source_nodes(rest),
-        nodes_retain_bindings(rest, context))
+        presented_nodes(Appearance.nodes_at(rest, context, typography, in_main, start)), source_nodes(rest),
+        nodes_retain_bindings(rest, context, typography, in_main, start))
       +head_steps = Equal.trans(+List<BoundNode>,
         Con{BoundNode{key, binding(Controls.represent(key, meaning, label, role, local)),
-          presented_nodes(Appearance.nodes_at(children, local))}, presented_nodes(Appearance.nodes_at(rest, context))},
-        Con{BoundNode{key, source_binding(meaning), presented_nodes(Appearance.nodes_at(children, local))},
-          presented_nodes(Appearance.nodes_at(rest, context))},
+          presented_nodes(Appearance.nodes_at(children, local, child_text, inside, start))}, presented_nodes(Appearance.nodes_at(rest, context, typography, in_main, start))},
+        Con{BoundNode{key, source_binding(meaning), presented_nodes(Appearance.nodes_at(children, local, child_text, inside, start))},
+          presented_nodes(Appearance.nodes_at(rest, context, typography, in_main, start))},
         Con{BoundNode{key, source_binding(meaning), source_nodes(children)},
-          presented_nodes(Appearance.nodes_at(rest, context))}, meaning_step, child_step)
+          presented_nodes(Appearance.nodes_at(rest, context, typography, in_main, start))}, meaning_step, child_step)
       +steps = Equal.trans(+List<BoundNode>,
         Con{BoundNode{key, binding(Controls.represent(key, meaning, label, role, local)),
-          presented_nodes(Appearance.nodes_at(children, local))}, presented_nodes(Appearance.nodes_at(rest, context))},
+          presented_nodes(Appearance.nodes_at(children, local, child_text, inside, start))}, presented_nodes(Appearance.nodes_at(rest, context, typography, in_main, start))},
         Con{BoundNode{key, source_binding(meaning), source_nodes(children)},
-          presented_nodes(Appearance.nodes_at(rest, context))},
+          presented_nodes(Appearance.nodes_at(rest, context, typography, in_main, start))},
         Con{BoundNode{key, source_binding(meaning), source_nodes(children)}, source_nodes(rest)}, head_steps, rest_step)
       Equal.trans(+List<BoundNode>,
-        presented_nodes(Appearance.nodes_at(Con{UI.Node{key, semantic, label, role, meaning, children}, rest}, context)),
+        presented_nodes(Appearance.nodes_at(Con{UI.Node{key, semantic, label, role, meaning, children}, rest}, context, typography, in_main, start)),
         Con{BoundNode{key, binding(Controls.represent(key, meaning, label, role, local)),
-          presented_nodes(Appearance.nodes_at(children, local))}, presented_nodes(Appearance.nodes_at(rest, context))},
+          presented_nodes(Appearance.nodes_at(children, local, child_text, inside, start))}, presented_nodes(Appearance.nodes_at(rest, context, typography, in_main, start))},
         Con{BoundNode{key, source_binding(meaning), source_nodes(children)}, source_nodes(rest)}, {==}, steps)
 
 def visual_bindings(visuals: Design.Surface) -> Bindings:
@@ -216,29 +221,29 @@ def surface_bindings(surface: UI.Surface) -> Bindings:
   Bindings{source_nodes(base), source_nodes(overlays)}
 
 def fields_retain_bindings(content: Core.Scene, +base: +List<UI.Node>, +overlays: +List<UI.Node>,
-  +context: Controls.Context, system_dark: Bool, active_scope: Maybe<&2, String>) ->
-  {visual_bindings(Appearance.present_fields(content, base, overlays, context, system_dark, active_scope)) ==
+  +context: Controls.Context, system_dark: Bool, active_scope: Maybe<&2, String>, +scale: T.Scale) ->
+  {visual_bindings(Appearance.present_fields(content, base, overlays, context, system_dark, active_scope, scale)) ==
     Bindings{source_nodes(base), source_nodes(overlays)} : Bindings}:
   match content:
     case Core.Scene{view, settings, transfers, preview, code, directory_picker}:
       match settings:
         case Core.Settings{open, access, entered, appearance, open_action, close_action, connect}:
           +base_step = Equal.cong(+List<BoundNode>, Bindings,
-            (bound_base => Bindings{bound_base, presented_nodes(Appearance.nodes_at(overlays, context))}),
-            presented_nodes(Appearance.nodes_at(base, context)), source_nodes(base), nodes_retain_bindings(base, context))
+            (bound_base => Bindings{bound_base, presented_nodes(Appearance.nodes_at(overlays, context, T.Presentation{T.Body{}, T.Regular{}, scale}, False{}, False{}))}),
+            presented_nodes(Appearance.nodes_at(base, context, T.Presentation{T.Body{}, T.Regular{}, scale}, False{}, Appearance.start_page(content))), source_nodes(base), nodes_retain_bindings(base, context, T.Presentation{T.Body{}, T.Regular{}, scale}, False{}, Appearance.start_page(content)))
           +overlay_step = Equal.cong(+List<BoundNode>, Bindings,
             (bound_overlays => Bindings{source_nodes(base), bound_overlays}),
-            presented_nodes(Appearance.nodes_at(overlays, context)), source_nodes(overlays), nodes_retain_bindings(overlays, context))
+            presented_nodes(Appearance.nodes_at(overlays, context, T.Presentation{T.Body{}, T.Regular{}, scale}, False{}, False{})), source_nodes(overlays), nodes_retain_bindings(overlays, context, T.Presentation{T.Body{}, T.Regular{}, scale}, False{}, False{}))
           Equal.trans(Bindings,
-            Bindings{presented_nodes(Appearance.nodes_at(base, context)), presented_nodes(Appearance.nodes_at(overlays, context))},
-            Bindings{source_nodes(base), presented_nodes(Appearance.nodes_at(overlays, context))},
+            Bindings{presented_nodes(Appearance.nodes_at(base, context, T.Presentation{T.Body{}, T.Regular{}, scale}, False{}, Appearance.start_page(content))), presented_nodes(Appearance.nodes_at(overlays, context, T.Presentation{T.Body{}, T.Regular{}, scale}, False{}, False{}))},
+            Bindings{source_nodes(base), presented_nodes(Appearance.nodes_at(overlays, context, T.Presentation{T.Body{}, T.Regular{}, scale}, False{}, False{}))},
             Bindings{source_nodes(base), source_nodes(overlays)}, base_step, overlay_step)
 
-def present_retains_bindings(surface: UI.Surface, system_dark: Bool) ->
-  {visual_bindings(Appearance.present(surface, system_dark)) == surface_bindings(surface) : Bindings}:
+def present_retains_bindings(surface: UI.Surface, system_dark: Bool, +scale: T.Scale) ->
+  {visual_bindings(Appearance.present(surface, system_dark, scale)) == surface_bindings(surface) : Bindings}:
   match surface:
     case UI.Surface{+content, base, overlays, active_scope}:
-      fields_retain_bindings(content, base, overlays, Controls.initial(content), system_dark, active_scope)
+      fields_retain_bindings(content, base, overlays, Controls.initial(content), system_dark, active_scope, scale)
 
 def expected_icon_help(availability: View.Availability, label: String) -> Controls.Help:
   match availability:
@@ -438,8 +443,8 @@ def help_access(help: Controls.Help) -> HelpAccess:
 
 type Requirements is Type:
   Requirements{
-    present_retains_bindings: @surface:UI.Surface -> @system_dark:Bool ->
-      {visual_bindings(Appearance.present(surface, system_dark)) == surface_bindings(surface) : Bindings},
+    present_retains_bindings: @+scale:T.Scale -> @surface:UI.Surface -> @system_dark:Bool ->
+      {visual_bindings(Appearance.present(surface, system_dark, scale)) == surface_bindings(surface) : Bindings},
     message_uses_arrow: @+key:String -> @task:Nat -> @+availability:View.Availability -> @+label:String -> @role:UI.Role ->
       @selection:Controls.Selection -> @code:Maybe<&2, Code.Scene> -> @appearance:Services.Appearance ->
       @access:Services.Access -> @open:Bool -> @layers:+List<View.Layer> ->
@@ -497,7 +502,7 @@ type Requirements is Type:
 
 def evidence() -> Requirements:
   Requirements{
-    surface => dark => present_retains_bindings(surface, dark),
+    +scale => surface => dark => present_retains_bindings(surface, dark, scale),
     key => task => availability => label => role => selection => code => appearance => access => open => layers =>
       message_uses_arrow(key, task, availability, label, role, selection, code, appearance, access, open, layers),
     key => availability => label => role => selection => code => appearance => access => open => layers =>

@@ -1,4 +1,6 @@
 import Base
+import ./appearance.bend as Appearance
+import ./typography.bend as T
 import ../core/field-options.bend as FieldOptions
 import ../core/interface.bend as UI
 import ../core/SYSTEM.bend as Core
@@ -61,7 +63,7 @@ def initial_execution(+content: Core.Scene) ->
 
 def choice_native_event_law(-key: String, -label: String, -selected: Bool, -description: String, -visual: Design.Style, -input: Core.Input, -availability: View.Availability, -name: String, -face: Controls.Face, -behavior: Controls.Behavior, -geometry: Controls.Geometry, -placement: Controls.Placement, -help: Controls.Help, -feedback: Controls.Feedback, -visual_children: +List<Render.Child>) -> Type:
   {Doc.element_events(Render.choice_node(key, label, selected, description, visual,
-      Controls.Action{input, availability, name, face, behavior, geometry, placement, help, feedback}, visual_children)) ==
+      Controls.Action{input, availability, name, face, behavior, geometry, placement, help, feedback}, visual_children, Appearance.style_text(visual))) ==
       [Doc.Activate{key}] : +List<Doc.Event>}
 
 def choice_native_event(+key: String, label: String, selected: Bool, description: String, +visual: Design.Style,

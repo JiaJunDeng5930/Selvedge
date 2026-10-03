@@ -1,4 +1,6 @@
 import Base
+import ./appearance.bend as Appearance
+import ./typography.bend as T
 import ../core/interface.bend as UI
 import ../core/ui-world.bend as View
 import ./document.bend as Doc
@@ -19,9 +21,9 @@ import ./renderer-laws.bend as RendererLaws
 
 
 def card_children_only(+key: String, +face: View.CardFace, destinations: +List<UI.Placement>,
-  +source: +List<Render.Child>, visual: Design.Style) ->
-  {Doc.element_children(Render.card_node(key, face, destinations, source, visual)) ==
-    Render.card_children(key, face, source) : +List<Doc.Node>}:
+  +source: +List<Render.Child>, +visual: Design.Style, +typography: T.Presentation) ->
+  {Doc.element_children(Render.card_node(key, face, destinations, source, visual, typography)) ==
+    Render.card_children(key, face, source, typography) : +List<Doc.Node>}:
   View.CardFace{+id, +title, +description, +priority, +pinned, +status, +project, +labels, +owner, +updated} = face
   {==}
 
@@ -42,13 +44,13 @@ type Requirements is Type:
       @representation:Controls.Representation ->
       {Render.match_node(Design.Node{key, semantic, label, role, UI.CardArchive{count}, visual, representation, source}, Render.render_children(source)) ==
         Render.card_archive_node(key, label, count, Render.documents(Render.render_children(source))) : Doc.Node},
-    card_children_only: @+key:String -> @+face:View.CardFace -> @destinations:+List<UI.Placement> ->
+    card_children_only: @+typography:T.Presentation -> @+key:String -> @+face:View.CardFace -> @destinations:+List<UI.Placement> ->
       @+source:+List<Render.Child> -> @visual:Design.Style ->
-      {Doc.element_children(Render.card_node(key, face, destinations, source, visual)) ==
-        Render.card_children(key, face, source) : +List<Doc.Node>},
-    card_root_excludes_tab_target: @+key:String -> @+face:View.CardFace -> @destinations:+List<UI.Placement> ->
+      {Doc.element_children(Render.card_node(key, face, destinations, source, visual, typography)) ==
+        Render.card_children(key, face, source, typography) : +List<Doc.Node>},
+    card_root_excludes_tab_target: @+typography:T.Presentation -> @+key:String -> @+face:View.CardFace -> @destinations:+List<UI.Placement> ->
       @source:+List<Render.Child> -> @+visual:Design.Style ->
-      {Render.attr(Doc.element_attributes(Render.card_node(key, face, destinations, source, visual)), "tabindex") == "" : String}}
+      {Render.attr(Doc.element_attributes(Render.card_node(key, face, destinations, source, visual, typography)), "tabindex") == "" : String}}
 
 def evidence() -> Requirements:
   Requirements{
@@ -56,5 +58,5 @@ def evidence() -> Requirements:
     +key => +label => +count => +children => {==},
     +key => +label => +count => +children => {==},
     +key => semantic => +label => role => +count => source => visual => representation => {==},
-    key => face => destinations => source => visual => card_children_only(key, face, destinations, source, visual),
-    key => face => destinations => source => visual => RendererLaws.card_root_excludes_tab_target(key, face, destinations, source, visual)}
+    +typography => key => face => destinations => source => visual => card_children_only(key, face, destinations, source, visual, typography),
+    +typography => key => face => destinations => source => visual => RendererLaws.card_root_excludes_tab_target(key, face, destinations, source, visual, typography)}

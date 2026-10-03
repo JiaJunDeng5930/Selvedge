@@ -7,155 +7,126 @@ import ../core/composition.bend as Composition
 import ./design.bend as Design
 import ./appearance.bend as Appearance
 import ./controls.bend as Controls
+import ./viewport-space.bend as ViewportSpace
+import ./space.bend as Space
+import ../core/user-experience.bend as E
 
-# Toolbar and reading measurements follow the imported Desktop source.
-def toolbar_height() -> Nat:
-  46n
+def toolbar_height(+parameters: Design.LayoutParameters) -> Nat:
+  Design.LayoutParameters{navigation, main, details, reading, overview, toolbar, minimum, maximum, leading, creation} = parameters
+  toolbar
 
-# Desktop's sidebar preferred-width token defaults to 275px; the current adapter has no resize control.
-def navigation_width() -> Nat:
-  275n
+def navigation_width(+parameters: Design.LayoutParameters) -> Nat:
+  Design.LayoutParameters{navigation, main, details, reading, overview, toolbar, minimum, maximum, leading, creation} = parameters
+  navigation
 
-# These allocations reserve room for Selvedge's supported content; they do not claim pixel identity with Desktop.
-def minimum_main_width() -> Nat:
-  480n
+def minimum_main_width(+parameters: Design.LayoutParameters) -> Nat:
+  Design.LayoutParameters{navigation, main, details, reading, overview, toolbar, minimum, maximum, leading, creation} = parameters
+  main
 
-def details_width() -> Nat:
-  360n
+def details_width(+parameters: Design.LayoutParameters) -> Nat:
+  Design.LayoutParameters{navigation, main, details, reading, overview, toolbar, minimum, maximum, leading, creation} = parameters
+  details
 
-def details_minimum_width() -> Nat:
-  Nat.add(Nat.add(navigation_width(), minimum_main_width()), details_width())
 
-def reading_maximum_width() -> Nat:
-  640n
 
-# This width is an allocation for the supported project views.
-def overview_maximum_width() -> Nat:
-  960n
+def reading_maximum_width(+parameters: Design.LayoutParameters) -> Nat:
+  Design.LayoutParameters{navigation, main, details, reading, overview, toolbar, minimum, maximum, leading, creation} = parameters
+  reading
 
-def narrow_threshold() -> Nat:
-  768n
+def overview_maximum_width(+parameters: Design.LayoutParameters) -> Nat:
+  Design.LayoutParameters{navigation, main, details, reading, overview, toolbar, minimum, maximum, leading, creation} = parameters
+  overview
+
+
+
+def input_minimum_height(+parameters: Design.LayoutParameters) -> Nat:
+  Design.LayoutParameters{navigation, main, details, reading, overview, toolbar, minimum, maximum, leading, creation} = parameters
+  minimum
+
+def input_maximum_height(+parameters: Design.LayoutParameters) -> Nat:
+  Design.LayoutParameters{navigation, main, details, reading, overview, toolbar, minimum, maximum, leading, creation} = parameters
+  maximum
+
+def input_line_height(+parameters: Design.LayoutParameters) -> Nat:
+  Design.LayoutParameters{navigation, main, details, reading, overview, toolbar, minimum, maximum, leading, creation} = parameters
+  leading
+
+def creation_balanced_minimum_height(+parameters: Design.LayoutParameters) -> Nat:
+  Design.LayoutParameters{navigation, main, details, reading, overview, toolbar, minimum, maximum, leading, creation} = parameters
+  creation
 
 def inline_gutter_for_width(narrow: Bool) -> Nat:
   match narrow:
     case True{}: 12n
     case False{}: 16n
 
-def inline_gutter(width: Nat) -> Nat:
-  inline_gutter_for_width(Nat.is_lt(width, narrow_threshold()))
+def inline_gutter(+parameters: Design.LayoutParameters, width: Nat) -> Nat:
+  inline_gutter_for_width(Nat.is_lt(width, minimum_main_width(parameters)))
 
 def overlay_gutter_for_width(narrow: Bool) -> Nat:
   match narrow:
     case True{}: 8n
     case False{}: 16n
 
-def overlay_gutter(viewport: Design.Viewport) -> Nat:
+def overlay_gutter(+parameters: Design.LayoutParameters, viewport: Design.Viewport) -> Nat:
   Design.Viewport{width, height} = viewport
-  overlay_gutter_for_width(Nat.is_lt(width, narrow_threshold()))
+  overlay_gutter_for_width(Nat.is_lt(width, minimum_main_width(parameters)))
 
 def viewport_width(viewport: Design.Viewport) -> Nat:
-  Design.Viewport{width, +height} = viewport
-  width
+  ViewportSpace.width(viewport)
 
 def viewport_height(viewport: Design.Viewport) -> Nat:
   Design.Viewport{+width, height} = viewport
   height
 
-def capacity_for_width(+width: Nat) -> V.Capacity:
-  V.Capacity{
-    Bool.not(Nat.is_lt(width, narrow_threshold())),
-    Bool.not(Nat.is_lt(width, details_minimum_width()))}
 
-def capacity(viewport: Design.Viewport) -> V.Capacity:
-  capacity_for_width(viewport_width(viewport))
 
-def navigation_bounds(viewport: Design.Viewport) -> Design.Box:
-  Design.Viewport{width, height} = viewport
-  Design.Box{0n, 0n, Nat.min(navigation_width(), width), height}
+def capacity(+parameters: Design.LayoutParameters, viewport: Design.Viewport, intent: E.NavigationIntent) -> V.Capacity:
+  ViewportSpace.capacity(viewport, parameters, intent)
 
-def navigation_width_for_width(viewport: Design.Viewport) -> Nat:
-  Design.Viewport{width, +height} = viewport
-  Nat.min(navigation_width(), width)
+def shell(+parameters: Design.LayoutParameters, viewport: Design.Viewport, navigation: V.NavigationPlacement, details: Bool) -> ViewportSpace.Result:
+  ViewportSpace.shell(viewport, parameters, navigation, details)
 
-def consumed_navigation_width(viewport: Design.Viewport, navigation: V.NavigationPlacement) -> Nat:
-  match navigation:
-    case V.LeadingNavigation{}: navigation_width_for_width(viewport)
-    case _: 0n
-
-def available_details_width(+viewport: Design.Viewport, navigation: V.NavigationPlacement) -> Nat:
-  Design.Viewport{width, height} = viewport
-  Nat.min(details_width(), Nat.sub(width, consumed_navigation_width(viewport, navigation)))
-
-def requested_details_width(viewport: Design.Viewport, navigation: V.NavigationPlacement, details: Bool) -> Nat:
-  match details:
-    case False{}: 0n
-    case True{}: available_details_width(viewport, navigation)
-
-def shell_navigation(viewport: Design.Viewport, navigation: V.NavigationPlacement) -> Design.Navigation:
-  match navigation:
-    case V.LeadingNavigation{}: Design.BesideNavigation{navigation_bounds(viewport)}
-    case V.ModalNavigation{}: Design.OverlayNavigation{navigation_bounds(viewport)}
-    case V.CollapsedNavigation{}: Design.HiddenNavigation{}
-
-def side_pane_box(main: Design.Box, height: Nat, pane_width: Nat) -> Design.Box:
-  Design.Box{left, +top, width, +main_height} = main
-  Design.Box{Nat.add(left, width), 0n, pane_width, height}
-
-def requested_side_pane(main: Design.Box, height: Nat, pane_width: Nat, details: Bool) -> Maybe<&2, Design.Box>:
-  match details:
-    case False{}: None{}
-    case True{}: Some{side_pane_box(main, height, pane_width)}
-
-def shell(+viewport: Design.Viewport, +navigation: V.NavigationPlacement, +details: Bool) -> Design.Shell:
-  Design.Viewport{+width, +height} = viewport
-  +nav_width = consumed_navigation_width(viewport, navigation)
-  +pane_width = requested_details_width(viewport, navigation, details)
-  main_width = Nat.max(0n, Nat.sub(Nat.sub(width, nav_width), pane_width))
-  +main: Design.Box = Design.Box{nav_width, 0n, main_width, height}
-  Design.Shell{shell_navigation(viewport, navigation), main,
-    requested_side_pane(main, height, pane_width, details)}
-
-# Clamp the shell control and its inset together for viewports smaller than the slot.
-def settings_in_navigation(box: Design.Box) -> Design.Box:
+def settings_in_navigation(+parameters: Design.LayoutParameters, box: Design.Box) -> Design.Box:
   Design.Box{left, top, +width, +height} = box
   +size = Nat.min(32n, Nat.min(width, height))
   Design.Box{Nat.add(left, Nat.min(16n, Nat.sub(width, size))),
     Nat.add(top, Nat.min(Nat.sub(height, 48n), Nat.sub(height, size))), size, size}
 
-def settings_in_heading(box: Design.Box) -> Design.Box:
+def settings_in_heading(+parameters: Design.LayoutParameters, box: Design.Box) -> Design.Box:
   Design.Box{left, top, +width, +height} = box
   +size = Nat.min(32n, Nat.min(width, height))
   Design.Box{Nat.add(left, Nat.min(Nat.sub(width, 48n), Nat.sub(width, size))),
     Nat.add(top, Nat.min(7n, Nat.sub(height, size))), size, size}
 
-def navigation_toggle_bounds(shell: Design.Shell) -> Design.Box:
+def navigation_toggle_bounds(+parameters: Design.LayoutParameters, shell: Design.Shell) -> Design.Box:
   Design.Shell{navigation, Design.Box{left, top, +width, +height}, details} = shell
   +size = Nat.min(32n, Nat.min(width, height))
   Design.Box{Nat.add(left, Nat.min(8n, Nat.sub(width, size))),
     Nat.add(top, Nat.min(7n, Nat.sub(height, size))), size, size}
 
-def settings_bounds(navigation: Design.Navigation, main: Design.Box) -> Design.Box:
+def settings_bounds(+parameters: Design.LayoutParameters, navigation: Design.Navigation, main: Design.Box) -> Design.Box:
   match navigation:
-    case Design.BesideNavigation{box}: settings_in_navigation(box)
-    case Design.OverlayNavigation{box}: settings_in_navigation(box)
-    case Design.HiddenNavigation{}: settings_in_heading(main)
+    case Design.BesideNavigation{box}: settings_in_navigation(parameters, box)
+    case Design.OverlayNavigation{box}: settings_in_navigation(parameters, box)
+    case Design.HiddenNavigation{}: settings_in_heading(parameters, main)
 
-def header_height(main: Design.Box) -> Nat:
+def header_height(+parameters: Design.LayoutParameters, main: Design.Box) -> Nat:
   Design.Box{+left, +top, +width, height} = main
-  Nat.min(toolbar_height(), height)
+  Nat.min(toolbar_height(parameters), height)
 
-def heading_box(+main: Design.Box) -> Design.Box:
+def heading_box(+parameters: Design.LayoutParameters, +main: Design.Box) -> Design.Box:
   Design.Box{left, top, width, height} = main
-  Design.Box{left, top, width, header_height(main)}
+  Design.Box{left, top, width, header_height(parameters, main)}
 
-def body_box(+main: Design.Box) -> Design.Box:
+def body_box(+parameters: Design.LayoutParameters, +main: Design.Box) -> Design.Box:
   Design.Box{left, top, width, height} = main
-  +header = header_height(main)
+  +header = header_height(parameters, main)
   Design.Box{left, Nat.add(top, header), width, Nat.max(0n, Nat.sub(height, header))}
 
-def centered_band(box: Design.Box, maximum: Nat) -> Design.Band:
+def centered_band(+parameters: Design.LayoutParameters, box: Design.Box, maximum: Nat) -> Design.Band:
   Design.Box{left, +top, +width, +height} = box
-  inset = Nat.min(inline_gutter(width), Nat.div(width, 2n))
+  inset = Nat.min(inline_gutter(parameters, width), Nat.div(width, 2n))
   usable = Nat.max(0n, Nat.sub(width, Nat.mul(2n, inset)))
   +lane_width = Nat.min(maximum, usable)
   Design.Band{Nat.add(left, Nat.div(Nat.sub(width, lane_width), 2n)), lane_width}
@@ -209,29 +180,29 @@ def box_height(box: Design.Box) -> Nat:
   Design.Box{+left, +top, +width, height} = box
   height
 
-def measure_band(selected_measure: Composition.Measure, +box: Design.Box) -> Design.Band:
+def measure_band(+parameters: Design.LayoutParameters, selected_measure: Composition.Measure, +box: Design.Box) -> Design.Band:
   match selected_measure:
-    case Composition.ReadingMeasure{}: centered_band(box, reading_maximum_width())
-    case Composition.OverviewMeasure{}: centered_band(box, overview_maximum_width())
-    case Composition.AvailableMeasure{}: centered_band(box, box_width(box))
+    case Composition.ReadingMeasure{}: centered_band(parameters, box, reading_maximum_width(parameters))
+    case Composition.OverviewMeasure{}: centered_band(parameters, box, overview_maximum_width(parameters))
+    case Composition.AvailableMeasure{}: centered_band(parameters, box, box_width(box))
 
 def composer_content_inset() -> Nat:
   Appearance.face_padding(Controls.TextFace{""})
 
-def input_metrics(canvas: Design.Box) -> Design.InputMetrics:
+def input_metrics(+parameters: Design.LayoutParameters, canvas: Design.Box) -> Design.InputMetrics:
   Design.Box{+left, +top, +width, height} = canvas
   # The remaining line and spacing values follow the imported Desktop component tokens.
-  +maximum = Nat.min(240n, Nat.div(height, 3n))
-  Design.InputMetrics{Nat.min(44n, maximum), maximum, 20n, composer_content_inset(), 4n, 8n}
+  +maximum = Nat.min(input_maximum_height(parameters), Nat.div(height, 3n))
+  Design.InputMetrics{Nat.min(input_minimum_height(parameters), maximum), maximum, input_line_height(parameters), composer_content_inset(), 4n, 8n}
 
-def centered_input(composer: Composition.Composer, canvas: Design.Box) -> Maybe<&2, Design.InputMetrics>:
+def centered_input(+parameters: Design.LayoutParameters, composer: Composition.Composer, canvas: Design.Box) -> Maybe<&2, Design.InputMetrics>:
   match composer:
-    case Composition.CenteredInput{}: Some{input_metrics(canvas)}
+    case Composition.CenteredInput{}: Some{input_metrics(parameters, canvas)}
     case _: None{}
 
-def bottom_input(composer: Composition.Composer, canvas: Design.Box) -> Maybe<&2, Design.InputMetrics>:
+def bottom_input(+parameters: Design.LayoutParameters, composer: Composition.Composer, canvas: Design.Box) -> Maybe<&2, Design.InputMetrics>:
   match composer:
-    case Composition.BottomInput{}: Some{input_metrics(canvas)}
+    case Composition.BottomInput{}: Some{input_metrics(parameters, canvas)}
     case _: None{}
 
 def projected_dock_region(region: Composition.Region) -> Maybe<&2, Design.DockRegion>:
@@ -255,17 +226,17 @@ def dock_maximum_height(canvas: Design.Box) -> Nat:
   Design.Box{+left, +top, +width, height} = canvas
   Nat.min(Nat.div(height, 2n), 400n)
 
-def measured_dock(+regions: +List<Design.DockRegion>, +canvas: Design.Box, reading: Design.Band,
+def measured_dock(+parameters: Design.LayoutParameters, +regions: +List<Design.DockRegion>, +canvas: Design.Box, reading: Design.Band,
   composer: Composition.Composer) -> Maybe<&2, Design.Dock>:
   match regions:
     case Nil{}: None{}
     case Con{first, rest}:
       Some{Design.Dock{reading, 8n, dock_maximum_height(canvas), regions,
-        bottom_input(composer, canvas), Design.MeasuredDock{}}}
+        bottom_input(parameters, composer, canvas), Design.MeasuredDock{}}}
 
-def conversation_dock(regions: +List<Composition.Region>, canvas: Design.Box, reading: Design.Band,
+def conversation_dock(+parameters: Design.LayoutParameters, regions: +List<Composition.Region>, canvas: Design.Box, reading: Design.Band,
   composer: Composition.Composer) -> Maybe<&2, Design.Dock>:
-  measured_dock(dock_regions(regions), canvas, reading, composer)
+  measured_dock(parameters, dock_regions(regions), canvas, reading, composer)
 
 def structure_dock(structure: Composition.Structure) -> +List<Composition.Region>:
   Composition.Structure{heading, body, dock} = structure
@@ -274,21 +245,21 @@ def structure_dock(structure: Composition.Structure) -> +List<Composition.Region
 def recipe_dock(recipe: Composition.Recipe) -> +List<Composition.Region>:
   structure_dock(Composition.structure(recipe))
 
-def board_column_width(canvas: Design.Box) -> Nat:
+def board_column_width(+parameters: Design.LayoutParameters, canvas: Design.Box) -> Nat:
   Design.Box{+left, +top, +width, +height} = canvas
-  +gutter = inline_gutter(width)
-  Nat.min(300n, Nat.max(0n, Nat.sub(width, Nat.mul(2n, gutter))))
+  +gutter = inline_gutter(parameters, width)
+  Nat.min(Nat.div(reading_maximum_width(parameters), 2n), Nat.max(0n, Nat.sub(width, Nat.mul(2n, gutter))))
 
 def creation_flow_choice(compact: Bool) -> Design.CreationFlow:
   match compact:
     case True{}: Design.Compact{}
     case False{}: Design.Balanced{}
 
-def creation_flow_for_height(height: Nat) -> Design.CreationFlow:
-  creation_flow_choice(Nat.is_lt(height, 420n))
+def creation_flow_for_height(+parameters: Design.LayoutParameters, height: Nat) -> Design.CreationFlow:
+  creation_flow_choice(Nat.is_lt(height, creation_balanced_minimum_height(parameters)))
 
-def creation_flow(canvas: Design.Box) -> Design.CreationFlow:
-  creation_flow_for_height(box_height(canvas))
+def creation_flow(+parameters: Design.LayoutParameters, canvas: Design.Box) -> Design.CreationFlow:
+  creation_flow_for_height(parameters, box_height(canvas))
 
 def creation_block_margin(flow: Design.CreationFlow) -> Design.BlockMargin:
   match flow:
@@ -298,47 +269,47 @@ def creation_block_margin(flow: Design.CreationFlow) -> Design.BlockMargin:
 def creation_arrangement(flow: Design.CreationFlow) -> Design.CreationArrangement:
   Design.CreationArrangement{24n, 24n, 16n, Design.Centered{}, creation_block_margin(flow)}
 
-def main_frame(+recipe: Composition.Recipe, +main: Design.Box) -> Design.MainFrame:
+def main_frame(+parameters: Design.LayoutParameters, +recipe: Composition.Recipe, +main: Design.Box) -> Design.MainFrame:
   match recipe:
     case Composition.Recipe{measure, page_heading, Composition.CenteredCreation{}, composer, decisions, latest}:
-      Design.CreationFrame{heading_box(main), main, measure_band(measure, main), centered_input(composer, main), creation_flow(main)}
+      Design.CreationFrame{heading_box(parameters, main), main, measure_band(parameters, measure, main), centered_input(parameters, composer, main), creation_flow(parameters, main)}
     case Composition.Recipe{measure, page_heading, Composition.ChronologicalReading{}, composer, decisions, latest}:
-      heading = heading_box(main)
-      +canvas = body_box(main)
-      +reading = measure_band(measure, canvas)
+      heading = heading_box(parameters, main)
+      +canvas = body_box(parameters, main)
+      +reading = measure_band(parameters, measure, canvas)
       Design.ConversationFrame{heading, canvas, reading,
-        conversation_dock(recipe_dock(recipe), canvas, reading, composer)}
+        conversation_dock(parameters, recipe_dock(recipe), canvas, reading, composer)}
     case Composition.Recipe{measure, page_heading, Composition.ProjectSections{}, composer, decisions, latest}:
       +canvas = main
-      Design.OverviewFrame{canvas, measure_band(measure, canvas), Composition.ProjectSections{}}
+      Design.OverviewFrame{canvas, measure_band(parameters, measure, canvas), Composition.ProjectSections{}}
     case Composition.Recipe{measure, page_heading, Composition.ProjectRows{}, composer, decisions, latest}:
       +canvas = main
-      Design.OverviewFrame{canvas, measure_band(measure, canvas), Composition.ProjectRows{}}
+      Design.OverviewFrame{canvas, measure_band(parameters, measure, canvas), Composition.ProjectRows{}}
     case Composition.Recipe{measure, page_heading, Composition.AgentRows{}, composer, decisions, latest}:
       +canvas = main
-      Design.OverviewFrame{canvas, measure_band(measure, canvas), Composition.AgentRows{}}
+      Design.OverviewFrame{canvas, measure_band(parameters, measure, canvas), Composition.AgentRows{}}
     case Composition.Recipe{measure, page_heading, Composition.StageColumns{}, composer, decisions, latest}:
       +canvas = main
-      Design.BoardFrame{canvas, board_column_width(canvas), Enclosure.separation(Enclosure.BoardColumns{}), 16n}
+      Design.BoardFrame{canvas, board_column_width(parameters, canvas), Enclosure.separation(Enclosure.BoardColumns{}), 16n}
     case Composition.Recipe{measure, page_heading, Composition.UnavailableNotice{}, composer, decisions, latest}:
-      Design.UnavailableFrame{heading_box(main), body_box(main), measure_band(measure, body_box(main))}
+      Design.UnavailableFrame{heading_box(parameters, main), body_box(parameters, main), measure_band(parameters, measure, body_box(parameters, main))}
 
-def inset_box(+viewport: Design.Viewport) -> Design.Box:
+def inset_box(+parameters: Design.LayoutParameters, +viewport: Design.Viewport) -> Design.Box:
   Design.Viewport{+width, +height} = viewport
-  +gutter = overlay_gutter(viewport)
+  +gutter = overlay_gutter(parameters, viewport)
   +left = Nat.min(gutter, Nat.div(width, 2n))
   +top = Nat.min(gutter, Nat.div(height, 2n))
   Design.Box{left, top, Nat.max(0n, Nat.sub(width, Nat.mul(2n, left))),
     Nat.max(0n, Nat.sub(height, Nat.mul(2n, top)))}
 
-def centered_dialog(viewport: Design.Viewport, maximum: Nat) -> Design.OverlayPlacement:
-  +available = inset_box(viewport)
+def centered_dialog(+parameters: Design.LayoutParameters, viewport: Design.Viewport, maximum: Nat) -> Design.OverlayPlacement:
+  +available = inset_box(parameters, viewport)
   Design.CenteredDialog{available, Nat.min(maximum, box_width(available))}
 
-def details_overlay(viewport: Design.Viewport, side_pane: Maybe<&2, Design.Box>) -> Design.OverlayPlacement:
+def details_overlay(+parameters: Design.LayoutParameters, viewport: Design.Viewport, side_pane: Maybe<&2, Design.Box>) -> Design.OverlayPlacement:
   match side_pane:
     case Some{bounds}: Design.TrailingPane{bounds}
-    case None{}: centered_dialog(viewport, 640n)
+    case None{}: centered_dialog(parameters, viewport, reading_maximum_width(parameters))
 
 def choose_layer(matches: Bool, layer: V.Layer, fallback: Maybe<&2, V.Layer>) -> Maybe<&2, V.Layer>:
   match matches:
@@ -353,38 +324,38 @@ def find_layer(+key: String, layers: +List<V.Layer>) -> Maybe<&2, V.Layer>:
       choose_layer(String.eq(UI.layer_key(initial_attention), key), layer,
         find_layer(key, rest))
 
-def anchored_menu_placement(viewport: Design.Viewport, origin: Maybe<&2, String>) -> Design.OverlayPlacement:
+def anchored_menu_placement(+parameters: Design.LayoutParameters, viewport: Design.Viewport, origin: Maybe<&2, String>) -> Design.OverlayPlacement:
   match origin:
-    case None{}: centered_dialog(viewport, 320n)
+    case None{}: centered_dialog(parameters, viewport, 320n)
     case Some{anchor}:
-      +available = inset_box(viewport)
+      +available = inset_box(parameters, viewport)
       Design.AnchoredPopover{anchor, available, Nat.min(320n, box_width(available)),
         Nat.min(400n, box_height(available)), 4n}
 
-def menu_layer_placement(viewport: Design.Viewport, kind: V.LayerKind, return_attention: String,
+def menu_layer_placement(+parameters: Design.LayoutParameters, viewport: Design.Viewport, kind: V.LayerKind, return_attention: String,
   surface: UI.Surface) -> Design.OverlayPlacement:
   match kind:
-    case V.AnchoredMenu{}: anchored_menu_placement(viewport, anchor(surface, return_attention))
-    case _: centered_dialog(viewport, 320n)
+    case V.AnchoredMenu{}: anchored_menu_placement(parameters, viewport, anchor(surface, return_attention))
+    case _: centered_dialog(parameters, viewport, 320n)
 
-def menu_for_layer(viewport: Design.Viewport, found: Maybe<&2, V.Layer>,
+def menu_for_layer(+parameters: Design.LayoutParameters, viewport: Design.Viewport, found: Maybe<&2, V.Layer>,
   surface: UI.Surface) -> Design.OverlayPlacement:
   match found:
-    case None{}: centered_dialog(viewport, 320n)
+    case None{}: centered_dialog(parameters, viewport, 320n)
     case Some{V.Layer{kind, content, initial_attention, return_attention, close}}:
-      menu_layer_placement(viewport, kind, return_attention, surface)
+      menu_layer_placement(parameters, viewport, kind, return_attention, surface)
 
-def menu_overlay(viewport: Design.Viewport, key: String, +layers: +List<V.Layer>,
+def menu_overlay(+parameters: Design.LayoutParameters, viewport: Design.Viewport, key: String, +layers: +List<V.Layer>,
   +surface: UI.Surface) -> Design.OverlayPlacement:
-  menu_for_layer(viewport, find_layer(key, layers), surface)
+  menu_for_layer(parameters, viewport, find_layer(key, layers), surface)
 
-def role_overlay(viewport: Design.Viewport, role: UI.Role, key: String, +layers: +List<V.Layer>,
+def role_overlay(+parameters: Design.LayoutParameters, viewport: Design.Viewport, role: UI.Role, key: String, +layers: +List<V.Layer>,
   +surface: UI.Surface, details: Maybe<&2, Design.Box>) -> Design.OverlayPlacement:
   match role:
-    case UI.Dialog{}: centered_dialog(viewport, 640n)
-    case UI.Menu{}: menu_overlay(viewport, key, layers, surface)
-    case UI.Details{}: details_overlay(viewport, details)
-    case _: centered_dialog(viewport, 640n)
+    case UI.Dialog{}: centered_dialog(parameters, viewport, reading_maximum_width(parameters))
+    case UI.Menu{}: menu_overlay(parameters, viewport, key, layers, surface)
+    case UI.Details{}: details_overlay(parameters, viewport, details)
+    case _: centered_dialog(parameters, viewport, reading_maximum_width(parameters))
 
 def overlay_navigation_bounds(navigation: Design.Navigation) -> Maybe<&2, Design.OverlayPlacement>:
   match navigation:
@@ -396,44 +367,44 @@ def navigation_overlay(placement: V.NavigationPlacement, shell_navigation: Desig
     case V.ModalNavigation{}: overlay_navigation_bounds(shell_navigation)
     case _: None{}
 
-def modal_navigation_or_role(semantic_is_navigation: Bool, drawer: Design.OverlayPlacement,
+def modal_navigation_or_role(+parameters: Design.LayoutParameters, semantic_is_navigation: Bool, drawer: Design.OverlayPlacement,
   viewport: Design.Viewport, role: UI.Role, key: String, +layers: +List<V.Layer>,
   +surface: UI.Surface, details: Maybe<&2, Design.Box>) -> Design.OverlayPlacement:
   match semantic_is_navigation:
     case True{}: drawer
-    case False{}: role_overlay(viewport, role, key, layers, surface, details)
+    case False{}: role_overlay(parameters, viewport, role, key, layers, surface, details)
 
-def overlay_with_drawer(drawer: Maybe<&2, Design.OverlayPlacement>, semantic: String,
+def overlay_with_drawer(+parameters: Design.LayoutParameters, drawer: Maybe<&2, Design.OverlayPlacement>, semantic: String,
   viewport: Design.Viewport, role: UI.Role, key: String, +layers: +List<V.Layer>,
   +surface: UI.Surface, details: Maybe<&2, Design.Box>) -> Design.OverlayPlacement:
   match drawer:
     case Some{placement}:
-      modal_navigation_or_role(String.eq(semantic, "navigation"), placement,
+      modal_navigation_or_role(parameters, String.eq(semantic, "navigation"), placement,
         viewport, role, key, layers, surface, details)
-    case None{}: role_overlay(viewport, role, key, layers, surface, details)
+    case None{}: role_overlay(parameters, viewport, role, key, layers, surface, details)
 
-def overlay_placement_with_drawer(viewport: Design.Viewport, node: UI.Node, +layers: +List<V.Layer>,
+def overlay_placement_with_drawer(+parameters: Design.LayoutParameters, viewport: Design.Viewport, node: UI.Node, +layers: +List<V.Layer>,
   +surface: UI.Surface, +shell: Design.Shell,
   drawer: Maybe<&2, Design.OverlayPlacement>) -> Design.OverlayPlacement:
   UI.Node{key, semantic, +label, role, +meaning, +children} = node
   Design.Shell{shell_navigation, +main, details} = shell
-  overlay_with_drawer(drawer, semantic, viewport, role, key, layers, surface, details)
+  overlay_with_drawer(parameters, drawer, semantic, viewport, role, key, layers, surface, details)
 
-def overlay_placement(+viewport: Design.Viewport, node: UI.Node, +layers: +List<V.Layer>,
+def overlay_placement(+parameters: Design.LayoutParameters, +viewport: Design.Viewport, node: UI.Node, +layers: +List<V.Layer>,
   +surface: UI.Surface, +shell: Design.Shell, +navigation: V.NavigationPlacement) -> Design.OverlayPlacement:
   Design.Shell{shell_navigation, main, details} = shell
-  overlay_placement_with_drawer(viewport, node, layers, surface, shell,
+  overlay_placement_with_drawer(parameters, viewport, node, layers, surface, shell,
     navigation_overlay(navigation, shell_navigation))
 
-def projected_overlays(+viewport: Design.Viewport, +overlays: +List<UI.Node>, +layers: +List<V.Layer>,
+def projected_overlays(+parameters: Design.LayoutParameters, +viewport: Design.Viewport, +overlays: +List<UI.Node>, +layers: +List<V.Layer>,
   +surface: UI.Surface, +shell: Design.Shell, +navigation: V.NavigationPlacement) -> +List<Design.Overlay>:
   match overlays:
     case Nil{}: Nil{}
     case Con{UI.Node{key, semantic, label, role, meaning, children}, rest}:
       Con{Design.Overlay{key, Nat.add(100n, List.length(&2, UI.Node, rest)),
-        overlay_placement(viewport, UI.Node{key, semantic, label, role, meaning, children}, layers,
+        overlay_placement(parameters, viewport, UI.Node{key, semantic, label, role, meaning, children}, layers,
           surface, shell, navigation)},
-        projected_overlays(viewport, rest, layers, surface, shell, navigation)}
+        projected_overlays(parameters, viewport, rest, layers, surface, shell, navigation)}
 
 def actual_details(+overlays: +List<UI.Node>) -> Bool:
   match overlays:
@@ -443,23 +414,36 @@ def actual_details(+overlays: +List<UI.Node>) -> Bool:
         case UI.Details{}: True{}
         case _: actual_details(rest)
 
-def layout_with_shell(+viewport: Design.Viewport, +surface: UI.Surface, +overlays: +List<UI.Node>, +shell: Design.Shell,
+def layout_with_shell(+parameters: Design.LayoutParameters, +viewport: Design.Viewport, +surface: UI.Surface, +overlays: +List<UI.Node>, +shell: Design.Shell,
   navigation: V.NavigationPlacement, +page: Composition.Page, +layers: +List<V.Layer>) -> Design.Layout:
   Design.Shell{shell_navigation, main, +details} = shell
   +recipe = Composition.recipe(page)
-  Design.Layout{viewport, shell, main_frame(recipe, main),
-    projected_overlays(viewport, overlays, layers, surface, shell, navigation)}
+  Design.Layout{viewport, shell, main_frame(parameters, recipe, main),
+    projected_overlays(parameters, viewport, overlays, layers, surface, shell, navigation), parameters}
 
-def capacity_allows_details(capacity: V.Capacity) -> Bool:
-  V.Capacity{navigation_beside_content, details_beside_timeline} = capacity
-  details_beside_timeline
+def requested_details(+parameters: Design.LayoutParameters, +viewport: Design.Viewport,
+  navigation: V.NavigationPlacement, overlays: +List<UI.Node>) -> Bool:
+  actual_details(overlays) && ViewportSpace.packed(Space.pack(~ViewportSpace.ShellPart,
+    ViewportSpace.regular_slots(parameters, navigation, True{}), 0n, viewport_width(viewport)))
 
-def present(+viewport: Design.Viewport, +surface: UI.Surface) -> Design.Layout:
+type Outcome is Data:
+  LayoutReady{layout: Design.Layout}
+  LayoutUnsupported{required: Nat, available: Nat}
+
+def outcome_with_shell(+parameters: Design.LayoutParameters, +viewport: Design.Viewport, +surface: UI.Surface,
+  overlays: +List<UI.Node>, navigation: V.NavigationPlacement, page: Composition.Page, layers: +List<V.Layer>,
+  result: ViewportSpace.Result) -> Outcome:
+  match result:
+    case ViewportSpace.Allocated{shell}:
+      LayoutReady{layout_with_shell(parameters, viewport, surface, overlays, shell, navigation, page, layers)}
+    case ViewportSpace.Unsupported{required, available}: LayoutUnsupported{required, available}
+
+def present(+parameters: Design.LayoutParameters, +viewport: Design.Viewport, +surface: UI.Surface) -> Outcome:
   UI.Surface{content, base, +overlays, active_scope} = surface
   Core.Scene{+view, settings, transfers, preview, code, directory_picker} = content
   V.Scene{world_navigation, world_main, layers, arrangement, attention} = view
-  V.Arrangement{navigation} = arrangement
+  V.Arrangement{+navigation} = arrangement
   page = V.scene_page(view)
-  requested_side_pane = actual_details(overlays) && capacity_allows_details(capacity(viewport))
-  current_shell = shell(viewport, navigation, requested_side_pane)
-  layout_with_shell(viewport, surface, overlays, current_shell, navigation, page, layers)
+  requested_side_pane = requested_details(parameters, viewport, navigation, overlays)
+  outcome_with_shell(parameters, viewport, surface, overlays, navigation, page, layers,
+    shell(parameters, viewport, navigation, requested_side_pane))

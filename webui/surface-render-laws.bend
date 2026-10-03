@@ -1,4 +1,5 @@
 import Base
+import ./typography.bend as T
 import ./surfaces.bend as Surfaces
 import ./enclosure-render-laws.bend as EnclosureRender
 import ./design.bend as Design
@@ -29,7 +30,7 @@ def application_background(+scene: Web.Scene) ->
   {document_background(Render.render(scene)) == Render.surface_background(Surfaces.Canvas{}, Surfaces.Rest{}) : String}:
   match scene:
     case Web.Scene{Design.Surface{content, theme, base, overlays, active}, platform, generation, realization,
-      Design.Layout{Design.Viewport{width, height}, shell, main, placements}}: {==}
+      Design.Layout{Design.Viewport{width, height}, shell, main, placements, parameters}}: {==}
 
 
 
@@ -65,11 +66,11 @@ type Requirements is Type:
     lane_background: @+stage:Board.Stage ->
       {Render.attr(Render.board_lane_styles(stage), "background") ==
         Render.surface_background(Surfaces.Lane{Render.stage_surface_tone(stage)}, Surfaces.Rest{}) : String},
-    chip_background: @key:String -> @kind:String -> @text:String -> @+tone:Surfaces.Tone ->
-      {Render.attr(Doc.element_styles(Render.card_chip(key, kind, text, tone)), "background") ==
+    chip_background: @+typography:T.Presentation -> @key:String -> @kind:String -> @text:String -> @+tone:Surfaces.Tone ->
+      {Render.attr(Doc.element_styles(Render.card_chip(key, kind, text, tone, typography)), "background") ==
         Render.surface_background(Surfaces.Chip{tone}, Surfaces.Rest{}) : String},
-    selected_background: @+selected:Bool ->
-      {Render.paint(Appearance.style_background(Appearance.navigation_family_style(selected, 2n, 6n))) == Render.surface_background(Surfaces.Choice{selected}, Surfaces.Rest{}) : String},
+    selected_background: @+typography:T.Presentation -> @+selected:Bool ->
+      {Render.paint(Appearance.style_background(Appearance.navigation_family_style(selected, 2n, 6n, typography))) == Render.surface_background(Surfaces.Choice{selected}, Surfaces.Rest{}) : String},
     rest_background_property: @+value:String ->
       {Render.pointer_property("background", value) == Doc.Property{"--native-rest-background", value} : Doc.Property},
     rest_foreground_property: @+value:String ->
@@ -90,7 +91,8 @@ def evidence() -> Requirements:
 
       # This is the actual application document, rather than a palette-only assertion.
     , scene => application_background(scene), +stage => {==},
-    key => kind => text => +tone => {==}, +selected => {==},
+    +typography => key => kind => text => +tone => {==},
+    +typography => +selected => {==},
     +value => {==}, +value =>
         {==}
 

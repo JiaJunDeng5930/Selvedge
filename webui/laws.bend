@@ -11,12 +11,18 @@ import ../core/user-experience.bend as E
 import ../core/user-input.bend as U
 import ./MODEL.bend as Model
 import ./design.bend as Design
+import ./font-observation.bend as F
+import ./typography.bend as T
+import ./layout.bend as Layout
+import ./viewport-space.bend as ViewportSpace
+import ./appearance.bend as Appearance
 import ./editor.bend as Editor
 import ./focus.bend as Focus
 import ./interaction.bend as Physical
 import ./platform.bend as Platform
 import ./reading.bend as Reading
 import ./rendered.bend as Rendered
+import ./render-laws.bend as Rendering
 
 def model_core(application: Platform.State) -> Core.State:
   Platform.State{core, platform} = application
@@ -89,16 +95,16 @@ def product_input_result(input: Product.Input, +core: Core.State, +platform: Pla
             Platform.Platform{readers, editors, focused, ticket, reduced, capacity, scope})
 
 def product_refinement(+input: Product.Input, +core: Core.State, +platform: Platform.Platform,
-  generation: Nat, realization: Rendered.State, environment: Design.Environment) ->
+  generation: Nat, realization: Rendered.State, environment: Design.Environment, font: F.State) ->
   {Model.product(Model.step(Model.PlatformInput{Platform.ProductInput{input}},
-    Model.State{Platform.State{core, platform}, generation, realization, environment})) == Product.step(input, core) : Core.Decision}:
+    Model.State{Platform.State{core, platform}, generation, realization, environment, font})) == Product.step(input, core) : Core.Decision}:
   Equal.trans(Core.Decision,
     Model.product(Model.step(Model.PlatformInput{Platform.ProductInput{input}},
-      Model.State{Platform.State{core, platform}, generation, realization, environment})),
+      Model.State{Platform.State{core, platform}, generation, realization, environment, font})),
     Model.platform_product(Platform.step(Platform.ProductInput{input}, Platform.State{core, platform})),
     Product.step(input, core),
     Model.realization_preserves_product(Platform.step(Platform.ProductInput{input},
-      Platform.State{core, platform}), (generation + 1n : Nat), environment),
+      Platform.State{core, platform}), (generation + 1n : Nat), environment, font),
     product_input_result(input, core, platform))
 
 def model_capacity_matches_platform(platform: Platform.Platform) ->
@@ -108,19 +114,19 @@ def model_capacity_matches_platform(platform: Platform.Platform) ->
 
 def element_refinement(+key: String, +gesture: Interface.Gesture, +core: Core.State,
   +platform: Platform.Platform, generation: Nat, realization: Rendered.State,
-  environment: Design.Environment) ->
+  environment: Design.Environment, font: F.State) ->
   {Model.product(Model.step(Model.ElementInput{key, gesture},
-    Model.State{Platform.State{core, platform}, generation, realization, environment})) ==
+    Model.State{Platform.State{core, platform}, generation, realization, environment, font})) ==
     Product.step(Product.Element{platform_capacity(platform), key, gesture}, core) : Core.Decision}:
   Equal.trans(Core.Decision,
     Model.product(Model.step(Model.ElementInput{key, gesture},
-      Model.State{Platform.State{core, platform}, generation, realization, environment})),
+      Model.State{Platform.State{core, platform}, generation, realization, environment, font})),
     Model.platform_product(Platform.after_core(
       Product.step(Product.Element{Model.capacity(platform), key, gesture}, core), platform)),
     Product.step(Product.Element{platform_capacity(platform), key, gesture}, core),
     Model.realization_preserves_product(Platform.after_core(
       Product.step(Product.Element{Model.capacity(platform), key, gesture}, core), platform),
-      (generation + 1n : Nat), environment),
+      (generation + 1n : Nat), environment, font),
     Equal.trans(Core.Decision,
       Model.platform_product(Platform.after_core(
         Product.step(Product.Element{Model.capacity(platform), key, gesture}, core), platform)),
@@ -133,34 +139,34 @@ def element_refinement(+key: String, +gesture: Interface.Gesture, +core: Core.St
         Model.capacity(platform), platform_capacity(platform), model_capacity_matches_platform(platform))))
 
 def frame_silent(received: Nat, frame: Rendered.Frame, application: Platform.State,
-  generation: Nat, realization: Rendered.State, environment: Design.Environment) ->
-  {Model.step(Model.FrameObserved{received, frame}, Model.State{application, generation, realization, environment}) ==
+  generation: Nat, realization: Rendered.State, environment: Design.Environment, font: F.State) ->
+  {Model.step(Model.FrameObserved{received, frame}, Model.State{application, generation, realization, environment, font}) ==
     Model.Decision{
-      Model.State{application, generation, Rendered.observe(generation, received, Model.frame_surface(environment, Model.surface(application)), frame, realization), environment},
+      Model.State{application, generation, Model.frame_realization(Model.State{application, generation, realization, environment, font}, received, frame, Model.surface(application)), environment, font},
       Platform.unchanged(model_core(application)), Nil{}} : Model.Decision}:
   match application:
     case Platform.State{Core.State{application, services}, platform}: {==}
 
 def stale_frame(+received: Nat, +frame: Rendered.Frame, +application: Platform.State,
-  +generation: Nat, +realization: Rendered.State, +environment: Design.Environment,
+  +generation: Nat, +realization: Rendered.State, +environment: Design.Environment, +font: F.State,
   stale: {Nat.is_eq(generation, received) == False{} : Bool}) ->
-  {Model.step(Model.FrameObserved{received, frame}, Model.State{application, generation, realization, environment}) ==
-    Model.Decision{Model.State{application, generation, realization, environment},
+  {Model.step(Model.FrameObserved{received, frame}, Model.State{application, generation, realization, environment, font}) ==
+    Model.Decision{Model.State{application, generation, realization, environment, font},
       Platform.unchanged(model_core(application)), Nil{}} : Model.Decision}:
   Platform.State{core, platform} = application
   Equal.trans(Model.Decision,
-    Model.step(Model.FrameObserved{received, frame}, Model.State{application, generation, realization, environment}),
+    Model.step(Model.FrameObserved{received, frame}, Model.State{application, generation, realization, environment, font}),
     Model.Decision{Model.State{application, generation,
-      Rendered.observe(generation, received, Model.frame_surface(environment, Model.surface(application)), frame, realization), environment},
+      Model.frame_realization(Model.State{application, generation, realization, environment, font}, received, frame, Model.surface(application)), environment, font},
       Platform.unchanged(core), Nil{}},
-    Model.Decision{Model.State{application, generation, realization, environment}, Platform.unchanged(core), Nil{}},
-    frame_silent(received, frame, application, generation, realization, environment),
+    Model.Decision{Model.State{application, generation, realization, environment, font}, Platform.unchanged(core), Nil{}},
+    frame_silent(received, frame, application, generation, realization, environment, font),
     Equal.cong(Rendered.State, Model.Decision,
-      (frame_state => Model.Decision{Model.State{application, generation, frame_state, environment},
+      (frame_state => Model.Decision{Model.State{application, generation, frame_state, environment, font},
         Platform.unchanged(core), Nil{}}),
-      Rendered.observe(generation, received, Model.frame_surface(environment, Model.surface(application)), frame, realization),
+      Model.frame_realization(Model.State{application, generation, realization, environment, font}, received, frame, Model.surface(application)),
       realization,
-      Rendered.stale_frame_retains_state(generation, received, Model.frame_surface(environment, Model.surface(application)), frame, realization, stale)))
+      Model.stale_realization(application, generation, realization, environment, font, received, frame, Model.surface(application), stale)))
 
 def stale_reading_law(-application: E.Application, -services: Services.State, -platform: Platform.Platform, -task: Nat, -generation: Nat, -event: Reading.Event, -inactive: {Platform.active_reader(application, task, generation) == False{} : Bool}) -> Type:
   {Platform.step(Platform.ReadingInput{task, generation, event},
@@ -619,28 +625,293 @@ def inactive_focus(core: Core.State, platform: Platform.Platform, identity: Stri
                 Platform.active_focus(core, platform_capacity(platform), identity), False{}, inactive),
               and_false_right(Nat.is_eq(platform_ticket(platform), ticket))))
 
+def font_state(decision: Model.Decision) -> F.State:
+  Model.Decision{Model.State{application, generation, realization, environment, font}, product, effects} = decision
+  font
+
+def realized_font(decision: Platform.Decision, generation: Nat, environment: Design.Environment, font: F.State) ->
+  {font_state(Model.realized(decision, generation, environment, font)) == font : F.State}:
+  match decision:
+    case Platform.Decision{product, platform, effects}: {==}
+
+def invalidated_font(+decision: Platform.Decision, +generation: Nat, +environment: Design.Environment, +font: F.State) ->
+  {font_state(Model.invalidate(decision, generation, environment, font)) == F.retag(font, generation) : F.State}:
+  realized_font(Model.calibrated(decision, environment, F.retag(font, generation)), generation, environment, F.retag(font, generation))
+
+def environment_resets_font(+application: Platform.State, +generation: Nat, realization: Rendered.State,
+  previous_environment: Design.Environment, font: F.State, +environment: Design.Environment) ->
+  {font_state(Model.step(Model.EnvironmentObserved{environment},
+    Model.State{application, generation, realization, previous_environment, font})) ==
+    F.begin((generation + 1n : Nat), Model.environment_root(environment)) : F.State}:
+  invalidated_font(Platform.Decision{Platform.unchanged(Model.model_core(application)), Model.model_platform(application), Nil{}},
+    (generation + 1n : Nat), environment, F.begin((generation + 1n : Nat), Model.environment_root(environment)))
+
+def reflow_product(decision: Platform.Decision, capacity: View.Capacity) ->
+  {Model.platform_product(Platform.reflow_capacity(decision, capacity)) == Model.platform_product(decision) : Core.Decision}:
+  Platform.reflow_preserves_product(decision, capacity)
+
+def admitted_product(font: F.State, +application: Platform.State, +generation: Nat,
+  realization: Rendered.State, +environment: Design.Environment) ->
+  {Model.product(Model.font_admitted(font, application, generation, realization, environment)) ==
+    Platform.unchanged(model_core(application)) : Core.Decision}:
+  match font:
+    case F.Pending{font_generation, scale}:
+      Platform.State{core, platform} = application
+      {==}
+    case F.Failed{font_generation, scale}:
+      Platform.State{core, platform} = application
+      {==}
+    case F.Ready{+font_generation, +scale, +metric}:
+      Platform.State{+core, +platform} = application
+      Equal.trans(Core.Decision,
+        Model.product(Model.font_admitted(F.Ready{font_generation, scale, metric}, Platform.State{core, platform}, generation, realization, environment)),
+        Model.platform_product(Model.calibrated(Platform.Decision{Platform.unchanged(core), platform, Nil{}}, environment, F.Ready{font_generation, scale, metric})),
+        Platform.unchanged(core),
+        Model.realized_product(Model.calibrated(Platform.Decision{Platform.unchanged(core), platform, Nil{}}, environment, F.Ready{font_generation, scale, metric}), generation, environment, F.Ready{font_generation, scale, metric}),
+        reflow_product(Platform.Decision{Platform.unchanged(core), platform, Nil{}},
+          Model.font_capacity(F.Ready{font_generation, scale, metric}, environment,
+            Platform.next(Platform.Decision{Platform.unchanged(core), platform, Nil{}}))))
+
+def idle_product(application: Platform.State, generation: Nat, realization: Rendered.State,
+  environment: Design.Environment, font: F.State) ->
+  {Model.product(Model.idle(application, generation, realization, environment, font)) == Platform.unchanged(model_core(application)) : Core.Decision}:
+  match application:
+    case Platform.State{core, platform}: {==}
+
+def pending_receipt_product(font: F.State, +application: Platform.State, generation: Nat,
+  realization: Rendered.State, environment: Design.Environment, observation: F.Observation) ->
+  {Model.product(Model.pending_receipt(font, application, generation, realization, environment, observation)) ==
+    Platform.unchanged(model_core(application)) : Core.Decision}:
+  match font:
+    case F.Pending{font_generation, scale}:
+      admitted_product(F.accept(F.Pending{font_generation, scale}, observation), application, generation, realization, environment)
+    case F.Ready{font_generation, scale, metric}: idle_product(application, generation, realization, environment, F.Ready{font_generation, scale, metric})
+    case F.Failed{font_generation, scale}: idle_product(application, generation, realization, environment, F.Failed{font_generation, scale})
+
+def receipt_product(owned: Bool, +application: Platform.State, generation: Nat,
+  realization: Rendered.State, environment: Design.Environment, font: F.State, observation: F.Observation) ->
+  {Model.product(Model.receipt_owned_state(owned, application, generation, realization, environment, font, observation)) ==
+    Platform.unchanged(model_core(application)) : Core.Decision}:
+  match owned:
+    case True{}: pending_receipt_product(font, application, generation, realization, environment, observation)
+    case False{}: idle_product(application, generation, realization, environment, font)
+
+def model_application(state: Model.State) -> Platform.State:
+  Model.State{application, generation, realization, environment, font} = state
+  application
+
+def typography_product(+state: Model.State, +observation: F.Observation) ->
+  {Model.product(Model.step(Model.TypographyObserved{observation}, state)) ==
+    Platform.unchanged(model_core(model_application(state))) : Core.Decision}:
+  Model.State{+application, generation, realization, environment, +font} = state
+  F.Observation{+received, metrics} = observation
+  receipt_product(Nat.is_eq(F.generation(font), received), application, generation, realization, environment, font, F.Observation{received, metrics})
+
+
+def pending_scene(application: Platform.State, generation: Nat, realization: Rendered.State,
+  environment: Design.Environment, font_generation: Nat, scale: T.Scale, surface: Interface.Surface) ->
+  {Model.scene_for_surface(Model.State{application, generation, realization, environment, F.Pending{font_generation, scale}}, surface) ==
+    Model.AwaitingTypography{} : Model.SceneOutcome}:
+  match environment:
+    case Design.Environment{viewport, dark, root}: {==}
+
+def failed_scene(application: Platform.State, generation: Nat, realization: Rendered.State,
+  environment: Design.Environment, font_generation: Nat, scale: T.Scale, surface: Interface.Surface) ->
+  {Model.scene_for_surface(Model.State{application, generation, realization, environment, F.Failed{font_generation, scale}}, surface) ==
+    Model.FailedTypography{} : Model.SceneOutcome}:
+  match environment:
+    case Design.Environment{viewport, dark, root}: {==}
+
+def observed_unready_frame(generation: Nat, received: Nat, frame: Rendered.Frame, previous: Rendered.State) ->
+  {Model.observed_frame(True{}, None{}, generation, received, frame, previous) == Rendered.AwaitingFrame{generation} : Rendered.State}:
+  {==}
+
+def pending_frame(+application: Platform.State, +generation: Nat, +previous: Rendered.State,
+  environment: Design.Environment, font_generation: Nat, scale: T.Scale, +received: Nat, +frame: Rendered.Frame, +surface: Interface.Surface,
+  owned: {Nat.is_eq(generation, received) == True{} : Bool}) ->
+  {Model.frame_realization(Model.State{application, generation, previous, environment, F.Pending{font_generation, scale}}, received, frame, surface) ==
+    Rendered.AwaitingFrame{generation} : Rendered.State}:
+  match environment:
+    case Design.Environment{viewport, dark, root}:
+      Equal.cong(Bool, Rendered.State, (current => Model.observed_frame(current, None{}, generation, received, frame, previous)),
+        Nat.is_eq(generation, received), True{}, owned)
+
+def failed_frame(+application: Platform.State, +generation: Nat, +previous: Rendered.State,
+  environment: Design.Environment, font_generation: Nat, scale: T.Scale, +received: Nat, +frame: Rendered.Frame, +surface: Interface.Surface,
+  owned: {Nat.is_eq(generation, received) == True{} : Bool}) ->
+  {Model.frame_realization(Model.State{application, generation, previous, environment, F.Failed{font_generation, scale}}, received, frame, surface) ==
+    Rendered.AwaitingFrame{generation} : Rendered.State}:
+  match environment:
+    case Design.Environment{viewport, dark, root}:
+      Equal.cong(Bool, Rendered.State, (current => Model.observed_frame(current, None{}, generation, received, frame, previous)),
+        Nat.is_eq(generation, received), True{}, owned)
+
+def scene_uses_measurement(+application: Platform.State, +generation: Nat, +realization: Rendered.State,
+  +viewport: Design.Viewport, +dark: Bool, root: Nat, font_generation: Nat, +scale: T.Scale, +metric: T.Metric,
+  +surface: Interface.Surface, +layout: Design.Layout,
+  allocated: {Layout.present(ViewportSpace.parameters(scale, metric), viewport, surface) == Layout.LayoutReady{layout} : Layout.Outcome}) ->
+  {Model.scene_for_surface(Model.State{application, generation, realization, Design.Environment{viewport, dark, root}, F.Ready{font_generation, scale, metric}}, surface) ==
+    Model.ReadyScene{Model.Scene{Appearance.present(surface, dark, scale), Platform.observe(application), generation, realization, layout}} : Model.SceneOutcome}:
+  Equal.cong(Layout.Outcome, Model.SceneOutcome,
+    (outcome => Model.allocated_scene(outcome, application, generation, realization, surface, dark, scale)),
+    Layout.present(ViewportSpace.parameters(scale, metric), viewport, surface), Layout.LayoutReady{layout}, allocated)
+
+def capacity_booleans(+a: Bool, +b: Bool, +c: Bool, +d: Bool,
+  same: {Platform.same_capacity(View.Capacity{a, b}, View.Capacity{c, d}) == True{} : Bool}) ->
+  {View.Capacity{a, b} == View.Capacity{c, d} : View.Capacity}:
+  match a b c d:
+    case False{} False{} False{} False{}: {==}
+    case False{} False{} False{} True{}: Rendering.false_true_elim({View.Capacity{False{}, False{}} == View.Capacity{False{}, True{}} : View.Capacity}, same)
+    case False{} False{} True{} False{}: Rendering.false_true_elim({View.Capacity{False{}, False{}} == View.Capacity{True{}, False{}} : View.Capacity}, same)
+    case False{} False{} True{} True{}: Rendering.false_true_elim({View.Capacity{False{}, False{}} == View.Capacity{True{}, True{}} : View.Capacity}, same)
+    case False{} True{} False{} False{}: Rendering.false_true_elim({View.Capacity{False{}, True{}} == View.Capacity{False{}, False{}} : View.Capacity}, same)
+    case False{} True{} False{} True{}: {==}
+    case False{} True{} True{} False{}: Rendering.false_true_elim({View.Capacity{False{}, True{}} == View.Capacity{True{}, False{}} : View.Capacity}, same)
+    case False{} True{} True{} True{}: Rendering.false_true_elim({View.Capacity{False{}, True{}} == View.Capacity{True{}, True{}} : View.Capacity}, same)
+    case True{} False{} False{} False{}: Rendering.false_true_elim({View.Capacity{True{}, False{}} == View.Capacity{False{}, False{}} : View.Capacity}, same)
+    case True{} False{} False{} True{}: Rendering.false_true_elim({View.Capacity{True{}, False{}} == View.Capacity{False{}, True{}} : View.Capacity}, same)
+    case True{} False{} True{} False{}: {==}
+    case True{} False{} True{} True{}: Rendering.false_true_elim({View.Capacity{True{}, False{}} == View.Capacity{True{}, True{}} : View.Capacity}, same)
+    case True{} True{} False{} False{}: Rendering.false_true_elim({View.Capacity{True{}, True{}} == View.Capacity{False{}, False{}} : View.Capacity}, same)
+    case True{} True{} False{} True{}: Rendering.false_true_elim({View.Capacity{True{}, True{}} == View.Capacity{False{}, True{}} : View.Capacity}, same)
+    case True{} True{} True{} False{}: Rendering.false_true_elim({View.Capacity{True{}, True{}} == View.Capacity{True{}, False{}} : View.Capacity}, same)
+    case True{} True{} True{} True{}: {==}
+
+def capacity_equal(first: View.Capacity, second: View.Capacity,
+  same: {Platform.same_capacity(first, second) == True{} : Bool}) ->
+  {first == second : View.Capacity}:
+  View.Capacity{a, b} = first
+  View.Capacity{c, d} = second
+  capacity_booleans(a, b, c, d, same)
+
+def decision_capacity(decision: Platform.Decision) -> View.Capacity:
+  Platform.Decision{product, platform, effects} = decision
+  platform_capacity(platform)
+
+def scoped_capacity(decision: Core.Decision, platform: Platform.Platform, scope: Focus.Scope) ->
+  {decision_capacity(Platform.after_core_scoped(decision, platform, scope)) == platform_capacity(platform) : View.Capacity}:
+  Core.Decision{Core.State{application, services}, reply, runtime, interaction, service, durable} = decision
+  Platform.Platform{readers, editors, focused, ticket, reduced, capacity, old_scope} = platform
+  {==}
+
+def reconciled_capacity(+decision: Core.Decision, platform: Platform.Platform) ->
+  {decision_capacity(Platform.after_core(decision, platform)) == platform_capacity(platform) : View.Capacity}:
+  Core.Decision{+state, reply, runtime, interaction, services, durable} = decision
+  Platform.Platform{readers, editors, focused, ticket, reduced, +capacity, scope} = platform
+  scoped_capacity(Core.Decision{state, reply, runtime, interaction, services, durable},
+    Platform.Platform{readers, editors, focused, ticket, reduced, capacity, scope}, Focus.current(state, capacity))
+
+def merge_capacity(product: Core.Decision, effects: +List<Platform.Effect>, +refreshed: Platform.Decision) ->
+  {decision_capacity(Platform.merge_reflow(product, effects, refreshed)) == decision_capacity(refreshed) : View.Capacity}:
+  match refreshed:
+    case Platform.Decision{ignored, platform, reconciliation}: {==}
+
+def changed_capacity_fields(decision: Platform.Decision, +capacity: View.Capacity) ->
+  {decision_capacity(Platform.changed_capacity(decision, capacity)) == capacity : View.Capacity}:
+  Platform.Decision{Core.Decision{+state, +reply, +runtime, +interaction, +services, +durable},
+    Platform.Platform{+readers, +editors, +focused, +ticket, +reduced, old_capacity, +scope}, +effects} = decision
+  Equal.trans(View.Capacity,
+    decision_capacity(Platform.merge_reflow(Core.Decision{state, reply, runtime, interaction, services, durable}, effects, Platform.after_core(Platform.unchanged(state), Platform.Platform{readers, editors, focused, ticket, reduced, capacity, scope}))),
+    decision_capacity(Platform.after_core(Platform.unchanged(state), Platform.Platform{readers, editors, focused, ticket, reduced, capacity, scope})), capacity,
+    merge_capacity(Core.Decision{state, reply, runtime, interaction, services, durable}, effects, Platform.after_core(Platform.unchanged(state), Platform.Platform{readers, editors, focused, ticket, reduced, capacity, scope})),
+    reconciled_capacity(Platform.unchanged(state), Platform.Platform{readers, editors, focused, ticket, reduced, capacity, scope}))
+
+def retained_capacity_fields(same: Bool, +decision: Platform.Decision, +capacity: View.Capacity,
+  agreement: {Platform.same_capacity(decision_capacity(decision), capacity) == same : Bool}) ->
+  {decision_capacity(Platform.retained_capacity(same, decision, capacity)) == capacity : View.Capacity}:
+  match same:
+    case True{}: capacity_equal(decision_capacity(decision), capacity, agreement)
+    case False{}: changed_capacity_fields(decision, capacity)
+
+def reflow_capacity_fields(+decision: Platform.Decision, +capacity: View.Capacity) ->
+  {decision_capacity(Platform.reflow_capacity(decision, capacity)) == capacity : View.Capacity}:
+  Platform.Decision{+product, Platform.Platform{+readers, +editors, +focused, +ticket, +reduced, +old_capacity, +scope}, +effects} = decision
+  retained_capacity_fields(Platform.same_capacity(old_capacity, capacity),
+    Platform.Decision{product, Platform.Platform{readers, editors, focused, ticket, reduced, old_capacity, scope}, effects}, capacity, {==})
+
+def stale_typography(+application: Platform.State, +generation: Nat, +realization: Rendered.State,
+  +environment: Design.Environment, +font: F.State, +received: Nat, +metrics: +List<T.Metric>,
+  stale: {Nat.is_eq(F.generation(font), received) == False{} : Bool}) ->
+  {Model.step(Model.TypographyObserved{F.Observation{received, metrics}}, Model.State{application, generation, realization, environment, font}) ==
+    Model.idle(application, generation, realization, environment, font) : Model.Decision}:
+  Equal.cong(Bool, Model.Decision,
+    (owned => Model.receipt_owned_state(owned, application, generation, realization, environment, font, F.Observation{received, metrics})),
+    Nat.is_eq(F.generation(font), received), False{}, stale)
+
+def ready_receipt(owned: Bool, application: Platform.State, generation: Nat, realization: Rendered.State,
+  environment: Design.Environment, font_generation: Nat, scale: T.Scale, metric: T.Metric, observation: F.Observation) ->
+  {Model.receipt_owned_state(owned, application, generation, realization, environment, F.Ready{font_generation, scale, metric}, observation) ==
+    Model.idle(application, generation, realization, environment, F.Ready{font_generation, scale, metric}) : Model.Decision}:
+  match owned:
+    case False{}: {==}
+    case True{}: {==}
+
+def failed_receipt(owned: Bool, application: Platform.State, generation: Nat, realization: Rendered.State,
+  environment: Design.Environment, font_generation: Nat, scale: T.Scale, observation: F.Observation) ->
+  {Model.receipt_owned_state(owned, application, generation, realization, environment, F.Failed{font_generation, scale}, observation) ==
+    Model.idle(application, generation, realization, environment, F.Failed{font_generation, scale}) : Model.Decision}:
+  match owned:
+    case False{}: {==}
+    case True{}: {==}
+
+def reflow_same(+decision: Platform.Decision, +capacity: View.Capacity,
+  same: {Platform.same_capacity(decision_capacity(decision), capacity) == True{} : Bool}) ->
+  {Platform.reflow_capacity(decision, capacity) == decision : Platform.Decision}:
+  Platform.Decision{+product, Platform.Platform{+readers, +editors, +focused, +ticket, +reduced, +old_capacity, +scope}, +effects} = decision
+  Equal.cong(Bool, Platform.Decision,
+    (equal => Platform.retained_capacity(equal, Platform.Decision{product, Platform.Platform{readers, editors, focused, ticket, reduced, old_capacity, scope}, effects}, capacity)),
+    Platform.same_capacity(old_capacity, capacity), True{}, same)
+
 type Requirements is Type:
-  Requirements{
+  Requirements{reflow_same: @+decision:Platform.Decision -> @+capacity:View.Capacity ->
+      @same:{Platform.same_capacity(decision_capacity(decision), capacity) == True{} : Bool} ->
+      {Platform.reflow_capacity(decision, capacity) == decision : Platform.Decision},
+    stale_typography: @+application: Platform.State -> @+generation: Nat -> @+realization: Rendered.State -> @+environment: Design.Environment -> @+font: F.State -> @+received: Nat -> @+metrics: +List<T.Metric> -> @stale: {Nat.is_eq(F.generation(font), received) == False{} : Bool} -> {Model.step(Model.TypographyObserved{F.Observation{received, metrics}}, Model.State{application, generation, realization, environment, font}) ==
+    Model.idle(application, generation, realization, environment, font) : Model.Decision},
+    ready_receipt: @owned: Bool -> @application: Platform.State -> @generation: Nat -> @realization: Rendered.State -> @environment: Design.Environment -> @font_generation: Nat -> @scale: T.Scale -> @metric: T.Metric -> @observation: F.Observation -> {Model.receipt_owned_state(owned, application, generation, realization, environment, F.Ready{font_generation, scale, metric}, observation) ==
+    Model.idle(application, generation, realization, environment, F.Ready{font_generation, scale, metric}) : Model.Decision},
+    failed_receipt: @owned: Bool -> @application: Platform.State -> @generation: Nat -> @realization: Rendered.State -> @environment: Design.Environment -> @font_generation: Nat -> @scale: T.Scale -> @observation: F.Observation -> {Model.receipt_owned_state(owned, application, generation, realization, environment, F.Failed{font_generation, scale}, observation) ==
+    Model.idle(application, generation, realization, environment, F.Failed{font_generation, scale}) : Model.Decision},
+    reflow_capacity_fields: @+decision:Platform.Decision -> @+capacity:View.Capacity ->
+      {decision_capacity(Platform.reflow_capacity(decision, capacity)) == capacity : View.Capacity},
+    invalidated_font: @+decision: Platform.Decision -> @+generation: Nat -> @+environment: Design.Environment -> @+font: F.State -> {font_state(Model.invalidate(decision, generation, environment, font)) == F.retag(font, generation) : F.State},
+    environment_resets_font: @+application: Platform.State -> @+generation: Nat -> @realization: Rendered.State -> @previous_environment: Design.Environment -> @font: F.State -> @+environment: Design.Environment -> {font_state(Model.step(Model.EnvironmentObserved{environment},
+    Model.State{application, generation, realization, previous_environment, font})) ==
+    F.begin((generation + 1n : Nat), Model.environment_root(environment)) : F.State},
+    reflow_product: @decision: Platform.Decision -> @capacity: View.Capacity -> {Model.platform_product(Platform.reflow_capacity(decision, capacity)) == Model.platform_product(decision) : Core.Decision},
+    typography_product: @+state: Model.State -> @+observation: F.Observation -> {Model.product(Model.step(Model.TypographyObserved{observation}, state)) ==
+    Platform.unchanged(model_core(model_application(state))) : Core.Decision},
+    pending_scene: @application: Platform.State -> @generation: Nat -> @realization: Rendered.State -> @environment: Design.Environment -> @font_generation: Nat -> @scale: T.Scale -> @surface: Interface.Surface -> {Model.scene_for_surface(Model.State{application, generation, realization, environment, F.Pending{font_generation, scale}}, surface) ==
+    Model.AwaitingTypography{} : Model.SceneOutcome},
+    failed_scene: @application: Platform.State -> @generation: Nat -> @realization: Rendered.State -> @environment: Design.Environment -> @font_generation: Nat -> @scale: T.Scale -> @surface: Interface.Surface -> {Model.scene_for_surface(Model.State{application, generation, realization, environment, F.Failed{font_generation, scale}}, surface) ==
+    Model.FailedTypography{} : Model.SceneOutcome},
+    pending_frame: @+application: Platform.State -> @+generation: Nat -> @+previous: Rendered.State -> @environment: Design.Environment -> @font_generation: Nat -> @scale: T.Scale -> @+received: Nat -> @+frame: Rendered.Frame -> @+surface: Interface.Surface -> @owned: {Nat.is_eq(generation, received) == True{} : Bool} -> {Model.frame_realization(Model.State{application, generation, previous, environment, F.Pending{font_generation, scale}}, received, frame, surface) ==
+    Rendered.AwaitingFrame{generation} : Rendered.State},
+    failed_frame: @+application: Platform.State -> @+generation: Nat -> @+previous: Rendered.State -> @environment: Design.Environment -> @font_generation: Nat -> @scale: T.Scale -> @+received: Nat -> @+frame: Rendered.Frame -> @+surface: Interface.Surface -> @owned: {Nat.is_eq(generation, received) == True{} : Bool} -> {Model.frame_realization(Model.State{application, generation, previous, environment, F.Failed{font_generation, scale}}, received, frame, surface) ==
+    Rendered.AwaitingFrame{generation} : Rendered.State},
+    scene_uses_measurement: @+application: Platform.State -> @+generation: Nat -> @+realization: Rendered.State -> @+viewport: Design.Viewport -> @+dark: Bool -> @root: Nat -> @font_generation: Nat -> @+scale: T.Scale -> @+metric: T.Metric -> @+surface: Interface.Surface -> @+layout: Design.Layout -> @allocated: {Layout.present(ViewportSpace.parameters(scale, metric), viewport, surface) == Layout.LayoutReady{layout} : Layout.Outcome} -> {Model.scene_for_surface(Model.State{application, generation, realization, Design.Environment{viewport, dark, root}, F.Ready{font_generation, scale, metric}}, surface) ==
+    Model.ReadyScene{Model.Scene{Appearance.present(surface, dark, scale), Platform.observe(application), generation, realization, layout}} : Model.SceneOutcome},
+
     product_refinement: @input:Product.Input -> @core:Core.State -> @platform:Platform.Platform ->
-      @environment:Design.Environment -> @generation:Nat -> @realization:Rendered.State ->
+      @environment:Design.Environment -> @font:F.State -> @generation:Nat -> @realization:Rendered.State ->
       {Model.product(Model.step(Model.PlatformInput{Platform.ProductInput{input}},
-        Model.State{Platform.State{core, platform}, generation, realization, environment})) == Product.step(input, core) : Core.Decision},
+        Model.State{Platform.State{core, platform}, generation, realization, environment, font})) == Product.step(input, core) : Core.Decision},
     element_refinement: @key:String -> @gesture:Interface.Gesture -> @core:Core.State ->
-      @platform:Platform.Platform -> @environment:Design.Environment -> @generation:Nat -> @realization:Rendered.State ->
+      @platform:Platform.Platform -> @environment:Design.Environment -> @font:F.State -> @generation:Nat -> @realization:Rendered.State ->
       {Model.product(Model.step(Model.ElementInput{key, gesture},
-        Model.State{Platform.State{core, platform}, generation, realization, environment})) ==
+        Model.State{Platform.State{core, platform}, generation, realization, environment, font})) ==
         Product.step(Product.Element{platform_capacity(platform), key, gesture}, core) : Core.Decision},
     frame_silent: @received:Nat -> @frame:Rendered.Frame -> @application:Platform.State ->
-      @environment:Design.Environment -> @generation:Nat -> @realization:Rendered.State ->
-      {Model.step(Model.FrameObserved{received, frame}, Model.State{application, generation, realization, environment}) ==
+      @environment:Design.Environment -> @font:F.State -> @generation:Nat -> @realization:Rendered.State ->
+      {Model.step(Model.FrameObserved{received, frame}, Model.State{application, generation, realization, environment, font}) ==
         Model.Decision{Model.State{application, generation,
-          Rendered.observe(generation, received, Model.frame_surface(environment, Model.surface(application)), frame, realization), environment},
+          Model.frame_realization(Model.State{application, generation, realization, environment, font}, received, frame, Model.surface(application)), environment, font},
           Platform.unchanged(model_core(application)), Nil{}} : Model.Decision},
     stale_frame: @received:Nat -> @frame:Rendered.Frame -> @application:Platform.State ->
-      @environment:Design.Environment -> @generation:Nat -> @realization:Rendered.State ->
+      @environment:Design.Environment -> @font:F.State -> @generation:Nat -> @realization:Rendered.State ->
       @stale:{Nat.is_eq(generation, received) == False{} : Bool} ->
-      {Model.step(Model.FrameObserved{received, frame}, Model.State{application, generation, realization, environment}) ==
-        Model.Decision{Model.State{application, generation, realization, environment},
+      {Model.step(Model.FrameObserved{received, frame}, Model.State{application, generation, realization, environment, font}) ==
+        Model.Decision{Model.State{application, generation, realization, environment, font},
           Platform.unchanged(model_core(application)), Nil{}} : Model.Decision},
     stale_reading: @application:E.Application -> @services:Services.State -> @platform:Platform.Platform ->
       @task:Nat -> @generation:Nat -> @event:Reading.Event ->
@@ -714,15 +985,15 @@ type Requirements is Type:
   }
 
 def evidence() -> Requirements:
-  Requirements{
-    input => core => platform => environment => generation => realization =>
-      product_refinement(input, core, platform, generation, realization, environment),
-    key => gesture => core => platform => environment => generation => realization =>
-      element_refinement(key, gesture, core, platform, generation, realization, environment),
-    received => frame => application => environment => generation => realization =>
-      frame_silent(received, frame, application, generation, realization, environment),
-    received => frame => application => environment => generation => realization => stale =>
-      stale_frame(received, frame, application, generation, realization, environment, stale),
+  Requirements{reflow_same, stale_typography, ready_receipt, failed_receipt, reflow_capacity_fields, invalidated_font, environment_resets_font, reflow_product, typography_product, pending_scene, failed_scene, pending_frame, failed_frame, scene_uses_measurement,
+    input => core => platform => environment => font => generation => realization =>
+      product_refinement(input, core, platform, generation, realization, environment, font),
+    key => gesture => core => platform => environment => font => generation => realization =>
+      element_refinement(key, gesture, core, platform, generation, realization, environment, font),
+    received => frame => application => environment => font => generation => realization =>
+      frame_silent(received, frame, application, generation, realization, environment, font),
+    received => frame => application => environment => font => generation => realization => stale =>
+      stale_frame(received, frame, application, generation, realization, environment, font, stale),
     application => services => platform => task => generation => event => inactive =>
       stale_reading(application, services, platform, task, generation, event, inactive),
     height => viewport => anchor => reduced =>
@@ -784,5 +1055,5 @@ def evidence() -> Requirements:
             tape_bookmark(initial),
             advance_preserves_bookmark(Std.iter(~Tape, ~advance, steps, initial)), evidence(initial))),
         count)(seed)
-    
+
   }

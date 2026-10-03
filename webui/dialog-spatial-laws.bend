@@ -1,4 +1,5 @@
 import Base
+import ./typography.bend as T
 import ../core/field-options.bend as FieldOptions
 import ./enclosure.bend as Enclosure
 import ../bendlib/stdlib.bend as Std
@@ -85,8 +86,8 @@ def original_children(+node: Doc.Node) -> +List<Doc.Node>:
   List.append(&2, Doc.Node, observed_body(node), observed_footer(node))
 
 def suffix_observation(+key: String, +label: String, +visual: Design.Style,
-  +header: +List<Doc.Node>, suffix: EditorLayout.Suffix) ->
-  {original_children(Render.dialog_region_suffix(key, label, visual, header, suffix)) ==
+  +header: +List<Doc.Node>, suffix: EditorLayout.Suffix, +typography: T.Presentation) ->
+  {original_children(Render.dialog_region_suffix(key, label, visual, header, suffix, typography)) ==
     recombine(suffix) : +List<Doc.Node>}:
   match suffix:
     case EditorLayout.Suffix{+body, Nil{}}: {==}
@@ -97,15 +98,15 @@ def suffix_observation(+key: String, +label: String, +visual: Design.Style,
         footer_items_preserve(key, item <> remaining))
 
 def region_original_children(+key: String, +label: String, +visual: Design.Style,
-  parts: Render.DialogParts) ->
-  {original_children(Render.dialog_region_parts(key, label, visual, parts)) ==
+  parts: Render.DialogParts, +typography: T.Presentation) ->
+  {original_children(Render.dialog_region_parts(key, label, visual, parts, typography)) ==
     Render.dialog_body_projection(parts) : +List<Doc.Node>}:
   match parts:
     case Render.DialogParts{+header, +body, +layouts}:
       Equal.trans(+List<Doc.Node>,
-        original_children(Render.dialog_region_suffix(key, label, visual, header, EditorLayout.split(body, layouts))),
+        original_children(Render.dialog_region_suffix(key, label, visual, header, EditorLayout.split(body, layouts), typography)),
         recombine(EditorLayout.split(body, layouts)), body,
-        suffix_observation(key, label, visual, header, EditorLayout.split(body, layouts)),
+        suffix_observation(key, label, visual, header, EditorLayout.split(body, layouts), typography),
         split_recombines(body, layouts))
 
 def node_key(node: Doc.Node) -> String:
@@ -169,18 +170,18 @@ def toggle_geometry(+properties: +List<Doc.Property>) ->
 
 
 
-def toggle_value_and_events_law(-key: String, -name: String, -enabled: Bool, -choices: +List<Forms.ChoiceValue>) -> Type:
+def toggle_value_and_events_law(-key: String, -name: String, -enabled: Bool, -choices: +List<Forms.ChoiceValue>, +typography: T.Presentation) -> Type:
   {(Render.attr(Doc.element_attributes(first(Doc.element_children(Render.input(key,
         UI.Edit{User.CardEditor{None{}}, Forms.ContinueCapture{}, Forms.Choice{}, Forms.ToggleValue{enabled}, choices},
         Controls.Input{UI.Edit{User.CardEditor{None{}}, Forms.ContinueCapture{}, Forms.Choice{}, Forms.ToggleValue{enabled}, choices},
-          name, Controls.ToggleInput{}, Controls.BesideInput{}, View.Available{}}, Appearance.toggle_field())))), "value"),
+          name, Controls.ToggleInput{}, Controls.BesideInput{}, View.Available{}}, Appearance.toggle_field(typography))))), "value"),
       Doc.element_events(first(Doc.element_children(Render.input(key,
         UI.Edit{User.CardEditor{None{}}, Forms.ContinueCapture{}, Forms.Choice{}, Forms.ToggleValue{enabled}, choices},
         Controls.Input{UI.Edit{User.CardEditor{None{}}, Forms.ContinueCapture{}, Forms.Choice{}, Forms.ToggleValue{enabled}, choices},
-          name, Controls.ToggleInput{}, Controls.BesideInput{}, View.Available{}}, Appearance.toggle_field()))))) ==
+          name, Controls.ToggleInput{}, Controls.BesideInput{}, View.Available{}}, Appearance.toggle_field(typography)))))) ==
      (FieldOptions.boolean(enabled), [Doc.EditToggle{key}]) : (String & +List<Doc.Event>)}
 
-def toggle_value_and_events(+key: String, +name: String, +enabled: Bool, choices: +List<Forms.ChoiceValue>) -> toggle_value_and_events_law(key, name, enabled, choices):
+def toggle_value_and_events(+key: String, +name: String, +enabled: Bool, choices: +List<Forms.ChoiceValue>, +typography: T.Presentation) -> toggle_value_and_events_law(key, name, enabled, choices, typography):
   match enabled:
     case False{}: {==}
     case True{}: {==}
@@ -214,23 +215,23 @@ type Requirements is Type:
           UI.Edit{User.CardEditor{None{}}, Forms.AssistanceProfile{}, Forms.Choice{}, Forms.TextValue{selected},
             FieldOptions.assistance_options(Forms.key(Forms.AssistanceProfile{}), profiles)}, Controls.SelectInput{}) ==
         Render.option(key, "", "使用看板默认模型") <> Render.field_options(key, FieldOptions.profile_options(profiles)) : +List<Doc.Node>},
-    field_style_widget_binding: @editor:User.Editor -> @+field:Forms.Field -> @+entry:Forms.Entry -> @+value:Forms.Observed ->
+    field_style_widget_binding: @+typography:T.Presentation -> @editor:User.Editor -> @+field:Forms.Field -> @+entry:Forms.Entry -> @+value:Forms.Observed ->
       @choices:+List<Forms.ChoiceValue> ->
       @toggle:{Controls.widget_for(entry, field, value) == Controls.ToggleInput{} : Controls.Widget} ->
-      {Appearance.field_style(UI.Edit{editor, field, entry, value, choices}) == Appearance.toggle_field() : Design.Style},
-    rendered_toggle_geometry: @+key:String -> @+name:String -> @+enabled:Bool ->   @choices:+List<Forms.ChoiceValue> ->
+      {Appearance.field_style(UI.Edit{editor, field, entry, value, choices}, typography) == Appearance.toggle_field(typography) : Design.Style},
+    rendered_toggle_geometry: @+typography:T.Presentation -> @+key:String -> @+name:String -> @+enabled:Bool ->   @choices:+List<Forms.ChoiceValue> ->
       {toggle_geometry(Doc.element_styles(first(Doc.element_children(Render.input(key,
           UI.Edit{User.CardEditor{None{}}, Forms.ContinueCapture{}, Forms.Choice{}, Forms.ToggleValue{enabled}, choices},
           Controls.Input{UI.Edit{User.CardEditor{None{}}, Forms.ContinueCapture{}, Forms.Choice{}, Forms.ToggleValue{enabled}, choices},
             name, Controls.ToggleInput{}, Controls.BesideInput{}, View.Available{}},
-          Appearance.field_style(UI.Edit{User.CardEditor{None{}}, Forms.ContinueCapture{}, Forms.Choice{}, Forms.ToggleValue{enabled}, choices})))))) ==
+          Appearance.field_style(UI.Edit{User.CardEditor{None{}}, Forms.ContinueCapture{}, Forms.Choice{}, Forms.ToggleValue{enabled}, choices}, typography)))))) ==
          ("16px", ("16px", ("16px", ("0px", ("0px", ("center", ("0", "none"))))))) :
          (String & (String & (String & (String & (String & (String & (String & String)))))))},
-    toggle_value_and_events: @+key:String -> @+name:String -> @+enabled:Bool -> @choices:+List<Forms.ChoiceValue> -> toggle_value_and_events_law(key, name, enabled, choices),
+    toggle_value_and_events: @+typography:T.Presentation -> @+key:String -> @+name:String -> @+enabled:Bool -> @choices:+List<Forms.ChoiceValue> -> toggle_value_and_events_law(key, name, enabled, choices, typography),
     capture_toggle_target: @+key:String -> @+name:String -> @input:Doc.Node ->   {(Render.attr(Doc.element_styles(Render.editor_field_presented(EditorLayout.CaptureOption{}, Controls.BesideInput{}, key, name, input)), "min-height"),
           Render.attr(Doc.element_styles(Render.editor_field_presented(EditorLayout.CaptureOption{}, Controls.BesideInput{}, key, name, input)), "flex")) ==
          ("32px", "1 1 200px") : (String & String)},
-    dialog_outer_inset: {style_insets(Appearance.style(UI.Dialog{}, UI.Region{})) == (0n, (0n, 0n)) : (Nat & (Nat & Nat))},
+    dialog_outer_inset: @+typography:T.Presentation -> {style_insets(Appearance.style(UI.Dialog{}, UI.Region{}, typography)) == (0n, (0n, 0n)) : (Nat & (Nat & Nat))},
     concrete_field_kinds:   {[EditorLayout.card_field(Forms.CardTitle{}), EditorLayout.card_field(Forms.CardDescription{}),
           EditorLayout.card_field(Forms.CardStage{}), EditorLayout.card_field(Forms.CardPriority{}),
           EditorLayout.card_field(Forms.CardProject{}), EditorLayout.card_field(Forms.CardOwner{}),
@@ -242,8 +243,8 @@ type Requirements is Type:
           EditorLayout.CaptureOption{}] : +List<EditorLayout.FieldKind>},
     suffix_recombination: @nodes:+List<Doc.Node> -> @kinds:+List<EditorLayout.SectionKind> ->
       {recombine(EditorLayout.split(nodes, kinds)) == nodes : +List<Doc.Node>},
-    original_dialog_order: @key:String -> @label:String -> @visual:Design.Style -> @parts:Render.DialogParts ->
-      {original_children(Render.dialog_region_parts(key, label, visual, parts)) ==
+    original_dialog_order: @+typography:T.Presentation -> @key:String -> @label:String -> @visual:Design.Style -> @parts:Render.DialogParts ->
+      {original_children(Render.dialog_region_parts(key, label, visual, parts, typography)) ==
         Render.dialog_body_projection(parts) : +List<Doc.Node>},
     field_layout_binding: @card:Maybe<&2, Nat> -> @field:Forms.Field -> @entry:Forms.Entry -> @value:Forms.Observed ->
       @choices:+List<Forms.ChoiceValue> ->
@@ -277,8 +278,8 @@ type Requirements is Type:
          (String & (String & (String & (String & String))))},
     above_input_margin: @key:String -> @name:String -> @input:Doc.Node ->
       {Render.attr(Doc.element_styles(Render.label_input(Controls.AboveInput{}, key, name, input)), "margin") == "0" : String},
-    section_heading_margin: @owner:String -> @name:String ->
-      {Render.attr(Doc.element_styles(first(Render.section_label(owner, False{}, name))), "margin") == "0" : String},
+    section_heading_margin: @+typography:T.Presentation -> @owner:String -> @name:String ->
+      {Render.attr(Doc.element_styles(first(Render.section_label(owner, False{}, name, typography))), "margin") == "0" : String},
     absent_footer: @key:String -> {Render.dialog_footer(key, Nil{}) == Nil{} : +List<Doc.Node>},
     terminal_submit: @node:Doc.Node ->
       {EditorLayout.split([node], [EditorLayout.SubmitAction{}]) == EditorLayout.Suffix{Nil{}, [node]} : EditorLayout.Suffix},
@@ -293,25 +294,24 @@ def evidence() -> Requirements:
     +key => +profiles => {==},
     +key => +profiles => {==},
     +key => +enabled => +selected => +profiles => {==},
-    editor => +field => +entry => +value => choices => toggle =>
+    +typography => editor => +field => +entry => +value => choices => toggle =>
       Equal.cong(Controls.Widget, Design.Style,
         (widget => Appearance.normalize_field(EditorLayout.field_kind(UI.Edit{editor, field, entry, value, choices}),
-          widget, Appearance.widget_field_style(widget, entry))),
-        Controls.widget_for(entry, field, value), Controls.ToggleInput{}, toggle)
-    ,
-    +key => +name => +enabled => choices => {==},
-    toggle_value_and_events,
+          widget, Appearance.widget_field_style(widget, entry, typography))),
+        Controls.widget_for(entry, field, value), Controls.ToggleInput{}, toggle),
+    +typography => +key => +name => +enabled => choices => {==},
+    +typography => +key => +name => +enabled => choices => toggle_value_and_events(key, name, enabled, choices, typography),
     +key => +name => input => {==},
-    {==},
+    +typography => {==},
     {==},
     nodes => kinds => split_recombines(nodes, kinds),
-    key => label => visual => parts => region_original_children(key, label, visual, parts),
+    +typography => key => label => visual => parts => region_original_children(key, label, visual, parts, typography),
     +card => +field => +entry => +value => choices => {==},
     +key => +tag => +attributes => +styles => +events => +children => +name => {==},
     +key => +tag => +attributes => +styles => +events => +children => +name => {==},
     {==}, {==},
     +key => +name => input => {==},
-    +owner => +name => {==},
+    +typography => +owner => +name => {==},
     key => {==},
     +node => {==},
     +capture => +submit => {==},

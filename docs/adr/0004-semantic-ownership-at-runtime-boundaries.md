@@ -16,10 +16,6 @@ An attach attempt has a fresh internal session identity, independent of its reus
 
 A running service or command owns the work it starts. Web shutdown cancels and joins accepted connection handlers. Bash execution owns its child and both output readers in one completion scope; timeout resumes cleanup without consuming completed results again. Runtime database transitions execute through one blocking boundary while the actor retains serial command semantics and its shutdown barrier.
 
-The router's runtime factory remains serial. Its ordinary return value represents completion; effect IDs, pending maps and deferred queues are unnecessary when the router cannot process another command during the call. Infallible construction and conversion return values directly.
-
 ## Consequences
-
-Rust's private fields, owned scopes, immutable shared values and exhaustive enum matching enforce the structural parts of these contracts. Dynamic ordering, cancellation and external provider semantics still require behavior tests. Regressions cover reused IDs, hidden hydration results, independently finishing output pipes, shutdown with outstanding connections and non-default reasoning choices.
 
 Internal APIs intentionally change, and obsolete placeholder states and their exclusive tests are removed. This does not add compatibility paths for previous persisted formats. Database schema initialization is atomic, and validation derives the current expected structure from the schema source instead of maintaining another schema description.

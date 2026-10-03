@@ -21,8 +21,8 @@ def frame_canvas(frame: Design.MainFrame) -> Design.Box:
     case Design.ConversationFrame{heading, viewport, reading, dock}: viewport
     case Design.UnavailableFrame{heading, canvas, band}: canvas
 
-def inline_canvas(+main: Design.Box, +body: Composition.Body) -> Design.Box:
-  frame_canvas(Layout.main_frame(Composition.Recipe{Composition.ReadingMeasure{}, Composition.NoHeading{}, body,
+def inline_canvas(+parameters: Design.LayoutParameters, +main: Design.Box, +body: Composition.Body) -> Design.Box:
+  frame_canvas(Layout.main_frame(parameters, Composition.Recipe{Composition.ReadingMeasure{}, Composition.NoHeading{}, body,
     Composition.NoComposer{}, Composition.NoDecisions{}, Composition.NoLatest{}}, main))
 
 
@@ -99,8 +99,8 @@ def input_inset(metrics: Design.InputMetrics) -> Nat:
   Design.InputMetrics{minimum, maximum, line_height, inline, gap, footer} = metrics
   inline
 
-def shared_composer_inset(canvas: Design.Box) ->
-  {input_inset(Layout.input_metrics(canvas)) == Appearance.face_padding(Controls.TextFace{""}) : Nat}:
+def shared_composer_inset(+parameters: Design.LayoutParameters, canvas: Design.Box) ->
+  {input_inset(Layout.input_metrics(parameters, canvas)) == Appearance.face_padding(Controls.TextFace{""}) : Nat}:
   match canvas:
     case Design.Box{left, top, width, height}: {==}
 
@@ -182,9 +182,9 @@ def creation_canvas_geometry(+canvas: Design.Box, +band: Design.Band, +flow: Des
 
 
 
-def reopening_events(role: UI.Role, expanded: Bool, availability: View.Availability,
+def reopening_events(+parameters: Design.LayoutParameters, role: UI.Role, expanded: Bool, availability: View.Availability,
   +node: Doc.Node, main: Design.Box, details: Maybe<&2, Design.Box>) ->
-  {Doc.element_events(Render.render_base(role, UI.Activate{Core.ApplicationInput{Experience.UserInput{User.SetNavigation{expanded}}}, availability},
+  {Doc.element_events(Render.render_base(parameters, role, UI.Activate{Core.ApplicationInput{Experience.UserInput{User.SetNavigation{expanded}}}, availability},
     node, Design.HiddenNavigation{}, main, details)) == Doc.element_events(node) : +List<Doc.Event>}:
   match node:
     case Doc.Element{key, tag, attrs, styles, events, children}: {==}
@@ -195,21 +195,21 @@ def reopening_events(role: UI.Role, expanded: Bool, availability: View.Availabil
 
 type Requirements is Type:
   Requirements{
-    navigation_toggle_geometry: @+navigation: Design.Navigation -> @+left: Nat -> @+top: Nat -> @+width: Nat -> @+height: Nat -> @+details: Maybe<&2, Design.Box> -> {Layout.navigation_toggle_bounds(Design.Shell{navigation, Design.Box{left, top, width, height}, details}) ==
+    navigation_toggle_geometry: @+parameters:Design.LayoutParameters -> @+navigation: Design.Navigation -> @+left: Nat -> @+top: Nat -> @+width: Nat -> @+height: Nat -> @+details: Maybe<&2, Design.Box> -> {Layout.navigation_toggle_bounds(parameters, Design.Shell{navigation, Design.Box{left, top, width, height}, details}) ==
           Design.Box{Nat.add(left, Nat.min(8n, Nat.sub(width, Nat.min(32n, Nat.min(width, height))))),
             Nat.add(top, Nat.min(7n, Nat.sub(height, Nat.min(32n, Nat.min(width, height))))),
             Nat.min(32n, Nat.min(width, height)), Nat.min(32n, Nat.min(width, height))} : Design.Box},
-    reopening_rendered: @+role: UI.Role -> @expanded: Bool -> @availability: View.Availability -> @+node: Doc.Node -> @+main: Design.Box -> @+details: Maybe<&2, Design.Box> -> {Render.render_base(role, UI.Activate{Core.ApplicationInput{Experience.UserInput{User.SetNavigation{expanded}}}, availability},
+    reopening_rendered: @+parameters:Design.LayoutParameters -> @+role: UI.Role -> @expanded: Bool -> @availability: View.Availability -> @+node: Doc.Node -> @+main: Design.Box -> @+details: Maybe<&2, Design.Box> -> {Render.render_base(parameters, role, UI.Activate{Core.ApplicationInput{Experience.UserInput{User.SetNavigation{expanded}}}, availability},
           node, Design.HiddenNavigation{}, main, details) ==
           Render.replace_styles(node, List.append(&2, Doc.Property,
-            Render.bounds(Layout.navigation_toggle_bounds(Design.Shell{Design.HiddenNavigation{}, main, details})), [Doc.Property{"z-index", "6"}])) : Doc.Node},
-    reopening_events: @role: UI.Role -> @expanded: Bool -> @availability: View.Availability -> @+node: Doc.Node -> @main: Design.Box -> @details: Maybe<&2, Design.Box> -> {Doc.element_events(Render.render_base(role, UI.Activate{Core.ApplicationInput{Experience.UserInput{User.SetNavigation{expanded}}}, availability},
+            Render.bounds(Layout.navigation_toggle_bounds(parameters, Design.Shell{Design.HiddenNavigation{}, main, details})), [Doc.Property{"z-index", "6"}])) : Doc.Node},
+    reopening_events: @+parameters:Design.LayoutParameters -> @role: UI.Role -> @expanded: Bool -> @availability: View.Availability -> @+node: Doc.Node -> @main: Design.Box -> @details: Maybe<&2, Design.Box> -> {Doc.element_events(Render.render_base(parameters, role, UI.Activate{Core.ApplicationInput{Experience.UserInput{User.SetNavigation{expanded}}}, availability},
     node, Design.HiddenNavigation{}, main, details)) == Doc.element_events(node) : +List<Doc.Event>},
-    creation_canvas: @main:Design.Box -> {inline_canvas(main, Composition.CenteredCreation{}) == main : Design.Box},
-    section_canvas: @main:Design.Box -> {inline_canvas(main, Composition.ProjectSections{}) == main : Design.Box},
-    project_canvas: @main:Design.Box -> {inline_canvas(main, Composition.ProjectRows{}) == main : Design.Box},
-    agent_canvas: @main:Design.Box -> {inline_canvas(main, Composition.AgentRows{}) == main : Design.Box},
-    board_canvas: @main:Design.Box -> {inline_canvas(main, Composition.StageColumns{}) == main : Design.Box},
+    creation_canvas: @+parameters:Design.LayoutParameters -> @main:Design.Box -> {inline_canvas(parameters, main, Composition.CenteredCreation{}) == main : Design.Box},
+    section_canvas: @+parameters:Design.LayoutParameters -> @main:Design.Box -> {inline_canvas(parameters, main, Composition.ProjectSections{}) == main : Design.Box},
+    project_canvas: @+parameters:Design.LayoutParameters -> @main:Design.Box -> {inline_canvas(parameters, main, Composition.ProjectRows{}) == main : Design.Box},
+    agent_canvas: @+parameters:Design.LayoutParameters -> @main:Design.Box -> {inline_canvas(parameters, main, Composition.AgentRows{}) == main : Design.Box},
+    board_canvas: @+parameters:Design.LayoutParameters -> @main:Design.Box -> {inline_canvas(parameters, main, Composition.StageColumns{}) == main : Design.Box},
     creation_order: @+values:+List<Doc.Node> -> @+band:Design.Band -> @+flow:Design.CreationFlow ->
       {creation_region_children(Render.creation_regions(band, flow, Render.creation_partition(values))) == values : +List<Doc.Node>},
     creation_keys: @+values:+List<Doc.Node> -> @+band:Design.Band -> @+flow:Design.CreationFlow ->
@@ -225,7 +225,7 @@ type Requirements is Type:
             [Render.page_region(owner ++ "/intro", Composition.CreationIntroduction{}, Composition.BodyPosition{}, introduction)],
             [Render.page_region(owner ++ "/context", Composition.CreationContext{}, Composition.BodyPosition{}, context),
              Render.page_region(owner ++ "/input", Composition.ComposerInput{}, Composition.BodyPosition{}, composer)]} : Render.CreationParts},
-    shared_inset: @canvas:Design.Box -> {input_inset(Layout.input_metrics(canvas)) == Appearance.face_padding(Controls.TextFace{""}) : Nat},
+    shared_inset: @+parameters:Design.LayoutParameters -> @canvas:Design.Box -> {input_inset(Layout.input_metrics(parameters, canvas)) == Appearance.face_padding(Controls.TextFace{""}) : Nat},
     title_identity: @+key:String -> @+tag:String -> @+attrs:+List<Doc.Property> -> @+styles:+List<Doc.Property> -> @+events:+List<Doc.Event> -> @+values:+List<Doc.Node> ->
       {Render.conversation_title_node(Doc.Element{key, tag, attrs, styles, events, values}) ==
         Doc.Element{key, tag, attrs, List.append(&2, Doc.Property, styles, Render.conversation_title_styles()), events, values} : Doc.Node},
@@ -245,8 +245,14 @@ type Requirements is Type:
       canvas_geometry_law(canvas, band, flow, values)}
 
 def evidence() -> Requirements:
-  Requirements{+navigation => +left => +top => +width => +height => +details => {==}, +role => expanded => availability => +node => +main => +details => {==}, reopening_events, main => {==}, main => {==}, main => {==},
-    main => {==}, main => {==},
+  Requirements{
+    +parameters => +navigation => +left => +top => +width => +height => +details => {==},
+    +parameters => +role => expanded => availability => +node => +main => +details => {==}, reopening_events,
+    +parameters => main => {==},
+    +parameters => main => {==},
+    +parameters => main => {==},
+    +parameters => main => {==},
+    +parameters => main => {==},
     values => band => flow => creation_regions_keep_order(values, band, flow),
     +children => +band => +flow =>
       Equal.cong(+List<Doc.Node>, +List<String>,
@@ -255,7 +261,7 @@ def evidence() -> Requirements:
         creation_regions_keep_order(children, band, flow))
     ,
     +owner => introduction => context => composer => {==},
-    canvas => shared_composer_inset(canvas),
+    +parameters => canvas => shared_composer_inset(parameters, canvas),
     key => tag => attrs => styles => events => values => title_node_identity(key, tag, attrs, styles, events, values),
     {==}, {==},
     values => band => flow => creation_group_order(values, band, flow),

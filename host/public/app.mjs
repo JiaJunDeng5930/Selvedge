@@ -2,6 +2,7 @@ import * as Bend from './generated/browser-model.mjs';
 import { decodeBendValue, encodeBendValue } from './bend-value.mjs';
 import { Renderer, list } from './renderer.mjs';
 import { EventFrames } from './events.mjs';
+import { createTextMeasurer } from './text-measurement.mjs';
 
 const value = ($, fields = {}) => ({ $, ...fields });
 const bool = enabled => Boolean(enabled);
@@ -26,6 +27,7 @@ function showJson(input) {
   }
 }
 const root = document.getElementById('surface');
+const textMeasurer = createTextMeasurer(root);
 let state = Bend.initial(Bend.empty(), 0n);
 let token = sessionStorage.getItem('selvedge-token') ?? '';
 let connection;
@@ -61,7 +63,56 @@ const renderer = new Renderer(root, {
     if (!renderQueued) { renderQueued = true; queueMicrotask(() => { renderQueued = false; render(); }); }
   },
 });
-function render() { renderer.render(Bend.observe(state)); }
+function safeNumber(input, name) {
+  const number = Number(input);
+  if (!Number.isSafeInteger(number) || number < 0) throw new TypeError(`Invalid observed ${name}`);
+  return number;
+}
+function measuredNat(input, name) {
+  if (!Number.isSafeInteger(input) || input < 0) throw new TypeError(`Invalid measured ${name}`);
+  return BigInt(input);
+}
+function measurementSpec(spec) {
+  let available_width;
+  switch (spec.available_width.$) {
+    case 'None': available_width = null; break;
+    case 'Some': available_width = safeNumber(spec.available_width.value, 'available_width'); break;
+    default: throw new TypeError('Invalid measurement available_width');
+  }
+  return {
+    key: spec.key, text: spec.text, reference_text: spec.reference_text,
+    fontFamily: spec.font_family, fontSize: safeNumber(spec.font_size, 'font_size'),
+    lineHeight: safeNumber(spec.line_height, 'line_height'),
+    fontWeight: safeNumber(spec.font_weight, 'font_weight'),
+    whiteSpace: spec.white_space, overflowWrap: spec.overflow_wrap, wordBreak: spec.word_break,
+    available_width,
+  };
+}
+function measurementMetric(metric) {
+  return value('Metric', {
+    key: metric.key,
+    minimum_width: measuredNat(metric.minimum_width, 'minimum_width'),
+    preferred_width: measuredNat(metric.preferred_width, 'preferred_width'),
+    constrained_height: measuredNat(metric.constrained_height, 'constrained_height'),
+    reference_advance: measuredNat(metric.reference_advance, 'reference_advance'),
+  });
+}
+function render() {
+  const plan = Bend.measurement_plan(state);
+  const specifications = list(plan.specifications);
+  let measurementDecision;
+  if (specifications.length) {
+    const metrics = textMeasurer.measure(specifications.map(measurementSpec));
+    measurementDecision = Bend.measurements(value('Observation', {
+      generation: plan.generation, metrics: linked(metrics.map(measurementMetric)),
+    }), state);
+    state = measurementDecision.state;
+  }
+  renderer.render(Bend.observe(state));
+  if (measurementDecision) {
+    for (const effect of list(measurementDecision.effects)) Promise.resolve(execute(effect)).catch(error => console.error(error));
+  }
+}
 function commit(decision) {
   state = decision.state; render();
   for (const effect of list(decision.effects)) Promise.resolve(execute(effect)).catch(error => console.error(error));
@@ -355,18 +406,33 @@ async function watch(signal, credential) {
     }
   }
 }
-function environment() {
-  native(value('EnvironmentObserved', { environment: value('Environment', { viewport: value('Viewport', { width: BigInt(innerWidth), height: BigInt(innerHeight) }), system_dark: bool(matchMedia('(prefers-color-scheme: dark)').matches) }) }));
+function environmentInput() {
+  const fontSize = getComputedStyle(document.documentElement).fontSize;
+  if (!/^(?:\d+(?:\.\d*)?|\.\d+)px$/.test(fontSize)) throw new TypeError(`Invalid observed root font size: ${fontSize}`);
+  const pixels = Number(fontSize.slice(0, -2));
+  if (!Number.isFinite(pixels) || pixels <= 0) throw new TypeError('Invalid observed root font size');
+  const rootFontSizeMilli = safeNumber(Math.ceil(pixels * 1000), 'root_font_size_milli');
+  return value('EnvironmentObserved', { environment: value('Environment', {
+    viewport: value('Viewport', {
+      width: BigInt(safeNumber(Math.floor(innerWidth), 'viewport width')),
+      height: BigInt(safeNumber(Math.floor(innerHeight), 'viewport height')),
+    }),
+    root_font_size_milli: BigInt(rootFontSizeMilli),
+    system_dark: bool(matchMedia('(prefers-color-scheme: dark)').matches),
+  }) });
 }
+function environment() { native(environmentInput()); }
 window.addEventListener('resize', environment);
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', environment);
+document.fonts.addEventListener('loadingdone', environment);
+document.fonts.addEventListener('loadingerror', environment);
 const motion = matchMedia('(prefers-reduced-motion: reduce)');
 motion.addEventListener('change', () => platform(value('MotionPreference', { reduced: bool(motion.matches) })));
 root.addEventListener('focusin', () => platform(value('FocusObserved', { identity: owner(document.activeElement) })));
-window.addEventListener('pagehide', () => { connection?.abort(); for (const resource of resources) URL.revokeObjectURL(resource); });
+window.addEventListener('pagehide', () => { textMeasurer.dispose(); connection?.abort(); for (const resource of resources) URL.revokeObjectURL(resource); });
 const bootEffects = [];
 for (const input of [
-  value('EnvironmentObserved', { environment: value('Environment', { viewport: value('Viewport', { width: BigInt(innerWidth), height: BigInt(innerHeight) }), system_dark: bool(matchMedia('(prefers-color-scheme: dark)').matches) }) }),
+  environmentInput(),
   value('PlatformInput', { input: value('MotionPreference', { reduced: bool(motion.matches) }) }),
 ]) {
   const decision = Bend.step(value('Native', { input }), state);
@@ -378,6 +444,7 @@ native(value('Mount'));
 const hash = new URLSearchParams(location.hash.slice(1));
 if (hash.has('token')) { token = hash.get('token'); history.replaceState(null, '', location.pathname + location.search); }
 if (token) commit(Bend.connect(token, state));
+document.fonts.ready.then(environment).catch(error => console.error(error));
 
 function editorEvent(node, event) {
   const key = node?.getAttribute?.('data-native-editor-key');

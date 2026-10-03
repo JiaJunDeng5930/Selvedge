@@ -1,4 +1,5 @@
 import Base
+import ./typography.bend as T
 import ./enclosure.bend as E
 import ./enclosure-laws.bend as Model
 import ./appearance.bend as A
@@ -147,6 +148,17 @@ def excluded_style_tail(+mode: AttributeMode, +flow: D.Flow, +overflow: D.Overfl
   excluded_append(mode, R.flow(flow), List.append(&2, Doc.Property, R.overflow_style(overflow), R.style_details(shadow, alignment, states)), excluded_flow(mode, flow),
     excluded_append(mode, R.overflow_style(overflow), R.style_details(shadow, alignment, states), excluded_overflow(mode, overflow), excluded_details(mode, shadow, alignment, states)))
 
+def excluded_typography(+mode: AttributeMode, +value: T.Presentation) -> Excluded(mode, R.text_presentation(value)):
+  match mode:
+    case RawBackground{}: ({==}, ({==}, ({==}, ({==}, Unit{}))))
+    case PointerBackground{}: ({==}, ({==}, ({==}, ({==}, Unit{}))))
+
+def typed_style_tail(+value: T.Presentation, flow: D.Flow, overflow: D.Overflow, shadow: Bool, alignment: D.Alignment, states: D.ControlStates) -> +List<Doc.Property>:
+  List.append(&2, Doc.Property, style_tail(flow, overflow, shadow, alignment, states), R.text_presentation(value))
+
+def excluded_typed_tail(+mode: AttributeMode, +value: T.Presentation, +flow: D.Flow, +overflow: D.Overflow, +shadow: Bool, +alignment: D.Alignment, +states: D.ControlStates) -> Excluded(mode, typed_style_tail(value, flow, overflow, shadow, alignment, states)):
+  excluded_append(mode, style_tail(flow, overflow, shadow, alignment, states), R.text_presentation(value), excluded_style_tail(mode, flow, overflow, shadow, alignment, states), excluded_typography(mode, value))
+
 def excluded_geometry(+mode: AttributeMode, +size: C.Geometry, +visual: D.Style) -> Excluded(mode, R.action_geometry(size, visual)):
   match mode size visual:
     case RawBackground{} C.Geometry{width, height, icon, radius, leading} D.Style{text, chrome, alignment, flow, overflow, frame, minimum, maximum, states}: ({==}, ({==}, ({==}, Unit{})))
@@ -208,17 +220,17 @@ def excluded_geometry_tail(+mode: AttributeMode, +visual: D.Style, +face: C.Face
 def action_background_preserved(+key: String, +visual: D.Style, +input: Core.Input, +availability: View.Availability,
   +name: String, +face: C.Face, +behavior: C.Behavior, +geometry: C.Geometry, +placement: C.Placement, +help: C.Help, +feedback: C.Feedback) ->
   {R.attr(Doc.element_styles(R.action(key, visual, C.Action{input, availability, name, face, behavior, geometry, placement, help, feedback})), "--native-rest-background") == R.attr(R.style(visual), "background") : String}:
-  D.Style{D.TextStyle{+font, +size, +line_height, +weight}, D.Chrome{+foreground, +background, +border, +border_width, +radius, +shadow}, +alignment, +flow, +overflow, +content_frame, +height, +maximum, +states} = visual
-  +value: D.Style = D.Style{D.TextStyle{font, size, line_height, weight}, D.Chrome{foreground, background, border, border_width, radius, shadow}, alignment, flow, overflow, content_frame, height, maximum, states}
-  +tail: +List<Doc.Property> = style_tail(flow, overflow, shadow, alignment, states)
+  D.Style{+actual_text, D.Chrome{+foreground, +background, +border, +border_width, +radius, +shadow}, +alignment, +flow, +overflow, +content_frame, +height, +maximum, +states} = visual
+  +value: D.Style = D.Style{actual_text, D.Chrome{foreground, background, border, border_width, radius, shadow}, alignment, flow, overflow, content_frame, height, maximum, states}
+  +tail: +List<Doc.Property> = typed_style_tail(actual_text, flow, overflow, shadow, alignment, states)
   +extra: +List<Doc.Property> = geometry_tail(value, face, geometry, placement, key)
   Equal.trans(String,
     R.attr(Doc.element_styles(R.action(key, value, C.Action{input, availability, name, face, behavior, geometry, placement, help, feedback})), "--native-rest-background"),
     R.paint(background), R.attr(R.style(value), "background"),
     preserved(PointerBackground{}, List.append(&2, Doc.Property, tail, extra), R.paint(background),
-      excluded_append(PointerBackground{}, tail, extra, excluded_style_tail(PointerBackground{}, flow, overflow, shadow, alignment, states), excluded_geometry_tail(PointerBackground{}, value, face, geometry, placement, key))),
+      excluded_append(PointerBackground{}, tail, extra, excluded_typed_tail(PointerBackground{}, actual_text, flow, overflow, shadow, alignment, states), excluded_geometry_tail(PointerBackground{}, value, face, geometry, placement, key))),
     Equal.sym(String, R.attr(R.style(value), "background"), R.paint(background),
-      preserved(RawBackground{}, tail, R.paint(background), excluded_style_tail(RawBackground{}, flow, overflow, shadow, alignment, states))))
+      preserved(RawBackground{}, tail, R.paint(background), excluded_typed_tail(RawBackground{}, actual_text, flow, overflow, shadow, alignment, states))))
 
 type Axis is Data:
   Inline{}
@@ -365,26 +377,40 @@ def same_comparison(+text: String) -> {String.cmp(text, text) == ((text, text), 
 def same_string(+text: String) -> {String.eq(text, text) == True{} : Bool}:
   Equal.cong((String & String) & Cmp, Bool, (compared => String.eq.fin(compared)), String.cmp(text, text), ((text, text), EQ{}), same_comparison(text))
 
-def option_production(+key: String, +label: String, +selected: Bool, description: String, +geometry: C.Geometry, input: Core.Input) -> Doc.Node:
+def option_production(+key: String, +label: String, +selected: Bool, description: String, +geometry: C.Geometry, input: Core.Input, +typography: T.Presentation) -> Doc.Node:
   +representation: C.Representation = C.Action{input, View.Available{}, label, C.ChoiceFace{label, selected}, C.ChoiceRadio{selected}, geometry, C.InFlow{}, C.NoHelp{}, C.Quiet{}}
-  R.choice_node(key, label, selected, description, A.control_style(A.ordinary_button(), representation), representation, Nil{})
+  R.choice_node(key, label, selected, description, A.control_style(A.ordinary_button(typography), representation, typography), representation, Nil{}, typography)
 
-def title_production(+key: String, editor: User.Editor, +name: String, +text: String, choices: +List<Forms.ChoiceValue>) -> Doc.Node:
+def title_production(+key: String, editor: User.Editor, +name: String, +text: String, choices: +List<Forms.ChoiceValue>, +typography: T.Presentation) -> Doc.Node:
   +meaning: UI.Meaning = UI.Edit{editor, Forms.CardTitle{}, Forms.SingleLine{}, Forms.TextValue{text}, choices}
-  R.input(key, meaning, C.Input{meaning, name, C.TextInput{}, C.AccessibleOnly{}, View.Available{}}, A.style(UI.Field{}, meaning))
+  R.input(key, meaning, C.Input{meaning, name, C.TextInput{}, C.AccessibleOnly{}, View.Available{}}, A.style(UI.Field{}, meaning, typography))
 
-def description_production(+key: String, editor: User.Editor, +name: String, +text: String, choices: +List<Forms.ChoiceValue>) -> Doc.Node:
+def description_production(+key: String, editor: User.Editor, +name: String, +text: String, choices: +List<Forms.ChoiceValue>, +typography: T.Presentation) -> Doc.Node:
   +meaning: UI.Meaning = UI.Edit{editor, Forms.CardDescription{}, Forms.Multiline{}, Forms.TextValue{text}, choices}
-  R.input(key, meaning, C.Input{meaning, name, C.TextArea{}, C.AccessibleOnly{}, View.Available{}}, A.style(UI.Field{}, meaning))
+  R.input(key, meaning, C.Input{meaning, name, C.TextArea{}, C.AccessibleOnly{}, View.Available{}}, A.style(UI.Field{}, meaning, typography))
 
 
+
+def preserve_typography(+value: T.Presentation, +axis: Axis, +previous: String) ->
+  {R.attr_last(R.text_presentation(value), axis_name(axis), previous) == previous : String}:
+  match axis:
+    case Inline{}: {==}
+    case Block{}: {==}
+
+def preserve_typed_suffix(+value: T.Presentation, +flow: D.Flow, +overflow: D.Overflow, +shadow: Bool, +alignment: D.Alignment, +states: D.ControlStates, +axis: Axis, +previous: String) ->
+  {R.attr_last(typed_style_tail(value, flow, overflow, shadow, alignment, states), axis_name(axis), previous) == previous : String}:
+  Equal.trans(String, R.attr_last(typed_style_tail(value, flow, overflow, shadow, alignment, states), axis_name(axis), previous),
+    R.attr_last(R.text_presentation(value), axis_name(axis), R.attr_last(style_tail(flow, overflow, shadow, alignment, states), axis_name(axis), previous)), previous,
+    last_append(style_tail(flow, overflow, shadow, alignment, states), R.text_presentation(value), axis_name(axis), previous),
+    Equal.trans(String, R.attr_last(R.text_presentation(value), axis_name(axis), R.attr_last(style_tail(flow, overflow, shadow, alignment, states), axis_name(axis), previous)), R.attr_last(style_tail(flow, overflow, shadow, alignment, states), axis_name(axis), previous), previous,
+      preserve_typography(value, axis, R.attr_last(style_tail(flow, overflow, shadow, alignment, states), axis_name(axis), previous)), preserve_suffix(flow, overflow, shadow, alignment, states, axis, previous)))
 
 def style_allocation(+value: D.Style, +axis: Axis) ->
   {R.attr(R.style(value), axis_name(axis)) == R.px(axis_space(axis, Model.area(value))) : String}:
-  D.Style{D.TextStyle{font, size, line_height, weight}, D.Chrome{fg, bg, border, border_width, radius, shadow}, alignment, flow, overflow, +content_frame, minimum, maximum, states} = value
+  D.Style{actual_text, D.Chrome{fg, bg, border, border_width, radius, shadow}, alignment, flow, overflow, +content_frame, minimum, maximum, states} = value
   match axis:
-    case Inline{}: preserve_suffix(flow, overflow, shadow, alignment, states, Inline{}, R.px(E.inline(E.frame_content(content_frame))))
-    case Block{}: preserve_suffix(flow, overflow, shadow, alignment, states, Block{}, R.px(E.block(E.frame_content(content_frame))))
+    case Inline{}: preserve_typed_suffix(actual_text, flow, overflow, shadow, alignment, states, Inline{}, R.px(E.inline(E.frame_content(content_frame))))
+    case Block{}: preserve_typed_suffix(actual_text, flow, overflow, shadow, alignment, states, Block{}, R.px(E.block(E.frame_content(content_frame))))
 
 def duplicate(+name: String, +old: String, +new: String) ->
   {R.attr([R.property(name, old), R.property(name, new)], name) == new : String}:
@@ -638,21 +664,36 @@ def parent_suffix(+pointer: Bool, +property: ParentProperty, +flow: D.Flow, +ove
     parent_append(pointer, property, R.overflow_style(overflow), R.style_details(shadow, alignment, states), previous, previous,
       parent_overflow(pointer, property, overflow, previous), parent_details(pointer, property, shadow, alignment, states, previous)))
 
+def parent_typography(+pointer: Bool, +property: ParentProperty, +value: T.Presentation, +previous: String) ->
+  {R.attr_last(parent_properties(pointer, R.text_presentation(value)), parent_name(property), previous) == previous : String}:
+  match pointer property:
+    case False{} FrameGap{}: {==}
+    case False{} MinimumHeight{}: {==}
+    case False{} BorderRadius{}: {==}
+    case True{} FrameGap{}: {==}
+    case True{} MinimumHeight{}: {==}
+    case True{} BorderRadius{}: {==}
+
+def parent_typed_suffix(+pointer: Bool, +property: ParentProperty, +value: T.Presentation, +flow: D.Flow, +overflow: D.Overflow, +shadow: Bool, +alignment: D.Alignment, +states: D.ControlStates, +previous: String) ->
+  {R.attr_last(parent_properties(pointer, typed_style_tail(value, flow, overflow, shadow, alignment, states)), parent_name(property), previous) == previous : String}:
+  parent_append(pointer, property, style_tail(flow, overflow, shadow, alignment, states), R.text_presentation(value), previous, previous,
+    parent_suffix(pointer, property, flow, overflow, shadow, alignment, states, previous), parent_typography(pointer, property, value, previous))
+
 def parent_style(+pointer: Bool, +property: ParentProperty, +value: D.Style) ->
   {R.attr(parent_properties(pointer, R.style(value)), parent_name(property)) == parent_value(value, property) : String}:
   match pointer property value:
-    case False{} FrameGap{} D.Style{D.TextStyle{font, size, line_height, weight}, D.Chrome{fg, bg, border, border_width, radius, +shadow}, +alignment, +flow, +overflow, +frame, minimum, maximum, +states}:
-      parent_suffix(False{}, FrameGap{}, flow, overflow, shadow, alignment, states, R.px(E.frame_gap(frame)))
-    case False{} MinimumHeight{} D.Style{D.TextStyle{font, size, line_height, weight}, D.Chrome{fg, bg, border, border_width, radius, +shadow}, +alignment, +flow, +overflow, +frame, minimum, maximum, +states}:
-      parent_suffix(False{}, MinimumHeight{}, flow, overflow, shadow, alignment, states, R.px(minimum))
-    case False{} BorderRadius{} D.Style{D.TextStyle{font, size, line_height, weight}, D.Chrome{fg, bg, border, border_width, radius, +shadow}, +alignment, +flow, +overflow, +frame, minimum, maximum, +states}:
-      parent_suffix(False{}, BorderRadius{}, flow, overflow, shadow, alignment, states, R.px(radius))
-    case True{} FrameGap{} D.Style{D.TextStyle{font, size, line_height, weight}, D.Chrome{fg, bg, border, border_width, radius, +shadow}, +alignment, +flow, +overflow, +frame, minimum, maximum, +states}:
-      parent_suffix(True{}, FrameGap{}, flow, overflow, shadow, alignment, states, R.px(E.frame_gap(frame)))
-    case True{} MinimumHeight{} D.Style{D.TextStyle{font, size, line_height, weight}, D.Chrome{fg, bg, border, border_width, radius, +shadow}, +alignment, +flow, +overflow, +frame, minimum, maximum, +states}:
-      parent_suffix(True{}, MinimumHeight{}, flow, overflow, shadow, alignment, states, R.px(minimum))
-    case True{} BorderRadius{} D.Style{D.TextStyle{font, size, line_height, weight}, D.Chrome{fg, bg, border, border_width, radius, +shadow}, +alignment, +flow, +overflow, +frame, minimum, maximum, +states}:
-      parent_suffix(True{}, BorderRadius{}, flow, overflow, shadow, alignment, states, R.px(radius))
+    case False{} FrameGap{} D.Style{actual_text, D.Chrome{fg, bg, border, border_width, radius, +shadow}, +alignment, +flow, +overflow, +frame, minimum, maximum, +states}:
+      parent_typed_suffix(False{}, FrameGap{}, actual_text, flow, overflow, shadow, alignment, states, R.px(E.frame_gap(frame)))
+    case False{} MinimumHeight{} D.Style{actual_text, D.Chrome{fg, bg, border, border_width, radius, +shadow}, +alignment, +flow, +overflow, +frame, minimum, maximum, +states}:
+      parent_typed_suffix(False{}, MinimumHeight{}, actual_text, flow, overflow, shadow, alignment, states, R.px(minimum))
+    case False{} BorderRadius{} D.Style{actual_text, D.Chrome{fg, bg, border, border_width, radius, +shadow}, +alignment, +flow, +overflow, +frame, minimum, maximum, +states}:
+      parent_typed_suffix(False{}, BorderRadius{}, actual_text, flow, overflow, shadow, alignment, states, R.px(radius))
+    case True{} FrameGap{} D.Style{actual_text, D.Chrome{fg, bg, border, border_width, radius, +shadow}, +alignment, +flow, +overflow, +frame, minimum, maximum, +states}:
+      parent_typed_suffix(True{}, FrameGap{}, actual_text, flow, overflow, shadow, alignment, states, R.px(E.frame_gap(frame)))
+    case True{} MinimumHeight{} D.Style{actual_text, D.Chrome{fg, bg, border, border_width, radius, +shadow}, +alignment, +flow, +overflow, +frame, minimum, maximum, +states}:
+      parent_typed_suffix(True{}, MinimumHeight{}, actual_text, flow, overflow, shadow, alignment, states, R.px(minimum))
+    case True{} BorderRadius{} D.Style{actual_text, D.Chrome{fg, bg, border, border_width, radius, +shadow}, +alignment, +flow, +overflow, +frame, minimum, maximum, +states}:
+      parent_typed_suffix(True{}, BorderRadius{}, actual_text, flow, overflow, shadow, alignment, states, R.px(radius))
 
 def parent_geometry(+pointer: Bool, +property: ParentProperty, +size: C.Geometry, +visual: D.Style, +previous: String) ->
   {R.attr_last(parent_properties(pointer, R.action_geometry(size, visual)), parent_name(property), previous) == previous : String}:
@@ -751,14 +792,14 @@ def parent_minimum(+value: D.Style) ->
 
 
 
-def navigation_header(+selected: Bool) ->
-  {(R.attr(R.style(A.navigation_family_style(selected, 2n, 6n)), "padding-inline"), R.attr(R.style(A.navigation_family_style(selected, 2n, 6n)), "padding-block")) == ("8px", "4px") : (String & String)}:
+def navigation_header(+selected: Bool, +typography: T.Presentation) ->
+  {(R.attr(R.style(A.navigation_family_style(selected, 2n, 6n, typography)), "padding-inline"), R.attr(R.style(A.navigation_family_style(selected, 2n, 6n, typography)), "padding-block")) == ("8px", "4px") : (String & String)}:
   match selected:
     case False{}: {==}
     case True{}: {==}
 
-def navigation_task(+selected: Bool, +key: String, +task: Nat, +status: String, +children: +List<R.Child>) ->
-  {(R.attr(Doc.element_styles(R.task_row_node(key, task, status, selected, A.navigation_family_style(selected, 6n, 5n), children)), "padding-inline"), R.attr(Doc.element_styles(R.task_row_node(key, task, status, selected, A.navigation_family_style(selected, 6n, 5n), children)), "padding-block")) == ("8px", "4px") : (String & String)}:
+def navigation_task(+selected: Bool, +key: String, +task: Nat, +status: String, +children: +List<R.Child>, +typography: T.Presentation) ->
+  {(R.attr(Doc.element_styles(R.task_row_node(key, task, status, selected, A.navigation_family_style(selected, 6n, 5n, typography), children, typography)), "padding-inline"), R.attr(Doc.element_styles(R.task_row_node(key, task, status, selected, A.navigation_family_style(selected, 6n, 5n, typography), children, typography)), "padding-block")) == ("8px", "4px") : (String & String)}:
   match selected:
     case False{}: {==}
     case True{}: {==}
@@ -769,8 +810,8 @@ def navigation_task(+selected: Bool, +key: String, +task: Nat, +status: String, 
 
 
 
-def search(+filter: Board.Filter) ->
-  {(R.attr(R.style(A.field_style(UI.BoardSearch{filter})), "padding-inline"), R.attr(R.style(A.field_style(UI.BoardSearch{filter})), "padding-block")) == ("8px", "4px") : (String & String)}:
+def search(+filter: Board.Filter, +typography: T.Presentation) ->
+  {(R.attr(R.style(A.field_style(UI.BoardSearch{filter}, typography)), "padding-inline"), R.attr(R.style(A.field_style(UI.BoardSearch{filter}, typography)), "padding-block")) == ("8px", "4px") : (String & String)}:
   {==}
 
 
@@ -781,14 +822,14 @@ def search(+filter: Board.Filter) ->
 
 
 
-def option_production_insets(+key: String, +label: String, +selected: Bool, +description: String, +geometry: C.Geometry, +input: Core.Input) ->
-  {(R.attr(Doc.element_styles(option_production(key, label, selected, description, geometry, input)), "padding-inline"), R.attr(Doc.element_styles(option_production(key, label, selected, description, geometry, input)), "padding-block")) == ("8px", "8px") : (String & String)}:
+def option_production_insets(+key: String, +label: String, +selected: Bool, +description: String, +geometry: C.Geometry, +input: Core.Input, +typography: T.Presentation) ->
+  {(R.attr(Doc.element_styles(option_production(key, label, selected, description, geometry, input, typography)), "padding-inline"), R.attr(Doc.element_styles(option_production(key, label, selected, description, geometry, input, typography)), "padding-block")) == ("8px", "8px") : (String & String)}:
   match selected geometry:
     case False{} C.Geometry{width, height, icon, radius, leading}: {==}
     case True{} C.Geometry{width, height, icon, radius, leading}: {==}
 
-def title_production_insets(+key: String, +editor: User.Editor, +name: String, +text: String, choices: +List<Forms.ChoiceValue>) ->
-  {(R.attr(Doc.element_styles(title_production(key, editor, name, text, choices)), "padding-inline"), R.attr(Doc.element_styles(title_production(key, editor, name, text, choices)), "padding-block")) == ("8px", "6px") : (String & String)}:
+def title_production_insets(+key: String, +editor: User.Editor, +name: String, +text: String, choices: +List<Forms.ChoiceValue>, +typography: T.Presentation) ->
+  {(R.attr(Doc.element_styles(title_production(key, editor, name, text, choices, typography)), "padding-inline"), R.attr(Doc.element_styles(title_production(key, editor, name, text, choices, typography)), "padding-block")) == ("8px", "6px") : (String & String)}:
   match editor:
     case User.NewTaskEditor{}: {==}
     case User.MessageEditor{task}: {==}
@@ -798,8 +839,8 @@ def title_production_insets(+key: String, +editor: User.Editor, +name: String, +
     case User.ForkEditor{task}: {==}
     case User.CompactEditor{task}: {==}
 
-def description_production_insets(+key: String, +editor: User.Editor, +name: String, +text: String, choices: +List<Forms.ChoiceValue>) ->
-  {(R.attr(Doc.element_styles(description_production(key, editor, name, text, choices)), "padding-inline"), R.attr(Doc.element_styles(description_production(key, editor, name, text, choices)), "padding-block")) == ("8px", "6px") : (String & String)}:
+def description_production_insets(+key: String, +editor: User.Editor, +name: String, +text: String, choices: +List<Forms.ChoiceValue>, +typography: T.Presentation) ->
+  {(R.attr(Doc.element_styles(description_production(key, editor, name, text, choices, typography)), "padding-inline"), R.attr(Doc.element_styles(description_production(key, editor, name, text, choices, typography)), "padding-block")) == ("8px", "6px") : (String & String)}:
   match editor:
     case User.NewTaskEditor{}: {==}
     case User.MessageEditor{task}: {==}
@@ -826,20 +867,20 @@ type Requirements is Type:
     style_allocation: @+value:D.Style -> @+axis:Axis -> {R.attr(R.style(value), axis_name(axis)) == R.px(axis_space(axis, Model.area(value))) : String},
     duplicate: @+name:String -> @+old:String -> @+new:String -> {R.attr([R.property(name, old), R.property(name, new)], name) == new : String},
     geometry_height: @+size:C.Geometry -> @+visual:D.Style -> {R.attr(List.append(&2, Doc.Property, R.style(visual), R.action_geometry(size, visual)), "min-height") == R.px(Model.minimum(visual)) : String},
-    navigation_header: @+selected:Bool -> {(R.attr(R.style(A.navigation_family_style(selected, 2n, 6n)), "padding-inline"), R.attr(R.style(A.navigation_family_style(selected, 2n, 6n)), "padding-block")) == ("8px", "4px") : (String & String)},
-    navigation_task: @+selected:Bool -> @+key:String -> @+task:Nat -> @+status:String -> @+children:+List<R.Child> -> {(R.attr(Doc.element_styles(R.task_row_node(key, task, status, selected, A.navigation_family_style(selected, 6n, 5n), children)), "padding-inline"), R.attr(Doc.element_styles(R.task_row_node(key, task, status, selected, A.navigation_family_style(selected, 6n, 5n), children)), "padding-block")) == ("8px", "4px") : (String & String)},
-    embedded_name: {(R.attr(R.style(A.project_label_style(A.ordinary_button())), "padding-inline"), R.attr(R.style(A.project_label_style(A.ordinary_button())), "padding-block")) == ("0px", "0px") : (String & String)},
-    icon_control: @+width:String -> {(R.attr(R.style(A.action_style(A.ordinary_button(), C.IconFace{C.Plus{}}, C.Geometry{0n, 28n, 16n, 6n, 0n})), "padding-inline"), R.attr(R.style(A.action_style(A.ordinary_button(), C.IconFace{C.Plus{}}, C.Geometry{0n, 28n, 16n, 6n, 0n})), "padding-block")) == ("4px", "4px") : (String & String)},
-    card_title: {(R.attr(BoardLaws.title_production_styles(), "padding-inline"), R.attr(BoardLaws.title_production_styles(), "padding-block")) == ("8px", "4px") : (String & String)},
-    search: @+filter:Board.Filter -> {(R.attr(R.style(A.field_style(UI.BoardSearch{filter})), "padding-inline"), R.attr(R.style(A.field_style(UI.BoardSearch{filter})), "padding-block")) == ("8px", "4px") : (String & String)},
+    navigation_header: @+typography:T.Presentation -> @+selected:Bool -> {(R.attr(R.style(A.navigation_family_style(selected, 2n, 6n, typography)), "padding-inline"), R.attr(R.style(A.navigation_family_style(selected, 2n, 6n, typography)), "padding-block")) == ("8px", "4px") : (String & String)},
+    navigation_task: @+typography:T.Presentation -> @+selected:Bool -> @+key:String -> @+task:Nat -> @+status:String -> @+children:+List<R.Child> -> {(R.attr(Doc.element_styles(R.task_row_node(key, task, status, selected, A.navigation_family_style(selected, 6n, 5n, typography), children, typography)), "padding-inline"), R.attr(Doc.element_styles(R.task_row_node(key, task, status, selected, A.navigation_family_style(selected, 6n, 5n, typography), children, typography)), "padding-block")) == ("8px", "4px") : (String & String)},
+    embedded_name: @+typography:T.Presentation -> {(R.attr(R.style(A.project_label_style(A.ordinary_button(typography))), "padding-inline"), R.attr(R.style(A.project_label_style(A.ordinary_button(typography))), "padding-block")) == ("0px", "0px") : (String & String)},
+    icon_control: @+typography:T.Presentation -> @+width:String -> {(R.attr(R.style(A.action_style(A.ordinary_button(typography), C.IconFace{C.Plus{}}, C.Geometry{0n, 28n, 16n, 6n, 0n})), "padding-inline"), R.attr(R.style(A.action_style(A.ordinary_button(typography), C.IconFace{C.Plus{}}, C.Geometry{0n, 28n, 16n, 6n, 0n})), "padding-block")) == ("4px", "4px") : (String & String)},
+    card_title: @+typography:T.Presentation -> {(R.attr(BoardLaws.title_production_styles(typography), "padding-inline"), R.attr(BoardLaws.title_production_styles(typography), "padding-block")) == ("8px", "4px") : (String & String)},
+    search: @+typography:T.Presentation -> @+filter:Board.Filter -> {(R.attr(R.style(A.field_style(UI.BoardSearch{filter}, typography)), "padding-inline"), R.attr(R.style(A.field_style(UI.BoardSearch{filter}, typography)), "padding-block")) == ("8px", "4px") : (String & String)},
     dialog_header: {(R.attr(R.dialog_header_styles(), "padding-inline"), R.attr(R.dialog_header_styles(), "padding-block")) == ("24px", "14px") : (String & String)},
     dialog_body: {(R.attr(R.dialog_body_styles(), "padding-inline"), R.attr(R.dialog_body_styles(), "padding-block")) == ("24px", "20px") : (String & String)},
     dialog_footer: {(R.attr(R.dialog_footer_styles(), "padding-inline"), R.attr(R.dialog_footer_styles(), "padding-block")) == ("24px", "12px") : (String & String)},
     empty_overwrite: @+name:String -> @+old:String -> {R.attr([R.property(name, old), R.property(name, "")], name) == "" : String},
-    option_production_insets: @+key:String -> @+label:String -> @+selected:Bool -> @+description:String -> @+geometry:C.Geometry -> @+input:Core.Input -> {(R.attr(Doc.element_styles(option_production(key, label, selected, description, geometry, input)), "padding-inline"), R.attr(Doc.element_styles(option_production(key, label, selected, description, geometry, input)), "padding-block")) == ("8px", "8px") : (String & String)},
-    title_production_insets: @+key:String -> @+editor:User.Editor -> @+name:String -> @+text:String -> @choices:+List<Forms.ChoiceValue> -> {(R.attr(Doc.element_styles(title_production(key, editor, name, text, choices)), "padding-inline"), R.attr(Doc.element_styles(title_production(key, editor, name, text, choices)), "padding-block")) == ("8px", "6px") : (String & String)},
-    description_production_insets: @+key:String -> @+editor:User.Editor -> @+name:String -> @+text:String -> @choices:+List<Forms.ChoiceValue> -> {(R.attr(Doc.element_styles(description_production(key, editor, name, text, choices)), "padding-inline"), R.attr(Doc.element_styles(description_production(key, editor, name, text, choices)), "padding-block")) == ("8px", "6px") : (String & String)},
-    dialog_outer: {(R.attr(R.style(A.style(UI.Dialog{}, UI.Region{})), "padding-inline"), R.attr(R.style(A.style(UI.Dialog{}, UI.Region{})), "padding-block")) == ("0px", "0px") : (String & String)},
+    option_production_insets: @+typography:T.Presentation -> @+key:String -> @+label:String -> @+selected:Bool -> @+description:String -> @+geometry:C.Geometry -> @+input:Core.Input -> {(R.attr(Doc.element_styles(option_production(key, label, selected, description, geometry, input, typography)), "padding-inline"), R.attr(Doc.element_styles(option_production(key, label, selected, description, geometry, input, typography)), "padding-block")) == ("8px", "8px") : (String & String)},
+    title_production_insets: @+typography:T.Presentation -> @+key:String -> @+editor:User.Editor -> @+name:String -> @+text:String -> @choices:+List<Forms.ChoiceValue> -> {(R.attr(Doc.element_styles(title_production(key, editor, name, text, choices, typography)), "padding-inline"), R.attr(Doc.element_styles(title_production(key, editor, name, text, choices, typography)), "padding-block")) == ("8px", "6px") : (String & String)},
+    description_production_insets: @+typography:T.Presentation -> @+key:String -> @+editor:User.Editor -> @+name:String -> @+text:String -> @choices:+List<Forms.ChoiceValue> -> {(R.attr(Doc.element_styles(description_production(key, editor, name, text, choices, typography)), "padding-inline"), R.attr(Doc.element_styles(description_production(key, editor, name, text, choices, typography)), "padding-block")) == ("8px", "6px") : (String & String)},
+    dialog_outer: @+typography:T.Presentation -> {(R.attr(R.style(A.style(UI.Dialog{}, UI.Region{}, typography)), "padding-inline"), R.attr(R.style(A.style(UI.Dialog{}, UI.Region{}, typography)), "padding-block")) == ("0px", "0px") : (String & String)},
     geometry_complete: @+width:Nat -> @+height:Nat -> @+icon:Nat -> @+radius:Nat -> @+leading:Nat -> @+visual:D.Style -> geometry_complete_law(width, height, icon, radius, leading, visual)}
 
 def evidence() -> Requirements:
@@ -849,4 +890,14 @@ def evidence() -> Requirements:
         parent_append(False{}, MinimumHeight{}, R.style(visual), R.action_geometry(size, visual), "", parent_value(visual, MinimumHeight{}),
           parent_style(False{}, MinimumHeight{}, visual), parent_geometry(False{}, MinimumHeight{}, size, visual, parent_value(visual, MinimumHeight{}))),
         parent_minimum(visual))
-    , navigation_header, navigation_task, {==}, +width => {==}, {==}, search, {==}, {==}, {==}, +name => +old => duplicate(name, old, ""), option_production_insets, title_production_insets, description_production_insets, {==}, geometry_complete}
+    ,
+    +typography => +selected => navigation_header(selected, typography),
+    +typography => +selected => +key => +task => +status => +children => navigation_task(selected, key, task, status, children, typography),
+    +typography => {==},
+    +typography => +width => {==},
+    +typography => {==},
+    +typography => +filter => search(filter, typography), {==}, {==}, {==}, +name => +old => duplicate(name, old, ""),
+    +typography => +key => +label => +selected => +description => +geometry => +input => option_production_insets(key, label, selected, description, geometry, input, typography),
+    +typography => +key => +editor => +name => +text => choices => title_production_insets(key, editor, name, text, choices, typography),
+    +typography => +key => +editor => +name => +text => choices => description_production_insets(key, editor, name, text, choices, typography),
+    +typography => {==}, geometry_complete}

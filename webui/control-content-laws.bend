@@ -1,4 +1,5 @@
 import Base
+import ./typography.bend as T
 import ./enclosure.bend as Enclosure
 import ./controls.bend as Controls
 import ./appearance.bend as Appearance
@@ -49,9 +50,9 @@ def layout_insets(layout: Controls.ContentLayout) -> (Nat & (Nat & Nat)):
 
 
 
-def appearance_consumes_layout(text: Design.TextStyle, chrome: Design.Chrome, alignment: Design.Alignment, flow: Design.Flow, overflow: Design.Overflow, content_area: Enclosure.ContentArea, gap: Nat, height: Nat, maximum: Nat, states: Design.ControlStates, face: Controls.Face, size: Controls.Geometry) ->
+def appearance_consumes_layout(text: T.Presentation, chrome: Design.Chrome, alignment: Design.Alignment, flow: Design.Flow, overflow: Design.Overflow, content_area: Enclosure.ContentArea, gap: Nat, height: Nat, maximum: Nat, states: Design.ControlStates, face: Controls.Face, size: Controls.Geometry) ->
   {insets(Appearance.action_style(Design.Style{text, chrome, alignment, flow, overflow, Enclosure.Frame{content_area, Enclosure.EmbeddedContent{gap}}, height, maximum, states}, face, size)) == layout_insets(Controls.content_layout(face)) : (Nat & (Nat & Nat))}:
-  Design.TextStyle{font, text_size, line_height, weight} = text
+  T.Presentation{tier, emphasis, scale} = text
   Design.Chrome{foreground, background, border, border_width, chrome_radius, shadow} = chrome
   match face size:
     case Controls.IconFace{icon} Controls.Geometry{width, height, icon_size, radius, leading}: {==}
@@ -97,7 +98,7 @@ type Requirements is Type:
       {Render.flow(Appearance.action_flow(Controls.IconFace{icon}, Controls.content_layout(Controls.IconFace{icon}))) == [Render.property("display", "inline-flex"), Render.property("flex-direction", "row"), Render.property("align-items", "center"), Render.property("justify-content", "center")] : +List<Doc.Property>},
     action_content_is_last: @+key:String -> @+visual:Design.Style -> @input:Core.Input -> @availability:View.Availability -> @name:String -> @+face:Controls.Face -> @behavior:Controls.Behavior -> @+size:Controls.Geometry -> @placement:Controls.Placement -> @help:Controls.Help -> @feedback:Controls.Feedback ->
       {Doc.element_styles(Render.action(key, visual, Controls.Action{input, availability, name, face, behavior, size, placement, help, feedback})) == Render.pointer_styles(List.append(&2, Doc.Property, Render.style(visual), List.append(&2, Doc.Property, Render.action_geometry(size, visual), List.append(&2, Doc.Property, Render.placement_styles(placement), List.append(&2, Doc.Property, [Render.property("anchor-name", Render.css_anchor(key))], Render.content_geometry(face, size)))))) : +List<Doc.Property>},
-    appearance_consumes_layout: @text:Design.TextStyle -> @chrome:Design.Chrome -> @alignment:Design.Alignment -> @flow:Design.Flow -> @overflow:Design.Overflow -> @content_area:Enclosure.ContentArea -> @gap:Nat -> @height:Nat -> @maximum:Nat -> @states:Design.ControlStates -> @face:Controls.Face -> @size:Controls.Geometry ->
+    appearance_consumes_layout: @text:T.Presentation -> @chrome:Design.Chrome -> @alignment:Design.Alignment -> @flow:Design.Flow -> @overflow:Design.Overflow -> @content_area:Enclosure.ContentArea -> @gap:Nat -> @height:Nat -> @maximum:Nat -> @states:Design.ControlStates -> @face:Controls.Face -> @size:Controls.Geometry ->
       {insets(Appearance.action_style(Design.Style{text, chrome, alignment, flow, overflow, Enclosure.Frame{content_area, Enclosure.EmbeddedContent{gap}}, height, maximum, states}, face, size)) == layout_insets(Controls.content_layout(face)) : (Nat & (Nat & Nat))}}
 
 def evidence() -> Requirements:

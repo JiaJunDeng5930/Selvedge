@@ -8,6 +8,7 @@ import ../core/ui-world.bend as View
 import ../bendlib/domain.bend as D
 import ../bendlib/json.bend as J
 import ./browser.bend as Browser
+import ./MODEL.bend as Web
 import ./focus.bend as Focus
 import ./controls.bend as Controls
 
@@ -50,6 +51,14 @@ def toggle_present(+application: E.Application, +panel: U.Panel, +trigger: Strin
 
 
 
+
+def outside_scene_production(+scene: Web.SceneOutcome, +identity: String, +state: Browser.State) ->
+  {Browser.outside_scene(identity, scene, state) == Browser.outside_target(identity, Browser.dismiss_target(Browser.scene_nodes(scene)), Browser.scene_layer_key(scene), state) : Browser.OutsideDecision}:
+  match scene:
+    case Web.ReadyScene{+scene}: {==}
+    case Web.AwaitingTypography{}: {==}
+    case Web.FailedTypography{}: {==}
+    case Web.UnsupportedSpace{required, available}: {==}
 
 def outside_false(+identity: String, same: Bool, input: Core.Input, +state: Browser.State) ->
   {Browser.outside_permitted((same && False{}) && Browser.outside_layer_owned(identity, Browser.scene_layer_key(Browser.scene(state))), input, state) == Browser.OutsideDecision{False{}, Browser.Decision{state, Nil{}}} : Browser.OutsideDecision}:
@@ -123,4 +132,4 @@ type Requirements is Type:
 
 def evidence() -> Requirements:
   Requirements{toggle_absent, toggle_present, task => trigger => {==}, action => {==}, action => {==}, +kind => +content => +initial => restore => dismissal => +state => {==}, +key => semantic => label => role => +input => +outside => +escape => children => rest => {==},
-    +identity => +state => {==}, +identity => +key => input => escape => +state => outside_false(identity, String.eq(identity, key), input, state), +identity => +key => +input => +outside => escape => +state => stale => Equal.cong(Bool, Browser.OutsideDecision, (same => Browser.outside_permitted((same && outside) && Browser.outside_layer_owned(identity, Browser.scene_layer_key(Browser.scene(state))), input, state)), String.eq(identity, key), False{}, stale), key => input => outside => +state => {==}, key => +input => outside => +state => {==}, +identity => +key => +input => escape => +state => owned => Equal.cong(Bool, Browser.OutsideDecision, (same => Browser.outside_permitted((same && True{}) && Browser.outside_layer_owned(identity, Browser.scene_layer_key(Browser.scene(state))), input, state)), String.eq(identity, key), True{}, owned), +identity => +state => {==}, +identity => +key => +input => +outside => escape => +state => {==}, input => +state => {==}, +identity => initial => restore => +input => +state => {==}, +identity => +candidate => +state => closed => Equal.cong(Bool, Browser.OutsideDecision, (allowed => Browser.outside_completed(allowed, candidate, state)), Browser.outside_closed(identity, candidate), True{}, closed), +identity => +candidate => +state => retained => Equal.cong(Bool, Browser.OutsideDecision, (allowed => Browser.outside_completed(allowed, candidate, state)), Browser.outside_closed(identity, candidate), False{}, retained), +candidate => state => {==}, candidate => +state => {==}, {==}, {==}, {==}, {==}}
+    +identity => +state => {==}, +identity => +key => input => escape => +state => outside_false(identity, String.eq(identity, key), input, state), +identity => +key => +input => +outside => escape => +state => stale => Equal.cong(Bool, Browser.OutsideDecision, (same => Browser.outside_permitted((same && outside) && Browser.outside_layer_owned(identity, Browser.scene_layer_key(Browser.scene(state))), input, state)), String.eq(identity, key), False{}, stale), key => input => outside => +state => {==}, key => +input => outside => +state => {==}, +identity => +key => +input => escape => +state => owned => Equal.cong(Bool, Browser.OutsideDecision, (same => Browser.outside_permitted((same && True{}) && Browser.outside_layer_owned(identity, Browser.scene_layer_key(Browser.scene(state))), input, state)), String.eq(identity, key), True{}, owned), +identity => +state => outside_scene_production(Browser.scene(state), identity, state), +identity => +key => +input => +outside => escape => +state => {==}, input => +state => {==}, +identity => initial => restore => +input => +state => {==}, +identity => +candidate => +state => closed => Equal.cong(Bool, Browser.OutsideDecision, (allowed => Browser.outside_completed(allowed, candidate, state)), Browser.outside_closed(identity, candidate), True{}, closed), +identity => +candidate => +state => retained => Equal.cong(Bool, Browser.OutsideDecision, (allowed => Browser.outside_completed(allowed, candidate, state)), Browser.outside_closed(identity, candidate), False{}, retained), +candidate => state => {==}, candidate => +state => {==}, {==}, {==}, {==}, {==}}

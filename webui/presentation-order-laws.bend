@@ -10,6 +10,7 @@ import ./presentation-order.bend as Order
 import ./platform.bend as Platform
 import ./rendered.bend as Rendered
 import ./presentation-laws.bend as PresentationLaws
+import ./font-observation.bend as F
 import ../bendlib/stdlib.bend as Std
 
 type NodePayload is Data:
@@ -552,18 +553,28 @@ def ordered_surface_preserves_content_scope(surface: UI.Surface) ->
   match surface:
     case UI.Surface{content, base, overlays, active_scope}: {==}
 
-def observes_ordered_surface(environment: Design.Environment, application: Platform.State,
-  generation: Nat, realization: Rendered.State) ->
-  {PresentationLaws.scene_surface(Model.observe(Model.State{application, generation, realization, environment})) ==
-    Order.ordered_surface(Model.surface(application)) : UI.Surface}:
-  PresentationLaws.observes_semantic_surface(Model.State{application, generation, realization, environment})
+def observes_ordered_surface(environment: Design.Environment, +application: Platform.State,
+  generation: Nat, realization: Rendered.State, font: F.State) ->
+  PresentationLaws.SemanticClaim(Model.observe(Model.State{application, generation, realization, environment, font}),
+    Order.ordered_surface(Model.surface(application))):
+  PresentationLaws.observes_semantic_surface(Model.State{application, generation, realization, environment, font})
 
-def frame_surface_uses_ordered_projection(environment: Design.Environment, +surface: UI.Surface) ->
-  {Model.frame_surface(environment, surface) == Visibility.project(
-    Order.ordered_surface(surface),
-    Layout.present(Model.environment_viewport(environment), Order.ordered_surface(surface))) : UI.Surface}:
-  match environment:
-    case Design.Environment{viewport, system_dark}: {==}
+def FrameProjectionClaim(outcome: Model.SceneOutcome, projected: Maybe<&2, UI.Surface>) -> Type:
+  match outcome:
+    case Model.ReadyScene{scene}:
+      {projected == Some{Visibility.project(PresentationLaws.scene_surface(scene), PresentationLaws.scene_layout(scene))} : Maybe<&2, UI.Surface>}
+    case _: {projected == None{} : Maybe<&2, UI.Surface>}
+
+def projected_frame_claim(+outcome: Model.SceneOutcome) -> FrameProjectionClaim(outcome, Model.projected_frame(outcome)):
+  match outcome:
+    case Model.ReadyScene{Model.Scene{surface, platform, generation, realization, layout}}: {==}
+    case Model.AwaitingTypography{}: {==}
+    case Model.FailedTypography{}: {==}
+    case Model.UnsupportedSpace{required, available}: {==}
+
+def frame_surface_uses_ordered_projection(+state: Model.State, +surface: UI.Surface) ->
+  FrameProjectionClaim(Model.scene_for_surface(state, Order.ordered_surface(surface)), Model.frame_surface(state, surface)):
+  projected_frame_claim(Model.scene_for_surface(state, Order.ordered_surface(surface)))
 
 def occurrence_step(included: Bool, rest: Nat) -> Nat:
   match included:
@@ -712,14 +723,12 @@ type Requirements is Type:
       {node_payload(Order.node_with_children(value, children)) == node_payload(value) : NodePayload},
     surface_content_scope_preserved: @surface:UI.Surface ->
       {surface_payload(Order.ordered_surface(surface)) == surface_payload(surface) : SurfacePayload},
-    scene_uses_ordered_surface: @environment:Design.Environment -> @application:Platform.State ->
-      @generation:Nat -> @realization:Rendered.State ->
-      {PresentationLaws.scene_surface(Model.observe(Model.State{application, generation, realization, environment})) ==
-        Order.ordered_surface(Model.surface(application)) : UI.Surface},
-    frame_uses_ordered_projection: @environment:Design.Environment -> @surface:UI.Surface ->
-      {Model.frame_surface(environment, surface) == Visibility.project(
-        Order.ordered_surface(surface),
-        Layout.present(Model.environment_viewport(environment), Order.ordered_surface(surface))) : UI.Surface}
+    scene_uses_ordered_surface: @environment:Design.Environment -> @+application:Platform.State ->
+      @generation:Nat -> @realization:Rendered.State -> @font:F.State ->
+      PresentationLaws.SemanticClaim(Model.observe(Model.State{application, generation, realization, environment, font}),
+        Order.ordered_surface(Model.surface(application))),
+    frame_uses_ordered_projection: @+state:Model.State -> @+surface:UI.Surface ->
+      FrameProjectionClaim(Model.scene_for_surface(state, Order.ordered_surface(surface)), Model.frame_surface(state, surface))
   }
 
 def evidence() -> Requirements:
@@ -745,6 +754,5 @@ def evidence() -> Requirements:
     values => context => dialog_order_idempotent(values, context),
     value => children => node_with_children_preserves_payload(value, children),
     surface => ordered_surface_preserves_content_scope(surface),
-    environment => application => generation => realization => observes_ordered_surface(environment, application, generation, realization),
-    environment => surface => frame_surface_uses_ordered_projection(environment, surface)
-  }
+    environment => +application => generation => realization => font => observes_ordered_surface(environment, application, generation, realization, font),
+    +state => +surface => frame_surface_uses_ordered_projection(state, surface)}

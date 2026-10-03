@@ -1,5 +1,7 @@
 import ../core/interface.bend as Interface
 import Base
+import ./appearance.bend as Appearance
+import ./typography.bend as T
 import ./enclosure.bend as Enclosure
 import ../bendlib/stdlib.bend as Std
 import ./document.bend as Doc
@@ -292,10 +294,10 @@ def card_root_face_expected(+key: String, +face: View.CardFace) -> (String & (St
   (key, (Nat.show(id), (title, title)))
 
 def card_root_face_projection_law(-key: String, -face: View.CardFace, -destinations: +List<Interface.Placement>, -source: +List<Render.Child>, -visual: Design.Style) -> Type:
-  {(Render.attr(Doc.element_attributes(Render.card_node(key, face, destinations, source, visual)), "data-native-key"),
-      (Render.attr(Doc.element_attributes(Render.card_node(key, face, destinations, source, visual)), "data-card-id"),
-       (Render.attr(Doc.element_attributes(Render.card_node(key, face, destinations, source, visual)), "data-card-title"),
-       Render.attr(Doc.element_attributes(Render.card_node(key, face, destinations, source, visual)), "aria-label")))) ==
+  {(Render.attr(Doc.element_attributes(Render.card_node(key, face, destinations, source, visual, Appearance.style_text(visual))), "data-native-key"),
+      (Render.attr(Doc.element_attributes(Render.card_node(key, face, destinations, source, visual, Appearance.style_text(visual))), "data-card-id"),
+       (Render.attr(Doc.element_attributes(Render.card_node(key, face, destinations, source, visual, Appearance.style_text(visual))), "data-card-title"),
+       Render.attr(Doc.element_attributes(Render.card_node(key, face, destinations, source, visual, Appearance.style_text(visual))), "aria-label")))) ==
       card_root_face_expected(key, face) : (String & (String & (String & String)))}
 
 def card_root_face_projection(+key: String, +face: View.CardFace, destinations: +List<Interface.Placement>,
@@ -304,8 +306,8 @@ def card_root_face_projection(+key: String, +face: View.CardFace, destinations: 
   {==}
 
 def card_root_excludes_tab_target(+key: String, +face: View.CardFace, destinations: +List<Interface.Placement>,
-  source: +List<Render.Child>, +visual: Design.Style) ->
-  {Render.attr(Doc.element_attributes(Render.card_node(key, face, destinations, source, visual)), "tabindex") == "" : String}:
+  source: +List<Render.Child>, +visual: Design.Style, +typography: T.Presentation) ->
+  {Render.attr(Doc.element_attributes(Render.card_node(key, face, destinations, source, visual, typography)), "tabindex") == "" : String}:
   View.CardFace{+id, +title, +description, +priority, +pinned, +status, +project, +labels, +owner, +updated} = face
   {==}
 
@@ -313,8 +315,8 @@ def card_face_status(+face: View.CardFace) -> String:
   View.CardFace{id, title, description, priority, pinned, status, project, labels, owner, updated} = face
   status
 
-def card_chip_text_slots(+key: String, +kind: String, +value: String, +tone: Surfaces.Tone) ->
-  {direct_text_slots([Render.card_chip(key, kind, value, tone)]) == [value] : +List<String>}:
+def card_chip_text_slots(+key: String, +kind: String, +value: String, +tone: Surfaces.Tone, +typography: T.Presentation) ->
+  {direct_text_slots([Render.card_chip(key, kind, value, tone, typography)]) == [value] : +List<String>}:
   {==}
 
 def card_metadata_expected(+face: View.CardFace, status_empty: Bool) -> +List<String>:
@@ -325,9 +327,9 @@ def card_metadata_expected(+face: View.CardFace, status_empty: Bool) -> +List<St
 
 def card_metadata_projection_when(+owner: String, +id: Nat, +title: String, +description: String,
   +priority: Board.Priority, pinned: Bool, +status: String, +project: String,
-  +labels: +List<String>, +card_owner: String, +updated: String, status_empty: Bool) ->
+  +labels: +List<String>, +card_owner: String, +updated: String, status_empty: Bool, +typography: T.Presentation) ->
   {direct_text_slots(Doc.element_children(Render.card_metadata(owner,
-    View.CardFace{id, title, description, priority, pinned, status, project, labels, card_owner, updated}, status_empty))) ==
+    View.CardFace{id, title, description, priority, pinned, status, project, labels, card_owner, updated}, status_empty, typography))) ==
     card_metadata_expected(View.CardFace{id, title, description, priority, pinned, status, project, labels, card_owner, updated}, status_empty) : +List<String>}:
   match pinned status_empty:
     case True{} True{}: {==}
@@ -335,15 +337,15 @@ def card_metadata_projection_when(+owner: String, +id: Nat, +title: String, +des
     case False{} True{}: {==}
     case False{} False{}: {==}
 
-def card_metadata_projection(+owner: String, +face: View.CardFace) ->
-  {direct_text_slots(Doc.element_children(Render.card_metadata(owner, face, String.is_empty(card_face_status(face))))) ==
+def card_metadata_projection(+owner: String, +face: View.CardFace, +typography: T.Presentation) ->
+  {direct_text_slots(Doc.element_children(Render.card_metadata(owner, face, String.is_empty(card_face_status(face)), typography))) ==
     card_metadata_expected(face, String.is_empty(card_face_status(face))) : +List<String>}:
   View.CardFace{id, title, description, priority, pinned, status, project, labels, card_owner, updated} = face
   card_metadata_projection_when(owner, id, title, description, priority, pinned, status, project,
-    labels, card_owner, updated, String.is_empty(status))
+    labels, card_owner, updated, String.is_empty(status), typography)
 
-def card_description_projection_when(empty: Bool, +owner: String, +description: String) ->
-  {direct_text_slots(Render.card_description_when(empty, owner, description)) ==
+def card_description_projection_when(empty: Bool, +owner: String, +description: String, +typography: T.Presentation) ->
+  {direct_text_slots(Render.card_description_when(empty, owner, description, typography)) ==
     optional_text_slots_when(empty, description) : +List<String>}:
   match empty:
     case True{}: {==}
@@ -351,29 +353,29 @@ def card_description_projection_when(empty: Bool, +owner: String, +description: 
 
 
 
-def card_project_slots_when(empty: Bool, +owner: String, +project: String) ->
-  {direct_text_slots(Render.card_project_nodes_when(empty, owner, project)) ==
+def card_project_slots_when(empty: Bool, +owner: String, +project: String, +typography: T.Presentation) ->
+  {direct_text_slots(Render.card_project_nodes_when(empty, owner, project, typography)) ==
     optional_text_slots_when(empty, project) : +List<String>}:
   match empty:
     case True{}: {==}
     case False{}: {==}
 
-def card_project_slots(+owner: String, +project: String) ->
-  {direct_text_slots(Render.card_project_nodes(owner, project)) == optional_text_slots(project) : +List<String>}:
-  card_project_slots_when(String.is_empty(project), owner, project)
+def card_project_slots(+owner: String, +project: String, +typography: T.Presentation) ->
+  {direct_text_slots(Render.card_project_nodes(owner, project, typography)) == optional_text_slots(project) : +List<String>}:
+  card_project_slots_when(String.is_empty(project), owner, project, typography)
 
-def card_label_slots(+owner: String, +labels: +List<String>, +index: Nat) ->
-  {direct_text_slots(Render.card_label_nodes(owner, labels, index)) == labels : +List<String>}:
+def card_label_slots(+owner: String, +labels: +List<String>, +index: Nat, +typography: T.Presentation) ->
+  {direct_text_slots(Render.card_label_nodes(owner, labels, index, typography)) == labels : +List<String>}:
   match labels:
     case Nil{}: {==}
     case Con{+value, +rest}:
       +head: +List<Doc.Node> = [Render.card_chip(Render.generated_identity(owner, "label/" ++ Nat.show(index)), "label", value,
-        Surfaces.Neutral{})]
-      +tail = Render.card_label_nodes(owner, rest, Nat.add(index, 1n))
+        Surfaces.Neutral{}, typography)]
+      +tail = Render.card_label_nodes(owner, rest, Nat.add(index, 1n), typography)
       +mapped_append = Std.map_app(~Doc.Node, ~String, ~direct_text, head, tail)
       +head_slots = card_chip_text_slots(Render.generated_identity(owner, "label/" ++ Nat.show(index)), "label",
-        value, Surfaces.Neutral{})
-      +tail_slots = card_label_slots(owner, rest, Nat.add(index, 1n))
+        value, Surfaces.Neutral{}, typography)
+      +tail_slots = card_label_slots(owner, rest, Nat.add(index, 1n), typography)
       +replace_tail = Equal.cong(+List<String>, +List<String>,
         (slots => List.append(&2, String, direct_text_slots(head), slots)),
         direct_text_slots(tail), rest, tail_slots)
@@ -381,7 +383,7 @@ def card_label_slots(+owner: String, +labels: +List<String>, +index: Nat) ->
         (slots => List.append(&2, String, slots, rest)),
         direct_text_slots(head), [value], head_slots)
       Equal.trans(+List<String>,
-        direct_text_slots(Render.card_label_nodes(owner, labels, index)),
+        direct_text_slots(Render.card_label_nodes(owner, labels, index, typography)),
         List.append(&2, String, direct_text_slots(head), direct_text_slots(tail)),
         List.append(&2, String, [value], rest),
         mapped_append, Equal.trans(+List<String>,
@@ -397,16 +399,16 @@ def card_context_with_chips_slots(+owner: String, +chips: +List<Doc.Node>) ->
     case Nil{}: {==}
     case Con{+first, +rest}: {==}
 
-def card_context_projection(+owner: String, +project: String, +labels: +List<String>) ->
-  {direct_text_slots(Doc.element_children(first_node(Render.card_context_nodes(owner, project, labels)))) ==
+def card_context_projection(+owner: String, +project: String, +labels: +List<String>, +typography: T.Presentation) ->
+  {direct_text_slots(Doc.element_children(first_node(Render.card_context_nodes(owner, project, labels, typography)))) ==
     List.append(&2, String, optional_text_slots(project), labels) : +List<String>}:
-  +project_nodes = Render.card_project_nodes(owner, project)
-  +label_nodes = Render.card_label_nodes(owner, labels, 0n)
+  +project_nodes = Render.card_project_nodes(owner, project, typography)
+  +label_nodes = Render.card_label_nodes(owner, labels, 0n, typography)
   +chips = List.append(&2, Doc.Node, project_nodes, label_nodes)
   +context_slots = card_context_with_chips_slots(owner, chips)
   +mapped_append = Std.map_app(~Doc.Node, ~String, ~direct_text, project_nodes, label_nodes)
-  +project_slots = card_project_slots(owner, project)
-  +label_slots = card_label_slots(owner, labels, 0n)
+  +project_slots = card_project_slots(owner, project, typography)
+  +label_slots = card_label_slots(owner, labels, 0n, typography)
   +replace_project = Equal.cong(+List<String>, +List<String>,
     (slots => List.append(&2, String, slots, direct_text_slots(label_nodes))),
     direct_text_slots(project_nodes), optional_text_slots(project), project_slots)
@@ -419,7 +421,7 @@ def card_context_projection(+owner: String, +project: String, +labels: +List<Str
     List.append(&2, String, optional_text_slots(project), labels),
     replace_project, replace_labels)
   Equal.trans(+List<String>,
-    direct_text_slots(Doc.element_children(first_node(Render.card_context_nodes(owner, project, labels)))),
+    direct_text_slots(Doc.element_children(first_node(Render.card_context_nodes(owner, project, labels, typography)))),
     direct_text_slots(chips),
     List.append(&2, String, optional_text_slots(project), labels),
     context_slots, Equal.trans(+List<String>,
@@ -439,8 +441,8 @@ def card_footer_item_slots(+owner: String, +part: String, +kind: String, +value:
   {direct_text_slots(Render.card_footer_item(owner, part, kind, value)) == optional_text_slots(value) : +List<String>}:
   card_footer_item_slots_when(String.is_empty(value), owner, part, kind, value)
 
-def card_footer_with_items_slots(+owner: String, +items: +List<Doc.Node>) ->
-  {direct_text_slots(Doc.element_children(first_node(Render.card_footer_with_items(owner, items)))) ==
+def card_footer_with_items_slots(+owner: String, +items: +List<Doc.Node>, +typography: T.Presentation) ->
+  {direct_text_slots(Doc.element_children(first_node(Render.card_footer_with_items(owner, items, typography)))) ==
     direct_text_slots(items) : +List<String>}:
   match items:
     case Nil{}: {==}
@@ -462,13 +464,13 @@ def card_timestamp_slots(+owner: String, +value: String) ->
     optional_text_slots(value) : +List<String>}:
   card_timestamp_slots_when(String.is_empty(value), owner, value)
 
-def card_footer_projection(+owner: String, +face: View.CardFace) ->
-  {direct_text_slots(Doc.element_children(first_node(Render.card_footer(owner, face)))) == card_footer_expected(face) : +List<String>}:
+def card_footer_projection(+owner: String, +face: View.CardFace, +typography: T.Presentation) ->
+  {direct_text_slots(Doc.element_children(first_node(Render.card_footer(owner, face, typography)))) == card_footer_expected(face) : +List<String>}:
   View.CardFace{id, title, description, priority, pinned, status, project, labels, card_owner, updated} = face
   +owner_items = Render.card_footer_item(owner, "owner", "owner", card_owner)
   +updated_items = Render.card_timestamp_items(Render.card_footer_item(owner, "updated", "updated", updated))
   +items = List.append(&2, Doc.Node, owner_items, updated_items)
-  +footer_slots = card_footer_with_items_slots(owner, items)
+  +footer_slots = card_footer_with_items_slots(owner, items, typography)
   +mapped_append = Std.map_app(~Doc.Node, ~String, ~direct_text, owner_items, updated_items)
   +owner_slots = card_footer_item_slots(owner, "owner", "owner", card_owner)
   +updated_slots = card_timestamp_slots(owner, updated)
@@ -484,7 +486,7 @@ def card_footer_projection(+owner: String, +face: View.CardFace) ->
     List.append(&2, String, optional_text_slots(card_owner), optional_text_slots(updated)),
     replace_owner, replace_updated)
   Equal.trans(+List<String>,
-    direct_text_slots(Doc.element_children(first_node(Render.card_footer(owner, face)))),
+    direct_text_slots(Doc.element_children(first_node(Render.card_footer(owner, face, typography)))),
     direct_text_slots(items),
     card_footer_expected(face),
     footer_slots, Equal.trans(+List<String>,
@@ -496,8 +498,8 @@ def card_footer_projection(+owner: String, +face: View.CardFace) ->
 
 
 def movable_card_events(+key: String, +face: View.CardFace, +destinations: +List<Interface.Placement>,
-  source: +List<Render.Child>, +visual: Design.Style) ->
-  {Doc.element_events(Render.card_node(key, face, destinations, source, visual)) ==
+  source: +List<Render.Child>, +visual: Design.Style, +typography: T.Presentation) ->
+  {Doc.element_events(Render.card_node(key, face, destinations, source, visual, typography)) ==
     [Doc.DragCard{key}, Doc.DropCard{key}] : +List<Doc.Event>}:
   View.CardFace{+id, +title, +description, +priority, +pinned, +status, +project, +labels, +owner, +updated} = face
   {==}
@@ -514,8 +516,8 @@ def rest_nodes(values: +List<Doc.Node>) -> +List<Doc.Node>:
 
 def rendered_dialog(+key: String, +semantic: String, +label: String, +source: +List<Design.Node>,
   +visual: Design.Style) -> Doc.Node:
-  Design.Style{Design.TextStyle{family, size, line_height, weight}, Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment, direction, overflow, +content_frame, minimum, maximum, states} = visual
-  Render.match_node(Design.Node{key, semantic, label, Interface.Dialog{}, Interface.Region{}, Design.Style{Design.TextStyle{family, size, line_height, weight}, Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment, direction, overflow, content_frame, minimum, maximum, states}, Controls.NoControl{}, source}, Render.render_children(source))
+  Design.Style{typography, Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment, direction, overflow, +content_frame, minimum, maximum, states} = visual
+  Render.match_node(Design.Node{key, semantic, label, Interface.Dialog{}, Interface.Region{}, Design.Style{typography, Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment, direction, overflow, content_frame, minimum, maximum, states}, Controls.NoControl{}, source}, Render.render_children(source))
 
 def dialog_header_node(node: Doc.Node) -> Doc.Node:
   first_node(Doc.element_children(node))
@@ -613,34 +615,34 @@ def dialog_body_partition(children: +List<Render.Child>) ->
           Render.dialog_body_children(rest), expected_dialog_body(rest), dialog_body_partition(rest)))
     case Nil{}: {==}
 
-def dialog_region_header_projection_suffix(+key: String, +label: String, visual: Design.Style,
+def dialog_region_header_projection_suffix(+key: String, +label: String, +visual: Design.Style,
   +header: +List<Doc.Node>, suffix: EditorLayout.Suffix) ->
-  {rest_nodes(Doc.element_children(dialog_header_node(Render.dialog_region_suffix(key, label, visual, header, suffix)))) ==
+  {rest_nodes(Doc.element_children(dialog_header_node(Render.dialog_region_suffix(key, label, visual, header, suffix, Appearance.style_text(visual))))) ==
     header : +List<Doc.Node>}:
   match suffix:
     case EditorLayout.Suffix{+body, +footer}: {==}
 
-def dialog_region_header_projection(+key: String, +label: String, visual: Design.Style,
+def dialog_region_header_projection(+key: String, +label: String, +visual: Design.Style,
   parts: Render.DialogParts) ->
-  {rest_nodes(Doc.element_children(dialog_header_node(Render.dialog_region_parts(key, label, visual, parts)))) ==
+  {rest_nodes(Doc.element_children(dialog_header_node(Render.dialog_region_parts(key, label, visual, parts, Appearance.style_text(visual))))) ==
     Render.dialog_header_projection(parts) : +List<Doc.Node>}:
   match parts:
     case Render.DialogParts{+header, +body, +layouts}:
       dialog_region_header_projection_suffix(key, label, visual, header, EditorLayout.split(body, layouts))
 
-def dialog_region_body_projection(+key: String, +label: String, visual: Design.Style,
+def dialog_region_body_projection(+key: String, +label: String, +visual: Design.Style,
   parts: Render.DialogParts) ->
-  {DialogSpatial.original_children(Render.dialog_region_parts(key, label, visual, parts)) ==
+  {DialogSpatial.original_children(Render.dialog_region_parts(key, label, visual, parts, Appearance.style_text(visual))) ==
     Render.dialog_body_projection(parts) : +List<Doc.Node>}:
-  DialogSpatial.region_original_children(key, label, visual, parts)
+  DialogSpatial.region_original_children(key, label, visual, parts, Appearance.style_text(visual))
 
 def dialog_branch_header_projection(+key: String, +semantic: String, +label: String, +source: +List<Design.Node>,
   +visual: Design.Style) ->
   {rest_nodes(Doc.element_children(dialog_header_node(rendered_dialog(key, semantic, label, source, visual)))) ==
     Render.dialog_header_children(Render.render_children(source)) : +List<Doc.Node>}:
-  Design.Style{Design.TextStyle{family, size, line_height, weight}, Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment, direction, overflow, +content_frame, minimum, maximum, states} = visual
+  Design.Style{typography, Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment, direction, overflow, +content_frame, minimum, maximum, states} = visual
   dialog_region_header_projection(key, label,
-    Design.Style{Design.TextStyle{family, size, line_height, weight}, Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment, direction, overflow, content_frame, minimum, maximum, states},
+    Design.Style{typography, Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment, direction, overflow, content_frame, minimum, maximum, states},
     Render.dialog_partition(Render.render_children(source)))
 
 
@@ -649,29 +651,29 @@ def dialog_branch_body_projection(+key: String, +semantic: String, +label: Strin
   +visual: Design.Style) ->
   {DialogSpatial.original_children(rendered_dialog(key, semantic, label, source, visual)) ==
     Render.dialog_body_children(Render.render_children(source)) : +List<Doc.Node>}:
-  Design.Style{Design.TextStyle{family, size, line_height, weight}, Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment, direction, overflow, +content_frame, minimum, maximum, states} = visual
+  Design.Style{typography, Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment, direction, overflow, +content_frame, minimum, maximum, states} = visual
   dialog_region_body_projection(key, label,
-    Design.Style{Design.TextStyle{family, size, line_height, weight}, Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment, direction, overflow, content_frame, minimum, maximum, states},
+    Design.Style{typography, Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment, direction, overflow, content_frame, minimum, maximum, states},
     Render.dialog_partition(Render.render_children(source)))
 
 
 
-def dialog_region_wrapper_keys_suffix(+key: String, +label: String, visual: Design.Style,
+def dialog_region_wrapper_keys_suffix(+key: String, +label: String, +visual: Design.Style,
   +header: +List<Doc.Node>, suffix: EditorLayout.Suffix) ->
-  {(node_key(dialog_header_node(Render.dialog_region_suffix(key, label, visual, header, suffix))),
-    (node_key(dialog_body_node(Render.dialog_region_suffix(key, label, visual, header, suffix))),
-     node_key(dialog_content_node(Render.dialog_region_suffix(key, label, visual, header, suffix))))) ==
+  {(node_key(dialog_header_node(Render.dialog_region_suffix(key, label, visual, header, suffix, Appearance.style_text(visual)))),
+    (node_key(dialog_body_node(Render.dialog_region_suffix(key, label, visual, header, suffix, Appearance.style_text(visual)))),
+     node_key(dialog_content_node(Render.dialog_region_suffix(key, label, visual, header, suffix, Appearance.style_text(visual)))))) ==
    (Render.generated_identity(key, "dialog-header"),
     (Render.generated_identity(key, "dialog-body"), Render.generated_identity(key, "dialog-content"))) :
    (String & (String & String))}:
   match suffix:
     case EditorLayout.Suffix{+body, +footer}: {==}
 
-def dialog_region_wrapper_keys(+key: String, +label: String, visual: Design.Style,
+def dialog_region_wrapper_keys(+key: String, +label: String, +visual: Design.Style,
   parts: Render.DialogParts) ->
-  {(node_key(dialog_header_node(Render.dialog_region_parts(key, label, visual, parts))),
-    (node_key(dialog_body_node(Render.dialog_region_parts(key, label, visual, parts))),
-     node_key(dialog_content_node(Render.dialog_region_parts(key, label, visual, parts))))) ==
+  {(node_key(dialog_header_node(Render.dialog_region_parts(key, label, visual, parts, Appearance.style_text(visual)))),
+    (node_key(dialog_body_node(Render.dialog_region_parts(key, label, visual, parts, Appearance.style_text(visual)))),
+     node_key(dialog_content_node(Render.dialog_region_parts(key, label, visual, parts, Appearance.style_text(visual)))))) ==
    (Render.generated_identity(key, "dialog-header"),
     (Render.generated_identity(key, "dialog-body"), Render.generated_identity(key, "dialog-content"))) :
    (String & (String & String))}:
@@ -687,42 +689,42 @@ def dialog_branch_wrapper_keys(+key: String, +semantic: String, +label: String, 
    (Render.generated_identity(key, "dialog-header"),
     (Render.generated_identity(key, "dialog-body"), Render.generated_identity(key, "dialog-content"))) :
    (String & (String & String))}:
-  Design.Style{Design.TextStyle{family, size, line_height, weight}, Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment, direction, overflow, +content_frame, minimum, maximum, states} = visual
+  Design.Style{typography, Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment, direction, overflow, +content_frame, minimum, maximum, states} = visual
   dialog_region_wrapper_keys(key, label,
-    Design.Style{Design.TextStyle{family, size, line_height, weight}, Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment, direction, overflow, content_frame, minimum, maximum, states},
+    Design.Style{typography, Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment, direction, overflow, content_frame, minimum, maximum, states},
     Render.dialog_partition(Render.render_children(source)))
 
-def dialog_region_outer_identity_suffix(+key: String, +label: String, visual: Design.Style,
+def dialog_region_outer_identity_suffix(+key: String, +label: String, +visual: Design.Style,
   +header: +List<Doc.Node>, suffix: EditorLayout.Suffix) ->
-  {(node_key(Render.dialog_region_suffix(key, label, visual, header, suffix)),
-    (Render.attr(Doc.element_attributes(Render.dialog_region_suffix(key, label, visual, header, suffix)), "aria-label"),
-     Render.attr(Doc.element_attributes(Render.dialog_region_suffix(key, label, visual, header, suffix)), "data-native-key"))) ==
+  {(node_key(Render.dialog_region_suffix(key, label, visual, header, suffix, Appearance.style_text(visual))),
+    (Render.attr(Doc.element_attributes(Render.dialog_region_suffix(key, label, visual, header, suffix, Appearance.style_text(visual))), "aria-label"),
+     Render.attr(Doc.element_attributes(Render.dialog_region_suffix(key, label, visual, header, suffix, Appearance.style_text(visual))), "data-native-key"))) ==
    (key, (label, key)) : (String & (String & String))}:
   match suffix:
     case EditorLayout.Suffix{+body, +footer}: {==}
 
-def dialog_region_outer_identity(+key: String, +label: String, visual: Design.Style,
+def dialog_region_outer_identity(+key: String, +label: String, +visual: Design.Style,
   parts: Render.DialogParts) ->
-  {(node_key(Render.dialog_region_parts(key, label, visual, parts)),
-    (Render.attr(Doc.element_attributes(Render.dialog_region_parts(key, label, visual, parts)), "aria-label"),
-     Render.attr(Doc.element_attributes(Render.dialog_region_parts(key, label, visual, parts)), "data-native-key"))) ==
+  {(node_key(Render.dialog_region_parts(key, label, visual, parts, Appearance.style_text(visual))),
+    (Render.attr(Doc.element_attributes(Render.dialog_region_parts(key, label, visual, parts, Appearance.style_text(visual))), "aria-label"),
+     Render.attr(Doc.element_attributes(Render.dialog_region_parts(key, label, visual, parts, Appearance.style_text(visual))), "data-native-key"))) ==
    (key, (label, key)) : (String & (String & String))}:
   match parts:
     case Render.DialogParts{+header, +body, +layouts}:
       dialog_region_outer_identity_suffix(key, label, visual, header, EditorLayout.split(body, layouts))
 
-def dialog_region_title_identity_suffix(+key: String, +label: String, visual: Design.Style,
+def dialog_region_title_identity_suffix(+key: String, +label: String, +visual: Design.Style,
   +header: +List<Doc.Node>, suffix: EditorLayout.Suffix) ->
-  {(node_key(dialog_title_node(Render.dialog_region_suffix(key, label, visual, header, suffix))),
-    direct_text(dialog_title_node(Render.dialog_region_suffix(key, label, visual, header, suffix)))) ==
+  {(node_key(dialog_title_node(Render.dialog_region_suffix(key, label, visual, header, suffix, Appearance.style_text(visual)))),
+    direct_text(dialog_title_node(Render.dialog_region_suffix(key, label, visual, header, suffix, Appearance.style_text(visual))))) ==
    (Render.generated_identity(key, "title"), label) : (String & String)}:
   match suffix:
     case EditorLayout.Suffix{+body, +footer}: {==}
 
-def dialog_region_title_identity(+key: String, +label: String, visual: Design.Style,
+def dialog_region_title_identity(+key: String, +label: String, +visual: Design.Style,
   parts: Render.DialogParts) ->
-  {(node_key(dialog_title_node(Render.dialog_region_parts(key, label, visual, parts))),
-    direct_text(dialog_title_node(Render.dialog_region_parts(key, label, visual, parts)))) ==
+  {(node_key(dialog_title_node(Render.dialog_region_parts(key, label, visual, parts, Appearance.style_text(visual)))),
+    direct_text(dialog_title_node(Render.dialog_region_parts(key, label, visual, parts, Appearance.style_text(visual))))) ==
    (Render.generated_identity(key, "title"), label) : (String & String)}:
   match parts:
     case Render.DialogParts{+header, +body, +layouts}:
@@ -734,9 +736,9 @@ def dialog_branch_outer_identity(+key: String, +semantic: String, +label: String
     (Render.attr(Doc.element_attributes(rendered_dialog(key, semantic, label, source, visual)), "aria-label"),
      Render.attr(Doc.element_attributes(rendered_dialog(key, semantic, label, source, visual)), "data-native-key"))) ==
    (key, (label, key)) : (String & (String & String))}:
-  Design.Style{Design.TextStyle{family, size, line_height, weight}, Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment, direction, overflow, +content_frame, minimum, maximum, states} = visual
+  Design.Style{typography, Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment, direction, overflow, +content_frame, minimum, maximum, states} = visual
   dialog_region_outer_identity(key, label,
-    Design.Style{Design.TextStyle{family, size, line_height, weight}, Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment, direction, overflow, content_frame, minimum, maximum, states},
+    Design.Style{typography, Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment, direction, overflow, content_frame, minimum, maximum, states},
     Render.dialog_partition(Render.render_children(source)))
 
 def dialog_branch_title_identity(+key: String, +semantic: String, +label: String, +source: +List<Design.Node>,
@@ -744,34 +746,34 @@ def dialog_branch_title_identity(+key: String, +semantic: String, +label: String
   {(node_key(dialog_title_node(rendered_dialog(key, semantic, label, source, visual))),
     direct_text(dialog_title_node(rendered_dialog(key, semantic, label, source, visual)))) ==
    (Render.generated_identity(key, "title"), label) : (String & String)}:
-  Design.Style{Design.TextStyle{family, size, line_height, weight}, Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment, direction, overflow, +content_frame, minimum, maximum, states} = visual
+  Design.Style{typography, Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment, direction, overflow, +content_frame, minimum, maximum, states} = visual
   dialog_region_title_identity(key, label,
-    Design.Style{Design.TextStyle{family, size, line_height, weight}, Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment, direction, overflow, content_frame, minimum, maximum, states},
+    Design.Style{typography, Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment, direction, overflow, content_frame, minimum, maximum, states},
     Render.dialog_partition(Render.render_children(source)))
 
-def dialog_region_flow_properties_suffix(+key: String, +label: String, visual: Design.Style,
+def dialog_region_flow_properties_suffix(+key: String, +label: String, +visual: Design.Style,
   +header: +List<Doc.Node>, suffix: EditorLayout.Suffix) ->
-  {(Render.attr(Doc.element_styles(dialog_header_node(Render.dialog_region_suffix(key, label, visual, header, suffix))), "flex"),
-    (Render.attr(Doc.element_styles(dialog_body_node(Render.dialog_region_suffix(key, label, visual, header, suffix))), "flex"),
-     (Render.attr(Doc.element_styles(dialog_body_node(Render.dialog_region_suffix(key, label, visual, header, suffix))), "min-height"),
-      (Render.attr(Doc.element_styles(dialog_body_node(Render.dialog_region_suffix(key, label, visual, header, suffix))), "overflow"),
-       (Render.attr(Doc.element_styles(dialog_content_node(Render.dialog_region_suffix(key, label, visual, header, suffix))), "flex"),
-        (Render.attr(Doc.element_styles(dialog_content_node(Render.dialog_region_suffix(key, label, visual, header, suffix))), "height"),
-         Render.attr(Doc.element_styles(dialog_content_node(Render.dialog_region_suffix(key, label, visual, header, suffix))), "max-height"))))))) ==
+  {(Render.attr(Doc.element_styles(dialog_header_node(Render.dialog_region_suffix(key, label, visual, header, suffix, Appearance.style_text(visual)))), "flex"),
+    (Render.attr(Doc.element_styles(dialog_body_node(Render.dialog_region_suffix(key, label, visual, header, suffix, Appearance.style_text(visual)))), "flex"),
+     (Render.attr(Doc.element_styles(dialog_body_node(Render.dialog_region_suffix(key, label, visual, header, suffix, Appearance.style_text(visual)))), "min-height"),
+      (Render.attr(Doc.element_styles(dialog_body_node(Render.dialog_region_suffix(key, label, visual, header, suffix, Appearance.style_text(visual)))), "overflow"),
+       (Render.attr(Doc.element_styles(dialog_content_node(Render.dialog_region_suffix(key, label, visual, header, suffix, Appearance.style_text(visual)))), "flex"),
+        (Render.attr(Doc.element_styles(dialog_content_node(Render.dialog_region_suffix(key, label, visual, header, suffix, Appearance.style_text(visual)))), "height"),
+         Render.attr(Doc.element_styles(dialog_content_node(Render.dialog_region_suffix(key, label, visual, header, suffix, Appearance.style_text(visual)))), "max-height"))))))) ==
    ("0 0 auto", ("1 1 auto", ("0", ("auto", ("0 0 auto", ("", "")))))) :
    (String & (String & (String & (String & (String & (String & String))))))}:
   match suffix:
     case EditorLayout.Suffix{+body, +footer}: {==}
 
-def dialog_region_flow_properties(+key: String, +label: String, visual: Design.Style,
+def dialog_region_flow_properties(+key: String, +label: String, +visual: Design.Style,
   parts: Render.DialogParts) ->
-  {(Render.attr(Doc.element_styles(dialog_header_node(Render.dialog_region_parts(key, label, visual, parts))), "flex"),
-    (Render.attr(Doc.element_styles(dialog_body_node(Render.dialog_region_parts(key, label, visual, parts))), "flex"),
-     (Render.attr(Doc.element_styles(dialog_body_node(Render.dialog_region_parts(key, label, visual, parts))), "min-height"),
-      (Render.attr(Doc.element_styles(dialog_body_node(Render.dialog_region_parts(key, label, visual, parts))), "overflow"),
-       (Render.attr(Doc.element_styles(dialog_content_node(Render.dialog_region_parts(key, label, visual, parts))), "flex"),
-        (Render.attr(Doc.element_styles(dialog_content_node(Render.dialog_region_parts(key, label, visual, parts))), "height"),
-         Render.attr(Doc.element_styles(dialog_content_node(Render.dialog_region_parts(key, label, visual, parts))), "max-height"))))))) ==
+  {(Render.attr(Doc.element_styles(dialog_header_node(Render.dialog_region_parts(key, label, visual, parts, Appearance.style_text(visual)))), "flex"),
+    (Render.attr(Doc.element_styles(dialog_body_node(Render.dialog_region_parts(key, label, visual, parts, Appearance.style_text(visual)))), "flex"),
+     (Render.attr(Doc.element_styles(dialog_body_node(Render.dialog_region_parts(key, label, visual, parts, Appearance.style_text(visual)))), "min-height"),
+      (Render.attr(Doc.element_styles(dialog_body_node(Render.dialog_region_parts(key, label, visual, parts, Appearance.style_text(visual)))), "overflow"),
+       (Render.attr(Doc.element_styles(dialog_content_node(Render.dialog_region_parts(key, label, visual, parts, Appearance.style_text(visual)))), "flex"),
+        (Render.attr(Doc.element_styles(dialog_content_node(Render.dialog_region_parts(key, label, visual, parts, Appearance.style_text(visual)))), "height"),
+         Render.attr(Doc.element_styles(dialog_content_node(Render.dialog_region_parts(key, label, visual, parts, Appearance.style_text(visual)))), "max-height"))))))) ==
    ("0 0 auto", ("1 1 auto", ("0", ("auto", ("0 0 auto", ("", "")))))) :
    (String & (String & (String & (String & (String & (String & String))))))}:
   match parts:
@@ -789,9 +791,9 @@ def dialog_flow_properties(+key: String, +semantic: String, +label: String, +sou
          Render.attr(Doc.element_styles(dialog_content_node(rendered_dialog(key, semantic, label, source, visual))), "max-height"))))))) ==
    ("0 0 auto", ("1 1 auto", ("0", ("auto", ("0 0 auto", ("", "")))))) :
    (String & (String & (String & (String & (String & (String & String))))))}:
-  Design.Style{Design.TextStyle{family, size, line_height, weight}, Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment, direction, overflow, +content_frame, minimum, maximum, states} = visual
+  Design.Style{typography, Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment, direction, overflow, +content_frame, minimum, maximum, states} = visual
   dialog_region_flow_properties(key, label,
-    Design.Style{Design.TextStyle{family, size, line_height, weight}, Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment, direction, overflow, content_frame, minimum, maximum, states},
+    Design.Style{typography, Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment, direction, overflow, content_frame, minimum, maximum, states},
     Render.dialog_partition(Render.render_children(source)))
 
 def centered_dialog_hides_overflow(+available: Design.Box, maximum_width: Nat) ->
@@ -841,8 +843,44 @@ def anchored_popover_content_height(+anchor: String, +available: Design.Box,
 
 
 
+def font_properties(+value: Design.Style) -> (String & (String & (String & String))):
+  (Render.attr(Render.style(value), "font-family"),
+    (Render.attr(Render.style(value), "font-size"),
+      (Render.attr(Render.style(value), "line-height"), Render.attr(Render.style(value), "font-weight"))))
+
+def owned_font_properties(+presentation: T.Presentation) -> (String & (String & (String & String))):
+  +resolved = T.resolved(presentation)
+  (T.font_family(Render.resolved_font(resolved)),
+    (Render.px(Render.resolved_size(resolved)),
+      (Render.px(Render.resolved_leading(resolved)), Nat.show(Render.resolved_weight(resolved)))))
+
+def last_override(first: +List<Doc.Property>, +suffix: +List<Doc.Property>, +name: String,
+  previous: String, +result: String,
+  overrides: @prior:String -> {Render.attr_last(suffix, name, prior) == result : String}) ->
+  {Render.attr_last(List.append(&2, Doc.Property, first, suffix), name, previous) == result : String}:
+  match first:
+    case Nil{}: overrides(previous)
+    case Con{Doc.Property{key, value}, rest}:
+      last_override(rest, suffix, name, Render.attr_found(String.eq(key, name), value, previous), result, overrides)
+
+def actual_font_bridge(+value: Design.Style) ->
+  {Render.attr(Render.style(value), "font-family") == T.font_family(Render.resolved_font(T.resolved(Appearance.style_text(value)))) : String} &
+  {Render.attr(Render.style(value), "font-size") == Render.px(Render.resolved_size(T.resolved(Appearance.style_text(value)))) : String} &
+  {Render.attr(Render.style(value), "line-height") == Render.px(Render.resolved_leading(T.resolved(Appearance.style_text(value)))) : String} &
+  {Render.attr(Render.style(value), "font-weight") == Nat.show(Render.resolved_weight(T.resolved(Appearance.style_text(value)))) : String}:
+  +text = Appearance.style_text(value)
+  (last_override(Render.style_rest(value), Render.text_presentation(text), "font-family", "", T.font_family(Render.resolved_font(T.resolved(text))), prior => {==}),
+   last_override(Render.style_rest(value), Render.text_presentation(text), "font-size", "", Render.px(Render.resolved_size(T.resolved(text))), prior => {==}),
+   last_override(Render.style_rest(value), Render.text_presentation(text), "line-height", "", Render.px(Render.resolved_leading(T.resolved(text))), prior => {==}),
+   last_override(Render.style_rest(value), Render.text_presentation(text), "font-weight", "", Nat.show(Render.resolved_weight(T.resolved(text))), prior => {==}))
+
 type Requirements is Type:
   Requirements{
+    actual_font_bridge: @+value:Design.Style ->
+      {Render.attr(Render.style(value), "font-family") == T.font_family(Render.resolved_font(T.resolved(Appearance.style_text(value)))) : String} &
+      {Render.attr(Render.style(value), "font-size") == Render.px(Render.resolved_size(T.resolved(Appearance.style_text(value)))) : String} &
+      {Render.attr(Render.style(value), "line-height") == Render.px(Render.resolved_leading(T.resolved(Appearance.style_text(value)))) : String} &
+      {Render.attr(Render.style(value), "font-weight") == Nat.show(Render.resolved_weight(T.resolved(Appearance.style_text(value)))) : String},
     field_options_empty: @key:String ->
       {Render.field_options(key, Nil{}) == Nil{} : +List<Doc.Node>},
     field_options_cons: @+key:String -> @+value:String -> @label:String -> @choices:+List<Forms.ChoiceValue> ->
@@ -875,11 +913,11 @@ type Requirements is Type:
             Render.timeline_styles(Design.ConversationFrame{heading, viewport, reading, dock}), Nil{}, Render.page_nodes(children, "body"), identity),
           Render.reading_element("dock", "conversation-dock", "div", [Doc.Property{"data-region", "dock"}, Doc.Property{"data-page-group", "dock"}],
             Render.conversation_dock_styles(dock), Nil{}, Render.conversation_dock_regions(Render.page_nodes(children, "dock")), identity)] : +List<Doc.Node>},
-    page_context_root_identity: @+key:String -> @+semantic:String -> @+label:String -> @+role:Interface.Role ->
+    page_context_root_identity: @+parameters:Design.LayoutParameters -> @+key:String -> @+semantic:String -> @+label:String -> @+role:Interface.Role ->
       @+identity:Maybe<&2, Conversation.Identity> -> @+visual:Design.Style -> @+representation:Controls.Representation ->
       @+source:+List<Design.Node> -> @shell:Design.Shell -> @main:Design.MainFrame ->
-      {Render.render_base_node(Design.Node{key, semantic, label, role, Interface.PageContext{identity}, visual, representation, source}, shell, main) ==
-        Render.positioned_root(Render.render_base_shell_node(Design.Node{key, semantic, label, role, Interface.PageContext{identity}, visual, representation, source}, shell), main, identity) : Doc.Node},
+      {Render.render_base_node(parameters, Design.Node{key, semantic, label, role, Interface.PageContext{identity}, visual, representation, source}, shell, main) ==
+        Render.positioned_root(Render.render_base_shell_node(parameters, Design.Node{key, semantic, label, role, Interface.PageContext{identity}, visual, representation, source}, shell), main, identity) : Doc.Node},
     background_without_modal: {Render.background_properties(None{}) == Nil{} : +List<Doc.Property>},
     background_with_modal: @current:String ->
       {Render.background_properties(Some{current}) ==
@@ -949,34 +987,34 @@ type Requirements is Type:
     file_field_uses_compound: @+key:String -> @+semantic:String -> @+label:String -> @role:Interface.Role -> @owner:User.Editor -> @+field:Forms.Field ->
       @value:Forms.Observed -> @choices:+List<Forms.ChoiceValue> -> @source:+List<Design.Node> -> @+visual:Design.Style -> @representation:Controls.Representation ->
       {Render.match_node(Design.Node{key, semantic, label, role, Interface.Edit{owner, field, Forms.FileCollection{}, value, choices}, visual, representation, source}, Render.render_children(source)) == Render.compound_field(key, label, field, visual, Render.render_nodes(source)) : Doc.Node},
-    board_group_properties: @+key:String -> @+grouping:Interface.BoardGrouping -> @+children:+List<Doc.Node> ->
-      {(Render.attr(Doc.element_attributes(Render.board_group_node(key, grouping, children)), "data-native-key"),
-          (Render.attr(Doc.element_attributes(Render.board_group_node(key, grouping, children)), "data-board-group"),
-           (Render.attr(Doc.element_attributes(Render.board_group_node(key, grouping, children)), "role"),
-            Render.attr(Doc.element_attributes(Render.board_group_node(key, grouping, children)), "aria-label")))) ==
+    board_group_properties: @+typography:T.Presentation -> @+key:String -> @+grouping:Interface.BoardGrouping -> @+children:+List<Doc.Node> ->
+      {(Render.attr(Doc.element_attributes(Render.board_group_node(key, grouping, children, typography)), "data-native-key"),
+          (Render.attr(Doc.element_attributes(Render.board_group_node(key, grouping, children, typography)), "data-board-group"),
+           (Render.attr(Doc.element_attributes(Render.board_group_node(key, grouping, children, typography)), "role"),
+            Render.attr(Doc.element_attributes(Render.board_group_node(key, grouping, children, typography)), "aria-label")))) ==
           (key, (Render.board_group_name(grouping), ("group", Render.board_group_label(grouping)))) :
           (String & (String & (String & String)))},
     board_group_dispatch: @+key:String -> @+semantic:String -> @+label:String -> @role:Interface.Role -> @+grouping:Interface.BoardGrouping ->
       @source:+List<Design.Node> -> @+visual:Design.Style -> @representation:Controls.Representation ->
       {Render.match_node(Design.Node{key, semantic, label, role, Interface.BoardGroup{grouping}, visual, representation, source}, Render.render_children(source)) ==
-        Render.board_group_node(key, grouping, Render.render_nodes(source)) : Doc.Node},
+        Render.board_group_node(key, grouping, Render.render_nodes(source), Appearance.style_text(visual)) : Doc.Node},
     board_lane_dispatch: @+key:String -> @+semantic:String -> @+label:String -> @role:Interface.Role -> @+stage:Board.Stage -> @+count:Nat ->
       @source:+List<Design.Node> -> @+visual:Design.Style -> @representation:Controls.Representation ->
       {Render.match_node(Design.Node{key, semantic, label, role, Interface.BoardLane{stage, count}, visual, representation, source}, Render.render_children(source)) ==
-        Render.board_lane_node(key, label, stage, count, Render.render_children(source)) : Doc.Node},
-    board_lane_projection: @+key:String -> @+label:String -> @+stage:Board.Stage -> @+count:Nat -> @source:+List<Render.Child> ->
-      {(Render.attr(Doc.element_attributes(Render.board_lane_node(key, label, stage, count, source)), "data-native-key"),
-          (Render.attr(Doc.element_attributes(Render.board_lane_node(key, label, stage, count, source)), "data-board-stage"),
-           (Render.attr(Doc.element_attributes(Render.board_lane_node(key, label, stage, count, source)), "data-board-count"),
-            Render.attr(Doc.element_attributes(Render.board_lane_node(key, label, stage, count, source)), "aria-label")))) ==
+        Render.board_lane_node(key, label, stage, count, Render.render_children(source), Appearance.style_text(visual)) : Doc.Node},
+    board_lane_projection: @+typography:T.Presentation -> @+key:String -> @+label:String -> @+stage:Board.Stage -> @+count:Nat -> @source:+List<Render.Child> ->
+      {(Render.attr(Doc.element_attributes(Render.board_lane_node(key, label, stage, count, source, typography)), "data-native-key"),
+          (Render.attr(Doc.element_attributes(Render.board_lane_node(key, label, stage, count, source, typography)), "data-board-stage"),
+           (Render.attr(Doc.element_attributes(Render.board_lane_node(key, label, stage, count, source, typography)), "data-board-count"),
+            Render.attr(Doc.element_attributes(Render.board_lane_node(key, label, stage, count, source, typography)), "aria-label")))) ==
           (key, (Board.stage_name(stage), (Nat.show(count), label))) : (String & (String & (String & String)))},
-    board_lane_count_projection: @+owner:String -> @+count:Nat ->
-      {(Render.attr(Doc.element_attributes(Render.lane_count(owner, count)), "data-board-count"), direct_text(Render.lane_count(owner, count))) ==
+    board_lane_count_projection: @+typography:T.Presentation -> @+owner:String -> @+count:Nat ->
+      {(Render.attr(Doc.element_attributes(Render.lane_count(owner, count, typography)), "data-board-count"), direct_text(Render.lane_count(owner, count, typography))) ==
         (Nat.show(count), Nat.show(count)) : (String & String)},
-    board_lane_empty_projection: @+owner:String ->
-      {(direct_texts(Render.empty_lane(0n, owner)),
-          (List.length(&2, Doc.Node, Render.empty_lane(0n, owner)),
-           List.length(&2, Doc.Node, Render.empty_lane(1n, owner)))) == ("暂无任务", (1n, 0n)) : (String & (Nat & Nat))},
+    board_lane_empty_projection: @+typography:T.Presentation -> @+owner:String ->
+      {(direct_texts(Render.empty_lane(0n, owner, typography)),
+          (List.length(&2, Doc.Node, Render.empty_lane(0n, owner, typography)),
+           List.length(&2, Doc.Node, Render.empty_lane(1n, owner, typography)))) == ("暂无任务", (1n, 0n)) : (String & (Nat & Nat))},
     board_lane_scroll_ownership: @+stage:Board.Stage ->
       {(Render.attr(Render.board_lane_styles(stage), "min-height"), Render.attr(Render.board_lane_styles(stage), "overflow")) ==
         ("0", "hidden") : (String & String)},
@@ -993,26 +1031,26 @@ type Requirements is Type:
     card_root_face_projection: @+key:String -> @+face:View.CardFace -> @destinations:+List<Interface.Placement> -> @source:+List<Render.Child> ->
       @+visual:Design.Style ->
       card_root_face_projection_law(key, face, destinations, source, visual),
-    card_root_excludes_tab_target: @+key:String -> @+face:View.CardFace -> @destinations:+List<Interface.Placement> -> @source:+List<Render.Child> ->
+    card_root_excludes_tab_target: @+typography:T.Presentation -> @+key:String -> @+face:View.CardFace -> @destinations:+List<Interface.Placement> -> @source:+List<Render.Child> ->
       @+visual:Design.Style ->
-      {Render.attr(Doc.element_attributes(Render.card_node(key, face, destinations, source, visual)), "tabindex") == "" : String},
-    card_metadata_projection: @+owner:String -> @+face:View.CardFace ->
-      {direct_text_slots(Doc.element_children(Render.card_metadata(owner, face, String.is_empty(card_face_status(face))))) ==
+      {Render.attr(Doc.element_attributes(Render.card_node(key, face, destinations, source, visual, typography)), "tabindex") == "" : String},
+    card_metadata_projection: @+typography:T.Presentation -> @+owner:String -> @+face:View.CardFace ->
+      {direct_text_slots(Doc.element_children(Render.card_metadata(owner, face, String.is_empty(card_face_status(face)), typography))) ==
         card_metadata_expected(face, String.is_empty(card_face_status(face))) : +List<String>},
-    card_description_projection: @+owner:String -> @+description:String ->
-      {direct_text_slots(Render.card_description(owner, description)) == optional_text_slots(description) : +List<String>},
-    card_context_projection: @+owner:String -> @+project:String -> @+labels:+List<String> ->
-      {direct_text_slots(Doc.element_children(first_node(Render.card_context_nodes(owner, project, labels)))) ==
+    card_description_projection: @+typography:T.Presentation -> @+owner:String -> @+description:String ->
+      {direct_text_slots(Render.card_description(owner, description, typography)) == optional_text_slots(description) : +List<String>},
+    card_context_projection: @+typography:T.Presentation -> @+owner:String -> @+project:String -> @+labels:+List<String> ->
+      {direct_text_slots(Doc.element_children(first_node(Render.card_context_nodes(owner, project, labels, typography)))) ==
         List.append(&2, String, optional_text_slots(project), labels) : +List<String>},
-    card_footer_projection: @+owner:String -> @+face:View.CardFace ->
-      {direct_text_slots(Doc.element_children(first_node(Render.card_footer(owner, face)))) == card_footer_expected(face) : +List<String>},
+    card_footer_projection: @+typography:T.Presentation -> @+owner:String -> @+face:View.CardFace ->
+      {direct_text_slots(Doc.element_children(first_node(Render.card_footer(owner, face, typography)))) == card_footer_expected(face) : +List<String>},
     movable_card_dispatch: @+key:String -> @+semantic:String -> @+label:String -> @role:Interface.Role -> @destinations:+List<Interface.Placement> -> @+face:View.CardFace ->
       @source:+List<Design.Node> -> @+visual:Design.Style -> @representation:Controls.Representation ->
       {Render.match_node(Design.Node{key, semantic, label, role, Interface.MovableCard{destinations, face}, visual, representation, source}, Render.render_children(source)) ==
-        Render.card_node(key, face, destinations, Render.render_children(source), visual) : Doc.Node},
-    movable_card_events: @+key:String -> @+face:View.CardFace -> @destinations:+List<Interface.Placement> -> @source:+List<Render.Child> ->
+        Render.card_node(key, face, destinations, Render.render_children(source), visual, Appearance.style_text(visual)) : Doc.Node},
+    movable_card_events: @+typography:T.Presentation -> @+key:String -> @+face:View.CardFace -> @destinations:+List<Interface.Placement> -> @source:+List<Render.Child> ->
       @+visual:Design.Style ->
-      {Doc.element_events(Render.card_node(key, face, destinations, source, visual)) == [Doc.DragCard{key}, Doc.DropCard{key}] : +List<Doc.Event>},
+      {Doc.element_events(Render.card_node(key, face, destinations, source, visual, typography)) == [Doc.DragCard{key}, Doc.DropCard{key}] : +List<Doc.Event>},
     dialog_branch_header_partition: @+key:String -> @+semantic:String -> @+label:String -> @source:+List<Design.Node> ->
       @+visual:Design.Style ->
       {rest_nodes(Doc.element_children(dialog_header_node(rendered_dialog(key, semantic, label, source, visual)))) ==
@@ -1071,14 +1109,14 @@ type Requirements is Type:
   }
 
 def evidence() -> Requirements:
-  Requirements{
+  Requirements{actual_font_bridge,
     key => {==},
     +key => +value => label => choices => {==},
     +key => semantic => +label => role => expanded => audit => +visual => representation => +source => {==},
     +task => generation => key => tag => attrs => styles => events => children => {==},
     +task => generation => key => tag => attrs => styles => events => children => {==},
     +children => +heading => +viewport => +reading => +dock => +identity => {==},
-    +key => +semantic => +label => +role => +identity => +visual => +representation => +source => shell => main => {==},
+    +parameters => +key => +semantic => +label => +role => +identity => +visual => +representation => +source => shell => main => {==},
     {==},
     current => {==},
     key => {==},
@@ -1114,26 +1152,26 @@ def evidence() -> Requirements:
       # These laws observe the document tree produced by the production renderer.
       # They constrain emitted content and ownership attributes, not browser layout.
     ,
-    +key => +grouping => +children => {==},
+    +typography => +key => +grouping => +children => {==},
     +key => +semantic => +label => role => +grouping => source => +visual => representation => {==},
     +key => +semantic => +label => role => +stage => +count => source => +visual => representation => {==},
-    +key => +label => +stage => +count => source => {==},
-    +owner => +count => {==},
-    +owner => {==},
+    +typography => +key => +label => +stage => +count => source => {==},
+    +typography => +owner => +count => {==},
+    +typography => +owner => {==},
     +stage => {==},
     +key => +width => {==},
     +key => +width => +gap => +inset => {==},
     key => face => destinations => source => visual =>
       card_root_face_projection(key, face, destinations, source, visual),
-    key => face => destinations => source => visual =>
-      card_root_excludes_tab_target(key, face, destinations, source, visual),
-    owner => face => card_metadata_projection(owner, face),
-    +owner => +description => card_description_projection_when(String.is_empty(description), owner, description),
-    owner => project => labels => card_context_projection(owner, project, labels),
-    owner => face => card_footer_projection(owner, face),
+    +typography => key => face => destinations => source => visual =>
+      card_root_excludes_tab_target(key, face, destinations, source, visual, typography),
+    +typography => owner => face => card_metadata_projection(owner, face, typography),
+    +typography => +owner => +description => card_description_projection_when(String.is_empty(description), owner, description, typography),
+    +typography => owner => project => labels => card_context_projection(owner, project, labels, typography),
+    +typography => owner => face => card_footer_projection(owner, face, typography),
     +key => +semantic => +label => role => +destinations => +face => source => +visual => representation => {==},
-    key => face => destinations => source => visual =>
-      movable_card_events(key, face, destinations, source, visual),
+    +typography => key => face => destinations => source => visual =>
+      movable_card_events(key, face, destinations, source, visual, typography),
     +key => +semantic => +label => +source => +visual =>
       Equal.trans(+List<Doc.Node>,
         rest_nodes(Doc.element_children(dialog_header_node(rendered_dialog(key, semantic, label, source, visual)))),

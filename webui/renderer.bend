@@ -4,6 +4,7 @@ import ../bendlib/stdlib.bend as Std
 import ./document.bend as Doc
 import ./MODEL.bend as Web
 import ./design.bend as Design
+import ./typography.bend as T
 import ./surfaces.bend as Surfaces
 import ./appearance.bend as Appearance
 import ./layout.bend as Layout
@@ -71,11 +72,48 @@ def paint(value: Design.Paint) -> String:
     case Design.SurfaceForeground{role}: surface_color(Surfaces.foreground(role))
 
 
-def font(value: Design.Font) -> String:
-  match value:
-    case Design.InterfaceFont{}: "var(--font-sans, system-ui)"
-    case Design.MonospaceFont{}: "var(--font-mono, monospace)"
 
+
+def resolved_font(value: T.TextStyle) -> T.Font:
+  T.TextStyle{family, size, line_height, weight} = value
+  family
+
+def resolved_size(value: T.TextStyle) -> Nat:
+  T.TextStyle{family, size, line_height, weight} = value
+  size
+
+def resolved_leading(value: T.TextStyle) -> Nat:
+  T.TextStyle{family, size, line_height, weight} = value
+  line_height
+
+def resolved_weight(value: T.TextStyle) -> Nat:
+  T.TextStyle{family, size, line_height, weight} = value
+  weight
+
+def text_properties(+value: T.TextStyle) -> +List<Doc.Property>:
+  [property("font-family", T.font_family(resolved_font(value))), property("font-size", px(resolved_size(value))),
+   property("line-height", px(resolved_leading(value))), property("font-weight", Nat.show(resolved_weight(value)))]
+
+def text_presentation(value: T.Presentation) -> +List<Doc.Property>:
+  text_properties(T.resolved(value))
+
+def part_text(+parent: T.Presentation, tier: T.Tier, emphasis: T.Emphasis) -> +List<Doc.Property>:
+  text_presentation(T.with_emphasis(T.with_tier(parent, tier), emphasis))
+
+def rich_resolved(+prefix: String, +value: T.TextStyle) -> +List<Doc.Property>:
+  [property(prefix ++ "-size", px(resolved_size(value))), property(prefix ++ "-line", px(resolved_leading(value))),
+   property(prefix ++ "-weight", Nat.show(resolved_weight(value))), property(prefix ++ "-font", T.font_family(resolved_font(value)))]
+
+def rich_role(prefix: String, parent: T.Presentation, tier: T.Tier, emphasis: T.Emphasis) -> +List<Doc.Property>:
+  rich_resolved(prefix, T.resolved(T.with_emphasis(T.with_tier(parent, tier), emphasis)))
+
+def rich_properties(+parent: T.Presentation) -> +List<Doc.Property>:
+  List.append(&2, Doc.Property, rich_role("--rich-title", parent, T.Title{}, T.Strong{}),
+    List.append(&2, Doc.Property, rich_role("--rich-section", parent, T.Section{}, T.Medium{}),
+      List.append(&2, Doc.Property, rich_role("--rich-body", parent, T.Body{}, T.Regular{}),
+        List.append(&2, Doc.Property, rich_role("--rich-support", parent, T.Support{}, T.Medium{}),
+          List.append(&2, Doc.Property, rich_role("--rich-code", parent, T.CodeBody{}, T.Regular{}),
+            rich_role("--rich-body-strong", parent, T.Body{}, T.Strong{}))))))
 
 def icon_path(value: Controls.Icon) -> String:
   match value:
@@ -375,18 +413,18 @@ def widget_properties(value: Controls.Widget) -> +List<Doc.Property>:
     case _: Nil{}
 
 
-def section_label(owner: String, empty: Bool, text: String) -> +List<Doc.Node>:
+def section_label(owner: String, empty: Bool, text: String, +typography: T.Presentation) -> +List<Doc.Node>:
   match empty:
     case True{}: Nil{}
-    case False{}: [Doc.Element{generated_identity(owner, "title"), "h2", Nil{}, [property("font-size", "13px"), property("margin", "0")], Nil{}, [Doc.Text{text}]}]
+    case False{}: [Doc.Element{generated_identity(owner, "title"), "h2", Nil{}, List.append(&2, Doc.Property, part_text(typography, T.Body{}, T.Medium{}), [property("margin", "0")]), Nil{}, [Doc.Text{text}]}]
 
-def region_label(owner: String, role: UI.Role, +text: String) -> +List<Doc.Node>:
+def region_label(owner: String, role: UI.Role, +text: String, +typography: T.Presentation) -> +List<Doc.Node>:
   match role:
     case UI.NavigationHeader{}:
       [Doc.Element{generated_identity(owner, "brand"), "span", [property("data-navigation-brand", "")],
-        [property("font-size", "15px"), property("font-weight", "550"), property("letter-spacing", "-0.01em")], Nil{}, [Doc.Text{text}]}]
+        List.append(&2, Doc.Property, part_text(typography, T.Section{}, T.Medium{}), [property("letter-spacing", "-0.01em")]), Nil{}, [Doc.Text{text}]}]
     case UI.Heading{}: [Doc.Text{text}]
-    case UI.Section{}: section_label(owner, String.is_empty(text), text)
+    case UI.Section{}: section_label(owner, String.is_empty(text), text, typography)
     case UI.Dialog{}: [Doc.Element{generated_identity(owner, "title"), "h2", Nil{}, Nil{}, Nil{}, [Doc.Text{text}]}]
     case UI.Activity{}: [Doc.Element{generated_identity(owner, "summary"), "summary", Nil{}, Nil{}, Nil{}, [Doc.Text{text}]}]
     case _: Nil{}
@@ -420,7 +458,7 @@ def composer_styles(value: Design.MainFrame) -> +List<Doc.Property>:
 
 def input_style(value: Controls.Widget) -> +List<Doc.Property>:
   match value:
-    case Controls.MessageInput{}: [property("width", "100%"), property("max-height", "240px"), property("resize", "none"), property("outline", "none"), property("field-sizing", "content")]
+    case Controls.MessageInput{}: [property("width", "100%"), property("resize", "none"), property("outline", "none"), property("field-sizing", "content")]
     case Controls.ToggleInput{}:
       [property("width", px(Appearance.toggle_extent())), property("height", px(Appearance.toggle_extent())),
        property("margin", "0"), property("flex", "none")]
@@ -507,7 +545,7 @@ def checked_property(value: Bool) -> +List<Doc.Property>:
 
 def measured_input_present(present: Bool, metrics: Maybe<&2, Design.InputMetrics>) -> +List<Doc.Property>:
   match present metrics:
-    case True{} Some{Design.InputMetrics{minimum, maximum, line_height, inline, gap, footer}}: [property("min-height", px(minimum)), property("max-height", px(maximum)), property("line-height", px(line_height)), property("padding-inline", px(inline))]
+    case True{} Some{Design.InputMetrics{minimum, maximum, line_height, inline, gap, footer}}: [property("min-height", px(minimum)), property("max-height", px(maximum)), property("padding-inline", px(inline))]
     case _ _: Nil{}
 
 
@@ -532,22 +570,22 @@ def board_group_label(value: UI.BoardGrouping) -> String:
     case UI.SecondaryActions{}: "看板筛选和设置"
     case UI.PrimaryAction{}: "主要操作"
 
-def board_group_styles(value: UI.BoardGrouping) -> +List<Doc.Property>:
+def board_group_styles(value: UI.BoardGrouping, +typography: T.Presentation) -> +List<Doc.Property>:
   match value:
     case UI.ViewChoices{}:
       [property("display", "flex"), property("align-items", "center"), property("gap", "4px"), property("min-width", "0"), property("flex", "0 0 auto")]
     case UI.SearchArea{}:
       [property("display", "flex"), property("align-items", "center"), property("min-width", "0"), property("flex", "0 1 168px")]
     case UI.WorkStatus{}:
-      [property("display", "flex"), property("align-items", "center"), property("min-width", "0"), property("color", "var(--color-token-text-secondary)"), property("font-size", "12px"), property("white-space", "nowrap")]
+      List.append(&2, Doc.Property, part_text(typography, T.Body{}, T.Medium{}), [property("display", "flex"), property("align-items", "center"), property("min-width", "0"), property("color", "var(--color-token-text-secondary)"), property("white-space", "nowrap")])
     case UI.SecondaryActions{}:
       [property("display", "flex"), property("align-items", "center"), property("gap", "4px"), property("min-width", "0"), property("flex", "0 0 auto"), property("margin-inline-start", "auto")]
     case UI.PrimaryAction{}:
       [property("display", "flex"), property("align-items", "center"), property("min-width", "0"), property("flex", "0 0 auto")]
 
-def board_group_node(+key: String, +grouping: UI.BoardGrouping, children: +List<Doc.Node>) -> Doc.Node:
+def board_group_node(+key: String, +grouping: UI.BoardGrouping, children: +List<Doc.Node>, +typography: T.Presentation) -> Doc.Node:
   Doc.Element{key, "div", [property("data-native-key", key), property("data-board-group", board_group_name(grouping)),
-    property("role", "group"), property("aria-label", board_group_label(grouping))], board_group_styles(grouping), Nil{}, children}
+    property("role", "group"), property("aria-label", board_group_label(grouping))], board_group_styles(grouping, typography), Nil{}, children}
 
 def stage_surface_tone(stage: Board.Stage) -> Surfaces.Tone:
   match stage:
@@ -573,28 +611,28 @@ def lane_mark(+owner: String, +stage: Board.Stage) -> Doc.Node:
   Doc.Element{generated_identity(owner, "stage-mark"), "span", [property("data-board-stage-mark", Board.stage_name(stage)), property("aria-hidden", "true")],
     [property("width", "8px"), property("height", "8px"), property("flex", "0 0 8px"), property("border-radius", "50%"), property("background", stage_tone(stage))], Nil{}, Nil{}}
 
-def lane_count(+owner: String, +count: Nat) -> Doc.Node:
+def lane_count(+owner: String, +count: Nat, +typography: T.Presentation) -> Doc.Node:
   Doc.Element{generated_identity(owner, "count"), "span", [property("data-board-count", Nat.show(count)), property("aria-label", Nat.show(count) ++ " 个任务")],
-    [property("color", "var(--color-token-text-secondary)"), property("font-size", "11px"), property("font-variant-numeric", "tabular-nums"), property("margin-inline-start", "2px")], Nil{}, [Doc.Text{Nat.show(count)}]}
+    List.append(&2, Doc.Property, part_text(typography, T.Support{}, T.Regular{}), [property("color", "var(--color-token-text-secondary)"), property("font-variant-numeric", "tabular-nums"), property("margin-inline-start", "2px")]), Nil{}, [Doc.Text{Nat.show(count)}]}
 
-def lane_heading_leading(+owner: String, label: String, stage: Board.Stage, count: Nat) -> Doc.Node:
+def lane_heading_leading(+owner: String, label: String, stage: Board.Stage, count: Nat, +typography: T.Presentation) -> Doc.Node:
   Doc.Element{generated_identity(owner, "heading-leading"), "div", Nil{},
     [property("display", "flex"), property("align-items", "center"), property("gap", "7px"), property("min-width", "0")], Nil{},
     [lane_mark(owner, stage),
       Doc.Element{generated_identity(owner, "title"), "h2", Nil{},
-        [property("margin", "0"), property("font-size", "12px"), property("line-height", "18px"), property("font-weight", "550"), property("min-width", "0"), property("overflow", "hidden"), property("text-overflow", "ellipsis"), property("white-space", "nowrap")], Nil{}, [Doc.Text{label}]},
-      lane_count(owner, count)]}
+        List.append(&2, Doc.Property, part_text(typography, T.Support{}, T.Medium{}), [property("margin", "0"), property("min-width", "0"), property("overflow", "hidden"), property("text-overflow", "ellipsis"), property("white-space", "nowrap")]), Nil{}, [Doc.Text{label}]},
+      lane_count(owner, count, typography)]}
 
 def lane_heading_trailing(+owner: String, create: +List<Doc.Node>) -> Doc.Node:
   Doc.Element{generated_identity(owner, "heading-trailing"), "div", Nil{},
     [property("display", "flex"), property("align-items", "center"), property("margin-inline-start", "auto"), property("flex", "0 0 auto")], Nil{}, create}
 
 def lane_heading_node(+owner: String, label: String, stage: Board.Stage, count: Nat,
-  +create: +List<Doc.Node>) -> Doc.Node:
+  +create: +List<Doc.Node>, +typography: T.Presentation) -> Doc.Node:
   Doc.Element{generated_identity(owner, "heading"), "header", [property("data-board-lane-heading", "")],
     [property("display", "flex"), property("align-items", "center"), property("gap", "7px"), property("min-height", "36px"),
      property("padding", "0 2px 8px"), property("flex", "none")], Nil{},
-    [lane_heading_leading(owner, label, stage, count), lane_heading_trailing(owner, create)]}
+    [lane_heading_leading(owner, label, stage, count, typography), lane_heading_trailing(owner, create)]}
 
 def same_stage(left: Board.Stage, right: Board.Stage) -> Bool:
   String.eq(Board.stage_name(left), Board.stage_name(right))
@@ -620,34 +658,34 @@ def lane_children(+selected: Bool, +stage: Board.Stage, source: +List<Child>) ->
       lane_prepared_child(selected, lane_create_matches(stage, meaning), document, lane_children(selected, stage, rest))
 
 
-def empty_lane_when(is_empty: Bool, +owner: String) -> +List<Doc.Node>:
+def empty_lane_when(is_empty: Bool, +owner: String, +typography: T.Presentation) -> +List<Doc.Node>:
   match is_empty:
     case True{}: [Doc.Element{generated_identity(owner, "empty"), "p", [property("data-board-empty", "")],
-      [property("margin", "4px 2px"), property("color", "var(--color-token-text-secondary)"), property("font-size", "12px"), property("text-align", "center")], Nil{}, [Doc.Text{"暂无任务"}]}]
+      List.append(&2, Doc.Property, part_text(typography, T.Support{}, T.Regular{}), [property("margin", "4px 2px"), property("color", "var(--color-token-text-secondary)"), property("text-align", "center")]), Nil{}, [Doc.Text{"暂无任务"}]}]
     case False{}: Nil{}
 
-def empty_lane(count: Nat, owner: String) -> +List<Doc.Node>:
-  empty_lane_when(Nat.is_eq(count, 0n), owner)
+def empty_lane(count: Nat, owner: String, +typography: T.Presentation) -> +List<Doc.Node>:
+  empty_lane_when(Nat.is_eq(count, 0n), owner, typography)
 
 def board_lane_node(+key: String, +label: String, +stage: Board.Stage, +count: Nat,
-  +source: +List<Child>) -> Doc.Node:
+  +source: +List<Child>, +typography: T.Presentation) -> Doc.Node:
   +create = lane_children(True{}, stage, source)
   +cards = lane_children(False{}, stage, source)
   Doc.Element{key, "section", [property("data-native-key", key), property("data-board-stage", Board.stage_name(stage)),
     property("data-board-count", Nat.show(count)), property("aria-label", label)], board_lane_styles(stage),
-    [Doc.DropCard{key}], List.append(&2, Doc.Node, [lane_heading_node(key, label, stage, count, create)],
+    [Doc.DropCard{key}], List.append(&2, Doc.Node, [lane_heading_node(key, label, stage, count, create, typography)],
     [Doc.Element{generated_identity(key, "cards"), "div", [property("data-board-cards", "")],
       [property("display", "flex"), property("flex", "1"), property("flex-direction", "column"), property("gap", px(Enclosure.separation(Enclosure.Cards{}))),
        property("min-height", "0"), property("overflow-x", "hidden"), property("overflow-y", "auto"),
        property("overscroll-behavior", "contain"), property("padding", "4px 2px 6px")], Nil{},
-      List.append(&2, Doc.Node, empty_lane(count, key), cards)}])}
+      List.append(&2, Doc.Node, empty_lane(count, key, typography), cards)}])}
 
-def card_chip(key: String, kind: String, text: String, +tone: Surfaces.Tone) -> Doc.Node:
+def card_chip(key: String, kind: String, text: String, +tone: Surfaces.Tone, +typography: T.Presentation) -> Doc.Node:
   Doc.Element{key, "span", [property("data-card-chip", kind)],
-    [property("display", "inline-flex"), property("align-items", "center"), property("max-width", "100%"),
+    List.append(&2, Doc.Property, part_text(typography, T.Support{}, T.Medium{}), [property("display", "inline-flex"), property("align-items", "center"), property("max-width", "100%"),
      property("padding", "2px 6px"), property("border-radius", "4px"), property("background", surface_background(Surfaces.Chip{tone}, Surfaces.Rest{})),
-     property("color", surface_color(Surfaces.tone(tone))), property("font-size", "10px"), property("line-height", "15px"), property("white-space", "nowrap"),
-     property("overflow", "hidden"), property("text-overflow", "ellipsis")], Nil{}, [Doc.Text{text}]}
+     property("color", surface_color(Surfaces.tone(tone))), property("white-space", "nowrap"),
+     property("overflow", "hidden"), property("text-overflow", "ellipsis")]), Nil{}, [Doc.Text{text}]}
 
 def priority_tone(priority: Board.Priority) -> Surfaces.Tone:
   match priority:
@@ -655,25 +693,25 @@ def priority_tone(priority: Board.Priority) -> Surfaces.Tone:
     case Board.High{}: Surfaces.Warning{}
     case _: Surfaces.Neutral{}
 
-def card_pin_chip(found: Bool, owner: String) -> +List<Doc.Node>:
+def card_pin_chip(found: Bool, owner: String, +typography: T.Presentation) -> +List<Doc.Node>:
   match found:
-    case True{}: [card_chip(generated_identity(owner, "pin"), "pin", "已置顶", Surfaces.Warning{})]
+    case True{}: [card_chip(generated_identity(owner, "pin"), "pin", "已置顶", Surfaces.Warning{}, typography)]
     case False{}: Nil{}
 
-def card_status_chip_when(empty: Bool, +status: String, +owner: String) -> +List<Doc.Node>:
+def card_status_chip_when(empty: Bool, +status: String, +owner: String, +typography: T.Presentation) -> +List<Doc.Node>:
   match empty:
     case True{}: Nil{}
-    case False{}: [card_chip(generated_identity(owner, "status"), "status", status, Surfaces.Neutral{})]
+    case False{}: [card_chip(generated_identity(owner, "status"), "status", status, Surfaces.Neutral{}, typography)]
 
-def card_metadata(+card_key: String, face: View.CardFace, status_empty: Bool) -> Doc.Node:
+def card_metadata(+card_key: String, face: View.CardFace, status_empty: Bool, +typography: T.Presentation) -> Doc.Node:
   View.CardFace{id, title, description, +priority, pinned, status, project, labels, owner, updated} = face
   Doc.Element{generated_identity(card_key, "metadata"), "div", [property("data-card-metadata", "")],
-    [property("display", "flex"), property("align-items", "center"), property("flex-wrap", "wrap"), property("gap", "5px"),
-     property("min-width", "0"), property("color", "var(--color-token-text-secondary)"), property("font-size", "10px")], Nil{},
+    List.append(&2, Doc.Property, part_text(typography, T.Support{}, T.Regular{}), [property("display", "flex"), property("align-items", "center"), property("flex-wrap", "wrap"), property("gap", "5px"),
+     property("min-width", "0"), property("color", "var(--color-token-text-secondary)")]), Nil{},
     List.append(&2, Doc.Node,
-      [card_chip(generated_identity(card_key, "reference"), "reference", "SV-" ++ Nat.show(id), Surfaces.Neutral{}),
-       card_chip(generated_identity(card_key, "priority"), "priority", Board.priority_label(priority), priority_tone(priority))],
-      List.append(&2, Doc.Node, card_pin_chip(pinned, card_key), card_status_chip_when(status_empty, status, card_key)))}
+      [card_chip(generated_identity(card_key, "reference"), "reference", "SV-" ++ Nat.show(id), Surfaces.Neutral{}, typography),
+       card_chip(generated_identity(card_key, "priority"), "priority", Board.priority_label(priority), priority_tone(priority), typography)],
+      List.append(&2, Doc.Node, card_pin_chip(pinned, card_key, typography), card_status_chip_when(status_empty, status, card_key, typography)))}
 
 def card_more_action(meaning: UI.Meaning) -> Bool:
   match meaning:
@@ -686,17 +724,17 @@ def card_action_selected(+want_more: Bool, meaning: UI.Meaning) -> Bool:
     case True{}: card_more_action(meaning)
     case False{}: Bool.not(card_more_action(meaning))
 
-def card_title_styles() -> +List<Doc.Property>:
+def card_title_styles(+typography: T.Presentation) -> +List<Doc.Property>:
   List.append(&2, Doc.Property,
-    [property("width", "100%"), property("min-width", "0"), property("display", "block"),
-     property("text-align", "start"), property("font-weight", "580"), property("white-space", "normal"),
-     property("overflow-wrap", "anywhere"), property("min-height", "32px")], content_area_properties(Enclosure.area(Enclosure.TextControl{})))
+    List.append(&2, Doc.Property, part_text(typography, T.Body{}, T.Strong{}), [property("width", "100%"), property("min-width", "0"), property("display", "block"),
+     property("text-align", "start"), property("white-space", "normal"),
+     property("overflow-wrap", "anywhere"), property("min-height", "32px")]), content_area_properties(Enclosure.area(Enclosure.TextControl{})))
 
-def card_title_control(+title: String, node: Doc.Node) -> Doc.Node:
+def card_title_control(+title: String, node: Doc.Node, +typography: T.Presentation) -> Doc.Node:
   match node:
     case Doc.Element{key, "button", attrs, styles, events, children}:
       Doc.Element{key, "button", attrs,
-        List.append(&2, Doc.Property, styles, card_title_styles()), events, [Doc.Text{title}]}
+        List.append(&2, Doc.Property, styles, card_title_styles(typography)), events, [Doc.Text{title}]}
     case other: other
 
 def card_prepared_action(include: Bool, node: Doc.Node, +tail: +List<Doc.Node>) -> +List<Doc.Node>:
@@ -711,19 +749,19 @@ def card_action_nodes(+want_more: Bool, source: +List<Child>) -> +List<Doc.Node>
       card_prepared_action(card_action_selected(want_more, meaning), document, card_action_nodes(want_more, rest))
 
 
-def card_title_actions(+title: String, actions: +List<Doc.Node>) -> +List<Doc.Node>:
+def card_title_actions(+title: String, actions: +List<Doc.Node>, +typography: T.Presentation) -> +List<Doc.Node>:
   match actions:
     case Nil{}: Nil{}
-    case Con{node, rest}: card_title_control(title, node) <> card_title_actions(title, rest)
+    case Con{node, rest}: card_title_control(title, node, typography) <> card_title_actions(title, rest, typography)
 
-def card_title_nodes(owner: String, +title: String, +actions: +List<Doc.Node>) -> +List<Doc.Node>:
+def card_title_nodes(owner: String, +title: String, +actions: +List<Doc.Node>, +typography: T.Presentation) -> +List<Doc.Node>:
   match actions:
     case Nil{}:
       [Doc.Element{generated_identity(owner, "title"), "h3", [property("data-card-title", "")],
-        [property("margin", "0"), property("font-size", "13px"), property("line-height", "20px"), property("font-weight", "580"), property("overflow-wrap", "anywhere")], Nil{}, [Doc.Text{title}]}]
+        List.append(&2, Doc.Property, part_text(typography, T.Body{}, T.Strong{}), [property("margin", "0"), property("overflow-wrap", "anywhere")]), Nil{}, [Doc.Text{title}]}]
     case _:
       [Doc.Element{generated_identity(owner, "open-actions"), "div", [property("data-card-open", "")],
-        [property("flex", "1"), property("min-width", "0"), property("display", "flex"), property("align-items", "center")], Nil{}, card_title_actions(title, actions)}]
+        [property("flex", "1"), property("min-width", "0"), property("display", "flex"), property("align-items", "center")], Nil{}, card_title_actions(title, actions, typography)}]
 
 def card_more_nodes(owner: String, +actions: +List<Doc.Node>) -> +List<Doc.Node>:
   match actions:
@@ -732,37 +770,37 @@ def card_more_nodes(owner: String, +actions: +List<Doc.Node>) -> +List<Doc.Node>
       [Doc.Element{generated_identity(owner, "more-actions"), "div", [property("data-card-more", "")],
         [property("display", "flex"), property("align-items", "center"), property("flex", "0 0 auto")], Nil{}, actions}]
 
-def card_action_row(+owner: String, title: String, +open: +List<Doc.Node>, +more: +List<Doc.Node>) -> Doc.Node:
+def card_action_row(+owner: String, title: String, +open: +List<Doc.Node>, +more: +List<Doc.Node>, +typography: T.Presentation) -> Doc.Node:
   Doc.Element{generated_identity(owner, "actions"), "div", [property("data-card-actions", "")],
     [property("display", "flex"), property("align-items", "center"), property("gap", px(Enclosure.separation(Enclosure.InlineControls{}))), property("min-width", "0")], Nil{},
-    List.append(&2, Doc.Node, card_title_nodes(owner, title, open), card_more_nodes(owner, more))}
+    List.append(&2, Doc.Node, card_title_nodes(owner, title, open, typography), card_more_nodes(owner, more))}
 
-def card_description_when(empty: Bool, owner: String, +description: String) -> +List<Doc.Node>:
+def card_description_when(empty: Bool, owner: String, +description: String, +typography: T.Presentation) -> +List<Doc.Node>:
   match empty:
     case True{}: Nil{}
     case False{}:
       [Doc.Element{generated_identity(owner, "description"), "p", [property("data-card-description", "")],
-        [property("display", "-webkit-box"), property("-webkit-box-orient", "vertical"), property("-webkit-line-clamp", "3"),
+        List.append(&2, Doc.Property, part_text(typography, T.Support{}, T.Regular{}), [property("display", "-webkit-box"), property("-webkit-box-orient", "vertical"), property("-webkit-line-clamp", "3"),
          property("margin", "0"), property("overflow", "hidden"), property("color", "var(--color-token-text-secondary)"),
-         property("font-size", "12px"), property("line-height", "18px"), property("white-space", "pre-wrap"), property("overflow-wrap", "anywhere")], Nil{}, [Doc.Text{description}]}]
+         property("white-space", "pre-wrap"), property("overflow-wrap", "anywhere")]), Nil{}, [Doc.Text{description}]}]
 
-def card_description(+owner: String, +description: String) -> +List<Doc.Node>:
-  card_description_when(String.is_empty(description), owner, description)
+def card_description(+owner: String, +description: String, +typography: T.Presentation) -> +List<Doc.Node>:
+  card_description_when(String.is_empty(description), owner, description, typography)
 
-def card_label_nodes(+owner: String, +values: +List<String>, +index: Nat) -> +List<Doc.Node>:
+def card_label_nodes(+owner: String, +values: +List<String>, +index: Nat, +typography: T.Presentation) -> +List<Doc.Node>:
   match values:
     case Nil{}: Nil{}
     case Con{+value, rest}:
-      card_chip(generated_identity(owner, "label/" ++ Nat.show(index)), "label", value, Surfaces.Neutral{}) <>
-      card_label_nodes(owner, rest, Nat.add(index, 1n))
+      card_chip(generated_identity(owner, "label/" ++ Nat.show(index)), "label", value, Surfaces.Neutral{}, typography) <>
+      card_label_nodes(owner, rest, Nat.add(index, 1n), typography)
 
-def card_project_nodes_when(empty: Bool, +owner: String, +project: String) -> +List<Doc.Node>:
+def card_project_nodes_when(empty: Bool, +owner: String, +project: String, +typography: T.Presentation) -> +List<Doc.Node>:
   match empty:
     case True{}: Nil{}
-    case False{}: [card_chip(generated_identity(owner, "project"), "project", project, Surfaces.Neutral{})]
+    case False{}: [card_chip(generated_identity(owner, "project"), "project", project, Surfaces.Neutral{}, typography)]
 
-def card_project_nodes(+owner: String, +project: String) -> +List<Doc.Node>:
-  card_project_nodes_when(String.is_empty(project), owner, project)
+def card_project_nodes(+owner: String, +project: String, +typography: T.Presentation) -> +List<Doc.Node>:
+  card_project_nodes_when(String.is_empty(project), owner, project, typography)
 
 def card_context_with_chips(+owner: String, chips: +List<Doc.Node>) -> +List<Doc.Node>:
   match chips:
@@ -771,8 +809,8 @@ def card_context_with_chips(+owner: String, chips: +List<Doc.Node>) -> +List<Doc
       [Doc.Element{generated_identity(owner, "context"), "div", [property("data-card-context", "")],
         [property("display", "flex"), property("flex-wrap", "wrap"), property("gap", "4px"), property("min-width", "0")], Nil{}, chips}]
 
-def card_context_nodes(+owner: String, project: String, +labels: +List<String>) -> +List<Doc.Node>:
-  card_context_with_chips(owner, List.append(&2, Doc.Node, card_project_nodes(owner, project), card_label_nodes(owner, labels, 0n)))
+def card_context_nodes(+owner: String, project: String, +labels: +List<String>, +typography: T.Presentation) -> +List<Doc.Node>:
+  card_context_with_chips(owner, List.append(&2, Doc.Node, card_project_nodes(owner, project, typography), card_label_nodes(owner, labels, 0n, typography)))
 
 def card_footer_item_when(empty: Bool, owner: String, part: String, kind: String, +value: String) -> +List<Doc.Node>:
   match empty:
@@ -784,14 +822,14 @@ def card_footer_item_when(empty: Bool, owner: String, part: String, kind: String
 def card_footer_item(owner: String, part: String, kind: String, +value: String) -> +List<Doc.Node>:
   card_footer_item_when(String.is_empty(value), owner, part, kind, value)
 
-def card_footer_with_items(+card_key: String, items: +List<Doc.Node>) -> +List<Doc.Node>:
+def card_footer_with_items(+card_key: String, items: +List<Doc.Node>, +typography: T.Presentation) -> +List<Doc.Node>:
   match items:
     case Nil{}: Nil{}
     case _:
       [Doc.Element{generated_identity(card_key, "footer"), "footer", [property("data-card-footer", "")],
-        [property("display", "flex"), property("align-items", "center"), property("justify-content", "space-between"),
+        List.append(&2, Doc.Property, part_text(typography, T.Support{}, T.Regular{}), [property("display", "flex"), property("align-items", "center"), property("justify-content", "space-between"),
          property("gap", "8px"), property("margin-top", "2px"), property("color", "var(--color-token-text-secondary)"),
-         property("font-size", "10px"), property("min-width", "0")], Nil{}, items}]
+         property("min-width", "0")]), Nil{}, items}]
 
 def card_timestamp_styles() -> +List<Doc.Property>:
   [property("flex", "none")]
@@ -801,19 +839,19 @@ def card_timestamp_items(items: +List<Doc.Node>) -> +List<Doc.Node>:
     case Nil{}: Nil{}
     case Con{node, rest}: replace_styles(node, card_timestamp_styles()) <> card_timestamp_items(rest)
 
-def card_footer(+card_key: String, face: View.CardFace) -> +List<Doc.Node>:
+def card_footer(+card_key: String, face: View.CardFace, +typography: T.Presentation) -> +List<Doc.Node>:
   View.CardFace{id, title, description, priority, pinned, status, project, labels, card_owner, updated} = face
   card_footer_with_items(card_key, List.append(&2, Doc.Node,
     card_footer_item(card_key, "owner", "owner", card_owner),
-    card_timestamp_items(card_footer_item(card_key, "updated", "updated", updated))))
+    card_timestamp_items(card_footer_item(card_key, "updated", "updated", updated))), typography)
 
-def card_children(+card_key: String, +face: View.CardFace, +source: +List<Child>) -> +List<Doc.Node>:
+def card_children(+card_key: String, +face: View.CardFace, +source: +List<Child>, +typography: T.Presentation) -> +List<Doc.Node>:
   View.CardFace{id, title, description, priority, pinned, status, project, labels, owner, updated} = face
   +open = card_action_nodes(False{}, source)
   +more = card_action_nodes(True{}, source)
-  List.append(&2, Doc.Node, [card_metadata(card_key, face, String.is_empty(status)), card_action_row(card_key, title, open, more)],
-    List.append(&2, Doc.Node, card_description(card_key, description),
-      List.append(&2, Doc.Node, card_context_nodes(card_key, project, labels), card_footer(card_key, face))))
+  List.append(&2, Doc.Node, [card_metadata(card_key, face, String.is_empty(status), typography), card_action_row(card_key, title, open, more, typography)],
+    List.append(&2, Doc.Node, card_description(card_key, description, typography),
+      List.append(&2, Doc.Node, card_context_nodes(card_key, project, labels, typography), card_footer(card_key, face, typography))))
 
 def css_anchor(key: String) -> String:
   "--native" ++ css_characters(key)
@@ -981,22 +1019,24 @@ def style_details(shadow: Bool, alignment: Design.Alignment, states: Design.Cont
   List.append(&2, Doc.Property, shadow_style(shadow), List.append(&2, Doc.Property, alignment_style(alignment), states_style(states)))
 
 
-def region_children(owner: String, role: UI.Role, label: String, children: +List<Doc.Node>) -> +List<Doc.Node>:
+def region_children(owner: String, role: UI.Role, label: String, children: +List<Doc.Node>, +typography: T.Presentation) -> +List<Doc.Node>:
   match role:
     case UI.Activity{}: activity_summary(owner, label, children)
-    case other: List.append(&2, Doc.Node, region_label(owner, other, label), children)
+    case other: List.append(&2, Doc.Node, region_label(owner, other, label, typography), children)
 
-def style(value: Design.Style) -> +List<Doc.Property>:
-  Design.Style{Design.TextStyle{family, size, line_height, weight}, Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment, direction, overflow, +content_frame, minimum, maximum, states} = value
-  List.append(&2, Doc.Property,
-    [property("font-family", font(family)), property("font-size", px(size)), property("line-height", px(line_height)),
-     property("font-weight", Nat.show(weight)), property("color", paint(foreground)), property("background", paint(background)),
+def style_rest(value: Design.Style) -> +List<Doc.Property>:
+  Design.Style{+typography, Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment, direction, overflow, +content_frame, minimum, maximum, states} = value
+  List.append(&2, Doc.Property, rich_properties(typography),
+    List.append(&2, Doc.Property,
+    [property("color", paint(foreground)), property("background", paint(background)),
      property("border-color", paint(border)), property("border-width", px(border_width)), property("border-style", "solid"),
      property("border-radius", px(radius)), property("padding-inline", px(Enclosure.inline(Enclosure.frame_content(content_frame)))), property("padding-block", px(Enclosure.block(Enclosure.frame_content(content_frame)))),
      property("gap", px(Enclosure.frame_gap(content_frame))), property("min-height", px(minimum)), property("max-width", Nat.show(maximum) ++ "%"),
      property("box-sizing", "border-box"), property("min-width", "0")],
-    List.append(&2, Doc.Property, flow(direction), List.append(&2, Doc.Property, overflow_style(overflow), style_details(shadow, alignment, states))))
+    List.append(&2, Doc.Property, flow(direction), List.append(&2, Doc.Property, overflow_style(overflow), style_details(shadow, alignment, states)))))
 
+def style(+value: Design.Style) -> +List<Doc.Property>:
+  List.append(&2, Doc.Property, style_rest(value), text_presentation(Appearance.style_text(value)))
 
 def dialog_partition_child_by_header(+child: Doc.Node, is_header: Bool,
   +header: +List<Doc.Node>, +body: +List<Doc.Node>, +layouts: +List<EditorLayout.SectionKind>,
@@ -1047,10 +1087,10 @@ def dialog_header_styles() -> +List<Doc.Property>:
     [property("display", "flex"), property("flex", "0 0 auto"), property("align-items", "center"), property("gap", "12px"),
      property("border-bottom", "1px solid var(--color-token-border-default)")], content_area_properties(Enclosure.partition(Enclosure.Header{})))
 
-def dialog_header_title(+owner: String, +label: String) -> Doc.Node:
+def dialog_header_title(+owner: String, +label: String, +typography: T.Presentation) -> Doc.Node:
   Doc.Element{generated_identity(owner, "title"), "h2", Nil{},
-    [property("font-size", "13px"), property("margin", "0"),
-     property("min-width", "0"), property("flex", "1"), property("overflow-wrap", "anywhere")], Nil{}, [Doc.Text{label}]}
+    List.append(&2, Doc.Property, part_text(typography, T.Body{}, T.Medium{}), [property("margin", "0"),
+     property("min-width", "0"), property("flex", "1"), property("overflow-wrap", "anywhere")]), Nil{}, [Doc.Text{label}]}
 
 def dialog_body_styles() -> +List<Doc.Property>:
   List.append(&2, Doc.Property,
@@ -1083,10 +1123,10 @@ def dialog_footer(+owner: String, values: +List<Doc.Node>) -> +List<Doc.Node>:
         dialog_footer_items(owner, first <> rest)}]
 
 def dialog_region_suffix(+key: String, +label: String, visual: Design.Style,
-  +header: +List<Doc.Node>, suffix: EditorLayout.Suffix) -> Doc.Node:
+  +header: +List<Doc.Node>, suffix: EditorLayout.Suffix, +typography: T.Presentation) -> Doc.Node:
   EditorLayout.Suffix{+body, +footer} = suffix
   +header_node: Doc.Node = Doc.Element{generated_identity(key, "dialog-header"), "header", Nil{},
-    dialog_header_styles(), Nil{}, List.append(&2, Doc.Node, [dialog_header_title(key, label)], header)}
+    dialog_header_styles(), Nil{}, List.append(&2, Doc.Node, [dialog_header_title(key, label, typography)], header)}
   +content_node: Doc.Node = Doc.Element{generated_identity(key, "dialog-content"), "div", Nil{}, dialog_content_styles(), Nil{}, body}
   +body_node: Doc.Node = Doc.Element{generated_identity(key, "dialog-body"), "div", Nil{}, dialog_body_styles(), Nil{}, [content_node]}
   Doc.Element{key, "section", [property("aria-label", label), property("data-native-key", key)],
@@ -1094,16 +1134,16 @@ def dialog_region_suffix(+key: String, +label: String, visual: Design.Style,
     List.append(&2, Doc.Node, [header_node, body_node], dialog_footer(key, footer))}
 
 def dialog_region_parts(+key: String, +label: String, visual: Design.Style,
-  parts: DialogParts) -> Doc.Node:
+  parts: DialogParts, +typography: T.Presentation) -> Doc.Node:
   DialogParts{+header, +body, layouts} = parts
-  dialog_region_suffix(key, label, visual, header, EditorLayout.split(body, layouts))
+  dialog_region_suffix(key, label, visual, header, EditorLayout.split(body, layouts), typography)
 
 def dialog_region(+key: String, +label: String, visual: Design.Style,
-  children: +List<Child>) -> Doc.Node:
-  dialog_region_parts(key, label, visual, dialog_partition(children))
+  children: +List<Child>, +typography: T.Presentation) -> Doc.Node:
+  dialog_region_parts(key, label, visual, dialog_partition(children), typography)
 
 def editor_section(+key: String, +label: String, visual: Design.Style,
-  +children: +List<Doc.Node>, kind: EditorLayout.SectionKind) -> Doc.Node:
+  +children: +List<Doc.Node>, kind: EditorLayout.SectionKind, +typography: T.Presentation) -> Doc.Node:
   match kind:
     case EditorLayout.WorkSection{}: Doc.Element{key, "section", [property("aria-label", label), property("data-native-key", key)], style(visual), Nil{}, children}
     case EditorLayout.MetadataSection{}:
@@ -1113,15 +1153,15 @@ def editor_section(+key: String, +label: String, visual: Design.Style,
       Doc.Element{key, "section", [property("aria-label", label), property("data-native-key", key)], List.append(&2, Doc.Property, style(visual),
         [property("flex-direction", "row"), property("flex-wrap", "wrap"), property("gap", "12px"),
          property("flex", "1 1 0"), property("min-width", "0")]), Nil{}, children}
-    case _: Doc.Element{key, "section", [property("aria-label", label), property("data-native-key", key)], style(visual), Nil{}, region_children(key, UI.Section{}, label, children)}
+    case _: Doc.Element{key, "section", [property("aria-label", label), property("data-native-key", key)], style(visual), Nil{}, region_children(key, UI.Section{}, label, children, typography)}
 
 def region_node(+key: String, +label: String, role: UI.Role, visual: Design.Style,
-  +children: +List<Child>) -> Doc.Node:
+  +children: +List<Child>, +typography: T.Presentation) -> Doc.Node:
   match role:
-    case UI.Dialog{}: dialog_region(key, label, visual, children)
-    case UI.Section{}: editor_section(key, label, visual, documents(children), EditorLayout.section_kind(sources(children)))
+    case UI.Dialog{}: dialog_region(key, label, visual, children, typography)
+    case UI.Section{}: editor_section(key, label, visual, documents(children), EditorLayout.section_kind(sources(children)), typography)
     case +other: Doc.Element{key, tag(other), [property("aria-label", label), property("data-native-key", key)],
-      style(visual), Nil{}, region_children(key, other, label, documents(children))}
+      style(visual), Nil{}, region_children(key, other, label, documents(children), typography)}
 
 
 def layer_region_properties(+key: String, outside: Bool, value: Doc.Node) -> Doc.Node:
@@ -1132,8 +1172,8 @@ def layer_region_properties(+key: String, outside: Bool, value: Doc.Node) -> Doc
     case other: other
 
 def layer_region_node(+key: String, label: String, role: UI.Role, +outside: Bool, visual: Design.Style,
-  children: +List<Child>) -> Doc.Node:
-  layer_region_properties(key, outside, region_node(key, label, role, visual, children))
+  children: +List<Child>, +typography: T.Presentation) -> Doc.Node:
+  layer_region_properties(key, outside, region_node(key, label, role, visual, children, typography))
 
 def face_label(+key: String, text: String) -> Doc.Node:
   Doc.Element{key ++ "/label", "span", Nil{},
@@ -1175,21 +1215,21 @@ def render_base_role(role: UI.Role, value: Doc.Node, navigation: Design.Navigati
     case UI.Main{}: replace_styles(value, bounds(main))
     case _: value
 
-def render_navigation_toggle(role: UI.Role, value: Doc.Node, +navigation: Design.Navigation,
+def render_navigation_toggle(+parameters: Design.LayoutParameters, role: UI.Role, value: Doc.Node, +navigation: Design.Navigation,
   +main: Design.Box, +details: Maybe<&2, Design.Box>) -> Doc.Node:
   match navigation:
     case Design.HiddenNavigation{}:
       replace_styles(value, List.append(&2, Doc.Property,
-        bounds(Layout.navigation_toggle_bounds(Design.Shell{navigation, main, details})), [property("z-index", "6")]))
+        bounds(Layout.navigation_toggle_bounds(parameters, Design.Shell{navigation, main, details})), [property("z-index", "6")]))
     case _: render_base_role(role, value, navigation, main, details)
 
-def render_base(role: UI.Role, meaning: UI.Meaning, value: Doc.Node,
+def render_base(+parameters: Design.LayoutParameters, role: UI.Role, meaning: UI.Meaning, value: Doc.Node,
   navigation: Design.Navigation, main: Design.Box, details: Maybe<&2, Design.Box>) -> Doc.Node:
   match meaning:
     case UI.ComposerAction{composer_subject, Core.ApplicationInput{Experience.UserInput{User.SetNavigation{expanded}}}, availability}:
-      render_navigation_toggle(role, value, navigation, main, details)
+      render_navigation_toggle(parameters, role, value, navigation, main, details)
     case UI.Activate{Core.ApplicationInput{Experience.UserInput{User.SetNavigation{expanded}}}, availability}:
-      render_navigation_toggle(role, value, navigation, main, details)
+      render_navigation_toggle(parameters, role, value, navigation, main, details)
     case _: render_base_role(role, value, navigation, main, details)
 
 
@@ -1214,12 +1254,12 @@ def card_archive_node(+key: String, label: String, count: Nat, children: +List<D
     [Doc.DropCard{key}], children}
 
 def card_node(+key: String, +face: View.CardFace, destinations: +List<UI.Placement>,
-  +source: +List<Child>, visual: Design.Style) -> Doc.Node:
+  +source: +List<Child>, visual: Design.Style, +typography: T.Presentation) -> Doc.Node:
   View.CardFace{id, +title, description, priority, pinned, status, project, labels, owner, updated} = face
   Doc.Element{key, "article", [property("data-native-key", key), property("data-card-id", Nat.show(id)),
     property("data-card-title", title), property("aria-label", title), property("draggable", "true")],
     style(visual),
-    [Doc.DragCard{key}, Doc.DropCard{key}], card_children(key, face, source)}
+    [Doc.DragCard{key}, Doc.DropCard{key}], card_children(key, face, source, typography)}
 
 
 def pointer_property(name: String, value: String) -> Doc.Property:
@@ -1242,9 +1282,9 @@ def action(+key: String, +visual: Design.Style, value: Controls.Representation) 
     case _: Doc.Element{key, "span", Nil{}, style(visual), Nil{}, Nil{}}
 
 
-def render_shell(role: UI.Role, meaning: UI.Meaning, value: Doc.Node, shell: Design.Shell) -> Doc.Node:
+def render_shell(+parameters: Design.LayoutParameters, role: UI.Role, meaning: UI.Meaning, value: Doc.Node, shell: Design.Shell) -> Doc.Node:
   Design.Shell{navigation, main, details} = shell
-  render_base(role, meaning, value, navigation, main, details)
+  render_base(parameters, role, meaning, value, navigation, main, details)
 
 
 def field_text(field: Forms.Field, value: Forms.Observed) -> String:
@@ -1741,42 +1781,41 @@ def context_observation_kind(observation: Context.Observation) -> String:
     case Context.CommittedExecution{context}: "committed"
 
 def context_summary_node(+key: String, +label: String, role: UI.Role, observation: Context.Observation,
-  visual: Design.Style, children: +List<Child>) -> Doc.Node:
+  visual: Design.Style, children: +List<Child>, +typography: T.Presentation) -> Doc.Node:
   Doc.Element{key, "div", [property("data-native-key", key), property("aria-label", label),
     property("data-context-kind", context_observation_kind(observation))], List.append(&2, Doc.Property, style(visual),
     [property("flex", "0 0 auto")]), Nil{},
     Doc.Element{key ++ "/provenance", "div", Nil{},
-      [property("font-size", "12px"), property("color", "var(--color-token-text-secondary)")], Nil{}, [Doc.Text{label}]} <> documents(children)}
+      List.append(&2, Doc.Property, part_text(typography, T.Support{}, T.Regular{}), [property("color", "var(--color-token-text-secondary)")]), Nil{}, [Doc.Text{label}]} <> documents(children)}
 
-def choice_group_node(+key: String, +label: String, visual: Design.Style, children: +List<Doc.Node>) -> Doc.Node:
+def choice_group_node(+key: String, +label: String, visual: Design.Style, children: +List<Doc.Node>, +typography: T.Presentation) -> Doc.Node:
   Doc.Element{key, "section", [property("data-native-key", key), property("role", "radiogroup"), property("aria-label", label)],
     List.append(&2, Doc.Property, style(visual), [property("flex-shrink", "0"), property("height", "auto")]), Nil{},
-    Doc.Element{key ++ "/label", "div", Nil{}, [property("font-size", "12px"),
-      property("color", "var(--color-token-text-secondary)"), property("padding-inline", px(Appearance.popup_content_inset()))], Nil{}, [Doc.Text{label}]} <> children}
+    Doc.Element{key ++ "/label", "div", Nil{}, List.append(&2, Doc.Property, part_text(typography, T.Support{}, T.Regular{}), [property("color", "var(--color-token-text-secondary)"), property("padding-inline", px(Appearance.popup_content_inset()))]), Nil{}, [Doc.Text{label}]} <> children}
 
-def choice_content_layout(+key: String, label: String, description: String, selected: Bool, layout: Controls.ChoiceContentLayout) -> +List<Doc.Node>:
+def choice_content_layout(+key: String, label: String, description: String, selected: Bool, layout: Controls.ChoiceContentLayout, +typography: T.Presentation) -> +List<Doc.Node>:
   Controls.ChoiceContentLayout{text_gap, mark_extent, mark_icon_extent} = layout
   [Doc.Element{key ++ "/content", "span", Nil{}, [property("display", "flex"), property("flex-direction", "column"),
     property("flex", "1 1 0"), property("min-width", "0"), property("text-align", "start"), property("gap", px(text_gap))], Nil{},
     [Doc.Text{label}, Doc.Element{key ++ "/description", "span", Nil{},
-      [property("font-size", "12px"), property("color", "var(--color-token-text-secondary)"),
-       property("white-space", "normal")], Nil{}, [Doc.Text{description}]}]},
+      List.append(&2, Doc.Property, part_text(typography, T.Support{}, T.Regular{}), [property("color", "var(--color-token-text-secondary)"),
+       property("white-space", "normal")]), Nil{}, [Doc.Text{description}]}]},
    choice_mark(key, selected, mark_extent, mark_icon_extent)]
 
 
-def choice_face_layout(value: Doc.Node, label: String, description: String, selected: Bool, +layout: Controls.ChoiceContentLayout) -> Doc.Node:
+def choice_face_layout(value: Doc.Node, label: String, description: String, selected: Bool, +layout: Controls.ChoiceContentLayout, +typography: T.Presentation) -> Doc.Node:
   match value layout:
     case Doc.Element{+key, tag, attrs, styles, events, children} Controls.ChoiceContentLayout{+text_gap, +mark_extent, +mark_icon_extent}:
       Doc.Element{key, tag, attrs, List.append(&2, Doc.Property, styles,
         [property("width", "100%"), property("min-width", "0"),
          property("height", "auto"), property("flex-shrink", "0")]), events,
-        choice_content_layout(key, label, description, selected, Controls.ChoiceContentLayout{text_gap, mark_extent, mark_icon_extent})}
+        choice_content_layout(key, label, description, selected, Controls.ChoiceContentLayout{text_gap, mark_extent, mark_icon_extent}, typography)}
     case other _: other
 
 
 def choice_node(+key: String, label: String, selected: Bool, description: String, +visual: Design.Style,
-  +representation: Controls.Representation, visual_children: +List<Child>) -> Doc.Node:
-  choice_face_layout(action(key, visual, representation), label, description, selected, Controls.choice_layout(representation))
+  +representation: Controls.Representation, visual_children: +List<Child>, +typography: T.Presentation) -> Doc.Node:
+  choice_face_layout(action(key, visual, representation), label, description, selected, Controls.choice_layout(representation), typography)
 
 def project_header_node(node: Doc.Node) -> Doc.Node:
   match node:
@@ -1805,42 +1844,41 @@ def task_status_tone(status: String) -> String:
     case "Paused": "var(--color-text-warning)"
     case _: "var(--color-text-secondary)"
 
-def task_status_node(node: Doc.Node, +status: String) -> Doc.Node:
+def task_status_node(node: Doc.Node, +status: String, +typography: T.Presentation) -> Doc.Node:
   match node:
     case Doc.Element{+key, tag, attrs, styles, events, children}:
       Doc.Element{key, "span", List.append(&2, Doc.Property, attrs, [property("aria-label", status), property("title", status)]),
-        [property("display", "inline-flex"), property("flex", "0 0 auto"), property("align-items", "center"), property("gap", "4px"),
-         property("order", "-1"), property("font-size", "11px"), property("color", task_status_tone(status)), property("white-space", "nowrap")], events,
+        List.append(&2, Doc.Property, part_text(typography, T.Support{}, T.Medium{}), [property("display", "inline-flex"), property("flex", "0 0 auto"), property("align-items", "center"), property("gap", "4px"),
+         property("order", "-1"), property("color", task_status_tone(status)), property("white-space", "nowrap")]), events,
         [Doc.Element{key ++ "/indicator", "span", [property("aria-hidden", "true")], Nil{}, Nil{}, [Doc.Text{"●"}]}, Doc.Text{status}]}
     case other: other
 
-def task_row_control(node: Doc.Node, representation: Controls.Representation, status: String) -> Doc.Node:
+def task_row_control(node: Doc.Node, representation: Controls.Representation, status: String, +typography: T.Presentation) -> Doc.Node:
   match representation:
     case Controls.Action{input, availability, name, face, behavior, geometry, placement, help, feedback}: node
-    case _: task_status_node(node, status)
+    case _: task_status_node(node, status, typography)
 
-def task_row_children(values: +List<Child>, +status: String) -> +List<Doc.Node>:
+def task_row_children(values: +List<Child>, +status: String, +typography: T.Presentation) -> +List<Doc.Node>:
   match values:
     case Nil{}: Nil{}
     case Con{Child{Design.Node{key, semantic, label, role, meaning, visual, representation, children}, document}, rest}:
-      task_row_control(document, representation, status) <> task_row_children(rest, status)
+      task_row_control(document, representation, status, typography) <> task_row_children(rest, status, typography)
 
-def task_row_node(+key: String, task: Nat, +status: String, +selected: Bool, visual: Design.Style, children: +List<Child>) -> Doc.Node:
+def task_row_node(+key: String, task: Nat, +status: String, +selected: Bool, visual: Design.Style, children: +List<Child>, +typography: T.Presentation) -> Doc.Node:
   Doc.Element{key, "div", [property("data-native-key", key), property("data-task", Nat.show(task)), property("data-status", status), property("class", "native-surface")],
-    pointer_styles(style(visual)), Nil{}, task_row_children(children, status)}
+    pointer_styles(style(visual)), Nil{}, task_row_children(children, status, typography)}
 
 def project_chooser_node(+key: String, selected: Maybe<&2, Nat>, visual: Design.Style, children: +List<Child>) -> Doc.Node:
   Doc.Element{key, "div", [property("data-native-key", key)], style(visual), Nil{}, documents(children)}
 
-def submission_alert_styles() -> +List<Doc.Property>:
-  [property("color", "var(--color-text-danger)"), property("font-size", "13px"), property("line-height", "20px"),
-   property("white-space", "pre-wrap"), property("overflow-wrap", "anywhere"), property("min-width", "0"), property("flex", "0 0 auto")]
+def submission_alert_styles(+typography: T.Presentation) -> +List<Doc.Property>:
+  List.append(&2, Doc.Property, part_text(typography, T.Body{}, T.Regular{}), [property("color", "var(--color-text-danger)"), property("white-space", "pre-wrap"), property("overflow-wrap", "anywhere"), property("min-width", "0"), property("flex", "0 0 auto")])
 
-def read_only_node(+key: String, role: UI.Role, label: String, text: String, visual: Design.Style, +source: +List<Child>) -> Doc.Node:
+def read_only_node(+key: String, role: UI.Role, label: String, text: String, visual: Design.Style, +source: +List<Child>, +typography: T.Presentation) -> Doc.Node:
   match role:
     case UI.Alert{}:
       Doc.Element{key, "div", [property("data-native-key", key), property("role", "alert"), property("aria-label", label)],
-        List.append(&2, Doc.Property, style(visual), submission_alert_styles()), Nil{}, Doc.Text{text} <> documents(source)}
+        List.append(&2, Doc.Property, style(visual), submission_alert_styles(typography)), Nil{}, Doc.Text{text} <> documents(source)}
     case +other:
       Doc.Element{key, tag(other), [property("data-native-key", key)], style(visual), Nil{}, Doc.Markdown{key ++ "/markdown", markdown_source(source), text} <> documents(source)}
 
@@ -1855,22 +1893,22 @@ def match_node(+value: Design.Node, +children: +List<Child>) -> Doc.Node:
     case UI.Edit{editor, field, Forms.FileCollection{}, value, choices}: compound_field(key, label, field, visual, documents(children))
     case UI.ComposerAction{subject, input_value, availability}: action(key, visual, representation)
     case UI.PanelToggle{expanded, input_value, availability}: action(key, visual, representation)
-    case UI.LayerRegion{dismiss, outside, escape}: layer_region_node(key, label, role, outside, visual, children)
+    case UI.LayerRegion{dismiss, outside, escape}: layer_region_node(key, label, role, outside, visual, children, Appearance.style_text(visual))
     case UI.Activate{input_value, availability}: action(key, visual, representation)
-    case UI.Choice{selected, description, input, availability}: choice_node(key, label, selected, description, visual, representation, children)
+    case UI.Choice{selected, description, input, availability}: choice_node(key, label, selected, description, visual, representation, children, Appearance.style_text(visual))
     case UI.ProjectGroup{project, selected, expanded}: project_group_node(key, project, selected, expanded, visual, children)
-    case UI.TaskRow{task, status, selected}: task_row_node(key, task, status, selected, visual, children)
+    case UI.TaskRow{task, status, selected}: task_row_node(key, task, status, selected, visual, children, Appearance.style_text(visual))
     case UI.ProjectChooser{selected}: project_chooser_node(key, selected, visual, children)
     case UI.DirectoryRow{path, primary}: directory_row_node(key, path, primary, visual, documents(children))
-    case UI.ContextSummary{observation}: context_summary_node(key, label, role, observation, visual, children)
-    case UI.ChoiceGroup{}: choice_group_node(key, label, visual, documents(children))
+    case UI.ContextSummary{observation}: context_summary_node(key, label, role, observation, visual, children, Appearance.style_text(visual))
+    case UI.ChoiceGroup{}: choice_group_node(key, label, visual, documents(children), Appearance.style_text(visual))
     case UI.PageRegion{region, position}: page_region(key, region, position, documents(children))
-    case UI.BoardGroup{grouping}: board_group_node(key, grouping, documents(children))
-    case UI.BoardLane{stage, count}: board_lane_node(key, label, stage, count, children)
-    case UI.PageContext{conversation}: region_node(key, label, role, visual, children)
+    case UI.BoardGroup{grouping}: board_group_node(key, grouping, documents(children), Appearance.style_text(visual))
+    case UI.BoardLane{stage, count}: board_lane_node(key, label, stage, count, children, Appearance.style_text(visual))
+    case UI.PageContext{conversation}: region_node(key, label, role, visual, children, Appearance.style_text(visual))
     case UI.ActivityContent{expanded, audit}: activity_node(key, label, visual, children, expanded, audit)
-    case UI.Region{}: region_node(key, label, role, visual, children)
-    case UI.ReadOnly{text}: read_only_node(key, role, label, text, visual, children)
+    case UI.Region{}: region_node(key, label, role, visual, children, Appearance.style_text(visual))
+    case UI.ReadOnly{text}: read_only_node(key, role, label, text, visual, children, Appearance.style_text(visual))
     case UI.CodeFacts{Code.Scene{+identity, literal, wrap, copy, enabled, controls}}:
       Doc.Element{key, "div", Nil{}, [property("display", "contents")], Nil{}, [
         Doc.Portal{key ++ "/toolbar", Code.key(identity) ++ "/toolbar", documents(children)},
@@ -1878,7 +1916,7 @@ def match_node(+value: Design.Node, +children: +List<Child>) -> Doc.Node:
         Doc.TargetProperties{key ++ "/wrap", Code.key(identity) ++ "/code", Nil{}, [property("white-space", code_wrap(wrap)), property("overflow-wrap", "anywhere")]}]}
     case UI.TaskFacts{details}: Doc.Element{key, "section", [property("data-native-key", key)], style(visual), Nil{}, task_details(key, details)}
     case UI.CardArchive{count}: card_archive_node(key, label, count, documents(children))
-    case UI.MovableCard{destinations, face}: card_node(key, face, destinations, children, visual)
+    case UI.MovableCard{destinations, face}: card_node(key, face, destinations, children, visual, Appearance.style_text(visual))
     case other: input(key, other, representation, visual)
 
 
@@ -1898,14 +1936,14 @@ def render_node(+value: Design.Node) -> Doc.Node:
   match_node(value, render_children(children))
 
 
-def render_base_shell_node(+value: Design.Node, +shell: Design.Shell) -> Doc.Node:
+def render_base_shell_node(+parameters: Design.LayoutParameters, +value: Design.Node, +shell: Design.Shell) -> Doc.Node:
   Design.Node{key, semantic, label, role, meaning, visual, representation, children} = value
   match semantic:
     case "settings/open":
       Design.Shell{navigation, main, details} = shell
       replace_styles(render_node(value), List.append(&2, Doc.Property,
-        bounds(Layout.settings_bounds(navigation, main)), [property("z-index", "6")]))
-    case _: render_shell(role, meaning, render_node(value), shell)
+        bounds(Layout.settings_bounds(parameters, navigation, main)), [property("z-index", "6")]))
+    case _: render_shell(parameters, role, meaning, render_node(value), shell)
 
 def positioned_root(value: Doc.Node, +frame: Design.MainFrame, +identity: Maybe<&2, Conversation.Identity>) -> Doc.Node:
   match value:
@@ -1914,16 +1952,16 @@ def positioned_root(value: Doc.Node, +frame: Design.MainFrame, +identity: Maybe<
         positioned_page_children(attr(attrs, "data-page-region"), positioned_children(key, attr(attrs, "data-region"), position_main(children, frame, identity), frame, identity))}
     case other: other
 
-def render_base_node(+value: Design.Node, shell: Design.Shell, main: Design.MainFrame) -> Doc.Node:
+def render_base_node(+parameters: Design.LayoutParameters, +value: Design.Node, shell: Design.Shell, main: Design.MainFrame) -> Doc.Node:
   Design.Node{key, semantic, label, role, meaning, visual, representation, children} = value
   match meaning:
-    case UI.PageContext{conversation}: positioned_root(render_base_shell_node(value, shell), main, conversation)
-    case _: positioned_root(render_base_shell_node(value, shell), main, None{})
+    case UI.PageContext{conversation}: positioned_root(render_base_shell_node(parameters, value, shell), main, conversation)
+    case _: positioned_root(render_base_shell_node(parameters, value, shell), main, None{})
 
-def base_nodes(values: +List<Design.Node>, +shell: Design.Shell, +main: Design.MainFrame) -> +List<Doc.Node>:
+def base_nodes(+parameters: Design.LayoutParameters, values: +List<Design.Node>, +shell: Design.Shell, +main: Design.MainFrame) -> +List<Doc.Node>:
   match values:
     case Nil{}: Nil{}
-    case Con{value, rest}: render_base_node(value, shell, main) <> base_nodes(rest, shell, main)
+    case Con{value, rest}: render_base_node(parameters, value, shell, main) <> base_nodes(parameters, rest, shell, main)
 
 def overlays(values: +List<Design.Node>, placements: +List<Design.Overlay>, +active: Maybe<&2, String>) -> +List<Doc.Node>:
   match values placements:
@@ -1938,7 +1976,7 @@ def document_theme(+theme: Design.Theme) -> Doc.Node:
 
 def render(scene: Web.Scene) -> Doc.Document:
   Web.Scene{Design.Surface{+content, +theme, base, overlays_value, +active}, platform, generation, realization,
-    Design.Layout{Design.Viewport{width, height}, shell, main, placements}} = scene
+    Design.Layout{Design.Viewport{width, height}, shell, main, placements, +parameters}} = scene
   Doc.Document{Doc.Element{"application", "div", [property("data-document", "application"), property("class", theme_class(theme))],
     [property("position", "fixed"), property("inset", "0"), property("overflow", "hidden"), property("background", surface_background(Surfaces.Canvas{}, Surfaces.Rest{})), property("color", "var(--color-token-text-primary)")], Nil{},
-    document_theme(theme) <> List.append(&2, Doc.Node, [base_scope(active, base_nodes(base, shell, main))], overlays(overlays_value, placements, active))}, "Selvedge"}
+    document_theme(theme) <> List.append(&2, Doc.Node, [base_scope(active, base_nodes(parameters, base, shell, main))], overlays(overlays_value, placements, active))}, "Selvedge"}

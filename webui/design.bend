@@ -3,6 +3,7 @@ import ./enclosure.bend as Enclosure
 import ./surfaces.bend as Surfaces
 import ../core/composition.bend as Composition
 import ./controls.bend as Controls
+import ./typography.bend as T
 import ../core/interface.bend as UI
 import ../core/SYSTEM.bend as Core
 
@@ -32,7 +33,7 @@ type Viewport is Data:
   Viewport{width: Nat, height: Nat}
 
 type Environment is Data:
-  Environment{viewport: Viewport, system_dark: Bool}
+  Environment{viewport: Viewport, system_dark: Bool, root_font_size_milli: Nat}
 
 type Box is Data:
   Box{left: Nat, top: Nat, width: Nat, height: Nat}
@@ -96,19 +97,18 @@ type OverlayPlacement is Data:
 type Overlay is Data:
   Overlay{key: String, level: Nat, placement: OverlayPlacement}
 
+type LayoutParameters is Data:
+  LayoutParameters{navigation_width: Nat, main_minimum_width: Nat, details_width: Nat,
+    reading_maximum_width: Nat, overview_maximum_width: Nat, toolbar_height: Nat,
+    input_minimum_height: Nat, input_maximum_height: Nat, input_line_height: Nat,
+    creation_balanced_minimum_height: Nat}
+
 type Layout is Data:
-  Layout{viewport: Viewport, shell: Shell, main: MainFrame, overlays: +List<Overlay>}
+  Layout{viewport: Viewport, shell: Shell, main: MainFrame, overlays: +List<Overlay>, parameters: LayoutParameters}
 
 type Theme is Data:
   Light{}
   Dark{}
-
-type Font is Data:
-  InterfaceFont{}
-  MonospaceFont{}
-
-type TextStyle is Data:
-  TextStyle{font: Font, size: Nat, line_height: Nat, weight: Nat}
 
 # Paint names refer to the already imported Desktop theme, including its dark
 # variant. The browser resolves the tokens rather than inventing another palette.
@@ -154,7 +154,7 @@ type ControlStates is Data:
     focus_ring: Paint, focus_ring_width: Nat, focus_ring_offset: Nat}
 
 type Style is Data:
-  Style{text: TextStyle, chrome: Chrome, alignment: Alignment, flow: Flow,
+  Style{text: T.Presentation, chrome: Chrome, alignment: Alignment, flow: Flow,
     overflow: Overflow, frame: Enclosure.Frame,
     minimum_height: Nat, maximum_width_percent: Nat, states: ControlStates}
 

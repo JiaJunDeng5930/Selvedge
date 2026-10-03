@@ -14,8 +14,6 @@ A credential store lock guard provides reads and atomic writes for the locked re
 
 HTTP requests prepare body bytes once. Redirects retain those bytes and apply the existing header rules without reconstructing the original input. Reusable transports are identified by immutable connection settings and actual CA contents. Each call observes current configuration; CA replacement is observed by the next HTTPS call, while an in-flight redirect chain uses its selected transport settings.
 
-The local client and web server delegate HTTP framing to Hyper. Application admission, timeouts and bounded NDJSON records remain application contracts. Sender and receiver use the same frame-size limit; oversized results end with a typed, bounded error rather than an oversized success record. Control identifiers also have a bounded size so correlated error records remain representable. Pagination is not introduced by this repair.
-
 Test connection plans belong to connector instances. Test subprocesses must acknowledge that the expected case actually executed; a successful process exit with zero matching tests is insufficient evidence. Tests that reproduce implementation construction or maintain unreachable production states are removed or replaced with observable contract checks.
 
 ## Consequences

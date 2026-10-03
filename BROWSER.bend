@@ -4,6 +4,7 @@ import ./webui/document.bend as Document
 import ./webui/editor.bend as Editor
 import ./webui/reading.bend as Reading
 import ./webui/browser.bend as Browser
+import ./webui/font-observation.bend as F
 import ./core/client-services.bend as Services
 import ./core/code-block.bend as Code
 import ./bendlib/json.bend as J
@@ -38,3 +39,6 @@ def directory_listed(ticket: Nat, ok: Bool, body: J.Json, state: Browser.State) 
 
 def outside_event(identity: String, state: Browser.State) -> Browser.OutsideDecision: Browser.outside_event(identity, state)
 
+
+def measurement_plan(state: Browser.State) -> F.Plan: Browser.measurement_plan(state)
+def measurements(observation: F.Observation, state: Browser.State) -> Browser.Decision: Browser.measurements(observation, state)

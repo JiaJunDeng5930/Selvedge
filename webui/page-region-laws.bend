@@ -1,4 +1,6 @@
 import Base
+import ./appearance.bend as Appearance
+import ./typography.bend as T
 import ../core/field-options.bend as FieldOptions
 import ../core/user-conversation.bend as Conversation
 import ../core/composition.bend as Composition
@@ -352,18 +354,18 @@ def unavailable_region_preservation(+nodes: +List<Doc.Node>, +heading: Design.Bo
 
 
 def expected_section_children(kind: EditorLayout.SectionKind, owner: String, +label: String,
-  rendered: +List<Doc.Node>) -> +List<Doc.Node>:
+  rendered: +List<Doc.Node>, +typography: T.Presentation) -> +List<Doc.Node>:
   match kind:
     case EditorLayout.WorkSection{}: rendered
     case EditorLayout.MetadataSection{}: rendered
     case EditorLayout.CaptureSection{}: rendered
-    case _: List.append(&2, Doc.Node, Render.section_label(owner, String.is_empty(label), label), rendered)
+    case _: List.append(&2, Doc.Node, Render.section_label(owner, String.is_empty(label), label, typography), rendered)
 
-def typed_section_content(+owner: String, +label: String, visual: Design.Style,
+def typed_section_content(+owner: String, +label: String, +visual: Design.Style,
   +rendered: +List<Doc.Node>, +kind: EditorLayout.SectionKind) ->
-  {(Doc.element_children(Render.editor_section(owner, label, visual, rendered, kind)),
-    Render.attr(Doc.element_attributes(Render.editor_section(owner, label, visual, rendered, kind)), "aria-label")) ==
-   (expected_section_children(kind, owner, label, rendered), label) : (+List<Doc.Node> & String)}:
+  {(Doc.element_children(Render.editor_section(owner, label, visual, rendered, kind, Appearance.style_text(visual))),
+    Render.attr(Doc.element_attributes(Render.editor_section(owner, label, visual, rendered, kind, Appearance.style_text(visual))), "aria-label")) ==
+   (expected_section_children(kind, owner, label, rendered, Appearance.style_text(visual)), label) : (+List<Doc.Node> & String)}:
   match kind:
     case EditorLayout.GenericSection{}: {==}
     case EditorLayout.WorkSection{}: {==}
@@ -377,16 +379,16 @@ def typed_section_content(+owner: String, +label: String, visual: Design.Style,
 
 
 
-def dialog_suffix_title_owner(+owner: String, +label: String, visual: Design.Style,
+def dialog_suffix_title_owner(+owner: String, +label: String, +visual: Design.Style,
   header: +List<Doc.Node>, suffix: EditorLayout.Suffix) ->
-  {node_key(first(Doc.element_children(first(Doc.element_children(Render.dialog_region_suffix(owner, label, visual, header, suffix)))))) ==
+  {node_key(first(Doc.element_children(first(Doc.element_children(Render.dialog_region_suffix(owner, label, visual, header, suffix, Appearance.style_text(visual))))))) ==
     Render.generated_identity(owner, "title") : String}:
   match suffix:
     case EditorLayout.Suffix{body, footer}: {==}
 
-def dialog_region_title_owner(+owner: String, +label: String, visual: Design.Style,
+def dialog_region_title_owner(+owner: String, +label: String, +visual: Design.Style,
   parts: Render.DialogParts) ->
-  {node_key(first(Doc.element_children(first(Doc.element_children(Render.dialog_region_parts(owner, label, visual, parts)))))) ==
+  {node_key(first(Doc.element_children(first(Doc.element_children(Render.dialog_region_parts(owner, label, visual, parts, Appearance.style_text(visual))))))) ==
     Render.generated_identity(owner, "title") : String}:
   match parts:
     case Render.DialogParts{+header, +body, +layouts}:
@@ -450,13 +452,13 @@ type Requirements is Type:
     section_layout_contract: @+owner:String -> @semantic:String -> @+label:String -> @+source_children:+List<Render.Child> -> @visual:Design.Style -> @representation:Controls.Representation ->
       {(Doc.element_children(Render.match_node(Design.Node{owner, semantic, label, UI.Section{}, UI.Region{}, visual, representation, Render.sources(source_children)}, source_children)),
           Render.attr(Doc.element_attributes(Render.match_node(Design.Node{owner, semantic, label, UI.Section{}, UI.Region{}, visual, representation, Render.sources(source_children)}, source_children)), "aria-label")) ==
-         (expected_section_children(EditorLayout.section_kind(Render.sources(source_children)), owner, label, Render.documents(source_children)), label) :
+         (expected_section_children(EditorLayout.section_kind(Render.sources(source_children)), owner, label, Render.documents(source_children), Appearance.style_text(visual)), label) :
          (+List<Doc.Node> & String)},
     dialog_title_owner: @+owner:String -> @semantic:String -> @label:String -> @+source_children:+List<Render.Child> -> @visual:Design.Style -> @representation:Controls.Representation ->
       {node_key(first(Doc.element_children(first(Doc.element_children(Render.match_node(Design.Node{owner, semantic, label, UI.Dialog{}, UI.Region{}, visual, representation, Render.sources(source_children)}, source_children)))))) == Render.generated_identity(owner, "title") : String},
     activity_fallback_owner: @+owner:String -> @semantic:String -> @label:String -> @visual:Design.Style -> @representation:Controls.Representation ->
       {node_key(first(Doc.element_children(Render.match_node(Design.Node{owner, semantic, label, UI.Activity{}, UI.Region{}, visual, representation, Nil{}}, Nil{})))) == Render.generated_identity(owner, "summary") : String},
-    activity_label_owner: @+owner:String -> @label:String -> {node_key(first(Render.region_label(owner, UI.Activity{}, label))) == Render.generated_identity(owner, "summary") : String},
+    activity_label_owner: @+typography:T.Presentation -> @+owner:String -> @label:String -> {node_key(first(Render.region_label(owner, UI.Activity{}, label, typography))) == Render.generated_identity(owner, "summary") : String},
     task_facts_owner: @+owner:String -> @semantic:String -> @+details:View.TaskDetails -> @label:String -> @role:UI.Role -> @+source_children:+List<Render.Child> -> @visual:Design.Style -> @representation:Controls.Representation ->
       {observed_facts(Doc.element_children(first(Doc.element_children(Render.match_node(Design.Node{owner, semantic, label, role, UI.TaskFacts{details}, visual, representation, Render.sources(source_children)}, source_children))))) == specified_task_facts(owner, details) : +List<FactObservation>},
     board_select_bounds: @+key:String -> @+attrs:+List<Doc.Property> -> @+styles_value:+List<Doc.Property> -> @+events:+List<Doc.Event> -> @+children_value:+List<Doc.Node> ->
@@ -532,16 +534,17 @@ type Requirements is Type:
 def evidence() -> Requirements:
   Requirements{+owner => +part => {==}, +owner => semantic => +label => +source_children => +visual => representation => nonempty => generic =>
       Equal.trans(String,
-        node_key(first(Doc.element_children(Render.editor_section(owner, label, visual, Render.documents(source_children), EditorLayout.section_kind(Render.sources(source_children)))))),
-        node_key(first(Doc.element_children(Render.editor_section(owner, label, visual, Render.documents(source_children), EditorLayout.GenericSection{})))),
+        node_key(first(Doc.element_children(Render.editor_section(owner, label, visual, Render.documents(source_children), EditorLayout.section_kind(Render.sources(source_children)), Appearance.style_text(visual))))),
+        node_key(first(Doc.element_children(Render.editor_section(owner, label, visual, Render.documents(source_children), EditorLayout.GenericSection{}, Appearance.style_text(visual))))),
         Render.generated_identity(owner, "title"),
         Equal.cong(EditorLayout.SectionKind, String,
-          (kind => node_key(first(Doc.element_children(Render.editor_section(owner, label, visual, Render.documents(source_children), kind))))),
+          (kind => node_key(first(Doc.element_children(Render.editor_section(owner, label, visual, Render.documents(source_children), kind, Appearance.style_text(visual)))))),
           EditorLayout.section_kind(Render.sources(source_children)), EditorLayout.GenericSection{}, generic),
         Equal.cong(Bool, String,
-          (empty => node_key(first(List.append(&2, Doc.Node, Render.section_label(owner, empty, label), Render.documents(source_children))))),
+          (empty => node_key(first(List.append(&2, Doc.Node, Render.section_label(owner, empty, label, Appearance.style_text(visual)), Render.documents(source_children))))),
           String.is_empty(label), False{}, nonempty))
-    , +owner => semantic => +label => +source_children => visual => representation => typed_section_content(owner, label, visual, Render.documents(source_children), EditorLayout.section_kind(Render.sources(source_children))), +owner => semantic => label => +source_children => visual => representation => dialog_region_title_owner(owner, label, visual, Render.dialog_partition(source_children)), +owner => semantic => label => visual => representation => {==}, +owner => label => {==}, task_facts_owner, +key => +attrs => +styles_value => +events => +children_value => {==}, +key => +attrs => +styles_value => +events => +children_value => {==}, +key => +field => +name => +attrs => +styles_value => +label_styles => +events => +children_value => {==}, +nodes => {==}, +key => semantic => label => role => region => position => +nodes => visual => representation =>
+    , +owner => semantic => +label => +source_children => visual => representation => typed_section_content(owner, label, visual, Render.documents(source_children), EditorLayout.section_kind(Render.sources(source_children))), +owner => semantic => label => +source_children => visual => representation => dialog_region_title_owner(owner, label, visual, Render.dialog_partition(source_children)), +owner => semantic => label => visual => representation => {==},
+    +typography => +owner => label => {==}, task_facts_owner, +key => +attrs => +styles_value => +events => +children_value => {==}, +key => +attrs => +styles_value => +events => +children_value => {==}, +key => +field => +name => +attrs => +styles_value => +label_styles => +events => +children_value => {==}, +nodes => {==}, +key => semantic => label => role => region => position => +nodes => visual => representation =>
         {==}
 
       # These final properties follow the generic input's width:100%. The native
