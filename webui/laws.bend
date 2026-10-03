@@ -23,6 +23,8 @@ import ./platform.bend as Platform
 import ./reading.bend as Reading
 import ./rendered.bend as Rendered
 import ./render-laws.bend as Rendering
+import ./content-space.bend as CS
+import ./font-observation-laws.bend as FL
 
 def model_core(application: Platform.State) -> Core.State:
   Platform.State{core, platform} = application
@@ -654,15 +656,15 @@ def admitted_product(font: F.State, +application: Platform.State, +generation: N
     case F.Failed{font_generation, scale}:
       Platform.State{core, platform} = application
       {==}
-    case F.Ready{+font_generation, +scale, +metric}:
+    case F.Ready{+font_generation, +scale, +metric, +content_cache}:
       Platform.State{+core, +platform} = application
       Equal.trans(Core.Decision,
-        Model.product(Model.font_admitted(F.Ready{font_generation, scale, metric}, Platform.State{core, platform}, generation, realization, environment)),
-        Model.platform_product(Model.calibrated(Platform.Decision{Platform.unchanged(core), platform, Nil{}}, environment, F.Ready{font_generation, scale, metric})),
+        Model.product(Model.font_admitted(F.Ready{font_generation, scale, metric, content_cache}, Platform.State{core, platform}, generation, realization, environment)),
+        Model.platform_product(Model.calibrated(Platform.Decision{Platform.unchanged(core), platform, Nil{}}, environment, F.Ready{font_generation, scale, metric, content_cache})),
         Platform.unchanged(core),
-        Model.realized_product(Model.calibrated(Platform.Decision{Platform.unchanged(core), platform, Nil{}}, environment, F.Ready{font_generation, scale, metric}), generation, environment, F.Ready{font_generation, scale, metric}),
+        Model.realized_product(Model.calibrated(Platform.Decision{Platform.unchanged(core), platform, Nil{}}, environment, F.Ready{font_generation, scale, metric, content_cache}), generation, environment, F.Ready{font_generation, scale, metric, content_cache}),
         reflow_product(Platform.Decision{Platform.unchanged(core), platform, Nil{}},
-          Model.font_capacity(F.Ready{font_generation, scale, metric}, environment,
+          Model.font_capacity(F.Ready{font_generation, scale, metric, content_cache}, environment,
             Platform.next(Platform.Decision{Platform.unchanged(core), platform, Nil{}}))))
 
 def idle_product(application: Platform.State, generation: Nat, realization: Rendered.State,
@@ -671,14 +673,34 @@ def idle_product(application: Platform.State, generation: Nat, realization: Rend
   match application:
     case Platform.State{core, platform}: {==}
 
+def content_admitted_product(font: F.State, +application: Platform.State, +generation: Nat,
+  +realization: Rendered.State, +environment: Design.Environment) ->
+  {Model.product(Model.content_admitted(font, application, generation, realization, environment)) == Platform.unchanged(model_core(application)) : Core.Decision}:
+  match font:
+    case F.Ready{font_generation, scale, metric, content_cache}:
+      Platform.State{core, platform} = application
+      {==}
+    case F.Pending{font_generation, scale}: idle_product(application, generation, Rendered.AwaitingFrame{generation}, environment, F.Pending{font_generation, scale})
+    case F.Failed{font_generation, scale}: idle_product(application, generation, Rendered.AwaitingFrame{generation}, environment, F.Failed{font_generation, scale})
+
+def content_receipt_product(missing: +List<T.MeasurementSpec>, +font: F.State, required: +List<T.MeasurementSpec>, +application: Platform.State,
+  +generation: Nat, +realization: Rendered.State, +environment: Design.Environment, observation: F.Observation) ->
+  {Model.product(Model.content_receipt(missing, font, required, application, generation, realization, environment, observation)) == Platform.unchanged(model_core(application)) : Core.Decision}:
+  match missing:
+    case Nil{}: idle_product(application, generation, realization, environment, font)
+    case Con{first, rest}: content_admitted_product(F.accept(font, required, observation), application, generation, realization, environment)
+
 def pending_receipt_product(font: F.State, +application: Platform.State, generation: Nat,
-  realization: Rendered.State, environment: Design.Environment, observation: F.Observation) ->
+  realization: Rendered.State, +environment: Design.Environment, observation: F.Observation) ->
   {Model.product(Model.pending_receipt(font, application, generation, realization, environment, observation)) ==
     Platform.unchanged(model_core(application)) : Core.Decision}:
   match font:
     case F.Pending{font_generation, scale}:
-      admitted_product(F.accept(F.Pending{font_generation, scale}, observation), application, generation, realization, environment)
-    case F.Ready{font_generation, scale, metric}: idle_product(application, generation, realization, environment, F.Ready{font_generation, scale, metric})
+      admitted_product(F.accept(F.Pending{font_generation, scale}, Nil{}, observation), application, generation, realization, environment)
+    case F.Ready{+font_generation, +scale, +metric, +content_cache}:
+      +font: F.State = F.Ready{font_generation, scale, metric, content_cache}
+      +required = Model.required_content(font, application, environment)
+      content_receipt_product(F.missing(required, content_cache), font, required, application, generation, realization, environment, observation)
     case F.Failed{font_generation, scale}: idle_product(application, generation, realization, environment, F.Failed{font_generation, scale})
 
 def receipt_product(owned: Bool, +application: Platform.State, generation: Nat,
@@ -814,13 +836,87 @@ def reflow_capacity_fields(+decision: Platform.Decision, +capacity: View.Capacit
     Platform.Decision{product, Platform.Platform{readers, editors, focused, ticket, reduced, old_capacity, scope}, effects}, capacity, {==})
 
 
-def ready_receipt(owned: Bool, application: Platform.State, generation: Nat, realization: Rendered.State,
-  environment: Design.Environment, font_generation: Nat, scale: T.Scale, metric: T.Metric, observation: F.Observation) ->
-  {Model.receipt_owned_state(owned, application, generation, realization, environment, F.Ready{font_generation, scale, metric}, observation) ==
-    Model.idle(application, generation, realization, environment, F.Ready{font_generation, scale, metric}) : Model.Decision}:
+def ready_receipt(owned: Bool, +application: Platform.State, +generation: Nat, +realization: Rendered.State,
+  +environment: Design.Environment, +font_generation: Nat, +scale: T.Scale, +metric: T.Metric, +content_cache: +List<T.Measured>, +observation: F.Observation,
+  complete: {F.missing(Model.required_content(F.Ready{font_generation, scale, metric, content_cache}, application, environment), content_cache) == Nil{} : +List<T.MeasurementSpec>}) ->
+  {Model.receipt_owned_state(owned, application, generation, realization, environment, F.Ready{font_generation, scale, metric, content_cache}, observation) ==
+    Model.idle(application, generation, realization, environment, F.Ready{font_generation, scale, metric, content_cache}) : Model.Decision}:
   match owned:
     case False{}: {==}
-    case True{}: {==}
+    case True{}:
+      +font: F.State = F.Ready{font_generation, scale, metric, content_cache}
+      +required = Model.required_content(font, application, environment)
+      Equal.cong(+List<T.MeasurementSpec>, Model.Decision,
+        (missing => Model.content_receipt(missing, font, required, application, generation, realization, environment, observation)),
+        F.missing(required, content_cache), Nil{}, complete)
+
+def decision_application(decision: Model.Decision) -> Platform.State:
+  Model.Decision{Model.State{application, generation, realization, environment, font}, product, effects} = decision
+  application
+
+def content_admitted_application(+font: F.State, +application: Platform.State, +generation: Nat, +realization: Rendered.State, +environment: Design.Environment) ->
+  {decision_application(Model.content_admitted(font, application, generation, realization, environment)) == application : Platform.State}:
+  match font:
+    case F.Ready{font_generation, scale, metric, content_cache}:
+      Platform.State{Core.State{core_application, services}, platform} = application
+      {==}
+    case F.Pending{font_generation, scale}:
+      Platform.State{Core.State{core_application, services}, platform} = application
+      {==}
+    case F.Failed{font_generation, scale}:
+      Platform.State{Core.State{core_application, services}, platform} = application
+      {==}
+
+def content_admitted_font(+font: F.State, +application: Platform.State, +generation: Nat, +realization: Rendered.State, +environment: Design.Environment) ->
+  {font_state(Model.content_admitted(font, application, generation, realization, environment)) == font : F.State}:
+  match font:
+    case F.Ready{font_generation, scale, metric, content_cache}:
+      Platform.State{core, platform} = application
+      {==}
+    case F.Pending{font_generation, scale}:
+      Platform.State{core, platform} = application
+      {==}
+    case F.Failed{font_generation, scale}:
+      Platform.State{core, platform} = application
+      {==}
+
+def ready_accept_idle(owned: Bool, +font_generation: Nat, +scale: T.Scale, +metric: T.Metric, +content_cache: +List<T.Measured>,
+  +required: +List<T.MeasurementSpec>, +metrics: +List<T.Metric>, complete: {F.missing(required, content_cache) == Nil{} : +List<T.MeasurementSpec>}) ->
+  {F.receive(owned, F.Ready{font_generation, scale, metric, content_cache}, required, metrics) == F.Ready{font_generation, scale, metric, content_cache} : F.State}:
+  match owned:
+    case False{}: {==}
+    case True{}: FL.ready_no_outstanding(font_generation, scale, metric, content_cache, required, metrics, complete)
+
+def ready_content_application(missing: +List<T.MeasurementSpec>, +font: F.State, +required: +List<T.MeasurementSpec>, +application: Platform.State,
+  +generation: Nat, +realization: Rendered.State, +environment: Design.Environment, +observation: F.Observation) ->
+  {decision_application(Model.content_receipt(missing, font, required, application, generation, realization, environment, observation)) == application : Platform.State}:
+  match missing:
+    case Nil{}:
+      Platform.State{core, platform} = application
+      {==}
+    case Con{first, rest}: content_admitted_application(F.accept(font, required, observation), application, generation, realization, environment)
+
+def idle_font(+application: Platform.State, +generation: Nat, +realization: Rendered.State, +environment: Design.Environment, +font: F.State) ->
+  {font_state(Model.idle(application, generation, realization, environment, font)) == font : F.State}:
+  match application:
+    case Platform.State{core, platform}: {==}
+
+def ready_content_font(+missing: +List<T.MeasurementSpec>, +font_generation: Nat, +scale: T.Scale, +metric: T.Metric,
+  +content_cache: +List<T.Measured>, +required: +List<T.MeasurementSpec>, +application: Platform.State, +generation: Nat,
+  +realization: Rendered.State, +environment: Design.Environment, +observation: F.Observation,
+  agreement: {F.missing(required, content_cache) == missing : +List<T.MeasurementSpec>}) ->
+  {font_state(Model.content_receipt(missing, F.Ready{font_generation, scale, metric, content_cache}, required, application, generation, realization, environment, observation)) ==
+    F.accept(F.Ready{font_generation, scale, metric, content_cache}, required, observation) : F.State}:
+  match missing:
+    case Nil{}:
+      F.Observation{received, metrics} = observation
+      Equal.trans(F.State, font_state(Model.idle(application, generation, realization, environment, F.Ready{font_generation, scale, metric, content_cache})),
+        F.Ready{font_generation, scale, metric, content_cache}, F.accept(F.Ready{font_generation, scale, metric, content_cache}, required, F.Observation{received, metrics}),
+        idle_font(application, generation, realization, environment, F.Ready{font_generation, scale, metric, content_cache}),
+        Equal.sym(F.State, F.accept(F.Ready{font_generation, scale, metric, content_cache}, required, F.Observation{received, metrics}),
+          F.Ready{font_generation, scale, metric, content_cache},
+          ready_accept_idle(Nat.is_eq(font_generation, received), font_generation, scale, metric, content_cache, required, metrics, agreement)))
+    case Con{first, rest}: content_admitted_font(F.accept(F.Ready{font_generation, scale, metric, content_cache}, required, observation), application, generation, realization, environment)
 
 def failed_receipt(owned: Bool, application: Platform.State, generation: Nat, realization: Rendered.State,
   environment: Design.Environment, font_generation: Nat, scale: T.Scale, observation: F.Observation) ->
@@ -844,8 +940,13 @@ type Requirements is Type:
       {Platform.reflow_capacity(decision, capacity) == decision : Platform.Decision},
     stale_typography: @+application: Platform.State -> @+generation: Nat -> @+realization: Rendered.State -> @+environment: Design.Environment -> @+font: F.State -> @+received: Nat -> @+metrics: +List<T.Metric> -> @stale: {Nat.is_eq(F.generation(font), received) == False{} : Bool} -> {Model.step(Model.TypographyObserved{F.Observation{received, metrics}}, Model.State{application, generation, realization, environment, font}) ==
     Model.idle(application, generation, realization, environment, font) : Model.Decision},
-    ready_receipt: @owned: Bool -> @application: Platform.State -> @generation: Nat -> @realization: Rendered.State -> @environment: Design.Environment -> @font_generation: Nat -> @scale: T.Scale -> @metric: T.Metric -> @observation: F.Observation -> {Model.receipt_owned_state(owned, application, generation, realization, environment, F.Ready{font_generation, scale, metric}, observation) ==
-    Model.idle(application, generation, realization, environment, F.Ready{font_generation, scale, metric}) : Model.Decision},
+    ready_receipt: @owned:Bool -> @+application:Platform.State -> @+generation:Nat -> @+realization:Rendered.State -> @+environment:Design.Environment -> @+font_generation:Nat -> @+scale:T.Scale -> @+metric:T.Metric -> @+content_cache:+List<T.Measured> -> @+observation:F.Observation ->
+      @complete:{F.missing(Model.required_content(F.Ready{font_generation, scale, metric, content_cache}, application, environment), content_cache) == Nil{} : +List<T.MeasurementSpec>} ->
+      {Model.receipt_owned_state(owned, application, generation, realization, environment, F.Ready{font_generation, scale, metric, content_cache}, observation) == Model.idle(application, generation, realization, environment, F.Ready{font_generation, scale, metric, content_cache}) : Model.Decision},
+    ready_content_application: @+application:Platform.State -> @+generation:Nat -> @+realization:Rendered.State -> @+environment:Design.Environment -> @+font_generation:Nat -> @+scale:T.Scale -> @+metric:T.Metric -> @+content_cache:+List<T.Measured> -> @+observation:F.Observation ->
+      {decision_application(Model.pending_receipt(F.Ready{font_generation, scale, metric, content_cache}, application, generation, realization, environment, observation)) == application : Platform.State},
+    ready_content_font: @+application:Platform.State -> @+generation:Nat -> @+realization:Rendered.State -> @+environment:Design.Environment -> @+font_generation:Nat -> @+scale:T.Scale -> @+metric:T.Metric -> @+content_cache:+List<T.Measured> -> @+observation:F.Observation ->
+      {font_state(Model.pending_receipt(F.Ready{font_generation, scale, metric, content_cache}, application, generation, realization, environment, observation)) == F.accept(F.Ready{font_generation, scale, metric, content_cache}, Model.required_content(F.Ready{font_generation, scale, metric, content_cache}, application, environment), observation) : F.State},
     failed_receipt: @owned: Bool -> @application: Platform.State -> @generation: Nat -> @realization: Rendered.State -> @environment: Design.Environment -> @font_generation: Nat -> @scale: T.Scale -> @observation: F.Observation -> {Model.receipt_owned_state(owned, application, generation, realization, environment, F.Failed{font_generation, scale}, observation) ==
     Model.idle(application, generation, realization, environment, F.Failed{font_generation, scale}) : Model.Decision},
     reflow_capacity_fields: @+decision:Platform.Decision -> @+capacity:View.Capacity ->
@@ -865,8 +966,10 @@ type Requirements is Type:
     Rendered.AwaitingFrame{generation} : Rendered.State},
     failed_frame: @+application: Platform.State -> @+generation: Nat -> @+previous: Rendered.State -> @environment: Design.Environment -> @font_generation: Nat -> @scale: T.Scale -> @+received: Nat -> @+frame: Rendered.Frame -> @+surface: Interface.Surface -> @owned: {Nat.is_eq(generation, received) == True{} : Bool} -> {Model.frame_realization(Model.State{application, generation, previous, environment, F.Failed{font_generation, scale}}, received, frame, surface) ==
     Rendered.AwaitingFrame{generation} : Rendered.State},
-    scene_uses_measurement: @+application: Platform.State -> @+generation: Nat -> @+realization: Rendered.State -> @+viewport: Design.Viewport -> @+dark: Bool -> @root: Nat -> @font_generation: Nat -> @+scale: T.Scale -> @+metric: T.Metric -> @+surface: Interface.Surface -> @+layout: Design.Layout -> @allocated: {Layout.present(ViewportSpace.parameters(scale, metric), viewport, surface) == Layout.LayoutReady{layout} : Layout.Outcome} -> {Model.scene_for_surface(Model.State{application, generation, realization, Design.Environment{viewport, dark, root}, F.Ready{font_generation, scale, metric}}, surface) ==
-    Model.ReadyScene{Model.Scene{Appearance.present(surface, dark, scale), Platform.observe(application), generation, realization, layout}} : Model.SceneOutcome},
+    scene_uses_measurement: @+application:Platform.State -> @+generation:Nat -> @+realization:Rendered.State -> @+viewport:Design.Viewport -> @+dark:Bool -> @root:Nat -> @font_generation:Nat -> @+scale:T.Scale -> @+metric:T.Metric -> @+content_cache:+List<T.Measured> -> @+surface:Interface.Surface -> @+prepared:Design.Surface -> @+layout:Design.Layout ->
+      @preparation:{CS.prepare(content_cache, Appearance.present(surface, dark, scale)) == CS.Prepared{prepared} : CS.Outcome} ->
+      @allocated:{Layout.present(ViewportSpace.parameters(scale, metric), viewport, Design.semantic_surface(prepared)) == Layout.LayoutReady{layout} : Layout.Outcome} ->
+      {Model.scene_for_surface(Model.State{application, generation, realization, Design.Environment{viewport, dark, root}, F.Ready{font_generation, scale, metric, content_cache}}, surface) == Model.ReadyScene{Model.Scene{prepared, Platform.observe(application), generation, realization, layout}} : Model.SceneOutcome},
 
     product_refinement: @input:Product.Input -> @core:Core.State -> @platform:Platform.Platform ->
       @environment:Design.Environment -> @font:F.State -> @generation:Nat -> @realization:Rendered.State ->
@@ -965,13 +1068,25 @@ def evidence() -> Requirements:
       Equal.cong(Bool, Model.Decision,
         (owned => Model.receipt_owned_state(owned, application, generation, realization, environment, font, F.Observation{received, metrics})),
         Nat.is_eq(F.generation(font), received), False{}, stale)
-    , ready_receipt, failed_receipt, reflow_capacity_fields, invalidated_font, +application => +generation => realization => previous_environment => font => +environment =>
+    , ready_receipt,
+      +application => +generation => +realization => +environment => +font_generation => +scale => +metric => +content_cache => observation =>
+        +font: F.State = F.Ready{font_generation, scale, metric, content_cache}
+        +required = Model.required_content(font, application, environment)
+        ready_content_application(F.missing(required, content_cache), font, required, application, generation, realization, environment, observation),
+      +application => +generation => +realization => +environment => +font_generation => +scale => +metric => +content_cache => +observation =>
+        +font: F.State = F.Ready{font_generation, scale, metric, content_cache}
+        +required = Model.required_content(font, application, environment)
+        ready_content_font(F.missing(required, content_cache), font_generation, scale, metric, content_cache, required, application, generation, realization, environment, observation, {==}),
+      failed_receipt, reflow_capacity_fields, invalidated_font, +application => +generation => realization => previous_environment => font => +environment =>
       invalidated_font(Platform.Decision{Platform.unchanged(Model.model_core(application)), Model.model_platform(application), Nil{}},
         (generation + 1n : Nat), environment, F.begin((generation + 1n : Nat), Model.environment_root(environment)))
-    , reflow_product, typography_product, pending_scene, failed_scene, pending_frame, failed_frame, +application => +generation => +realization => +viewport => +dark => root => font_generation => +scale => +metric => +surface => +layout => allocated =>
-      Equal.cong(Layout.Outcome, Model.SceneOutcome,
-        (outcome => Model.allocated_scene(outcome, application, generation, realization, surface, dark, scale)),
-        Layout.present(ViewportSpace.parameters(scale, metric), viewport, surface), Layout.LayoutReady{layout}, allocated)
+    , reflow_product, typography_product, pending_scene, failed_scene, pending_frame, failed_frame, +application => +generation => +realization => +viewport => +dark => root => font_generation => +scale => +metric => +content_cache => +surface => +prepared => +layout => preparation => allocated =>
+      Equal.trans(Model.SceneOutcome,
+        Model.prepared_scene(CS.prepare(content_cache, Appearance.present(surface, dark, scale)), application, generation, realization, ViewportSpace.parameters(scale, metric), viewport),
+        Model.prepared_scene(CS.Prepared{prepared}, application, generation, realization, ViewportSpace.parameters(scale, metric), viewport),
+        Model.ReadyScene{Model.Scene{prepared, Platform.observe(application), generation, realization, layout}},
+        Equal.cong(CS.Outcome, Model.SceneOutcome, (outcome => Model.prepared_scene(outcome, application, generation, realization, ViewportSpace.parameters(scale, metric), viewport)), CS.prepare(content_cache, Appearance.present(surface, dark, scale)), CS.Prepared{prepared}, preparation),
+        Equal.cong(Layout.Outcome, Model.SceneOutcome, (outcome => Model.allocated_scene(outcome, application, generation, realization, prepared)), Layout.present(ViewportSpace.parameters(scale, metric), viewport, Design.semantic_surface(prepared)), Layout.LayoutReady{layout}, allocated))
     ,
     input => core => platform => environment => font => generation => realization =>
       product_refinement(input, core, platform, generation, realization, environment, font),

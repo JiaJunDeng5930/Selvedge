@@ -5,9 +5,9 @@ import ./controls.bend as Controls
 type DialogParts is Data:
   DialogParts{header: +List<UI.Node>, body: +List<UI.Node>}
 
-def header_child(value: UI.Node, +context: Controls.Context) -> Bool:
+def header_child(+value: UI.Node, +context: Controls.Context) -> Bool:
   UI.Node{+key, semantic, label, +role, +meaning, children} = value
-  +local = Controls.enter(key, role, meaning, context)
+  +local = Controls.enter(value, context)
   Controls.panel_header(Controls.represent(key, meaning, label, role, local))
 
 def prepend_panel_header(value: UI.Node, parts: DialogParts) -> DialogParts:
@@ -56,7 +56,7 @@ def ordered_nodes(values: +List<UI.Node>, +context: Controls.Context) -> +List<U
     case Nil{}: Nil{}
     case Con{+value, rest}:
       UI.Node{+key, semantic, label, +role, +meaning, children} = value
-      +local = Controls.enter(key, role, meaning, context)
+      +local = Controls.enter(value, context)
       Con{node_with_children(value, ordered_children(role, ordered_nodes(children, local), local)),
         ordered_nodes(rest, context)}
 

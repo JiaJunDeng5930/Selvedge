@@ -490,12 +490,12 @@ def chooser_style(selected: Maybe<&2, Nat>, value: Design.Style) -> Design.Style
 def source_control_style(family: Controls.SourceFamily, representation: Controls.Representation, value: Design.Style) -> Design.Style:
   match family representation:
     case _ Controls.Action{input, availability, name, Controls.SingleLineFace{text}, behavior, geometry, placement, help, feedback}: project_label_style(value)
-    case Controls.SourceFamily{owner, UI.ProjectChooser{selected}} Controls.Action{input, availability, name, Controls.PickerFace{Some{Controls.Folder{}}, text}, behavior, geometry, placement, help, feedback}: chooser_style(selected, value)
+    case Controls.SourceFamily{UI.Node{owner, semantic, label, role, UI.ProjectChooser{selected}, children}} Controls.Action{input, availability, name, Controls.PickerFace{Some{Controls.Folder{}}, text}, behavior, geometry, placement, help, feedback}: chooser_style(selected, value)
     case _ _: value
 
 def source_style(header: Bool, family: Controls.SourceFamily, value: Design.Style, +typography: T.Presentation) -> Design.Style:
   match header family:
-    case True{} Controls.SourceFamily{owner, UI.ProjectGroup{project, selected, expanded}}: navigation_family_style(selected, 2n, 6n, typography)
+    case True{} Controls.SourceFamily{UI.Node{owner, semantic, label, role, UI.ProjectGroup{project, selected, expanded}, children}}: navigation_family_style(selected, 2n, 6n, typography)
     case _ _: value
 
 def project_group_style(+typography: T.Presentation) -> Design.Style:
@@ -506,7 +506,9 @@ def choice_group_style(value: Design.Style) -> Design.Style:
 
 def source_header_style(+key: String, family: Controls.SourceFamily, value: Design.Style, +typography: T.Presentation) -> Design.Style:
   match family:
-    case Controls.SourceFamily{+owner, +source}: source_style(String.eq(key, owner ++ "/actions"), Controls.SourceFamily{owner, source}, value, typography)
+    case Controls.SourceFamily{+node}:
+      UI.Node{+owner, semantic, label, role, source, children} = node
+      source_style(String.eq(key, owner ++ "/actions"), Controls.SourceFamily{node}, value, typography)
     case _: value
 
 
@@ -523,8 +525,28 @@ def family_style(+key: String, meaning: UI.Meaning, family: Controls.SourceFamil
     case UI.ActivityContent{expanded, audit}: source_header_style(key, family, value, typography)
     case _: source_control_style(family, representation, value)
 
-def final_style(key: String, meaning: UI.Meaning, context: Controls.Context, representation: Controls.Representation, value: Design.Style, +typography: T.Presentation) -> Design.Style:
-  family_style(key, meaning, Controls.source_reference(context), representation, value, typography)
+def source_content_style(content: Controls.SourceContent, geometry: Controls.Geometry, value: Design.Style) -> Design.Style:
+  match content:
+    case Controls.TitleContent{caption}:
+      Controls.Geometry{width, target_height, icon, radius, leading} = geometry
+      Design.Style{+text, chrome, alignment, flow, overflow, Enclosure.Frame{area, arrangement}, minimum, maximum, states} = value
+      Design.Style{T.with_emphasis(T.with_tier(text, T.Body{}), T.Strong{}), chrome, Design.Leading{}, Design.BlockFlow{}, overflow,
+        Enclosure.Frame{Enclosure.area(Enclosure.TextControl{}), arrangement}, Nat.max(minimum, target_height), maximum, states}
+    case _: value
+
+def resolved_source_style(content: Controls.SourceContent, representation: Controls.Representation, value: Design.Style) -> Design.Style:
+  match representation:
+    case Controls.Action{input, availability, name, face, behavior, geometry, placement, help, feedback}: source_content_style(content, geometry, value)
+    case _: value
+
+def source_action_style(meaning: UI.Meaning, context: Controls.Context, +representation: Controls.Representation, value: Design.Style) -> Design.Style:
+  match meaning:
+    case UI.Activate{input, availability}: resolved_source_style(Controls.representation_content(context, representation), representation, value)
+    case _: value
+
+def final_style(key: String, +meaning: UI.Meaning, +context: Controls.Context, +representation: Controls.Representation, value: Design.Style, +typography: T.Presentation) -> Design.Style:
+  +family_style_value = family_style(key, meaning, Controls.source_reference(context), representation, value, typography)
+  source_action_style(meaning, context, representation, family_style_value)
 
 def start_page(content: Core.Scene) -> Bool:
   Core.Scene{View.Scene{navigation, main, layers, arrangement, attention}, settings, transfers, preview, code, directory_picker} = content
@@ -573,15 +595,24 @@ def information_role_fields(role: UI.Role, +meaning: UI.Meaning, inherited: T.Pr
 def information_role(role: UI.Role, meaning: UI.Meaning, +inherited: T.Presentation, in_main: Bool, start: Bool) -> T.Presentation:
   information_role_fields(role, meaning, inherited, in_main, start, T.presentation_scale(inherited))
 
-def prepared_style(+key: String, semantic: String, role: UI.Role, +meaning: UI.Meaning,
+def alert_style(role: UI.Role, value: Design.Style) -> Design.Style:
+  match role:
+    case UI.Alert{}:
+      Design.Style{text, Design.Chrome{foreground, background, border, width, radius, shadow}, alignment, flow, overflow, frame, minimum, maximum, states} = value
+      Design.Style{T.with_emphasis(T.with_tier(text, T.Body{}), T.Regular{}),
+        Design.Chrome{Design.ThemeToken{"--color-text-danger"}, background, border, width, radius, shadow}, alignment, flow, Design.TextFlow{T.WrapAnywhere{}}, frame, minimum, maximum, states}
+    case _: value
+
+def prepared_style(+key: String, semantic: String, +role: UI.Role, +meaning: UI.Meaning,
   +local: Controls.Context, +control: Controls.Representation, +typography: T.Presentation) -> Design.Style:
-  final_style(key, meaning, local, control, control_style(semantic_style(semantic, style_in_context(role, meaning, navigation_context(local), typography)), control, typography), typography)
+  alert_style(role, final_style(key, meaning, local, control, control_style(semantic_style(semantic, style_in_context(role, meaning, navigation_context(local), typography)), control, typography), typography))
 
 def nodes_at(values: +List<UI.Node>, +context: Controls.Context, +inherited: T.Presentation, +in_main: Bool, +start: Bool) -> +List<Design.Node>:
   match values:
     case Nil{}: Nil{}
-    case Con{UI.Node{+key, +semantic, +label, +role, +meaning, children}, rest}:
-      +local = Controls.enter(key, role, meaning, context)
+    case Con{+source, rest}:
+      UI.Node{+key, +semantic, +label, +role, +meaning, children} = source
+      +local = Controls.enter(source, context)
       +control = Controls.represent(key, meaning, label, role, local)
       +inside = enters_main(role, in_main)
       +typography = information_role(role, meaning, inherited, inside, start)

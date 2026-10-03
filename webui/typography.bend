@@ -121,6 +121,8 @@ type Wrapping is Data:
   WrapAnywhere{}
   WrapWords{}
   ScrollableCode{}
+  NormalAnywhere{}
+  NormalWords{}
 
 def white_space(value: Wrapping) -> String:
   match value:
@@ -128,10 +130,13 @@ def white_space(value: Wrapping) -> String:
     case WrapAnywhere{}: "pre-wrap"
     case WrapWords{}: "pre-wrap"
     case ScrollableCode{}: "pre"
+    case NormalAnywhere{}: "normal"
+    case NormalWords{}: "normal"
 
 def overflow_wrap(value: Wrapping) -> String:
   match value:
     case WrapAnywhere{}: "anywhere"
+    case NormalAnywhere{}: "anywhere"
     case _: "normal"
 
 def word_break(value: Wrapping) -> String:
@@ -151,6 +156,37 @@ type MeasurementSpec is Data:
     font_size: Nat, line_height: Nat, font_weight: Nat, white_space: String,
     overflow_wrap: String, word_break: String, available_width: Maybe<&2, Nat>,
     reference_text: String}
+
+type Measured is Data:
+  Measured{specification: MeasurementSpec, metric: Metric}
+
+def same_width(first: Maybe<&2, Nat>, second: Maybe<&2, Nat>) -> Bool:
+  match first second:
+    case None{} None{}: True{}
+    case Some{first} Some{second}: Nat.is_eq(first, second)
+    case _ _: False{}
+
+def same_spec(first: MeasurementSpec, second: MeasurementSpec) -> Bool:
+  match first second:
+    case MeasurementSpec{first_key, first_text, first_family, first_size, first_height, first_weight, first_space, first_wrap, first_break, first_width, first_reference} MeasurementSpec{second_key, second_text, second_family, second_size, second_height, second_weight, second_space, second_wrap, second_break, second_width, second_reference}:
+      Bool.and(String.eq(first_key, second_key),
+        Bool.and(String.eq(first_text, second_text),
+          Bool.and(String.eq(first_family, second_family),
+            Bool.and(Nat.is_eq(first_size, second_size),
+              Bool.and(Nat.is_eq(first_height, second_height),
+                Bool.and(Nat.is_eq(first_weight, second_weight),
+                  Bool.and(String.eq(first_space, second_space),
+                    Bool.and(String.eq(first_wrap, second_wrap),
+                      Bool.and(String.eq(first_break, second_break),
+                        Bool.and(same_width(first_width, second_width), String.eq(first_reference, second_reference)))))))))))
+
+# Admission checks external data; they do not establish physical measurement accuracy.
+def valid_metric(specification: MeasurementSpec, metric: Metric) -> Bool:
+  match specification metric:
+    case MeasurementSpec{expected_key, text, family, size, line_height, weight, space, wrap, word_break, width, reference} Metric{actual_key, minimum, preferred, height, advance}:
+      Bool.and(String.eq(expected_key, actual_key),
+        Bool.and(Nat.is_le(minimum, preferred),
+          Bool.and(Nat.is_gt(height, 0n), Bool.or(String.eq(reference, ""), Nat.is_gt(advance, 0n)))))
 
 def spec(value: Probe) -> MeasurementSpec:
   Probe{key, text, TextStyle{family, size, line_height, weight}, +wrapping, available_width, reference_text} = value

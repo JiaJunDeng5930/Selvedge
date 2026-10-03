@@ -292,7 +292,7 @@ def generated_identity(owner: String, part: String) -> String:
 def activity_summary(owner: String, label: String, values: +List<Doc.Node>) -> +List<Doc.Node>:
   match values:
     case Con{Doc.Element{key, tag, attrs, styles, events, children}, rest}:
-      Doc.Element{key, "summary", attrs, styles, events, List.append(&2, Doc.Node, children, [Doc.Text{" " ++ label}])} <> rest
+      Doc.Element{key, "summary", attrs, styles, events, children} <> rest
     case Nil{}: [Doc.Element{generated_identity(owner, "summary"), "summary", Nil{}, Nil{}, Nil{}, [Doc.Text{label}]}]
     case Con{other, rest}: other <> rest
 
@@ -322,10 +322,15 @@ def flow(value: Design.Flow) -> +List<Doc.Property>:
     case Design.ChoiceFlow{}: [property("display", "flex"), property("flex-direction", "row"), property("align-items", "center"), property("justify-content", "space-between")]
 
 
+def wrapping_properties(+value: T.Wrapping) -> +List<Doc.Property>:
+  [property("white-space", T.white_space(value)), property("overflow-wrap", T.overflow_wrap(value)), property("word-break", T.word_break(value))]
+
+
 def overflow_style(value: Design.Overflow) -> +List<Doc.Property>:
   match value:
-    case Design.SingleLineOverflow{}: [property("overflow", "hidden"), property("text-overflow", "ellipsis"), property("white-space", "nowrap")]
+    case Design.SingleLineOverflow{}: [property("overflow", "hidden"), property("text-overflow", "ellipsis"), property("white-space", T.white_space(T.SingleLine{}))]
     case Design.ContentFlow{}: Nil{}
+    case Design.TextFlow{wrapping}: List.append(&2, Doc.Property, wrapping_properties(wrapping), [property("flex", "0 0 auto")])
     case Design.ScrollFlow{}: [property("overflow", "auto")]
     case Design.CodeOverflow{}: [property("overflow", "auto")]
 
@@ -366,11 +371,6 @@ def behavior(value: Controls.Behavior) -> +List<Doc.Property>:
     case Controls.Destination{current}: [property("aria-current", FieldOptions.boolean(current))]
 
 
-def geometry(value: Controls.Geometry) -> +List<Doc.Property>:
-  Controls.Geometry{width, height, icon_size, radius, leading} = value
-  [property("min-width", px(width)), property("min-height", px(height)), property("border-radius", px(radius)),
-   property("display", "inline-flex"), property("align-items", "center"), property("--native-icon-size", px(icon_size)), property("--native-leading-slot", px(leading))]
-
 
 def action_geometry(size: Controls.Geometry, visual: Design.Style) -> +List<Doc.Property>:
   Controls.Geometry{width, height, icon_size, radius, leading} = size
@@ -392,7 +392,7 @@ def content_extent(face: Controls.Face, size: Controls.Geometry) -> +List<Doc.Pr
   match face:
     case Controls.IconFace{icon}: icon_content_extent(size)
     case Controls.ChoiceFace{text, description, checked}: [property("width", "100%"), property("min-width", "0"), property("height", "auto"), property("flex-shrink", "0")]
-    case Controls.SingleLineFace{text}: [property("flex", "1 1 0"), property("width", "auto"), property("text-align", "start")]
+    case Controls.SingleLineFace{text}: List.append(&2, Doc.Property, [property("flex", "1 1 0"), property("width", "auto"), property("text-align", "start")], wrapping_properties(Controls.caption_wrapping(Controls.SingleLineFace{text})))
     case _: [property("min-width", "0"), property("max-width", "100%"), property("text-align", "left")]
 
 def content_geometry_layout(face: Controls.Face, size: Controls.Geometry, layout: Controls.ContentLayout) -> +List<Doc.Property>:
@@ -725,19 +725,6 @@ def card_action_selected(+want_more: Bool, meaning: UI.Meaning) -> Bool:
     case True{}: card_more_action(meaning)
     case False{}: Bool.not(card_more_action(meaning))
 
-def card_title_styles(+typography: T.Presentation) -> +List<Doc.Property>:
-  List.append(&2, Doc.Property,
-    List.append(&2, Doc.Property, part_text(typography, T.Body{}, T.Strong{}), [property("width", "100%"), property("min-width", "0"), property("display", "block"),
-     property("text-align", "start"), property("white-space", "normal"),
-     property("overflow-wrap", "anywhere"), property("min-height", "32px")]), content_area_properties(Enclosure.area(Enclosure.TextControl{})))
-
-def card_title_control(+title: String, node: Doc.Node, +typography: T.Presentation) -> Doc.Node:
-  match node:
-    case Doc.Element{key, "button", attrs, styles, events, children}:
-      Doc.Element{key, "button", attrs,
-        List.append(&2, Doc.Property, styles, card_title_styles(typography)), events, [Doc.Text{title}]}
-    case other: other
-
 def card_prepared_action(include: Bool, node: Doc.Node, +tail: +List<Doc.Node>) -> +List<Doc.Node>:
   match include:
     case True{}: node <> tail
@@ -750,11 +737,6 @@ def card_action_nodes(+want_more: Bool, source: +List<Child>) -> +List<Doc.Node>
       card_prepared_action(card_action_selected(want_more, meaning), document, card_action_nodes(want_more, rest))
 
 
-def card_title_actions(+title: String, actions: +List<Doc.Node>, +typography: T.Presentation) -> +List<Doc.Node>:
-  match actions:
-    case Nil{}: Nil{}
-    case Con{node, rest}: card_title_control(title, node, typography) <> card_title_actions(title, rest, typography)
-
 def card_title_nodes(owner: String, +title: String, +actions: +List<Doc.Node>, +typography: T.Presentation) -> +List<Doc.Node>:
   match actions:
     case Nil{}:
@@ -762,7 +744,7 @@ def card_title_nodes(owner: String, +title: String, +actions: +List<Doc.Node>, +
         List.append(&2, Doc.Property, part_text(typography, T.Body{}, T.Strong{}), [property("margin", "0"), property("overflow-wrap", "anywhere")]), Nil{}, [Doc.Text{title}]}]
     case _:
       [Doc.Element{generated_identity(owner, "open-actions"), "div", [property("data-card-open", "")],
-        [property("flex", "1"), property("min-width", "0"), property("display", "flex"), property("align-items", "center")], Nil{}, card_title_actions(title, actions, typography)}]
+        [property("flex", "1"), property("min-width", "0"), property("display", "flex"), property("align-items", "center")], Nil{}, actions}]
 
 def card_more_nodes(owner: String, +actions: +List<Doc.Node>) -> +List<Doc.Node>:
   match actions:
@@ -1176,9 +1158,12 @@ def layer_region_node(+key: String, label: String, role: UI.Role, +outside: Bool
   children: +List<Child>, +typography: T.Presentation) -> Doc.Node:
   layer_region_properties(key, outside, region_node(key, label, role, visual, children, typography))
 
-def face_label(+key: String, text: String) -> Doc.Node:
+def caption_label(+key: String, text: String, wrapping: T.Wrapping) -> Doc.Node:
   Doc.Element{key ++ "/label", "span", Nil{},
-    [property("min-width", "0"), property("overflow-wrap", "anywhere")], Nil{}, [Doc.Text{text}]}
+    property("min-width", "0") <> wrapping_properties(wrapping), Nil{}, [Doc.Text{text}]}
+
+def face_label(+key: String, +text: String) -> Doc.Node:
+  caption_label(key, text, Controls.caption_wrapping(Controls.TextFace{text}))
 
 def selected_check(+key: String, checked: Bool) -> +List<Doc.Node>:
   match checked:
@@ -1198,30 +1183,39 @@ def disclosure_icon(expanded: Bool) -> Controls.Icon:
     case True{}: Controls.ChevronDown{}
     case False{}: Controls.ChevronRight{}
 
-def choice_text_content(+key: String, label: String, description: Maybe<&2, String>, text_gap: Nat, +typography: T.Presentation) -> Doc.Node:
+def choice_text_content_wrapping(+key: String, label: String, description: Maybe<&2, String>, text_gap: Nat, +typography: T.Presentation, wrapping: T.Wrapping) -> Doc.Node:
   match description:
     case None{}:
-      Doc.Element{key ++ "/content", "span", Nil{}, [property("display", "flex"), property("flex-direction", "column"), property("flex", "1 1 0"), property("min-width", "0"), property("text-align", "start")], Nil{}, [Doc.Text{label}]}
+      Doc.Element{key ++ "/content", "span", Nil{}, [property("display", "flex"), property("flex-direction", "column"), property("flex", "1 1 0"), property("min-width", "0"), property("text-align", "start")], Nil{}, [caption_label(key, label, wrapping)]}
     case Some{description}:
       Doc.Element{key ++ "/content", "span", Nil{}, [property("display", "flex"), property("flex-direction", "column"), property("flex", "1 1 0"), property("min-width", "0"), property("text-align", "start"), property("gap", px(text_gap))], Nil{},
-        [Doc.Text{label}, Doc.Element{key ++ "/description", "span", Nil{},
-          List.append(&2, Doc.Property, part_text(typography, T.Support{}, T.Regular{}), [property("color", "var(--color-token-text-secondary)"), property("white-space", "normal")]), Nil{}, [Doc.Text{description}]}]}
+        [caption_label(key, label, wrapping), Doc.Element{key ++ "/description", "span", Nil{},
+          List.append(&2, Doc.Property, part_text(typography, T.Support{}, T.Regular{}), property("color", "var(--color-token-text-secondary)") <> wrapping_properties(Controls.description_wrapping())), Nil{}, [Doc.Text{description}]}]}
 
-def choice_content_layout(+key: String, label: String, description: Maybe<&2, String>, selected: Bool, layout: Controls.ChoiceContentLayout, +typography: T.Presentation) -> +List<Doc.Node>:
+def choice_text_content(+key: String, +label: String, +description: Maybe<&2, String>, text_gap: Nat, +typography: T.Presentation) -> Doc.Node:
+  choice_text_content_wrapping(key, label, description, text_gap, typography, Controls.caption_wrapping(Controls.ChoiceFace{label, description, False{}}))
+
+def choice_content_layout_wrapping(+key: String, label: String, description: Maybe<&2, String>, selected: Bool, layout: Controls.ChoiceContentLayout, +typography: T.Presentation, wrapping: T.Wrapping) -> +List<Doc.Node>:
   Controls.ChoiceContentLayout{text_gap, mark_extent, mark_icon_extent} = layout
-  [choice_text_content(key, label, description, text_gap, typography), choice_mark(key, selected, mark_extent, mark_icon_extent)]
+  [choice_text_content_wrapping(key, label, description, text_gap, typography, wrapping), choice_mark(key, selected, mark_extent, mark_icon_extent)]
 
-def face(+key: String, value: Controls.Face, +typography: T.Presentation, geometry: Controls.Geometry) -> +List<Doc.Node>:
+def choice_content_layout(+key: String, +label: String, +description: Maybe<&2, String>, +selected: Bool, layout: Controls.ChoiceContentLayout, +typography: T.Presentation) -> +List<Doc.Node>:
+  choice_content_layout_wrapping(key, label, description, selected, layout, typography, Controls.caption_wrapping(Controls.ChoiceFace{label, description, selected}))
+
+def face_with_wrapping(+key: String, value: Controls.Face, +typography: T.Presentation, geometry: Controls.Geometry, wrapping: T.Wrapping) -> +List<Doc.Node>:
   match value:
     case Controls.IconFace{value}: [icon(key, value)]
-    case Controls.TextFace{text}: [face_label(key, text)]
+    case Controls.TextFace{text}: [caption_label(key, text, wrapping)]
     case Controls.SingleLineFace{text}: [Doc.Text{text}]
-    case Controls.IconTextFace{value, text}: [icon(key ++ "/leading", value), face_label(key, text)]
-    case Controls.PickerFace{leading, text}: List.append(&2, Doc.Node, optional_icon(key ++ "/leading", leading), [face_label(key, text), icon(key ++ "/disclosure", Controls.ChevronDown{})])
-    case Controls.ChoiceFace{text, description, checked}: choice_content_layout(key, text, description, checked, Controls.choice_content_layout(geometry), typography)
-    case Controls.DisclosureFace{text, expanded}: [icon(key ++ "/disclosure", disclosure_icon(expanded)), face_label(key, text)]
+    case Controls.IconTextFace{value, text}: [icon(key ++ "/leading", value), caption_label(key, text, wrapping)]
+    case Controls.PickerFace{leading, text}: List.append(&2, Doc.Node, optional_icon(key ++ "/leading", leading), [caption_label(key, text, wrapping), icon(key ++ "/disclosure", Controls.ChevronDown{})])
+    case Controls.ChoiceFace{text, description, checked}: choice_content_layout_wrapping(key, text, description, checked, Controls.choice_content_layout(geometry), typography, wrapping)
+    case Controls.DisclosureFace{text, expanded}: [icon(key ++ "/disclosure", disclosure_icon(expanded)), caption_label(key, text, wrapping)]
     case Controls.PermissionFace{filesystem, network, approval}: [icon(key ++ "/filesystem", filesystem), icon(key ++ "/network", network), icon(key ++ "/approval", approval)]
 
+
+def face(+key: String, +value: Controls.Face, +typography: T.Presentation, geometry: Controls.Geometry) -> +List<Doc.Node>:
+  face_with_wrapping(key, value, typography, geometry, Controls.caption_wrapping(value))
 
 def render_base_role(role: UI.Role, value: Doc.Node, navigation: Design.Navigation, main: Design.Box, details: Maybe<&2, Design.Box>) -> Doc.Node:
   match role:
@@ -1756,7 +1750,7 @@ def input(+key: String, +meaning: UI.Meaning, representation: Controls.Represent
   match representation:
     case Controls.Input{+binding, +name, +widget, placement, availability}:
       editor_field(EditorLayout.field_kind(binding), placement, key, name, Doc.Element{key, widget_tag(widget), List.append(&2, Doc.Property,
-        List.append(&2, Doc.Property, [property("aria-label", name), property("data-native-key", key), property("value", node_value(meaning))], List.append(&2, Doc.Property, editor_placeholder(EditorLayout.field_kind(binding), name), List.append(&2, Doc.Property, checked_properties(meaning), field_hint(meaning)))),
+        List.append(&2, Doc.Property, [property("class", "native-control"), property("aria-label", name), property("data-native-key", key), property("value", node_value(meaning))], List.append(&2, Doc.Property, editor_placeholder(EditorLayout.field_kind(binding), name), List.append(&2, Doc.Property, checked_properties(meaning), field_hint(meaning)))),
         List.append(&2, Doc.Property, widget_properties(widget), List.append(&2, Doc.Property, editor_properties(key, widget), List.append(&2, Doc.Property, meaning_properties(meaning), unavailable(availability))))),
         List.append(&2, Doc.Property, style(visual), input_style_for(meaning, widget)), input_events(key, widget), input_children(key, meaning, widget)})
     case _: Doc.Element{key, "output", Nil{}, style(visual), Nil{}, [Doc.Text{node_value(meaning)}]}
@@ -1861,14 +1855,11 @@ def task_row_node(+key: String, task: Nat, +status: String, +selected: Bool, vis
 def project_chooser_node(+key: String, selected: Maybe<&2, Nat>, visual: Design.Style, children: +List<Child>) -> Doc.Node:
   Doc.Element{key, "div", [property("data-native-key", key)], style(visual), Nil{}, documents(children)}
 
-def submission_alert_styles(+typography: T.Presentation) -> +List<Doc.Property>:
-  List.append(&2, Doc.Property, part_text(typography, T.Body{}, T.Regular{}), [property("color", "var(--color-text-danger)"), property("white-space", "pre-wrap"), property("overflow-wrap", "anywhere"), property("min-width", "0"), property("flex", "0 0 auto")])
-
-def read_only_node(+key: String, role: UI.Role, label: String, text: String, visual: Design.Style, +source: +List<Child>, +typography: T.Presentation) -> Doc.Node:
+def read_only_node(+key: String, role: UI.Role, label: String, text: String, visual: Design.Style, +source: +List<Child>) -> Doc.Node:
   match role:
     case UI.Alert{}:
       Doc.Element{key, "div", [property("data-native-key", key), property("role", "alert"), property("aria-label", label)],
-        List.append(&2, Doc.Property, style(visual), submission_alert_styles(typography)), Nil{}, Doc.Text{text} <> documents(source)}
+        style(visual), Nil{}, Doc.Text{text} <> documents(source)}
     case +other:
       Doc.Element{key, tag(other), [property("data-native-key", key)], style(visual), Nil{}, Doc.Markdown{key ++ "/markdown", markdown_source(source), text} <> documents(source)}
 
@@ -1898,7 +1889,7 @@ def match_node(+value: Design.Node, +children: +List<Child>) -> Doc.Node:
     case UI.PageContext{conversation}: region_node(key, label, role, visual, children, Appearance.style_text(visual))
     case UI.ActivityContent{expanded, audit}: activity_node(key, label, visual, children, expanded, audit)
     case UI.Region{}: region_node(key, label, role, visual, children, Appearance.style_text(visual))
-    case UI.ReadOnly{text}: read_only_node(key, role, label, text, visual, children, Appearance.style_text(visual))
+    case UI.ReadOnly{text}: read_only_node(key, role, label, text, visual, children)
     case UI.CodeFacts{Code.Scene{+identity, literal, wrap, copy, enabled, controls}}:
       Doc.Element{key, "div", Nil{}, [property("display", "contents")], Nil{}, [
         Doc.Portal{key ++ "/toolbar", Code.key(identity) ++ "/toolbar", documents(children)},

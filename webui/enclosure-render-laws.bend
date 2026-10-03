@@ -103,10 +103,12 @@ def excluded_overflow(+mode: AttributeMode, +overflow: D.Overflow) -> Excluded(m
     case RawBackground{} D.ScrollFlow{}: ({==}, Unit{})
     case RawBackground{} D.CodeOverflow{}: ({==}, Unit{})
     case RawBackground{} D.SingleLineOverflow{}: ({==}, ({==}, ({==}, Unit{})))
+    case RawBackground{} D.TextFlow{wrapping}: ({==}, ({==}, ({==}, ({==}, Unit{}))))
     case PointerBackground{} D.ContentFlow{}: Unit{}
     case PointerBackground{} D.ScrollFlow{}: ({==}, Unit{})
     case PointerBackground{} D.CodeOverflow{}: ({==}, Unit{})
     case PointerBackground{} D.SingleLineOverflow{}: ({==}, ({==}, ({==}, Unit{})))
+    case PointerBackground{} D.TextFlow{wrapping}: ({==}, ({==}, ({==}, ({==}, Unit{}))))
 
 def excluded_shadow(+mode: AttributeMode, +shadow: Bool) -> Excluded(mode, R.shadow_style(shadow)):
   match mode shadow:
@@ -183,7 +185,7 @@ def excluded_extent(+mode: AttributeMode, +face: C.Face, +size: C.Geometry) -> E
   match mode face size:
     case RawBackground{} C.IconFace{icon} C.Geometry{width, height, icon, radius, leading}: ({==}, ({==}, ({==}, ({==}, Unit{}))))
     case RawBackground{} C.TextFace{text} C.Geometry{width, height, icon, radius, leading}: ({==}, ({==}, ({==}, Unit{})))
-    case RawBackground{} C.SingleLineFace{text} C.Geometry{width, height, icon, radius, leading}: ({==}, ({==}, ({==}, Unit{})))
+    case RawBackground{} C.SingleLineFace{text} C.Geometry{width, height, icon, radius, leading}: ({==}, ({==}, ({==}, ({==}, ({==}, ({==}, Unit{}))))))
     case RawBackground{} C.IconTextFace{icon, text} C.Geometry{width, height, icon, radius, leading}: ({==}, ({==}, ({==}, Unit{})))
     case RawBackground{} C.PickerFace{leading, text} C.Geometry{width, height, icon, radius, leading}: ({==}, ({==}, ({==}, Unit{})))
     case RawBackground{} C.ChoiceFace{text, description, checked} C.Geometry{width, height, icon, radius, leading}: ({==}, ({==}, ({==}, ({==}, Unit{}))))
@@ -191,7 +193,7 @@ def excluded_extent(+mode: AttributeMode, +face: C.Face, +size: C.Geometry) -> E
     case RawBackground{} C.PermissionFace{filesystem, network, approval} C.Geometry{width, height, icon, radius, leading}: ({==}, ({==}, ({==}, Unit{})))
     case PointerBackground{} C.IconFace{icon} C.Geometry{width, height, icon, radius, leading}: ({==}, ({==}, ({==}, ({==}, Unit{}))))
     case PointerBackground{} C.TextFace{text} C.Geometry{width, height, icon, radius, leading}: ({==}, ({==}, ({==}, Unit{})))
-    case PointerBackground{} C.SingleLineFace{text} C.Geometry{width, height, icon, radius, leading}: ({==}, ({==}, ({==}, Unit{})))
+    case PointerBackground{} C.SingleLineFace{text} C.Geometry{width, height, icon, radius, leading}: ({==}, ({==}, ({==}, ({==}, ({==}, ({==}, Unit{}))))))
     case PointerBackground{} C.IconTextFace{icon, text} C.Geometry{width, height, icon, radius, leading}: ({==}, ({==}, ({==}, Unit{})))
     case PointerBackground{} C.PickerFace{leading, text} C.Geometry{width, height, icon, radius, leading}: ({==}, ({==}, ({==}, Unit{})))
     case PointerBackground{} C.ChoiceFace{text, description, checked} C.Geometry{width, height, icon, radius, leading}: ({==}, ({==}, ({==}, ({==}, Unit{}))))
@@ -279,8 +281,10 @@ def preserve_overflow(+value: D.Overflow, +axis: Axis, +previous: String) ->
     case D.ScrollFlow{} Block{}: {==}
     case D.CodeOverflow{} Inline{}: {==}
     case D.SingleLineOverflow{} Inline{}: {==}
+    case D.TextFlow{wrapping} Inline{}: {==}
     case D.CodeOverflow{} Block{}: {==}
     case D.SingleLineOverflow{} Block{}: {==}
+    case D.TextFlow{wrapping} Block{}: {==}
 
 def preserve_details(+shadow: Bool, +alignment: D.Alignment, +states: D.ControlStates, +axis: Axis, +previous: String) ->
   {R.attr_last(R.style_details(shadow, alignment, states), axis_name(axis), previous) == previous : String}:
@@ -523,26 +527,32 @@ def parent_overflow(+pointer: Bool, +property: ParentProperty, value: D.Overflow
     case False{} FrameGap{} D.ScrollFlow{}: {==}
     case False{} FrameGap{} D.CodeOverflow{}: {==}
     case False{} FrameGap{} D.SingleLineOverflow{}: {==}
+    case False{} FrameGap{} D.TextFlow{wrapping}: {==}
     case False{} MinimumHeight{} D.ContentFlow{}: {==}
     case False{} MinimumHeight{} D.ScrollFlow{}: {==}
     case False{} MinimumHeight{} D.CodeOverflow{}: {==}
     case False{} MinimumHeight{} D.SingleLineOverflow{}: {==}
+    case False{} MinimumHeight{} D.TextFlow{wrapping}: {==}
     case False{} BorderRadius{} D.ContentFlow{}: {==}
     case False{} BorderRadius{} D.ScrollFlow{}: {==}
     case False{} BorderRadius{} D.CodeOverflow{}: {==}
     case False{} BorderRadius{} D.SingleLineOverflow{}: {==}
+    case False{} BorderRadius{} D.TextFlow{wrapping}: {==}
     case True{} FrameGap{} D.ContentFlow{}: {==}
     case True{} FrameGap{} D.ScrollFlow{}: {==}
     case True{} FrameGap{} D.CodeOverflow{}: {==}
     case True{} FrameGap{} D.SingleLineOverflow{}: {==}
+    case True{} FrameGap{} D.TextFlow{wrapping}: {==}
     case True{} MinimumHeight{} D.ContentFlow{}: {==}
     case True{} MinimumHeight{} D.ScrollFlow{}: {==}
     case True{} MinimumHeight{} D.CodeOverflow{}: {==}
     case True{} MinimumHeight{} D.SingleLineOverflow{}: {==}
+    case True{} MinimumHeight{} D.TextFlow{wrapping}: {==}
     case True{} BorderRadius{} D.ContentFlow{}: {==}
     case True{} BorderRadius{} D.ScrollFlow{}: {==}
     case True{} BorderRadius{} D.CodeOverflow{}: {==}
     case True{} BorderRadius{} D.SingleLineOverflow{}: {==}
+    case True{} BorderRadius{} D.TextFlow{wrapping}: {==}
 
 def parent_shadow(+pointer: Bool, +property: ParentProperty, value: Bool, +previous: String) ->
   {R.attr_last(parent_properties(pointer, R.shadow_style(value)), parent_name(property), previous) == previous : String}:

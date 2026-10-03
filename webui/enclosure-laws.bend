@@ -7,6 +7,9 @@ import ./design.bend as D
 import ../core/interface.bend as UI
 import ../core/form-fields.bend as Forms
 
+def frame_coordinates(+frame: E.Frame) -> (Nat & (Nat & Nat)):
+  (E.inline(E.frame_content(frame)), (E.block(E.frame_content(frame)), E.frame_gap(frame)))
+
 def area(value: D.Style) -> E.ContentArea:
   D.Style{text, chrome, alignment, flow, overflow, +content_frame, height, maximum, states} = value
   E.frame_content(content_frame)

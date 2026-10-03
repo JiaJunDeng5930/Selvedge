@@ -1,5 +1,6 @@
 import Base
 import ./typography.bend as Text
+import ../bendlib/stdlib.bend as Std
 
 def successor_zero(rest: Nat) ->
   {True{} == Nat.is_ge(rest, 0n) : Bool}:
@@ -121,8 +122,53 @@ def presentation_parameters(+presentation: Text.Presentation, +new_tier: Text.Ti
   Text.Presentation{tier, emphasis, scale} = presentation
   ({==}, {==}, {==}, {==})
 
+def admission_goal(P: Type, value: Bool) -> Type:
+  match value:
+    case False{}: Unit
+    case True{}: P
+
+def admission_impossible(P: Type, evidence: {False{} == True{} : Bool}) -> P:
+  Std.transport(Bool, False{}, (value => admission_goal(P, value)), Unit{}, True{}, Equal.sym(Bool, False{}, True{}, evidence))
+
+def admitted_flags(+keys: Bool, +widths: Bool, +height: Bool, reference: Bool,
+  accepted: {Bool.and(keys, Bool.and(widths, Bool.and(height, reference))) == True{} : Bool}) ->
+  {keys == True{} : Bool} & ({widths == True{} : Bool} & {height == True{} : Bool}):
+  match keys widths height:
+    case False{} widths height: admission_impossible({False{} == True{} : Bool} & ({widths == True{} : Bool} & {height == True{} : Bool}), accepted)
+    case True{} False{} height: admission_impossible({True{} == True{} : Bool} & ({False{} == True{} : Bool} & {height == True{} : Bool}), accepted)
+    case True{} True{} False{}: admission_impossible({True{} == True{} : Bool} & ({True{} == True{} : Bool} & {False{} == True{} : Bool}), accepted)
+    case True{} True{} True{}: ({==}, ({==}, {==}))
+
+def specification_key(value: Text.MeasurementSpec) -> String:
+  Text.MeasurementSpec{key, text, family, size, height, weight, space, wrap, word_break, width, reference} = value
+  key
+
+def metric_key(value: Text.Metric) -> String:
+  Text.Metric{key, minimum, preferred, height, advance} = value
+  key
+
+def metric_widths(value: Text.Metric) -> Bool:
+  Text.Metric{key, minimum, preferred, height, advance} = value
+  Nat.is_le(minimum, preferred)
+
+def metric_height(value: Text.Metric) -> Bool:
+  Text.Metric{key, minimum, preferred, height, advance} = value
+  Nat.is_gt(height, 0n)
+
+def admitted_metric_boundaries(+specification: Text.MeasurementSpec, +metric: Text.Metric,
+  accepted: {Text.valid_metric(specification, metric) == True{} : Bool}) ->
+  {String.eq(specification_key(specification), metric_key(metric)) == True{} : Bool} &
+    ({metric_widths(metric) == True{} : Bool} & {metric_height(metric) == True{} : Bool}):
+  match specification metric:
+    case Text.MeasurementSpec{expected_key, text, family, size, line_height, weight, space, wrap, word_break, width, reference} Text.Metric{actual_key, minimum, preferred, height, advance}:
+      admitted_flags(String.eq(expected_key, actual_key), Nat.is_le(minimum, preferred), Nat.is_gt(height, 0n), Bool.or(String.eq(reference, ""), Nat.is_gt(advance, 0n)), accepted)
+
 type Requirements is Type:
   Requirements{
+    metric_admission: @+specification:Text.MeasurementSpec -> @+metric:Text.Metric -> @accepted:{Text.valid_metric(specification, metric) == True{} : Bool} ->
+      {String.eq(specification_key(specification), metric_key(metric)) == True{} : Bool} & ({metric_widths(metric) == True{} : Bool} & {metric_height(metric) == True{} : Bool}),
+    normal_anywhere: {(Text.white_space(Text.NormalAnywhere{}), (Text.overflow_wrap(Text.NormalAnywhere{}), Text.word_break(Text.NormalAnywhere{}))) == ("normal", ("anywhere", "normal")) : (String & (String & String))},
+    normal_words: {(Text.white_space(Text.NormalWords{}), (Text.overflow_wrap(Text.NormalWords{}), Text.word_break(Text.NormalWords{}))) == ("normal", ("normal", "normal")) : (String & (String & String))},
     presentation_parameters: @+presentation:Text.Presentation -> @+new_tier:Text.Tier -> @+new_emphasis:Text.Emphasis -> @+new_scale:Text.Scale ->
       {presentation_fields(Text.with_tier(presentation, new_tier)) == (new_tier, (presentation_emphasis(presentation), Text.presentation_scale(presentation))) : (Text.Tier & (Text.Emphasis & Text.Scale))} &
       {presentation_fields(Text.with_emphasis(presentation, new_emphasis)) == (presentation_tier(presentation), (new_emphasis, Text.presentation_scale(presentation))) : (Text.Tier & (Text.Emphasis & Text.Scale))} &
@@ -179,7 +225,7 @@ type Requirements is Type:
   }
 
 def evidence() -> Requirements:
-  Requirements{
+  Requirements{admitted_metric_boundaries, {==}, {==},
     presentation_parameters,
     support_positive,
     scale => emphasis => body_separation(scale, emphasis),

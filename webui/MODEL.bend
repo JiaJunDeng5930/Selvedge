@@ -15,6 +15,7 @@ import ./viewport-space.bend as ViewportSpace
 import ../core/user-experience.bend as E
 import ./visibility.bend as Visibility
 import ./presentation-order.bend as Order
+import ./content-space.bend as CS
 
 type State is Data:
   State{application: Platform.State, generation: Nat, realization: Rendered.State,
@@ -85,7 +86,7 @@ def navigation_intent(application: Platform.State) -> E.NavigationIntent:
 
 def font_capacity(font: F.State, environment: Design.Environment, application: Platform.State) -> View.Capacity:
   match font:
-    case F.Ready{generation, +scale, metric}:
+    case F.Ready{generation, +scale, metric, +content_cache}:
       Layout.capacity(ViewportSpace.parameters(scale, metric), environment_viewport(environment), navigation_intent(application))
     case _: View.Capacity{False{}, False{}}
 
@@ -113,21 +114,49 @@ def element_input(application: Platform.State, key: String, gesture: UI.Gesture,
   invalidate(Platform.after_core(Product.step(Product.Element{capacity(platform), key, gesture}, core), platform),
     (generation + 1n : Nat), environment, typography)
 
+def appearance_surface(surface: UI.Surface, environment: Design.Environment, font: F.State) -> Design.Surface:
+  Design.Environment{viewport, dark, root} = environment
+  Appearance.present(surface, dark, F.scale(font))
+
+def required_content(font: F.State, application: Platform.State, environment: Design.Environment) -> +List<T.MeasurementSpec>:
+  match font:
+    case F.Ready{font_generation, scale, metric, content_cache}:
+      CS.specifications(appearance_surface(Order.ordered_surface(surface(application)), environment, F.Ready{font_generation, scale, metric, content_cache}))
+    case _: Nil{}
+
+def measurement_plan(state: State) -> F.Plan:
+  State{application, generation, realization, environment, +font} = state
+  F.request(font, required_content(font, application, environment))
+
+def measurement_budget(state: State) -> Nat:
+  State{application, generation, realization, environment, font} = state
+  match font:
+    case F.Pending{font_generation, scale}: 2n
+    case F.Ready{font_generation, scale, metric, content_cache}: 1n
+    case F.Failed{font_generation, scale}: 0n
+
 def allocated_scene(outcome: Layout.Outcome, +application: Platform.State, generation: Nat,
-  realization: Rendered.State, +surface: UI.Surface, dark: Bool, scale: T.Scale) -> SceneOutcome:
+  realization: Rendered.State, surface: Design.Surface) -> SceneOutcome:
   match outcome:
     case Layout.LayoutUnsupported{required, available}: UnsupportedSpace{required, available}
     case Layout.LayoutReady{layout}:
-      ReadyScene{Scene{Appearance.present(surface, dark, scale), Platform.observe(application), generation, realization, layout}}
+      ReadyScene{Scene{surface, Platform.observe(application), generation, realization, layout}}
+
+def prepared_scene(preparation: CS.Outcome, +application: Platform.State, +generation: Nat, +realization: Rendered.State,
+  parameters: Design.LayoutParameters, viewport: Design.Viewport) -> SceneOutcome:
+  match preparation:
+    case CS.AwaitingContent{missing}: AwaitingTypography{}
+    case CS.Prepared{+prepared}:
+      allocated_scene(Layout.present(parameters, viewport, Design.semantic_surface(prepared)), application, generation, realization, prepared)
 
 def font_scene(font: F.State, +application: Platform.State, +generation: Nat, +realization: Rendered.State,
   +viewport: Design.Viewport, dark: Bool, +surface: UI.Surface) -> SceneOutcome:
   match font:
     case F.Pending{font_generation, scale}: AwaitingTypography{}
     case F.Failed{font_generation, scale}: FailedTypography{}
-    case F.Ready{font_generation, +scale, metric}:
-      allocated_scene(Layout.present(ViewportSpace.parameters(scale, metric), viewport, surface), application, generation,
-        realization, surface, dark, scale)
+    case F.Ready{font_generation, +scale, +metric, +content_cache}:
+      prepared_scene(CS.prepare(content_cache, appearance_surface(surface, Design.Environment{viewport, dark, 0n}, F.Ready{font_generation, scale, metric, content_cache})), application, generation,
+        realization, ViewportSpace.parameters(scale, metric), viewport)
 
 def scene_for_surface(state: State, surface: UI.Surface) -> SceneOutcome:
   State{application, generation, realization, Design.Environment{viewport, dark, root}, font} = state
@@ -170,18 +199,37 @@ def observed_platform_input(input: Platform.Input, environment: Design.Environme
 def font_admitted(font: F.State, +application: Platform.State, +generation: Nat, realization: Rendered.State,
   +environment: Design.Environment) -> Decision:
   match font:
-    case F.Ready{+font_generation, +scale, +metric}:
+    case F.Ready{+font_generation, +scale, +metric, +content_cache}:
       Platform.State{core, platform} = application
-      realized(calibrated(Platform.Decision{Platform.unchanged(core), platform, Nil{}}, environment, F.Ready{font_generation, scale, metric}),
-        generation, environment, F.Ready{font_generation, scale, metric})
+      realized(calibrated(Platform.Decision{Platform.unchanged(core), platform, Nil{}}, environment, F.Ready{font_generation, scale, metric, content_cache}),
+        generation, environment, F.Ready{font_generation, scale, metric, content_cache})
     case other: idle(application, generation, Rendered.AwaitingFrame{generation}, environment, other)
+
+def content_admitted(font: F.State, +application: Platform.State, +generation: Nat,
+  realization: Rendered.State, +environment: Design.Environment) -> Decision:
+  match font:
+    case F.Ready{font_generation, scale, metric, content_cache}:
+      Platform.State{core, platform} = application
+      realized(Platform.Decision{Platform.unchanged(core), platform, Nil{}}, generation, environment,
+        F.Ready{font_generation, scale, metric, content_cache})
+    case other: idle(application, generation, Rendered.AwaitingFrame{generation}, environment, other)
+
+def content_receipt(missing: +List<T.MeasurementSpec>, +font: F.State, +required: +List<T.MeasurementSpec>,
+  +application: Platform.State, +generation: Nat, +realization: Rendered.State, +environment: Design.Environment,
+  observation: F.Observation) -> Decision:
+  match missing:
+    case Nil{}: idle(application, generation, realization, environment, font)
+    case Con{specification, rest}: content_admitted(F.accept(font, required, observation), application, generation, realization, environment)
 
 def pending_receipt(font: F.State, +application: Platform.State, +generation: Nat, +realization: Rendered.State,
   +environment: Design.Environment, observation: F.Observation) -> Decision:
   match font:
     case F.Pending{font_generation, scale}:
-      font_admitted(F.accept(F.Pending{font_generation, scale}, observation), application, generation, realization, environment)
-    case F.Ready{font_generation, scale, metric}: idle(application, generation, realization, environment, F.Ready{font_generation, scale, metric})
+      font_admitted(F.accept(F.Pending{font_generation, scale}, Nil{}, observation), application, generation, realization, environment)
+    case F.Ready{+font_generation, +scale, +metric, +content_cache}:
+      +font: F.State = F.Ready{font_generation, scale, metric, content_cache}
+      +required = required_content(font, application, environment)
+      content_receipt(F.missing(required, content_cache), font, required, application, generation, realization, environment, observation)
     case F.Failed{font_generation, scale}: idle(application, generation, realization, environment, F.Failed{font_generation, scale})
 
 def receipt_owned_state(owned: Bool, +application: Platform.State, +generation: Nat, +realization: Rendered.State,

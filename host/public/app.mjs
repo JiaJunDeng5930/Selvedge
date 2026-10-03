@@ -98,20 +98,21 @@ function measurementMetric(metric) {
   });
 }
 function render() {
-  const plan = Bend.measurement_plan(state);
-  const specifications = list(plan.specifications);
-  let measurementDecision;
-  if (specifications.length) {
+  const effects = [];
+  const budget = Number(Bend.measurement_budget(state));
+  for (let round = 0; round < budget; round += 1) {
+    const plan = Bend.measurement_plan(state);
+    const specifications = list(plan.specifications);
+    if (!specifications.length) break;
     const metrics = textMeasurer.measure(specifications.map(measurementSpec));
-    measurementDecision = Bend.measurements(value('Observation', {
+    const decision = Bend.measurements(value('Observation', {
       generation: plan.generation, metrics: linked(metrics.map(measurementMetric)),
     }), state);
-    state = measurementDecision.state;
+    state = decision.state;
+    effects.push(...list(decision.effects));
   }
   renderer.render(Bend.observe(state));
-  if (measurementDecision) {
-    for (const effect of list(measurementDecision.effects)) Promise.resolve(execute(effect)).catch(error => console.error(error));
-  }
+  for (const effect of effects) Promise.resolve(execute(effect)).catch(error => console.error(error));
 }
 function commit(decision) {
   state = decision.state; render();

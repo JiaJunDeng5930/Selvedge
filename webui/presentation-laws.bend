@@ -15,6 +15,9 @@ import ./typography.bend as T
 import ./viewport-space.bend as ViewportSpace
 import ./focus.bend as Focus
 import ./space-laws.bend as SpaceLaws
+import ./content-space.bend as CS
+import ./content-space-laws.bend as CSL
+import ./appearance.bend as Appearance
 
 def scene_layout(scene: Model.Scene) -> Design.Layout:
   Model.Scene{surface, platform, generation, realization, layout} = scene
@@ -32,21 +35,36 @@ def SemanticClaim(outcome: Model.SceneOutcome, surface: UI.Surface) -> Type:
     case _: Unit
 
 def allocated_semantics(+outcome: Layout.Outcome, application: Platform.State, generation: Nat,
-  realization: Rendered.State, +surface: UI.Surface, +dark: Bool, +scale: T.Scale) ->
-  SemanticClaim(Model.allocated_scene(outcome, application, generation, realization, surface, dark, scale), surface):
+  realization: Rendered.State, +surface: Design.Surface, original: UI.Surface,
+  semantic: {Design.semantic_surface(surface) == original : UI.Surface}) ->
+  SemanticClaim(Model.allocated_scene(outcome, application, generation, realization, surface), original):
   match outcome:
-    case Layout.LayoutReady{layout}: AppearanceLaws.present_preserves_semantics(surface, dark, scale)
+    case Layout.LayoutReady{layout}: semantic
     case Layout.LayoutUnsupported{required, available}: Unit{}
+
+def preparation_semantics(+preparation: CS.Outcome, +application: Platform.State, +generation: Nat,
+  +realization: Rendered.State, +parameters: Design.LayoutParameters, +viewport: Design.Viewport,
+  +original: UI.Surface, +appearance: Design.Surface,
+  preparation_claim: CSL.SurfaceClaim(appearance, preparation),
+  appearance_claim: {Design.semantic_surface(appearance) == original : UI.Surface}) ->
+  SemanticClaim(Model.prepared_scene(preparation, application, generation, realization, parameters, viewport), original):
+  match preparation:
+    case CS.AwaitingContent{missing}: Unit{}
+    case CS.Prepared{+prepared}:
+      allocated_semantics(Layout.present(parameters, viewport, Design.semantic_surface(prepared)), application, generation, realization, prepared, original,
+        Equal.trans(UI.Surface, Design.semantic_surface(prepared), Design.semantic_surface(appearance), original, preparation_claim, appearance_claim))
 
 def scene_for_surface_preserves_semantics(state: Model.State, +surface: UI.Surface) ->
   SemanticClaim(Model.scene_for_surface(state, surface), surface):
-  Model.State{application, generation, realization, Design.Environment{viewport, dark, root}, font} = state
+  Model.State{application, generation, realization, Design.Environment{viewport, +dark, root}, font} = state
   match font:
     case F.Pending{font_generation, scale}: Unit{}
     case F.Failed{font_generation, scale}: Unit{}
-    case F.Ready{font_generation, +scale, metric}:
-      allocated_semantics(Layout.present(ViewportSpace.parameters(scale, metric), viewport, surface),
-        application, generation, realization, surface, dark, scale)
+    case F.Ready{font_generation, +scale, metric, +content_cache}:
+      +appearance = Appearance.present(surface, dark, scale)
+      preparation_semantics(CS.prepare(content_cache, appearance), application, generation, realization,
+        ViewportSpace.parameters(scale, metric), viewport, surface, appearance,
+        CSL.prepare_semantics(content_cache, appearance), AppearanceLaws.present_preserves_semantics(surface, dark, scale))
 
 def observes_semantic_surface(+state: Model.State) ->
   SemanticClaim(Model.observe(state), Model.observed_surface(state)):
@@ -64,20 +82,34 @@ def PreparedClaim(outcome: Model.SceneOutcome, expected: Layout.Outcome) -> Type
       {outcome == Model.UnsupportedSpace{required, available} : Model.SceneOutcome}
 
 def allocated_layout(+outcome: Layout.Outcome, application: Platform.State, generation: Nat,
-  realization: Rendered.State, surface: UI.Surface, dark: Bool, scale: T.Scale) ->
-  PreparedClaim(Model.allocated_scene(outcome, application, generation, realization, surface, dark, scale), outcome):
+  realization: Rendered.State, surface: Design.Surface) ->
+  PreparedClaim(Model.allocated_scene(outcome, application, generation, realization, surface), outcome):
   match outcome:
     case Layout.LayoutReady{layout}: {==}
     case Layout.LayoutUnsupported{required, available}: {==}
 
-def observes_layout(environment: Design.Environment, +application: Platform.State,
-  generation: Nat, realization: Rendered.State, font_generation: Nat, +scale: T.Scale, +metric: T.Metric,
-  valid: {T.valid_body(metric) == True{} : Bool}) ->
-  PreparedClaim(Model.observe(Model.State{application, generation, realization, environment, F.Ready{font_generation, scale, metric}}),
-    Layout.present(ViewportSpace.parameters(scale, metric), Model.environment_viewport(environment), Order.ordered_surface(Model.surface(application)))):
+def PreparationClaim(preparation: CS.Outcome, parameters: Design.LayoutParameters, viewport: Design.Viewport, actual: Model.SceneOutcome) -> Type:
+  match preparation:
+    case CS.AwaitingContent{missing}: {actual == Model.AwaitingTypography{} : Model.SceneOutcome}
+    case CS.Prepared{surface}: PreparedClaim(actual, Layout.present(parameters, viewport, Design.semantic_surface(surface)))
+
+def preparation_layout(+preparation: CS.Outcome, +parameters: Design.LayoutParameters, +viewport: Design.Viewport,
+  application: Platform.State, generation: Nat, realization: Rendered.State) ->
+  PreparationClaim(preparation, parameters, viewport, Model.prepared_scene(preparation, application, generation, realization, parameters, viewport)):
+  match preparation:
+    case CS.AwaitingContent{missing}: {==}
+    case CS.Prepared{+surface}:
+      allocated_layout(Layout.present(parameters, viewport, Design.semantic_surface(surface)), application, generation, realization, surface)
+
+def observes_layout(+environment: Design.Environment, +application: Platform.State,
+  +generation: Nat, +realization: Rendered.State, +font_generation: Nat, +scale: T.Scale, +metric: T.Metric,
+  +content_cache: +List<T.Measured>, valid: {T.valid_body(metric) == True{} : Bool}) ->
+  PreparationClaim(CS.prepare(content_cache, Model.appearance_surface(Model.observed_surface(Model.State{application, generation, realization, environment, F.Ready{font_generation, scale, metric, content_cache}}), environment, F.Ready{font_generation, scale, metric, content_cache})),
+    ViewportSpace.parameters(scale, metric), Model.environment_viewport(environment),
+    Model.observe(Model.State{application, generation, realization, environment, F.Ready{font_generation, scale, metric, content_cache}})):
   Design.Environment{viewport, dark, root} = environment
-  allocated_layout(Layout.present(ViewportSpace.parameters(scale, metric), viewport, Order.ordered_surface(Model.surface(application))),
-    application, generation, realization, Order.ordered_surface(Model.surface(application)), dark, scale)
+  preparation_layout(CS.prepare(content_cache, Appearance.present(Order.ordered_surface(Model.surface(application)), dark, scale)),
+    ViewportSpace.parameters(scale, metric), viewport, application, generation, realization)
 
 def awaiting_scene(application: Platform.State, generation: Nat, realization: Rendered.State,
   environment: Design.Environment, font_generation: Nat, scale: T.Scale, surface: UI.Surface) ->
@@ -221,10 +253,10 @@ def environment_observed_sets_capacity(+environment: Design.Environment, current
 type Requirements is Type:
   Requirements{
     observes_semantic_surface: @+state:Model.State -> SemanticClaim(Model.observe(state), Model.observed_surface(state)),
-    observes_layout: @environment:Design.Environment -> @+application:Platform.State -> @generation:Nat -> @realization:Rendered.State ->
-      @font_generation:Nat -> @+scale:T.Scale -> @+metric:T.Metric -> @valid:{T.valid_body(metric) == True{} : Bool} ->
-      PreparedClaim(Model.observe(Model.State{application, generation, realization, environment, F.Ready{font_generation, scale, metric}}),
-        Layout.present(ViewportSpace.parameters(scale, metric), Model.environment_viewport(environment), Order.ordered_surface(Model.surface(application)))),
+    observes_layout: @+environment:Design.Environment -> @+application:Platform.State -> @+generation:Nat -> @+realization:Rendered.State ->
+      @+font_generation:Nat -> @+scale:T.Scale -> @+metric:T.Metric -> @+content_cache:+List<T.Measured> -> @valid:{T.valid_body(metric) == True{} : Bool} ->
+      PreparationClaim(CS.prepare(content_cache, Model.appearance_surface(Model.observed_surface(Model.State{application, generation, realization, environment, F.Ready{font_generation, scale, metric, content_cache}}), environment, F.Ready{font_generation, scale, metric, content_cache})),
+        ViewportSpace.parameters(scale, metric), Model.environment_viewport(environment), Model.observe(Model.State{application, generation, realization, environment, F.Ready{font_generation, scale, metric, content_cache}})),
     pending_is_awaiting: @application:Platform.State -> @generation:Nat -> @realization:Rendered.State -> @environment:Design.Environment -> @font_generation:Nat -> @scale:T.Scale -> @surface:UI.Surface ->
       {Model.scene_for_surface(Model.State{application, generation, realization, environment, F.Pending{font_generation, scale}}, surface) == Model.AwaitingTypography{} : Model.SceneOutcome},
     failed_is_failed: @application:Platform.State -> @generation:Nat -> @realization:Rendered.State -> @environment:Design.Environment -> @font_generation:Nat -> @scale:T.Scale -> @surface:UI.Surface ->

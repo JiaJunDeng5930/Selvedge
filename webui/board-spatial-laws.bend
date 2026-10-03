@@ -10,6 +10,7 @@ import ../core/interface.bend as UI
 import ../core/ui-world.bend as View
 import ../bendlib/stdlib.bend as Std
 import ../BOARD.bend as Board
+import ../core/SYSTEM.bend as Core
 
 
 
@@ -42,7 +43,7 @@ def search_styles_expected(visual: Design.Style) -> +List<Doc.Property>:
 
 
 def title_production_styles(+typography: T.Presentation) -> +List<Doc.Property>:
-  Doc.element_styles(Render.card_title_control("title", Doc.Element{"title", "button", Nil{}, Render.style(Appearance.ordinary_button(typography)), Nil{}, [Doc.Text{"title"}]}, typography))
+  Render.style(Appearance.source_content_style(Controls.TitleContent{"title"}, Controls.Geometry{32n, 32n, 16n, 6n, 20n}, Appearance.ordinary_button(typography)))
 
 
 
@@ -68,7 +69,7 @@ def title_inset(typography: T.Presentation) ->
   {(Render.attr(title_production_styles(typography), "padding-inline"),
           (Render.attr(title_production_styles(typography), "padding-block"),
            (Render.attr(title_production_styles(typography), "font-weight"),
-            (Render.attr(title_production_styles(typography), "white-space"), Render.attr(title_production_styles(typography), "min-height"))))) ==
+            (Render.attr(Doc.element_styles(Render.face_label("title", "title")), "white-space"), Render.attr(title_production_styles(typography), "min-height"))))) ==
           ("8px", ("4px", (Nat.show(T.weight(T.Strong{})), ("normal", "32px")))) : (String & (String & (String & (String & String))))}:
   T.Presentation{tier, emphasis, scale} = typography
   {==}
@@ -77,14 +78,16 @@ type Requirements is Type:
   Requirements{
     search_intrinsic_minimum: @+typography:T.Presentation -> @+key:String -> @+filter:Board.Filter -> @+name:String ->
       {(Render.attr(Doc.element_styles(search_input(key, filter, name, Appearance.field_style(UI.BoardSearch{filter}, typography))), "min-height"), Render.attr(Doc.element_styles(search_input(key, filter, name, Appearance.field_style(UI.BoardSearch{filter}, typography))), "height")) == (Render.px(Appearance.style_minimum_height(Appearance.field_style(UI.BoardSearch{filter}, typography))), "") : (String & String)},
-    title_action: @+typography:T.Presentation -> @+title:String -> @+key:String -> @+attrs:+List<Doc.Property> -> @+original_styles:+List<Doc.Property> -> @+events:+List<Doc.Event> -> @original_children:+List<Doc.Node> ->
-      {Render.card_title_control(title, Doc.Element{key, "button", attrs, original_styles, events, original_children}, typography) == Doc.Element{key, "button", attrs, List.append(&2, Doc.Property, original_styles, Render.card_title_styles(typography)), events, [Doc.Text{title}]} : Doc.Node},
+    title_action: @+typography:T.Presentation -> @+title:String -> @+key:String -> @+visual:Design.Style -> @+input:Core.Input -> @+availability:View.Availability -> @+name:String -> @+behavior:Controls.Behavior -> @+geometry:Controls.Geometry -> @+placement:Controls.Placement -> @+help:Controls.Help -> @+feedback:Controls.Feedback ->
+      {Doc.element_children(first(Render.card_title_nodes(key, title,
+        [Render.action(key, visual, Controls.Action{input, availability, name, Controls.TextFace{title}, behavior, geometry, placement, help, feedback})], typography))) ==
+        [Render.action(key, visual, Controls.Action{input, availability, name, Controls.TextFace{title}, behavior, geometry, placement, help, feedback})] : +List<Doc.Node>},
     title_inset: @+typography:T.Presentation -> {(Render.attr(title_production_styles(typography), "padding-inline"),
           (Render.attr(title_production_styles(typography), "padding-block"),
            (Render.attr(title_production_styles(typography), "font-weight"),
-            (Render.attr(title_production_styles(typography), "white-space"), Render.attr(title_production_styles(typography), "min-height"))))) ==
+            (Render.attr(Doc.element_styles(Render.face_label("title", "title")), "white-space"), Render.attr(title_production_styles(typography), "min-height"))))) ==
           ("8px", ("4px", (Nat.show(T.weight(T.Strong{})), ("normal", "32px")))) : (String & (String & (String & (String & String))))},
-    title_group: @+typography:T.Presentation -> @+owner:String -> @+title:String -> @+node:Doc.Node -> @+rest:+List<Doc.Node> -> {Doc.element_children(first(Render.card_title_nodes(owner, title, node <> rest, typography))) == Render.card_title_control(title, node, typography) <> Render.card_title_actions(title, rest, typography) : +List<Doc.Node>},
+    title_group: @+typography:T.Presentation -> @+owner:String -> @+title:String -> @+node:Doc.Node -> @+rest:+List<Doc.Node> -> {Doc.element_children(first(Render.card_title_nodes(owner, title, node <> rest, typography))) == node <> rest : +List<Doc.Node>},
     card_inset: @+typography:T.Presentation -> {(Render.attr(Render.style(Appearance.style(UI.Card{}, UI.Region{}, typography)), "padding-inline"), Render.attr(Render.style(Appearance.style(UI.Card{}, UI.Region{}, typography)), "padding-block")) == ("12px", "12px") : (String & String)},
     lane_groups: @+typography:T.Presentation -> @+owner:String -> @+label:String -> @+stage:Board.Stage -> @+count:Nat -> @+create:+List<Doc.Node> ->
       {Doc.element_children(Render.lane_heading_node(owner, label, stage, count, create, typography)) == [Render.lane_heading_leading(owner, label, stage, count, typography), Render.lane_heading_trailing(owner, create)] : +List<Doc.Node>},
@@ -98,7 +101,7 @@ type Requirements is Type:
 
 def evidence() -> Requirements:
   Requirements{+typography => +key => +filter => +name => {==},
-    +typography => +title => +key => +attrs => +original_styles => +events => original_children => {==},
+    +typography => +title => +key => +visual => +input => +availability => +name => +behavior => +geometry => +placement => +help => +feedback => {==},
     +typography => title_inset(typography),
     +typography => +owner => +title => +node => +rest => {==},
     +typography => {==},
@@ -107,5 +110,5 @@ def evidence() -> Requirements:
     +typography => +owner => +description => {==}, +key => +filter => +name => +visual =>
         {==}
 
-      # The actual title transform retains the complete accepted action boundary.
+      # The title container retains the complete canonical action unchanged.
     }

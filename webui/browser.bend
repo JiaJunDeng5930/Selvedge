@@ -858,7 +858,7 @@ def ready_key_event(+key: String, shift: Bool, +state: State) -> KeyResult:
 
 def measurement_plan(state: State) -> F.Plan:
   State{Web.State{application, generation, realization, environment, font}, sequence, next, pending} = state
-  F.request(font)
+  Web.measurement_plan(Web.State{application, generation, realization, environment, font})
 
 def measurements(observation: F.Observation, state: State) -> Decision:
   native(Web.TypographyObserved{observation}, state)
@@ -870,3 +870,7 @@ def key_event_scene(outcome: Web.SceneOutcome, key: String, shift: Bool, +state:
 
 def key_event(key: String, shift: Bool, +state: State) -> KeyResult:
   key_event_scene(scene(state), key, shift, state)
+
+def measurement_budget(state: State) -> Nat:
+  State{web, sequence, next, pending} = state
+  Web.measurement_budget(web)

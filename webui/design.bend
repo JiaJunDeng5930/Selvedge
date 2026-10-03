@@ -135,6 +135,7 @@ type Flow is Data:
 
 type Overflow is Data:
   ContentFlow{}
+  TextFlow{wrapping: T.Wrapping}
   ScrollFlow{}
   # The toolbar remains reachable while the code body uses its modeled wrap mode.
   CodeOverflow{}

@@ -56,13 +56,14 @@ export function createTextMeasurer(rootElement) {
       if (!rootElement.isConnected || !window?.getComputedStyle) {
         throw new Error('Text measurement requires an attached document');
       }
+      if (specs.length === 0) return [];
+      const batch = document.createDocumentFragment();
       const container = document.createElement('div');
       container.setAttribute('aria-hidden', 'true');
       container.setAttribute('inert', '');
       container.style.cssText = 'position:fixed;left:0;top:0;visibility:hidden;pointer-events:none;isolation:isolate;display:block;margin:0;padding:0;border:0;box-sizing:content-box;';
       try {
-        rootElement.appendChild(container);
-        return specs.map(spec => {
+        const specimens = specs.map(spec => {
           const probe = document.createElement('div');
           probe.style.cssText = 'display:block;margin:0;padding:0;border:0;box-sizing:content-box;min-width:0;max-width:none;min-height:0;max-height:none;height:auto;';
           for (const [property, value] of [
@@ -71,18 +72,28 @@ export function createTextMeasurer(rootElement) {
             ['white-space', spec.whiteSpace], ['overflow-wrap', spec.overflowWrap],
             ['word-break', spec.wordBreak],
           ]) suppliedStyle(probe.style, property, value);
-          container.appendChild(probe);
           probe.textContent = spec.text;
           probe.style.width = 'min-content';
-          const minimum_width = observedLength(window.getComputedStyle(probe), 'width');
-          probe.style.width = 'max-content';
-          const preferred_width = observedLength(window.getComputedStyle(probe), 'width');
-          if (spec.available_width !== null) probe.style.width = `${spec.available_width}px`;
-          const constrained_height = observedLength(window.getComputedStyle(probe), 'height');
-          probe.textContent = spec.reference_text;
-          probe.style.width = 'max-content';
-          const reference_advance = observedLength(window.getComputedStyle(probe), 'width');
-          probe.remove();
+          const preferred = probe.cloneNode(true);
+          preferred.style.width = 'max-content';
+          const constrained = spec.available_width === null ? preferred : probe.cloneNode(true);
+          if (spec.available_width !== null) constrained.style.width = `${spec.available_width}px`;
+          const reference = preferred.cloneNode(true);
+          reference.textContent = spec.reference_text;
+          container.appendChild(probe);
+          container.appendChild(preferred);
+          if (constrained !== preferred) container.appendChild(constrained);
+          container.appendChild(reference);
+          return { spec, minimum: probe, preferred, constrained, reference };
+        });
+        batch.appendChild(container);
+        rootElement.appendChild(batch);
+        // Keep every specimen attached and unchanged throughout the used-size reads.
+        return specimens.map(({ spec, minimum, preferred, constrained, reference }) => {
+          const minimum_width = observedLength(window.getComputedStyle(minimum), 'width');
+          const preferred_width = observedLength(window.getComputedStyle(preferred), 'width');
+          const constrained_height = observedLength(window.getComputedStyle(constrained), 'height');
+          const reference_advance = observedLength(window.getComputedStyle(reference), 'width');
           return { key: spec.key, minimum_width, preferred_width, constrained_height, reference_advance };
         });
       } finally {

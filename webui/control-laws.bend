@@ -174,7 +174,7 @@ def nodes_retain_bindings(values: +List<UI.Node>, +context: Controls.Context, +t
   match values:
     case Nil{}: {==}
     case Con{UI.Node{+key, +semantic, +label, +role, +meaning, +children}, +rest}:
-      +local = Controls.enter(key, role, meaning, context)
+      +local = Controls.enter(UI.Node{key, semantic, label, role, meaning, children}, context)
       +inside = Appearance.enters_main(role, in_main)
       +inherited_text = Appearance.information_role(role, meaning, typography, inside, start)
       +child_text = Appearance.style_text(Appearance.prepared_style(key, semantic, role, meaning, local,

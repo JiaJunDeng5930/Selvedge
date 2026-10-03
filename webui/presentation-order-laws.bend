@@ -32,9 +32,9 @@ def specified_header_representation(representation: Controls.Representation) -> 
     case Controls.Action{input, availability, name, face, behavior, geometry, Controls.PanelHeaderEnd{}, help, feedback}: True{}
     case _: False{}
 
-def specified_header_child(value: UI.Node, +context: Controls.Context) -> Bool:
+def specified_header_child(+value: UI.Node, +context: Controls.Context) -> Bool:
   UI.Node{+key, semantic, label, +role, +meaning, children} = value
-  +local = Controls.enter(key, role, meaning, context)
+  +local = Controls.enter(value, context)
   specified_header_representation(Controls.represent(key, meaning, label, role, local))
 
 def header_step(value: UI.Node, include: Bool, +tail: +List<UI.Node>) -> +List<UI.Node>:
@@ -101,9 +101,9 @@ def panel_header_matches_specification(representation: Controls.Representation) 
 def header_classifier_matches_specification(value: UI.Node, +context: Controls.Context) ->
   {Order.header_child(value, context) == specified_header_child(value, context) : Bool}:
   match value:
-    case UI.Node{+key, semantic, label, +role, +meaning, children}:
+    case UI.Node{+key, semantic, +label, +role, +meaning, children}:
       panel_header_matches_specification(Controls.represent(key, meaning, label, role,
-        Controls.enter(key, role, meaning, context)))
+        Controls.enter(value, context)))
 
 def partition_header_step_matches(value: UI.Node, include: Bool, parts: Order.DialogParts) ->
   {Order.partition_header(Order.partition_child(value, include, parts)) ==

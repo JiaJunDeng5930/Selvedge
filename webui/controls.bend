@@ -1,5 +1,6 @@
 import Base
 import ./enclosure.bend as Enclosure
+import ./typography.bend as Typography
 import ../core/interface.bend as UI
 import ../core/SYSTEM.bend as Core
 import ../core/user-input.bend as User
@@ -82,7 +83,7 @@ type Selection is Data:
 
 type SourceFamily is Data:
   Unscoped{}
-  SourceFamily{owner_key: String, meaning: UI.Meaning}
+  SourceFamily{node: UI.Node}
 
 type Context is Data:
   Context{area: Area, selection: Selection, code: Maybe<&2, Code.Scene>,
@@ -100,6 +101,14 @@ type Face is Data:
   ChoiceFace{text: String, description: Maybe<&2, String>, checked: Bool}
   DisclosureFace{text: String, expanded: Bool}
   PermissionFace{filesystem: Icon, network: Icon, approval: Icon}
+
+def caption_wrapping(face: Face) -> Typography.Wrapping:
+  match face:
+    case SingleLineFace{text}: Typography.SingleLine{}
+    case _: Typography.NormalAnywhere{}
+
+def description_wrapping() -> Typography.Wrapping:
+  Typography.NormalAnywhere{}
 
 type Behavior is Data:
   Push{}
@@ -316,21 +325,30 @@ def source_scope(role: UI.Role, inherited: SourceFamily) -> SourceFamily:
     case UI.Menu{}: Unscoped{}
     case _: inherited
 
-def source_family_at(key: String, role: UI.Role, meaning: UI.Meaning, inherited: SourceFamily) -> SourceFamily:
+def activity_source(role: UI.Role, node: UI.Node, inherited: SourceFamily) -> SourceFamily:
+  match role:
+    case UI.Activity{}: SourceFamily{node}
+    case _: source_scope(role, inherited)
+
+def source_family_at(+node: UI.Node, inherited: SourceFamily) -> SourceFamily:
+  UI.Node{key, semantic, label, +role, meaning, children} = node
   match meaning:
-    case UI.ProjectGroup{project, selected, expanded}: SourceFamily{key, UI.ProjectGroup{project, selected, expanded}}
-    case UI.TaskRow{task, status, selected}: SourceFamily{key, UI.TaskRow{task, status, selected}}
-    case UI.ProjectChooser{selected}: SourceFamily{key, UI.ProjectChooser{selected}}
+    case UI.ProjectGroup{project, selected, expanded}: SourceFamily{node}
+    case UI.TaskRow{task, status, selected}: SourceFamily{node}
+    case UI.ProjectChooser{selected}: SourceFamily{node}
+    case UI.MovableCard{destinations, face}: SourceFamily{node}
+    case UI.ActivityContent{expanded, audit}: activity_source(role, node, inherited)
     case _: source_scope(role, inherited)
 
 def source_reference(context: Context) -> SourceFamily:
   Context{area, selection, code, appearance, access, open, layers, execution, source_family} = context
   source_family
 
-def enter(+key: String, +role: UI.Role, +meaning: UI.Meaning, context: Context) -> Context:
-  Context{parent_area, selection, code, appearance, access, settings_open, +layers, execution, +source_family} = context
+def enter(+node: UI.Node, context: Context) -> Context:
+  UI.Node{+key, semantic, label, +role, +meaning, children} = node
+  Context{parent_area, selection, code, appearance, access, settings_open, +layers, execution, source_family} = context
   Context{area_for_node(role, meaning, parent_area), selection_at(layers, key, selection),
-    code_at(meaning, code), appearance, access, settings_open, layers, execution, source_family_at(key, role, meaning, source_family)}
+    code_at(meaning, code), appearance, access, settings_open, layers, execution, source_family_at(node, source_family)}
 
 def panel_open(layers: +List<View.Layer>, +trigger: String) -> Bool:
   match layers:
@@ -938,10 +956,10 @@ def chooser_presentation(input: Core.Input, +name: String, face: Face, behavior:
 
 def contextual_source_presentation(area: Area, source_family: SourceFamily, +input: Core.Input, name: String, face: Face, behavior: Behavior, geometry: Geometry) -> ActionPresentation:
   match area source_family:
-    case NavigationArea{} SourceFamily{owner, UI.ProjectGroup{project, selected, expanded}}:
+    case NavigationArea{} SourceFamily{UI.Node{owner, semantic, label, role, UI.ProjectGroup{project, selected, expanded}, children}}:
       project_presentation(project_control_matches(input, project), project_control_input(input), expanded, name, face, behavior, geometry)
-    case NavigationArea{} SourceFamily{owner, UI.TaskRow{task, status, selected}}: task_presentation(input, task, name, face, behavior, geometry)
-    case _ SourceFamily{owner, UI.ProjectChooser{selected}}: chooser_presentation(input, name, face, behavior, geometry)
+    case NavigationArea{} SourceFamily{UI.Node{owner, semantic, label, role, UI.TaskRow{task, status, selected}, children}}: task_presentation(input, task, name, face, behavior, geometry)
+    case _ SourceFamily{UI.Node{owner, semantic, label, role, UI.ProjectChooser{selected}, children}}: chooser_presentation(input, name, face, behavior, geometry)
     case _ _: ActionPresentation{face, behavior, geometry}
 
 def uses_source_presentation(input: Core.Input) -> Bool:
@@ -959,8 +977,81 @@ def dispatch_source_presentation(enabled: Bool, area: Area, source_family: Sourc
     case True{}: contextual_source_presentation(area, source_family, input, name, face, behavior, geometry)
     case False{}: ActionPresentation{face, behavior, geometry}
 
-def source_presentation(area: Area, source_family: SourceFamily, +input: Core.Input, name: String, face: Face, behavior: Behavior, geometry: Geometry) -> ActionPresentation:
-  dispatch_source_presentation(uses_source_presentation(input), area, source_family, input, name, face, behavior, geometry)
+type SourceContent is Data:
+  OrdinaryContent{}
+  TitleContent{caption: String}
+  SummaryContent{caption: String}
+
+def title_target(matches: Bool, caption: String) -> SourceContent:
+  match matches:
+    case True{}: TitleContent{caption}
+    case False{}: OrdinaryContent{}
+
+def summary_target(matches: Bool, caption: String) -> SourceContent:
+  match matches:
+    case True{}: SummaryContent{caption}
+    case False{}: OrdinaryContent{}
+
+def same_disclosure_state(first: Bool, second: Bool) -> Bool:
+  match first second:
+    case True{} True{}: True{}
+    case False{} False{}: True{}
+    case _ _: False{}
+
+# Correlate the action with the actual declaration under this activity source.
+def summary_declaration(children: +List<UI.Node>, task: Nat, group: Nat, occurrence: Nat, expanded: Bool, caption: String) -> SourceContent:
+  match children:
+    case Con{UI.Node{key, semantic, label, role,
+      UI.Activate{Core.ApplicationInput{Experience.UserInput{User.SetDisclosure{actual_task, actual_group, actual_occurrence, actual_expanded}}}, availability}, nested}, rest}:
+      summary_target(Nat.is_eq(task, actual_task) && (Nat.is_eq(group, actual_group) &&
+        (Nat.is_eq(occurrence, actual_occurrence) && same_disclosure_state(expanded, actual_expanded))), caption)
+    case _: OrdinaryContent{}
+
+def source_content_input(input: Core.Input, area: Area, family: SourceFamily, face: Face) -> SourceContent:
+  match input area family face:
+    case Core.ApplicationInput{Experience.UserInput{User.Activate{User.OpenPanel{User.CardDetails{target}, trigger}}}}
+      CardArea{} SourceFamily{UI.Node{key, semantic, label, role,
+      UI.MovableCard{destinations, View.CardFace{id, title, description, priority, pinned, status, project, labels, owner, updated}}, children}} _:
+        title_target(Nat.is_eq(id, target), title)
+    case Core.ApplicationInput{Experience.UserInput{User.SetDisclosure{task, group, occurrence, requested}}}
+      ActivityArea{} SourceFamily{UI.Node{key, semantic, label, UI.Activity{}, UI.ActivityContent{expanded, audit}, children}} DisclosureFace{text, shown}:
+        summary_declaration(children, task, group, occurrence, requested, label)
+    case _ _ _ _: OrdinaryContent{}
+
+def source_content(area: Area, family: SourceFamily, input: Core.Input, face: Face) -> SourceContent:
+  source_content_input(input, area, family, face)
+
+def summary_presentation(face: Face, behavior: Behavior, geometry: Geometry, caption: String) -> ActionPresentation:
+  match face:
+    case DisclosureFace{text, expanded}: ActionPresentation{DisclosureFace{text ++ " " ++ caption, expanded}, behavior, geometry}
+    case _: ActionPresentation{face, behavior, geometry}
+
+def title_presentation(value: ActionPresentation, caption: String) -> ActionPresentation:
+  ActionPresentation{face, behavior, geometry} = value
+  ActionPresentation{TextFace{caption}, behavior, geometry}
+
+def summary_action_presentation(value: ActionPresentation, caption: String) -> ActionPresentation:
+  ActionPresentation{face, behavior, geometry} = value
+  summary_presentation(face, behavior, geometry, caption)
+
+def content_presentation(content: SourceContent, value: ActionPresentation) -> ActionPresentation:
+  match content:
+    case OrdinaryContent{}: value
+    case TitleContent{caption}: title_presentation(value, caption)
+    case SummaryContent{caption}: summary_action_presentation(value, caption)
+
+def source_presentation(+area: Area, +source_family: SourceFamily, +input: Core.Input, name: String, +face: Face, behavior: Behavior, geometry: Geometry) -> ActionPresentation:
+  content_presentation(source_content(area, source_family, input, face),
+    dispatch_source_presentation(uses_source_presentation(input), area, source_family, input, name, face, behavior, geometry))
+
+def source_representation_content(value: Representation, area: Area, family: SourceFamily) -> SourceContent:
+  match value:
+    case Action{input, availability, name, face, behavior, geometry, placement, help, feedback}: source_content(area, family, input, face)
+    case _: OrdinaryContent{}
+
+def representation_content(context: Context, value: Representation) -> SourceContent:
+  Context{area, selection, code, appearance, access, open, layers, execution, family} = context
+  source_representation_content(value, area, family)
 
 def presented_action(input: Core.Input, availability: View.Availability, name: String, projection: ActionPresentation, placement: Placement, help: Help, feedback: Feedback) -> Representation:
   ActionPresentation{face, behavior, geometry} = projection

@@ -9,6 +9,7 @@ import ./platform.bend as Platform
 import ./design.bend as Design
 import ./font-observation.bend as F
 import ./appearance-laws.bend as AppearanceLaws
+import ./presentation-laws.bend as PresentationLaws
 import ./layout.bend as Layout
 import ./appearance.bend as Appearance
 import ./typography.bend as T
@@ -239,22 +240,19 @@ def semantic_or(outcome: Web.SceneOutcome, original: UI.Surface) -> UI.Surface:
     case Web.ReadyScene{scene}: semantic_scene(scene)
     case _: original
 
-def allocated_semantics(outcome: Layout.Outcome, application: Platform.State, generation: Nat,
-  realization: Rendered.State, +surface: UI.Surface, dark: Bool, scale: T.Scale) ->
-  {semantic_or(Web.allocated_scene(outcome, application, generation, realization, surface, dark, scale), surface) == surface : UI.Surface}:
+def semantic_claim(+outcome: Web.SceneOutcome, +surface: UI.Surface, claim: PresentationLaws.SemanticClaim(outcome, surface)) ->
+  {semantic_or(outcome, surface) == surface : UI.Surface}:
   match outcome:
-    case Layout.LayoutReady{layout}: AppearanceLaws.present_preserves_semantics(surface, dark, scale)
-    case Layout.LayoutUnsupported{required, available}: {==}
+    case Web.ReadyScene{Web.Scene{prepared, platform, generation, realization, layout}}: claim
+    case Web.AwaitingTypography{}: {==}
+    case Web.FailedTypography{}: {==}
+    case Web.UnsupportedSpace{required, available}: {==}
 
-def font_semantics(font: F.State, application: Platform.State, generation: Nat, realization: Rendered.State,
-  +viewport: Design.Viewport, dark: Bool, +surface: UI.Surface) ->
+def font_semantics(+font: F.State, +application: Platform.State, +generation: Nat, +realization: Rendered.State,
+  +viewport: Design.Viewport, +dark: Bool, +surface: UI.Surface) ->
   {semantic_or(Web.font_scene(font, application, generation, realization, viewport, dark, surface), surface) == surface : UI.Surface}:
-  match font:
-    case F.Pending{font_generation, scale}: {==}
-    case F.Failed{font_generation, scale}: {==}
-    case F.Ready{font_generation, +scale, metric}:
-      allocated_semantics(Layout.present(ViewportSpace.parameters(scale, metric), viewport, surface), application,
-        generation, realization, surface, dark, scale)
+  semantic_claim(Web.font_scene(font, application, generation, realization, viewport, dark, surface), surface,
+    PresentationLaws.scene_for_surface_preserves_semantics(Web.State{application, generation, realization, Design.Environment{viewport, dark, 0n}, font}, surface))
 
 def web_semantics(state: Web.State, +surface: UI.Surface) ->
   {semantic_or(Web.scene_for_surface(state, surface), surface) == surface : UI.Surface}:
@@ -333,7 +331,7 @@ type Requirements is Type:
     finish_unchanged_transport: @web: Web.State -> @core: Core.State -> @effects: +List<Web.Effect> -> @sequence: Nat -> @next: Nat -> @pending: +List<Browser.Pending> -> @origin: String -> {transport(Browser.finish(Web.Decision{web, Platform.unchanged(core), effects}, sequence, next, pending, origin)) ==
     (sequence, (next, pending)) : (Nat & (Nat & +List<Browser.Pending>))},
     receipt_input: @observation: F.Observation -> @state: Browser.State -> {Browser.measurements(observation, state) == Browser.step(Browser.Native{Web.TypographyObserved{observation}}, state) : Browser.Decision},
-    request_binding: @application: Platform.State -> @generation: Nat -> @realization: Rendered.State -> @environment: Design.Environment -> @font: F.State -> @sequence: Nat -> @next: Nat -> @pending: +List<Browser.Pending> -> {Browser.measurement_plan(Browser.State{Web.State{application, generation, realization, environment, font}, sequence, next, pending}) == F.request(font) : F.Plan},
+    request_binding: @application: Platform.State -> @generation: Nat -> @realization: Rendered.State -> @environment: Design.Environment -> @font: F.State -> @sequence: Nat -> @next: Nat -> @pending: +List<Browser.Pending> -> {Browser.measurement_plan(Browser.State{Web.State{application, generation, realization, environment, font}, sequence, next, pending}) == Web.measurement_plan(Web.State{application, generation, realization, environment, font}) : F.Plan},
     awaiting_nodes: {Browser.scene_nodes(Web.AwaitingTypography{}) == Nil{} : +List<UI.Node>},
     failed_nodes: {Browser.scene_nodes(Web.FailedTypography{}) == Nil{} : +List<UI.Node>},
     unsupported_nodes: @required: Nat -> @available: Nat -> {Browser.scene_nodes(Web.UnsupportedSpace{required, available}) == Nil{} : +List<UI.Node>},

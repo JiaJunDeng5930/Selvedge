@@ -1,6 +1,5 @@
 import Base
 import ./space.bend as Space
-import ./enclosure.bend as Enclosure
 import ../bendlib/stdlib.bend as Std
 
 def false_goal(P: Type, value: Bool) -> Type:
@@ -411,67 +410,6 @@ def dimension_maximum(+dimension: Space.Dimension) ->
     case Space.Fit{lower, extra, maximum_extra}: le_add(Nat.add(lower, extra), maximum_extra)
     case Space.Fill{lower}: {==}
 
-def restore_preferred(+lower: Nat, +desired: Nat,
-  fits: {Nat.is_le(lower, desired) == True{} : Bool}) ->
-  {Nat.add(lower, Nat.sub(desired, lower)) == desired : Nat}:
-  appended_fits = Equal.trans(Bool, Nat.is_le(Nat.add(lower, 0n), desired), Nat.is_le(lower, desired), True{},
-    Equal.cong(Nat, Bool, (n => Nat.is_le(n, desired)), Nat.add(lower, 0n), lower, add_zero(lower)), fits)
-  second({Nat.is_le(0n, Nat.sub(desired, lower)) == True{} : Bool},
-    {Nat.add(lower, Nat.sub(desired, lower)) == desired : Nat}, residual(lower, 0n, desired, appended_fits))
-
-def padded(ink: Nat, inset: Nat, border: Nat) -> Nat:
-  Nat.add(ink, Nat.mul(2n, Nat.add(border, inset)))
-
-def content_lower(+ink: Nat, +natural: Nat, +inset: Nat, +border: Nat, +target: Nat) ->
-  {Space.minimum(Space.content_dimension(ink, natural, inset, border, target)) == Nat.max(target, padded(ink, inset, border)) : Nat}:
-  {==}
-
-def content_preferred(+ink: Nat, +natural: Nat, +inset: Nat, +border: Nat, +target: Nat) ->
-  {Space.preferred(Space.content_dimension(ink, natural, inset, border, target)) ==
-    Nat.max(Nat.max(target, padded(ink, inset, border)), padded(natural, inset, border)) : Nat}:
-  +lower = Nat.max(target, padded(ink, inset, border))
-  +desired = Nat.max(lower, padded(natural, inset, border))
-  lower_fits = Equal.trans(Bool, Nat.is_le(lower, desired), Nat.is_ge(desired, lower), True{},
-    Equal.sym(Bool, Nat.is_ge(desired, lower), Nat.is_le(lower, desired), ge_le(desired, lower)), Nat.max_ge_l(lower, padded(natural, inset, border)))
-  restore_preferred(lower, desired, lower_fits)
-
-def content_target(+ink: Nat, +natural: Nat, +inset: Nat, +border: Nat, +target: Nat) ->
-  {Nat.is_le(target, Space.minimum(Space.content_dimension(ink, natural, inset, border, target))) == True{} : Bool}:
-  +complete = Nat.max(target, padded(ink, inset, border))
-  Equal.trans(Bool, Nat.is_le(target, complete), Nat.is_ge(complete, target), True{},
-    Equal.sym(Bool, Nat.is_ge(complete, target), Nat.is_le(target, complete), ge_le(complete, target)), Nat.max_ge_l(target, padded(ink, inset, border)))
-
-def content_ink(+ink: Nat, +natural: Nat, +inset: Nat, +border: Nat, +target: Nat) ->
-  {Nat.is_le(padded(ink, inset, border), Space.minimum(Space.content_dimension(ink, natural, inset, border, target))) == True{} : Bool}:
-  +complete = Nat.max(target, padded(ink, inset, border))
-  Equal.trans(Bool, Nat.is_le(padded(ink, inset, border), complete), Nat.is_ge(complete, padded(ink, inset, border)), True{},
-    Equal.sym(Bool, Nat.is_ge(complete, padded(ink, inset, border)), Nat.is_le(padded(ink, inset, border), complete), ge_le(complete, padded(ink, inset, border))),
-    Nat.max_ge_r(target, padded(ink, inset, border)))
-
-def content_natural(+ink: Nat, +natural: Nat, +inset: Nat, +border: Nat, +target: Nat) ->
-  {Nat.is_le(padded(natural, inset, border), Space.preferred(Space.content_dimension(ink, natural, inset, border, target))) == True{} : Bool}:
-  +lower = Nat.max(target, padded(ink, inset, border))
-  +desired = Nat.max(lower, padded(natural, inset, border))
-  bound = Equal.trans(Bool, Nat.is_le(padded(natural, inset, border), desired), Nat.is_ge(desired, padded(natural, inset, border)), True{},
-    Equal.sym(Bool, Nat.is_ge(desired, padded(natural, inset, border)), Nat.is_le(padded(natural, inset, border), desired), ge_le(desired, padded(natural, inset, border))),
-    Nat.max_ge_r(lower, padded(natural, inset, border)))
-  Equal.trans(Bool, Nat.is_le(padded(natural, inset, border), Space.preferred(Space.content_dimension(ink, natural, inset, border, target))),
-    Nat.is_le(padded(natural, inset, border), desired), True{},
-    Equal.cong(Nat, Bool, (n => Nat.is_le(padded(natural, inset, border), n)),
-      Space.preferred(Space.content_dimension(ink, natural, inset, border, target)), desired, content_preferred(ink, natural, inset, border, target)), bound)
-
-def row_minimum(+children: +List<Space.Demand>, +gap: Nat, +area: Enclosure.ContentArea, +border: Nat) ->
-  {Space.minimum_extent(Space.row_demand(children, gap, area, border)) ==
-    Enclosure.Extent{padded(Space.summed(children, Space.Horizontal{}, gap, False{}), Enclosure.inline(area), border),
-      padded(Space.widest(children, Space.Vertical{}, False{}), Enclosure.block(area), border)} : Enclosure.Extent}:
-  {==}
-
-def column_minimum(+children: +List<Space.Demand>, +gap: Nat, +area: Enclosure.ContentArea, +border: Nat) ->
-  {Space.minimum_extent(Space.column_demand(children, gap, area, border)) ==
-    Enclosure.Extent{padded(Space.widest(children, Space.Horizontal{}, False{}), Enclosure.inline(area), border),
-      padded(Space.summed(children, Space.Vertical{}, gap, False{}), Enclosure.block(area), border)} : Enclosure.Extent}:
-  {==}
-
 def packed(~A: Data, value: Space.Packing<A>) -> Bool:
   match value:
     case Space.Packed{placements, unused}: True{}
@@ -525,28 +463,10 @@ type Requirements<-A: Data> is Type:
       {Space.pack(~A, slots, gap, available) == Space.Insufficient{Space.minimum_sequence(~A, slots, gap), available} : Space.Packing<A>},
     packed_construction: @+slots:+List<Space.Slot<A>> -> @+gap:Nat -> @+available:Nat ->
       @+fits:{Nat.is_le(Space.minimum_sequence(~A, slots, gap), available) == True{} : Bool} ->
-      PackedClaim(~A, slots, gap, available, Space.pack(~A, slots, gap, available)),
-    content_minimum: @+ink:Nat -> @+natural:Nat -> @+inset:Nat -> @+border:Nat -> @+target:Nat ->
-      {Space.minimum(Space.content_dimension(ink, natural, inset, border, target)) == Nat.max(target, padded(ink, inset, border)) : Nat},
-    content_preferred: @+ink:Nat -> @+natural:Nat -> @+inset:Nat -> @+border:Nat -> @+target:Nat ->
-      {Space.preferred(Space.content_dimension(ink, natural, inset, border, target)) == Nat.max(Nat.max(target, padded(ink, inset, border)), padded(natural, inset, border)) : Nat},
-    content_target: @+ink:Nat -> @+natural:Nat -> @+inset:Nat -> @+border:Nat -> @+target:Nat ->
-      {Nat.is_le(target, Space.minimum(Space.content_dimension(ink, natural, inset, border, target))) == True{} : Bool},
-    content_ink: @+ink:Nat -> @+natural:Nat -> @+inset:Nat -> @+border:Nat -> @+target:Nat ->
-      {Nat.is_le(padded(ink, inset, border), Space.minimum(Space.content_dimension(ink, natural, inset, border, target))) == True{} : Bool},
-    content_natural: @+ink:Nat -> @+natural:Nat -> @+inset:Nat -> @+border:Nat -> @+target:Nat ->
-      {Nat.is_le(padded(natural, inset, border), Space.preferred(Space.content_dimension(ink, natural, inset, border, target))) == True{} : Bool},
-    row_minimum: @+children:+List<Space.Demand> -> @+gap:Nat -> @+area:Enclosure.ContentArea -> @+border:Nat ->
-      {Space.minimum_extent(Space.row_demand(children, gap, area, border)) == Enclosure.Extent{
-        padded(Space.summed(children, Space.Horizontal{}, gap, False{}), Enclosure.inline(area), border),
-        padded(Space.widest(children, Space.Vertical{}, False{}), Enclosure.block(area), border)} : Enclosure.Extent},
-    column_minimum: @+children:+List<Space.Demand> -> @+gap:Nat -> @+area:Enclosure.ContentArea -> @+border:Nat ->
-      {Space.minimum_extent(Space.column_demand(children, gap, area, border)) == Enclosure.Extent{
-        padded(Space.widest(children, Space.Horizontal{}, False{}), Enclosure.inline(area), border),
-        padded(Space.summed(children, Space.Vertical{}, gap, False{}), Enclosure.block(area), border)} : Enclosure.Extent}}
+      PackedClaim(~A, slots, gap, available, Space.pack(~A, slots, gap, available))}
 
 def evidence(~A: Data) -> Requirements<A>:
   Requirements{dimension_minimum, dimension_maximum,
     +slots => +gap => +available => feasible_tag(~A, Nat.is_le(Space.minimum_sequence(~A, slots, gap), available), slots, gap, available),
     +slots => +gap => +available => does_not_fit => pack_insufficient(~A, slots, gap, available, does_not_fit),
-    +slots => +gap => +available => +fits => pack_complete(~A, slots, gap, available, fits), content_lower, content_preferred, content_target, content_ink, content_natural, row_minimum, column_minimum}
+    +slots => +gap => +available => +fits => pack_complete(~A, slots, gap, available, fits)}

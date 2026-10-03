@@ -147,24 +147,24 @@ def first_control(values: +List<Design.Node>) -> Controls.Representation:
     case Nil{}: Controls.NoControl{}
     case Con{Design.Node{key, semantic, label, role, meaning, visual, control, children}, rest}: control
 
-def project_reference_law(-key: String, -role: UI.Role, -context: Controls.Context, -project: Nat, -selected: Bool, -expanded: Bool) -> Type:
-  {Controls.source_reference(Controls.enter(key, role, UI.ProjectGroup{project, selected, expanded}, context)) == Controls.SourceFamily{key, UI.ProjectGroup{project, selected, expanded}} : Controls.SourceFamily}
+def project_reference_law(-key: String, -semantic: String, -label: String, -role: UI.Role, -children: +List<UI.Node>, -context: Controls.Context, -project: Nat, -selected: Bool, -expanded: Bool) -> Type:
+  {Controls.source_reference(Controls.enter(UI.Node{key, semantic, label, role, UI.ProjectGroup{project, selected, expanded}, children}, context)) == Controls.SourceFamily{UI.Node{key, semantic, label, role, UI.ProjectGroup{project, selected, expanded}, children}} : Controls.SourceFamily}
 
-def project_reference(+key: String, +role: UI.Role, +context: Controls.Context, +project: Nat, +selected: Bool, +expanded: Bool) -> project_reference_law(key, role, context, project, selected, expanded):
+def project_reference(+key: String, +semantic: String, +label: String, +role: UI.Role, +children: +List<UI.Node>, +context: Controls.Context, +project: Nat, +selected: Bool, +expanded: Bool) -> project_reference_law(key, semantic, label, role, children, context, project, selected, expanded):
   Controls.Context{area, selection, code, appearance, access, open, layers, execution, family} = context
   {==}
 
-def task_reference_law(-key: String, -role: UI.Role, -context: Controls.Context, -task: Nat, -status: String, -selected: Bool) -> Type:
-  {Controls.source_reference(Controls.enter(key, role, UI.TaskRow{task, status, selected}, context)) == Controls.SourceFamily{key, UI.TaskRow{task, status, selected}} : Controls.SourceFamily}
+def task_reference_law(-key: String, -semantic: String, -label: String, -role: UI.Role, -children: +List<UI.Node>, -context: Controls.Context, -task: Nat, -status: String, -selected: Bool) -> Type:
+  {Controls.source_reference(Controls.enter(UI.Node{key, semantic, label, role, UI.TaskRow{task, status, selected}, children}, context)) == Controls.SourceFamily{UI.Node{key, semantic, label, role, UI.TaskRow{task, status, selected}, children}} : Controls.SourceFamily}
 
-def task_reference(+key: String, +role: UI.Role, +context: Controls.Context, +task: Nat, +status: String, +selected: Bool) -> task_reference_law(key, role, context, task, status, selected):
+def task_reference(+key: String, +semantic: String, +label: String, +role: UI.Role, +children: +List<UI.Node>, +context: Controls.Context, +task: Nat, +status: String, +selected: Bool) -> task_reference_law(key, semantic, label, role, children, context, task, status, selected):
   Controls.Context{area, selection, code, appearance, access, open, layers, execution, family} = context
   {==}
 
-def chooser_reference_law(-key: String, -role: UI.Role, -context: Controls.Context, -selected: Maybe<&2, Nat>) -> Type:
-  {Controls.source_reference(Controls.enter(key, role, UI.ProjectChooser{selected}, context)) == Controls.SourceFamily{key, UI.ProjectChooser{selected}} : Controls.SourceFamily}
+def chooser_reference_law(-key: String, -semantic: String, -label: String, -role: UI.Role, -children: +List<UI.Node>, -context: Controls.Context, -selected: Maybe<&2, Nat>) -> Type:
+  {Controls.source_reference(Controls.enter(UI.Node{key, semantic, label, role, UI.ProjectChooser{selected}, children}, context)) == Controls.SourceFamily{UI.Node{key, semantic, label, role, UI.ProjectChooser{selected}, children}} : Controls.SourceFamily}
 
-def chooser_reference(+key: String, +role: UI.Role, +context: Controls.Context, +selected: Maybe<&2, Nat>) -> chooser_reference_law(key, role, context, selected):
+def chooser_reference(+key: String, +semantic: String, +label: String, +role: UI.Role, +children: +List<UI.Node>, +context: Controls.Context, +selected: Maybe<&2, Nat>) -> chooser_reference_law(key, semantic, label, role, children, context, selected):
   Controls.Context{area, selection, code, appearance, access, open, layers, execution, family} = context
   {==}
 
@@ -206,12 +206,12 @@ type Requirements is Type:
     chooser_draft_observation: @+id:Nat -> @+fallback:Design.Style -> chooser_draft_observation_law(id, fallback),
     source_group_style: @+typography:T.Presentation -> @+key:String -> @+context:Controls.Context -> @+representation:Controls.Representation -> @+fallback:Design.Style -> @+project:Nat -> @+selected:Bool -> @+expanded:Bool -> {Appearance.final_style(key, UI.ProjectGroup{project, selected, expanded}, context, representation, fallback, typography) == Appearance.project_group_style(typography) : Design.Style},
     source_task_style: @+typography:T.Presentation -> @+key:String -> @+context:Controls.Context -> @+representation:Controls.Representation -> @+fallback:Design.Style -> @+task:Nat -> @+status:String -> @+selected:Bool -> {Appearance.final_style(key, UI.TaskRow{task, status, selected}, context, representation, fallback, typography) == Appearance.navigation_family_style(selected, 6n, 5n, typography) : Design.Style},
-    project_reference: @+key:String -> @+role:UI.Role -> @+context:Controls.Context -> @+project:Nat -> @+selected:Bool -> @+expanded:Bool -> project_reference_law(key, role, context, project, selected, expanded),
-    task_reference: @+key:String -> @+role:UI.Role -> @+context:Controls.Context -> @+task:Nat -> @+status:String -> @+selected:Bool -> task_reference_law(key, role, context, task, status, selected),
-    chooser_reference: @+key:String -> @+role:UI.Role -> @+context:Controls.Context -> @+selected:Maybe<&2, Nat> -> chooser_reference_law(key, role, context, selected),
-    complete_control_binding: @+typography:T.Presentation -> @+in_main:Bool -> @+start:Bool -> @+key:String -> @+semantic:String -> @+label:String -> @+role:UI.Role -> @+meaning:UI.Meaning -> @+children:+List<UI.Node> -> @+context:Controls.Context -> {first_control(Appearance.nodes_at([UI.Node{key, semantic, label, role, meaning, children}], context, typography, in_main, start)) == Controls.represent(key, meaning, label, role, Controls.enter(key, role, meaning, context)) : Controls.Representation},
-    actual_header_style: @+typography:T.Presentation -> @+key:String -> @+owner:String -> @+project:Nat -> @+selected:Bool -> @+expanded:Bool -> @+area:Controls.Area -> @+selection:Controls.Selection -> @+code:Maybe<&2, Code.Scene> -> @+appearance:Services.Appearance -> @+access:Services.Access -> @+open:Bool -> @+layers:+List<View.Layer> -> @+execution:Maybe<&2, Workspace.Observation> -> @+representation:Controls.Representation -> @+fallback:Design.Style -> {Appearance.final_style(key, UI.Region{}, Controls.Context{area, selection, code, appearance, access, open, layers, execution, Controls.SourceFamily{owner, UI.ProjectGroup{project, selected, expanded}}}, representation, fallback, typography) ==
-        Appearance.source_style(String.eq(key, owner ++ "/actions"), Controls.SourceFamily{owner, UI.ProjectGroup{project, selected, expanded}}, fallback, typography) : Design.Style},
+    project_reference: @+key:String -> @+semantic:String -> @+label:String -> @+role:UI.Role -> @+children:+List<UI.Node> -> @+context:Controls.Context -> @+project:Nat -> @+selected:Bool -> @+expanded:Bool -> project_reference_law(key, semantic, label, role, children, context, project, selected, expanded),
+    task_reference: @+key:String -> @+semantic:String -> @+label:String -> @+role:UI.Role -> @+children:+List<UI.Node> -> @+context:Controls.Context -> @+task:Nat -> @+status:String -> @+selected:Bool -> task_reference_law(key, semantic, label, role, children, context, task, status, selected),
+    chooser_reference: @+key:String -> @+semantic:String -> @+label:String -> @+role:UI.Role -> @+children:+List<UI.Node> -> @+context:Controls.Context -> @+selected:Maybe<&2, Nat> -> chooser_reference_law(key, semantic, label, role, children, context, selected),
+    complete_control_binding: @+typography:T.Presentation -> @+in_main:Bool -> @+start:Bool -> @+key:String -> @+semantic:String -> @+label:String -> @+role:UI.Role -> @+meaning:UI.Meaning -> @+children:+List<UI.Node> -> @+context:Controls.Context -> {first_control(Appearance.nodes_at([UI.Node{key, semantic, label, role, meaning, children}], context, typography, in_main, start)) == Controls.represent(key, meaning, label, role, Controls.enter(UI.Node{key, semantic, label, role, meaning, children}, context)) : Controls.Representation},
+    actual_header_style: @+typography:T.Presentation -> @+key:String -> @+owner:String -> @+owner_semantic:String -> @+owner_label:String -> @+owner_role:UI.Role -> @+owner_children:+List<UI.Node> -> @+project:Nat -> @+selected:Bool -> @+expanded:Bool -> @+area:Controls.Area -> @+selection:Controls.Selection -> @+code:Maybe<&2, Code.Scene> -> @+appearance:Services.Appearance -> @+access:Services.Access -> @+open:Bool -> @+layers:+List<View.Layer> -> @+execution:Maybe<&2, Workspace.Observation> -> @+representation:Controls.Representation -> @+fallback:Design.Style -> {Appearance.final_style(key, UI.Region{}, Controls.Context{area, selection, code, appearance, access, open, layers, execution, Controls.SourceFamily{UI.Node{owner, owner_semantic, owner_label, owner_role, UI.ProjectGroup{project, selected, expanded}, owner_children}}}, representation, fallback, typography) ==
+        Appearance.source_style(String.eq(key, owner ++ "/actions"), Controls.SourceFamily{UI.Node{owner, owner_semantic, owner_label, owner_role, UI.ProjectGroup{project, selected, expanded}, owner_children}}, fallback, typography) : Design.Style},
     status_visible: @+typography:T.Presentation -> @+key:String -> @+tag:String -> @+attrs:+List<Doc.Property> -> @+styles:+List<Doc.Property> -> @+events:+List<Doc.Event> -> @children:+List<Doc.Node> -> @+status:String -> {Render.task_status_node(Doc.Element{key, tag, attrs, styles, events, children}, status, typography) ==
           Doc.Element{key, "span", List.append(&2, Doc.Property, attrs, [Render.property("aria-label", status), Render.property("title", status)]),
             List.append(&2, Doc.Property, Render.part_text(typography, T.Support{}, T.Medium{}), [Render.property("display", "inline-flex"), Render.property("flex", "0 0 auto"), Render.property("align-items", "center"), Render.property("gap", "4px"),
@@ -224,5 +224,5 @@ def evidence() -> Requirements:
     +typography => +key => +context => +representation => +fallback => +project => +selected => +expanded => {==},
     +typography => +key => +context => +representation => +fallback => +task => +status => +selected => {==}, project_reference, task_reference, chooser_reference,
     +typography => +in_main => +start => +key => +semantic => +label => +role => +meaning => +children => +context => {==},
-    +typography => +key => +owner => +project => +selected => +expanded => +area => +selection => +code => +appearance => +access => +open => +layers => +execution => +representation => +fallback => {==},
+    +typography => +key => +owner => +owner_semantic => +owner_label => +owner_role => +owner_children => +project => +selected => +expanded => +area => +selection => +code => +appearance => +access => +open => +layers => +execution => +representation => +fallback => {==},
     +typography => +key => +tag => +attrs => +styles => +events => children => +status => {==}}

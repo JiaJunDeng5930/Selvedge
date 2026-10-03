@@ -2,6 +2,7 @@ import Base
 import ./typography.bend as T
 import ../core/field-options.bend as FieldOptions
 import ./enclosure.bend as Enclosure
+import ./enclosure-laws.bend as EnclosureLaws
 import ../bendlib/stdlib.bend as Std
 import ./document.bend as Doc
 import ./design.bend as Design
@@ -151,10 +152,6 @@ def partition_inset(+properties: +List<Doc.Property>) -> String:
 
 
 
-def style_insets(value: Design.Style) -> (Nat & (Nat & Nat)):
-  Design.Style{text, chrome, alignment, flow, overflow, +content_frame, minimum, maximum, states} = value
-  (Enclosure.inline(Enclosure.frame_content(content_frame)), (Enclosure.block(Enclosure.frame_content(content_frame)), Enclosure.frame_gap(content_frame)))
-
 
 
 
@@ -231,7 +228,7 @@ type Requirements is Type:
     capture_toggle_target: @+key:String -> @+name:String -> @input:Doc.Node ->   {(Render.attr(Doc.element_styles(Render.editor_field_presented(EditorLayout.CaptureOption{}, Controls.BesideInput{}, key, name, input)), "min-height"),
           Render.attr(Doc.element_styles(Render.editor_field_presented(EditorLayout.CaptureOption{}, Controls.BesideInput{}, key, name, input)), "flex")) ==
          ("32px", "1 1 200px") : (String & String)},
-    dialog_outer_inset: @+typography:T.Presentation -> {style_insets(Appearance.style(UI.Dialog{}, UI.Region{}, typography)) == (0n, (0n, 0n)) : (Nat & (Nat & Nat))},
+    dialog_outer_inset: @+typography:T.Presentation -> {EnclosureLaws.frame_coordinates(Appearance.style_frame(Appearance.style(UI.Dialog{}, UI.Region{}, typography))) == (0n, (0n, 0n)) : (Nat & (Nat & Nat))},
     concrete_field_kinds:   {[EditorLayout.card_field(Forms.CardTitle{}), EditorLayout.card_field(Forms.CardDescription{}),
           EditorLayout.card_field(Forms.CardStage{}), EditorLayout.card_field(Forms.CardPriority{}),
           EditorLayout.card_field(Forms.CardProject{}), EditorLayout.card_field(Forms.CardOwner{}),
