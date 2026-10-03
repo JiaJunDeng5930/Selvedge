@@ -391,15 +391,12 @@ def icon_content_extent(size: Controls.Geometry) -> +List<Doc.Property>:
 def content_extent(face: Controls.Face, size: Controls.Geometry) -> +List<Doc.Property>:
   match face:
     case Controls.IconFace{icon}: icon_content_extent(size)
-    case Controls.ChoiceFace{text, description, checked}: [property("width", "100%"), property("min-width", "0"), property("height", "auto"), property("flex-shrink", "0")]
+    case Controls.ChoiceFace{text, description, checked}: [property("width", "100%"), property("height", "auto"), property("flex-shrink", "0")]
     case Controls.SingleLineFace{text}: List.append(&2, Doc.Property, [property("flex", "1 1 0"), property("width", "auto"), property("text-align", "start")], wrapping_properties(Controls.caption_wrapping(Controls.SingleLineFace{text})))
-    case _: [property("min-width", "0"), property("max-width", "100%"), property("text-align", "left")]
-
-def content_geometry_layout(face: Controls.Face, size: Controls.Geometry, layout: Controls.ContentLayout) -> +List<Doc.Property>:
-  content_extent(face, size)
+    case _: [property("max-width", "100%"), property("text-align", "left")]
 
 def content_geometry(+face: Controls.Face, size: Controls.Geometry) -> +List<Doc.Property>:
-  content_geometry_layout(face, size, Controls.content_layout(face))
+  content_extent(face, size)
 
 def widget_properties(value: Controls.Widget) -> +List<Doc.Property>:
   match value:
@@ -1281,12 +1278,16 @@ def pointer_styles(values: +List<Doc.Property>) -> +List<Doc.Property>:
     case Nil{}: Nil{}
     case Con{Doc.Property{name, value}, rest}: pointer_property(name, value) <> pointer_styles(rest)
 
+# NOTE: Emit authoritative control geometry last so content cannot override its minimum width.
+def action_styles(+key: String, +visual: Design.Style, +face: Controls.Face, +size: Controls.Geometry, placement: Controls.Placement) -> +List<Doc.Property>:
+  List.append(&2, Doc.Property, pointer_styles(List.append(&2, Doc.Property, style(visual), List.append(&2, Doc.Property, placement_styles(placement), List.append(&2, Doc.Property, [property("anchor-name", css_anchor(key))], content_geometry(face, size))))), action_geometry(size, visual))
+
 def action(+key: String, +visual: Design.Style, value: Controls.Representation) -> Doc.Node:
   match value:
     case Controls.Action{input, availability, name, +face_value, response, +size, placement, hint, feedback}:
       Doc.Element{key, "button", List.append(&2, Doc.Property, [property("type", "button"), property("class", "native-control"), property("aria-label", name), property("data-native-key", key)],
         List.append(&2, Doc.Property, unavailable(availability), List.append(&2, Doc.Property, behavior(response), help(hint)))),
-        pointer_styles(List.append(&2, Doc.Property, style(visual), List.append(&2, Doc.Property, action_geometry(size, visual), List.append(&2, Doc.Property, placement_styles(placement), List.append(&2, Doc.Property, [property("anchor-name", css_anchor(key))], content_geometry(face_value, size)))))), [Doc.Activate{key}], face(key, face_value, Appearance.style_text(visual), size)}
+        action_styles(key, visual, face_value, size, placement), [Doc.Activate{key}], face(key, face_value, Appearance.style_text(visual), size)}
     case _: Doc.Element{key, "span", Nil{}, style(visual), Nil{}, Nil{}}
 
 

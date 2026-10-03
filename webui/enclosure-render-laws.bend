@@ -184,26 +184,21 @@ def excluded_placement(+mode: AttributeMode, +placement: C.Placement) -> Exclude
 def excluded_extent(+mode: AttributeMode, +face: C.Face, +size: C.Geometry) -> Excluded(mode, R.content_extent(face, size)):
   match mode face size:
     case RawBackground{} C.IconFace{icon} C.Geometry{width, height, icon, radius, leading}: ({==}, ({==}, ({==}, ({==}, Unit{}))))
-    case RawBackground{} C.TextFace{text} C.Geometry{width, height, icon, radius, leading}: ({==}, ({==}, ({==}, Unit{})))
+    case RawBackground{} C.TextFace{text} C.Geometry{width, height, icon, radius, leading}: ({==}, ({==}, Unit{}))
     case RawBackground{} C.SingleLineFace{text} C.Geometry{width, height, icon, radius, leading}: ({==}, ({==}, ({==}, ({==}, ({==}, ({==}, Unit{}))))))
-    case RawBackground{} C.IconTextFace{icon, text} C.Geometry{width, height, icon, radius, leading}: ({==}, ({==}, ({==}, Unit{})))
-    case RawBackground{} C.PickerFace{leading, text} C.Geometry{width, height, icon, radius, leading}: ({==}, ({==}, ({==}, Unit{})))
-    case RawBackground{} C.ChoiceFace{text, description, checked} C.Geometry{width, height, icon, radius, leading}: ({==}, ({==}, ({==}, ({==}, Unit{}))))
-    case RawBackground{} C.DisclosureFace{text, expanded} C.Geometry{width, height, icon, radius, leading}: ({==}, ({==}, ({==}, Unit{})))
-    case RawBackground{} C.PermissionFace{filesystem, network, approval} C.Geometry{width, height, icon, radius, leading}: ({==}, ({==}, ({==}, Unit{})))
+    case RawBackground{} C.IconTextFace{icon, text} C.Geometry{width, height, icon, radius, leading}: ({==}, ({==}, Unit{}))
+    case RawBackground{} C.PickerFace{leading, text} C.Geometry{width, height, icon, radius, leading}: ({==}, ({==}, Unit{}))
+    case RawBackground{} C.ChoiceFace{text, description, checked} C.Geometry{width, height, icon, radius, leading}: ({==}, ({==}, ({==}, Unit{})))
+    case RawBackground{} C.DisclosureFace{text, expanded} C.Geometry{width, height, icon, radius, leading}: ({==}, ({==}, Unit{}))
+    case RawBackground{} C.PermissionFace{filesystem, network, approval} C.Geometry{width, height, icon, radius, leading}: ({==}, ({==}, Unit{}))
     case PointerBackground{} C.IconFace{icon} C.Geometry{width, height, icon, radius, leading}: ({==}, ({==}, ({==}, ({==}, Unit{}))))
-    case PointerBackground{} C.TextFace{text} C.Geometry{width, height, icon, radius, leading}: ({==}, ({==}, ({==}, Unit{})))
+    case PointerBackground{} C.TextFace{text} C.Geometry{width, height, icon, radius, leading}: ({==}, ({==}, Unit{}))
     case PointerBackground{} C.SingleLineFace{text} C.Geometry{width, height, icon, radius, leading}: ({==}, ({==}, ({==}, ({==}, ({==}, ({==}, Unit{}))))))
-    case PointerBackground{} C.IconTextFace{icon, text} C.Geometry{width, height, icon, radius, leading}: ({==}, ({==}, ({==}, Unit{})))
-    case PointerBackground{} C.PickerFace{leading, text} C.Geometry{width, height, icon, radius, leading}: ({==}, ({==}, ({==}, Unit{})))
-    case PointerBackground{} C.ChoiceFace{text, description, checked} C.Geometry{width, height, icon, radius, leading}: ({==}, ({==}, ({==}, ({==}, Unit{}))))
-    case PointerBackground{} C.DisclosureFace{text, expanded} C.Geometry{width, height, icon, radius, leading}: ({==}, ({==}, ({==}, Unit{})))
-    case PointerBackground{} C.PermissionFace{filesystem, network, approval} C.Geometry{width, height, icon, radius, leading}: ({==}, ({==}, ({==}, Unit{})))
-
-def excluded_content_layout(+mode: AttributeMode, +face: C.Face, +size: C.Geometry, layout: C.ContentLayout) ->
-  Excluded(mode, R.content_geometry_layout(face, size, layout)):
-  C.ContentLayout{alignment, area, gap} = layout
-  excluded_extent(mode, face, size)
+    case PointerBackground{} C.IconTextFace{icon, text} C.Geometry{width, height, icon, radius, leading}: ({==}, ({==}, Unit{}))
+    case PointerBackground{} C.PickerFace{leading, text} C.Geometry{width, height, icon, radius, leading}: ({==}, ({==}, Unit{}))
+    case PointerBackground{} C.ChoiceFace{text, description, checked} C.Geometry{width, height, icon, radius, leading}: ({==}, ({==}, ({==}, Unit{})))
+    case PointerBackground{} C.DisclosureFace{text, expanded} C.Geometry{width, height, icon, radius, leading}: ({==}, ({==}, Unit{}))
+    case PointerBackground{} C.PermissionFace{filesystem, network, approval} C.Geometry{width, height, icon, radius, leading}: ({==}, ({==}, Unit{}))
 
 def excluded_anchor(+mode: AttributeMode, key: String) -> Excluded(mode, [R.property("anchor-name", R.css_anchor(key))]):
   match mode:
@@ -211,13 +206,24 @@ def excluded_anchor(+mode: AttributeMode, key: String) -> Excluded(mode, [R.prop
     case PointerBackground{}: ({==}, Unit{})
 
 def geometry_tail(+visual: D.Style, +face: C.Face, +size: C.Geometry, placement: C.Placement, key: String) -> +List<Doc.Property>:
-  List.append(&2, Doc.Property, R.action_geometry(size, visual), List.append(&2, Doc.Property, R.placement_styles(placement), List.append(&2, Doc.Property, [R.property("anchor-name", R.css_anchor(key))], R.content_geometry(face, size))))
+  List.append(&2, Doc.Property, R.placement_styles(placement), List.append(&2, Doc.Property, [R.property("anchor-name", R.css_anchor(key))], R.content_geometry(face, size)))
 
 def excluded_geometry_tail(+mode: AttributeMode, +visual: D.Style, +face: C.Face, +size: C.Geometry, +placement: C.Placement, +key: String) ->
   Excluded(mode, geometry_tail(visual, face, size, placement, key)):
-  excluded_append(mode, R.action_geometry(size, visual), List.append(&2, Doc.Property, R.placement_styles(placement), List.append(&2, Doc.Property, [R.property("anchor-name", R.css_anchor(key))], R.content_geometry(face, size))), excluded_geometry(mode, size, visual),
-    excluded_append(mode, R.placement_styles(placement), List.append(&2, Doc.Property, [R.property("anchor-name", R.css_anchor(key))], R.content_geometry(face, size)), excluded_placement(mode, placement),
-      excluded_append(mode, [R.property("anchor-name", R.css_anchor(key))], R.content_geometry(face, size), excluded_anchor(mode, key), excluded_content_layout(mode, face, size, C.content_layout(face)))))
+  excluded_append(mode, R.placement_styles(placement), List.append(&2, Doc.Property, [R.property("anchor-name", R.css_anchor(key))], R.content_geometry(face, size)), excluded_placement(mode, placement),
+    excluded_append(mode, [R.property("anchor-name", R.css_anchor(key))], R.content_geometry(face, size), excluded_anchor(mode, key), excluded_extent(mode, face, size)))
+
+def last_append(+first: +List<Doc.Property>, +second: +List<Doc.Property>, +name: String, +previous: String) ->
+  {R.attr_last(List.append(&2, Doc.Property, first, second), name, previous) == R.attr_last(second, name, R.attr_last(first, name, previous)) : String}:
+  match first:
+    case Nil{}: {==}
+    case Con{Doc.Property{key, value}, rest}:
+      last_append(rest, second, name, R.attr_found(String.eq(key, name), value, previous))
+
+def geometry_pointer(+size: C.Geometry, +visual: D.Style) ->
+  {R.pointer_styles(R.action_geometry(size, visual)) == R.action_geometry(size, visual) : +List<Doc.Property>}:
+  match size visual:
+    case C.Geometry{width, height, icon, radius, leading} D.Style{text, chrome, alignment, flow, overflow, frame, minimum, maximum, states}: {==}
 
 def action_background_preserved(+key: String, +visual: D.Style, +input: Core.Input, +availability: View.Availability,
   +name: String, +face: C.Face, +behavior: C.Behavior, +geometry: C.Geometry, +placement: C.Placement, +help: C.Help, +feedback: C.Feedback) ->
@@ -226,13 +232,29 @@ def action_background_preserved(+key: String, +visual: D.Style, +input: Core.Inp
   +value: D.Style = D.Style{actual_text, D.Chrome{foreground, background, border, border_width, radius, shadow}, alignment, flow, overflow, content_frame, height, maximum, states}
   +tail: +List<Doc.Property> = typed_style_tail(actual_text, flow, overflow, shadow, alignment, states)
   +extra: +List<Doc.Property> = geometry_tail(value, face, geometry, placement, key)
+  +prefix: +List<Doc.Property> = R.pointer_styles(List.append(&2, Doc.Property, R.style(value), extra))
+  +geometry_styles: +List<Doc.Property> = R.action_geometry(geometry, value)
+  +prefix_evidence: {R.attr(prefix, "--native-rest-background") == R.attr(R.style(value), "background") : String} =
+    Equal.trans(String,
+      R.attr(prefix, "--native-rest-background"),
+      R.paint(background), R.attr(R.style(value), "background"),
+      preserved(PointerBackground{}, List.append(&2, Doc.Property, tail, extra), R.paint(background),
+        excluded_append(PointerBackground{}, tail, extra, excluded_typed_tail(PointerBackground{}, actual_text, flow, overflow, shadow, alignment, states), excluded_geometry_tail(PointerBackground{}, value, face, geometry, placement, key))),
+      Equal.sym(String, R.attr(R.style(value), "background"), R.paint(background),
+        preserved(RawBackground{}, tail, R.paint(background), excluded_typed_tail(RawBackground{}, actual_text, flow, overflow, shadow, alignment, states))))
   Equal.trans(String,
-    R.attr(Doc.element_styles(R.action(key, value, C.Action{input, availability, name, face, behavior, geometry, placement, help, feedback})), "--native-rest-background"),
-    R.paint(background), R.attr(R.style(value), "background"),
-    preserved(PointerBackground{}, List.append(&2, Doc.Property, tail, extra), R.paint(background),
-      excluded_append(PointerBackground{}, tail, extra, excluded_typed_tail(PointerBackground{}, actual_text, flow, overflow, shadow, alignment, states), excluded_geometry_tail(PointerBackground{}, value, face, geometry, placement, key))),
-    Equal.sym(String, R.attr(R.style(value), "background"), R.paint(background),
-      preserved(RawBackground{}, tail, R.paint(background), excluded_typed_tail(RawBackground{}, actual_text, flow, overflow, shadow, alignment, states))))
+    R.attr(List.append(&2, Doc.Property, prefix, geometry_styles), "--native-rest-background"),
+    R.attr_last(geometry_styles, "--native-rest-background", R.attr(prefix, "--native-rest-background")), R.attr(R.style(value), "background"),
+    last_append(prefix, geometry_styles, "--native-rest-background", ""),
+    Equal.trans(String,
+      R.attr_last(geometry_styles, "--native-rest-background", R.attr(prefix, "--native-rest-background")),
+      R.attr(prefix, "--native-rest-background"), R.attr(R.style(value), "background"),
+      Equal.trans(String,
+        R.attr_last(geometry_styles, "--native-rest-background", R.attr(prefix, "--native-rest-background")),
+        R.attr_last(R.pointer_styles(geometry_styles), "--native-rest-background", R.attr(prefix, "--native-rest-background")), R.attr(prefix, "--native-rest-background"),
+        Equal.cong(+List<Doc.Property>, String, (values => R.attr_last(values, "--native-rest-background", R.attr(prefix, "--native-rest-background"))),
+          geometry_styles, R.pointer_styles(geometry_styles), Equal.sym(+List<Doc.Property>, R.pointer_styles(geometry_styles), geometry_styles, geometry_pointer(geometry, value))),
+        preserved(PointerBackground{}, geometry_styles, R.attr(prefix, "--native-rest-background"), excluded_geometry(PointerBackground{}, geometry, value))), prefix_evidence))
 
 type Axis is Data:
   Inline{}
@@ -248,12 +270,6 @@ def axis_space(axis: Axis, area: E.ContentArea) -> Nat:
     case Inline{}: E.inline(area)
     case Block{}: E.block(area)
 
-def last_append(+first: +List<Doc.Property>, +second: +List<Doc.Property>, +name: String, +previous: String) ->
-  {R.attr_last(List.append(&2, Doc.Property, first, second), name, previous) == R.attr_last(second, name, R.attr_last(first, name, previous)) : String}:
-  match first:
-    case Nil{}: {==}
-    case Con{Doc.Property{key, value}, rest}:
-      last_append(rest, second, name, R.attr_found(String.eq(key, name), value, previous))
 def preserve_flow(+value: D.Flow, +axis: Axis, +previous: String) ->
   {R.attr_last(R.flow(value), axis_name(axis), previous) == previous : String}:
   match value axis:
@@ -779,12 +795,10 @@ def parent_anchor(+pointer: Bool, +property: ParentProperty, key: String, +previ
 
 def parent_action_tail(+pointer: Bool, +property: ParentProperty, +visual: D.Style, +face: C.Face, +size: C.Geometry, +placement: C.Placement, +key: String, +previous: String) ->
   {R.attr_last(parent_properties(pointer, geometry_tail(visual, face, size, placement, key)), parent_name(property), previous) == previous : String}:
-  parent_append(pointer, property, R.action_geometry(size, visual), List.append(&2, Doc.Property, R.placement_styles(placement), List.append(&2, Doc.Property, [R.property("anchor-name", R.css_anchor(key))], R.content_geometry(face, size))), previous, previous,
-    parent_geometry(pointer, property, size, visual, previous),
-    parent_append(pointer, property, R.placement_styles(placement), List.append(&2, Doc.Property, [R.property("anchor-name", R.css_anchor(key))], R.content_geometry(face, size)), previous, previous,
-      parent_placement(pointer, property, placement, previous),
-      parent_append(pointer, property, [R.property("anchor-name", R.css_anchor(key))], R.content_geometry(face, size), previous, previous,
-        parent_anchor(pointer, property, key, previous), parent_content(pointer, property, face, size, previous))))
+  parent_append(pointer, property, R.placement_styles(placement), List.append(&2, Doc.Property, [R.property("anchor-name", R.css_anchor(key))], R.content_geometry(face, size)), previous, previous,
+    parent_placement(pointer, property, placement, previous),
+    parent_append(pointer, property, [R.property("anchor-name", R.css_anchor(key))], R.content_geometry(face, size), previous, previous,
+      parent_anchor(pointer, property, key, previous), parent_content(pointer, property, face, size, previous)))
 
 def parent_action_law(-property: ParentProperty, -key: String, -visual: D.Style, -input: Core.Input, -availability: View.Availability, -name: String,
   -face: C.Face, -behavior: C.Behavior, -size: C.Geometry, -placement: C.Placement, -help: C.Help, -feedback: C.Feedback) -> Type:
@@ -792,8 +806,18 @@ def parent_action_law(-property: ParentProperty, -key: String, -visual: D.Style,
 
 def parent_action(+property: ParentProperty, +key: String, +visual: D.Style, +input: Core.Input, +availability: View.Availability, +name: String,
   +face: C.Face, +behavior: C.Behavior, +size: C.Geometry, +placement: C.Placement, +help: C.Help, +feedback: C.Feedback) -> parent_action_law(property, key, visual, input, availability, name, face, behavior, size, placement, help, feedback):
-  parent_append(True{}, property, R.style(visual), geometry_tail(visual, face, size, placement, key), "", parent_value(visual, property),
-    parent_style(True{}, property, visual), parent_action_tail(True{}, property, visual, face, size, placement, key, parent_value(visual, property)))
+  +prefix: +List<Doc.Property> = R.pointer_styles(List.append(&2, Doc.Property, R.style(visual), geometry_tail(visual, face, size, placement, key)))
+  +geometry_styles: +List<Doc.Property> = R.action_geometry(size, visual)
+  Equal.trans(String,
+    R.attr(List.append(&2, Doc.Property, prefix, geometry_styles), parent_name(property)),
+    R.attr_last(geometry_styles, parent_name(property), R.attr(prefix, parent_name(property))), parent_value(visual, property),
+    last_append(prefix, geometry_styles, parent_name(property), ""),
+    Equal.trans(String,
+      R.attr_last(geometry_styles, parent_name(property), R.attr(prefix, parent_name(property))),
+      R.attr(prefix, parent_name(property)), parent_value(visual, property),
+      parent_geometry(False{}, property, size, visual, R.attr(prefix, parent_name(property))),
+      parent_append(True{}, property, R.style(visual), geometry_tail(visual, face, size, placement, key), "", parent_value(visual, property),
+        parent_style(True{}, property, visual), parent_action_tail(True{}, property, visual, face, size, placement, key, parent_value(visual, property)))))
 
 def parent_minimum(+value: D.Style) ->
   {parent_value(value, MinimumHeight{}) == R.px(Model.minimum(value)) : String}:
@@ -869,6 +893,17 @@ def geometry_complete(+width: Nat, +height: Nat, +icon: Nat, +radius: Nat, +lead
   D.Style{text, chrome, alignment, flow, overflow, +content_frame, minimum, maximum, states} = visual
   {==}
 
+def action_minimum_law(-key: String, -visual: D.Style, -input: Core.Input, -availability: View.Availability, -name: String,
+  -face: C.Face, -behavior: C.Behavior, -width: Nat, -height: Nat, -icon: Nat, -radius: Nat, -leading: Nat, -placement: C.Placement, -help: C.Help, -feedback: C.Feedback) -> Type:
+  {R.attr(Doc.element_styles(R.action(key, visual, C.Action{input, availability, name, face, behavior, C.Geometry{width, height, icon, radius, leading}, placement, help, feedback})), "min-width") == R.px(width) : String}
+
+def action_minimum(+key: String, +visual: D.Style, +input: Core.Input, +availability: View.Availability, +name: String,
+  +face: C.Face, +behavior: C.Behavior, +width: Nat, +height: Nat, +icon: Nat, +radius: Nat, +leading: Nat, +placement: C.Placement, +help: C.Help, +feedback: C.Feedback) ->
+  action_minimum_law(key, visual, input, availability, name, face, behavior, width, height, icon, radius, leading, placement, help, feedback):
+  +size: C.Geometry = C.Geometry{width, height, icon, radius, leading}
+  +prefix: +List<Doc.Property> = R.pointer_styles(List.append(&2, Doc.Property, R.style(visual), geometry_tail(visual, face, size, placement, key)))
+  last_append(prefix, R.action_geometry(size, visual), "min-width", "")
+
 type Requirements is Type:
   Requirements{
     parent_properties: @+property:ParentProperty -> @+key:String -> @+visual:D.Style -> @+input:Core.Input -> @+availability:View.Availability -> @+name:String -> @+face:C.Face -> @+behavior:C.Behavior -> @+size:C.Geometry -> @+placement:C.Placement -> @+help:C.Help -> @+feedback:C.Feedback ->
@@ -891,6 +926,7 @@ type Requirements is Type:
     title_production_insets: @+typography:T.Presentation -> @+key:String -> @+editor:User.Editor -> @+name:String -> @+text:String -> @choices:+List<Forms.ChoiceValue> -> {(R.attr(Doc.element_styles(title_production(key, editor, name, text, choices, typography)), "padding-inline"), R.attr(Doc.element_styles(title_production(key, editor, name, text, choices, typography)), "padding-block")) == ("8px", "6px") : (String & String)},
     description_production_insets: @+typography:T.Presentation -> @+key:String -> @+editor:User.Editor -> @+name:String -> @+text:String -> @choices:+List<Forms.ChoiceValue> -> {(R.attr(Doc.element_styles(description_production(key, editor, name, text, choices, typography)), "padding-inline"), R.attr(Doc.element_styles(description_production(key, editor, name, text, choices, typography)), "padding-block")) == ("8px", "6px") : (String & String)},
     dialog_outer: @+typography:T.Presentation -> {(R.attr(R.style(A.style(UI.Dialog{}, UI.Region{}, typography)), "padding-inline"), R.attr(R.style(A.style(UI.Dialog{}, UI.Region{}, typography)), "padding-block")) == ("0px", "0px") : (String & String)},
+    action_minimum: @+key:String -> @+visual:D.Style -> @+input:Core.Input -> @+availability:View.Availability -> @+name:String -> @+face:C.Face -> @+behavior:C.Behavior -> @+width:Nat -> @+height:Nat -> @+icon:Nat -> @+radius:Nat -> @+leading:Nat -> @+placement:C.Placement -> @+help:C.Help -> @+feedback:C.Feedback -> action_minimum_law(key, visual, input, availability, name, face, behavior, width, height, icon, radius, leading, placement, help, feedback),
     geometry_complete: @+width:Nat -> @+height:Nat -> @+icon:Nat -> @+radius:Nat -> @+leading:Nat -> @+visual:D.Style -> geometry_complete_law(width, height, icon, radius, leading, visual)}
 
 def evidence() -> Requirements:
@@ -910,4 +946,4 @@ def evidence() -> Requirements:
     +typography => +key => +label => +selected => +description => +geometry => +input => option_production_insets(key, label, selected, description, geometry, input, typography),
     +typography => +key => +editor => +name => +text => choices => title_production_insets(key, editor, name, text, choices, typography),
     +typography => +key => +editor => +name => +text => choices => description_production_insets(key, editor, name, text, choices, typography),
-    +typography => {==}, geometry_complete}
+    +typography => {==}, action_minimum, geometry_complete}
